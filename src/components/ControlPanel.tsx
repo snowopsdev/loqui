@@ -20,12 +20,24 @@ import {
   clearTranscriptions as clearStore,
 } from "../stores/transcriptionStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import {
+  useIsMeetingMode,
+  useIsNarrowWindow,
+  useMeetingRecordingStore,
+} from "../stores/meetingRecordingStore";
 import ControlPanelSidebar, { type ControlPanelView } from "./ControlPanelSidebar";
+import MeetingRecordingMount from "./MeetingRecordingMount";
+import MeetingRecordingPill from "./notes/MeetingRecordingPill";
 import WindowControls from "./WindowControls";
 
 import { getCachedPlatform } from "../utils/platform";
 import { isAccessibilitySkipped } from "../utils/permissions";
-import { setActiveNoteId, setActiveFolderId, initializeNotes } from "../stores/noteStore";
+import {
+  setActiveNoteId,
+  setActiveFolderId,
+  useActiveNoteId,
+  initializeNotes,
+} from "../stores/noteStore";
 import { fetchProviders as fetchStreamingProviders } from "../stores/streamingProvidersStore";
 import HistoryView from "./HistoryView";
 import { syncService } from "../services/SyncService.js";
@@ -58,7 +70,11 @@ export default function ControlPanel() {
   const [showSearch, setShowSearch] = useState(false);
   const [showCloudMigrationBanner, setShowCloudMigrationBanner] = useState(false);
   const [activeView, setActiveView] = useState<ControlPanelView>("home");
-  const [isMeetingMode, setIsMeetingMode] = useState(false);
+  const isMeetingMode = useIsMeetingMode();
+  const isNarrowWindow = useIsNarrowWindow();
+  const activeNoteId = useActiveNoteId();
+  const recordingNoteId = useMeetingRecordingStore((s) => s.recordingNoteId);
+  const recordingFolderId = useMeetingRecordingStore((s) => s.recordingFolderId);
   const [meetingRecordingRequest, setMeetingRecordingRequest] = useState<{
     noteId: number;
     folderId: number;
@@ -261,9 +277,18 @@ export default function ControlPanel() {
       setActiveFolderId(data.folderId);
       setActiveNoteId(data.noteId);
       setActiveView("personal-notes");
-      setIsMeetingMode(true);
-      setMeetingRecordingRequest(data);
+      setMeetingRecordingRequest({
+        noteId: data.noteId,
+        folderId: data.folderId,
+        event: data.event,
+      });
       initializeNotes(null, 50, data.folderId);
+      if (
+        data.trigger === "hotkey" &&
+        useSettingsStore.getState().meetingHotkeyLayoutMode === "side-panel"
+      ) {
+        window.electronAPI?.snapToMeetingMode?.();
+      }
     });
     return () => cleanup?.();
   }, []);
@@ -318,7 +343,6 @@ export default function ControlPanel() {
   );
 
   const handleExitMeetingMode = useCallback(() => {
-    setIsMeetingMode(false);
     window.electronAPI?.restoreFromMeetingMode?.();
   }, []);
 
@@ -566,6 +590,16 @@ export default function ControlPanel() {
 
   return (
     <div className="h-screen bg-background flex flex-col">
+      <MeetingRecordingMount />
+      <MeetingRecordingPill
+        activeView={activeView}
+        activeNoteId={activeNoteId}
+        onReturnToNote={() => {
+          setActiveView("personal-notes");
+          setActiveFolderId(recordingFolderId);
+          setActiveNoteId(recordingNoteId);
+        }}
+      />
       <ConfirmDialog
         open={confirmDialog.open}
         onOpenChange={hideConfirmDialog}
@@ -683,7 +717,7 @@ export default function ControlPanel() {
             className="flex items-center justify-between w-full h-10 shrink-0"
             style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
           >
-            {isMeetingMode && (
+            {isNarrowWindow && (
               <div
                 className={platform === "darwin" ? "ml-[84px] mt-[16px]" : "ml-2"}
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -820,7 +854,6 @@ export default function ControlPanel() {
                   onOpenSearch={() => setShowSearch(true)}
                   meetingRecordingRequest={meetingRecordingRequest}
                   onMeetingRecordingRequestHandled={handleMeetingRecordingRequestHandled}
-                  isMeetingMode={isMeetingMode}
                 />
               </Suspense>
             )}

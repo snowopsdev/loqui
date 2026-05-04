@@ -477,6 +477,7 @@ export interface SettingsState
 
   setDictationKey: (key: string) => void;
   setMeetingKey: (key: string) => void;
+  setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => void;
   setActivationMode: (mode: "tap" | "push") => void;
 
   setPreferBuiltInMic: (value: boolean) => void;
@@ -677,6 +678,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   dictationKey: readString("dictationKey", ""),
   meetingKey: readString("meetingKey", ""),
+  meetingHotkeyLayoutMode: (readString("meetingHotkeyLayoutMode", "full-width") === "side-panel"
+    ? "side-panel"
+    : "full-width") as "side-panel" | "full-width",
   activationMode: (readString("activationMode", "tap") === "push" ? "push" : "tap") as
     | "tap"
     | "push",
@@ -1075,6 +1079,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setMeetingKey: (key: string) => {
     if (isBrowser) localStorage.setItem("meetingKey", key);
     set({ meetingKey: key });
+  },
+
+  setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => {
+    if (isBrowser) localStorage.setItem("meetingHotkeyLayoutMode", mode);
+    set({ meetingHotkeyLayoutMode: mode });
   },
 
   setActivationMode: (mode: "tap" | "push") => {

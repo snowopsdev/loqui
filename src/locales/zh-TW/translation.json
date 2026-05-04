@@ -894,16 +894,6 @@
     "view": {
       "customPrompt": "自訂提示詞",
       "defaultPrompt": "預設提示詞",
-      "modes": {
-        "agent": {
-          "description": "由「{{agentName}}」觸發——執行指令、回答問題、撰寫內容",
-          "label": "助理"
-        },
-        "cleanup": {
-          "description": "快速處理——移除語助詞，修正文法和標點",
-          "label": "文字整理"
-        }
-      },
       "modified": "已修改"
     }
   },
@@ -1067,12 +1057,7 @@
           "annualEquivalent": "$16.67",
           "includesPrefix": "所有 Pro 功能 +",
           "badge": "最熱門",
-          "features": [
-            "無限會議錄製",
-            "代理模式",
-            "與您的資料對話",
-            "優先支援"
-          ],
+          "features": ["無限會議錄製", "代理模式", "與您的資料對話", "優先支援"],
           "cta": "開始使用",
           "switchToAnnual": "切換為年付"
         },
@@ -1156,7 +1141,7 @@
       "customSetupDescription": "使用你自己的供應商和 API Key。",
       "description": "整理轉錄文字、處理指令、修正錯誤，同時保留你的語調。",
       "enableTextCleanup": "啟用文字整理",
-      "enableTextCleanupDescription": "使用 AI 格式化文字並執行語音指令",
+      "enableTextCleanupDescription": "AI 移除語助詞，修正文法和標點",
       "modes": {
         "openwhispr": "OpenWhispr Cloud",
         "providers": "雲端供應商",
@@ -1500,7 +1485,7 @@
       "description": "設定用於聽寫清理、筆記格式化和聊天的模型",
       "tabs": {
         "dictationCleanup": "聽寫清理",
-        "dictationAgent": "Dictation Agent",
+        "dictationAgent": "Voice Agent",
         "noteFormatting": "筆記格式化",
         "chatIntelligence": "聊天"
       }
@@ -2119,10 +2104,8 @@
     }
   },
   "dictationAgent": {
-    "enabled": "Enable dictation agent",
-    "enabledDescription": "Route dictation through a dedicated agent. With cleanup also on, the agent runs only when you address it by name; with cleanup off, it runs on every dictation.",
-    "title": "Dictation Agent",
-    "description": "Configure a dedicated model and prompt used when you address your agent by name during dictation.",
+    "enabled": "Enable voice agent",
+    "enabledDescription": "Dictate instructions to your agent. Activate by saying \"{{agentName}}\". Configurable below.",
     "useCleanupModel": "使用清理模型",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",

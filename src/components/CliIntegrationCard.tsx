@@ -47,9 +47,7 @@ export default function CliIntegrationCard({ isPaid, onUpgrade }: CliIntegration
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-foreground mb-1">
-        {t("integrations.cli.title")}
-      </h3>
+      <h3 className="text-sm font-semibold text-foreground mb-1">{t("integrations.cli.title")}</h3>
       <p className="text-xs text-muted-foreground/70 mb-4 leading-relaxed">
         {t("integrations.cli.description")}
       </p>
@@ -70,12 +68,7 @@ export default function CliIntegrationCard({ isPaid, onUpgrade }: CliIntegration
           {t("integrations.cli.learnMore")}
           <ExternalLink className="h-3 w-3" />
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleCopyDocsLink}
-          className="gap-1.5"
-        >
+        <Button variant="outline" size="sm" onClick={handleCopyDocsLink} className="gap-1.5">
           {docsLinkCopied ? (
             <Check className="h-3 w-3 text-success" />
           ) : (

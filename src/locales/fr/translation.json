@@ -942,16 +942,6 @@
     "view": {
       "customPrompt": "Prompt personnalisé",
       "defaultPrompt": "Prompt par défaut",
-      "modes": {
-        "agent": {
-          "description": "Déclenché par « {{agentName}} » - exécute des commandes, répond aux questions, compose du contenu",
-          "label": "Agent"
-        },
-        "cleanup": {
-          "description": "Chemin rapide - supprime les mots de remplissage, corrige grammaire et ponctuation",
-          "label": "Correction"
-        }
-      },
       "modified": "Modifié"
     }
   },
@@ -1204,7 +1194,7 @@
       "customSetupDescription": "Utilisez votre propre fournisseur et clé API.",
       "description": "Corrige les transcriptions, gère les commandes et corrige les erreurs tout en préservant votre ton.",
       "enableTextCleanup": "Activer la correction de texte",
-      "enableTextCleanupDescription": "Utilisez l'IA pour mettre en forme le texte et exécuter les commandes vocales",
+      "enableTextCleanupDescription": "L'IA supprime les mots de remplissage, corrige la grammaire et la ponctuation",
       "modes": {
         "openwhispr": "OpenWhispr Cloud",
         "providers": "Fournisseurs cloud",
@@ -1548,7 +1538,7 @@
       "description": "Configurez les modèles pour le nettoyage, la mise en forme des notes et le chat",
       "tabs": {
         "dictationCleanup": "Nettoyage de la dictée",
-        "dictationAgent": "Dictation Agent",
+        "dictationAgent": "Voice Agent",
         "noteFormatting": "Mise en forme des notes",
         "chatIntelligence": "Chat"
       }
@@ -2167,10 +2157,8 @@
     }
   },
   "dictationAgent": {
-    "enabled": "Enable dictation agent",
-    "enabledDescription": "Route dictation through a dedicated agent. With cleanup also on, the agent runs only when you address it by name; with cleanup off, it runs on every dictation.",
-    "title": "Dictation Agent",
-    "description": "Configure a dedicated model and prompt used when you address your agent by name during dictation.",
+    "enabled": "Enable voice agent",
+    "enabledDescription": "Dictate instructions to your agent. Activate by saying \"{{agentName}}\". Configurable below.",
     "useCleanupModel": "Utiliser le modèle de nettoyage",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",

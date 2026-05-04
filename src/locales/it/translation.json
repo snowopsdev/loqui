@@ -894,16 +894,6 @@
     "view": {
       "customPrompt": "Prompt personalizzato",
       "defaultPrompt": "Prompt predefinito",
-      "modes": {
-        "agent": {
-          "description": "Attivato da \"{{agentName}}\" — esegue comandi, risponde a domande, compone contenuti",
-          "label": "Agente"
-        },
-        "cleanup": {
-          "description": "Percorso rapido — rimuove parole superflue, corregge grammatica e punteggiatura",
-          "label": "Correzione"
-        }
-      },
       "modified": "Modificato"
     }
   },
@@ -1156,7 +1146,7 @@
       "customSetupDescription": "Usa il tuo provider e la tua chiave API.",
       "description": "Correggi le trascrizioni, gestisci i comandi e risolvi gli errori preservando il tuo tono.",
       "enableTextCleanup": "Attiva correzione testo",
-      "enableTextCleanupDescription": "Usa l'IA per formattare il testo ed eseguire comandi vocali",
+      "enableTextCleanupDescription": "L'IA rimuove parole superflue, corregge grammatica e punteggiatura",
       "modes": {
         "openwhispr": "OpenWhispr Cloud",
         "providers": "Provider cloud",
@@ -1500,7 +1490,7 @@
       "description": "Configura modelli per pulizia, formattazione note e chat",
       "tabs": {
         "dictationCleanup": "Pulizia della dettatura",
-        "dictationAgent": "Dictation Agent",
+        "dictationAgent": "Voice Agent",
         "noteFormatting": "Formattazione note",
         "chatIntelligence": "Chat"
       }
@@ -2119,10 +2109,8 @@
     }
   },
   "dictationAgent": {
-    "enabled": "Enable dictation agent",
-    "enabledDescription": "Route dictation through a dedicated agent. With cleanup also on, the agent runs only when you address it by name; with cleanup off, it runs on every dictation.",
-    "title": "Dictation Agent",
-    "description": "Configure a dedicated model and prompt used when you address your agent by name during dictation.",
+    "enabled": "Enable voice agent",
+    "enabledDescription": "Dictate instructions to your agent. Activate by saying \"{{agentName}}\". Configurable below.",
     "useCleanupModel": "Usa modello di pulizia",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",

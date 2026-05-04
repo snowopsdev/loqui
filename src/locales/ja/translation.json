@@ -894,16 +894,6 @@
     "view": {
       "customPrompt": "カスタムプロンプト",
       "defaultPrompt": "デフォルトプロンプト",
-      "modes": {
-        "agent": {
-          "description": "「{{agentName}}」で起動 — コマンド実行、質問への回答、コンテンツ作成",
-          "label": "エージェント"
-        },
-        "cleanup": {
-          "description": "高速パス — フィラーワードの除去、文法・句読点の修正",
-          "label": "クリーンアップ"
-        }
-      },
       "modified": "変更済み"
     }
   },
@@ -1156,7 +1146,7 @@
       "customSetupDescription": "独自のプロバイダーと API キーを使用。",
       "description": "文字起こしのクリーンアップ、コマンド処理、エラー修正を行いながら、あなたの話し方を維持します。",
       "enableTextCleanup": "テキスト補正を有効にする",
-      "enableTextCleanupDescription": "AI でテキストを整形し、音声コマンドを実行",
+      "enableTextCleanupDescription": "AI がフィラーワードを除去し、文法と句読点を整える",
       "modes": {
         "openwhispr": "OpenWhispr Cloud",
         "providers": "クラウドプロバイダー",
@@ -1500,7 +1490,7 @@
       "description": "クリーンアップ、ノートのフォーマット、チャット用のモデルを設定",
       "tabs": {
         "dictationCleanup": "ディクテーションのクリーンアップ",
-        "dictationAgent": "Dictation Agent",
+        "dictationAgent": "Voice Agent",
         "noteFormatting": "ノートのフォーマット",
         "chatIntelligence": "チャット"
       }
@@ -2119,10 +2109,8 @@
     }
   },
   "dictationAgent": {
-    "enabled": "Enable dictation agent",
-    "enabledDescription": "Route dictation through a dedicated agent. With cleanup also on, the agent runs only when you address it by name; with cleanup off, it runs on every dictation.",
-    "title": "Dictation Agent",
-    "description": "Configure a dedicated model and prompt used when you address your agent by name during dictation.",
+    "enabled": "Enable voice agent",
+    "enabledDescription": "Dictate instructions to your agent. Activate by saying \"{{agentName}}\". Configurable below.",
     "useCleanupModel": "クリーンアップモデルを使用",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",

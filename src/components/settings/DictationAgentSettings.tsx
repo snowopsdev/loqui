@@ -171,7 +171,7 @@ export default function DictationAgentSettings() {
         <SettingsPanelRow>
           <SettingsRow
             label={t("dictationAgent.enabled")}
-            description={t("dictationAgent.enabledDescription")}
+            description={t("dictationAgent.enabledDescription", { agentName })}
           >
             <Toggle checked={useDictationAgent} onChange={setUseDictationAgent} />
           </SettingsRow>
@@ -180,15 +180,6 @@ export default function DictationAgentSettings() {
 
       {useDictationAgent && (
         <>
-          <SettingsPanel>
-            <SettingsPanelRow>
-              <SectionHeader
-                title={t("dictationAgent.title")}
-                description={t("dictationAgent.description")}
-              />
-            </SettingsPanelRow>
-          </SettingsPanel>
-
           {showUseCleanup && (
             <button
               type="button"

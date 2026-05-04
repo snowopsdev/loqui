@@ -1,11 +1,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useShallow } from "zustand/react/shallow";
-import {
-  useSettingsStore,
-  selectResolvedLLMConfig,
-  setResolvedLLMConfig,
-} from "../../stores/settingsStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useAgentName } from "../../utils/agentName";
 import { useSettings } from "../../hooks/useSettings";
 import { useDialogs } from "../../hooks/useDialogs";
@@ -20,28 +15,11 @@ export default function DictationAgentSettings() {
   const { t } = useTranslation();
   const useDictationAgent = useSettingsStore((s) => s.useDictationAgent);
   const setUseDictationAgent = useSettingsStore((s) => s.setUseDictationAgent);
-  const agentConfig = useSettingsStore(
-    useShallow((s) => selectResolvedLLMConfig(s, "dictationAgent"))
-  );
-  const cleanupConfig = useSettingsStore(
-    useShallow((s) => selectResolvedLLMConfig(s, "dictationCleanup"))
-  );
-  const showUseCleanup = !agentConfig.provider && !agentConfig.model && !!cleanupConfig.provider;
 
   const { agentName, setAgentName } = useAgentName();
   const [agentNameInput, setAgentNameInput] = useState(agentName);
   const { customDictionary, setCustomDictionary } = useSettings();
   const { showAlertDialog } = useDialogs();
-
-  const useCleanupModel = () => {
-    setResolvedLLMConfig("dictationAgent", {
-      provider: cleanupConfig.provider,
-      model: cleanupConfig.model,
-      cloudMode: cleanupConfig.cloudMode,
-      cloudBaseUrl: cleanupConfig.cloudBaseUrl,
-      remoteUrl: cleanupConfig.remoteUrl,
-    });
-  };
 
   const handleSaveAgentName = useCallback(() => {
     const trimmed = agentNameInput.trim();
@@ -77,22 +55,9 @@ export default function DictationAgentSettings() {
 
   const instructionMode = t("settingsPage.agentConfig.instructionMode");
   const examples = [
-    {
-      input: t("settingsPage.agentConfig.examples.formalEmail", { agentName }),
-      mode: instructionMode,
-    },
-    {
-      input: t("settingsPage.agentConfig.examples.professional", { agentName }),
-      mode: instructionMode,
-    },
-    {
-      input: t("settingsPage.agentConfig.examples.bulletPoints", { agentName }),
-      mode: instructionMode,
-    },
-    {
-      input: t("settingsPage.agentConfig.cleanupExample"),
-      mode: t("settingsPage.agentConfig.cleanupMode"),
-    },
+    t("settingsPage.agentConfig.examples.formalEmail", { agentName }),
+    t("settingsPage.agentConfig.examples.professional", { agentName }),
+    t("settingsPage.agentConfig.examples.bulletPoints", { agentName }),
   ];
 
   const voiceAgentSection = (
@@ -144,18 +109,12 @@ export default function DictationAgentSettings() {
         <SettingsPanel>
           <SettingsPanelRow>
             <div className="space-y-2.5">
-              {examples.map((example, i) => (
+              {examples.map((input, i) => (
                 <div key={i} className="flex items-start gap-3">
-                  <span
-                    className={`shrink-0 mt-0.5 text-xs font-medium uppercase tracking-wider px-1.5 py-px rounded ${
-                      example.mode === instructionMode
-                        ? "bg-primary/10 text-primary dark:bg-primary/15"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {example.mode}
+                  <span className="shrink-0 mt-0.5 text-xs font-medium uppercase tracking-wider px-1.5 py-px rounded bg-primary/10 text-primary dark:bg-primary/15">
+                    {instructionMode}
                   </span>
-                  <p className="text-xs text-muted-foreground leading-relaxed">"{example.input}"</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">"{input}"</p>
                 </div>
               ))}
             </div>
@@ -178,21 +137,7 @@ export default function DictationAgentSettings() {
         </SettingsPanelRow>
       </SettingsPanel>
 
-      {useDictationAgent && (
-        <>
-          {showUseCleanup && (
-            <button
-              type="button"
-              onClick={useCleanupModel}
-              className="text-sm text-primary hover:underline"
-            >
-              {t("dictationAgent.useCleanupModel")}
-            </button>
-          )}
-
-          <InferenceConfigEditor scope="dictationAgent" />
-        </>
-      )}
+      {useDictationAgent && <InferenceConfigEditor scope="dictationAgent" />}
 
       {voiceAgentSection}
 

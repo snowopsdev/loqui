@@ -1120,8 +1120,6 @@
     },
     "agentConfig": {
       "agentName": "Имя агента",
-      "cleanupExample": "Очистка",
-      "cleanupMode": "Режим очистки",
       "description": "Назовите вашего ИИ-помощника, чтобы обращаться к нему во время диктовки",
       "dialogs": {
         "updatedDescription": "Ваш агент теперь называется «{{name}}». Обращайтесь к нему, говоря «Привет, {{name}}», а затем давайте инструкции.",
@@ -1129,7 +1127,7 @@
       },
       "examplesTitle": "Примеры",
       "helper": "Выберите что-то короткое и естественное для произношения",
-      "howItWorksDescription": "Когда вы говорите «Привет, {{agentName}}» и затем даёте инструкцию, ИИ переключается из режима очистки в режим инструкций. Без триггерной фразы он просто очищает вашу диктовку.",
+      "howItWorksDescription": "Когда вы говорите «Привет, {{agentName}}» и затем даёте инструкцию, ИИ выполняет вашу команду — составляет контент, форматирует текст или отвечает на вопросы — вместо дословной транскрипции.",
       "howItWorksTitle": "Как это работает",
       "instructionMode": "Инструкция",
       "placeholder": "например, Джарвис, Нова, Атлас...",
@@ -2113,7 +2111,6 @@
   "dictationAgent": {
     "enabled": "Enable voice agent",
     "enabledDescription": "Dictate instructions to your agent. Activate by saying \"{{agentName}}\". Configurable below.",
-    "useCleanupModel": "Использовать модель очистки",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Use the OpenWhispr-managed agent — no API key needed.",

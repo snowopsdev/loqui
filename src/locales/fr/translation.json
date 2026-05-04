@@ -1168,8 +1168,6 @@
     },
     "agentConfig": {
       "agentName": "Nom de l'agent",
-      "cleanupExample": "Correction",
-      "cleanupMode": "Mode correction",
       "description": "Nommez votre assistant IA pour pouvoir l'interpeller directement pendant la dictée",
       "dialogs": {
         "updatedDescription": "Votre agent s'appelle désormais « {{name}} ». Interpellez-le en disant « Hey {{name}} » suivi de vos instructions.",
@@ -1177,7 +1175,7 @@
       },
       "examplesTitle": "Exemples",
       "helper": "Choisissez un nom court et naturel à prononcer",
-      "howItWorksDescription": "Lorsque vous dites « Hey {{agentName}} » suivi d'une instruction, l'IA passe du mode correction au mode instruction. Sans la phrase déclencheur, il corrige simplement votre dictée.",
+      "howItWorksDescription": "Lorsque vous dites « Hey {{agentName}} » suivi d'une instruction, l'IA exécute votre commande — rédiger du contenu, formater du texte ou répondre à des questions — au lieu de la transcrire littéralement.",
       "howItWorksTitle": "Comment ça marche",
       "instructionMode": "Instruction",
       "placeholder": "ex. Jarvis, Nova, Atlas...",
@@ -2159,7 +2157,6 @@
   "dictationAgent": {
     "enabled": "Enable voice agent",
     "enabledDescription": "Dictate instructions to your agent. Activate by saying \"{{agentName}}\". Configurable below.",
-    "useCleanupModel": "Utiliser le modèle de nettoyage",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Use the OpenWhispr-managed agent — no API key needed.",

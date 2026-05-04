@@ -266,9 +266,6 @@ CREATE TABLE transcriptions (
 Settings stored in localStorage with these keys:
 - `whisperModel`: Selected Whisper model
 - `useLocalWhisper`: Boolean for local vs cloud
-- `openaiApiKey`: API key (plaintext)
-- `anthropicApiKey`: API key (plaintext)
-- `geminiApiKey`: API key (plaintext)
 - `language`: Selected language code
 - `agentName`: User's custom agent name
 - `reasoningModel`: Selected AI model for processing
@@ -277,7 +274,9 @@ Settings stored in localStorage with these keys:
 - `hasCompletedOnboarding`: Onboarding completion flag
 - `customDictionary`: JSON array of words/phrases for improved transcription accuracy
 
-Environment variables persisted to `.env` (via `saveAllKeysToEnvFile()`):
+Secret env vars (12 total: 7 BYOK API keys + 5 enterprise cloud creds — see `SECRET_KEYS` in `environment.js`) are encrypted at rest via Electron `safeStorage` and stored as per-key files under `userData/secure-keys/`. They are loaded into `process.env` at startup by `EnvironmentManager.init()`. Renderer reads them via IPC (`get-*-key`) and writes via debounced IPC (`save-*-key`). On Linux without a keyring, secrets fall back to plaintext.
+
+Non-secret env vars persisted to `.env` (via `saveAllKeysToEnvFile()`):
 - `LOCAL_TRANSCRIPTION_PROVIDER`: Transcription engine (`nvidia` for Parakeet)
 - `PARAKEET_MODEL`: Selected Parakeet model name (e.g., `parakeet-tdt-0.6b-v3`)
 
@@ -702,7 +701,7 @@ const { t } = useTranslation();
 
 ## Security Considerations
 
-- API keys stored in plaintext in userData `.env` and localStorage (not yet encrypted — see #532)
+- API keys and enterprise cloud creds (12 secrets total) encrypted at rest via Electron `safeStorage` → OS keychain (Keychain / DPAPI / libsecret), stored as per-key files in `userData/secure-keys/`. Linux without a keyring falls back to plaintext (Electron default). Closed in #629.
 - Context isolation enabled
 - No remote code execution
 - Sanitized file paths

@@ -16,11 +16,23 @@ A big release: new sign-in options, smoother meeting recording, faster cross-dev
 - **Sign in with Microsoft** — new on this release, alongside Google and email/password.
 - **Sign in with Apple** on macOS — native Apple ID flow.
 - **Self-hosted authentication.** Sign-in now runs entirely on OpenWhispr infrastructure (we replaced Neon Auth with [Better Auth](https://better-auth.com) at `auth.openwhispr.com`). No third-party vendor lock-in. Self-hosters can point at their own server via `VITE_AUTH_URL`.
+- **Bearer-token sessions** stored in your OS keychain replace the old browser-style cookie jar, so signed-in state survives renderer crashes and Electron session resets. Existing 1.7.x users transition silently on first launch.
 - **Forgot password** opens a browser tab to `openwhispr.com/reset-password` instead of an in-app form, matching how every other reset flow works on the web.
 - **Sign-in buttons disable with a tooltip** when the OS hasn't registered the `openwhispr://` callback handler, so OAuth never gets stuck without a return path.
 
+### Security
+
+- **API keys are now encrypted at rest.** All 12 secrets — every BYOK API key (OpenAI, Anthropic, Gemini, Groq, AssemblyAI, Deepgram, Mistral) and every enterprise cloud credential (AWS, Azure, Vertex) — moved from plaintext `.env` and `localStorage` to per-key files encrypted with the OS keychain via Electron `safeStorage` (Keychain on macOS, DPAPI on Windows, libsecret on Linux). A one-time silent migration runs on first launch with round-trip verification before any plaintext is removed; a sentinel makes it idempotent and re-tryable on partial failure. Closes #532.
+- **Non-secret preferences** (regions, endpoints, hotkeys, flags) continue to live in `.env` so power users can keep editing them by hand.
+- **Linux without a keyring** falls back to plaintext rather than locking you out, matching Electron's default behavior.
+
 ### Meeting recording
 
+- **Background recording.** Meeting capture now lives in a global store with a side-effect-only mount, so the audio pipeline survives navigating to other notes, opening Settings, or any view unmount that previously killed it.
+- **Floating recording pill.** When you record one note and navigate to another, a pill appears top-center showing live mic-activity bars, the recording note title, click-to-jump-back, and a stop button.
+- **Side-panel layout is opt-in.** A new hotkey-only layout setting (full-width or side-panel) controls whether hotkey-triggered recordings snap the window to a 1/3 panel. Manual record-from-note and calendar joins always open full-width and auto-flip to side-panel only when the window narrows below 1024px.
+- **Per-note diarization preferences persist.** Mid-session toggles for "label speakers" and the "others in call" stepper are saved against the note, so a stop/resume keeps your choices instead of falling back to the global default.
+- **Meeting metadata syncs across devices.** Participants, calendar event ID, diarization toggle, and expected speaker count now travel through cloud sync alongside note content. Older clients that don't send these fields keep working — the columns are nullable and treated as optional server-side.
 - **Three interchangeable streaming providers**: OpenAI Realtime, AssemblyAI Universal-3 Pro, and Deepgram. Which providers are available is set on the OpenWhispr server, so there's no desktop-side toggle to keep in sync.
 - **Cleaner mic capture.** A new acoustic gate prevents system audio from leaking into your mic during meetings. Speech onsets are protected so your voice isn't clipped at the start of a sentence.
 - **Better echo cancellation** with built-in noise suppression in the same pass.
@@ -28,13 +40,18 @@ A big release: new sign-in options, smoother meeting recording, faster cross-dev
 - **Live diarization** stays scoped to the current note's attendees instead of pulling in profiles from unrelated meetings.
 - **Stable AssemblyAI / Deepgram turns**: fixed a crash on turn-end and a frame-size mismatch with AssemblyAI v3.
 - **Fewer dropped turns**: speech-start timestamps now flow through the echo-leak detector for AssemblyAI and Deepgram (was OpenAI-only).
+- **Music pause/resume on Windows is reliable again.** Switching to a `windows-media-control` Python sidecar with a hardened WinRT async bridge fixed a class of GSMTC failures that left playback paused after a recording ended; if GSMTC ever fails, the app falls back to a media-key tap.
 
 ### AI configuration
 
 - **Per-scope language model setup**: pick different providers and models for dictation cleanup, the agent, note formatting, and chat. An empty agent setting links back to your cleanup model with one click.
+- **Self-hosted reasoning got upgraded.** The Self-Hosted card now exposes URL + API key + model picker (was URL-only), bringing it to parity with Cloud → Custom. Distinct help text on each: Cloud → Custom points at OpenRouter / Together; Self-Hosted explains it's for OpenAI-compatible servers on your local network (Ollama, LM Studio, vLLM, llama-server). Closes #661.
+- **Per-scope thinking-mode toggle.** Models that support visible reasoning (e.g. GPT-5/o-series, DeepSeek-R1, Qwen-think) now expose a "show thinking" switch per scope. Defaults to suppressed so the dictation pipeline stays snappy; turn it on per scope when you want to see the model reason.
+- **NVIDIA Parakeet `parakeet-unified-en-0.6b`** — a new English-only Parakeet model with state-of-the-art offline accuracy (5.91% avg WER on the HF Open ASR Leaderboard, vs 6.34% for v3) at a slightly smaller ~631MB.
 - **Switching agent mode** between Cloud and Local no longer leaves stale provider state behind.
 - **More reliable ONNX inference** (speaker embeddings, semantic search): long meetings no longer crash the app from a memory allocation failure deep in the speaker model.
 - **Local helpers shut down cleanly on Quit.** Local Whisper, Parakeet, llama-server, Qdrant, and the diarization helper now stop properly when you Quit. If a previous session ever leaves one stuck, the app catches and cleans it up on the next launch — so dictation and transcription work right away without manual cleanup.
+- **Local LLM startup is more patient.** llama-server with Vulkan acceleration now gets a longer startup window before the app gives up; a stuck server is also fully stopped before any re-download attempt, so partial files don't get clobbered mid-write.
 
 ### Sync
 
@@ -42,6 +59,7 @@ A big release: new sign-in options, smoother meeting recording, faster cross-dev
 - **Folder cascade delete** with a confirmation dialog showing how many notes will be removed.
 - **Folders sync immediately** on rename and create (was previously only on update).
 - **Transcriptions sync on save** instead of waiting for the next app launch.
+- **No more duplicate transcriptions in the cloud.** Each transcription is tagged with a client-generated UUID before upload so the cloud row and local row stay in lockstep — sync upserts the existing row instead of creating a second copy.
 - **Folder pull** no longer overwrites a freshly-renamed folder with a stale cloud copy.
 - **Server stops overwriting `updated_at`** on every note push, eliminating spurious sync loops.
 

@@ -254,7 +254,7 @@ export default function ControlPanelSidebar({
           </button>
         )}
 
-        {isSignedIn && (
+        {WORKSPACES_ENABLED && isSignedIn && (
           <button
             onClick={() =>
               activeWorkspace ? setInviteOpen(true) : setCreateWorkspaceOpen(true)

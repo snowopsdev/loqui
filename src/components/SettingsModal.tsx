@@ -125,8 +125,12 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
     [t]
   );
 
-  const resolveSection = (section: string | undefined): SettingsSectionType =>
-    section ? ((SECTION_ALIASES[section] ?? section) as SettingsSectionType) : "account";
+  const resolveSection = (section: string | undefined): SettingsSectionType => {
+    if (!section) return "account";
+    const resolved = (SECTION_ALIASES[section] ?? section) as SettingsSectionType;
+    if (resolved === "workspace" && !WORKSPACES_ENABLED) return "account";
+    return resolved;
+  };
 
   const [activeSection, setActiveSection] = React.useState<SettingsSectionType>(() =>
     resolveSection(initialSection)

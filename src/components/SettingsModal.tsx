@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import SidebarModal, { type SidebarItem } from "./ui/SidebarModal";
 import SettingsPage, { SettingsSectionType } from "./SettingsPage";
+import { WORKSPACES_ENABLED } from "../lib/features";
 
 export type { SettingsSectionType };
 
@@ -67,13 +68,17 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
         description: t("settingsModal.sections.plansBilling.description"),
         group: t("settingsModal.groups.account"),
       },
-      {
-        id: "workspace",
-        label: t("settingsModal.sections.workspace.label"),
-        icon: Users,
-        description: t("settingsModal.sections.workspace.description"),
-        group: t("settingsModal.groups.account"),
-      },
+      ...(WORKSPACES_ENABLED
+        ? [
+            {
+              id: "workspace" as const,
+              label: t("settingsModal.sections.workspace.label"),
+              icon: Users,
+              description: t("settingsModal.sections.workspace.description"),
+              group: t("settingsModal.groups.account"),
+            },
+          ]
+        : []),
       {
         id: "general",
         label: t("settingsModal.sections.general.label"),

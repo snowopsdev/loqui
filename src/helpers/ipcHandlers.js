@@ -72,6 +72,7 @@ const AUDIO_MIME_TYPES = {
   m4a: "audio/mp4",
   webm: "audio/webm",
   ogg: "audio/ogg",
+  oga: "audio/ogg",
   flac: "audio/flac",
   aac: "audio/aac",
 };
@@ -1401,7 +1402,10 @@ class IPCHandlers {
       const result = await dialog.showOpenDialog({
         properties: ["openFile"],
         filters: [
-          { name: "Audio Files", extensions: ["mp3", "wav", "m4a", "webm", "ogg", "flac", "aac"] },
+          {
+            name: "Audio Files",
+            extensions: ["mp3", "wav", "m4a", "webm", "ogg", "oga", "flac", "aac"],
+          },
         ],
       });
       if (result.canceled || !result.filePaths.length) {
@@ -1441,13 +1445,18 @@ class IPCHandlers {
     });
 
     ipcMain.handle("paste-text", async (event, text, options) => {
-      // If the floating dictation panel currently has focus, dismiss it so the
-      // paste keystroke lands in the user's target app instead of the overlay.
       const mainWindow = this.windowManager?.mainWindow;
-      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
+      const targetPid = this.textEditMonitor?.lastTargetPid || null;
+
+      // Activating the target by PID is more reliable than hide()'s implicit
+      // focus hand-off for Chromium apps like Claude desktop and Brave (#668).
+      let activated = false;
+      if (process.platform === "darwin" && this.textEditMonitor) {
+        activated = await this.textEditMonitor.activateTargetPid();
+      }
+
+      if (!activated && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
         if (process.platform === "darwin") {
-          // hide() forces macOS to activate the previous app; showInactive()
-          // restores the overlay without stealing focus.
           mainWindow.hide();
           await new Promise((resolve) => setTimeout(resolve, 120));
           mainWindow.showInactive();
@@ -1460,7 +1469,6 @@ class IPCHandlers {
         ...options,
         webContents: event.sender,
       });
-      const targetPid = this.textEditMonitor?.lastTargetPid || null;
       debugLogger.debug("[AutoLearn] Paste completed", {
         autoLearnEnabled: this._autoLearnEnabled,
         hasMonitor: !!this.textEditMonitor,

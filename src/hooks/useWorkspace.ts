@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useAuth } from "./useAuth";
 import type { Workspace, WorkspaceRole } from "../types/electron";
 
 interface UseWorkspaceResult {
@@ -12,6 +13,7 @@ interface UseWorkspaceResult {
 }
 
 export function useWorkspace(): UseWorkspaceResult {
+  const { isSignedIn } = useAuth();
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const loaded = useWorkspaceStore((s) => s.loaded);
@@ -19,10 +21,10 @@ export function useWorkspace(): UseWorkspaceResult {
   const setActive = useWorkspaceStore((s) => s.setActiveWorkspaceId);
 
   useEffect(() => {
-    if (!loaded) {
+    if (isSignedIn && !loaded) {
       void refresh();
     }
-  }, [loaded, refresh]);
+  }, [isSignedIn, loaded, refresh]);
 
   const active = activeWorkspaceId
     ? (workspaces.find((w) => w.id === activeWorkspaceId) ?? null)

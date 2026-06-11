@@ -905,7 +905,7 @@ export default function TranscriptionModelPicker({
             selectedId={selectedCloudProvider}
             onSelect={handleCloudProviderChange}
             colorScheme="purple"
-            scrollable
+            wrap
           />
 
           <div>

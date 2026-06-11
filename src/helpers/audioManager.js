@@ -111,6 +111,18 @@ const STREAMING_PROVIDERS = {
     onError: (cb) => window.electronAPI.onDictationRealtimeError(cb),
     onSessionEnd: (cb) => window.electronAPI.onDictationRealtimeSessionEnd(cb),
   },
+  corti: {
+    warmup: (opts) => window.electronAPI.cortiStreamingWarmup(opts),
+    start: (opts) => window.electronAPI.cortiStreamingStart(opts),
+    send: (buf) => window.electronAPI.cortiStreamingSend(buf),
+    finalize: () => window.electronAPI.cortiStreamingFinalize(),
+    stop: () => window.electronAPI.cortiStreamingStop(),
+    status: () => window.electronAPI.cortiStreamingStatus(),
+    onPartial: (cb) => window.electronAPI.onCortiPartialTranscript(cb),
+    onFinal: (cb) => window.electronAPI.onCortiFinalTranscript(cb),
+    onError: (cb) => window.electronAPI.onCortiError(cb),
+    onSessionEnd: (cb) => window.electronAPI.onCortiSessionEnd(cb),
+  },
 };
 
 class AudioManager {
@@ -251,16 +263,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   getStreamingProvider() {
-    const { cloudTranscriptionModel } = getSettings();
-    if (REALTIME_MODELS.has(cloudTranscriptionModel)) {
-      return STREAMING_PROVIDERS["openai-realtime"];
-    }
-    const defaultProvider = this.context === "notes" ? "deepgram" : "openai-realtime";
-    const providerName = this.sttConfig?.streamingProvider || defaultProvider;
-    return STREAMING_PROVIDERS[providerName] || STREAMING_PROVIDERS[defaultProvider];
+    const fallback = this.context === "notes" ? "deepgram" : "openai-realtime";
+    return STREAMING_PROVIDERS[this.getStreamingProviderName()] || STREAMING_PROVIDERS[fallback];
   }
 
   getStreamingProviderName() {
+    const s = getSettings();
+    if (s.cloudTranscriptionProvider === "corti" && s.cloudTranscriptionMode === "byok") {
+      return "corti";
+    }
+    if (REALTIME_MODELS.has(s.cloudTranscriptionModel)) {
+      return "openai-realtime";
+    }
     const defaultProvider = this.context === "notes" ? "deepgram" : "openai-realtime";
     return this.sttConfig?.streamingProvider || defaultProvider;
   }
@@ -910,6 +924,24 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         err.code = "API_KEY_MISSING";
         throw err;
       }
+    } else if (provider === "corti") {
+      // Tokens are minted in the main process; only verify credentials exist here
+      let clientId = s.cortiClientId;
+      let clientSecret = s.cortiClientSecret;
+      if (!clientId?.trim() || !clientSecret?.trim()) {
+        [clientId, clientSecret] = await Promise.all([
+          window.electronAPI.getCortiClientId?.(),
+          window.electronAPI.getCortiClientSecret?.(),
+        ]);
+      }
+      if (!clientId?.trim() || !clientSecret?.trim()) {
+        const err = new Error(
+          "Corti credentials not found. Please set your Client ID and Client Secret in the Control Panel."
+        );
+        err.code = "API_KEY_MISSING";
+        throw err;
+      }
+      apiKey = null;
     } else if (provider === "groq") {
       // Prefer store value (user-entered via UI) over main process (.env)
       apiKey = s.groqApiKey;
@@ -1569,6 +1601,37 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw new Error("No text transcribed - Mistral response was empty");
       }
 
+      // Corti uses OAuth client credentials and an interaction-based REST flow — proxy through main process
+      if (provider === "corti" && window.electronAPI?.proxyCortiTranscription) {
+        const audioBuffer = await optimizedAudio.arrayBuffer();
+        const proxyData = {
+          audioBuffer,
+          // Corti requires a concrete primaryLanguage; default to English when auto-detecting
+          language: language || "en",
+          environment: apiSettings.cortiEnvironment || "us",
+          tenant: (apiSettings.cortiTenant || "").trim() || "base",
+        };
+
+        const result = await window.electronAPI.proxyCortiTranscription(proxyData);
+        const proxyText = result?.text;
+
+        if (proxyText && proxyText.trim().length > 0) {
+          if (this.isDictionaryEcho(proxyText)) {
+            throw new Error("No audio detected");
+          }
+          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
+          const rawText = proxyText;
+          const reasoningStart = performance.now();
+          const text = await this.processTranscription(proxyText, "corti");
+          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
+
+          const source = (await this.isReasoningAvailable()) ? "corti-reasoned" : "corti";
+          return { success: true, text, rawText, source, timings };
+        }
+
+        throw new Error("No text transcribed - Corti response was empty");
+      }
+
       logger.debug(
         "Making transcription API request",
         {
@@ -1799,6 +1862,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         const isGroqModel = trimmedModel.startsWith("whisper-large-v3");
         const isOpenAIModel = trimmedModel.startsWith("gpt-4o") || trimmedModel === "whisper-1";
         const isMistralModel = trimmedModel.startsWith("voxtral-");
+        const isCortiModel = trimmedModel.startsWith("corti-");
 
         if (provider === "groq" && isGroqModel) {
           return trimmedModel;
@@ -1809,12 +1873,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         if (provider === "mistral" && isMistralModel) {
           return trimmedModel;
         }
+        if (provider === "corti" && isCortiModel) {
+          return trimmedModel;
+        }
         // Model doesn't match provider - fall through to default
       }
 
       // Return provider-appropriate default
       if (provider === "groq") return "whisper-large-v3-turbo";
       if (provider === "mistral") return "voxtral-mini-latest";
+      if (provider === "corti") return "corti-transcribe";
       return "gpt-4o-mini-transcribe";
     } catch (error) {
       return "gpt-4o-mini-transcribe";
@@ -2076,6 +2144,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const s = getSettings();
     if (s.useLocalWhisper) return false;
 
+    // Corti (BYOK) streams over its own WSS — independent of OpenWhispr Cloud.
+    if (s.cloudTranscriptionProvider === "corti" && s.cloudTranscriptionMode === "byok") {
+      return !!(s.cortiClientId && s.cortiClientSecret);
+    }
+
     // For dictation/agent: respect sttConfig mode from the API — this allows
     // batch mode even for realtime-capable models (e.g. gpt-4o-mini-transcribe).
     if (this.context !== "notes" && this.sttConfig?.dictation?.mode === "batch") {
@@ -2115,6 +2188,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
             preferredLanguage: warmupLang,
             cloudTranscriptionModel,
             cloudTranscriptionMode,
+            cortiEnvironment,
+            cortiTenant,
           } = getSettings();
           const res = await provider.warmup({
             sampleRate: 16000,
@@ -2122,6 +2197,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
             keyterms: this.getKeyterms(),
             model: cloudTranscriptionModel,
             mode: cloudTranscriptionMode === "byok" ? "byok" : "openwhispr",
+            environment: cortiEnvironment,
+            tenant: cortiTenant,
           });
           // Throw error to trigger retry if AUTH_EXPIRED
           if (!res.success && res.code) {
@@ -2347,6 +2424,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           preferredLanguage: preferredLang,
           cloudTranscriptionModel,
           cloudTranscriptionMode,
+          cortiEnvironment,
+          cortiTenant,
           useLocalWhisper,
         } = getSettings();
         const res = await provider.start({
@@ -2355,6 +2434,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           keyterms: this.getKeyterms(),
           model: cloudTranscriptionModel,
           mode: cloudTranscriptionMode === "byok" ? "byok" : "openwhispr",
+          environment: cortiEnvironment,
+          tenant: cortiTenant,
         });
 
         if (!res.success) {

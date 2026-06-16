@@ -19,6 +19,7 @@ import PermissionsSection from "./ui/PermissionsSection";
 import SupportDropdown from "./ui/SupportDropdown";
 import StepProgress from "./ui/StepProgress";
 import { AlertDialog, ConfirmDialog } from "./ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useDialogs } from "../hooks/useDialogs";
 import { usePermissions } from "../hooks/usePermissions";
@@ -33,6 +34,7 @@ import { formatHotkeyLabel, getDefaultHotkey, isGlobeLikeHotkey } from "../utils
 import { useAuth } from "../hooks/useAuth";
 import { HotkeyInput } from "./ui/HotkeyInput";
 import { useHotkeyRegistration } from "../hooks/useHotkeyRegistration";
+import { useHotkeyModeInfo } from "../hooks/useHotkeyModeInfo";
 import { getValidationMessage } from "../utils/hotkeyValidator";
 import { validateHotkeyForSlot } from "../utils/hotkeyValidation";
 import { getCachedPlatform, getPlatform } from "../utils/platform";
@@ -104,7 +106,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [skipAuth, setSkipAuth] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [isModelDownloaded, setIsModelDownloaded] = useState(false);
-  const [isUsingNativeShortcut, setIsUsingNativeShortcut] = useState(false);
+  const { isUsingNativeShortcut, isUsingHyprland, hyprlandConfigStatus, supportsPushToTalk } =
+    useHotkeyModeInfo("onboarding");
   const readableHotkey = formatHotkeyLabel(hotkey);
   const { alertDialog, confirmDialog, showAlertDialog, hideAlertDialog, hideConfirmDialog } =
     useDialogs();
@@ -175,21 +178,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const showProgress = currentStep > 0;
 
   useEffect(() => {
-    const checkHotkeyMode = async () => {
-      try {
-        const info = await window.electronAPI?.getHotkeyModeInfo();
-        if (info?.isUsingNativeShortcut) {
-          setIsUsingNativeShortcut(true);
-          if (!info.supportsPushToTalk) {
-            setActivationMode("tap");
-          }
-        }
-      } catch (error) {
-        logger.error("Failed to check hotkey mode", { error }, "onboarding");
-      }
-    };
-    checkHotkeyMode();
-  }, [setActivationMode]);
+    if (isUsingNativeShortcut && !supportsPushToTalk) {
+      setActivationMode("tap");
+    }
+  }, [isUsingNativeShortcut, supportsPushToTalk, setActivationMode]);
 
   // Update wizard UI when backend falls back to a different hotkey.
   // Only update local state — don't persist to localStorage so the app
@@ -630,14 +622,32 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         <p className="text-xs text-muted-foreground">{t("onboarding.activation.description")}</p>
       </div>
 
+      {isUsingHyprland && hyprlandConfigStatus && !hyprlandConfigStatus.canWrite && (
+        <Alert>
+          <AlertTitle>
+            {t("settingsPage.general.hotkey.hyprlandConfigWriteWarningTitle")}
+          </AlertTitle>
+          <AlertDescription>
+            {t("settingsPage.general.hotkey.hyprlandConfigWriteWarningDescription", {
+              path: hyprlandConfigStatus.path,
+            })}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Unified control surface */}
       <div className="rounded-lg border border-border-subtle bg-surface-1 overflow-hidden">
         {/* Hotkey section */}
         <div className="p-4 border-b border-border-subtle">
-          <div className="flex items-center justify-between mb-3">
+          <div className="mb-3">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               {t("onboarding.activation.hotkey")}
             </span>
+            {isUsingHyprland && (
+              <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">
+                {t("settingsPage.general.hotkey.hyprlandUnbindDescription")}
+              </p>
+            )}
           </div>
           <HotkeyInput
             value={hotkey}

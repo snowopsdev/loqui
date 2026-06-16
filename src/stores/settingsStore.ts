@@ -127,6 +127,7 @@ const BOOLEAN_SETTINGS = new Set([
   "autoPasteEnabled",
   "keepTranscriptionInClipboard",
   "dataRetentionEnabled",
+  "saveDiscardedTranscriptions",
   "noteFilesEnabled",
   "showTranscriptionPreview",
   "cleanupDisableThinking",
@@ -552,6 +553,7 @@ export interface SettingsState
   setTelemetryEnabled: (value: boolean) => void;
   setAudioRetentionDays: (days: number) => void;
   setDataRetentionEnabled: (value: boolean) => void;
+  setSaveDiscardedTranscriptions: (value: boolean) => void;
   setAudioCuesEnabled: (value: boolean) => void;
   setPauseMediaOnDictation: (value: boolean) => void;
   setFloatingIconAutoHide: (enabled: boolean) => void;
@@ -854,6 +856,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     return isNaN(parsed) ? 30 : parsed;
   })(),
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
+  saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),
   audioCuesEnabled: readBoolean("audioCuesEnabled", true),
   pauseMediaOnDictation: readBoolean("pauseMediaOnDictation", false),
   floatingIconAutoHide: readBoolean("floatingIconAutoHide", false),
@@ -1337,6 +1340,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       "settings"
     );
   },
+  setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),
   setAudioCuesEnabled: createBooleanSetter("audioCuesEnabled"),
   setPauseMediaOnDictation: createBooleanSetter("pauseMediaOnDictation"),
 

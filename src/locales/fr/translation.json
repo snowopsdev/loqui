@@ -727,6 +727,11 @@
       "welcomeBack": "Bon retour",
       "welcomeBackName": "Bon retour, {{name}}"
     },
+    "sso": {
+      "continueWithSSO": "Se connecter avec le SSO",
+      "emailRequired": "Saisissez votre e-mail professionnel pour utiliser le SSO.",
+      "failed": "Échec de l’authentification unique. Veuillez réessayer."
+    },
     "social": {
       "completeInBrowser": "Terminez la connexion dans votre navigateur",
       "continueWithApple": "Continuer avec Apple",
@@ -1432,8 +1437,8 @@
         "linuxPttSetupDescription": "Votre utilisateur a besoin d'accéder aux périphériques de saisie clavier.",
         "linuxPttSetupNote": "Après avoir exécuté la commande, déconnectez-vous et reconnectez-vous.",
         "hyprlandConfigWriteWarningTitle": "Les raccourcis Hyprland ne seront pas conservés",
-        "hyprlandConfigWriteWarningDescription": "OpenWhispr ne peut pas écrire dans {{path}} ; les raccourcis ne survivront donc pas à un rechargement de la configuration Hyprland. Assurez-vous que le fichier existe et qu'il est accessible en écriture.",
-        "hyprlandUnbindDescription": "Sur Hyprland, OpenWhispr réserve le raccourci sélectionné. Toute association Hyprland existante utilisant la même combinaison de touches sera supprimée lorsque OpenWhispr enregistrera son raccourci."
+        "hyprlandConfigWriteWarningDescription": "OpenWhispr ne peut pas écrire dans {{path}} ; les raccourcis ne survivront donc pas à un rechargement de la configuration Hyprland. Vérifiez que le fichier existe et qu'il est accessible en écriture.",
+        "hyprlandUnbindDescription": "Sous Hyprland, OpenWhispr réserve le raccourci sélectionné. Tout raccourci Hyprland existant utilisant la même combinaison de touches sera supprimé quand OpenWhispr enregistrera son raccourci."
       },
       "meetingHotkey": {
         "title": "Raccourci mode réunion",

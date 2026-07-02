@@ -727,6 +727,11 @@
       "welcomeBack": "Willkommen zurück",
       "welcomeBackName": "Willkommen zurück, {{name}}"
     },
+    "sso": {
+      "continueWithSSO": "Mit SSO anmelden",
+      "emailRequired": "Geben Sie Ihre geschäftliche E-Mail-Adresse ein, um SSO zu verwenden.",
+      "failed": "Single Sign-on fehlgeschlagen. Bitte versuchen Sie es erneut."
+    },
     "social": {
       "completeInBrowser": "Anmeldung im Browser abschließen",
       "continueWithApple": "Weiter mit Apple",
@@ -1383,9 +1388,9 @@
         "linuxPttSetupTitle": "Gedrückt halten zum Sprechen erfordert Einrichtung",
         "linuxPttSetupDescription": "Ihr Benutzer benötigt Zugriff auf die Tastatureingabegeräte.",
         "linuxPttSetupNote": "Melden Sie sich nach dem Ausführen des Befehls ab und wieder an.",
-        "hyprlandConfigWriteWarningTitle": "Hyprland-Tastenkombinationen bleiben nicht bestehen",
-        "hyprlandConfigWriteWarningDescription": "OpenWhispr kann nicht in {{path}} schreiben, daher überstehen Tastenkombinationen kein Neuladen der Hyprland-Konfiguration. Stellen Sie sicher, dass die Datei existiert und beschreibbar ist.",
-        "hyprlandUnbindDescription": "Unter Hyprland beansprucht OpenWhispr die ausgewählte Tastenkombination. Jede vorhandene Hyprland-Bindung mit derselben Tastenkombination wird aufgehoben, wenn OpenWhispr seine Tastenkombination registriert."
+        "hyprlandConfigWriteWarningTitle": "Hyprland-Tastenkombinationen werden nicht dauerhaft gespeichert",
+        "hyprlandConfigWriteWarningDescription": "OpenWhispr kann nicht in {{path}} schreiben. Deshalb bleiben Tastenkombinationen nach einem Neuladen der Hyprland-Konfiguration nicht erhalten. Stellen Sie sicher, dass die Datei existiert und beschreibbar ist.",
+        "hyprlandUnbindDescription": "Unter Hyprland beansprucht OpenWhispr die ausgewählte Tastenkombination. Jede vorhandene Hyprland-Belegung mit derselben Tastenkombination wird aufgehoben, wenn OpenWhispr seine Tastenkombination registriert."
       },
       "meetingHotkey": {
         "title": "Meeting-Modus-Hotkey",

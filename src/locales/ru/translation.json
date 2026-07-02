@@ -727,6 +727,11 @@
       "welcomeBack": "С возвращением",
       "welcomeBackName": "С возвращением, {{name}}"
     },
+    "sso": {
+      "continueWithSSO": "Войти через SSO",
+      "emailRequired": "Введите рабочий адрес электронной почты для использования SSO.",
+      "failed": "Не удалось выполнить единый вход. Повторите попытку."
+    },
     "social": {
       "completeInBrowser": "Завершите вход в браузере",
       "continueWithApple": "Продолжить с Apple",
@@ -1385,7 +1390,7 @@
         "linuxPttSetupNote": "После выполнения команды выйдите из системы и войдите снова.",
         "hyprlandConfigWriteWarningTitle": "Привязки клавиш Hyprland не будут сохраняться",
         "hyprlandConfigWriteWarningDescription": "OpenWhispr не может записывать в {{path}}, поэтому привязки клавиш не сохранятся после перезагрузки конфигурации Hyprland. Убедитесь, что файл существует и доступен для записи.",
-        "hyprlandUnbindDescription": "В Hyprland OpenWhispr занимает выбранное сочетание клавиш. Любая существующая привязка Hyprland с тем же сочетанием будет снята, когда OpenWhispr зарегистрирует свой хоткей."
+        "hyprlandUnbindDescription": "В Hyprland OpenWhispr резервирует выбранное сочетание клавиш. Любая существующая привязка Hyprland, использующая ту же комбинацию, будет удалена, когда OpenWhispr зарегистрирует своё сочетание."
       },
       "meetingHotkey": {
         "title": "Горячая клавиша режима встречи",

@@ -144,6 +144,12 @@ OpenWhispr tries clipboard methods in order: `wl-copy` (most reliable) → rende
 2. Restart the app after granting permission
 3. Ensure Google Calendar is connected in Integrations
 
+**Windows:**
+
+1. System audio is captured by `windows-system-audio-helper.exe` (WASAPI process loopback), which hears every app on every output device — no permission prompt is needed
+2. If the helper is missing or fails (requires Windows 10 2004+), OpenWhispr automatically falls back to Chromium loopback, which only hears the _default_ output device — make sure your meeting app plays through the default device in that case
+3. If transcription shows "Continuing with microphone only", system audio capture failed entirely; check debug logs for `windows-system-audio-helper` entries
+
 **All Platforms:**
 
 1. Check that meeting detection is enabled in settings

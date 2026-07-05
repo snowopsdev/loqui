@@ -108,12 +108,17 @@ class ModelManager {
         for (const model of provider.models) {
           const modelPath = path.join(this.modelsDir, model.fileName);
           const isDownloaded = await this.checkModelValid(modelPath);
+          const progress = this.downloadProgress.get(model.id);
 
           models.push({
             ...model,
             providerId: provider.id,
             providerName: provider.name,
             isDownloaded,
+            isDownloading: this.activeDownloads.has(model.id),
+            downloadProgress: progress?.progress || 0,
+            downloadedSize: progress?.downloadedSize || 0,
+            totalSize: progress?.totalSize || 0,
             path: isDownloaded ? modelPath : null,
           });
         }

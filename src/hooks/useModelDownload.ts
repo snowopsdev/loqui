@@ -3,7 +3,11 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useDialogs } from "./useDialogs";
 import { useToast } from "../components/ui/useToast";
-import type { WhisperDownloadProgressData } from "../types/electron";
+import type {
+  LocalLLMDownloadProgressEvent,
+  LocalLLMModelStatus,
+  WhisperDownloadProgressData,
+} from "../types/electron";
 import "../types/electron";
 
 const PROGRESS_THROTTLE_MS = 100;
@@ -22,13 +26,6 @@ interface UseModelDownloadOptions {
   modelType: ModelType;
   onDownloadComplete?: () => void;
   onModelsCleared?: () => void;
-}
-
-interface LLMDownloadProgressData {
-  modelId: string;
-  progress: number;
-  downloadedSize: number;
-  totalSize: number;
 }
 
 export function formatETA(seconds: number): string {
@@ -74,6 +71,7 @@ export function useModelDownload({
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const isCancellingRef = useRef(false);
   const lastProgressUpdateRef = useRef(0);
+  const activeDownloadRequestRef = useRef<string | null>(null);
 
   const { showAlertDialog } = useDialogs();
   const { toast } = useToast();
@@ -98,6 +96,34 @@ export function useModelDownload({
     window.addEventListener("openwhispr-models-cleared", handleModelsCleared);
     return () => window.removeEventListener("openwhispr-models-cleared", handleModelsCleared);
   }, []);
+
+  const hydrateActiveLLMDownload = useCallback(
+    async (preferredModelId?: string) => {
+      if (modelType !== "llm") return false;
+
+      let models: LocalLLMModelStatus[] | undefined;
+      try {
+        models = await window.electronAPI?.modelGetAll?.();
+      } catch {
+        return false;
+      }
+
+      const activeModel =
+        models?.find((model) => model.isDownloading && model.id === preferredModelId) ??
+        models?.find((model) => model.isDownloading);
+      if (!activeModel) return false;
+
+      setDownloadingModel(activeModel.id);
+      setDownloadError(null);
+      setDownloadProgress({
+        percentage: activeModel.downloadProgress || 0,
+        downloadedBytes: activeModel.downloadedSize || 0,
+        totalBytes: activeModel.totalSize || 0,
+      });
+      return true;
+    },
+    [modelType]
+  );
 
   const handleWhisperProgress = useCallback(
     (_event: unknown, data: WhisperDownloadProgressData) => {
@@ -139,22 +165,53 @@ export function useModelDownload({
     [t]
   );
 
-  const handleLLMProgress = useCallback((_event: unknown, data: LLMDownloadProgressData) => {
-    if (isCancellingRef.current) return;
+  const handleLLMProgress = useCallback(
+    (_event: unknown, data: LocalLLMDownloadProgressEvent) => {
+      if (isCancellingRef.current) return;
 
-    const now = Date.now();
-    const isComplete = data.progress >= 100;
-    if (!isComplete && now - lastProgressUpdateRef.current < PROGRESS_THROTTLE_MS) {
-      return;
-    }
-    lastProgressUpdateRef.current = now;
+      if (data.type === "complete") {
+        if (activeDownloadRequestRef.current === data.modelId) return;
+        setIsInstalling(false);
+        setDownloadingModel(null);
+        setDownloadProgress({ percentage: 0, downloadedBytes: 0, totalBytes: 0 });
+        void onDownloadCompleteRef.current?.();
+        return;
+      }
 
-    setDownloadProgress({
-      percentage: data.progress || 0,
-      downloadedBytes: data.downloadedSize || 0,
-      totalBytes: data.totalSize || 0,
-    });
-  }, []);
+      if (data.type === "error") {
+        if (activeDownloadRequestRef.current === data.modelId) return;
+        const msg = getDownloadErrorMessage(
+          t,
+          data.error || t("hooks.modelDownload.errors.unknown"),
+          data.code
+        );
+        setDownloadError(msg);
+        showAlertDialogRef.current({
+          title: t("hooks.modelDownload.downloadFailed.title"),
+          description: msg,
+        });
+        setIsInstalling(false);
+        setDownloadingModel(null);
+        setDownloadProgress({ percentage: 0, downloadedBytes: 0, totalBytes: 0 });
+        return;
+      }
+
+      const now = Date.now();
+      const isComplete = (data.progress || 0) >= 100;
+      if (!isComplete && now - lastProgressUpdateRef.current < PROGRESS_THROTTLE_MS) {
+        return;
+      }
+      lastProgressUpdateRef.current = now;
+
+      setDownloadingModel(data.modelId);
+      setDownloadProgress({
+        percentage: data.progress || 0,
+        downloadedBytes: data.downloadedSize || 0,
+        totalBytes: data.totalSize || 0,
+      });
+    },
+    [t]
+  );
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -172,6 +229,10 @@ export function useModelDownload({
     };
   }, [handleWhisperProgress, handleLLMProgress, modelType]);
 
+  useEffect(() => {
+    void hydrateActiveLLMDownload();
+  }, [hydrateActiveLLMDownload]);
+
   const downloadModel = useCallback(
     async (modelId: string, onSelectAfterDownload?: (id: string) => void) => {
       if (downloadingModel) {
@@ -182,11 +243,14 @@ export function useModelDownload({
         return;
       }
 
+      let keepActiveDownloadState = false;
+
       try {
         setDownloadingModel(modelId);
         setDownloadError(null);
         setDownloadProgress({ percentage: 0, downloadedBytes: 0, totalBytes: 0 });
         lastProgressUpdateRef.current = 0; // Reset throttle timer
+        activeDownloadRequestRef.current = modelId;
 
         let success = false;
 
@@ -228,6 +292,19 @@ export function useModelDownload({
             | { success: boolean; error?: string; code?: string }
             | undefined;
           if (result && !result.success && result.error) {
+            if (result.code === "DOWNLOAD_IN_PROGRESS") {
+              keepActiveDownloadState = true;
+              const hydrated = await hydrateActiveLLMDownload(modelId);
+              if (!hydrated) {
+                setDownloadProgress({ percentage: 0, downloadedBytes: 0, totalBytes: 0 });
+              }
+              toast({
+                title: t("hooks.modelDownload.downloadInProgress.title"),
+                description: t("hooks.modelDownload.downloadInProgress.description"),
+              });
+              return;
+            }
+
             const msg = getDownloadErrorMessage(t, result.error, result.code);
             setDownloadError(msg);
             showAlertDialog({
@@ -268,12 +345,14 @@ export function useModelDownload({
           });
         }
       } finally {
+        activeDownloadRequestRef.current = null;
+        if (keepActiveDownloadState) return;
         setIsInstalling(false);
         setDownloadingModel(null);
         setDownloadProgress({ percentage: 0, downloadedBytes: 0, totalBytes: 0 });
       }
     },
-    [downloadingModel, modelType, showAlertDialog, toast, t]
+    [downloadingModel, hydrateActiveLLMDownload, modelType, showAlertDialog, toast, t]
   );
 
   const deleteModel = useCallback(

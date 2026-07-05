@@ -1,3 +1,5 @@
+import type { ModelDefinition } from "../models/ModelRegistry";
+
 export type LocalTranscriptionProvider = "whisper" | "nvidia";
 
 export type InferenceMode = "openwhispr" | "providers" | "local" | "self-hosted" | "enterprise";
@@ -465,6 +467,40 @@ export interface LlamaVulkanDownloadProgress {
   percentage: number;
 }
 
+export interface LocalLLMModelStatus extends ModelDefinition {
+  providerId?: string;
+  providerName?: string;
+  isDownloaded: boolean;
+  isDownloading: boolean;
+  downloadProgress: number;
+  downloadedSize: number;
+  totalSize: number;
+  path: string | null;
+}
+
+export type LocalLLMDownloadProgressEvent =
+  | {
+      type?: "progress";
+      modelId: string;
+      progress: number;
+      downloadedSize: number;
+      totalSize: number;
+    }
+  | {
+      type: "complete";
+      modelId: string;
+      progress: 100;
+      downloadedSize?: number;
+      totalSize?: number;
+    }
+  | {
+      type: "error";
+      modelId: string;
+      error: string;
+      code?: string;
+      details?: unknown;
+    };
+
 export interface ConversationPreview {
   id: number;
   title: string;
@@ -823,7 +859,7 @@ declare global {
       getParakeetDiagnostics: () => Promise<ParakeetDiagnosticsResult>;
 
       // Local AI model management
-      modelGetAll: () => Promise<any[]>;
+      modelGetAll: () => Promise<LocalLLMModelStatus[]>;
       modelCheck: (modelId: string) => Promise<boolean>;
       modelDownload: (modelId: string) => Promise<{
         success: boolean;
@@ -851,7 +887,9 @@ declare global {
         details?: string;
       }>;
       modelCancelDownload: (modelId: string) => Promise<{ success: boolean; error?: string }>;
-      onModelDownloadProgress: (callback: (event: any, data: any) => void) => () => void;
+      onModelDownloadProgress: (
+        callback: (event: any, data: LocalLLMDownloadProgressEvent) => void
+      ) => () => void;
 
       // Local reasoning
       processLocalReasoning: (

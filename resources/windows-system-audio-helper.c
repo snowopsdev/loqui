@@ -20,8 +20,8 @@
  *     fatal capture error. Injects silence while no application renders
  *     audio so the output timeline stays continuous.
  *
- * Compile with: cl /O2 windows-system-audio-helper.c /Fe:windows-system-audio-helper.exe ole32.lib mmdevapi.lib
- * Or with MinGW: gcc -O2 windows-system-audio-helper.c -o windows-system-audio-helper.exe -lole32 -lmmdevapi
+ * Compile with: cl /O2 windows-system-audio-helper.c /Fe:windows-system-audio-helper.exe ole32.lib mmdevapi.lib uuid.lib
+ * Or with MinGW: gcc -O2 windows-system-audio-helper.c -o windows-system-audio-helper.exe -lole32 -lmmdevapi -luuid
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -38,6 +38,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* IID_IAudioClient, IID_IAudioCaptureClient, and
+ * IID_IActivateAudioInterfaceCompletionHandler are declared via
+ * MIDL_INTERFACE (__declspec(uuid)) in the SDK headers, so <initguid.h> does
+ * not emit their definitions in C mode — they live in uuid.lib. Force-link it
+ * here so the binary links regardless of the compile command line (the CI
+ * workflow's cl invocation can't be edited without a workflow-scoped token). */
+#ifdef _MSC_VER
+#pragma comment(lib, "uuid.lib")
+#endif
 
 #if defined(__has_include)
 #if __has_include(<audioclientactivationparams.h>)

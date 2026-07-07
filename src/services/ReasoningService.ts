@@ -371,12 +371,7 @@ class ReasoningService extends BaseReasoningService {
       endpoint = `http://127.0.0.1:${serverResult.port}/v1/chat/completions`;
     } else {
       const providerKey = provider as
-        | "openai"
-        | "groq"
-        | "gemini"
-        | "anthropic"
-        | "tinfoil"
-        | "custom";
+        "openai" | "groq" | "gemini" | "anthropic" | "tinfoil" | "custom";
       const overrideKey = providerKey === "custom" ? config.customApiKey?.trim() : "";
       apiKey = overrideKey || (await this.getApiKey(providerKey));
 
@@ -590,12 +585,7 @@ class ReasoningService extends BaseReasoningService {
       baseURL = `http://127.0.0.1:${serverResult.port}/v1`;
     } else {
       const providerKey = provider as
-        | "openai"
-        | "groq"
-        | "gemini"
-        | "anthropic"
-        | "tinfoil"
-        | "custom";
+        "openai" | "groq" | "gemini" | "anthropic" | "tinfoil" | "custom";
       const overrideKey = providerKey === "custom" ? config.customApiKey?.trim() : "";
       apiKey = overrideKey || (await this.getApiKey(providerKey));
       baseURL =

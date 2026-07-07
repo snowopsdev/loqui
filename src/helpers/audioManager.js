@@ -2815,7 +2815,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       if (isStaleDeviceError(error) && !forceDefaultMic && !stopRequested) {
         // Pinned mic is gone (Chromium rotates IDs / device unplugged). Retry once on the default mic. See #900.
-        logger.warn("Pinned microphone unavailable, retrying streaming on default mic", {}, "streaming");
+        logger.warn(
+          "Pinned microphone unavailable, retrying streaming on default mic",
+          {},
+          "streaming"
+        );
         this.cachedMicDeviceId = null;
         await this.cleanupStreaming();
         this.isRecording = false;

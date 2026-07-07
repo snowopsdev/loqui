@@ -693,8 +693,7 @@ function createRegisteredHotkeySetter(
   key: "chatAgentKey" | "voiceAgentKey",
   label: string,
   getRegisterFn: () =>
-    | ((hotkey: string) => Promise<{ success: boolean; message: string }>)
-    | undefined,
+    ((hotkey: string) => Promise<{ success: boolean; message: string }>) | undefined,
   fallbackSave?: (hotkey: string) => void
 ) {
   return (hotkey: string) => {
@@ -783,8 +782,7 @@ function debouncedSaveSecret(provider: SecretProvider, key: string) {
   secretSaveTimers[provider] = setTimeout(() => {
     const api = window.electronAPI;
     const save = api?.[SECRET_IPC_SAVERS[provider]] as
-      | ((k: string) => Promise<unknown>)
-      | undefined;
+      ((k: string) => Promise<unknown>) | undefined;
     save?.(key)?.catch((err) => {
       logger.warn(
         "Failed to persist secret",
@@ -914,8 +912,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     ? "side-panel"
     : "full-width") as "side-panel" | "full-width",
   activationMode: (readString("activationMode", "tap") === "push" ? "push" : "tap") as
-    | "tap"
-    | "push",
+    "tap" | "push",
 
   preferBuiltInMic: readBoolean("preferBuiltInMic", true),
   selectedMicDeviceId: readString("selectedMicDeviceId", ""),

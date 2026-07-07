@@ -113,10 +113,15 @@ class TextEditMonitor extends EventEmitter {
       }
       const script =
         'ObjC.import("AppKit"); $.NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier';
-      execFile("osascript", ["-l", "JavaScript", "-e", script], { timeout: 2000 }, (err, stdout) => {
-        const pid = err ? NaN : parseInt(stdout.trim(), 10);
-        resolve(isNaN(pid) ? null : pid);
-      });
+      execFile(
+        "osascript",
+        ["-l", "JavaScript", "-e", script],
+        { timeout: 2000 },
+        (err, stdout) => {
+          const pid = err ? NaN : parseInt(stdout.trim(), 10);
+          resolve(isNaN(pid) ? null : pid);
+        }
+      );
     });
   }
 

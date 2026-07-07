@@ -375,7 +375,28 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, [toast, t]);
 
   useEffect(() => {
-    syncService.syncAll().catch(console.error);
+    // Keep syncing during a long session, not just once at launch.
+    syncService.requestSyncAll("mount");
+
+    const onFocus = () => syncService.requestSyncAll("focus");
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncService.requestSyncAll("focus");
+      }
+    };
+    const onOnline = () => syncService.requestSyncAll("online");
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onOnline);
+
+    const interval = setInterval(() => syncService.requestSyncAll("interval"), 5 * 60 * 1000);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onOnline);
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -422,7 +443,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             const result = await window.electronAPI.deleteTranscription(id);
             if (result.success) {
               removeFromStore(id);
-              syncService.syncAll().catch(console.error);
+              syncService.requestSyncAll("manual");
             } else {
               showAlertDialog({
                 title: t("controlPanel.history.couldNotDeleteTitle"),
@@ -451,7 +472,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           const result = await window.electronAPI.clearTranscriptions();
           if (result.success) {
             clearStore();
-            syncService.syncAll().catch(console.error);
+            syncService.requestSyncAll("manual");
             toast({
               title: t("controlPanel.history.clearAllSuccess"),
               variant: "success",

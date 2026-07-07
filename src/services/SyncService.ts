@@ -21,6 +21,8 @@ const BATCH_SIZE = 50;
 const TRANSCRIPTION_BATCH_SIZE = 100;
 const DICTIONARY_BATCH_SIZE = 200;
 const SNIPPET_BATCH_SIZE = 200;
+// Skip a redundant syncAll() if focus + interval fire close together.
+const AUTO_SYNC_THROTTLE_MS = 20000;
 
 // SQLite `datetime('now')` yields "YYYY-MM-DD HH:MM:SS" (no T, no millis, no Z);
 // the cloud sends ISO 8601 "YYYY-MM-DDTHH:MM:SS.sssZ". Normalize both to
@@ -35,9 +37,11 @@ function normalizeTimestamp(value: string | null | undefined): string {
 
 class SyncService {
   private syncing = false;
+  private syncAllPending = false;
   private dictionaryDirty = false;
   private snippetsDirty = false;
   private pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private lastSyncAllAt = 0;
 
   canSync(): boolean {
     return (
@@ -48,7 +52,13 @@ class SyncService {
   }
 
   async syncAll(): Promise<void> {
-    if (this.syncing || !this.canSync()) return;
+    if (!this.canSync()) return;
+    // A pass already running may have synced past the data this request covers,
+    // so flag a re-run instead of dropping it.
+    if (this.syncing) {
+      this.syncAllPending = true;
+      return;
+    }
     this.syncing = true;
     try {
       await this.syncFolders();
@@ -66,11 +76,27 @@ class SyncService {
         await this.syncSnippets();
       } while (this.snippetsDirty);
       localStorage.setItem("lastSyncedAt", new Date().toISOString());
+      this.lastSyncAllAt = Date.now();
     } catch (err) {
       console.error("Sync failed:", err);
     } finally {
       this.syncing = false;
     }
+    if (this.syncAllPending) {
+      this.syncAllPending = false;
+      await this.syncAll();
+    }
+  }
+
+  requestSyncAll(reason: "mount" | "focus" | "interval" | "online" | "manual"): void {
+    if (!this.canSync()) return;
+    if (
+      reason !== "manual" &&
+      (this.syncing || Date.now() - this.lastSyncAllAt < AUTO_SYNC_THROTTLE_MS)
+    ) {
+      return;
+    }
+    void this.syncAll();
   }
 
   async syncDictionaryNow(): Promise<void> {

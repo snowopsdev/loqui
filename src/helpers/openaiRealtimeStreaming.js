@@ -5,6 +5,7 @@ const WEBSOCKET_TIMEOUT_MS = 15000;
 const DISCONNECT_TIMEOUT_MS = 3000;
 const SAMPLE_RATE = 24000;
 const COLD_START_BUFFER_MAX = 3 * SAMPLE_RATE * 2; // 3 seconds of 16-bit PCM
+const KEEPALIVE_INTERVAL_MS = 15000;
 
 // A socket factory does network work before the socket exists, so the dial
 // must be bounded; a socket resolving after the deadline is closed, not leaked.
@@ -41,9 +42,22 @@ class OpenAIRealtimeStreaming {
     this.isDisconnecting = false;
     this.audioBytesSent = 0;
     this.model = "gpt-4o-mini-transcribe";
+    this.inputRate = SAMPLE_RATE;
+    this.captureRate = SAMPLE_RATE;
     this.coldStartBuffer = [];
     this.coldStartBufferSize = 0;
     this.speechStartedAt = null;
+    this.bufferingAudio = false;
+    this.keepAliveInterval = null;
+  }
+
+  // Starts buffering audio immediately, before the WebSocket even exists —
+  // covers the token-fetch + handshake window so sendAudio() doesn't drop
+  // frames while a connection is still being established.
+  beginConnecting() {
+    this.bufferingAudio = true;
+    this.coldStartBuffer = [];
+    this.coldStartBufferSize = 0;
   }
 
   getFullTranscript() {
@@ -51,7 +65,7 @@ class OpenAIRealtimeStreaming {
   }
 
   async connect(options = {}) {
-    const { apiKey, model, preconfigured, inputRate, createSocket } = options;
+    const { apiKey, model, preconfigured, inputRate, captureRate, createSocket } = options;
     if (!apiKey) throw new Error("OpenAI API key is required");
 
     if (this.isConnected || this.isConnecting) {
@@ -59,15 +73,18 @@ class OpenAIRealtimeStreaming {
       return;
     }
 
+    // Callers may already be buffering (beginConnecting() called before the
+    // apiKey was fetched) — don't wipe audio collected during that window.
+    if (!this.bufferingAudio) this.beginConnecting();
+
     this.isConnecting = true;
     this.model = model || "gpt-4o-mini-transcribe";
     this.preconfigured = !!preconfigured;
     this.inputRate = inputRate || SAMPLE_RATE;
+    this.captureRate = captureRate || this.inputRate;
     this.completedSegments = [];
     this.currentPartial = "";
     this.audioBytesSent = 0;
-    this.coldStartBuffer = [];
-    this.coldStartBufferSize = 0;
     this.speechStartedAt = null;
 
     const url = "wss://api.openai.com/v1/realtime?intent=transcription";
@@ -150,14 +167,7 @@ class OpenAIRealtimeStreaming {
             debugLogger.debug("OpenAI Realtime session created (preconfigured)", {
               model: this.model,
             });
-            this.isConnected = true;
-            this.isConnecting = false;
-            clearTimeout(this.connectionTimeout);
-            if (this.pendingResolve) {
-              this.pendingResolve();
-              this.pendingResolve = null;
-              this.pendingReject = null;
-            }
+            this._markConnected();
           } else {
             debugLogger.debug("OpenAI Realtime session created, sending configuration", {
               model: this.model,
@@ -189,15 +199,10 @@ class OpenAIRealtimeStreaming {
 
         case "session.updated": {
           if (this.pendingResolve) {
-            this.isConnected = true;
-            this.isConnecting = false;
-            clearTimeout(this.connectionTimeout);
             debugLogger.debug("OpenAI Realtime session configured", {
               model: this.model,
             });
-            this.pendingResolve();
-            this.pendingResolve = null;
-            this.pendingReject = null;
+            this._markConnected();
           }
           break;
         }
@@ -267,14 +272,80 @@ class OpenAIRealtimeStreaming {
     }
   }
 
-  sendAudio(pcmBuffer) {
-    if (!this.ws) return false;
+  _markConnected() {
+    this.isConnected = true;
+    this.isConnecting = false;
+    clearTimeout(this.connectionTimeout);
+    this.startKeepAlive();
+    if (this.pendingResolve) {
+      this.pendingResolve();
+      this.pendingResolve = null;
+      this.pendingReject = null;
+    }
+  }
 
-    if (this.ws.readyState !== WebSocket.OPEN) {
-      if (
-        this.ws.readyState === WebSocket.CONNECTING &&
-        this.coldStartBufferSize < COLD_START_BUFFER_MAX
-      ) {
+  // A warm connection sits idle between dictations for up to 5 minutes and is
+  // reused with no other liveness check; a network path that dies silently
+  // (NAT/firewall drop, sleep/wake, VPN toggle) leaves isConnected stuck true
+  // and the next recording gets sent into a dead socket.
+  startKeepAlive() {
+    this.stopKeepAlive();
+    const socket = this.ws;
+    if (!socket) return;
+
+    socket.isAlive = true;
+    socket.on("pong", () => {
+      socket.isAlive = true;
+    });
+
+    this.keepAliveInterval = setInterval(() => {
+      if (socket !== this.ws || socket.readyState !== WebSocket.OPEN) {
+        this.stopKeepAlive();
+        return;
+      }
+      if (socket.isAlive === false) {
+        debugLogger.debug("OpenAI Realtime keep-alive missed pong, terminating stale connection");
+        socket.terminate();
+        return;
+      }
+      socket.isAlive = false;
+      try {
+        socket.ping();
+      } catch (err) {
+        debugLogger.debug("OpenAI Realtime keep-alive ping failed", { error: err.message });
+        socket.terminate();
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }
+
+  stopKeepAlive() {
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
+    }
+  }
+
+  // OpenAI rejects PCM session rates below 24kHz, so 16kHz capture can't be
+  // declared as-is; it is upsampled to the declared rate before sending.
+  _resampleToInputRate(pcmBuffer) {
+    if (this.captureRate === this.inputRate) return pcmBuffer;
+    const src = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
+    const ratio = this.inputRate / this.captureRate;
+    const out = new Int16Array(Math.floor(src.length * ratio));
+    for (let i = 0; i < out.length; i++) {
+      const pos = i / ratio;
+      const low = Math.floor(pos);
+      const high = Math.min(low + 1, src.length - 1);
+      out[i] = Math.round(src[low] + (src[high] - src[low]) * (pos - low));
+    }
+    return Buffer.from(out.buffer);
+  }
+
+  sendAudio(pcmBuffer) {
+    const isOpen = this.ws?.readyState === WebSocket.OPEN;
+
+    if (!isOpen) {
+      if (this.bufferingAudio && this.coldStartBufferSize < COLD_START_BUFFER_MAX) {
         const copy = Buffer.from(pcmBuffer);
         this.coldStartBuffer.push(copy);
         this.coldStartBufferSize += copy.length;
@@ -288,17 +359,21 @@ class OpenAIRealtimeStreaming {
         bytes: this.coldStartBufferSize,
       });
       for (const buf of this.coldStartBuffer) {
-        const b64 = buf.toString("base64");
-        this.ws.send(JSON.stringify({ type: "input_audio_buffer.append", audio: b64 }));
-        this.audioBytesSent += buf.length;
+        const audio = this._resampleToInputRate(buf);
+        this.ws.send(
+          JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
+        );
+        this.audioBytesSent += audio.length;
       }
       this.coldStartBuffer = [];
       this.coldStartBufferSize = 0;
     }
 
-    const base64Audio = Buffer.from(pcmBuffer).toString("base64");
-    this.ws.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64Audio }));
-    this.audioBytesSent += pcmBuffer.length;
+    const audio = this._resampleToInputRate(Buffer.from(pcmBuffer));
+    this.ws.send(
+      JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
+    );
+    this.audioBytesSent += audio.length;
     return true;
   }
 
@@ -375,6 +450,7 @@ class OpenAIRealtimeStreaming {
   cleanup() {
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
+    this.stopKeepAlive();
 
     if (this.ws) {
       try {
@@ -385,6 +461,7 @@ class OpenAIRealtimeStreaming {
 
     this.isConnected = false;
     this.isConnecting = false;
+    this.bufferingAudio = false;
   }
 }
 

@@ -39,12 +39,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* IID_IAudioClient, IID_IAudioCaptureClient, and
- * IID_IActivateAudioInterfaceCompletionHandler are declared via
- * MIDL_INTERFACE (__declspec(uuid)) in <audioclient.h> / <mmdeviceapi.h>, so
- * no import library defines them and <initguid.h> does not emit them in C
- * mode. Define them here — INITGUID is active via <initguid.h> above — so the
- * C references to these IIDs resolve at link time (fixes LNK2019). */
+/* The SDK declares these WASAPI IIDs via MIDL_INTERFACE for C++ __uuidof
+ * only — no import library defines them and <initguid.h> skips them in C —
+ * so they must be defined in-source to link. */
 DEFINE_GUID(IID_IAudioClient,
     0x1cb9ad4c, 0xdbfa, 0x4c32, 0xb1, 0x78, 0xc2, 0xf5, 0x68, 0xa7, 0x03, 0xb2);
 DEFINE_GUID(IID_IAudioCaptureClient,

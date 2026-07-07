@@ -20,8 +20,8 @@
  *     fatal capture error. Injects silence while no application renders
  *     audio so the output timeline stays continuous.
  *
- * Compile with: cl /O2 windows-system-audio-helper.c /Fe:windows-system-audio-helper.exe ole32.lib mmdevapi.lib uuid.lib
- * Or with MinGW: gcc -O2 windows-system-audio-helper.c -o windows-system-audio-helper.exe -lole32 -lmmdevapi -luuid
+ * Compile with: cl /O2 windows-system-audio-helper.c /Fe:windows-system-audio-helper.exe ole32.lib mmdevapi.lib
+ * Or with MinGW: gcc -O2 windows-system-audio-helper.c -o windows-system-audio-helper.exe -lole32 -lmmdevapi
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -41,13 +41,16 @@
 
 /* IID_IAudioClient, IID_IAudioCaptureClient, and
  * IID_IActivateAudioInterfaceCompletionHandler are declared via
- * MIDL_INTERFACE (__declspec(uuid)) in the SDK headers, so <initguid.h> does
- * not emit their definitions in C mode — they live in uuid.lib. Force-link it
- * here so the binary links regardless of the compile command line (the CI
- * workflow's cl invocation can't be edited without a workflow-scoped token). */
-#ifdef _MSC_VER
-#pragma comment(lib, "uuid.lib")
-#endif
+ * MIDL_INTERFACE (__declspec(uuid)) in <audioclient.h> / <mmdeviceapi.h>, so
+ * no import library defines them and <initguid.h> does not emit them in C
+ * mode. Define them here — INITGUID is active via <initguid.h> above — so the
+ * C references to these IIDs resolve at link time (fixes LNK2019). */
+DEFINE_GUID(IID_IAudioClient,
+    0x1cb9ad4c, 0xdbfa, 0x4c32, 0xb1, 0x78, 0xc2, 0xf5, 0x68, 0xa7, 0x03, 0xb2);
+DEFINE_GUID(IID_IAudioCaptureClient,
+    0xc8adbd64, 0xe71e, 0x48a0, 0xa4, 0xde, 0x18, 0x5c, 0x39, 0x5c, 0xd3, 0x17);
+DEFINE_GUID(IID_IActivateAudioInterfaceCompletionHandler,
+    0x41d949ab, 0x9862, 0x444a, 0x80, 0xf6, 0xc2, 0x61, 0x33, 0x4d, 0xa5, 0xeb);
 
 #if defined(__has_include)
 #if __has_include(<audioclientactivationparams.h>)

@@ -6395,7 +6395,8 @@ class IPCHandlers {
         if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
 
         const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
+        // Public endpoints (e.g. invitation previews) work without a session.
+        if (!Object.keys(authHeader).length && !opts.public) throw new Error("Not authenticated");
 
         const method = (opts.method || "GET").toUpperCase();
         const sendWith = (header) => {
@@ -6438,7 +6439,13 @@ class IPCHandlers {
 
         if (!response.ok) {
           const message = data?.error?.message || data?.error || `API error: ${response.status}`;
-          return { success: false, error: message, status: response.status };
+          return {
+            success: false,
+            error: message,
+            status: response.status,
+            code: data?.code,
+            details: data?.data,
+          };
         }
 
         return { success: true, data };

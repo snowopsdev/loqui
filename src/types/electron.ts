@@ -56,6 +56,7 @@ export interface NoteItem {
   diarization_enabled: number | null;
   expected_speaker_count: number | null;
   cloud_id: string | null;
+  is_shared: number;
   created_at: string;
   updated_at: string;
   client_note_id: string;
@@ -1255,12 +1256,19 @@ declare global {
         error?: string;
       }>;
 
-      // Authenticated cloud API proxy
-      cloudApiRequest?: (opts: { method?: string; path: string; body?: unknown }) => Promise<{
+      // Authenticated cloud API proxy (`public: true` skips the auth requirement)
+      cloudApiRequest?: (opts: {
+        method?: string;
+        path: string;
+        body?: unknown;
+        public?: boolean;
+      }) => Promise<{
         success: boolean;
         data?: unknown;
         error?: string;
         code?: string;
+        status?: number;
+        details?: unknown;
       }>;
 
       // Cloud audio file transcription
@@ -1299,6 +1307,7 @@ declare global {
 
       // Workspace invitation deep link
       onWorkspaceInvitationToken?: (callback: (token: string) => void) => () => void;
+      getPendingInvitationToken?: () => Promise<string | null>;
 
       // AssemblyAI Streaming
       assemblyAiStreamingWarmup?: (options?: {

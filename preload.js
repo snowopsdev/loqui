@@ -650,6 +650,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     "workspace-invitation-token",
     (callback) => (_event, token) => callback(token)
   ),
+  getPendingInvitationToken: () => ipcRenderer.invoke("get-pending-invitation-token"),
 
   // Globe key listener for hotkey capture (macOS only)
   onGlobeKeyPressed: (callback) => {

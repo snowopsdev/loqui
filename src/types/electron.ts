@@ -57,6 +57,7 @@ export interface NoteItem {
   expected_speaker_count: number | null;
   cloud_id: string | null;
   is_shared: number;
+  share_token: string | null;
   created_at: string;
   updated_at: string;
   client_note_id: string;

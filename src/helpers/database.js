@@ -481,6 +481,11 @@ class DatabaseManager {
       } catch (err) {
         if (!err.message.includes("duplicate column")) throw err;
       }
+      try {
+        this.db.exec("ALTER TABLE notes ADD COLUMN share_token TEXT");
+      } catch (err) {
+        if (!err.message.includes("duplicate column")) throw err;
+      }
 
       // Sync columns for folders
       try {
@@ -1487,6 +1492,7 @@ class DatabaseManager {
         "client_note_id",
         "cloud_id",
         "is_shared",
+        "share_token",
       ];
       const fields = [];
       const values = [];

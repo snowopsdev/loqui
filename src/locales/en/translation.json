@@ -126,6 +126,7 @@
     "pttUnavailable": "Push-to-Talk native listener not available"
   },
   "common": {
+    "retry": "Retry",
     "back": "Back",
     "next": "Next",
     "complete": "Complete",
@@ -492,6 +493,10 @@
       "customModelId": "Custom Model ID",
       "customModelPlaceholder": "Enter model ID or deployment name",
       "suggestedModels": "Suggested Models",
+      "browseModels": "Browse all models",
+      "loadingModels": "Fetching models...",
+      "allModels": "All Models in {{region}}",
+      "modelListError": "Could not load models.",
       "bedrock": {
         "ssoHelp": "Uses your AWS CLI SSO configuration. Ensure you have run 'aws sso login'.",
         "keysHelp": "Enter your AWS IAM access keys."
@@ -2013,9 +2018,11 @@
       },
       "enterprise": {
         "bedrock_claude_haiku_4_5": "Fast and cheap. Great default for text cleanup.",
-        "bedrock_claude_sonnet_4_6": "Balanced workhorse. Best default for Agent Mode.",
-        "bedrock_claude_opus_4_7": "Max intelligence. Best for complex Agent Mode tasks.",
-        "bedrock_nova_lite": "Cheapest option. AWS-native, ideal for high volume.",
+        "bedrock_claude_sonnet_5": "Balanced workhorse. Best default for Agent Mode.",
+        "bedrock_claude_opus_4_8": "Max intelligence. Best for complex Agent Mode tasks.",
+        "bedrock_gpt_oss_120b": "Open-weight OpenAI model. Strong reasoning at low cost.",
+        "bedrock_deepseek_v3_2": "Open-weight frontier model. Great value for Agent Mode.",
+        "bedrock_qwen3_next_80b": "Sparse open-weight model. Fast and multilingual.",
         "vertex_gemini_2_5_flash": "Fast multimodal model via Vertex",
         "vertex_gemini_2_5_pro": "Advanced reasoning via Vertex"
       },

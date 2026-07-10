@@ -15,6 +15,7 @@ const CortiStreaming = require("./cortiStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
+const { getTinfoilChatModels } = require("./tinfoilCatalog");
 const AudioStorageManager = require("./audioStorage");
 
 // Tinfoil's only realtime STT model — fallback when the renderer omits one.
@@ -2784,6 +2785,10 @@ class IPCHandlers {
 
     ipcMain.handle("save-tinfoil-key", async (event, key) => {
       return this.environmentManager.saveTinfoilKey(key);
+    });
+
+    ipcMain.handle("get-tinfoil-chat-models", async () => {
+      return getTinfoilChatModels();
     });
 
     ipcMain.handle("get-custom-transcription-key", async () => {

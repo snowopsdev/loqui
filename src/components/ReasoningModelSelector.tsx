@@ -20,8 +20,8 @@ import { REASONING_PROVIDERS, toReasoningModel } from "../models/ModelRegistry";
 import { useTinfoilModels } from "../hooks/useTinfoilModels";
 import { pickDefaultTinfoilModel } from "../models/tinfoilModels";
 import { modelRegistry } from "../models/ModelRegistry";
-import { getProviderIcon, isMonochromeProvider } from "../utils/providerIcons";
-import { createExternalLinkHandler } from "../utils/externalLinks";
+import { getRemoteProviderIcon } from "../utils/providerIcons";
+import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import { getCachedPlatform } from "../utils/platform";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -35,7 +35,18 @@ type CloudModelOption = {
   invertInDark?: boolean;
 };
 
-const CLOUD_PROVIDER_IDS = ["openai", "anthropic", "gemini", "groq", "tinfoil", "custom"];
+const OPENROUTER_TAB = "openrouter";
+const OPENROUTER_KEYS_URL = "https://openrouter.ai/keys";
+
+const CLOUD_PROVIDER_IDS = [
+  "openai",
+  "anthropic",
+  "gemini",
+  "groq",
+  OPENROUTER_TAB,
+  "tinfoil",
+  "custom",
+];
 
 interface ReasoningModelSelectorProps {
   reasoningModel: string;
@@ -322,6 +333,8 @@ export default function ReasoningModelSelector({
   const setGeminiApiKey = useSettingsStore((s) => s.setGeminiApiKey);
   const groqApiKey = useSettingsStore((s) => s.groqApiKey);
   const setGroqApiKey = useSettingsStore((s) => s.setGroqApiKey);
+  const openrouterApiKey = useSettingsStore((s) => s.openrouterApiKey);
+  const setOpenrouterApiKey = useSettingsStore((s) => s.setOpenrouterApiKey);
   const tinfoilApiKey = useSettingsStore((s) => s.tinfoilApiKey);
   const setTinfoilApiKey = useSettingsStore((s) => s.setTinfoilApiKey);
   const [selectedMode, setSelectedMode] = useState<"cloud" | "local">(mode || "cloud");
@@ -340,7 +353,9 @@ export default function ReasoningModelSelector({
     name:
       id === "custom"
         ? t("reasoning.custom.providerName")
-        : REASONING_PROVIDERS[id as keyof typeof REASONING_PROVIDERS]?.name || id,
+        : id === OPENROUTER_TAB
+          ? "OpenRouter"
+          : REASONING_PROVIDERS[id as keyof typeof REASONING_PROVIDERS]?.name || id,
   }));
 
   const localProviders = useMemo<LocalProvider[]>(() => {
@@ -361,23 +376,22 @@ export default function ReasoningModelSelector({
   }, []);
 
   const openaiModelOptions = useMemo<CloudModelOption[]>(() => {
-    const iconUrl = getProviderIcon("openai");
+    const { icon, invertInDark } = getRemoteProviderIcon("openai");
     return REASONING_PROVIDERS.openai.models.map((model) => ({
       ...model,
       description: model.descriptionKey
         ? t(model.descriptionKey, { defaultValue: model.description })
         : model.description,
-      icon: iconUrl,
-      invertInDark: true,
+      icon,
+      invertInDark,
     }));
   }, [t]);
 
   const selectedCloudModels = useMemo<CloudModelOption[]>(() => {
     if (selectedCloudProvider === "openai") return openaiModelOptions;
-    if (selectedCloudProvider === "custom") return [];
+    if (selectedCloudProvider === "custom" || selectedCloudProvider === OPENROUTER_TAB) return [];
 
-    const iconUrl = getProviderIcon(selectedCloudProvider);
-    const invertInDark = isMonochromeProvider(selectedCloudProvider);
+    const { icon: iconUrl, invertInDark } = getRemoteProviderIcon(selectedCloudProvider);
 
     const models =
       selectedCloudProvider === "tinfoil"
@@ -432,7 +446,12 @@ export default function ReasoningModelSelector({
   }, [loadDownloadedModels]);
 
   const selectDefaultModelForProvider = (provider: string) => {
-    if (provider === "custom") return;
+    // Custom/OpenRouter fetch their model list dynamically — clear instead of
+    // presetting so another provider's model id can't persist under this one.
+    if (provider === "custom" || provider === OPENROUTER_TAB) {
+      setReasoningModel("");
+      return;
+    }
 
     if (provider === "tinfoil") {
       const defaultModel = pickDefaultTinfoilModel(tinfoilModels);
@@ -532,8 +551,22 @@ export default function ReasoningModelSelector({
           />
 
           <div>
-            {selectedCloudProvider === "custom" ? (
+            {selectedCloudProvider === OPENROUTER_TAB ? (
               <OpenAICompatiblePanel
+                key={OPENROUTER_TAB}
+                baseUrl={API_ENDPOINTS.OPENROUTER_BASE}
+                setBaseUrl={() => {}}
+                apiKey={openrouterApiKey}
+                setApiKey={setOpenrouterApiKey}
+                model={reasoningModel}
+                setModel={setReasoningModel}
+                lockedBaseUrl
+                apiKeyRequired
+                getKeyUrl={OPENROUTER_KEYS_URL}
+              />
+            ) : selectedCloudProvider === "custom" ? (
+              <OpenAICompatiblePanel
+                key="custom"
                 baseUrl={cloudReasoningBaseUrl}
                 setBaseUrl={setCloudReasoningBaseUrl}
                 apiKey={customReasoningApiKey}
@@ -548,15 +581,7 @@ export default function ReasoningModelSelector({
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
                       <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <a
-                        href="https://platform.openai.com/api-keys"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={createExternalLinkHandler("https://platform.openai.com/api-keys")}
-                        className="text-xs text-link underline decoration-link/30 hover:decoration-link/60 cursor-pointer transition-colors"
-                      >
-                        {t("reasoning.getApiKey")}
-                      </a>
+                      <GetApiKeyLink url="https://platform.openai.com/api-keys" />
                     </div>
                     <ApiKeyInput
                       apiKey={openaiApiKey}
@@ -571,17 +596,7 @@ export default function ReasoningModelSelector({
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
                       <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <a
-                        href="https://console.anthropic.com/settings/keys"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={createExternalLinkHandler(
-                          "https://console.anthropic.com/settings/keys"
-                        )}
-                        className="text-xs text-link underline decoration-link/30 hover:decoration-link/60 cursor-pointer transition-colors"
-                      >
-                        {t("reasoning.getApiKey")}
-                      </a>
+                      <GetApiKeyLink url="https://console.anthropic.com/settings/keys" />
                     </div>
                     <ApiKeyInput
                       apiKey={anthropicApiKey}
@@ -596,17 +611,7 @@ export default function ReasoningModelSelector({
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
                       <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <a
-                        href="https://aistudio.google.com/app/api-keys"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={createExternalLinkHandler(
-                          "https://aistudio.google.com/app/api-keys"
-                        )}
-                        className="text-xs text-link underline decoration-link/30 hover:decoration-link/60 cursor-pointer transition-colors"
-                      >
-                        {t("reasoning.getApiKey")}
-                      </a>
+                      <GetApiKeyLink url="https://aistudio.google.com/app/api-keys" />
                     </div>
                     <ApiKeyInput
                       apiKey={geminiApiKey}
@@ -621,15 +626,7 @@ export default function ReasoningModelSelector({
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
                       <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <a
-                        href="https://console.groq.com/keys"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={createExternalLinkHandler("https://console.groq.com/keys")}
-                        className="text-xs text-link underline decoration-link/30 hover:decoration-link/60 cursor-pointer transition-colors"
-                      >
-                        {t("reasoning.getApiKey")}
-                      </a>
+                      <GetApiKeyLink url="https://console.groq.com/keys" />
                     </div>
                     <ApiKeyInput
                       apiKey={groqApiKey}
@@ -644,17 +641,7 @@ export default function ReasoningModelSelector({
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
                       <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <a
-                        href="https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={createExternalLinkHandler(
-                          "https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr"
-                        )}
-                        className="text-xs text-link underline decoration-link/30 hover:decoration-link/60 cursor-pointer transition-colors"
-                      >
-                        {t("reasoning.getApiKey")}
-                      </a>
+                      <GetApiKeyLink url="https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr" />
                     </div>
                     <ApiKeyInput
                       apiKey={tinfoilApiKey}

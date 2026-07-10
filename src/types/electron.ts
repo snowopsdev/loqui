@@ -1001,6 +1001,8 @@ declare global {
       // Groq API key management
       getGroqKey: () => Promise<string | null>;
       saveGroqKey: (key: string) => Promise<void>;
+      getOpenrouterKey: () => Promise<string | null>;
+      saveOpenrouterKey: (key: string) => Promise<void>;
 
       // xAI API key management
       getXaiKey?: () => Promise<string | null>;

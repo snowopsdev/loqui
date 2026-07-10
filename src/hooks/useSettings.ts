@@ -72,6 +72,7 @@ export interface ApiKeySettings {
   openrouterApiKey: string;
   cortiClientId: string;
   cortiClientSecret: string;
+  cortiApiKey: string;
   tinfoilApiKey: string;
   customTranscriptionApiKey: string;
   cleanupCustomApiKey: string;

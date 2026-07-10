@@ -298,6 +298,7 @@
         "createAccount": "Corti-Konto erstellen",
         "creditBadge": "50 $ Gratis-Guthaben",
         "regionHint": "Wähle, wo dein Audio verarbeitet wird — USA oder EU.",
+        "llmHint": "Sprachmodell-Funktionen laufen ebenfalls über die Corti-Modelle.",
         "useCorti": "Corti verwenden",
         "skip": "Jetzt nicht",
         "step1": "Registriere dich auf corti.ai",
@@ -539,6 +540,7 @@
     "corti": {
       "clientId": "Client-ID",
       "clientSecret": "Client-Secret",
+      "apiKey": "API-Schlüssel",
       "environment": "Datenregion",
       "tenant": "Tenant"
     },
@@ -1929,7 +1931,11 @@
         "tinfoil_kimi_k2_6": "Privates Modell für langfristiges Coding und Multimodalität, 256K Kontext",
         "tinfoil_gemma4_31b": "Privates mehrsprachiges Reasoning-Modell mit Tool-Aufrufen, 256K Kontext",
         "tinfoil_gpt_oss_120b": "Privates Open-Weight-Reasoning-Modell mit Tool-Nutzung, 131K Kontext",
-        "tinfoil_llama3_3_70b": "Privates Konversationsmodell mit Tool-Aufrufen, 128K Kontext"
+        "tinfoil_llama3_3_70b": "Privates Konversationsmodell mit Tool-Aufrufen, 128K Kontext",
+        "corti_corti_s1_instant": "Schnelles Gesundheitsmodell, ohne Reasoning-Spur",
+        "corti_corti_s1": "Leistungsfähigstes klinisches Modell mit Reasoning",
+        "corti_corti_s1_mini_instant": "Kompaktes Gesundheitsmodell, am schnellsten und günstigsten",
+        "corti_corti_s1_mini": "Kompaktes klinisches Modell mit Reasoning zum halben Preis"
       },
       "enterprise": {
         "bedrock_claude_haiku_4_5": "Schnell und günstig. Ideal zum Bereinigen von Text.",

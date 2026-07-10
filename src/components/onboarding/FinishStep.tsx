@@ -4,8 +4,9 @@ import { Check, ExternalLink, Settings, Stethoscope } from "lucide-react";
 import { Button } from "../ui/button";
 import ApiKeyInput from "../ui/ApiKeyInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { getTranscriptionProviders } from "../../models/ModelRegistry";
+import { getTranscriptionProviders, modelRegistry } from "../../models/ModelRegistry";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { buildCortiOnboardingPayloads } from "../../helpers/reasoningRouting";
 import { USE_CASE_IDS } from "./useCases";
 
 const CORTI_SIGNUP_URL =
@@ -28,10 +29,13 @@ export default function FinishStep({
   const setCloudTranscriptionForAllScopes = useSettingsStore(
     (s) => s.setCloudTranscriptionForAllScopes
   );
+  const setCloudReasoningForAllScopes = useSettingsStore((s) => s.setCloudReasoningForAllScopes);
   const cortiClientId = useSettingsStore((s) => s.cortiClientId);
   const setCortiClientId = useSettingsStore((s) => s.setCortiClientId);
   const cortiClientSecret = useSettingsStore((s) => s.cortiClientSecret);
   const setCortiClientSecret = useSettingsStore((s) => s.setCortiClientSecret);
+  const cortiApiKey = useSettingsStore((s) => s.cortiApiKey);
+  const setCortiApiKey = useSettingsStore((s) => s.setCortiApiKey);
   const cortiEnvironment = useSettingsStore((s) => s.cortiEnvironment);
   const setCortiEnvironment = useSettingsStore((s) => s.setCortiEnvironment);
 
@@ -45,12 +49,16 @@ export default function FinishStep({
     cortiClientId.trim().length > 0 && cortiClientSecret.trim().length > 0;
 
   const startWithCorti = () => {
-    setCloudTranscriptionForAllScopes({
-      useLocalWhisper: false,
-      cloudTranscriptionMode: "byok",
-      cloudTranscriptionProvider: "corti",
-      cloudTranscriptionModel: cortiProvider?.models[0]?.id,
-    });
+    // Route all four LLM scopes to Corti too so PHI never leaves Corti. No LLM
+    // routing when the Corti registry entry or model is missing, or outside the EU region.
+    const reasoningProvider = modelRegistry.getCloudProviders().find((p) => p.id === "corti");
+    const { transcription, reasoning } = buildCortiOnboardingPayloads(
+      cortiProvider,
+      reasoningProvider,
+      cortiEnvironment
+    );
+    setCloudTranscriptionForAllScopes(transcription);
+    if (reasoning && cortiApiKey.trim()) setCloudReasoningForAllScopes(reasoning);
     onFinish(false);
   };
 
@@ -108,6 +116,12 @@ export default function FinishStep({
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">
+              {t("transcription.corti.apiKey")}
+            </label>
+            <ApiKeyInput apiKey={cortiApiKey} setApiKey={setCortiApiKey} label="" helpText="" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">
               {t("transcription.corti.environment")}
             </label>
             <Select value={cortiEnvironment} onValueChange={setCortiEnvironment}>
@@ -122,6 +136,11 @@ export default function FinishStep({
             <p className="text-xs text-muted-foreground/70">
               {t("onboarding.finish.corti.regionHint")}
             </p>
+            {cortiEnvironment === "eu" && cortiApiKey.trim() && (
+              <p className="text-xs text-muted-foreground/70">
+                {t("onboarding.finish.corti.llmHint")}
+              </p>
+            )}
           </div>
         </div>
 

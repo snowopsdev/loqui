@@ -298,6 +298,7 @@
         "createAccount": "建立你的 Corti 帳戶",
         "creditBadge": "50 美元免費額度",
         "regionHint": "選擇音訊處理地區 — 美國或歐盟。",
+        "llmHint": "語言模型功能也會在 Corti 模型上執行。",
         "useCorti": "使用 Corti",
         "skip": "暫時不用",
         "step1": "在 corti.ai 註冊",
@@ -539,6 +540,7 @@
     "corti": {
       "clientId": "用戶端 ID",
       "clientSecret": "用戶端密鑰",
+      "apiKey": "API Key",
       "environment": "資料區域",
       "tenant": "租戶"
     },
@@ -1924,7 +1926,11 @@
         "tinfoil_kimi_k2_6": "私密長程編碼與多模態模型，256K 上下文",
         "tinfoil_gemma4_31b": "支援工具呼叫的私密多語言推理模型，256K 上下文",
         "tinfoil_gpt_oss_120b": "支援工具使用的私密開放權重推理模型，131K 上下文",
-        "tinfoil_llama3_3_70b": "支援工具呼叫的私密對話模型，128K 上下文"
+        "tinfoil_llama3_3_70b": "支援工具呼叫的私密對話模型，128K 上下文",
+        "corti_corti_s1_instant": "快速醫療模型，無推理過程",
+        "corti_corti_s1": "功能最強的臨床模型，帶推理",
+        "corti_corti_s1_mini_instant": "精簡型醫療模型，最快且成本最低",
+        "corti_corti_s1_mini": "精簡型臨床模型，半價提供推理"
       },
       "enterprise": {
         "bedrock_claude_haiku_4_5": "快速且低成本。適合文字清理。",

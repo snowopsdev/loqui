@@ -37,19 +37,36 @@ export default function WorkspaceMembersTab({ workspace, onNavigateToBilling }: 
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState(false);
+  const [invitationsError, setInvitationsError] = useState(false);
   const canManage = workspace.role === "owner" || workspace.role === "admin";
 
+  async function loadMembers() {
+    setMembersLoading(true);
+    setMembersError(false);
+    try {
+      await refreshMembers(workspace.id);
+    } catch {
+      setMembersError(true);
+    } finally {
+      setMembersLoading(false);
+    }
+  }
+
   async function refreshInvitations() {
+    setInvitationsError(false);
     try {
       const list = await InvitationsService.list(workspace.id);
       setInvitations(list);
     } catch {
       setInvitations([]);
+      setInvitationsError(true);
     }
   }
 
   useEffect(() => {
-    void refreshMembers(workspace.id);
+    void loadMembers();
     if (canManage) void refreshInvitations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
@@ -171,80 +188,104 @@ export default function WorkspaceMembersTab({ workspace, onNavigateToBilling }: 
         )}
       </div>
 
-      <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 divide-y divide-border/30 dark:divide-border-subtle/50 bg-card/50 dark:bg-surface-2/50">
-        {members.map((member) => (
-          <div key={member.user_id} className="flex items-center gap-3 px-4 h-14">
-            {member.image ? (
-              <img
-                src={member.image}
-                alt=""
-                className="w-7 h-7 rounded-full object-cover shrink-0"
-              />
-            ) : (
-              <span className="w-7 h-7 rounded-full bg-primary/10 text-primary text-[10px] font-semibold flex items-center justify-center shrink-0">
-                {(member.name || member.email).slice(0, 2).toUpperCase()}
+      {membersLoading && members.length === 0 ? (
+        <div className="h-24 rounded-lg bg-foreground/5 dark:bg-white/5 animate-pulse" />
+      ) : membersError && members.length === 0 ? (
+        <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 bg-card/50 dark:bg-surface-2/50 px-4 py-6 flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {t("settingsPage.workspace.members.loadError")}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void loadMembers()}>
+            {t("settingsPage.workspace.loadError.retry")}
+          </Button>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 divide-y divide-border/30 dark:divide-border-subtle/50 bg-card/50 dark:bg-surface-2/50">
+          {members.map((member) => (
+            <div key={member.user_id} className="flex items-center gap-3 px-4 h-14">
+              {member.image ? (
+                <img
+                  src={member.image}
+                  alt=""
+                  className="w-7 h-7 rounded-full object-cover shrink-0"
+                />
+              ) : (
+                <span className="w-7 h-7 rounded-full bg-primary/10 text-primary text-[10px] font-semibold flex items-center justify-center shrink-0">
+                  {(member.name || member.email).slice(0, 2).toUpperCase()}
+                </span>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">
+                  {member.name || member.email}
+                </p>
+                {member.name && (
+                  <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                )}
+              </div>
+              <span
+                className={cn(
+                  "text-[10px] font-medium px-2 py-0.5 rounded-md uppercase tracking-wide",
+                  member.role === "owner"
+                    ? "bg-primary/10 text-primary"
+                    : "bg-foreground/6 text-foreground/65"
+                )}
+              >
+                {t(`settingsPage.workspace.role.${member.role}`)}
               </span>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground truncate">
-                {member.name || member.email}
-              </p>
-              {member.name && (
-                <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+              {canManage && member.role !== "owner" && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
+                    aria-label={t("common.actions")}
+                  >
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="text-xs">
+                    {member.role !== "admin" && (
+                      <DropdownMenuItem onSelect={() => handleRoleChange(member.user_id, "admin")}>
+                        {t("settingsPage.workspace.members.promote")}
+                      </DropdownMenuItem>
+                    )}
+                    {member.role !== "member" && (
+                      <DropdownMenuItem onSelect={() => handleRoleChange(member.user_id, "member")}>
+                        {t("settingsPage.workspace.members.demote")}
+                      </DropdownMenuItem>
+                    )}
+                    {workspace.role === "owner" && (
+                      <DropdownMenuItem onSelect={() => confirmTransferOwnership(member)}>
+                        {t("settingsPage.workspace.members.transferOwnership")}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onSelect={() => confirmRemoveMember(member)}
+                    >
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                      {t("settingsPage.workspace.members.remove")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
-            <span
-              className={cn(
-                "text-[10px] font-medium px-2 py-0.5 rounded-md uppercase tracking-wide",
-                member.role === "owner"
-                  ? "bg-primary/10 text-primary"
-                  : "bg-foreground/6 text-foreground/65"
-              )}
-            >
-              {t(`settingsPage.workspace.role.${member.role}`)}
-            </span>
-            {canManage && member.role !== "owner" && (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
-                  aria-label={t("common.actions")}
-                >
-                  <MoreVertical className="w-3.5 h-3.5" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="text-xs">
-                  {member.role !== "admin" && (
-                    <DropdownMenuItem onSelect={() => handleRoleChange(member.user_id, "admin")}>
-                      {t("settingsPage.workspace.members.promote")}
-                    </DropdownMenuItem>
-                  )}
-                  {member.role !== "member" && (
-                    <DropdownMenuItem onSelect={() => handleRoleChange(member.user_id, "member")}>
-                      {t("settingsPage.workspace.members.demote")}
-                    </DropdownMenuItem>
-                  )}
-                  {workspace.role === "owner" && (
-                    <DropdownMenuItem onSelect={() => confirmTransferOwnership(member)}>
-                      {t("settingsPage.workspace.members.transferOwnership")}
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem
-                    className="text-destructive"
-                    onSelect={() => confirmRemoveMember(member)}
-                  >
-                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                    {t("settingsPage.workspace.members.remove")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-        ))}
-        {members.length === 0 && (
-          <div className="py-8 text-center text-xs text-muted-foreground">
-            {t("settingsPage.workspace.members.empty")}
-          </div>
-        )}
-      </div>
+          ))}
+          {members.length === 0 && (
+            <div className="py-8 text-center text-xs text-muted-foreground">
+              {t("settingsPage.workspace.members.empty")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {canManage && invitationsError && (
+        <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 bg-card/50 dark:bg-surface-2/50 px-4 py-3 flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {t("settingsPage.workspace.invites.loadError")}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void refreshInvitations()}>
+            {t("settingsPage.workspace.loadError.retry")}
+          </Button>
+        </div>
+      )}
 
       {canManage && invitations.length > 0 && (
         <div>

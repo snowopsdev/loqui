@@ -261,6 +261,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onWorkspaceInvitationToken?.((token) => {
       setInvitationToken(token);
+      // Consume the main-process stash so a handled push isn't re-pulled on a
+      // later remount.
+      void window.electronAPI?.getPendingInvitationToken?.();
     });
     window.electronAPI?.getPendingInvitationToken?.().then((token) => {
       if (token) setInvitationToken(token);
@@ -269,7 +272,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, []);
 
   useEffect(() => {
-    if (!authLoaded || !isSignedIn) return;
+    // Also when signed out (the modal's "Sign in to accept" handles auth);
+    // isSignedIn stays in the deps so a stored token resurfaces after sign-in.
+    if (!authLoaded) return;
     const pending = consumePendingInvitationToken();
     if (pending) {
       setInvitationToken(pending);

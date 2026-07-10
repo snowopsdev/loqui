@@ -51,6 +51,8 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
   const cached = useShareCacheEntry(cloudId);
 
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
@@ -72,7 +74,8 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
 
   const share = cached?.share ?? null;
   const invitations = useMemo(() => cached?.invitations ?? [], [cached?.invitations]);
-  const isPrivate = (share?.visibility ?? "private") === "private";
+  // While server state loads, the persisted flag keeps the footer honest.
+  const isPrivate = share ? share.visibility === "private" : !note.is_shared;
 
   // The store's note can miss a cloud_id assigned by a background sync
   // (markNoteSynced doesn't broadcast); read the DB before offering to sync.
@@ -92,12 +95,12 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
     };
   }, [open, note.id, note.cloud_id]);
 
-  // Pure read of server state on open, plus reconciling the local is_shared
-  // flag when it disagrees with the server.
+  // Loading also reconciles the local is_shared flag with server truth.
   useEffect(() => {
     if (!open || !cloudId) return;
     let cancelled = false;
     setLoading(true);
+    setLoadError(false);
     NoteSharingService.getShareSettings(cloudId)
       .then((res) => {
         if (cancelled) return;
@@ -111,17 +114,13 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
           void persistNoteShareState(
             note.id,
             serverShared ? { is_shared: 1 } : { is_shared: 0, share_token: null }
-          );
+          ).catch((err) => console.error("Share flag persist failed:", err));
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.error("Failed to load share settings:", err);
-        toast({
-          title: t("noteEditor.share.dialog.error.loadFailed"),
-          description: err instanceof Error ? err.message : t("common.unknownError"),
-          variant: "destructive",
-        });
+        setLoadError(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -129,7 +128,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
     return () => {
       cancelled = true;
     };
-  }, [open, cloudId, note.id, t, toast]);
+  }, [open, cloudId, note.id, loadAttempt]);
 
   useEffect(() => {
     if (open) {
@@ -176,7 +175,11 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
             invitations: entry?.invitations ?? [],
             rawToken: null,
           }));
-          await persistNoteShareState(note.id, { is_shared: 0, share_token: null });
+          // Local bookkeeping must not roll back a succeeded server call; the
+          // dialog-open reconcile heals a failed flag write.
+          void persistNoteShareState(note.id, { is_shared: 0, share_token: null }).catch((err) =>
+            console.error("Share flag persist failed:", err)
+          );
           return null;
         }
         const res = await NoteSharingService.updateShareSettings(
@@ -189,10 +192,10 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
           invitations: entry?.invitations ?? [],
           rawToken: res.raw_token ?? entry?.rawToken ?? null,
         }));
-        await persistNoteShareState(
+        void persistNoteShareState(
           note.id,
           res.raw_token ? { is_shared: 1, share_token: res.raw_token } : { is_shared: 1 }
-        );
+        ).catch((err) => console.error("Share flag persist failed:", err));
         return res;
       } catch (err) {
         console.error("Failed to update sharing:", err);
@@ -241,7 +244,9 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
         invitations: entry?.invitations ?? [],
         rawToken: res.raw_token,
       }));
-      await persistNoteShareState(note.id, { is_shared: 1, share_token: res.raw_token });
+      void persistNoteShareState(note.id, { is_shared: 1, share_token: res.raw_token }).catch(
+        (err) => console.error("Share flag persist failed:", err)
+      );
       await copyLink(res.raw_token);
     } catch (err) {
       console.error("Share link recovery failed:", err);
@@ -398,6 +403,20 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
               {t("noteEditor.share.dialog.syncAndShare")}
             </Button>
           </>
+        ) : loadError ? (
+          <div className="flex items-center justify-between gap-2 py-1">
+            <p className="text-xs text-foreground/50">
+              {t("noteEditor.share.dialog.error.loadFailed")}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setLoadAttempt((a) => a + 1)}
+            >
+              {t("noteEditor.share.dialog.error.retry")}
+            </Button>
+          </div>
         ) : (
           <>
             <DialogDescription className="sr-only">
@@ -448,7 +467,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
             <div className="flex flex-col gap-1.5 mt-1">
               <MemberRow
                 primary={ownerName || ownerEmail}
-                secondary={ownerEmail}
+                secondary={ownerName ? ownerEmail : null}
                 trailing={
                   <span className="text-[11px] text-foreground/40">
                     {t("noteEditor.share.dialog.owner")}
@@ -516,7 +535,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
                 variant={isPrivate ? "default" : "outline"}
                 size="sm"
                 className="h-8 px-3 text-xs gap-1.5"
-                disabled={loading || !share || savingVisibility || linkBusy || copied}
+                disabled={loading || !share || savingVisibility || linkBusy}
                 onClick={() => void handleLinkButton()}
               >
                 {linkBusy ? (
@@ -553,7 +572,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
 
 interface MemberRowProps {
   primary: string;
-  secondary: string;
+  secondary: string | null;
   trailing: React.ReactNode;
 }
 
@@ -562,7 +581,7 @@ function MemberRow({ primary, secondary, trailing }: MemberRowProps) {
     <div className="flex items-center gap-2 py-1.5 px-1">
       <div className="flex-1 min-w-0">
         <p className="text-xs text-foreground truncate">{primary}</p>
-        <p className="text-[11px] text-foreground/40 truncate">{secondary}</p>
+        {secondary && <p className="text-[11px] text-foreground/40 truncate">{secondary}</p>}
       </div>
       {trailing}
     </div>

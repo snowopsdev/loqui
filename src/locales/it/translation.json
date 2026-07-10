@@ -1779,7 +1779,7 @@
       },
       "general": {
         "nameLabel": "Nome dell'area di lavoro",
-        "slugLabel": "Slug",
+        "slugLabel": "Nome breve",
         "slugHint": "Usato negli URL e nei link di invito. Solo lettere minuscole, cifre e trattini.",
         "slugInvalid": "Solo lettere minuscole, cifre e trattini.",
         "saved": "Area di lavoro aggiornata",
@@ -1805,6 +1805,7 @@
         "description": "{{count}} di {{seats}} posti utilizzati.",
         "invite": "Invita",
         "empty": "Nessun membro per ora.",
+        "loadError": "Impossibile caricare i membri.",
         "roleUpdated": "Ruolo aggiornato",
         "promote": "Rendi amministratore",
         "demote": "Rendi membro",
@@ -1824,6 +1825,7 @@
         "expiresIn_one": "Scade tra {{count}} giorno",
         "expiresIn_other": "Scade tra {{count}} giorni",
         "expired": "Scaduto",
+        "loadError": "Impossibile caricare gli inviti.",
         "resend": "Reinvia",
         "resending": "Reinvio…",
         "revoke": "Revoca",
@@ -1839,6 +1841,7 @@
         "description": "Piano, posti e pagamento.",
         "plan": "Piano",
         "seats": "Posti",
+        "ownerOnly": "Solo il proprietario dell'area di lavoro può gestire l'abbonamento.",
         "nextInvoice": "Prossima fattura",
         "manageStripe": "Gestisci in Stripe",
         "opening": "Apertura…",
@@ -1861,6 +1864,7 @@
         "title": "Chiavi API",
         "description": "Accesso programmatico limitato a questa area di lavoro.",
         "empty": "Nessuna chiave API. Creane una per integrarti con questa area di lavoro.",
+        "loadError": "Impossibile caricare le chiavi API.",
         "new": "Nuova chiave",
         "create": "Crea chiave",
         "createTitle": "Crea chiave API",
@@ -2767,7 +2771,7 @@
         "resendSent": "Invito inviato",
         "resendThrottled": "Invito inviato di recente. Riprova tra un minuto.",
         "syncPrompt": "La condivisione mantiene una copia di questa nota nel tuo cloud OpenWhispr.",
-        "syncAndShare": "Sincronizza e condividi",
+        "syncAndShare": "Sincronizza nota",
         "visibility": {
           "label": "Visibilità",
           "private": "Privata",
@@ -2785,7 +2789,8 @@
           "revokeFailed": "Impossibile rimuovere l'invito. Riprova.",
           "resendFailed": "Impossibile reinviare l'invito. Riprova.",
           "syncFailed": "Impossibile sincronizzare questa nota. Riprova.",
-          "loadFailed": "Impossibile caricare le impostazioni di condivisione"
+          "loadFailed": "Impossibile caricare le impostazioni di condivisione",
+          "retry": "Riprova"
         }
       }
     }
@@ -2917,6 +2922,7 @@
       "roleLabel": "Ruolo",
       "seatUsage": "{{used}} di {{seats}} posti in uso",
       "seatLimit": "Tutti i {{seats}} posti sono in uso.",
+      "askOwner": "Tutti i {{seats}} posti sono in uso. Chiedi al proprietario dell'area di lavoro di aggiungere posti.",
       "manageSeats": "Gestisci posti",
       "submit": "Invia invito",
       "submitting": "Invio…",
@@ -2939,6 +2945,7 @@
       "accept": "Accetta invito",
       "accepting": "Accettazione…",
       "signInToAccept": "Accedi per accettare",
+      "switchAccount": "Cambia account",
       "successTitle": "Sei dentro",
       "successDescription": "Sei membro di {{name}}. Gestiscila in Impostazioni → Area di lavoro.",
       "errorTitle": "Impossibile accettare l'invito",

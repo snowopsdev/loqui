@@ -45,9 +45,9 @@ export default function InviteTeammateDialog({
   const [submitting, setSubmitting] = useState(false);
   const [seatsUsed, setSeatsUsed] = useState<number | null>(null);
   const [seatLimitSeats, setSeatLimitSeats] = useState<number | null>(null);
-  const seats = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.seats ?? null
-  );
+  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId));
+  const seats = workspace?.seats ?? null;
+  const isOwner = workspace?.role === "owner";
 
   useEffect(() => {
     if (!open) return;
@@ -56,8 +56,15 @@ export default function InviteTeammateDialog({
       .then((preview) => {
         if (!cancelled) setSeatsUsed(preview.next_quantity - 1);
       })
-      .catch(() => {
-        if (!cancelled) setSeatsUsed(null);
+      .catch(async () => {
+        // No subscription yet — fall back to the member count so the seat
+        // line always renders.
+        try {
+          const members = await WorkspacesService.listMembers(workspaceId);
+          if (!cancelled) setSeatsUsed(members.length);
+        } catch {
+          if (!cancelled) setSeatsUsed(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -169,9 +176,11 @@ export default function InviteTeammateDialog({
           {seatLimitSeats !== null && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 flex items-center justify-between gap-3">
               <p className="text-xs text-destructive">
-                {t("workspaces.invite.seatLimit", { seats: seatLimitSeats })}
+                {isOwner
+                  ? t("workspaces.invite.seatLimit", { seats: seatLimitSeats })
+                  : t("workspaces.invite.askOwner", { seats: seatLimitSeats })}
               </p>
-              {onNavigateToBilling && (
+              {isOwner && onNavigateToBilling && (
                 <Button
                   type="button"
                   variant="outline"

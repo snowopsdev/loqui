@@ -1174,7 +1174,7 @@
       },
       "general": {
         "nameLabel": "Workspace-Name",
-        "slugLabel": "Slug",
+        "slugLabel": "Kurzname",
         "slugHint": "Wird in URLs verwendet. Nur Kleinbuchstaben, Ziffern und Bindestriche.",
         "slugInvalid": "Nur Kleinbuchstaben, Ziffern und Bindestriche.",
         "saved": "Workspace aktualisiert",
@@ -1200,6 +1200,7 @@
         "description": "{{count}} von {{seats}} Plätzen belegt.",
         "invite": "Einladen",
         "empty": "Noch keine Mitglieder.",
+        "loadError": "Mitglieder konnten nicht geladen werden.",
         "roleUpdated": "Rolle aktualisiert",
         "promote": "Zum Administrator machen",
         "demote": "Zum Mitglied machen",
@@ -1219,6 +1220,7 @@
         "expiresIn_one": "Läuft in {{count}} Tag ab",
         "expiresIn_other": "Läuft in {{count}} Tagen ab",
         "expired": "Abgelaufen",
+        "loadError": "Einladungen konnten nicht geladen werden.",
         "resend": "Erneut senden",
         "resending": "Sende erneut…",
         "revoke": "Widerrufen",
@@ -1234,6 +1236,7 @@
         "description": "Plan, Plätze und Zahlung.",
         "plan": "Plan",
         "seats": "Plätze",
+        "ownerOnly": "Nur der Workspace-Inhaber kann das Abonnement verwalten.",
         "nextInvoice": "Nächste Rechnung",
         "manageStripe": "In Stripe verwalten",
         "opening": "Öffne…",
@@ -1256,6 +1259,7 @@
         "title": "API-Schlüssel",
         "description": "Programmatischer Zugriff auf diesen Workspace.",
         "empty": "Noch keine API-Schlüssel. Erstellen Sie einen für Integrationen.",
+        "loadError": "API-Schlüssel konnten nicht geladen werden.",
         "new": "Neuer Schlüssel",
         "create": "Schlüssel erstellen",
         "createTitle": "API-Schlüssel erstellen",
@@ -2146,6 +2150,7 @@
       "roleLabel": "Rolle",
       "seatUsage": "{{used}} von {{seats}} Plätzen belegt",
       "seatLimit": "Alle {{seats}} Plätze sind belegt.",
+      "askOwner": "Alle {{seats}} Plätze sind belegt. Bitten Sie den Workspace-Inhaber, Plätze hinzuzufügen.",
       "manageSeats": "Plätze verwalten",
       "submit": "Einladung senden",
       "submitting": "Sende…",
@@ -2168,6 +2173,7 @@
       "accept": "Einladung annehmen",
       "accepting": "Annehmen…",
       "signInToAccept": "Anmelden zum Annehmen",
+      "switchAccount": "Konto wechseln",
       "successTitle": "Beigetreten",
       "successDescription": "Sie sind jetzt Mitglied von {{name}}. Verwalten Sie ihn unter Einstellungen → Workspace.",
       "errorTitle": "Einladung konnte nicht angenommen werden",
@@ -2870,7 +2876,7 @@
         "resendSent": "Einladung gesendet",
         "resendThrottled": "Einladung wurde kürzlich gesendet. Versuche es in einer Minute erneut.",
         "syncPrompt": "Beim Teilen wird eine Kopie dieser Notiz in deiner OpenWhispr-Cloud gespeichert.",
-        "syncAndShare": "Synchronisieren und teilen",
+        "syncAndShare": "Notiz synchronisieren",
         "visibility": {
           "label": "Sichtbarkeit",
           "private": "Privat",
@@ -2888,7 +2894,8 @@
           "revokeFailed": "Die Einladung konnte nicht entfernt werden. Versuche es erneut.",
           "resendFailed": "Die Einladung konnte nicht erneut gesendet werden. Versuche es erneut.",
           "syncFailed": "Die Notiz konnte nicht synchronisiert werden. Versuche es erneut.",
-          "loadFailed": "Freigabeeinstellungen konnten nicht geladen werden"
+          "loadFailed": "Freigabeeinstellungen konnten nicht geladen werden",
+          "retry": "Erneut versuchen"
         }
       }
     }

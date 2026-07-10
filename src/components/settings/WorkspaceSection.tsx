@@ -52,8 +52,8 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
 
   if (!isSignedIn) return null;
 
-  // Rendered in both the empty and populated branches; creating a workspace
-  // chains straight into inviting a teammate (with a Skip affordance).
+  // Shared by the empty and populated branches so the create→invite chain
+  // survives the branch switch when the first workspace lands in the store.
   const inviteWorkspace = inviteWorkspaceId
     ? (workspaces.find((w) => w.id === inviteWorkspaceId) ?? null)
     : null;
@@ -143,40 +143,36 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="min-w-0">
-          {workspaces.length > 1 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  "group flex items-center gap-1.5 outline-none rounded-md px-2 -mx-2 py-0.5",
-                  "hover:bg-foreground/5 dark:hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-primary/30"
-                )}
-              >
-                <h2 className="text-sm font-semibold text-foreground truncate">{workspace.name}</h2>
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-medium">
-                  {t("workspaces.switcher.workspaces")}
-                </DropdownMenuLabel>
-                {workspaces.map((w) => (
-                  <DropdownMenuItem
-                    key={w.id}
-                    onSelect={() => setActiveWorkspaceId(w.id)}
-                    className="text-xs"
-                  >
-                    {w.name}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setCreateOpen(true)} className="text-xs">
-                  <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-                  {t("workspaces.switcher.create")}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={cn(
+                "group flex items-center gap-1.5 outline-none rounded-md px-2 -mx-2 py-0.5",
+                "hover:bg-foreground/5 dark:hover:bg-white/5 focus-visible:ring-1 focus-visible:ring-primary/30"
+              )}
+            >
+              <h2 className="text-sm font-semibold text-foreground truncate">{workspace.name}</h2>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-medium">
+                {t("workspaces.switcher.workspaces")}
+              </DropdownMenuLabel>
+              {workspaces.map((w) => (
+                <DropdownMenuItem
+                  key={w.id}
+                  onSelect={() => setActiveWorkspaceId(w.id)}
+                  className="text-xs"
+                >
+                  {w.name}
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <h2 className="text-sm font-semibold text-foreground truncate">{workspace.name}</h2>
-          )}
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setCreateOpen(true)} className="text-xs">
+                <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                {t("workspaces.switcher.create")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <p className="text-xs text-muted-foreground mt-0.5">
             {t(`settingsPage.workspace.role.${workspace.role}`)} · {workspace.slug}
           </p>

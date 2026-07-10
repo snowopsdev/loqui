@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Copy, Trash2, Check, Key } from "lucide-react";
+import { Plus, Copy, Trash2, Check, Key, Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -70,13 +70,16 @@ export default function WorkspaceDeveloperTab({ workspace }: Props) {
   const [name, setName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function refresh() {
+    setLoadError(false);
     try {
       setKeys(await WorkspaceApiKeysService.list(workspace.id));
     } catch {
       setKeys([]);
+      setLoadError(true);
     }
   }
 
@@ -179,7 +182,17 @@ export default function WorkspaceDeveloperTab({ workspace }: Props) {
       </div>
 
       <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 divide-y divide-border/30 dark:divide-border-subtle/50 bg-card/50 dark:bg-surface-2/50">
-        {keys.length === 0 && (
+        {loadError && (
+          <div className="px-4 py-6 flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {t("settingsPage.workspace.developer.loadError")}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void refresh()}>
+              {t("settingsPage.workspace.loadError.retry")}
+            </Button>
+          </div>
+        )}
+        {!loadError && keys.length === 0 && (
           <div className="py-10 text-center">
             <Key className="w-5 h-5 text-muted-foreground/60 mx-auto mb-2" />
             <p className="text-xs text-muted-foreground">
@@ -282,6 +295,7 @@ export default function WorkspaceDeveloperTab({ workspace }: Props) {
                 type="submit"
                 disabled={!name.trim() || selectedScopes.size === 0 || submitting}
               >
+                {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                 {submitting ? t("common.saving") : t("settingsPage.workspace.developer.create")}
               </Button>
             </DialogFooter>

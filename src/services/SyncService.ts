@@ -102,12 +102,12 @@ class SyncService {
 
   async syncAll(waitForLock = false): Promise<void> {
     if (!this.canSync()) {
-      // Backup is off, but shared-note deletes must still reach the cloud so
-      // revoked notes stop being served (edits flow through debouncedPush).
+      // Backup is off, but deletes of cloud copies must still propagate so
+      // revoked/deleted notes stop being served (edits flow via debouncedPush).
       if (this.canSyncSharedNotes() && !this.syncing) {
         this.syncing = true;
         try {
-          await this.pushNoteDeletes(true);
+          await this.pushNoteDeletes();
         } catch (err) {
           console.error("Shared note sync failed:", err);
         } finally {
@@ -579,10 +579,12 @@ class SyncService {
     }
   }
 
-  private async pushNoteDeletes(sharedOnly = false): Promise<void> {
+  // A cloud copy only exists through prior consent (backup or sync-and-share),
+  // so deletes always propagate — even for notes never shared and with the
+  // backup toggle off.
+  private async pushNoteDeletes(): Promise<void> {
     const deletes = (await window.electronAPI.getPendingNoteDeletes?.()) ?? [];
     for (const note of deletes) {
-      if (sharedOnly && !note.is_shared) continue;
       try {
         await NotesService.delete(note.cloud_id!);
         await window.electronAPI.hardDeleteNote?.(note.id);

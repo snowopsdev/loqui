@@ -43,6 +43,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setActiveWorkspaceId: (id) => {
     writeActiveWorkspaceId(id);
+    // Invalidate in-flight member fetches so the old workspace's roster can't
+    // land under the new one.
+    membersRequestSeq++;
     set({ activeWorkspaceId: id, members: [] });
   },
 
@@ -95,6 +98,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         { error: (error as Error).message },
         "workspaces"
       );
+      throw error;
     }
   },
 }));

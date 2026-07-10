@@ -43,16 +43,26 @@ export default function WorkspaceBillingTab({ workspace }: Props) {
 
   useEffect(() => () => focusCleanupRef.current?.(), []);
 
-  // The user finishes checkout / the portal in the browser; refresh when they return.
+  // The user finishes checkout / the portal in the browser; refresh when they
+  // return, then re-poll a few times to outlast Stripe webhook lag.
   function refreshOnReturn() {
     focusCleanupRef.current?.();
-    const onFocus = () => {
-      focusCleanupRef.current = null;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const poll = () => {
       void refresh();
       void loadSeats();
     };
+    const onFocus = () => {
+      poll();
+      for (const delayMs of [4000, 8000, 16000]) {
+        timers.push(setTimeout(poll, delayMs));
+      }
+    };
     window.addEventListener("focus", onFocus, { once: true });
-    focusCleanupRef.current = () => window.removeEventListener("focus", onFocus);
+    focusCleanupRef.current = () => {
+      window.removeEventListener("focus", onFocus);
+      timers.forEach(clearTimeout);
+    };
   }
 
   async function openBilling(getUrl: () => Promise<string>) {
@@ -138,6 +148,12 @@ export default function WorkspaceBillingTab({ workspace }: Props) {
           </div>
         )}
       </div>
+
+      {!isOwner && (
+        <p className="text-xs text-muted-foreground">
+          {t("settingsPage.workspace.billing.ownerOnly")}
+        </p>
+      )}
 
       {isOwner && (
         <div className="flex gap-2">

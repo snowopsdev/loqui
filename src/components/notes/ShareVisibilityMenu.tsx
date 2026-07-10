@@ -46,8 +46,8 @@ export default function ShareVisibilityMenu({
           aria-label={t("noteEditor.share.dialog.visibility.label")}
         >
           {current.icon}
-          <span>{current.label}</span>
-          <ChevronDown size={12} className="text-foreground/40" />
+          <span className="max-w-44 truncate">{current.label}</span>
+          <ChevronDown size={12} className="text-foreground/40 shrink-0" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" sideOffset={4} className="min-w-[260px]">

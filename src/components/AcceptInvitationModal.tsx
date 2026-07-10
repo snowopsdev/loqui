@@ -17,6 +17,7 @@ import {
 } from "../utils/pendingInvitationToken";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useAuth } from "../hooks/useAuth";
+import { signOut } from "../lib/auth";
 import { useToast } from "./ui/useToast";
 import SignInDialog from "./SignInDialog";
 import type { InvitationPreview } from "../types/electron";
@@ -89,6 +90,13 @@ export default function AcceptInvitationModal({ token, onClose }: Props) {
     onClose();
   }
 
+  // Stored token survives the sign-out reload, so the modal resurfaces for
+  // the next account.
+  async function handleSwitchAccount() {
+    if (token) storePendingInvitationToken(token);
+    await signOut();
+  }
+
   return (
     <>
       <Dialog open={!!token} onOpenChange={(open) => !open && handleDecline()}>
@@ -119,12 +127,22 @@ export default function AcceptInvitationModal({ token, onClose }: Props) {
               </>
             )}
             {error && <DialogDescription className="text-destructive">{error}</DialogDescription>}
-            {loading && <DialogDescription>{t("workspaces.accept.loading")}</DialogDescription>}
+            {loading && (
+              <DialogDescription className="flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t("workspaces.accept.loading")}
+              </DialogDescription>
+            )}
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={handleDecline} disabled={accepting}>
               {t("common.cancel")}
             </Button>
+            {wrongAccount && (
+              <Button variant="outline" onClick={() => void handleSwitchAccount()}>
+                {t("workspaces.accept.switchAccount")}
+              </Button>
+            )}
             <Button
               onClick={handleAccept}
               disabled={loading || !preview || accepting || !!error || wrongAccount}

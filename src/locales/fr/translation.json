@@ -1174,7 +1174,7 @@
       },
       "general": {
         "nameLabel": "Nom",
-        "slugLabel": "Slug",
+        "slugLabel": "Nom court",
         "slugHint": "Utilisé dans les URL. Minuscules, chiffres et tirets uniquement.",
         "slugInvalid": "Minuscules, chiffres et tirets uniquement.",
         "saved": "Espace mis à jour",
@@ -1200,6 +1200,7 @@
         "description": "{{count}} sur {{seats}} sièges utilisés.",
         "invite": "Inviter",
         "empty": "Aucun membre pour l'instant.",
+        "loadError": "Impossible de charger les membres.",
         "roleUpdated": "Rôle mis à jour",
         "promote": "Promouvoir administrateur",
         "demote": "Rétrograder membre",
@@ -1219,6 +1220,7 @@
         "expiresIn_one": "Expire dans {{count}} jour",
         "expiresIn_other": "Expire dans {{count}} jours",
         "expired": "Expirée",
+        "loadError": "Impossible de charger les invitations.",
         "resend": "Renvoyer",
         "resending": "Renvoi…",
         "revoke": "Révoquer",
@@ -1234,6 +1236,7 @@
         "description": "Plan, sièges et paiement.",
         "plan": "Plan",
         "seats": "Sièges",
+        "ownerOnly": "Seul le propriétaire de l'espace de travail peut gérer l'abonnement.",
         "nextInvoice": "Prochaine facture",
         "manageStripe": "Gérer dans Stripe",
         "opening": "Ouverture…",
@@ -1256,6 +1259,7 @@
         "title": "Clés API",
         "description": "Accès programmatique limité à cet espace.",
         "empty": "Aucune clé API. Créez-en une pour vous intégrer.",
+        "loadError": "Impossible de charger les clés API.",
         "new": "Nouvelle clé",
         "create": "Créer la clé",
         "createTitle": "Créer une clé API",
@@ -2146,6 +2150,7 @@
       "roleLabel": "Rôle",
       "seatUsage": "{{used}} sur {{seats}} sièges utilisés",
       "seatLimit": "Les {{seats}} sièges sont tous utilisés.",
+      "askOwner": "Les {{seats}} sièges sont tous utilisés. Demandez au propriétaire de l'espace de travail d'ajouter des sièges.",
       "manageSeats": "Gérer les sièges",
       "submit": "Envoyer l'invitation",
       "submitting": "Envoi…",
@@ -2168,6 +2173,7 @@
       "accept": "Accepter l'invitation",
       "accepting": "Acceptation…",
       "signInToAccept": "Connectez-vous pour accepter",
+      "switchAccount": "Changer de compte",
       "successTitle": "Vous êtes membre",
       "successDescription": "Vous êtes membre de {{name}}. Gérez-le dans Paramètres → Espace de travail.",
       "errorTitle": "Impossible d'accepter l'invitation",
@@ -2870,7 +2876,7 @@
         "resendSent": "Invitation envoyée",
         "resendThrottled": "Invitation envoyée récemment. Réessayez dans une minute.",
         "syncPrompt": "Le partage conserve une copie de cette note dans votre cloud OpenWhispr.",
-        "syncAndShare": "Synchroniser et partager",
+        "syncAndShare": "Synchroniser la note",
         "visibility": {
           "label": "Visibilité",
           "private": "Privée",
@@ -2888,7 +2894,8 @@
           "revokeFailed": "Impossible de retirer l'invitation. Réessayez.",
           "resendFailed": "Impossible de renvoyer l'invitation. Réessayez.",
           "syncFailed": "Impossible de synchroniser cette note. Réessayez.",
-          "loadFailed": "Impossible de charger les paramètres de partage"
+          "loadFailed": "Impossible de charger les paramètres de partage",
+          "retry": "Réessayer"
         }
       }
     }

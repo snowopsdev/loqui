@@ -1779,7 +1779,7 @@
       },
       "general": {
         "nameLabel": "ワークスペース名",
-        "slugLabel": "スラッグ",
+        "slugLabel": "短縮名",
         "slugHint": "URL や招待リンクに使用されます。小文字の英字、数字、ハイフンのみ使用できます。",
         "slugInvalid": "小文字の英字、数字、ハイフンのみ使用できます。",
         "saved": "ワークスペースを更新しました",
@@ -1805,6 +1805,7 @@
         "description": "{{seats}} シート中 {{count}} シートを使用中。",
         "invite": "招待",
         "empty": "まだメンバーがいません。",
+        "loadError": "メンバーを読み込めませんでした。",
         "roleUpdated": "役割を更新しました",
         "promote": "管理者にする",
         "demote": "メンバーにする",
@@ -1824,6 +1825,7 @@
         "expiresIn_one": "有効期限まであと{{count}}日",
         "expiresIn_other": "有効期限まであと{{count}}日",
         "expired": "期限切れ",
+        "loadError": "招待を読み込めませんでした。",
         "resend": "再送信",
         "resending": "再送信中…",
         "revoke": "取り消す",
@@ -1839,6 +1841,7 @@
         "description": "プラン、シート、支払い。",
         "plan": "プラン",
         "seats": "シート",
+        "ownerOnly": "サブスクリプションを管理できるのはワークスペースのオーナーのみです。",
         "nextInvoice": "次回の請求",
         "manageStripe": "Stripe で管理",
         "opening": "開いています…",
@@ -1861,6 +1864,7 @@
         "title": "API キー",
         "description": "このワークスペースに限定されたプログラムからのアクセス。",
         "empty": "まだ API キーがありません。このワークスペースと連携するには作成してください。",
+        "loadError": "APIキーを読み込めませんでした。",
         "new": "新規キー",
         "create": "キーを作成",
         "createTitle": "API キーを作成",
@@ -2767,7 +2771,7 @@
         "resendSent": "招待を送信しました",
         "resendThrottled": "招待を送信したばかりです。1分ほど待ってからお試しください。",
         "syncPrompt": "共有すると、このノートのコピーが OpenWhispr クラウドに保存されます。",
-        "syncAndShare": "同期して共有",
+        "syncAndShare": "ノートを同期",
         "visibility": {
           "label": "公開範囲",
           "private": "非公開",
@@ -2785,7 +2789,8 @@
           "revokeFailed": "招待を削除できませんでした。もう一度お試しください。",
           "resendFailed": "招待を再送信できませんでした。もう一度お試しください。",
           "syncFailed": "このノートを同期できませんでした。もう一度お試しください。",
-          "loadFailed": "共有設定を読み込めませんでした"
+          "loadFailed": "共有設定を読み込めませんでした",
+          "retry": "再試行"
         }
       }
     }
@@ -2917,6 +2922,7 @@
       "roleLabel": "役割",
       "seatUsage": "{{seats}} シート中 {{used}} シートを使用中",
       "seatLimit": "{{seats}} シートすべてが使用中です。",
+      "askOwner": "{{seats}} シートすべてが使用中です。シートの追加はワークスペースのオーナーにご依頼ください。",
       "manageSeats": "シートを管理",
       "submit": "招待を送信",
       "submitting": "送信中…",
@@ -2939,6 +2945,7 @@
       "accept": "招待を承諾",
       "accepting": "承諾中…",
       "signInToAccept": "サインインして承諾",
+      "switchAccount": "アカウントを切り替える",
       "successTitle": "参加しました",
       "successDescription": "{{name}} のメンバーになりました。設定 → ワークスペースで管理できます。",
       "errorTitle": "招待を承諾できませんでした",

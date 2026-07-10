@@ -68,6 +68,9 @@ function ensureIpcListeners() {
   if (window.electronAPI?.onNoteDeleted) {
     const dispose = window.electronAPI.onNoteDeleted(({ id }) => {
       removeNote(id);
+      // Push the tombstone right away so a shared link stops serving now,
+      // not at the next ambient pass ("manual" bypasses the throttle).
+      syncService.requestSyncAll("manual");
     });
     if (typeof dispose === "function") {
       disposers.push(dispose);

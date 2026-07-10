@@ -1758,7 +1758,7 @@
       },
       "general": {
         "nameLabel": "Nome do espaço de trabalho",
-        "slugLabel": "Slug",
+        "slugLabel": "Nome curto",
         "slugHint": "Usado em URLs e links de convite. Apenas letras minúsculas, dígitos e hifens.",
         "slugInvalid": "Apenas letras minúsculas, dígitos e hifens.",
         "saved": "Espaço de trabalho atualizado",
@@ -1784,6 +1784,7 @@
         "description": "{{count}} de {{seats}} assentos usados.",
         "invite": "Convidar",
         "empty": "Ainda não há membros.",
+        "loadError": "Não foi possível carregar os membros.",
         "roleUpdated": "Função atualizada",
         "promote": "Tornar administrador",
         "demote": "Tornar membro",
@@ -1803,6 +1804,7 @@
         "expiresIn_one": "Expira em {{count}} dia",
         "expiresIn_other": "Expira em {{count}} dias",
         "expired": "Expirado",
+        "loadError": "Não foi possível carregar os convites.",
         "resend": "Reenviar",
         "resending": "Reenviando…",
         "revoke": "Revogar",
@@ -1818,6 +1820,7 @@
         "description": "Plano, assentos e pagamento.",
         "plan": "Plano",
         "seats": "Assentos",
+        "ownerOnly": "Apenas o proprietário do espaço de trabalho pode gerenciar a assinatura.",
         "nextInvoice": "Próxima fatura",
         "manageStripe": "Gerenciar no Stripe",
         "opening": "Abrindo…",
@@ -1840,6 +1843,7 @@
         "title": "Chaves de API",
         "description": "Acesso programático limitado a este espaço de trabalho.",
         "empty": "Ainda não há chaves de API. Crie uma para integrar com este espaço de trabalho.",
+        "loadError": "Não foi possível carregar as chaves de API.",
         "new": "Nova chave",
         "create": "Criar chave",
         "createTitle": "Criar chave de API",
@@ -2767,7 +2771,7 @@
         "resendSent": "Convite enviado",
         "resendThrottled": "Convite enviado há pouco. Tente novamente em um minuto.",
         "syncPrompt": "O compartilhamento mantém uma cópia desta nota na sua nuvem OpenWhispr.",
-        "syncAndShare": "Sincronizar e compartilhar",
+        "syncAndShare": "Sincronizar nota",
         "visibility": {
           "label": "Visibilidade",
           "private": "Privada",
@@ -2785,7 +2789,8 @@
           "revokeFailed": "Não foi possível remover o convite. Tente novamente.",
           "resendFailed": "Não foi possível reenviar o convite. Tente novamente.",
           "syncFailed": "Não foi possível sincronizar esta nota. Tente novamente.",
-          "loadFailed": "Não foi possível carregar as configurações de compartilhamento"
+          "loadFailed": "Não foi possível carregar as configurações de compartilhamento",
+          "retry": "Tentar novamente"
         }
       }
     }
@@ -2917,6 +2922,7 @@
       "roleLabel": "Função",
       "seatUsage": "Usando {{used}} de {{seats}} assentos",
       "seatLimit": "Todos os {{seats}} assentos estão em uso.",
+      "askOwner": "Todos os {{seats}} assentos estão em uso. Peça ao proprietário do espaço de trabalho para adicionar assentos.",
       "manageSeats": "Gerenciar assentos",
       "submit": "Enviar convite",
       "submitting": "Enviando…",
@@ -2939,6 +2945,7 @@
       "accept": "Aceitar convite",
       "accepting": "Aceitando…",
       "signInToAccept": "Faça login para aceitar",
+      "switchAccount": "Trocar de conta",
       "successTitle": "Você entrou",
       "successDescription": "Você é membro de {{name}}. Gerencie em Configurações → Espaço de trabalho.",
       "errorTitle": "Não foi possível aceitar o convite",

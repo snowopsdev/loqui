@@ -1174,7 +1174,7 @@
       },
       "general": {
         "nameLabel": "Workspace name",
-        "slugLabel": "Slug",
+        "slugLabel": "Short name",
         "slugHint": "Used in URLs and invite links. Lowercase letters, digits, and dashes only.",
         "slugInvalid": "Only lowercase letters, digits, and dashes.",
         "saved": "Workspace updated",
@@ -1200,6 +1200,7 @@
         "description": "{{count}} of {{seats}} seats used.",
         "invite": "Invite",
         "empty": "No members yet.",
+        "loadError": "Couldn't load members.",
         "roleUpdated": "Role updated",
         "promote": "Make admin",
         "demote": "Make member",
@@ -1219,6 +1220,7 @@
         "expiresIn_one": "Expires in {{count}} day",
         "expiresIn_other": "Expires in {{count}} days",
         "expired": "Expired",
+        "loadError": "Couldn't load invitations.",
         "resend": "Resend",
         "resending": "Resending…",
         "revoke": "Revoke",
@@ -1234,6 +1236,7 @@
         "description": "Plan, seats, and payment.",
         "plan": "Plan",
         "seats": "Seats",
+        "ownerOnly": "Only the workspace owner can manage the subscription.",
         "nextInvoice": "Next invoice",
         "manageStripe": "Manage in Stripe",
         "opening": "Opening…",
@@ -1256,6 +1259,7 @@
         "title": "API keys",
         "description": "Programmatic access scoped to this workspace.",
         "empty": "No API keys yet. Create one to integrate with this workspace.",
+        "loadError": "Couldn't load API keys.",
         "new": "New key",
         "create": "Create key",
         "createTitle": "Create API key",
@@ -2146,6 +2150,7 @@
       "roleLabel": "Role",
       "seatUsage": "Using {{used}} of {{seats}} seats",
       "seatLimit": "All {{seats}} seats are in use.",
+      "askOwner": "All {{seats}} seats are in use. Ask the workspace owner to add seats.",
       "manageSeats": "Manage seats",
       "submit": "Send invite",
       "submitting": "Sending…",
@@ -2168,6 +2173,7 @@
       "accept": "Accept invitation",
       "accepting": "Accepting…",
       "signInToAccept": "Sign in to accept",
+      "switchAccount": "Switch account",
       "successTitle": "You're in",
       "successDescription": "You're a member of {{name}}. Manage it in Settings → Workspace.",
       "errorTitle": "Couldn't accept invitation",
@@ -2870,7 +2876,7 @@
         "resendSent": "Invitation sent",
         "resendThrottled": "Invitation sent recently. Try again in a minute.",
         "syncPrompt": "Sharing keeps a copy of this note in your OpenWhispr cloud.",
-        "syncAndShare": "Sync and share",
+        "syncAndShare": "Sync note",
         "visibility": {
           "label": "Visibility",
           "private": "Private",
@@ -2888,7 +2894,8 @@
           "revokeFailed": "Couldn't remove the invitation. Try again.",
           "resendFailed": "Couldn't resend the invitation. Try again.",
           "syncFailed": "Couldn't sync this note. Try again.",
-          "loadFailed": "Couldn't load share settings"
+          "loadFailed": "Couldn't load share settings",
+          "retry": "Retry"
         }
       }
     }

@@ -157,6 +157,10 @@ export default function NoteEditor({
   // Persisted flag is the restart-safe truth; the live cache overlays it for
   // the current session (it reflects server state before the flag persists).
   const isShared = shareCache ? shareCache.share.visibility !== "private" : Boolean(note.is_shared);
+  // Same gate as SyncService.canSyncSharedNotes: sharing needs a subscription.
+  // An already-shared note stays manageable (unshare/revoke) after a lapse.
+  const canShare =
+    isSignedIn && (localStorage.getItem("isSubscribed") === "true" || Boolean(note.is_shared));
   const [diarizedSegments, setDiarizedSegments] = useState<TranscriptSegment[] | null>(null);
   const [speakerMappings, setSpeakerMappings] = useState<Record<string, string>>({});
   const [speakerProfiles, setSpeakerProfiles] = useState<
@@ -788,7 +792,7 @@ export default function NoteEditor({
                   )}
                 </div>
               )}
-              {isSignedIn && (
+              {canShare && (
                 <button
                   type="button"
                   onClick={() => setShareDialogOpen(true)}
@@ -982,7 +986,7 @@ export default function NoteEditor({
           onNewChat={embeddedChat.startNewChat}
         />
       )}
-      {isSignedIn && (
+      {canShare && (
         <ShareNoteDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen} note={note} />
       )}
     </div>

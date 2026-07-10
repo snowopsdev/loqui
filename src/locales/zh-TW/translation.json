@@ -1774,7 +1774,7 @@
       },
       "general": {
         "nameLabel": "工作區名稱",
-        "slugLabel": "Slug",
+        "slugLabel": "簡短名稱",
         "slugHint": "用於網址與邀請連結。僅限小寫字母、數字與連字號。",
         "slugInvalid": "僅限小寫字母、數字與連字號。",
         "saved": "工作區已更新",
@@ -1800,6 +1800,7 @@
         "description": "已使用 {{count}} / {{seats}} 個席次。",
         "invite": "邀請",
         "empty": "尚無成員。",
+        "loadError": "無法載入成員。",
         "roleUpdated": "角色已更新",
         "promote": "設為管理員",
         "demote": "設為成員",
@@ -1819,6 +1820,7 @@
         "expiresIn_one": "{{count}} 天後到期",
         "expiresIn_other": "{{count}} 天後到期",
         "expired": "已到期",
+        "loadError": "無法載入邀請。",
         "resend": "重新傳送",
         "resending": "重新傳送中…",
         "revoke": "撤銷",
@@ -1834,6 +1836,7 @@
         "description": "方案、席次與付款。",
         "plan": "方案",
         "seats": "席次",
+        "ownerOnly": "只有工作區擁有者可以管理訂閱。",
         "nextInvoice": "下期帳單",
         "manageStripe": "在 Stripe 中管理",
         "opening": "開啟中…",
@@ -1856,6 +1859,7 @@
         "title": "API 金鑰",
         "description": "範圍限於此工作區的程式化存取。",
         "empty": "尚無 API 金鑰。建立一個以整合此工作區。",
+        "loadError": "無法載入 API 金鑰。",
         "new": "新增金鑰",
         "create": "建立金鑰",
         "createTitle": "建立 API 金鑰",
@@ -2762,7 +2766,7 @@
         "resendSent": "邀請已傳送",
         "resendThrottled": "邀請剛剛已傳送，請一分鐘後再試。",
         "syncPrompt": "分享後，這則筆記會在你的 OpenWhispr 雲端保留一份副本。",
-        "syncAndShare": "同步並分享",
+        "syncAndShare": "同步筆記",
         "visibility": {
           "label": "可見性",
           "private": "私人",
@@ -2780,7 +2784,8 @@
           "revokeFailed": "無法移除邀請。請再試一次。",
           "resendFailed": "無法重新傳送邀請。請再試一次。",
           "syncFailed": "無法同步此筆記。請再試一次。",
-          "loadFailed": "無法載入分享設定"
+          "loadFailed": "無法載入分享設定",
+          "retry": "重試"
         }
       }
     }
@@ -2912,6 +2917,7 @@
       "roleLabel": "角色",
       "seatUsage": "已使用 {{used}} / {{seats}} 個席次",
       "seatLimit": "{{seats}} 個席次已全數使用。",
+      "askOwner": "{{seats}} 個席次已全數使用。請聯絡工作區擁有者新增席次。",
       "manageSeats": "管理席次",
       "submit": "傳送邀請",
       "submitting": "傳送中…",
@@ -2934,6 +2940,7 @@
       "accept": "接受邀請",
       "accepting": "接受中…",
       "signInToAccept": "登入以接受",
+      "switchAccount": "切換帳號",
       "successTitle": "你已加入",
       "successDescription": "你已成為 {{name}} 的成員。可前往「設定 → 工作區」進行管理。",
       "errorTitle": "無法接受邀請",

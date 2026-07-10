@@ -1774,7 +1774,7 @@
       },
       "general": {
         "nameLabel": "工作区名称",
-        "slugLabel": "Slug",
+        "slugLabel": "简短名称",
         "slugHint": "用于 URL 和邀请链接。仅限小写字母、数字和连字符。",
         "slugInvalid": "仅限小写字母、数字和连字符。",
         "saved": "工作区已更新",
@@ -1800,6 +1800,7 @@
         "description": "已使用 {{count}}/{{seats}} 个席位。",
         "invite": "邀请",
         "empty": "暂无成员。",
+        "loadError": "无法加载成员。",
         "roleUpdated": "角色已更新",
         "promote": "设为管理员",
         "demote": "设为成员",
@@ -1819,6 +1820,7 @@
         "expiresIn_one": "{{count}} 天后过期",
         "expiresIn_other": "{{count}} 天后过期",
         "expired": "已过期",
+        "loadError": "无法加载邀请。",
         "resend": "重新发送",
         "resending": "重新发送中…",
         "revoke": "撤销",
@@ -1834,6 +1836,7 @@
         "description": "套餐、席位和付款。",
         "plan": "套餐",
         "seats": "席位",
+        "ownerOnly": "只有工作区所有者可以管理订阅。",
         "nextInvoice": "下一张账单",
         "manageStripe": "在 Stripe 中管理",
         "opening": "正在打开...",
@@ -1856,6 +1859,7 @@
         "title": "API 密钥",
         "description": "仅限此工作区的编程访问。",
         "empty": "暂无 API 密钥。创建一个即可与此工作区集成。",
+        "loadError": "无法加载 API 密钥。",
         "new": "新建密钥",
         "create": "创建密钥",
         "createTitle": "创建 API 密钥",
@@ -2762,7 +2766,7 @@
         "resendSent": "邀请已发送",
         "resendThrottled": "邀请刚刚发送过，请一分钟后再试。",
         "syncPrompt": "分享会在你的 OpenWhispr 云端保留此笔记的副本。",
-        "syncAndShare": "同步并分享",
+        "syncAndShare": "同步笔记",
         "visibility": {
           "label": "可见性",
           "private": "私密",
@@ -2780,7 +2784,8 @@
           "revokeFailed": "无法移除邀请。请重试。",
           "resendFailed": "无法重新发送邀请。请重试。",
           "syncFailed": "无法同步此笔记。请重试。",
-          "loadFailed": "无法加载分享设置"
+          "loadFailed": "无法加载分享设置",
+          "retry": "重试"
         }
       }
     }
@@ -2912,6 +2917,7 @@
       "roleLabel": "角色",
       "seatUsage": "已使用 {{used}}/{{seats}} 个席位",
       "seatLimit": "全部 {{seats}} 个席位均已使用。",
+      "askOwner": "全部 {{seats}} 个席位均已使用。请联系工作区所有者添加席位。",
       "manageSeats": "管理席位",
       "submit": "发送邀请",
       "submitting": "发送中…",
@@ -2934,6 +2940,7 @@
       "accept": "接受邀请",
       "accepting": "接受中…",
       "signInToAccept": "登录以接受",
+      "switchAccount": "切换账号",
       "successTitle": "你已加入",
       "successDescription": "你已成为 {{name}} 的成员。可在设置 → 工作区中管理。",
       "errorTitle": "无法接受邀请",

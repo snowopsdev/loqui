@@ -770,7 +770,7 @@ const SECRET_IPC_SAVERS = {
   openrouter: "saveOpenrouterKey",
   cortiClientId: "saveCortiClientId",
   cortiClientSecret: "saveCortiClientSecret",
-  cortiApiKey: "saveCortiApiKey",
+  cortiApiKey: "saveCortiKey",
   tinfoil: "saveTinfoilKey",
   customTranscription: "saveCustomTranscriptionKey",
   cleanupCustom: "saveCleanupCustomKey",
@@ -1338,11 +1338,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     debouncedSaveSecret("cortiClientSecret", key);
     invalidateApiKeyCaches("corti");
   },
-  setCortiApiKey: (key: string) => {
-    set({ cortiApiKey: key });
-    debouncedSaveSecret("cortiApiKey", key);
-    invalidateApiKeyCaches("corti");
-  },
+  setCortiApiKey: createSecretSetter("cortiApiKey", "cortiApiKey", "corti"),
   setCortiEnvironment: createStringSetter("cortiEnvironment"),
   setCortiTenant: createStringSetter("cortiTenant"),
   setTinfoilApiKey: createSecretSetter("tinfoilApiKey", "tinfoil", "tinfoil"),
@@ -2040,7 +2036,7 @@ export async function initializeSettings(): Promise<void> {
         window.electronAPI.getOpenrouterKey?.(),
         window.electronAPI.getCortiClientId?.(),
         window.electronAPI.getCortiClientSecret?.(),
-        window.electronAPI.getCortiApiKey?.(),
+        window.electronAPI.getCortiKey?.(),
         window.electronAPI.getTinfoilKey?.(),
         window.electronAPI.getCustomTranscriptionKey?.(),
         window.electronAPI.getCleanupCustomKey?.(),

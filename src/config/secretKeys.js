@@ -57,6 +57,13 @@ const BYOK_API_KEYS = [
     save: "saveTinfoilKey",
     storeKey: "tinfoilApiKey",
   },
+  {
+    base: "corti",
+    env: "CORTI_API_KEY",
+    get: "getCortiKey",
+    save: "saveCortiKey",
+    storeKey: "cortiApiKey",
+  },
 ];
 
 module.exports = { BYOK_API_KEYS };

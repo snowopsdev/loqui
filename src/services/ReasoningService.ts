@@ -108,7 +108,7 @@ class ReasoningService extends BaseReasoningService {
           groq: () => window.electronAPI.getGroqKey(),
           openrouter: () => window.electronAPI.getOpenrouterKey(),
           tinfoil: () => window.electronAPI.getTinfoilKey?.(),
-          corti: () => window.electronAPI.getCortiApiKey?.(),
+          corti: () => window.electronAPI.getCortiKey?.(),
         };
         apiKey = (await keyGetters[provider]()) ?? undefined;
 
@@ -941,7 +941,7 @@ class ReasoningService extends BaseReasoningService {
       const groqKey = await window.electronAPI?.getGroqKey?.();
       const openrouterKey = await window.electronAPI?.getOpenrouterKey?.();
       const tinfoilKey = await window.electronAPI?.getTinfoilKey?.();
-      const cortiKey = await window.electronAPI?.getCortiApiKey?.();
+      const cortiKey = await window.electronAPI?.getCortiKey?.();
       const localAvailable = await window.electronAPI?.checkLocalReasoningAvailable?.();
 
       logger.logReasoning("API_KEY_CHECK", {

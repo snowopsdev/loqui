@@ -289,8 +289,7 @@ export function useModelDownload({
           }
         } else {
           const result = (await window.electronAPI?.modelDownload?.(modelId)) as unknown as
-            | { success: boolean; error?: string; code?: string }
-            | undefined;
+            { success: boolean; error?: string; code?: string } | undefined;
           if (result && !result.success && result.error) {
             if (result.code === "DOWNLOAD_IN_PROGRESS") {
               keepActiveDownloadState = true;

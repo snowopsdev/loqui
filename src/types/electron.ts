@@ -1,4 +1,5 @@
 import type { ModelDefinition } from "../models/ModelRegistry";
+import type { TinfoilCatalogModel } from "../models/tinfoilModels";
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia";
 
@@ -915,6 +916,27 @@ declare global {
         agentName: string | null,
         config: any
       ) => Promise<{ success: boolean; text?: string; error?: string; retryable?: boolean }>;
+      enterpriseStreamStart?: (payload: {
+        streamId: string;
+        provider: string;
+        modelId: string;
+        config: Record<string, string>;
+        options: Record<string, unknown>;
+      }) => Promise<{ success: boolean; error?: string }>;
+      enterpriseStreamCancel?: (streamId: string) => Promise<void>;
+      onEnterpriseStreamPart?: (
+        callback: (payload: {
+          streamId: string;
+          part?: unknown;
+          done?: boolean;
+          error?: string;
+        }) => void
+      ) => () => void;
+      listBedrockModels?: (config: Record<string, string>) => Promise<{
+        success: boolean;
+        models?: Array<{ value: string; label: string; vendor: string }>;
+        error?: string;
+      }>;
 
       // llama.cpp management
       llamaCppCheck: () => Promise<{ isInstalled: boolean; version?: string }>;
@@ -985,10 +1007,7 @@ declare global {
 
       // Hotkey management
       updateHotkey: (key: string) => Promise<{ success: boolean; message: string }>;
-      setHotkeyListeningMode?: (
-        enabled: boolean,
-        newHotkey?: string | null
-      ) => Promise<{ success: boolean }>;
+      setHotkeyListeningMode?: (enabled: boolean) => Promise<{ success: boolean }>;
       getHotkeyModeInfo?: () => Promise<{
         isUsingGnome: boolean;
         isUsingHyprland: boolean;
@@ -1041,6 +1060,8 @@ declare global {
       // Groq API key management
       getGroqKey: () => Promise<string | null>;
       saveGroqKey: (key: string) => Promise<void>;
+      getOpenrouterKey: () => Promise<string | null>;
+      saveOpenrouterKey: (key: string) => Promise<void>;
 
       // xAI API key management
       getXaiKey?: () => Promise<string | null>;
@@ -1066,6 +1087,8 @@ declare global {
       saveCortiClientId?: (key: string) => Promise<void>;
       getCortiClientSecret?: () => Promise<string | null>;
       saveCortiClientSecret?: (key: string) => Promise<void>;
+      getCortiKey?: () => Promise<string | null>;
+      saveCortiKey?: (key: string) => Promise<void>;
       proxyCortiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         language: string;
@@ -1074,6 +1097,14 @@ declare global {
       }) => Promise<{ text: string }>;
       getTinfoilKey?: () => Promise<string | null>;
       saveTinfoilKey?: (key: string) => Promise<void>;
+      getTinfoilChatModels?: () => Promise<TinfoilCatalogModel[]>;
+      proxyTinfoilTranscription?: (data: {
+        audioBuffer: ArrayBuffer;
+        language?: string;
+        prompt?: string;
+      }) => Promise<
+        { text: string; model: string } | { error: string; code?: string; messageKey?: string }
+      >;
 
       // Custom endpoint API keys
       getCustomTranscriptionKey?: () => Promise<string | null>;
@@ -1186,6 +1217,7 @@ declare global {
       ) => Promise<{
         success: boolean;
         text?: string;
+        warning?: string;
         clientTranscriptionId?: string;
         wordsUsed?: number;
         wordsRemaining?: number;
@@ -1201,6 +1233,7 @@ declare global {
           customDictionary?: string[];
           customPrompt?: string;
           systemPrompt?: string;
+          promptMode?: "cleanup";
           language?: string;
           locale?: string;
         }
@@ -1308,6 +1341,7 @@ declare global {
       transcribeAudioFileCloud?: (filePath: string) => Promise<{
         success: boolean;
         text?: string;
+        warning?: string;
         error?: string;
         code?: string;
       }>;
@@ -1936,6 +1970,12 @@ declare global {
       getFolderByClientId?: (clientFolderId: string) => Promise<FolderItem | null>;
       upsertFolderFromCloud?: (cloudFolder: Record<string, unknown>) => Promise<FolderItem>;
       markFolderSynced?: (id: number, cloudId: string) => Promise<void>;
+      adoptFolderIdentity?: (
+        id: number,
+        clientFolderId: string,
+        cloudId: string,
+        updatedAt?: string
+      ) => Promise<void>;
       getFolderIdMap?: () => Promise<FolderItem[]>;
       getPendingFolderDeletes?: () => Promise<FolderItem[]>;
       hardDeleteFolder?: (id: number) => Promise<{ success: boolean; id: number }>;

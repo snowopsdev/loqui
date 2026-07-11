@@ -49,16 +49,18 @@ export default function FinishStep({
     cortiClientId.trim().length > 0 && cortiClientSecret.trim().length > 0;
 
   const startWithCorti = () => {
-    // Route all four LLM scopes to Corti too so PHI never leaves Corti. No LLM
-    // routing when the Corti registry entry or model is missing, or outside the EU region.
+    // Transcription always routes to Corti. Reasoning routes to Corti only in the
+    // EU with an API key (Corti Models is EU-only); otherwise the HIPAA-compliant
+    // OpenWhispr Cloud handles language features so PHI never reaches a third party.
     const reasoningProvider = modelRegistry.getCloudProviders().find((p) => p.id === "corti");
     const { transcription, reasoning } = buildCortiOnboardingPayloads(
       cortiProvider,
       reasoningProvider,
-      cortiEnvironment
+      cortiEnvironment,
+      cortiApiKey.trim().length > 0
     );
     setCloudTranscriptionForAllScopes(transcription);
-    if (reasoning && cortiApiKey.trim()) setCloudReasoningForAllScopes(reasoning);
+    setCloudReasoningForAllScopes(reasoning);
     onFinish(false);
   };
 
@@ -116,12 +118,6 @@ export default function FinishStep({
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">
-              {t("transcription.corti.apiKey")}
-            </label>
-            <ApiKeyInput apiKey={cortiApiKey} setApiKey={setCortiApiKey} label="" helpText="" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">
               {t("transcription.corti.environment")}
             </label>
             <Select value={cortiEnvironment} onValueChange={setCortiEnvironment}>
@@ -136,12 +132,22 @@ export default function FinishStep({
             <p className="text-xs text-muted-foreground/70">
               {t("onboarding.finish.corti.regionHint")}
             </p>
-            {cortiEnvironment === "eu" && cortiApiKey.trim() && (
-              <p className="text-xs text-muted-foreground/70">
-                {t("onboarding.finish.corti.llmHint")}
-              </p>
-            )}
           </div>
+          {/* Corti Models (LLM) is EU-only; US projects use OpenWhispr Cloud for
+              language features, so the key is only collected in the EU region. */}
+          {cortiEnvironment === "eu" && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">
+                {t("transcription.corti.apiKey")}
+              </label>
+              <ApiKeyInput apiKey={cortiApiKey} setApiKey={setCortiApiKey} label="" helpText="" />
+              {cortiApiKey.trim() && (
+                <p className="text-xs text-muted-foreground/70">
+                  {t("onboarding.finish.corti.llmHint")}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-center gap-2">

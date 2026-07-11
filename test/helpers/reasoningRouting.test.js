@@ -60,12 +60,15 @@ test("fan-out with partial settings only mirrors the provided routing fields", a
   }
 });
 
-test("onboarding payloads route both transcription and reasoning to corti in the eu region", async () => {
+const OPENWHISPR_REASONING = { useCleanupModel: true, cleanupCloudMode: "openwhispr" };
+
+test("onboarding routes transcription and reasoning to corti in the eu region with an api key", async () => {
   const { buildCortiOnboardingPayloads } = await load();
   const { transcription, reasoning } = buildCortiOnboardingPayloads(
     { id: "corti", models: [{ id: "corti-transcribe" }] },
     { id: "corti", models: [{ id: "corti-s1-instant" }, { id: "corti-s1" }] },
-    "eu"
+    "eu",
+    true
   );
 
   assert.deepEqual(transcription, {
@@ -87,51 +90,67 @@ test("onboarding forces cleanup enabled on the corti path", async () => {
   const { reasoning } = buildCortiOnboardingPayloads(
     { id: "corti", models: [{ id: "corti-transcribe" }] },
     { id: "corti", models: [{ id: "corti-s1-instant" }] },
-    "eu"
+    "eu",
+    true
   );
   assert.equal(reasoning.useCleanupModel, true);
 });
 
-test("us data region yields no reasoning payload", async () => {
+test("us data region routes reasoning to openwhispr cloud, transcription stays corti", async () => {
   const { buildCortiOnboardingPayloads } = await load();
   const { transcription, reasoning } = buildCortiOnboardingPayloads(
     { id: "corti", models: [{ id: "corti-transcribe" }] },
     { id: "corti", models: [{ id: "corti-s1-instant" }] },
-    "us"
+    "us",
+    true
   );
 
-  assert.equal(reasoning, null);
+  assert.deepEqual(reasoning, OPENWHISPR_REASONING);
   assert.equal(transcription.cloudTranscriptionProvider, "corti");
 });
 
-test("undefined data region yields no reasoning payload", async () => {
+test("eu region without an api key routes reasoning to openwhispr cloud", async () => {
   const { buildCortiOnboardingPayloads } = await load();
   const { reasoning } = buildCortiOnboardingPayloads(
     { id: "corti", models: [{ id: "corti-transcribe" }] },
     { id: "corti", models: [{ id: "corti-s1-instant" }] },
-    undefined
+    "eu",
+    false
   );
-  assert.equal(reasoning, null);
+  assert.deepEqual(reasoning, OPENWHISPR_REASONING);
 });
 
-test("missing corti reasoning provider yields no reasoning payload", async () => {
+test("undefined data region routes reasoning to openwhispr cloud", async () => {
+  const { buildCortiOnboardingPayloads } = await load();
+  const { reasoning } = buildCortiOnboardingPayloads(
+    { id: "corti", models: [{ id: "corti-transcribe" }] },
+    { id: "corti", models: [{ id: "corti-s1-instant" }] },
+    undefined,
+    true
+  );
+  assert.deepEqual(reasoning, OPENWHISPR_REASONING);
+});
+
+test("missing corti reasoning provider routes reasoning to openwhispr cloud", async () => {
   const { buildCortiOnboardingPayloads } = await load();
   const { transcription, reasoning } = buildCortiOnboardingPayloads(
     { id: "corti", models: [{ id: "corti-transcribe" }] },
     undefined,
-    "eu"
+    "eu",
+    true
   );
 
-  assert.equal(reasoning, null);
+  assert.deepEqual(reasoning, OPENWHISPR_REASONING);
   assert.equal(transcription.cloudTranscriptionProvider, "corti");
 });
 
-test("corti reasoning provider with empty models yields no reasoning payload", async () => {
+test("corti reasoning provider with empty models routes reasoning to openwhispr cloud", async () => {
   const { buildCortiOnboardingPayloads } = await load();
   const { reasoning } = buildCortiOnboardingPayloads(
     { id: "corti", models: [{ id: "corti-transcribe" }] },
     { id: "corti", models: [] },
-    "eu"
+    "eu",
+    true
   );
-  assert.equal(reasoning, null);
+  assert.deepEqual(reasoning, OPENWHISPR_REASONING);
 });

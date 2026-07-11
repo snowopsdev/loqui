@@ -516,6 +516,9 @@
       "modelRetiredTitle": "Modell nicht mehr verfügbar",
       "modelRetired": "Tinfoil hat {{from}} eingestellt. Zu {{to}} gewechselt.",
       "refreshingModels": "Modelle werden aktualisiert…"
+    },
+    "corti": {
+      "euOnly": "Corti-Modelle sind nur in der EU-Region verfügbar."
     }
   },
   "transcription": {

@@ -516,6 +516,9 @@
       "modelRetiredTitle": "Модель больше недоступна",
       "modelRetired": "Tinfoil прекратил поддержку {{from}}. Выполнен переход на {{to}}.",
       "refreshingModels": "Обновление моделей…"
+    },
+    "corti": {
+      "euOnly": "Модели Corti доступны только в регионе ЕС."
     }
   },
   "transcription": {

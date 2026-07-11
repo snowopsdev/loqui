@@ -516,6 +516,9 @@
       "modelRetiredTitle": "Modelo ya no disponible",
       "modelRetired": "Tinfoil retiró {{from}}. Se cambió a {{to}}.",
       "refreshingModels": "Actualizando modelos…"
+    },
+    "corti": {
+      "euOnly": "Los modelos de Corti solo están disponibles en la región de la UE."
     }
   },
   "transcription": {

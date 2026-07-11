@@ -25,12 +25,16 @@ export function buildReasoningScopePatches(settings, mode) {
   };
 }
 
-// Onboarding "use Corti everywhere" payloads. `reasoning` is null outside the EU
-// region or when the provider/model is missing; useCleanupModel is forced true so routing sticks.
+// Onboarding "use Corti everywhere" payloads. Transcription always routes to
+// Corti. Reasoning routes to Corti only in the EU region with an API key, since
+// Corti Models is EU-only and needs its own key; otherwise it routes to the
+// HIPAA-compliant OpenWhispr Cloud so clinical text never reaches a third party.
+// useCleanupModel is forced true either way so the routing sticks.
 export function buildCortiOnboardingPayloads(
   transcriptionProvider,
   reasoningProvider,
-  environment
+  environment,
+  hasApiKey
 ) {
   const transcription = {
     useLocalWhisper: false,
@@ -38,14 +42,15 @@ export function buildCortiOnboardingPayloads(
     cloudTranscriptionProvider: "corti",
     cloudTranscriptionModel: transcriptionProvider?.models?.[0]?.id,
   };
-  const reasoningModel = environment === "eu" ? reasoningProvider?.models?.[0]?.id : undefined;
-  const reasoning = reasoningModel
-    ? {
-        useCleanupModel: true,
-        cleanupProvider: "corti",
-        cleanupModel: reasoningModel,
-        cleanupCloudMode: "byok",
-      }
-    : null;
+  const cortiModel = reasoningProvider?.models?.[0]?.id;
+  const reasoning =
+    environment === "eu" && hasApiKey && cortiModel
+      ? {
+          useCleanupModel: true,
+          cleanupProvider: "corti",
+          cleanupModel: cortiModel,
+          cleanupCloudMode: "byok",
+        }
+      : { useCleanupModel: true, cleanupCloudMode: "openwhispr" };
   return { transcription, reasoning };
 }

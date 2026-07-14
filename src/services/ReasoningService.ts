@@ -387,6 +387,9 @@ class ReasoningService extends BaseReasoningService {
       const rawUrl = lanOverride || settings.cleanupRemoteUrl.trim();
       const baseUrl = ensureV1Suffix(rawUrl);
       endpoint = buildApiUrl(baseUrl, "/chat/completions");
+      apiKey =
+        config.customApiKey?.trim() ||
+        (lanOverride ? "" : settings.cleanupCustomApiKey?.trim() || "");
     } else if (isLocalProvider) {
       const serverResult = await window.electronAPI.llamaServerStart(model);
       if (!serverResult.success || !serverResult.port) {
@@ -616,6 +619,9 @@ class ReasoningService extends BaseReasoningService {
     } else if (isLanCleanup) {
       const rawUrl = lanOverride || settings.cleanupRemoteUrl.trim();
       baseURL = ensureV1Suffix(rawUrl);
+      apiKey =
+        config.customApiKey?.trim() ||
+        (lanOverride ? "" : settings.cleanupCustomApiKey?.trim() || "");
     } else if (isLocalProvider) {
       const serverResult = await window.electronAPI.llamaServerStart(model);
       if (!serverResult.success || !serverResult.port) {

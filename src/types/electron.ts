@@ -569,6 +569,7 @@ declare global {
           transcriptionMode?: InferenceMode;
           remoteTranscriptionType?: SelfHostedType;
           remoteTranscriptionUrl?: string;
+          remoteTranscriptionModel?: string;
         }
       ) => Promise<{
         success: boolean;

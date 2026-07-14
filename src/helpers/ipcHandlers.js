@@ -3983,8 +3983,40 @@ class IPCHandlers {
           preferredLanguage && preferredLanguage !== "auto"
             ? preferredLanguage.split("-")[0]
             : undefined;
+        const { resolveSelfHostedRetryRoute } = await import("./retryTranscriptionRouting.js");
+        const selfHostedRoute = resolveSelfHostedRetryRoute(settings);
 
-        if (settings?.useLocalWhisper) {
+        if (selfHostedRoute?.kind === "configuration-error") {
+          throw new Error(selfHostedRoute.error);
+        }
+
+        if (selfHostedRoute?.kind === "self-hosted") {
+          const formData = new FormData();
+          formData.append("file", new Blob([buffer], { type: "audio/webm" }), "audio.webm");
+          if (selfHostedRoute.model) {
+            formData.append("model", selfHostedRoute.model);
+          }
+          if (language) {
+            formData.append("language", language);
+          }
+
+          const response = await proxyFetch(selfHostedRoute.endpoint, {
+            method: "POST",
+            body: formData,
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Self-hosted API Error: ${response.status} ${errorText}`);
+          }
+          const data = await response.json();
+          if (data?.text) {
+            result = {
+              text: data.text,
+              source: "self-hosted",
+              model: selfHostedRoute.model,
+            };
+          }
+        } else if (settings?.useLocalWhisper) {
           if (settings.localTranscriptionProvider === "nvidia") {
             const model =
               settings.parakeetModel || process.env.PARAKEET_MODEL || "parakeet-tdt-0.6b-v3";

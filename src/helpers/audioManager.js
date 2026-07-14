@@ -2192,6 +2192,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const isSelfHosted = isSelfHostedTranscription(s);
     const isCustomEndpoint = isSelfHosted || currentProvider === "custom";
 
+    // Never fall back to the cloud default for self-hosted — fail closed instead.
+    if (isSelfHosted) {
+      const normalizedRemote = normalizeBaseUrl(remoteUrl);
+      if (!normalizedRemote || !isSecureEndpoint(normalizedRemote)) {
+        throw new Error("Self-hosted transcription URL is invalid or unsupported");
+      }
+    }
+
     if (
       this.cachedTranscriptionEndpoint &&
       (this.cachedEndpointProvider !== currentProvider ||
@@ -2338,6 +2346,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         { error: error.message, stack: error.stack },
         "transcription"
       );
+      if (isSelfHosted) throw error;
       this.cachedTranscriptionEndpoint = API_ENDPOINTS.TRANSCRIPTION;
       this.cachedEndpointProvider = currentProvider;
       this.cachedEndpointBaseUrl = currentBaseUrl;

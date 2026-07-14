@@ -13,6 +13,7 @@ import { API_ENDPOINTS, TOKEN_LIMITS, buildApiUrl, ensureV1Suffix } from "../con
 import logger from "../utils/logger";
 import { getSettings, isCloudCleanupMode } from "../stores/settingsStore";
 import { wrapCleanupTranscript } from "../config/prompts";
+import { stripThinkingTags } from "../helpers/stripThinking.js";
 import { streamText, stepCountIs } from "ai";
 import { getAIModel } from "./ai/providers";
 import { createEnterpriseChatModel } from "./ai/enterpriseChatModel";
@@ -276,7 +277,11 @@ class ReasoningService extends BaseReasoningService {
     }
 
     const choice = response.choices[0];
-    const responseText = choice.message?.content?.trim() || "";
+    // Reasoning models leak <think> blocks into non-streamed output; strip them
+    // unless the user explicitly enabled thinking (same default as streaming).
+    const rawContent = choice.message?.content?.trim() || "";
+    const responseText =
+      config.disableThinking !== false ? stripThinkingTags(rawContent) : rawContent;
 
     if (!responseText) {
       logger.logReasoning(`${providerName.toUpperCase()}_EMPTY_RESPONSE`, {

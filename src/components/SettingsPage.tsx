@@ -707,8 +707,9 @@ export default function SettingsPage({
     setActivationMode,
     preferBuiltInMic,
     selectedMicDeviceId,
+    selectedMicDeviceLabel,
     setPreferBuiltInMic,
-    setSelectedMicDeviceId,
+    setSelectedMicDevice,
     setUseLocalWhisper,
     setUiLanguage,
     setWhisperModel,
@@ -2703,8 +2704,9 @@ export default function SettingsPage({
                   <MicrophoneSettings
                     preferBuiltInMic={preferBuiltInMic}
                     selectedMicDeviceId={selectedMicDeviceId}
+                    selectedMicDeviceLabel={selectedMicDeviceLabel}
                     onPreferBuiltInChange={setPreferBuiltInMic}
-                    onDeviceSelect={setSelectedMicDeviceId}
+                    onDeviceSelect={setSelectedMicDevice}
                   />
                 </SettingsPanelRow>
               </SettingsPanel>

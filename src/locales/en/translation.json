@@ -1197,6 +1197,7 @@
       "tab": {
         "general": "General",
         "members": "Members",
+        "teams": "Teams",
         "billing": "Billing",
         "developer": "Developer"
       },
@@ -1247,6 +1248,18 @@
           "title": "Transfer ownership?",
           "description": "{{name}} becomes the owner of {{workspace}}. Your role changes to admin and only the new owner can transfer it back."
         }
+      },
+      "teams": {
+        "title": "Teams",
+        "description": "Group members for scoped sharing.",
+        "new": "New team",
+        "empty": "No teams yet.",
+        "createFirst": "Create your first team",
+        "createTitle": "Create team",
+        "nameLabel": "Team name",
+        "descriptionLabel": "Description",
+        "memberCount": "{{count}} members",
+        "loadError": "Couldn't load teams."
       },
       "invites": {
         "title": "Pending invitations",

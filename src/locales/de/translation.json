@@ -1197,6 +1197,7 @@
       "tab": {
         "general": "Allgemein",
         "members": "Mitglieder",
+        "teams": "Teams",
         "billing": "Abrechnung",
         "developer": "Entwickler"
       },
@@ -1247,6 +1248,18 @@
           "title": "Eigentum übertragen?",
           "description": "{{name}} wird Inhaber von {{workspace}}. Ihre Rolle ändert sich zu Administrator und nur der neue Inhaber kann das Eigentum zurückübertragen."
         }
+      },
+      "teams": {
+        "title": "Teams",
+        "description": "Mitglieder gruppieren für gezieltes Teilen.",
+        "new": "Neues Team",
+        "empty": "Noch keine Teams.",
+        "createFirst": "Erstellen Sie Ihr erstes Team",
+        "createTitle": "Team erstellen",
+        "nameLabel": "Team-Name",
+        "descriptionLabel": "Beschreibung",
+        "memberCount": "{{count}} Mitglieder",
+        "loadError": "Teams konnten nicht geladen werden."
       },
       "invites": {
         "title": "Ausstehende Einladungen",
@@ -2155,10 +2168,6 @@
         "liquidai_lfm2_2_6b_q4_k_m": "Ausgewogenes LFM2 für hochwertigere Bereinigung",
         "liquidai_lfm2_5_350m_q8_0": "Ultraleichtes Modell für schnelle Diktatbereinigung",
         "liquidai_lfm2_5_230m_q8_0": "Winziges Modell, sofortige Bereinigung auf bescheidener Hardware"
-      },
-      "diarization": {
-        "segmentation": "Sprachgrenzerkennung für die Sprecherzuordnung",
-        "embedding_en": "Stimmerkennung zur Sprecheridentifikation"
       }
     }
   },

@@ -1802,6 +1802,7 @@
       "tab": {
         "general": "Generale",
         "members": "Membri",
+        "teams": "Team",
         "billing": "Fatturazione",
         "developer": "Sviluppatore"
       },
@@ -1852,6 +1853,18 @@
           "title": "Trasferire la proprietà?",
           "description": "{{name}} diventa il proprietario di {{workspace}}. Il tuo ruolo passa ad amministratore e solo il nuovo proprietario potrà ritrasferirla."
         }
+      },
+      "teams": {
+        "title": "Team",
+        "description": "Raggruppa i membri per una condivisione mirata.",
+        "new": "Nuovo team",
+        "empty": "Ancora nessun team.",
+        "createFirst": "Crea il tuo primo team",
+        "createTitle": "Crea team",
+        "nameLabel": "Nome del team",
+        "descriptionLabel": "Descrizione",
+        "memberCount": "{{count}} membri",
+        "loadError": "Impossibile caricare i team."
       },
       "invites": {
         "title": "Inviti in sospeso",

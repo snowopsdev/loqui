@@ -1197,6 +1197,7 @@
       "tab": {
         "general": "Général",
         "members": "Membres",
+        "teams": "Équipes",
         "billing": "Facturation",
         "developer": "Développeur"
       },
@@ -1247,6 +1248,18 @@
           "title": "Transférer la propriété ?",
           "description": "{{name}} devient propriétaire de {{workspace}}. Votre rôle passe à administrateur et seul le nouveau propriétaire pourra la retransférer."
         }
+      },
+      "teams": {
+        "title": "Équipes",
+        "description": "Groupez les membres pour un partage ciblé.",
+        "new": "Nouvelle équipe",
+        "empty": "Aucune équipe.",
+        "createFirst": "Créez votre première équipe",
+        "createTitle": "Créer une équipe",
+        "nameLabel": "Nom de l'équipe",
+        "descriptionLabel": "Description",
+        "memberCount": "{{count}} membres",
+        "loadError": "Impossible de charger les équipes."
       },
       "invites": {
         "title": "Invitations en attente",
@@ -2155,10 +2168,6 @@
         "liquidai_lfm2_2_6b_q4_k_m": "LFM2 équilibré pour un nettoyage de meilleure qualité",
         "liquidai_lfm2_5_350m_q8_0": "Modèle ultraléger pour un nettoyage rapide de la dictée",
         "liquidai_lfm2_5_230m_q8_0": "Modèle minuscule, nettoyage instantané sur du matériel modeste"
-      },
-      "diarization": {
-        "segmentation": "Détection des limites de parole pour l'identification des intervenants",
-        "embedding_en": "Empreinte vocale pour l'identification des intervenants"
       }
     }
   },

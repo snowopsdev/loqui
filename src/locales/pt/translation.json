@@ -1781,6 +1781,7 @@
       "tab": {
         "general": "Geral",
         "members": "Membros",
+        "teams": "Equipes",
         "billing": "Cobrança",
         "developer": "Desenvolvedor"
       },
@@ -1831,6 +1832,18 @@
           "title": "Transferir a propriedade?",
           "description": "{{name}} se torna o proprietário de {{workspace}}. Sua função muda para administrador e apenas o novo proprietário pode transferi-la de volta."
         }
+      },
+      "teams": {
+        "title": "Equipes",
+        "description": "Agrupe membros para compartilhamento direcionado.",
+        "new": "Nova equipe",
+        "empty": "Ainda não há equipes.",
+        "createFirst": "Crie sua primeira equipe",
+        "createTitle": "Criar equipe",
+        "nameLabel": "Nome da equipe",
+        "descriptionLabel": "Descrição",
+        "memberCount": "{{count}} membros",
+        "loadError": "Não foi possível carregar as equipes."
       },
       "invites": {
         "title": "Convites pendentes",

@@ -1850,6 +1850,7 @@
       "tab": {
         "general": "General",
         "members": "Miembros",
+        "teams": "Equipos",
         "billing": "Facturación",
         "developer": "Desarrollador"
       },
@@ -1900,6 +1901,18 @@
           "title": "¿Transferir la propiedad?",
           "description": "{{name}} pasa a ser el propietario de {{workspace}}. Tu rol cambia a administrador y solo el nuevo propietario puede transferirla de vuelta."
         }
+      },
+      "teams": {
+        "title": "Equipos",
+        "description": "Agrupa miembros para compartir con alcance limitado.",
+        "new": "Nuevo equipo",
+        "empty": "Aún no hay equipos.",
+        "createFirst": "Crea tu primer equipo",
+        "createTitle": "Crear equipo",
+        "nameLabel": "Nombre del equipo",
+        "descriptionLabel": "Descripción",
+        "memberCount": "{{count}} miembros",
+        "loadError": "No se pudieron cargar los equipos."
       },
       "invites": {
         "title": "Invitaciones pendientes",

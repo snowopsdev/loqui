@@ -1802,6 +1802,7 @@
       "tab": {
         "general": "一般",
         "members": "メンバー",
+        "teams": "チーム",
         "billing": "請求",
         "developer": "開発者"
       },
@@ -1852,6 +1853,18 @@
           "title": "オーナー権限を譲渡しますか？",
           "description": "{{name}} が {{workspace}} のオーナーになります。あなたの役割は管理者に変わり、元に戻せるのは新しいオーナーのみです。"
         }
+      },
+      "teams": {
+        "title": "チーム",
+        "description": "メンバーをグループ化して共有範囲を絞ります。",
+        "new": "新しいチーム",
+        "empty": "チームはまだありません。",
+        "createFirst": "最初のチームを作成",
+        "createTitle": "チームを作成",
+        "nameLabel": "チーム名",
+        "descriptionLabel": "説明",
+        "memberCount": "{{count}}人のメンバー",
+        "loadError": "チームを読み込めませんでした。"
       },
       "invites": {
         "title": "保留中の招待",

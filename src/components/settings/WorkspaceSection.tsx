@@ -23,11 +23,12 @@ import {
 } from "../ui/dropdown-menu";
 import { cn } from "../lib/utils";
 import WorkspaceMembersTab from "./WorkspaceMembersTab";
+import WorkspaceTeamsTab from "./WorkspaceTeamsTab";
 import WorkspaceBillingTab from "./WorkspaceBillingTab";
 import WorkspaceDeveloperTab from "./WorkspaceDeveloperTab";
 import type { Workspace } from "../../types/electron";
 
-const SUB_TABS = ["general", "members", "billing", "developer"] as const;
+const SUB_TABS = ["general", "members", "teams", "billing", "developer"] as const;
 type WorkspaceTab = (typeof SUB_TABS)[number];
 
 interface Props {
@@ -210,6 +211,7 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
             onNavigateToBilling={() => setStoredTab("billing")}
           />
         )}
+        {tab === "teams" && <WorkspaceTeamsTab workspace={workspace} />}
         {tab === "billing" && <WorkspaceBillingTab workspace={workspace} />}
         {tab === "developer" && canManage && <WorkspaceDeveloperTab workspace={workspace} />}
       </div>

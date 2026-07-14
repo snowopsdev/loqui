@@ -157,6 +157,28 @@ export interface WorkspaceMember {
   image: string | null;
 }
 
+export type TeamRole = "admin" | "member";
+
+export interface Team {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  member_count?: number;
+}
+
+export interface TeamMember {
+  user_id: string;
+  role: TeamRole;
+  joined_at: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+}
+
 export interface WorkspaceInvitation {
   id: string;
   email: string;

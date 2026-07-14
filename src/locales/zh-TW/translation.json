@@ -1209,7 +1209,12 @@
           "annualEquivalent": "$16.67",
           "includesPrefix": "所有 Pro 功能 +",
           "badge": "最熱門",
-          "features": ["無限會議錄製", "代理模式", "與您的資料對話", "優先支援"],
+          "features": [
+            "無限會議錄製",
+            "代理模式",
+            "與您的資料對話",
+            "優先支援"
+          ],
           "cta": "開始使用",
           "switchToAnnual": "切換為年付"
         },
@@ -1797,6 +1802,7 @@
       "tab": {
         "general": "一般",
         "members": "成員",
+        "teams": "團隊",
         "billing": "帳單",
         "developer": "開發者"
       },
@@ -1847,6 +1853,18 @@
           "title": "要轉移擁有權嗎？",
           "description": "{{name}} 將成為 {{workspace}} 的擁有者。你的角色會變更為管理員，且只有新擁有者能將擁有權轉回。"
         }
+      },
+      "teams": {
+        "title": "團隊",
+        "description": "將成員分組以進行有針對性的共享。",
+        "new": "新增團隊",
+        "empty": "尚無團隊。",
+        "createFirst": "建立您的第一個團隊",
+        "createTitle": "建立團隊",
+        "nameLabel": "團隊名稱",
+        "descriptionLabel": "描述",
+        "memberCount": "{{count}} 位成員",
+        "loadError": "無法載入團隊。"
       },
       "invites": {
         "title": "待處理的邀請",

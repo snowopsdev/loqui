@@ -1209,7 +1209,12 @@
           "annualEquivalent": "$16.67",
           "includesPrefix": "所有 Pro 功能 +",
           "badge": "最受欢迎",
-          "features": ["无限会议录制", "代理模式", "与您的数据对话", "优先支持"],
+          "features": [
+            "无限会议录制",
+            "代理模式",
+            "与您的数据对话",
+            "优先支持"
+          ],
           "cta": "开始使用",
           "switchToAnnual": "切换为年付"
         },
@@ -1797,6 +1802,7 @@
       "tab": {
         "general": "常规",
         "members": "成员",
+        "teams": "团队",
         "billing": "账单",
         "developer": "开发者"
       },
@@ -1847,6 +1853,18 @@
           "title": "转让所有权？",
           "description": "{{name}} 将成为 {{workspace}} 的所有者。你的角色将变为管理员，只有新所有者才能转回所有权。"
         }
+      },
+      "teams": {
+        "title": "团队",
+        "description": "将成员分组以进行有针对性的共享。",
+        "new": "新建团队",
+        "empty": "暂无团队。",
+        "createFirst": "创建您的第一个团队",
+        "createTitle": "创建团队",
+        "nameLabel": "团队名称",
+        "descriptionLabel": "描述",
+        "memberCount": "{{count}} 名成员",
+        "loadError": "无法加载团队。"
       },
       "invites": {
         "title": "待处理的邀请",

@@ -2245,6 +2245,7 @@
       "moved": "«{{title}}» se movió a {{target}}",
       "couldNotMove": "No se pudo mover la carpeta",
       "couldNotMoveNote": "No se pudo mover la nota",
+      "folderNameTaken": "No se pudo mover «{{name}}»: ya existe una carpeta con ese nombre allí",
       "undo": "Deshacer",
       "emptySpace": "Aún no hay notas. Las notas aquí son visibles para todos en {{space}}.",
       "noteCount_one": "{{count}} nota",
@@ -2976,6 +2977,7 @@
     }
   },
   "commandSearch": {
+    "allSpaces": "Todos los espacios",
     "title": "Buscar",
     "description": "Buscar en notas y transcripciones",
     "shortPlaceholder": "Buscar",

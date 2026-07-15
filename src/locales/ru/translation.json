@@ -2199,6 +2199,7 @@
       "moved": "«{{title}}» перемещено в {{target}}",
       "couldNotMove": "Не удалось переместить папку",
       "couldNotMoveNote": "Не удалось переместить заметку",
+      "folderNameTaken": "Не удалось переместить «{{name}}» — там уже есть папка с таким именем",
       "undo": "Отменить",
       "emptySpace": "Пока нет заметок. Заметки здесь видны всем в {{space}}.",
       "noteCount_one": "{{count}} заметка",
@@ -2938,6 +2939,7 @@
     }
   },
   "commandSearch": {
+    "allSpaces": "Все пространства",
     "title": "Поиск",
     "description": "Поиск по заметкам и транскрипциям",
     "shortPlaceholder": "Поиск",

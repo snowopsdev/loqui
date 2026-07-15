@@ -2197,6 +2197,7 @@
       "moved": "“{{title}}” movida para {{target}}",
       "couldNotMove": "Não foi possível mover a pasta",
       "couldNotMoveNote": "Não foi possível mover a nota",
+      "folderNameTaken": "Não foi possível mover “{{name}}”: já existe uma pasta com esse nome nesse local",
       "undo": "Desfazer",
       "emptySpace": "Nenhuma nota ainda. As notas aqui são visíveis para todos em {{space}}.",
       "noteCount_one": "{{count}} nota",
@@ -2928,6 +2929,7 @@
     }
   },
   "commandSearch": {
+    "allSpaces": "Todos os espaços",
     "title": "Pesquisar",
     "description": "Pesquisar notas e transcrições",
     "shortPlaceholder": "Pesquisar",

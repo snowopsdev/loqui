@@ -2197,6 +2197,7 @@
       "moved": "“{{title}}” spostata in {{target}}",
       "couldNotMove": "Impossibile spostare la cartella",
       "couldNotMoveNote": "Impossibile spostare la nota",
+      "folderNameTaken": "Impossibile spostare “{{name}}”: esiste già una cartella con questo nome in quella posizione",
       "undo": "Annulla",
       "emptySpace": "Ancora nessuna nota. Le note qui sono visibili a tutti in {{space}}.",
       "noteCount_one": "{{count}} nota",
@@ -2928,6 +2929,7 @@
     }
   },
   "commandSearch": {
+    "allSpaces": "Tutti gli spazi",
     "title": "Cerca",
     "description": "Cerca tra note e trascrizioni",
     "shortPlaceholder": "Cerca",

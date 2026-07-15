@@ -105,10 +105,19 @@ async function deleteAll(): Promise<{ deleted: number; errors: number }> {
   return { deleted: results.length - errors, errors };
 }
 
-async function search(query: string, limit?: number): Promise<{ notes: SearchResult[] }> {
+// scope "all" opts into team results (legacy clients stay personal-only);
+// team_id narrows to a single team and takes precedence over scope.
+async function search(
+  query: string,
+  limit?: number,
+  scope?: "all",
+  teamId?: string
+): Promise<{ notes: SearchResult[] }> {
   return cloudPost<{ notes: SearchResult[] }>("/api/notes/search", {
     query,
     ...(limit !== undefined ? { limit } : {}),
+    ...(scope !== undefined ? { scope } : {}),
+    ...(teamId !== undefined ? { team_id: teamId } : {}),
   });
 }
 

@@ -1,11 +1,11 @@
 import type { ToolDefinition, ToolResult } from "./ToolRegistry";
-import { resolveFolderId } from "./utils";
+import { resolveFolderId, resolveSpace } from "./utils";
 import { syncService } from "../SyncService.js";
 
 export const createNoteTool: ToolDefinition = {
   name: "create_note",
   description:
-    "Always call list_folders first. Reuse an existing folder whenever one is a reasonable semantic fit for the note's topic (e.g. a story goes into an existing 'Stories' folder), even if the user didn't name it. Only pass a new folder name when nothing existing fits. Creates a note with title, content, and optional folder (auto-created if missing).",
+    "Always call list_folders first. Reuse an existing folder whenever one is a reasonable semantic fit for the note's topic (e.g. a story goes into an existing 'Stories' folder), even if the user didn't name it. Only pass a new folder name when nothing existing fits. Creates a note with title, content, optional folder (auto-created if missing), and optional space.",
   parameters: {
     type: "object",
     properties: {
@@ -21,6 +21,10 @@ export const createNoteTool: ToolDefinition = {
         type: "string",
         description: "Folder name for the note. Created automatically if it does not exist.",
       },
+      space: {
+        type: "string",
+        description: "Space name to create the note in. Omit for the user's personal space.",
+      },
     },
     required: ["title", "content"],
     additionalProperties: false,
@@ -31,13 +35,24 @@ export const createNoteTool: ToolDefinition = {
     const title = args.title as string;
     const content = args.content as string;
     const folderName = args.folder as string | undefined;
+    const spaceName = args.space as string | undefined;
 
     try {
+      let spaceId: number | null = null;
+      if (spaceName) {
+        const spaces = (await window.electronAPI.getSpaces?.()) ?? [];
+        const resolved = resolveSpace(spaces, spaceName);
+        if (resolved.error) {
+          return { success: false, data: null, displayText: resolved.error };
+        }
+        spaceId = resolved.space.id;
+      }
+
       let folderId: number | null = null;
       let folderCreated = false;
 
       if (folderName) {
-        const resolved = await resolveFolderId(folderName, { createIfMissing: true });
+        const resolved = await resolveFolderId(folderName, { createIfMissing: true }, spaceId);
         if (resolved.error) {
           return { success: false, data: null, displayText: resolved.error };
         }
@@ -51,7 +66,8 @@ export const createNoteTool: ToolDefinition = {
         "personal",
         null,
         null,
-        folderId
+        folderId,
+        spaceId
       );
 
       if (!result.success || !result.note) {

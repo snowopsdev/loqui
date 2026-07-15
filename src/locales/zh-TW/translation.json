@@ -1209,12 +1209,7 @@
           "annualEquivalent": "$16.67",
           "includesPrefix": "所有 Pro 功能 +",
           "badge": "最熱門",
-          "features": [
-            "無限會議錄製",
-            "代理模式",
-            "與您的資料對話",
-            "優先支援"
-          ],
+          "features": ["無限會議錄製", "代理模式", "與您的資料對話", "優先支援"],
           "cta": "開始使用",
           "switchToAnnual": "切換為年付"
         },
@@ -2197,6 +2192,7 @@
       "moved": "已將「{{title}}」移動到 {{target}}",
       "couldNotMove": "無法移動資料夾",
       "couldNotMoveNote": "無法移動筆記",
+      "folderNameTaken": "無法移動「{{name}}」：該位置已存在同名資料夾",
       "undo": "復原",
       "emptySpace": "還沒有筆記。這裡的筆記對 {{space}} 中的所有人可見。",
       "noteCount_one": "{{count}} 則筆記",
@@ -2928,6 +2924,7 @@
     }
   },
   "commandSearch": {
+    "allSpaces": "所有空間",
     "title": "搜尋",
     "description": "搜尋筆記與轉錄",
     "shortPlaceholder": "搜尋",

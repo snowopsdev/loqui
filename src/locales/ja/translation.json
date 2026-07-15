@@ -2125,6 +2125,7 @@
       "moved": "「{{title}}」を{{target}}に移動しました",
       "couldNotMove": "フォルダを移動できませんでした",
       "couldNotMoveNote": "ノートを移動できませんでした",
+      "folderNameTaken": "「{{name}}」を移動できませんでした。同じ名前のフォルダが既に存在します",
       "undo": "元に戻す",
       "emptySpace": "まだノートがありません。ここのノートは{{space}}の全員に表示されます。",
       "noteCount_one": "{{count}} 件のノート",
@@ -2928,6 +2929,7 @@
     }
   },
   "commandSearch": {
+    "allSpaces": "すべてのスペース",
     "title": "検索",
     "description": "ノートと文字起こしを検索",
     "shortPlaceholder": "検索",

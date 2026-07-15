@@ -170,6 +170,23 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     });
   }, []);
 
+  // One-time background reindex after the spaces migration: pre-existing
+  // Qdrant points carry no space_id payload, so scoped semantic search would
+  // miss them. Delayed so the Qdrant sidecar has time to come up; if it isn't
+  // ready yet the flag stays unset and the next launch retries.
+  useEffect(() => {
+    if (localStorage.getItem("semanticSpaceReindexDone") === "true") return;
+    const timer = setTimeout(() => {
+      window.electronAPI
+        ?.semanticReindexAll?.()
+        .then((result) => {
+          if (result?.success) localStorage.setItem("semanticSpaceReindexDone", "true");
+        })
+        .catch(() => {});
+    }, 15_000);
+    return () => clearTimeout(timer);
+  }, []);
+
   useEffect(() => {
     if (platform !== "darwin") return;
     window.electronAPI?.getPostMigrationState?.().then((state) => {

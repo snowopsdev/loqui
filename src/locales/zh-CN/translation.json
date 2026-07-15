@@ -1209,12 +1209,7 @@
           "annualEquivalent": "$16.67",
           "includesPrefix": "所有 Pro 功能 +",
           "badge": "最受欢迎",
-          "features": [
-            "无限会议录制",
-            "代理模式",
-            "与您的数据对话",
-            "优先支持"
-          ],
+          "features": ["无限会议录制", "代理模式", "与您的数据对话", "优先支持"],
           "cta": "开始使用",
           "switchToAnnual": "切换为年付"
         },
@@ -2197,6 +2192,7 @@
       "moved": "已将“{{title}}”移动到 {{target}}",
       "couldNotMove": "无法移动文件夹",
       "couldNotMoveNote": "无法移动笔记",
+      "folderNameTaken": "无法移动“{{name}}”：该位置已存在同名文件夹",
       "undo": "撤销",
       "emptySpace": "还没有笔记。这里的笔记对 {{space}} 中的所有人可见。",
       "noteCount_one": "{{count}} 条笔记",
@@ -2928,6 +2924,7 @@
     }
   },
   "commandSearch": {
+    "allSpaces": "所有空间",
     "title": "搜索",
     "description": "搜索笔记和转录",
     "shortPlaceholder": "搜索",

@@ -1,8 +1,25 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Search, FileText, Mic, Folder, Lock, Users, Upload, MessageSquare } from "lucide-react";
+import {
+  Search,
+  FileText,
+  Mic,
+  Folder,
+  Lock,
+  Users,
+  Upload,
+  MessageSquare,
+  ChevronDown,
+} from "lucide-react";
 import { cn } from "./lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "./ui/dropdown-menu";
 import type { NoteItem, FolderItem, SpaceItem, TranscriptionItem } from "../types/electron.js";
 import { formatRelativeTime } from "../utils/dateFormatting";
 
@@ -62,6 +79,7 @@ export default function CommandSearch({
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [spaces, setSpaces] = useState<SpaceItem[]>([]);
+  const [scopeSpaceId, setScopeSpaceId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<ConversationResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -88,6 +106,7 @@ export default function CommandSearch({
   if (open && !prevOpen) {
     setPrevOpen(open);
     setQuery("");
+    setScopeSpaceId(null);
     setSelectedIndex(0);
   } else if (open !== prevOpen) {
     setPrevOpen(open);
@@ -162,7 +181,7 @@ export default function CommandSearch({
       }
       searchTimerRef.current = setTimeout(async () => {
         try {
-          const results = await window.electronAPI.searchNotes(query);
+          const results = await window.electronAPI.searchNotes(query, undefined, scopeSpaceId);
           setNotes(results);
         } catch {
           /* keep current */
@@ -173,7 +192,7 @@ export default function CommandSearch({
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
-  }, [query, isConversationsMode]);
+  }, [query, isConversationsMode, scopeSpaceId]);
 
   if (notes !== prevNotes || query !== prevQuery) {
     setPrevNotes(notes);
@@ -183,6 +202,21 @@ export default function CommandSearch({
 
   const folderMap = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
   const spaceMap = useMemo(() => new Map(spaces.map((s) => [s.id, s])), [spaces]);
+  const scopeSpace = scopeSpaceId != null ? spaceMap.get(scopeSpaceId) : undefined;
+
+  // Scoping re-filters the visible list immediately, so the keyboard
+  // highlight must restart from the top.
+  const selectScope = useCallback((spaceId: number | null) => {
+    setScopeSpaceId(spaceId);
+    setSelectedIndex(0);
+  }, []);
+
+  // The search leg scopes at the DB; this also covers browsed (empty-query)
+  // results and stale in-flight results after a scope switch.
+  const scopedNotes = useMemo(
+    () => (scopeSpaceId == null ? notes : notes.filter((n) => n.space_id === scopeSpaceId)),
+    [notes, scopeSpaceId]
+  );
 
   const spaceLabel = useCallback(
     (space: SpaceItem) =>
@@ -239,10 +273,10 @@ export default function CommandSearch({
     }
     const items: FlatItem[] = [];
     for (const target of jumpTargets) items.push({ kind: "container", target });
-    for (const note of notes) items.push({ kind: "note", note });
+    for (const note of scopedNotes) items.push({ kind: "note", note });
     for (const transcript of filteredTranscripts) items.push({ kind: "transcript", transcript });
     return items;
-  }, [jumpTargets, notes, filteredTranscripts, conversations, isConversationsMode]);
+  }, [jumpTargets, scopedNotes, filteredTranscripts, conversations, isConversationsMode]);
 
   const selectItem = useCallback(
     (item: FlatItem) => {
@@ -306,6 +340,42 @@ export default function CommandSearch({
           {/* Search input */}
           <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-border/40">
             <Search size={14} className="shrink-0 text-muted-foreground/50" />
+            {!isConversationsMode && spaces.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-1 shrink-0 rounded-md border border-border/50 bg-muted/40",
+                      "px-1.5 py-0.5 text-[11px] transition-colors outline-none",
+                      scopeSpace ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <span className="truncate max-w-32">
+                      {scopeSpace ? spaceLabel(scopeSpace) : t("commandSearch.allSpaces")}
+                    </span>
+                    <ChevronDown size={11} className="shrink-0 text-muted-foreground/50" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  onCloseAutoFocus={(e) => {
+                    e.preventDefault();
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <DropdownMenuItem onSelect={() => selectScope(null)}>
+                    {t("commandSearch.allSpaces")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {spaces.map((space) => (
+                    <DropdownMenuItem key={space.id} onSelect={() => selectScope(space.id)}>
+                      {spaceLabel(space)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <input
               ref={inputRef}
               value={query}
@@ -407,13 +477,13 @@ export default function CommandSearch({
                   </div>
                 )}
 
-                {notes.length > 0 && (
+                {scopedNotes.length > 0 && (
                   <div className={jumpTargets.length > 0 ? "mt-0.5" : ""}>
                     <SectionHeader
                       icon={<FileText size={11} />}
                       label={t("commandSearch.sections.notes")}
                     />
-                    {notes.map((note) => {
+                    {scopedNotes.map((note) => {
                       const idx = flatItems.findIndex(
                         (fi) => fi.kind === "note" && fi.note.id === note.id
                       );
@@ -434,7 +504,7 @@ export default function CommandSearch({
                 )}
 
                 {filteredTranscripts.length > 0 && (
-                  <div className={jumpTargets.length > 0 || notes.length > 0 ? "mt-0.5" : ""}>
+                  <div className={jumpTargets.length > 0 || scopedNotes.length > 0 ? "mt-0.5" : ""}>
                     <SectionHeader
                       icon={<Mic size={11} />}
                       label={t("commandSearch.sections.transcripts")}

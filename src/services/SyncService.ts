@@ -29,6 +29,12 @@ function isTeamAccessError(err: unknown): boolean {
   );
 }
 
+// Typed 409 from a folder rename/move colliding with a same-named folder in
+// the target scope; the row stays pending until the conflict is resolved.
+function isFolderNameTakenError(err: unknown): boolean {
+  return err instanceof CloudApiError && err.code === "folder_name_taken";
+}
+
 // Extra fields pushed with note/folder payloads so the server files rows into
 // the right team scope; `null` scope means the row must not push at all.
 type PushScopeFields = { workspace_id?: string | null; team_id?: string | null };
@@ -219,9 +225,7 @@ class SyncService {
     }
   }
 
-  requestSyncAll(
-    reason: "start" | "focus" | "interval" | "online" | "manual" | "team-push"
-  ): void {
+  requestSyncAll(reason: "start" | "focus" | "interval" | "online" | "manual" | "team-push"): void {
     if (!this.canSync() && !this.canSyncSharedNotes()) return;
     if (
       reason !== "manual" &&
@@ -315,18 +319,25 @@ class SyncService {
     const folder = folders.find((f) => f.id === id);
     if (!folder) return;
 
+    const ctx = await this.buildSpaceContext();
+    const scope = this.pushScopeFields(ctx.byId.get(folder.space_id));
+    if (!scope) {
+      console.warn(`Skipping folder ${folder.id} push: its team space has no cloud team yet`);
+      return;
+    }
+
     if (folder.cloud_id) {
-      await FoldersService.update(folder.cloud_id, {
-        name: folder.name,
-        sort_order: folder.sort_order,
-      });
-    } else {
-      const ctx = await this.buildSpaceContext();
-      const scope = this.pushScopeFields(ctx.byId.get(folder.space_id));
-      if (!scope) {
-        console.warn(`Skipping folder ${folder.id} push: its team space has no cloud team yet`);
-        return;
+      try {
+        await FoldersService.update(folder.cloud_id, {
+          name: folder.name,
+          sort_order: folder.sort_order,
+          ...scope,
+        });
+      } catch (err) {
+        if (!isFolderNameTakenError(err)) throw err;
+        this.dispatchFolderNameTaken(folder.name);
       }
+    } else {
       const cloud = await FoldersService.create({
         name: folder.name,
         client_folder_id: folder.client_folder_id,
@@ -593,9 +604,7 @@ class SyncService {
   }
 
   private dispatchSpaceRevoked(spaceName: string | null): void {
-    window.dispatchEvent(
-      new CustomEvent("openwhispr:space-revoked", { detail: { spaceName } })
-    );
+    window.dispatchEvent(new CustomEvent("openwhispr:space-revoked", { detail: { spaceName } }));
   }
 
   private dispatchNoteRelocated(title: string | null, spaceName: string | null | undefined): void {
@@ -604,6 +613,10 @@ class SyncService {
         detail: { title, spaceName: spaceName ?? null },
       })
     );
+  }
+
+  private dispatchFolderNameTaken(name: string): void {
+    window.dispatchEvent(new CustomEvent("openwhispr:folder-name-taken", { detail: { name } }));
   }
 
   private async syncFolders(teamOnly = false): Promise<void> {
@@ -688,14 +701,17 @@ class SyncService {
     const migration = pushable.filter(({ folder }) => folder.cloud_id);
     const fresh = pushable.filter(({ folder }) => !folder.cloud_id);
 
-    for (const { folder } of migration) {
+    for (const { folder, scope } of migration) {
       try {
-        // The folders update endpoint carries no scope fields — folder moves
-        // between spaces don't propagate through PATCH in v1.
-        await FoldersService.update(folder.cloud_id!, { name: folder.name });
+        await FoldersService.update(folder.cloud_id!, { name: folder.name, ...scope });
         await window.electronAPI.markFolderSynced?.(folder.id, folder.cloud_id!);
       } catch (err) {
-        console.error("Folder migration sync failed:", err);
+        if (isFolderNameTakenError(err)) {
+          // Leave the row pending; retried on the next pass.
+          this.dispatchFolderNameTaken(folder.name);
+        } else {
+          console.error("Folder migration sync failed:", err);
+        }
       }
     }
 

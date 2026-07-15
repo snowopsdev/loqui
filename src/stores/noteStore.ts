@@ -159,9 +159,7 @@ function ensureIpcListeners() {
         // Sharing is per-note consent, and so is team-space membership: edits
         // to a shared or team note must reach the cloud promptly even when
         // the global backup toggle is off (teammates poll for them).
-        const spaceKind = useNoteStore
-          .getState()
-          .spaces.find((s) => s.id === note.space_id)?.kind;
+        const spaceKind = useNoteStore.getState().spaces.find((s) => s.id === note.space_id)?.kind;
         if (note.is_shared || spaceKind === "team") {
           syncService.debouncedPush("note", note.id);
         }
@@ -536,19 +534,6 @@ export async function moveFolderToSpace(
     useNoteStore.setState({ activeContext: { spaceId, folderId } });
   }
   syncService.requestSyncAll("manual");
-  return result;
-}
-
-export async function createSpace(
-  name: string,
-  emoji: string | null
-): Promise<{ success: boolean; space?: SpaceItem; error?: string }> {
-  const result = (await window.electronAPI.createSpace?.({ name, emoji })) ?? { success: false };
-  if (result.success && result.space) {
-    await loadSpaces();
-    setActiveContext(result.space.id, null);
-    setContainerExpanded(spaceContainerKey(result.space.id), true);
-  }
   return result;
 }
 

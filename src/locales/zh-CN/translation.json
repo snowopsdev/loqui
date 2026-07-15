@@ -2178,7 +2178,10 @@
       "deleteSpace": "删除空间",
       "deleteConfirmTitle": "删除空间？",
       "deleteConfirmDescription": "这将从此设备永久删除 {{space}} 及其所有文件夹和笔记。",
+      "deleteConfirmTeamDescription": "这将为所有人删除 {{space}}。成员将无法再访问其所有文件夹和笔记。",
+      "deleteTypeName": "输入 {{space}} 以确认",
       "couldNotDelete": "无法删除空间",
+      "deleted": "已删除 {{space}}",
       "moveTo": "移动到",
       "moveToSpace": "移动到空间…",
       "searchSpaces": "搜索空间...",
@@ -2203,7 +2206,25 @@
       "conflictBanner": "此笔记存在更新的版本。",
       "conflictRefresh": "刷新",
       "conflictKeep": "继续编辑",
-      "editedBy": "由 {{name}} 编辑 · {{time}}"
+      "editedBy": "由 {{name}} 编辑 · {{time}}",
+      "members": {
+        "menu": "成员…",
+        "title": "{{space}} 的成员",
+        "addPeople": "添加成员",
+        "searchPlaceholder": "搜索成员…",
+        "roleAdmin": "管理员",
+        "roleMember": "成员",
+        "remove": "移除",
+        "removeConfirm": "将 {{name}} 从 {{space}} 中移除？",
+        "removeConfirmDescription": "对方将无法再访问此空间的所有笔记。",
+        "leave": "退出空间",
+        "leaveConfirm": "退出 {{space}}？",
+        "leaveConfirmDescription": "你将无法再访问此空间的所有笔记。",
+        "inviteFooter": "邀请 {{email}} 加入工作区…",
+        "empty": "尚未添加任何成员"
+      },
+      "invitedTo_one": "你将加入 {{count}} 个团队空间",
+      "invitedTo_other": "你将加入 {{count}} 个团队空间"
     },
     "folders": {
       "title": "文件夹",

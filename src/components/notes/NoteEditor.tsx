@@ -14,12 +14,16 @@ import {
   Plus,
   Check,
   Share2,
+  Users,
 } from "lucide-react";
 import ShareNoteDialog from "./ShareNoteDialog";
+import SpaceMembersDialog from "./SpaceMembersDialog";
 import {
   useShareCacheEntry,
   useNoteConflict,
+  useSpaces,
   clearNoteConflict,
+  setActiveContext,
   updateNoteInStore,
 } from "../../stores/noteStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -52,6 +56,9 @@ import {
 } from "../../utils/transcriptSpeakerState";
 import NoteParticipants from "./NoteParticipants";
 import type { CalendarAttendee } from "../../types/calendar";
+
+const CHIP_BUTTON_CLASS =
+  "inline-flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded-md border border-border/70 dark:border-white/25 text-foreground/50 dark:text-foreground/35 hover:text-foreground/60 hover:border-border/60 hover:bg-foreground/3 dark:hover:text-foreground/40 dark:hover:border-white/10 dark:hover:bg-white/3 transition-all duration-150 cursor-pointer outline-none";
 
 function formatNoteDate(dateStr: string): string {
   const date = normalizeDbDate(dateStr);
@@ -158,15 +165,25 @@ export default function NoteEditor({
   const [newFolderName, setNewFolderName] = useState("");
   const [isDiarizing, setIsDiarizing] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const { isSignedIn, user } = useAuth();
   const shareCache = useShareCacheEntry(note.cloud_id);
+  const spaces = useSpaces();
+  const space = useMemo(
+    () => spaces.find((s) => s.id === note.space_id) ?? null,
+    [spaces, note.space_id]
+  );
+  const isTeamNote = space?.kind === "team";
   // Persisted flag is the restart-safe truth; the live cache overlays it for
   // the current session (it reflects server state before the flag persists).
   const isShared = shareCache ? shareCache.share.visibility !== "private" : Boolean(note.is_shared);
   // Same gate as SyncService.canSyncSharedNotes: sharing needs a subscription.
   // An already-shared note stays manageable (unshare/revoke) after a lapse.
+  // Team notes never get a public web link — their audience is the space (D8).
   const canShare =
-    isSignedIn && (localStorage.getItem("isSubscribed") === "true" || Boolean(note.is_shared));
+    isSignedIn &&
+    !isTeamNote &&
+    (localStorage.getItem("isSubscribed") === "true" || Boolean(note.is_shared));
   // A newer cloud copy arrived while this note had unpushed edits (plan §7.3).
   const conflict = useNoteConflict(note.client_note_id);
   const members = useWorkspaceStore((s) => s.members);
@@ -656,6 +673,29 @@ export default function NoteEditor({
               </span>
             )}
             <NoteParticipants noteId={note.id} participants={parsedParticipants} />
+            {isTeamNote && space && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveContext(space.id, null)}
+                  className={CHIP_BUTTON_CLASS}
+                >
+                  {space.emoji ? (
+                    <span className="text-[11px] leading-none shrink-0" aria-hidden="true">
+                      {space.emoji}
+                    </span>
+                  ) : (
+                    <Users size={11} className="shrink-0" />
+                  )}
+                  <span className="truncate max-w-32">{space.name}</span>
+                </button>
+                {folders && onMoveToFolder && (
+                  <span aria-hidden="true" className="text-[11px] text-foreground/25">
+                    /
+                  </span>
+                )}
+              </>
+            )}
             {folders && onMoveToFolder && (
               <DropdownMenu
                 onOpenChange={(open) => {
@@ -667,7 +707,7 @@ export default function NoteEditor({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded-md border border-border/70 dark:border-white/25 text-foreground/50 dark:text-foreground/35 hover:text-foreground/60 hover:border-border/60 hover:bg-foreground/3 dark:hover:text-foreground/40 dark:hover:border-white/10 dark:hover:bg-white/3 transition-all duration-150 cursor-pointer outline-none">
+                  <button className={CHIP_BUTTON_CLASS}>
                     <FolderOpen size={11} className="shrink-0" />
                     {folderName || t("notes.editor.noFolder")}
                   </button>
@@ -754,6 +794,17 @@ export default function NoteEditor({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
+            )}
+            {isTeamNote && space?.cloud_team_id && (
+              <button
+                type="button"
+                onClick={() => setMembersDialogOpen(true)}
+                aria-label={t("notes.spaces.members.title", { space: space.name })}
+                className={CHIP_BUTTON_CLASS}
+              >
+                <Users size={11} className="shrink-0" />
+                {space.member_count ?? 0}
+              </button>
             )}
             {isSaving && (
               <span className="inline-flex items-center gap-1 text-[11px] text-foreground/30 dark:text-foreground/15 tabular-nums">
@@ -1059,6 +1110,13 @@ export default function NoteEditor({
       )}
       {canShare && (
         <ShareNoteDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen} note={note} />
+      )}
+      {isTeamNote && space?.cloud_team_id && (
+        <SpaceMembersDialog
+          space={space}
+          open={membersDialogOpen}
+          onOpenChange={setMembersDialogOpen}
+        />
       )}
     </div>
   );

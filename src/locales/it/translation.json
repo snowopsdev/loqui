@@ -2178,7 +2178,10 @@
       "deleteSpace": "Elimina spazio",
       "deleteConfirmTitle": "Eliminare lo spazio?",
       "deleteConfirmDescription": "Questo elimina definitivamente {{space}} con tutte le sue cartelle e note su questo dispositivo.",
+      "deleteConfirmTeamDescription": "Questo elimina {{space}} per tutti. I membri perderanno l'accesso a tutte le sue cartelle e note.",
+      "deleteTypeName": "Digita {{space}} per confermare",
       "couldNotDelete": "Impossibile eliminare lo spazio",
+      "deleted": "{{space}} eliminato",
       "moveTo": "Sposta in",
       "moveToSpace": "Sposta in uno spazio…",
       "searchSpaces": "Cerca spazi...",
@@ -2203,7 +2206,25 @@
       "conflictBanner": "Esiste una versione più recente di questa nota.",
       "conflictRefresh": "Aggiorna",
       "conflictKeep": "Continua a modificare",
-      "editedBy": "Modificato da {{name}} · {{time}}"
+      "editedBy": "Modificato da {{name}} · {{time}}",
+      "members": {
+        "menu": "Membri…",
+        "title": "Membri di {{space}}",
+        "addPeople": "Aggiungi persone",
+        "searchPlaceholder": "Cerca persone…",
+        "roleAdmin": "Amministratore",
+        "roleMember": "Membro",
+        "remove": "Rimuovi",
+        "removeConfirm": "Rimuovere {{name}} da {{space}}?",
+        "removeConfirmDescription": "Questa persona perderà l'accesso a tutte le note di questo spazio.",
+        "leave": "Abbandona lo spazio",
+        "leaveConfirm": "Abbandonare {{space}}?",
+        "leaveConfirmDescription": "Perderai l'accesso a tutte le note di questo spazio.",
+        "inviteFooter": "Invita {{email}} nell'area di lavoro…",
+        "empty": "Nessuno è stato ancora aggiunto"
+      },
+      "invitedTo_one": "Entrerai in {{count}} spazio del team",
+      "invitedTo_other": "Entrerai in {{count}} spazi del team"
     },
     "folders": {
       "title": "Cartelle",

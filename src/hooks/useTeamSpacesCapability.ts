@@ -1,7 +1,7 @@
 import { useSpaces } from "../stores/noteStore";
 
-/** Phase-2 gate for local-only team-space mutations (create/delete). */
-export function hasTeamSpacesDevOverride(): boolean {
+/** Dev override forcing the TEAM SPACES section on without a server probe. */
+function hasTeamSpacesDevOverride(): boolean {
   return localStorage.getItem("teamSpacesDevOverride") === "true";
 }
 

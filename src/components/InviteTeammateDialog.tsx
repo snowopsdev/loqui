@@ -27,6 +27,9 @@ interface Props {
   onInvited?: () => void;
   onNavigateToBilling?: () => void;
   cancelLabel?: string;
+  /** Team spaces the invitee joins on accept (threaded into the invitation). */
+  teamIds?: string[];
+  initialEmail?: string;
 }
 
 export default function InviteTeammateDialog({
@@ -37,6 +40,8 @@ export default function InviteTeammateDialog({
   onInvited,
   onNavigateToBilling,
   cancelLabel,
+  teamIds,
+  initialEmail,
 }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -72,13 +77,15 @@ export default function InviteTeammateDialog({
   }, [open, workspaceId]);
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      if (initialEmail) setEmail(initialEmail);
+    } else {
       setEmail("");
       setRole("member");
       setSeatsUsed(null);
       setSeatLimitSeats(null);
     }
-  }, [open]);
+  }, [open, initialEmail]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -89,6 +96,7 @@ export default function InviteTeammateDialog({
       await InvitationsService.send(workspaceId, {
         email: email.trim().toLowerCase(),
         role,
+        ...(teamIds && teamIds.length > 0 ? { team_ids: teamIds } : {}),
       });
       toast({
         title: t("workspaces.invite.sentTitle"),

@@ -2226,7 +2226,10 @@
       "deleteSpace": "Eliminar espacio",
       "deleteConfirmTitle": "¿Eliminar espacio?",
       "deleteConfirmDescription": "Esto elimina permanentemente {{space}} con todas sus carpetas y notas en este dispositivo.",
+      "deleteConfirmTeamDescription": "Esto elimina {{space}} para todos. Los miembros perderán el acceso a todas sus carpetas y notas.",
+      "deleteTypeName": "Escribe {{space}} para confirmar",
       "couldNotDelete": "No se pudo eliminar el espacio",
+      "deleted": "{{space}} eliminado",
       "moveTo": "Mover a",
       "moveToSpace": "Mover a espacio…",
       "searchSpaces": "Buscar espacios...",
@@ -2251,7 +2254,25 @@
       "conflictBanner": "Existe una versión más reciente de esta nota.",
       "conflictRefresh": "Actualizar",
       "conflictKeep": "Seguir editando",
-      "editedBy": "Editado por {{name}} · {{time}}"
+      "editedBy": "Editado por {{name}} · {{time}}",
+      "members": {
+        "menu": "Miembros…",
+        "title": "Miembros de {{space}}",
+        "addPeople": "Añadir personas",
+        "searchPlaceholder": "Buscar personas…",
+        "roleAdmin": "Administrador",
+        "roleMember": "Miembro",
+        "remove": "Quitar",
+        "removeConfirm": "¿Quitar a {{name}} de {{space}}?",
+        "removeConfirmDescription": "Perderá el acceso a todas las notas de este espacio.",
+        "leave": "Salir del espacio",
+        "leaveConfirm": "¿Salir de {{space}}?",
+        "leaveConfirmDescription": "Perderás el acceso a todas las notas de este espacio.",
+        "inviteFooter": "Invitar a {{email}} al espacio de trabajo…",
+        "empty": "Aún no se ha añadido a nadie"
+      },
+      "invitedTo_one": "Te unirás a {{count}} espacio de equipo",
+      "invitedTo_other": "Te unirás a {{count}} espacios de equipo"
     },
     "folders": {
       "title": "Carpetas",

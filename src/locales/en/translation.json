@@ -2384,7 +2384,10 @@
       "deleteSpace": "Delete space",
       "deleteConfirmTitle": "Delete space?",
       "deleteConfirmDescription": "This permanently deletes {{space}} with all of its folders and notes on this device.",
+      "deleteConfirmTeamDescription": "This deletes {{space}} for everyone. Members will lose access to all of its folders and notes.",
+      "deleteTypeName": "Type {{space}} to confirm",
       "couldNotDelete": "Couldn't delete space",
+      "deleted": "Deleted {{space}}",
       "moveTo": "Move to",
       "moveToSpace": "Move to space…",
       "searchSpaces": "Search spaces...",
@@ -2409,7 +2412,25 @@
       "conflictBanner": "A newer version of this note exists.",
       "conflictRefresh": "Refresh",
       "conflictKeep": "Keep editing",
-      "editedBy": "Edited by {{name}} · {{time}}"
+      "editedBy": "Edited by {{name}} · {{time}}",
+      "members": {
+        "menu": "Members…",
+        "title": "Members of {{space}}",
+        "addPeople": "Add people",
+        "searchPlaceholder": "Search people…",
+        "roleAdmin": "Admin",
+        "roleMember": "Member",
+        "remove": "Remove",
+        "removeConfirm": "Remove {{name}} from {{space}}?",
+        "removeConfirmDescription": "They'll lose access to all notes in this space.",
+        "leave": "Leave space",
+        "leaveConfirm": "Leave {{space}}?",
+        "leaveConfirmDescription": "You'll lose access to all notes in this space.",
+        "inviteFooter": "Invite {{email}} to workspace…",
+        "empty": "No one has been added yet"
+      },
+      "invitedTo_one": "You'll join {{count}} team space",
+      "invitedTo_other": "You'll join {{count}} team spaces"
     },
     "folders": {
       "title": "Folders",

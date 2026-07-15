@@ -2106,7 +2106,10 @@
       "deleteSpace": "スペースを削除",
       "deleteConfirmTitle": "スペースを削除しますか？",
       "deleteConfirmDescription": "{{space}}とそのすべてのフォルダとノートがこのデバイスから完全に削除されます。",
+      "deleteConfirmTeamDescription": "{{space}} が全員に対して削除されます。メンバーはそのすべてのフォルダとノートにアクセスできなくなります。",
+      "deleteTypeName": "確認のため {{space}} と入力してください",
       "couldNotDelete": "スペースを削除できませんでした",
+      "deleted": "{{space}} を削除しました",
       "moveTo": "移動",
       "moveToSpace": "スペースに移動…",
       "searchSpaces": "スペースを検索...",
@@ -2131,7 +2134,25 @@
       "conflictBanner": "このノートには新しいバージョンがあります。",
       "conflictRefresh": "更新",
       "conflictKeep": "編集を続ける",
-      "editedBy": "{{name}} が編集 · {{time}}"
+      "editedBy": "{{name}} が編集 · {{time}}",
+      "members": {
+        "menu": "メンバー…",
+        "title": "{{space}} のメンバー",
+        "addPeople": "メンバーを追加",
+        "searchPlaceholder": "メンバーを検索…",
+        "roleAdmin": "管理者",
+        "roleMember": "メンバー",
+        "remove": "削除",
+        "removeConfirm": "{{name}} を {{space}} から削除しますか？",
+        "removeConfirmDescription": "このスペースのすべてのノートにアクセスできなくなります。",
+        "leave": "スペースから退出",
+        "leaveConfirm": "{{space}} から退出しますか？",
+        "leaveConfirmDescription": "このスペースのすべてのノートにアクセスできなくなります。",
+        "inviteFooter": "{{email}} をワークスペースに招待…",
+        "empty": "まだ誰も追加されていません"
+      },
+      "invitedTo_one": "{{count}} 件のチームスペースに参加します",
+      "invitedTo_other": "{{count}} 件のチームスペースに参加します"
     },
     "editor": {
       "transcribe": "文字起こし",

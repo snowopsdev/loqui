@@ -68,6 +68,9 @@ export default function AcceptInvitationModal({ token, onClose }: Props) {
       await InvitationsService.accept(token);
       clearPendingInvitationToken();
       await refresh();
+      // Pull the just-granted team spaces right away (skeleton rows render
+      // while their backfill is pending).
+      syncService.requestSyncAll("manual");
       toast({
         title: t("workspaces.accept.successTitle"),
         description: preview
@@ -115,6 +118,12 @@ export default function AcceptInvitationModal({ token, onClose }: Props) {
                     role: t(`settingsPage.workspace.role.${preview.workspace_role}`),
                   })}
                 </DialogDescription>
+                {(preview.team_ids?.length ?? 0) > 0 && (
+                  // The preview endpoint returns team ids only, so show a count.
+                  <DialogDescription className="text-xs text-muted-foreground/80 mt-1">
+                    {t("notes.spaces.invitedTo", { count: preview.team_ids.length })}
+                  </DialogDescription>
+                )}
                 {wrongAccount ? (
                   <DialogDescription className="text-xs text-destructive mt-1">
                     {t("workspaces.accept.wrongAccount", {

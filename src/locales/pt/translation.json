@@ -2178,7 +2178,10 @@
       "deleteSpace": "Excluir espaço",
       "deleteConfirmTitle": "Excluir espaço?",
       "deleteConfirmDescription": "Isso exclui permanentemente {{space}} com todas as suas pastas e notas neste dispositivo.",
+      "deleteConfirmTeamDescription": "Isso exclui {{space}} para todos. Os membros perderão o acesso a todas as suas pastas e notas.",
+      "deleteTypeName": "Digite {{space}} para confirmar",
       "couldNotDelete": "Não foi possível excluir o espaço",
+      "deleted": "{{space}} excluído",
       "moveTo": "Mover para",
       "moveToSpace": "Mover para espaço…",
       "searchSpaces": "Pesquisar espaços...",
@@ -2203,7 +2206,25 @@
       "conflictBanner": "Existe uma versão mais recente desta nota.",
       "conflictRefresh": "Atualizar",
       "conflictKeep": "Continuar editando",
-      "editedBy": "Editado por {{name}} · {{time}}"
+      "editedBy": "Editado por {{name}} · {{time}}",
+      "members": {
+        "menu": "Membros…",
+        "title": "Membros de {{space}}",
+        "addPeople": "Adicionar pessoas",
+        "searchPlaceholder": "Pesquisar pessoas…",
+        "roleAdmin": "Administrador",
+        "roleMember": "Membro",
+        "remove": "Remover",
+        "removeConfirm": "Remover {{name}} de {{space}}?",
+        "removeConfirmDescription": "A pessoa perderá o acesso a todas as notas deste espaço.",
+        "leave": "Sair do espaço",
+        "leaveConfirm": "Sair de {{space}}?",
+        "leaveConfirmDescription": "Você perderá o acesso a todas as notas deste espaço.",
+        "inviteFooter": "Convidar {{email}} para o espaço de trabalho…",
+        "empty": "Ninguém foi adicionado ainda"
+      },
+      "invitedTo_one": "Você entrará em {{count}} espaço de equipe",
+      "invitedTo_other": "Você entrará em {{count}} espaços de equipe"
     },
     "folders": {
       "title": "Pastas",

@@ -2384,7 +2384,10 @@
       "deleteSpace": "Bereich löschen",
       "deleteConfirmTitle": "Bereich löschen?",
       "deleteConfirmDescription": "Dadurch werden {{space}} und alle zugehörigen Ordner und Notizen auf diesem Gerät endgültig gelöscht.",
+      "deleteConfirmTeamDescription": "Dadurch wird {{space}} für alle gelöscht. Mitglieder verlieren den Zugriff auf alle zugehörigen Ordner und Notizen.",
+      "deleteTypeName": "Geben Sie {{space}} zur Bestätigung ein",
       "couldNotDelete": "Bereich konnte nicht gelöscht werden",
+      "deleted": "{{space}} gelöscht",
       "moveTo": "Verschieben nach",
       "moveToSpace": "In Bereich verschieben…",
       "searchSpaces": "Bereiche suchen...",
@@ -2409,7 +2412,25 @@
       "conflictBanner": "Es existiert eine neuere Version dieser Notiz.",
       "conflictRefresh": "Aktualisieren",
       "conflictKeep": "Weiter bearbeiten",
-      "editedBy": "Bearbeitet von {{name}} · {{time}}"
+      "editedBy": "Bearbeitet von {{name}} · {{time}}",
+      "members": {
+        "menu": "Mitglieder…",
+        "title": "Mitglieder von {{space}}",
+        "addPeople": "Personen hinzufügen",
+        "searchPlaceholder": "Personen suchen…",
+        "roleAdmin": "Administrator",
+        "roleMember": "Mitglied",
+        "remove": "Entfernen",
+        "removeConfirm": "{{name}} aus {{space}} entfernen?",
+        "removeConfirmDescription": "Diese Person verliert den Zugriff auf alle Notizen in diesem Bereich.",
+        "leave": "Bereich verlassen",
+        "leaveConfirm": "{{space}} verlassen?",
+        "leaveConfirmDescription": "Sie verlieren den Zugriff auf alle Notizen in diesem Bereich.",
+        "inviteFooter": "{{email}} in den Workspace einladen…",
+        "empty": "Noch niemand hinzugefügt"
+      },
+      "invitedTo_one": "Sie treten {{count}} Team-Bereich bei",
+      "invitedTo_other": "Sie treten {{count}} Team-Bereichen bei"
     },
     "folders": {
       "title": "Ordner",

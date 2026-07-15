@@ -10,7 +10,7 @@ async function list(workspaceId: string): Promise<WorkspaceInvitation[]> {
 
 async function send(
   workspaceId: string,
-  input: { email: string; role?: "admin" | "member" }
+  input: { email: string; role?: "admin" | "member"; team_ids?: string[] }
 ): Promise<WorkspaceInvitation> {
   const res = await cloudPost<DataWrap<WorkspaceInvitation>>(
     `/api/workspaces/${workspaceId}/invitations`,

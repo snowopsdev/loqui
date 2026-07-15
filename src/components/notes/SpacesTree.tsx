@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Loader2,
   Lock,
+  LogOut,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -19,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -37,14 +39,16 @@ import {
   type DraggedNoteInfo,
   type NoteMoveTarget,
 } from "../../hooks/useNoteDragAndDrop";
-import {
-  useTeamSpacesCapability,
-  hasTeamSpacesDevOverride,
-} from "../../hooks/useTeamSpacesCapability";
+import { useTeamSpacesCapability } from "../../hooks/useTeamSpacesCapability";
+import { useAuth } from "../../hooks/useAuth";
+import { useWorkspace } from "../../hooks/useWorkspace";
+import { canManageSpace } from "../../lib/spacePermissions";
+import { TeamsService } from "../../services/TeamsService";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { cn } from "../lib/utils";
 import { formatRelativeTime } from "../../utils/dateFormatting";
 import CreateSpaceDialog from "./CreateSpaceDialog";
+import SpaceMembersDialog from "./SpaceMembersDialog";
 import type { FolderItem, NoteItem, SpaceItem } from "../../types/electron";
 import {
   folderContainerKey,
@@ -211,11 +215,13 @@ function SpaceRow({
   isDragOver,
   isDropSuccess,
   dropHandlers,
-  canDeleteSpace,
+  canManage,
   onActivate,
   onToggle,
   onNewFolder,
+  onMembers,
   onRename,
+  onLeave,
   onDelete,
   a11y,
   t,
@@ -228,11 +234,13 @@ function SpaceRow({
   isDragOver: boolean;
   isDropSuccess: boolean;
   dropHandlers: DropHandlers;
-  canDeleteSpace: boolean;
+  canManage: boolean;
   onActivate: () => void;
   onToggle: () => void;
   onNewFolder: () => void;
+  onMembers: () => void;
   onRename: (focus: "name" | "emoji") => void;
+  onLeave: () => void;
   onDelete: () => void;
   a11y: RowA11yProps;
   t: TFn;
@@ -343,41 +351,72 @@ function SpaceRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={4} className="min-w-36">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRename("name");
-                }}
-                className={MENU_ITEM_CLASS}
-              >
-                <Pencil size={11} className="text-muted-foreground/60" />
-                {t("notes.spaces.rename")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRename("emoji");
-                }}
-                className={MENU_ITEM_CLASS}
-              >
-                <Smile size={11} className="text-muted-foreground/60" />
-                {t("notes.spaces.changeEmoji")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={!canDeleteSpace}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                className={cn(
-                  MENU_ITEM_CLASS,
-                  "text-destructive focus:text-destructive focus:bg-destructive/10"
-                )}
-              >
-                <Trash2 size={11} />
-                {t("notes.spaces.deleteSpace")}
-              </DropdownMenuItem>
+              {space.cloud_team_id && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMembers();
+                  }}
+                  className={MENU_ITEM_CLASS}
+                >
+                  <Users size={11} className="text-muted-foreground/60" />
+                  {t("notes.spaces.members.menu")}
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRename("name");
+                    }}
+                    className={MENU_ITEM_CLASS}
+                  >
+                    <Pencil size={11} className="text-muted-foreground/60" />
+                    {t("notes.spaces.rename")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRename("emoji");
+                    }}
+                    className={MENU_ITEM_CLASS}
+                  >
+                    <Smile size={11} className="text-muted-foreground/60" />
+                    {t("notes.spaces.changeEmoji")}
+                  </DropdownMenuItem>
+                </>
+              )}
+              {space.cloud_team_id && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onLeave();
+                  }}
+                  className={MENU_ITEM_CLASS}
+                >
+                  <LogOut size={11} className="text-muted-foreground/60" />
+                  {t("notes.spaces.members.leave")}
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete();
+                    }}
+                    className={cn(
+                      MENU_ITEM_CLASS,
+                      "text-destructive focus:text-destructive focus:bg-destructive/10"
+                    )}
+                  >
+                    <Trash2 size={11} />
+                    {t("notes.spaces.deleteSpace")}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -989,7 +1028,8 @@ export default function SpacesTree({
   const activeNoteId = useActiveNoteId();
   const isTreeLoading = useIsTreeLoading();
   const teamCapability = useTeamSpacesCapability();
-  const devOverride = hasTeamSpacesDevOverride();
+  const { isSignedIn, user } = useAuth();
+  const { workspaces } = useWorkspace();
   const noteFilesEnabled = useSettingsStore((s) => s.noteFilesEnabled);
 
   const [creatingFolderSpaceId, setCreatingFolderSpaceId] = useState<number | null>(null);
@@ -1001,6 +1041,9 @@ export default function SpacesTree({
   const [renameSpaceEmoji, setRenameSpaceEmoji] = useState("");
   const [spaceRenameFocus, setSpaceRenameFocus] = useState<"name" | "emoji">("name");
   const [showCreateSpace, setShowCreateSpace] = useState(false);
+  const [membersSpaceId, setMembersSpaceId] = useState<number | null>(null);
+  const [deleteSpaceTarget, setDeleteSpaceTarget] = useState<SpaceItem | null>(null);
+  const [deleteNameInput, setDeleteNameInput] = useState("");
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const undoToastIdRef = useRef<string | null>(null);
@@ -1010,6 +1053,12 @@ export default function SpacesTree({
   const privateSpaces = useMemo(() => spaces.filter((s) => s.kind === "private"), [spaces]);
   const teamSpaces = useMemo(() => spaces.filter((s) => s.kind === "team"), [spaces]);
   const visibleSpaces = teamCapability ? spaces : privateSpaces;
+
+  // Local-only spaces (no cloud team) stay fully manageable; cloud spaces
+  // follow space/workspace roles. Cosmetic — the server enforces.
+  const canManageTeamSpace = (space: SpaceItem): boolean =>
+    !space.cloud_team_id ||
+    canManageSpace(space, workspaces.find((w) => w.id === space.workspace_id)?.role ?? null);
 
   const targetLabel = (target: NoteMoveTarget): string => {
     if (target.folderId != null) {
@@ -1249,17 +1298,59 @@ export default function SpacesTree({
   };
 
   const requestDeleteSpace = (space: SpaceItem) => {
+    setDeleteNameInput("");
+    setDeleteSpaceTarget(space);
+  };
+
+  const closeDeleteSpaceDialog = () => {
+    setDeleteSpaceTarget(null);
+    setDeleteNameInput("");
+  };
+
+  const performDeleteSpace = async (space: SpaceItem) => {
+    if (space.cloud_team_id) {
+      try {
+        // Server archives the team; teammates purge on their next spaces pass.
+        await TeamsService.remove(space.cloud_team_id);
+      } catch (err) {
+        toast({
+          title: t("notes.spaces.couldNotDelete"),
+          description: err instanceof Error ? err.message : t("common.unknownError"),
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    const result = await purgeSpace(space.id);
+    if (!result.success && result.error) {
+      toast({
+        title: t("notes.spaces.couldNotDelete"),
+        description: result.error,
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title: t("notes.spaces.deleted", { space: space.name }) });
+  };
+
+  const requestLeaveSpace = (space: SpaceItem) => {
+    if (!space.cloud_team_id || !user?.id) return;
+    const teamId = space.cloud_team_id;
+    const userId = user.id;
     showConfirmDialog({
-      title: t("notes.spaces.deleteConfirmTitle"),
-      description: t("notes.spaces.deleteConfirmDescription", { space: space.name }),
-      confirmText: t("notes.spaces.deleteSpace"),
+      title: t("notes.spaces.members.leaveConfirm", { space: space.name }),
+      description: t("notes.spaces.members.leaveConfirmDescription"),
+      confirmText: t("notes.spaces.members.leave"),
       variant: "destructive",
       onConfirm: async () => {
-        const result = await purgeSpace(space.id);
-        if (!result.success && result.error) {
+        try {
+          await TeamsService.removeMember(teamId, userId);
+          await purgeSpace(space.id);
+        } catch (err) {
+          // Server rejects e.g. a last-admin leave — surface its message.
           toast({
-            title: t("notes.spaces.couldNotDelete"),
-            description: result.error,
+            title: t("common.error"),
+            description: err instanceof Error ? err.message : t("common.unknownError"),
             variant: "destructive",
           });
         }
@@ -1305,7 +1396,11 @@ export default function SpacesTree({
         e.preventDefault();
         if (row.type === "folder" && !row.folder.is_default) {
           startRenameFolder(row.folder);
-        } else if (row.type === "space" && row.space.kind === "team") {
+        } else if (
+          row.type === "space" &&
+          row.space.kind === "team" &&
+          canManageTeamSpace(row.space)
+        ) {
           startRenameSpace(row.space, "name");
         }
         break;
@@ -1319,7 +1414,11 @@ export default function SpacesTree({
           onDeleteNote(row.note.id);
         } else if (row.type === "folder" && !row.folder.is_default) {
           requestDeleteFolder(row.folder);
-        } else if (row.type === "space" && row.space.kind === "team" && devOverride) {
+        } else if (
+          row.type === "space" &&
+          row.space.kind === "team" &&
+          canManageTeamSpace(row.space)
+        ) {
           requestDeleteSpace(row.space);
         }
         break;
@@ -1396,11 +1495,26 @@ export default function SpacesTree({
     setRenamingSpaceId(null);
     if (!space || !name) return;
     if (name === space.name && emoji === (space.emoji ?? null)) return;
+    // Optimistic local rename; the server call below reverts it on rejection.
     const result = await updateSpaceMeta(spaceId, { name, emoji });
-    if (!result.success && result.error) {
+    if (!result.success) {
+      if (result.error) {
+        toast({
+          title: t("notes.spaces.couldNotRename"),
+          description: result.error,
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+    if (!space.cloud_team_id) return;
+    try {
+      await TeamsService.update(space.cloud_team_id, { name, emoji });
+    } catch (err) {
+      await updateSpaceMeta(spaceId, { name: space.name, emoji: space.emoji ?? null });
       toast({
         title: t("notes.spaces.couldNotRename"),
-        description: result.error,
+        description: err instanceof Error ? err.message : t("common.unknownError"),
         variant: "destructive",
       });
     }
@@ -1564,11 +1678,13 @@ export default function SpacesTree({
             isDragOver={dragState.dragOverKey === spaceKey}
             isDropSuccess={dragState.dropSuccessKey === spaceKey}
             dropHandlers={dropTargetHandlers({ spaceId: space.id, folderId: null })}
-            canDeleteSpace={devOverride}
+            canManage={canManageTeamSpace(space)}
             onActivate={() => activateRow({ type: "space", key: spaceKey, space })}
             onToggle={() => toggleContainerExpanded(spaceKey)}
             onNewFolder={() => startCreateFolder(space)}
+            onMembers={() => setMembersSpaceId(space.id)}
             onRename={(focus) => startRenameSpace(space, focus)}
+            onLeave={() => requestLeaveSpace(space)}
             onDelete={() => requestDeleteSpace(space)}
             a11y={a11yFor(spaceKey)}
             t={t}
@@ -1623,6 +1739,9 @@ export default function SpacesTree({
     );
   };
 
+  const membersSpace =
+    membersSpaceId != null ? spaces.find((s) => s.id === membersSpaceId) : undefined;
+
   if (isTreeLoading && spaces.length === 0) {
     return (
       <div className="flex-1 flex items-start justify-center py-8">
@@ -1646,7 +1765,7 @@ export default function SpacesTree({
               label={t("notes.spaces.teamSpaces")}
               className="mt-3"
               action={
-                devOverride ? (
+                isSignedIn ? (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1669,6 +1788,57 @@ export default function SpacesTree({
       </div>
 
       <CreateSpaceDialog open={showCreateSpace} onOpenChange={setShowCreateSpace} />
+
+      {membersSpace && (
+        <SpaceMembersDialog
+          space={membersSpace}
+          open
+          onOpenChange={(open) => !open && setMembersSpaceId(null)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={deleteSpaceTarget != null}
+        onOpenChange={(open) => !open && closeDeleteSpaceDialog()}
+        title={t("notes.spaces.deleteConfirmTitle")}
+        description={
+          deleteSpaceTarget
+            ? t(
+                deleteSpaceTarget.cloud_team_id
+                  ? "notes.spaces.deleteConfirmTeamDescription"
+                  : "notes.spaces.deleteConfirmDescription",
+                { space: deleteSpaceTarget.name }
+              )
+            : undefined
+        }
+        confirmText={t("notes.spaces.deleteSpace")}
+        variant="destructive"
+        confirmDisabled={deleteNameInput.trim() !== deleteSpaceTarget?.name}
+        onConfirm={() => {
+          if (deleteSpaceTarget) void performDeleteSpace(deleteSpaceTarget);
+        }}
+      >
+        {deleteSpaceTarget && (
+          <div className="space-y-1.5">
+            <label htmlFor="delete-space-name" className="text-xs font-medium text-foreground/50">
+              {t("notes.spaces.deleteTypeName", { space: deleteSpaceTarget.name })}
+            </label>
+            <Input
+              id="delete-space-name"
+              autoFocus
+              value={deleteNameInput}
+              onChange={(e) => setDeleteNameInput(e.target.value)}
+              placeholder={deleteSpaceTarget.name}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && deleteNameInput.trim() === deleteSpaceTarget.name) {
+                  void performDeleteSpace(deleteSpaceTarget);
+                  closeDeleteSpaceDialog();
+                }
+              }}
+            />
+          </div>
+        )}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={confirmDialog.open}

@@ -32,7 +32,7 @@ async function list(workspaceId: string): Promise<Team[]> {
 
 async function create(
   workspaceId: string,
-  input: { name: string; description?: string }
+  input: { name: string; description?: string; emoji?: string | null }
 ): Promise<Team> {
   const res = await cloudPost<DataWrap<Team>>(`/api/workspaces/${workspaceId}/teams`, input);
   return res.data;
@@ -40,7 +40,7 @@ async function create(
 
 async function update(
   teamId: string,
-  patch: { name?: string; description?: string }
+  patch: { name?: string; description?: string; emoji?: string | null }
 ): Promise<Team> {
   const res = await cloudPatch<DataWrap<Team>>(`/api/teams/${teamId}`, patch);
   return res.data;

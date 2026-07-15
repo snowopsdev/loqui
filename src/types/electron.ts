@@ -184,6 +184,7 @@ export interface Team {
   name: string;
   slug: string;
   description: string | null;
+  emoji?: string | null;
   created_at: string;
   updated_at: string;
   member_count?: number;

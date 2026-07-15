@@ -2384,7 +2384,10 @@
       "deleteSpace": "Supprimer l'espace",
       "deleteConfirmTitle": "Supprimer l'espace ?",
       "deleteConfirmDescription": "Cela supprime définitivement {{space}} ainsi que tous ses dossiers et notes sur cet appareil.",
+      "deleteConfirmTeamDescription": "Cela supprime {{space}} pour tout le monde. Les membres perdront l'accès à tous ses dossiers et notes.",
+      "deleteTypeName": "Saisissez {{space}} pour confirmer",
       "couldNotDelete": "Impossible de supprimer l'espace",
+      "deleted": "{{space}} supprimé",
       "moveTo": "Déplacer vers",
       "moveToSpace": "Déplacer vers un espace…",
       "searchSpaces": "Rechercher des espaces...",
@@ -2409,7 +2412,25 @@
       "conflictBanner": "Une version plus récente de cette note existe.",
       "conflictRefresh": "Actualiser",
       "conflictKeep": "Continuer à modifier",
-      "editedBy": "Modifié par {{name}} · {{time}}"
+      "editedBy": "Modifié par {{name}} · {{time}}",
+      "members": {
+        "menu": "Membres…",
+        "title": "Membres de {{space}}",
+        "addPeople": "Ajouter des personnes",
+        "searchPlaceholder": "Rechercher des personnes…",
+        "roleAdmin": "Administrateur",
+        "roleMember": "Membre",
+        "remove": "Retirer",
+        "removeConfirm": "Retirer {{name}} de {{space}} ?",
+        "removeConfirmDescription": "Cette personne perdra l'accès à toutes les notes de cet espace.",
+        "leave": "Quitter l'espace",
+        "leaveConfirm": "Quitter {{space}} ?",
+        "leaveConfirmDescription": "Vous perdrez l'accès à toutes les notes de cet espace.",
+        "inviteFooter": "Inviter {{email}} dans l'espace de travail…",
+        "empty": "Personne n'a encore été ajouté"
+      },
+      "invitedTo_one": "Vous rejoindrez {{count}} espace d'équipe",
+      "invitedTo_other": "Vous rejoindrez {{count}} espaces d'équipe"
     },
     "folders": {
       "title": "Dossiers",

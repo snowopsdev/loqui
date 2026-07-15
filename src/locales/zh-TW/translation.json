@@ -2178,7 +2178,10 @@
       "deleteSpace": "刪除空間",
       "deleteConfirmTitle": "刪除空間？",
       "deleteConfirmDescription": "這會從此裝置永久刪除 {{space}} 及其所有資料夾和筆記。",
+      "deleteConfirmTeamDescription": "這會為所有人刪除 {{space}}。成員將無法再存取其所有資料夾和筆記。",
+      "deleteTypeName": "輸入 {{space}} 以確認",
       "couldNotDelete": "無法刪除空間",
+      "deleted": "已刪除 {{space}}",
       "moveTo": "移動到",
       "moveToSpace": "移動到空間…",
       "searchSpaces": "搜尋空間...",
@@ -2203,7 +2206,25 @@
       "conflictBanner": "此筆記有更新的版本。",
       "conflictRefresh": "重新整理",
       "conflictKeep": "繼續編輯",
-      "editedBy": "由 {{name}} 編輯 · {{time}}"
+      "editedBy": "由 {{name}} 編輯 · {{time}}",
+      "members": {
+        "menu": "成員…",
+        "title": "{{space}} 的成員",
+        "addPeople": "新增成員",
+        "searchPlaceholder": "搜尋成員…",
+        "roleAdmin": "管理員",
+        "roleMember": "成員",
+        "remove": "移除",
+        "removeConfirm": "要將 {{name}} 從 {{space}} 移除嗎？",
+        "removeConfirmDescription": "對方將無法再存取此空間的所有筆記。",
+        "leave": "退出空間",
+        "leaveConfirm": "要退出 {{space}} 嗎？",
+        "leaveConfirmDescription": "你將無法再存取此空間的所有筆記。",
+        "inviteFooter": "邀請 {{email}} 加入工作區…",
+        "empty": "尚未新增任何成員"
+      },
+      "invitedTo_one": "你將加入 {{count}} 個團隊空間",
+      "invitedTo_other": "你將加入 {{count}} 個團隊空間"
     },
     "folders": {
       "title": "資料夾",

@@ -292,6 +292,7 @@ class AudioManager {
       this.cachedMicDeviceId = null;
       this.validatedSelectedMicDeviceId = null;
       this.micDriverWarmedUp = false;
+      this.rejectedMicDeviceId = null;
     };
     navigator.mediaDevices?.addEventListener?.("devicechange", this._onDeviceChange);
     this.cachedTranscriptionEndpoint = null;
@@ -312,6 +313,7 @@ class AudioManager {
     this.streamingTextDebounce = null;
     this.cachedMicDeviceId = null;
     this.validatedSelectedMicDeviceId = null;
+    this.rejectedMicDeviceId = null;
     this.persistentAudioContext = null;
     this.workletModuleLoaded = false;
     this.workletBlobUrl = null;
@@ -479,6 +481,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     if (preferBuiltIn) {
       if (this.cachedMicDeviceId) {
+        // The device was already proven silent this session; don't pin it again.
+        if (this.cachedMicDeviceId === this.rejectedMicDeviceId) {
+          logger.debug(
+            "Skipping cached microphone (delivered no audio)",
+            { deviceId: this.cachedMicDeviceId },
+            "audio"
+          );
+          return { audio: noProcessing };
+        }
+
         logger.debug(
           "Using cached microphone device ID",
           { deviceId: this.cachedMicDeviceId },
@@ -493,6 +505,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         const builtInMic = audioInputs.find((d) => isBuiltInMicrophone(d.label));
 
         if (builtInMic) {
+          // Leave it uncached so a later devicechange can re-resolve it cleanly.
+          if (builtInMic.deviceId === this.rejectedMicDeviceId) {
+            logger.debug(
+              "Skipping built-in microphone (delivered no audio)",
+              { deviceId: builtInMic.deviceId, label: builtInMic.label },
+              "audio"
+            );
+            return { audio: noProcessing };
+          }
+
           this.cachedMicDeviceId = builtInMic.deviceId;
           logger.debug(
             "Using built-in microphone (cached for next time)",
@@ -540,6 +562,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         }
       }
 
+      if (resolvedDeviceId === this.rejectedMicDeviceId) {
+        logger.debug(
+          "Skipping selected microphone (delivered no audio)",
+          { deviceId: resolvedDeviceId },
+          "audio"
+        );
+        return { audio: noProcessing };
+      }
+
       logger.debug("Using selected microphone", { deviceId: resolvedDeviceId }, "audio");
       return { audio: { deviceId: { exact: resolvedDeviceId }, ...noProcessing } };
     }
@@ -583,6 +614,44 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
+  // Recovers a dead/muted capture: retries the same device, then hops to the OS default,
+  // remembering a silent pinned device for the session. Throws MicUnusableError when no
+  // input delivers audio. See #1152.
+  async acquireHealthyMicStream(rawStream, constraints) {
+    const pinnedMicDeviceId = constraints.audio?.deviceId?.exact ?? null;
+    let fallbackMicUnusable = false;
+    // Keep verifying after a rejection too, otherwise a muted default records silence unnoticed.
+    const verifyMic = pinnedMicDeviceId !== null || this.rejectedMicDeviceId !== null;
+    const stream = await reacquireIfDead(
+      rawStream,
+      () => {
+        this.cachedMicDeviceId = null;
+        return this.getAudioConstraints();
+      },
+      logger,
+      verifyMic
+        ? {
+            getConstraints: () => this.getAudioConstraints(true),
+            onDeviceRejected: () => {
+              if (pinnedMicDeviceId) this.rejectedMicDeviceId = pinnedMicDeviceId;
+            },
+            onFallbackUnusable: () => {
+              fallbackMicUnusable = true;
+            },
+          }
+        : null
+    );
+
+    if (fallbackMicUnusable) {
+      stream.getTracks().forEach((track) => track.stop());
+      const micError = new Error("No microphone is delivering audio");
+      micError.name = "MicUnusableError";
+      throw micError;
+    }
+
+    return stream;
+  }
+
   async startRecording(forceDefaultMic = false) {
     try {
       if (this.isRecording || this.isProcessing || this.mediaRecorder?.state === "recording") {
@@ -590,14 +659,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       }
 
       const constraints = await this.getAudioConstraints(forceDefaultMic);
-      const micStream = await reacquireIfDead(
+      const micStream = await this.acquireHealthyMicStream(
         await navigator.mediaDevices.getUserMedia(constraints),
-        () => {
-          this.cachedMicDeviceId = null;
-          return this.getAudioConstraints();
-        },
-        logger
+        constraints
       );
+
       const audioTrack = micStream.getAudioTracks()[0];
 
       if (audioTrack) {
@@ -774,6 +840,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         errorTitle = "Microphone In Use";
         errorDescription =
           "The microphone is being used by another application. Please close other apps and try again.";
+      } else if (error.name === "MicUnusableError") {
+        errorTitle = "Microphone Muted";
+        errorDescription =
+          "Your microphones stayed muted and produced no audio. Please check your sound input settings and try again.";
       }
 
       this.onError?.({
@@ -2958,14 +3028,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
       const tMedia = performance.now();
 
-      const stream = await reacquireIfDead(
-        rawStream,
-        () => {
-          this.cachedMicDeviceId = null;
-          return this.getAudioConstraints();
-        },
-        logger
-      );
+      const stream = await this.acquireHealthyMicStream(rawStream, constraints);
+
       const audioTrack = stream.getAudioTracks()[0];
 
       if (audioTrack) {
@@ -3194,6 +3258,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       } else if (error.code === "NETWORK_ERROR") {
         errorTitle = "streaming.errors.cloudUnreachable.title";
         errorDescription = error.messageKey || "streaming.errors.cloudUnreachable.generic";
+      } else if (error.name === "MicUnusableError") {
+        errorTitle = "Microphone Muted";
+        errorDescription =
+          "Your microphones stayed muted and produced no audio. Please check your sound input settings and try again.";
       }
 
       this.onError?.({

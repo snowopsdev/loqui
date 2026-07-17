@@ -2571,6 +2571,10 @@
         "title": "Accélération GPU indisponible",
         "description": "La transcription utilise le CPU à la place. Vous pouvez désactiver l'accélération GPU dans les paramètres."
       },
+      "cleanupFailed": {
+        "title": "Échec du nettoyage",
+        "description": "Votre dictée a été collée sans nettoyage par IA."
+      },
       "addedToDict": "{{words}} ajouté à votre dictionnaire",
       "undo": "Annuler",
       "accessibilityMissing": {

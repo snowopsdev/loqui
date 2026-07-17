@@ -2523,6 +2523,10 @@
         "title": "GPU アクセラレーションを利用できません",
         "description": "文字起こしは代わりに CPU を使用しています。設定で GPU アクセラレーションを無効にできます。"
       },
+      "cleanupFailed": {
+        "title": "クリーンアップに失敗しました",
+        "description": "ディクテーションは AI クリーンアップなしで貼り付けられました。"
+      },
       "addedToDict": "{{words}} を辞書に追加しました",
       "undo": "元に戻す",
       "accessibilityMissing": {

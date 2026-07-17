@@ -2523,6 +2523,10 @@
         "title": "Aceleração GPU indisponível",
         "description": "A transcrição está usando a CPU. Você pode desativar a aceleração GPU nas Configurações."
       },
+      "cleanupFailed": {
+        "title": "Falha na limpeza",
+        "description": "Seu ditado foi colado sem limpeza por IA."
+      },
       "addedToDict": "{{words}} adicionado ao seu dicionário",
       "undo": "Desfazer",
       "accessibilityMissing": {

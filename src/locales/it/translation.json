@@ -2523,6 +2523,10 @@
         "title": "Accelerazione GPU non disponibile",
         "description": "La trascrizione sta usando la CPU. Puoi disattivare l'accelerazione GPU nelle Impostazioni."
       },
+      "cleanupFailed": {
+        "title": "Pulizia non riuscita",
+        "description": "La dettatura è stata incollata senza pulizia IA."
+      },
       "addedToDict": "{{words}} aggiunto al tuo dizionario",
       "undo": "Annulla",
       "accessibilityMissing": {

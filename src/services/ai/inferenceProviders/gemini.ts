@@ -1,6 +1,6 @@
 import type { InferenceProvider } from "./types";
 import { getCloudModel } from "../../../models/ModelRegistry";
-import { withRetry, createApiRetryStrategy } from "../../../utils/retry";
+import { withRetry, createApiRetryStrategy, httpError } from "../../../utils/retry";
 import { API_ENDPOINTS, TOKEN_LIMITS } from "../../../config/constants";
 import { wrapCleanupTranscript } from "../../../config/prompts";
 import logger from "../../../utils/logger";
@@ -97,7 +97,7 @@ export const geminiProvider: InferenceProvider = {
             errorData.message ||
             (typeof errorData.error === "string" ? errorData.error : null) ||
             `Gemini API error: ${res.status}`;
-          throw new Error(errMsg);
+          throw httpError(errMsg, res.status);
         }
 
         const jsonResponse = (await res.json()) as GeminiResponse;

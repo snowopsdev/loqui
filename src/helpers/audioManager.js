@@ -25,6 +25,7 @@ import {
   isCloudDictationAgentMode,
   isCloudTranslationMode,
 } from "../stores/settingsStore";
+import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 import { getBatchTranscriptionModel, getTranscriptionProvider } from "../models/ModelRegistry";
 import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
 import {
@@ -1601,8 +1602,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     });
 
     if (useReasoning) {
+      let route;
       try {
-        const route = resolveReasoningRoute(
+        route = resolveReasoningRoute(
           normalizedText,
           settings,
           agentName,
@@ -1669,6 +1671,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           fallbackToCleanup: true,
         });
         logger.warn("Reasoning failed", { source, error: error.message }, "notes");
+        if (route?.kind === "cleanup") recordCleanupFailure();
       }
     }
 
@@ -1983,6 +1986,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           { error: reasonError.message },
           "transcription"
         );
+        if (route.kind === "cleanup") recordCleanupFailure();
       }
       timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
     }
@@ -3525,6 +3529,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           { error: reasonError.message },
           "streaming"
         );
+        if (route.kind === "cleanup") recordCleanupFailure();
       }
     }
 

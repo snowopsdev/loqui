@@ -443,14 +443,7 @@ class ReasoningService extends BaseReasoningService {
     }
 
     // A known endpoint host knows its own request shape better than the model id does.
-    const endpointDialect = detectEndpointDialect(endpoint);
-    const registryConfig = getOpenAiApiConfig(model, provider);
-    const apiConfig = endpointDialect
-      ? {
-          tokenParam: endpointDialect.tokenParam,
-          supportsTemperature: endpointDialect.supportsTemperature,
-        }
-      : registryConfig;
+    const apiConfig = detectEndpointDialect(endpoint) ?? getOpenAiApiConfig(model, provider);
     const useOldTokenParam = isLocalProvider || isLanChat || provider === "groq";
 
     const requestBody: Record<string, unknown> = {
@@ -659,7 +652,7 @@ class ReasoningService extends BaseReasoningService {
           disableThinking: openrouterDisableThinking,
         });
 
-    const apiConfig = getOpenAiApiConfig(model, provider);
+    const apiConfig = detectEndpointDialect(baseURL) ?? getOpenAiApiConfig(model, provider);
     const modelDef = getCloudModel(model);
     const userSuppressesThinking = config.disableThinking === true && !!modelDef?.supportsThinking;
     const needsGroqDisableThinking =

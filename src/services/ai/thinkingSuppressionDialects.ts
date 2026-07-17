@@ -4,8 +4,8 @@
  */
 export interface EndpointDialect {
   key: "mistral";
-  tokenParam: "max_tokens";
-  supportsTemperature: true;
+  tokenParam: "max_tokens" | "max_completion_tokens";
+  supportsTemperature: boolean;
 }
 
 /** Custom endpoints that need their own request shape, recognised by host. */

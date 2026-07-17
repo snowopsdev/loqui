@@ -106,3 +106,68 @@ test("unlisted providers keep the legacy reasoning_effort none plus chat_templat
     chat_template_kwargs: { enable_thinking: false },
   });
 });
+
+test("mistral gets reasoning_effort none and never chat_template_kwargs", async () => {
+  const { suppressThinking } = await load();
+
+  const body = {};
+  suppressThinking(body, "mistral", "mistral-small-latest");
+
+  assert.deepEqual(body, { reasoning_effort: "none" });
+  assert.ok(!("chat_template_kwargs" in body), "Mistral rejects chat_template_kwargs with a 422");
+});
+
+test("mistral magistral models are left untouched because they reason natively", async () => {
+  const { suppressThinking } = await load();
+
+  const body = { model: "magistral-medium-latest", messages: [] };
+  suppressThinking(body, "mistral", "Magistral-Medium-Latest");
+
+  assert.deepEqual(body, { model: "magistral-medium-latest", messages: [] });
+});
+
+test("mistral tolerates a missing model without throwing", async () => {
+  const { suppressThinking } = await load();
+
+  const body = {};
+  suppressThinking(body, "mistral", undefined);
+
+  assert.deepEqual(body, { reasoning_effort: "none" });
+});
+
+test("detectEndpointDialect maps the mistral api base to max_tokens and temperature", async () => {
+  const { detectEndpointDialect } = await load();
+
+  assert.deepEqual(detectEndpointDialect("https://api.mistral.ai/v1"), {
+    key: "mistral",
+    tokenParam: "max_tokens",
+    supportsTemperature: true,
+  });
+});
+
+test("detectEndpointDialect matches mistral hosts regardless of scheme, case, port or path", async () => {
+  const { detectEndpointDialect } = await load();
+
+  assert.equal(detectEndpointDialect("api.mistral.ai/v1")?.key, "mistral");
+  assert.equal(detectEndpointDialect("https://mistral.ai")?.key, "mistral");
+  assert.equal(detectEndpointDialect("https://API.Mistral.AI/v1/")?.key, "mistral");
+  assert.equal(detectEndpointDialect("https://api.mistral.ai:443/v1")?.key, "mistral");
+  assert.equal(detectEndpointDialect("https://user@api.mistral.ai/v1")?.key, "mistral");
+});
+
+test("detectEndpointDialect rejects lookalike hosts", async () => {
+  const { detectEndpointDialect } = await load();
+
+  assert.equal(detectEndpointDialect("https://api.openai.com/v1"), null);
+  assert.equal(detectEndpointDialect("https://notmistral.ai"), null);
+  assert.equal(detectEndpointDialect("https://mistral.ai.evil.com"), null);
+});
+
+test("detectEndpointDialect returns null for unparseable or missing input", async () => {
+  const { detectEndpointDialect } = await load();
+
+  assert.equal(detectEndpointDialect("::::"), null);
+  assert.equal(detectEndpointDialect(""), null);
+  assert.equal(detectEndpointDialect(undefined), null);
+  assert.equal(detectEndpointDialect(null), null);
+});

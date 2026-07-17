@@ -1,14 +1,16 @@
 import type { ReasoningConfig } from "../BaseReasoningService";
 import { getCloudModel, getLocalModel } from "../../models/ModelRegistry";
-import { suppressThinking } from "./thinkingSuppressionDialects";
+import { detectEndpointDialect, suppressThinking } from "./thinkingSuppressionDialects";
 
 export function applyThinkingSuppression(
   requestBody: Record<string, unknown>,
   model: string,
   provider: string,
-  config: ReasoningConfig
+  config: ReasoningConfig,
+  baseUrl?: string
 ): void {
-  const providerKey = provider.toLowerCase();
+  // A known endpoint host wins over the generic provider dialect.
+  const providerKey = detectEndpointDialect(baseUrl)?.key ?? provider.toLowerCase();
   const cloudModel = getCloudModel(model);
 
   if (cloudModel?.disableThinking && providerKey === "groq") {

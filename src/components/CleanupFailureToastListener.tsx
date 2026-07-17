@@ -2,11 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "./ui/useToast";
 import { consumeCleanupFailures, useCleanupFailureStore } from "../stores/cleanupFailureStore";
-
-const isDictationPanelWindow = () => {
-  const { search, pathname } = window.location;
-  return !pathname.includes("control") && !search.includes("panel=true");
-};
+import { isDictationPanelWindow } from "../utils/windowContext";
 
 /** Tells the user their dictation was pasted raw because AI cleanup failed. */
 export default function CleanupFailureToastListener() {

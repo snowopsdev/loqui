@@ -39,6 +39,11 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
   throw lastError;
 }
 
+// Status lets createApiRetryStrategy tell an HTTP rejection from a network fault.
+export function httpError(message: string, status: number): Error & { status: number } {
+  return Object.assign(new Error(message), { status });
+}
+
 // Specific retry strategy for API calls
 export function createApiRetryStrategy() {
   return {

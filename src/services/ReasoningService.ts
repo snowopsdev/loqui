@@ -8,7 +8,7 @@ import {
 } from "../models/ModelRegistry";
 import { BaseReasoningService, ReasoningConfig } from "./BaseReasoningService";
 import { SecureCache } from "../utils/SecureCache";
-import { withRetry, createApiRetryStrategy } from "../utils/retry";
+import { withRetry, createApiRetryStrategy, httpError } from "../utils/retry";
 import { API_ENDPOINTS, TOKEN_LIMITS, buildApiUrl, ensureV1Suffix } from "../config/constants";
 import logger from "../utils/logger";
 import { getSettings, isCloudCleanupMode } from "../stores/settingsStore";
@@ -265,10 +265,7 @@ class ReasoningService extends BaseReasoningService {
             errorMessage,
             fullResponse: errorText.substring(0, 500),
           });
-          // Carry the status so the retry layer can tell a rejection from a network fault.
-          const apiError = new Error(errorMessage) as Error & { status?: number };
-          apiError.status = res.status;
-          throw apiError;
+          throw httpError(errorMessage, res.status);
         }
 
         const jsonResponse = await res.json();

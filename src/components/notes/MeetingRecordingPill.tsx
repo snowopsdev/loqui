@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Square } from "lucide-react";
 import { stopRecording, useMeetingRecordingStore } from "../../stores/meetingRecordingStore";
 import { cn } from "../lib/utils";
+import { isControlPanelWindow } from "../../utils/windowContext";
 
 interface MeetingRecordingPillProps {
   activeView: string;
@@ -13,12 +14,6 @@ interface MeetingRecordingPillProps {
 
 const BAR_COUNT = 4;
 const BAR_FLOOR = 12;
-
-const isControlPanelWindow = () => {
-  if (typeof window === "undefined") return false;
-  const { search, pathname } = window.location;
-  return pathname.includes("control") || search.includes("panel=true");
-};
 
 const truncateTitle = (title: string) =>
   title.length > 20 ? `${title.slice(0, 19).trimEnd()}…` : title;

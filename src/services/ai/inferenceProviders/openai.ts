@@ -2,7 +2,7 @@ import type { InferenceProvider } from "./types";
 import { API_ENDPOINTS, TOKEN_LIMITS, buildApiUrl } from "../../../config/constants";
 import { getOpenAiApiConfig } from "../../../models/ModelRegistry";
 import { getSettings } from "../../../stores/settingsStore";
-import { withRetry, createApiRetryStrategy } from "../../../utils/retry";
+import { withRetry, createApiRetryStrategy, httpError } from "../../../utils/retry";
 import logger from "../../../utils/logger";
 import { getConfiguredOpenAIBase } from "../openaiBase";
 import { applyThinkingSuppression } from "../thinkingSuppression";
@@ -243,7 +243,7 @@ export const openaiProvider: InferenceProvider = {
               (res.status === 404 || res.status === 405) && type === "responses";
 
             if (isUnsupportedEndpoint) {
-              lastError = new Error(errorMessage);
+              lastError = httpError(errorMessage, res.status);
               rememberPreference(openAiBase, "chat");
               logger.logReasoning("OPENAI_ENDPOINT_FALLBACK", {
                 attemptedEndpoint: endpoint,
@@ -252,10 +252,7 @@ export const openaiProvider: InferenceProvider = {
               continue;
             }
 
-            // Carry the status so the retry layer can tell a rejection from a network fault.
-            const apiError = new Error(errorMessage) as Error & { status?: number };
-            apiError.status = res.status;
-            throw apiError;
+            throw httpError(errorMessage, res.status);
           }
 
           rememberPreference(openAiBase, type);

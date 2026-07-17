@@ -2506,6 +2506,10 @@
         "title": "GPU-Beschleunigung nicht verfügbar",
         "description": "Die Transkription verwendet stattdessen die CPU. Du kannst die GPU-Beschleunigung in den Einstellungen deaktivieren."
       },
+      "cleanupFailed": {
+        "title": "Bereinigung fehlgeschlagen",
+        "description": "Dein Diktat wurde ohne KI-Bereinigung eingefügt."
+      },
       "addedToDict": "{{words}} zu deinem Wörterbuch hinzugefügt",
       "undo": "Rückgängig",
       "accessibilityMissing": {

@@ -1,4 +1,4 @@
-import { RETRY_CONFIG } from "../config/constants";
+import { RETRY_CONFIG } from "../config/constants.ts";
 
 export interface RetryOptions {
   maxRetries?: number;
@@ -43,11 +43,12 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
 export function createApiRetryStrategy() {
   return {
     shouldRetry: (error: any) => {
-      // Retry on network errors or 5xx status codes
-      if (!error.response) return true; // Network error
+      // No HTTP status means the request never got an answer (network drop, timeout).
+      const status = error?.status ?? error?.response?.status;
+      if (typeof status !== "number") return true;
 
-      const status = error.response?.status || error.status;
-      return status >= 500 && status < 600;
+      // 4xx are deterministic rejections; only rate limits and server faults can clear on retry.
+      return status === 429 || (status >= 500 && status < 600);
     },
   };
 }

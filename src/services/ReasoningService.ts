@@ -264,7 +264,10 @@ class ReasoningService extends BaseReasoningService {
             errorData.message ||
             errorData.error ||
             `${providerName} API error: ${res.status}`;
-          throw new Error(errorMessage);
+          // Carry the status so the retry layer can tell a rejection from a network fault.
+          const apiError = new Error(errorMessage) as Error & { status?: number };
+          apiError.status = res.status;
+          throw apiError;
         }
 
         const jsonResponse = await res.json();

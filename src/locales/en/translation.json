@@ -2642,6 +2642,10 @@
         "title": "GPU acceleration unavailable",
         "description": "Transcription is using the CPU instead. You can disable GPU acceleration in Settings."
       },
+      "cleanupFailed": {
+        "title": "Cleanup failed",
+        "description": "Your dictation was pasted without AI cleanup."
+      },
       "addedToDict": "Added {{words}} to your dictionary",
       "undo": "Undo",
       "accessibilityMissing": {

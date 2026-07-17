@@ -97,7 +97,10 @@ export const geminiProvider: InferenceProvider = {
             errorData.message ||
             (typeof errorData.error === "string" ? errorData.error : null) ||
             `Gemini API error: ${res.status}`;
-          throw new Error(errMsg);
+          // Carry the status so the retry layer can tell a rejection from a network fault.
+          const apiError = new Error(errMsg) as Error & { status?: number };
+          apiError.status = res.status;
+          throw apiError;
         }
 
         const jsonResponse = (await res.json()) as GeminiResponse;

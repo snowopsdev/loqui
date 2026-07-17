@@ -246,7 +246,10 @@ export const openaiProvider: InferenceProvider = {
               continue;
             }
 
-            throw new Error(errorMessage);
+            // Carry the status so the retry layer can tell a rejection from a network fault.
+            const apiError = new Error(errorMessage) as Error & { status?: number };
+            apiError.status = res.status;
+            throw apiError;
           }
 
           rememberPreference(openAiBase, type);

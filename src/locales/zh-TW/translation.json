@@ -2501,6 +2501,10 @@
         "title": "GPU 加速無法使用",
         "description": "轉錄正在使用 CPU。你可以在設定中關閉 GPU 加速。"
       },
+      "cleanupFailed": {
+        "title": "清理失敗",
+        "description": "你的聽寫已直接貼上，未經 AI 清理。"
+      },
       "addedToDict": "已將 {{words}} 加入到你的詞典",
       "undo": "復原",
       "accessibilityMissing": {

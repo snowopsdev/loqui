@@ -24,6 +24,7 @@ import {
   isCloudCleanupMode,
   isCloudDictationAgentMode,
 } from "../stores/settingsStore";
+import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 import { getBatchTranscriptionModel, getTranscriptionProvider } from "../models/ModelRegistry";
 import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
 import {
@@ -1356,8 +1357,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     });
 
     if (useReasoning) {
+      let route;
       try {
-        const route = resolveReasoningRoute(
+        route = resolveReasoningRoute(
           normalizedText,
           getSettings(),
           agentName,
@@ -1397,6 +1399,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           fallbackToCleanup: true,
         });
         logger.warn("Reasoning failed", { source, error: error.message }, "notes");
+        // Retries are already spent here: the raw transcript is what the user gets.
+        if (route?.kind === "cleanup") recordCleanupFailure();
       }
     }
 
@@ -1672,6 +1676,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           { error: reasonError.message },
           "transcription"
         );
+        // Retries are already spent here: the raw transcript is what the user gets.
+        if (route.kind === "cleanup") recordCleanupFailure();
       }
       timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
     }
@@ -3175,6 +3181,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           { error: reasonError.message },
           "streaming"
         );
+        // Retries are already spent here: the raw transcript is what the user gets.
+        if (route.kind === "cleanup") recordCleanupFailure();
       }
     }
 

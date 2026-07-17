@@ -153,6 +153,7 @@ test("detectEndpointDialect matches mistral hosts regardless of scheme, case, po
   assert.equal(detectEndpointDialect("https://API.Mistral.AI/v1/")?.key, "mistral");
   assert.equal(detectEndpointDialect("https://api.mistral.ai:443/v1")?.key, "mistral");
   assert.equal(detectEndpointDialect("https://user@api.mistral.ai/v1")?.key, "mistral");
+  assert.equal(detectEndpointDialect("https://api.mistral.ai/v1/chat/completions")?.key, "mistral");
 });
 
 test("detectEndpointDialect rejects lookalike hosts", async () => {

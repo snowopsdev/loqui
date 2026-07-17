@@ -20,6 +20,8 @@ import { createEnterpriseChatModel } from "./ai/enterpriseChatModel";
 import { PROVIDER_REGISTRY, type ProviderContext } from "./ai/inferenceProviders";
 import { getConfiguredOpenAIBase } from "./ai/openaiBase";
 import { applyThinkingSuppression } from "./ai/thinkingSuppression";
+import { detectEndpointDialect } from "./ai/thinkingSuppressionDialects";
+import { extractApiErrorMessage } from "./ai/apiErrorMessage";
 import { clearTinfoilClientCache } from "./ai/tinfoilClient";
 import { resolveChatRoute } from "../helpers/chatRouting";
 
@@ -209,7 +211,7 @@ class ReasoningService extends BaseReasoningService {
       requestBody.reasoning_effort = "low";
     }
 
-    applyThinkingSuppression(requestBody, model, providerName, config);
+    applyThinkingSuppression(requestBody, model, providerName, config, endpoint);
 
     logger.logReasoning(`${providerName.toUpperCase()}_REQUEST`, {
       endpoint,
@@ -251,19 +253,18 @@ class ReasoningService extends BaseReasoningService {
             errorData = { error: errorText || res.statusText };
           }
 
+          const errorMessage = extractApiErrorMessage(
+            errorData,
+            `${providerName} API error: ${res.status}`
+          );
+
           logger.logReasoning(`${providerName.toUpperCase()}_API_ERROR_DETAIL`, {
             status: res.status,
             statusText: res.statusText,
             error: errorData,
-            errorMessage: errorData.error?.message || errorData.message || errorData.error,
+            errorMessage,
             fullResponse: errorText.substring(0, 500),
           });
-
-          const errorMessage =
-            errorData.error?.message ||
-            errorData.message ||
-            errorData.error ||
-            `${providerName} API error: ${res.status}`;
           // Carry the status so the retry layer can tell a rejection from a network fault.
           const apiError = new Error(errorMessage) as Error & { status?: number };
           apiError.status = res.status;
@@ -444,7 +445,15 @@ class ReasoningService extends BaseReasoningService {
       }
     }
 
-    const apiConfig = getOpenAiApiConfig(model, provider);
+    // A known endpoint host knows its own request shape better than the model id does.
+    const endpointDialect = detectEndpointDialect(endpoint);
+    const registryConfig = getOpenAiApiConfig(model, provider);
+    const apiConfig = endpointDialect
+      ? {
+          tokenParam: endpointDialect.tokenParam,
+          supportsTemperature: endpointDialect.supportsTemperature,
+        }
+      : registryConfig;
     const useOldTokenParam = isLocalProvider || isLanChat || provider === "groq";
 
     const requestBody: Record<string, unknown> = {
@@ -465,7 +474,7 @@ class ReasoningService extends BaseReasoningService {
       }
     }
 
-    applyThinkingSuppression(requestBody, model, isLanChat ? "lan" : provider, config);
+    applyThinkingSuppression(requestBody, model, isLanChat ? "lan" : provider, config, endpoint);
 
     logger.logReasoning("AGENT_STREAM_REQUEST", {
       endpoint,
@@ -513,11 +522,7 @@ class ReasoningService extends BaseReasoningService {
       let errorMessage: string;
       try {
         const errorData = JSON.parse(errorText);
-        errorMessage =
-          errorData.error?.message ||
-          errorData.message ||
-          errorData.error ||
-          `API error: ${response.status}`;
+        errorMessage = extractApiErrorMessage(errorData, `API error: ${response.status}`);
       } catch {
         errorMessage = errorText || `API error: ${response.status}`;
       }

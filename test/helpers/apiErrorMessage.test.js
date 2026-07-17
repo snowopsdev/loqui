@@ -99,6 +99,18 @@ test("a detail list with nothing usable still surfaces the raw body over [object
   assert.equal(extractApiErrorMessage({ message: { detail: [] } }, "fallback"), '{"detail":[]}');
 });
 
+test("an error object without a nested message is stringified rather than dropped", async () => {
+  const { extractApiErrorMessage } = await load();
+
+  const message = extractApiErrorMessage(
+    { error: { code: "invalid_request_error", type: "bad_request" } },
+    "fallback"
+  );
+
+  assert.equal(message, '{"code":"invalid_request_error","type":"bad_request"}');
+  assert.ok(!message.includes("[object Object]"));
+});
+
 test("a bare error string is used when there is no message", async () => {
   const { extractApiErrorMessage } = await load();
 

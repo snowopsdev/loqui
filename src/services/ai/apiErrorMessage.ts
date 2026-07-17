@@ -62,5 +62,10 @@ export function extractApiErrorMessage(errorData: unknown, fallback: string): st
     if (stringified) return stringified;
   }
 
+  if (isRecord(errorData.error) || Array.isArray(errorData.error)) {
+    const stringified = stringify(errorData.error);
+    if (stringified) return stringified;
+  }
+
   return safeFallback;
 }

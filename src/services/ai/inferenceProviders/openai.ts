@@ -154,16 +154,16 @@ export const openaiProvider: InferenceProvider = {
     const openAiBase = isOpenRouter
       ? API_ENDPOINTS.OPENROUTER_BASE
       : config.baseUrl?.trim() || getConfiguredOpenAIBase();
-    // OpenRouter speaks Chat Completions only — no /responses probe needed.
+    const dialect = detectEndpointDialect(openAiBase);
+    // OpenRouter and known dialect hosts speak Chat Completions only — no /responses probe needed.
     let endpointCandidates: Array<{ url: string; type: "responses" | "chat" }>;
-    if (isOpenRouter) {
+    if (isOpenRouter || dialect) {
       endpointCandidates = [{ url: buildApiUrl(openAiBase, "/chat/completions"), type: "chat" }];
     } else {
       await detectServerType(openAiBase);
       endpointCandidates = getEndpointCandidates(openAiBase);
     }
     const isCustomEndpoint = openAiBase !== API_ENDPOINTS.OPENAI_BASE;
-    const dialect = detectEndpointDialect(openAiBase);
 
     logger.logReasoning("OPENAI_ENDPOINTS", {
       base: openAiBase,

@@ -6,6 +6,8 @@ import { withRetry, createApiRetryStrategy, httpError } from "../../../utils/ret
 import logger from "../../../utils/logger";
 import { getConfiguredOpenAIBase } from "../openaiBase";
 import { applyThinkingSuppression } from "../thinkingSuppression";
+import { detectEndpointDialect } from "../thinkingSuppressionDialects";
+import { extractApiErrorMessage } from "../apiErrorMessage";
 import { wrapCleanupTranscript } from "../../../config/prompts";
 
 const OPENAI_ENDPOINT_PREF_STORAGE_KEY = "openAiEndpointPreference";
@@ -152,9 +154,10 @@ export const openaiProvider: InferenceProvider = {
     const openAiBase = isOpenRouter
       ? API_ENDPOINTS.OPENROUTER_BASE
       : config.baseUrl?.trim() || getConfiguredOpenAIBase();
-    // OpenRouter speaks Chat Completions only — no /responses probe needed.
+    const dialect = detectEndpointDialect(openAiBase);
+    // OpenRouter and known dialect hosts speak Chat Completions only — no /responses probe needed.
     let endpointCandidates: Array<{ url: string; type: "responses" | "chat" }>;
-    if (isOpenRouter) {
+    if (isOpenRouter || dialect) {
       endpointCandidates = [{ url: buildApiUrl(openAiBase, "/chat/completions"), type: "chat" }];
     } else {
       await detectServerType(openAiBase);
@@ -198,7 +201,8 @@ export const openaiProvider: InferenceProvider = {
               )
             );
 
-          const apiConfig = getOpenAiApiConfig(model, resolvedProvider);
+          // A known endpoint host knows its own request shape better than the model id does.
+          const apiConfig = dialect ?? getOpenAiApiConfig(model, resolvedProvider);
           const requestBody: Record<string, unknown> = { model };
 
           if (type === "responses") {
@@ -211,7 +215,7 @@ export const openaiProvider: InferenceProvider = {
             if (!config.systemPrompt && model.includes("gpt-oss")) {
               requestBody.reasoning_effort = "low";
             }
-            applyThinkingSuppression(requestBody, model, resolvedProvider, config);
+            applyThinkingSuppression(requestBody, model, resolvedProvider, config, openAiBase);
           }
 
           if (apiConfig.supportsTemperature) {
@@ -230,8 +234,10 @@ export const openaiProvider: InferenceProvider = {
 
           if (!res.ok) {
             const errorData = await res.json().catch(() => ({ error: res.statusText }));
-            const errorMessage =
-              errorData.error?.message || errorData.message || `OpenAI API error: ${res.status}`;
+            const errorMessage = extractApiErrorMessage(
+              errorData,
+              `OpenAI API error: ${res.status}`
+            );
 
             const isUnsupportedEndpoint =
               (res.status === 404 || res.status === 405) && type === "responses";

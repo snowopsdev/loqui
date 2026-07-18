@@ -62,6 +62,7 @@ import {
 } from "../../stores/meetingRecordingStore";
 import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
 import NotesOnboarding from "./NotesOnboarding";
+import { isRegenerableNoteTitle } from "../../helpers/regenerableNoteTitle";
 
 function makeContentHash(content: string): string {
   return String(content.length) + "-" + content.slice(0, 50);
@@ -716,9 +717,15 @@ export default function PersonalNotesView({
                         isCloudMode,
                         modelId: effectiveModelId,
                         isMeetingNote,
-                        allowTitleGeneration:
-                          !editorNote.title.trim() ||
-                          editorNote.title === t("notes.list.untitledNote"),
+                        allowTitleGeneration: isRegenerableNoteTitle(
+                          editorNote.title,
+                          [
+                            t("notes.list.untitledNote"),
+                            t("notes.list.newNote"),
+                            t("notes.sidebar.newNote"),
+                          ],
+                          calendarEventName
+                        ),
                       }
                     );
                   }}

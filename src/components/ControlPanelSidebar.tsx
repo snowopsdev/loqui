@@ -21,6 +21,13 @@ import { getCachedPlatform } from "../utils/platform";
 
 const platform = getCachedPlatform();
 
+const rowIconClass =
+  "shrink-0 text-foreground/60 group-hover:text-foreground/75 dark:text-foreground/50 dark:group-hover:text-foreground/65 transition-colors duration-150";
+const rowLabelClass =
+  "text-xs text-foreground/80 group-hover:text-foreground dark:text-foreground/70 dark:group-hover:text-foreground/85 transition-colors duration-150";
+const rowButtonClass =
+  "group flex items-center gap-2.5 w-full h-8 px-2.5 rounded-md text-left outline-none hover:bg-foreground/4 dark:hover:bg-white/4 focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150";
+
 export type ControlPanelView =
   "home" | "chat" | "personal-notes" | "dictionary" | "upload" | "integrations";
 
@@ -222,45 +229,27 @@ export default function ControlPanelSidebar({
           <button
             onClick={onOpenReferrals}
             aria-label={t("sidebar.referral")}
-            className="group flex items-center gap-2.5 w-full h-8 px-2.5 rounded-md text-left outline-none hover:bg-foreground/4 dark:hover:bg-white/4 focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150"
+            className={rowButtonClass}
           >
-            <Gift
-              size={15}
-              className="shrink-0 text-foreground/60 group-hover:text-foreground/75 dark:text-foreground/50 dark:group-hover:text-foreground/65 transition-colors duration-150"
-            />
-            <span className="text-xs text-foreground/80 group-hover:text-foreground dark:text-foreground/70 dark:group-hover:text-foreground/85 transition-colors duration-150">
-              {t("sidebar.referral")}
-            </span>
+            <Gift size={15} className={rowIconClass} />
+            <span className={rowLabelClass}>{t("sidebar.referral")}</span>
           </button>
         )}
 
         <button
           onClick={onOpenSettings}
           aria-label={t("sidebar.settings")}
-          className="group flex items-center gap-2.5 w-full h-8 px-2.5 rounded-md text-left outline-none hover:bg-foreground/4 dark:hover:bg-white/4 focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150"
+          className={rowButtonClass}
         >
-          <Settings
-            size={15}
-            className="shrink-0 text-foreground/60 group-hover:text-foreground/75 dark:text-foreground/50 dark:group-hover:text-foreground/65 transition-colors duration-150"
-          />
-          <span className="text-xs text-foreground/80 group-hover:text-foreground dark:text-foreground/70 dark:group-hover:text-foreground/85 transition-colors duration-150">
-            {t("sidebar.settings")}
-          </span>
+          <Settings size={15} className={rowIconClass} />
+          <span className={rowLabelClass}>{t("sidebar.settings")}</span>
         </button>
 
         <SupportDropdown
           trigger={
-            <button
-              aria-label={t("sidebar.support")}
-              className="group flex items-center gap-2.5 w-full h-8 px-2.5 rounded-md text-left outline-none hover:bg-foreground/4 dark:hover:bg-white/4 focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150"
-            >
-              <HelpCircle
-                size={15}
-                className="shrink-0 text-foreground/60 group-hover:text-foreground/75 dark:text-foreground/50 dark:group-hover:text-foreground/65 transition-colors duration-150"
-              />
-              <span className="text-xs text-foreground/80 group-hover:text-foreground dark:text-foreground/70 dark:group-hover:text-foreground/85 transition-colors duration-150">
-                {t("sidebar.support")}
-              </span>
+            <button aria-label={t("sidebar.support")} className={rowButtonClass}>
+              <HelpCircle size={15} className={rowIconClass} />
+              <span className={rowLabelClass}>{t("sidebar.support")}</span>
             </button>
           }
         />

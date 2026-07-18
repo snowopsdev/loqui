@@ -811,10 +811,16 @@ test("folders rebuild succeeds on a legacy DB with notes referencing folders", (
     "legacy notes are backfilled into the private space"
   );
   const folders = db.db.prepare("SELECT id, name, space_id FROM folders ORDER BY id").all();
-  assert.equal(folders.length, 2, "both legacy folders survive");
+  // init may seed additional defaults (e.g. "Videos"); the legacy folders
+  // must survive with their ids intact.
+  assert.deepEqual(
+    folders.filter((f) => ["Personal", "Projects"].includes(f.name)).map((f) => f.id),
+    [1, 2],
+    "both legacy folders survive with their ids"
+  );
   assert.ok(
     folders.every((f) => f.space_id === privateId),
-    "legacy folders are backfilled into the private space"
+    "all folders are backfilled into the private space"
   );
   db.db.close();
 });

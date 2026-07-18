@@ -35,6 +35,7 @@ export interface TranscriptionItem {
   status: TranscriptionStatus;
   error_message: string | null;
   error_code: TranscriptionErrorCode;
+  route_kind?: string | null;
   client_transcription_id: string;
   cloud_id: string | null;
   sync_status: "synced" | "pending" | "error";
@@ -275,8 +276,16 @@ export interface GpuInfo {
 
 export interface CudaWhisperStatus {
   downloaded: boolean;
+  downloading: boolean;
   path: string | null;
   gpuInfo: GpuInfo;
+}
+
+export interface VulkanWhisperStatus {
+  downloaded: boolean;
+  downloading: boolean;
+  vulkan: VulkanGpuResult;
+  hasNvidiaGpu: boolean;
 }
 
 export interface WhisperCheckResult {
@@ -532,6 +541,7 @@ declare global {
       showDictationPanel: () => Promise<void>;
       onToggleDictation: (callback: () => void) => () => void;
       onToggleVoiceAgent?: (callback: () => void) => () => void;
+      onToggleTranslation?: (callback: () => void) => () => void;
       onStartDictation?: (callback: () => void) => () => void;
       onStopDictation?: (callback: () => void) => () => void;
 
@@ -598,6 +608,7 @@ declare global {
           transcriptionMode?: InferenceMode;
           remoteTranscriptionType?: SelfHostedType;
           remoteTranscriptionUrl?: string;
+          remoteTranscriptionModel?: string;
         }
       ) => Promise<{
         success: boolean;
@@ -774,7 +785,11 @@ declare global {
       onActionDeleted?: (callback: (payload: { id: number }) => void) => () => void;
 
       // Audio file operations
-      selectAudioFile: () => Promise<{ canceled: boolean; filePath?: string }>;
+      selectAudioFile: (options?: { multiple?: boolean }) => Promise<{
+        canceled: boolean;
+        filePath?: string;
+        filePaths?: string[];
+      }>;
       getFileSize?: (filePath: string) => Promise<number>;
       transcribeAudioFile: (
         filePath: string,
@@ -786,6 +801,31 @@ declare global {
         }
       ) => Promise<{ success: boolean; text?: string; error?: string }>;
       getPathForFile: (file: File) => string;
+
+      // URL audio download
+      downloadUrlAudio: (
+        url: string,
+        downloadId?: string
+      ) => Promise<
+        | {
+            success: true;
+            tempPath: string;
+            title: string;
+            durationSeconds: number | null;
+            sizeBytes: number;
+          }
+        | { success: false; error: string; code?: string }
+      >;
+      cancelUrlDownload: (downloadId?: string) => Promise<{ success: boolean }>;
+      deleteTempFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+      onUrlDownloadProgress?: (
+        callback: (data: {
+          stage: "resolving" | "downloading" | "ready";
+          percent: number;
+          title?: string;
+          downloadId?: string;
+        }) => void
+      ) => () => void;
 
       // Note event listeners
       onNoteAdded?: (callback: (note: NoteItem) => void) => () => void;
@@ -877,6 +917,20 @@ declare global {
         }) => void
       ) => () => void;
       onCudaFallbackNotification: (callback: () => void) => () => void;
+
+      // Vulkan GPU acceleration (whisper on AMD/Intel GPUs)
+      getVulkanWhisperStatus: () => Promise<VulkanWhisperStatus>;
+      downloadVulkanWhisperBinary: () => Promise<{ success: boolean; error?: string }>;
+      cancelVulkanWhisperDownload: () => Promise<{ success: boolean }>;
+      deleteVulkanWhisperBinary: () => Promise<{ success: boolean; deletedCount?: number }>;
+      onVulkanWhisperDownloadProgress: (
+        callback: (data: {
+          downloadedBytes: number;
+          totalBytes: number;
+          percentage: number;
+        }) => void
+      ) => () => void;
+      onGpuFallbackNotification: (callback: () => void) => () => void;
 
       // Parakeet operations (NVIDIA via sherpa-onnx)
       transcribeLocalParakeet: (
@@ -1407,14 +1461,19 @@ declare global {
         apiKey: string;
         baseUrl: string;
         model: string;
+        diarize?: boolean;
         provider?: string;
         language?: string;
         environment?: string;
         tenant?: string;
+        transcriptionMode?: string;
+        remoteTranscriptionUrl?: string;
+        remoteTranscriptionModel?: string;
       }) => Promise<{
         success: boolean;
         text?: string;
         error?: string;
+        diarized?: boolean;
       }>;
 
       // Usage limit events
@@ -1505,6 +1564,8 @@ declare global {
       updateAgentHotkey?: (hotkey: string) => Promise<{ success: boolean; message: string }>;
       updateVoiceAgentHotkey?: (hotkey: string) => Promise<{ success: boolean; message: string }>;
       getVoiceAgentKey?: () => Promise<string>;
+      updateTranslationHotkey?: (hotkey: string) => Promise<{ success: boolean; message: string }>;
+      getTranslationKey?: () => Promise<string>;
       getAgentKey?: () => Promise<string>;
       saveAgentKey?: (key: string) => Promise<void>;
       createAgentConversation?: (
@@ -1824,6 +1885,19 @@ declare global {
         message?: string;
         error?: string;
       }>;
+      mergeSpeakerText?: (
+        segments: Array<{ start: number; end: number; speaker: string }>,
+        text: string,
+        duration: number
+      ) => Promise<{ success: boolean; text?: string; error?: string }>;
+      diarizeAudioFile?: (
+        filePath: string,
+        options?: { numSpeakers?: number; threshold?: number }
+      ) => Promise<{
+        success: boolean;
+        segments?: Array<{ start: number; end: number; speaker: string }>;
+        error?: string;
+      }>;
       onDiarizationDownloadProgress?: (callback: (data: any) => void) => () => void;
       onMeetingDiarizationComplete?: (
         callback: (data: {
@@ -1908,9 +1982,6 @@ declare global {
       onDictationRealtimeSessionEnd?: (callback: (data: { text: string }) => void) => () => void;
 
       // Google Calendar event listeners
-      onGcalMeetingStarting?: (callback: (data: any) => void) => () => void;
-      onGcalMeetingEnded?: (callback: (data: any) => void) => () => void;
-      onGcalStartRecording?: (callback: (data: any) => void) => () => void;
       onGcalConnectionChanged?: (callback: (data: any) => void) => () => void;
       onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
@@ -1954,8 +2025,6 @@ declare global {
         speechPadMs?: number;
         samplesOverlap?: number;
       }) => Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }>;
-      onMeetingDetected?: (callback: (data: any) => void) => () => void;
-      onMeetingDetectedStartRecording?: (callback: (data: any) => void) => () => void;
       onMeetingNotificationData?: (callback: (data: any) => void) => () => void;
       getMeetingNotificationData?: () => Promise<any>;
       meetingNotificationReady?: () => Promise<void>;
@@ -1992,8 +2061,11 @@ declare global {
         provider: string;
         model: string;
         language?: string;
+        display?: boolean;
       }) => Promise<{ success: boolean }>;
-      stopDictationPreview?: (opts?: { showCleanup?: boolean }) => Promise<{ success: boolean }>;
+      stopDictationPreview?: (opts?: {
+        showCleanup?: boolean;
+      }) => Promise<{ success: boolean; streamed?: boolean; text?: string }>;
       dismissDictationPreview?: () => Promise<{ success: boolean }>;
       completeDictationPreview?: (payload: { text?: string }) => Promise<{ success: boolean }>;
       hideDictationPreview?: () => Promise<{ success: boolean }>;

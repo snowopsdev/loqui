@@ -26,6 +26,7 @@ const liveSpeakerIdentifier = require("./liveSpeakerIdentifier");
 const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
 const { partitionPendingMicFinals, isWithinRetractWindow } = require("./meetingMicHoldback");
 const { applySmartSpacing } = require("./smartSpacing");
+const { applyAutoLearnSetting } = require("./autoLearnSetting");
 const {
   transcriptsOverlap,
   transcriptsLooselyOverlap,
@@ -129,6 +130,54 @@ const CLOUD_INLINE_LIMIT = 4 * 1024 * 1024;
 const CLOUD_CHUNK_CONCURRENCY = 5;
 const CLOUD_CHUNK_SEGMENT_SECONDS = 240;
 const CLOUD_CHUNK_MAX_ATTEMPTS = 3;
+
+const {
+  formatTimestamp: formatDiarTime,
+  mergeSpeakersWithText,
+  formatSpeakerTranscript,
+} = require("./speakerMerge");
+
+// Canonicalize allowed dirs so realpath'd inputs match on macOS (/var -> /private/var).
+// Deliberately narrow: user-picked paths anywhere else are approved individually via
+// approvedAudioPaths, so a compromised renderer can't read arbitrary files.
+function getCanonicalAllowedAudioDirs() {
+  const os = require("os");
+  const { getSafeTempDir } = require("./safeTempDir");
+  const dirs = [os.tmpdir(), getSafeTempDir(), app.getPath("userData")];
+  return dirs.map((d) => {
+    try {
+      return fs.realpathSync(d);
+    } catch {
+      return d;
+    }
+  });
+}
+
+// User-picked paths (OS file dialog, real drag-dropped files) may live outside the
+// static dirs (external volumes, /mnt, D:\) and are approved individually.
+const approvedAudioPaths = new Set();
+
+function approveAudioPath(filePath) {
+  if (typeof filePath !== "string" || !filePath) return;
+  try {
+    approvedAudioPaths.add(fs.realpathSync(path.resolve(filePath)));
+  } catch {
+    // File vanished or unreadable; nothing to approve.
+  }
+}
+
+// Returns the realpath'd file path if it lives under an allowed dir, else null.
+function resolveAllowedAudioPath(filePath) {
+  const real = fs.realpathSync(path.resolve(filePath));
+  if (approvedAudioPaths.has(real)) {
+    return real;
+  }
+  const allowed = getCanonicalAllowedAudioDirs();
+  if (allowed.some((dir) => real === dir || real.startsWith(dir + path.sep))) {
+    return real;
+  }
+  return null;
+}
 
 function buildMultipartBody(fileBuffer, fileName, contentType, fields = {}) {
   const boundary = `----OpenWhispr${Date.now()}`;
@@ -356,6 +405,7 @@ class IPCHandlers {
     this.textEditMonitor = managers.textEditMonitor;
     this.getTrayManager = managers.getTrayManager;
     this.whisperCudaManager = managers.whisperCudaManager;
+    this.whisperVulkanManager = managers.whisperVulkanManager;
     this.googleCalendarManager = managers.googleCalendarManager;
     this.meetingDetectionEngine = managers.meetingDetectionEngine;
     this.audioTapManager = managers.audioTapManager;
@@ -401,6 +451,9 @@ class IPCHandlers {
       this.whisperManager.serverManager.on("cuda-fallback", () => {
         this.broadcastToWindows("cuda-fallback-notification", {});
       });
+      this.whisperManager.serverManager.on("gpu-fallback", () => {
+        this.broadcastToWindows("gpu-fallback-notification", {});
+      });
     }
   }
 
@@ -415,7 +468,17 @@ class IPCHandlers {
   }
 
   _setWhisperVadSettings(update = {}) {
-    this.whisperVadSettings = { ...this._getWhisperVadSettings(), ...update };
+    const ALLOWED_KEYS = new Set([
+      "dictationSileroEnabled",
+      "noteRecordingSileroEnabled",
+      "meetingSileroEnabled",
+      ...Object.keys(require("../constants/whisperVad.json").DEFAULTS),
+    ]);
+    const filtered = {};
+    for (const [k, v] of Object.entries(update)) {
+      if (ALLOWED_KEYS.has(k)) filtered[k] = v;
+    }
+    this.whisperVadSettings = { ...this._getWhisperVadSettings(), ...filtered };
     return this._getWhisperVadSettings();
   }
 
@@ -991,7 +1054,10 @@ class IPCHandlers {
 
     // Dictionary handlers
     ipcMain.on("auto-learn-changed", (_event, enabled) => {
-      this._autoLearnEnabled = !!enabled;
+      // Both renderer windows re-sync this on mount — ignore same-value updates (#1080).
+      const { changed, enabled: next } = applyAutoLearnSetting(this._autoLearnEnabled, enabled);
+      if (!changed) return;
+      this._autoLearnEnabled = next;
       if (!this._autoLearnEnabled) {
         if (this._autoLearnDebounceTimer) {
           clearTimeout(this._autoLearnDebounceTimer);
@@ -1782,10 +1848,12 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("select-audio-file", async () => {
+    ipcMain.handle("select-audio-file", async (event, options = {}) => {
       const { dialog } = require("electron");
+      const properties = ["openFile"];
+      if (options.multiple === true) properties.push("multiSelections");
       const result = await dialog.showOpenDialog({
-        properties: ["openFile"],
+        properties,
         filters: [
           {
             name: "Audio Files",
@@ -1796,23 +1864,122 @@ class IPCHandlers {
       if (result.canceled || !result.filePaths.length) {
         return { canceled: true };
       }
+      result.filePaths.forEach(approveAudioPath);
+      if (options.multiple === true) {
+        return { canceled: false, filePaths: result.filePaths };
+      }
       return { canceled: false, filePath: result.filePaths[0] };
+    });
+
+    // Fired by the preload's getPathForFile for real drag-dropped files; a
+    // renderer-constructed File yields "" there, so this can't be forged.
+    ipcMain.on("approve-audio-path", (_event, filePath) => {
+      approveAudioPath(filePath);
     });
 
     ipcMain.handle("get-file-size", async (_event, filePath) => {
       const fs = require("fs");
       try {
-        const stats = fs.statSync(filePath);
+        if (typeof filePath !== "string") return 0;
+        const real = resolveAllowedAudioPath(filePath);
+        if (!real) return 0;
+        const stats = fs.statSync(real);
         return stats.size;
       } catch {
         return 0;
       }
     });
 
+    const activeUrlDownloads = new Map();
+    let urlDownloadSeq = 0;
+
+    // Sweep ow-url-*/ow-diarize-* orphans from crashes or windows closed mid-download.
+    require("./urlAudioDownloader").sweepStaleTempArtifacts();
+
+    ipcMain.handle("download-url-audio", async (event, url, downloadId) => {
+      if (typeof url !== "string" || url.length > 2048) {
+        return { success: false, error: "Invalid URL", code: "INVALID_URL" };
+      }
+      const { download } = require("./urlAudioDownloader");
+
+      const id =
+        typeof downloadId === "string" && downloadId ? downloadId : `dl-${++urlDownloadSeq}`;
+      const abortController = new AbortController();
+      activeUrlDownloads.set(id, abortController);
+
+      try {
+        const result = await download(
+          url,
+          (progress) => {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send("url-download-progress", { ...progress, downloadId: id });
+            }
+          },
+          abortController.signal
+        );
+        return { success: true, ...result };
+      } catch (error) {
+        debugLogger.error("URL audio download error", { error: error.message, code: error.code });
+        return { success: false, error: error.message, code: error.code || "DOWNLOAD_FAILED" };
+      } finally {
+        if (activeUrlDownloads.get(id) === abortController) {
+          activeUrlDownloads.delete(id);
+        }
+      }
+    });
+
+    // With an id, cancels that download; without, cancels all (unmount cleanup).
+    ipcMain.handle("cancel-url-download", async (_event, downloadId) => {
+      if (typeof downloadId === "string" && downloadId) {
+        const controller = activeUrlDownloads.get(downloadId);
+        if (!controller) return { success: false };
+        controller.abort();
+        activeUrlDownloads.delete(downloadId);
+        return { success: true };
+      }
+      if (activeUrlDownloads.size === 0) return { success: false };
+      for (const controller of activeUrlDownloads.values()) controller.abort();
+      activeUrlDownloads.clear();
+      return { success: true };
+    });
+
+    ipcMain.handle("delete-temp-file", async (event, filePath) => {
+      try {
+        if (typeof filePath !== "string") {
+          return { success: false, error: "Invalid file path" };
+        }
+        const { getSafeTempDir } = require("./safeTempDir");
+        const resolved = path.resolve(filePath);
+        const basename = path.basename(resolved);
+        if (!basename.startsWith("ow-url-") && !basename.startsWith("ow-diarize-")) {
+          return { success: false, error: "Not an OpenWhispr temp file" };
+        }
+        const real = fs.realpathSync(resolved);
+        let tempDir = getSafeTempDir();
+        try {
+          tempDir = fs.realpathSync(tempDir);
+        } catch {}
+        const rel = path.relative(tempDir, real);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) {
+          return { success: false, error: "Not an OpenWhispr temp file" };
+        }
+        fs.unlinkSync(real);
+        return { success: true };
+      } catch (error) {
+        debugLogger.warn("Failed to delete temp file", { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
     ipcMain.handle("transcribe-audio-file", async (event, filePath, options = {}) => {
       const fs = require("fs");
       try {
-        const audioBuffer = fs.readFileSync(filePath);
+        if (typeof filePath !== "string") {
+          return { success: false, error: "Invalid file path" };
+        }
+        const real = resolveAllowedAudioPath(filePath);
+        if (!real) return { success: false, error: "File path not allowed" };
+        const audioBuffer = fs.readFileSync(real);
         if (options.provider === "nvidia") {
           const result = await this.parakeetManager.transcribeLocalParakeet(audioBuffer, options);
           return result;
@@ -2041,7 +2208,11 @@ class IPCHandlers {
     ipcMain.handle("whisper-server-start", async (event, modelName) => {
       const useCuda =
         process.env.WHISPER_CUDA_ENABLED === "true" && this.whisperCudaManager?.isDownloaded();
-      return this.whisperManager.startServer(modelName, { useCuda });
+      const useVulkan =
+        !useCuda &&
+        process.env.WHISPER_VULKAN_ENABLED === "true" &&
+        this.whisperVulkanManager?.isDownloaded();
+      return this.whisperManager.startServer(modelName, { useCuda, useVulkan });
     });
 
     ipcMain.handle("whisper-server-stop", async () => {
@@ -2101,10 +2272,10 @@ class IPCHandlers {
                 { from: oldUuid, to: uuid },
                 "gpu"
               );
-              const modelPath = modelManager.serverManager.modelPath;
+              const modelId = modelManager.currentServerModelId;
               await modelManager.serverManager.stop();
-              if (modelPath) {
-                await modelManager.serverManager.start(modelPath);
+              if (modelId) {
+                await modelManager.prewarmServer(modelId);
               }
             }
           }
@@ -2147,12 +2318,12 @@ class IPCHandlers {
         return { success: false, error: "CUDA not supported on this platform" };
       }
       try {
-        await this.whisperCudaManager.download((progress) => {
-          if (progress.type === "progress" && !event.sender.isDestroyed()) {
+        await this.whisperCudaManager.download((downloaded, total) => {
+          if (!event.sender.isDestroyed()) {
             event.sender.send("cuda-download-progress", {
-              downloadedBytes: progress.downloaded_bytes,
-              totalBytes: progress.total_bytes,
-              percentage: progress.percentage,
+              downloadedBytes: downloaded,
+              totalBytes: total,
+              percentage: total > 0 ? Math.round((downloaded / total) * 100) : 0,
             });
           }
         });
@@ -2176,13 +2347,66 @@ class IPCHandlers {
 
     ipcMain.handle("delete-cuda-whisper-binary", async () => {
       if (!this.whisperCudaManager) return { success: false };
+      // Stop the server first so the running binary can be deleted on Windows
+      await this.whisperManager.stopServer().catch(() => {});
       const result = await this.whisperCudaManager.delete();
       if (result.success) {
         this._syncStartupEnv({}, ["WHISPER_CUDA_ENABLED"]);
-        // Restart whisper-server so it falls back to CPU binary
-        await this.whisperManager.stopServer().catch(() => {});
       }
       return result;
+    });
+
+    ipcMain.handle("get-vulkan-whisper-status", async () => {
+      const { detectVulkanGpu } = require("../utils/vulkanDetection");
+      const { detectNvidiaGpu } = require("../utils/gpuDetection");
+      const [vulkan, gpuInfo] = await Promise.all([detectVulkanGpu(), detectNvidiaGpu()]);
+      return {
+        downloaded: this.whisperVulkanManager?.isDownloaded() ?? false,
+        downloading: this.whisperVulkanManager?.isDownloading() ?? false,
+        vulkan,
+        hasNvidiaGpu: gpuInfo.hasNvidiaGpu,
+      };
+    });
+
+    ipcMain.handle("download-vulkan-whisper-binary", async (event) => {
+      if (!this.whisperVulkanManager) {
+        return { success: false, error: "Vulkan not supported on this platform" };
+      }
+      try {
+        // Stop the server first: overwriting a running binary EBUSYs on Windows
+        await this.whisperManager.stopServer().catch(() => {});
+        await this.whisperVulkanManager.download((downloaded, total) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send("vulkan-whisper-download-progress", {
+              downloadedBytes: downloaded,
+              totalBytes: total,
+              percentage: total > 0 ? Math.round((downloaded / total) * 100) : 0,
+            });
+          }
+        });
+        this._syncStartupEnv({ WHISPER_VULKAN_ENABLED: "true" });
+        return { success: true };
+      } catch (error) {
+        debugLogger.error("Vulkan whisper binary download failed", {
+          error: error.message,
+          stack: error.stack,
+        });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("cancel-vulkan-whisper-download", async () => {
+      if (!this.whisperVulkanManager) return { success: false };
+      return { success: this.whisperVulkanManager.cancelDownload() };
+    });
+
+    ipcMain.handle("delete-vulkan-whisper-binary", async () => {
+      if (!this.whisperVulkanManager) return { success: false };
+      // Stop the server first so the running binary can be deleted on Windows
+      await this.whisperManager.stopServer().catch(() => {});
+      const { deletedCount } = await this.whisperVulkanManager.delete();
+      this._syncStartupEnv({}, ["WHISPER_VULKAN_ENABLED"]);
+      return { success: true, deletedCount };
     });
 
     ipcMain.handle("check-ffmpeg-availability", async (event) => {
@@ -2293,9 +2517,13 @@ class IPCHandlers {
 
     ipcMain.handle("parakeet-server-start", async (event, modelName) => {
       const result = await this.parakeetManager.startServer(modelName);
-      process.env.LOCAL_TRANSCRIPTION_PROVIDER = "nvidia";
-      process.env.PARAKEET_MODEL = modelName;
-      await this.environmentManager.saveAllKeysToEnvFile();
+      // Persisting a provider that failed to start would wedge every launch
+      // into a failing pre-warm.
+      if (result.success) {
+        process.env.LOCAL_TRANSCRIPTION_PROVIDER = "nvidia";
+        process.env.PARAKEET_MODEL = modelName;
+        await this.environmentManager.saveAllKeysToEnvFile();
+      }
       return result;
     });
 
@@ -2351,6 +2579,75 @@ class IPCHandlers {
         return { success: true };
       } catch (error) {
         debugLogger.error("Failed to delete diarization models", { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("diarize-audio-file", async (event, filePath, options = {}) => {
+      try {
+        if (!this.diarizationManager) {
+          return { success: false, error: "Diarization not available" };
+        }
+        if (!this.diarizationManager.isModelDownloaded()) {
+          return { success: false, error: "Diarization models not downloaded" };
+        }
+
+        if (typeof filePath !== "string") {
+          return { success: false, error: "Invalid file path" };
+        }
+        const realPath = resolveAllowedAudioPath(filePath);
+        if (!realPath) return { success: false, error: "File path not allowed" };
+        filePath = realPath;
+
+        const diarOpts = {
+          numSpeakers: Math.min(
+            MAX_SPEAKER_COUNT,
+            Math.max(-1, Math.round(Number(options.numSpeakers) || -1))
+          ),
+          threshold: Math.min(1, Math.max(0, Number(options.threshold) || 0.55)),
+        };
+
+        const { convertToWav } = require("./ffmpegUtils");
+        const { getSafeTempDir } = require("./safeTempDir");
+        const wavPath = path.join(getSafeTempDir(), `ow-diarize-${Date.now()}.wav`);
+
+        try {
+          await convertToWav(filePath, wavPath, { sampleRate: 16000, channels: 1 });
+          const segments = await this.diarizationManager.diarize(wavPath, diarOpts);
+          return { success: true, segments };
+        } finally {
+          try {
+            fs.unlinkSync(wavPath);
+          } catch {}
+        }
+      } catch (error) {
+        debugLogger.error("Diarization error", { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("merge-speaker-text", async (event, { segments, text, duration }) => {
+      try {
+        if (
+          !Array.isArray(segments) ||
+          typeof text !== "string" ||
+          typeof duration !== "number" ||
+          !isFinite(duration)
+        ) {
+          return { success: false, error: "Invalid arguments" };
+        }
+        if (segments.length > 10000 || text.length > 1_000_000) {
+          return { success: false, error: "Input too large" };
+        }
+        const sanitizedSegments = segments.map((s) => ({
+          speaker: typeof s.speaker === "string" ? s.speaker.slice(0, 100) : "unknown",
+          start: typeof s.start === "number" && isFinite(s.start) ? s.start : 0,
+          end: typeof s.end === "number" && isFinite(s.end) ? s.end : 0,
+        }));
+        const merged = mergeSpeakersWithText(sanitizedSegments, text, duration);
+        return { success: true, text: formatSpeakerTranscript(merged) };
+      } catch (error) {
+        debugLogger.error("Speaker merge error", { error: error.message });
         return { success: false, error: error.message };
       }
     });
@@ -3520,7 +3817,7 @@ class IPCHandlers {
 
         const modelPath = require("path").join(modelManager.modelsDir, modelInfo.model.fileName);
 
-        await modelManager.serverManager.start(modelPath, { threads: 4 });
+        await modelManager.serverManager.start(modelPath, modelManager.serverOptions(modelInfo));
         modelManager.currentServerModelId = modelId;
 
         this.environmentManager.saveAllKeysToEnvFile().catch(() => {});
@@ -4131,8 +4428,40 @@ class IPCHandlers {
           preferredLanguage && preferredLanguage !== "auto"
             ? preferredLanguage.split("-")[0]
             : undefined;
+        const { resolveSelfHostedRetryRoute } = await import("./retryTranscriptionRouting.js");
+        const selfHostedRoute = resolveSelfHostedRetryRoute(settings);
 
-        if (settings?.useLocalWhisper) {
+        if (selfHostedRoute?.kind === "configuration-error") {
+          throw new Error(selfHostedRoute.error);
+        }
+
+        if (selfHostedRoute?.kind === "self-hosted") {
+          const formData = new FormData();
+          formData.append("file", new Blob([buffer], { type: "audio/webm" }), "audio.webm");
+          if (selfHostedRoute.model) {
+            formData.append("model", selfHostedRoute.model);
+          }
+          if (language) {
+            formData.append("language", language);
+          }
+
+          const response = await proxyFetch(selfHostedRoute.endpoint, {
+            method: "POST",
+            body: formData,
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Self-hosted API Error: ${response.status} ${errorText}`);
+          }
+          const data = await response.json();
+          if (data?.text) {
+            result = {
+              text: data.text,
+              source: "self-hosted",
+              model: selfHostedRoute.model,
+            };
+          }
+        } else if (settings?.useLocalWhisper) {
           if (settings.localTranscriptionProvider === "nvidia") {
             const model =
               settings.parakeetModel || process.env.PARAKEET_MODEL || "parakeet-tdt-0.6b-v3";
@@ -5662,6 +5991,8 @@ class IPCHandlers {
     let dictationPreviewChunkCount = 0;
     // Online-runtime models stream here instead of the 1.5s chunked path.
     let dictationPreviewStream = null;
+    // false = headless streaming session (commit-only, no preview window).
+    let dictationPreviewDisplay = true;
     // Bumped on every reset so async preview work can detect a stale session.
     let dictationPreviewGen = 0;
 
@@ -5684,9 +6015,18 @@ class IPCHandlers {
       dictationPreviewProvider = null;
       dictationPreviewModel = null;
       dictationPreviewLanguage = null;
+      dictationPreviewDisplay = true;
+    };
+
+    const startDictationPreviewTimer = () => {
+      if (!dictationPreviewTimer) {
+        dictationPreviewTimer = setInterval(() => transcribeDictationPreviewChunk(), 1500);
+      }
     };
 
     const transcribeDictationPreviewChunk = async () => {
+      // The chunked path only feeds the preview window.
+      if (!dictationPreviewDisplay) return;
       if (dictationPreviewTranscribing) return;
       if (!dictationPreviewBuffer.length) return;
 
@@ -6367,48 +6707,69 @@ class IPCHandlers {
       return { success: true, text: result.text || "" };
     });
 
-    ipcMain.handle("start-dictation-preview", async (_event, { provider, model, language }) => {
-      resetDictationPreviewState();
-      const gen = dictationPreviewGen;
-      dictationPreviewMode = true;
-      dictationPreviewSessionActive = true;
-      dictationPreviewProvider = provider;
-      dictationPreviewModel = model;
-      dictationPreviewLanguage = language || null;
-      dictationPreviewChunkCount = 0;
-      this.windowManager.showTranscriptionPreview("");
+    ipcMain.handle(
+      "start-dictation-preview",
+      async (_event, { provider, model, language, display = true }) => {
+        resetDictationPreviewState();
+        const gen = dictationPreviewGen;
+        dictationPreviewMode = true;
+        dictationPreviewSessionActive = true;
+        dictationPreviewProvider = provider;
+        dictationPreviewModel = model;
+        dictationPreviewLanguage = language || null;
+        dictationPreviewDisplay = display;
+        dictationPreviewChunkCount = 0;
+        if (display) this.windowManager.showTranscriptionPreview("");
 
-      if (provider === "nvidia" && this.parakeetManager.supportsOnlineStreaming(model)) {
-        try {
-          const stream = await this.parakeetManager.createOnlineStream(model, {
-            onUpdate: (text) => {
-              if (gen === dictationPreviewGen && text) {
-                this.windowManager.showTranscriptionPreview(text);
-              }
-            },
-          });
-          if (gen !== dictationPreviewGen) {
-            stream.abort();
+        if (provider === "nvidia" && this.parakeetManager.supportsOnlineStreaming(model)) {
+          try {
+            const stream = await this.parakeetManager.createOnlineStream(model, {
+              onUpdate: (text) => {
+                if (gen === dictationPreviewGen && text && dictationPreviewDisplay) {
+                  this.windowManager.showTranscriptionPreview(text);
+                }
+              },
+              onError: (error) => {
+                if (gen !== dictationPreviewGen || dictationPreviewStream !== stream) return;
+                // Keep the preview alive on the chunked path; the final
+                // transcript falls back to decoding the full recording.
+                debugLogger.warn("Online preview stream failed mid-session, falling back", {
+                  model,
+                  error: error.message,
+                });
+                dictationPreviewStream = null;
+                if (dictationPreviewDisplay) startDictationPreviewTimer();
+              },
+            });
+            if (gen !== dictationPreviewGen) {
+              stream.abort();
+              return { success: true };
+            }
+            dictationPreviewStream = stream;
+            for (const chunk of dictationPreviewBuffer) {
+              stream.sendPcm16(chunk);
+            }
+            dictationPreviewBuffer = [];
             return { success: true };
+          } catch (error) {
+            debugLogger.warn("Online preview stream unavailable, falling back to chunked preview", {
+              model,
+              error: error.message,
+            });
           }
-          dictationPreviewStream = stream;
-          for (const chunk of dictationPreviewBuffer) {
-            stream.sendPcm16(chunk);
-          }
-          dictationPreviewBuffer = [];
-          return { success: true };
-        } catch (error) {
-          debugLogger.warn("Online preview stream unavailable, falling back to chunked preview", {
-            model,
-            error: error.message,
-          });
         }
-      }
 
-      if (gen !== dictationPreviewGen) return { success: true };
-      dictationPreviewTimer = setInterval(() => transcribeDictationPreviewChunk(), 1500);
-      return { success: true };
-    });
+        if (gen !== dictationPreviewGen) return { success: true };
+        if (!display) {
+          // A headless session exists only to feed the online stream; without
+          // one, buffered PCM would just accumulate with no consumer.
+          resetDictationPreviewState();
+          return { success: true };
+        }
+        startDictationPreviewTimer();
+        return { success: true };
+      }
+    );
 
     ipcMain.on("dictation-preview-audio", (_event, audioBuffer) => {
       if (!dictationPreviewMode) return;
@@ -6462,26 +6823,38 @@ class IPCHandlers {
 
     ipcMain.handle("stop-dictation-preview", async (_event, options = {}) => {
       if (!dictationPreviewMode && !dictationPreviewSessionActive) {
-        return { success: true };
+        return { success: true, streamed: false, text: "" };
       }
       clearInterval(dictationPreviewTimer);
       dictationPreviewTimer = null;
+      const display = dictationPreviewDisplay;
+      let streamed = false;
+      let streamedText = "";
       if (dictationPreviewStream) {
         const stream = dictationPreviewStream;
         dictationPreviewStream = null;
-        const { text } = await stream.finish().catch(() => ({ text: "" }));
-        if (text && dictationPreviewSessionActive) {
-          this.windowManager.showTranscriptionPreview(text);
+        const gen = dictationPreviewGen;
+        const result = await stream.finish().catch(() => null);
+        if (gen !== dictationPreviewGen) {
+          return { success: true, streamed: false, text: "" };
+        }
+        if (result) {
+          streamedText = result.text || "";
+          // Only a clean flush is trustworthy as the final transcript.
+          streamed = !result.truncated;
+        }
+        if (streamedText && display && dictationPreviewSessionActive) {
+          this.windowManager.showTranscriptionPreview(streamedText);
         }
       } else {
         await transcribeDictationPreviewChunk();
       }
-      resetDictationPreviewState({ preserveSession: true });
-      if (!dictationPreviewSessionActive) {
-        return { success: true };
+      resetDictationPreviewState({ preserveSession: display });
+      if (!display || !dictationPreviewSessionActive) {
+        return { success: true, streamed, text: streamedText };
       }
       this.windowManager.holdTranscriptionPreview(options);
-      return { success: true };
+      return { success: true, streamed, text: streamedText };
     });
 
     ipcMain.handle("update-transcription-text", async (_event, id, text, rawText) => {
@@ -6916,6 +7289,14 @@ class IPCHandlers {
         const apiUrl = getApiUrl();
         if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
 
+        if (typeof opts?.path !== "string" || !opts.path.startsWith("/")) {
+          return { success: false, error: "Invalid API path" };
+        }
+        const targetUrl = new URL(opts.path, apiUrl);
+        if (targetUrl.origin !== new URL(apiUrl).origin) {
+          return { success: false, error: "Invalid API path" };
+        }
+
         const authHeader = await getAuthHeader(event);
         // Public endpoints (e.g. invitation previews) work without a session.
         if (!Object.keys(authHeader).length && !opts.public) throw new Error("Not authenticated");
@@ -7039,6 +7420,12 @@ class IPCHandlers {
 
     ipcMain.handle("transcribe-audio-file-cloud", async (event, filePath) => {
       try {
+        if (typeof filePath !== "string") {
+          return { success: false, error: "Invalid file path" };
+        }
+        const realCloud = resolveAllowedAudioPath(filePath);
+        if (!realCloud) return { success: false, error: "File path not allowed" };
+
         const apiUrl = getApiUrl();
         if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
 
@@ -7053,15 +7440,15 @@ class IPCHandlers {
           sessionId: this.sessionId,
         };
 
-        const fileSize = fs.statSync(filePath).size;
+        const fileSize = fs.statSync(realCloud).size;
 
         if (fileSize > CLOUD_INLINE_LIMIT) {
           debugLogger.debug("Large file detected, using client-side chunking", {
             fileSize,
-            filePath: path.basename(filePath),
+            filePath: path.basename(realCloud),
           });
           const { text, warning } = await chunkedCloudTranscribe({
-            filePath,
+            filePath: realCloud,
             apiUrl,
             authHeader,
             multipartFields,
@@ -7070,10 +7457,10 @@ class IPCHandlers {
           return { success: true, text, ...(warning ? { warning } : {}) };
         }
 
-        const audioBuffer = fs.readFileSync(filePath);
-        const ext = path.extname(filePath).toLowerCase().replace(".", "");
+        const audioBuffer = fs.readFileSync(realCloud);
+        const ext = path.extname(realCloud).toLowerCase().replace(".", "");
         const contentType = AUDIO_MIME_TYPES[ext] || "audio/mpeg";
-        const fileName = path.basename(filePath);
+        const fileName = path.basename(realCloud);
 
         const { body, boundary } = buildMultipartBody(
           audioBuffer,
@@ -7099,12 +7486,63 @@ class IPCHandlers {
       "transcribe-audio-file-byok",
       async (
         event,
-        { filePath, apiKey, baseUrl, model, provider, language, environment, tenant }
+        {
+          filePath,
+          apiKey,
+          baseUrl,
+          model,
+          diarize,
+          provider,
+          language,
+          environment,
+          tenant,
+          transcriptionMode,
+          remoteTranscriptionUrl,
+          remoteTranscriptionModel,
+        }
       ) => {
         const fs = require("fs");
         const BYOK_FILE_SIZE_LIMIT = 25 * 1024 * 1024; // 25 MB
         try {
-          const fileSize = fs.statSync(filePath).size;
+          if (typeof filePath !== "string") {
+            return { success: false, error: "Invalid file path" };
+          }
+          const realByok = resolveAllowedAudioPath(filePath);
+          if (!realByok) return { success: false, error: "File path not allowed" };
+
+          const { resolveSelfHostedRetryRoute } = await import("./retryTranscriptionRouting.js");
+          const selfHostedRoute = resolveSelfHostedRetryRoute({
+            transcriptionMode,
+            remoteTranscriptionUrl,
+            remoteTranscriptionModel,
+          });
+
+          // Fail closed: a misconfigured self-hosted setup must never fall through to BYOK.
+          if (selfHostedRoute?.kind === "configuration-error") {
+            return { success: false, error: selfHostedRoute.error };
+          }
+
+          if (selfHostedRoute?.kind === "self-hosted") {
+            // User's own server, so the 25 MB third-party cap does not apply.
+            const ext = path.extname(realByok).toLowerCase().replace(".", "");
+            const { body, boundary } = buildMultipartBody(
+              fs.readFileSync(realByok),
+              path.basename(realByok),
+              AUDIO_MIME_TYPES[ext] || "audio/mpeg",
+              { model: selfHostedRoute.model, language }
+            );
+            const data = await postMultipart(new URL(selfHostedRoute.endpoint), body, boundary);
+            if (data.statusCode !== 200) {
+              throw new Error(
+                data.data?.error?.message ||
+                  data.data?.error ||
+                  `Self-hosted API Error: ${data.statusCode}`
+              );
+            }
+            return { success: true, text: data.data.text };
+          }
+
+          const fileSize = fs.statSync(realByok).size;
           if (fileSize > BYOK_FILE_SIZE_LIMIT) {
             return {
               success: false,
@@ -7124,17 +7562,17 @@ class IPCHandlers {
               tenant,
               clientId,
               clientSecret,
-              audioBuffer: fs.readFileSync(filePath),
+              audioBuffer: fs.readFileSync(realByok),
               language: language || "en",
             });
             return { success: true, text };
           }
 
           if (provider === "tinfoil") {
-            const ext = path.extname(filePath).toLowerCase().replace(".", "");
+            const ext = path.extname(realByok).toLowerCase().replace(".", "");
             const { text } = await transcribeWithTinfoil({
-              audioBuffer: fs.readFileSync(filePath),
-              fileName: path.basename(filePath),
+              audioBuffer: fs.readFileSync(realByok),
+              fileName: path.basename(realByok),
               contentType: AUDIO_MIME_TYPES[ext] || "audio/mpeg",
               language,
               apiKey: this.environmentManager.getTinfoilKey(),
@@ -7147,10 +7585,10 @@ class IPCHandlers {
             throw new Error("No transcription endpoint configured.");
           }
 
-          const audioBuffer = fs.readFileSync(filePath);
-          const ext = path.extname(filePath).toLowerCase().replace(".", "");
+          const audioBuffer = fs.readFileSync(realByok);
+          const ext = path.extname(realByok).toLowerCase().replace(".", "");
           const contentType = AUDIO_MIME_TYPES[ext] || "audio/mpeg";
-          const fileName = path.basename(filePath);
+          const fileName = path.basename(realByok);
 
           let transcriptionUrl;
           const multipartFields = {};
@@ -7167,6 +7605,34 @@ class IPCHandlers {
               transcriptionUrl += "/audio/transcriptions";
             }
             multipartFields.model = model || "whisper-1";
+          }
+
+          if (diarize) {
+            let isMistral = false;
+            let isOpenAi = false;
+            try {
+              const h = new URL(baseUrl).hostname;
+              isMistral = h.endsWith(".mistral.ai") || h === "mistral.ai";
+              isOpenAi = h.endsWith(".openai.com") || h === "openai.com";
+            } catch {}
+            if (isMistral) {
+              multipartFields.model = model || "voxtral-mini-latest";
+              multipartFields.diarize = "true";
+              multipartFields.timestamp_granularities = "segment";
+            } else if (isOpenAi) {
+              multipartFields.model = "gpt-4o-transcribe-diarize";
+              // Speaker annotations require diarized_json; verbose_json is not supported by this model.
+              multipartFields.response_format = "diarized_json";
+              multipartFields.chunking_strategy = "auto";
+            } else {
+              // The renderer gates on provider name; this re-check is by hostname.
+              // A non-canonical base URL (Azure/OpenAI-compatible gateway) can
+              // disagree — degrade to a plain transcript, never fail the upload.
+              debugLogger.warn(
+                "BYOK diarization requested but base URL is not OpenAI/Mistral; transcribing without speakers",
+                { baseUrl }
+              );
+            }
           }
 
           const { body, boundary } = buildMultipartBody(
@@ -7193,6 +7659,38 @@ class IPCHandlers {
             );
           }
 
+          if (diarize && data.data?.speakers) {
+            const segments = (data.data.speakers || []).map((s) => ({
+              speaker: s.id || `Speaker ${s.speaker || "?"}`,
+              text: s.text || "",
+              start: s.start || 0,
+              end: s.end || 0,
+            }));
+            const formatted = segments
+              .map(
+                (s) =>
+                  `[${s.speaker}] ${formatDiarTime(s.start)} - ${formatDiarTime(s.end)}\n${s.text}`
+              )
+              .join("\n\n");
+            return { success: true, text: formatted, diarized: true };
+          }
+
+          if (diarize && data.data?.segments) {
+            const segments = data.data.segments || [];
+            const formatted = segments
+              .map((s) => {
+                const speaker = s.speaker || "Speaker ?";
+                const start = formatDiarTime(s.start || 0);
+                const end = formatDiarTime(s.end || 0);
+                return `[${speaker}] ${start} - ${end}\n${s.text || ""}`;
+              })
+              .join("\n\n");
+            return { success: true, text: formatted, diarized: true };
+          }
+
+          if (diarize) {
+            debugLogger.warn("BYOK diarization requested but provider returned no speaker data");
+          }
           return { success: true, text: data.data.text };
         } catch (error) {
           debugLogger.error("BYOK audio file transcription error", { error: error.message });
@@ -8098,6 +8596,39 @@ class IPCHandlers {
 
     ipcMain.handle("get-voice-agent-key", async () => {
       return this.environmentManager.getVoiceAgentKey?.() || "";
+    });
+
+    ipcMain.handle("update-translation-hotkey", async (_event, hotkey) => {
+      const hotkeyManager = this.windowManager.hotkeyManager;
+      const translationCallback = this.windowManager._translationHotkeyCallback;
+      if (!translationCallback) {
+        return { success: false, message: "Translation hotkey callback not initialized" };
+      }
+
+      if (!hotkey) {
+        hotkeyManager.unregisterSlot("translation");
+        this.environmentManager.saveTranslationKey?.("");
+        this.windowManager.reconcileNativeKeyListeners();
+        return { success: true, message: "Translation hotkey cleared" };
+      }
+
+      const result = await hotkeyManager.registerSlot("translation", hotkey, translationCallback, {
+        atomic: true,
+      });
+      this.windowManager.reconcileNativeKeyListeners();
+      if (result.success) {
+        this.environmentManager.saveTranslationKey?.(hotkey);
+        return { success: true, message: `Translation hotkey updated to: ${hotkey}` };
+      }
+
+      return {
+        success: false,
+        message: result.error || `Failed to update translation hotkey to: ${hotkey}`,
+      };
+    });
+
+    ipcMain.handle("get-translation-key", async () => {
+      return this.environmentManager.getTranslationKey?.() || "";
     });
 
     ipcMain.handle("get-agent-key", async () => {

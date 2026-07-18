@@ -279,6 +279,7 @@ const WindowsKeyManager = require("./src/helpers/windowsKeyManager");
 const LinuxKeyManager = require("./src/helpers/linuxKeyManager");
 const TextEditMonitor = require("./src/helpers/textEditMonitor");
 const WhisperCudaManager = require("./src/helpers/whisperCudaManager");
+const WhisperVulkanManager = require("./src/helpers/whisperVulkanManager");
 const GoogleCalendarManager = require("./src/helpers/googleCalendarManager");
 const MeetingProcessDetector = require("./src/helpers/meetingProcessDetector");
 const AudioActivityDetector = require("./src/helpers/audioActivityDetector");
@@ -309,6 +310,7 @@ let windowsKeyManager = null;
 let linuxKeyManager = null;
 let textEditMonitor = null;
 let whisperCudaManager = null;
+let whisperVulkanManager = null;
 let googleCalendarManager = null;
 let meetingDetectionEngine = null;
 let audioTapManager = null;
@@ -391,6 +393,7 @@ function initializeCoreManagers() {
   whisperManager = new WhisperManager();
   if (process.platform !== "darwin") {
     whisperCudaManager = new WhisperCudaManager();
+    whisperVulkanManager = new WhisperVulkanManager();
   }
   parakeetManager = new ParakeetManager();
   diarizationManager = new DiarizationManager();
@@ -403,6 +406,7 @@ function initializeCoreManagers() {
     databaseManager
   );
   windowManager.meetingDetectionEngine = meetingDetectionEngine;
+  googleCalendarManager.meetingDetectionEngine = meetingDetectionEngine;
   updateManager = new UpdateManager();
   updateManager.setWindowManager(windowManager);
   windowsKeyManager = new WindowsKeyManager();
@@ -434,6 +438,7 @@ function initializeCoreManagers() {
     linuxKeyManager,
     textEditMonitor,
     whisperCudaManager,
+    whisperVulkanManager,
     googleCalendarManager,
     meetingDetectionEngine,
     audioTapManager,
@@ -511,7 +516,7 @@ app.on("open-url", (event, url) => {
     return;
   }
 
-  if (url.includes("/invitations/")) {
+  if (isInvitationDeepLink(url)) {
     handleInvitationDeepLink(url);
     return;
   }
@@ -523,6 +528,10 @@ app.on("open-url", (event, url) => {
     windowManager.controlPanelWindow.focus();
   }
 });
+
+function isInvitationDeepLink(url) {
+  return url.slice(`${OAUTH_PROTOCOL}://`.length).startsWith("invitations/");
+}
 
 // Deep links can arrive before windowManager exists (cold start) or before the
 // renderer has mounted its listener. The token is stashed here and the renderer
@@ -916,6 +925,29 @@ async function startApp() {
     }
   }
 
+  // Set up translation hotkey (dictation cleaned up and translated into the
+  // configured target language before pasting)
+  const translationHotkeyCallback = () => {
+    windowManager.sendToggleTranslation();
+  };
+  windowManager._translationHotkeyCallback = translationHotkeyCallback;
+
+  const savedTranslationKey = environmentManager.getTranslationKey?.() || "";
+  if (savedTranslationKey) {
+    const result = await hotkeyManager.registerSlot(
+      "translation",
+      savedTranslationKey,
+      translationHotkeyCallback
+    );
+    if (!result.success) {
+      debugLogger.warn(
+        "Failed to restore translation hotkey",
+        { hotkey: savedTranslationKey },
+        "hotkey"
+      );
+    }
+  }
+
   // Set up meeting mode hotkey
   const meetingHotkeyCallback = () => {
     if (hotkeyManager.isInListeningMode()) return;
@@ -978,11 +1010,16 @@ async function startApp() {
     }, WHISPER_WAKE_REWARM_DELAY_MS);
   });
 
-  // Non-blocking server pre-warming
+  // Non-blocking server pre-warming. CUDA wins when both GPU backends are enabled.
+  const useCuda = process.env.WHISPER_CUDA_ENABLED === "true" && whisperCudaManager?.isDownloaded();
   const whisperSettings = {
     localTranscriptionProvider: process.env.LOCAL_TRANSCRIPTION_PROVIDER || "",
     whisperModel: process.env.LOCAL_WHISPER_MODEL,
-    useCuda: process.env.WHISPER_CUDA_ENABLED === "true" && whisperCudaManager?.isDownloaded(),
+    useCuda,
+    useVulkan:
+      !useCuda &&
+      process.env.WHISPER_VULKAN_ENABLED === "true" &&
+      whisperVulkanManager?.isDownloaded(),
   };
   whisperManager.initializeAtStartup(whisperSettings).catch((err) => {
     debugLogger.debug("Whisper startup init error (non-fatal)", { error: err.message });
@@ -1134,13 +1171,19 @@ async function startApp() {
       const voiceAgentUsesGlobe = hotkeyManager
         .getSlotHotkeys("voiceAgent")
         .some(isGlobeLikeHotkey);
+      const translationUsesGlobe = hotkeyManager
+        .getSlotHotkeys("translation")
+        .some(isGlobeLikeHotkey);
       if (agentUsesGlobe) {
         windowManager.toggleAgentOverlay();
       }
       if (voiceAgentUsesGlobe) {
         windowManager.sendToggleVoiceAgent();
       }
-      if (!agentUsesGlobe && !voiceAgentUsesGlobe && !dictationUsesGlobe) {
+      if (translationUsesGlobe) {
+        windowManager.sendToggleTranslation();
+      }
+      if (!agentUsesGlobe && !voiceAgentUsesGlobe && !translationUsesGlobe && !dictationUsesGlobe) {
         debugLogger?.debug("[Globe] Ignored — hotkey is not GLOBE", { currentHotkey });
       }
     });
@@ -1170,6 +1213,27 @@ async function startApp() {
       windowManager.handleMacPushModifierUp("fn");
     });
 
+    // Another key was pressed while Fn was held — user is using Fn as a
+    // navigation modifier (Fn+Arrow → Home, Fn+Backspace → Forward Delete, etc.).
+    // Cancel any bare-Fn push-to-talk in progress instead of transcribing noise.
+    // Only the bare-Fn path uses globeKeyDownTime/globeKeyIsRecording, so compound
+    // Fn-hotkey push-to-talk and tap mode are untouched.
+    globeKeyManager.on("globe-interrupted", () => {
+      if (globeKeyDownTime === 0 && !globeKeyIsRecording) {
+        return;
+      }
+      const wasRecording = globeKeyIsRecording;
+      debugLogger?.debug("[Globe] Fn+key interrupted push-to-talk", { wasRecording });
+      globeKeyDownTime = 0;
+      globeKeyIsRecording = false;
+      globeLastStopTime = Date.now();
+      if (wasRecording) {
+        windowManager.sendCancelDictation();
+      } else {
+        windowManager.hideDictationPanel();
+      }
+    });
+
     globeKeyManager.on("modifier-up", (modifier) => {
       if (windowManager?.handleMacPushModifierUp) {
         windowManager.handleMacPushModifierUp(modifier);
@@ -1189,6 +1253,9 @@ async function startApp() {
       }
       if (hotkeyManager.slotHasHotkey("voiceAgent", modifier)) {
         windowManager.sendToggleVoiceAgent();
+      }
+      if (hotkeyManager.slotHasHotkey("translation", modifier)) {
+        windowManager.sendToggleTranslation();
       }
 
       if (!hotkeyManager.slotHasHotkey("dictation", modifier)) return;
@@ -1248,7 +1315,7 @@ async function startApp() {
 
     const syncSuppressedMouseButtons = () => {
       const buttons = [];
-      for (const slotName of ["dictation", "agent", "voiceAgent"]) {
+      for (const slotName of ["dictation", "agent", "voiceAgent", "translation"]) {
         for (const hotkey of hotkeyManager.getSlotHotkeys(slotName)) {
           if (isMouseButtonHotkey(hotkey)) buttons.push(hotkey);
         }
@@ -1271,6 +1338,9 @@ async function startApp() {
       }
       if (hotkeyManager.slotHasHotkey("voiceAgent", button)) {
         windowManager.sendToggleVoiceAgent();
+      }
+      if (hotkeyManager.slotHasHotkey("translation", button)) {
+        windowManager.sendToggleTranslation();
       }
 
       if (!hotkeyManager.slotHasHotkey("dictation", button)) return;
@@ -1397,6 +1467,8 @@ async function startApp() {
       }
       if (hotkeyManager.slotHasHotkey("voiceAgent", key)) {
         windowManager.sendToggleVoiceAgent();
+      } else if (hotkeyManager.slotHasHotkey("translation", key)) {
+        windowManager.sendToggleTranslation();
       } else if (hotkeyManager.slotHasHotkey("agent", key)) {
         if (!hotkeyManager.isInListeningMode()) windowManager.toggleAgentOverlay();
       } else if (hotkeyManager.slotHasHotkey("meeting", key)) {
@@ -1511,7 +1583,7 @@ if (gotSingleInstanceLock) {
     if (url) {
       if (url.includes("upgrade-success")) {
         handleUpgradeDeepLink();
-      } else if (url.includes("/invitations/")) {
+      } else if (isInvitationDeepLink(url)) {
         handleInvitationDeepLink(url);
       } else {
         void handleOAuthDeepLink(url);

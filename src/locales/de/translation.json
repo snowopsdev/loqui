@@ -277,11 +277,6 @@
       "title": "Meeting-Notizen",
       "description": "Erfasse und fasse deine Meetings zusammen",
       "autoDetect": "OpenWhispr erkennt automatisch, wenn du in einem Meeting bist, und bietet an, Notizen zu starten — ohne dich wird nichts aufgenommen.",
-      "notification": {
-        "title": "Meeting erkannt",
-        "body": "Es klingt, als wärst du in einem Meeting. Notizen aufnehmen?",
-        "cta": "Aufnahme starten"
-      },
       "hotkeyLabel": "Meeting-Hotkey",
       "hotkeyHint": "Optional — drücke ihn in jedem Meeting, um sofort eine Notiz zu starten."
     },
@@ -403,7 +398,8 @@
         "recordingWithDuration": "Verworfene Aufnahme · {{duration}}",
         "recover": "Wiederherstellen",
         "recovered": "Wiederhergestellt"
-      }
+      },
+      "retryTranslationMode": "Übersetzungsmodus"
     },
     "cloudMigration": {
       "title": "Willkommen bei OpenWhispr Cloud",
@@ -577,6 +573,12 @@
         "offline": "Du bist offline. Die Cloud-Transkription benötigt eine Internetverbindung.",
         "dailyLimitReached": "Du hast dein heutiges Transkriptionslimit erreicht. Versuch es morgen erneut oder upgrade deinen Plan.",
         "providerRateLimited": "Dein Transkriptionsanbieter hat die Anfrage begrenzt. Warte kurz und versuch es erneut."
+      },
+      "translationFallback": {
+        "unreachableTitle": "Übersetzung nicht verfügbar",
+        "unreachableDescription": "Dein Diktat wurde unübersetzt eingefügt. Überprüfe die Übersetzungseinstellungen.",
+        "failedTitle": "Übersetzung fehlgeschlagen",
+        "failedDescription": "Der Originaltext wurde eingefügt. Du kannst es im Verlauf erneut versuchen."
       }
     },
     "clipboard": {
@@ -1125,13 +1127,18 @@
       "providerLabel": "Anbieter",
       "run": "Test ausführen",
       "customEndpoint": "Benutzerdefinierter Endpoint",
-      "apiKeyMissing": "{{provider}} API-Schlüssel nicht konfiguriert. Fügen Sie ihn in den KI-Modelle-Einstellungen hinzu."
+      "apiKeyMissing": "{{provider}} API-Schlüssel nicht konfiguriert. Fügen Sie ihn in den KI-Modelle-Einstellungen hinzu.",
+      "translateHint": "Der Text wird in {{language}} übersetzt",
+      "translation": "Übersetzung",
+      "translationDisabled": "Aktiviere die Diktatübersetzung, um diesen Prompt zu testen",
+      "noTargetLanguage": "Wähle zuerst eine Zielsprache"
     },
     "view": {
       "customPrompt": "Benutzerdefinierter Prompt",
       "defaultPrompt": "Standard-Prompt",
       "modified": "Geändert"
-    }
+    },
+    "defaultTestInputTranslate": "Das Wetter ist heute wunderschön, hast du Lust auf einen Spaziergang?"
   },
   "settingsModal": {
     "groups": {
@@ -1858,6 +1865,10 @@
         "title": "Updates",
         "versionPlaceholder": "—",
         "whatsNew": "Neu in v{{version}}"
+      },
+      "translationHotkey": {
+        "title": "Übersetzungs-Hotkey",
+        "description": "Diktiere in beliebiger Sprache — der eingefügte Text kommt übersetzt heraus"
       }
     },
     "permissions": {
@@ -1931,7 +1942,8 @@
         "dictationCleanup": "Diktat-Bereinigung",
         "dictationAgent": "Voice Agent",
         "noteFormatting": "Notizformatierung",
-        "chatIntelligence": "Chat"
+        "chatIntelligence": "Chat",
+        "dictationTranslation": "Übersetzung"
       }
     },
     "noteFormatting": {
@@ -2188,7 +2200,9 @@
     "integrations": "Integrationen",
     "defaultUser": "Benutzer",
     "notSignedIn": "Nicht angemeldet",
-    "chat": "Chat"
+    "chat": "Chat",
+    "collapse": "Seitenleiste einklappen",
+    "expand": "Seitenleiste ausklappen"
   },
   "workspaces": {
     "switcher": {
@@ -2534,7 +2548,40 @@
       "switchToCloudForLargeFiles": "Wechsle zu OpenWhispr Cloud, um diese Datei zu transkribieren.",
       "createAccount": "Konto erstellen",
       "upgrade": "Upgraden",
-      "switchToCloud": "OpenWhispr Cloud"
+      "switchToCloud": "OpenWhispr Cloud",
+      "orDivider": "oder",
+      "urlPlaceholder": "YouTube- oder Audio-URL einfügen",
+      "urlDownloading": "Audio wird heruntergeladen...",
+      "urlResolving": "URL wird aufgelöst...",
+      "urlInvalid": "Ungültige URL. Fügen Sie einen YouTube-Link oder eine direkte Audio-URL ein.",
+      "urlVideoUnavailable": "Dieses Video ist nicht verfügbar. Es ist möglicherweise privat, entfernt oder geografisch gesperrt.",
+      "urlPlaylistNotSupported": "Playlists werden nicht unterstützt. Fügen Sie die URL eines einzelnen Videos ein.",
+      "urlContentTypeInvalid": "Diese URL verweist nicht auf eine Audio- oder Videodatei.",
+      "urlDownloadFailed": "Download fehlgeschlagen. Überprüfen Sie die URL und versuchen Sie es erneut.",
+      "urlCancelDownload": "Download abbrechen",
+      "addToQueue": "Zur Warteschlange hinzufügen",
+      "queueProgress": "{{completed}}/{{total}} abgeschlossen",
+      "cancelAll": "Alle abbrechen",
+      "clearQueue": "Leeren",
+      "pasteUrls": "URLs einfügen (eine pro Zeile)",
+      "speakerDetection": "Sprechererkennung",
+      "speakerDetectionDescription": "Verschiedene Sprecher im Audio identifizieren",
+      "numSpeakersPlaceholder": "Automatisch erkennen",
+      "downloadingModels": "Modelle werden heruntergeladen...",
+      "openaiDiarizeNote": "Überschreibt Ihr Transkriptionsmodell mit gpt-4o-transcribe-diarize, dem einzigen OpenAI-Modell mit Sprechererkennung. Die Kosten können von Ihrem gewählten Modell abweichen.",
+      "mistralDiarizeNote": "Sprechererkennung ohne Zusatzkosten mit Voxtral enthalten.",
+      "groqDiarizeNote": "Sprechererkennung ist mit Groq nicht verfügbar. Stattdessen wird die lokale Diarisierung verwendet.",
+      "batchCancelled": "Abgebrochen",
+      "batchTranscriptionFailed": "Transkription fehlgeschlagen",
+      "batchSaveFailed": "Notiz konnte nicht gespeichert werden",
+      "batchUnknownError": "Unbekannter Fehler",
+      "removeFromQueue": "Aus Warteschlange entfernen",
+      "diarizationRunsLocally": "Die Sprechererkennung läuft lokal auf Ihrem Gerät.",
+      "urlSubmit": "Link hinzufügen",
+      "urlsSkipped": "Einige Links konnten nicht hinzugefügt werden ({{n}})",
+      "queueFailed": "{{n}} fehlgeschlagen",
+      "urlFileTooLarge": "Die Datei ist zu groß zum Herunterladen. Die maximale Größe beträgt 500 MB.",
+      "urlYoutubeBlocked": "YouTube blockiert Downloads aus Ihrem Netzwerk vorübergehend. Versuchen Sie es später erneut."
     },
     "meeting": {
       "title": "Besprechungsnotizen",
@@ -2597,7 +2644,8 @@
       },
       "errors": {
         "noModel": "Kein KI-Modell ausgewählt. Konfigurieren Sie eins in den Einstellungen.",
-        "actionFailed": "Aktion fehlgeschlagen"
+        "actionFailed": "Aktion fehlgeschlagen",
+        "noEndpoint": "Keine URL für den selbst gehosteten Server festgelegt. Konfigurieren Sie eine in den Einstellungen."
       }
     },
     "onboarding": {
@@ -2777,6 +2825,14 @@
       "accessibilityMissing": {
         "title": "Bedienungshilfen-Berechtigungen erforderlich",
         "description": "OpenWhispr benötigt Bedienungshilfen-Berechtigungen, um Ihren Hotkey zu erkennen und Text einzufügen. Bitte aktivieren Sie diese in der Systemsteuerung."
+      },
+      "gpuFallback": {
+        "title": "GPU-Beschleunigung nicht verfügbar",
+        "description": "Die Transkription verwendet stattdessen die CPU. Du kannst die GPU-Beschleunigung in den Einstellungen deaktivieren."
+      },
+      "cleanupFailed": {
+        "title": "Bereinigung fehlgeschlagen",
+        "description": "Dein Diktat wurde ohne KI-Bereinigung eingefügt."
       }
     },
     "mic": {
@@ -3090,5 +3146,37 @@
       "you": "Du",
       "others": "Andere"
     }
+  },
+  "dictationTranslation": {
+    "title": "Diktat-Übersetzung",
+    "description": "Ein eigener Hotkey, der dein Diktat übersetzt in eine andere Sprache einfügt",
+    "enabled": "Diktat-Übersetzung aktivieren",
+    "enabledDescription": "Mit dem Übersetzungs-Hotkey gestartete Diktate werden bereinigt und dann übersetzt, bevor sie eingefügt werden",
+    "sourceLanguage": "Gesprochene Sprache",
+    "sourceLanguageDescription": "Die Sprache, in der du diktierst — Automatisch funktioniert auch bei gemischten Diktaten",
+    "targetLanguage": "Übersetzen nach",
+    "targetLanguageDescription": "Die Sprache des eingefügten Textes",
+    "targetLanguageMissing": "Wähle eine Zielsprache, um den Übersetzungs-Hotkey zu aktivieren",
+    "selectLanguage": "Sprache auswählen…",
+    "prompt": {
+      "title": "Übersetzungs-Prompt",
+      "description": "Passe an, wie das Modell dein Diktat übersetzt"
+    },
+    "hotkeyHint": "Lege den Hotkey unter Einstellungen → Allgemein → Übersetzungs-Hotkey fest",
+    "targetsLabel": "Zielsprachen",
+    "addTarget": "Sprache hinzufügen…",
+    "activeTarget": "Aktive Zielsprache",
+    "removeTarget": "{{language}} entfernen",
+    "maxTargets": "Bis zu {{max}} Sprachen"
+  },
+  "meetingNotification": {
+    "title": "Meeting erkannt",
+    "body": {
+      "detected": "Es klingt, als wärst du in einem Meeting. Notizen aufnehmen?",
+      "starting": "Dein Meeting beginnt gleich. Notizen aufnehmen?",
+      "underway": "Es klingt, als wäre dein Meeting schon im Gange. Notizen aufnehmen?"
+    },
+    "start": "Notizen aufnehmen",
+    "join": "Beitreten & transkribieren"
   }
 }

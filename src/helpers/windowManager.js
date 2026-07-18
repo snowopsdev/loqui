@@ -472,6 +472,13 @@ class WindowManager {
     this._sendDictationToggle("toggle-voice-agent");
   }
 
+  sendToggleTranslation() {
+    // Same PID-capture need as the voice agent: translation hotkeys don't
+    // capture the target at their call sites.
+    if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
+    this._sendDictationToggle("toggle-translation");
+  }
+
   sendStartDictation() {
     if (this.hotkeyManager.isInListeningMode()) {
       return;
@@ -489,6 +496,17 @@ class WindowManager {
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send("stop-dictation");
+      this._isDictatingToggle = false;
+      this.meetingDetectionEngine?.setUserRecording(false);
+    }
+  }
+
+  sendCancelDictation() {
+    if (this.hotkeyManager.isInListeningMode()) {
+      return;
+    }
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("cancel-hotkey-pressed");
       this._isDictatingToggle = false;
       this.meetingDetectionEngine?.setUserRecording(false);
     }
@@ -1167,6 +1185,9 @@ class WindowManager {
       ...NOTIFICATION_WINDOW_CONFIG,
       ...position,
     });
+
+    // Keep the prompt visible to the user but out of screen shares and recordings.
+    this.notificationWindow.setContentProtection(true);
 
     if (process.platform === "darwin") {
       this.notificationWindow.setIgnoreMouseEvents(true, { forward: true });

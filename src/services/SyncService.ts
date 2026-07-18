@@ -990,18 +990,27 @@ class SyncService {
             continue;
           }
 
-          // A default folder created on another platform arrives with an
-          // unknown client_folder_id; inserting it would violate the per-space
-          // unique folder name. Match it by name within the private space and
-          // adopt its identity (team folders never adopt by name).
-          if (!local && cloudFolder.is_default && !cloudFolder.team_id) {
+          // A folder created elsewhere arrives with an unknown
+          // client_folder_id; inserting it would violate the per-space unique
+          // folder name. Converge by adopting the cloud identity onto the
+          // same-named local folder in the same space. Only unlinked folders
+          // are adoptable (never re-point one already bound to another cloud
+          // folder), and the case-insensitive fallback stays reserved for
+          // fixed-name defaults so distinct user folders like "work"/"Work"
+          // never merge. Team rows skip this — upsertFolderFromCloud's
+          // collision convergence owns those.
+          if (!local && !cloudFolder.team_id) {
             const allFolders = (await window.electronAPI.getFolderIdMap?.()) ?? [];
-            const nameMatch = allFolders.find(
-              (f) =>
-                f.is_default &&
-                f.space_id === space.id &&
-                f.name.toLowerCase() === cloudFolder.name.toLowerCase()
+            const adoptable = allFolders.filter(
+              (f) => f.space_id === space.id && (!f.cloud_id || f.cloud_id === cloudFolder.id)
             );
+            const nameMatch =
+              adoptable.find((f) => f.name === cloudFolder.name) ??
+              adoptable.find(
+                (f) =>
+                  (f.is_default || cloudFolder.is_default) &&
+                  f.name.toLowerCase() === cloudFolder.name.toLowerCase()
+              );
             if (nameMatch) {
               await window.electronAPI.adoptFolderIdentity?.(
                 nameMatch.id,

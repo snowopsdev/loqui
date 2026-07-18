@@ -277,11 +277,6 @@
       "title": "Meeting notes",
       "description": "Capture and summarize your meetings",
       "autoDetect": "OpenWhispr automatically detects when you're in a meeting and offers to start notes — nothing is recorded without you.",
-      "notification": {
-        "title": "Meeting detected",
-        "body": "It sounds like you're in a meeting. Want to take notes?",
-        "cta": "Start Recording"
-      },
       "hotkeyLabel": "Meeting hotkey",
       "hotkeyHint": "Optional — press it in any meeting to start a note instantly."
     },
@@ -403,7 +398,8 @@
         "recordingWithDuration": "Discarded recording · {{duration}}",
         "recover": "Recover",
         "recovered": "Recovered"
-      }
+      },
+      "retryTranslationMode": "Translation Mode"
     },
     "cloudMigration": {
       "title": "Welcome to OpenWhispr Cloud",
@@ -577,6 +573,12 @@
         "offline": "You're offline. Cloud transcription requires an internet connection.",
         "dailyLimitReached": "You've reached today's transcription limit. Try again tomorrow or upgrade your plan.",
         "providerRateLimited": "Your transcription provider rate-limited the request. Wait a moment and try again."
+      },
+      "translationFallback": {
+        "unreachableTitle": "Translation unavailable",
+        "unreachableDescription": "Your dictation was pasted untranslated. Check the translation settings.",
+        "failedTitle": "Translation failed",
+        "failedDescription": "The original text was pasted. You can retry it from History."
       }
     },
     "clipboard": {
@@ -1125,13 +1127,18 @@
       "providerLabel": "Provider",
       "run": "Run Test",
       "customEndpoint": "Custom endpoint",
-      "apiKeyMissing": "{{provider}} API key not configured. Add it in AI Models settings."
+      "apiKeyMissing": "{{provider}} API key not configured. Add it in AI Models settings.",
+      "translateHint": "The text will be translated to {{language}}",
+      "translation": "Translation",
+      "translationDisabled": "Enable Dictation Translation to test this prompt",
+      "noTargetLanguage": "Pick a target language first"
     },
     "view": {
       "customPrompt": "Custom prompt",
       "defaultPrompt": "Default prompt",
       "modified": "Modified"
-    }
+    },
+    "defaultTestInputTranslate": "The weather is beautiful today, want to go for a walk?"
   },
   "settingsModal": {
     "groups": {
@@ -1858,6 +1865,10 @@
         "title": "Updates",
         "versionPlaceholder": "—",
         "whatsNew": "What's new in v{{version}}"
+      },
+      "translationHotkey": {
+        "title": "Translation Hotkey",
+        "description": "Dictate in any language — the pasted text comes out translated"
       }
     },
     "permissions": {
@@ -1931,7 +1942,8 @@
         "dictationCleanup": "Dictation Cleanup",
         "dictationAgent": "Voice Agent",
         "noteFormatting": "Note Formatting",
-        "chatIntelligence": "Chat"
+        "chatIntelligence": "Chat",
+        "dictationTranslation": "Translation"
       }
     },
     "noteFormatting": {
@@ -2188,7 +2200,9 @@
     "integrations": "Integrations",
     "defaultUser": "User",
     "notSignedIn": "Not signed in",
-    "chat": "Chat"
+    "chat": "Chat",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar"
   },
   "workspaces": {
     "switcher": {
@@ -2534,7 +2548,40 @@
       "switchToCloudForLargeFiles": "Switch to OpenWhispr Cloud to transcribe this file.",
       "createAccount": "Create Account",
       "upgrade": "Upgrade",
-      "switchToCloud": "OpenWhispr Cloud"
+      "switchToCloud": "OpenWhispr Cloud",
+      "orDivider": "or",
+      "urlPlaceholder": "Paste a YouTube or audio URL",
+      "urlDownloading": "Downloading audio...",
+      "urlResolving": "Resolving URL...",
+      "urlInvalid": "Not a valid URL. Paste a YouTube link or a direct audio file URL.",
+      "urlVideoUnavailable": "This video is unavailable. It may be private, removed, or geo-blocked.",
+      "urlPlaylistNotSupported": "Playlists are not supported. Paste a single video URL.",
+      "urlContentTypeInvalid": "This URL does not point to an audio or video file.",
+      "urlDownloadFailed": "Download failed. Check the URL and try again.",
+      "urlCancelDownload": "Cancel download",
+      "addToQueue": "Add to queue",
+      "queueProgress": "{{completed}}/{{total}} completed",
+      "cancelAll": "Cancel all",
+      "clearQueue": "Clear",
+      "pasteUrls": "Paste URLs (one per line)",
+      "speakerDetection": "Speaker detection",
+      "speakerDetectionDescription": "Identify different speakers in the audio",
+      "numSpeakersPlaceholder": "Auto-detect",
+      "downloadingModels": "Downloading models...",
+      "openaiDiarizeNote": "Overrides your transcription model with gpt-4o-transcribe-diarize, the only OpenAI model with speaker detection. Costs may differ from your selected model.",
+      "mistralDiarizeNote": "Speaker detection included at no extra cost with Voxtral.",
+      "groqDiarizeNote": "Speaker detection is not available with Groq. Local diarization will be used instead.",
+      "batchCancelled": "Cancelled",
+      "batchTranscriptionFailed": "Transcription failed",
+      "batchSaveFailed": "Failed to save note",
+      "batchUnknownError": "Unknown error",
+      "removeFromQueue": "Remove from queue",
+      "diarizationRunsLocally": "Speaker detection runs locally on your device.",
+      "urlSubmit": "Add link",
+      "urlsSkipped": "Some links couldn't be added ({{n}})",
+      "queueFailed": "{{n}} failed",
+      "urlFileTooLarge": "File is too large to download. The maximum size is 500 MB.",
+      "urlYoutubeBlocked": "YouTube is temporarily blocking downloads from your network. Try again in a little while."
     },
     "meeting": {
       "title": "Meeting Notes",
@@ -2597,7 +2644,8 @@
       },
       "errors": {
         "noModel": "No AI model selected. Configure one in Settings.",
-        "actionFailed": "Action failed"
+        "actionFailed": "Action failed",
+        "noEndpoint": "No self-hosted server URL set. Configure one in Settings."
       }
     },
     "onboarding": {
@@ -2777,6 +2825,14 @@
       "accessibilityMissing": {
         "title": "Accessibility permissions required",
         "description": "OpenWhispr needs accessibility permissions to detect your hotkey and paste text. Please enable them in the Control Panel."
+      },
+      "gpuFallback": {
+        "title": "GPU acceleration unavailable",
+        "description": "Transcription is using the CPU instead. You can disable GPU acceleration in Settings."
+      },
+      "cleanupFailed": {
+        "title": "Cleanup failed",
+        "description": "Your dictation was pasted without AI cleanup."
       }
     },
     "mic": {
@@ -3090,5 +3146,37 @@
       "you": "You",
       "others": "Others"
     }
+  },
+  "dictationTranslation": {
+    "title": "Dictation Translation",
+    "description": "A dedicated hotkey that pastes your dictation translated into another language",
+    "enabled": "Enable Dictation Translation",
+    "enabledDescription": "Dictations started with the translation hotkey are cleaned up and then translated before pasting",
+    "sourceLanguage": "Spoken language",
+    "sourceLanguageDescription": "The language you dictate in — Automatic also handles mixed-language dictation",
+    "targetLanguage": "Translate to",
+    "targetLanguageDescription": "The language of the pasted text",
+    "targetLanguageMissing": "Pick a target language to activate the translation hotkey",
+    "selectLanguage": "Select language…",
+    "prompt": {
+      "title": "Translation Prompt",
+      "description": "Customize how the model translates your dictation"
+    },
+    "hotkeyHint": "Set the hotkey under Settings → General → Translation Hotkey",
+    "targetsLabel": "Target languages",
+    "addTarget": "Add language…",
+    "activeTarget": "Active target language",
+    "removeTarget": "Remove {{language}}",
+    "maxTargets": "Up to {{max}} languages"
+  },
+  "meetingNotification": {
+    "title": "Meeting detected",
+    "body": {
+      "detected": "It sounds like you're in a meeting. Want to take notes?",
+      "starting": "Your meeting is starting. Want to take notes?",
+      "underway": "It sounds like your meeting is underway. Want to take notes?"
+    },
+    "start": "Take notes",
+    "join": "Join & transcribe"
   }
 }

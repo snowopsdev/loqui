@@ -277,11 +277,6 @@
       "title": "会議メモ",
       "description": "会議を記録して要約します",
       "autoDetect": "OpenWhispr は会議中であることを自動的に検出し、メモの開始を提案します。あなたの操作なしに録音されることはありません。",
-      "notification": {
-        "title": "会議を検出しました",
-        "body": "会議中のようです。メモを取りますか？",
-        "cta": "録音を開始"
-      },
       "hotkeyLabel": "会議ホットキー",
       "hotkeyHint": "任意 — 会議中に押すとすぐにメモを開始できます。"
     },
@@ -403,7 +398,8 @@
         "recordingWithDuration": "破棄した録音 · {{duration}}",
         "recover": "復元",
         "recovered": "復元しました"
-      }
+      },
+      "retryTranslationMode": "翻訳モード"
     },
     "cloudMigration": {
       "title": "OpenWhispr Cloud へようこそ",
@@ -577,6 +573,12 @@
         "offline": "オフラインです。クラウド文字起こしにはインターネット接続が必要です。",
         "dailyLimitReached": "本日の文字起こし上限に達しました。明日もう一度お試しいただくか、プランをアップグレードしてください。",
         "providerRateLimited": "文字起こしプロバイダーがリクエストを制限しました。しばらく待ってからもう一度お試しください。"
+      },
+      "translationFallback": {
+        "unreachableTitle": "翻訳を利用できません",
+        "unreachableDescription": "口述内容は翻訳されずに貼り付けられました。翻訳設定を確認してください。",
+        "failedTitle": "翻訳に失敗しました",
+        "failedDescription": "元のテキストが貼り付けられました。履歴から再試行できます。"
       }
     },
     "clipboard": {
@@ -1037,13 +1039,18 @@
       "providerLabel": "プロバイダー",
       "run": "テスト実行",
       "customEndpoint": "カスタムエンドポイント",
-      "apiKeyMissing": "{{provider}} の API キーが未設定です。AI モデル設定で追加してください。"
+      "apiKeyMissing": "{{provider}} の API キーが未設定です。AI モデル設定で追加してください。",
+      "translateHint": "テキストは{{language}}に翻訳されます",
+      "translation": "翻訳",
+      "translationDisabled": "このプロンプトをテストするには音声入力翻訳を有効にしてください",
+      "noTargetLanguage": "先に翻訳先の言語を選択してください"
     },
     "view": {
       "customPrompt": "カスタムプロンプト",
       "defaultPrompt": "デフォルトプロンプト",
       "modified": "変更済み"
-    }
+    },
+    "defaultTestInputTranslate": "今日はいい天気ですね、散歩に行きませんか？"
   },
   "settingsModal": {
     "groups": {
@@ -1599,6 +1606,10 @@
         "title": "アップデート",
         "versionPlaceholder": "—",
         "whatsNew": "v{{version}} の新機能"
+      },
+      "translationHotkey": {
+        "title": "翻訳ホットキー",
+        "description": "どの言語で話しても、貼り付けられるテキストは翻訳済みになります"
       }
     },
     "permissions": {
@@ -1672,7 +1683,8 @@
         "dictationCleanup": "ディクテーションのクリーンアップ",
         "dictationAgent": "Voice Agent",
         "noteFormatting": "ノートのフォーマット",
-        "chatIntelligence": "チャット"
+        "chatIntelligence": "チャット",
+        "dictationTranslation": "翻訳"
       }
     },
     "noteFormatting": {
@@ -2228,7 +2240,8 @@
       },
       "errors": {
         "noModel": "AIモデルが選択されていません。設定で構成してください。",
-        "actionFailed": "アクションに失敗しました"
+        "actionFailed": "アクションに失敗しました",
+        "noEndpoint": "セルフホストサーバーの URL が設定されていません。設定で構成してください。"
       }
     },
     "empty": {
@@ -2311,7 +2324,40 @@
       "switchToCloudForLargeFiles": "このファイルを文字起こしするには OpenWhispr Cloud に切り替えてください。",
       "createAccount": "アカウント作成",
       "upgrade": "アップグレード",
-      "switchToCloud": "OpenWhispr Cloud"
+      "switchToCloud": "OpenWhispr Cloud",
+      "orDivider": "または",
+      "urlPlaceholder": "YouTubeまたは音声URLを貼り付け",
+      "urlDownloading": "音声をダウンロード中...",
+      "urlResolving": "URLを解析中...",
+      "urlInvalid": "無効なURLです。YouTubeリンクまたは音声ファイルの直接URLを貼り付けてください。",
+      "urlVideoUnavailable": "この動画は利用できません。非公開、削除済み、または地域制限されている可能性があります。",
+      "urlPlaylistNotSupported": "プレイリストには対応していません。個別の動画URLを貼り付けてください。",
+      "urlContentTypeInvalid": "このURLは音声または動画ファイルを指していません。",
+      "urlDownloadFailed": "ダウンロードに失敗しました。URLを確認してもう一度お試しください。",
+      "urlCancelDownload": "ダウンロードをキャンセル",
+      "addToQueue": "キューに追加",
+      "queueProgress": "{{completed}}/{{total}} 完了",
+      "cancelAll": "すべてキャンセル",
+      "clearQueue": "クリア",
+      "pasteUrls": "URLを貼り付け（1行に1つ）",
+      "speakerDetection": "話者検出",
+      "speakerDetectionDescription": "音声内の異なる話者を識別",
+      "numSpeakersPlaceholder": "自動検出",
+      "downloadingModels": "モデルをダウンロード中...",
+      "openaiDiarizeNote": "話者検出をサポートする唯一のOpenAIモデルであるgpt-4o-transcribe-diarizeに切り替わります。選択したモデルとコストが異なる場合があります。",
+      "mistralDiarizeNote": "Voxtralでの話者検出は追加料金なしで利用できます。",
+      "groqDiarizeNote": "Groqでは話者検出を利用できません。代わりにローカルダイアライゼーションが使用されます。",
+      "batchCancelled": "キャンセル済み",
+      "batchTranscriptionFailed": "文字起こしに失敗しました",
+      "batchSaveFailed": "ノートの保存に失敗しました",
+      "batchUnknownError": "不明なエラー",
+      "removeFromQueue": "キューから削除",
+      "diarizationRunsLocally": "話者検出はお使いのデバイス上でローカルに実行されます。",
+      "urlSubmit": "リンクを追加",
+      "urlsSkipped": "追加できなかったリンクがあります（{{n}}件）",
+      "queueFailed": "{{n}}件失敗",
+      "urlFileTooLarge": "ファイルが大きすぎてダウンロードできません。最大サイズは500 MBです。",
+      "urlYoutubeBlocked": "YouTubeがお使いのネットワークからのダウンロードを一時的にブロックしています。しばらくしてからもう一度お試しください。"
     },
     "meeting": {
       "title": "議事録",
@@ -2538,7 +2584,9 @@
     "integrations": "連携",
     "defaultUser": "ユーザー",
     "notSignedIn": "未サインイン",
-    "chat": "チャット"
+    "chat": "チャット",
+    "collapse": "サイドバーを折りたたむ",
+    "expand": "サイドバーを展開"
   },
   "chat": {
     "newChat": "新しいチャット",
@@ -2632,6 +2680,14 @@
       "accessibilityMissing": {
         "title": "アクセシビリティの許可が必要です",
         "description": "OpenWhispr がホットキーの検出とテキストの貼り付けを行うには、アクセシビリティの許可が必要です。コントロールパネルで有効にしてください。"
+      },
+      "gpuFallback": {
+        "title": "GPU アクセラレーションを利用できません",
+        "description": "文字起こしは代わりに CPU を使用しています。設定で GPU アクセラレーションを無効にできます。"
+      },
+      "cleanupFailed": {
+        "title": "クリーンアップに失敗しました",
+        "description": "ディクテーションは AI クリーンアップなしで貼り付けられました。"
       }
     },
     "mic": {
@@ -3090,5 +3146,37 @@
       "sentTo": "{{email}} に送信された招待です",
       "wrongAccount": "この招待は {{email}} 宛てに送信されました。現在 {{current}} でサインインしています。"
     }
+  },
+  "dictationTranslation": {
+    "title": "音声入力翻訳",
+    "description": "専用ホットキーで、音声入力を別の言語に翻訳して貼り付けます",
+    "enabled": "音声入力翻訳を有効にする",
+    "enabledDescription": "翻訳ホットキーで開始した音声入力は、整形されてから翻訳されて貼り付けられます",
+    "sourceLanguage": "話す言語",
+    "sourceLanguageDescription": "音声入力する言語。自動検出は複数言語が混在する場合にも対応します",
+    "targetLanguage": "翻訳先",
+    "targetLanguageDescription": "貼り付けられるテキストの言語",
+    "targetLanguageMissing": "翻訳ホットキーを有効にするには翻訳先の言語を選択してください",
+    "selectLanguage": "言語を選択…",
+    "prompt": {
+      "title": "翻訳プロンプト",
+      "description": "モデルによる音声入力の翻訳方法をカスタマイズします"
+    },
+    "hotkeyHint": "ホットキーは 設定 → 一般 → 翻訳ホットキー で設定できます",
+    "targetsLabel": "翻訳先の言語",
+    "addTarget": "言語を追加…",
+    "activeTarget": "使用中の翻訳先言語",
+    "removeTarget": "{{language}}を削除",
+    "maxTargets": "最大{{max}}言語"
+  },
+  "meetingNotification": {
+    "title": "会議を検出しました",
+    "body": {
+      "detected": "会議中のようです。メモを取りますか？",
+      "starting": "まもなく会議が始まります。メモを取りますか？",
+      "underway": "会議はすでに進行中のようです。メモを取りますか？"
+    },
+    "start": "メモを取る",
+    "join": "参加して文字起こし"
   }
 }

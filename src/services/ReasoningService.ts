@@ -8,18 +8,22 @@ import {
 } from "../models/ModelRegistry";
 import { BaseReasoningService, ReasoningConfig } from "./BaseReasoningService";
 import { SecureCache } from "../utils/SecureCache";
-import { withRetry, createApiRetryStrategy } from "../utils/retry";
+import { withRetry, createApiRetryStrategy, httpError } from "../utils/retry";
 import { API_ENDPOINTS, TOKEN_LIMITS, buildApiUrl, ensureV1Suffix } from "../config/constants";
 import logger from "../utils/logger";
 import { getSettings, isCloudCleanupMode } from "../stores/settingsStore";
 import { wrapCleanupTranscript } from "../config/prompts";
+import { stripThinkingTags } from "../helpers/stripThinking.js";
 import { streamText, stepCountIs } from "ai";
 import { getAIModel } from "./ai/providers";
 import { createEnterpriseChatModel } from "./ai/enterpriseChatModel";
 import { PROVIDER_REGISTRY, type ProviderContext } from "./ai/inferenceProviders";
 import { getConfiguredOpenAIBase } from "./ai/openaiBase";
 import { applyThinkingSuppression } from "./ai/thinkingSuppression";
+import { detectEndpointDialect } from "./ai/thinkingSuppressionDialects";
+import { extractApiErrorMessage } from "./ai/apiErrorMessage";
 import { clearTinfoilClientCache } from "./ai/tinfoilClient";
+import { resolveChatRoute } from "../helpers/chatRouting";
 
 export type AgentStreamChunk =
   | { type: "content"; text: string }
@@ -32,6 +36,22 @@ export type AgentStreamChunk =
       metadata?: Record<string, unknown>;
     }
   | { type: "done"; finishReason?: string };
+
+// Old Ollama/strict proxies reject the `reasoning` object; drop it and retry once.
+async function fetchWithReasoningFieldFallback(
+  doFetch: () => Promise<Response>,
+  requestBody: Record<string, unknown>,
+  logEvent: string
+): Promise<Response> {
+  let res = await doFetch();
+  if (!res.ok && (res.status === 400 || res.status === 422) && requestBody.reasoning) {
+    logger.logReasoning(logEvent, { status: res.status });
+    delete requestBody.reasoning;
+    void res.body?.cancel();
+    res = await doFetch();
+  }
+  return res;
+}
 
 class ReasoningService extends BaseReasoningService {
   private apiKeyCache: SecureCache<string>;
@@ -191,7 +211,7 @@ class ReasoningService extends BaseReasoningService {
       requestBody.reasoning_effort = "low";
     }
 
-    applyThinkingSuppression(requestBody, model, providerName, config);
+    applyThinkingSuppression(requestBody, model, providerName, config, endpoint);
 
     logger.logReasoning(`${providerName.toUpperCase()}_REQUEST`, {
       endpoint,
@@ -211,12 +231,17 @@ class ReasoningService extends BaseReasoningService {
           headers["Authorization"] = `Bearer ${apiKey}`;
         }
 
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(requestBody),
-          signal: controller.signal,
-        });
+        const res = await fetchWithReasoningFieldFallback(
+          () =>
+            fetch(endpoint, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(requestBody),
+              signal: controller.signal,
+            }),
+          requestBody,
+          `${providerName.toUpperCase()}_REASONING_FIELD_RETRY`
+        );
 
         if (!res.ok) {
           const errorText = await res.text();
@@ -228,20 +253,19 @@ class ReasoningService extends BaseReasoningService {
             errorData = { error: errorText || res.statusText };
           }
 
+          const errorMessage = extractApiErrorMessage(
+            errorData,
+            `${providerName} API error: ${res.status}`
+          );
+
           logger.logReasoning(`${providerName.toUpperCase()}_API_ERROR_DETAIL`, {
             status: res.status,
             statusText: res.statusText,
             error: errorData,
-            errorMessage: errorData.error?.message || errorData.message || errorData.error,
+            errorMessage,
             fullResponse: errorText.substring(0, 500),
           });
-
-          const errorMessage =
-            errorData.error?.message ||
-            errorData.message ||
-            errorData.error ||
-            `${providerName} API error: ${res.status}`;
-          throw new Error(errorMessage);
+          throw httpError(errorMessage, res.status);
         }
 
         const jsonResponse = await res.json();
@@ -276,7 +300,11 @@ class ReasoningService extends BaseReasoningService {
     }
 
     const choice = response.choices[0];
-    const responseText = choice.message?.content?.trim() || "";
+    // Reasoning models leak <think> blocks into non-streamed output; strip them
+    // unless the user explicitly enabled thinking (same default as streaming).
+    const rawContent = choice.message?.content?.trim() || "";
+    const responseText =
+      config.disableThinking !== false ? stripThinkingTags(rawContent) : rawContent;
 
     if (!responseText) {
       logger.logReasoning(`${providerName.toUpperCase()}_EMPTY_RESPONSE`, {
@@ -359,29 +387,21 @@ class ReasoningService extends BaseReasoningService {
     provider: string,
     config: ReasoningConfig & { systemPrompt: string }
   ): AsyncGenerator<string, void, unknown> {
-    const cloudProviders = [
-      "openai",
-      "groq",
-      "gemini",
-      "anthropic",
-      "tinfoil",
-      "custom",
-      "openrouter",
-      "corti",
-    ];
-    const isLocalProvider = !cloudProviders.includes(provider);
-
-    const settings = getSettings();
-    const lanOverride = config.lanUrl?.trim();
-    const isLanCleanup = !!lanOverride || this.isLanCleanupMode();
+    const route = resolveChatRoute({
+      provider,
+      lanUrl: config.lanUrl,
+      customApiKey: config.customApiKey,
+    });
+    const isLocalProvider = route.kind === "local";
+    const isLanChat = route.kind === "self-hosted";
 
     let endpoint: string;
     let apiKey = "";
 
-    if (isLanCleanup) {
-      const rawUrl = lanOverride || settings.cleanupRemoteUrl.trim();
-      const baseUrl = ensureV1Suffix(rawUrl);
+    if (isLanChat) {
+      const baseUrl = ensureV1Suffix(route.baseUrl);
       endpoint = buildApiUrl(baseUrl, "/chat/completions");
+      apiKey = route.apiKey;
     } else if (isLocalProvider) {
       const serverResult = await window.electronAPI.llamaServerStart(model);
       if (!serverResult.success || !serverResult.port) {
@@ -422,8 +442,9 @@ class ReasoningService extends BaseReasoningService {
       }
     }
 
-    const apiConfig = getOpenAiApiConfig(model, provider);
-    const useOldTokenParam = isLocalProvider || isLanCleanup || provider === "groq";
+    // A known endpoint host knows its own request shape better than the model id does.
+    const apiConfig = detectEndpointDialect(endpoint) ?? getOpenAiApiConfig(model, provider);
+    const useOldTokenParam = isLocalProvider || isLanChat || provider === "groq";
 
     const requestBody: Record<string, unknown> = {
       model,
@@ -443,14 +464,14 @@ class ReasoningService extends BaseReasoningService {
       }
     }
 
-    applyThinkingSuppression(requestBody, model, provider, config);
+    applyThinkingSuppression(requestBody, model, isLanChat ? "lan" : provider, config, endpoint);
 
     logger.logReasoning("AGENT_STREAM_REQUEST", {
       endpoint,
       model,
       provider,
       isLocal: isLocalProvider,
-      isLan: !!isLanCleanup,
+      isLan: isLanChat,
       messageCount: messages.length,
     });
 
@@ -467,12 +488,17 @@ class ReasoningService extends BaseReasoningService {
 
     let response: Response;
     try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
+      response = await fetchWithReasoningFieldFallback(
+        () =>
+          fetch(endpoint, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+          }),
+        requestBody,
+        "AGENT_STREAM_REASONING_FIELD_RETRY"
+      );
     } catch (error) {
       clearTimeout(timeoutId);
       if ((error as Error).name === "AbortError") {
@@ -486,11 +512,7 @@ class ReasoningService extends BaseReasoningService {
       let errorMessage: string;
       try {
         const errorData = JSON.parse(errorText);
-        errorMessage =
-          errorData.error?.message ||
-          errorData.message ||
-          errorData.error ||
-          `API error: ${response.status}`;
+        errorMessage = extractApiErrorMessage(errorData, `API error: ${response.status}`);
       } catch {
         errorMessage = errorText || `API error: ${response.status}`;
       }
@@ -527,7 +549,7 @@ class ReasoningService extends BaseReasoningService {
             if (!content) continue;
 
             const stripThinking =
-              (isLocalProvider || isLanCleanup) && config.disableThinking !== false;
+              (isLocalProvider || isLanChat) && config.disableThinking !== false;
             if (stripThinking) {
               if (insideThinkBlock) {
                 const endIdx = content.indexOf("</think>");
@@ -573,27 +595,17 @@ class ReasoningService extends BaseReasoningService {
     config: ReasoningConfig & { systemPrompt: string },
     tools?: Record<string, import("ai").Tool>
   ): AsyncGenerator<AgentStreamChunk, void, unknown> {
-    const lanOverride = config.lanUrl?.trim();
-    // An explicit self-hosted URL is the caller's declared route — it must win
-    // even when a stale enterprise provider id is left in the scope's settings.
-    const isEnterprise = !lanOverride && isEnterpriseProvider(provider);
+    const route = resolveChatRoute({
+      provider,
+      lanUrl: config.lanUrl,
+      customApiKey: config.customApiKey,
+      isEnterpriseProvider: isEnterpriseProvider(provider),
+    });
+    const isEnterprise = route.kind === "enterprise";
+    const isLocalProvider = route.kind === "local";
+    const isLanChat = route.kind === "self-hosted";
 
-    const cloudProviders = [
-      "openai",
-      "groq",
-      "gemini",
-      "anthropic",
-      "tinfoil",
-      "custom",
-      "openrouter",
-      "corti",
-    ];
-    const isLocalProvider = !isEnterprise && !cloudProviders.includes(provider);
-
-    const settings = getSettings();
-    const isLanCleanup = !isEnterprise && (!!lanOverride || this.isLanCleanupMode());
-
-    if ((isLocalProvider || isLanCleanup) && !tools) {
+    if ((isLocalProvider || isLanChat) && !tools) {
       const contentGen = this.processTextStreaming(messages, model, provider, config);
       for await (const text of contentGen) {
         yield { type: "content", text };
@@ -608,9 +620,9 @@ class ReasoningService extends BaseReasoningService {
     if (isEnterprise) {
       // Enterprise SDKs run in the main process; the model below proxies
       // doStream over IPC, so no key or base URL is resolved here.
-    } else if (isLanCleanup) {
-      const rawUrl = lanOverride || settings.cleanupRemoteUrl.trim();
-      baseURL = ensureV1Suffix(rawUrl);
+    } else if (isLanChat) {
+      apiKey = route.apiKey;
+      baseURL = ensureV1Suffix(route.baseUrl);
     } else if (isLocalProvider) {
       const serverResult = await window.electronAPI.llamaServerStart(model);
       if (!serverResult.success || !serverResult.port) {
@@ -629,7 +641,7 @@ class ReasoningService extends BaseReasoningService {
             ? config.baseUrl?.trim() || getConfiguredOpenAIBase()
             : undefined;
     }
-    const aiProvider = isLocalProvider || isLanCleanup ? "local" : provider;
+    const aiProvider = isLocalProvider || isLanChat ? "local" : provider;
     // OpenRouter ids are never in the local registry, so the supportsThinking
     // exemption below can't apply — honor the toggle directly.
     const openrouterDisableThinking = provider === "openrouter" && config.disableThinking === true;
@@ -640,7 +652,7 @@ class ReasoningService extends BaseReasoningService {
           disableThinking: openrouterDisableThinking,
         });
 
-    const apiConfig = getOpenAiApiConfig(model, provider);
+    const apiConfig = detectEndpointDialect(baseURL) ?? getOpenAiApiConfig(model, provider);
     const modelDef = getCloudModel(model);
     const userSuppressesThinking = config.disableThinking === true && !!modelDef?.supportsThinking;
     const needsGroqDisableThinking =
@@ -662,7 +674,7 @@ class ReasoningService extends BaseReasoningService {
       messageCount: messages.length,
     });
 
-    const useTemperature = isLocalProvider || isLanCleanup || apiConfig.supportsTemperature;
+    const useTemperature = isLocalProvider || isLanChat || apiConfig.supportsTemperature;
 
     // cancelActiveStream() aborts this controller; streamText propagates it
     // into doStream, cancelling the enterprise IPC proxy's request in main.

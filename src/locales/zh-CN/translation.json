@@ -277,11 +277,6 @@
       "title": "会议笔记",
       "description": "捕捉并总结你的会议",
       "autoDetect": "OpenWhispr 会自动检测你是否在开会，并提议开始记录 — 未经你确认不会录制任何内容。",
-      "notification": {
-        "title": "检测到会议",
-        "body": "你似乎正在开会。要开始记录吗？",
-        "cta": "开始录制"
-      },
       "hotkeyLabel": "会议快捷键",
       "hotkeyHint": "可选 — 在任何会议中按下即可立即开始记录。"
     },
@@ -403,7 +398,8 @@
         "recordingWithDuration": "已放弃的录音 · {{duration}}",
         "recover": "恢复",
         "recovered": "已恢复"
-      }
+      },
+      "retryTranslationMode": "翻译模式"
     },
     "cloudMigration": {
       "title": "欢迎使用 OpenWhispr 云端",
@@ -577,6 +573,12 @@
         "offline": "你目前离线。云端转录需要互联网连接。",
         "dailyLimitReached": "已达今日转录上限。请明天再试或升级你的套餐。",
         "providerRateLimited": "你的转录服务商限制了请求频率。请稍候再试。"
+      },
+      "translationFallback": {
+        "unreachableTitle": "翻译不可用",
+        "unreachableDescription": "你的口述内容已按原文粘贴，未经翻译。请检查翻译设置。",
+        "failedTitle": "翻译失败",
+        "failedDescription": "已粘贴原始文本。你可以在历史记录中重试。"
       }
     },
     "clipboard": {
@@ -1037,13 +1039,18 @@
       "providerLabel": "服务商",
       "run": "运行测试",
       "customEndpoint": "自定义端点",
-      "apiKeyMissing": "未配置 {{provider}} API 密钥，请在 AI 模型设置中添加。"
+      "apiKeyMissing": "未配置 {{provider}} API 密钥，请在 AI 模型设置中添加。",
+      "translateHint": "文本将翻译为{{language}}",
+      "translation": "翻译",
+      "translationDisabled": "启用听写翻译以测试此提示词",
+      "noTargetLanguage": "请先选择目标语言"
     },
     "view": {
       "customPrompt": "自定义提示词",
       "defaultPrompt": "默认提示词",
       "modified": "已修改"
-    }
+    },
+    "defaultTestInputTranslate": "今天天气真好，要不要出去走走？"
   },
   "settingsModal": {
     "groups": {
@@ -1209,12 +1216,7 @@
           "annualEquivalent": "$16.67",
           "includesPrefix": "所有 Pro 功能 +",
           "badge": "最受欢迎",
-          "features": [
-            "无限会议录制",
-            "代理模式",
-            "与您的数据对话",
-            "优先支持"
-          ],
+          "features": ["无限会议录制", "代理模式", "与您的数据对话", "优先支持"],
           "cta": "开始使用",
           "switchToAnnual": "切换为年付"
         },
@@ -1599,6 +1601,10 @@
         "title": "更新",
         "versionPlaceholder": "—",
         "whatsNew": "v{{version}} 更新内容"
+      },
+      "translationHotkey": {
+        "title": "翻译快捷键",
+        "description": "用任何语言听写——粘贴的文本会自动翻译"
       }
     },
     "permissions": {
@@ -1672,7 +1678,8 @@
         "dictationCleanup": "听写清理",
         "dictationAgent": "Voice Agent",
         "noteFormatting": "笔记格式化",
-        "chatIntelligence": "聊天"
+        "chatIntelligence": "聊天",
+        "dictationTranslation": "翻译"
       }
     },
     "noteFormatting": {
@@ -2328,7 +2335,40 @@
       "switchToCloudForLargeFiles": "切换到 OpenWhispr Cloud 来转录此文件。",
       "createAccount": "创建账户",
       "upgrade": "升级",
-      "switchToCloud": "OpenWhispr Cloud"
+      "switchToCloud": "OpenWhispr Cloud",
+      "orDivider": "或",
+      "urlPlaceholder": "粘贴 YouTube 或音频 URL",
+      "urlDownloading": "正在下载音频...",
+      "urlResolving": "正在解析 URL...",
+      "urlInvalid": "无效的 URL。请粘贴 YouTube 链接或直接音频文件 URL。",
+      "urlVideoUnavailable": "此视频不可用。可能是私密、已删除或受地区限制。",
+      "urlPlaylistNotSupported": "不支持播放列表。请粘贴单个视频的 URL。",
+      "urlContentTypeInvalid": "此 URL 不指向音频或视频文件。",
+      "urlDownloadFailed": "下载失败。请检查 URL 后重试。",
+      "urlCancelDownload": "取消下载",
+      "addToQueue": "添加到队列",
+      "queueProgress": "{{completed}}/{{total}} 已完成",
+      "cancelAll": "取消全部",
+      "clearQueue": "清除",
+      "pasteUrls": "粘贴 URL（每行一个）",
+      "speakerDetection": "说话人检测",
+      "speakerDetectionDescription": "识别音频中的不同说话人",
+      "numSpeakersPlaceholder": "自动检测",
+      "downloadingModels": "正在下载模型...",
+      "openaiDiarizeNote": "将替换您的转录模型为 gpt-4o-transcribe-diarize，这是唯一支持说话人检测的 OpenAI 模型。费用可能与您选择的模型不同。",
+      "mistralDiarizeNote": "使用 Voxtral 时说话人检测无需额外费用。",
+      "groqDiarizeNote": "Groq 不支持说话人检测。将改用本地分离。",
+      "batchCancelled": "已取消",
+      "batchTranscriptionFailed": "转录失败",
+      "batchSaveFailed": "保存笔记失败",
+      "batchUnknownError": "未知错误",
+      "removeFromQueue": "从队列中移除",
+      "diarizationRunsLocally": "说话人检测在您的设备上本地运行。",
+      "urlSubmit": "添加链接",
+      "urlsSkipped": "部分链接无法添加（{{n}} 个）",
+      "queueFailed": "{{n}} 个失败",
+      "urlFileTooLarge": "文件过大，无法下载。最大大小为 500 MB。",
+      "urlYoutubeBlocked": "YouTube 暂时阻止了来自您网络的下载。请稍后重试。"
     },
     "meeting": {
       "title": "会议笔记",
@@ -2375,7 +2415,8 @@
       },
       "errors": {
         "noModel": "未选择 AI 模型。请在设置中配置。",
-        "actionFailed": "操作失败"
+        "actionFailed": "操作失败",
+        "noEndpoint": "未设置自托管服务器 URL。请在设置中配置。"
       }
     },
     "empty": {
@@ -2538,7 +2579,9 @@
     "integrations": "集成",
     "defaultUser": "用户",
     "notSignedIn": "未登录",
-    "chat": "聊天"
+    "chat": "聊天",
+    "collapse": "折叠侧边栏",
+    "expand": "展开侧边栏"
   },
   "chat": {
     "newChat": "新对话",
@@ -2632,6 +2675,14 @@
       "accessibilityMissing": {
         "title": "需要辅助功能权限",
         "description": "OpenWhispr 需要辅助功能权限来检测快捷键和粘贴文本。请在控制面板中启用。"
+      },
+      "gpuFallback": {
+        "title": "GPU 加速不可用",
+        "description": "转录正在使用 CPU。你可以在设置中关闭 GPU 加速。"
+      },
+      "cleanupFailed": {
+        "title": "清理失败",
+        "description": "你的听写已直接粘贴，未经 AI 清理。"
       }
     },
     "mic": {
@@ -3090,5 +3141,37 @@
       "sentTo": "邀请已发送至 {{email}}",
       "wrongAccount": "此邀请发送给了 {{email}}，而你当前登录的是 {{current}}。"
     }
+  },
+  "dictationTranslation": {
+    "title": "听写翻译",
+    "description": "专用快捷键，将你的听写翻译成另一种语言后粘贴",
+    "enabled": "启用听写翻译",
+    "enabledDescription": "通过翻译快捷键开始的听写会先整理再翻译，然后粘贴",
+    "sourceLanguage": "口语语言",
+    "sourceLanguageDescription": "你听写时使用的语言——自动检测也能处理混合语言听写",
+    "targetLanguage": "翻译为",
+    "targetLanguageDescription": "粘贴文本的语言",
+    "targetLanguageMissing": "请选择目标语言以启用翻译快捷键",
+    "selectLanguage": "选择语言…",
+    "prompt": {
+      "title": "翻译提示词",
+      "description": "自定义模型翻译听写内容的方式"
+    },
+    "hotkeyHint": "在 设置 → 通用 → 翻译快捷键 中设置快捷键",
+    "targetsLabel": "目标语言",
+    "addTarget": "添加语言…",
+    "activeTarget": "当前目标语言",
+    "removeTarget": "移除{{language}}",
+    "maxTargets": "最多 {{max}} 种语言"
+  },
+  "meetingNotification": {
+    "title": "检测到会议",
+    "body": {
+      "detected": "你似乎正在开会。要开始记录吗？",
+      "starting": "你的会议即将开始。要开始记录吗？",
+      "underway": "你的会议似乎已在进行中。要开始记录吗？"
+    },
+    "start": "开始记录",
+    "join": "加入并转录"
   }
 }

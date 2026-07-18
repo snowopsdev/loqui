@@ -277,11 +277,6 @@
       "title": "Note delle riunioni",
       "description": "Cattura e riassumi le tue riunioni",
       "autoDetect": "OpenWhispr rileva automaticamente quando sei in riunione e ti propone di avviare le note — nulla viene registrato senza di te.",
-      "notification": {
-        "title": "Riunione rilevata",
-        "body": "Sembra che tu sia in riunione. Vuoi prendere appunti?",
-        "cta": "Avvia registrazione"
-      },
       "hotkeyLabel": "Scorciatoia riunione",
       "hotkeyHint": "Facoltativa — premila in qualsiasi riunione per avviare subito una nota."
     },
@@ -403,7 +398,8 @@
         "recordingWithDuration": "Registrazione scartata · {{duration}}",
         "recover": "Recupera",
         "recovered": "Recuperata"
-      }
+      },
+      "retryTranslationMode": "Modalità Traduzione"
     },
     "cloudMigration": {
       "title": "Benvenuto in OpenWhispr Cloud",
@@ -577,6 +573,12 @@
         "offline": "Sei offline. La trascrizione cloud richiede una connessione Internet.",
         "dailyLimitReached": "Hai raggiunto il limite di trascrizioni di oggi. Riprova domani o aggiorna il tuo piano.",
         "providerRateLimited": "Il tuo provider di trascrizione ha limitato la richiesta. Attendi un momento e riprova."
+      },
+      "translationFallback": {
+        "unreachableTitle": "Traduzione non disponibile",
+        "unreachableDescription": "La dettatura è stata incollata senza traduzione. Controlla le impostazioni di traduzione.",
+        "failedTitle": "Traduzione non riuscita",
+        "failedDescription": "È stato incollato il testo originale. Puoi riprovare dalla History."
       }
     },
     "clipboard": {
@@ -1037,13 +1039,18 @@
       "providerLabel": "Provider",
       "run": "Esegui test",
       "customEndpoint": "Endpoint personalizzato",
-      "apiKeyMissing": "Chiave API di {{provider}} non configurata. Aggiungila nelle impostazioni Modelli IA."
+      "apiKeyMissing": "Chiave API di {{provider}} non configurata. Aggiungila nelle impostazioni Modelli IA.",
+      "translateHint": "Il testo verrà tradotto in {{language}}",
+      "translation": "Traduzione",
+      "translationDisabled": "Attiva la traduzione della dettatura per testare questo prompt",
+      "noTargetLanguage": "Scegli prima una lingua di destinazione"
     },
     "view": {
       "customPrompt": "Prompt personalizzato",
       "defaultPrompt": "Prompt predefinito",
       "modified": "Modificato"
-    }
+    },
+    "defaultTestInputTranslate": "Che bella giornata oggi, ti va di fare due passi?"
   },
   "settingsModal": {
     "groups": {
@@ -1599,6 +1606,10 @@
         "title": "Aggiornamenti",
         "versionPlaceholder": "—",
         "whatsNew": "Novità nella v{{version}}"
+      },
+      "translationHotkey": {
+        "title": "Hotkey Traduzione",
+        "description": "Detta in qualsiasi lingua: il testo incollato esce tradotto"
       }
     },
     "permissions": {
@@ -1672,7 +1683,8 @@
         "dictationCleanup": "Pulizia della dettatura",
         "dictationAgent": "Voice Agent",
         "noteFormatting": "Formattazione note",
-        "chatIntelligence": "Chat"
+        "chatIntelligence": "Chat",
+        "dictationTranslation": "Traduzione"
       }
     },
     "noteFormatting": {
@@ -2328,7 +2340,40 @@
       "switchToCloudForLargeFiles": "Passa a OpenWhispr Cloud per trascrivere questo file.",
       "createAccount": "Crea account",
       "upgrade": "Aggiorna",
-      "switchToCloud": "OpenWhispr Cloud"
+      "switchToCloud": "OpenWhispr Cloud",
+      "orDivider": "oppure",
+      "urlPlaceholder": "Incolla un URL di YouTube o audio",
+      "urlDownloading": "Download dell'audio in corso...",
+      "urlResolving": "Risoluzione URL...",
+      "urlInvalid": "URL non valido. Incolla un link di YouTube o un URL diretto a un file audio.",
+      "urlVideoUnavailable": "Questo video non è disponibile. Potrebbe essere privato, rimosso o bloccato geograficamente.",
+      "urlPlaylistNotSupported": "Le playlist non sono supportate. Incolla l'URL di un singolo video.",
+      "urlContentTypeInvalid": "Questo URL non punta a un file audio o video.",
+      "urlDownloadFailed": "Download fallito. Controlla l'URL e riprova.",
+      "urlCancelDownload": "Annulla download",
+      "addToQueue": "Aggiungi alla coda",
+      "queueProgress": "{{completed}}/{{total}} completati",
+      "cancelAll": "Annulla tutto",
+      "clearQueue": "Cancella",
+      "pasteUrls": "Incolla URL (uno per riga)",
+      "speakerDetection": "Rilevamento parlanti",
+      "speakerDetectionDescription": "Identifica i diversi parlanti nell'audio",
+      "numSpeakersPlaceholder": "Rilevamento automatico",
+      "downloadingModels": "Download modelli in corso...",
+      "openaiDiarizeNote": "Sostituisce il tuo modello di trascrizione con gpt-4o-transcribe-diarize, l’unico modello OpenAI con rilevamento dei parlanti. I costi potrebbero differire dal modello selezionato.",
+      "mistralDiarizeNote": "Rilevamento dei parlanti incluso senza costi aggiuntivi con Voxtral.",
+      "groqDiarizeNote": "Il rilevamento dei parlanti non è disponibile con Groq. Verrà usata la diarizzazione locale.",
+      "batchCancelled": "Annullato",
+      "batchTranscriptionFailed": "Trascrizione non riuscita",
+      "batchSaveFailed": "Salvataggio nota non riuscito",
+      "batchUnknownError": "Errore sconosciuto",
+      "removeFromQueue": "Rimuovi dalla coda",
+      "diarizationRunsLocally": "Il rilevamento parlanti viene eseguito localmente sul tuo dispositivo.",
+      "urlSubmit": "Aggiungi link",
+      "urlsSkipped": "Alcuni link non sono stati aggiunti ({{n}})",
+      "queueFailed": "{{n}} non riusciti",
+      "urlFileTooLarge": "Il file è troppo grande per essere scaricato. La dimensione massima è 500 MB.",
+      "urlYoutubeBlocked": "YouTube sta bloccando temporaneamente i download dalla tua rete. Riprova tra poco."
     },
     "meeting": {
       "title": "Note delle riunioni",
@@ -2375,7 +2420,8 @@
       },
       "errors": {
         "noModel": "Nessun modello IA selezionato. Configurane uno nelle Impostazioni.",
-        "actionFailed": "Azione non riuscita"
+        "actionFailed": "Azione non riuscita",
+        "noEndpoint": "Nessun URL del server self-hosted impostato. Configurane uno nelle Impostazioni."
       }
     },
     "empty": {
@@ -2538,7 +2584,9 @@
     "integrations": "Integrazioni",
     "defaultUser": "Utente",
     "notSignedIn": "Non hai effettuato l'accesso",
-    "chat": "Chat"
+    "chat": "Chat",
+    "collapse": "Comprimi barra laterale",
+    "expand": "Espandi barra laterale"
   },
   "chat": {
     "newChat": "Nuova chat",
@@ -2632,6 +2680,14 @@
       "accessibilityMissing": {
         "title": "Autorizzazioni di accessibilità richieste",
         "description": "OpenWhispr necessita delle autorizzazioni di accessibilità per rilevare il tasto di scelta rapida e incollare il testo. Abilitale nel Pannello di controllo."
+      },
+      "gpuFallback": {
+        "title": "Accelerazione GPU non disponibile",
+        "description": "La trascrizione sta usando la CPU. Puoi disattivare l'accelerazione GPU nelle Impostazioni."
+      },
+      "cleanupFailed": {
+        "title": "Pulizia non riuscita",
+        "description": "La dettatura è stata incollata senza pulizia IA."
       }
     },
     "mic": {
@@ -3090,5 +3146,37 @@
       "sentTo": "Invito inviato a {{email}}",
       "wrongAccount": "Questo invito è stato inviato a {{email}}. Hai effettuato l'accesso come {{current}}."
     }
+  },
+  "dictationTranslation": {
+    "title": "Traduzione Dettatura",
+    "description": "Una hotkey dedicata che incolla la dettatura tradotta in un'altra lingua",
+    "enabled": "Abilita Traduzione Dettatura",
+    "enabledDescription": "Le dettature avviate con la hotkey di traduzione vengono ripulite e poi tradotte prima di essere incollate",
+    "sourceLanguage": "Lingua parlata",
+    "sourceLanguageDescription": "La lingua in cui detti: Automatico gestisce anche dettature miste",
+    "targetLanguage": "Traduci in",
+    "targetLanguageDescription": "La lingua del testo incollato",
+    "targetLanguageMissing": "Scegli una lingua di destinazione per attivare la hotkey di traduzione",
+    "selectLanguage": "Seleziona lingua…",
+    "prompt": {
+      "title": "Prompt di Traduzione",
+      "description": "Personalizza come il modello traduce la tua dettatura"
+    },
+    "hotkeyHint": "Imposta la hotkey in Impostazioni → Generali → Hotkey Traduzione",
+    "targetsLabel": "Lingue di destinazione",
+    "addTarget": "Aggiungi lingua…",
+    "activeTarget": "Lingua di destinazione attiva",
+    "removeTarget": "Rimuovi {{language}}",
+    "maxTargets": "Fino a {{max}} lingue"
+  },
+  "meetingNotification": {
+    "title": "Riunione rilevata",
+    "body": {
+      "detected": "Sembra che tu sia in riunione. Vuoi prendere appunti?",
+      "starting": "La tua riunione sta per iniziare. Vuoi prendere appunti?",
+      "underway": "Sembra che la tua riunione sia già in corso. Vuoi prendere appunti?"
+    },
+    "start": "Prendi appunti",
+    "join": "Partecipa e trascrivi"
   }
 }

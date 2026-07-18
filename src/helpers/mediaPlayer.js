@@ -10,7 +10,9 @@ function spawnAsync(cmd, args, { timeout = 3000 } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+      // windowsHide avoids a flashing console when helpers invoke nircmd/powershell
+      // on Windows during dictation media pause/resume.
+      child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (err) {
       resolve({ status: null, stdout: "", stderr: String(err?.message || err) });
       return;
@@ -623,12 +625,13 @@ try {
       const result = spawnSync(nircmd, ["sendkeypress", "0xB3"], {
         stdio: "pipe",
         timeout: 3000,
+        windowsHide: true,
       });
       if (result.status === 0) return true;
     }
 
     const result = spawnSync(
-      "powershell",
+      "powershell.exe",
       [
         "-NoProfile",
         "-NonInteractive",
@@ -638,6 +641,7 @@ try {
       {
         stdio: "pipe",
         timeout: 5000,
+        windowsHide: true,
       }
     );
     return result.status === 0;
@@ -649,9 +653,9 @@ try {
 
     // Use GSMTC (Windows 10 1809+) — state-aware, targets specific apps
     const result = spawnSync(
-      "powershell",
+      "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", this._gsmtcPauseScript()],
-      { stdio: "pipe", timeout: 5000 }
+      { stdio: "pipe", timeout: 5000, windowsHide: true }
     );
 
     if (result.status === 0) {
@@ -698,9 +702,9 @@ try {
       this._pausedWinApps = [];
 
       const result = spawnSync(
-        "powershell",
+        "powershell.exe",
         ["-NoProfile", "-NonInteractive", "-Command", this._gsmtcResumeScript(apps)],
-        { stdio: "pipe", timeout: 5000 }
+        { stdio: "pipe", timeout: 5000, windowsHide: true }
       );
 
       if (result.status === 0) {

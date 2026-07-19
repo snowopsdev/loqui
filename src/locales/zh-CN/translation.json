@@ -33,6 +33,7 @@
       "hide": "隐藏听写面板"
     },
     "openControlPanel": "打开控制面板",
+    "hideControlPanel": "隐藏控制面板",
     "quit": "退出 OpenWhispr",
     "tooltip": "OpenWhispr - 语音听写"
   },
@@ -384,6 +385,7 @@
       "showInFolderWindows": "在资源管理器中显示",
       "showInFolderLinux": "在文件管理器中显示",
       "retryTranscription": "重新转录",
+      "retryTranslationMode": "翻译模式",
       "retrying": "正在重新转录…",
       "retrySuccess": "转录已更新",
       "retryError": "重新转录失败",
@@ -558,6 +560,12 @@
       "fallback": {
         "title": "回退模式",
         "description": "本地 Whisper 失败，已改用 OpenAI API。"
+      },
+      "translationFallback": {
+        "unreachableTitle": "翻译不可用",
+        "unreachableDescription": "你的口述内容已按原文粘贴，未经翻译。请检查翻译设置。",
+        "failedTitle": "翻译失败",
+        "failedDescription": "已粘贴原始文本。你可以在历史记录中重试。"
       },
       "noAudio": {
         "title": "未检测到音频",
@@ -989,6 +997,7 @@
       "save": "保存"
     },
     "defaultTestInput": "你好 Whispr，今天天气怎么样？",
+    "defaultTestInputTranslate": "今天天气真好，要不要出去走走？",
     "dialogs": {
       "reset": {
         "description": "提示词已重置为默认值。",
@@ -1013,6 +1022,8 @@
     },
     "test": {
       "addressHint": "试试说“{{agentName}}”来测试指令模式",
+      "translateHint": "文本将翻译为{{language}}",
+      "translation": "翻译",
       "aiModels": "AI 模型",
       "baseUrlMissing": "{{provider}} 的 URL 缺失，请在 AI 模型设置中添加。",
       "cleanup": "文本整理",
@@ -1032,7 +1043,9 @@
       "providerLabel": "服务商",
       "run": "运行测试",
       "customEndpoint": "自定义端点",
-      "apiKeyMissing": "未配置 {{provider}} API 密钥，请在 AI 模型设置中添加。"
+      "apiKeyMissing": "未配置 {{provider}} API 密钥，请在 AI 模型设置中添加。",
+      "translationDisabled": "启用听写翻译以测试此提示词",
+      "noTargetLanguage": "请先选择目标语言"
     },
     "view": {
       "customPrompt": "自定义提示词",
@@ -1426,6 +1439,10 @@
         "title": "语音助手快捷键",
         "description": "说出你的需求，AI 助手会输入结果，而不是你说的原话"
       },
+      "translationHotkey": {
+        "title": "翻译快捷键",
+        "description": "用任何语言听写——粘贴的文本会自动翻译"
+      },
       "microphone": {
         "description": "选择用于听写的输入设备",
         "title": "麦克风"
@@ -1663,6 +1680,7 @@
       "tabs": {
         "dictationCleanup": "听写清理",
         "dictationAgent": "Voice Agent",
+        "dictationTranslation": "翻译",
         "noteFormatting": "笔记格式化",
         "chatIntelligence": "聊天"
       }
@@ -2127,7 +2145,7 @@
       "title": "上传音频",
       "using": "使用 {{model}}",
       "dropOrBrowse": "拖放音频文件或点击浏览",
-      "supportedFormats": "MP3、WAV、M4A、WebM、OGG、FLAC、AAC",
+      "supportedFormats": "MP3、WAV、M4A、WebM、OGG、FLAC、AAC、Opus",
       "dropToUpload": "拖放以上传",
       "transcribe": "转录",
       "cancel": "取消",
@@ -2410,7 +2428,9 @@
     "notSignedIn": "未登录",
     "chat": "聊天",
     "inviteTeammate": "Invitar compañero",
-    "createWorkspace": "Crear espacio de trabajo"
+    "createWorkspace": "Crear espacio de trabajo",
+    "collapse": "折叠侧边栏",
+    "expand": "展开侧边栏"
   },
   "chat": {
     "newChat": "新对话",
@@ -2503,6 +2523,10 @@
         "title": "GPU 加速不可用",
         "description": "转录正在使用 CPU。你可以在设置中关闭 GPU 加速。"
       },
+      "cleanupFailed": {
+        "title": "清理失败",
+        "description": "你的听写已直接粘贴，未经 AI 清理。"
+      },
       "addedToDict": "已将 {{words}} 添加到你的词典",
       "undo": "撤消",
       "accessibilityMissing": {
@@ -2525,6 +2549,28 @@
       "startListening": "开始录音",
       "hideForNow": "暂时隐藏"
     }
+  },
+  "dictationTranslation": {
+    "title": "听写翻译",
+    "description": "专用快捷键，将你的听写翻译成另一种语言后粘贴",
+    "enabled": "启用听写翻译",
+    "enabledDescription": "通过翻译快捷键开始的听写会先整理再翻译，然后粘贴",
+    "sourceLanguage": "口语语言",
+    "sourceLanguageDescription": "你听写时使用的语言——自动检测也能处理混合语言听写",
+    "targetLanguage": "翻译为",
+    "targetLanguageDescription": "粘贴文本的语言",
+    "targetLanguageMissing": "请选择目标语言以启用翻译快捷键",
+    "selectLanguage": "选择语言…",
+    "prompt": {
+      "title": "翻译提示词",
+      "description": "自定义模型翻译听写内容的方式"
+    },
+    "hotkeyHint": "在 设置 → 通用 → 翻译快捷键 中设置快捷键",
+    "targetsLabel": "目标语言",
+    "addTarget": "添加语言…",
+    "activeTarget": "当前目标语言",
+    "removeTarget": "移除{{language}}",
+    "maxTargets": "最多 {{max}} 种语言"
   },
   "dictationAgent": {
     "enabled": "启用语音助手",

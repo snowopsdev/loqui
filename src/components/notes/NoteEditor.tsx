@@ -23,10 +23,10 @@ import {
   useNoteConflict,
   useSpaces,
   clearNoteConflict,
-  setActiveContext,
+  navigateToContainer,
   updateNoteInStore,
 } from "../../stores/noteStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { TeamsService } from "../../services/TeamsService";
 import { useAuth } from "../../hooks/useAuth";
 import { RichTextEditor } from "../ui/RichTextEditor";
 import type { Editor } from "@tiptap/react";
@@ -40,7 +40,7 @@ import {
   DropdownMenuSeparator,
 } from "../ui/dropdown-menu";
 import { cn } from "../lib/utils";
-import type { NoteItem, FolderItem } from "../../types/electron";
+import type { NoteItem, FolderItem, TeamMember } from "../../types/electron";
 import type { ActionProcessingState } from "../../hooks/useActionProcessing";
 import ActionProcessingOverlay from "./ActionProcessingOverlay";
 import NoteBottomBar from "./NoteBottomBar";
@@ -58,7 +58,22 @@ import NoteParticipants from "./NoteParticipants";
 import type { CalendarAttendee } from "../../types/calendar";
 
 const CHIP_BUTTON_CLASS =
-  "inline-flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded-md border border-border/70 dark:border-white/25 text-foreground/50 dark:text-foreground/35 hover:text-foreground/60 hover:border-border/60 hover:bg-foreground/3 dark:hover:text-foreground/40 dark:hover:border-white/10 dark:hover:bg-white/3 transition-all duration-150 cursor-pointer outline-none";
+  "inline-flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded-md border border-border/70 dark:border-white/25 text-foreground/50 dark:text-foreground/35 hover:text-foreground/60 hover:border-border/60 hover:bg-foreground/3 dark:hover:text-foreground/40 dark:hover:border-white/10 dark:hover:bg-white/3 transition-all duration-150 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring/30";
+
+// Conflict attribution rosters, cached per team so repeated conflicts don't
+// refetch. The workspace-members store can't serve this: in the notes window
+// it's empty or holds another workspace's roster.
+const conflictRosterCache = new Map<string, Promise<TeamMember[]>>();
+
+function fetchTeamRoster(teamId: string): Promise<TeamMember[]> {
+  let roster = conflictRosterCache.get(teamId);
+  if (!roster) {
+    roster = TeamsService.listMembers(teamId);
+    roster.catch(() => conflictRosterCache.delete(teamId));
+    conflictRosterCache.set(teamId, roster);
+  }
+  return roster;
+}
 
 function formatNoteDate(dateStr: string): string {
   const date = normalizeDbDate(dateStr);
@@ -189,14 +204,32 @@ export default function NoteEditor({
     (localStorage.getItem("isSubscribed") === "true" || Boolean(note.is_shared));
   // A newer cloud copy arrived while this note had unpushed edits (plan §7.3).
   const conflict = useNoteConflict(note.client_note_id);
-  const members = useWorkspaceStore((s) => s.members);
-  const conflictEditorName = useMemo(() => {
-    if (!conflict?.updated_by_user_id || !user?.id || conflict.updated_by_user_id === user.id) {
-      return null;
+  const [conflictEditorName, setConflictEditorName] = useState<string | null>(null);
+  const conflictEditorId =
+    conflict?.updated_by_user_id && user?.id && conflict.updated_by_user_id !== user.id
+      ? conflict.updated_by_user_id
+      : null;
+  const conflictTeamId = space?.cloud_team_id ?? null;
+  useEffect(() => {
+    if (!conflictEditorId || !conflictTeamId) {
+      setConflictEditorName(null);
+      return;
     }
-    const member = members.find((m) => m.user_id === conflict.updated_by_user_id);
-    return member ? (member.name ?? member.email) : null;
-  }, [conflict, members, user?.id]);
+    let cancelled = false;
+    fetchTeamRoster(conflictTeamId)
+      .then((roster) => {
+        if (cancelled) return;
+        const member = roster.find((m) => m.user_id === conflictEditorId);
+        setConflictEditorName(member ? (member.name ?? member.email) : null);
+      })
+      // Name unresolved — the banner gracefully omits the attribution.
+      .catch(() => {
+        if (!cancelled) setConflictEditorName(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conflictEditorId, conflictTeamId]);
   const [diarizedSegments, setDiarizedSegments] = useState<TranscriptSegment[] | null>(null);
   const [speakerMappings, setSpeakerMappings] = useState<Record<string, string>>({});
   const [speakerProfiles, setSpeakerProfiles] = useState<
@@ -686,7 +719,7 @@ export default function NoteEditor({
               <>
                 <button
                   type="button"
-                  onClick={() => setActiveContext(space.id, null)}
+                  onClick={() => navigateToContainer(space.id, null)}
                   className={CHIP_BUTTON_CLASS}
                 >
                   {space.emoji ? (
@@ -812,7 +845,8 @@ export default function NoteEditor({
                 className={CHIP_BUTTON_CLASS}
               >
                 <Users size={11} className="shrink-0" />
-                {space.member_count ?? 0}
+                {/* member_count tracks explicit rosters only — the audience always includes the viewer */}
+                {Math.max(1, space.member_count ?? 1)}
               </button>
             )}
             {isSaving && (
@@ -1002,13 +1036,13 @@ export default function NoteEditor({
             </p>
             <button
               onClick={handleConflictRefresh}
-              className="text-[11px] font-medium text-foreground/50 hover:text-foreground/70 transition-colors shrink-0"
+              className="text-[11px] font-medium text-foreground/50 hover:text-foreground/70 transition-colors shrink-0 px-1 -mx-1 rounded outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
             >
               {t("notes.spaces.conflictRefresh")}
             </button>
             <button
               onClick={handleConflictKeep}
-              className="text-[11px] font-medium text-foreground/35 hover:text-foreground/55 transition-colors shrink-0"
+              className="text-[11px] font-medium text-foreground/35 hover:text-foreground/55 transition-colors shrink-0 px-1 -mx-1 rounded outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
             >
               {t("notes.spaces.conflictKeep")}
             </button>

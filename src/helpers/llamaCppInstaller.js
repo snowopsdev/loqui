@@ -74,9 +74,6 @@ class LlamaCppInstaller {
 
   async getSystemBinaryPath() {
     return new Promise((resolve) => {
-      // Cross-platform command resolution.
-      // On Windows use where.exe with shell:false so PATH lookup does not
-      // depend on cmd.exe and CRLF stdout is handled below.
       const checkCmd = this.platform === "win32" ? "where.exe" : "which";
       const binaryNames = this.platform === "win32" ? ["llama-server.exe"] : ["llama-server"];
 
@@ -85,7 +82,6 @@ class LlamaCppInstaller {
 
       for (const name of binaryNames) {
         const proc = spawn(checkCmd, [name], {
-          shell: false,
           windowsHide: true,
           stdio: "pipe",
         });

@@ -1869,9 +1869,8 @@
         "createFirst": "建立您的第一個團隊",
         "createTitle": "建立團隊",
         "nameLabel": "團隊名稱",
-        "descriptionLabel": "描述",
-        "memberCount": "{{count}} 位成員",
-        "loadError": "無法載入團隊。"
+        "memberCount_one": "{{count}} 位成員",
+        "memberCount_other": "{{count}} 位成員"
       },
       "invites": {
         "title": "待處理的邀請",
@@ -2209,6 +2208,7 @@
       "folderNameTaken": "無法移動「{{name}}」：該位置已存在同名資料夾",
       "undo": "復原",
       "emptySpace": "還沒有筆記。這裡的筆記對 {{space}} 中的所有人可見。",
+      "emptyTeamHint": "與你共享的空間將顯示在這裡。",
       "noteCount_one": "{{count}} 則筆記",
       "noteCount_other": "{{count}} 則筆記",
       "accessRevoked": "你已無法存取 {{space}}",
@@ -2221,6 +2221,7 @@
         "menu": "成員…",
         "title": "{{space}} 的成員",
         "addPeople": "新增成員",
+        "addFailed": "{{total}} 人中有 {{failed}} 人無法加入",
         "searchPlaceholder": "搜尋成員…",
         "roleAdmin": "管理員",
         "roleMember": "成員",

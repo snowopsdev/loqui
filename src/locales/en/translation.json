@@ -1264,9 +1264,8 @@
         "createFirst": "Create your first team",
         "createTitle": "Create team",
         "nameLabel": "Team name",
-        "descriptionLabel": "Description",
-        "memberCount": "{{count}} members",
-        "loadError": "Couldn't load teams."
+        "memberCount_one": "{{count}} member",
+        "memberCount_other": "{{count}} members"
       },
       "invites": {
         "title": "Pending invitations",
@@ -2422,6 +2421,7 @@
       "folderNameTaken": "Couldn't move “{{name}}” — a folder with that name already exists there",
       "undo": "Undo",
       "emptySpace": "No notes yet. Notes here are visible to everyone in {{space}}.",
+      "emptyTeamHint": "Spaces shared with you will appear here.",
       "noteCount_one": "{{count}} note",
       "noteCount_other": "{{count}} notes",
       "accessRevoked": "You no longer have access to {{space}}",
@@ -2434,6 +2434,7 @@
         "menu": "Members…",
         "title": "Members of {{space}}",
         "addPeople": "Add people",
+        "addFailed": "{{failed}} of {{total}} people couldn't be added",
         "searchPlaceholder": "Search people…",
         "roleAdmin": "Admin",
         "roleMember": "Member",

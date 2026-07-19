@@ -1922,9 +1922,8 @@
         "createFirst": "Crea tu primer equipo",
         "createTitle": "Crear equipo",
         "nameLabel": "Nombre del equipo",
-        "descriptionLabel": "Descripción",
-        "memberCount": "{{count}} miembros",
-        "loadError": "No se pudieron cargar los equipos."
+        "memberCount_one": "{{count}} miembro",
+        "memberCount_other": "{{count}} miembros"
       },
       "invites": {
         "title": "Invitaciones pendientes",
@@ -2262,6 +2261,7 @@
       "folderNameTaken": "No se pudo mover «{{name}}»: ya existe una carpeta con ese nombre allí",
       "undo": "Deshacer",
       "emptySpace": "Aún no hay notas. Las notas aquí son visibles para todos en {{space}}.",
+      "emptyTeamHint": "Los espacios compartidos contigo aparecerán aquí.",
       "noteCount_one": "{{count}} nota",
       "noteCount_other": "{{count}} notas",
       "accessRevoked": "Ya no tienes acceso a {{space}}",
@@ -2274,6 +2274,7 @@
         "menu": "Miembros…",
         "title": "Miembros de {{space}}",
         "addPeople": "Añadir personas",
+        "addFailed": "No se pudo añadir a {{failed}} de {{total}} personas",
         "searchPlaceholder": "Buscar personas…",
         "roleAdmin": "Administrador",
         "roleMember": "Miembro",

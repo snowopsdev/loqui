@@ -1264,9 +1264,8 @@
         "createFirst": "Erstellen Sie Ihr erstes Team",
         "createTitle": "Team erstellen",
         "nameLabel": "Team-Name",
-        "descriptionLabel": "Beschreibung",
-        "memberCount": "{{count}} Mitglieder",
-        "loadError": "Teams konnten nicht geladen werden."
+        "memberCount_one": "{{count}} Mitglied",
+        "memberCount_other": "{{count}} Mitglieder"
       },
       "invites": {
         "title": "Ausstehende Einladungen",
@@ -2422,6 +2421,7 @@
       "folderNameTaken": "„{{name}}“ konnte nicht verschoben werden – dort existiert bereits ein Ordner mit diesem Namen",
       "undo": "Rückgängig",
       "emptySpace": "Noch keine Notizen. Notizen hier sind für alle in {{space}} sichtbar.",
+      "emptyTeamHint": "Mit Ihnen geteilte Bereiche erscheinen hier.",
       "noteCount_one": "{{count}} Notiz",
       "noteCount_other": "{{count}} Notizen",
       "accessRevoked": "Du hast keinen Zugriff mehr auf {{space}}",
@@ -2434,6 +2434,7 @@
         "menu": "Mitglieder…",
         "title": "Mitglieder von {{space}}",
         "addPeople": "Personen hinzufügen",
+        "addFailed": "{{failed}} von {{total}} Personen konnten nicht hinzugefügt werden",
         "searchPlaceholder": "Personen suchen…",
         "roleAdmin": "Administrator",
         "roleMember": "Mitglied",

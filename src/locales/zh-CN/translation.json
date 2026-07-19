@@ -1869,9 +1869,8 @@
         "createFirst": "创建您的第一个团队",
         "createTitle": "创建团队",
         "nameLabel": "团队名称",
-        "descriptionLabel": "描述",
-        "memberCount": "{{count}} 名成员",
-        "loadError": "无法加载团队。"
+        "memberCount_one": "{{count}} 名成员",
+        "memberCount_other": "{{count}} 名成员"
       },
       "invites": {
         "title": "待处理的邀请",
@@ -2209,6 +2208,7 @@
       "folderNameTaken": "无法移动“{{name}}”：该位置已存在同名文件夹",
       "undo": "撤销",
       "emptySpace": "还没有笔记。这里的笔记对 {{space}} 中的所有人可见。",
+      "emptyTeamHint": "与你共享的空间将显示在这里。",
       "noteCount_one": "{{count}} 条笔记",
       "noteCount_other": "{{count}} 条笔记",
       "accessRevoked": "你已无法访问 {{space}}",
@@ -2221,6 +2221,7 @@
         "menu": "成员…",
         "title": "{{space}} 的成员",
         "addPeople": "添加成员",
+        "addFailed": "{{total}} 人中有 {{failed}} 人无法添加",
         "searchPlaceholder": "搜索成员…",
         "roleAdmin": "管理员",
         "roleMember": "成员",

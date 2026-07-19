@@ -1874,9 +1874,8 @@
         "createFirst": "最初のチームを作成",
         "createTitle": "チームを作成",
         "nameLabel": "チーム名",
-        "descriptionLabel": "説明",
-        "memberCount": "{{count}}人のメンバー",
-        "loadError": "チームを読み込めませんでした。"
+        "memberCount_one": "{{count}}人のメンバー",
+        "memberCount_other": "{{count}}人のメンバー"
       },
       "invites": {
         "title": "保留中の招待",
@@ -2142,6 +2141,7 @@
       "folderNameTaken": "「{{name}}」を移動できませんでした。同じ名前のフォルダが既に存在します",
       "undo": "元に戻す",
       "emptySpace": "まだノートがありません。ここのノートは{{space}}の全員に表示されます。",
+      "emptyTeamHint": "共有されたスペースはここに表示されます。",
       "noteCount_one": "{{count}} 件のノート",
       "noteCount_other": "{{count}} 件のノート",
       "accessRevoked": "{{space}} へのアクセス権がなくなりました",
@@ -2154,6 +2154,7 @@
         "menu": "メンバー…",
         "title": "{{space}} のメンバー",
         "addPeople": "メンバーを追加",
+        "addFailed": "{{total}}人中{{failed}}人を追加できませんでした",
         "searchPlaceholder": "メンバーを検索…",
         "roleAdmin": "管理者",
         "roleMember": "メンバー",

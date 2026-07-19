@@ -1874,9 +1874,8 @@
         "createFirst": "Crea il tuo primo team",
         "createTitle": "Crea team",
         "nameLabel": "Nome del team",
-        "descriptionLabel": "Descrizione",
-        "memberCount": "{{count}} membri",
-        "loadError": "Impossibile caricare i team."
+        "memberCount_one": "{{count}} membro",
+        "memberCount_other": "{{count}} membri"
       },
       "invites": {
         "title": "Inviti in sospeso",
@@ -2214,6 +2213,7 @@
       "folderNameTaken": "Impossibile spostare “{{name}}”: esiste già una cartella con questo nome in quella posizione",
       "undo": "Annulla",
       "emptySpace": "Ancora nessuna nota. Le note qui sono visibili a tutti in {{space}}.",
+      "emptyTeamHint": "Gli spazi condivisi con te appariranno qui.",
       "noteCount_one": "{{count}} nota",
       "noteCount_other": "{{count}} note",
       "accessRevoked": "Non hai più accesso a {{space}}",
@@ -2226,6 +2226,7 @@
         "menu": "Membri…",
         "title": "Membri di {{space}}",
         "addPeople": "Aggiungi persone",
+        "addFailed": "Impossibile aggiungere {{failed}} persone su {{total}}",
         "searchPlaceholder": "Cerca persone…",
         "roleAdmin": "Amministratore",
         "roleMember": "Membro",

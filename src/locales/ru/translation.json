@@ -1874,9 +1874,10 @@
         "createFirst": "Создайте первую команду",
         "createTitle": "Создать команду",
         "nameLabel": "Название команды",
-        "descriptionLabel": "Описание",
-        "memberCount": "{{count}} участников",
-        "loadError": "Не удалось загрузить команды."
+        "memberCount_one": "{{count}} участник",
+        "memberCount_few": "{{count}} участника",
+        "memberCount_many": "{{count}} участников",
+        "memberCount_other": "{{count}} участника"
       },
       "invites": {
         "title": "Ожидающие приглашения",
@@ -2216,6 +2217,7 @@
       "folderNameTaken": "Не удалось переместить «{{name}}» — там уже есть папка с таким именем",
       "undo": "Отменить",
       "emptySpace": "Пока нет заметок. Заметки здесь видны всем в {{space}}.",
+      "emptyTeamHint": "Пространства, которыми с вами поделились, появятся здесь.",
       "noteCount_one": "{{count}} заметка",
       "noteCount_few": "{{count}} заметки",
       "noteCount_many": "{{count}} заметок",
@@ -2230,6 +2232,7 @@
         "menu": "Участники…",
         "title": "Участники {{space}}",
         "addPeople": "Добавить людей",
+        "addFailed": "Не удалось добавить {{failed}} из {{total}} участников",
         "searchPlaceholder": "Поиск людей…",
         "roleAdmin": "Администратор",
         "roleMember": "Участник",

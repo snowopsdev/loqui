@@ -1853,9 +1853,8 @@
         "createFirst": "Crie sua primeira equipe",
         "createTitle": "Criar equipe",
         "nameLabel": "Nome da equipe",
-        "descriptionLabel": "Descrição",
-        "memberCount": "{{count}} membros",
-        "loadError": "Não foi possível carregar as equipes."
+        "memberCount_one": "{{count}} membro",
+        "memberCount_other": "{{count}} membros"
       },
       "invites": {
         "title": "Convites pendentes",
@@ -2214,6 +2213,7 @@
       "folderNameTaken": "Não foi possível mover “{{name}}”: já existe uma pasta com esse nome nesse local",
       "undo": "Desfazer",
       "emptySpace": "Nenhuma nota ainda. As notas aqui são visíveis para todos em {{space}}.",
+      "emptyTeamHint": "Os espaços compartilhados com você aparecerão aqui.",
       "noteCount_one": "{{count}} nota",
       "noteCount_other": "{{count}} notas",
       "accessRevoked": "Você não tem mais acesso a {{space}}",
@@ -2226,6 +2226,7 @@
         "menu": "Membros…",
         "title": "Membros de {{space}}",
         "addPeople": "Adicionar pessoas",
+        "addFailed": "Não foi possível adicionar {{failed}} de {{total}} pessoas",
         "searchPlaceholder": "Pesquisar pessoas…",
         "roleAdmin": "Administrador",
         "roleMember": "Membro",

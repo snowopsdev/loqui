@@ -102,6 +102,8 @@
 4. Clear model cache: `rm -rf ~/.cache/openwhispr/whisper-models`
 5. Try cloud transcription as fallback
 
+**GPU acceleration (CUDA / Vulkan):** If the GPU-accelerated whisper-server crashes at startup (unsupported GPU, out of VRAM), OpenWhispr automatically restarts it on CPU, retries the same request, and shows a "using CPU instead" notice — the dictation still completes. GPU acceleration can be toggled off from the GPU card in the transcription model picker.
+
 ### Wayland Clipboard Issues (Linux)
 
 **Symptoms:** Paste simulation succeeds but target app shows "clipboard is empty", "no image on clipboard", or "contents not available in the requested format"
@@ -155,7 +157,7 @@ OpenWhispr tries clipboard methods in order: `wl-copy` (most reliable) → rende
 1. Check that meeting detection is enabled in settings
 2. Verify your OpenAI API key is valid (required for Realtime API transcription)
 3. Ensure your meeting app (Zoom, Teams, FaceTime) is running — process detection looks for known meeting applications
-4. If auto-detection fails, you can manually start recording from the meeting notification
+4. If auto-detection fails, you can manually start recording from the in-app meeting prompt (an always-on-top overlay card — it works even with Focus/Do Not Disturb on and never appears in screen shares)
 
 ### Agent Mode Issues
 

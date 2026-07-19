@@ -13,6 +13,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useDelayedFlag } from "../hooks/useDelayedFlag";
 import { useToast } from "./ui/useToast";
 
 interface Props {
@@ -28,6 +29,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
   const setActive = useWorkspaceStore((s) => s.setActiveWorkspaceId);
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const showSpinner = useDelayedFlag(submitting);
 
   useEffect(() => {
     if (!open) setName("");
@@ -88,7 +90,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
               {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!name.trim() || submitting}>
-              {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {showSpinner && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {submitting ? t("workspaces.create.submitting") : t("workspaces.create.submit")}
             </Button>
           </DialogFooter>

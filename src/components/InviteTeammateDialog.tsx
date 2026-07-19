@@ -14,6 +14,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { cn } from "./lib/utils";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useDelayedFlag } from "../hooks/useDelayedFlag";
 import { InvitationsService } from "../services/InvitationsService";
 import { CloudApiError } from "../services/cloudApi";
 import { WorkspacesService } from "../services/WorkspacesService";
@@ -48,6 +49,7 @@ export default function InviteTeammateDialog({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "member">("member");
   const [submitting, setSubmitting] = useState(false);
+  const showSpinner = useDelayedFlag(submitting);
   const [seatsUsed, setSeatsUsed] = useState<number | null>(null);
   const [seatLimitSeats, setSeatLimitSeats] = useState<number | null>(null);
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId));
@@ -215,7 +217,7 @@ export default function InviteTeammateDialog({
               {cancelLabel ?? t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!email.trim() || submitting}>
-              {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {showSpinner && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {submitting ? t("workspaces.invite.submitting") : t("workspaces.invite.submit")}
             </Button>
           </DialogFooter>

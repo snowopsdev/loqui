@@ -1,7 +1,6 @@
 import { create } from "zustand";
-import type { Workspace, WorkspaceMember, Team } from "../types/electron";
+import type { Workspace, WorkspaceMember } from "../types/electron";
 import { WorkspacesService } from "../services/WorkspacesService";
-import { TeamsService } from "../services/TeamsService";
 import logger from "../utils/logger";
 
 interface WorkspaceState {
@@ -11,13 +10,11 @@ interface WorkspaceState {
   error: boolean;
   activeWorkspaceId: string | null;
   members: WorkspaceMember[];
-  teams: Team[];
 
   setActiveWorkspaceId: (id: string | null) => void;
   refresh: () => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace>;
   refreshMembers: (workspaceId: string) => Promise<void>;
-  refreshTeams: (workspaceId: string) => Promise<void>;
 }
 
 const ACTIVE_WORKSPACE_KEY = "activeWorkspaceId";
@@ -35,7 +32,6 @@ function writeActiveWorkspaceId(id: string | null): void {
 
 let refreshPromise: Promise<void> | null = null;
 let membersRequestSeq = 0;
-let teamsRequestSeq = 0;
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
@@ -44,15 +40,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   error: false,
   activeWorkspaceId: readActiveWorkspaceId(),
   members: [],
-  teams: [],
 
   setActiveWorkspaceId: (id) => {
     writeActiveWorkspaceId(id);
     // Invalidate in-flight member fetches so the old workspace's roster can't
     // land under the new one.
     membersRequestSeq++;
-    teamsRequestSeq++;
-    set({ activeWorkspaceId: id, members: [], teams: [] });
+    set({ activeWorkspaceId: id, members: [] });
   },
 
   refresh: () => {
@@ -101,22 +95,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     } catch (error) {
       logger.error(
         "Failed to load workspace members",
-        { error: (error as Error).message },
-        "workspaces"
-      );
-      throw error;
-    }
-  },
-
-  refreshTeams: async (workspaceId) => {
-    const seq = ++teamsRequestSeq;
-    try {
-      const teams = await TeamsService.list(workspaceId);
-      if (seq !== teamsRequestSeq) return;
-      set({ teams });
-    } catch (error) {
-      logger.error(
-        "Failed to load workspace teams",
         { error: (error as Error).message },
         "workspaces"
       );

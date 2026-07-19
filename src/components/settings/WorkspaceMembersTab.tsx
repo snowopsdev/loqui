@@ -10,6 +10,8 @@ import { ConfirmDialog } from "../ui/dialog";
 import { useToast } from "../ui/useToast";
 import type { Workspace, WorkspaceInvitation, WorkspaceMember } from "../../types/electron";
 import InviteTeammateDialog from "../InviteTeammateDialog";
+import MemberAvatar from "../MemberAvatar";
+import RoleBadge from "../RoleBadge";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -203,17 +205,7 @@ export default function WorkspaceMembersTab({ workspace, onNavigateToBilling }: 
         <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 divide-y divide-border/30 dark:divide-border-subtle/50 bg-card/50 dark:bg-surface-2/50">
           {members.map((member) => (
             <div key={member.user_id} className="flex items-center gap-3 px-4 h-14">
-              {member.image ? (
-                <img
-                  src={member.image}
-                  alt=""
-                  className="w-7 h-7 rounded-full object-cover shrink-0"
-                />
-              ) : (
-                <span className="w-7 h-7 rounded-full bg-primary/10 text-primary text-[10px] font-semibold flex items-center justify-center shrink-0">
-                  {(member.name || member.email).slice(0, 2).toUpperCase()}
-                </span>
-              )}
+              <MemberAvatar name={member.name} email={member.email} image={member.image} />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-foreground truncate">
                   {member.name || member.email}
@@ -222,16 +214,10 @@ export default function WorkspaceMembersTab({ workspace, onNavigateToBilling }: 
                   <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                 )}
               </div>
-              <span
-                className={cn(
-                  "text-[10px] font-medium px-2 py-0.5 rounded-md uppercase tracking-wide",
-                  member.role === "owner"
-                    ? "bg-primary/10 text-primary"
-                    : "bg-foreground/6 text-foreground/65"
-                )}
-              >
-                {t(`settingsPage.workspace.role.${member.role}`)}
-              </span>
+              <RoleBadge
+                label={t(`settingsPage.workspace.role.${member.role}`)}
+                highlight={member.role === "owner"}
+              />
               {canManage && member.role !== "owner" && (
                 <DropdownMenu>
                   <DropdownMenuTrigger

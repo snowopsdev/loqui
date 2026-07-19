@@ -771,8 +771,6 @@ export default function SettingsPage({
     setFloatingIconAutoHide,
     startMinimized,
     setStartMinimized,
-    showDockIcon,
-    setShowDockIcon,
     panelStartPosition,
     setPanelStartPosition,
     cloudBackupEnabled,
@@ -2726,16 +2724,6 @@ export default function SettingsPage({
                     <Toggle checked={startMinimized} onChange={setStartMinimized} />
                   </SettingsRow>
                 </SettingsPanelRow>
-                {platform === "darwin" && (
-                  <SettingsPanelRow>
-                    <SettingsRow
-                      label={t("settingsPage.general.startup.showDockIcon")}
-                      description={t("settingsPage.general.startup.showDockIconDescription")}
-                    >
-                      <Toggle checked={showDockIcon} onChange={setShowDockIcon} />
-                    </SettingsRow>
-                  </SettingsPanelRow>
-                )}
               </SettingsPanel>
             </div>
 

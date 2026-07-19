@@ -1484,9 +1484,7 @@
         "title": "Автозапуск",
         "description": "Управляйте поведением OpenWhispr при запуске",
         "startMinimized": "Запуск в свёрнутом виде",
-        "startMinimizedDescription": "Запускать без отображения окна панели управления",
-        "showDockIcon": "Показывать значок в Dock",
-        "showDockIconDescription": "Оставлять OpenWhispr в Dock. Отключите, чтобы работать только из строки меню."
+        "startMinimizedDescription": "Запускать без отображения окна панели управления"
       },
       "waylandPaste": {
         "title": "Настройка вставки в Wayland",

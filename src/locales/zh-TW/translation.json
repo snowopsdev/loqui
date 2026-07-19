@@ -1217,7 +1217,12 @@
           "annualEquivalent": "$16.67",
           "includesPrefix": "所有 Pro 功能 +",
           "badge": "最熱門",
-          "features": ["無限會議錄製", "代理模式", "與您的資料對話", "優先支援"],
+          "features": [
+            "無限會議錄製",
+            "代理模式",
+            "與您的資料對話",
+            "優先支援"
+          ],
           "cta": "開始使用",
           "switchToAnnual": "切換為年付"
         },
@@ -1479,9 +1484,7 @@
         "title": "啟動",
         "description": "控制 OpenWhispr 啟動時的行為",
         "startMinimized": "啟動時最小化",
-        "startMinimizedDescription": "啟動時不顯示控制面板視窗",
-        "showDockIcon": "顯示 Dock 圖示",
-        "showDockIconDescription": "在 Dock 中保留 OpenWhispr。關閉後僅在選單列中執行。"
+        "startMinimizedDescription": "啟動時不顯示控制面板視窗"
       },
       "waylandPaste": {
         "title": "Wayland 貼上設定",

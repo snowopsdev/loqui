@@ -1463,9 +1463,7 @@
         "title": "Inicialização",
         "description": "Controle o comportamento do OpenWhispr ao iniciar",
         "startMinimized": "Iniciar minimizado",
-        "startMinimizedDescription": "Iniciar sem mostrar a janela do painel de controle",
-        "showDockIcon": "Mostrar ícone no Dock",
-        "showDockIconDescription": "Manter o OpenWhispr no Dock. Desative para usar apenas na barra de menus."
+        "startMinimizedDescription": "Iniciar sem mostrar a janela do painel de controle"
       },
       "waylandPaste": {
         "title": "Configuração de colagem no Wayland",

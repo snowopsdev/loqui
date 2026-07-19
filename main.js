@@ -838,11 +838,6 @@ async function startApp() {
     }
   });
 
-  ipcMain.on("show-dock-icon-changed", (_event, enabled) => {
-    environmentManager.saveShowDockIcon(enabled);
-    dockManager.setShowDockIcon(enabled);
-  });
-
   ipcMain.on("start-minimized-changed", (_event, enabled) => {
     if (debugLogger) debugLogger.info("Start minimized changed", { enabled });
     environmentManager.saveStartMinimized(enabled);
@@ -853,7 +848,7 @@ async function startApp() {
     environmentManager.savePanelStartPosition(position);
   });
 
-  dockManager.init(environmentManager.getShowDockIcon());
+  dockManager.init();
 
   // In development, wait for Vite dev server to be ready
   if (process.env.NODE_ENV === "development") {

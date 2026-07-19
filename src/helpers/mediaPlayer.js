@@ -10,8 +10,6 @@ function spawnAsync(cmd, args, { timeout = 3000 } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      // windowsHide avoids a flashing console when helpers invoke nircmd/powershell
-      // on Windows during dictation media pause/resume.
       child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (err) {
       resolve({ status: null, stdout: "", stderr: String(err?.message || err) });

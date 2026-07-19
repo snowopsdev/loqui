@@ -1061,8 +1061,7 @@ export default function SpacesTree({
   const teamSpaces = useMemo(() => spaces.filter((s) => s.kind === "team"), [spaces]);
   const visibleSpaces = teamCapability ? spaces : privateSpaces;
 
-  // Team creation needs workspace owner/admin (the server 403s members); a
-  // user with no workspace yet goes through the create-workspace funnel.
+  // The server 403s team creation for plain members; no-workspace users get the create funnel.
   const canCreateTeamSpace =
     isSignedIn &&
     workspacesLoaded &&

@@ -4,9 +4,7 @@ import { loadSpaces, purgeSpace, updateSpaceMeta } from "../stores/noteStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import type { SpaceItem, TeamMember, TeamRole } from "../types/electron";
 
-// Single mutation path for team spaces: every action talks to the server via
-// TeamsService, mirrors the result into local SQLite, then refreshes the
-// store — so the sidebar, the editor and the settings tab all read one truth.
+// Single mutation path for team spaces: server call → local SQLite mirror → store refresh.
 
 function requireTeamId(space: SpaceItem): string {
   if (!space.cloud_team_id) throw new Error("Not a cloud team space");
@@ -41,8 +39,7 @@ export async function createTeamSpace(
 ): Promise<{ space: SpaceItem | null; failedMembers: number }> {
   const team = await TeamsService.create(workspaceId, input);
   const failedMembers = (await settleAddMembers(team.id, memberIds)).length;
-  // The creator accesses the team implicitly; member_count mirrors the
-  // server's explicit-roster count.
+  // member_count mirrors the server's explicit roster; the creator is implicit.
   const space =
     (await window.electronAPI.upsertSpaceFromCloud?.({
       ...team,
@@ -89,11 +86,9 @@ export async function deleteTeamSpace(
 }
 
 /**
- * Leaves a team space after re-checking the roster server-side. Workspace
- * owners/admins access every team implicitly (no team_members row) and the
- * member DELETE succeeds even when no roster row exists, so their "leave" is
- * a server no-op — purging locally would only have the space resurrect on the
- * next sync pass. Returns "implicit" without purging in that case.
+ * A "leave" by an implicit workspace owner/admin (no team_members row) is a
+ * server no-op — purging locally would only resurrect the space on the next
+ * sync pass, so the roster is re-checked and "implicit" returns without purging.
  */
 export async function leaveTeamSpace(
   space: SpaceItem,

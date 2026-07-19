@@ -1,7 +1,5 @@
-// Reactive view over the localStorage team-spaces capability flag: the sync
-// pass probes the server and writes the flag, and mounted consumers
-// (useTeamSpacesCapability) must re-render when it flips — same-window flips
-// notify subscribers directly, cross-window ones ride the storage event.
+// Reactive view over the localStorage capability flag the sync probe writes:
+// same-window flips notify subscribers; cross-window ones ride the storage event.
 const CAPABILITY_KEY = "teamSpacesCapability";
 
 const subscribers = new Set<() => void>();

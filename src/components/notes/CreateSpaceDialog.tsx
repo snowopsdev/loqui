@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
@@ -25,10 +26,19 @@ export default function CreateSpaceDialog({ open, onOpenChange }: CreateSpaceDia
   const { toast } = useToast();
   const { user } = useAuth();
   const { workspaces, active, loaded, refresh } = useWorkspace();
-  const workspacesError = useWorkspaceStore((s) => s.error);
-  const workspacesLoading = useWorkspaceStore((s) => s.loading);
-  const roster = useWorkspaceStore((s) => s.members);
-  const refreshMembers = useWorkspaceStore((s) => s.refreshMembers);
+  const {
+    error: workspacesError,
+    loading: workspacesLoading,
+    members: roster,
+    refreshMembers,
+  } = useWorkspaceStore(
+    useShallow((s) => ({
+      error: s.error,
+      loading: s.loading,
+      members: s.members,
+      refreshMembers: s.refreshMembers,
+    }))
+  );
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
   const [memberSearch, setMemberSearch] = useState("");

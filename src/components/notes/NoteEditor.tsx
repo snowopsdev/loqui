@@ -60,9 +60,7 @@ import type { CalendarAttendee } from "../../types/calendar";
 const CHIP_BUTTON_CLASS =
   "inline-flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded-md border border-border/70 dark:border-white/25 text-foreground/50 dark:text-foreground/35 hover:text-foreground/60 hover:border-border/60 hover:bg-foreground/3 dark:hover:text-foreground/40 dark:hover:border-white/10 dark:hover:bg-white/3 transition-all duration-150 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring/30";
 
-// Conflict attribution rosters, cached per team so repeated conflicts don't
-// refetch. The workspace-members store can't serve this: in the notes window
-// it's empty or holds another workspace's roster.
+// Conflict attribution rosters, cached per team so repeated conflicts don't refetch.
 const conflictRosterCache = new Map<string, Promise<TeamMember[]>>();
 
 function fetchTeamRoster(teamId: string): Promise<TeamMember[]> {
@@ -222,7 +220,6 @@ export default function NoteEditor({
         const member = roster.find((m) => m.user_id === conflictEditorId);
         setConflictEditorName(member ? (member.name ?? member.email) : null);
       })
-      // Name unresolved — the banner gracefully omits the attribution.
       .catch(() => {
         if (!cancelled) setConflictEditorName(null);
       });

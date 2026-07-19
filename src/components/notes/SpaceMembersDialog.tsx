@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Loader2, LogOut, Mail, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, ConfirmDialog } from "../ui/dialog";
@@ -35,9 +36,17 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
   const { toast } = useToast();
   const { user } = useAuth();
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
-  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === space.workspace_id));
-  const roster = useWorkspaceStore((s) => s.members);
-  const refreshMembers = useWorkspaceStore((s) => s.refreshMembers);
+  const {
+    workspace,
+    members: roster,
+    refreshMembers,
+  } = useWorkspaceStore(
+    useShallow((s) => ({
+      workspace: s.workspaces.find((w) => w.id === space.workspace_id),
+      members: s.members,
+      refreshMembers: s.refreshMembers,
+    }))
+  );
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -50,10 +59,7 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
   const teamId = space.cloud_team_id;
   const canManage = canManageSpace(space, workspace?.role ?? null);
   const canInviteToWorkspace = workspace?.role === "owner" || workspace?.role === "admin";
-  // Workspace owners/admins access every team implicitly (no team_members
-  // row): the server's member DELETE no-ops (or leaves implicit access
-  // intact), so the space would resurrect on the next sync pass right after
-  // a local purge — Leave is hidden for them (plan §4), same as in the tree.
+  // Leave is a server no-op for implicit workspace owners/admins — hidden, same as in the tree.
   const isImplicitAdmin = workspace?.role === "owner" || workspace?.role === "admin";
   const isExplicitMember = members.some((m) => m.user_id === user?.id);
   const canLeave = isExplicitMember && !isImplicitAdmin;

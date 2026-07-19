@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Trash2, MoreVertical, Mail, X, Loader2 } from "lucide-react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -33,9 +34,13 @@ export default function WorkspaceMembersTab({ workspace, onNavigateToBilling }: 
   const { t } = useTranslation();
   const { toast } = useToast();
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
-  const members = useWorkspaceStore((s) => s.members);
-  const refreshMembers = useWorkspaceStore((s) => s.refreshMembers);
-  const refresh = useWorkspaceStore((s) => s.refresh);
+  const { members, refreshMembers, refresh } = useWorkspaceStore(
+    useShallow((s) => ({
+      members: s.members,
+      refreshMembers: s.refreshMembers,
+      refresh: s.refresh,
+    }))
+  );
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);

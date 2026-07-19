@@ -1984,8 +1984,7 @@ class DatabaseManager {
     return this.updateSpace(id, { name });
   }
 
-  // Narrow update after a membership mutation: touches ONLY member_count so a
-  // concurrently synced rename or pending backfill flag is never clobbered.
+  // Touches ONLY member_count — never clobbers a concurrent rename or backfill flag.
   updateSpaceMemberCount(id, count) {
     try {
       if (!this.db) throw new Error("Database not initialized");

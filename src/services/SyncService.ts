@@ -185,10 +185,7 @@ class SyncService {
     // The guard protected any pass still in flight during the purge; drop it
     // so the next account (possibly a member of the same teams) starts clean.
     localStorage.removeItem(PURGED_TEAM_GUARD_KEY);
-    // Both keep local numeric/account-scoped ids that collide across
-    // accounts: the workspace selection and the tree's expanded containers.
-    // The purge loop above has completed, so nothing re-reads them before the
-    // sign-out reload; the next account starts from defaults.
+    // Both hold account-scoped/local numeric ids that collide across accounts.
     localStorage.removeItem("activeWorkspaceId");
     localStorage.removeItem("notesTree.expanded");
   }

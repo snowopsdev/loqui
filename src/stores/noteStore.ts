@@ -85,9 +85,7 @@ let loadGeneration = 0;
 let treeLoadGeneration = 0;
 let spacesLoadGeneration = 0;
 let foldersLoadGeneration = 0;
-// Folder navigation requested before the tree is initialized (folders not
-// loaded yet). Consumed once by initializeNotesTree; while the tree is
-// mounted, the active folder always lives in activeContext.
+// Folder navigation requested before folders load; consumed once by initializeNotesTree.
 let pendingFolderPreset: number | null = null;
 
 export function folderContainerKey(folderId: number): string {
@@ -296,9 +294,7 @@ function ensureIpcListeners() {
     }
   }
 
-  // Space rows written by a sync pull or a membership mutation (teammate
-  // renames, member_count/my_role changes, newly accepted teams) — refresh a
-  // mounted sidebar without a remount.
+  // Space rows written by a sync pull or membership mutation.
   if (window.electronAPI?.onSpaceSynced) {
     const dispose = window.electronAPI.onSpaceSynced((space) => {
       if (space) void loadSpaces();
@@ -318,7 +314,7 @@ function ensureIpcListeners() {
 export async function loadSpaces(): Promise<SpaceItem[]> {
   const gen = ++spacesLoadGeneration;
   const items = (await window.electronAPI?.getSpaces?.()) ?? [];
-  // Discard stale responses when a newer load resolved first.
+  // A newer load may have resolved first.
   if (gen !== spacesLoadGeneration) return items;
   useNoteStore.setState({ spaces: items });
   return items;
@@ -743,8 +739,7 @@ export function setActiveFolderId(id: number | null): void {
     revealContainer(folder.space_id, folder.id);
     return;
   }
-  // Folder unknown (tree not initialized yet) or id cleared: park it for
-  // initializeNotesTree to resolve once on mount.
+  // Folder unknown (tree not initialized yet) or id cleared.
   pendingFolderPreset = id;
 }
 

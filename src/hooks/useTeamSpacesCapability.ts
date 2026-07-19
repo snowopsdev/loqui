@@ -18,7 +18,5 @@ function hasTeamSpacesDevOverride(): boolean {
 export function useTeamSpacesCapability(): boolean {
   const spaces = useSpaces();
   const capability = useSyncExternalStore(subscribeTeamSpacesCapability, readTeamSpacesCapability);
-  return (
-    hasTeamSpacesDevOverride() || capability || spaces.some((space) => space.kind === "team")
-  );
+  return hasTeamSpacesDevOverride() || capability || spaces.some((space) => space.kind === "team");
 }

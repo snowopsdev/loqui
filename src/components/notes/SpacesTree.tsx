@@ -43,11 +43,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useWorkspace } from "../../hooks/useWorkspace";
 import { canManageSpace } from "../../lib/spacePermissions";
 import { NoteSharingService } from "../../services/NoteSharingService";
-import {
-  deleteTeamSpace,
-  leaveTeamSpace,
-  renameTeamSpace,
-} from "../../services/teamSpaceActions";
+import { deleteTeamSpace, leaveTeamSpace, renameTeamSpace } from "../../services/teamSpaceActions";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { cn } from "../lib/utils";
 import { formatRelativeTime } from "../../utils/dateFormatting";
@@ -1070,8 +1066,7 @@ export default function SpacesTree({
   const canCreateTeamSpace =
     isSignedIn &&
     workspacesLoaded &&
-    (workspaces.length === 0 ||
-      workspaces.some((w) => w.role === "owner" || w.role === "admin"));
+    (workspaces.length === 0 || workspaces.some((w) => w.role === "owner" || w.role === "admin"));
 
   // Local-only spaces (no cloud team) stay fully manageable; cloud spaces
   // follow space/workspace roles. Cosmetic — the server enforces.

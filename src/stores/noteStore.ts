@@ -736,8 +736,7 @@ export function navigateToContainer(spaceId: number, folderId: number | null): v
 }
 
 export function setActiveFolderId(id: number | null): void {
-  const folder =
-    id != null ? useNoteStore.getState().folders.find((f) => f.id === id) : undefined;
+  const folder = id != null ? useNoteStore.getState().folders.find((f) => f.id === id) : undefined;
   if (folder) {
     pendingFolderPreset = null;
     setActiveContext(folder.space_id, folder.id);

@@ -119,8 +119,7 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
       description: t("notes.spaces.members.removeConfirmDescription"),
       confirmText: t("notes.spaces.members.remove"),
       variant: "destructive",
-      onConfirm: () =>
-        void withRowBusy(member.user_id, () => removeMember(space, member.user_id)),
+      onConfirm: () => void withRowBusy(member.user_id, () => removeMember(space, member.user_id)),
     });
   };
 

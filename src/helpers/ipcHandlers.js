@@ -1684,9 +1684,19 @@ class IPCHandlers {
     ipcMain.handle("db-get-space-by-cloud-team-id", (_, cloudTeamId) =>
       this.databaseManager.getSpaceByCloudTeamId(cloudTeamId)
     );
-    ipcMain.handle("db-upsert-space-from-cloud", (_, team) =>
-      this.databaseManager.upsertSpaceFromCloud(team)
-    );
+    ipcMain.handle("db-upsert-space-from-cloud", (_, team) => {
+      const space = this.databaseManager.upsertSpaceFromCloud(team);
+      if (space) setImmediate(() => this.broadcastToWindows("space-synced", space));
+      return space;
+    });
+    ipcMain.handle("db-update-space-member-count", (_, id, count) => {
+      const result = this.databaseManager.updateSpaceMemberCount(id, count);
+      if (result?.space) {
+        const space = result.space;
+        setImmediate(() => this.broadcastToWindows("space-synced", space));
+      }
+      return result;
+    });
     ipcMain.handle("db-set-space-sync-status", (_, id, status) =>
       this.databaseManager.setSpaceSyncStatus(id, status)
     );

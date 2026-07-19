@@ -741,11 +741,16 @@ declare global {
       }>;
       getSpaceByCloudTeamId?: (cloudTeamId: string) => Promise<SpaceItem | null>;
       upsertSpaceFromCloud?: (team: Record<string, unknown>) => Promise<SpaceItem>;
+      updateSpaceMemberCount?: (
+        id: number,
+        count: number
+      ) => Promise<{ success: boolean; space?: SpaceItem; error?: string }>;
       setSpaceSyncStatus?: (
         id: number,
         status: SpaceItem["sync_status"]
       ) => Promise<{ success: boolean }>;
       onSpacePurged?: (callback: (payload: { spaceId: number }) => void) => () => void;
+      onSpaceSynced?: (callback: (space: SpaceItem) => void) => () => void;
 
       // Note files (markdown mirror)
       noteFilesSetEnabled?: (

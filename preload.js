@@ -148,11 +148,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSpaceByCloudTeamId: (cloudTeamId) =>
     ipcRenderer.invoke("db-get-space-by-cloud-team-id", cloudTeamId),
   upsertSpaceFromCloud: (team) => ipcRenderer.invoke("db-upsert-space-from-cloud", team),
+  updateSpaceMemberCount: (id, count) =>
+    ipcRenderer.invoke("db-update-space-member-count", id, count),
   setSpaceSyncStatus: (id, status) => ipcRenderer.invoke("db-set-space-sync-status", id, status),
   onSpacePurged: (callback) => {
     const listener = (_event, payload) => callback?.(payload);
     ipcRenderer.on("space-purged", listener);
     return () => ipcRenderer.removeListener("space-purged", listener);
+  },
+  onSpaceSynced: (callback) => {
+    const listener = (_event, space) => callback?.(space);
+    ipcRenderer.on("space-synced", listener);
+    return () => ipcRenderer.removeListener("space-synced", listener);
   },
 
   // Note files (markdown mirror) functions

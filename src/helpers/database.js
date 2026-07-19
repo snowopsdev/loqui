@@ -1984,6 +1984,22 @@ class DatabaseManager {
     return this.updateSpace(id, { name });
   }
 
+  // Narrow update after a membership mutation: touches ONLY member_count so a
+  // concurrently synced rename or pending backfill flag is never clobbered.
+  updateSpaceMemberCount(id, count) {
+    try {
+      if (!this.db) throw new Error("Database not initialized");
+      const result = this.db
+        .prepare("UPDATE spaces SET member_count = ? WHERE id = ?")
+        .run(count, id);
+      if (result.changes === 0) return { success: false, error: "Space not found" };
+      return { success: true, space: this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(id) };
+    } catch (error) {
+      debugLogger.error("Error updating space member count", { error: error.message }, "spaces");
+      throw error;
+    }
+  }
+
   setSpaceSyncStatus(id, status) {
     try {
       if (!this.db) throw new Error("Database not initialized");

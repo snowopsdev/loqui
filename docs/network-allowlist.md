@@ -49,6 +49,18 @@ Contacted only if the user connects Google Calendar in settings.
 | `www.googleapis.com`    | HTTPS    | 443  | Calendar event and calendar list reads.                     |
 | `openwhispr.com`        | HTTPS    | 443  | OAuth desktop callback redirect (`/auth/desktop-callback`). |
 
+## Required for URL audio import (optional feature)
+
+Contacted only when a user pastes a URL into the Upload view to download and
+transcribe its audio. Downloads are HTTPS-only and hosts resolving to
+private/internal addresses are rejected.
+
+| Host                                | Protocol | Port | Purpose                                                                    |
+| ----------------------------------- | -------- | ---- | -------------------------------------------------------------------------- |
+| `www.youtube.com`, `youtube.com`, `youtu.be`, `m.youtube.com`, `music.youtube.com` | HTTPS | 443 | YouTube page/metadata fetch for pasted YouTube links (bundled yt-dlp).     |
+| `*.googlevideo.com`                 | HTTPS    | 443  | YouTube media CDN — the actual audio stream download.                      |
+| _User-pasted hosts_                 | HTTPS    | 443  | Direct audio/video URL imports contact whatever public host the user pastes. |
+
 ## BYOK provider hosts (only if configured)
 
 Required only when a user configures their own API key for the corresponding

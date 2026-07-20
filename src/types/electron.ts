@@ -1,3 +1,4 @@
+import type { ModelDefinition } from "../models/ModelRegistry";
 import type { TinfoilCatalogModel } from "../models/tinfoilModels";
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia";
@@ -272,6 +273,11 @@ export interface WhisperModelResult {
   size_mb?: number;
   error?: string;
   code?: string;
+  isDownloading?: boolean;
+  isInstalling?: boolean;
+  downloadProgress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
 }
 
 export interface WhisperModelDeleteResult {
@@ -284,7 +290,7 @@ export interface WhisperModelDeleteResult {
 
 export interface WhisperModelsListResult {
   success: boolean;
-  models: Array<{ model: string; downloaded: boolean; size_mb?: number }>;
+  models: WhisperModelResult[];
   cache_dir: string;
 }
 
@@ -382,6 +388,11 @@ export interface ParakeetModelResult {
   size_mb?: number;
   error?: string;
   code?: string;
+  isDownloading?: boolean;
+  isInstalling?: boolean;
+  downloadProgress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
 }
 
 export interface ParakeetModelDeleteResult {
@@ -395,7 +406,7 @@ export interface ParakeetModelDeleteResult {
 
 export interface ParakeetModelsListResult {
   success: boolean;
-  models: Array<{ model: string; downloaded: boolean; size_mb?: number }>;
+  models: ParakeetModelResult[];
   cache_dir: string;
 }
 
@@ -471,6 +482,40 @@ export interface LlamaVulkanDownloadProgress {
   total: number;
   percentage: number;
 }
+
+export interface LocalLLMModelStatus extends ModelDefinition {
+  providerId?: string;
+  providerName?: string;
+  isDownloaded: boolean;
+  isDownloading: boolean;
+  downloadProgress: number;
+  downloadedSize: number;
+  totalSize: number;
+  path: string | null;
+}
+
+export type LocalLLMDownloadProgressEvent =
+  | {
+      type?: "progress";
+      modelId: string;
+      progress: number;
+      downloadedSize: number;
+      totalSize: number;
+    }
+  | {
+      type: "complete";
+      modelId: string;
+      progress: 100;
+      downloadedSize?: number;
+      totalSize?: number;
+    }
+  | {
+      type: "error";
+      modelId: string;
+      error: string;
+      code?: string;
+      details?: unknown;
+    };
 
 export interface ConversationPreview {
   id: number;
@@ -871,11 +916,12 @@ declare global {
         success: boolean;
         message?: string;
         error?: string;
+        code?: string;
       }>;
       getParakeetDiagnostics: () => Promise<ParakeetDiagnosticsResult>;
 
       // Local AI model management
-      modelGetAll: () => Promise<any[]>;
+      modelGetAll: () => Promise<LocalLLMModelStatus[]>;
       modelCheck: (modelId: string) => Promise<boolean>;
       modelDownload: (modelId: string) => Promise<{
         success: boolean;
@@ -903,7 +949,9 @@ declare global {
         details?: string;
       }>;
       modelCancelDownload: (modelId: string) => Promise<{ success: boolean; error?: string }>;
-      onModelDownloadProgress: (callback: (event: any, data: any) => void) => () => void;
+      onModelDownloadProgress: (
+        callback: (event: any, data: LocalLLMDownloadProgressEvent) => void
+      ) => () => void;
 
       // Local reasoning
       processLocalReasoning: (

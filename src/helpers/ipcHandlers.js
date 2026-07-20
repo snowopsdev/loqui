@@ -2013,7 +2013,11 @@ class IPCHandlers {
         });
         return result;
       } catch (error) {
-        if (!event.sender.isDestroyed()) {
+        if (
+          error.code !== "DOWNLOAD_IN_PROGRESS" &&
+          error.code !== "DOWNLOAD_CANCELLED" &&
+          !event.sender.isDestroyed()
+        ) {
           event.sender.send("whisper-download-progress", {
             type: "error",
             model: modelName,
@@ -2319,7 +2323,11 @@ class IPCHandlers {
         );
         return result;
       } catch (error) {
-        if (!event.sender.isDestroyed()) {
+        if (
+          error.code !== "DOWNLOAD_IN_PROGRESS" &&
+          error.code !== "DOWNLOAD_CANCELLED" &&
+          !event.sender.isDestroyed()
+        ) {
           event.sender.send("parakeet-download-progress", {
             type: "error",
             model: modelName,
@@ -2871,11 +2879,18 @@ class IPCHandlers {
     });
 
     ipcMain.handle("model-download", async (event, modelId) => {
+      let lastProgress = {
+        progress: 0,
+        downloadedSize: 0,
+        totalSize: 0,
+      };
+
       try {
         const modelManager = require("./modelManagerBridge").default;
         const result = await modelManager.downloadModel(
           modelId,
           (progress, downloadedSize, totalSize) => {
+            lastProgress = { progress, downloadedSize, totalSize };
             if (!event.sender.isDestroyed()) {
               event.sender.send("model-download-progress", {
                 modelId,
@@ -2886,8 +2901,30 @@ class IPCHandlers {
             }
           }
         );
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("model-download-progress", {
+            type: "complete",
+            modelId,
+            progress: 100,
+            downloadedSize: lastProgress.downloadedSize,
+            totalSize: lastProgress.totalSize,
+          });
+        }
         return { success: true, path: result };
       } catch (error) {
+        if (
+          error.code !== "DOWNLOAD_IN_PROGRESS" &&
+          error.code !== "DOWNLOAD_CANCELLED" &&
+          !event.sender.isDestroyed()
+        ) {
+          event.sender.send("model-download-progress", {
+            type: "error",
+            modelId,
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          });
+        }
         return {
           success: false,
           error: error.message,

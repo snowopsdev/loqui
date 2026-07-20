@@ -1,4 +1,12 @@
-import { useState, useRef, useEffect, useMemo, useCallback, type ComponentProps } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  useSyncExternalStore,
+  type ComponentProps,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Download,
@@ -27,6 +35,7 @@ import {
   updateNoteInStore,
 } from "../../stores/noteStore";
 import { TeamsService } from "../../services/TeamsService";
+import { readIsSubscribed, subscribeIsSubscribed } from "../../lib/subscriptionFlag";
 import { useAuth } from "../../hooks/useAuth";
 import { RichTextEditor } from "../ui/RichTextEditor";
 import type { Editor } from "@tiptap/react";
@@ -255,10 +264,8 @@ export default function NoteEditor({
   // Same gate as SyncService.canSyncSharedNotes: sharing needs a subscription.
   // An already-shared note stays manageable (unshare/revoke) after a lapse.
   // Team notes never get a public web link — their audience is the space (D8).
-  const canShare =
-    isSignedIn &&
-    !isTeamNote &&
-    (localStorage.getItem("isSubscribed") === "true" || Boolean(note.is_shared));
+  const isSubscribed = useSyncExternalStore(subscribeIsSubscribed, readIsSubscribed);
+  const canShare = isSignedIn && !isTeamNote && (isSubscribed || Boolean(note.is_shared));
   // A newer cloud copy arrived while this note had unpushed edits (plan §7.3).
   const conflict = useNoteConflict(note.client_note_id);
   const [conflictEditorName, setConflictEditorName] = useState<string | null>(null);

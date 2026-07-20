@@ -1,25 +1,8 @@
-// Reactive view over the localStorage capability flag the sync probe writes:
-// same-window flips notify subscribers; cross-window ones ride the storage event.
-const CAPABILITY_KEY = "teamSpacesCapability";
+import { createReactiveLocalFlag } from "./reactiveLocalFlag";
 
-const subscribers = new Set<() => void>();
+// Written by the sync probe (me/teams 404 check); read by the TEAM SPACES gate.
+const flag = createReactiveLocalFlag("teamSpacesCapability");
 
-export function readTeamSpacesCapability(): boolean {
-  return localStorage.getItem(CAPABILITY_KEY) === "true";
-}
-
-export function notifyTeamSpacesCapabilityChanged(): void {
-  subscribers.forEach((notify) => notify());
-}
-
-export function subscribeTeamSpacesCapability(onChange: () => void): () => void {
-  subscribers.add(onChange);
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === CAPABILITY_KEY) onChange();
-  };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    subscribers.delete(onChange);
-    window.removeEventListener("storage", onStorage);
-  };
-}
+export const readTeamSpacesCapability = flag.read;
+export const notifyTeamSpacesCapabilityChanged = flag.notify;
+export const subscribeTeamSpacesCapability = flag.subscribe;

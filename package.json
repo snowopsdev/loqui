@@ -164,7 +164,7 @@
     "ps-list": "^9.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-i18next": "^17.0.2",
+    "react-i18next": "^17.0.10",
     "react-markdown": "^10.1.0",
     "shadcn-ui": "^0.9.5",
     "tailwind-merge": "^3.3.1",

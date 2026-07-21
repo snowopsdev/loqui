@@ -3516,6 +3516,38 @@ class DatabaseManager {
     }
   }
 
+  // A full (non-incremental) REST sync is authoritative for its calendar's
+  // window: rows the provider no longer returns were deleted while no valid
+  // sync token existed (e.g. the app was offline past the token TTL), so they
+  // would otherwise linger and fire reminders for cancelled meetings. Rows
+  // referenced by meeting notes are kept so notes retain calendar metadata.
+  removeStaleCalendarEvents(provider, calendarId, freshEventIds) {
+    try {
+      if (!this.db) throw new Error("Database not initialized");
+      const placeholders = freshEventIds.map(() => "?").join(", ");
+      const freshFilter = freshEventIds.length > 0 ? `AND id NOT IN (${placeholders})` : "";
+      this.db
+        .prepare(
+          `DELETE FROM calendar_events
+           WHERE provider = ? AND calendar_id = ? ${freshFilter}
+             AND id NOT IN (
+               SELECT calendar_event_id
+               FROM notes
+               WHERE calendar_event_id IS NOT NULL AND deleted_at IS NULL
+             )`
+        )
+        .run(provider, calendarId, ...freshEventIds);
+      return { success: true };
+    } catch (error) {
+      debugLogger.error(
+        "Error removing stale calendar events",
+        { error: error.message },
+        provider === "microsoft" ? "mcal" : "gcal"
+      );
+      throw error;
+    }
+  }
+
   removeEventsFromDeselectedCalendars(provider) {
     try {
       if (!this.db) throw new Error("Database not initialized");

@@ -175,6 +175,7 @@ class MicrosoftCalendarManager {
     let deltaLink = null;
 
     const hasFreshToken = calendar.sync_token && calendar.sync_token_expires_at > Date.now();
+    let isFullSync = !hasFreshToken;
     let url = hasFreshToken ? calendar.sync_token : this._deltaUrl(calendar.id);
     let tokenExpiresAt = hasFreshToken
       ? calendar.sync_token_expires_at
@@ -187,6 +188,7 @@ class MicrosoftCalendarManager {
       } catch (err) {
         // 410 Gone means the delta token expired; fall back to a full sync
         if (err.statusCode === 410 && url === calendar.sync_token) {
+          isFullSync = true;
           url = this._deltaUrl(calendar.id);
           tokenExpiresAt = Date.now() + DELTA_TOKEN_TTL_MS;
           continue;
@@ -214,6 +216,16 @@ class MicrosoftCalendarManager {
       url = data["@odata.nextLink"] || null;
     }
 
+    // A full sync has no delta baseline, so deletions that happened while the
+    // token was invalid never arrive as @removed — prune what the fresh
+    // snapshot no longer contains.
+    if (isFullSync) {
+      this.databaseManager.removeStaleCalendarEvents(
+        "microsoft",
+        calendar.id,
+        toUpsert.map((event) => event.id)
+      );
+    }
     if (toUpsert.length > 0) this.databaseManager.upsertCalendarEvents(toUpsert);
     if (toRemove.length > 0) this.databaseManager.removeCalendarEvents(toRemove);
     if (deltaLink) {
@@ -336,3 +348,4 @@ class MicrosoftCalendarManager {
 }
 
 module.exports = MicrosoftCalendarManager;
+module.exports.normalizeGraphDateTime = normalizeGraphDateTime;

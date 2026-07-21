@@ -170,6 +170,7 @@ class GoogleCalendarManager {
       params.set("syncToken", calendar.sync_token);
     }
 
+    let isFullSync = !calendar.sync_token;
     let data;
     try {
       data = await this._apiGet(
@@ -179,6 +180,7 @@ class GoogleCalendarManager {
     } catch (err) {
       // 410 Gone means syncToken is invalid; fall back to full sync
       if (err.statusCode === 410) {
+        isFullSync = true;
         const fullParams = new URLSearchParams({
           singleEvents: "true",
           orderBy: "startTime",
@@ -230,6 +232,16 @@ class GoogleCalendarManager {
       });
     }
 
+    // A full sync has no incremental baseline, so deletions that happened
+    // while the sync token was invalid never arrive as cancelled items —
+    // prune what the fresh snapshot no longer contains.
+    if (isFullSync) {
+      this.databaseManager.removeStaleCalendarEvents(
+        "google",
+        calendar.id,
+        toUpsert.map((event) => event.id)
+      );
+    }
     if (toUpsert.length > 0) this.databaseManager.upsertCalendarEvents(toUpsert);
     if (toRemove.length > 0) this.databaseManager.removeCalendarEvents(toRemove);
     if (data.nextSyncToken)

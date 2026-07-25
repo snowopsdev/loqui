@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { syncService } from "../services/SyncService.js";
+import { removeNoteFromLists } from "./noteListOps";
 import { addNoteConflictId, removeNoteConflictId } from "../lib/noteConflictRegistry";
 import { findDefaultFolder } from "../components/notes/shared";
 import type { CloudNote } from "../services/NotesService.js";
@@ -513,25 +514,15 @@ export function updateNoteInStore(note: NoteItem): void {
 export function removeNote(id: number): void {
   if (id == null) return;
   const state = useNoteStore.getState();
-  const notesByContainer = { ...state.notesByContainer };
-  let sourceItems: NoteItem[] | null = null;
-  let sourceKey: string | null = null;
-  let changed = false;
-  for (const [key, items] of Object.entries(state.notesByContainer)) {
-    if (!items.some((n) => n.id === id)) continue;
-    sourceItems = items;
-    sourceKey = key;
-    notesByContainer[key] = items.filter((n) => n.id !== id);
-    changed = true;
+  const result = removeNoteFromLists(state, id);
+  if (!result.changed) return;
+  // applyContainers only mirrors the active container into `notes`; pass the
+  // filtered flat list explicitly so flat-only notes disappear too.
+  const extra: Partial<NoteState> = { notes: result.notes };
+  if (result.activeNoteId !== state.activeNoteId) {
+    extra.activeNoteId = result.activeNoteId;
   }
-  if (!changed) return;
-  const extra: Partial<NoteState> = {};
-  if (state.activeNoteId === id && sourceItems && sourceKey) {
-    const idx = sourceItems.findIndex((n) => n.id === id);
-    const next = notesByContainer[sourceKey];
-    extra.activeNoteId = next[Math.min(idx, next.length - 1)]?.id ?? null;
-  }
-  applyContainers(notesByContainer, extra);
+  applyContainers(result.notesByContainer, extra);
 }
 
 function handleSpacePurged(spaceId: number): void {

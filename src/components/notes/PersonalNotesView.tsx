@@ -1,19 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, SquarePen, Search, Sparkles } from "lucide-react";
-import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectGroup,
-  SelectLabel,
-  SelectItem,
-  SelectSeparator,
-} from "../ui/select";
-import { Input } from "../ui/input";
 import { useToast } from "../ui/useToast";
 import NoteEditor from "./NoteEditor";
 import SpacesTree from "./SpacesTree";
@@ -30,7 +17,6 @@ import {
   selectResolvedNoteFormatting,
 } from "../../stores/settingsStore";
 import { cn } from "../lib/utils";
-import { findDefaultFolder } from "./shared";
 import logger from "../../utils/logger";
 import { parseTranscriptSegments } from "../../utils/parseTranscriptSegments";
 import { serializeTranscriptSegments } from "../../utils/transcriptSpeakerState";
@@ -110,11 +96,7 @@ export default function PersonalNotesView({
   const [localContent, setLocalContent] = useState("");
   const [localEnhancedContent, setLocalEnhancedContent] = useState<string | null>(null);
   const [showActionManager, setShowActionManager] = useState(false);
-  const [showNewNoteDialog, setShowNewNoteDialog] = useState(false);
   const [showAddNotesDialog, setShowAddNotesDialog] = useState(false);
-  const [newNoteTarget, setNewNoteTarget] = useState<string>("");
-  const [isCreatingNewNoteFolder, setIsCreatingNewNoteFolder] = useState(false);
-  const [newNoteFolderName, setNewNoteFolderName] = useState("");
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const enhancedSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activeNoteRef = useRef<number | null>(null);
@@ -429,76 +411,20 @@ export default function PersonalNotesView({
     [t]
   );
 
-  const handleNewNote = useCallback(() => {
-    if (!activeContext) return;
-    handleNewNoteIn(activeContext.spaceId, activeContext.folderId);
-  }, [activeContext, handleNewNoteIn]);
-
   const privateSpaceId = useMemo(
     () => spaces.find((s) => s.kind === "private")?.id ?? null,
     [spaces]
   );
 
-  const spaceIdForTarget = useCallback(
-    (target: string): number | null => {
-      if (target.startsWith("f:")) {
-        return folders.find((f) => f.id === Number(target.slice(2)))?.space_id ?? null;
-      }
-      if (target.startsWith("s:")) return Number(target.slice(2));
-      return null;
-    },
-    [folders]
-  );
+  const handleNewNoteInPrivate = useCallback(() => {
+    if (privateSpaceId == null) return;
+    handleNewNoteIn(privateSpaceId, null);
+  }, [privateSpaceId, handleNewNoteIn]);
 
-  const handleOpenNewNoteDialog = useCallback(() => {
-    let target = "";
-    if (activeContext?.folderId != null) {
-      target = `f:${activeContext.folderId}`;
-    } else if (activeContext && activeContext.spaceId !== privateSpaceId) {
-      target = `s:${activeContext.spaceId}`;
-    }
-    if (!target) {
-      const personal = findDefaultFolder(folders) ?? folders[0];
-      target = personal ? `f:${personal.id}` : "";
-    }
-    setNewNoteTarget(target);
-    setShowNewNoteDialog(true);
-  }, [activeContext, privateSpaceId, folders]);
-
-  const handleNewNoteTargetChange = useCallback((val: string) => {
-    if (val === "__create_new__") {
-      setIsCreatingNewNoteFolder(true);
-      return;
-    }
-    setNewNoteTarget(val);
-  }, []);
-
-  const handleCreateNewNoteFolder = useCallback(async () => {
-    const trimmed = newNoteFolderName.trim();
-    if (!trimmed) return;
-    const spaceId = spaceIdForTarget(newNoteTarget) ?? privateSpaceId;
-    if (spaceId == null) return;
-    const res = await createFolder(trimmed, spaceId);
-    if (res.success && res.folder) {
-      setNewNoteTarget(`f:${res.folder.id}`);
-    } else if (res.error) {
-      toast({
-        title: t("notes.folders.couldNotCreate"),
-        description: res.error,
-        variant: "destructive",
-      });
-    }
-    setNewNoteFolderName("");
-    setIsCreatingNewNoteFolder(false);
-  }, [newNoteFolderName, newNoteTarget, spaceIdForTarget, privateSpaceId, toast, t]);
-
-  const handleConfirmNewNote = useCallback(async () => {
-    const spaceId = spaceIdForTarget(newNoteTarget);
-    if (spaceId == null) return;
-    const folderId = newNoteTarget.startsWith("f:") ? Number(newNoteTarget.slice(2)) : null;
-    await handleNewNoteIn(spaceId, folderId);
-    setShowNewNoteDialog(false);
-  }, [newNoteTarget, spaceIdForTarget, handleNewNoteIn]);
+  const handleNewNote = useCallback(() => {
+    if (activeContext) handleNewNoteIn(activeContext.spaceId, activeContext.folderId);
+    else handleNewNoteInPrivate();
+  }, [activeContext, handleNewNoteIn, handleNewNoteInPrivate]);
 
   const handleNotesAdded = useCallback(async () => {
     if (activeFolderId) {
@@ -674,7 +600,7 @@ export default function PersonalNotesView({
         <div className="w-52 shrink-0 border-r border-border/15 dark:border-white/4 flex flex-col h-full">
           <div className="px-2 pt-2 pb-1 shrink-0 space-y-0.5">
             <button
-              onClick={handleOpenNewNoteDialog}
+              onClick={handleNewNoteInPrivate}
               className={cn(
                 "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs",
                 "text-muted-foreground/80 hover:text-foreground hover:bg-foreground/5",
@@ -984,118 +910,6 @@ export default function PersonalNotesView({
           onNotesAdded={handleNotesAdded}
         />
       )}
-
-      <Dialog
-        open={showNewNoteDialog}
-        onOpenChange={(open) => {
-          setShowNewNoteDialog(open);
-          if (!open) {
-            setIsCreatingNewNoteFolder(false);
-            setNewNoteFolderName("");
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-95 p-6 gap-5">
-          <DialogHeader>
-            <DialogTitle>
-              {isCreatingNewNoteFolder ? t("notes.upload.newFolder") : t("notes.sidebar.newNote")}
-            </DialogTitle>
-          </DialogHeader>
-
-          {isCreatingNewNoteFolder ? (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground/50">
-                {t("notes.upload.folderName")}
-              </label>
-              <Input
-                value={newNoteFolderName}
-                onChange={(e) => setNewNoteFolderName(e.target.value)}
-                placeholder={t("notes.folders.folderName")}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateNewNoteFolder();
-                }}
-              />
-            </div>
-          ) : (
-            folders.length > 0 && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground/50">
-                  {t("notes.folders.title")}
-                </label>
-                <Select value={newNoteTarget} onValueChange={handleNewNoteTargetChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t("notes.upload.selectFolder")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {spaces.map((space) => {
-                      const spaceFolders = folders.filter((f) => f.space_id === space.id);
-                      const isTeam = space.kind === "team";
-                      if (!isTeam && spaceFolders.length === 0) return null;
-                      return (
-                        <SelectGroup key={space.id}>
-                          {spaces.length > 1 && (
-                            <SelectLabel>
-                              {isTeam
-                                ? `${space.emoji ? `${space.emoji} ` : ""}${space.name}`
-                                : t("notes.spaces.personal")}
-                            </SelectLabel>
-                          )}
-                          {isTeam && (
-                            <SelectItem value={`s:${space.id}`}>
-                              {t("notes.spaces.spaceRoot")}
-                            </SelectItem>
-                          )}
-                          {spaceFolders.map((f) => (
-                            <SelectItem key={f.id} value={`f:${f.id}`}>
-                              {f.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      );
-                    })}
-                    <SelectSeparator />
-                    <SelectItem value="__create_new__">
-                      <span className="flex items-center gap-1.5 text-primary/60">
-                        <Plus size={13} />
-                        {t("notes.upload.newFolder")}
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )
-          )}
-
-          <DialogFooter>
-            {isCreatingNewNoteFolder ? (
-              <>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setIsCreatingNewNoteFolder(false);
-                    setNewNoteFolderName("");
-                  }}
-                >
-                  {t("common.back")}
-                </Button>
-                <Button onClick={handleCreateNewNoteFolder} disabled={!newNoteFolderName.trim()}>
-                  {t("notes.upload.create")}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="ghost" onClick={() => setShowNewNoteDialog(false)}>
-                  {t("notes.upload.cancel")}
-                </Button>
-                <Button onClick={handleConfirmNewNote} disabled={!newNoteTarget}>
-                  {t("notes.upload.create")}
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <NotesStructureIntroDialog
         open={showStructureIntro}

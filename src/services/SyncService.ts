@@ -204,7 +204,7 @@ export async function upsertCloudSpaces(cloudSpaces: MySpace[]): Promise<number[
   return backfillIds;
 }
 
-class SyncService {
+export class SyncService {
   private syncing = false;
   private syncAllPending = false;
   private autoSyncStarted = false;

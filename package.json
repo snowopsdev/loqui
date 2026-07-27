@@ -73,7 +73,7 @@
     "format": "npm run format:js",
     "format:check": "eslint . && cd src && eslint . && prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "lint": "eslint . && cd src && eslint .",
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --import tsx --test \"test/**/*.test.js\"",
     "typecheck": "cd src && tsc --noEmit",
     "quality-check": "npm run format:check && npm run typecheck",
     "i18n:check": "node scripts/check-i18n.js",
@@ -112,6 +112,7 @@
     "postcss": "^8.5.10",
     "prettier": "^3.8.3",
     "tailwindcss": "^4.1.10",
+    "tsx": "^4.23.1",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.1",
     "vite": "^8.1.4"

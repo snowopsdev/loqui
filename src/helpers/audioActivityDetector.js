@@ -31,6 +31,7 @@ class AudioActivityDetector extends EventEmitter {
     this._running = false;
     this._eventDriven = false;
     this._resetTimer = null;
+    this._startGeneration = 0;
   }
 
   setUserRecording(active) {
@@ -46,8 +47,11 @@ class AudioActivityDetector extends EventEmitter {
   async start() {
     if (this._running) return;
     this._running = true;
+    const startGeneration = ++this._startGeneration;
 
-    const started = await this._tryEventDriven();
+    const started = await this._tryEventDriven(startGeneration);
+    if (!this._running || startGeneration !== this._startGeneration) return;
+
     if (started) {
       this._eventDriven = true;
       debugLogger.info(
@@ -69,6 +73,7 @@ class AudioActivityDetector extends EventEmitter {
   stop() {
     if (!this._running) return;
     this._running = false;
+    this._startGeneration++;
     this._killListenerProcess();
     this._clearSustainedTimer();
     this._clearResetTimer();
@@ -147,14 +152,14 @@ class AudioActivityDetector extends EventEmitter {
   // Event-driven approach
   // ---------------------------------------------------------------------------
 
-  async _tryEventDriven() {
+  async _tryEventDriven(startGeneration) {
     switch (process.platform) {
       case "darwin":
         return this._tryEventDrivenDarwin();
       case "win32":
         return this._tryEventDrivenWin32();
       case "linux":
-        return this._tryEventDrivenLinux();
+        return this._tryEventDrivenLinux(startGeneration);
       default:
         return false;
     }
@@ -191,6 +196,7 @@ class AudioActivityDetector extends EventEmitter {
 
   _attachFallbackHandlers(child, label) {
     const fallbackToPolling = () => {
+      if (this._listenerProcess !== child) return;
       this._listenerProcess = null;
       if (this._running && this._eventDriven) {
         this._eventDriven = false;
@@ -313,27 +319,53 @@ class AudioActivityDetector extends EventEmitter {
     }
   }
 
-  _tryEventDrivenLinux() {
-    try {
-      const child = spawn("pactl", ["subscribe"], { stdio: ["ignore", "pipe", "pipe"] });
-      this._listenerProcess = child;
+  _tryEventDrivenLinux(startGeneration) {
+    return new Promise((resolve) => {
+      try {
+        const child = spawn("pactl", ["subscribe"], { stdio: ["ignore", "pipe", "pipe"] });
+        this._listenerProcess = child;
 
-      let buffer = "";
-      child.stdout.on("data", (data) => {
-        buffer += data.toString();
-        let newlineIdx;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).trim();
-          buffer = buffer.slice(newlineIdx + 1);
-          this._parsePactlSubscribeLine(line);
-        }
-      });
+        let buffer = "";
+        child.stdout.on("data", (data) => {
+          buffer += data.toString();
+          let newlineIdx;
+          while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, newlineIdx).trim();
+            buffer = buffer.slice(newlineIdx + 1);
+            this._parsePactlSubscribeLine(line);
+          }
+        });
 
-      this._attachFallbackHandlers(child, "pactl subscribe");
-      return true;
-    } catch {
-      return false;
-    }
+        const handleStartupError = (err) => {
+          child.removeListener("spawn", handleSpawn);
+          if (this._listenerProcess === child) {
+            this._listenerProcess = null;
+          }
+          debugLogger.warn("pactl subscribe error", { error: err.message }, "meeting");
+          resolve(false);
+        };
+
+        const handleSpawn = () => {
+          child.removeListener("error", handleStartupError);
+          if (!this._running || startGeneration !== this._startGeneration) {
+            if (this._listenerProcess === child) {
+              this._listenerProcess = null;
+            }
+            child.kill();
+            resolve(false);
+            return;
+          }
+          this._attachFallbackHandlers(child, "pactl subscribe");
+          resolve(true);
+        };
+
+        child.once("error", handleStartupError);
+        child.once("spawn", handleSpawn);
+      } catch (err) {
+        debugLogger.warn("pactl subscribe error", { error: err.message }, "meeting");
+        resolve(false);
+      }
+    });
   }
 
   _parsePactlSubscribeLine(line) {

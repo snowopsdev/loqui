@@ -1,6 +1,7 @@
 // In-memory stand-in for the cloud API behind window.electronAPI.cloudApiRequest.
-// Notes and folders are modelled with the hardened server's real write rules;
-// the other entity types exist only so a full syncAll() pass can complete.
+// Notes and folders are modelled with the hardened server's real write rules,
+// conversations only on the read side; the other entity types exist only so a
+// full syncAll() pass can complete.
 //
 // Each hardening rule sits behind its own flag so a test can flip the server
 // back to the legacy behaviour and prove the client still does not lose data:
@@ -53,6 +54,10 @@ const NOTE_FIELDS = [
 
 const FOLDER_FIELDS = ["name", "is_default", "sort_order"];
 
+// Conversations are read-only here: only the pull is modelled, so `messages`
+// rides along as a plain stored field.
+const CONVERSATION_FIELDS = ["title", "archived_at", "messages"];
+
 const NOTE_DEFAULTS = {
   title: null,
   content: "",
@@ -72,6 +77,8 @@ const NOTE_DEFAULTS = {
 
 const FOLDER_DEFAULTS = { name: "", is_default: false, sort_order: 0 };
 
+const CONVERSATION_DEFAULTS = { title: "Untitled", archived_at: null, messages: [] };
+
 function createFakeCloud(config = {}) {
   const cfg = {
     materialPatchGate: true,
@@ -83,6 +90,7 @@ function createFakeCloud(config = {}) {
 
   const notes = new Map();
   const folders = new Map();
+  const conversations = new Map();
   const log = [];
   const failures = [];
   let seq = 0;
@@ -204,6 +212,13 @@ function createFakeCloud(config = {}) {
     clientKey: "client_folder_id",
     prefix: "folder",
   };
+  const conversationCollection = {
+    store: conversations,
+    fields: CONVERSATION_FIELDS,
+    defaults: CONVERSATION_DEFAULTS,
+    clientKey: "client_conversation_id",
+    prefix: "conv",
+  };
 
   // Snapshot paging walks created_at backwards from `before` and hides
   // tombstones; delta paging walks updated_at forwards from `since` and must
@@ -300,15 +315,27 @@ function createFakeCloud(config = {}) {
         return { folders: rows.map((row) => structuredClone(row)) };
       }
 
-      // Not modelled: enough shape for a full pass, nothing more.
+      // Conversation writes stay echo-stubs; only the read side is modelled,
+      // because the pull is what has to survive the ISO/SQLite format skew.
       case "POST /api/conversations/create":
         return { ...body, id: nextId("conv") };
       case "PATCH /api/conversations/update":
         return { ...body };
       case "DELETE /api/conversations/delete":
         return {};
-      case "GET /api/conversations/list":
-        return { conversations: [] };
+      case "GET /api/conversations/list": {
+        const rows = page(conversationCollection, query, "created_at");
+        // The client asks for include=messages; a page that stopped asking must
+        // not silently keep receiving them.
+        if (
+          !String(query.get("include") ?? "")
+            .split(",")
+            .includes("messages")
+        ) {
+          for (const row of rows) delete row.messages;
+        }
+        return { conversations: rows };
+      }
       case "POST /api/transcriptions/batch-create":
         return {
           created: (body?.transcriptions ?? []).map((t) => ({ ...t, id: nextId("trans") })),
@@ -393,14 +420,28 @@ function createFakeCloud(config = {}) {
     },
     seedNote: (input) => structuredClone(insertRow(noteCollection, input)),
     seedFolder: (input) => structuredClone(insertRow(folderCollection, input)),
+    // Conversation deletes are echo-stubs, so a tombstone has to be seeded here
+    // rather than produced by the DELETE route.
+    seedConversation: (input = {}) => {
+      const row = insertRow(conversationCollection, input);
+      // The defaults object is spread, not cloned, so every row needs its own array.
+      row.messages = structuredClone(input.messages ?? []);
+      if (input.deleted_at) row.deleted_at = toIso(input.deleted_at);
+      return structuredClone(row);
+    },
     notes: () => [...notes.values()].map((row) => structuredClone(row)),
     folders: () => [...folders.values()].map((row) => structuredClone(row)),
+    conversations: () => [...conversations.values()].map((row) => structuredClone(row)),
     note: (id) => {
       const row = notes.get(id) ?? findByClientId(noteCollection, id);
       return row ? structuredClone(row) : null;
     },
     folder: (id) => {
       const row = folders.get(id) ?? findByClientId(folderCollection, id);
+      return row ? structuredClone(row) : null;
+    },
+    conversation: (id) => {
+      const row = conversations.get(id) ?? findByClientId(conversationCollection, id);
       return row ? structuredClone(row) : null;
     },
     config: cfg,

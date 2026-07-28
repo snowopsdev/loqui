@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useChatPersistence } from "../components/chat/useChatPersistence";
 import { useChatStreaming, type ChatSearchScope } from "../components/chat/useChatStreaming";
 import type { Message, AgentState } from "../components/chat/types";
+import { deriveConversationTitle } from "../lib/conversationTitle";
 import type { SpaceItem, FolderItem, NoteItem } from "../types/electron";
 
 const MAX_CONTEXT_NOTES = 12;
@@ -109,7 +110,7 @@ export function useContainerChat({
     async (text: string) => {
       let convId = conversationId;
       if (!convId) {
-        const title = folder?.name ?? space.name;
+        const title = deriveConversationTitle(text, folder?.name ?? space.name);
         convId = await persistence.createConversation(title, null, {
           spaceId: space.id,
           folderId,

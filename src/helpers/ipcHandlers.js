@@ -1715,11 +1715,16 @@ class IPCHandlers {
       }
       return note;
     });
-    ipcMain.handle("db-mark-note-synced", (_, id, cloudId) =>
-      this.databaseManager.markNoteSynced(id, cloudId)
+    ipcMain.handle("db-mark-note-synced", (_, id, cloudId, cloudUpdatedAt) =>
+      this.databaseManager.markNoteSynced(id, cloudId, cloudUpdatedAt)
     );
-    ipcMain.handle("db-mark-note-synced-if-unchanged", (_, id, cloudId, snapshotUpdatedAt) =>
-      this.databaseManager.markNoteSyncedIfUnchanged(id, cloudId, snapshotUpdatedAt)
+    ipcMain.handle(
+      "db-mark-note-synced-if-unchanged",
+      (_, id, cloudId, snapshotUpdatedAt, cloudUpdatedAt) =>
+        this.databaseManager.markNoteSyncedIfUnchanged(id, cloudId, snapshotUpdatedAt, cloudUpdatedAt)
+    );
+    ipcMain.handle("db-set-note-cloud-base", (_, id, cloudUpdatedAt) =>
+      this.databaseManager.setNoteCloudBase(id, cloudUpdatedAt)
     );
     ipcMain.handle("db-mark-note-sync-error", (_, id) =>
       this.databaseManager.markNoteSyncError(id)

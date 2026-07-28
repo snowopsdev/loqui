@@ -22,9 +22,13 @@ import {
   normalizeTimestamp,
 } from "../helpers/cloudSyncGuards.js";
 import {
+  keepPurgedSpaceEntry,
+  normalizePurgedSpaceEntries,
   prunePurgedSpaceEntries,
   resolvePullCursorAdvance,
   revokedNoteForkUpdate,
+  type PurgedSpaceEntry,
+  type PurgedSpaceReason,
 } from "./syncPassPolicy";
 
 function isHttpStatus(err: unknown, status: number): boolean {
@@ -46,6 +50,17 @@ function isTeamAccessError(err: unknown): boolean {
 // the target scope; the row stays pending until the conflict is resolved.
 function isFolderNameTakenError(err: unknown): boolean {
   return err instanceof CloudApiError && err.code === "folder_name_taken";
+}
+
+// Typed 409 from a note PATCH whose base_updated_at is older than the stored
+// row — another device wrote first. The body carries the current cloud note.
+function isNoteVersionConflictError(err: unknown): boolean {
+  return err instanceof CloudApiError && err.code === "note_version_conflict";
+}
+
+function conflictCloudNote(err: unknown): CloudNote | null {
+  const details = (err as CloudApiError).details as { note?: CloudNote } | undefined;
+  return details?.note ?? null;
 }
 
 // Extra fields pushed with note/folder payloads so the server files rows into
@@ -83,9 +98,11 @@ const CAN_SYNC_KEYS = ["isSignedIn", "cloudBackupEnabled", "isSubscribed"];
 // purge initiator records the cloud space id here, and pull/upsert paths park
 // rows for recently purged spaces instead of resurrecting them as orphaned
 // local rows nothing can ever clean up. Entries are pruned once a spaces pass
-// confirms the space is gone from /api/me/spaces, or after a TTL so a failed
-// delete cannot hide a still-live space forever. Never marked on TEAM delete:
-// a space still accessible via other teams survives the team's archival.
+// confirms the space is gone from /api/me/spaces, when a "revoked" entry's
+// space reappears there (member re-added — the guard must not lock them out,
+// D14), or after a TTL so a failed delete cannot hide a still-live space
+// forever. Never marked on TEAM delete: a space still accessible via other
+// teams survives the team's archival.
 const PURGED_SPACE_GUARD_KEY = "purgedSpaceIds";
 const PURGED_SPACE_GUARD_TTL_MS = 15 * 60 * 1000;
 // Serializes the guard's read-modify-write across windows: a prune inside a
@@ -93,11 +110,15 @@ const PURGED_SPACE_GUARD_TTL_MS = 15 * 60 * 1000;
 // entry.
 const PURGED_SPACE_GUARD_LOCK = "openwhispr-purged-spaces";
 
-function readPurgedSpaceIds(): Record<string, number> {
+function readPurgedSpaceIds(): Record<string, PurgedSpaceEntry> {
   try {
     const raw = localStorage.getItem(PURGED_SPACE_GUARD_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-    return prunePurgedSpaceEntries(parsed, Date.now(), PURGED_SPACE_GUARD_TTL_MS);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, number | PurgedSpaceEntry>) : {};
+    return prunePurgedSpaceEntries(
+      normalizePurgedSpaceEntries(parsed),
+      Date.now(),
+      PURGED_SPACE_GUARD_TTL_MS
+    );
   } catch {
     return {};
   }
@@ -105,11 +126,14 @@ function readPurgedSpaceIds(): Record<string, number> {
 
 // Call BEFORE purgeSpace, from every purge path (sync revocation, sign-out,
 // and the UI's delete-space flow).
-export async function markSpacePurged(cloudSpaceId: string): Promise<void> {
+export async function markSpacePurged(
+  cloudSpaceId: string,
+  reason: PurgedSpaceReason
+): Promise<void> {
   await navigator.locks.request(PURGED_SPACE_GUARD_LOCK, () => {
     localStorage.setItem(
       PURGED_SPACE_GUARD_KEY,
-      JSON.stringify({ ...readPurgedSpaceIds(), [cloudSpaceId]: Date.now() })
+      JSON.stringify({ ...readPurgedSpaceIds(), [cloudSpaceId]: { at: Date.now(), reason } })
     );
   });
 }
@@ -117,7 +141,9 @@ export async function markSpacePurged(cloudSpaceId: string): Promise<void> {
 async function prunePurgedSpaceIds(liveCloudSpaceIds: Set<string>): Promise<void> {
   await navigator.locks.request(PURGED_SPACE_GUARD_LOCK, () => {
     const kept = Object.fromEntries(
-      Object.entries(readPurgedSpaceIds()).filter(([id]) => liveCloudSpaceIds.has(id))
+      Object.entries(readPurgedSpaceIds()).filter(([id, entry]) =>
+        keepPurgedSpaceEntry(entry, liveCloudSpaceIds.has(id))
+      )
     );
     localStorage.setItem(PURGED_SPACE_GUARD_KEY, JSON.stringify(kept));
   });
@@ -216,7 +242,10 @@ class SyncService {
       for (const space of spaces) {
         if (space.kind !== "team") continue;
         try {
-          if (space.cloud_space_id) await markSpacePurged(space.cloud_space_id);
+          // "revoked", not "deleted": the whole guard key is removed once the
+          // sign-out purge completes, and if that removal ever fails a revoked
+          // entry self-heals on the next pass instead of locking the space out.
+          if (space.cloud_space_id) await markSpacePurged(space.cloud_space_id, "revoked");
           await window.electronAPI.purgeSpace?.(space.id);
         } catch (err) {
           console.error(`Purging space ${space.id} on sign-out failed:`, err);
@@ -541,6 +570,11 @@ class SyncService {
   private async pushNote(id: number): Promise<void> {
     const note = await window.electronAPI.getNote?.(id);
     if (!note) return;
+    if (readNoteConflictIds().has(note.client_note_id)) {
+      // An unresolved conflict: the editor's debounced push would auto-resolve
+      // it as local-wins (or 409-spam) before the user chose Keep or Refresh.
+      return;
+    }
 
     const { localToCloud, blockedFolderIds } = await this.buildLocalToCloudFolderMap();
     if (note.folder_id && blockedFolderIds.has(note.folder_id)) {
@@ -566,14 +600,18 @@ class SyncService {
 
     try {
       if (note.cloud_id) {
-        await NotesService.update(note.cloud_id, this.notePushPayload(note, cloudFolderId, scope));
+        const cloud = await NotesService.update(
+          note.cloud_id,
+          this.notePushPayload(note, cloudFolderId, scope)
+        );
         // Settle only if the row wasn't edited while the PATCH was in flight;
         // a blind settle would leave the delivered snapshot pending and let a
         // later pass re-PATCH it over a teammate's newer edit.
         await window.electronAPI.markNoteSyncedIfUnchanged?.(
           note.id,
           note.cloud_id,
-          note.updated_at
+          note.updated_at,
+          cloud.updated_at
         );
       } else {
         const cloud = await NotesService.create({
@@ -581,9 +619,16 @@ class SyncService {
           ...this.notePushPayload(note, cloudFolderId, scope),
           created_at: note.created_at,
         });
-        await window.electronAPI.markNoteSynced?.(note.id, cloud.id);
+        await window.electronAPI.markNoteSynced?.(note.id, cloud.id, cloud.updated_at);
       }
     } catch (err) {
+      if (isNoteVersionConflictError(err)) {
+        // Another device wrote first. The row stays pending and the banner
+        // asks the user to Refresh or Keep; no requestSyncAll echo.
+        const cloudNote = conflictCloudNote(err);
+        if (cloudNote) await this.surfaceNoteConflict(note.client_note_id, cloudNote);
+        return;
+      }
       if (!isTeamAccessError(err)) throw err;
       await this.handleRevokedNotePush(note, ctx);
       return;
@@ -681,9 +726,9 @@ class SyncService {
       if (space.kind !== "team" || !space.cloud_space_id || cloudIds.has(space.cloud_space_id)) {
         continue;
       }
-      await markSpacePurged(space.cloud_space_id);
+      await markSpacePurged(space.cloud_space_id, "revoked");
       const purged = await window.electronAPI.purgeSpace?.(space.id);
-      this.dispatchSpaceRevoked(space.name);
+      this.dispatchSpaceRevoked(space.name, space.id);
       // Never-synced notes survive the purge in Personal (plan §10.6) —
       // surface them, never silently.
       for (const title of purged?.relocatedTitles ?? []) {
@@ -778,7 +823,7 @@ class SyncService {
     if (!ctx.privateSpace) {
       if (note.cloud_id) {
         await window.electronAPI.hardDeleteNote?.(note.id);
-        this.dispatchSpaceRevoked(spaceName);
+        this.dispatchSpaceRevoked(spaceName, note.space_id);
       }
       return;
     }
@@ -815,8 +860,10 @@ class SyncService {
     void window.electronAPI.emitSyncEvent?.(name, payload)?.catch(console.error);
   }
 
-  private dispatchSpaceRevoked(spaceName: string | null): void {
-    this.emitSyncUiEvent("space-revoked", { spaceName });
+  // spaceId is the LOCAL space id: the renderer's displaced-note memo (set
+  // when the space-purged broadcast cleared the open note) is keyed by it.
+  private dispatchSpaceRevoked(spaceName: string | null, spaceId: number | null = null): void {
+    this.emitSyncUiEvent("space-revoked", { spaceName, spaceId });
   }
 
   private dispatchNoteRelocated(title: string | null, spaceName: string | null | undefined): void {
@@ -1220,7 +1267,7 @@ class SyncService {
         // would strand the edit locally and hand the next pull a stale-but-
         // newer cloud copy to overwrite it with.
         const cloudFolderId = note.folder_id ? (localToCloud.get(note.folder_id) ?? null) : null;
-        await NotesService.update(note.cloud_id!, {
+        const cloud = await NotesService.update(note.cloud_id!, {
           client_note_id: note.client_note_id,
           ...this.notePushPayload(note, cloudFolderId, scope),
         });
@@ -1228,10 +1275,17 @@ class SyncService {
         await window.electronAPI.markNoteSyncedIfUnchanged?.(
           note.id,
           note.cloud_id!,
-          note.updated_at
+          note.updated_at,
+          cloud.updated_at
         );
       } catch (err) {
-        if (isTeamAccessError(err)) {
+        if (isNoteVersionConflictError(err)) {
+          // Stays pending (not error): unpushed local work awaiting the
+          // user's Keep/Refresh choice; the registry gate above skips the
+          // row on later passes so the 409 doesn't repeat.
+          const cloudNote = conflictCloudNote(err);
+          if (cloudNote) await this.surfaceNoteConflict(note.client_note_id, cloudNote);
+        } else if (isTeamAccessError(err)) {
           await this.handleRevokedNotePush(note, ctx);
         } else {
           await window.electronAPI.markNoteSyncError?.(note.id);
@@ -1260,9 +1314,11 @@ class SyncService {
             ...scope,
           }))
         );
-        for (const { client_note_id, id: cloudId } of created) {
+        for (const { client_note_id, id: cloudId, updated_at } of created) {
           const local = chunk.find(({ note }) => note.client_note_id === client_note_id);
-          if (local) await window.electronAPI.markNoteSynced?.(local.note.id, cloudId);
+          if (local) {
+            await window.electronAPI.markNoteSynced?.(local.note.id, cloudId, updated_at ?? null);
+          }
         }
       } catch {
         for (const { note } of chunk) {

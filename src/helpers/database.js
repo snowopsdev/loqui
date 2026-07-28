@@ -849,6 +849,16 @@ class DatabaseManager {
         if (!err.message.includes("duplicate column")) throw err;
       }
 
+      // Server updated_at this device last acked (push response or pull),
+      // echoed verbatim as base_updated_at on the next PATCH so the server can
+      // 409 a stale overwrite. Local edits never touch it; NULL means the note
+      // predates the guard and pushes last-write-wins once.
+      try {
+        this.db.exec("ALTER TABLE notes ADD COLUMN cloud_updated_at TEXT");
+      } catch (err) {
+        if (!err.message.includes("duplicate column")) throw err;
+      }
+
       // Space vector purges owed to Qdrant while the sidecar was down/booting;
       // drained once the vector index is ready.
       this.db.exec(`
@@ -3586,8 +3596,9 @@ class DatabaseManager {
         INSERT INTO notes (client_note_id, cloud_id, title, content, enhanced_content,
           enhancement_prompt, enhanced_at_content_hash, note_type, source_file,
           audio_duration_seconds, transcript, folder_id, space_id, participants, calendar_event_id,
-          diarization_enabled, expected_speaker_count, updated_by_user_id, sync_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?)
+          diarization_enabled, expected_speaker_count, updated_by_user_id, sync_status, created_at, updated_at,
+          cloud_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?)
         ON CONFLICT(client_note_id) DO UPDATE SET
           cloud_id = excluded.cloud_id,
           title = excluded.title,
@@ -3615,7 +3626,8 @@ class DatabaseManager {
           updated_by_user_id = COALESCE(excluded.updated_by_user_id, updated_by_user_id),
           sync_status = 'synced',
           left_team = 0,
-          updated_at = excluded.updated_at
+          updated_at = excluded.updated_at,
+          cloud_updated_at = excluded.cloud_updated_at
       `);
       stmt.run(
         cloudNote.client_note_id,
@@ -3637,6 +3649,7 @@ class DatabaseManager {
         cloudNote.expected_speaker_count ?? null,
         cloudNote.updated_by_user_id || null,
         cloudNote.created_at,
+        cloudNote.updated_at,
         cloudNote.updated_at
       );
       return this.db
@@ -3648,14 +3661,17 @@ class DatabaseManager {
     }
   }
 
-  markNoteSynced(id, cloudId) {
+  markNoteSynced(id, cloudId, cloudUpdatedAt = null) {
     try {
       if (!this.db) throw new Error("Database not initialized");
+      // cloud_updated_at is overwritten even with null: a forked row that
+      // re-creates under a new cloud_id must not keep the old note's base (a
+      // null base just means that push settles last-write-wins once).
       this.db
         .prepare(
-          "UPDATE notes SET sync_status = 'synced', cloud_id = ?, left_team = 0 WHERE id = ?"
+          "UPDATE notes SET sync_status = 'synced', cloud_id = ?, left_team = 0, cloud_updated_at = ? WHERE id = ?"
         )
-        .run(cloudId, id);
+        .run(cloudId, cloudUpdatedAt, id);
       return { success: true };
     } catch (error) {
       debugLogger.error("Error marking note synced", { error: error.message }, "database");
@@ -3667,9 +3683,17 @@ class DatabaseManager {
   // PATCH was in flight — a mid-flight edit must stay pending so its content
   // still pushes (a blind settle would let the next pass re-PATCH the stale
   // snapshot over a teammate's newer server copy).
-  markNoteSyncedIfUnchanged(id, cloudId, snapshotUpdatedAt) {
+  markNoteSyncedIfUnchanged(id, cloudId, snapshotUpdatedAt, cloudUpdatedAt = null) {
     try {
       if (!this.db) throw new Error("Database not initialized");
+      // The base advances unconditionally: even when a mid-flight edit keeps
+      // the row pending, the PATCH landed — the next push must echo the new
+      // server revision or it would 409 against this device's own write.
+      if (cloudUpdatedAt) {
+        this.db
+          .prepare("UPDATE notes SET cloud_updated_at = ? WHERE id = ?")
+          .run(cloudUpdatedAt, id);
+      }
       const result = this.db
         .prepare(
           "UPDATE notes SET sync_status = 'synced', cloud_id = ?, left_team = 0 WHERE id = ? AND updated_at = ?"
@@ -3682,6 +3706,20 @@ class DatabaseManager {
         { error: error.message },
         "database"
       );
+      throw error;
+    }
+  }
+
+  // Records the server revision the user knowingly overwrites ("Keep editing"
+  // on the conflict banner). Deliberately leaves updated_at and sync_status
+  // alone — the local edit stays pending and pushes with the advanced base.
+  setNoteCloudBase(id, cloudUpdatedAt) {
+    try {
+      if (!this.db) throw new Error("Database not initialized");
+      this.db.prepare("UPDATE notes SET cloud_updated_at = ? WHERE id = ?").run(cloudUpdatedAt, id);
+      return { success: true };
+    } catch (error) {
+      debugLogger.error("Error setting note cloud base", { error: error.message }, "database");
       throw error;
     }
   }

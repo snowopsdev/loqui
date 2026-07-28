@@ -544,6 +544,22 @@ export function removeNote(id: number): void {
   applyContainers(result.notesByContainer, extra);
 }
 
+// The note the user was reading when its space's purge cleared activeNoteId.
+// The space-revoked toast (raised afterwards, from whichever window ran the
+// sync pass) names it; consume-once and short-lived so a stale memo can't
+// attach to a later, unrelated revocation.
+let purgeDisplacedNote: { spaceId: number; title: string | null; at: number } | null = null;
+const PURGE_DISPLACED_NOTE_TTL_MS = 30_000;
+
+export function readPurgeDisplacedNote(spaceId: number): { title: string | null } | null {
+  const memo = purgeDisplacedNote;
+  if (!memo || memo.spaceId !== spaceId || Date.now() - memo.at > PURGE_DISPLACED_NOTE_TTL_MS) {
+    return null;
+  }
+  purgeDisplacedNote = null;
+  return { title: memo.title };
+}
+
 function handleSpacePurged(spaceId: number): void {
   const state = useNoteStore.getState();
   const purgedCloudSpaceId = state.spaces.find((s) => s.id === spaceId)?.cloud_space_id ?? null;
@@ -603,6 +619,11 @@ function handleSpacePurged(spaceId: number): void {
   const activeNote = state.activeNoteId != null ? findNoteInState(state, state.activeNoteId) : null;
   if (activeNote?.space_id === spaceId) {
     extra.activeNoteId = null;
+    // Only synced rows are deleted by the purge; dirty rows relocate to
+    // Personal and already announce themselves with a titled toast.
+    if (activeNote.sync_status === "synced" && activeNote.cloud_id) {
+      purgeDisplacedNote = { spaceId, title: activeNote.title, at: Date.now() };
+    }
   }
 
   let fallbackContext: ActiveContext | null = null;

@@ -40,16 +40,27 @@ export async function createSpace(
 ): Promise<{ space: SpaceItem | null; failedMembers: number }> {
   const teamIds = [...teams.existingTeamIds];
   let failedMembers = 0;
+  let createdTeamId: string | null = null;
   if (teams.newTeam) {
     const team = await TeamsService.create(workspaceId, { name: teams.newTeam.name });
+    createdTeamId = team.id;
     failedMembers = (await settleAddMembers(team.id, teams.newTeam.memberIds)).length;
     teamIds.push(team.id);
   }
-  const cloudSpace = await SpacesService.create(workspaceId, {
-    name: input.name,
-    emoji: input.emoji,
-    team_ids: teamIds,
-  });
+  let cloudSpace;
+  try {
+    cloudSpace = await SpacesService.create(workspaceId, {
+      name: input.name,
+      emoji: input.emoji,
+      team_ids: teamIds,
+    });
+  } catch (err) {
+    // The space create failed after the inline team was created (plan limit,
+    // network) — best-effort delete so a retry doesn't duplicate the team.
+    // The team is server-only at this point; nothing local to clean up.
+    if (createdTeamId) await TeamsService.remove(createdTeamId).catch(() => {});
+    throw err;
+  }
   const space =
     (await window.electronAPI.upsertSpaceFromCloud?.(
       cloudSpace as unknown as Record<string, unknown>
@@ -88,7 +99,7 @@ export async function deleteSpace(space: SpaceItem): Promise<{ success: boolean;
       return { success: false, error: errorMessage(err) };
     }
     // Park the space id so an in-flight pull can't resurrect purged rows.
-    await markSpacePurged(space.cloud_space_id);
+    await markSpacePurged(space.cloud_space_id, "deleted");
   }
   // Store cleanup rides on the space-purged broadcast.
   return purgeSpace(space.id);

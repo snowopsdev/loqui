@@ -65,6 +65,9 @@ export interface NoteItem {
   share_token: string | null;
   // Last cloud editor; only populated on cloud pull (local edits don't set it).
   updated_by_user_id?: string | null;
+  // Server updated_at this device last acked (push response or pull); echoed
+  // as base_updated_at on the next PATCH. Null = pre-guard row, pushes LWW.
+  cloud_updated_at?: string | null;
   created_at: string;
   updated_at: string;
   client_note_id: string;
@@ -2236,12 +2239,14 @@ declare global {
         localFolderId: number | null,
         localSpaceId?: number | null
       ) => Promise<NoteItem>;
-      markNoteSynced?: (id: number, cloudId: string) => Promise<void>;
+      markNoteSynced?: (id: number, cloudId: string, cloudUpdatedAt?: string | null) => Promise<void>;
       markNoteSyncedIfUnchanged?: (
         id: number,
         cloudId: string,
-        snapshotUpdatedAt: string
+        snapshotUpdatedAt: string,
+        cloudUpdatedAt?: string | null
       ) => Promise<{ success: boolean; changes: number }>;
+      setNoteCloudBase?: (id: number, cloudUpdatedAt: string | null) => Promise<void>;
       markNoteSyncError?: (id: number) => Promise<void>;
       hardDeleteNote?: (id: number) => Promise<void>;
 

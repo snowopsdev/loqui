@@ -21,6 +21,10 @@ interface NoteInput {
   folder_id?: string | null;
   created_at?: string;
   updated_at?: string;
+  // Optimistic-concurrency base on updates: the server updated_at this device
+  // last acked. The server 409s (note_version_conflict) when a newer write
+  // landed; omitted = legacy last-write-wins.
+  base_updated_at?: string;
 }
 
 export interface CloudNote {
@@ -62,8 +66,8 @@ async function create(note: NoteInput): Promise<CloudNote> {
 
 async function batchCreate(
   notes: NoteInput[]
-): Promise<{ created: { client_note_id: string; id: string }[] }> {
-  return cloudPost<{ created: { client_note_id: string; id: string }[] }>(
+): Promise<{ created: { client_note_id: string; id: string; updated_at?: string }[] }> {
+  return cloudPost<{ created: { client_note_id: string; id: string; updated_at?: string }[] }>(
     "/api/notes/batch-create",
     { notes }
   );

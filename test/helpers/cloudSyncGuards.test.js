@@ -103,3 +103,28 @@ test("the note update payload carries the pre-mapped cloud folder id", async () 
   assert.equal(buildNoteUpdatePayload(localNote, null).folder_id, null);
   assert.equal(buildNoteUpdatePayload(localNote, undefined).folder_id, null);
 });
+
+// Optimistic-concurrency contract (G2): the PATCH echoes the server revision
+// this device last acked, never the local SQLite updated_at, so the server can
+// 409 a stale overwrite of a teammate's newer edit.
+
+test("the note update payload echoes cloud_updated_at as base_updated_at verbatim", async () => {
+  const { buildNoteUpdatePayload } = await load();
+  const payload = buildNoteUpdatePayload(
+    { ...localNote, cloud_updated_at: "2026-07-22T08:40:00.123Z" },
+    "cloud-folder-3"
+  );
+  assert.equal(payload.base_updated_at, "2026-07-22T08:40:00.123Z");
+  // The local timestamp still rides as updated_at, unchanged:
+  assert.equal(payload.updated_at, "2026-07-22 08:47:00");
+});
+
+test("pre-guard rows omit base_updated_at entirely (legacy last-write-wins)", async () => {
+  const { buildNoteUpdatePayload } = await load();
+  assert.equal("base_updated_at" in buildNoteUpdatePayload(localNote, null), false);
+  assert.equal(
+    "base_updated_at" in
+      buildNoteUpdatePayload({ ...localNote, cloud_updated_at: null }, null),
+    false
+  );
+});

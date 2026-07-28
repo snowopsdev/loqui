@@ -913,9 +913,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getNoteByClientId: (clientNoteId) => ipcRenderer.invoke("db-get-note-by-client-id", clientNoteId),
   upsertNoteFromCloud: (cloudNote, localFolderId, localSpaceId) =>
     ipcRenderer.invoke("db-upsert-note-from-cloud", cloudNote, localFolderId, localSpaceId),
-  markNoteSynced: (id, cloudId) => ipcRenderer.invoke("db-mark-note-synced", id, cloudId),
-  markNoteSyncedIfUnchanged: (id, cloudId, snapshotUpdatedAt) =>
-    ipcRenderer.invoke("db-mark-note-synced-if-unchanged", id, cloudId, snapshotUpdatedAt),
+  markNoteSynced: (id, cloudId, cloudUpdatedAt) =>
+    ipcRenderer.invoke("db-mark-note-synced", id, cloudId, cloudUpdatedAt),
+  markNoteSyncedIfUnchanged: (id, cloudId, snapshotUpdatedAt, cloudUpdatedAt) =>
+    ipcRenderer.invoke("db-mark-note-synced-if-unchanged", id, cloudId, snapshotUpdatedAt, cloudUpdatedAt),
+  setNoteCloudBase: (id, cloudUpdatedAt) =>
+    ipcRenderer.invoke("db-set-note-cloud-base", id, cloudUpdatedAt),
   markNoteSyncError: (id) => ipcRenderer.invoke("db-mark-note-sync-error", id),
   hardDeleteNote: (id) => ipcRenderer.invoke("db-hard-delete-note", id),
 

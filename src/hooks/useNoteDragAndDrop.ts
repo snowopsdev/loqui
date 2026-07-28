@@ -31,6 +31,12 @@ interface UseNoteDragAndDropOptions {
   onCrossSpaceDrop: (note: DraggedNoteInfo, target: NoteMoveTarget, commit: () => void) => void;
   /** Vetoes cross-space targets: when it returns false the row never accepts the drag. */
   canCrossSpaceDrop?: (note: DraggedNoteInfo, target: NoteMoveTarget) => boolean;
+  /**
+   * Fired at most once per drag when the dragged note first hovers a target
+   * the cross-space veto rejected — the drop would otherwise die silently
+   * (no highlight, no dialog), which reads as a broken drag.
+   */
+  onCrossSpaceVeto?: (note: DraggedNoteInfo) => void;
   /** Fired after hovering a target for 500ms mid-drag (auto-expand collapsed containers). */
   onHoverTarget?: (key: string) => void;
 }
@@ -47,6 +53,7 @@ export function useNoteDragAndDrop({
   onMoveToTarget,
   onCrossSpaceDrop,
   canCrossSpaceDrop,
+  onCrossSpaceVeto,
   onHoverTarget,
 }: UseNoteDragAndDropOptions) {
   const [dragState, setDragState] = useState<DragState>({
@@ -60,6 +67,7 @@ export function useNoteDragAndDrop({
   const hoverKeyRef = useRef<string | null>(null);
   const enterCounterRef = useRef<Map<string, number>>(new Map());
   const draggedNoteRef = useRef<DraggedNoteInfo | null>(null);
+  const vetoNotifiedRef = useRef(false);
 
   const clearHoverTimeout = useCallback(() => {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
@@ -101,11 +109,13 @@ export function useNoteDragAndDrop({
         requestAnimationFrame(() => ghost.remove());
 
         draggedNoteRef.current = note;
+        vetoNotifiedRef.current = false;
         setDragState((prev) => ({ ...prev, draggingNoteId: note.id }));
         enterCounterRef.current.clear();
       },
       onDragEnd: () => {
         draggedNoteRef.current = null;
+        vetoNotifiedRef.current = false;
         clearHoverTimeout();
         setDragState((prev) => ({
           ...prev,
@@ -136,6 +146,8 @@ export function useNoteDragAndDrop({
     (targetInfo: DropTargetInfo) => {
       const target: NoteMoveTarget = { spaceId: targetInfo.spaceId, folderId: targetInfo.folderId };
       const key = targetKey(target);
+      const crossSpaceVetoed = (note: DraggedNoteInfo): boolean =>
+        note.spaceId !== target.spaceId && !!canCrossSpaceDrop && !canCrossSpaceDrop(note, target);
       const canDrop = () => {
         const note = draggedNoteRef.current;
         if (!note) return false;
@@ -144,13 +156,7 @@ export function useNoteDragAndDrop({
             ? note.folderId === target.folderId
             : note.folderId == null && note.spaceId === target.spaceId;
         if (isSameContainer) return false;
-        if (
-          note.spaceId !== target.spaceId &&
-          canCrossSpaceDrop &&
-          !canCrossSpaceDrop(note, target)
-        ) {
-          return false;
-        }
+        if (crossSpaceVetoed(note)) return false;
         // The default Meetings folder of the note's own space stays a non-target.
         const isOwnMeetings =
           !!targetInfo.isDefaultFolder &&
@@ -167,7 +173,14 @@ export function useNoteDragAndDrop({
         },
         onDragEnter: (e: React.DragEvent) => {
           e.preventDefault();
-          if (!canDrop()) return;
+          if (!canDrop()) {
+            const note = draggedNoteRef.current;
+            if (note && crossSpaceVetoed(note) && !vetoNotifiedRef.current) {
+              vetoNotifiedRef.current = true;
+              onCrossSpaceVeto?.(note);
+            }
+            return;
+          }
           const count = (enterCounterRef.current.get(key) ?? 0) + 1;
           enterCounterRef.current.set(key, count);
           if (count === 1) {
@@ -216,7 +229,7 @@ export function useNoteDragAndDrop({
         },
       };
     },
-    [onCrossSpaceDrop, canCrossSpaceDrop, onHoverTarget, commitDrop, clearHoverTimeout]
+    [onCrossSpaceDrop, canCrossSpaceDrop, onCrossSpaceVeto, onHoverTarget, commitDrop, clearHoverTimeout]
   );
 
   return { dragState, noteDragHandlers, dropTargetHandlers };

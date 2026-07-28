@@ -42,5 +42,9 @@ export function buildNoteUpdatePayload(note, cloudFolderId) {
     expected_speaker_count: note.expected_speaker_count,
     folder_id: cloudFolderId ?? null,
     updated_at: note.updated_at,
+    // The server revision this device last acked; the server 409s when a newer
+    // write landed since. Omitted for pre-guard rows (null base), which keeps
+    // the legacy last-write-wins contract for them.
+    ...(note.cloud_updated_at ? { base_updated_at: note.cloud_updated_at } : {}),
   };
 }

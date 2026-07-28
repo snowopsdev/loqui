@@ -71,19 +71,40 @@ test("cursor policy: a degraded team-only pass advances nothing", async () => {
   });
 });
 
-// --- prunePurgedSpaceEntries ------------------------------------------------
+// --- purged-space guard -----------------------------------------------------
 
 test("purge guard: entries expire strictly at the TTL", async () => {
   const { prunePurgedSpaceEntries } = await load();
   const now = 1_000_000_000;
   const ttl = 900_000;
+  const entry = (at) => ({ at, reason: "deleted" });
   const pruned = prunePurgedSpaceEntries(
-    { fresh: now - 1, edge: now - ttl, stale: now - ttl - 1 },
+    { fresh: entry(now - 1), edge: entry(now - ttl), stale: entry(now - ttl - 1) },
     now,
     ttl
   );
-  assert.deepEqual(pruned, { fresh: now - 1 });
+  assert.deepEqual(pruned, { fresh: entry(now - 1) });
   assert.deepEqual(prunePurgedSpaceEntries({}, now, ttl), {});
+});
+
+test("purge guard: legacy plain-timestamp entries normalize to the deleted reason", async () => {
+  const { normalizePurgedSpaceEntries } = await load();
+  const shaped = { at: 123, reason: "revoked" };
+  assert.deepEqual(normalizePurgedSpaceEntries({ legacy: 456, shaped }), {
+    legacy: { at: 456, reason: "deleted" },
+    shaped,
+  });
+});
+
+// D14: a member removed then re-added must not stay locked out for the TTL.
+// Only a still-live "deleted" entry keeps guarding (the delete race the guard
+// was built for); a reappearing "revoked" space means re-added access.
+test("purge guard: live-set sweep keeps only still-live deleted entries", async () => {
+  const { keepPurgedSpaceEntry } = await load();
+  assert.equal(keepPurgedSpaceEntry({ at: 1, reason: "deleted" }, true), true);
+  assert.equal(keepPurgedSpaceEntry({ at: 1, reason: "revoked" }, true), false);
+  assert.equal(keepPurgedSpaceEntry({ at: 1, reason: "deleted" }, false), false);
+  assert.equal(keepPurgedSpaceEntry({ at: 1, reason: "revoked" }, false), false);
 });
 
 // --- revokedNoteForkUpdate --------------------------------------------------

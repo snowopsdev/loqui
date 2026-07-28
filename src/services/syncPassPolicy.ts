@@ -33,14 +33,48 @@ export function resolvePullCursorAdvance(pass: {
   return { advanceCursor: !pass.teamOnly, advanceTeamCursor: false };
 }
 
+// Why a space was purged locally: "deleted" covers the delete race the guard
+// was built for (the server may not have processed the delete yet, so the
+// space can still appear live); "revoked" covers access loss, where the space
+// reappearing in /api/me/spaces means the member was re-added and the guard
+// must stand down instead of locking them out for the TTL (D14).
+export type PurgedSpaceReason = "revoked" | "deleted";
+
+export interface PurgedSpaceEntry {
+  at: number;
+  reason: PurgedSpaceReason;
+}
+
+// Entries written before the reason field existed are plain timestamps; read
+// them as "deleted" (the conservative guard) so an in-flight delete stays
+// covered — at worst a pre-upgrade revocation entry rides out its TTL once.
+export function normalizePurgedSpaceEntries(
+  raw: Record<string, number | PurgedSpaceEntry>
+): Record<string, PurgedSpaceEntry> {
+  return Object.fromEntries(
+    Object.entries(raw).map(([id, entry]) => [
+      id,
+      typeof entry === "number" ? { at: entry, reason: "deleted" as const } : entry,
+    ])
+  );
+}
+
 // Entries older than the TTL are dropped so a failed space delete cannot hide
 // a still-live space forever.
 export function prunePurgedSpaceEntries(
-  entries: Record<string, number>,
+  entries: Record<string, PurgedSpaceEntry>,
   now: number,
   ttlMs: number
-): Record<string, number> {
-  return Object.fromEntries(Object.entries(entries).filter(([, at]) => now - at < ttlMs));
+): Record<string, PurgedSpaceEntry> {
+  return Object.fromEntries(Object.entries(entries).filter(([, { at }]) => now - at < ttlMs));
+}
+
+// Live-set sweep after a spaces pass. Gone from /api/me/spaces → the purge is
+// confirmed server-side, guard done (either reason). Still live + "deleted" →
+// the delete hasn't landed; keep guarding. Still live + "revoked" → the space
+// reappeared after a re-add: drop the entry so it can re-mirror.
+export function keepPurgedSpaceEntry(entry: PurgedSpaceEntry, isLive: boolean): boolean {
+  return isLive && entry.reason === "deleted";
 }
 
 export interface RevokedNoteFork {

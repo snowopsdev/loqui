@@ -33,7 +33,7 @@ export type AgentStreamChunk =
       callId: string;
       toolName: string;
       displayText: string;
-      metadata?: Record<string, unknown>;
+      metadata?: Record<string, unknown> | Array<Record<string, unknown>>;
     }
   | { type: "done"; finishReason?: string };
 
@@ -827,7 +827,7 @@ class ReasoningService extends BaseReasoningService {
       executeToolCall?: (
         name: string,
         args: string
-      ) => Promise<{ data: string; displayText: string; metadata?: Record<string, unknown> }>;
+      ) => Promise<{ data: string; displayText: string; metadata?: Record<string, unknown> | Array<Record<string, unknown>> }>;
     }
   ): AsyncGenerator<AgentStreamChunk, void, unknown> {
     const maxSteps = config.tools?.length ? ReasoningService.MAX_TOOL_STEPS : 1;
@@ -861,7 +861,11 @@ class ReasoningService extends BaseReasoningService {
       }
 
       for (const call of pendingToolCalls) {
-        let toolResult: { data: string; displayText: string; metadata?: Record<string, unknown> };
+        let toolResult: {
+          data: string;
+          displayText: string;
+          metadata?: Record<string, unknown> | Array<Record<string, unknown>>;
+        };
         try {
           toolResult = await config.executeToolCall(call.name, call.arguments);
         } catch (error) {

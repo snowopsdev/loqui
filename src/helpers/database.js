@@ -2244,9 +2244,7 @@ class DatabaseManager {
       const updatedAt = space.updated_at || space.created_at || new Date().toISOString();
       const teams = Array.isArray(space.teams) ? space.teams : [];
       const teamsJson = JSON.stringify(teams);
-      let existing = this.db
-        .prepare("SELECT * FROM spaces WHERE cloud_space_id = ?")
-        .get(space.id);
+      let existing = this.db.prepare("SELECT * FROM spaces WHERE cloud_space_id = ?").get(space.id);
       if (!existing && teams.length === 1) {
         // Adopt a pre-spaces row: the server backfilled one space per legacy
         // team, so a single-team space claims the local row that mirrored that
@@ -2272,7 +2270,9 @@ class DatabaseManager {
             updatedAt,
             existing.id
           );
-        return this._spaceRow(this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(existing.id));
+        return this._spaceRow(
+          this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(existing.id)
+        );
       }
       const maxOrder = this.db.prepare("SELECT MAX(sort_order) as max_order FROM spaces").get();
       // New spaces insert as 'pending' (skeletons until the content backfill

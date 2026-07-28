@@ -2008,7 +2008,6 @@ export default function SettingsPage({
                 <div className="space-y-5">
                   <SectionHeader title={t("settingsPage.account.pricing.title")} />
                   <div className={`grid gap-1.5 ${isCompact ? "grid-cols-2" : "grid-cols-4"}`}>
-                    {/* Free */}
                     <div
                       className={cn(
                         "rounded-md p-2.5 flex flex-col",
@@ -2079,7 +2078,6 @@ export default function SettingsPage({
                       )}
                     </div>
 
-                    {/* Pro */}
                     <div
                       className={cn(
                         "rounded-md border-2 p-2.5 flex flex-col",
@@ -2179,7 +2177,6 @@ export default function SettingsPage({
                       )}
                     </div>
 
-                    {/* Business */}
                     <div className="rounded-md border-2 border-primary/50 bg-primary/8 dark:border-primary/40 dark:bg-primary/10 p-2.5 flex flex-col relative">
                       <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-[8px] font-semibold px-2.5 py-0.5 rounded-full whitespace-nowrap shadow-sm">
                         {t("settingsPage.account.pricing.business.badge")}
@@ -2251,7 +2248,6 @@ export default function SettingsPage({
                       )}
                     </div>
 
-                    {/* Enterprise */}
                     <div className="rounded-md border border-border/50 dark:border-border-subtle/60 bg-card/30 dark:bg-surface-2/30 p-2.5 flex flex-col">
                       <p className="text-xs font-semibold text-foreground">
                         {t("settingsPage.account.pricing.enterprise.name")}

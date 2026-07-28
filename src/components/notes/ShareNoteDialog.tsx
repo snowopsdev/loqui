@@ -644,7 +644,6 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
               {t("noteEditor.share.dialog.description")}
             </DialogDescription>
 
-            {/* Invite row */}
             <div className="relative">
               <div className="flex items-center gap-2">
                 <input
@@ -727,7 +726,6 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
               {inputError}
             </p>
 
-            {/* Members list */}
             <div className="flex flex-col gap-1.5 mt-1">
               {(access?.owner || !isTeamNote) && (
                 <MemberRow
@@ -835,7 +833,6 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
               ))}
             </div>
 
-            {/* Footer: visibility + link */}
             <div className="flex items-center gap-2 pt-3 mt-1 border-t border-border/60">
               <ShareVisibilityMenu
                 value={share?.visibility ?? "private"}

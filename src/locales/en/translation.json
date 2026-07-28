@@ -1159,7 +1159,7 @@
         "label": "Plans & Billing"
       },
       "workspace": {
-        "description": "Members, billing & API keys",
+        "description": "Members, team spaces & API keys",
         "label": "Workspace"
       },
       "general": {
@@ -1192,7 +1192,7 @@
   "settingsPage": {
     "workspace": {
       "title": "Workspace",
-      "description": "Collaborate with teammates, share notes, and manage billing in one place.",
+      "description": "Collaborate with teammates, share notes, and manage workspace access in one place.",
       "empty": {
         "title": "Create your first workspace",
         "description": "Workspaces let you collaborate with teammates and share notes.",
@@ -1207,7 +1207,6 @@
         "general": "General",
         "members": "Members",
         "teams": "Team spaces",
-        "billing": "Billing",
         "developer": "Developer"
       },
       "role": {
@@ -1308,19 +1307,17 @@
         }
       },
       "billing": {
-        "title": "Billing",
-        "description": "Plan, seats, and payment.",
         "plan": "Plan",
         "seats": "Seats",
         "ownerOnly": "Only the workspace owner can manage the subscription.",
         "nextInvoice": "Next invoice",
         "manageStripe": "Manage in Stripe",
-        "opening": "Opening…",
         "startSubscription": "Start subscription",
         "planLabel": {
           "business": "Business",
           "pro": "Pro",
-          "free": "Free"
+          "free": "Free",
+          "enterprise": "Enterprise"
         },
         "status": {
           "active": "Active",
@@ -1383,6 +1380,30 @@
         }
       }
     },
+    "unifiedBilling": {
+      "workspaceTitle": "Workspace billing",
+      "workspaceDescription": "Each workspace has its own plan, seats, and billing owner.",
+      "billableSeat": "Your seat is billable",
+      "nonBillableSeat": "Admin-only access · no paid seat",
+      "managedBy": "Billing is managed by {{owner}}.",
+      "addSeat": "Add seat",
+      "startWithSeats_one": "Start Business with {{count}} seat",
+      "startWithSeats_other": "Start Business with {{count}} seats",
+      "seatUpdated_one": "Workspace capacity updated to {{count}} seat",
+      "seatUpdated_other": "Workspace capacity updated to {{count}} seats",
+      "seatUpdateFailed": "Couldn't update workspace seats",
+      "businessWorkspaceOnly": "Available for workspaces",
+      "personalPlanTitle": "Personal plan",
+      "providedBy": "Personal plan: Free · Paid access provided by {{workspaces}}",
+      "confirmSeats": {
+        "title": "Add a workspace seat?",
+        "description_one": "Increase {{workspace}} to {{count}} seat. Stripe will prorate the change.",
+        "description_other": "Increase {{workspace}} to {{count}} seats. Stripe will prorate the change.",
+        "newCapacity": "New capacity",
+        "chargeToday": "Charge today",
+        "confirm": "Add seat"
+      }
+    },
     "account": {
       "badges": {
         "free": "Free",
@@ -1429,7 +1450,6 @@
         "business": "Business",
         "trial": "Trial"
       },
-      "planTitle": "Plan",
       "pricing": {
         "title": "Plans",
         "billedYearly": "Billed yearly",
@@ -2519,7 +2539,7 @@
       },
       "workspace": {
         "title": "Workspace",
-        "description": "The home for your organization's members, roles, and billing."
+        "description": "The home for your workspace's members, roles, and team spaces."
       },
       "teamSpace": {
         "title": "Team space",

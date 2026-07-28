@@ -1159,7 +1159,7 @@
         "label": "Forfaits & facturation"
       },
       "workspace": {
-        "description": "Membres, facturation & clés API",
+        "description": "Membres, espaces d'équipe et clés API",
         "label": "Espace de travail"
       },
       "general": {
@@ -1192,7 +1192,7 @@
   "settingsPage": {
     "workspace": {
       "title": "Espace de travail",
-      "description": "Collaborez, partagez des notes et gérez la facturation au même endroit.",
+      "description": "Collaborez, partagez des notes et gérez l'accès à l'espace de travail au même endroit.",
       "empty": {
         "title": "Créez votre premier espace de travail",
         "description": "Les espaces de travail vous permettent de collaborer et partager des notes.",
@@ -1207,7 +1207,6 @@
         "general": "Général",
         "members": "Membres",
         "teams": "Espaces d'équipe",
-        "billing": "Facturation",
         "developer": "Développeur"
       },
       "role": {
@@ -1308,19 +1307,17 @@
         }
       },
       "billing": {
-        "title": "Facturation",
-        "description": "Plan, sièges et paiement.",
         "plan": "Plan",
         "seats": "Sièges",
         "ownerOnly": "Seul le propriétaire de l'espace de travail peut gérer l'abonnement.",
         "nextInvoice": "Prochaine facture",
         "manageStripe": "Gérer dans Stripe",
-        "opening": "Ouverture…",
         "startSubscription": "Démarrer l'abonnement",
         "planLabel": {
           "business": "Business",
           "pro": "Pro",
-          "free": "Gratuit"
+          "free": "Gratuit",
+          "enterprise": "Enterprise"
         },
         "status": {
           "active": "Actif",
@@ -1383,6 +1380,30 @@
         }
       }
     },
+    "unifiedBilling": {
+      "workspaceTitle": "Facturation de l'espace de travail",
+      "workspaceDescription": "Chaque espace de travail a son propre plan, ses sièges et son responsable de facturation.",
+      "billableSeat": "Votre siège est facturable",
+      "nonBillableSeat": "Accès administrateur uniquement · aucun siège payant",
+      "managedBy": "La facturation est gérée par {{owner}}.",
+      "addSeat": "Ajouter un siège",
+      "startWithSeats_one": "Démarrer Business avec {{count}} siège",
+      "startWithSeats_other": "Démarrer Business avec {{count}} sièges",
+      "seatUpdated_one": "Capacité de l'espace de travail mise à jour : {{count}} siège",
+      "seatUpdated_other": "Capacité de l'espace de travail mise à jour : {{count}} sièges",
+      "seatUpdateFailed": "Impossible de mettre à jour les sièges de l'espace de travail",
+      "businessWorkspaceOnly": "Disponible pour les espaces de travail",
+      "personalPlanTitle": "Plan personnel",
+      "providedBy": "Plan personnel : Gratuit · Accès payant fourni par {{workspaces}}",
+      "confirmSeats": {
+        "title": "Ajouter un siège à l'espace de travail ?",
+        "description_one": "Passer {{workspace}} à {{count}} siège. Stripe calculera le changement au prorata.",
+        "description_other": "Passer {{workspace}} à {{count}} sièges. Stripe calculera le changement au prorata.",
+        "newCapacity": "Nouvelle capacité",
+        "chargeToday": "Montant facturé aujourd'hui",
+        "confirm": "Ajouter un siège"
+      }
+    },
     "account": {
       "badges": {
         "free": "Gratuit",
@@ -1429,7 +1450,6 @@
         "business": "Business",
         "trial": "Essai"
       },
-      "planTitle": "Plan",
       "pricing": {
         "title": "Forfaits",
         "billedYearly": "Facturation annuelle",
@@ -2519,7 +2539,7 @@
       },
       "workspace": {
         "title": "Espace de travail",
-        "description": "L'espace des membres, des rôles et de la facturation de votre organisation."
+        "description": "L'espace des membres, des rôles et des espaces d'équipe de votre espace de travail."
       },
       "teamSpace": {
         "title": "Espace d'équipe",

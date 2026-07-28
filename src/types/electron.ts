@@ -214,14 +214,19 @@ export interface Workspace {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   seats: number;
+  // Optional: absent from API responses that predate unified billing.
+  seats_used?: number;
   created_at: string;
   updated_at: string;
   role: WorkspaceRole;
+  is_billable?: boolean;
+  billing_manager?: string | null;
 }
 
 export interface WorkspaceMember {
   user_id: string;
   role: WorkspaceRole;
+  is_billable?: boolean;
   joined_at: string;
   email: string;
   name: string | null;
@@ -1438,6 +1443,10 @@ declare global {
         trialDaysLeft?: number | null;
         currentPeriodEnd?: string | null;
         billingInterval?: "monthly" | "annual" | null;
+        entitlementSources?: {
+          personal: boolean;
+          workspaceIds: string[];
+        };
         resetAt?: string;
         error?: string;
         code?: string;

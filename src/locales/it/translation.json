@@ -1095,13 +1095,37 @@
         "label": "Sistema"
       },
       "workspace": {
-        "description": "Membri, fatturazione e chiavi API",
+        "description": "Membri, spazi del team e chiavi API",
         "label": "Area di lavoro"
       }
     },
     "title": "Impostazioni"
   },
   "settingsPage": {
+    "unifiedBilling": {
+      "workspaceTitle": "Fatturazione dell'area di lavoro",
+      "workspaceDescription": "Ogni area di lavoro ha il proprio piano, i propri posti e un responsabile della fatturazione.",
+      "billableSeat": "Il tuo posto è fatturabile",
+      "nonBillableSeat": "Accesso solo amministratore · nessun posto a pagamento",
+      "managedBy": "La fatturazione è gestita da {{owner}}.",
+      "addSeat": "Aggiungi posto",
+      "startWithSeats_one": "Avvia Business con {{count}} posto",
+      "startWithSeats_other": "Avvia Business con {{count}} posti",
+      "seatUpdated_one": "Capacità dell'area di lavoro aggiornata a {{count}} posto",
+      "seatUpdated_other": "Capacità dell'area di lavoro aggiornata a {{count}} posti",
+      "seatUpdateFailed": "Impossibile aggiornare i posti dell'area di lavoro",
+      "businessWorkspaceOnly": "Disponibile per le aree di lavoro",
+      "personalPlanTitle": "Piano personale",
+      "providedBy": "Piano personale: Free · Accesso a pagamento fornito da {{workspaces}}",
+      "confirmSeats": {
+        "title": "Aggiungere un posto all'area di lavoro?",
+        "description_one": "Amplia {{workspace}} a {{count}} posto. Stripe calcolerà la modifica in modo proporzionale.",
+        "description_other": "Amplia {{workspace}} a {{count}} posti. Stripe calcolerà la modifica in modo proporzionale.",
+        "newCapacity": "Nuova capacità",
+        "chargeToday": "Addebito di oggi",
+        "confirm": "Aggiungi posto"
+      }
+    },
     "account": {
       "badges": {
         "free": "Gratuito",
@@ -1148,7 +1172,6 @@
         "business": "Business",
         "trial": "Prova"
       },
-      "planTitle": "Piano",
       "rollingWeeklyLimit": "Limite settimanale progressivo",
       "signOut": {
         "failedDescription": "Qualcosa è andato storto durante la disconnessione. Riprova.",
@@ -1806,7 +1829,7 @@
     },
     "workspace": {
       "title": "Area di lavoro",
-      "description": "Collabora con il tuo team, condividi note e gestisci la fatturazione in un unico posto.",
+      "description": "Collabora con il tuo team, condividi note e gestisci l'accesso all'area di lavoro in un unico posto.",
       "empty": {
         "title": "Crea la tua prima area di lavoro",
         "description": "Le aree di lavoro ti permettono di collaborare con il team e condividere note.",
@@ -1821,7 +1844,6 @@
         "general": "Generale",
         "members": "Membri",
         "teams": "Spazi del team",
-        "billing": "Fatturazione",
         "developer": "Sviluppatore"
       },
       "role": {
@@ -1922,19 +1944,17 @@
         }
       },
       "billing": {
-        "title": "Fatturazione",
-        "description": "Piano, posti e pagamento.",
         "plan": "Piano",
         "seats": "Posti",
         "ownerOnly": "Solo il proprietario dell'area di lavoro può gestire l'abbonamento.",
         "nextInvoice": "Prossima fattura",
         "manageStripe": "Gestisci in Stripe",
-        "opening": "Apertura…",
         "startSubscription": "Avvia abbonamento",
         "planLabel": {
           "business": "Business",
           "pro": "Pro",
-          "free": "Free"
+          "free": "Free",
+          "enterprise": "Enterprise"
         },
         "status": {
           "active": "Attivo",
@@ -2309,7 +2329,7 @@
       },
       "workspace": {
         "title": "Area di lavoro",
-        "description": "La sede di membri, ruoli e fatturazione della tua organizzazione."
+        "description": "La sede di membri, ruoli e spazi del team della tua area di lavoro."
       },
       "teamSpace": {
         "title": "Spazio del team",

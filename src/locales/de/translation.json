@@ -1159,7 +1159,7 @@
         "label": "Tarife & Abrechnung"
       },
       "workspace": {
-        "description": "Mitglieder, Abrechnung und API-Schlüssel",
+        "description": "Mitglieder, Team-Bereiche und API-Schlüssel",
         "label": "Workspace"
       },
       "general": {
@@ -1192,7 +1192,7 @@
   "settingsPage": {
     "workspace": {
       "title": "Workspace",
-      "description": "Arbeiten Sie zusammen, teilen Sie Notizen und verwalten Sie die Abrechnung an einem Ort.",
+      "description": "Arbeiten Sie zusammen, teilen Sie Notizen und verwalten Sie den Workspace-Zugriff an einem Ort.",
       "empty": {
         "title": "Ersten Workspace erstellen",
         "description": "Workspaces ermöglichen die Zusammenarbeit und das Teilen von Notizen.",
@@ -1207,7 +1207,6 @@
         "general": "Allgemein",
         "members": "Mitglieder",
         "teams": "Team-Bereiche",
-        "billing": "Abrechnung",
         "developer": "Entwickler"
       },
       "role": {
@@ -1308,19 +1307,17 @@
         }
       },
       "billing": {
-        "title": "Abrechnung",
-        "description": "Plan, Plätze und Zahlung.",
         "plan": "Plan",
         "seats": "Plätze",
         "ownerOnly": "Nur der Workspace-Inhaber kann das Abonnement verwalten.",
         "nextInvoice": "Nächste Rechnung",
         "manageStripe": "In Stripe verwalten",
-        "opening": "Öffne…",
         "startSubscription": "Abonnement starten",
         "planLabel": {
           "business": "Business",
           "pro": "Pro",
-          "free": "Free"
+          "free": "Free",
+          "enterprise": "Enterprise"
         },
         "status": {
           "active": "Aktiv",
@@ -1383,6 +1380,30 @@
         }
       }
     },
+    "unifiedBilling": {
+      "workspaceTitle": "Workspace-Abrechnung",
+      "workspaceDescription": "Jeder Workspace hat seinen eigenen Plan, eigene Plätze und einen Abrechnungsinhaber.",
+      "billableSeat": "Ihr Platz wird abgerechnet",
+      "nonBillableSeat": "Nur Admin-Zugriff · kein kostenpflichtiger Platz",
+      "managedBy": "Die Abrechnung wird von {{owner}} verwaltet.",
+      "addSeat": "Platz hinzufügen",
+      "startWithSeats_one": "Business mit {{count}} Platz starten",
+      "startWithSeats_other": "Business mit {{count}} Plätzen starten",
+      "seatUpdated_one": "Workspace-Kapazität auf {{count}} Platz aktualisiert",
+      "seatUpdated_other": "Workspace-Kapazität auf {{count}} Plätze aktualisiert",
+      "seatUpdateFailed": "Workspace-Plätze konnten nicht aktualisiert werden",
+      "businessWorkspaceOnly": "Für Workspaces verfügbar",
+      "personalPlanTitle": "Persönlicher Plan",
+      "providedBy": "Persönlicher Plan: Free · Bezahlter Zugriff bereitgestellt von {{workspaces}}",
+      "confirmSeats": {
+        "title": "Workspace-Platz hinzufügen?",
+        "description_one": "{{workspace}} auf {{count}} Platz erweitern. Stripe berechnet die Änderung anteilig.",
+        "description_other": "{{workspace}} auf {{count}} Plätze erweitern. Stripe berechnet die Änderung anteilig.",
+        "newCapacity": "Neue Kapazität",
+        "chargeToday": "Heute fällig",
+        "confirm": "Platz hinzufügen"
+      }
+    },
     "account": {
       "badges": {
         "free": "Kostenlos",
@@ -1429,7 +1450,6 @@
         "business": "Business",
         "trial": "Testversion"
       },
-      "planTitle": "Tarif",
       "pricing": {
         "title": "Tarife",
         "billedYearly": "Jährliche Abrechnung",
@@ -2519,7 +2539,7 @@
       },
       "workspace": {
         "title": "Workspace",
-        "description": "Hier werden Mitglieder, Rollen und Abrechnung Ihrer Organisation verwaltet."
+        "description": "Hier werden Mitglieder, Rollen und Team-Bereiche Ihres Workspace verwaltet."
       },
       "teamSpace": {
         "title": "Team-Bereich",

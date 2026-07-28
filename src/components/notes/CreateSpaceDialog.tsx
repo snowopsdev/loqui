@@ -15,6 +15,7 @@ import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { useToast } from "../ui/useToast";
 import CreateWorkspaceDialog from "../CreateWorkspaceDialog";
+import CreateTeamDialog from "../CreateTeamDialog";
 import MemberPickList from "../MemberPickList";
 import { createSpace } from "../../services/spaceActions";
 import { TeamsService } from "../../services/TeamsService";
@@ -77,6 +78,7 @@ export default function CreateSpaceDialog({
   const [selectedTeamIds, setSelectedTeamIds] = useState<Set<string>>(new Set());
   const [newTeamOpen, setNewTeamOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
+  const [createTeamOpen, setCreateTeamOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [planBlocked, setPlanBlocked] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
@@ -165,6 +167,7 @@ export default function CreateSpaceDialog({
       setSelectedTeamIds(new Set());
       setNewTeamOpen(false);
       setNewTeamName("");
+      setCreateTeamOpen(false);
       setPlanBlocked(false);
       setSelectedWorkspaceId(null);
     }
@@ -195,6 +198,12 @@ export default function CreateSpaceDialog({
       if (!next.delete(teamId)) next.add(teamId);
       return next;
     });
+  };
+
+  const handleTeamCreated = (team: Team) => {
+    setTeams((prev) => [...prev, team]);
+    setSelectedTeamIds((prev) => new Set(prev).add(team.id));
+    toast({ title: t("settingsPage.workspace.teams.created", { team: team.name }) });
   };
 
   const handleWorkspaceChange = (workspaceId: string) => {
@@ -268,6 +277,15 @@ export default function CreateSpaceDialog({
   return (
     <>
       <CreateWorkspaceDialog open={needsWorkspace} onOpenChange={handleWorkspaceDialogChange} />
+
+      {workspace && (
+        <CreateTeamDialog
+          workspaceId={workspace.id}
+          open={createTeamOpen}
+          onOpenChange={setCreateTeamOpen}
+          onCreated={handleTeamCreated}
+        />
+      )}
 
       <Dialog open={open && !needsWorkspace} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-95 p-6 gap-5">
@@ -467,7 +485,7 @@ export default function CreateSpaceDialog({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setNewTeamOpen(true)}
+                        onClick={() => setCreateTeamOpen(true)}
                         className="h-7 px-2 text-xs text-foreground/60"
                       >
                         <Plus size={12} className="mr-1" />

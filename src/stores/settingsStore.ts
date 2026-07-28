@@ -10,6 +10,7 @@ import type { LocalTranscriptionProvider, InferenceMode, SelfHostedType } from "
 import type { GoogleCalendarAccount } from "../types/calendar";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import { deriveReasoningMode, buildReasoningScopePatches } from "../helpers/reasoningRouting";
+import { findStaleLocalModelKeys } from "../helpers/localModelSelections";
 import {
   INFERENCE_SCOPES,
   type InferenceScope,
@@ -2089,6 +2090,32 @@ export function getSettings() {
   return useSettingsStore.getState();
 }
 
+/**
+ * Drops any local model selection the model cache no longer backs — a scope left
+ * pointing at a deleted model fails at inference time with an error the user has
+ * no way to act on. Cleared rather than repointed so the picker asks again.
+ */
+export function clearMissingLocalModelSelections(isInstalled: (modelId: string) => boolean): void {
+  const settings = useSettingsStore.getState() as unknown as Record<string, unknown>;
+  const staleKeys: string[] = findStaleLocalModelKeys(
+    Object.values(INFERENCE_SCOPES),
+    settings,
+    isInstalled
+  );
+  for (const key of staleKeys) {
+    setStringSetting(key as keyof SettingsState, "");
+  }
+}
+
+/** Reconciles every scope against the models actually on disk. */
+export async function reconcileLocalModelSelections(): Promise<void> {
+  if (!isBrowser || !window.electronAPI?.modelGetAll) return;
+
+  const models = await window.electronAPI.modelGetAll();
+  const installed = new Set(models.filter((model) => model.isDownloaded).map((model) => model.id));
+  clearMissingLocalModelSelections((modelId) => installed.has(modelId));
+}
+
 export function getEffectiveCleanupModel() {
   const state = useSettingsStore.getState();
   if (selectIsCloudCleanupMode(state)) {
@@ -2443,6 +2470,16 @@ export async function initializeSettings(): Promise<void> {
     } catch (err) {
       logger.warn(
         "Failed to sync whisper VAD config on startup",
+        { error: (err as Error).message },
+        "settings"
+      );
+    }
+
+    try {
+      await reconcileLocalModelSelections();
+    } catch (err) {
+      logger.warn(
+        "Failed to reconcile local model selections on startup",
         { error: (err as Error).message },
         "settings"
       );

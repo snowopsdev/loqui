@@ -838,10 +838,6 @@ declare global {
 
       // Space operations
       getSpaces?: () => Promise<SpaceItem[]>;
-      createSpace?: (space: {
-        name: string;
-        emoji?: string | null;
-      }) => Promise<{ success: boolean; space?: SpaceItem; error?: string }>;
       updateSpace?: (
         id: number,
         updates: { name?: string; emoji?: string | null }

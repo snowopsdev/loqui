@@ -220,3 +220,92 @@ test("upsertNoteFromCloud round-trips updated_by_user_id", (t) => {
   );
   assert.equal(unchanged.updated_by_user_id, "user-b");
 });
+
+// Container conversations die with their container (space purge, folder
+// delete, revocation): synced rows tombstone so the next push retires the
+// cloud copy — a hard local delete would let the next pull resurrect the
+// conversation as a global one — while never-synced rows hard-delete
+// outright (no server row to retire).
+
+test("purgeSpace retires the space's container conversations", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const space = db.createSpace({ name: "Eng" }).space;
+  const folder = db.createFolder("Docs", space.id).folder;
+
+  const syncedConv = db.createAgentConversation("Synced", null, space.id);
+  db.markConversationSynced(syncedConv.id, "cloud-conv-1");
+  const localConv = db.createAgentConversation("Local only", null, space.id, folder.id);
+  db.addAgentMessage(localConv.id, "user", "hello");
+  const globalConv = db.createAgentConversation("Global");
+
+  assert.equal(db.purgeSpace(space.id).success, true);
+
+  const tombstoned = db.db
+    .prepare("SELECT * FROM agent_conversations WHERE id = ?")
+    .get(syncedConv.id);
+  assert.ok(tombstoned.deleted_at, "synced conversation must tombstone for the delete push");
+  assert.equal(tombstoned.sync_status, "pending");
+
+  assert.equal(
+    db.db.prepare("SELECT COUNT(*) AS n FROM agent_conversations WHERE id = ?").get(localConv.id).n,
+    0
+  );
+  assert.equal(
+    db.db
+      .prepare("SELECT COUNT(*) AS n FROM agent_messages WHERE conversation_id = ?")
+      .get(localConv.id).n,
+    0
+  );
+
+  const global = db.db.prepare("SELECT * FROM agent_conversations WHERE id = ?").get(globalConv.id);
+  assert.equal(global.deleted_at, null, "unscoped conversations are untouched");
+});
+
+test("deleteFolder and hardDeleteFolder retire the folder's conversations", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const space = db.createSpace({ name: "Eng" }).space;
+  const folder = db.createFolder("Docs", space.id).folder;
+  const folderConv = db.createAgentConversation("Folder chat", null, space.id, folder.id);
+  const spaceConv = db.createAgentConversation("Space chat", null, space.id);
+
+  assert.equal(db.deleteFolder(folder.id).success, true);
+  assert.equal(
+    db.db.prepare("SELECT COUNT(*) AS n FROM agent_conversations WHERE id = ?").get(folderConv.id)
+      .n,
+    0
+  );
+  assert.equal(db.getConversationsForContainer(space.id, null)[0].id, spaceConv.id);
+
+  const folder2 = db.createFolder("Specs", space.id).folder;
+  const conv2 = db.createAgentConversation("Specs chat", null, space.id, folder2.id);
+  db.markConversationSynced(conv2.id, "cloud-conv-2");
+  db.hardDeleteFolder(folder2.id);
+  const tombstoned = db.db.prepare("SELECT * FROM agent_conversations WHERE id = ?").get(conv2.id);
+  assert.ok(tombstoned.deleted_at);
+  assert.equal(tombstoned.sync_status, "pending");
+});
+
+test("relocateRevokedFolder moves or retires the folder's conversations", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const privateId = db.getPrivateSpaceId();
+  const space = db.createSpace({ name: "Eng" }).space;
+
+  const kept = db.createFolder("Kept", space.id).folder;
+  const keptConv = db.createAgentConversation("Kept chat", null, space.id, kept.id);
+  assert.equal(db.relocateRevokedFolder(kept.id, privateId, true).success, true);
+  const moved = db.db.prepare("SELECT * FROM agent_conversations WHERE id = ?").get(keptConv.id);
+  assert.equal(moved.space_id, privateId, "chat follows the preserved folder");
+  assert.equal(moved.deleted_at, null);
+
+  const dropped = db.createFolder("Dropped", space.id).folder;
+  const droppedConv = db.createAgentConversation("Dropped chat", null, space.id, dropped.id);
+  assert.equal(db.relocateRevokedFolder(dropped.id, privateId, false).success, true);
+  assert.equal(
+    db.db.prepare("SELECT COUNT(*) AS n FROM agent_conversations WHERE id = ?").get(droppedConv.id)
+      .n,
+    0
+  );
+});

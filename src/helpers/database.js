@@ -2007,6 +2007,7 @@ class DatabaseManager {
       this.db.transaction(() => {
         this._deleteSpeakerRowsForNotes("SELECT id FROM notes WHERE folder_id = ?", id);
         hardDeleteNotes.run(id);
+        this._retireConversationsWhere("folder_id = ?", [id]);
         if (folder.cloud_id) tombstoneFolder.run(id);
         else hardDeleteFolder.run(id);
       })();
@@ -2204,10 +2205,6 @@ class DatabaseManager {
     }
   }
 
-  renameSpace(id, name) {
-    return this.updateSpace(id, { name });
-  }
-
   setSpaceSyncStatus(id, status) {
     try {
       if (!this.db) throw new Error("Database not initialized");
@@ -2315,6 +2312,29 @@ class DatabaseManager {
       .run(param);
   }
 
+  // Container-scoped agent conversations die with their container — a
+  // surviving row would dangle and resurface if SQLite ever reuses the
+  // container's rowid. Synced rows tombstone (like deleteAgentConversation)
+  // so the next push retires the cloud copy; a hard local delete would let
+  // the next pull resurrect the conversation as a global one. Never-synced
+  // rows hard-delete: there is no server row to retire, and a bare tombstone
+  // would linger forever (getPendingConversationDeletes requires a cloud_id).
+  _retireConversationsWhere(containerFilter, params) {
+    this.db
+      .prepare(
+        `DELETE FROM agent_messages WHERE conversation_id IN (SELECT id FROM agent_conversations WHERE cloud_id IS NULL AND (${containerFilter}))`
+      )
+      .run(...params);
+    this.db
+      .prepare(`DELETE FROM agent_conversations WHERE cloud_id IS NULL AND (${containerFilter})`)
+      .run(...params);
+    this.db
+      .prepare(
+        `UPDATE agent_conversations SET deleted_at = datetime('now'), sync_status = 'pending', updated_at = datetime('now') WHERE cloud_id IS NOT NULL AND deleted_at IS NULL AND (${containerFilter})`
+      )
+      .run(...params);
+  }
+
   purgeSpace(localSpaceId) {
     try {
       if (!this.db) throw new Error("Database not initialized");
@@ -2366,6 +2386,10 @@ class DatabaseManager {
             "UPDATE notes SET folder_id = NULL WHERE space_id != ? AND folder_id IN (SELECT id FROM folders WHERE space_id = ?)"
           )
           .run(localSpaceId, localSpaceId);
+        this._retireConversationsWhere(
+          "space_id = ? OR folder_id IN (SELECT id FROM folders WHERE space_id = ?)",
+          [localSpaceId, localSpaceId]
+        );
         this.db.prepare("DELETE FROM folders WHERE space_id = ?").run(localSpaceId);
         this.db.prepare("DELETE FROM spaces WHERE id = ?").run(localSpaceId);
         return { noteIds: ids, folderNames: names, relocatedNotes: relocated };
@@ -3739,6 +3763,7 @@ class DatabaseManager {
       const result = this.db.transaction(() => {
         this._deleteSpeakerRowsForNotes("SELECT id FROM notes WHERE folder_id = ?", id);
         this.db.prepare("DELETE FROM notes WHERE folder_id = ?").run(id);
+        this._retireConversationsWhere("folder_id = ?", [id]);
         return this.db.prepare("DELETE FROM folders WHERE id = ?").run(id);
       })();
       return { success: result.changes > 0, id, noteIds, name: folder?.name ?? null };
@@ -3798,7 +3823,13 @@ class DatabaseManager {
             )
             .run(privateSpaceId, name, randomUUID(), id);
           preservedFolder = this.db.prepare("SELECT * FROM folders WHERE id = ?").get(id);
+          // Folder-scoped chats follow the preserved folder into the private
+          // space so their space ref doesn't dangle on the revoked space.
+          this.db
+            .prepare("UPDATE agent_conversations SET space_id = ? WHERE folder_id = ?")
+            .run(privateSpaceId, id);
         } else {
+          this._retireConversationsWhere("folder_id = ?", [id]);
           this.db.prepare("DELETE FROM folders WHERE id = ?").run(id);
         }
         const getNote = this.db.prepare("SELECT * FROM notes WHERE id = ?");

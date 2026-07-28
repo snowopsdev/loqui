@@ -1,6 +1,6 @@
 import { TeamsService } from "./TeamsService";
 import { SpacesService } from "./SpacesService";
-import { markSpacePurged, readPurgedSpaceIds, syncService } from "./SyncService";
+import { markSpacePurged, syncService, upsertCloudSpaces } from "./SyncService";
 import { loadSpaces, purgeSpace, updateSpaceMeta } from "../stores/noteStore";
 import type { SpaceItem, TeamRole } from "../types/electron";
 
@@ -29,15 +29,7 @@ async function settleAddMembers(teamId: string, userIds: string[]): Promise<unkn
 }
 
 async function refreshSpaceMirror(): Promise<void> {
-  const cloudSpaces = await SpacesService.mySpaces();
-  const purged = readPurgedSpaceIds();
-  for (const cloudSpace of cloudSpaces) {
-    // A purge racing this refresh must not resurrect the space.
-    if (purged[cloudSpace.id]) continue;
-    await window.electronAPI.upsertSpaceFromCloud?.(
-      cloudSpace as unknown as Record<string, unknown>
-    );
-  }
+  await upsertCloudSpaces(await SpacesService.mySpaces());
   await loadSpaces();
 }
 
@@ -86,9 +78,7 @@ export async function renameSpace(
   }
 }
 
-export async function deleteSpace(
-  space: SpaceItem
-): Promise<{ success: boolean; error?: string }> {
+export async function deleteSpace(space: SpaceItem): Promise<{ success: boolean; error?: string }> {
   if (space.cloud_space_id) {
     try {
       // Server archives the space; its teams survive as workspace entities and

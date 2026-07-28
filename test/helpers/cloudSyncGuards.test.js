@@ -76,7 +76,7 @@ const localNote = {
 
 test("the note update payload carries the full content, not just identifiers", async () => {
   const { buildNoteUpdatePayload } = await load();
-  const payload = buildNoteUpdatePayload(localNote, new Map([[3, "cloud-folder-3"]]));
+  const payload = buildNoteUpdatePayload(localNote, "cloud-folder-3");
 
   // Only the one-shot migration branch may send client_note_id
   // (see buildNoteUpdatePayload):
@@ -96,14 +96,10 @@ test("the note update payload carries the full content, not just identifiers", a
   assert.equal(payload.updated_at, "2026-07-22 08:47:00");
 });
 
-test("the note update payload maps the local folder to its cloud id", async () => {
+test("the note update payload carries the pre-mapped cloud folder id", async () => {
   const { buildNoteUpdatePayload } = await load();
-  const mapped = buildNoteUpdatePayload(localNote, new Map([[3, "cloud-folder-3"]]));
-  assert.equal(mapped.folder_id, "cloud-folder-3");
-
-  const unmapped = buildNoteUpdatePayload(localNote, new Map());
-  assert.equal(unmapped.folder_id, null);
-
-  const folderless = buildNoteUpdatePayload({ ...localNote, folder_id: null }, new Map());
-  assert.equal(folderless.folder_id, null);
+  assert.equal(buildNoteUpdatePayload(localNote, "cloud-folder-3").folder_id, "cloud-folder-3");
+  // Unmapped or folderless notes push an explicit null, never undefined.
+  assert.equal(buildNoteUpdatePayload(localNote, null).folder_id, null);
+  assert.equal(buildNoteUpdatePayload(localNote, undefined).folder_id, null);
 });

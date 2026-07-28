@@ -61,7 +61,7 @@ export default function InviteTeammateDialog({
     let cancelled = false;
     WorkspacesService.previewSeats(workspaceId, 1)
       .then((preview) => {
-        if (!cancelled) setSeatsUsed(preview.next_quantity - 1);
+        if (!cancelled) setSeatsUsed(preview.seats_used);
       })
       .catch(async () => {
         // No subscription yet — fall back to the member count so the seat

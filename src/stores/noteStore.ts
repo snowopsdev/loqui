@@ -341,21 +341,37 @@ export async function loadFolders(): Promise<FolderItem[]> {
   return items;
 }
 
+const containerLoadGenerations = new Map<string, number>();
+const containerLoadsInFlight = new Map<string, Promise<NoteItem[]>>();
+
 export async function loadContainerNotes(key: string): Promise<NoteItem[]> {
-  const [kind, idStr] = key.split(":");
-  const id = Number(idStr);
-  const items =
-    kind === "f"
-      ? ((await window.electronAPI?.getNotes(null, DEFAULT_LIMIT, id)) ?? [])
-      : ((await window.electronAPI?.getNotes(null, DEFAULT_LIMIT, null, id)) ?? []);
-  applyContainers({ ...useNoteStore.getState().notesByContainer, [key]: items });
-  return items;
+  const gen = (containerLoadGenerations.get(key) ?? 0) + 1;
+  containerLoadGenerations.set(key, gen);
+  const load = (async (): Promise<NoteItem[]> => {
+    const [kind, idStr] = key.split(":");
+    const id = Number(idStr);
+    const items =
+      kind === "f"
+        ? ((await window.electronAPI?.getNotes(null, DEFAULT_LIMIT, id)) ?? [])
+        : ((await window.electronAPI?.getNotes(null, DEFAULT_LIMIT, null, id)) ?? []);
+    // A newer load for this container may have resolved first.
+    if (containerLoadGenerations.get(key) === gen) {
+      applyContainers({ ...useNoteStore.getState().notesByContainer, [key]: items });
+    }
+    return items;
+  })();
+  containerLoadsInFlight.set(key, load);
+  try {
+    return await load;
+  } finally {
+    if (containerLoadsInFlight.get(key) === load) containerLoadsInFlight.delete(key);
+  }
 }
 
 export async function ensureContainerLoaded(key: string): Promise<NoteItem[]> {
   const cached = useNoteStore.getState().notesByContainer[key];
   if (cached) return cached;
-  return loadContainerNotes(key);
+  return containerLoadsInFlight.get(key) ?? loadContainerNotes(key);
 }
 
 export function setContainerExpanded(key: string, expanded: boolean): void {
@@ -430,7 +446,10 @@ export async function initializeNotesTree(): Promise<void> {
 
     revealContainer(context.spaceId, context.folderId);
     useNoteStore.setState({ activeContext: context });
-    const notes = await loadContainerNotes(contextContainerKey(context));
+    // The store stays IPC-maintained across mounts, so an existing container
+    // entry is current — reuse it (or revealContainer's in-flight load)
+    // instead of fetching the same container twice on every init.
+    const notes = await ensureContainerLoaded(contextContainerKey(context));
     if (gen !== treeLoadGeneration) return;
     // Containers restored as expanded from a previous session must load their
     // notes too, or they render expanded-but-empty until re-toggled.

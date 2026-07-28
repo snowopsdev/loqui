@@ -2,11 +2,20 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   groupTeamSpacesByWorkspace,
+  manageableWorkspaces,
   selectWorkspaceForSpaceCreation,
 } = require("../../src/lib/workspaceSelection.ts");
 
 const workspace = (id, role) => ({ id, name: `Workspace ${id}`, role });
 const space = (id, workspaceId) => ({ id, workspace_id: workspaceId });
+
+test("manageableWorkspaces: keeps only owner/admin workspaces, in order", () => {
+  const member = workspace("m", "member");
+  const admin = workspace("a", "admin");
+  const owner = workspace("o", "owner");
+  assert.deepEqual(manageableWorkspaces([member, admin, owner]), [admin, owner]);
+  assert.deepEqual(manageableWorkspaces([member]), []);
+});
 
 test("groupTeamSpacesByWorkspace: groups spaces under their workspace", () => {
   const workspaces = [workspace("a", "owner"), workspace("b", "member")];

@@ -1519,10 +1519,6 @@ class IPCHandlers {
       return this.databaseManager.getSpaces();
     });
 
-    ipcMain.handle("db-create-space", async (event, space) => {
-      return this.databaseManager.createSpace(space);
-    });
-
     ipcMain.handle("db-update-space", async (event, id, updates) => {
       return this.databaseManager.updateSpace(id, updates);
     });

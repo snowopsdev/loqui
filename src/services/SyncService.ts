@@ -16,7 +16,16 @@ import { CloudApiError } from "./cloudApi.js";
 import { notifyTeamSpacesCapabilityChanged } from "../lib/teamSpacesCapability";
 import { subscribeIsSubscribed } from "../lib/subscriptionFlag";
 import { readNoteConflictIds } from "../lib/noteConflictRegistry";
-import { normalizeTimestamp } from "../helpers/cloudSyncGuards.js";
+import {
+  buildNoteUpdatePayload,
+  isCloudEntryNewer,
+  normalizeTimestamp,
+} from "../helpers/cloudSyncGuards.js";
+import {
+  prunePurgedSpaceEntries,
+  resolvePullCursorAdvance,
+  revokedNoteForkUpdate,
+} from "./syncPassPolicy";
 
 function isHttpStatus(err: unknown, status: number): boolean {
   return err instanceof CloudApiError && err.status === status;
@@ -84,14 +93,11 @@ const PURGED_SPACE_GUARD_TTL_MS = 15 * 60 * 1000;
 // entry.
 const PURGED_SPACE_GUARD_LOCK = "openwhispr-purged-spaces";
 
-export function readPurgedSpaceIds(): Record<string, number> {
+function readPurgedSpaceIds(): Record<string, number> {
   try {
     const raw = localStorage.getItem(PURGED_SPACE_GUARD_KEY);
     const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-    const now = Date.now();
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([, at]) => now - at < PURGED_SPACE_GUARD_TTL_MS)
-    );
+    return prunePurgedSpaceEntries(parsed, Date.now(), PURGED_SPACE_GUARD_TTL_MS);
   } catch {
     return {};
   }
@@ -115,6 +121,29 @@ async function prunePurgedSpaceIds(liveCloudSpaceIds: Set<string>): Promise<void
     );
     localStorage.setItem(PURGED_SPACE_GUARD_KEY, JSON.stringify(kept));
   });
+}
+
+// Upserts cloud spaces into local rows, skipping recently purged ones — a
+// purge racing this pass (delete just clicked, or the server hasn't processed
+// it yet) must not resurrect the space. Returns local ids of spaces that
+// still need a content backfill: brand new, or left 'pending' by a backfill
+// that never finished. Shared with spaceActions' post-mutation mirror
+// refresh so the purge-race guard lives in exactly one place.
+export async function upsertCloudSpaces(cloudSpaces: MySpace[]): Promise<number[]> {
+  const purged = readPurgedSpaceIds();
+  const backfillIds: number[] = [];
+  for (const cloudSpace of cloudSpaces) {
+    if (purged[cloudSpace.id]) continue;
+    const space = await window.electronAPI.upsertSpaceFromCloud?.(
+      cloudSpace as unknown as Record<string, unknown>
+    );
+    // New spaces insert as 'pending' and stay that way until their content
+    // backfill completes, so an interruption anywhere re-runs it.
+    if (space?.sync_status === "pending") {
+      backfillIds.push(space.id);
+    }
+  }
+  return backfillIds;
 }
 
 class SyncService {
@@ -467,8 +496,15 @@ class SyncService {
           folder.updated_at
         );
       } catch (err) {
-        if (!isFolderNameTakenError(err)) throw err;
-        this.dispatchFolderNameTaken(folder.name);
+        if (isFolderNameTakenError(err)) {
+          this.dispatchFolderNameTaken(folder.name);
+        } else if (isTeamAccessError(err)) {
+          // Recover like the batch path — otherwise a revoked folder edited
+          // via the debounce just logs errors until the next full pass.
+          await this.handleRevokedFolderPush(folder, ctx);
+        } else {
+          throw err;
+        }
       }
     } else {
       const cloud = await FoldersService.create({
@@ -494,27 +530,12 @@ class SyncService {
     }
   }
 
-  // Full note payload for pushes. Scope fields ride along so local moves
-  // between spaces propagate; the server no-ops them when unchanged.
+  // Full note payload for pushes, built on the tested #1290 guard (a
+  // content-less PATCH would still bump the cloud row's updated_at and hand
+  // the next pull a stale copy to elect). Scope fields ride along so local
+  // moves between spaces propagate; the server no-ops them when unchanged.
   private notePushPayload(note: NoteItem, cloudFolderId: string | null, scope: PushScopeFields) {
-    return {
-      title: note.title,
-      content: note.content,
-      enhanced_content: note.enhanced_content,
-      enhancement_prompt: note.enhancement_prompt,
-      enhanced_at_content_hash: note.enhanced_at_content_hash,
-      note_type: note.note_type,
-      source_file: note.source_file,
-      audio_duration_seconds: note.audio_duration_seconds,
-      transcript: note.transcript,
-      participants: note.participants,
-      calendar_event_id: note.calendar_event_id,
-      diarization_enabled: note.diarization_enabled,
-      expected_speaker_count: note.expected_speaker_count,
-      folder_id: cloudFolderId,
-      updated_at: note.updated_at,
-      ...scope,
-    };
+    return { ...buildNoteUpdatePayload(note, cloudFolderId), ...scope };
   }
 
   private async pushNote(id: number): Promise<void> {
@@ -654,7 +675,7 @@ class SyncService {
     await prunePurgedSpaceIds(cloudIds);
 
     const prior = (await window.electronAPI.getSpaces?.()) ?? [];
-    const backfillIds = await this.upsertCloudSpaces(cloudSpaces);
+    const backfillIds = await upsertCloudSpaces(cloudSpaces);
 
     for (const space of prior) {
       if (space.kind !== "team" || !space.cloud_space_id || cloudIds.has(space.cloud_space_id)) {
@@ -689,28 +710,6 @@ class SyncService {
     return true;
   }
 
-  // Upserts cloud spaces into local rows. Returns local ids of spaces that
-  // still need a content backfill: brand new, or left 'pending' by a backfill
-  // that never finished.
-  private async upsertCloudSpaces(cloudSpaces: MySpace[]): Promise<number[]> {
-    const purged = readPurgedSpaceIds();
-    const backfillIds: number[] = [];
-    for (const cloudSpace of cloudSpaces) {
-      // A purge racing this pass (delete just clicked, or the server hasn't
-      // processed it yet) must not resurrect the space.
-      if (purged[cloudSpace.id]) continue;
-      const space = await window.electronAPI.upsertSpaceFromCloud?.(
-        cloudSpace as unknown as Record<string, unknown>
-      );
-      // New spaces insert as 'pending' and stay that way until their content
-      // backfill completes, so an interruption anywhere re-runs it.
-      if (space?.sync_status === "pending") {
-        backfillIds.push(space.id);
-      }
-    }
-    return backfillIds;
-  }
-
   private async buildSpaceContext(): Promise<SpaceSyncContext> {
     const spaces = (await window.electronAPI.getSpaces?.()) ?? [];
     return {
@@ -743,7 +742,7 @@ class SyncService {
       const cloudSpaces = await SpacesService.mySpaces();
       // New spaces stay 'pending' so the next spaces pass backfills their
       // pre-existing content (this delta pull only sees rows past the cursor).
-      await this.upsertCloudSpaces(cloudSpaces);
+      await upsertCloudSpaces(cloudSpaces);
     } catch (err) {
       console.error("Mid-pass spaces refresh failed:", err);
       return null;
@@ -783,15 +782,30 @@ class SyncService {
       }
       return;
     }
-    // left_team rows already sit in the private space — fork in place.
-    const alreadyPrivate = note.space_id === ctx.privateSpace.id;
-    await window.electronAPI.updateNote(note.id, {
-      ...(alreadyPrivate ? {} : { space_id: ctx.privateSpace.id, folder_id: null }),
-      ...(note.cloud_id ? { client_note_id: crypto.randomUUID() } : {}),
-      cloud_id: null,
-      left_team: 0,
-    });
-    if (!alreadyPrivate) this.dispatchNoteRelocated(note.title, spaceName);
+    await this.forkNoteToPrivate(note, ctx.privateSpace, "push", spaceName);
+  }
+
+  // Applies the plan §7.2 fork (see revokedNoteForkUpdate) and surfaces the
+  // relocation toast when the note actually moved.
+  private async forkNoteToPrivate(
+    note: NoteItem,
+    privateSpace: SpaceItem,
+    source: "push" | "pull",
+    spaceName: string | null | undefined
+  ): Promise<void> {
+    const { update, relocated } = revokedNoteForkUpdate(note, privateSpace.id, source);
+    await window.electronAPI.updateNote(note.id, update);
+    if (relocated) this.dispatchNoteRelocated(note.title, spaceName);
+  }
+
+  // A folder PATCH was rejected because its team is gone or access was
+  // revoked: the server row moved to a scope we can't write, so retrying
+  // would fail forever. Preserve the dirty folder in Personal with a forked
+  // identity so the next push re-creates it as personal (plan §7.2).
+  private async handleRevokedFolderPush(folder: FolderItem, ctx: SpaceSyncContext): Promise<void> {
+    if (!ctx.privateSpace) return;
+    await window.electronAPI.relocateRevokedFolder?.(folder.id, ctx.privateSpace.id, true);
+    this.dispatchNoteRelocated(folder.name, ctx.byId.get(folder.space_id)?.name);
   }
 
   // Sync passes run in whichever window holds the web lock (often the always-
@@ -932,13 +946,7 @@ class SyncService {
           // Leave the row pending; retried on the next pass.
           this.dispatchFolderNameTaken(folder.name);
         } else if (isTeamAccessError(err)) {
-          // The server row moved to a scope we can't write; PATCHing it would
-          // fail forever. Preserve the dirty folder in Personal with a forked
-          // identity so the next push re-creates it as personal (plan §7.2).
-          if (ctx.privateSpace) {
-            await window.electronAPI.relocateRevokedFolder?.(folder.id, ctx.privateSpace.id, true);
-            this.dispatchNoteRelocated(folder.name, ctx.byId.get(folder.space_id)?.name);
-          }
+          await this.handleRevokedFolderPush(folder, ctx);
         } else {
           console.error("Folder migration sync failed:", err);
         }
@@ -1053,7 +1061,7 @@ class SyncService {
               } else if (
                 // Pending rows are never overwritten by pull (D2), here too.
                 local.sync_status !== "pending" &&
-                normalizeTimestamp(cloudFolder.updated_at) > normalizeTimestamp(local.updated_at)
+                isCloudEntryNewer(cloudFolder.updated_at, local.updated_at)
               ) {
                 await window.electronAPI.upsertFolderFromCloud?.(
                   cloudFolder as unknown as Record<string, unknown>,
@@ -1115,7 +1123,7 @@ class SyncService {
           if (
             !local ||
             (local.sync_status !== "pending" &&
-              normalizeTimestamp(cloudFolder.updated_at) > normalizeTimestamp(local.updated_at))
+              isCloudEntryNewer(cloudFolder.updated_at, local.updated_at))
           ) {
             await window.electronAPI.upsertFolderFromCloud?.(
               cloudFolder as unknown as Record<string, unknown>,
@@ -1128,23 +1136,15 @@ class SyncService {
         }
       }
 
-      // A backfill snapshot never sees tombstones or stubs, and a dirty pass
-      // must re-see its parked/failed rows, so neither advances the cursors.
-      if (!snapshot && dirtyRows === 0) {
-        const hasTeamSpaces = [...ctx.byId.values()].some((s) => s.kind === "team");
-        if (teamCapable || !hasTeamSpaces) {
-          localStorage.setItem(cursorKey, syncStartedAt);
-          // Full pulls cover team rows too; keep the team cursor current so a
-          // later backup-off pass doesn't re-pull from the distant past.
-          if (!teamOnly) localStorage.setItem("lastSyncedAt.folders.team", syncStartedAt);
-        } else if (!teamOnly) {
-          // Degraded (own-rows-only) full pull: personal rows were fully
-          // covered, so the personal cursor may advance; the untouched .team
-          // cursor lets syncFolders' recovery pull catch up on teammate
-          // edits made during the outage.
-          localStorage.setItem(cursorKey, syncStartedAt);
-        }
-      }
+      const { advanceCursor, advanceTeamCursor } = resolvePullCursorAdvance({
+        snapshot,
+        dirty: dirtyRows > 0,
+        teamOnly,
+        teamCapable,
+        hasTeamSpaces: [...ctx.byId.values()].some((s) => s.kind === "team"),
+      });
+      if (advanceCursor) localStorage.setItem(cursorKey, syncStartedAt);
+      if (advanceTeamCursor) localStorage.setItem("lastSyncedAt.folders.team", syncStartedAt);
       return dirtyRows === 0;
     } catch (err) {
       console.error("Folder pull failed:", err);
@@ -1326,23 +1326,12 @@ class SyncService {
           if (cloudNote.access_removed) {
             if (!local) continue;
             if (local.sync_status !== "synced" && !local.deleted_at && ctx.privateSpace) {
-              // Already-private rows were just relocated by their folder's
-              // stub — keep their folder link, only fork identity: the server
-              // row now belongs to a scope we can't write, so pushing under
-              // the old ids would be rejected (or hard-deleted) forever. The
-              // next push creates the note as a new personal one.
-              const alreadyPrivate = local.space_id === ctx.privateSpace.id;
-              await window.electronAPI.updateNote(local.id, {
-                ...(alreadyPrivate ? {} : { space_id: ctx.privateSpace.id, folder_id: null }),
-                client_note_id: crypto.randomUUID(),
-                cloud_id: null,
-              });
-              if (!alreadyPrivate) {
-                this.dispatchNoteRelocated(
-                  local.title,
-                  ctx.byCloudSpaceId.get(cloudNote.previous_space_id ?? "")?.name
-                );
-              }
+              await this.forkNoteToPrivate(
+                local,
+                ctx.privateSpace,
+                "pull",
+                ctx.byCloudSpaceId.get(cloudNote.previous_space_id ?? "")?.name
+              );
             } else {
               await window.electronAPI.hardDeleteNote?.(local.id);
             }
@@ -1356,9 +1345,7 @@ class SyncService {
             if (local && !local.deleted_at && ctx.byId.get(local.space_id)?.kind === "team") {
               if (cloudNote.deleted_at) {
                 await window.electronAPI.hardDeleteNote?.(local.id);
-              } else if (
-                normalizeTimestamp(cloudNote.updated_at) > normalizeTimestamp(local.updated_at)
-              ) {
+              } else if (isCloudEntryNewer(cloudNote.updated_at, local.updated_at)) {
                 // 'error' rows carry unpushed work just like 'pending' ones.
                 if (local.sync_status !== "synced") {
                   await this.surfaceNoteConflict(local.client_note_id, cloudNote);
@@ -1398,10 +1385,7 @@ class SyncService {
             continue;
           }
 
-          if (
-            !local ||
-            normalizeTimestamp(cloudNote.updated_at) > normalizeTimestamp(local.updated_at)
-          ) {
+          if (!local || isCloudEntryNewer(cloudNote.updated_at, local.updated_at)) {
             if (local && local.sync_status !== "synced") {
               // A newer cloud copy over unpushed local edits ('pending' or
               // 'error'): surface the conflict to the editor banner instead
@@ -1441,23 +1425,15 @@ class SyncService {
         cursorId = last.id;
       }
 
-      // A backfill snapshot never sees tombstones or stubs, so it must not
-      // advance the delta cursors.
-      if (!snapshot && dirtyRows === 0) {
-        const hasTeamSpaces = [...ctx.byId.values()].some((s) => s.kind === "team");
-        if (teamCapable || !hasTeamSpaces) {
-          localStorage.setItem(cursorKey, syncStartedAt);
-          // Full pulls cover team rows too; keep the team cursor current so a
-          // later backup-off pass doesn't re-pull from the distant past.
-          if (!teamOnly) localStorage.setItem("lastSyncedAt.notes.team", syncStartedAt);
-        } else if (!teamOnly) {
-          // Degraded (own-rows-only) full pull: personal rows were fully
-          // covered, so the personal cursor may advance; the untouched .team
-          // cursor lets syncNotes' recovery pull catch up on teammate edits
-          // made during the outage.
-          localStorage.setItem(cursorKey, syncStartedAt);
-        }
-      }
+      const { advanceCursor, advanceTeamCursor } = resolvePullCursorAdvance({
+        snapshot,
+        dirty: dirtyRows > 0,
+        teamOnly,
+        teamCapable,
+        hasTeamSpaces: [...ctx.byId.values()].some((s) => s.kind === "team"),
+      });
+      if (advanceCursor) localStorage.setItem(cursorKey, syncStartedAt);
+      if (advanceTeamCursor) localStorage.setItem("lastSyncedAt.notes.team", syncStartedAt);
       return dirtyRows === 0;
     } catch (err) {
       console.error("Note pull failed:", err);
@@ -1547,10 +1523,7 @@ class SyncService {
             continue;
           }
 
-          if (
-            !local ||
-            normalizeTimestamp(cloudConv.updated_at) > normalizeTimestamp(local.updated_at)
-          ) {
+          if (!local || isCloudEntryNewer(cloudConv.updated_at, local.updated_at)) {
             await window.electronAPI.upsertConversationFromCloud?.(
               cloudConv as unknown as Record<string, unknown>,
               (cloudConv.messages ?? []) as unknown as Array<Record<string, unknown>>

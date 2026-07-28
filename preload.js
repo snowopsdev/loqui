@@ -145,7 +145,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Space functions
   getSpaces: () => ipcRenderer.invoke("db-get-spaces"),
-  createSpace: (space) => ipcRenderer.invoke("db-create-space", space),
   updateSpace: (id, updates) => ipcRenderer.invoke("db-update-space", id, updates),
   purgeSpace: (id) => ipcRenderer.invoke("db-purge-space", id),
   getSpaceByCloudSpaceId: (cloudSpaceId) =>

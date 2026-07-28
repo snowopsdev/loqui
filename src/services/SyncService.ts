@@ -16,6 +16,7 @@ import { CloudApiError } from "./cloudApi.js";
 import { notifyTeamSpacesCapabilityChanged } from "../lib/teamSpacesCapability";
 import { subscribeIsSubscribed } from "../lib/subscriptionFlag";
 import { readNoteConflictIds } from "../lib/noteConflictRegistry";
+import { normalizeTimestamp } from "../helpers/cloudSyncGuards.js";
 
 function isHttpStatus(err: unknown, status: number): boolean {
   return err instanceof CloudApiError && err.status === status;
@@ -68,17 +69,6 @@ const SYNC_ALL_LOCK = "openwhispr-sync-all";
 // localStorage keys gating canSync(); a change in another window means sync
 // may have just become possible (sign-in, subscription, backup enabled).
 const CAN_SYNC_KEYS = ["isSignedIn", "cloudBackupEnabled", "isSubscribed"];
-
-// SQLite `datetime('now')` yields "YYYY-MM-DD HH:MM:SS" (no T, no millis, no Z);
-// the cloud sends ISO 8601 "YYYY-MM-DDTHH:MM:SS.sssZ". Normalize both to
-// millis-precision ISO so the pull loop's lexical greater-than compares
-// correctly — without the ".000" pad a whole-second local value sorts after a
-// sub-second cloud value at the same instant ('Z' > '.').
-function normalizeTimestamp(value: string | null | undefined): string {
-  if (!value) return "";
-  const iso = value.replace(" ", "T").replace(/Z$/, "");
-  return (/\.\d+$/.test(iso) ? iso : `${iso}.000`) + "Z";
-}
 
 // Cross-window guard against a space purge racing an in-flight pull: every
 // purge initiator records the cloud space id here, and pull/upsert paths park

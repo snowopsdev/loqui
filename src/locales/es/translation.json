@@ -201,7 +201,7 @@
       "systemAudioDescription": "Permite que el grabador de reuniones escuche al resto de participantes de tus llamadas: reuniones, clases, pódcasts. Puedes activarlo más tarde en Ajustes.",
       "optional": "Opcional",
       "recommended": "Recomendado",
-      "accessibilityTroubleshooting": "En Configuración del Sistema → Accesibilidad, desactiva el interruptor de OpenWhispr y vuelve a activarlo. Si eso no funciona, elimina OpenWhispr de la lista y añádelo de nuevo. ¿Sigues con problemas? Escribe a support@openwhispr.com."
+      "accessibilityTroubleshooting": "En Configuración del Sistema → Accesibilidad, desactiva el interruptor de OpenWhispr y vuelve a activarlo. Si OpenWhispr no aparece en la lista, haz clic en + y añádelo desde la carpeta Aplicaciones. ¿Sigues con problemas? Escribe a support@openwhispr.com."
     },
     "transcription": {
       "title": "Configuración de transcripción",
@@ -389,6 +389,7 @@
       "clearAllErrorTitle": "No se pudo borrar el historial",
       "clearAllErrorDescription": "Algo salió mal. Inténtalo de nuevo.",
       "copyText": "Copiar texto",
+      "copyRawTranscript": "Copiar transcripción sin procesar",
       "deleteItem": "Eliminar",
       "viewRawTranscript": "Ver transcripción sin procesar",
       "showInFolder": "Mostrar en Finder",
@@ -565,6 +566,15 @@
       "noAudio": {
         "title": "No se detectó audio",
         "description": "La grabación no contiene audio detectable. Inténtalo de nuevo."
+      },
+      "micDisconnected": {
+        "title": "Micrófono desconectado",
+        "description": "La grabación sigue activa y se reanudará cuando haya un micrófono disponible.",
+        "meetingDescription": "La reunión sigue grabando el audio del sistema y reanudará la captura del micrófono automáticamente."
+      },
+      "micRestored": {
+        "title": "Micrófono restaurado",
+        "description": "La captura de audio se ha reanudado."
       },
       "partialTranscription": {
         "title": "Transcripción parcial",
@@ -1093,7 +1103,8 @@
       "translateHint": "El texto se traducirá al {{language}}",
       "translation": "Traducción",
       "translationDisabled": "Activa la traducción de dictado para probar este prompt",
-      "noTargetLanguage": "Elige primero un idioma de destino"
+      "noTargetLanguage": "Elige primero un idioma de destino",
+      "agentDisabled": "Activa el agente de voz para probar este prompt"
     },
     "view": {
       "customPrompt": "Prompt personalizado",
@@ -1722,6 +1733,9 @@
       "usageAnalyticsDescription": "Ayúdanos a mejorar OpenWhispr compartiendo métricas de rendimiento anónimas. Nunca enviamos contenido de transcripciones, solo datos de tiempo y errores.",
       "dataRetention": "Retención de datos",
       "dataRetentionDescription": "Almacenar transcripciones y audio localmente en tu historial. Cuando está desactivado, las transcripciones se pegan pero no se guardan.",
+      "transcriptRetention": "Retención de transcripciones",
+      "transcriptRetentionDescription": "Eliminar automáticamente las transcripciones guardadas y su audio después de este período.",
+      "transcriptRetentionForever": "Para siempre",
       "hoursAgo": "hace {{count}}h",
       "justNow": "ahora mismo",
       "lastSynced": "Última sincronización {{time}}",
@@ -1731,7 +1745,8 @@
       "saveDiscarded": "Guardar dictados descartados",
       "saveDiscardedDescription": "Cuando cancelas un dictado con Escape, conserva su audio en el historial para poder recuperarlo. Requiere tener activadas la retención de datos y de audio.",
       "audioRetentionDisabled": "Desactivado",
-      "audioRetentionDays": "{{count}} días",
+      "retentionDays_one": "{{count}} día",
+      "retentionDays_other": "{{count}} días",
       "audioStorageUsage": "Uso de almacenamiento",
       "audioStorageUsageDescription": "Archivos de audio almacenados en este dispositivo",
       "audioStorageFiles": "{{count}} archivos, {{size}}",
@@ -2174,9 +2189,13 @@
         "openai_oss_gpt_oss_20b_mxfp4": "Modelo open-weight de OpenAI para hardware de consumo",
         "gemma_gemma_3_4b_it_q4_k_m": "Modelo open-weight de Google, excelente equilibrio entre velocidad y calidad",
         "gemma_gemma_4_31b_it_q4_k_m": "El mayor Gemma 4 de Google, mejor calidad",
+        "gemma_gemma_4_31b_it_qat_q4_0": "Build QAT oficial de Google, más pequeño con la calidad intacta",
         "gemma_gemma_4_26b_a4b_it_q4_k_m": "Gemma 4 MoE de Google, rápido con 4B parámetros activos",
+        "gemma_gemma_4_26b_a4b_it_qat_q4_0": "Build QAT MoE oficial de Google, más pequeño con la calidad intacta",
         "gemma_gemma_4_e4b_it_q4_k_m": "Último multimodal de Google, razonamiento avanzado",
+        "gemma_gemma_4_e4b_it_qat_q4_0": "Build QAT oficial de Google, razonamiento avanzado en menos espacio",
         "gemma_gemma_4_e2b_it_q4_k_m": "Gemma 4 compacto de Google, rápido y eficiente",
+        "gemma_gemma_4_e2b_it_qat_q4_0": "Build QAT compacto oficial de Google, calidad preservada",
         "gemma_gemma_3_12b_it_q4_k_m": "Modelo de gama media de Google, razonamiento sólido",
         "gemma_gemma_3_1b_it_q4_k_m": "Modelo Google ultrarrápido, ideal para limpieza de dictado corto",
         "liquidai_lfm2_5_1_2b_instruct_q4_k_m": "Modelo eficiente de Liquid AI, excelente seguimiento de instrucciones",
@@ -2527,7 +2546,8 @@
       "back": "Atrás"
     },
     "meetingPill": {
-      "returnToNote": "Volver a la grabación"
+      "returnToNote": "Volver a la grabación",
+      "waitingForMicrophone": "Esperando el micrófono"
     },
     "context": {
       "moveToFolder": "Mover a carpeta",
@@ -2704,8 +2724,8 @@
     "addPlaceholder": "Añade palabras separadas por comas: OpenWhispr, Supabase, John Snow, ARR",
     "add": "Añadir",
     "importWords": "Importar palabras",
-    "importPlaceholder": "Pega palabras separadas por comas...",
-    "separateWithCommas": "Separa con comas",
+    "importPlaceholder": "Pega palabras separadas por comas o saltos de línea...",
+    "separateWithCommas": "Una palabra por línea, o separadas por comas",
     "wordsReady_one": "{{count}} palabra lista",
     "wordsReady_other": "{{count}} palabras listas",
     "import": "Importar",
@@ -2877,7 +2897,8 @@
       "hotkeyToSpeak": "{{hotkey}} para hablar",
       "recording": "Grabando...",
       "processing": "Procesando...",
-      "clickToSpeak": "Haz clic para hablar"
+      "clickToSpeak": "Haz clic para hablar",
+      "waitingForMicrophone": "Esperando el micrófono…"
     },
     "buttons": {
       "cancelRecording": "Cancelar grabación",

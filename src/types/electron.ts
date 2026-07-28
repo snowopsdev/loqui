@@ -1,3 +1,4 @@
+import type { ModelDefinition } from "../models/ModelRegistry";
 import type { TinfoilCatalogModel } from "../models/tinfoilModels";
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia";
@@ -351,6 +352,11 @@ export interface WhisperModelResult {
   size_mb?: number;
   error?: string;
   code?: string;
+  isDownloading?: boolean;
+  isInstalling?: boolean;
+  downloadProgress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
 }
 
 export interface WhisperModelDeleteResult {
@@ -363,7 +369,7 @@ export interface WhisperModelDeleteResult {
 
 export interface WhisperModelsListResult {
   success: boolean;
-  models: Array<{ model: string; downloaded: boolean; size_mb?: number }>;
+  models: WhisperModelResult[];
   cache_dir: string;
 }
 
@@ -461,6 +467,11 @@ export interface ParakeetModelResult {
   size_mb?: number;
   error?: string;
   code?: string;
+  isDownloading?: boolean;
+  isInstalling?: boolean;
+  downloadProgress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
 }
 
 export interface ParakeetModelDeleteResult {
@@ -474,7 +485,7 @@ export interface ParakeetModelDeleteResult {
 
 export interface ParakeetModelsListResult {
   success: boolean;
-  models: Array<{ model: string; downloaded: boolean; size_mb?: number }>;
+  models: ParakeetModelResult[];
   cache_dir: string;
 }
 
@@ -550,6 +561,40 @@ export interface LlamaVulkanDownloadProgress {
   total: number;
   percentage: number;
 }
+
+export interface LocalLLMModelStatus extends ModelDefinition {
+  providerId?: string;
+  providerName?: string;
+  isDownloaded: boolean;
+  isDownloading: boolean;
+  downloadProgress: number;
+  downloadedSize: number;
+  totalSize: number;
+  path: string | null;
+}
+
+export type LocalLLMDownloadProgressEvent =
+  | {
+      type?: "progress";
+      modelId: string;
+      progress: number;
+      downloadedSize: number;
+      totalSize: number;
+    }
+  | {
+      type: "complete";
+      modelId: string;
+      progress: 100;
+      downloadedSize?: number;
+      totalSize?: number;
+    }
+  | {
+      type: "error";
+      modelId: string;
+      error: string;
+      code?: string;
+      details?: unknown;
+    };
 
 export interface ConversationPreview {
   id: number;
@@ -637,12 +682,22 @@ declare global {
         audioBuffer: ArrayBuffer,
         metadata?: { durationMs?: number; provider?: string; model?: string }
       ) => Promise<{ success: boolean; path?: string }>;
+      mergeAudioSegments: (
+        segments: Array<{ buffer: ArrayBuffer; mimeType: string }>
+      ) => Promise<
+        | { success: true; buffer: ArrayBuffer; mimeType: "audio/webm" }
+        | { success: false; error: string }
+      >;
       getAudioPath: (id: number) => Promise<string | null>;
       showAudioInFolder: (id: number) => Promise<{ success: boolean }>;
       getAudioBuffer: (id: number) => Promise<ArrayBuffer | null>;
       deleteTranscriptionAudio: (id: number) => Promise<{ success: boolean }>;
       getAudioStorageUsage: () => Promise<{ fileCount: number; totalBytes: number }>;
       deleteAllAudio: () => Promise<{ deleted: number }>;
+      syncRetentionSettings?: (settings: {
+        audioRetentionDays: number;
+        transcriptRetentionDays: number;
+      }) => void;
       retryTranscription: (
         id: number,
         settings?: {
@@ -674,7 +729,12 @@ declare global {
 
       // Dictionary operations
       getDictionary: () => Promise<string[]>;
+      /** Replaces the whole dictionary — omitted words are deleted. Prefer applyDictionaryChanges. */
       setDictionary: (words: string[]) => Promise<{ success: boolean }>;
+      applyDictionaryChanges?: (changes: {
+        add?: string[];
+        remove?: string[];
+      }) => Promise<{ success: boolean; added: number; removed: number }>;
       onDictionaryUpdated?: (callback: (words: string[]) => void) => () => void;
       getSnippets?: () => Promise<Array<{ trigger: string; replacement: string }>>;
       setSnippets?: (
@@ -916,9 +976,11 @@ declare global {
         useLocalWhisper: boolean;
         localTranscriptionProvider: LocalTranscriptionProvider;
         model?: string;
-        cleanupProvider: string;
+        useCleanupModel: boolean;
+        cleanupMode: InferenceMode;
         cleanupModel?: string;
-        dictationAgentProvider: string;
+        useDictationAgent: boolean;
+        dictationAgentMode: InferenceMode;
         dictationAgentModel?: string;
       }) => Promise<void>;
 
@@ -1014,11 +1076,12 @@ declare global {
         success: boolean;
         message?: string;
         error?: string;
+        code?: string;
       }>;
       getParakeetDiagnostics: () => Promise<ParakeetDiagnosticsResult>;
 
       // Local AI model management
-      modelGetAll: () => Promise<any[]>;
+      modelGetAll: () => Promise<LocalLLMModelStatus[]>;
       modelCheck: (modelId: string) => Promise<boolean>;
       modelDownload: (modelId: string) => Promise<{
         success: boolean;
@@ -1046,7 +1109,9 @@ declare global {
         details?: string;
       }>;
       modelCancelDownload: (modelId: string) => Promise<{ success: boolean; error?: string }>;
-      onModelDownloadProgress: (callback: (event: any, data: any) => void) => () => void;
+      onModelDownloadProgress: (
+        callback: (event: any, data: LocalLLMDownloadProgressEvent) => void
+      ) => () => void;
 
       // Local reasoning
       processLocalReasoning: (
@@ -1506,13 +1571,18 @@ declare global {
       }>;
 
       // Cloud audio file transcription
-      transcribeAudioFileCloud?: (filePath: string) => Promise<{
+      transcribeAudioFileCloud?: (
+        filePath: string,
+        options?: { requestId?: string }
+      ) => Promise<{
         success: boolean;
         text?: string;
         warning?: string;
         error?: string;
         code?: string;
       }>;
+
+      cancelUploadTranscription?: (requestId: string) => Promise<{ success: boolean }>;
 
       onUploadTranscriptionProgress?: (
         callback: (data: { stage: string; chunksTotal: number; chunksCompleted: number }) => void
@@ -2120,9 +2190,11 @@ declare global {
         trigger?: "hotkey" | "manual" | "calendar-join";
       } | null>;
       onMeetingNoteNavigationPending?: (callback: () => void) => () => void;
-      onNavigateToNote?: (
-        callback: (data: { noteId: number; folderId: number | null }) => void
-      ) => () => void;
+      getPendingNoteNavigation?: () => Promise<{
+        noteId: number;
+        folderId: number | null;
+      } | null>;
+      onNoteNavigationPending?: (callback: () => void) => () => void;
       onUpdateNotificationData?: (
         callback: (data: { version: string; releaseDate?: string }) => void
       ) => () => void;
@@ -2145,6 +2217,7 @@ declare global {
       }) => Promise<{ success: boolean }>;
       stopDictationPreview?: (opts?: {
         showCleanup?: boolean;
+        flushed?: boolean;
       }) => Promise<{ success: boolean; streamed?: boolean; text?: string }>;
       dismissDictationPreview?: () => Promise<{ success: boolean }>;
       completeDictationPreview?: (payload: { text?: string }) => Promise<{ success: boolean }>;

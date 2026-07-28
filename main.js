@@ -1,19 +1,14 @@
-// KDE/GNOME Wayland: self-relaunch with --ozone-platform=x11 to force XWayland.
-// Chromium picks the display backend before JS runs, so appendSwitch is too late.
-if (
-  process.platform === "linux" &&
-  process.env.XDG_SESSION_TYPE === "wayland" &&
-  !process.argv.includes("--ozone-platform=x11")
-) {
-  const desktop = (process.env.XDG_CURRENT_DESKTOP || "").toLowerCase();
-  if (desktop.includes("kde") || /gnome|ubuntu|unity|cosmic/.test(desktop)) {
-    const { spawn } = require("child_process");
-    spawn(process.execPath, [...process.argv.slice(1), "--ozone-platform=x11"], {
-      stdio: "inherit",
-      detached: true,
-    }).unref();
-    process.exit(0);
-  }
+// Chromium picks the display backend before JS runs, so appendSwitch is too
+// late — the flag has to come from a relaunch.
+const { XWAYLAND_FLAG, shouldForceXWayland } = require("./src/helpers/xwayland");
+
+if (shouldForceXWayland(process.argv)) {
+  const { spawn } = require("child_process");
+  spawn(process.execPath, [...process.argv.slice(1), XWAYLAND_FLAG], {
+    stdio: "inherit",
+    detached: true,
+  }).unref();
+  process.exit(0);
 }
 
 const {
@@ -289,6 +284,7 @@ const LinuxPortalAudioManager = require("./src/helpers/linuxPortalAudioManager")
 const WindowsLoopbackAudioManager = require("./src/helpers/windowsLoopbackAudioManager");
 const MeetingAecManager = require("./src/helpers/meetingAecManager");
 const MeetingDetectionEngine = require("./src/helpers/meetingDetectionEngine");
+const { applyOpenWhisprOriginHeader } = require("./src/helpers/sessionHeaders");
 const { i18nMain, changeLanguage } = require("./src/helpers/i18nMain");
 const { ensureYdotool } = require("./src/helpers/ensureYdotool");
 const sidecarRegistry = require("./src/helpers/sidecarRegistry");
@@ -323,6 +319,9 @@ let ipcHandlers = null;
 let cliBridge = null;
 let globeKeyAlertShown = false;
 let authBridgeServer = null;
+let pendingNoteCloudId = null;
+let pendingNoteRetryTimer = null;
+let pendingNoteRetryCount = 0;
 const WHISPER_WAKE_REWARM_DELAY_MS = 3000;
 let wakeRewarmTimer = null;
 
@@ -517,6 +516,11 @@ app.on("open-url", (event, url) => {
     return;
   }
 
+  if (isNoteDeepLink(url)) {
+    void handleNoteDeepLink(url);
+    return;
+  }
+
   if (isInvitationDeepLink(url)) {
     handleInvitationDeepLink(url);
     return;
@@ -546,6 +550,79 @@ ipcMain.handle("get-pending-invitation-token", () => {
   pendingInvitationDeepLinkToken = null;
   return token;
 });
+
+function isNoteDeepLink(url) {
+  return url.slice(`${OAUTH_PROTOCOL}://`.length).startsWith("notes/");
+}
+
+function parseNoteCloudId(deepLinkUrl) {
+  try {
+    const match = deepLinkUrl.match(/notes\/([^/?#]+)/);
+    const cloudId = match?.[1] ? decodeURIComponent(match[1]) : "";
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cloudId)
+      ? cloudId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingNoteDeepLink() {
+  clearTimeout(pendingNoteRetryTimer);
+  pendingNoteRetryTimer = null;
+  pendingNoteCloudId = null;
+  pendingNoteRetryCount = 0;
+}
+
+async function flushPendingNoteDeepLink() {
+  if (!pendingNoteCloudId || !windowManager || !databaseManager) return;
+
+  try {
+    // Surface the panel on the first attempt only; retries just poll the
+    // database so they can't repeatedly steal focus.
+    if (pendingNoteRetryCount === 0) {
+      await windowManager.createControlPanelWindow();
+    }
+
+    const note = databaseManager.getNoteByCloudId(pendingNoteCloudId);
+    if (!note) {
+      // Cloud sync may still be hydrating during a cold launch. Retry briefly so
+      // the handoff can resolve a note pulled after the protocol event arrived.
+      pendingNoteRetryCount += 1;
+      if (pendingNoteRetryCount <= 10) {
+        clearTimeout(pendingNoteRetryTimer);
+        pendingNoteRetryTimer = setTimeout(() => {
+          void flushPendingNoteDeepLink();
+        }, 1000);
+      } else {
+        console.warn("Note deep link could not resolve a local note", {
+          cloudId: pendingNoteCloudId,
+        });
+        clearPendingNoteDeepLink();
+      }
+      return;
+    }
+
+    const payload = { noteId: note.id, folderId: note.folder_id ?? null };
+    clearPendingNoteDeepLink();
+    await windowManager.queueNoteNavigation(payload);
+  } catch (error) {
+    console.error("Note deep link failed:", error);
+    clearPendingNoteDeepLink();
+  }
+}
+
+async function handleNoteDeepLink(deepLinkUrl) {
+  const cloudId = parseNoteCloudId(deepLinkUrl);
+  if (!cloudId) {
+    console.warn("Invalid note deep link");
+    return;
+  }
+
+  clearPendingNoteDeepLink();
+  pendingNoteCloudId = cloudId;
+  await flushPendingNoteDeepLink();
+}
 
 function handleInvitationDeepLink(deepLinkUrl) {
   try {
@@ -806,27 +883,7 @@ async function startApp() {
 
   await migrateCookieToBearerToken();
 
-  // Electron's file:// renderer sends Origin: null, which Better Auth's
-  // trustedOrigins check rejects. Spoof Origin to the request's own URL so
-  // calls to OpenWhispr's auth and API hosts are treated as same-origin.
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    {
-      urls: [
-        "https://auth.openwhispr.com/*",
-        "https://api.openwhispr.com/*",
-        "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*",
-      ],
-    },
-    (details, callback) => {
-      try {
-        details.requestHeaders["Origin"] = new URL(details.url).origin;
-      } catch {
-        // malformed URL — leave Origin as-is
-      }
-      callback({ requestHeaders: details.requestHeaders });
-    }
-  );
+  applyOpenWhisprOriginHeader(session.defaultSession);
 
   windowManager.setActivationModeCache(environmentManager.getActivationMode());
   windowManager.setFloatingIconAutoHide(environmentManager.getFloatingIconAutoHide());
@@ -873,17 +930,20 @@ async function startApp() {
 
   // Windows/Linux cold start delivers protocol URLs via argv (macOS uses
   // open-url); without this scan a deep link that launches the app is lost.
-  if (process.platform !== "darwin") {
-    const protocolArg = process.argv.find((arg) => arg.startsWith(`${OAUTH_PROTOCOL}://`));
-    if (protocolArg) {
-      if (protocolArg.includes("upgrade-success")) {
+  const initialProtocolUrl = process.argv.find((arg) => arg.startsWith(`${OAUTH_PROTOCOL}://`));
+  if (initialProtocolUrl && isNoteDeepLink(initialProtocolUrl)) {
+    await handleNoteDeepLink(initialProtocolUrl);
+  } else {
+    if (initialProtocolUrl && process.platform !== "darwin") {
+      if (initialProtocolUrl.includes("upgrade-success")) {
         handleUpgradeDeepLink();
-      } else if (protocolArg.includes("/invitations/")) {
-        handleInvitationDeepLink(protocolArg);
+      } else if (initialProtocolUrl.includes("/invitations/")) {
+        handleInvitationDeepLink(initialProtocolUrl);
       } else {
-        void handleOAuthDeepLink(protocolArg);
+        void handleOAuthDeepLink(initialProtocolUrl);
       }
     }
+    await flushPendingNoteDeepLink();
   }
 
   // Create agent window (hidden) and set up agent hotkey
@@ -1585,6 +1645,8 @@ if (gotSingleInstanceLock) {
     if (url) {
       if (url.includes("upgrade-success")) {
         handleUpgradeDeepLink();
+      } else if (isNoteDeepLink(url)) {
+        await handleNoteDeepLink(url);
       } else if (isInvitationDeepLink(url)) {
         handleInvitationDeepLink(url);
       } else {
@@ -1705,6 +1767,7 @@ function performSyncTeardown() {
     clearTimeout(wakeRewarmTimer);
     wakeRewarmTimer = null;
   }
+  clearPendingNoteDeepLink();
   if (authBridgeServer) {
     authBridgeServer.close();
     authBridgeServer = null;

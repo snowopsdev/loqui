@@ -51,6 +51,7 @@ import {
 } from "../../stores/meetingRecordingStore";
 import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
 import { useTeamSpacesCapability } from "../../hooks/useTeamSpacesCapability";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useAuth } from "../../hooks/useAuth";
 import NotesOnboarding from "./NotesOnboarding";
 import { isRegenerableNoteTitle } from "../../helpers/regenerableNoteTitle";
@@ -646,6 +647,12 @@ export default function PersonalNotesView({
             onNewNote={handleNewNoteIn}
             onShowStructureIntro={() => setShowStructureIntro(true)}
             onUpgrade={() => onOpenSettings?.("plansBilling")}
+            onOpenWorkspaceBilling={(workspaceId) => {
+              // Settings' billing section shows the ACTIVE workspace, so point
+              // it at the one whose plan blocked the space create first.
+              useWorkspaceStore.getState().setActiveWorkspaceId(workspaceId);
+              onOpenSettings?.("plansBilling");
+            }}
           />
         </div>
       </div>

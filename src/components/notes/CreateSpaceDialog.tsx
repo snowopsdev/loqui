@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Check, Loader2, Plus } from "lucide-react";
@@ -12,7 +12,6 @@ import {
 } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { useToast } from "../ui/useToast";
 import CreateWorkspaceDialog from "../CreateWorkspaceDialog";
@@ -24,7 +23,7 @@ import { useWorkspace } from "../../hooks/useWorkspace";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useAuth } from "../../hooks/useAuth";
 import { useDelayedFlag } from "../../hooks/useDelayedFlag";
-import { clampEmojiInput } from "../../lib/emojiInput";
+import { EmojiPickerInput } from "./EmojiPickerInput";
 import { orderMemberCandidates } from "../../lib/memberCandidates";
 import {
   manageableWorkspaces as findManageableWorkspaces,
@@ -34,44 +33,20 @@ import { revealContainer, setActiveContext } from "../../stores/noteStore";
 import { cn } from "../lib/utils";
 import type { Team, WorkspaceMember } from "../../types/electron";
 
-const EMOJI_CHOICES = [
-  "📝",
-  "📋",
-  "💡",
-  "🚀",
-  "🎯",
-  "📣",
-  "🛠️",
-  "🎨",
-  "📊",
-  "💼",
-  "🤝",
-  "🌱",
-  "🔬",
-  "🧪",
-  "📚",
-  "✨",
-  "🔥",
-  "⭐",
-  "💬",
-  "🗂️",
-  "🧭",
-  "🌍",
-  "🔒",
-  "🏆",
-];
-
 interface CreateSpaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Workspace preselected by the opener (e.g. a sidebar workspace row's + button). */
   initialWorkspaceId?: string | null;
+  /** Opens the given workspace's billing in Settings (the 402 upsell CTA). */
+  onOpenWorkspaceBilling?: (workspaceId: string) => void;
 }
 
 export default function CreateSpaceDialog({
   open,
   onOpenChange,
   initialWorkspaceId = null,
+  onOpenWorkspaceBilling,
 }: CreateSpaceDialogProps) {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -92,8 +67,6 @@ export default function CreateSpaceDialog({
   );
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const emojiInputRef = useRef<HTMLInputElement>(null);
   const [memberSearch, setMemberSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [membersError, setMembersError] = useState(false);
@@ -105,6 +78,7 @@ export default function CreateSpaceDialog({
   const [newTeamOpen, setNewTeamOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [planBlocked, setPlanBlocked] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const showSpinner = useDelayedFlag(isCreating);
 
@@ -183,7 +157,6 @@ export default function CreateSpaceDialog({
     if (!nextOpen) {
       setName("");
       setEmoji("");
-      setEmojiPickerOpen(false);
       setMemberSearch("");
       setSelectedIds(new Set());
       setRosterWorkspaceId(null);
@@ -192,6 +165,7 @@ export default function CreateSpaceDialog({
       setSelectedTeamIds(new Set());
       setNewTeamOpen(false);
       setNewTeamName("");
+      setPlanBlocked(false);
       setSelectedWorkspaceId(null);
     }
   };
@@ -223,12 +197,6 @@ export default function CreateSpaceDialog({
     });
   };
 
-  // Linux has no OS emoji panel; the in-app grid is the fallback.
-  const openEmojiPicker = async (): Promise<void> => {
-    const nativeShown = await window.electronAPI?.showEmojiPanel?.().catch(() => false);
-    if (!nativeShown) setEmojiPickerOpen(true);
-  };
-
   const handleWorkspaceChange = (workspaceId: string) => {
     setSelectedWorkspaceId(workspaceId);
     setSelectedIds(new Set());
@@ -237,6 +205,7 @@ export default function CreateSpaceDialog({
     setSelectedTeamIds(new Set());
     setNewTeamOpen(false);
     setNewTeamName("");
+    setPlanBlocked(false);
   };
 
   // A space needs at least one team (existing or new) unless team loading
@@ -279,14 +248,16 @@ export default function CreateSpaceDialog({
       }
       handleOpenChange(false);
     } catch (err) {
+      // Workspace entitlement is separate from the user's personal plan, so a
+      // paying user can hit this on a fresh (Free) workspace — an inline
+      // explainer with a billing CTA, not an error toast.
+      if (err instanceof CloudApiError && err.code === "upgrade_required") {
+        setPlanBlocked(true);
+        return;
+      }
       toast({
         title: t("notes.spaces.couldNotCreate"),
-        description:
-          err instanceof CloudApiError && err.code === "upgrade_required"
-            ? t("notes.spaces.upgradeRequired")
-            : err instanceof Error
-              ? err.message
-              : t("common.unknownError"),
+        description: err instanceof Error ? err.message : t("common.unknownError"),
         variant: "destructive",
       });
     } finally {
@@ -361,46 +332,11 @@ export default function CreateSpaceDialog({
                   <label className="text-xs font-medium text-foreground/50">
                     {t("notes.spaces.emojiLabel")}
                   </label>
-                  <Popover open={emojiPickerOpen} onOpenChange={setEmojiPickerOpen}>
-                    <PopoverAnchor asChild>
-                      <Input
-                        ref={emojiInputRef}
-                        value={emoji}
-                        onChange={(e) => setEmoji(clampEmojiInput(e.target.value))}
-                        onClick={() => void openEmojiPicker()}
-                        aria-label={t("notes.spaces.changeEmoji")}
-                        className="text-center"
-                      />
-                    </PopoverAnchor>
-                    <PopoverContent
-                      className="w-auto min-w-0 p-1.5"
-                      onOpenAutoFocus={(e) => e.preventDefault()}
-                      onCloseAutoFocus={(e) => e.preventDefault()}
-                      onInteractOutside={(e) => {
-                        if (e.target === emojiInputRef.current) e.preventDefault();
-                      }}
-                    >
-                      <div className="grid grid-cols-8 gap-0.5">
-                        {EMOJI_CHOICES.map((choice) => (
-                          <button
-                            key={choice}
-                            type="button"
-                            onClick={() => {
-                              setEmoji(choice === emoji ? "" : choice);
-                              setEmojiPickerOpen(false);
-                              emojiInputRef.current?.focus();
-                            }}
-                            className={cn(
-                              "flex h-7 w-7 items-center justify-center rounded-md text-base outline-none transition-colors hover:bg-accent focus-visible:bg-accent",
-                              choice === emoji && "bg-accent"
-                            )}
-                          >
-                            {choice}
-                          </button>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                  <EmojiPickerInput
+                    value={emoji}
+                    onChange={setEmoji}
+                    ariaLabel={t("notes.spaces.changeEmoji")}
+                  />
                 </div>
                 <div className="space-y-1.5 flex-1">
                   <label className="text-xs font-medium text-foreground/50">
@@ -541,6 +477,30 @@ export default function CreateSpaceDialog({
                   </>
                 )}
               </div>
+
+              {planBlocked && workspace && (
+                <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 bg-card/50 dark:bg-surface-2/50 px-4 py-6 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground">
+                      {t("notes.spaces.planBlocked.title", { workspace: workspace.name })}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {t("notes.spaces.planBlocked.description")}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => {
+                      handleOpenChange(false);
+                      onOpenWorkspaceBilling?.(workspace.id);
+                    }}
+                  >
+                    {t("notes.spaces.planBlocked.cta")}
+                  </Button>
+                </div>
+              )}
 
               <DialogFooter>
                 <Button

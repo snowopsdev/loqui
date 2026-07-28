@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { UserPlus } from "lucide-react";
+import { Plus, UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import InviteTeammateDialog from "../../InviteTeammateDialog";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
@@ -114,15 +114,27 @@ export function ContainerOverview({
           <p className="text-xs text-foreground/35 dark:text-foreground/25">
             {metaParts.join(" · ")}
           </p>
-          {canInvite && (
-            <button
-              onClick={() => setShowInviteDialog(true)}
-              className="mt-1 inline-flex items-center gap-1.5 px-3 h-7 rounded-md border border-border/40 dark:border-white/10 text-xs font-medium text-foreground/60 hover:text-foreground/85 hover:border-border/70 hover:bg-foreground/3 dark:hover:bg-white/3 transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
-            >
-              <UserPlus size={12} />
-              {t("notes.overview.invite")}
-            </button>
-          )}
+          <div className="mt-1 flex items-center gap-2">
+            {/* The empty state keeps its own focal create CTA in the list. */}
+            {notes.length > 0 && (
+              <button
+                onClick={onNewNote}
+                className="inline-flex items-center gap-1.5 px-3 h-7 rounded-md border border-border/40 dark:border-white/10 text-xs font-medium text-foreground/60 hover:text-foreground/85 hover:border-border/70 hover:bg-foreground/3 dark:hover:bg-white/3 transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
+              >
+                <Plus size={12} />
+                {t("notes.list.newNote")}
+              </button>
+            )}
+            {canInvite && (
+              <button
+                onClick={() => setShowInviteDialog(true)}
+                className="inline-flex items-center gap-1.5 px-3 h-7 rounded-md border border-border/40 dark:border-white/10 text-xs font-medium text-foreground/60 hover:text-foreground/85 hover:border-border/70 hover:bg-foreground/3 dark:hover:bg-white/3 transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
+              >
+                <UserPlus size={12} />
+                {t("notes.overview.invite")}
+              </button>
+            )}
+          </div>
         </div>
 
         <OverviewExplainerBanner kind={space.kind === "team" ? "team" : "private"} />

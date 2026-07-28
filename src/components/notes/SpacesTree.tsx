@@ -42,7 +42,7 @@ import {
 import { useTeamSpacesCapability } from "../../hooks/useTeamSpacesCapability";
 import { useAuth } from "../../hooks/useAuth";
 import { useWorkspace } from "../../hooks/useWorkspace";
-import { clampEmojiInput } from "../../lib/emojiInput";
+import { EmojiPickerInput } from "./EmojiPickerInput";
 import { canManageSpace, canMoveBetweenSpaces } from "../../lib/spacePermissions";
 import { groupTeamSpacesByWorkspace } from "../../lib/workspaceSelection";
 import { readIsSubscribed, subscribeIsSubscribed } from "../../lib/subscriptionFlag";
@@ -138,6 +138,7 @@ interface SpacesTreeProps {
   onNewNote: (spaceId: number, folderId: number | null) => void;
   onShowStructureIntro?: () => void;
   onUpgrade?: () => void;
+  onOpenWorkspaceBilling?: (workspaceId: string) => void;
 }
 
 function spaceDisplayName(space: SpaceItem, t: TFn): string {
@@ -1076,6 +1077,7 @@ export default function SpacesTree({
   onNewNote,
   onShowStructureIntro,
   onUpgrade,
+  onOpenWorkspaceBilling,
 }: SpacesTreeProps) {
   const { t } = useTranslation();
   const { toast, dismiss } = useToast();
@@ -1104,6 +1106,7 @@ export default function SpacesTree({
   const [renameSpaceName, setRenameSpaceName] = useState("");
   const [renameSpaceEmoji, setRenameSpaceEmoji] = useState("");
   const [spaceRenameFocus, setSpaceRenameFocus] = useState<"name" | "emoji">("name");
+  const emojiPickerOpenRef = useRef(false);
   const [showCreateSpace, setShowCreateSpace] = useState(false);
   const [createSpaceWorkspaceId, setCreateSpaceWorkspaceId] = useState<string | null>(null);
   const [membersSpaceId, setMembersSpaceId] = useState<number | null>(null);
@@ -1197,29 +1200,23 @@ export default function SpacesTree({
     });
   };
 
+  // Every permitted cross-space move enters a team space (private→team or
+  // team→team): moving OUT of a team space is policy-blocked in
+  // canMoveBetweenSpaces, and there is only one private space.
   const confirmCrossSpaceMove = (
-    fromSpaceId: number,
+    _fromSpaceId: number,
     toSpaceId: number,
     isFolder: boolean,
     onConfirm: () => void
   ) => {
     const intoSpace = spaces.find((s) => s.id === toSpaceId);
-    const fromSpace = spaces.find((s) => s.id === fromSpaceId);
-    if (!intoSpace || !fromSpace) return;
-    const movingIntoTeam = intoSpace.kind === "team";
-    const moveInDescription = t(
-      isFolder ? "notes.spaces.confirmMoveInFolder" : "notes.spaces.confirmMoveIn",
-      { space: intoSpace.name }
-    );
+    if (!intoSpace) return;
     showConfirmDialog({
-      title: movingIntoTeam
-        ? t("notes.spaces.confirmMoveInTitle", { space: intoSpace.name })
-        : t("notes.spaces.confirmMoveOutTitle", { space: fromSpace.name }),
-      description: movingIntoTeam
-        ? moveInDescription
-        : t(isFolder ? "notes.spaces.confirmMoveOutFolder" : "notes.spaces.confirmMoveOut", {
-            space: fromSpace.name,
-          }),
+      title: t("notes.spaces.confirmMoveInTitle", { space: intoSpace.name }),
+      description: t(
+        isFolder ? "notes.spaces.confirmMoveInFolder" : "notes.spaces.confirmMoveIn",
+        { space: intoSpace.name }
+      ),
       confirmText: t("notes.spaces.moveConfirm"),
       onConfirm,
     });
@@ -1335,6 +1332,8 @@ export default function SpacesTree({
       confirmCrossSpaceMove(note.spaceId, target.spaceId, false, commit);
     },
     canCrossSpaceDrop: (note, target) => allowsCrossSpaceMove(note.spaceId, target.spaceId),
+    onCrossSpaceVeto: () =>
+      toast({ title: t("notes.spaces.cantMoveOut"), duration: 4000 }),
     onHoverTarget: (key) => setContainerExpanded(key, true),
   });
 
@@ -1811,11 +1810,17 @@ export default function SpacesTree({
             role="none"
             className="flex items-center gap-1 h-[30px] px-2"
             onBlur={(e) => {
+              // The emoji grid is portaled: while it's open, focus sits outside
+              // this row and a blur-commit would unmount the picker mid-pick.
+              if (emojiPickerOpenRef.current) return;
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
                 confirmSpaceRename();
               }
             }}
             onKeyDown={(e) => {
+              // Portal events bubble through the React tree — Enter/Escape
+              // inside the open picker must not commit or cancel the rename.
+              if (emojiPickerOpenRef.current) return;
               if (e.key === "Enter") {
                 confirmSpaceRename();
                 focusRowSoon(spaceKey);
@@ -1826,12 +1831,15 @@ export default function SpacesTree({
               }
             }}
           >
-            <input
+            <EmojiPickerInput
               autoFocus={spaceRenameFocus === "emoji"}
               value={renameSpaceEmoji}
-              onChange={(e) => setRenameSpaceEmoji(clampEmojiInput(e.target.value))}
-              aria-label={t("notes.spaces.changeEmoji")}
+              onChange={setRenameSpaceEmoji}
+              ariaLabel={t("notes.spaces.changeEmoji")}
               className={cn(FOLDER_INPUT_CLASS, "w-8 shrink-0 px-0 text-center")}
+              onPickerOpenChange={(open) => {
+                emojiPickerOpenRef.current = open;
+              }}
             />
             <input
               autoFocus={spaceRenameFocus === "name"}
@@ -2076,6 +2084,7 @@ export default function SpacesTree({
           if (!open) setCreateSpaceWorkspaceId(null);
         }}
         initialWorkspaceId={createSpaceWorkspaceId}
+        onOpenWorkspaceBilling={onOpenWorkspaceBilling}
       />
 
       {membersSpace && (

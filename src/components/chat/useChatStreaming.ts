@@ -198,7 +198,7 @@ export function useChatStreaming({
                   : result.displayText;
                 const metadata =
                   result.success && result.data && typeof result.data === "object"
-                    ? (result.data as Record<string, unknown>)
+                    ? (result.data as Record<string, unknown> | Array<Record<string, unknown>>)
                     : undefined;
                 return { data, displayText: result.displayText, metadata };
               }

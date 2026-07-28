@@ -718,10 +718,13 @@ export default function NoteEditor({
     if (fresh) updateNoteInStore(fresh);
   }, [conflict, note.client_note_id, note.folder_id, note.space_id, onCancelPendingSaves]);
 
-  // Keep the local edits; the next push wins last-write.
+  // Keep the local edits, overwriting the cloud revision the user just saw.
+  // Advancing the base first is what lets the next push succeed instead of
+  // 409ing against the same conflict and re-raising the banner.
   const handleConflictKeep = useCallback(() => {
+    if (conflict) void window.electronAPI.setNoteCloudBase?.(note.id, conflict.updated_at);
     clearNoteConflict(note.client_note_id);
-  }, [note.client_note_id]);
+  }, [conflict, note.id, note.client_note_id]);
 
   const noteDate = formatNoteDate(note.created_at);
   const shortDate = formatShortDate(note.created_at);

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { readPurgeDisplacedNote } from "../../stores/noteStore";
 import { useToast } from "../ui/useToast";
 
 const DEDUPE_MS = 15_000;
@@ -24,13 +25,24 @@ export default function SpaceSyncToastListener() {
 
     const dispose = window.electronAPI?.onSyncEvent?.(({ name, payload }) => {
       if (name === "space-revoked") {
-        const { spaceName } = (payload ?? {}) as { spaceName?: string | null };
+        const { spaceName, spaceId } = (payload ?? {}) as {
+          spaceName?: string | null;
+          spaceId?: number | null;
+        };
         if (!spaceName) return;
         const now = Date.now();
         if (now - (lastRevokedAt.get(spaceName) ?? 0) < DEDUPE_MS) return;
         lastRevokedAt.set(spaceName, now);
+        // When the purge closed the note the user was reading, say which one
+        // vanished instead of only naming the space.
+        const displaced = spaceId != null ? readPurgeDisplacedNote(spaceId) : null;
         toast({
-          title: t("notes.spaces.accessRevoked", { space: spaceName }),
+          title: displaced
+            ? t("notes.spaces.accessRevokedActiveNote", {
+                space: spaceName,
+                title: displaced.title || t("notes.list.untitled"),
+              })
+            : t("notes.spaces.accessRevoked", { space: spaceName }),
           variant: "destructive",
         });
       } else if (name === "folder-name-taken") {

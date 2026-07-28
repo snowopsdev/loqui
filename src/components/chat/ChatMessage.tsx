@@ -12,6 +12,7 @@ import {
 import { cn } from "../lib/utils";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import type { ToolCallInfo } from "./types";
+import { extractNoteCards } from "./noteCards";
 import { toolIcons } from "./toolIcons";
 
 interface ChatMessageProps {
@@ -21,8 +22,6 @@ interface ChatMessageProps {
   toolCalls?: ToolCallInfo[];
   onOpenNote?: (noteId: number) => void;
 }
-
-const NOTE_TOOLS = new Set(["create_note", "update_note", "get_note"]);
 
 function ToolCallStep({ toolCall }: { toolCall: ToolCallInfo }) {
   const { t } = useTranslation();
@@ -164,25 +163,6 @@ function NoteCard({
       />
     </button>
   );
-}
-
-function extractNoteCards(toolCalls?: ToolCallInfo[]): Array<{ noteId: number; title: string }> {
-  if (!toolCalls) return [];
-  const cards: Array<{ noteId: number; title: string }> = [];
-  const seen = new Set<number>();
-
-  for (const tc of toolCalls) {
-    if (tc.status !== "completed" || !NOTE_TOOLS.has(tc.name) || !tc.metadata?.id) continue;
-    const noteId = Number(tc.metadata.id);
-    if (seen.has(noteId)) continue;
-    seen.add(noteId);
-    const title =
-      (tc.metadata.title as string) ||
-      tc.result?.replace(/^(Created|Updated|Retrieved) note: "(.+)"$/, "$2") ||
-      "Note";
-    cards.push({ noteId, title });
-  }
-  return cards;
 }
 
 export function ChatMessage({

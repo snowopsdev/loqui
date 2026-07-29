@@ -25,7 +25,11 @@ import {
   Users,
 } from "lucide-react";
 import ShareNoteDialog from "./ShareNoteDialog";
-import { noteCapabilities, resolveNotePermission } from "../../lib/notePermissions";
+import {
+  noteCapabilities,
+  resolveNotePermission,
+  type NoteAclState,
+} from "../../lib/notePermissions";
 import SpaceMembersDialog from "./SpaceMembersDialog";
 import {
   useShareCacheEntry,
@@ -241,6 +245,11 @@ export default function NoteEditor({
   const [isDiarizing, setIsDiarizing] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
+  const [aclRetryVersion, setAclRetryVersion] = useState(0);
+  const [aclRequest, setAclRequest] = useState<{
+    cloudId: string;
+    state: Extract<NoteAclState, "loading" | "unavailable">;
+  } | null>(null);
   const { isSignedIn, user } = useAuth();
   const shareCache = useShareCacheEntry(note.cloud_id);
   const spaces = useSpaces();
@@ -255,21 +264,31 @@ export default function NoteEditor({
   // Same gate as SyncService.canSyncSharedNotes: sharing needs a subscription.
   // An already-shared note stays manageable (unshare/revoke) after a lapse.
   const isSubscribed = useSyncExternalStore(subscribeIsSubscribed, readIsSubscribed);
+  const aclState: NoteAclState = shareCache
+    ? "loaded"
+    : !note.cloud_id || !isSignedIn
+      ? "unavailable"
+      : aclRequest?.cloudId === note.cloud_id
+        ? aclRequest.state
+        : "loading";
   const shareCapabilities = noteCapabilities(
     resolveNotePermission({
       cachedPermission: shareCache?.access?.my_permission,
-      shareStateLoaded: shareCache !== null,
+      aclState,
       isTeamNote,
-      hasCloudId: Boolean(note.cloud_id),
     })
   );
   const canShare =
-    isSignedIn && shareCapabilities.canShare && (isSubscribed || Boolean(note.is_shared));
+    isSignedIn &&
+    (!note.cloud_id || isTeamNote || aclState === "loaded") &&
+    shareCapabilities.canShare &&
+    (isSubscribed || Boolean(note.is_shared));
   const canEditNote = shareCapabilities.canEdit;
   useEffect(() => {
     if (!isSignedIn || !note.cloud_id || shareCache) return;
     const cloudId = note.cloud_id;
     let cancelled = false;
+    setAclRequest({ cloudId, state: "loading" });
     NoteSharingService.getShareSettings(cloudId)
       .then((res) => {
         if (cancelled) return;
@@ -287,11 +306,29 @@ export default function NoteEditor({
           ).catch((err) => console.error("Share flag persist failed:", err));
         }
       })
-      .catch((err) => console.error("Failed to load note permissions:", err));
+      .catch((err) => {
+        if (cancelled) return;
+        setAclRequest({ cloudId, state: "unavailable" });
+        console.error("Failed to load note permissions:", err);
+      });
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, note.cloud_id, note.id, note.is_shared, shareCache]);
+  }, [aclRetryVersion, isSignedIn, note.cloud_id, note.id, note.is_shared, shareCache]);
+  useEffect(() => {
+    if (
+      !isSignedIn ||
+      !note.cloud_id ||
+      shareCache ||
+      aclRequest?.cloudId !== note.cloud_id ||
+      aclRequest.state !== "unavailable"
+    ) {
+      return;
+    }
+    const retryWhenOnline = () => setAclRetryVersion((version) => version + 1);
+    window.addEventListener("online", retryWhenOnline);
+    return () => window.removeEventListener("online", retryWhenOnline);
+  }, [aclRequest, isSignedIn, note.cloud_id, shareCache]);
   // A newer cloud copy arrived while this note had unpushed edits (plan §7.3).
   const conflict = useNoteConflict(note.client_note_id);
   const [conflictEditorName, setConflictEditorName] = useState<string | null>(null);

@@ -9,6 +9,8 @@ export interface NoteCapabilities {
   canTransferOwnership: boolean;
 }
 
+export type NoteAclState = "loading" | "loaded" | "unavailable";
+
 const NO_ACCESS: NoteCapabilities = {
   canView: false,
   canEdit: false,
@@ -55,20 +57,19 @@ export function noteCapabilities(
 
 export function resolveNotePermission({
   cachedPermission,
-  shareStateLoaded,
+  aclState,
   isTeamNote,
-  hasCloudId,
 }: {
   cachedPermission?: NotePermission;
-  shareStateLoaded: boolean;
+  aclState: NoteAclState;
   isTeamNote: boolean;
-  hasCloudId: boolean;
 }): NotePermission | null {
   if (cachedPermission) return cachedPermission;
   // A personal cloud note may belong to this user or may be a view-only grant.
-  // Until its ACL loads, fail closed instead of temporarily granting owner
-  // controls. A loaded legacy response has no ACL, so retain the old ownership
-  // fallback for compatibility with servers that predate note permissions.
-  if (hasCloudId && !isTeamNote && !shareStateLoaded) return null;
+  // Fail closed only while an authenticated ACL request is active, rather
+  // than making the local editor permanently read-only while signed out or
+  // offline. Loaded legacy responses and unavailable ACLs retain the old
+  // ownership fallback for compatibility and offline editing.
+  if (!isTeamNote && aclState === "loading") return null;
   return isTeamNote ? "editor" : "owner";
 }

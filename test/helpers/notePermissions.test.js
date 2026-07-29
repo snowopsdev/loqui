@@ -52,52 +52,47 @@ test("owners and administrators retain all capabilities", async () => {
   }
 });
 
-test("personal cloud notes fail closed until their share state loads", async () => {
+test("personal cloud notes fail closed only while their ACL is loading", async () => {
   const { resolveNotePermission } = await load();
 
   assert.equal(
     resolveNotePermission({
-      shareStateLoaded: false,
+      aclState: "loading",
       isTeamNote: false,
-      hasCloudId: true,
     }),
     null
   );
   assert.equal(
     resolveNotePermission({
       cachedPermission: "viewer",
-      shareStateLoaded: true,
+      aclState: "loaded",
       isTeamNote: false,
-      hasCloudId: true,
     }),
     "viewer"
   );
 });
 
-test("local, team, and legacy notes retain their compatibility defaults", async () => {
+test("unavailable ACLs, team notes, and legacy notes retain their compatibility defaults", async () => {
   const { resolveNotePermission } = await load();
 
   assert.equal(
     resolveNotePermission({
-      shareStateLoaded: false,
+      aclState: "unavailable",
       isTeamNote: false,
-      hasCloudId: false,
     }),
     "owner"
   );
   assert.equal(
     resolveNotePermission({
-      shareStateLoaded: false,
+      aclState: "loading",
       isTeamNote: true,
-      hasCloudId: true,
     }),
     "editor"
   );
   assert.equal(
     resolveNotePermission({
-      shareStateLoaded: true,
+      aclState: "loaded",
       isTeamNote: false,
-      hasCloudId: true,
     }),
     "owner"
   );

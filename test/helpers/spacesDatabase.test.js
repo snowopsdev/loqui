@@ -662,6 +662,7 @@ test("relocateRevokedFolder preserves dirty children and hard-deletes server-own
   const dirty = db.saveNote("Edits", "unpushed work", "personal", null, null, folder.id).note;
   db.markNoteSynced(dirty.id, "cloud-note-2");
   db.updateNote(dirty.id, { content: "unpushed work v2" });
+  db.updateNoteShareState(dirty.id, { is_shared: 1, share_token: "revoked-folder-token" });
   const draft = db.saveNote("Draft", "never synced", "personal", null, null, folder.id).note;
   db.db
     .prepare(
@@ -693,6 +694,8 @@ test("relocateRevokedFolder preserves dirty children and hard-deletes server-own
     assert.equal(survivor.sync_status, "pending");
   }
   assert.notEqual(db.getNote(dirty.id).client_note_id, dirty.client_note_id, "identity forked");
+  assert.equal(db.getNote(dirty.id).is_shared, 0, "forked note is private");
+  assert.equal(db.getNote(dirty.id).share_token, null, "forked note drops its share token");
 
   // Dirty folder: preserved in Personal with a forked identity, children keep
   // their folder link, and a name collision falls back to a suffixed rename.
@@ -842,6 +845,7 @@ test("purgeSpace preserves dirty cloud-backed notes with forked identities", (t)
   ).note;
   db.markNoteSynced(dirty.id, "cloud-dirty-note");
   db.updateNote(dirty.id, { content: "walrus intel v2" });
+  db.updateNoteShareState(dirty.id, { is_shared: 1, share_token: "purged-space-token" });
   const errored = db.saveNote(
     "Errored push",
     "narwhal notes",
@@ -874,6 +878,8 @@ test("purgeSpace preserves dirty cloud-backed notes with forked identities", (t)
     assert.equal(relocated.sync_status, "pending");
     assert.equal(relocated.left_team, 0);
     assert.notEqual(relocated.client_note_id, prior.client_note_id);
+    assert.equal(relocated.is_shared, 0);
+    assert.equal(relocated.share_token, null);
   }
   const count = (sql, ...args) => db.db.prepare(sql).get(...args).count;
   assert.equal(count("SELECT COUNT(*) as count FROM notes WHERE id = ?", clean.id), 0);

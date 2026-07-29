@@ -859,7 +859,7 @@ declare global {
       setSpaceSyncStatus?: (
         id: number,
         status: SpaceItem["sync_status"]
-      ) => Promise<{ success: boolean }>;
+      ) => Promise<{ success: boolean; space?: SpaceItem | null }>;
       onSpacePurged?: (callback: (payload: { spaceId: number }) => void) => () => void;
       onSpaceSynced?: (callback: (space: SpaceItem) => void) => () => void;
 
@@ -2238,7 +2238,11 @@ declare global {
         localFolderId: number | null,
         localSpaceId?: number | null
       ) => Promise<NoteItem>;
-      markNoteSynced?: (id: number, cloudId: string, cloudUpdatedAt?: string | null) => Promise<void>;
+      markNoteSynced?: (
+        id: number,
+        cloudId: string,
+        cloudUpdatedAt?: string | null
+      ) => Promise<void>;
       markNoteSyncedIfUnchanged?: (
         id: number,
         cloudId: string,

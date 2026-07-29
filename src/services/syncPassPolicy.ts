@@ -9,8 +9,10 @@ export interface PullCursorAdvance {
   advanceTeamCursor: boolean;
 }
 
-// A backfill snapshot never sees tombstones or stubs, and a dirty pass must
-// re-see its parked/failed rows, so neither advances any cursor. A
+// A backfill snapshot never sees tombstones or stubs, and a pass with
+// parked/failed rows must re-see them, so neither advances any cursor. An
+// unresolved note conflict is not parked: its cloud copy lives in the durable
+// conflict registry and must not hold back unrelated deltas. A
 // team-capable pass (or one with no team spaces at all) fully covered its
 // scope: advance its own cursor, and after a full pull keep the team cursor
 // current too so a later backup-off pass doesn't re-pull from the distant
@@ -19,12 +21,12 @@ export interface PullCursorAdvance {
 // recovery pull catch up on teammate edits made during the outage.
 export function resolvePullCursorAdvance(pass: {
   snapshot: boolean;
-  dirty: boolean;
+  parked: boolean;
   teamOnly: boolean;
   teamCapable: boolean;
   hasTeamSpaces: boolean;
 }): PullCursorAdvance {
-  if (pass.snapshot || pass.dirty) {
+  if (pass.snapshot || pass.parked) {
     return { advanceCursor: false, advanceTeamCursor: false };
   }
   if (pass.teamCapable || !pass.hasTeamSpaces) {

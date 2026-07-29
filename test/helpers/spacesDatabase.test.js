@@ -59,6 +59,18 @@ function createDb(t) {
   }
 }
 
+let nextTestTeamSpaceId = 0;
+
+function createTestTeamSpace(db, { name, emoji = null } = {}) {
+  const maxOrder = db.db.prepare("SELECT MAX(sort_order) AS max_order FROM spaces").get();
+  const result = db.db
+    .prepare(
+      "INSERT INTO spaces (client_space_id, kind, name, emoji, sort_order) VALUES (?, 'team', ?, ?, ?)"
+    )
+    .run(`test-team-space-${++nextTestTeamSpaceId}`, name, emoji, (maxOrder?.max_order ?? 0) + 1);
+  return { success: true, space: db.getSpace(result.lastInsertRowid) };
+}
+
 test("spaces migration is idempotent across launches", (t) => {
   const db = createDb(t);
   if (!db) return;
@@ -134,7 +146,7 @@ test("pre-migration rows are backfilled into the private space", (t) => {
 test("folder names are unique per space, not globally", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const team = db.createSpace({ name: "Design" });
+  const team = createTestTeamSpace(db, { name: "Design" });
   assert.ok(team.success);
   assert.equal(team.space.kind, "team");
 
@@ -154,7 +166,7 @@ test("updateNote forces space_id to follow folder_id (D2)", (t) => {
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Eng" }).space;
+  const team = createTestTeamSpace(db, { name: "Eng" }).space;
   const teamFolder = db.createFolder("Docs", team.id).folder;
 
   const { note } = db.saveNote("Move me", "content");
@@ -180,7 +192,7 @@ test("purgeSpace leaves zero residue for the space and spares the private space"
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Secret" }).space;
+  const team = createTestTeamSpace(db, { name: "Secret" }).space;
   const teamFolder = db.createFolder("Vault", team.id).folder;
 
   const teamNote = db.saveNote(
@@ -269,7 +281,7 @@ test("saveNote resolves default folders within the target space", (t) => {
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Ops" }).space;
+  const team = createTestTeamSpace(db, { name: "Ops" }).space;
   db.db
     .prepare(
       "INSERT INTO folders (name, is_default, sort_order, space_id, client_folder_id) VALUES ('Meetings', 1, 0, ?, 'team-meetings')"
@@ -300,7 +312,7 @@ test("moveFolderToSpace moves the folder and its live notes in one transaction",
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Growth" }).space;
+  const team = createTestTeamSpace(db, { name: "Growth" }).space;
   const folder = db.createFolder("Campaigns").folder;
   const filed = db.saveNote("Plan", "body", "personal", null, null, folder.id).note;
   const loose = db.saveNote("Loose", "body").note;
@@ -334,7 +346,7 @@ test("moveFolderToSpace moves the folder and its live notes in one transaction",
 test("getNotes with spaceId and no folderId lists only the space's root notes", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const team = db.createSpace({ name: "Ops" }).space;
+  const team = createTestTeamSpace(db, { name: "Ops" }).space;
   const folder = db.createFolder("Docs", team.id).folder;
   const rootNote = db.saveNote("Root", "body", "personal", null, null, null, team.id).note;
   db.saveNote("Filed", "body", "personal", null, null, folder.id);
@@ -353,7 +365,7 @@ test("getNotes with spaceId and no folderId lists only the space's root notes", 
 test("pending queues split by space kind", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const team = db.createSpace({ name: "Sales" }).space;
+  const team = createTestTeamSpace(db, { name: "Sales" }).space;
   const privateFolder = db.createFolder("Ideas").folder;
   const teamFolder = db.createFolder("Pipeline", team.id).folder;
   const privateNote = db.saveNote("Mine", "body").note;
@@ -385,7 +397,7 @@ test("space-root notes keep folder_id NULL across relaunches", (t) => {
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Team" }).space;
+  const team = createTestTeamSpace(db, { name: "Team" }).space;
   const teamRoot = db.saveNote("Team root", "body", "personal", null, null, null, team.id).note;
   assert.equal(teamRoot.folder_id, null);
   const privateRoot = db.saveNote("Mine", "body").note;
@@ -459,7 +471,7 @@ test("hard deletes clean speaker rows", (t) => {
 test("upsertFolderFromCloud converges on a same-space name collision", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const team = db.createSpace({ name: "Shared" }).space;
+  const team = createTestTeamSpace(db, { name: "Shared" }).space;
   const local = db.createFolder("Projects", team.id).folder;
 
   const cloud = {
@@ -523,9 +535,12 @@ test("pending vector purges persist across relaunches until cleared", (t) => {
 test("setSpaceSyncStatus flips a space's sync_status", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const team = db.createSpace({ name: "Docs" }).space;
+  const team = createTestTeamSpace(db, { name: "Docs" }).space;
 
-  assert.ok(db.setSpaceSyncStatus(team.id, "synced").success);
+  const settled = db.setSpaceSyncStatus(team.id, "synced");
+  assert.ok(settled.success);
+  assert.equal(settled.space.id, team.id);
+  assert.equal(settled.space.sync_status, "synced");
   assert.equal(db.getSpaces().find((s) => s.id === team.id).sync_status, "synced");
 
   assert.ok(db.setSpaceSyncStatus(team.id, "pending").success);
@@ -538,7 +553,7 @@ test("team→private moves set left_team so retractions stay in the team queue",
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Sales" }).space;
+  const team = createTestTeamSpace(db, { name: "Sales" }).space;
 
   const note = db.saveNote("Comp review", "body", "personal", null, null, null, team.id).note;
   db.markNoteSynced(note.id, "cloud-note-1");
@@ -578,7 +593,7 @@ test("moveFolderToSpace team→private flags the folder and its cloud-backed not
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Growth" }).space;
+  const team = createTestTeamSpace(db, { name: "Growth" }).space;
   const folder = db.createFolder("Campaigns", team.id).folder;
   db.markFolderSynced(folder.id, "cloud-folder-1");
   const cloudNote = db.saveNote("Plan", "body", "personal", null, null, folder.id).note;
@@ -727,7 +742,7 @@ test("relocateRevokedFolder preserves dirty children and hard-deletes server-own
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Ops" }).space;
+  const team = createTestTeamSpace(db, { name: "Ops" }).space;
   const folder = db.createFolder("Q3 calls", team.id).folder;
   db.markFolderSynced(folder.id, "cloud-folder-1");
 
@@ -774,7 +789,7 @@ test("relocateRevokedFolder preserves dirty children and hard-deletes server-own
   // Dirty folder: preserved in Personal with a forked identity, children keep
   // their folder link, and a name collision falls back to a suffixed rename.
   db.createFolder("Projects");
-  const team2 = db.createSpace({ name: "Design" }).space;
+  const team2 = createTestTeamSpace(db, { name: "Design" }).space;
   const dirtyFolder = db.createFolder("Projects", team2.id).folder;
   db.markFolderSynced(dirtyFolder.id, "cloud-folder-2");
   db.renameFolder(dirtyFolder.id, "Projects");
@@ -797,7 +812,7 @@ test("getFolderNoteCounts attributes space-root notes per space", (t) => {
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Ops" }).space;
+  const team = createTestTeamSpace(db, { name: "Ops" }).space;
   const folder = db.createFolder("Docs", team.id).folder;
   db.saveNote("Filed", "body", "personal", null, null, folder.id);
   db.saveNote("Root A", "body", "personal", null, null, null, team.id);
@@ -906,7 +921,7 @@ test("purgeSpace preserves dirty cloud-backed notes with forked identities", (t)
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Revoked" }).space;
+  const team = createTestTeamSpace(db, { name: "Revoked" }).space;
   const folder = db.createFolder("Ops", team.id).folder;
 
   const dirty = db.saveNote(
@@ -963,7 +978,7 @@ test("purgeSpace survives tombstones in other spaces referencing its folders", (
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const team = db.createSpace({ name: "Movers" }).space;
+  const team = createTestTeamSpace(db, { name: "Movers" }).space;
 
   // Deleting a note keeps folder_id on the tombstone; moving the folder into
   // the team afterwards leaves a cross-space reference that must not abort
@@ -1009,18 +1024,6 @@ test("upsertSpaceFromCloud inserts as pending and never flips status on update",
   db.setSpaceSyncStatus(team.id, "synced");
   const after = db.upsertSpaceFromCloud({ id: "team-1", name: "Renamed again" });
   assert.equal(after.sync_status, "synced");
-});
-
-test("createSpace refuses non-team kinds so the private space stays unique", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const result = db.createSpace({ name: "Sneaky", kind: "private" });
-  assert.equal(result.success, false);
-
-  const privateCount = db.db
-    .prepare("SELECT COUNT(*) as count FROM spaces WHERE kind = 'private'")
-    .get().count;
-  assert.equal(privateCount, 1);
 });
 
 test("upsertSpaceFromCloud round-trips the teams mirror as a parsed array", (t) => {

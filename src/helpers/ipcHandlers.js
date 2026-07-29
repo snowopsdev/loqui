@@ -601,14 +601,22 @@ class IPCHandlers {
   // Space vector purges are persisted (pending_vector_purges) so a purge that
   // lands while Qdrant is booting or down is retried once the index is ready.
   drainPendingVectorPurges() {
-    setImmediate(async () => {
-      const vectorIndex = require("./vectorIndex");
-      if (!vectorIndex.isReady()) return;
-      for (const { space_id } of this.databaseManager.getPendingVectorPurges()) {
-        if (await vectorIndex.deleteBySpace(space_id)) {
-          this.databaseManager.clearPendingVectorPurge(space_id);
+    setImmediate(() => {
+      void (async () => {
+        const vectorIndex = require("./vectorIndex");
+        if (!vectorIndex.isReady()) return;
+        for (const { space_id } of this.databaseManager.getPendingVectorPurges()) {
+          if (await vectorIndex.deleteBySpace(space_id)) {
+            this.databaseManager.clearPendingVectorPurge(space_id);
+          }
         }
-      }
+      })().catch((error) => {
+        debugLogger.error(
+          "Pending vector purge drain failed",
+          { error: error?.message || String(error) },
+          "semantic-search"
+        );
+      });
     });
   }
 
@@ -1371,60 +1379,72 @@ class IPCHandlers {
       return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
     });
 
-    ipcMain.handle("db-semantic-search-notes", async (event, query, limit = 5, spaceId, folderId) => {
-      const vectorIndex = require("./vectorIndex");
-      if (!vectorIndex.isReady()) {
-        return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
-      }
-
-      try {
-        // Folder scoping post-filters the vector leg by note-id set (existing
-        // Qdrant payloads only carry space_id), so over-fetch harder to
-        // compensate for discarded out-of-folder hits.
-        const scopedIds =
-          folderId != null ? new Set(this.databaseManager.getNoteIdsInFolder(folderId)) : null;
-        const overFetch = folderId != null ? limit * 4 : limit * 2;
-        const vectorFilter =
-          spaceId != null ? { must: [{ key: "space_id", match: { value: spaceId } }] } : undefined;
-        const [ftsResults, vectorResults] = await Promise.all([
-          this.databaseManager.searchNotes(query, overFetch, spaceId, folderId),
-          vectorIndex.search(query, overFetch, vectorFilter),
-        ]);
-
-        // Filter low-confidence semantic matches before RRF
-        const filteredVectorResults = vectorResults.filter(
-          ({ noteId, score }) => score > 0.3 && (!scopedIds || scopedIds.has(noteId))
-        );
-
-        // Reciprocal Rank Fusion (K=60, matching cloud implementation)
-        const scores = new Map();
-        ftsResults.forEach((note, i) => {
-          scores.set(note.id, (scores.get(note.id) || 0) + 1 / (60 + i));
-        });
-        filteredVectorResults.forEach(({ noteId }, i) => {
-          scores.set(noteId, (scores.get(noteId) || 0) + 1 / (60 + i));
-        });
-
-        const rankedIds = [...scores.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, limit)
-          .map(([id]) => id);
-
-        const noteMap = new Map();
-        ftsResults.forEach((n) => noteMap.set(n.id, n));
-        for (const id of rankedIds) {
-          if (!noteMap.has(id)) {
-            const note = this.databaseManager.getNote(id);
-            if (note) noteMap.set(id, note);
-          }
+    ipcMain.handle(
+      "db-semantic-search-notes",
+      async (event, query, limit = 5, spaceId, folderId) => {
+        const vectorIndex = require("./vectorIndex");
+        if (!vectorIndex.isReady()) {
+          return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
         }
 
-        return rankedIds.map((id) => noteMap.get(id)).filter(Boolean);
-      } catch (error) {
-        debugLogger.error("Semantic search failed, falling back to FTS5", { error: error.message });
-        return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
+        try {
+          // Qdrant payload updates are best-effort. Use its space filter to
+          // reduce the candidate set, then validate every scoped vector hit
+          // against SQLite before it can enter the fused ranking.
+          const overFetch = folderId != null ? limit * 4 : limit * 2;
+          const vectorFilter =
+            spaceId != null
+              ? { must: [{ key: "space_id", match: { value: spaceId } }] }
+              : undefined;
+          const [ftsResults, vectorResults] = await Promise.all([
+            this.databaseManager.searchNotes(query, overFetch, spaceId, folderId),
+            vectorIndex.search(query, overFetch, vectorFilter),
+          ]);
+          const scopedIds = new Set(
+            this.databaseManager.getNoteIdsInScope(
+              spaceId,
+              folderId,
+              vectorResults.map(({ noteId }) => noteId)
+            )
+          );
+
+          // Filter low-confidence semantic matches before RRF
+          const filteredVectorResults = vectorResults.filter(
+            ({ noteId, score }) => score > 0.3 && scopedIds.has(noteId)
+          );
+
+          // Reciprocal Rank Fusion (K=60, matching cloud implementation)
+          const scores = new Map();
+          ftsResults.forEach((note, i) => {
+            scores.set(note.id, (scores.get(note.id) || 0) + 1 / (60 + i));
+          });
+          filteredVectorResults.forEach(({ noteId }, i) => {
+            scores.set(noteId, (scores.get(noteId) || 0) + 1 / (60 + i));
+          });
+
+          const rankedIds = [...scores.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, limit)
+            .map(([id]) => id);
+
+          const noteMap = new Map();
+          ftsResults.forEach((n) => noteMap.set(n.id, n));
+          for (const id of rankedIds) {
+            if (!noteMap.has(id)) {
+              const note = this.databaseManager.getNote(id);
+              if (note) noteMap.set(id, note);
+            }
+          }
+
+          return rankedIds.map((id) => noteMap.get(id)).filter(Boolean);
+        } catch (error) {
+          debugLogger.error("Semantic search failed, falling back to FTS5", {
+            error: error.message,
+          });
+          return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
+        }
       }
-    });
+    );
 
     ipcMain.handle("db-semantic-reindex-all", async () => {
       const vectorIndex = require("./vectorIndex");
@@ -1507,6 +1527,9 @@ class IPCHandlers {
         for (const note of result.notes ?? []) {
           this._asyncVectorUpsert(note);
         }
+        if (result.folder) {
+          setImmediate(() => this.broadcastToWindows("folder-synced", result.folder));
+        }
       }
       return result;
     });
@@ -1520,7 +1543,11 @@ class IPCHandlers {
     });
 
     ipcMain.handle("db-update-space", async (event, id, updates) => {
-      return this.databaseManager.updateSpace(id, updates);
+      const result = this.databaseManager.updateSpace(id, updates);
+      if (result?.success && result.space) {
+        setImmediate(() => this.broadcastToWindows("space-synced", result.space));
+      }
+      return result;
     });
 
     ipcMain.handle("db-purge-space", async (event, id) => {
@@ -1721,7 +1748,12 @@ class IPCHandlers {
     ipcMain.handle(
       "db-mark-note-synced-if-unchanged",
       (_, id, cloudId, snapshotUpdatedAt, cloudUpdatedAt) =>
-        this.databaseManager.markNoteSyncedIfUnchanged(id, cloudId, snapshotUpdatedAt, cloudUpdatedAt)
+        this.databaseManager.markNoteSyncedIfUnchanged(
+          id,
+          cloudId,
+          snapshotUpdatedAt,
+          cloudUpdatedAt
+        )
     );
     ipcMain.handle("db-set-note-cloud-base", (_, id, cloudUpdatedAt) =>
       this.databaseManager.setNoteCloudBase(id, cloudUpdatedAt)
@@ -1823,12 +1855,9 @@ class IPCHandlers {
     });
     ipcMain.handle("db-set-space-sync-status", (_, id, status) => {
       const result = this.databaseManager.setSpaceSyncStatus(id, status);
-      if (result?.success) {
+      if (result?.success && result.space) {
         // Live skeleton toggling: the tree keys pending/synced off this flag.
-        const space = this.databaseManager._spaceRow(
-          this.databaseManager.db.prepare("SELECT * FROM spaces WHERE id = ?").get(id)
-        );
-        if (space) setImmediate(() => this.broadcastToWindows("space-synced", space));
+        setImmediate(() => this.broadcastToWindows("space-synced", result.space));
       }
       return result;
     });

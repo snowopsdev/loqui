@@ -9,18 +9,18 @@ const load = () => import("../../src/services/syncPassPolicy.ts");
 
 const base = {
   snapshot: false,
-  dirty: false,
+  parked: false,
   teamOnly: false,
   teamCapable: true,
   hasTeamSpaces: true,
 };
 
-test("cursor policy: snapshots and dirty passes never advance", async () => {
+test("cursor policy: snapshots and passes with parked rows never advance", async () => {
   const { resolvePullCursorAdvance } = await load();
   for (const pass of [
     { ...base, snapshot: true },
-    { ...base, dirty: true },
-    { ...base, snapshot: true, dirty: true, teamOnly: true },
+    { ...base, parked: true },
+    { ...base, snapshot: true, parked: true, teamOnly: true },
   ]) {
     assert.deepEqual(resolvePullCursorAdvance(pass), {
       advanceCursor: false,

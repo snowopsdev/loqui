@@ -1857,14 +1857,36 @@ class DatabaseManager {
   }
 
   getNoteIdsInFolder(folderId) {
+    return this.getNoteIdsInScope(null, folderId);
+  }
+
+  // Authoritative scope membership for semantic-search candidates. Qdrant
+  // payload writes are asynchronous/best-effort, so its filters are only an
+  // optimization and must not decide which space or folder a hit belongs to.
+  getNoteIdsInScope(spaceId = null, folderId = null, candidateIds = null) {
     try {
       if (!this.db) throw new Error("Database not initialized");
+      if (candidateIds && candidateIds.length === 0) return [];
+      const conditions = ["deleted_at IS NULL"];
+      const params = [];
+      if (candidateIds) {
+        conditions.push(`id IN (${candidateIds.map(() => "?").join(", ")})`);
+        params.push(...candidateIds);
+      }
+      if (spaceId != null) {
+        conditions.push("space_id = ?");
+        params.push(spaceId);
+      }
+      if (folderId != null) {
+        conditions.push("folder_id = ?");
+        params.push(folderId);
+      }
       return this.db
-        .prepare("SELECT id FROM notes WHERE folder_id = ? AND deleted_at IS NULL")
-        .all(folderId)
+        .prepare(`SELECT id FROM notes WHERE ${conditions.join(" AND ")}`)
+        .all(...params)
         .map((row) => row.id);
     } catch (error) {
-      debugLogger.error("Error getting note ids in folder", { error: error.message }, "notes");
+      debugLogger.error("Error getting scoped note ids", { error: error.message }, "notes");
       throw error;
     }
   }
@@ -2156,29 +2178,15 @@ class DatabaseManager {
     }
   }
 
-  createSpace({ name, emoji = null, kind = "team" } = {}) {
+  getSpace(id) {
     try {
       if (!this.db) throw new Error("Database not initialized");
-      if (kind !== "team") {
-        // The single private space is seeded by the migration; a second one
-        // would split default-folder resolution and purge relocation targets.
-        return { success: false, error: "Only team spaces can be created" };
-      }
-      const trimmed = (name || "").trim();
-      if (!trimmed) return { success: false, error: "Space name is required" };
-      const maxOrder = this.db.prepare("SELECT MAX(sort_order) as max_order FROM spaces").get();
-      const sortOrder = (maxOrder?.max_order ?? 0) + 1;
-      const result = this.db
-        .prepare(
-          "INSERT INTO spaces (client_space_id, kind, name, emoji, sort_order) VALUES (?, ?, ?, ?, ?)"
-        )
-        .run(randomUUID(), kind, trimmed, emoji, sortOrder);
-      const space = this._spaceRow(
-        this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(result.lastInsertRowid)
-      );
-      return { success: true, space };
+      const row = this.db
+        .prepare("SELECT * FROM spaces WHERE id = ? AND deleted_at IS NULL")
+        .get(id);
+      return row ? this._spaceRow(row) : null;
     } catch (error) {
-      debugLogger.error("Error creating space", { error: error.message }, "spaces");
+      debugLogger.error("Error getting space", { error: error.message }, "spaces");
       throw error;
     }
   }
@@ -2219,9 +2227,10 @@ class DatabaseManager {
     try {
       if (!this.db) throw new Error("Database not initialized");
       const result = this.db
-        .prepare("UPDATE spaces SET sync_status = ? WHERE id = ?")
+        .prepare("UPDATE spaces SET sync_status = ? WHERE id = ? AND deleted_at IS NULL")
         .run(status, id);
-      return { success: result.changes > 0 };
+      const success = result.changes > 0;
+      return { success, space: success ? this.getSpace(id) : null };
     } catch (error) {
       debugLogger.error("Error setting space sync status", { error: error.message }, "spaces");
       throw error;

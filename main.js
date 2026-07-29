@@ -937,7 +937,7 @@ async function startApp() {
     if (initialProtocolUrl && process.platform !== "darwin") {
       if (initialProtocolUrl.includes("upgrade-success")) {
         handleUpgradeDeepLink();
-      } else if (initialProtocolUrl.includes("/invitations/")) {
+      } else if (isInvitationDeepLink(initialProtocolUrl)) {
         handleInvitationDeepLink(initialProtocolUrl);
       } else {
         void handleOAuthDeepLink(initialProtocolUrl);

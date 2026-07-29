@@ -449,7 +449,11 @@ class SyncService {
   }
 
   debouncedPush(entityType: string, entityId: number): void {
-    if (!this.canSync() && !(entityType === "note" && this.canSyncSharedNotes())) return;
+    const canPushWithoutBackup =
+      entityType === "note"
+        ? this.canSyncSharedNotes()
+        : entityType === "folder" && this.canSyncTeamSpaces();
+    if (!this.canSync() && !canPushWithoutBackup) return;
     const key = `${entityType}:${entityId}`;
     const existing = this.pushTimers.get(key);
     if (existing) clearTimeout(existing);
@@ -464,18 +468,34 @@ class SyncService {
 
   private async pushEntity(entityType: string, entityId: number): Promise<void> {
     if (!this.canSync()) {
-      // Only shared notes and team-space notes push without the backup toggle.
-      if (entityType !== "note" || !this.canSyncSharedNotes()) return;
-      const note = await window.electronAPI.getNote?.(entityId);
-      if (!note) return;
-      if (!note.is_shared) {
+      // Shared notes and team-space notes/folders push without the backup
+      // toggle. Personal folders still require backup consent.
+      if (entityType === "folder") {
+        if (!this.canSyncTeamSpaces()) return;
+        const folders = (await window.electronAPI.getFolders?.()) ?? [];
+        const folder = folders.find((candidate) => candidate.id === entityId);
+        if (!folder) return;
         const ctx = await this.buildSpaceContext();
-        // A note that just left a team still owes its scope retraction (D6):
+        // A folder that just left a team still owes its scope retraction (D6):
         // the server row stays visible to teammates until the PATCH lands.
-        const leftTeam = !!note.left_team && !!note.cloud_id;
-        if (ctx.byId.get(note.space_id)?.kind !== "team" && !leftTeam) return;
+        const leftTeam = !!folder.left_team && !!folder.cloud_id;
+        if (ctx.byId.get(folder.space_id)?.kind !== "team" && !leftTeam) return;
+        return this.pushFolder(entityId);
       }
-      return this.pushNote(entityId);
+      if (entityType === "note") {
+        if (!this.canSyncSharedNotes()) return;
+        const note = await window.electronAPI.getNote?.(entityId);
+        if (!note) return;
+        if (!note.is_shared) {
+          const ctx = await this.buildSpaceContext();
+          // A note that just left a team still owes its scope retraction (D6):
+          // the server row stays visible to teammates until the PATCH lands.
+          const leftTeam = !!note.left_team && !!note.cloud_id;
+          if (ctx.byId.get(note.space_id)?.kind !== "team" && !leftTeam) return;
+        }
+        return this.pushNote(entityId);
+      }
+      return;
     }
     switch (entityType) {
       case "folder":
@@ -554,7 +574,11 @@ class SyncService {
   // content-less PATCH would still bump the cloud row's updated_at and hand
   // the next pull a stale copy to elect). Scope fields ride along so local
   // moves between spaces propagate; the server no-ops them when unchanged.
-  private notePushPayload(note: NoteItem, cloudFolderId: string | null, scope: PushScopeFields) {
+  private notePushPayload(
+    note: NoteItem,
+    cloudFolderId: string | null,
+    scope: PushScopeFields
+  ): ReturnType<typeof buildNoteUpdatePayload> & PushScopeFields {
     return { ...buildNoteUpdatePayload(note, cloudFolderId), ...scope };
   }
 
@@ -820,10 +844,9 @@ class SyncService {
   private async handleRevokedNotePush(note: NoteItem, ctx: SpaceSyncContext): Promise<void> {
     const spaceName = ctx.byId.get(note.space_id)?.name ?? null;
     if (!ctx.privateSpace) {
-      if (note.cloud_id) {
-        await window.electronAPI.hardDeleteNote?.(note.id);
-        this.dispatchSpaceRevoked(spaceName, note.space_id);
-      }
+      // The private space is a schema invariant. If a damaged database breaks
+      // it, preserve the pending row rather than destroying unpushed edits.
+      console.error(`Cannot relocate revoked note ${note.id}: private space is missing`);
       return;
     }
     await this.forkNoteToPrivate(note, ctx.privateSpace, "push", spaceName);
@@ -943,9 +966,10 @@ class SyncService {
         await FoldersService.delete(f.cloud_id);
         await window.electronAPI.hardDeleteFolder?.(f.id);
       } catch (err) {
-        // 404 means the row is already gone server-side — clear the tombstone
-        // instead of retrying forever (matches the dictionary precedent).
-        if (isHttpStatus(err, 404)) {
+        // An already-gone row or a team row we can no longer access can never
+        // be deleted by this client. Clear the local tombstone instead of
+        // retrying forever.
+        if (isHttpStatus(err, 404) || isTeamAccessError(err)) {
           await window.electronAPI.hardDeleteFolder?.(f.id);
         } else {
           console.error("Folder delete sync failed:", err);
@@ -1044,7 +1068,7 @@ class SyncService {
       const ctx = await this.buildSpaceContext();
       // Parked or failed rows must retry: they hold the cursor back (and fail
       // a backfill) so one bad row never drops the rest of the delta.
-      let dirtyRows = 0;
+      let parkedRows = 0;
 
       for (const cloudFolder of cloudFolders) {
         try {
@@ -1075,7 +1099,7 @@ class SyncService {
                   }
                 }
               } else {
-                dirtyRows++;
+                parkedRows++;
                 console.warn(`Could not relocate revoked folder ${local.id}:`, result?.error);
               }
             } else {
@@ -1117,7 +1141,7 @@ class SyncService {
 
           const space = await this.resolveSpaceForCloudRow(cloudFolder.space_id, ctx);
           if (!space) {
-            dirtyRows++;
+            parkedRows++;
             console.warn(`Parking folder ${cloudFolder.id}: unknown space ${cloudFolder.space_id}`);
             continue;
           }
@@ -1169,21 +1193,21 @@ class SyncService {
             );
           }
         } catch (err) {
-          dirtyRows++;
+          parkedRows++;
           console.error(`Folder pull failed for cloud folder ${cloudFolder.id}:`, err);
         }
       }
 
       const { advanceCursor, advanceTeamCursor } = resolvePullCursorAdvance({
         snapshot,
-        dirty: dirtyRows > 0,
+        parked: parkedRows > 0,
         teamOnly,
         teamCapable,
         hasTeamSpaces: [...ctx.byId.values()].some((s) => s.kind === "team"),
       });
       if (advanceCursor) localStorage.setItem(cursorKey, syncStartedAt);
       if (advanceTeamCursor) localStorage.setItem("lastSyncedAt.folders.team", syncStartedAt);
-      return dirtyRows === 0;
+      return parkedRows === 0;
     } catch (err) {
       console.error("Folder pull failed:", err);
       return false;
@@ -1206,7 +1230,7 @@ class SyncService {
     if (!teamOnly && this.teamCursorLagging("notes")) {
       await this.pullNotes(true);
     }
-    // A dirty pull left its cursors in place, so the next pass re-sees the
+    // A parked pull left its cursors in place, so the next pass re-sees the
     // parked rows — typically after syncSpaces has mirrored the missing team.
     await this.pullNotes(teamOnly);
   }
@@ -1321,9 +1345,10 @@ class SyncService {
         await NotesService.delete(note.cloud_id!);
         await window.electronAPI.hardDeleteNote?.(note.id);
       } catch (err) {
-        // 404 means the row is already gone server-side — clear the tombstone
-        // instead of retrying forever (matches the dictionary precedent).
-        if (isHttpStatus(err, 404)) {
+        // An already-gone row or a team row we can no longer access can never
+        // be deleted by this client. Clear the local tombstone instead of
+        // retrying forever.
+        if (isHttpStatus(err, 404) || isTeamAccessError(err)) {
           await window.electronAPI.hardDeleteNote?.(note.id);
         } else {
           console.error("Note delete sync failed:", err);
@@ -1346,7 +1371,10 @@ class SyncService {
 
       let cursor: string | undefined = since;
       let cursorId: string | undefined;
-      let dirtyRows = 0;
+      // Only rows that still need to be applied hold the delta cursor back.
+      // Conflicts are durable in the local registry and resolve directly from
+      // their stored cloud copy, so they must not re-pull the whole delta.
+      let parkedRows = 0;
       while (true) {
         const { notes: cloudNotes } = since
           ? await NotesService.list(BATCH_SIZE, undefined, cursor, scope, cursorId)
@@ -1387,14 +1415,11 @@ class SyncService {
               } else if (isCloudEntryNewer(cloudNote.updated_at, local.updated_at)) {
                 // 'error' rows carry unpushed work just like 'pending' ones.
                 if (local.sync_status !== "synced") {
-                  // Snapshot pulls never advance cursors; don't let an existing
-                  // conflict block an unrelated new-space backfill.
-                  if (!snapshot) dirtyRows++;
                   await this.surfaceNoteConflict(local.client_note_id, cloudNote);
                 } else if (cloudNote.folder_id && !cloudToLocal.has(cloudNote.folder_id)) {
                   // Filing to the fallback would stick (the advanced cursor
                   // never re-pulls this row) — park until the folder arrives.
-                  dirtyRows++;
+                  parkedRows++;
                   console.warn(
                     `Parking note ${cloudNote.id}: unknown folder ${cloudNote.folder_id}`
                   );
@@ -1422,7 +1447,7 @@ class SyncService {
 
           const space = await this.resolveSpaceForCloudRow(cloudNote.space_id, ctx);
           if (!space) {
-            dirtyRows++;
+            parkedRows++;
             console.warn(`Parking note ${cloudNote.id}: unknown space ${cloudNote.space_id}`);
             continue;
           }
@@ -1432,9 +1457,6 @@ class SyncService {
               // A newer cloud copy over unpushed local edits ('pending' or
               // 'error'): surface the conflict to the editor banner instead
               // of silently dropping the local edit (plan §7.3).
-              // Snapshots already keep their cursors and may be backfilling a
-              // different space, so only regular pulls need the dirty marker.
-              if (!snapshot) dirtyRows++;
               await this.surfaceNoteConflict(local.client_note_id, cloudNote);
               continue;
             }
@@ -1443,7 +1465,7 @@ class SyncService {
               // ago, or its pull failed). Filing it to the fallback would
               // stick — the advanced cursor never re-pulls the row — so park
               // it like an unknown space until the folder arrives.
-              dirtyRows++;
+              parkedRows++;
               console.warn(`Parking note ${cloudNote.id}: unknown folder ${cloudNote.folder_id}`);
               continue;
             }
@@ -1472,14 +1494,14 @@ class SyncService {
 
       const { advanceCursor, advanceTeamCursor } = resolvePullCursorAdvance({
         snapshot,
-        dirty: dirtyRows > 0,
+        parked: parkedRows > 0,
         teamOnly,
         teamCapable,
         hasTeamSpaces: [...ctx.byId.values()].some((s) => s.kind === "team"),
       });
       if (advanceCursor) localStorage.setItem(cursorKey, syncStartedAt);
       if (advanceTeamCursor) localStorage.setItem("lastSyncedAt.notes.team", syncStartedAt);
-      return dirtyRows === 0;
+      return parkedRows === 0;
     } catch (err) {
       console.error("Note pull failed:", err);
       return false;

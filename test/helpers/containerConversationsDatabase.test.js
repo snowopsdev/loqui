@@ -59,6 +59,23 @@ function createDb(t) {
   }
 }
 
+let nextTestTeamSpaceId = 0;
+
+function createTestTeamSpace(db, { name, emoji = null } = {}) {
+  const maxOrder = db.db.prepare("SELECT MAX(sort_order) AS max_order FROM spaces").get();
+  const result = db.db
+    .prepare(
+      "INSERT INTO spaces (client_space_id, kind, name, emoji, sort_order) VALUES (?, 'team', ?, ?, ?)"
+    )
+    .run(
+      `test-container-space-${++nextTestTeamSpaceId}`,
+      name,
+      emoji,
+      (maxOrder?.max_order ?? 0) + 1
+    );
+  return { success: true, space: db.getSpace(result.lastInsertRowid) };
+}
+
 test("container scope migration is idempotent across launches", (t) => {
   const db = createDb(t);
   if (!db) return;
@@ -85,7 +102,7 @@ test("container scope migration is idempotent across launches", (t) => {
 test("createAgentConversation stores container scope", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   const folderConv = db.createAgentConversation("Docs", null, space.id, folder.id);
@@ -105,7 +122,7 @@ test("createAgentConversation stores container scope", (t) => {
 test("getPendingConversations excludes scopes the cloud contract cannot preserve", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   const global = db.createAgentConversation("Global");
@@ -123,7 +140,7 @@ test("getPendingConversations excludes scopes the cloud contract cannot preserve
 test("getConversationsForContainer separates folder and space-root scopes", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   const folderConv = db.createAgentConversation("Folder chat", null, space.id, folder.id);
@@ -145,7 +162,7 @@ test("getConversationsForContainer separates folder and space-root scopes", (t) 
 test("getConversationsForContainer excludes deleted conversations", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
 
   const conv = db.createAgentConversation("Doomed", null, space.id);
   db.db
@@ -158,7 +175,7 @@ test("getConversationsForContainer excludes deleted conversations", (t) => {
 test("global conversation lists and search exclude space and folder chats", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   const global = db.createAgentConversation("Roadmap global");
@@ -195,7 +212,7 @@ test("global conversation lists and search exclude space and folder chats", (t) 
 test("searchNotes filters by folder", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   db.saveNote("Roadmap planning", "quarterly roadmap", "personal", null, null, folder.id, space.id);
@@ -212,7 +229,7 @@ test("searchNotes filters by folder", (t) => {
 test("getNotesForSpace includes foldered notes, unlike the root-only getNotes", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   const rootNote = db.saveNote("Root", "", "personal", null, null, null, space.id).note;
@@ -233,7 +250,7 @@ test("getNotesForSpace includes foldered notes, unlike the root-only getNotes", 
 test("getNoteIdsInFolder excludes deleted notes", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   const kept = db.saveNote("Kept", "", "personal", null, null, folder.id, space.id).note;
@@ -241,6 +258,30 @@ test("getNoteIdsInFolder excludes deleted notes", (t) => {
   db.deleteNote(removed.id);
 
   assert.deepEqual(db.getNoteIdsInFolder(folder.id), [kept.id]);
+});
+
+test("getNoteIdsInScope validates vector candidates against the current SQLite scope", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const eng = createTestTeamSpace(db, { name: "Eng" }).space;
+  const design = createTestTeamSpace(db, { name: "Design" }).space;
+  const engFolder = db.createFolder("Docs", eng.id).folder;
+
+  const engRoot = db.saveNote("Eng root", "", "personal", null, null, null, eng.id).note;
+  const engFiled = db.saveNote("Eng filed", "", "personal", null, null, engFolder.id, eng.id).note;
+  const designRoot = db.saveNote("Design root", "", "personal", null, null, null, design.id).note;
+  const deleted = db.saveNote("Deleted", "", "personal", null, null, null, eng.id).note;
+  db.deleteNote(deleted.id);
+
+  assert.deepEqual(new Set(db.getNoteIdsInScope(eng.id)), new Set([engRoot.id, engFiled.id]));
+  assert.deepEqual(db.getNoteIdsInScope(eng.id, engFolder.id), [engFiled.id]);
+  assert.deepEqual(db.getNoteIdsInScope(design.id, engFolder.id), []);
+  assert.deepEqual(db.getNoteIdsInScope(design.id), [designRoot.id]);
+  assert.deepEqual(
+    db.getNoteIdsInScope(eng.id, null, [engRoot.id, designRoot.id, deleted.id]),
+    [engRoot.id],
+    "stale vector candidates are filtered by live local scope"
+  );
 });
 
 test("upsertNoteFromCloud round-trips updated_by_user_id", (t) => {
@@ -285,7 +326,7 @@ test("upsertNoteFromCloud round-trips updated_by_user_id", (t) => {
 test("purgeSpace retires the space's container conversations", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
 
   const syncedConv = db.createAgentConversation("Synced", null, space.id);
@@ -320,7 +361,7 @@ test("purgeSpace retires the space's container conversations", (t) => {
 test("deleteFolder and hardDeleteFolder retire the folder's conversations", (t) => {
   const db = createDb(t);
   if (!db) return;
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
   const folder = db.createFolder("Docs", space.id).folder;
   const folderConv = db.createAgentConversation("Folder chat", null, space.id, folder.id);
   const spaceConv = db.createAgentConversation("Space chat", null, space.id);
@@ -346,7 +387,7 @@ test("relocateRevokedFolder moves or retires the folder's conversations", (t) =>
   const db = createDb(t);
   if (!db) return;
   const privateId = db.getPrivateSpaceId();
-  const space = db.createSpace({ name: "Eng" }).space;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
 
   const kept = db.createFolder("Kept", space.id).folder;
   const keptConv = db.createAgentConversation("Kept chat", null, space.id, kept.id);

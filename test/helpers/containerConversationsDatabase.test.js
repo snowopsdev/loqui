@@ -102,6 +102,24 @@ test("createAgentConversation stores container scope", (t) => {
   assert.equal(globalConv.note_id, null);
 });
 
+test("getPendingConversations excludes scopes the cloud contract cannot preserve", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const space = db.createSpace({ name: "Eng" }).space;
+  const folder = db.createFolder("Docs", space.id).folder;
+
+  const global = db.createAgentConversation("Global");
+  const noteScoped = db.createAgentConversation("Note chat", 123);
+  db.createAgentConversation("Space chat", null, space.id);
+  db.createAgentConversation("Folder chat", null, space.id, folder.id);
+
+  assert.deepEqual(
+    db.getPendingConversations().map((conversation) => conversation.id),
+    [global.id, noteScoped.id],
+    "space/folder chats must remain local until the cloud API carries their scope"
+  );
+});
+
 test("getConversationsForContainer separates folder and space-root scopes", (t) => {
   const db = createDb(t);
   if (!db) return;

@@ -54,6 +54,23 @@ test("groupTeamSpacesByWorkspace: spaces without a known workspace are ungrouped
   );
 });
 
+test("groupTeamSpacesByWorkspace: ordered matches grouped render order", () => {
+  const workspaces = [workspace("a", "owner"), workspace("b", "member")];
+  const spaces = [
+    space(1, "b"),
+    space(2, "a"),
+    space(3, "missing"),
+    space(4, "b"),
+    space(5, "a"),
+    space(6, null),
+  ];
+  const { ordered } = groupTeamSpacesByWorkspace(workspaces, spaces);
+  assert.deepEqual(
+    ordered.map((entry) => entry.id),
+    [2, 5, 1, 4, 3, 6]
+  );
+});
+
 test("selectWorkspaceForSpaceCreation: preselected id wins when manageable", () => {
   const manageable = [workspace("a", "owner"), workspace("b", "admin")];
   assert.equal(selectWorkspaceForSpaceCreation(manageable, null, "b")?.id, "b");

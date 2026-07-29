@@ -4055,9 +4055,12 @@ class DatabaseManager {
   getPendingConversations() {
     try {
       if (!this.db) throw new Error("Database not initialized");
+      // The cloud conversation contract has no space/folder scope yet.
+      // Keep container chats local so another device cannot pull them as
+      // global chats. Cloud-backed tombstones still use the delete queue.
       return this.db
         .prepare(
-          "SELECT * FROM agent_conversations WHERE sync_status = 'pending' AND deleted_at IS NULL"
+          "SELECT * FROM agent_conversations WHERE sync_status = 'pending' AND deleted_at IS NULL AND space_id IS NULL AND folder_id IS NULL"
         )
         .all();
     } catch (error) {

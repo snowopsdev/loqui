@@ -12,7 +12,7 @@ export interface TeamSpaceGroup<S> {
 export function groupTeamSpacesByWorkspace<S extends { workspace_id?: string | null }>(
   workspaces: Workspace[],
   teamSpaces: S[]
-): { groups: TeamSpaceGroup<S>[]; ungrouped: S[] } {
+): { groups: TeamSpaceGroup<S>[]; ungrouped: S[]; ordered: S[] } {
   const groups = workspaces
     .map((workspace) => ({
       workspace,
@@ -30,7 +30,10 @@ export function groupTeamSpacesByWorkspace<S extends { workspace_id?: string | n
   const ungrouped = teamSpaces.filter(
     (space) => space.workspace_id == null || !workspaceIds.has(space.workspace_id)
   );
-  return { groups, ungrouped };
+  // Canonical visual order used by both rendering and keyboard navigation:
+  // workspace order first, then legacy/unrecognized spaces.
+  const ordered = [...groups.flatMap((group) => group.spaces), ...ungrouped];
+  return { groups, ungrouped, ordered };
 }
 
 export function selectWorkspaceForSpaceCreation(

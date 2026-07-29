@@ -2,6 +2,7 @@ import { TeamsService } from "./TeamsService";
 import { SpacesService } from "./SpacesService";
 import { markSpacePurged, syncService, upsertCloudSpaces } from "./SyncService";
 import { loadSpaces, purgeSpace, updateSpaceMeta } from "../stores/noteStore";
+import { invalidateSpaceRoster } from "../lib/spaceRosterCache";
 import type { SpaceItem, TeamRole } from "../types/electron";
 
 // Single mutation path for spaces and their assigned teams: server call → local
@@ -29,6 +30,10 @@ async function settleAddMembers(teamId: string, userIds: string[]): Promise<unkn
 }
 
 async function refreshSpaceMirror(): Promise<void> {
+  // Team membership and assignments affect the deduplicated union roster for
+  // every space that team reaches. Invalidate before the mirror fetch so a
+  // failed refresh cannot leave stale member attribution cached indefinitely.
+  invalidateSpaceRoster();
   await upsertCloudSpaces(await SpacesService.mySpaces());
   await loadSpaces();
 }
@@ -117,6 +122,7 @@ export async function deleteSpace(space: SpaceItem): Promise<{ success: boolean;
     } catch (err) {
       return { success: false, error: errorMessage(err) };
     }
+    invalidateSpaceRoster(space.cloud_space_id);
     // Park the space id so an in-flight pull can't resurrect purged rows.
     await markSpacePurged(space.cloud_space_id, "deleted");
   }

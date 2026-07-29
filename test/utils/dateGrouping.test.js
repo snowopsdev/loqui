@@ -14,10 +14,13 @@ const t = (key) =>
     "chat.older": "Older",
   })[key] || key;
 
-// Local-time constructors keep these assertions timezone-independent.
 const NOON_JUNE_15 = new Date(2024, 5, 15, 12, 0, 0).getTime();
 
-function localDbDate(year, month, day, hour) {
+function localIsoDate(year, month, day, hour) {
+  return new Date(year, month, day, hour).toISOString();
+}
+
+function utcDbDate(year, month, day, hour) {
   // normalizeDbDate treats zoneless SQLite timestamps as UTC, so emit UTC.
   return new Date(Date.UTC(year, month, day, hour)).toISOString().replace("T", " ").slice(0, 19);
 }
@@ -27,11 +30,11 @@ test("groups newest-first items into calendar buckets in order", async (t2) => {
   t2.mock.timers.enable({ apis: ["Date"], now: NOON_JUNE_15 });
 
   const items = [
-    { id: 1, updated_at: "2024-06-15T10:00:00Z" },
-    { id: 2, updated_at: "2024-06-15T08:00:00Z" },
-    { id: 3, updated_at: "2024-06-14T22:00:00Z" },
-    { id: 4, updated_at: "2024-06-10T12:00:00Z" },
-    { id: 5, updated_at: "2024-01-01T12:00:00Z" },
+    { id: 1, updated_at: localIsoDate(2024, 5, 15, 10) },
+    { id: 2, updated_at: localIsoDate(2024, 5, 15, 8) },
+    { id: 3, updated_at: localIsoDate(2024, 5, 14, 22) },
+    { id: 4, updated_at: localIsoDate(2024, 5, 10, 12) },
+    { id: 5, updated_at: localIsoDate(2024, 0, 1, 12) },
   ];
   const groups = groupItemsByDate(items, (i) => i.updated_at, t);
 
@@ -51,8 +54,8 @@ test("boundary days land in the nearest bucket", async (t2) => {
 
   const items = [
     // Exactly 7 days back is still "Previous 7 days"; 8 days back is "Older".
-    { id: 1, updated_at: localDbDate(2024, 5, 8, 12) },
-    { id: 2, updated_at: localDbDate(2024, 5, 7, 12) },
+    { id: 1, updated_at: localIsoDate(2024, 5, 8, 12) },
+    { id: 2, updated_at: localIsoDate(2024, 5, 7, 12) },
   ];
   const groups = groupItemsByDate(items, (i) => i.updated_at, t);
   assert.deepEqual(
@@ -71,7 +74,7 @@ test("SQLite zoneless timestamps are grouped like their UTC instant", async (t2)
   t2.mock.timers.enable({ apis: ["Date"], now: NOON_JUNE_15 });
 
   const utcNow = new Date();
-  const todayDb = localDbDate(
+  const todayDb = utcDbDate(
     utcNow.getUTCFullYear(),
     utcNow.getUTCMonth(),
     utcNow.getUTCDate(),

@@ -1126,10 +1126,12 @@ export default function SpacesTree({
     : false;
   const teamSpaces = useMemo(() => spaces.filter((s) => s.kind === "team"), [spaces]);
   const showWorkspaceGroups = workspaces.length > 1;
-  const { groups: teamSpaceGroups, ungrouped: ungroupedTeamSpaces } = useMemo(
-    () => groupTeamSpacesByWorkspace(workspaces, teamSpaces),
-    [teamSpaces, workspaces]
-  );
+  const {
+    groups: teamSpaceGroups,
+    ungrouped: ungroupedTeamSpaces,
+    ordered: groupedTeamSpaces,
+  } = useMemo(() => groupTeamSpacesByWorkspace(workspaces, teamSpaces), [teamSpaces, workspaces]);
+  const orderedTeamSpaces = showWorkspaceGroups ? groupedTeamSpaces : teamSpaces;
   const visibleSpaces = teamCapability ? spaces : privateSpaces;
   const spacesById = useMemo(() => new Map(spaces.map((space) => [space.id, space])), [spaces]);
   // Valid move destinations per source space (the source itself stays listed —
@@ -1389,9 +1391,9 @@ export default function SpacesTree({
       });
     };
     privateSpaces.forEach(pushPrivateSpace);
-    if (teamCapability) teamSpaces.forEach(pushSpace);
+    if (teamCapability) orderedTeamSpaces.forEach(pushSpace);
     return rows;
-  }, [privateSpaces, teamSpaces, folders, notesByContainer, expanded, teamCapability]);
+  }, [privateSpaces, orderedTeamSpaces, folders, notesByContainer, expanded, teamCapability]);
 
   const effectiveFocusKey =
     focusedKey && visibleRows.some((r) => r.key === focusedKey)

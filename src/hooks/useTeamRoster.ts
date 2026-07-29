@@ -1,23 +1,25 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { SpacesService } from "../services/SpacesService";
+import {
+  fetchCachedSpaceRoster,
+  readSpaceRosterVersion,
+  subscribeSpaceRoster,
+} from "../lib/spaceRosterCache";
 import type { TeamMember } from "../types/electron";
 
-// Union rosters cached per cloud space so repeated lookups (conflict
-// attribution, note authorship) don't refetch.
-const rosterCache = new Map<string, Promise<TeamMember[]>>();
-
 export function fetchSpaceRoster(cloudSpaceId: string): Promise<TeamMember[]> {
-  let roster = rosterCache.get(cloudSpaceId);
-  if (!roster) {
-    roster = SpacesService.listMembers(cloudSpaceId);
-    roster.catch(() => rosterCache.delete(cloudSpaceId));
-    rosterCache.set(cloudSpaceId, roster);
-  }
-  return roster;
+  return fetchCachedSpaceRoster(cloudSpaceId, () => SpacesService.listMembers(cloudSpaceId));
 }
 
 export function useSpaceRoster(cloudSpaceId: string | null): Map<string, TeamMember> | null {
   const [membersById, setMembersById] = useState<Map<string, TeamMember> | null>(null);
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      cloudSpaceId ? subscribeSpaceRoster(cloudSpaceId, listener) : () => {},
+    [cloudSpaceId]
+  );
+  const getVersion = useCallback(() => readSpaceRosterVersion(cloudSpaceId), [cloudSpaceId]);
+  const version = useSyncExternalStore(subscribe, getVersion, getVersion);
 
   useEffect(() => {
     if (!cloudSpaceId) {
@@ -35,7 +37,7 @@ export function useSpaceRoster(cloudSpaceId: string | null): Map<string, TeamMem
     return () => {
       stale = true;
     };
-  }, [cloudSpaceId]);
+  }, [cloudSpaceId, version]);
 
   return membersById;
 }

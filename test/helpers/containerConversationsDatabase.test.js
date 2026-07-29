@@ -137,6 +137,43 @@ test("getConversationsForContainer excludes deleted conversations", (t) => {
   assert.equal(db.getConversationsForContainer(space.id, null).length, 0);
 });
 
+test("global conversation lists and search exclude space and folder chats", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const space = db.createSpace({ name: "Eng" }).space;
+  const folder = db.createFolder("Docs", space.id).folder;
+
+  const global = db.createAgentConversation("Roadmap global");
+  const archivedGlobal = db.createAgentConversation("Roadmap archived");
+  const noteScoped = db.createAgentConversation("Roadmap note", 123);
+  const spaceScoped = db.createAgentConversation("Roadmap space", null, space.id);
+  const folderScoped = db.createAgentConversation("Roadmap folder", null, space.id, folder.id);
+  db.archiveAgentConversation(archivedGlobal.id);
+  db.addAgentMessage(global.id, "user", "roadmap");
+  db.addAgentMessage(noteScoped.id, "user", "roadmap");
+  db.addAgentMessage(spaceScoped.id, "user", "roadmap");
+  db.addAgentMessage(folderScoped.id, "user", "roadmap");
+
+  assert.deepEqual(
+    new Set(db.getAgentConversations().map((conversation) => conversation.id)),
+    new Set([global.id, archivedGlobal.id, noteScoped.id])
+  );
+  assert.deepEqual(
+    new Set(db.getAgentConversationsWithPreview().map((conversation) => conversation.id)),
+    new Set([noteScoped.id, global.id])
+  );
+  assert.deepEqual(
+    db.getAgentConversationsWithPreview(50, 0, true).map((conversation) => conversation.id),
+    [archivedGlobal.id]
+  );
+  assert.deepEqual(
+    new Set(db.searchAgentConversations("roadmap").map((conversation) => conversation.id)),
+    new Set([global.id, noteScoped.id])
+  );
+  assert.equal(db.getConversationsForContainer(space.id, null)[0].id, spaceScoped.id);
+  assert.equal(db.getConversationsForContainer(space.id, folder.id)[0].id, folderScoped.id);
+});
+
 test("searchNotes filters by folder", (t) => {
   const db = createDb(t);
   if (!db) return;

@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import { syncService } from "../services/SyncService.js";
 import { removeNoteFromLists } from "./noteListOps";
-import { addNoteConflictId, removeNoteConflictId } from "../lib/noteConflictRegistry";
+import {
+  addNoteConflict,
+  readNoteConflicts,
+  removeNoteConflictId,
+} from "../lib/noteConflictRegistry";
 import { findDefaultFolder } from "../components/notes/shared";
 import type { CloudNote } from "../services/NotesService.js";
 import type {
@@ -79,7 +83,7 @@ const useNoteStore = create<NoteState>()(() => ({
   isTreeLoading: true,
   migration: null,
   shareByCloudId: new Map<string, NoteShareCacheEntry>(),
-  noteConflicts: {},
+  noteConflicts: readNoteConflicts(),
 }));
 
 let hasBoundIpcListeners = false;
@@ -911,7 +915,7 @@ export async function startMigration(): Promise<void> {
 }
 
 export function setNoteConflict(clientNoteId: string, cloudNote: CloudNote): void {
-  addNoteConflictId(clientNoteId);
+  addNoteConflict(clientNoteId, cloudNote);
   const { noteConflicts } = useNoteStore.getState();
   useNoteStore.setState({ noteConflicts: { ...noteConflicts, [clientNoteId]: cloudNote } });
 }

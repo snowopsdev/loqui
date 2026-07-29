@@ -2629,7 +2629,7 @@ class DatabaseManager {
       if (!this.db) throw new Error("Database not initialized");
       return this.db
         .prepare(
-          "SELECT * FROM agent_conversations WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT ?"
+          "SELECT * FROM agent_conversations WHERE deleted_at IS NULL AND space_id IS NULL AND folder_id IS NULL ORDER BY updated_at DESC LIMIT ?"
         )
         .all(limit);
     } catch (error) {
@@ -3205,8 +3205,8 @@ class DatabaseManager {
     try {
       if (!this.db) throw new Error("Database not initialized");
       const archiveFilter = includeArchived
-        ? "WHERE c.archived_at IS NOT NULL AND c.deleted_at IS NULL"
-        : "WHERE c.archived_at IS NULL AND c.deleted_at IS NULL";
+        ? "WHERE c.archived_at IS NOT NULL AND c.deleted_at IS NULL AND c.space_id IS NULL AND c.folder_id IS NULL"
+        : "WHERE c.archived_at IS NULL AND c.deleted_at IS NULL AND c.space_id IS NULL AND c.folder_id IS NULL";
       return this.db
         .prepare(
           `SELECT c.id, c.title, c.created_at, c.updated_at, c.archived_at, c.cloud_id,
@@ -3245,6 +3245,7 @@ class DatabaseManager {
           LEFT JOIN agent_messages m ON m.conversation_id = c.id
           LEFT JOIN agent_messages ms ON ms.conversation_id = c.id
           WHERE c.archived_at IS NULL AND c.deleted_at IS NULL
+            AND c.space_id IS NULL AND c.folder_id IS NULL
             AND (c.title LIKE ? OR ms.content LIKE ?)
           GROUP BY c.id
           ORDER BY c.updated_at DESC

@@ -1404,6 +1404,9 @@ class SyncService {
               } else if (isCloudEntryNewer(cloudNote.updated_at, local.updated_at)) {
                 // 'error' rows carry unpushed work just like 'pending' ones.
                 if (local.sync_status !== "synced") {
+                  // Snapshot pulls never advance cursors; don't let an existing
+                  // conflict block an unrelated new-space backfill.
+                  if (!snapshot) dirtyRows++;
                   await this.surfaceNoteConflict(local.client_note_id, cloudNote);
                 } else if (cloudNote.folder_id && !cloudToLocal.has(cloudNote.folder_id)) {
                   // Filing to the fallback would stick (the advanced cursor
@@ -1446,6 +1449,9 @@ class SyncService {
               // A newer cloud copy over unpushed local edits ('pending' or
               // 'error'): surface the conflict to the editor banner instead
               // of silently dropping the local edit (plan §7.3).
+              // Snapshots already keep their cursors and may be backfilling a
+              // different space, so only regular pulls need the dirty marker.
+              if (!snapshot) dirtyRows++;
               await this.surfaceNoteConflict(local.client_note_id, cloudNote);
               continue;
             }

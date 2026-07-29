@@ -52,3 +52,23 @@ export function noteCapabilities(
   }
   return { ...NO_ACCESS };
 }
+
+export function resolveNotePermission({
+  cachedPermission,
+  shareStateLoaded,
+  isTeamNote,
+  hasCloudId,
+}: {
+  cachedPermission?: NotePermission;
+  shareStateLoaded: boolean;
+  isTeamNote: boolean;
+  hasCloudId: boolean;
+}): NotePermission | null {
+  if (cachedPermission) return cachedPermission;
+  // A personal cloud note may belong to this user or may be a view-only grant.
+  // Until its ACL loads, fail closed instead of temporarily granting owner
+  // controls. A loaded legacy response has no ACL, so retain the old ownership
+  // fallback for compatibility with servers that predate note permissions.
+  if (hasCloudId && !isTeamNote && !shareStateLoaded) return null;
+  return isTeamNote ? "editor" : "owner";
+}

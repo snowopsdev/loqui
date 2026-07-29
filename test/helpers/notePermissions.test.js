@@ -51,3 +51,54 @@ test("owners and administrators retain all capabilities", async () => {
     assert.equal(capabilities.canTransferOwnership, true);
   }
 });
+
+test("personal cloud notes fail closed until their share state loads", async () => {
+  const { resolveNotePermission } = await load();
+
+  assert.equal(
+    resolveNotePermission({
+      shareStateLoaded: false,
+      isTeamNote: false,
+      hasCloudId: true,
+    }),
+    null
+  );
+  assert.equal(
+    resolveNotePermission({
+      cachedPermission: "viewer",
+      shareStateLoaded: true,
+      isTeamNote: false,
+      hasCloudId: true,
+    }),
+    "viewer"
+  );
+});
+
+test("local, team, and legacy notes retain their compatibility defaults", async () => {
+  const { resolveNotePermission } = await load();
+
+  assert.equal(
+    resolveNotePermission({
+      shareStateLoaded: false,
+      isTeamNote: false,
+      hasCloudId: false,
+    }),
+    "owner"
+  );
+  assert.equal(
+    resolveNotePermission({
+      shareStateLoaded: false,
+      isTeamNote: true,
+      hasCloudId: true,
+    }),
+    "editor"
+  );
+  assert.equal(
+    resolveNotePermission({
+      shareStateLoaded: true,
+      isTeamNote: false,
+      hasCloudId: true,
+    }),
+    "owner"
+  );
+});

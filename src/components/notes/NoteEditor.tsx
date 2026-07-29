@@ -25,7 +25,7 @@ import {
   Users,
 } from "lucide-react";
 import ShareNoteDialog from "./ShareNoteDialog";
-import { noteCapabilities } from "../../lib/notePermissions";
+import { noteCapabilities, resolveNotePermission } from "../../lib/notePermissions";
 import SpaceMembersDialog from "./SpaceMembersDialog";
 import {
   useShareCacheEntry,
@@ -33,8 +33,11 @@ import {
   useSpaces,
   clearNoteConflict,
   navigateToContainer,
+  persistNoteShareState,
   updateNoteInStore,
+  updateShareCache,
 } from "../../stores/noteStore";
+import { NoteSharingService } from "../../services/NoteSharingService";
 import { fetchSpaceRoster } from "../../hooks/useTeamRoster";
 import { readIsSubscribed, subscribeIsSubscribed } from "../../lib/subscriptionFlag";
 import { useAuth } from "../../hooks/useAuth";
@@ -252,16 +255,43 @@ export default function NoteEditor({
   // Same gate as SyncService.canSyncSharedNotes: sharing needs a subscription.
   // An already-shared note stays manageable (unshare/revoke) after a lapse.
   const isSubscribed = useSyncExternalStore(subscribeIsSubscribed, readIsSubscribed);
-  // Legacy servers do not return note ACLs. Their existing model gives every
-  // team member edit access and personal notes to their owner, so those are
-  // the safe compatibility defaults until `access.my_permission` is present.
   const shareCapabilities = noteCapabilities(
-    shareCache?.access?.my_permission ?? (isTeamNote ? "editor" : "owner")
+    resolveNotePermission({
+      cachedPermission: shareCache?.access?.my_permission,
+      shareStateLoaded: shareCache !== null,
+      isTeamNote,
+      hasCloudId: Boolean(note.cloud_id),
+    })
   );
   const canShare =
     isSignedIn && shareCapabilities.canShare && (isSubscribed || Boolean(note.is_shared));
-  // Sync doesn't carry permissions, so a viewer is only known once share state loads.
   const canEditNote = shareCapabilities.canEdit;
+  useEffect(() => {
+    if (!isSignedIn || !note.cloud_id || shareCache) return;
+    const cloudId = note.cloud_id;
+    let cancelled = false;
+    NoteSharingService.getShareSettings(cloudId)
+      .then((res) => {
+        if (cancelled) return;
+        updateShareCache(cloudId, (entry) => ({
+          share: res.share,
+          invitations: res.invitations,
+          access: res.access ?? entry?.access,
+          rawToken: entry?.rawToken ?? null,
+        }));
+        const serverShared = res.share.visibility !== "private";
+        if (serverShared !== Boolean(note.is_shared)) {
+          void persistNoteShareState(
+            note.id,
+            serverShared ? { is_shared: 1 } : { is_shared: 0, share_token: null }
+          ).catch((err) => console.error("Share flag persist failed:", err));
+        }
+      })
+      .catch((err) => console.error("Failed to load note permissions:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, note.cloud_id, note.id, note.is_shared, shareCache]);
   // A newer cloud copy arrived while this note had unpushed edits (plan §7.3).
   const conflict = useNoteConflict(note.client_note_id);
   const [conflictEditorName, setConflictEditorName] = useState<string | null>(null);

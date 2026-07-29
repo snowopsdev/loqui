@@ -1,6 +1,6 @@
 import type { SpaceItem } from "../../types/electron";
 import type { ToolDefinition, ToolResult } from "./ToolRegistry";
-import { resolveSpace } from "./utils";
+import { resolveLocalNoteId, resolveSpace } from "./utils";
 
 const MAX_CONTENT_LENGTH = 500;
 
@@ -76,7 +76,9 @@ export function createSearchNotesTool(options: SearchToolOptions): ToolDefinitio
       if (useCloudSearch && cloudCanScope && folderId == null) {
         strategies.push(() => executeCloudSearch(query, limit, space, spaces));
       }
-      strategies.push(() => executeLocalSearch(query, limit, true, space, spaces, spaceId, folderId));
+      strategies.push(() =>
+        executeLocalSearch(query, limit, true, space, spaces, spaceId, folderId)
+      );
       strategies.push(() =>
         executeLocalSearch(query, limit, false, space, spaces, spaceId, folderId)
       );
@@ -158,15 +160,17 @@ async function executeCloudSearch(
     spaces.filter((s) => s.cloud_space_id).map((s) => [s.cloud_space_id!, s.name])
   );
   const privateSpaceName = spaces.find((s) => s.kind === "private")?.name ?? null;
-  const results = cloudNotes.map((cn) => ({
-    id: cn.client_note_id ? parseInt(cn.client_note_id, 10) : null,
-    title: cn.title,
-    date: cn.created_at,
-    type: cn.note_type,
-    score: cn.score,
-    space: cn.space_id ? (spaceNameByCloudId.get(cn.space_id) ?? null) : privateSpaceName,
-    content: (cn.enhanced_content || cn.content).slice(0, MAX_CONTENT_LENGTH),
-  }));
+  const results = await Promise.all(
+    cloudNotes.map(async (cn) => ({
+      id: await resolveLocalNoteId(cn.client_note_id),
+      title: cn.title,
+      date: cn.created_at,
+      type: cn.note_type,
+      score: cn.score,
+      space: cn.space_id ? (spaceNameByCloudId.get(cn.space_id) ?? null) : privateSpaceName,
+      content: (cn.enhanced_content || cn.content).slice(0, MAX_CONTENT_LENGTH),
+    }))
+  );
 
   return {
     success: true,

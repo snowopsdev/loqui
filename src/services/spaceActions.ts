@@ -79,14 +79,33 @@ export async function renameSpace(
 ): Promise<{ success: boolean; error?: string }> {
   const local = await updateSpaceMeta(space.id, updates);
   if (!local.success) return local;
-  if (!space.cloud_space_id) return { success: true };
-  try {
-    await SpacesService.update(space.cloud_space_id, updates);
+  if (!space.cloud_space_id) {
+    await window.electronAPI.setSpaceSyncStatus?.(space.id, "synced");
+    await loadSpaces();
     return { success: true };
+  }
+  let cloudSpace;
+  try {
+    cloudSpace = await SpacesService.update(space.cloud_space_id, updates);
   } catch (err) {
     await updateSpaceMeta(space.id, { name: space.name, emoji: space.emoji ?? null });
+    await window.electronAPI.setSpaceSyncStatus?.(space.id, "synced");
+    await loadSpaces();
     return { success: false, error: errorMessage(err) };
   }
+  try {
+    await window.electronAPI.upsertSpaceFromCloud?.(
+      cloudSpace as unknown as Record<string, unknown>
+    );
+    await window.electronAPI.setSpaceSyncStatus?.(space.id, "synced");
+    await loadSpaces();
+  } catch (err) {
+    // The server rename succeeded. Keep the optimistic row pending and let the
+    // regular mirror pass reconcile it instead of rolling back to a false name.
+    console.error("Space rename mirror failed:", err);
+    syncService.requestSyncAll("manual");
+  }
+  return { success: true };
 }
 
 export async function deleteSpace(space: SpaceItem): Promise<{ success: boolean; error?: string }> {

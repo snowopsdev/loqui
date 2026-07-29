@@ -186,3 +186,54 @@ test("revoked fork: an already-private row forks in place without moving", async
   assert.equal("folder_id" in update, false);
   assert.equal(update.cloud_id, null);
 });
+
+// --- update-404 fork policy ------------------------------------------------
+// The pull-first fallback shared by note and folder update pushes: a 404'd
+// push defers to the same pass's pull to disambiguate, and only forks to
+// Personal after the threshold of consecutive stub-less passes so a stub that
+// never lands can't loop forever.
+
+test("update 404: below threshold, each 404 defers and increments without mutating input", async () => {
+  const { recordUpdate404 } = await load();
+  const counts = { n1: 1 };
+  const { fork, next } = recordUpdate404(counts, "n1", 3);
+  assert.equal(fork, false);
+  assert.deepEqual(next, { n1: 2 });
+  assert.deepEqual(counts, { n1: 1 }, "the input map is never mutated");
+});
+
+test("update 404: a first-ever 404 starts the streak at one", async () => {
+  const { recordUpdate404 } = await load();
+  assert.deepEqual(recordUpdate404({}, "n1", 3), { fork: false, next: { n1: 1 } });
+});
+
+test("update 404: forks only after the threshold of consecutive stub-less passes", async () => {
+  const { recordUpdate404, UPDATE_404_FORK_THRESHOLD } = await load();
+  const threshold = UPDATE_404_FORK_THRESHOLD;
+  let counts = {};
+  // Each of the first `threshold` passes 404s and defers to the pull.
+  for (let pass = 1; pass <= threshold; pass++) {
+    const { fork, next } = recordUpdate404(counts, "n1", threshold);
+    assert.equal(fork, false, `pass ${pass} must defer, not fork`);
+    counts = next;
+    assert.equal(counts.n1, pass);
+  }
+  // The next stub-less 404 forks and clears the entry.
+  const { fork, next } = recordUpdate404(counts, "n1", threshold);
+  assert.equal(fork, true);
+  assert.equal("n1" in next, false);
+});
+
+test("update 404: streaks are tracked per row, note or folder alike", async () => {
+  const { recordUpdate404 } = await load();
+  // The reducer is entity-agnostic: note and folder client ids share nothing.
+  const { next } = recordUpdate404({ note1: 2 }, "folder1", 3);
+  assert.deepEqual(next, { note1: 2, folder1: 1 });
+});
+
+test("update 404: clearing drops the streak, and is a no-op when untracked", async () => {
+  const { clearUpdate404 } = await load();
+  assert.deepEqual(clearUpdate404({ n1: 2, n2: 1 }, "n1"), { n2: 1 });
+  const untracked = { n2: 1 };
+  assert.equal(clearUpdate404(untracked, "n1"), untracked, "same reference when untracked");
+});

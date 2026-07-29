@@ -130,3 +130,57 @@ export function revokedNoteForkUpdate(
     },
   };
 }
+
+// Consecutive-404 tracking for note/folder update (PATCH) pushes. A bare 404
+// on an update push is ambiguous — the row was deleted server-side, or the
+// pusher lost access. For notes, a revoked member's PATCH now returns a bare
+// 404 (the server hides the note so its id can't be probed) rather than 403
+// team_access_revoked; for folders the revoked case is already coded
+// (team_not_found / team_access_revoked, caught by isTeamAccessError), so a
+// bare 404 there is a genuine-delete race. Either way we do NOT fork to
+// Personal on the first 404: the same pass's pull disambiguates a revocation
+// (access_removed stub → fork, preserving edits) from a deletion (tombstone →
+// local delete). Only after `threshold` consecutive passes 404 with no pull
+// signal do we fork as a fallback, so a stub that never lands can't 404-loop
+// forever. The residual risk is a hard-delete race resurrecting the row as a
+// private copy — preferred over silently discarding the user's unpushed edits.
+// Counts are keyed by client id and mutated only inside the SYNC_ALL_LOCK pass.
+export const UPDATE_404_FORK_THRESHOLD = 3;
+
+export interface Update404Decision {
+  // Fork to Personal now: the threshold of stub-less passes has been reached.
+  fork: boolean;
+  // The counts map to persist (a fresh object; the input is never mutated).
+  next: Record<string, number>;
+}
+
+// Record a 404 on `clientId`'s update push and decide whether to fork. Forks
+// (clearing the entry) once `threshold` prior passes have already 404'd without
+// the pull resolving the row; otherwise increments and defers to the pull.
+export function recordUpdate404(
+  counts: Record<string, number>,
+  clientId: string,
+  threshold: number
+): Update404Decision {
+  const prior = counts[clientId] ?? 0;
+  const next = { ...counts };
+  if (prior >= threshold) {
+    delete next[clientId];
+    return { fork: true, next };
+  }
+  next[clientId] = prior + 1;
+  return { fork: false, next };
+}
+
+// Drop `clientId`'s streak — the pull resolved it (fork or delete) or a later
+// push settled. Returns the same reference when nothing changed so the caller
+// can skip the localStorage write.
+export function clearUpdate404(
+  counts: Record<string, number>,
+  clientId: string
+): Record<string, number> {
+  if (!(clientId in counts)) return counts;
+  const next = { ...counts };
+  delete next[clientId];
+  return next;
+}

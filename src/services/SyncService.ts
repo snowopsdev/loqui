@@ -26,12 +26,15 @@ import {
   normalizeTimestamp,
 } from "../helpers/cloudSyncGuards.js";
 import {
+  clearUpdate404,
   keepPurgedSpaceEntry,
   normalizePurgedSpaceEntries,
   prunePurgedSpaceEntries,
+  recordUpdate404,
   resolvePulledNoteFolderId,
   resolvePullCursorAdvance,
   revokedNoteForkUpdate,
+  UPDATE_404_FORK_THRESHOLD,
   type PurgedSpaceEntry,
   type PurgedSpaceReason,
 } from "./syncPassPolicy";
@@ -114,6 +117,11 @@ const PURGED_SPACE_GUARD_TTL_MS = 15 * 60 * 1000;
 // sync pass racing a delete in another window must not drop the just-written
 // entry.
 const PURGED_SPACE_GUARD_LOCK = "openwhispr-purged-spaces";
+// Per-row count of consecutive passes whose update PATCH 404'd without the pull
+// disambiguating it (see recordUpdate404), keyed by client id. Read-modify-
+// written only inside the SYNC_ALL_LOCK pass, so it needs no lock of its own.
+const NOTE_UPDATE_404_KEY = "noteUpdate404Counts";
+const FOLDER_UPDATE_404_KEY = "folderUpdate404Counts";
 
 function readPurgedSpaceIds(): Record<string, PurgedSpaceEntry> {
   try {
@@ -542,6 +550,12 @@ class SyncService {
           // Recover like the batch path — otherwise a revoked folder edited
           // via the debounce just logs errors until the next full pass.
           await this.handleRevokedFolderPush(folder, ctx);
+        } else if (isHttpStatus(err, 404)) {
+          // Defer to a full pass, whose pull disambiguates and applies the
+          // stub-less fallback fork (see handleFolderUpdate404). This debounced
+          // push runs outside SYNC_ALL_LOCK, so it must not touch the 404
+          // counts; leaving the row unsettled keeps it 'pending' for that pass.
+          return;
         } else {
           throw err;
         }
@@ -635,9 +649,19 @@ class SyncService {
         if (cloudNote) await this.surfaceNoteConflict(note.client_note_id, cloudNote);
         return;
       }
-      if (!isTeamAccessError(err)) throw err;
-      await this.handleRevokedNotePush(note, ctx);
-      return;
+      if (isTeamAccessError(err)) {
+        await this.handleRevokedNotePush(note, ctx);
+        return;
+      }
+      if (isHttpStatus(err, 404) && note.cloud_id) {
+        // Defer to a full pass, whose pull disambiguates and applies the
+        // stub-less fallback fork (see handleNoteUpdate404). This debounced
+        // single push runs outside SYNC_ALL_LOCK, so it must not touch the
+        // 404 counts; marking 'error' re-queues the row for that pass.
+        await window.electronAPI.markNoteSyncError?.(note.id);
+        return;
+      }
+      throw err;
     }
     // A push into a team must reach teammates fast; a pull may also carry
     // their concurrent edits back (throttled like other ambient triggers).
@@ -852,6 +876,70 @@ class SyncService {
     await this.forkNoteToPrivate(note, ctx.privateSpace, "push", spaceName);
   }
 
+  private read404Counts(key: string): Record<string, number> {
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private write404Counts(key: string, counts: Record<string, number>): void {
+    if (Object.keys(counts).length === 0) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, JSON.stringify(counts));
+    }
+  }
+
+  // Reset a row's consecutive-404 streak: the pull resolved it, a later push
+  // settled, or it forked. Skips the write when the row wasn't being tracked.
+  private clear404(key: string, clientId: string): void {
+    const counts = this.read404Counts(key);
+    const next = clearUpdate404(counts, clientId);
+    if (next !== counts) this.write404Counts(key, next);
+  }
+
+  // A note update PATCH 404'd. Rather than fork immediately (the 403
+  // team_access_revoked path did), defer to this pass's pull to disambiguate a
+  // revocation (access_removed stub → forkNoteToPrivate) from a genuine delete
+  // (tombstone → hardDeleteNote). Only once the note has 404'd across
+  // UPDATE_404_FORK_THRESHOLD consecutive stub-less passes do we fork to
+  // Personal, so a stub that never lands can't loop forever. Marking the row
+  // 'error' re-queues it for the next pass's push (and re-count).
+  private async handleNoteUpdate404(note: NoteItem, ctx: SpaceSyncContext): Promise<void> {
+    const { fork, next } = recordUpdate404(
+      this.read404Counts(NOTE_UPDATE_404_KEY),
+      note.client_note_id,
+      UPDATE_404_FORK_THRESHOLD
+    );
+    this.write404Counts(NOTE_UPDATE_404_KEY, next);
+    if (fork) {
+      await this.handleRevokedNotePush(note, ctx);
+      return;
+    }
+    await window.electronAPI.markNoteSyncError?.(note.id);
+  }
+
+  // Folder counterpart of handleNoteUpdate404. A revoked member's folder PATCH
+  // is already coded (team_not_found / team_access_revoked, caught by
+  // isTeamAccessError), so a bare 404 here is a genuine-delete race; defer to
+  // the pull (access_removed stub → relocateRevokedFolder; tombstone →
+  // hardDeleteFolder) and fork to Personal only as the stub-less fallback.
+  // Folders have no 'error' status: an unsettled row stays 'pending', which
+  // getPendingFolders already re-queues, so no explicit re-mark is needed.
+  private async handleFolderUpdate404(folder: FolderItem, ctx: SpaceSyncContext): Promise<void> {
+    const { fork, next } = recordUpdate404(
+      this.read404Counts(FOLDER_UPDATE_404_KEY),
+      folder.client_folder_id,
+      UPDATE_404_FORK_THRESHOLD
+    );
+    this.write404Counts(FOLDER_UPDATE_404_KEY, next);
+    if (fork) await this.handleRevokedFolderPush(folder, ctx);
+  }
+
   // Applies the plan §7.2 fork (see revokedNoteForkUpdate) and surfaces the
   // relocation toast when the note actually moved.
   private async forkNoteToPrivate(
@@ -1003,12 +1091,18 @@ class SyncService {
           folder.cloud_id!,
           folder.updated_at
         );
+        this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
       } catch (err) {
         if (isFolderNameTakenError(err)) {
-          // Leave the row pending; retried on the next pass.
+          // Leave the row pending; retried on the next pass. The 409 also
+          // proves the folder is still accessible, so reset any 404 streak.
           this.dispatchFolderNameTaken(folder.name);
+          this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
         } else if (isTeamAccessError(err)) {
           await this.handleRevokedFolderPush(folder, ctx);
+          this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
+        } else if (isHttpStatus(err, 404)) {
+          await this.handleFolderUpdate404(folder, ctx);
         } else {
           console.error("Folder migration sync failed:", err);
         }
@@ -1098,12 +1192,16 @@ class SyncService {
                     this.dispatchNoteRelocated(note.title, spaceName);
                   }
                 }
+                // The pull disambiguated a 404'd push as a revocation and
+                // resolved it, so the fallback fork must stand down.
+                this.clear404(FOLDER_UPDATE_404_KEY, local.client_folder_id);
               } else {
                 parkedRows++;
                 console.warn(`Could not relocate revoked folder ${local.id}:`, result?.error);
               }
             } else {
               await window.electronAPI.hardDeleteFolder?.(local.id);
+              this.clear404(FOLDER_UPDATE_404_KEY, local.client_folder_id);
             }
             continue;
           }
@@ -1135,7 +1233,12 @@ class SyncService {
           }
 
           if (cloudFolder.deleted_at) {
-            if (local) await window.electronAPI.hardDeleteFolder?.(local.id);
+            if (local) {
+              await window.electronAPI.hardDeleteFolder?.(local.id);
+              // A tombstone disambiguates a 404'd push as a genuine delete;
+              // drop any streak so it can't resurrect the folder in Personal.
+              this.clear404(FOLDER_UPDATE_404_KEY, local.client_folder_id);
+            }
             continue;
           }
 
@@ -1285,15 +1388,21 @@ class SyncService {
           note.updated_at,
           cloud.updated_at
         );
+        this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
       } catch (err) {
         if (isNoteVersionConflictError(err)) {
           // Stays pending (not error): unpushed local work awaiting the
           // user's Keep/Refresh choice; the registry gate above skips the
-          // row on later passes so the 409 doesn't repeat.
+          // row on later passes so the 409 doesn't repeat. A 409 also proves
+          // the note is still accessible, so reset any prior 404 streak.
           const cloudNote = conflictCloudNote(err);
           if (cloudNote) await this.surfaceNoteConflict(note.client_note_id, cloudNote);
+          this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
         } else if (isTeamAccessError(err)) {
           await this.handleRevokedNotePush(note, ctx);
+          this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
+        } else if (isHttpStatus(err, 404)) {
+          await this.handleNoteUpdate404(note, ctx);
         } else {
           await window.electronAPI.markNoteSyncError?.(note.id);
         }
@@ -1402,6 +1511,9 @@ class SyncService {
             } else {
               await window.electronAPI.hardDeleteNote?.(local.id);
             }
+            // The pull disambiguated a 404'd push as a revocation and resolved
+            // it, so the fallback fork must stand down.
+            this.clear404(NOTE_UPDATE_404_KEY, local.client_note_id);
             continue;
           }
 
@@ -1441,7 +1553,12 @@ class SyncService {
           }
 
           if (cloudNote.deleted_at) {
-            if (local) await window.electronAPI.hardDeleteNote?.(local.id);
+            if (local) {
+              await window.electronAPI.hardDeleteNote?.(local.id);
+              // A tombstone disambiguates a 404'd push as a genuine delete;
+              // drop any streak so it can't resurrect the note in Personal.
+              this.clear404(NOTE_UPDATE_404_KEY, local.client_note_id);
+            }
             continue;
           }
 

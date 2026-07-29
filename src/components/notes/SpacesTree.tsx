@@ -10,7 +10,6 @@ import {
   Info,
   Loader2,
   Lock,
-  LogOut,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -34,11 +33,7 @@ import {
 import { ConfirmDialog } from "../ui/dialog";
 import { useDialogs } from "../../hooks/useDialogs";
 import { useToast } from "../ui/useToast";
-import {
-  useNoteDragAndDrop,
-  type DraggedNoteInfo,
-  type NoteMoveTarget,
-} from "../../hooks/useNoteDragAndDrop";
+import { useNoteDragAndDrop, type NoteMoveTarget } from "../../hooks/useNoteDragAndDrop";
 import { useTeamSpacesCapability } from "../../hooks/useTeamSpacesCapability";
 import { useAuth } from "../../hooks/useAuth";
 import { useWorkspace } from "../../hooks/useWorkspace";
@@ -55,6 +50,7 @@ import { deleteSpace, renameSpace } from "../../services/spaceActions";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { cn } from "../lib/utils";
 import { formatRelativeTime } from "../../utils/dateFormatting";
+import { getCachedPlatform } from "../../utils/platform";
 import CreateSpaceDialog from "./CreateSpaceDialog";
 import DeleteSpaceDialog from "./DeleteSpaceDialog";
 import SpaceMembersDialog from "./SpaceMembersDialog";
@@ -98,6 +94,11 @@ const KEBAB_BUTTON_CLASS =
   "hover:text-foreground/60 hover:bg-foreground/5 active:bg-foreground/8";
 
 const KEBAB_TRIGGER_CLASS = cn(KEBAB_BUTTON_CLASS, "absolute right-1.5");
+
+const HOVER_REVEAL_BUTTON_CLASS =
+  "h-5 w-5 rounded-sm opacity-0 focus-visible:opacity-100 transition-opacity " +
+  "text-muted-foreground/60 dark:text-muted-foreground/40 hover:text-foreground/60 " +
+  "hover:bg-foreground/5 active:bg-foreground/8";
 
 const MENU_ITEM_CLASS = "text-xs gap-2 rounded-md px-2 py-1";
 
@@ -157,12 +158,9 @@ function spaceDisplayName(space: SpaceItem, t: TFn): string {
   return space.kind === "private" ? t("notes.spaces.personal") : space.name;
 }
 
-function useFileManagerName(): string {
-  return navigator.platform.startsWith("Mac")
-    ? "Finder"
-    : navigator.platform.startsWith("Win")
-      ? "Explorer"
-      : "Files";
+function getFileManagerName(): string {
+  const platform = getCachedPlatform();
+  return platform === "darwin" ? "Finder" : platform === "win32" ? "Explorer" : "Files";
 }
 
 function SectionHeader({
@@ -1090,7 +1088,7 @@ export default function SpacesTree({
 }: SpacesTreeProps) {
   const { t } = useTranslation();
   const { toast, dismiss } = useToast();
-  const fileManagerName = useFileManagerName();
+  const fileManagerName = getFileManagerName();
 
   const spaces = useSpaces();
   const folders = useFolders();
@@ -1189,7 +1187,7 @@ export default function SpacesTree({
     return space ? spaceDisplayName(space, t) : "";
   };
 
-  const showUndoToast = (title: string, target: string, onUndo: () => void) => {
+  const showUndoToast = (title: string, target: string, onUndo: () => void): void => {
     if (undoToastIdRef.current) dismiss(undoToastIdRef.current);
     undoToastIdRef.current = toast({
       title: t("notes.spaces.moved", { title, target }),
@@ -1215,11 +1213,10 @@ export default function SpacesTree({
   // team→team): moving OUT of a team space is policy-blocked in
   // canMoveBetweenSpaces, and there is only one private space.
   const confirmCrossSpaceMove = (
-    _fromSpaceId: number,
     toSpaceId: number,
     isFolder: boolean,
     onConfirm: () => void
-  ) => {
+  ): void => {
     const intoSpace = spaces.find((s) => s.id === toSpaceId);
     if (!intoSpace) return;
     showConfirmDialog({
@@ -1236,8 +1233,12 @@ export default function SpacesTree({
     try {
       await onMoveNote(noteId, target);
       return true;
-    } catch {
-      toast({ title: t("notes.spaces.couldNotMoveNote"), variant: "destructive" });
+    } catch (err: unknown) {
+      toast({
+        title: t("notes.spaces.couldNotMoveNote"),
+        description: t(localMutationErrorKey(err instanceof Error ? err.message : undefined)),
+        variant: "destructive",
+      });
       return false;
     }
   };
@@ -1245,7 +1246,11 @@ export default function SpacesTree({
   // The 8s undo window outlives the tree snapshot: the restore target may
   // have been deleted (folder) or purged (space) meanwhile. Never restore a
   // note into a container nothing renders — degrade to the space root.
-  const undoMoveNote = async (noteId: number, title: string, prev: NoteMoveTarget) => {
+  const undoMoveNote = async (
+    noteId: number,
+    title: string,
+    prev: NoteMoveTarget
+  ): Promise<void> => {
     const prevSpace = getSpacesValue().find((s) => s.id === prev.spaceId);
     if (!prevSpace) {
       toast({ title: t("notes.spaces.couldNotMoveNote"), variant: "destructive" });
@@ -1260,7 +1265,7 @@ export default function SpacesTree({
     }
   };
 
-  const commitMoveNote = async (noteId: number, target: NoteMoveTarget) => {
+  const commitMoveNote = async (noteId: number, target: NoteMoveTarget): Promise<void> => {
     const note = getNoteFromStore(noteId);
     const prev: NoteMoveTarget | null = note
       ? { spaceId: note.space_id, folderId: note.folder_id }
@@ -1279,17 +1284,12 @@ export default function SpacesTree({
     return !!from && !!to && canMoveBetweenSpaces(from, to);
   };
 
-  const requestMoveNote = (noteId: number, target: NoteMoveTarget) => {
+  const requestMoveNote = (noteId: number, target: NoteMoveTarget): void => {
     const note = getNoteFromStore(noteId);
     if (!note) return;
     if (note.space_id !== target.spaceId) {
       if (!allowsCrossSpaceMove(note.space_id, target.spaceId)) return;
-      confirmCrossSpaceMove(
-        note.space_id,
-        target.spaceId,
-        false,
-        () => void commitMoveNote(noteId, target)
-      );
+      confirmCrossSpaceMove(target.spaceId, false, () => void commitMoveNote(noteId, target));
     } else {
       void commitMoveNote(noteId, target);
     }
@@ -1313,7 +1313,7 @@ export default function SpacesTree({
     return result;
   };
 
-  const commitMoveFolder = async (folder: FolderItem, space: SpaceItem) => {
+  const commitMoveFolder = async (folder: FolderItem, space: SpaceItem): Promise<void> => {
     const prevSpaceId = folder.space_id;
     const result = await moveFolderSafely(folder.id, space.id);
     if (!result.success) return;
@@ -1325,22 +1325,17 @@ export default function SpacesTree({
     );
   };
 
-  const requestMoveFolder = (folder: FolderItem, space: SpaceItem) => {
+  const requestMoveFolder = (folder: FolderItem, space: SpaceItem): void => {
     if (space.id === folder.space_id) return;
     if (!allowsCrossSpaceMove(folder.space_id, space.id)) return;
-    confirmCrossSpaceMove(
-      folder.space_id,
-      space.id,
-      true,
-      () => void commitMoveFolder(folder, space)
-    );
+    confirmCrossSpaceMove(space.id, true, () => void commitMoveFolder(folder, space));
   };
 
   const { dragState, noteDragHandlers, dropTargetHandlers } = useNoteDragAndDrop({
     untitledLabel: t("notes.list.untitled"),
     onMoveToTarget: commitMoveNote,
-    onCrossSpaceDrop: (note: DraggedNoteInfo, target, commit) => {
-      confirmCrossSpaceMove(note.spaceId, target.spaceId, false, commit);
+    onCrossSpaceDrop: (_note, target, commit) => {
+      confirmCrossSpaceMove(target.spaceId, false, commit);
     },
     canCrossSpaceDrop: (note, target) => allowsCrossSpaceMove(note.spaceId, target.spaceId),
     onCrossSpaceVeto: () => toast({ title: t("notes.spaces.cantMoveOut"), duration: 4000 }),
@@ -1933,11 +1928,7 @@ export default function SpacesTree({
                   size="icon"
                   aria-label={t("notes.context.newFolder")}
                   onClick={() => startCreateFolder(privateSpace)}
-                  className={cn(
-                    "h-5 w-5 rounded-sm opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100",
-                    "transition-opacity text-muted-foreground/60 dark:text-muted-foreground/40",
-                    "hover:text-foreground/60 hover:bg-foreground/5 active:bg-foreground/8"
-                  )}
+                  className={cn(HOVER_REVEAL_BUTTON_CLASS, "group-hover/section:opacity-100")}
                 >
                   <Plus size={12} />
                 </Button>
@@ -1968,11 +1959,7 @@ export default function SpacesTree({
                       size="icon"
                       aria-label={t("notes.structureIntro.reopen")}
                       onClick={onShowStructureIntro}
-                      className={cn(
-                        "h-5 w-5 rounded-sm opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100",
-                        "transition-opacity text-muted-foreground/60 dark:text-muted-foreground/40",
-                        "hover:text-foreground/60 hover:bg-foreground/5 active:bg-foreground/8"
-                      )}
+                      className={cn(HOVER_REVEAL_BUTTON_CLASS, "group-hover/section:opacity-100")}
                     >
                       <Info size={11} />
                     </Button>
@@ -1985,11 +1972,7 @@ export default function SpacesTree({
                       size="icon"
                       aria-label={t("notes.spaces.newSpace")}
                       onClick={() => openCreateSpace()}
-                      className={cn(
-                        "h-5 w-5 rounded-sm opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100",
-                        "transition-opacity text-muted-foreground/60 dark:text-muted-foreground/40",
-                        "hover:text-foreground/60 hover:bg-foreground/5 active:bg-foreground/8"
-                      )}
+                      className={cn(HOVER_REVEAL_BUTTON_CLASS, "group-hover/section:opacity-100")}
                     >
                       <Plus size={12} />
                     </Button>
@@ -2028,9 +2011,8 @@ export default function SpacesTree({
                               })}
                               onClick={() => openCreateSpace(workspace.id)}
                               className={cn(
-                                "h-5 w-5 rounded-sm opacity-0 group-hover/workspace:opacity-100 focus-visible:opacity-100",
-                                "transition-opacity text-muted-foreground/60 dark:text-muted-foreground/40",
-                                "hover:text-foreground/60 hover:bg-foreground/5 active:bg-foreground/8"
+                                HOVER_REVEAL_BUTTON_CLASS,
+                                "group-hover/workspace:opacity-100"
                               )}
                             >
                               <Plus size={12} />
@@ -2073,16 +2055,18 @@ export default function SpacesTree({
             <p className="pl-[18px] pr-2 py-1 text-xs text-foreground/40 leading-relaxed">
               {t("notes.spaces.lockedPitch")}
             </p>
-            <div className="pl-[18px] pr-2 pb-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onUpgrade}
-                className="h-6 px-2 text-xs gap-1 text-primary/70 hover:text-primary hover:bg-primary/8"
-              >
-                {t("settingsPage.account.pricing.upgrade")}
-              </Button>
-            </div>
+            {onUpgrade && (
+              <div className="pl-[18px] pr-2 pb-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onUpgrade}
+                  className="h-6 px-2 text-xs gap-1 text-primary/70 hover:text-primary hover:bg-primary/8"
+                >
+                  {t("settingsPage.account.pricing.upgrade")}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

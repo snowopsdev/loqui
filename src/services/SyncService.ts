@@ -29,6 +29,7 @@ import {
   keepPurgedSpaceEntry,
   normalizePurgedSpaceEntries,
   prunePurgedSpaceEntries,
+  resolvePulledNoteFolderId,
   resolvePullCursorAdvance,
   revokedNoteForkUpdate,
   type PurgedSpaceEntry,
@@ -1400,9 +1401,9 @@ class SyncService {
                 } else if (ctx.privateSpace) {
                   await window.electronAPI.upsertNoteFromCloud?.(
                     cloudNote as unknown as Record<string, unknown>,
-                    this.resolveLocalFolderId(
+                    resolvePulledNoteFolderId(
                       cloudNote,
-                      ctx.privateSpace,
+                      ctx.privateSpace.id,
                       cloudToLocal,
                       defaultFolderId
                     ),
@@ -1448,7 +1449,7 @@ class SyncService {
             }
             await window.electronAPI.upsertNoteFromCloud?.(
               cloudNote as unknown as Record<string, unknown>,
-              this.resolveLocalFolderId(cloudNote, space, cloudToLocal, defaultFolderId),
+              resolvePulledNoteFolderId(cloudNote, space.id, cloudToLocal, defaultFolderId),
               space.id
             );
             if (local) {
@@ -2096,21 +2097,6 @@ class SyncService {
       (f) => f.is_default && f.name === "Personal" && f.space_id === privateSpaceId
     );
     return { cloudToLocal, defaultFolderId: personalFolder?.id ?? null };
-  }
-
-  // Unmapped folders fall back to the space root for team rows and to the
-  // default folder for personal rows; a mapped folder sitting in ANOTHER
-  // local space (e.g. mid-move after a 409) falls back the same way — a note
-  // never files across spaces (D2).
-  private resolveLocalFolderId(
-    cloudNote: CloudNote,
-    space: SpaceItem,
-    cloudToLocal: Map<string, { id: number; space_id: number }>,
-    defaultFolderId: number | null
-  ): number | null {
-    const fallback = cloudNote.space_id ? null : defaultFolderId;
-    const mapped = cloudNote.folder_id ? cloudToLocal.get(cloudNote.folder_id) : undefined;
-    return mapped && mapped.space_id === space.id ? mapped.id : fallback;
   }
 }
 

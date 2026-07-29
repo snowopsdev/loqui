@@ -2235,6 +2235,16 @@
     }
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "Insira um nome para a pasta.",
+      "folderAlreadyExists": "Já existe uma pasta com esse nome.",
+      "folderNotFound": "Não foi possível encontrar essa pasta.",
+      "defaultFolderImmutable": "As pastas padrão não podem ser alteradas.",
+      "spaceNameRequired": "Insira um nome para o espaço.",
+      "spaceNotFound": "Não foi possível encontrar esse espaço.",
+      "privateSpaceImmutable": "Seu espaço Pessoal não pode ser alterado.",
+      "generic": "Não foi possível concluir a alteração. Tente novamente."
+    },
     "sidebar": {
       "newNote": "Nova nota",
       "searchNotes": "Pesquisar notas",

@@ -2163,6 +2163,16 @@
     }
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "フォルダ名を入力してください。",
+      "folderAlreadyExists": "同じ名前のフォルダが既に存在します。",
+      "folderNotFound": "そのフォルダが見つかりませんでした。",
+      "defaultFolderImmutable": "デフォルトフォルダは変更できません。",
+      "spaceNameRequired": "スペース名を入力してください。",
+      "spaceNotFound": "そのスペースが見つかりませんでした。",
+      "privateSpaceImmutable": "個人用スペースは変更できません。",
+      "generic": "変更を完了できませんでした。もう一度お試しください。"
+    },
     "sidebar": {
       "newNote": "新しいノート",
       "searchNotes": "ノートを検索",

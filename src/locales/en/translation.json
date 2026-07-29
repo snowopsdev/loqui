@@ -2446,6 +2446,16 @@
     "upgradeUnlimited": "Upgrade to Pro — unlimited transcriptions"
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "Enter a folder name.",
+      "folderAlreadyExists": "A folder with that name already exists.",
+      "folderNotFound": "That folder could not be found.",
+      "defaultFolderImmutable": "Default folders cannot be changed.",
+      "spaceNameRequired": "Enter a space name.",
+      "spaceNotFound": "That space could not be found.",
+      "privateSpaceImmutable": "Your Personal space cannot be changed.",
+      "generic": "The change could not be completed. Please try again."
+    },
     "sidebar": {
       "newNote": "New note",
       "searchNotes": "Search notes",

@@ -855,7 +855,6 @@ declare global {
         relocatedTitles?: string[];
         error?: string;
       }>;
-      getSpaceByCloudSpaceId?: (cloudSpaceId: string) => Promise<SpaceItem | null>;
       upsertSpaceFromCloud?: (space: Record<string, unknown>) => Promise<SpaceItem>;
       setSpaceSyncStatus?: (
         id: number,
@@ -2268,7 +2267,6 @@ declare global {
         cloudId: string,
         updatedAt?: string
       ) => Promise<void>;
-      forkFolderIdentity?: (id: number) => Promise<{ success: boolean }>;
       getFolderIdMap?: () => Promise<FolderItem[]>;
       getPendingFolderDeletes?: () => Promise<FolderItem[]>;
       hardDeleteFolder?: (id: number) => Promise<{ success: boolean; id: number }>;

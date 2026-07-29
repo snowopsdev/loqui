@@ -2251,6 +2251,16 @@
     }
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "Введите название папки.",
+      "folderAlreadyExists": "Папка с таким названием уже существует.",
+      "folderNotFound": "Эта папка не найдена.",
+      "defaultFolderImmutable": "Папки по умолчанию нельзя изменять.",
+      "spaceNameRequired": "Введите название пространства.",
+      "spaceNotFound": "Это пространство не найдено.",
+      "privateSpaceImmutable": "Личное пространство нельзя изменять.",
+      "generic": "Не удалось выполнить изменение. Попробуйте снова."
+    },
     "sidebar": {
       "newNote": "Новая заметка",
       "searchNotes": "Поиск заметок",

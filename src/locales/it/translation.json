@@ -2235,6 +2235,16 @@
     }
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "Inserisci un nome per la cartella.",
+      "folderAlreadyExists": "Esiste già una cartella con questo nome.",
+      "folderNotFound": "Impossibile trovare questa cartella.",
+      "defaultFolderImmutable": "Le cartelle predefinite non possono essere modificate.",
+      "spaceNameRequired": "Inserisci un nome per lo spazio.",
+      "spaceNotFound": "Impossibile trovare questo spazio.",
+      "privateSpaceImmutable": "Il tuo spazio Personale non può essere modificato.",
+      "generic": "Impossibile completare la modifica. Riprova."
+    },
     "sidebar": {
       "newNote": "Nuova nota",
       "searchNotes": "Cerca note",

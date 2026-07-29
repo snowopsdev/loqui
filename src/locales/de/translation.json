@@ -2446,6 +2446,16 @@
     "upgradeUnlimited": "Auf Pro upgraden – unbegrenzte Transkriptionen"
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "Gib einen Ordnernamen ein.",
+      "folderAlreadyExists": "Ein Ordner mit diesem Namen existiert bereits.",
+      "folderNotFound": "Dieser Ordner wurde nicht gefunden.",
+      "defaultFolderImmutable": "Standardordner können nicht geändert werden.",
+      "spaceNameRequired": "Gib einen Bereichsnamen ein.",
+      "spaceNotFound": "Dieser Bereich wurde nicht gefunden.",
+      "privateSpaceImmutable": "Dein persönlicher Bereich kann nicht geändert werden.",
+      "generic": "Die Änderung konnte nicht abgeschlossen werden. Bitte versuche es erneut."
+    },
     "sidebar": {
       "newNote": "Neue Notiz",
       "searchNotes": "Notizen suchen",

@@ -147,8 +147,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSpaces: () => ipcRenderer.invoke("db-get-spaces"),
   updateSpace: (id, updates) => ipcRenderer.invoke("db-update-space", id, updates),
   purgeSpace: (id) => ipcRenderer.invoke("db-purge-space", id),
-  getSpaceByCloudSpaceId: (cloudSpaceId) =>
-    ipcRenderer.invoke("db-get-space-by-cloud-space-id", cloudSpaceId),
   upsertSpaceFromCloud: (space) => ipcRenderer.invoke("db-upsert-space-from-cloud", space),
   setSpaceSyncStatus: (id, status) => ipcRenderer.invoke("db-set-space-sync-status", id, status),
   onSpacePurged: (callback) => {
@@ -932,7 +930,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("db-mark-folder-synced-if-unchanged", id, cloudId, snapshotUpdatedAt),
   adoptFolderIdentity: (id, clientFolderId, cloudId, updatedAt) =>
     ipcRenderer.invoke("db-adopt-folder-identity", id, clientFolderId, cloudId, updatedAt),
-  forkFolderIdentity: (id) => ipcRenderer.invoke("db-fork-folder-identity", id),
   getFolderIdMap: () => ipcRenderer.invoke("db-get-folder-id-map"),
   getPendingFolderDeletes: () => ipcRenderer.invoke("db-get-pending-folder-deletes"),
   hardDeleteFolder: (id) => ipcRenderer.invoke("db-hard-delete-folder", id),

@@ -2446,6 +2446,16 @@
     "upgradeUnlimited": "Passer à Pro — transcriptions illimitées"
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "Saisissez un nom de dossier.",
+      "folderAlreadyExists": "Un dossier portant ce nom existe déjà.",
+      "folderNotFound": "Ce dossier est introuvable.",
+      "defaultFolderImmutable": "Les dossiers par défaut ne peuvent pas être modifiés.",
+      "spaceNameRequired": "Saisissez un nom d’espace.",
+      "spaceNotFound": "Cet espace est introuvable.",
+      "privateSpaceImmutable": "Votre espace Personnel ne peut pas être modifié.",
+      "generic": "La modification n’a pas pu être effectuée. Réessayez."
+    },
     "sidebar": {
       "newNote": "Nouvelle note",
       "searchNotes": "Rechercher des notes",

@@ -1760,9 +1760,6 @@ class IPCHandlers {
     ipcMain.handle("db-adopt-folder-identity", (_, id, clientFolderId, cloudId, updatedAt) =>
       this.databaseManager.adoptFolderIdentity(id, clientFolderId, cloudId, updatedAt)
     );
-    ipcMain.handle("db-fork-folder-identity", (_, id) =>
-      this.databaseManager.forkFolderIdentity(id)
-    );
     ipcMain.handle("db-get-folder-id-map", () => this.databaseManager.getFolderIdMap());
     ipcMain.handle("db-get-pending-folder-deletes", () =>
       this.databaseManager.getPendingFolderDeletes()
@@ -1819,9 +1816,6 @@ class IPCHandlers {
     });
 
     // Spaces sync
-    ipcMain.handle("db-get-space-by-cloud-space-id", (_, cloudSpaceId) =>
-      this.databaseManager.getSpaceByCloudSpaceId(cloudSpaceId)
-    );
     ipcMain.handle("db-upsert-space-from-cloud", (_, cloudSpace) => {
       const space = this.databaseManager.upsertSpaceFromCloud(cloudSpace);
       if (space) setImmediate(() => this.broadcastToWindows("space-synced", space));

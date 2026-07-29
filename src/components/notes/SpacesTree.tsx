@@ -45,6 +45,7 @@ import { useWorkspace } from "../../hooks/useWorkspace";
 import { EmojiPickerInput } from "./EmojiPickerInput";
 import { canManageSpace, canMoveBetweenSpaces } from "../../lib/spacePermissions";
 import { groupTeamSpacesByWorkspace } from "../../lib/workspaceSelection";
+import { localMutationErrorKey } from "../../lib/localMutationError";
 import { readIsSubscribed, subscribeIsSubscribed } from "../../lib/subscriptionFlag";
 import { deleteSpace, renameSpace } from "../../services/spaceActions";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -1301,7 +1302,7 @@ export default function SpacesTree({
     if (!result.success) {
       toast({
         title: t("notes.spaces.couldNotMove"),
-        description: result.error,
+        description: t(localMutationErrorKey(result.error)),
         variant: "destructive",
       });
     }
@@ -1456,7 +1457,7 @@ export default function SpacesTree({
         if (!result.success && result.error) {
           toast({
             title: t("notes.folders.couldNotDelete"),
-            description: result.error,
+            description: t(localMutationErrorKey(result.error)),
             variant: "destructive",
           });
         }
@@ -1473,7 +1474,7 @@ export default function SpacesTree({
     if (!result.success) {
       toast({
         title: t("notes.spaces.couldNotDelete"),
-        description: result.error ?? t("common.unknownError"),
+        description: t(localMutationErrorKey(result.error)),
         variant: "destructive",
       });
       return;
@@ -1586,7 +1587,7 @@ export default function SpacesTree({
     if (result.error) {
       toast({
         title: t("notes.folders.couldNotCreate"),
-        description: result.error,
+        description: t(localMutationErrorKey(result.error)),
         variant: "destructive",
       });
     }
@@ -1603,7 +1604,7 @@ export default function SpacesTree({
     if (!result.success && result.error) {
       toast({
         title: t("notes.folders.couldNotRename"),
-        description: result.error,
+        description: t(localMutationErrorKey(result.error)),
         variant: "destructive",
       });
     }
@@ -1622,7 +1623,7 @@ export default function SpacesTree({
     if (!result.success) {
       toast({
         title: t("notes.spaces.couldNotRename"),
-        description: result.error ?? t("common.unknownError"),
+        description: t(localMutationErrorKey(result.error)),
         variant: "destructive",
       });
       return;

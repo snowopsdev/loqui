@@ -77,6 +77,22 @@ export function keepPurgedSpaceEntry(entry: PurgedSpaceEntry, isLive: boolean): 
   return isLive && entry.reason === "deleted";
 }
 
+/**
+ * Resolve a pulled note's cloud folder without ever crossing local space
+ * boundaries. Team notes fall back to their space root; personal notes retain
+ * the legacy default-folder fallback.
+ */
+export function resolvePulledNoteFolderId(
+  cloudNote: { space_id?: string | null; folder_id?: string | null },
+  localSpaceId: number,
+  cloudToLocal: Map<string, { id: number; space_id: number }>,
+  defaultFolderId: number | null
+): number | null {
+  const fallback = cloudNote.space_id ? null : defaultFolderId;
+  const mapped = cloudNote.folder_id ? cloudToLocal.get(cloudNote.folder_id) : undefined;
+  return mapped && mapped.space_id === localSpaceId ? mapped.id : fallback;
+}
+
 export interface RevokedNoteFork {
   update: {
     space_id?: number;

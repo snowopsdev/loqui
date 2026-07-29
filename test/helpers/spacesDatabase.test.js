@@ -626,6 +626,80 @@ test("markNoteSyncedIfUnchanged settles only rows untouched since the push snaps
   assert.equal(db.getNote(note.id).sync_status, "pending", "the mid-flight edit must still push");
 });
 
+test("cloud_updated_at follows the pull, edit, push, and conflict lifecycle", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const privateId = db.getPrivateSpaceId();
+  const firstCloudRevision = "2026-07-20T10:00:00.000Z";
+  const pushedCloudRevision = "2026-07-20T11:00:00.000Z";
+  const conflictCloudRevision = "2026-07-20T12:00:00.000Z";
+
+  const pulled = db.upsertNoteFromCloud(
+    {
+      id: "cloud-lifecycle-1",
+      client_note_id: "client-lifecycle-1",
+      title: "Lifecycle",
+      content: "cloud v1",
+      created_at: firstCloudRevision,
+      updated_at: firstCloudRevision,
+    },
+    null,
+    privateId
+  );
+  assert.equal(pulled.cloud_updated_at, firstCloudRevision, "pull establishes the PATCH base");
+
+  db.updateNote(pulled.id, { content: "local v2" });
+  const pushSnapshot = db.getNote(pulled.id);
+  assert.equal(pushSnapshot.sync_status, "pending");
+  assert.equal(
+    pushSnapshot.cloud_updated_at,
+    firstCloudRevision,
+    "local edits preserve the last observed server revision"
+  );
+
+  const settled = db.markNoteSyncedIfUnchanged(
+    pulled.id,
+    pulled.cloud_id,
+    pushSnapshot.updated_at,
+    pushedCloudRevision
+  );
+  assert.equal(settled.changes, 1);
+  assert.equal(db.getNote(pulled.id).sync_status, "synced");
+  assert.equal(db.getNote(pulled.id).cloud_updated_at, pushedCloudRevision);
+
+  db.updateNote(pulled.id, { content: "local v3" });
+  const racingSnapshot = db.getNote(pulled.id);
+  db.db
+    .prepare(
+      "UPDATE notes SET content = 'local v4', sync_status = 'pending', updated_at = datetime('now', '+1 hour') WHERE id = ?"
+    )
+    .run(pulled.id);
+  const raced = db.markNoteSyncedIfUnchanged(
+    pulled.id,
+    pulled.cloud_id,
+    racingSnapshot.updated_at,
+    conflictCloudRevision
+  );
+  assert.equal(raced.changes, 0);
+  assert.equal(db.getNote(pulled.id).sync_status, "pending");
+  assert.equal(
+    db.getNote(pulled.id).cloud_updated_at,
+    conflictCloudRevision,
+    "a delivered PATCH advances the base even when a newer local edit stays pending"
+  );
+
+  db.setNoteCloudBase(pulled.id, "2026-07-20T13:00:00.000Z");
+  assert.equal(db.getNote(pulled.id).sync_status, "pending");
+  assert.equal(db.getNote(pulled.id).cloud_updated_at, "2026-07-20T13:00:00.000Z");
+
+  db.markNoteSynced(pulled.id, "forked-cloud-id", null);
+  assert.equal(
+    db.getNote(pulled.id).cloud_updated_at,
+    null,
+    "a fork recreated under a new cloud id cannot retain the old row's base"
+  );
+});
+
 test("markFolderSyncedIfUnchanged settles only rows untouched since the push snapshot", (t) => {
   const db = createDb(t);
   if (!db) return;
@@ -996,7 +1070,10 @@ test("upsertSpaceFromCloud adopts a pre-spaces row via its single backfilled tea
     teams: [{ id: "team-1", name: "Legacy team", my_role: "member" }],
   });
   assert.equal(again.id, legacyId);
-  assert.equal(db.db.prepare("SELECT COUNT(*) as count FROM spaces WHERE kind = 'team'").get().count, 1);
+  assert.equal(
+    db.db.prepare("SELECT COUNT(*) as count FROM spaces WHERE kind = 'team'").get().count,
+    1
+  );
 });
 
 test("upsertSpaceFromCloud never adopts by team for multi-team spaces", (t) => {

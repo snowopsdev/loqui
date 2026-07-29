@@ -107,6 +107,42 @@ test("purge guard: live-set sweep keeps only still-live deleted entries", async 
   assert.equal(keepPurgedSpaceEntry({ at: 1, reason: "revoked" }, false), false);
 });
 
+// --- resolvePulledNoteFolderId ---------------------------------------------
+
+test("pull folder resolution accepts only mappings in the note's local space", async () => {
+  const { resolvePulledNoteFolderId } = await load();
+  const folders = new Map([
+    ["same-space", { id: 10, space_id: 2 }],
+    ["other-space", { id: 11, space_id: 3 }],
+  ]);
+
+  assert.equal(
+    resolvePulledNoteFolderId({ space_id: "cloud-space", folder_id: "same-space" }, 2, folders, 99),
+    10
+  );
+  assert.equal(
+    resolvePulledNoteFolderId(
+      { space_id: "cloud-space", folder_id: "other-space" },
+      2,
+      folders,
+      99
+    ),
+    null,
+    "a team note must fall back to its space root, never another space's folder"
+  );
+});
+
+test("pull folder resolution uses the default folder only for personal notes", async () => {
+  const { resolvePulledNoteFolderId } = await load();
+  const folders = new Map();
+
+  assert.equal(resolvePulledNoteFolderId({ space_id: null, folder_id: null }, 1, folders, 99), 99);
+  assert.equal(
+    resolvePulledNoteFolderId({ space_id: "cloud-space", folder_id: null }, 2, folders, 99),
+    null
+  );
+});
+
 // --- revokedNoteForkUpdate --------------------------------------------------
 
 test("revoked fork: a push rejection moves, forks and clears the retraction", async () => {

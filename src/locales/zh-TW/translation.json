@@ -2235,6 +2235,16 @@
     }
   },
   "notes": {
+    "mutationErrors": {
+      "folderNameRequired": "請輸入資料夾名稱。",
+      "folderAlreadyExists": "已存在同名資料夾。",
+      "folderNotFound": "找不到該資料夾。",
+      "defaultFolderImmutable": "無法變更預設資料夾。",
+      "spaceNameRequired": "請輸入空間名稱。",
+      "spaceNotFound": "找不到該空間。",
+      "privateSpaceImmutable": "無法變更你的個人空間。",
+      "generic": "無法完成變更，請再試一次。"
+    },
     "sidebar": {
       "newNote": "新增筆記",
       "searchNotes": "搜尋筆記",

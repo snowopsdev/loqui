@@ -5,5 +5,6 @@ import { createReactiveLocalFlag } from "./reactiveLocalFlag";
 const flag = createReactiveLocalFlag("isSubscribed");
 
 export const readIsSubscribed = flag.read;
-export const notifyIsSubscribedChanged = flag.notify;
+export const writeIsSubscribed = flag.write;
+export const clearIsSubscribed = flag.clear;
 export const subscribeIsSubscribed = flag.subscribe;

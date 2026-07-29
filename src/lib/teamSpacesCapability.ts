@@ -4,5 +4,6 @@ import { createReactiveLocalFlag } from "./reactiveLocalFlag";
 const flag = createReactiveLocalFlag("teamSpacesCapability");
 
 export const readTeamSpacesCapability = flag.read;
-export const notifyTeamSpacesCapabilityChanged = flag.notify;
+export const writeTeamSpacesCapability = flag.write;
+export const clearTeamSpacesCapability = flag.clear;
 export const subscribeTeamSpacesCapability = flag.subscribe;

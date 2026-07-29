@@ -1,14 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { Message, ToolCallInfo } from "./types";
+import type { ContainerScope } from "../../types/chat";
 
 interface UseChatPersistenceOptions {
   conversationId?: number | null;
   onConversationCreated?: (id: number, title: string) => void;
-}
-
-export interface ConversationScope {
-  spaceId: number;
-  folderId: number | null;
 }
 
 export interface ChatPersistence {
@@ -18,7 +14,7 @@ export interface ChatPersistence {
   createConversation: (
     title: string,
     noteId?: number | null,
-    scope?: ConversationScope
+    scope?: ContainerScope
   ) => Promise<number>;
   loadConversation: (id: number) => Promise<void>;
   saveUserMessage: (text: string) => Promise<void>;
@@ -38,7 +34,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
   }, [conversationId]);
 
   const createConversation = useCallback(
-    async (title: string, noteId?: number | null, scope?: ConversationScope): Promise<number> => {
+    async (title: string, noteId?: number | null, scope?: ContainerScope): Promise<number> => {
       const conv = await window.electronAPI?.createAgentConversation?.(
         title,
         noteId ?? undefined,

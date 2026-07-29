@@ -10,3 +10,16 @@ export function orderMemberCandidates<M extends { user_id: string }>(
   if (self.length === 0) return members;
   return [...self, ...members.filter((m) => m.user_id !== currentUserId)];
 }
+
+export function filterMemberCandidates<M extends { name?: string | null; email: string }>(
+  members: M[],
+  search: string
+): M[] {
+  const query = search.trim().toLowerCase();
+  if (!query) return members;
+  return members.filter(
+    (member) =>
+      (member.name ?? "").toLowerCase().includes(query) ||
+      member.email.toLowerCase().includes(query)
+  );
+}

@@ -101,3 +101,43 @@ test("no-ops when the note is nowhere", async () => {
   assert.equal(result.changed, false);
   assert.equal(result.activeNoteId, 1);
 });
+
+test("tears down multiple containers and clears an active note inside them", async () => {
+  const { teardownNoteContainers } = await load();
+  const state = {
+    notesByContainer: {
+      "s:1": [note(1, null, 1)],
+      "f:2": [note(2, 2, 1)],
+      "s:3": [note(3, null, 3)],
+    },
+    expandedContainers: new Set(["s:1", "f:2", "s:3"]),
+    activeNoteId: 2,
+  };
+
+  const result = teardownNoteContainers(state, ["s:1", "f:2"]);
+
+  assert.deepEqual(Object.keys(result.notesByContainer), ["s:3"]);
+  assert.deepEqual(
+    result.removedNotes.map((n) => n.id),
+    [1, 2]
+  );
+  assert.deepEqual([...result.expandedContainers], ["s:3"]);
+  assert.equal(result.activeNoteId, null);
+});
+
+test("container teardown preserves active notes outside the removed containers", async () => {
+  const { teardownNoteContainers } = await load();
+  const state = {
+    notesByContainer: {
+      "f:1": [note(1)],
+      "f:2": [note(2, 2)],
+    },
+    expandedContainers: new Set(["f:1", "f:2"]),
+    activeNoteId: 2,
+  };
+
+  const result = teardownNoteContainers(state, ["f:1"]);
+
+  assert.equal(result.notesByContainer["f:2"], state.notesByContainer["f:2"]);
+  assert.equal(result.activeNoteId, 2);
+});

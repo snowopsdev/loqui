@@ -58,14 +58,6 @@ export default function CreateTeamDialog({
     () => (rosterLoaded ? orderMemberCandidates(roster, user?.id) : []),
     [roster, rosterLoaded, user?.id]
   );
-  const filteredCandidates = useMemo(() => {
-    const query = memberSearch.trim().toLowerCase();
-    if (!query) return candidates;
-    return candidates.filter(
-      (m) => (m.name ?? "").toLowerCase().includes(query) || m.email.toLowerCase().includes(query)
-    );
-  }, [candidates, memberSearch]);
-
   const handleOpenChange = (nextOpen: boolean) => {
     onOpenChange(nextOpen);
     if (!nextOpen) {
@@ -171,7 +163,7 @@ export default function CreateTeamDialog({
               <div className="h-24 rounded bg-foreground/5 dark:bg-white/5 animate-pulse" />
             ) : (
               <MemberPickList
-                members={filteredCandidates}
+                members={candidates}
                 search={memberSearch}
                 onSearchChange={setMemberSearch}
                 onSelect={toggleMember}

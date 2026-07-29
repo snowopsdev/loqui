@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { syncService } from "../services/SyncService.js";
-import { removeNoteFromLists } from "./noteListOps";
+import { removeNoteFromLists, teardownNoteContainers } from "./noteListOps";
 import {
   addNoteConflict,
   readNoteConflicts,
@@ -248,23 +248,20 @@ function ensureIpcListeners() {
       if (id == null) return;
       const state = useNoteStore.getState();
       const key = folderContainerKey(id);
-      const removedNotes = state.notesByContainer[key];
-      const notesByContainer = { ...state.notesByContainer };
-      delete notesByContainer[key];
-      const expanded = new Set(state.expandedContainers);
-      if (expanded.delete(key)) persistExpandedContainers(expanded);
-      const extra: Partial<NoteState> = { expandedContainers: expanded };
-      if (state.activeNoteId != null && removedNotes?.some((n) => n.id === state.activeNoteId)) {
-        extra.activeNoteId = null;
-      }
+      const teardown = teardownNoteContainers(state, [key]);
+      persistExpandedContainers(teardown.expandedContainers);
+      const extra: Partial<NoteState> = {
+        expandedContainers: teardown.expandedContainers,
+        activeNoteId: teardown.activeNoteId,
+      };
       let fallbackContext: ActiveContext | null = null;
       if (state.activeContext?.folderId === id) {
         // The active folder vanished under us — degrade to its space root.
         fallbackContext = { spaceId: state.activeContext.spaceId, folderId: null };
         extra.activeContext = fallbackContext;
-        extra.notes = notesByContainer[contextContainerKey(fallbackContext)] ?? [];
+        extra.notes = teardown.notesByContainer[contextContainerKey(fallbackContext)] ?? [];
       }
-      useNoteStore.setState({ notesByContainer, ...extra });
+      useNoteStore.setState({ notesByContainer: teardown.notesByContainer, ...extra });
       if (fallbackContext) void ensureContainerLoaded(contextContainerKey(fallbackContext));
       void loadFolders();
     });
@@ -348,7 +345,11 @@ export async function loadFolders(): Promise<FolderItem[]> {
 const containerLoadGenerations = new Map<string, number>();
 const containerLoadsInFlight = new Map<string, Promise<NoteItem[]>>();
 
-export async function loadContainerNotes(key: string): Promise<NoteItem[]> {
+export async function loadContainerNotes(
+  key: string,
+  noteType: string | null = null,
+  limit = DEFAULT_LIMIT
+): Promise<NoteItem[]> {
   const gen = (containerLoadGenerations.get(key) ?? 0) + 1;
   containerLoadGenerations.set(key, gen);
   const load = (async (): Promise<NoteItem[]> => {
@@ -356,8 +357,8 @@ export async function loadContainerNotes(key: string): Promise<NoteItem[]> {
     const id = Number(idStr);
     const items =
       kind === "f"
-        ? ((await window.electronAPI?.getNotes(null, DEFAULT_LIMIT, id)) ?? [])
-        : ((await window.electronAPI?.getNotes(null, DEFAULT_LIMIT, null, id)) ?? []);
+        ? ((await window.electronAPI?.getNotes(noteType, limit, id)) ?? [])
+        : ((await window.electronAPI?.getNotes(noteType, limit, null, id)) ?? []);
     // A newer load for this container may have resolved first.
     if (containerLoadGenerations.get(key) === gen) {
       applyContainers({ ...useNoteStore.getState().notesByContainer, [key]: items });
@@ -477,19 +478,16 @@ export async function initializeNotes(
   limit = DEFAULT_LIMIT,
   folderId?: number | null
 ): Promise<NoteItem[]> {
-  const gen = ++loadGeneration;
   currentLimit = limit;
   ensureIpcListeners();
+  if (folderId != null) {
+    return loadContainerNotes(folderContainerKey(folderId), noteType ?? null, limit);
+  }
+
+  const gen = ++loadGeneration;
   const items = (await window.electronAPI?.getNotes(noteType, limit, folderId)) ?? [];
   if (gen !== loadGeneration) return items;
-  if (folderId != null) {
-    applyContainers({
-      ...useNoteStore.getState().notesByContainer,
-      [folderContainerKey(folderId)]: items,
-    });
-  } else {
-    useNoteStore.setState({ notes: items });
-  }
+  useNoteStore.setState({ notes: items });
   return items;
 }
 
@@ -572,18 +570,14 @@ function handleSpacePurged(spaceId: number): void {
     if (f.space_id === spaceId) removedKeys.add(folderContainerKey(f.id));
   });
 
-  const notesByContainer: Record<string, NoteItem[]> = {};
-  for (const [key, items] of Object.entries(state.notesByContainer)) {
-    if (!removedKeys.has(key)) notesByContainer[key] = items;
-  }
+  const teardown = teardownNoteContainers(state, removedKeys);
   const folderCounts = { ...state.folderCounts };
   state.folders.forEach((f) => {
     if (f.space_id === spaceId) delete folderCounts[f.id];
   });
   const spaceRootCounts = { ...state.spaceRootCounts };
   delete spaceRootCounts[spaceId];
-  const expanded = new Set([...state.expandedContainers].filter((key) => !removedKeys.has(key)));
-  persistExpandedContainers(expanded);
+  persistExpandedContainers(teardown.expandedContainers);
 
   // Purge completeness (plan §5.4): purged notes' share-cache entries (which
   // can hold raw link tokens) and conflict banners (which hold full cloud
@@ -592,11 +586,9 @@ function handleSpacePurged(spaceId: number): void {
   // never have been loaded.
   const purgedCloudIds = new Set<string>();
   const purgedClientIds = new Set<string>();
-  removedKeys.forEach((key) => {
-    (state.notesByContainer[key] ?? []).forEach((n) => {
-      if (n.cloud_id) purgedCloudIds.add(n.cloud_id);
-      purgedClientIds.add(n.client_note_id);
-    });
+  teardown.removedNotes.forEach((note) => {
+    if (note.cloud_id) purgedCloudIds.add(note.cloud_id);
+    purgedClientIds.add(note.client_note_id);
   });
   const shareByCloudId = new Map(state.shareByCloudId);
   purgedCloudIds.forEach((id) => shareByCloudId.delete(id));
@@ -616,7 +608,8 @@ function handleSpacePurged(spaceId: number): void {
     folders: state.folders.filter((f) => f.space_id !== spaceId),
     folderCounts,
     spaceRootCounts,
-    expandedContainers: expanded,
+    expandedContainers: teardown.expandedContainers,
+    activeNoteId: teardown.activeNoteId,
     shareByCloudId,
     noteConflicts,
   };
@@ -638,10 +631,10 @@ function handleSpacePurged(spaceId: number): void {
       const fallbackFolder = findDefaultFolder(privateFolders) ?? privateFolders[0];
       fallbackContext = { spaceId: privateSpace.id, folderId: fallbackFolder?.id ?? null };
       extra.activeContext = fallbackContext;
-      extra.notes = notesByContainer[contextContainerKey(fallbackContext)] ?? [];
+      extra.notes = teardown.notesByContainer[contextContainerKey(fallbackContext)] ?? [];
     }
   }
-  useNoteStore.setState({ notesByContainer, ...extra });
+  useNoteStore.setState({ notesByContainer: teardown.notesByContainer, ...extra });
   if (fallbackContext) void ensureContainerLoaded(contextContainerKey(fallbackContext));
   // The purge relocates never-synced notes to the private space root —
   // refresh counts, and the root container when it's already cached.
@@ -686,16 +679,13 @@ export async function deleteFolder(id: number): Promise<{ success: boolean; erro
   const state = useNoteStore.getState();
   const folder = state.folders.find((f) => f.id === id);
   const key = folderContainerKey(id);
-  const deletedNotes = state.notesByContainer[key];
-  const notesByContainer = { ...state.notesByContainer };
-  delete notesByContainer[key];
-  const expanded = new Set(state.expandedContainers);
-  if (expanded.delete(key)) persistExpandedContainers(expanded);
-  const extra: Partial<NoteState> = { expandedContainers: expanded };
-  if (state.activeNoteId != null && deletedNotes?.some((n) => n.id === state.activeNoteId)) {
-    extra.activeNoteId = null;
-  }
-  useNoteStore.setState({ notesByContainer, ...extra });
+  const teardown = teardownNoteContainers(state, [key]);
+  persistExpandedContainers(teardown.expandedContainers);
+  useNoteStore.setState({
+    notesByContainer: teardown.notesByContainer,
+    expandedContainers: teardown.expandedContainers,
+    activeNoteId: teardown.activeNoteId,
+  });
 
   await loadFolders();
   if (getActiveFolderIdValue() === id && folder) {

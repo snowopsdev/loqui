@@ -146,14 +146,6 @@ export default function CreateSpaceDialog({
     () => (rosterWorkspaceId === workspace?.id ? orderMemberCandidates(roster, user?.id) : []),
     [roster, rosterWorkspaceId, user?.id, workspace?.id]
   );
-  const filteredCandidates = useMemo(() => {
-    const query = memberSearch.trim().toLowerCase();
-    if (!query) return candidates;
-    return candidates.filter(
-      (m) => (m.name ?? "").toLowerCase().includes(query) || m.email.toLowerCase().includes(query)
-    );
-  }, [candidates, memberSearch]);
-
   const handleOpenChange = (nextOpen: boolean) => {
     onOpenChange(nextOpen);
     if (!nextOpen) {
@@ -458,7 +450,7 @@ export default function CreateSpaceDialog({
                           </div>
                         ) : candidates.length > 0 ? (
                           <MemberPickList
-                            members={filteredCandidates}
+                            members={candidates}
                             search={memberSearch}
                             onSearchChange={setMemberSearch}
                             onSelect={toggleMember}

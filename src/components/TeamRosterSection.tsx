@@ -109,23 +109,19 @@ export default function TeamRosterSection({
   };
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members]);
-  const addCandidates = useMemo(() => {
-    const query = addSearch.trim().toLowerCase();
-    const matches = workspaceMembers.filter(
-      (m) =>
-        !memberIds.has(m.user_id) &&
-        (!query ||
-          (m.name ?? "").toLowerCase().includes(query) ||
-          m.email.toLowerCase().includes(query))
-    );
-    return orderMemberCandidates(matches, currentUserId);
-  }, [workspaceMembers, memberIds, addSearch, currentUserId]);
+  const addCandidates = useMemo(
+    () =>
+      orderMemberCandidates(
+        workspaceMembers.filter((member) => !memberIds.has(member.user_id)),
+        currentUserId
+      ),
+    [workspaceMembers, memberIds, currentUserId]
+  );
 
   const searchEmail = addSearch.trim().toLowerCase();
   const showInviteFooter =
     !!onInvite &&
     searchEmail.includes("@") &&
-    addCandidates.length === 0 &&
     !members.some((m) => m.email.toLowerCase() === searchEmail) &&
     !workspaceMembers.some((m) => m.email.toLowerCase() === searchEmail);
 

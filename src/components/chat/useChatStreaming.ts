@@ -7,6 +7,7 @@ import { getAgentSystemPrompt } from "../../config/prompts";
 import { createToolRegistry } from "../../services/tools";
 import type { ToolRegistry } from "../../services/tools/ToolRegistry";
 import type { Message, AgentState, ToolCallInfo } from "./types";
+import type { ContainerScope } from "../../types/chat";
 
 const RAG_NOTE_LIMIT = 5;
 const RAG_NOTE_SNIPPET_LENGTH = 500;
@@ -18,12 +19,7 @@ function estimateModelSizeB(modelId: string): number {
   return match ? parseFloat(match[1]) : 0;
 }
 
-export interface ChatSearchScope {
-  spaceId: number;
-  folderId: number | null;
-}
-
-async function buildRAGContext(userText: string, scope?: ChatSearchScope): Promise<string> {
+async function buildRAGContext(userText: string, scope?: ContainerScope): Promise<string> {
   if (!window.electronAPI?.semanticSearchNotes) return "";
   try {
     const results = await window.electronAPI.semanticSearchNotes(
@@ -55,7 +51,7 @@ interface UseChatStreamingOptions {
   /** Optional note context to prepend to the system prompt (used by embedded note chat). */
   noteContext?: string;
   /** Optional container scope applied to RAG and the search_notes tool (container overview chat). */
-  searchScope?: ChatSearchScope;
+  searchScope?: ContainerScope;
   onStreamComplete?: (assistantId: string, content: string, toolCalls?: ToolCallInfo[]) => void;
 }
 

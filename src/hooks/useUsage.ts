@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "./useAuth";
 import { CACHE_CONFIG } from "../config/constants";
 import { withSessionRefresh } from "../lib/auth";
-import { notifyIsSubscribedChanged, readIsSubscribed } from "../lib/subscriptionFlag";
+import { writeIsSubscribed } from "../lib/subscriptionFlag";
 
 interface UsageData {
   wordsUsed: number;
@@ -110,10 +110,7 @@ export function useUsage(): UseUsageResult | null {
             },
           });
           lastFetchRef.current = Date.now();
-          const isSubscribed = result.isSubscribed ?? false;
-          const flagChanged = readIsSubscribed() !== isSubscribed;
-          localStorage.setItem("isSubscribed", String(isSubscribed));
-          if (flagChanged) notifyIsSubscribedChanged();
+          writeIsSubscribed(result.isSubscribed ?? false);
         } else {
           const error: any = new Error(result.error || "Failed to fetch usage");
           error.code = result.code;

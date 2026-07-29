@@ -13,8 +13,12 @@ import { TranscriptionsService } from "./TranscriptionsService.js";
 import { DictionaryService } from "./DictionaryService.js";
 import { SnippetService, type CloudSnippetEntry } from "./SnippetService.js";
 import { CloudApiError } from "./cloudApi.js";
-import { notifyTeamSpacesCapabilityChanged } from "../lib/teamSpacesCapability";
-import { subscribeIsSubscribed } from "../lib/subscriptionFlag";
+import {
+  clearTeamSpacesCapability,
+  readTeamSpacesCapability,
+  writeTeamSpacesCapability,
+} from "../lib/teamSpacesCapability";
+import { readIsSubscribed, subscribeIsSubscribed } from "../lib/subscriptionFlag";
 import { readNoteConflictIds } from "../lib/noteConflictRegistry";
 import {
   buildNoteUpdatePayload,
@@ -186,17 +190,14 @@ class SyncService {
     return (
       localStorage.getItem("isSignedIn") === "true" &&
       localStorage.getItem("cloudBackupEnabled") === "true" &&
-      localStorage.getItem("isSubscribed") === "true"
+      readIsSubscribed()
     );
   }
 
   // Sharing a note is per-note consent: shared notes keep syncing even when
   // the global cloud-backup toggle is off, as long as the account can sync.
   private canSyncSharedNotes(): boolean {
-    return (
-      localStorage.getItem("isSignedIn") === "true" &&
-      localStorage.getItem("isSubscribed") === "true"
-    );
+    return localStorage.getItem("isSignedIn") === "true" && readIsSubscribed();
   }
 
   // Team-space membership, like sharing, is per-space consent: team content
@@ -208,14 +209,12 @@ class SyncService {
   // Whether the API supports team scope (GET /api/me/teams deployed); probed
   // by syncSpaces and cached for the UI gate (useTeamSpacesCapability).
   private hasTeamSpacesCapability(): boolean {
-    return localStorage.getItem("teamSpacesCapability") === "true";
+    return readTeamSpacesCapability();
   }
 
   private cacheTeamSpacesCapability(available: boolean): void {
-    const changed = localStorage.getItem("teamSpacesCapability") !== String(available);
-    localStorage.setItem("teamSpacesCapability", String(available));
+    writeTeamSpacesCapability(available);
     localStorage.setItem("teamSpacesCapability.probedAt", new Date().toISOString());
-    if (changed) notifyTeamSpacesCapabilityChanged();
   }
 
   // Sign-out leaves no team content behind: purge every team space locally and
@@ -254,9 +253,8 @@ class SyncService {
     } catch (err) {
       console.error("Team space purge on sign-out failed:", err);
     }
-    localStorage.removeItem("teamSpacesCapability");
+    clearTeamSpacesCapability();
     localStorage.removeItem("teamSpacesCapability.probedAt");
-    notifyTeamSpacesCapabilityChanged();
     localStorage.removeItem("lastSyncedAt.notes.team");
     localStorage.removeItem("lastSyncedAt.folders.team");
     // The guard protected any pass still in flight during the purge; drop it
@@ -494,18 +492,10 @@ class SyncService {
     const folders = (await window.electronAPI.getFolders?.()) ?? [];
     const folder = folders.find((f) => f.id === id);
     if (!folder) return;
-    if (folder.left_team && folder.cloud_id && !this.hasTeamSpacesCapability()) {
-      // The retraction PATCH needs team-scope support; without it the push
-      // would settle the row and erase the pending scope change.
-      return;
-    }
 
     const ctx = await this.buildSpaceContext();
-    const scope = this.pushScopeFields(ctx.byId.get(folder.space_id));
-    if (!scope) {
-      console.warn(`Skipping folder ${folder.id} push: its team space has no cloud team yet`);
-      return;
-    }
+    const scope = this.resolvePushScope("folder", folder, ctx);
+    if (!scope) return;
 
     if (folder.cloud_id) {
       try {
@@ -584,18 +574,9 @@ class SyncService {
       // folder settles.
       return;
     }
-    if (note.left_team && note.cloud_id && !this.hasTeamSpacesCapability()) {
-      // The retraction PATCH needs team-scope support; without it the push
-      // would settle the row and erase the pending scope change. Defer until
-      // the capability probe recovers.
-      return;
-    }
     const ctx = await this.buildSpaceContext();
-    const scope = this.pushScopeFields(ctx.byId.get(note.space_id));
-    if (!scope) {
-      console.warn(`Skipping note ${note.id} push: its team space has no cloud team yet`);
-      return;
-    }
+    const scope = this.resolvePushScope("note", note, ctx);
+    if (!scope) return;
     const cloudFolderId = note.folder_id ? (localToCloud.get(note.folder_id) ?? null) : null;
 
     try {
@@ -813,6 +794,23 @@ class SyncService {
     return this.hasTeamSpacesCapability() ? { workspace_id: null, space_id: null } : {};
   }
 
+  // Resolves every note/folder push through the same two gates. Retractions
+  // must wait for team-scope support or settling the row would erase the
+  // pending scope change; team rows without a cloud scope must stay local.
+  private resolvePushScope(
+    kind: "folder" | "note",
+    row: FolderItem | NoteItem,
+    ctx: SpaceSyncContext
+  ): PushScopeFields | null {
+    if (row.left_team && row.cloud_id && !this.hasTeamSpacesCapability()) return null;
+
+    const scope = this.pushScopeFields(ctx.byId.get(row.space_id));
+    if (!scope) {
+      console.warn(`Skipping ${kind} ${row.id} push: its team space has no cloud team yet`);
+    }
+    return scope;
+  }
+
   // A push was rejected because the note's team is gone or access was revoked
   // (plan §7.2). The server row (if any) stays the team's, but this pending
   // row carries unpushed work — it is here because a push was attempted — so
@@ -963,16 +961,8 @@ class SyncService {
     const ctx = await this.buildSpaceContext();
     const pushable: Array<{ folder: FolderItem; scope: PushScopeFields }> = [];
     for (const folder of pending) {
-      if (folder.left_team && folder.cloud_id && !this.hasTeamSpacesCapability()) {
-        // The retraction PATCH needs team-scope support; without it the push
-        // would settle the row and erase the pending scope change.
-        continue;
-      }
-      const scope = this.pushScopeFields(ctx.byId.get(folder.space_id));
-      if (!scope) {
-        console.warn(`Skipping folder ${folder.id} push: its team space has no cloud team yet`);
-        continue;
-      }
+      const scope = this.resolvePushScope("folder", folder, ctx);
+      if (!scope) continue;
       pushable.push({ folder, scope });
     }
 
@@ -1243,16 +1233,8 @@ class SyncService {
         // folder and notes push together once the conflict resolves.
         continue;
       }
-      if (note.left_team && note.cloud_id && !this.hasTeamSpacesCapability()) {
-        // The retraction PATCH needs team-scope support; without it the push
-        // would settle the row and erase the pending scope change.
-        continue;
-      }
-      const scope = this.pushScopeFields(ctx.byId.get(note.space_id));
-      if (!scope) {
-        console.warn(`Skipping note ${note.id} push: its team space has no cloud team yet`);
-        continue;
-      }
+      const scope = this.resolvePushScope("note", note, ctx);
+      if (!scope) continue;
       pushable.push({ note, scope });
     }
 

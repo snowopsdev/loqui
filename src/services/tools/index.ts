@@ -7,6 +7,7 @@ import { listFoldersTool } from "./listFoldersTool";
 import { clipboardTool } from "./clipboardTool";
 import { webSearchTool } from "./webSearchTool";
 import { calendarTool } from "./calendarTool";
+import type { ContainerScope } from "../../types/chat";
 
 export { ToolRegistry } from "./ToolRegistry";
 export type { ToolDefinition, ToolResult } from "./ToolRegistry";
@@ -16,7 +17,7 @@ interface ToolRegistrySettings {
   gcalConnected: boolean;
   cloudBackupEnabled: boolean;
   /** Pins search_notes to a container (overview chat); the LLM cannot widen it. */
-  searchScope?: { spaceId: number; folderId: number | null };
+  searchScope?: ContainerScope;
 }
 
 export function createToolRegistry(settings: ToolRegistrySettings): ToolRegistry {

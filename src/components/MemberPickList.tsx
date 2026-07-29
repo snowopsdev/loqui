@@ -1,7 +1,9 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Loader2, Search } from "lucide-react";
 import MemberAvatar from "./MemberAvatar";
 import { cn } from "./lib/utils";
+import { filterMemberCandidates } from "../lib/memberCandidates";
 import type { WorkspaceMember } from "../types/electron";
 
 interface MemberPickListProps {
@@ -33,6 +35,7 @@ export default function MemberPickList({
   footer,
 }: MemberPickListProps) {
   const { t } = useTranslation();
+  const filteredMembers = useMemo(() => filterMemberCandidates(members, search), [members, search]);
   return (
     <div className="rounded border border-border/70 dark:border-border-subtle/50 overflow-hidden">
       <div className="relative border-b border-border/40 dark:border-border-subtle/40">
@@ -48,7 +51,7 @@ export default function MemberPickList({
         />
       </div>
       <div className={cn("overflow-y-auto p-1", listClassName ?? "max-h-36")}>
-        {members.map((member) => {
+        {filteredMembers.map((member) => {
           const isSelected = selectedIds?.has(member.user_id) ?? false;
           const isBusy = busyIds?.has(member.user_id) ?? false;
           return (
@@ -82,12 +85,12 @@ export default function MemberPickList({
             </button>
           );
         })}
-        {members.length === 0 && !footer && (
+        {filteredMembers.length === 0 && !footer && (
           <p className="text-xs text-foreground/25 text-center py-2">
             {t("notes.context.noResults")}
           </p>
         )}
-        {footer}
+        {filteredMembers.length === 0 && footer}
       </div>
     </div>
   );

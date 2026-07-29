@@ -10,6 +10,16 @@ export interface RemoveNoteResult extends NoteListsState {
   changed: boolean;
 }
 
+export interface NoteContainerState {
+  notesByContainer: Record<string, NoteItem[]>;
+  expandedContainers: Set<string>;
+  activeNoteId: number | null;
+}
+
+export interface TeardownContainersResult extends NoteContainerState {
+  removedNotes: NoteItem[];
+}
+
 /**
  * Remove a note from every container list AND the flat `notes` list. The flat
  * list can hold notes absent from every loaded container (flat-only loads,
@@ -44,4 +54,33 @@ export function removeNoteFromLists(state: NoteListsState, id: number): RemoveNo
   }
 
   return { notesByContainer, notes, activeNoteId, changed };
+}
+
+/**
+ * Remove cached note containers and all renderer state that points into them.
+ * Folder deletion and space purging share this operation; callers remain
+ * responsible for choosing a replacement active context.
+ */
+export function teardownNoteContainers(
+  state: NoteContainerState,
+  keys: Iterable<string>
+): TeardownContainersResult {
+  const removedKeys = new Set(keys);
+  const notesByContainer: Record<string, NoteItem[]> = {};
+  const removedNotes: NoteItem[] = [];
+
+  for (const [key, items] of Object.entries(state.notesByContainer)) {
+    if (removedKeys.has(key)) removedNotes.push(...items);
+    else notesByContainer[key] = items;
+  }
+
+  const expandedContainers = new Set(
+    [...state.expandedContainers].filter((key) => !removedKeys.has(key))
+  );
+  const activeNoteId =
+    state.activeNoteId != null && removedNotes.some((note) => note.id === state.activeNoteId)
+      ? null
+      : state.activeNoteId;
+
+  return { notesByContainer, expandedContainers, activeNoteId, removedNotes };
 }

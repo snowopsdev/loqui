@@ -1,4 +1,5 @@
 import type { SpaceItem } from "../../types/electron";
+import type { ContainerScope } from "../../types/chat";
 import type { ToolDefinition, ToolResult } from "./ToolRegistry";
 import { resolveLocalNoteId, resolveSpace } from "./utils";
 
@@ -7,7 +8,7 @@ const MAX_CONTENT_LENGTH = 500;
 interface SearchToolOptions {
   useCloudSearch: boolean;
   /** Pins every search to this container; the LLM's space arg is dropped. */
-  fixedScope?: { spaceId: number; folderId: number | null };
+  fixedScope?: ContainerScope;
 }
 
 export function createSearchNotesTool(options: SearchToolOptions): ToolDefinition {

@@ -1,16 +1,28 @@
-// Reactive view over a boolean localStorage flag: same-window writers call
-// notify(); cross-window flips ride the storage event.
+// Reactive boolean localStorage flag. Writes notify same-window subscribers;
+// cross-window flips ride the storage event.
 export interface ReactiveLocalFlag {
   read: () => boolean;
-  notify: () => void;
+  write: (value: boolean) => void;
+  clear: () => void;
   subscribe: (onChange: () => void) => () => void;
 }
 
 export function createReactiveLocalFlag(key: string): ReactiveLocalFlag {
   const subscribers = new Set<() => void>();
+  const notify = () => subscribers.forEach((subscriber) => subscriber());
   return {
     read: () => localStorage.getItem(key) === "true",
-    notify: () => subscribers.forEach((n) => n()),
+    write: (value) => {
+      const next = String(value);
+      if (localStorage.getItem(key) === next) return;
+      localStorage.setItem(key, next);
+      notify();
+    },
+    clear: () => {
+      if (localStorage.getItem(key) == null) return;
+      localStorage.removeItem(key);
+      notify();
+    },
     subscribe: (onChange) => {
       subscribers.add(onChange);
       const onStorage = (e: StorageEvent) => {

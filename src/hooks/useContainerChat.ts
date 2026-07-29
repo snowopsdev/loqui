@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useChatPersistence } from "../components/chat/useChatPersistence";
-import { useChatStreaming, type ChatSearchScope } from "../components/chat/useChatStreaming";
+import { useChatStreaming } from "../components/chat/useChatStreaming";
+import { useChatMessageSender } from "../components/chat/useChatMessageSender";
 import type { Message, AgentState } from "../components/chat/types";
 import { deriveConversationTitle } from "../lib/conversationTitle";
 import type { SpaceItem, FolderItem, NoteItem } from "../types/electron";
+import type { ContainerScope } from "../types/chat";
 
 const MAX_CONTEXT_NOTES = 12;
 const NOTE_SNIPPET_LENGTH = 600;
@@ -62,7 +64,7 @@ export function useContainerChat({
     return [header, ...noteBlocks].join("\n\n");
   }, [folder, space.name, notes]);
 
-  const searchScope = useMemo<ChatSearchScope>(
+  const searchScope = useMemo<ContainerScope>(
     () => ({ spaceId: space.id, folderId }),
     [space.id, folderId]
   );
@@ -106,32 +108,24 @@ export function useContainerChat({
     setConversationId(null);
   }, [persistence]);
 
-  const sendMessage = useCallback(
+  const createConversation = useCallback(
     async (text: string) => {
-      let convId = conversationId;
-      if (!convId) {
-        const title = deriveConversationTitle(text, folder?.name ?? space.name);
-        convId = await persistence.createConversation(title, null, {
-          spaceId: space.id,
-          folderId,
-        });
-        fetchConversations();
-      }
-
-      const userMsg: Message = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: text,
-        isStreaming: false,
-      };
-      persistence.setMessages((prev) => [...prev, userMsg]);
-      await persistence.saveUserMessage(text);
-
-      const allMessages = [...persistence.messages, userMsg];
-      await streaming.sendToAI(text, allMessages);
+      const title = deriveConversationTitle(text, folder?.name ?? space.name);
+      const id = await persistence.createConversation(title, null, {
+        spaceId: space.id,
+        folderId,
+      });
+      void fetchConversations();
+      return id;
     },
-    [conversationId, folder, folderId, space.id, space.name, persistence, streaming, fetchConversations]
+    [fetchConversations, folder, folderId, persistence, space.id, space.name]
   );
+  const sendMessage = useChatMessageSender({
+    conversationId,
+    persistence,
+    streaming,
+    createConversation,
+  });
 
   return {
     messages: persistence.messages,

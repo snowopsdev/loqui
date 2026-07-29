@@ -98,6 +98,13 @@ const MENU_ITEM_CLASS = "text-xs gap-2 rounded-md px-2 py-1";
 
 const SUB_CONTENT_CLASS = "min-w-36 rounded-xl border border-border p-1";
 
+const DROP_TARGET_CLASS = "bg-primary/12 dark:bg-primary/15 ring-1 ring-primary/25";
+const DROP_SUCCESS_CLASS = "bg-emerald-500/10 dark:bg-emerald-400/10 ring-1 ring-emerald-500/20";
+const SUB_TRIGGER_CLASS = cn(
+  MENU_ITEM_CLASS,
+  "cursor-pointer focus:bg-foreground/5 data-[state=open]:bg-foreground/5"
+);
+
 type TFn = (key: string, options?: Record<string, unknown>) => string;
 
 type TreeRow =
@@ -183,8 +190,8 @@ function SectionHeader({
       {...dropHandlers}
       className={cn(
         "flex items-center justify-between h-6 px-2 mt-1 rounded-md",
-        isDragOver && "bg-primary/12 dark:bg-primary/15 ring-1 ring-primary/25",
-        isDropSuccess && "bg-emerald-500/10 dark:bg-emerald-400/10 ring-1 ring-emerald-500/20",
+        isDragOver && DROP_TARGET_CLASS,
+        isDropSuccess && DROP_SUCCESS_CLASS,
         className
       )}
     >
@@ -262,6 +269,91 @@ function Chevron({ isExpanded, onToggle }: { isExpanded: boolean; onToggle: () =
   );
 }
 
+function ContainerRowTrailing({
+  count,
+  isActive,
+  isDropSuccess,
+}: {
+  count: number;
+  isActive: boolean;
+  isDropSuccess: boolean;
+}) {
+  return isDropSuccess ? (
+    <Check
+      size={10}
+      className="text-emerald-500 dark:text-emerald-400 shrink-0 animate-[scale-in_200ms_ease-out]"
+    />
+  ) : (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "text-xs tabular-nums shrink-0 transition-opacity group-hover:opacity-0",
+        isActive
+          ? "text-foreground/50 dark:text-foreground/30"
+          : "text-foreground/35 dark:text-foreground/15"
+      )}
+    >
+      {count > 0 ? count : ""}
+    </span>
+  );
+}
+
+function SearchableMoveSubmenu({
+  icon,
+  label,
+  itemCount,
+  search,
+  onSearchChange,
+  searchPlaceholder,
+  children,
+  footer,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  itemCount: number;
+  search: string;
+  onSearchChange: (value: string) => void;
+  searchPlaceholder: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className={SUB_TRIGGER_CLASS}>
+        {icon}
+        {label}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent sideOffset={4} className={SUB_CONTENT_CLASS}>
+        {itemCount > 5 && (
+          <>
+            <div className="relative px-1.5 py-0.5">
+              <Search
+                size={9}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground/15 pointer-events-none"
+              />
+              <input
+                value={search}
+                onChange={(event) => onSearchChange(event.target.value)}
+                onKeyDown={(event) => event.stopPropagation()}
+                placeholder={searchPlaceholder}
+                className="input-inline w-full pl-4.5 pr-1 py-0.5 text-xs text-foreground placeholder:text-foreground/15 outline-none border-none appearance-none"
+              />
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <div className="overflow-y-auto max-h-40">{children}</div>
+        {footer && (
+          <>
+            <DropdownMenuSeparator />
+            {footer}
+          </>
+        )}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
 function SpaceMenuIcon({ space }: { space: SpaceItem }) {
   if (space.kind === "private") {
     return <Lock size={11} className="text-muted-foreground/60 shrink-0" />;
@@ -336,8 +428,8 @@ function SpaceRow({
         isActive
           ? "bg-primary/8 dark:bg-primary/10"
           : "hover:bg-foreground/4 dark:hover:bg-white/4",
-        isDragOver && "bg-primary/12 dark:bg-primary/15 ring-1 ring-primary/25",
-        isDropSuccess && "bg-emerald-500/10 dark:bg-emerald-400/10 ring-1 ring-emerald-500/20"
+        isDragOver && DROP_TARGET_CLASS,
+        isDropSuccess && DROP_SUCCESS_CLASS
       )}
     >
       <Chevron isExpanded={isExpanded} onToggle={onToggle} />
@@ -374,24 +466,7 @@ function SpaceRow({
       >
         {displayName}
       </span>
-      {isDropSuccess ? (
-        <Check
-          size={10}
-          className="text-emerald-500 dark:text-emerald-400 shrink-0 animate-[scale-in_200ms_ease-out]"
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "text-xs tabular-nums shrink-0 transition-opacity group-hover:opacity-0",
-            isActive
-              ? "text-foreground/50 dark:text-foreground/30"
-              : "text-foreground/35 dark:text-foreground/15"
-          )}
-        >
-          {count > 0 ? count : ""}
-        </span>
-      )}
+      <ContainerRowTrailing count={count} isActive={isActive} isDropSuccess={isDropSuccess} />
       <span className="absolute right-1.5 flex items-center gap-px">
         <Button
           variant="ghost"
@@ -555,8 +630,8 @@ function FolderRow({
         isActive
           ? "bg-primary/8 dark:bg-primary/10"
           : "hover:bg-foreground/4 dark:hover:bg-white/4",
-        isDragOver && "bg-primary/12 dark:bg-primary/15 ring-1 ring-primary/25",
-        isDropSuccess && "bg-emerald-500/10 dark:bg-emerald-400/10 ring-1 ring-emerald-500/20"
+        isDragOver && DROP_TARGET_CLASS,
+        isDropSuccess && DROP_SUCCESS_CLASS
       )}
     >
       <Chevron isExpanded={isExpanded} onToggle={onToggle} />
@@ -579,24 +654,7 @@ function FolderRow({
       >
         {folder.name}
       </span>
-      {isDropSuccess ? (
-        <Check
-          size={10}
-          className="text-emerald-500 dark:text-emerald-400 shrink-0 animate-[scale-in_200ms_ease-out]"
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "text-xs tabular-nums shrink-0 transition-opacity group-hover:opacity-0",
-            isActive
-              ? "text-foreground/50 dark:text-foreground/30"
-              : "text-foreground/35 dark:text-foreground/15"
-          )}
-        >
-          {count > 0 ? count : ""}
-        </span>
-      )}
+      <ContainerRowTrailing count={count} isActive={isActive} isDropSuccess={isDropSuccess} />
       {(!folder.is_default || noteFilesEnabled) && (
         <DropdownMenu onOpenChange={(open) => !open && setSpaceSearch("")}>
           <DropdownMenuTrigger asChild>
@@ -637,62 +695,38 @@ function FolderRow({
                   {t("notes.context.rename")}
                 </DropdownMenuItem>
                 {canMoveToSpace && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger
-                      className={cn(
-                        MENU_ITEM_CLASS,
-                        "cursor-pointer focus:bg-foreground/5 data-[state=open]:bg-foreground/5"
-                      )}
-                    >
-                      <Users size={11} className="text-muted-foreground/60" />
-                      {t("notes.spaces.moveToSpace")}
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent sideOffset={4} className={SUB_CONTENT_CLASS}>
-                      {spaces.length > 5 && (
-                        <>
-                          <div className="relative px-1.5 py-0.5">
-                            <Search
-                              size={9}
-                              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground/15 pointer-events-none"
-                            />
-                            <input
-                              value={spaceSearch}
-                              onChange={(e) => setSpaceSearch(e.target.value)}
-                              onKeyDown={(e) => e.stopPropagation()}
-                              placeholder={t("notes.spaces.searchSpaces")}
-                              className="input-inline w-full pl-4.5 pr-1 py-0.5 text-xs text-foreground placeholder:text-foreground/15 outline-none border-none appearance-none"
-                            />
-                          </div>
-                          <DropdownMenuSeparator />
-                        </>
-                      )}
-                      <div className="overflow-y-auto max-h-40">
-                        {filteredSpaces.map((space) => {
-                          const isCurrent = space.id === folder.space_id;
-                          return (
-                            <DropdownMenuItem
-                              key={space.id}
-                              disabled={isCurrent}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onMoveToSpace(space);
-                              }}
-                              className={MENU_ITEM_CLASS}
-                            >
-                              <SpaceMenuIcon space={space} />
-                              <span className="truncate flex-1">{spaceDisplayName(space, t)}</span>
-                              {isCurrent && <Check size={9} className="text-primary shrink-0" />}
-                            </DropdownMenuItem>
-                          );
-                        })}
-                        {spaceSearch && filteredSpaces.length === 0 && (
-                          <p className="text-xs text-foreground/20 text-center py-1.5">
-                            {t("notes.spaces.noSpacesFound")}
-                          </p>
-                        )}
-                      </div>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                  <SearchableMoveSubmenu
+                    icon={<Users size={11} className="text-muted-foreground/60" />}
+                    label={t("notes.spaces.moveToSpace")}
+                    itemCount={spaces.length}
+                    search={spaceSearch}
+                    onSearchChange={setSpaceSearch}
+                    searchPlaceholder={t("notes.spaces.searchSpaces")}
+                  >
+                    {filteredSpaces.map((space) => {
+                      const isCurrent = space.id === folder.space_id;
+                      return (
+                        <DropdownMenuItem
+                          key={space.id}
+                          disabled={isCurrent}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onMoveToSpace(space);
+                          }}
+                          className={MENU_ITEM_CLASS}
+                        >
+                          <SpaceMenuIcon space={space} />
+                          <span className="truncate flex-1">{spaceDisplayName(space, t)}</span>
+                          {isCurrent && <Check size={9} className="text-primary shrink-0" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                    {spaceSearch && filteredSpaces.length === 0 && (
+                      <p className="text-xs text-foreground/20 text-center py-1.5">
+                        {t("notes.spaces.noSpacesFound")}
+                      </p>
+                    )}
+                  </SearchableMoveSubmenu>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -913,91 +947,15 @@ function NoteLeaf({
               <DropdownMenuSeparator />
             </>
           )}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger
-              className={cn(
-                MENU_ITEM_CLASS,
-                "cursor-pointer focus:bg-foreground/5 data-[state=open]:bg-foreground/5"
-              )}
-            >
-              <FolderOpen size={11} className="text-muted-foreground/60" />
-              {multiSpace ? t("notes.spaces.moveTo") : t("notes.context.moveToFolder")}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent sideOffset={4} className={SUB_CONTENT_CLASS}>
-              {moveOptions.length > 5 && (
-                <>
-                  <div className="relative px-1.5 py-0.5">
-                    <Search
-                      size={9}
-                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground/15 pointer-events-none"
-                    />
-                    <input
-                      value={moveSearch}
-                      onChange={(e) => setMoveSearch(e.target.value)}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      placeholder={t("notes.context.searchFolders")}
-                      className="input-inline w-full pl-4.5 pr-1 py-0.5 text-xs text-foreground placeholder:text-foreground/15 outline-none border-none appearance-none"
-                    />
-                  </div>
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              <div className="overflow-y-auto max-h-40">
-                {moveSearch ? (
-                  <>
-                    {filteredOptions.map((option) =>
-                      renderOption(
-                        option,
-                        multiSpace && option.target.folderId != null
-                          ? `${spaceDisplayName(option.space, t)} / ${option.label}`
-                          : option.label
-                      )
-                    )}
-                    {filteredOptions.length === 0 && (
-                      <p className="text-xs text-foreground/20 text-center py-1.5">
-                        {t("notes.context.noResults")}
-                      </p>
-                    )}
-                  </>
-                ) : multiSpace ? (
-                  spaces.map((space) => {
-                    const spaceOptions = moveOptions.filter(
-                      (option) => option.space.id === space.id
-                    );
-                    if (spaceOptions.length === 0) return null;
-                    return (
-                      <DropdownMenuSub key={space.id}>
-                        <DropdownMenuSubTrigger
-                          className={cn(
-                            MENU_ITEM_CLASS,
-                            "cursor-pointer focus:bg-foreground/5 data-[state=open]:bg-foreground/5"
-                          )}
-                        >
-                          <SpaceMenuIcon space={space} />
-                          <span className="truncate flex-1">{spaceDisplayName(space, t)}</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent
-                          sideOffset={4}
-                          className={cn(SUB_CONTENT_CLASS, "max-h-40 overflow-y-auto")}
-                        >
-                          {spaceOptions.map((option) =>
-                            renderOption(
-                              option,
-                              option.target.folderId == null
-                                ? t("notes.spaces.spaceRoot")
-                                : option.label
-                            )
-                          )}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    );
-                  })
-                ) : (
-                  moveOptions.map((option) => renderOption(option, option.label))
-                )}
-              </div>
-              <DropdownMenuSeparator />
-              {isCreating ? (
+          <SearchableMoveSubmenu
+            icon={<FolderOpen size={11} className="text-muted-foreground/60" />}
+            label={multiSpace ? t("notes.spaces.moveTo") : t("notes.context.moveToFolder")}
+            itemCount={moveOptions.length}
+            search={moveSearch}
+            onSearchChange={setMoveSearch}
+            searchPlaceholder={t("notes.context.searchFolders")}
+            footer={
+              isCreating ? (
                 <div className="px-1">
                   <input
                     autoFocus
@@ -1030,9 +988,55 @@ function NoteLeaf({
                   <Plus size={10} />
                   {t("notes.context.newFolder")}
                 </DropdownMenuItem>
-              )}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+              )
+            }
+          >
+            {moveSearch ? (
+              <>
+                {filteredOptions.map((option) =>
+                  renderOption(
+                    option,
+                    multiSpace && option.target.folderId != null
+                      ? `${spaceDisplayName(option.space, t)} / ${option.label}`
+                      : option.label
+                  )
+                )}
+                {filteredOptions.length === 0 && (
+                  <p className="text-xs text-foreground/20 text-center py-1.5">
+                    {t("notes.context.noResults")}
+                  </p>
+                )}
+              </>
+            ) : multiSpace ? (
+              spaces.map((space) => {
+                const spaceOptions = moveOptions.filter((option) => option.space.id === space.id);
+                if (spaceOptions.length === 0) return null;
+                return (
+                  <DropdownMenuSub key={space.id}>
+                    <DropdownMenuSubTrigger className={SUB_TRIGGER_CLASS}>
+                      <SpaceMenuIcon space={space} />
+                      <span className="truncate flex-1">{spaceDisplayName(space, t)}</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent
+                      sideOffset={4}
+                      className={cn(SUB_CONTENT_CLASS, "max-h-40 overflow-y-auto")}
+                    >
+                      {spaceOptions.map((option) =>
+                        renderOption(
+                          option,
+                          option.target.folderId == null
+                            ? t("notes.spaces.spaceRoot")
+                            : option.label
+                        )
+                      )}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                );
+              })
+            ) : (
+              moveOptions.map((option) => renderOption(option, option.label))
+            )}
+          </SearchableMoveSubmenu>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={(e) => {
@@ -1215,10 +1219,9 @@ export default function SpacesTree({
     if (!intoSpace) return;
     showConfirmDialog({
       title: t("notes.spaces.confirmMoveInTitle", { space: intoSpace.name }),
-      description: t(
-        isFolder ? "notes.spaces.confirmMoveInFolder" : "notes.spaces.confirmMoveIn",
-        { space: intoSpace.name }
-      ),
+      description: t(isFolder ? "notes.spaces.confirmMoveInFolder" : "notes.spaces.confirmMoveIn", {
+        space: intoSpace.name,
+      }),
       confirmText: t("notes.spaces.moveConfirm"),
       onConfirm,
     });
@@ -1334,8 +1337,7 @@ export default function SpacesTree({
       confirmCrossSpaceMove(note.spaceId, target.spaceId, false, commit);
     },
     canCrossSpaceDrop: (note, target) => allowsCrossSpaceMove(note.spaceId, target.spaceId),
-    onCrossSpaceVeto: () =>
-      toast({ title: t("notes.spaces.cantMoveOut"), duration: 4000 }),
+    onCrossSpaceVeto: () => toast({ title: t("notes.spaces.cantMoveOut"), duration: 4000 }),
     onHoverTarget: (key) => setContainerExpanded(key, true),
   });
 

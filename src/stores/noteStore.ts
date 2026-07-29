@@ -116,10 +116,6 @@ function noteContainerKey(note: NoteItem): string {
     : spaceContainerKey(note.space_id);
 }
 
-function activeContainerKey(state: NoteState): string | null {
-  return state.activeContext ? contextContainerKey(state.activeContext) : null;
-}
-
 function findNoteInState(state: NoteState, id: number): NoteItem | null {
   for (const items of Object.values(state.notesByContainer)) {
     const note = items.find((n) => n.id === id);
@@ -134,7 +130,7 @@ function applyContainers(
   extra: Partial<NoteState> = {}
 ): void {
   const state = useNoteStore.getState();
-  const context = (extra.activeContext ?? state.activeContext) as ActiveContext | null;
+  const context = state.activeContext;
   const activeKey = context ? contextContainerKey(context) : null;
   const update: Partial<NoteState> = { notesByContainer, ...extra };
   if (activeKey && notesByContainer[activeKey] && notesByContainer[activeKey] !== state.notes) {
@@ -150,7 +146,7 @@ function ensureIpcListeners() {
 
   const disposers: Array<() => void> = [];
 
-  if (window.electronAPI?.onNoteAdded) {
+  if (window.electronAPI.onNoteAdded) {
     const dispose = window.electronAPI.onNoteAdded((note) => {
       if (note) {
         addNote(note);
@@ -162,7 +158,7 @@ function ensureIpcListeners() {
     }
   }
 
-  if (window.electronAPI?.onNoteUpdated) {
+  if (window.electronAPI.onNoteUpdated) {
     const dispose = window.electronAPI.onNoteUpdated((note) => {
       if (note) {
         const previous = findNoteInState(useNoteStore.getState(), note.id);
@@ -186,7 +182,7 @@ function ensureIpcListeners() {
     }
   }
 
-  if (window.electronAPI?.onNoteDeleted) {
+  if (window.electronAPI.onNoteDeleted) {
     const dispose = window.electronAPI.onNoteDeleted(({ id }) => {
       removeNote(id);
       loadFolders();
@@ -204,7 +200,7 @@ function ensureIpcListeners() {
   // Routing through updateNoteInStore also refreshes an open clean editor
   // (PersonalNotesView's external-update resync); a dirty editor keeps its
   // buffer and the conflict-banner path covers it.
-  if (window.electronAPI?.onNoteSynced) {
+  if (window.electronAPI.onNoteSynced) {
     const dispose = window.electronAPI.onNoteSynced((note) => {
       if (!note) return;
       const state = useNoteStore.getState();
@@ -224,7 +220,7 @@ function ensureIpcListeners() {
     }
   }
 
-  if (window.electronAPI?.onFolderSynced) {
+  if (window.electronAPI.onFolderSynced) {
     const dispose = window.electronAPI.onFolderSynced((folder) => {
       if (!folder) return;
       void loadFolders();
@@ -243,7 +239,7 @@ function ensureIpcListeners() {
   // echo of local deletes) — drop the container and refresh counts. The
   // UI-originated deleteFolder already cleaned up by the time the echo
   // arrives, so every step here is idempotent.
-  if (window.electronAPI?.onFolderDeleted) {
+  if (window.electronAPI.onFolderDeleted) {
     const dispose = window.electronAPI.onFolderDeleted(({ id }) => {
       if (id == null) return;
       const state = useNoteStore.getState();
@@ -273,7 +269,7 @@ function ensureIpcListeners() {
   // Conflict signals rebroadcast through the main process because the sync
   // pull usually runs in the overlay window, not the one showing the editor.
   // Broadcasts echo to the emitting window; both setters are idempotent.
-  if (window.electronAPI?.onSyncEvent) {
+  if (window.electronAPI.onSyncEvent) {
     const dispose = window.electronAPI.onSyncEvent(({ name, payload }) => {
       if (name === "note-conflict") {
         const data = payload as { clientNoteId?: string; cloudNote?: CloudNote } | undefined;
@@ -290,7 +286,7 @@ function ensureIpcListeners() {
     }
   }
 
-  if (window.electronAPI?.onSpacePurged) {
+  if (window.electronAPI.onSpacePurged) {
     const dispose = window.electronAPI.onSpacePurged(({ spaceId }) => {
       handleSpacePurged(spaceId);
     });
@@ -300,7 +296,7 @@ function ensureIpcListeners() {
   }
 
   // Space rows written by a sync pull or membership mutation.
-  if (window.electronAPI?.onSpaceSynced) {
+  if (window.electronAPI.onSpaceSynced) {
     const dispose = window.electronAPI.onSpaceSynced((space) => {
       if (space) void loadSpaces();
     });
@@ -318,7 +314,7 @@ function ensureIpcListeners() {
 
 export async function loadSpaces(): Promise<SpaceItem[]> {
   const gen = ++spacesLoadGeneration;
-  const items = (await window.electronAPI?.getSpaces?.()) ?? [];
+  const items = (await window.electronAPI.getSpaces?.()) ?? [];
   // A newer load may have resolved first.
   if (gen !== spacesLoadGeneration) return items;
   useNoteStore.setState({ spaces: items });
@@ -357,8 +353,8 @@ export async function loadContainerNotes(
     const id = Number(idStr);
     const items =
       kind === "f"
-        ? ((await window.electronAPI?.getNotes(noteType, limit, id)) ?? [])
-        : ((await window.electronAPI?.getNotes(noteType, limit, null, id)) ?? []);
+        ? ((await window.electronAPI.getNotes(noteType, limit, id)) ?? [])
+        : ((await window.electronAPI.getNotes(noteType, limit, null, id)) ?? []);
     // A newer load for this container may have resolved first.
     if (containerLoadGenerations.get(key) === gen) {
       applyContainers({ ...useNoteStore.getState().notesByContainer, [key]: items });
@@ -485,7 +481,7 @@ export async function initializeNotes(
   }
 
   const gen = ++loadGeneration;
-  const items = (await window.electronAPI?.getNotes(noteType, limit, folderId)) ?? [];
+  const items = (await window.electronAPI.getNotes(noteType, limit, folderId)) ?? [];
   if (gen !== loadGeneration) return items;
   useNoteStore.setState({ notes: items });
   return items;
@@ -853,7 +849,7 @@ export function useMigration(): { total: number; done: number } | null {
 }
 
 export async function startMigration(): Promise<void> {
-  const allNotes = (await window.electronAPI?.getNotes(null, 9999, null)) ?? [];
+  const allNotes = (await window.electronAPI.getNotes(null, 9999, null)) ?? [];
   const unsynced = allNotes.filter((n) => !n.cloud_id);
   if (unsynced.length === 0) return;
 
@@ -931,7 +927,7 @@ export async function persistNoteShareState(
   noteId: number,
   updates: { is_shared: number; share_token?: string | null }
 ): Promise<void> {
-  await window.electronAPI?.updateNoteShareState(noteId, updates);
+  await window.electronAPI.updateNoteShareState(noteId, updates);
 }
 
 export function getShareCacheEntry(cloudId: string): NoteShareCacheEntry | null {
@@ -940,12 +936,20 @@ export function getShareCacheEntry(cloudId: string): NoteShareCacheEntry | null 
 
 export function updateShareCache(
   cloudId: string,
-  updater: (current: NoteShareCacheEntry | undefined) => NoteShareCacheEntry
+  updater: (current: NoteShareCacheEntry | undefined) => Partial<NoteShareCacheEntry>
 ): void {
   const { shareByCloudId } = useNoteStore.getState();
   const next = new Map(shareByCloudId);
   const current = next.get(cloudId);
-  next.set(cloudId, { ...current, ...updater(current) });
+  const updated = { ...current, ...updater(current) };
+  if (
+    updated.share === undefined ||
+    updated.invitations === undefined ||
+    updated.rawToken === undefined
+  ) {
+    throw new Error("A new share cache entry requires share, invitations, and rawToken");
+  }
+  next.set(cloudId, updated);
   useNoteStore.setState({ shareByCloudId: next });
 }
 

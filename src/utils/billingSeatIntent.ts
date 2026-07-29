@@ -30,6 +30,11 @@ export function readSeatIntent(): SeatIntent | null {
     }
     return intent as SeatIntent;
   } catch {
+    try {
+      clearSeatIntent();
+    } catch {
+      // Storage itself is unavailable; there is nothing else to clean up.
+    }
     return null;
   }
 }

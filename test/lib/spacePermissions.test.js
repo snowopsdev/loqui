@@ -3,8 +3,17 @@ const assert = require("node:assert/strict");
 const {
   canManageSpace,
   canManageTeamRoster,
+  canManageWorkspace,
   canMoveBetweenSpaces,
 } = require("../../src/lib/spacePermissions.ts");
+
+test("canManageWorkspace: owners and admins can manage", () => {
+  assert.equal(canManageWorkspace("owner"), true);
+  assert.equal(canManageWorkspace("admin"), true);
+  assert.equal(canManageWorkspace("member"), false);
+  assert.equal(canManageWorkspace(null), false);
+  assert.equal(canManageWorkspace(undefined), false);
+});
 
 test("canManageSpace: space admin or workspace owner/admin", () => {
   const space = (myRole) => ({ my_role: myRole });

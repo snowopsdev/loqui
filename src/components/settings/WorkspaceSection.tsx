@@ -24,6 +24,7 @@ import {
 } from "../ui/dropdown-menu";
 import { cn } from "../lib/utils";
 import { storeSeatIntent } from "../../utils/billingSeatIntent";
+import { canManageWorkspace } from "../../lib/spacePermissions";
 import WorkspaceMembersTab from "./WorkspaceMembersTab";
 import WorkspaceTeamsTab from "./WorkspaceTeamsTab";
 import WorkspaceDeveloperTab from "./WorkspaceDeveloperTab";
@@ -158,7 +159,7 @@ export default function WorkspaceSection({ initialSubTab, onNavigateToBilling }:
   }
 
   const workspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
-  const canManage = workspace.role === "owner" || workspace.role === "admin";
+  const canManage = canManageWorkspace(workspace.role);
   const visibleTabs = SUB_TABS.filter((id) => id !== "developer" || canManage);
   const tab: WorkspaceTab = visibleTabs.includes(storedTab as WorkspaceTab)
     ? (storedTab as WorkspaceTab)
@@ -259,7 +260,7 @@ function GeneralTab({ workspace }: { workspace: Workspace }) {
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const isOwner = workspace.role === "owner";
-  const canEdit = isOwner || workspace.role === "admin";
+  const canEdit = canManageWorkspace(workspace.role);
   const dirty = name !== workspace.name || slug !== workspace.slug;
   const slugInvalid = slug.length > 0 && !SLUG_PATTERN.test(slug);
 

@@ -21,7 +21,11 @@ import {
 import { useToast } from "../ui/useToast";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useSpaces } from "../../stores/noteStore";
-import { canManageSpace, canManageTeamRoster } from "../../lib/spacePermissions";
+import {
+  canManageSpace,
+  canManageTeamRoster,
+  canManageWorkspace,
+} from "../../lib/spacePermissions";
 import type { SpaceItem, SpaceTeamRef, Team, TeamMember } from "../../types/electron";
 
 interface SpaceMembersDialogProps {
@@ -60,7 +64,7 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
   const [accessBusyTeamId, setAccessBusyTeamId] = useState<string | null>(null);
 
   const canManage = canManageSpace(space, workspace?.role ?? null);
-  const isWorkspaceAdmin = workspace?.role === "owner" || workspace?.role === "admin";
+  const isWorkspaceAdmin = canManageWorkspace(workspace?.role);
   // Team creation and workspace invites are 403'd below workspace admin.
   const canInviteToWorkspace = isWorkspaceAdmin;
 

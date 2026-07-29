@@ -43,7 +43,11 @@ import { useTeamSpacesCapability } from "../../hooks/useTeamSpacesCapability";
 import { useAuth } from "../../hooks/useAuth";
 import { useWorkspace } from "../../hooks/useWorkspace";
 import { EmojiPickerInput } from "./EmojiPickerInput";
-import { canManageSpace, canMoveBetweenSpaces } from "../../lib/spacePermissions";
+import {
+  canManageSpace,
+  canManageWorkspace,
+  canMoveBetweenSpaces,
+} from "../../lib/spacePermissions";
 import { groupTeamSpacesByWorkspace } from "../../lib/workspaceSelection";
 import { localMutationErrorKey } from "../../lib/localMutationError";
 import { readIsSubscribed, subscribeIsSubscribed } from "../../lib/subscriptionFlag";
@@ -1164,7 +1168,7 @@ export default function SpacesTree({
   const canCreateTeamSpace =
     isSignedIn &&
     workspacesLoaded &&
-    (workspaces.length === 0 || workspaces.some((w) => w.role === "owner" || w.role === "admin"));
+    (workspaces.length === 0 || workspaces.some((w) => canManageWorkspace(w.role)));
 
   // Local-only spaces (no cloud id) stay fully manageable; cloud spaces
   // follow space/workspace roles. Cosmetic — the server enforces.
@@ -2014,7 +2018,7 @@ export default function SpacesTree({
                           >
                             {workspace.name}
                           </span>
-                          {(workspace.role === "owner" || workspace.role === "admin") && (
+                          {canManageWorkspace(workspace.role) && (
                             <Button
                               variant="ghost"
                               size="icon"

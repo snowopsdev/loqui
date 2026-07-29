@@ -39,6 +39,5 @@ export const {
   removeTeamMember,
   setTeamMemberRole,
   leaveTeam,
-  renameTeam,
   deleteTeam,
 } = actions;

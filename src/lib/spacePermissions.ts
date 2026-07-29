@@ -1,5 +1,9 @@
 import type { SpaceItem, TeamRole, WorkspaceRole } from "../types/electron";
 
+export function canManageWorkspace(workspaceRole: WorkspaceRole | null | undefined): boolean {
+  return workspaceRole === "owner" || workspaceRole === "admin";
+}
+
 /**
  * Whether the current user can manage a team space (rename, delete, assign
  * teams): an explicit space admin (best role across the space's assigned
@@ -7,7 +11,7 @@ import type { SpaceItem, TeamRole, WorkspaceRole } from "../types/electron";
  * Client checks are cosmetic — the server enforces.
  */
 export function canManageSpace(space: SpaceItem, workspaceRole: WorkspaceRole | null): boolean {
-  return space.my_role === "admin" || workspaceRole === "owner" || workspaceRole === "admin";
+  return space.my_role === "admin" || canManageWorkspace(workspaceRole);
 }
 
 /**
@@ -18,7 +22,7 @@ export function canManageTeamRoster(
   teamMyRole: TeamRole | null | undefined,
   workspaceRole: WorkspaceRole | null
 ): boolean {
-  return teamMyRole === "admin" || workspaceRole === "owner" || workspaceRole === "admin";
+  return teamMyRole === "admin" || canManageWorkspace(workspaceRole);
 }
 
 /**

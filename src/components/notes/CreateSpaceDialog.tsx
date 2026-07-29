@@ -26,6 +26,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useDelayedFlag } from "../../hooks/useDelayedFlag";
 import { EmojiPickerInput } from "./EmojiPickerInput";
 import { orderMemberCandidates } from "../../lib/memberCandidates";
+import { canManageWorkspace } from "../../lib/spacePermissions";
 import {
   manageableWorkspaces as findManageableWorkspaces,
   selectWorkspaceForSpaceCreation,
@@ -170,9 +171,7 @@ export default function CreateSpaceDialog({
   // cancelling closes everything.
   const handleWorkspaceDialogChange = (nextOpen: boolean) => {
     if (nextOpen) return;
-    const created = useWorkspaceStore
-      .getState()
-      .workspaces.some((w) => w.role === "owner" || w.role === "admin");
+    const created = useWorkspaceStore.getState().workspaces.some((w) => canManageWorkspace(w.role));
     if (!created) onOpenChange(false);
   };
 

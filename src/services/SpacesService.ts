@@ -1,9 +1,5 @@
-import { cloudGet, cloudPost, cloudPatch, cloudDelete } from "./cloudApi.js";
-import type { SpaceTeamRef, TeamMember } from "../types/electron";
-
-interface DataWrap<T> {
-  data: T;
-}
+import { cloudGet, cloudPost, cloudPatch, cloudDelete, type DataWrap } from "./cloudApi.js";
+import type { SpaceTeamRef, TeamMember, TeamRole } from "../types/electron";
 
 export interface MySpace {
   id: string;
@@ -12,7 +8,7 @@ export interface MySpace {
   slug: string;
   description: string | null;
   emoji: string | null;
-  my_role: "admin" | "member";
+  my_role: TeamRole;
   member_count: number;
   teams: SpaceTeamRef[];
   created_at: string;
@@ -25,8 +21,8 @@ export interface SpaceMemberEntry extends TeamMember {
   via_teams: {
     team_id: string;
     name: string;
-    role: "admin" | "member";
-    access?: "admin" | "member";
+    role: TeamRole;
+    access?: TeamRole;
   }[];
 }
 
@@ -60,11 +56,7 @@ async function remove(spaceId: string): Promise<void> {
 
 // The teams POST upserts: with access it also updates an existing
 // assignment's cap; without it the server keeps the current value.
-async function assignTeam(
-  spaceId: string,
-  teamId: string,
-  access?: "admin" | "member"
-): Promise<void> {
+async function assignTeam(spaceId: string, teamId: string, access?: TeamRole): Promise<void> {
   await cloudPost(`/api/spaces/${spaceId}/teams`, {
     team_id: teamId,
     ...(access ? { access } : {}),

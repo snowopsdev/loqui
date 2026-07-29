@@ -20,6 +20,7 @@ import {
   DropdownMenuItem,
 } from "../ui/dropdown-menu";
 import { cn } from "../lib/utils";
+import { canManageWorkspace } from "../../lib/spacePermissions";
 
 interface Props {
   workspace: Workspace;
@@ -47,7 +48,7 @@ export default function WorkspaceMembersTab({ workspace, onNavigateToBilling }: 
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState(false);
   const [invitationsError, setInvitationsError] = useState(false);
-  const canManage = workspace.role === "owner" || workspace.role === "admin";
+  const canManage = canManageWorkspace(workspace.role);
 
   async function loadMembers() {
     setMembersLoading(true);

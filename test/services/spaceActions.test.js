@@ -18,7 +18,6 @@ function makeHarness() {
         calls.push(["team.create", workspaceId, input]);
         return { id: "new-team" };
       },
-      update: async (teamId, input) => calls.push(["team.update", teamId, input]),
       remove: async (teamId) => calls.push(["team.remove", teamId]),
       addMember: async (teamId, userId, role) =>
         calls.push(["team.addMember", teamId, userId, role]),
@@ -219,16 +218,15 @@ test("team mutations refresh the full mirror and schedule sync only when needed"
   await actions.removeTeamMember("team-1", "user-1");
   await actions.setTeamMemberRole("team-1", "user-1", "admin");
   await actions.leaveTeam("team-1", "user-1");
-  await actions.renameTeam("team-1", "Renamed");
   await actions.deleteTeam("team-1");
 
   assert.equal(
     calls.filter(([name]) => name === "roster.invalidate").length,
-    8,
+    7,
     "every membership or assignment change invalidates before refreshing"
   );
-  assert.equal(calls.filter(([name]) => name === "mirror.upsert").length, 8);
-  assert.equal(calls.filter(([name]) => name === "local.load").length, 8);
+  assert.equal(calls.filter(([name]) => name === "mirror.upsert").length, 7);
+  assert.equal(calls.filter(([name]) => name === "local.load").length, 7);
   assert.equal(
     calls.filter(([name]) => name === "sync").length,
     3,

@@ -12,7 +12,7 @@ import InviteTeammateDialog from "../InviteTeammateDialog";
 import TeamRosterSection from "../TeamRosterSection";
 import { leaveTeam } from "../../services/spaceActions";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { canManageTeamRoster } from "../../lib/spacePermissions";
+import { canManageTeamRoster, canManageWorkspace } from "../../lib/spacePermissions";
 import type { Team, TeamMember, Workspace } from "../../types/electron";
 
 interface TeamMembersDialogProps {
@@ -41,7 +41,7 @@ export default function TeamMembersDialog({
   const [inviteEmail, setInviteEmail] = useState<string | undefined>(undefined);
   const showLeaveSpinner = useDelayedFlag(isLeaving);
 
-  const isWorkspaceAdmin = workspace.role === "owner" || workspace.role === "admin";
+  const isWorkspaceAdmin = canManageWorkspace(workspace.role);
   const myTeamRole = teamMembers.find((m) => m.user_id === user?.id)?.role ?? null;
   const canManage = canManageTeamRoster(myTeamRole, workspace.role);
   // Anyone with an explicit membership row can drop it — including workspace

@@ -10,6 +10,7 @@ import { useToast } from "../ui/useToast";
 import { ConfirmDialog } from "../ui/dialog";
 import CreateTeamDialog from "../CreateTeamDialog";
 import TeamMembersDialog from "./TeamMembersDialog";
+import { canManageWorkspace } from "../../lib/spacePermissions";
 import type { Team, Workspace } from "../../types/electron";
 
 interface Props {
@@ -27,7 +28,7 @@ export default function WorkspaceTeamsTab({ workspace }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [membersTeam, setMembersTeam] = useState<Team | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const canManage = workspace.role === "owner" || workspace.role === "admin";
+  const canManage = canManageWorkspace(workspace.role);
 
   const loadTeams = useCallback(async () => {
     setLoadFailed(false);

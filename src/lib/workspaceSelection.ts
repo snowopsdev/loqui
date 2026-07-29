@@ -1,7 +1,8 @@
 import type { Workspace } from "../types/electron";
+import { canManageWorkspace } from "./spacePermissions.ts";
 
 export function manageableWorkspaces(workspaces: Workspace[]): Workspace[] {
-  return workspaces.filter((workspace) => workspace.role === "owner" || workspace.role === "admin");
+  return workspaces.filter((workspace) => canManageWorkspace(workspace.role));
 }
 
 export interface TeamSpaceGroup<S> {
@@ -20,12 +21,7 @@ export function groupTeamSpacesByWorkspace<S extends { workspace_id?: string | n
     }))
     // Empty groups stay visible for owners/admins so the per-workspace
     // create button always has a row to live on.
-    .filter(
-      (group) =>
-        group.spaces.length > 0 ||
-        group.workspace.role === "owner" ||
-        group.workspace.role === "admin"
-    );
+    .filter((group) => group.spaces.length > 0 || canManageWorkspace(group.workspace.role));
   const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
   const ungrouped = teamSpaces.filter(
     (space) => space.workspace_id == null || !workspaceIds.has(space.workspace_id)

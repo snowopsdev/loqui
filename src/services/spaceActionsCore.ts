@@ -13,7 +13,6 @@ interface MutationResult {
 export interface SpaceActionsDependencies {
   teams: {
     create: (workspaceId: string, input: { name: string }) => Promise<CloudTeam>;
-    update: (teamId: string, input: { name: string }) => Promise<unknown>;
     remove: (teamId: string) => Promise<void>;
     addMember: (teamId: string, userId: string, role?: TeamRole) => Promise<void>;
     removeMember: (teamId: string, userId: string) => Promise<void>;
@@ -209,11 +208,6 @@ export function createSpaceActions(deps: SpaceActionsDependencies) {
     deps.sync.requestSyncAll("manual");
   }
 
-  async function renameTeam(teamId: string, name: string): Promise<void> {
-    await deps.teams.update(teamId, { name });
-    await refreshSpaceMirror();
-  }
-
   async function deleteTeam(teamId: string): Promise<void> {
     await deps.teams.remove(teamId);
     await refreshSpaceMirror();
@@ -231,7 +225,6 @@ export function createSpaceActions(deps: SpaceActionsDependencies) {
     removeTeamMember,
     setTeamMemberRole,
     leaveTeam,
-    renameTeam,
     deleteTeam,
   };
 }

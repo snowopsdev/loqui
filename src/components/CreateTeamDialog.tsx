@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
@@ -45,14 +45,21 @@ export default function CreateTeamDialog({
   const [isCreating, setIsCreating] = useState(false);
   const showSpinner = useDelayedFlag(isCreating);
 
-  useEffect(() => {
-    if (!open) return;
+  const loadMembers = useCallback(async () => {
     setMembersError(false);
     setRosterLoaded(false);
-    refreshMembers(workspaceId)
-      .then(() => setRosterLoaded(true))
-      .catch(() => setMembersError(true));
-  }, [open, workspaceId, refreshMembers]);
+    try {
+      await refreshMembers(workspaceId);
+      setRosterLoaded(true);
+    } catch {
+      setMembersError(true);
+    }
+  }, [refreshMembers, workspaceId]);
+
+  useEffect(() => {
+    if (!open) return;
+    void loadMembers();
+  }, [open, loadMembers]);
 
   const candidates = useMemo(
     () => (rosterLoaded ? orderMemberCandidates(roster, user?.id) : []),
@@ -148,12 +155,7 @@ export default function CreateTeamDialog({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => {
-                    setMembersError(false);
-                    refreshMembers(workspaceId)
-                      .then(() => setRosterLoaded(true))
-                      .catch(() => setMembersError(true));
-                  }}
+                  onClick={() => void loadMembers()}
                   className="h-6 px-2 text-xs shrink-0"
                 >
                   {t("settingsPage.workspace.loadError.retry")}

@@ -314,44 +314,62 @@ export default function CreateSpaceDialog({
                   it renders as fixed context rather than a picker. */}
               {workspaces.length > 1 && workspace && (
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground/50">
-                    {t("settingsPage.workspace.title")}
-                  </label>
                   {manageableWorkspaces.length > 1 && !initialWorkspaceId ? (
-                    <Select value={workspace.id} onValueChange={handleWorkspaceChange}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {manageableWorkspaces.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <>
+                      <label
+                        htmlFor="create-space-workspace"
+                        className="text-xs font-medium text-foreground/50"
+                      >
+                        {t("settingsPage.workspace.title")}
+                      </label>
+                      <Select value={workspace.id} onValueChange={handleWorkspaceChange}>
+                        <SelectTrigger id="create-space-workspace">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {manageableWorkspaces.map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
                   ) : (
-                    <p className="text-sm text-foreground truncate">{workspace.name}</p>
+                    <>
+                      <p className="text-xs font-medium text-foreground/50">
+                        {t("settingsPage.workspace.title")}
+                      </p>
+                      <p className="text-sm text-foreground truncate">{workspace.name}</p>
+                    </>
                   )}
                 </div>
               )}
 
               <div className="flex gap-3">
                 <div className="space-y-1.5 w-14 shrink-0">
-                  <label className="text-xs font-medium text-foreground/50">
+                  <label
+                    htmlFor="create-space-emoji"
+                    className="text-xs font-medium text-foreground/50"
+                  >
                     {t("notes.spaces.emojiLabel")}
                   </label>
                   <EmojiPickerInput
+                    id="create-space-emoji"
                     value={emoji}
                     onChange={setEmoji}
                     ariaLabel={t("notes.spaces.changeEmoji")}
                   />
                 </div>
                 <div className="space-y-1.5 flex-1">
-                  <label className="text-xs font-medium text-foreground/50">
+                  <label
+                    htmlFor="create-space-name"
+                    className="text-xs font-medium text-foreground/50"
+                  >
                     {t("notes.spaces.nameLabel")}
                   </label>
                   <Input
+                    id="create-space-name"
                     value={name}
                     autoFocus
                     maxLength={80}
@@ -364,9 +382,9 @@ export default function CreateSpaceDialog({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground/50">
+                <p className="text-xs font-medium text-foreground/50">
                   {t("notes.spaces.teams.assignLabel")}
-                </label>
+                </p>
                 {teamsError && teams.length === 0 ? (
                   <div className="rounded border border-border/70 dark:border-border-subtle/50 px-3 py-2.5 flex items-center justify-between gap-2">
                     <p className="text-xs text-muted-foreground">
@@ -421,10 +439,14 @@ export default function CreateSpaceDialog({
                     {newTeamOpen ? (
                       <div className="rounded border border-border/70 dark:border-border-subtle/50 p-2.5 space-y-2">
                         <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-foreground/50">
+                          <label
+                            htmlFor="create-space-new-team-name"
+                            className="text-xs font-medium text-foreground/50"
+                          >
                             {t("notes.spaces.teams.newTeamNameLabel")}
                           </label>
                           <Input
+                            id="create-space-new-team-name"
                             value={newTeamName}
                             maxLength={80}
                             placeholder={name.trim() || undefined}
@@ -468,7 +490,7 @@ export default function CreateSpaceDialog({
                             }}
                             className="h-6 px-2 text-xs"
                           >
-                            {t("notes.upload.cancel")}
+                            {t("common.cancel")}
                           </Button>
                         )}
                       </div>
@@ -517,7 +539,7 @@ export default function CreateSpaceDialog({
                   onClick={() => handleOpenChange(false)}
                   disabled={isCreating}
                 >
-                  {t("notes.upload.cancel")}
+                  {t("common.cancel")}
                 </Button>
                 <Button
                   onClick={handleCreate}

@@ -32,6 +32,7 @@ const EMOJI_CHOICES = [
 ];
 
 interface EmojiPickerInputProps {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   ariaLabel: string;
@@ -48,6 +49,7 @@ interface EmojiPickerInputProps {
 // Emoji field with the OS emoji panel where one exists (macOS) and a 24-emoji
 // grid fallback (Linux, or when the panel can't be shown).
 export function EmojiPickerInput({
+  id,
   value,
   onChange,
   ariaLabel,
@@ -72,6 +74,7 @@ export function EmojiPickerInput({
     <Popover open={pickerOpen} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
         <Input
+          id={id}
           ref={inputRef}
           autoFocus={autoFocus}
           value={value}

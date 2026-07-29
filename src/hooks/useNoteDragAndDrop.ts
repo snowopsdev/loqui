@@ -26,6 +26,7 @@ interface DragState {
 }
 
 interface UseNoteDragAndDropOptions {
+  untitledLabel: string;
   onMoveToTarget: (noteId: number, target: NoteMoveTarget) => void | Promise<void>;
   /** Cross-space drops change the note's audience — the caller confirms, then calls commit(). */
   onCrossSpaceDrop: (note: DraggedNoteInfo, target: NoteMoveTarget, commit: () => void) => void;
@@ -50,6 +51,7 @@ function targetKey(target: NoteMoveTarget): string {
 }
 
 export function useNoteDragAndDrop({
+  untitledLabel,
   onMoveToTarget,
   onCrossSpaceDrop,
   canCrossSpaceDrop,
@@ -90,7 +92,7 @@ export function useNoteDragAndDrop({
         e.dataTransfer.setData("application/x-note-id", String(note.id));
 
         const ghost = document.createElement("div");
-        const label = note.title || "Untitled";
+        const label = note.title || untitledLabel;
         ghost.textContent = label.length > 24 ? label.slice(0, 24) + "…" : label;
         ghost.style.cssText = `
           position: fixed; top: -200px; left: -200px;
@@ -125,7 +127,7 @@ export function useNoteDragAndDrop({
         enterCounterRef.current.clear();
       },
     }),
-    [clearHoverTimeout]
+    [clearHoverTimeout, untitledLabel]
   );
 
   const commitDrop = useCallback(

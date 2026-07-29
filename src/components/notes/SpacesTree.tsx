@@ -1337,6 +1337,7 @@ export default function SpacesTree({
   };
 
   const { dragState, noteDragHandlers, dropTargetHandlers } = useNoteDragAndDrop({
+    untitledLabel: t("notes.list.untitled"),
     onMoveToTarget: commitMoveNote,
     onCrossSpaceDrop: (note: DraggedNoteInfo, target, commit) => {
       confirmCrossSpaceMove(note.spaceId, target.spaceId, false, commit);

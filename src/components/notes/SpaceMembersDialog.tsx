@@ -52,6 +52,8 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
     }))
   );
   const [workspaceTeams, setWorkspaceTeams] = useState<Team[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [teamsError, setTeamsError] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState<string | undefined>(undefined);
   const [inviteTeamId, setInviteTeamId] = useState<string | null>(null);
@@ -75,6 +77,19 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
     setExpandedOverrides((prev) => new Map(prev).set(teamId, !isTeamExpanded(teamId)));
   };
 
+  const loadWorkspaceTeams = useCallback(async (workspaceId: string) => {
+    setTeamsLoading(true);
+    setTeamsError(false);
+    try {
+      setWorkspaceTeams(await TeamsService.list(workspaceId));
+    } catch {
+      setWorkspaceTeams([]);
+      setTeamsError(true);
+    } finally {
+      setTeamsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) {
       setInviteEmail(undefined);
@@ -88,11 +103,9 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
     if (space.workspace_id) {
       void refreshMembers(space.workspace_id).catch(() => {});
       // Any workspace member may list teams; counts feed the collapsed rows.
-      void TeamsService.list(space.workspace_id)
-        .then(setWorkspaceTeams)
-        .catch(() => setWorkspaceTeams([]));
+      void loadWorkspaceTeams(space.workspace_id);
     }
-  }, [open, space.workspace_id, refreshMembers]);
+  }, [open, space.workspace_id, refreshMembers, loadWorkspaceTeams]);
 
   // How many OTHER spaces each assigned team has access to — roster edits ripple there.
   const otherSpacesByTeam = useMemo(() => {
@@ -236,6 +249,26 @@ export default function SpaceMembersDialog({ space, open, onOpenChange }: SpaceM
           <DialogHeader>
             <DialogTitle>{t("notes.spaces.teamsMembers.title", { space: space.name })}</DialogTitle>
           </DialogHeader>
+
+          {teamsError && space.workspace_id && (
+            <div className="rounded border border-border/70 dark:border-border-subtle/50 px-3 py-2.5 flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">{t("notes.spaces.teams.loadError")}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={teamsLoading}
+                onClick={() => {
+                  if (space.workspace_id) {
+                    void loadWorkspaceTeams(space.workspace_id);
+                  }
+                }}
+                className="h-6 px-2 text-xs shrink-0"
+              >
+                {teamsLoading && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                {t("common.retry")}
+              </Button>
+            </div>
+          )}
 
           {space.teams.length === 0 && (
             <p className="text-xs text-muted-foreground">

@@ -16,7 +16,7 @@ interface UseContainerChatOptions {
   notes: NoteItem[];
 }
 
-interface ContainerConversationItem {
+export interface ContainerConversationItem {
   id: number;
   title: string;
   created_at: string;
@@ -79,21 +79,26 @@ export function useContainerChat({
     },
   });
 
-  const fetchConversations = useCallback(async () => {
-    const list = await window.electronAPI?.getConversationsForContainer?.(space.id, folderId);
-    setConversations(list ?? []);
-  }, [space.id, folderId]);
+  const fetchConversations = useCallback(
+    async (isStale?: () => boolean): Promise<void> => {
+      let list: ContainerConversationItem[];
+      try {
+        list = (await window.electronAPI?.getConversationsForContainer?.(space.id, folderId)) ?? [];
+      } catch {
+        list = [];
+      }
+      if (!isStale?.()) setConversations(list);
+    },
+    [space.id, folderId]
+  );
 
   useEffect(() => {
     let stale = false;
-    (async () => {
-      const list = await window.electronAPI?.getConversationsForContainer?.(space.id, folderId);
-      if (!stale) setConversations(list ?? []);
-    })();
+    void fetchConversations(() => stale);
     return () => {
       stale = true;
     };
-  }, [space.id, folderId]);
+  }, [fetchConversations]);
 
   const switchConversation = useCallback(
     async (id: number) => {

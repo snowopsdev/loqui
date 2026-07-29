@@ -10,9 +10,10 @@ const completed = (name, metadata, result) => ({
   result,
   metadata,
 });
+const extractCards = (toolCalls) => extractNoteCards(toolCalls, "Note");
 
 test("note tools with single-object metadata still produce one card each", () => {
-  const cards = extractNoteCards([
+  const cards = extractCards([
     completed("create_note", { id: 7, title: "Kickoff" }),
     completed("get_note", { id: 9 }, 'Retrieved note: "Roadmap"'),
   ]);
@@ -23,7 +24,7 @@ test("note tools with single-object metadata still produce one card each", () =>
 });
 
 test("search_notes array metadata produces a card per hit, skipping null and non-numeric ids", () => {
-  const cards = extractNoteCards([
+  const cards = extractCards([
     completed("search_notes", [
       { id: 3, title: "Sales sync" },
       { id: null, title: "Cloud-only hit" },
@@ -38,7 +39,7 @@ test("search_notes array metadata produces a card per hit, skipping null and non
 });
 
 test("search cards dedupe against note-tool cards and each other", () => {
-  const cards = extractNoteCards([
+  const cards = extractCards([
     completed("update_note", { id: 3, title: "Sales sync" }),
     completed("search_notes", [
       { id: 3, title: "Sales sync" },
@@ -54,7 +55,7 @@ test("search cards dedupe against note-tool cards and each other", () => {
 
 test("search cards cap at 5 across the whole turn", () => {
   const hits = Array.from({ length: 9 }, (_, i) => ({ id: i + 1, title: `Note ${i + 1}` }));
-  const cards = extractNoteCards([
+  const cards = extractCards([
     completed("search_notes", hits.slice(0, 4)),
     completed("search_notes", hits.slice(4)),
   ]);
@@ -62,7 +63,7 @@ test("search cards cap at 5 across the whole turn", () => {
 });
 
 test("incomplete or unknown tools produce nothing", () => {
-  const cards = extractNoteCards([
+  const cards = extractCards([
     { ...completed("search_notes", [{ id: 1, title: "x" }]), status: "executing" },
     completed("copy_to_clipboard", { id: 2 }),
   ]);

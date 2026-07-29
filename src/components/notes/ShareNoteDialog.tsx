@@ -17,6 +17,7 @@ import {
   NoteSharingService,
   type AccessPrincipalSuggestion,
   type ShareMutationResponse,
+  type ShareStateResponse,
 } from "../../services/NoteSharingService.js";
 import { syncService } from "../../services/SyncService.js";
 import { CloudApiError } from "../../services/cloudApi.js";
@@ -32,6 +33,7 @@ import MemberAvatar from "../MemberAvatar";
 import { emailDomain, isPersonalEmailDomain } from "../../utils/personalEmailDomains";
 import type {
   NoteAccessGrant,
+  NoteAccessState,
   NoteItem,
   NoteShareInvitation,
   ShareVisibility,
@@ -115,6 +117,23 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
   // While server state loads, the persisted flag keeps the footer honest.
   const isPrivate = share ? share.visibility === "private" : !note.is_shared;
 
+  const refreshShareCache = useCallback(
+    async (
+      resolveFallbackAccess?: (current: NoteAccessState | undefined) => NoteAccessState | undefined
+    ): Promise<ShareStateResponse | null> => {
+      if (!cloudId) return null;
+      const refreshed = await NoteSharingService.getShareSettings(cloudId);
+      updateShareCache(cloudId, (entry) => ({
+        share: refreshed.share,
+        invitations: refreshed.invitations,
+        access: refreshed.access ?? resolveFallbackAccess?.(entry?.access) ?? entry?.access,
+        rawToken: entry?.rawToken ?? null,
+      }));
+      return refreshed;
+    },
+    [cloudId]
+  );
+
   // The store's note can miss a cloud_id assigned by a background sync
   // (markNoteSynced doesn't broadcast); read the DB before offering to sync.
   useEffect(() => {
@@ -139,15 +158,9 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
     let cancelled = false;
     setLoading(true);
     setLoadError(false);
-    NoteSharingService.getShareSettings(cloudId)
+    refreshShareCache()
       .then((res) => {
-        if (cancelled) return;
-        updateShareCache(cloudId, (entry) => ({
-          share: res.share,
-          invitations: res.invitations,
-          access: res.access ?? entry?.access,
-          rawToken: entry?.rawToken ?? null,
-        }));
+        if (cancelled || !res) return;
         const serverShared = res.share.visibility !== "private";
         if (serverShared !== localIsSharedRef.current) {
           void persistNoteShareState(
@@ -167,7 +180,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
     return () => {
       cancelled = true;
     };
-  }, [open, cloudId, note.id, loadAttempt]);
+  }, [open, cloudId, note.id, loadAttempt, refreshShareCache]);
 
   useEffect(() => {
     if (open) {
@@ -372,12 +385,8 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
         setEmailInput("");
       }
       // Re-fetch invitations so any new + still-pending rows appear.
-      const refreshed = await NoteSharingService.getShareSettings(cloudId);
-      updateShareCache(cloudId, (entry) => ({
-        share: refreshed.share,
-        invitations: refreshed.invitations,
-        rawToken: entry?.rawToken ?? null,
-      }));
+      const refreshed = await refreshShareCache();
+      if (!refreshed) return;
       // The invite itself is the sharing consent: a still-private note becomes
       // invite-only once an invitation exists.
       if (refreshed.share.visibility === "private" && res.created.length > 0) {
@@ -393,7 +402,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
     } finally {
       setSubmitting(false);
     }
-  }, [cloudId, canManageSharing, emailInput, applyVisibility, t]);
+  }, [cloudId, canManageSharing, emailInput, applyVisibility, refreshShareCache, t]);
 
   const handlePrincipalGrant = useCallback(
     async (principal: AccessPrincipalSuggestion) => {
@@ -407,17 +416,12 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
           ...(principal.email ? { email: principal.email } : {}),
           permission: "viewer",
         });
-        const refreshed = await NoteSharingService.getShareSettings(cloudId);
-        updateShareCache(cloudId, (entry) => ({
-          share: refreshed.share,
-          invitations: refreshed.invitations,
-          access:
-            refreshed.access ??
-            (entry?.access
-              ? { ...entry.access, grants: [...entry.access.grants, grant] }
-              : cached.access),
-          rawToken: entry?.rawToken ?? cached.rawToken,
-        }));
+        const refreshed = await refreshShareCache((currentAccess) =>
+          currentAccess
+            ? { ...currentAccess, grants: [...currentAccess.grants, grant] }
+            : cached.access
+        );
+        if (!refreshed) return;
         if (refreshed.share.visibility !== "private") {
           void persistNoteShareState(note.id, { is_shared: 1 }).catch((err) =>
             console.error("Share flag persist failed:", err)
@@ -432,7 +436,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
         setSubmitting(false);
       }
     },
-    [cloudId, cached, note.id, t]
+    [cloudId, cached, note.id, refreshShareCache, t]
   );
 
   const handleShareInput = useCallback(async () => {
@@ -565,13 +569,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
       replaceAccessGrant(grant.id, null);
       try {
         await NoteSharingService.removeAccessGrant(cloudId, grant.id);
-        const refreshed = await NoteSharingService.getShareSettings(cloudId);
-        updateShareCache(cloudId, (entry) => ({
-          share: refreshed.share,
-          invitations: refreshed.invitations,
-          access: refreshed.access ?? entry?.access,
-          rawToken: entry?.rawToken ?? null,
-        }));
+        await refreshShareCache();
       } catch (err) {
         console.error("Access grant removal failed:", err);
         replaceAccessGrant(grant.id, grant);
@@ -580,7 +578,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
         setBusyGrantId(null);
       }
     },
-    [cloudId, replaceAccessGrant, t, toast]
+    [cloudId, refreshShareCache, replaceAccessGrant, t, toast]
   );
 
   const handleSyncAndShare = useCallback(async () => {

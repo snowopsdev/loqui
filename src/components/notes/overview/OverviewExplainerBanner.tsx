@@ -2,9 +2,10 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  markContainerOverviewIntroSeen,
-  shouldShowContainerOverviewIntro,
-} from "../../../lib/containerOverviewIntro";
+  CONTAINER_OVERVIEW_INTRO,
+  markIntroSeen,
+  shouldShowIntro,
+} from "../../../lib/versionedIntro";
 
 interface OverviewExplainerBannerProps {
   kind: "team" | "private";
@@ -12,7 +13,9 @@ interface OverviewExplainerBannerProps {
 
 export function OverviewExplainerBanner({ kind }: OverviewExplainerBannerProps) {
   const { t } = useTranslation();
-  const [visible, setVisible] = useState(() => shouldShowContainerOverviewIntro(localStorage));
+  const [visible, setVisible] = useState(() =>
+    shouldShowIntro(localStorage, CONTAINER_OVERVIEW_INTRO)
+  );
 
   if (!visible) return null;
 
@@ -20,7 +23,7 @@ export function OverviewExplainerBanner({ kind }: OverviewExplainerBannerProps) 
     <div className="relative rounded-lg bg-primary/5 dark:bg-primary/8 border border-primary/10 dark:border-primary/15 px-4 py-3">
       <button
         onClick={() => {
-          markContainerOverviewIntroSeen(localStorage);
+          markIntroSeen(localStorage, CONTAINER_OVERVIEW_INTRO);
           setVisible(false);
         }}
         aria-label={t("notes.overview.banner.dismiss")}

@@ -1,6 +1,14 @@
 import { cloudGet, cloudPost, cloudPatch, cloudDelete, type DataWrap } from "./cloudApi.js";
 import type { Workspace, WorkspaceMember } from "../types/electron";
 
+export interface SeatPreview {
+  next_quantity: number;
+  current_quantity: number;
+  seats_used: number;
+  amount_due: number;
+  currency: string;
+}
+
 async function list(): Promise<Workspace[]> {
   const res = await cloudGet<DataWrap<Workspace[]>>("/api/workspaces");
   return res.data;
@@ -59,27 +67,13 @@ async function billingPortal(workspaceId: string): Promise<string> {
   return res.data.url;
 }
 
-async function previewSeats(
-  workspaceId: string,
-  additionalSeats: number
-): Promise<{
-  next_quantity: number;
-  current_quantity: number;
-  seats_used: number;
-  amount_due: number;
-  currency: string;
-}> {
-  const res = await cloudPost<
-    DataWrap<{
-      next_quantity: number;
-      current_quantity: number;
-      seats_used: number;
-      amount_due: number;
-      currency: string;
-    }>
-  >(`/api/workspaces/${workspaceId}/billing/preview-seats`, {
-    additional_seats: additionalSeats,
-  });
+async function previewSeats(workspaceId: string, additionalSeats: number): Promise<SeatPreview> {
+  const res = await cloudPost<DataWrap<SeatPreview>>(
+    `/api/workspaces/${workspaceId}/billing/preview-seats`,
+    {
+      additional_seats: additionalSeats,
+    }
+  );
   return res.data;
 }
 

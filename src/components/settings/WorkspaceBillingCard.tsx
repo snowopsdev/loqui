@@ -11,18 +11,10 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { useToast } from "../ui/useToast";
-import { WorkspacesService } from "../../services/WorkspacesService";
+import { WorkspacesService, type SeatPreview } from "../../services/WorkspacesService";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { formatAmount } from "../../utils/formatAmount";
 import type { Workspace } from "../../types/electron";
-
-interface SeatPreview {
-  next_quantity: number;
-  current_quantity: number;
-  seats_used: number;
-  amount_due: number;
-  currency: string;
-}
 
 interface Props {
   workspace: Workspace;

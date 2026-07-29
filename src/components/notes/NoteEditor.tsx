@@ -42,7 +42,7 @@ import {
   updateShareCache,
 } from "../../stores/noteStore";
 import { NoteSharingService } from "../../services/NoteSharingService";
-import { fetchSpaceRoster } from "../../hooks/useTeamRoster";
+import { fetchSpaceRoster } from "../../hooks/useSpaceRoster";
 import { readIsSubscribed, subscribeIsSubscribed } from "../../lib/subscriptionFlag";
 import { useAuth } from "../../hooks/useAuth";
 import { RichTextEditor } from "../ui/RichTextEditor";
@@ -66,7 +66,7 @@ import ActionProcessingOverlay from "./ActionProcessingOverlay";
 import NoteBottomBar from "./NoteBottomBar";
 import EmbeddedChat, { type EmbeddedChatMode } from "./EmbeddedChat";
 import { useEmbeddedChat } from "../../hooks/useEmbeddedChat";
-import { normalizeDbDate, formatRelativeTime } from "../../utils/dateFormatting";
+import { normalizeDbDate, formatRelativeTime, formatShortDate } from "../../utils/dateFormatting";
 import { parseTranscriptSegments } from "../../utils/parseTranscriptSegments";
 import {
   applyTranscriptSpeakerPatch,
@@ -90,12 +90,6 @@ function formatNoteDate(dateStr: string): string {
   });
   const timePart = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   return `${datePart} \u00b7 ${timePart}`;
-}
-
-function formatShortDate(dateStr: string): string {
-  const date = normalizeDbDate(dateStr);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 export interface Enhancement {

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import MemberAvatar from "../../MemberAvatar";
 import { groupItemsByDate } from "../../../utils/dateGrouping";
 import { formatRelativeTime } from "../../../utils/dateFormatting";
-import { useSpaceRoster } from "../../../hooks/useTeamRoster";
+import { useSpaceRoster } from "../../../hooks/useSpaceRoster";
 import { useAuth } from "../../../hooks/useAuth";
 import type { NoteItem, SpaceItem } from "../../../types/electron";
 

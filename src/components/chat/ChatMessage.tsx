@@ -207,7 +207,7 @@ export function ChatMessage({
 
   const hasToolCalls = toolCalls && toolCalls.length > 0;
   const hasContent = content.length > 0;
-  const noteCards = extractNoteCards(toolCalls);
+  const noteCards = extractNoteCards(toolCalls, t("notes.list.untitledNote"));
 
   return (
     <div

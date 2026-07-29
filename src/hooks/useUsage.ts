@@ -68,6 +68,7 @@ interface UseUsageResult {
 }
 
 const USAGE_CACHE_TTL = CACHE_CONFIG.API_KEY_TTL; // 1 hour
+const PAID_PLANS = new Set(["pro", "business", "enterprise"]);
 
 export function useUsage(): UseUsageResult | null {
   const { isSignedIn, isLoaded } = useAuth();
@@ -104,7 +105,7 @@ export function useUsage(): UseUsageResult | null {
             entitlementSources: result.entitlementSources ?? {
               personal:
                 result.isTrial === true ||
-                (["pro", "business", "enterprise"].includes(result.plan ?? "free") &&
+                (PAID_PLANS.has(result.plan ?? "free") &&
                   ["active", "trialing"].includes(result.status ?? "active")),
               workspaceIds: [],
             },
@@ -266,8 +267,7 @@ export function useUsage(): UseUsageResult | null {
   const isSubscribed = data?.isSubscribed ?? false;
   const isPersonallySubscribed = data?.entitlementSources.personal ?? false;
   const status = data?.status ?? "active";
-  const isPastDue =
-    ["pro", "business", "enterprise"].includes(data?.plan ?? "free") && status === "past_due";
+  const isPastDue = PAID_PLANS.has(data?.plan ?? "free") && status === "past_due";
   const isOverLimit = !isSubscribed && limit > 0 && wordsUsed >= limit;
   const isApproachingLimit = !isSubscribed && limit > 0 && wordsUsed >= limit * 0.8 && !isOverLimit;
 

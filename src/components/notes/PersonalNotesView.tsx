@@ -55,10 +55,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useAuth } from "../../hooks/useAuth";
 import NotesOnboarding from "./NotesOnboarding";
 import { isRegenerableNoteTitle } from "../../helpers/regenerableNoteTitle";
-import {
-  markNotesStructureIntroSeen,
-  shouldShowNotesStructureIntro,
-} from "../../lib/notesStructureIntro";
+import { markIntroSeen, NOTES_STRUCTURE_INTRO, shouldShowIntro } from "../../lib/versionedIntro";
 
 function makeContentHash(content: string): string {
   return String(content.length) + "-" + content.slice(0, 50);
@@ -124,7 +121,7 @@ export default function PersonalNotesView({
   const teamSpacesAvailable = useTeamSpacesCapability();
   const isTreeLoading = useIsTreeLoading();
   const [structureIntroPending, setStructureIntroPending] = useState(() =>
-    shouldShowNotesStructureIntro(localStorage)
+    shouldShowIntro(localStorage, NOTES_STRUCTURE_INTRO)
   );
   const [showStructureIntro, setShowStructureIntro] = useState(false);
 
@@ -209,7 +206,7 @@ export default function PersonalNotesView({
   const handleStructureIntroOpenChange = useCallback((open: boolean) => {
     setShowStructureIntro(open);
     if (!open) {
-      markNotesStructureIntroSeen(localStorage);
+      markIntroSeen(localStorage, NOTES_STRUCTURE_INTRO);
       setStructureIntroPending(false);
     }
   }, []);

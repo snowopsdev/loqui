@@ -1,8 +1,15 @@
 import { create } from "zustand";
 import { syncService } from "../services/SyncService.js";
-import { removeNoteFromLists, teardownNoteContainers } from "./noteListOps";
+import { resolveRendererCloudNoteCreateBatch } from "../services/noteCreateAck";
+import {
+  createClearedAccountNoteState,
+  invalidateKeyedLoadGenerations,
+  removeNoteFromLists,
+  teardownNoteContainers,
+} from "./noteListOps";
 import {
   addNoteConflict,
+  clearNoteConflicts,
   readNoteConflicts,
   removeNoteConflictId,
 } from "../lib/noteConflictRegistry";
@@ -93,6 +100,8 @@ let loadGeneration = 0;
 let treeLoadGeneration = 0;
 let spacesLoadGeneration = 0;
 let foldersLoadGeneration = 0;
+let migrationGeneration = 0;
+let accountGeneration = 0;
 // Folder navigation requested before folders load; consumed once by initializeNotesTree.
 let pendingFolderPreset: number | null = null;
 
@@ -340,6 +349,36 @@ export async function loadFolders(): Promise<FolderItem[]> {
 
 const containerLoadGenerations = new Map<string, number>();
 const containerLoadsInFlight = new Map<string, Promise<NoteItem[]>>();
+
+/**
+ * Synchronously remove account-scoped renderer state and invalidate every
+ * async load that could otherwise repopulate it after the database purge.
+ * IPC listeners stay bound; the next mounted notes view reloads clean state.
+ */
+export function resetForAccountChange(): void {
+  currentLimit = DEFAULT_LIMIT;
+  loadGeneration += 1;
+  treeLoadGeneration += 1;
+  spacesLoadGeneration += 1;
+  foldersLoadGeneration += 1;
+  migrationGeneration += 1;
+  accountGeneration += 1;
+  pendingFolderPreset = null;
+  purgeDisplacedNote = null;
+
+  invalidateKeyedLoadGenerations(containerLoadGenerations);
+  containerLoadsInFlight.clear();
+
+  try {
+    localStorage.removeItem(EXPANDED_STORAGE_KEY);
+  } catch {
+    // In-memory state is still cleared below.
+  }
+  clearNoteConflicts();
+  useNoteStore.setState(
+    createClearedAccountNoteState<SpaceItem, FolderItem, NoteShareCacheEntry, CloudNote>()
+  );
+}
 
 export async function loadContainerNotes(
   key: string,
@@ -849,7 +888,10 @@ export function useMigration(): { total: number; done: number } | null {
 }
 
 export async function startMigration(): Promise<void> {
+  const gen = ++migrationGeneration;
+  const accountGen = accountGeneration;
   const allNotes = (await window.electronAPI.getNotes(null, 9999, null)) ?? [];
+  if (gen !== migrationGeneration) return;
   const unsynced = allNotes.filter((n) => !n.cloud_id);
   if (unsynced.length === 0) return;
 
@@ -859,6 +901,7 @@ export async function startMigration(): Promise<void> {
   const CHUNK_SIZE = 50;
 
   for (let i = 0; i < unsynced.length; i += CHUNK_SIZE) {
+    if (gen !== migrationGeneration) return;
     const chunk = unsynced.slice(i, i + CHUNK_SIZE);
     try {
       const { created } = await NotesService.batchCreate(
@@ -875,15 +918,25 @@ export async function startMigration(): Promise<void> {
           updated_at: n.updated_at,
         }))
       );
-      const notesByClientId = new Map(chunk.map((n) => [n.client_note_id, n]));
-      await Promise.all(
-        created.map(({ client_note_id, id: cloudId }) => {
-          const local = notesByClientId.get(client_note_id);
-          return local
-            ? window.electronAPI.updateNoteCloudId(local.id, cloudId)
-            : Promise.resolve();
-        })
+      // A reset may invalidate the UI migration while the POST is in flight.
+      // Still run every response through the atomic identity/snapshot guard so
+      // a purged fork is untouched and its proven cloud orphan is cleaned up.
+      await resolveRendererCloudNoteCreateBatch(
+        chunk,
+        created,
+        (cloudId) => NotesService.delete(cloudId),
+        // Migration POSTs intentionally omit transcript/diarization fields,
+        // folder mapping, and space scope. Adopt the id/base but leave the row
+        // pending so SyncService follows with the complete PATCH.
+        {
+          settleIfUnchanged: false,
+          // Starting a newer migration supersedes only this run's progress.
+          // Both runs target the same account and idempotent cloud identity;
+          // only an account reset makes the response an orphan to delete.
+          requestStillCurrent: () => accountGen === accountGeneration,
+        }
       );
+      if (gen !== migrationGeneration) return;
       useNoteStore.setState((s) => ({
         migration: s.migration
           ? {
@@ -897,7 +950,7 @@ export async function startMigration(): Promise<void> {
     }
   }
 
-  useNoteStore.setState({ migration: null });
+  if (gen === migrationGeneration) useNoteStore.setState({ migration: null });
 }
 
 export function setNoteConflict(clientNoteId: string, cloudNote: CloudNote): void {
@@ -955,4 +1008,10 @@ export function updateShareCache(
 
 export function useShareCacheEntry(cloudId: string | null): NoteShareCacheEntry | null {
   return useNoteStore((state) => (cloudId ? (state.shareByCloudId.get(cloudId) ?? null) : null));
+}
+
+// Whole-map subscription for list surfaces (the tree gates per-note actions
+// on loaded ACLs); per-note consumers should prefer useShareCacheEntry.
+export function useShareCache(): Map<string, NoteShareCacheEntry> {
+  return useNoteStore((state) => state.shareByCloudId);
 }

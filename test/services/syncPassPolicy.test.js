@@ -156,6 +156,9 @@ test("revoked fork: a push rejection moves, forks and clears the retraction", as
   assert.equal(update.space_id, 1);
   assert.equal(update.folder_id, null);
   assert.equal(update.cloud_id, null);
+  assert.equal(update.cloud_updated_at, null);
+  assert.equal(update.owner_user_id, null);
+  assert.equal(update.updated_by_user_id, null);
   assert.equal(update.left_team, 0);
   assert.equal(typeof update.client_note_id, "string");
 });

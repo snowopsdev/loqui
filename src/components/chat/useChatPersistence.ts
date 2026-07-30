@@ -41,7 +41,10 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
         scope?.spaceId,
         scope?.folderId ?? undefined
       );
-      const id = conv?.id ?? 0;
+      if (!conv) {
+        throw new Error("Conversation scope is no longer available");
+      }
+      const id = conv.id;
       conversationIdRef.current = id;
       setConversationId(id);
       options.onConversationCreated?.(id, title);

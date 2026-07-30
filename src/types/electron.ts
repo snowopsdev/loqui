@@ -23,6 +23,16 @@ export type TranscriptionErrorCode =
   | "MODEL_NOT_AVAILABLE"
   | null;
 
+export interface AuthTokenState {
+  token: string | null;
+  generation: number;
+}
+
+export interface AuthTokenMutationResult extends AuthTokenState {
+  success: boolean;
+  code?: string;
+}
+
 export interface TranscriptionItem {
   id: number;
   text: string;
@@ -78,9 +88,55 @@ export interface NoteItem {
   client_note_id: string;
   sync_status: "synced" | "pending" | "error";
   deleted_at: string | null;
+  // Computed by getNoteByClientId while a parent folder DELETE awaits its
+  // server result. Held notes stay hidden and must not be pulled/queued alone.
+  folder_delete_pending?: number;
   // 1 while a cloud-backed row that left a team space still owes its scope
   // retraction push (D6); cleared when the row settles.
   left_team?: number;
+}
+
+// Immutable view of every local field that affects a note push. The main
+// process compares this atomically when the cloud response returns, so an
+// in-flight create/PATCH cannot settle a newer edit or a purged identity.
+export type NotePushSnapshot = Pick<
+  NoteItem,
+  | "client_note_id"
+  | "title"
+  | "content"
+  | "enhanced_content"
+  | "enhancement_prompt"
+  | "enhanced_at_content_hash"
+  | "note_type"
+  | "source_file"
+  | "audio_duration_seconds"
+  | "folder_id"
+  | "space_id"
+  | "transcript"
+  | "calendar_event_id"
+  | "participants"
+  | "diarization_enabled"
+  | "expected_speaker_count"
+  | "created_at"
+  | "updated_at"
+  | "sync_status"
+  | "deleted_at"
+  | "cloud_updated_at"
+  | "left_team"
+>;
+
+export type NoteCreateSnapshot = NotePushSnapshot;
+export type NoteUpdateSnapshot = NotePushSnapshot;
+
+export interface NoteCreateAckResult {
+  success: boolean;
+  outcome: "synced" | "pending" | "already-linked" | "orphaned" | "unresolved";
+}
+
+export interface NoteUpdateAckResult {
+  success: boolean;
+  outcome: "synced" | "pending" | "identity-changed";
+  changes: number;
 }
 
 export type ShareVisibility = "private" | "link" | "domain" | "invited";
@@ -152,6 +208,26 @@ export interface FolderItem {
   left_team?: number;
 }
 
+export type FolderPushSnapshot = Pick<
+  FolderItem,
+  | "client_folder_id"
+  | "name"
+  | "is_default"
+  | "sort_order"
+  | "space_id"
+  | "created_at"
+  | "updated_at"
+  | "sync_status"
+  | "deleted_at"
+  | "left_team"
+>;
+
+export interface FolderAckResult {
+  success: boolean;
+  outcome: "synced" | "pending" | "already-linked" | "identity-changed" | "unresolved";
+  changes: number;
+}
+
 /** A team assigned to a space, as mirrored from GET /api/me/spaces. */
 export interface SpaceTeamRef {
   id: string;
@@ -168,6 +244,8 @@ export interface SpaceItem {
   id: number;
   client_space_id: string;
   cloud_space_id: string | null;
+  // Retained only for unambiguous adoption of pre-spaces team rows.
+  cloud_team_id?: string | null;
   workspace_id: string | null;
   kind: "private" | "team";
   name: string;
@@ -614,6 +692,8 @@ export interface ConversationPreview {
   client_conversation_id?: string;
   sync_status?: "synced" | "pending" | "error";
   deleted_at?: string | null;
+  // Computed for sync lookups while the parent folder delete is unresolved.
+  folder_delete_pending?: number;
   message_count: number;
   last_message?: string | null;
   last_message_role?: "user" | "assistant" | "system" | null;
@@ -790,6 +870,9 @@ declare global {
           expected_speaker_count?: number | null;
           client_note_id?: string;
           cloud_id?: string | null;
+          cloud_updated_at?: string | null;
+          owner_user_id?: string | null;
+          updated_by_user_id?: string | null;
           left_team?: number;
         }
       ) => Promise<{ success: boolean; note?: NoteItem }>;
@@ -850,15 +933,22 @@ declare global {
         id: number,
         updates: { name?: string; emoji?: string | null }
       ) => Promise<{ success: boolean; space?: SpaceItem; error?: string }>;
-      purgeSpace?: (id: number) => Promise<{
+      purgeSpace?: (
+        id: number,
+        options?: {
+          mode?: "preserve-dirty" | "destructive";
+          expectedAuthGeneration?: number;
+        }
+      ) => Promise<{
         success: boolean;
+        code?: string;
+        error?: string;
         noteIds?: number[];
         folderNames?: string[];
         spaceId?: number;
         relocatedNotes?: NoteItem[];
         relocatedCount?: number;
         relocatedTitles?: string[];
-        error?: string;
       }>;
       upsertSpaceFromCloud?: (space: Record<string, unknown>) => Promise<SpaceItem>;
       setSpaceSyncStatus?: (
@@ -1431,9 +1521,20 @@ declare global {
       setAutoStartEnabled?: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
 
       // Auth
-      authClearSession?: () => Promise<void>;
+      authClearSession?: () => Promise<{
+        success: boolean;
+        tokenState?: AuthTokenState;
+        error?: string;
+      }>;
       authGetToken?: () => Promise<string | null>;
-      authSetToken?: (token: string) => Promise<void>;
+      authGetTokenState?: () => Promise<AuthTokenState>;
+      authSetToken?: (
+        token: string,
+        expectedGeneration: number
+      ) => Promise<AuthTokenMutationResult>;
+      onAuthTokenStateChanged?: (
+        callback: (state: { generation: number; hasToken: boolean }) => void
+      ) => () => void;
 
       // OpenWhispr Cloud API
       cloudTranscribe?: (
@@ -1564,6 +1665,7 @@ declare global {
         path: string;
         body?: unknown;
         public?: boolean;
+        expectedAuthGeneration?: number;
       }) => Promise<{
         success: boolean;
         data?: unknown;
@@ -1717,7 +1819,7 @@ declare global {
         folder_id?: number | null;
         created_at: string;
         updated_at: string;
-      }>;
+      } | null>;
       getConversationsForNote?: (
         noteId: number,
         limit?: number
@@ -1784,7 +1886,7 @@ declare global {
         content: string;
         metadata?: string;
         created_at: string;
-      }>;
+      } | null>;
       getAgentMessages?: (conversationId: number) => Promise<
         Array<{
           id: number;
@@ -2243,23 +2345,26 @@ declare global {
         localFolderId: number | null,
         localSpaceId?: number | null
       ) => Promise<NoteItem>;
-      markNoteSynced?: (
+      acknowledgeNoteCreate?: (
         id: number,
+        snapshot: NoteCreateSnapshot,
         cloudId: string,
         cloudUpdatedAt?: string | null,
-        ownerUserId?: string | null
-      ) => Promise<void>;
+        ownerUserId?: string | null,
+        settleIfUnchanged?: boolean
+      ) => Promise<NoteCreateAckResult>;
       markNoteSyncedIfUnchanged?: (
         id: number,
-        cloudId: string,
-        snapshotUpdatedAt: string,
+        snapshot: NoteUpdateSnapshot,
+        expectedCloudId: string,
         cloudUpdatedAt?: string | null,
         ownerUserId?: string | null
-      ) => Promise<{ success: boolean; changes: number }>;
+      ) => Promise<NoteUpdateAckResult>;
       setNoteCloudBase?: (id: number, cloudUpdatedAt: string | null) => Promise<void>;
       setNoteOwnerFromCloud?: (id: number, ownerUserId: string) => Promise<void>;
       countTeamNotesMissingOwner?: () => Promise<number>;
       markNoteSyncError?: (id: number) => Promise<void>;
+      restoreNoteAfterDeniedDelete?: (id: number) => Promise<{ success: boolean; id: number }>;
       hardDeleteNote?: (id: number) => Promise<void>;
 
       getPendingFolders?: (spaceKind?: "private" | "team") => Promise<FolderItem[]>;
@@ -2268,20 +2373,29 @@ declare global {
         cloudFolder: Record<string, unknown>,
         localSpaceId?: number | null
       ) => Promise<FolderItem>;
-      markFolderSynced?: (id: number, cloudId: string) => Promise<void>;
+      acknowledgeFolderCreate?: (
+        id: number,
+        snapshot: FolderPushSnapshot,
+        expectedCloudId: string | null,
+        responseClientFolderId: string,
+        cloudId: string,
+        cloudUpdatedAt?: string | null
+      ) => Promise<FolderAckResult>;
       markFolderSyncedIfUnchanged?: (
         id: number,
-        cloudId: string,
-        snapshotUpdatedAt: string
-      ) => Promise<{ success: boolean; changes: number }>;
-      adoptFolderIdentity?: (
-        id: number,
-        clientFolderId: string,
-        cloudId: string,
-        updatedAt?: string
-      ) => Promise<void>;
+        snapshot: FolderPushSnapshot,
+        expectedCloudId: string
+      ) => Promise<FolderAckResult>;
       getFolderIdMap?: () => Promise<FolderItem[]>;
       getPendingFolderDeletes?: () => Promise<FolderItem[]>;
+      restoreFolderAfterDeniedDelete?: (id: number) => Promise<{
+        success: boolean;
+        id: number;
+        folder?: FolderItem;
+        notes?: NoteItem[];
+        conversationIds?: number[];
+        error?: string;
+      }>;
       hardDeleteFolder?: (id: number) => Promise<{ success: boolean; id: number }>;
       relocateRevokedFolder?: (
         id: number,
@@ -2303,7 +2417,10 @@ declare global {
         cloudConv: Record<string, unknown>,
         messages: Array<Record<string, unknown>>
       ) => Promise<void>;
-      markConversationSynced?: (id: number, cloudId: string) => Promise<void>;
+      markConversationSynced?: (
+        id: number,
+        cloudId: string
+      ) => Promise<{ success: boolean } | undefined>;
       hardDeleteConversation?: (id: number) => Promise<void>;
 
       getPendingTranscriptions?: () => Promise<TranscriptionItem[]>;

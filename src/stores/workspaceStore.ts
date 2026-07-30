@@ -12,6 +12,7 @@ interface WorkspaceState {
   members: WorkspaceMember[];
 
   setActiveWorkspaceId: (id: string | null) => void;
+  resetForAccountChange: () => void;
   refresh: () => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace>;
   refreshMembers: (workspaceId: string) => Promise<void>;
@@ -32,6 +33,7 @@ function writeActiveWorkspaceId(id: string | null): void {
 
 let refreshPromise: Promise<void> | null = null;
 let membersRequestSeq = 0;
+let accountGeneration = 0;
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
@@ -49,12 +51,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ activeWorkspaceId: id, members: [] });
   },
 
+  resetForAccountChange: () => {
+    accountGeneration += 1;
+    membersRequestSeq += 1;
+    // Let the next account start its own request. The identity check in the
+    // old request prevents its result/finally block from touching new state.
+    refreshPromise = null;
+    writeActiveWorkspaceId(null);
+    set({
+      workspaces: [],
+      loaded: false,
+      loading: false,
+      error: false,
+      activeWorkspaceId: null,
+      members: [],
+    });
+  },
+
   refresh: () => {
     if (refreshPromise) return refreshPromise;
+    const generation = accountGeneration;
     set({ loading: true });
-    refreshPromise = (async () => {
+    let request!: Promise<void>;
+    request = (async () => {
       try {
         const workspaces = await WorkspacesService.list();
+        if (generation !== accountGeneration) return;
         const activeId = get().activeWorkspaceId;
         const stillValid = activeId && workspaces.some((w) => w.id === activeId);
         set({
@@ -66,6 +88,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         });
         if (!stillValid && activeId) writeActiveWorkspaceId(null);
       } catch (error) {
+        if (generation !== accountGeneration) return;
         logger.error(
           "Failed to load workspaces",
           { error: (error as Error).message },
@@ -73,15 +96,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         );
         set({ loading: false, loaded: true, error: true });
       } finally {
-        refreshPromise = null;
+        if (refreshPromise === request) refreshPromise = null;
       }
     })();
-    return refreshPromise;
+    refreshPromise = request;
+    return request;
   },
 
   createWorkspace: async (name) => {
+    const generation = accountGeneration;
     const workspace = await WorkspacesService.create(name);
-    set((s) => ({ workspaces: [...s.workspaces, workspace] }));
+    if (generation === accountGeneration) {
+      set((s) => ({ workspaces: [...s.workspaces, workspace] }));
+    }
     return workspace;
   },
 

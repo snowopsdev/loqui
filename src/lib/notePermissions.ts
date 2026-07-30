@@ -73,3 +73,44 @@ export function resolveNotePermission({
   if (!isTeamNote && aclState === "loading") return null;
   return isTeamNote ? "editor" : "owner";
 }
+
+interface SharedNoteScope {
+  isTeamNote: boolean;
+  hasCloudCopy: boolean;
+}
+
+// Per-note ACL grants only exist on cloud-backed personal notes: team notes
+// follow space roles (spacePermissions), and rows without a cloud copy belong
+// to this device.
+function aclApplies({ isTeamNote, hasCloudCopy }: SharedNoteScope): boolean {
+  return !isTeamNote && hasCloudCopy;
+}
+
+/**
+ * Whether note-level ACLs veto deleting the note: an editor/viewer of a
+ * directly shared personal note must not be offered Delete just because the
+ * note sits in the (unenforced) private space. Composes with — never
+ * replaces — the space-level rules in spacePermissions.
+ */
+export function sharedNoteBlocksDelete(
+  permission: NotePermission | null,
+  scope: SharedNoteScope
+): boolean {
+  if (!aclApplies(scope)) return false;
+  return !noteCapabilities(permission).canDelete;
+}
+
+/**
+ * Whether the note may be re-filed locally (folder or space moves). Moving
+ * pushes a folder_id/scope PATCH the server denies for non-owners of a shared
+ * personal note — the denial would fork an unexpected Personal copy — so
+ * organization stays owner-only there. Team and local-only notes remain
+ * freely movable (spacePermissions gates cross-space moves).
+ */
+export function canOrganizeNote(
+  permission: NotePermission | null,
+  scope: SharedNoteScope
+): boolean {
+  if (!aclApplies(scope)) return true;
+  return permission === "owner";
+}

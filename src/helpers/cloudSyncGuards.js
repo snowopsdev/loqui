@@ -48,3 +48,12 @@ export function buildNoteUpdatePayload(note, cloudFolderId) {
     ...(note.cloud_updated_at ? { base_updated_at: note.cloud_updated_at } : {}),
   };
 }
+
+// POST creates a new cloud identity and therefore has no prior server
+// revision to compare. Forks from older databases can retain a stale base, so
+// derive create payloads explicitly rather than forwarding base_updated_at.
+export function buildNoteCreatePayload(note, cloudFolderId) {
+  const payload = buildNoteUpdatePayload(note, cloudFolderId);
+  delete payload.base_updated_at;
+  return payload;
+}

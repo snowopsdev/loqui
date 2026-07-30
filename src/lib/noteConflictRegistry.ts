@@ -55,3 +55,11 @@ export function removeNoteConflictId(clientNoteId: string): void {
     // surface the conflict again.
   }
 }
+
+export function clearNoteConflicts(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Account transitions still clear the in-memory copy.
+  }
+}

@@ -61,8 +61,9 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
   );
   const isTeamNote = space?.kind === "team";
 
-  // A note synced from this dialog: markNoteSynced doesn't broadcast, so the
-  // note prop can lag behind the local DB until the next note-updated event.
+  // A note synced from this dialog: the create acknowledgement doesn't
+  // broadcast, so the note prop can lag behind the local DB until the next
+  // note-updated event.
   const [syncedFor, setSyncedFor] = useState<{ noteId: number; cloudId: string } | null>(null);
   const cloudId = note.cloud_id ?? (syncedFor?.noteId === note.id ? syncedFor.cloudId : null);
   const cached = useShareCacheEntry(cloudId);
@@ -134,8 +135,9 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
     [cloudId]
   );
 
-  // The store's note can miss a cloud_id assigned by a background sync
-  // (markNoteSynced doesn't broadcast); read the DB before offering to sync.
+  // The store's note can miss a cloud_id assigned by a background sync (the
+  // create acknowledgement doesn't broadcast); read the DB before offering to
+  // sync.
   useEffect(() => {
     if (!open || note.cloud_id) return;
     let cancelled = false;

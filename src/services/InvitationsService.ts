@@ -40,10 +40,15 @@ async function preview(token: string): Promise<InvitationPreview> {
   return res.data;
 }
 
-async function accept(token: string): Promise<{ workspace_id: string; role: string }> {
-  const res = await cloudPost<DataWrap<{ workspace_id: string; role: string }>>(
-    `/api/invitations/${encodeURIComponent(token)}/accept`
-  );
+// team_ids is the authoritative post-accept team list (the invitation may
+// have been edited since it was previewed); optional only because older API
+// responses predate it.
+async function accept(
+  token: string
+): Promise<{ workspace_id: string; role: string; team_ids?: string[] }> {
+  const res = await cloudPost<
+    DataWrap<{ workspace_id: string; role: string; team_ids?: string[] }>
+  >(`/api/invitations/${encodeURIComponent(token)}/accept`);
   return res.data;
 }
 

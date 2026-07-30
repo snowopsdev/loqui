@@ -169,15 +169,20 @@ test("markNoteSynced and markNoteSyncedIfUnchanged persist the returned owner", 
   assert.equal(row.owner_user_id, null);
 
   // The owner advances with the base even when a mid-flight edit keeps the
-  // row pending (updated_at mismatch prevents the settle).
-  db.db.prepare("UPDATE notes SET owner_user_id = NULL WHERE id = ?").run(note.id);
+  // row pending.
+  db.updateNote(note.id, { content: "body v2" });
+  const snapshot = db.getNote(note.id);
+  db.db
+    .prepare("UPDATE notes SET content = 'body v3', sync_status = 'pending' WHERE id = ?")
+    .run(note.id);
   const settle = db.markNoteSyncedIfUnchanged(
     note.id,
+    snapshot,
     "cloud-9",
-    "not-the-current-updated-at",
     "2026-07-02T12:00:00.000Z",
     "owner-9"
   );
+  assert.equal(settle.outcome, "pending");
   assert.equal(settle.changes, 0);
   row = db.getNote(note.id);
   assert.equal(row.owner_user_id, "owner-9");

@@ -62,6 +62,9 @@ export function ownsNote(note: NoteOwnership, currentUserId: string | null | und
 /**
  * Delete a team-space note: the note's owner, a space admin, or a workspace
  * owner/admin. Mirrors the server rule — client checks are cosmetic.
+ * Space rules only: a cloud-backed PERSONAL note shared with this user
+ * passes here (private space is unenforced) but may still be vetoed by its
+ * note-level ACL — compose with sharedNoteBlocksDelete (notePermissions).
  */
 export function canDeleteSpaceNote(
   note: NoteOwnership,

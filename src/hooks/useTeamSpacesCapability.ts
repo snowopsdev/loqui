@@ -15,8 +15,11 @@ function hasTeamSpacesDevOverride(): boolean {
  * probe (written by the spaces sync pass), the dev override, or locally known
  * team spaces.
  */
-export function useTeamSpacesCapability(): boolean {
+export function useTeamSpacesCapability(isSignedIn: boolean): boolean {
   const spaces = useSpaces();
   const capability = useSyncExternalStore(subscribeTeamSpacesCapability, readTeamSpacesCapability);
-  return hasTeamSpacesDevOverride() || capability || spaces.some((space) => space.kind === "team");
+  return (
+    isSignedIn &&
+    (hasTeamSpacesDevOverride() || capability || spaces.some((space) => space.kind === "team"))
+  );
 }

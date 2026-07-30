@@ -146,7 +146,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Space functions
   getSpaces: () => ipcRenderer.invoke("db-get-spaces"),
   updateSpace: (id, updates) => ipcRenderer.invoke("db-update-space", id, updates),
-  purgeSpace: (id) => ipcRenderer.invoke("db-purge-space", id),
+  purgeSpace: (id, options) => ipcRenderer.invoke("db-purge-space", id, options),
   upsertSpaceFromCloud: (space) => ipcRenderer.invoke("db-upsert-space-from-cloud", space),
   setSpaceSyncStatus: (id, status) => ipcRenderer.invoke("db-set-space-sync-status", id, status),
   onSpacePurged: (callback) => {
@@ -580,7 +580,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openWhisperModelsFolder: () => ipcRenderer.invoke("open-whisper-models-folder"),
   authClearSession: () => ipcRenderer.invoke("auth-clear-session"),
   authGetToken: () => ipcRenderer.invoke("auth-get-token"),
-  authSetToken: (token) => ipcRenderer.invoke("auth-set-token", token),
+  authGetTokenState: () => ipcRenderer.invoke("auth-get-token-state"),
+  authSetToken: (token, expectedGeneration) =>
+    ipcRenderer.invoke("auth-set-token", token, expectedGeneration),
+  onAuthTokenStateChanged: registerListener(
+    "auth-token-state-changed",
+    (callback) => (_event, state) => callback(state)
+  ),
 
   // OpenWhispr Cloud API
   cloudHealthCheck: () => ipcRenderer.invoke("cloud-health-check"),
@@ -911,14 +917,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getNoteByClientId: (clientNoteId) => ipcRenderer.invoke("db-get-note-by-client-id", clientNoteId),
   upsertNoteFromCloud: (cloudNote, localFolderId, localSpaceId) =>
     ipcRenderer.invoke("db-upsert-note-from-cloud", cloudNote, localFolderId, localSpaceId),
-  markNoteSynced: (id, cloudId, cloudUpdatedAt, ownerUserId) =>
-    ipcRenderer.invoke("db-mark-note-synced", id, cloudId, cloudUpdatedAt, ownerUserId),
-  markNoteSyncedIfUnchanged: (id, cloudId, snapshotUpdatedAt, cloudUpdatedAt, ownerUserId) =>
+  acknowledgeNoteCreate: (id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, settleIfUnchanged) =>
+    ipcRenderer.invoke(
+      "db-acknowledge-note-create",
+      id,
+      snapshot,
+      cloudId,
+      cloudUpdatedAt,
+      ownerUserId,
+      settleIfUnchanged
+    ),
+  markNoteSyncedIfUnchanged: (id, snapshot, expectedCloudId, cloudUpdatedAt, ownerUserId) =>
     ipcRenderer.invoke(
       "db-mark-note-synced-if-unchanged",
       id,
-      cloudId,
-      snapshotUpdatedAt,
+      snapshot,
+      expectedCloudId,
       cloudUpdatedAt,
       ownerUserId
     ),
@@ -928,6 +942,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("db-set-note-owner-from-cloud", id, ownerUserId),
   countTeamNotesMissingOwner: () => ipcRenderer.invoke("db-count-team-notes-missing-owner"),
   markNoteSyncError: (id) => ipcRenderer.invoke("db-mark-note-sync-error", id),
+  restoreNoteAfterDeniedDelete: (id) =>
+    ipcRenderer.invoke("db-restore-note-after-denied-delete", id),
   hardDeleteNote: (id) => ipcRenderer.invoke("db-hard-delete-note", id),
 
   getPendingFolders: (spaceKind) => ipcRenderer.invoke("db-get-pending-folders", spaceKind),
@@ -935,13 +951,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("db-get-folder-by-client-id", clientFolderId),
   upsertFolderFromCloud: (cloudFolder, localSpaceId) =>
     ipcRenderer.invoke("db-upsert-folder-from-cloud", cloudFolder, localSpaceId),
-  markFolderSynced: (id, cloudId) => ipcRenderer.invoke("db-mark-folder-synced", id, cloudId),
-  markFolderSyncedIfUnchanged: (id, cloudId, snapshotUpdatedAt) =>
-    ipcRenderer.invoke("db-mark-folder-synced-if-unchanged", id, cloudId, snapshotUpdatedAt),
-  adoptFolderIdentity: (id, clientFolderId, cloudId, updatedAt) =>
-    ipcRenderer.invoke("db-adopt-folder-identity", id, clientFolderId, cloudId, updatedAt),
+  acknowledgeFolderCreate: (
+    id,
+    snapshot,
+    expectedCloudId,
+    responseClientFolderId,
+    cloudId,
+    cloudUpdatedAt
+  ) =>
+    ipcRenderer.invoke(
+      "db-acknowledge-folder-create",
+      id,
+      snapshot,
+      expectedCloudId,
+      responseClientFolderId,
+      cloudId,
+      cloudUpdatedAt
+    ),
+  markFolderSyncedIfUnchanged: (id, snapshot, expectedCloudId) =>
+    ipcRenderer.invoke("db-mark-folder-synced-if-unchanged", id, snapshot, expectedCloudId),
   getFolderIdMap: () => ipcRenderer.invoke("db-get-folder-id-map"),
   getPendingFolderDeletes: () => ipcRenderer.invoke("db-get-pending-folder-deletes"),
+  restoreFolderAfterDeniedDelete: (id) =>
+    ipcRenderer.invoke("db-restore-folder-after-denied-delete", id),
   hardDeleteFolder: (id) => ipcRenderer.invoke("db-hard-delete-folder", id),
   relocateRevokedFolder: (id, privateSpaceId, preserveFolder) =>
     ipcRenderer.invoke("db-relocate-revoked-folder", id, privateSpaceId, preserveFolder),

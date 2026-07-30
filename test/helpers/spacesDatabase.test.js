@@ -277,6 +277,170 @@ test("purgeSpace leaves zero residue for the space and spares the private space"
   assert.equal(count("SELECT COUNT(*) as count FROM spaces WHERE id = ?", privateId), 1);
 });
 
+test("purgeSpace retires team-note chats and preserves chats for relocated drafts", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const privateId = db.getPrivateSpaceId();
+  const team = createTestTeamSpace(db, { name: "Secret" }).space;
+  const folder = db.createFolder("Vault", team.id).folder;
+
+  const clean = db.saveNote("Team plan", "server copy", "personal", null, null, folder.id).note;
+  db.markNoteSynced(clean.id, "cloud-note-1");
+  const localChat = db.createAgentConversation("Local team chat", clean.id);
+  db.addAgentMessage(localChat.id, "user", "local classified chat");
+  const syncedChat = db.createAgentConversation("Synced team chat", clean.id);
+  db.markConversationSynced(syncedChat.id, "cloud-conversation-1");
+  db.addAgentMessage(syncedChat.id, "assistant", "synced classified chat");
+
+  const draft = db.saveNote("Draft", "unpushed work", "personal", null, null, folder.id).note;
+  // Exercise defensive normalization for a legacy note chat that also carries
+  // redundant team-container scope.
+  const draftChat = db.createAgentConversation("Draft chat", draft.id, team.id, folder.id);
+  db.addAgentMessage(draftChat.id, "user", "keep with my draft");
+
+  const privateNote = db.saveNote("Mine", "personal").note;
+  const privateChat = db.createAgentConversation("Private chat", privateNote.id);
+  db.addAgentMessage(privateChat.id, "user", "keep private");
+
+  db.markFolderSynced(folder.id, "cloud-folder-revoked-during-delete");
+  assert.equal(db.deleteFolder(folder.id).success, true);
+  assert.equal(db.purgeSpace(team.id).success, true);
+
+  const count = (sql, ...args) => db.db.prepare(sql).get(...args).count;
+  assert.equal(
+    count("SELECT COUNT(*) AS count FROM agent_conversations WHERE id = ?", localChat.id),
+    0,
+    "a never-synced team-note chat has no cloud row to retire"
+  );
+  assert.equal(
+    count("SELECT COUNT(*) AS count FROM agent_messages WHERE conversation_id = ?", localChat.id),
+    0
+  );
+
+  const tombstone = db.db
+    .prepare("SELECT * FROM agent_conversations WHERE id = ?")
+    .get(syncedChat.id);
+  assert.ok(tombstone.deleted_at, "a synced team-note chat leaves a cloud delete tombstone");
+  assert.equal(tombstone.sync_status, "pending");
+  assert.equal(
+    count("SELECT COUNT(*) AS count FROM agent_messages WHERE conversation_id = ?", syncedChat.id),
+    0,
+    "team chat content is removed even while its cloud delete is pending"
+  );
+  assert.deepEqual(db.getConversationsForNote(clean.id), []);
+  assert.ok(!db.getAgentConversations().some((conversation) => conversation.id === syncedChat.id));
+
+  const relocatedDraft = db.getNote(draft.id);
+  assert.equal(relocatedDraft.space_id, privateId);
+  assert.equal(relocatedDraft.folder_id, null);
+  const keptDraftChat = db.getAgentConversation(draftChat.id);
+  assert.equal(keptDraftChat.note_id, draft.id);
+  assert.equal(keptDraftChat.space_id, null);
+  assert.equal(keptDraftChat.folder_id, null);
+  assert.equal(keptDraftChat.deleted_at, null);
+  assert.equal(keptDraftChat.messages.length, 1);
+
+  assert.equal(db.getAgentConversation(privateChat.id).messages.length, 1);
+});
+
+test("purgeSpace destructive mode removes dirty team notes and chats without relocation", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const privateId = db.getPrivateSpaceId();
+  const team = createTestTeamSpace(db, { name: "Old account" }).space;
+  const folder = db.createFolder("Secrets", team.id).folder;
+
+  const dirty = db.saveNote(
+    "Pending team edit",
+    "old-account content",
+    "personal",
+    null,
+    null,
+    folder.id
+  ).note;
+  db.markNoteSynced(
+    dirty.id,
+    "cloud-dirty-account-note",
+    "2026-07-29T10:00:00.000Z",
+    "old-account-user"
+  );
+  db.updateNote(dirty.id, { content: "old-account content edited offline" });
+  assert.equal(db.getNote(dirty.id).sync_status, "pending");
+
+  const noteChat = db.createAgentConversation("Old account note chat", dirty.id);
+  db.markConversationSynced(noteChat.id, "cloud-old-account-note-chat");
+  db.addAgentMessage(noteChat.id, "user", "old-account private message");
+  const containerChat = db.createAgentConversation(
+    "Old account folder chat",
+    null,
+    team.id,
+    folder.id
+  );
+  db.markConversationSynced(containerChat.id, "cloud-old-account-folder-chat");
+  db.addAgentMessage(containerChat.id, "assistant", "old-account scoped response");
+  db.markFolderSynced(folder.id, "cloud-old-account-folder");
+  assert.equal(db.deleteFolder(folder.id).success, true);
+  assert.ok(
+    db.db
+      .prepare(
+        "SELECT 1 FROM optimistic_folder_delete_rows WHERE folder_id = ? AND entity_type = 'folder'"
+      )
+      .get(folder.id),
+    "fixture includes an unresolved optimistic folder delete"
+  );
+
+  const privateNote = db.saveNote("Device note", "keep local device content").note;
+  const privateChat = db.createAgentConversation("Device chat", privateNote.id);
+  db.addAgentMessage(privateChat.id, "user", "keep this message");
+
+  const result = db.purgeSpace(team.id, { mode: "destructive" });
+  assert.equal(result.success, true);
+  assert.deepEqual(result.noteIds, [dirty.id]);
+  assert.equal(result.relocatedCount, 0);
+  assert.deepEqual(result.relocatedNotes, []);
+
+  const count = (sql, ...args) => db.db.prepare(sql).get(...args).count;
+  assert.equal(count("SELECT COUNT(*) AS count FROM notes WHERE id = ?", dirty.id), 0);
+  assert.equal(
+    count("SELECT COUNT(*) AS count FROM notes WHERE space_id = ?", privateId),
+    1,
+    "a dirty team note must not fork into Personal during an account transition"
+  );
+  for (const conversation of [noteChat, containerChat]) {
+    assert.equal(
+      count("SELECT COUNT(*) AS count FROM agent_conversations WHERE id = ?", conversation.id),
+      0,
+      "even a synced chat must be hard-deleted rather than left as a cloud-delete tombstone"
+    );
+    assert.equal(
+      count(
+        "SELECT COUNT(*) AS count FROM agent_messages WHERE conversation_id = ?",
+        conversation.id
+      ),
+      0
+    );
+  }
+  assert.equal(db.getAgentConversation(privateChat.id).messages.length, 1);
+  assert.equal(
+    count(
+      "SELECT COUNT(*) AS count FROM optimistic_folder_delete_rows WHERE folder_id = ?",
+      folder.id
+    ),
+    0,
+    "account-destructive purge clears rollback metadata"
+  );
+
+  // A late editor flush is UPDATE-only. Once destructive purge commits, it
+  // cannot recreate the deleted note under Personal or any other space.
+  const lateSave = db.updateNote(dirty.id, {
+    title: "Late old-account save",
+    content: "must not reappear",
+  });
+  assert.equal(lateSave.note, undefined);
+  assert.equal(count("SELECT COUNT(*) AS count FROM notes WHERE id = ?", dirty.id), 0);
+  assert.equal(count("SELECT COUNT(*) AS count FROM notes WHERE space_id = ?", privateId), 1);
+});
+
 test("saveNote resolves default folders within the target space", (t) => {
   const db = createDb(t);
   if (!db) return;
@@ -619,26 +783,280 @@ test("moveFolderToSpace team→private flags the folder and its cloud-backed not
   assert.equal(db.getNote(cloudNote.id).left_team, 0);
 });
 
-test("markNoteSyncedIfUnchanged settles only rows untouched since the push snapshot", (t) => {
+test("markNoteSyncedIfUnchanged settles an exact identity and push snapshot", (t) => {
   const db = createDb(t);
   if (!db) return;
   const note = db.saveNote("Doc", "v1").note;
+  db.markNoteSynced(note.id, "cloud-1", "2026-07-29T08:00:00.000Z", "owner-1");
+  db.updateNote(note.id, { content: "v2" });
   const snapshot = db.getNote(note.id);
 
-  const settled = db.markNoteSyncedIfUnchanged(note.id, "cloud-1", snapshot.updated_at);
+  const settled = db.markNoteSyncedIfUnchanged(
+    note.id,
+    snapshot,
+    "cloud-1",
+    "2026-07-29T09:00:00.000Z",
+    "owner-1"
+  );
+  assert.equal(settled.outcome, "synced");
   assert.equal(settled.changes, 1);
   assert.equal(db.getNote(note.id).sync_status, "synced");
   assert.equal(db.getNote(note.id).cloud_id, "cloud-1");
+  assert.equal(db.getNote(note.id).cloud_updated_at, "2026-07-29T09:00:00.000Z");
+});
 
-  // Simulate an edit landing while the PATCH was in flight.
+test("markNoteSyncedIfUnchanged keeps a same-second newer edit pending and advances its base", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const note = db.saveNote("Doc", "v1").note;
+  db.markNoteSynced(note.id, "cloud-1", "2026-07-29T08:00:00.000Z", "owner-1");
+  db.updateNote(note.id, { content: "v2" });
+  const snapshot = db.getNote(note.id);
+
+  // Do not touch updated_at: SQLite timestamps have second precision, so the
+  // full pushed snapshot—not the timestamp—must detect this newer edit.
   db.db
-    .prepare(
-      "UPDATE notes SET content = 'v2', sync_status = 'pending', updated_at = datetime('now', '+1 hour') WHERE id = ?"
-    )
+    .prepare("UPDATE notes SET content = 'v3', sync_status = 'pending' WHERE id = ?")
     .run(note.id);
-  const stale = db.markNoteSyncedIfUnchanged(note.id, "cloud-1", snapshot.updated_at);
+  const stale = db.markNoteSyncedIfUnchanged(
+    note.id,
+    snapshot,
+    "cloud-1",
+    "2026-07-29T09:00:00.000Z",
+    "owner-2"
+  );
+  assert.equal(stale.outcome, "pending");
   assert.equal(stale.changes, 0);
-  assert.equal(db.getNote(note.id).sync_status, "pending", "the mid-flight edit must still push");
+  const current = db.getNote(note.id);
+  assert.equal(current.content, "v3");
+  assert.equal(current.sync_status, "pending", "the mid-flight edit must still push");
+  assert.equal(current.cloud_id, "cloud-1");
+  assert.equal(current.cloud_updated_at, "2026-07-29T09:00:00.000Z");
+  assert.equal(current.owner_user_id, "owner-2");
+
+  // Reverting the local content to the first request's bytes does not make a
+  // late, older response safe to settle: the newer base proves PATCH 2 may be
+  // what the server currently stores.
+  db.db
+    .prepare("UPDATE notes SET content = ?, sync_status = 'pending', updated_at = ? WHERE id = ?")
+    .run(snapshot.content, snapshot.updated_at, note.id);
+  const late = db.markNoteSyncedIfUnchanged(
+    note.id,
+    snapshot,
+    "cloud-1",
+    "2026-07-29T08:30:00.000Z",
+    "owner-2"
+  );
+  assert.equal(late.outcome, "pending");
+  assert.equal(db.getNote(note.id).sync_status, "pending");
+  assert.equal(
+    db.getNote(note.id).cloud_updated_at,
+    "2026-07-29T09:00:00.000Z",
+    "an out-of-order response must not regress the newer server base"
+  );
+});
+
+test("markNoteSyncedIfUnchanged rejects a late PATCH response after an in-place identity fork", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const note = db.saveNote("Team draft", "v1").note;
+  db.markNoteSynced(note.id, "team-cloud-id", "2026-07-29T08:00:00.000Z", "team-owner");
+  db.updateNote(note.id, { content: "unpushed team edit" });
+  const teamSnapshot = db.getNote(note.id);
+
+  db.updateNote(note.id, {
+    content: "Personal fork",
+    client_note_id: "personal-fork-client-id",
+    cloud_id: null,
+    cloud_updated_at: null,
+    owner_user_id: null,
+    updated_by_user_id: null,
+  });
+  const forked = db.getNote(note.id);
+  const rejected = db.markNoteSyncedIfUnchanged(
+    note.id,
+    teamSnapshot,
+    "team-cloud-id",
+    "2026-07-29T09:00:00.000Z",
+    "team-owner"
+  );
+
+  assert.equal(rejected.outcome, "identity-changed");
+  assert.equal(rejected.changes, 0);
+  const afterResponse = db.getNote(note.id);
+  assert.equal(afterResponse.client_note_id, forked.client_note_id);
+  assert.equal(afterResponse.content, "Personal fork");
+  assert.equal(afterResponse.cloud_id, null);
+  assert.equal(afterResponse.cloud_updated_at, null);
+  assert.equal(afterResponse.owner_user_id, null);
+  assert.equal(afterResponse.sync_status, "pending");
+});
+
+test("acknowledgeNoteCreate settles only the exact create snapshot", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const note = db.saveNote("Doc", "v1").note;
+
+  const settled = db.acknowledgeNoteCreate(
+    note.id,
+    note,
+    "cloud-create-1",
+    "2026-07-29T10:00:00.000Z",
+    "owner-1"
+  );
+  assert.equal(settled.outcome, "synced");
+  assert.deepEqual(
+    {
+      cloud_id: db.getNote(note.id).cloud_id,
+      cloud_updated_at: db.getNote(note.id).cloud_updated_at,
+      owner_user_id: db.getNote(note.id).owner_user_id,
+      sync_status: db.getNote(note.id).sync_status,
+    },
+    {
+      cloud_id: "cloud-create-1",
+      cloud_updated_at: "2026-07-29T10:00:00.000Z",
+      owner_user_id: "owner-1",
+      sync_status: "synced",
+    }
+  );
+  const ambiguous = db.acknowledgeNoteCreate(
+    note.id,
+    note,
+    "different-cloud-id",
+    "2026-07-29T10:01:00.000Z",
+    "owner-1"
+  );
+  assert.equal(ambiguous.outcome, "unresolved");
+  assert.equal(
+    db.getNote(note.id).cloud_id,
+    "cloud-create-1",
+    "an ambiguous response must not replace or delete the adopted identity"
+  );
+
+  const racing = db.saveNote("Racing", "v1").note;
+  // Keep updated_at identical to the request snapshot: the acknowledgement
+  // must compare pushed fields too, because SQLite timestamps have only
+  // second precision and two edits can otherwise look unchanged.
+  db.db
+    .prepare("UPDATE notes SET content = 'v2', sync_status = 'pending' WHERE id = ?")
+    .run(racing.id);
+  const pending = db.acknowledgeNoteCreate(
+    racing.id,
+    racing,
+    "cloud-create-2",
+    "2026-07-29T11:00:00.000Z",
+    "owner-2"
+  );
+  const afterRace = db.getNote(racing.id);
+  assert.equal(pending.outcome, "pending");
+  assert.equal(afterRace.content, "v2");
+  assert.equal(afterRace.cloud_id, "cloud-create-2", "the next PATCH must target the created row");
+  assert.equal(afterRace.cloud_updated_at, "2026-07-29T11:00:00.000Z");
+  assert.equal(afterRace.owner_user_id, "owner-2");
+  assert.equal(afterRace.sync_status, "pending", "the intervening edit must still push");
+
+  const partial = db.saveNote("Migration", "body").note;
+  const partialAck = db.acknowledgeNoteCreate(
+    partial.id,
+    partial,
+    "migration-cloud-id",
+    "2026-07-29T11:30:00.000Z",
+    null,
+    false
+  );
+  const afterPartial = db.getNote(partial.id);
+  assert.equal(partialAck.outcome, "pending");
+  assert.equal(afterPartial.cloud_id, "migration-cloud-id");
+  assert.equal(
+    afterPartial.sync_status,
+    "pending",
+    "a partial migration create must still receive a full PATCH"
+  );
+
+  const recreated = db.saveNote("Fork", "local copy").note;
+  db.markNoteSynced(recreated.id, "old-cloud-id", "2026-07-28T09:00:00.000Z", "old-owner");
+  db.updateNote(recreated.id, {
+    client_note_id: "forked-client-note-id",
+    cloud_id: null,
+    sync_status: "pending",
+  });
+  const forkSnapshot = db.getNote(recreated.id);
+  assert.equal(forkSnapshot.cloud_updated_at, "2026-07-28T09:00:00.000Z");
+  assert.equal(forkSnapshot.owner_user_id, "old-owner");
+
+  const recreatedAck = db.acknowledgeNoteCreate(
+    recreated.id,
+    forkSnapshot,
+    "new-cloud-id",
+    null,
+    null
+  );
+  const afterRecreate = db.getNote(recreated.id);
+  assert.equal(recreatedAck.outcome, "synced");
+  assert.equal(afterRecreate.cloud_id, "new-cloud-id");
+  assert.equal(
+    afterRecreate.cloud_updated_at,
+    null,
+    "a null create base must clear the old identity's revision"
+  );
+  assert.equal(
+    afterRecreate.owner_user_id,
+    null,
+    "a null create owner must clear the old identity's owner"
+  );
+});
+
+test("acknowledgeNoteCreate never mutates an identity forked by purgeSpace", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const team = createTestTeamSpace(db, { name: "Create race" }).space;
+  const note = db.saveNote("Draft", "team work", "personal", null, null, null, team.id).note;
+  const originalClientNoteId = note.client_note_id;
+
+  const purge = db.purgeSpace(team.id);
+  assert.equal(purge.success, true);
+  const forked = db.getNote(note.id);
+  assert.notEqual(forked.client_note_id, originalClientNoteId);
+  assert.equal(forked.space_id, db.getPrivateSpaceId());
+
+  const ack = db.acknowledgeNoteCreate(
+    note.id,
+    note,
+    "stale-team-cloud-id",
+    "2026-07-29T12:00:00.000Z",
+    "owner-3"
+  );
+  const afterAck = db.getNote(note.id);
+  assert.equal(ack.outcome, "orphaned", "the caller may delete the stale cloud create");
+  assert.equal(afterAck.client_note_id, forked.client_note_id);
+  assert.equal(afterAck.cloud_id, null);
+  assert.equal(afterAck.owner_user_id, null);
+  assert.equal(afterAck.space_id, db.getPrivateSpaceId());
+  assert.equal(afterAck.sync_status, "pending");
+});
+
+test("acknowledgeNoteCreate queues a team-to-Personal move for scope retraction", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const team = createTestTeamSpace(db, { name: "Move race" }).space;
+  const note = db.saveNote("Draft", "team work", "personal", null, null, null, team.id).note;
+
+  db.updateNote(note.id, { space_id: db.getPrivateSpaceId(), folder_id: null });
+  const ack = db.acknowledgeNoteCreate(
+    note.id,
+    note,
+    "team-cloud-id",
+    "2026-07-29T13:00:00.000Z",
+    "owner-4"
+  );
+  const moved = db.getNote(note.id);
+  assert.equal(ack.outcome, "pending");
+  assert.equal(moved.cloud_id, "team-cloud-id");
+  assert.equal(moved.left_team, 1);
+  assert.ok(
+    db.getPendingNotes("team").some((candidate) => candidate.id === note.id),
+    "the retraction must push even when personal backup is disabled"
+  );
 });
 
 test("cloud_updated_at follows the pull, edit, push, and conflict lifecycle", (t) => {
@@ -674,8 +1092,8 @@ test("cloud_updated_at follows the pull, edit, push, and conflict lifecycle", (t
 
   const settled = db.markNoteSyncedIfUnchanged(
     pulled.id,
+    pushSnapshot,
     pulled.cloud_id,
-    pushSnapshot.updated_at,
     pushedCloudRevision
   );
   assert.equal(settled.changes, 1);
@@ -691,8 +1109,8 @@ test("cloud_updated_at follows the pull, edit, push, and conflict lifecycle", (t
     .run(pulled.id);
   const raced = db.markNoteSyncedIfUnchanged(
     pulled.id,
+    racingSnapshot,
     pulled.cloud_id,
-    racingSnapshot.updated_at,
     conflictCloudRevision
   );
   assert.equal(raced.changes, 0);
@@ -715,27 +1133,203 @@ test("cloud_updated_at follows the pull, edit, push, and conflict lifecycle", (t
   );
 });
 
-test("markFolderSyncedIfUnchanged settles only rows untouched since the push snapshot", (t) => {
+test("markFolderSyncedIfUnchanged compares the full pushed folder snapshot", (t) => {
   const db = createDb(t);
   if (!db) return;
   const folder = db.createFolder("Design").folder;
   const readFolder = () => db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
-  const snapshot = readFolder();
+  db.markFolderSynced(folder.id, "cloud-folder-1");
+  db.renameFolder(folder.id, "Design queued");
+  const exactSnapshot = readFolder();
 
-  const settled = db.markFolderSyncedIfUnchanged(folder.id, "cloud-folder-1", snapshot.updated_at);
+  const settled = db.markFolderSyncedIfUnchanged(folder.id, exactSnapshot, "cloud-folder-1");
+  assert.equal(settled.outcome, "synced");
   assert.equal(settled.changes, 1);
   assert.equal(readFolder().sync_status, "synced");
   assert.equal(readFolder().cloud_id, "cloud-folder-1");
 
-  // Simulate a rename landing while the PATCH was in flight.
+  db.renameFolder(folder.id, "Design v2");
+  const racingSnapshot = readFolder();
+  // Simulate a second rename landing in the same SQLite timestamp tick while
+  // the PATCH is in flight. Timestamp-only guards cannot distinguish this.
   db.db
-    .prepare(
-      "UPDATE folders SET name = 'Design v2', sync_status = 'pending', updated_at = datetime('now', '+1 hour') WHERE id = ?"
-    )
+    .prepare("UPDATE folders SET name = 'Design v3', sync_status = 'pending' WHERE id = ?")
     .run(folder.id);
-  const stale = db.markFolderSyncedIfUnchanged(folder.id, "cloud-folder-1", snapshot.updated_at);
+  assert.equal(readFolder().updated_at, racingSnapshot.updated_at);
+  const stale = db.markFolderSyncedIfUnchanged(folder.id, racingSnapshot, "cloud-folder-1");
+  assert.equal(stale.outcome, "pending");
   assert.equal(stale.changes, 0);
   assert.equal(readFolder().sync_status, "pending", "the mid-flight rename must still push");
+  assert.equal(readFolder().name, "Design v3");
+});
+
+test("folder PATCH acknowledgement never mutates an in-place revocation fork", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const privateId = db.getPrivateSpaceId();
+  const team = createTestTeamSpace(db, { name: "Folder PATCH race" }).space;
+  const folder = db.createFolder("Team designs", team.id).folder;
+  db.markFolderSynced(folder.id, "old-cloud-folder");
+  db.renameFolder(folder.id, "Team designs queued");
+  const snapshot = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+
+  const relocation = db.relocateRevokedFolder(folder.id, privateId, true);
+  assert.equal(relocation.success, true);
+  const forked = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.notEqual(forked.client_folder_id, snapshot.client_folder_id);
+  assert.equal(forked.cloud_id, null);
+
+  const ack = db.markFolderSyncedIfUnchanged(folder.id, snapshot, "old-cloud-folder");
+  const afterAck = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.equal(ack.outcome, "identity-changed");
+  assert.equal(ack.changes, 0);
+  assert.deepEqual(afterAck, forked);
+
+  const adoptAck = db.acknowledgeFolderCreate(
+    folder.id,
+    snapshot,
+    snapshot.cloud_id,
+    "canonical-old-client-folder",
+    "old-cloud-folder",
+    "2026-07-29T13:30:00.000Z"
+  );
+  assert.equal(adoptAck.outcome, "identity-changed");
+  assert.equal(adoptAck.changes, 0);
+  assert.deepEqual(
+    db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id),
+    forked,
+    "a late pull-side identity adoption must not overwrite the fork either"
+  );
+});
+
+test("acknowledgeFolderCreate settles an exact snapshot and adopts collision identity", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const folder = db.createFolder("Collision candidate").folder;
+  const snapshot = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  const cloudUpdatedAt = "2026-07-29T14:00:00.000Z";
+
+  const ack = db.acknowledgeFolderCreate(
+    folder.id,
+    snapshot,
+    snapshot.cloud_id,
+    "cloud-winner-client-folder",
+    "cloud-winner-folder",
+    cloudUpdatedAt
+  );
+  const linked = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.equal(ack.outcome, "synced");
+  assert.equal(ack.changes, 1);
+  assert.equal(linked.client_folder_id, "cloud-winner-client-folder");
+  assert.equal(linked.cloud_id, "cloud-winner-folder");
+  assert.equal(linked.sync_status, "synced");
+  assert.equal(linked.updated_at, cloudUpdatedAt);
+});
+
+test("acknowledgeFolderCreate guards pull-side adoption with the pre-request cloud id", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const folder = db.createFolder("Already linked").folder;
+  db.markFolderSynced(folder.id, "cloud-linked-folder");
+  db.renameFolder(folder.id, "Already linked queued");
+  const snapshot = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+
+  const ack = db.acknowledgeFolderCreate(
+    folder.id,
+    snapshot,
+    snapshot.cloud_id,
+    "canonical-linked-client-folder",
+    "cloud-linked-folder",
+    "2026-07-29T14:30:00.000Z"
+  );
+  const adopted = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.equal(ack.outcome, "synced");
+  assert.equal(ack.changes, 1);
+  assert.equal(adopted.client_folder_id, "canonical-linked-client-folder");
+  assert.equal(adopted.cloud_id, "cloud-linked-folder");
+  assert.equal(adopted.sync_status, "synced");
+});
+
+test("acknowledgeFolderCreate adopts onto a newer same-identity edit without settling it", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const folder = db.createFolder("Roadmap").folder;
+  const snapshot = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+
+  db.db
+    .prepare("UPDATE folders SET name = 'Roadmap v2', sync_status = 'pending' WHERE id = ?")
+    .run(folder.id);
+  const ack = db.acknowledgeFolderCreate(
+    folder.id,
+    snapshot,
+    snapshot.cloud_id,
+    folder.client_folder_id,
+    "cloud-roadmap",
+    "2026-07-29T15:00:00.000Z"
+  );
+  const linked = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.equal(linked.updated_at, snapshot.updated_at, "the edit shares the request timestamp");
+  assert.equal(ack.outcome, "pending");
+  assert.equal(ack.changes, 1);
+  assert.equal(linked.name, "Roadmap v2");
+  assert.equal(linked.cloud_id, "cloud-roadmap");
+  assert.equal(linked.sync_status, "pending");
+});
+
+test("acknowledgeFolderCreate queues a team-to-Personal move for scope retraction", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const team = createTestTeamSpace(db, { name: "Folder move race" }).space;
+  const folder = db.createFolder("Moving folder", team.id).folder;
+  const snapshot = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+
+  const move = db.moveFolderToSpace(folder.id, db.getPrivateSpaceId());
+  assert.equal(move.success, true);
+  const ack = db.acknowledgeFolderCreate(
+    folder.id,
+    snapshot,
+    snapshot.cloud_id,
+    folder.client_folder_id,
+    "team-folder-created-in-flight",
+    "2026-07-29T15:30:00.000Z"
+  );
+  const moved = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.equal(ack.outcome, "pending");
+  assert.equal(moved.cloud_id, "team-folder-created-in-flight");
+  assert.equal(moved.left_team, 1);
+  assert.ok(
+    db.getPendingFolders("team").some((candidate) => candidate.id === folder.id),
+    "the scope retraction must push even when personal backup is disabled"
+  );
+});
+
+test("acknowledgeFolderCreate never reattaches a folder forked during the request", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const privateId = db.getPrivateSpaceId();
+  const team = createTestTeamSpace(db, { name: "Folder create race" }).space;
+  const folder = db.createFolder("Fresh team folder", team.id).folder;
+  const snapshot = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+
+  const relocation = db.relocateRevokedFolder(folder.id, privateId, true);
+  assert.equal(relocation.success, true);
+  const forked = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.notEqual(forked.client_folder_id, snapshot.client_folder_id);
+
+  const ack = db.acknowledgeFolderCreate(
+    folder.id,
+    snapshot,
+    snapshot.cloud_id,
+    snapshot.client_folder_id,
+    "stale-team-cloud-folder",
+    "2026-07-29T16:00:00.000Z"
+  );
+  const afterAck = db.db.prepare("SELECT * FROM folders WHERE id = ?").get(folder.id);
+  assert.equal(ack.outcome, "identity-changed");
+  assert.equal(ack.changes, 0);
+  assert.deepEqual(afterAck, forked);
+  assert.equal(afterAck.cloud_id, null);
+  assert.equal(afterAck.sync_status, "pending");
 });
 
 test("relocateRevokedFolder preserves dirty children and hard-deletes server-owned ones", (t) => {
@@ -749,10 +1343,15 @@ test("relocateRevokedFolder preserves dirty children and hard-deletes server-own
   const clean = db.saveNote("Recap", "server copy", "personal", null, null, folder.id).note;
   db.markNoteSynced(clean.id, "cloud-note-1");
   const dirty = db.saveNote("Edits", "unpushed work", "personal", null, null, folder.id).note;
-  db.markNoteSynced(dirty.id, "cloud-note-2");
+  db.markNoteSynced(dirty.id, "cloud-note-2", "2026-07-28T07:00:00.000Z", "revoked-folder-owner");
   db.updateNote(dirty.id, { content: "unpushed work v2" });
   db.updateNoteShareState(dirty.id, { is_shared: 1, share_token: "revoked-folder-token" });
   const draft = db.saveNote("Draft", "never synced", "personal", null, null, folder.id).note;
+  const cleanChat = db.createAgentConversation("Clean note chat", clean.id);
+  db.markConversationSynced(cleanChat.id, "cloud-conversation-1");
+  db.addAgentMessage(cleanChat.id, "user", "revoked team content");
+  const dirtyChat = db.createAgentConversation("Dirty note chat", dirty.id, team.id, folder.id);
+  db.addAgentMessage(dirtyChat.id, "user", "keep this local edit");
   db.db
     .prepare(
       "INSERT INTO speaker_mappings (note_id, speaker_id, display_name) VALUES (?, 'spk_0', 'Alice')"
@@ -783,8 +1382,27 @@ test("relocateRevokedFolder preserves dirty children and hard-deletes server-own
     assert.equal(survivor.sync_status, "pending");
   }
   assert.notEqual(db.getNote(dirty.id).client_note_id, dirty.client_note_id, "identity forked");
+  assert.equal(db.getNote(dirty.id).cloud_updated_at, null, "fork clears the old cloud base");
+  assert.equal(db.getNote(dirty.id).owner_user_id, null, "fork clears the old owner");
   assert.equal(db.getNote(dirty.id).is_shared, 0, "forked note is private");
   assert.equal(db.getNote(dirty.id).share_token, null, "forked note drops its share token");
+  const retiredChat = db.db
+    .prepare("SELECT * FROM agent_conversations WHERE id = ?")
+    .get(cleanChat.id);
+  assert.ok(retiredChat.deleted_at, "the removed note's synced chat is retired");
+  assert.equal(
+    db.db
+      .prepare("SELECT COUNT(*) AS count FROM agent_messages WHERE conversation_id = ?")
+      .get(cleanChat.id).count,
+    0,
+    "revoked team chat content is removed"
+  );
+  assert.deepEqual(db.getConversationsForNote(clean.id), []);
+  const relocatedChat = db.getAgentConversation(dirtyChat.id);
+  assert.equal(relocatedChat.note_id, dirty.id);
+  assert.equal(relocatedChat.space_id, null);
+  assert.equal(relocatedChat.folder_id, null);
+  assert.equal(relocatedChat.messages.length, 1, "the dirty note's chat follows its Personal fork");
 
   // Dirty folder: preserved in Personal with a forked identity, children keep
   // their folder link, and a name collision falls back to a suffixed rename.
@@ -932,7 +1550,7 @@ test("purgeSpace preserves dirty cloud-backed notes with forked identities", (t)
     null,
     folder.id
   ).note;
-  db.markNoteSynced(dirty.id, "cloud-dirty-note");
+  db.markNoteSynced(dirty.id, "cloud-dirty-note", "2026-07-28T08:00:00.000Z", "old-team-owner");
   db.updateNote(dirty.id, { content: "walrus intel v2" });
   db.updateNoteShareState(dirty.id, { is_shared: 1, share_token: "purged-space-token" });
   const errored = db.saveNote(
@@ -943,7 +1561,7 @@ test("purgeSpace preserves dirty cloud-backed notes with forked identities", (t)
     null,
     folder.id
   ).note;
-  db.markNoteSynced(errored.id, "cloud-error-note");
+  db.markNoteSynced(errored.id, "cloud-error-note", "2026-07-28T08:30:00.000Z", "old-team-owner");
   db.updateNote(errored.id, { content: "narwhal v2" });
   db.markNoteSyncError(errored.id);
   const clean = db.saveNote("Clean", "synced beluga", "personal", null, null, folder.id).note;
@@ -964,6 +1582,8 @@ test("purgeSpace preserves dirty cloud-backed notes with forked identities", (t)
     assert.equal(relocated.space_id, privateId);
     assert.equal(relocated.folder_id, null);
     assert.equal(relocated.cloud_id, null);
+    assert.equal(relocated.cloud_updated_at, null);
+    assert.equal(relocated.owner_user_id, null);
     assert.equal(relocated.sync_status, "pending");
     assert.equal(relocated.left_team, 0);
     assert.notEqual(relocated.client_note_id, prior.client_note_id);

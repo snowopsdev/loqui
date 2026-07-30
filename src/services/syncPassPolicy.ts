@@ -101,6 +101,9 @@ export interface RevokedNoteFork {
     folder_id?: null;
     client_note_id?: string;
     cloud_id: null;
+    cloud_updated_at: null;
+    owner_user_id: null;
+    updated_by_user_id: null;
     left_team?: 0;
   };
   relocated: boolean;
@@ -112,7 +115,8 @@ export interface RevokedNoteFork {
 // drop the cloud link, and fork the client identity so the next push
 // re-creates it as a new personal note. Push-side rejections fork the
 // identity only when a server row exists (cloud_id) and clear the pending
-// left_team retraction the server will never accept; the pull-side
+// left_team retraction the server will never accept. Every new identity also
+// drops the old server revision/owner/editor metadata; the pull-side
 // access_removed stub always forks — the server row exists by construction.
 export function revokedNoteForkUpdate(
   note: { space_id: number; cloud_id?: string | null },
@@ -126,6 +130,9 @@ export function revokedNoteForkUpdate(
       ...(relocated ? { space_id: privateSpaceId, folder_id: null } : {}),
       ...(source === "pull" || note.cloud_id ? { client_note_id: crypto.randomUUID() } : {}),
       cloud_id: null,
+      cloud_updated_at: null,
+      owner_user_id: null,
+      updated_by_user_id: null,
       ...(source === "push" ? { left_team: 0 as const } : {}),
     },
   };

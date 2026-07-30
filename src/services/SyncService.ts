@@ -12,7 +12,13 @@ import { SpacesService, type MySpace } from "./SpacesService.js";
 import { TranscriptionsService } from "./TranscriptionsService.js";
 import { DictionaryService } from "./DictionaryService.js";
 import { SnippetService, type CloudSnippetEntry } from "./SnippetService.js";
-import { CloudApiError } from "./cloudApi.js";
+import { CloudApiError, isAuthContextError } from "./cloudApi.js";
+import {
+  assertAuthGenerationCurrent,
+  getValidatedAuthGeneration,
+  hasValidatedAuthContext,
+} from "../lib/authRequestContext";
+import { partitionLocalTeamSpaces } from "./accountSpaceValidation";
 import {
   clearTeamSpacesCapability,
   readTeamSpacesCapability,
@@ -21,10 +27,12 @@ import {
 import { readIsSubscribed, subscribeIsSubscribed } from "../lib/subscriptionFlag";
 import { readNoteConflictIds } from "../lib/noteConflictRegistry";
 import {
+  buildNoteCreatePayload,
   buildNoteUpdatePayload,
   isCloudEntryNewer,
   normalizeTimestamp,
 } from "../helpers/cloudSyncGuards.js";
+import { resolveRendererCloudNoteCreate, type CloudNoteCreateResult } from "./noteCreateAck";
 import {
   clearUpdate404,
   isPermissionDenialCode,
@@ -207,6 +215,7 @@ class SyncService {
 
   canSync(): boolean {
     return (
+      hasValidatedAuthContext() &&
       localStorage.getItem("isSignedIn") === "true" &&
       localStorage.getItem("cloudBackupEnabled") === "true" &&
       readIsSubscribed()
@@ -216,7 +225,11 @@ class SyncService {
   // Sharing a note is per-note consent: shared notes keep syncing even when
   // the global cloud-backup toggle is off, as long as the account can sync.
   private canSyncSharedNotes(): boolean {
-    return localStorage.getItem("isSignedIn") === "true" && readIsSubscribed();
+    return (
+      hasValidatedAuthContext() &&
+      localStorage.getItem("isSignedIn") === "true" &&
+      readIsSubscribed()
+    );
   }
 
   // Team-space membership, like sharing, is per-space consent: team content
@@ -254,6 +267,57 @@ class SyncService {
     }
   }
 
+  /**
+   * Marker-less upgrades cannot trust legacy auth flags. Under the same lock
+   * as normal sync, prove local team rows against the candidate account and
+   * destructively remove only rows that account cannot access.
+   */
+  async verifyTeamSpacesForAccount(authGeneration: number): Promise<number> {
+    let purgedCount = 0;
+    await navigator.locks.request(SYNC_ALL_LOCK, async () => {
+      await assertAuthGenerationCurrent(authGeneration);
+      let localSpaces = (await window.electronAPI.getSpaces?.()) ?? [];
+      const localTeamSpaces = localSpaces.filter((space) => space.kind === "team");
+      if (localTeamSpaces.length === 0) {
+        await assertAuthGenerationCurrent(authGeneration);
+        return;
+      }
+
+      const remoteSpaces = await SpacesService.mySpacesForAuthValidation(authGeneration);
+      await assertAuthGenerationCurrent(authGeneration);
+      const initial = partitionLocalTeamSpaces(localTeamSpaces, remoteSpaces);
+      for (const space of initial.unproven) {
+        await assertAuthGenerationCurrent(authGeneration);
+        const result = await window.electronAPI.purgeSpace?.(space.id, {
+          mode: "destructive",
+          expectedAuthGeneration: authGeneration,
+        });
+        if (!result?.success) {
+          if (result?.code === "AUTH_CONTEXT_CHANGED") {
+            throw new CloudApiError(
+              result.error ?? "Authentication context changed during account cleanup",
+              0,
+              result.code
+            );
+          }
+          throw new Error(`Could not remove unverified team space ${space.id}`);
+        }
+        purgedCount += 1;
+        await assertAuthGenerationCurrent(authGeneration);
+      }
+
+      // Re-read instead of trusting best-effort delete results. No membership
+      // marker is committed while an inaccessible row remains.
+      localSpaces = (await window.electronAPI.getSpaces?.()) ?? [];
+      const remaining = partitionLocalTeamSpaces(localSpaces, remoteSpaces);
+      if (remaining.unproven.length > 0) {
+        throw new Error("Unverified team content remained after account validation");
+      }
+      await assertAuthGenerationCurrent(authGeneration);
+    });
+    return purgedCount;
+  }
+
   private async purgeAllTeamSpaces(): Promise<void> {
     try {
       const spaces = (await window.electronAPI.getSpaces?.()) ?? [];
@@ -264,7 +328,7 @@ class SyncService {
           // sign-out purge completes, and if that removal ever fails a revoked
           // entry self-heals on the next pass instead of locking the space out.
           if (space.cloud_space_id) await markSpacePurged(space.cloud_space_id, "revoked");
-          await window.electronAPI.purgeSpace?.(space.id);
+          await window.electronAPI.purgeSpace?.(space.id, { mode: "destructive" });
         } catch (err) {
           console.error(`Purging space ${space.id} on sign-out failed:`, err);
         }
@@ -338,6 +402,8 @@ class SyncService {
   async syncAll(waitForLock = false): Promise<void> {
     const full = this.canSync();
     if (!full && !this.canSyncTeamSpaces()) return;
+    const authGeneration = getValidatedAuthGeneration();
+    if (authGeneration == null) return;
     // A pass already running may have synced past the data this request covers,
     // so flag a re-run instead of dropping it.
     if (this.syncing) {
@@ -352,12 +418,17 @@ class SyncService {
       // Manual passes wait so a user action is never silently dropped.
       await navigator.locks.request(SYNC_ALL_LOCK, { ifAvailable: !waitForLock }, async (lock) => {
         if (!lock) return;
-        teamSpacesReady = await this.syncSpaces();
+        teamSpacesReady = await this.syncSpaces(authGeneration);
+        if (!hasValidatedAuthContext()) return;
         if (full) {
           await this.syncFolders();
+          if (!hasValidatedAuthContext()) return;
           await this.syncNotes();
+          if (!hasValidatedAuthContext()) return;
           await this.syncConversations();
+          if (!hasValidatedAuthContext()) return;
           await this.syncTranscriptions();
+          if (!hasValidatedAuthContext()) return;
           // Edits during the awaits above set dictionaryDirty (syncing is already
           // true), so re-run until clean rather than stalling until the next trigger.
           do {
@@ -373,8 +444,10 @@ class SyncService {
           // consent, D7) and note deletes still propagate so revoked/deleted
           // shared notes stop being served (edits flow via debouncedPush).
           await this.syncFolders(true);
+          if (!hasValidatedAuthContext()) return;
           await this.syncNotes(true);
         }
+        if (!hasValidatedAuthContext()) return;
         if (teamSpacesReady) {
           if (this.teamSpacesRetryTimer) {
             clearTimeout(this.teamSpacesRetryTimer);
@@ -391,6 +464,7 @@ class SyncService {
         localStorage.setItem("lastSyncedAt", new Date().toISOString());
       });
     } catch (err) {
+      if (isAuthContextError(err)) return;
       console.error("Sync failed:", err);
       // A throw mid-pass skips the retry scheduling above; recover discovery
       // only when this pass never confirmed the team probe.
@@ -548,11 +622,7 @@ class SyncService {
         // over a teammate's newer rename on the next pass. Guarded settle: a
         // rename landing mid-flight stays pending so it still pushes (a blind
         // settle would let the next pull's LWW revert it).
-        await window.electronAPI.markFolderSyncedIfUnchanged?.(
-          folder.id,
-          folder.cloud_id,
-          folder.updated_at
-        );
+        await window.electronAPI.markFolderSyncedIfUnchanged?.(folder.id, folder, folder.cloud_id);
       } catch (err) {
         if (isFolderNameTakenError(err)) {
           this.dispatchFolderNameTaken(folder.name);
@@ -590,16 +660,14 @@ class SyncService {
       sort_order: folder.sort_order,
       ...scope,
     });
-    if (cloud.client_folder_id && cloud.client_folder_id !== folder.client_folder_id) {
-      await window.electronAPI.adoptFolderIdentity?.(
-        folder.id,
-        cloud.client_folder_id,
-        cloud.id,
-        cloud.updated_at
-      );
-    } else {
-      await window.electronAPI.markFolderSynced?.(folder.id, cloud.id);
-    }
+    await window.electronAPI.acknowledgeFolderCreate?.(
+      folder.id,
+      folder,
+      folder.cloud_id,
+      cloud.client_folder_id ?? folder.client_folder_id,
+      cloud.id,
+      cloud.updated_at
+    );
   }
 
   // Full note payload for pushes, built on the tested #1290 guard (a
@@ -647,8 +715,8 @@ class SyncService {
         // later pass re-PATCH it over a teammate's newer edit.
         await window.electronAPI.markNoteSyncedIfUnchanged?.(
           note.id,
+          note,
           note.cloud_id,
-          note.updated_at,
           cloud.updated_at,
           cloud.user_id ?? null
         );
@@ -690,6 +758,13 @@ class SyncService {
   // Single-note create shared by the debounced push and the batch-create
   // isolation fallback. The returned row carries the server-assigned owner
   // (user_id), persisted so the UI can tell "my note" from a teammate's.
+  private async acknowledgeCloudNoteCreate(
+    note: NoteItem,
+    cloud: CloudNoteCreateResult
+  ): Promise<void> {
+    await resolveRendererCloudNoteCreate(note, cloud, (cloudId) => NotesService.delete(cloudId));
+  }
+
   private async createCloudNote(
     note: NoteItem,
     cloudFolderId: string | null,
@@ -697,15 +772,11 @@ class SyncService {
   ): Promise<void> {
     const cloud = await NotesService.create({
       client_note_id: note.client_note_id,
-      ...this.notePushPayload(note, cloudFolderId, scope),
+      ...buildNoteCreatePayload(note, cloudFolderId),
+      ...scope,
       created_at: note.created_at,
     });
-    await window.electronAPI.markNoteSynced?.(
-      note.id,
-      cloud.id,
-      cloud.updated_at,
-      cloud.user_id ?? null
-    );
+    await this.acknowledgeCloudNoteCreate(note, cloud);
   }
 
   // Batch-create fallback row push: recognized terminal rejections settle the
@@ -720,6 +791,7 @@ class SyncService {
       const cloudFolderId = note.folder_id ? (localToCloud.get(note.folder_id) ?? null) : null;
       await this.createCloudNote(note, cloudFolderId, scope);
     } catch (err) {
+      if (isAuthContextError(err)) throw err;
       if (isSpaceAccessError(err) || isPermissionDenialError(err)) {
         await this.handleRevokedNotePush(note, ctx);
         this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
@@ -763,7 +835,12 @@ class SyncService {
             : null,
         })),
       });
-      await window.electronAPI.markConversationSynced?.(full.id, cloud.id);
+      const linked = await window.electronAPI.markConversationSynced?.(full.id, cloud.id);
+      if (linked?.success === false) {
+        // The local row was purged while POST was in flight. It cannot carry a
+        // delete tombstone, so retire the orphaned cloud row immediately.
+        await ConversationsService.delete(cloud.id);
+      }
     }
   }
 
@@ -788,12 +865,14 @@ class SyncService {
   // cloud spaces into local rows, purges spaces that vanished (deleted,
   // archived, or every assigned team's membership revoked) and backfills new
   // ones.
-  private async syncSpaces(): Promise<boolean> {
+  private async syncSpaces(authGeneration: number): Promise<boolean> {
     if (!this.canSyncTeamSpaces()) return true;
     let cloudSpaces: MySpace[];
     try {
       cloudSpaces = await SpacesService.mySpaces();
+      await assertAuthGenerationCurrent(authGeneration);
     } catch (err) {
+      if (isAuthContextError(err)) throw err;
       // 404 = endpoint not deployed yet (rollout probe): remember and skip
       // silently so pulls and pushes stay personal-only until a probe succeeds.
       if (isHttpStatus(err, 404)) {
@@ -818,7 +897,19 @@ class SyncService {
         continue;
       }
       await markSpacePurged(space.cloud_space_id, "revoked");
-      const purged = await window.electronAPI.purgeSpace?.(space.id);
+      const purged = await window.electronAPI.purgeSpace?.(space.id, {
+        expectedAuthGeneration: authGeneration,
+      });
+      if (!purged?.success) {
+        if (purged?.code === "AUTH_CONTEXT_CHANGED") {
+          throw new CloudApiError(
+            purged.error ?? "Authentication context changed before space cleanup",
+            0,
+            purged.code
+          );
+        }
+        throw new Error(`Could not purge revoked team space ${space.id}`);
+      }
       this.dispatchSpaceRevoked(space.name, space.id);
       // Never-synced notes survive the purge in Personal (plan §10.6) —
       // surface them, never silently.
@@ -1040,11 +1131,11 @@ class SyncService {
     this.emitSyncUiEvent("note-update-denied", { title: note.title });
   }
 
-  // A note DELETE was denied: only the owner or an admin may delete it. The
-  // tombstone can never succeed — drop it and let the caller snapshot-pull
-  // the server note back.
+  // A note DELETE was denied: only the owner or an admin may delete it. Revive
+  // the local row in place (preserving chat/speaker identity) and let the
+  // caller snapshot-pull the authoritative server note over it.
   private async handleDeniedNoteDelete(note: NoteItem): Promise<void> {
-    await window.electronAPI.hardDeleteNote?.(note.id);
+    await window.electronAPI.restoreNoteAfterDeniedDelete?.(note.id);
     this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
     this.emitSyncUiEvent("note-delete-denied", { title: note.title });
   }
@@ -1065,20 +1156,26 @@ class SyncService {
 
   // A folder DELETE was denied: only a space admin may delete a space folder.
   private async handleDeniedFolderDelete(folder: FolderItem): Promise<void> {
-    await window.electronAPI.hardDeleteFolder?.(folder.id);
+    const restored = await window.electronAPI.restoreFolderAfterDeniedDelete?.(folder.id);
+    if (!restored?.success) {
+      throw new Error(
+        `Could not roll back denied folder delete ${folder.id}: ${restored?.error ?? "unknown error"}`
+      );
+    }
     this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
     this.emitSyncUiEvent("folder-delete-denied", { name: folder.name });
   }
 
-  // After a permission denial the server rows are unchanged but the local
-  // copies were forked away or tombstone-dropped; only a snapshot pull can
-  // restore them (their updated_at never moved, so delta pulls skip them).
-  // Folders pull before notes so restored notes find their folder; snapshot
-  // passes never advance the delta cursors (resolvePullCursorAdvance).
+  // After a permission denial the server rows are unchanged. Rollback first
+  // revives delete tombstones in place (updates may still fork dirty work);
+  // a snapshot then reconciles any server changes that happened meanwhile.
+  // Folders pull before notes so notes always find their parent, and snapshot
+  // passes never advance the ordinary delta cursors.
   private async restoreDeniedRows(kind: "note" | "folder"): Promise<void> {
     const teamOnly = !this.canSync();
     if (kind === "folder") await this.pullFolders(teamOnly, true);
     await this.pullNotes(teamOnly, true);
+    if (kind === "folder" && this.canSync()) await this.pullConversations(true);
   }
 
   // Sync passes run in whichever window holds the web lock (often the always-
@@ -1148,8 +1245,10 @@ class SyncService {
       for (const local of unlinkedDefaults) {
         const match = cloudByName.get(local.name.toLowerCase());
         if (!match) continue;
-        await window.electronAPI.adoptFolderIdentity?.(
+        await window.electronAPI.acknowledgeFolderCreate?.(
           local.id,
+          local,
+          local.cloud_id,
           match.client_folder_id ?? local.client_folder_id,
           match.id,
           match.updated_at
@@ -1209,13 +1308,13 @@ class SyncService {
     let denied = false;
     for (const { folder, scope } of migration) {
       try {
-        await FoldersService.update(folder.cloud_id!, { name: folder.name, ...scope });
+        await FoldersService.update(folder.cloud_id!, {
+          name: folder.name,
+          sort_order: folder.sort_order,
+          ...scope,
+        });
         // Settle only if the row wasn't edited while the PATCH was in flight.
-        await window.electronAPI.markFolderSyncedIfUnchanged?.(
-          folder.id,
-          folder.cloud_id!,
-          folder.updated_at
-        );
+        await window.electronAPI.markFolderSyncedIfUnchanged?.(folder.id, folder, folder.cloud_id!);
         this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
       } catch (err) {
         if (isFolderNameTakenError(err)) {
@@ -1260,19 +1359,14 @@ class SyncService {
         }
         for (const [i, cloudFolder] of created.entries()) {
           const local = fresh[i].folder;
-          if (
-            cloudFolder.client_folder_id &&
-            cloudFolder.client_folder_id !== local.client_folder_id
-          ) {
-            await window.electronAPI.adoptFolderIdentity?.(
-              local.id,
-              cloudFolder.client_folder_id,
-              cloudFolder.id,
-              cloudFolder.updated_at
-            );
-          } else {
-            await window.electronAPI.markFolderSynced?.(local.id, cloudFolder.id);
-          }
+          await window.electronAPI.acknowledgeFolderCreate?.(
+            local.id,
+            local,
+            local.cloud_id,
+            cloudFolder.client_folder_id ?? local.client_folder_id,
+            cloudFolder.id,
+            cloudFolder.updated_at
+          );
         }
       } catch (err) {
         if (isSpaceAccessError(err) || isPermissionDenialError(err)) {
@@ -1431,8 +1525,10 @@ class SyncService {
                   f.name.toLowerCase() === cloudFolder.name.toLowerCase()
               );
             if (nameMatch) {
-              await window.electronAPI.adoptFolderIdentity?.(
+              await window.electronAPI.acknowledgeFolderCreate?.(
                 nameMatch.id,
+                nameMatch,
+                nameMatch.cloud_id,
                 cloudFolder.client_folder_id ?? nameMatch.client_folder_id,
                 cloudFolder.id,
                 cloudFolder.updated_at
@@ -1564,13 +1660,14 @@ class SyncService {
         // Settle only if the row wasn't edited while the PATCH was in flight.
         await window.electronAPI.markNoteSyncedIfUnchanged?.(
           note.id,
+          note,
           note.cloud_id!,
-          note.updated_at,
           cloud.updated_at,
           cloud.user_id ?? null
         );
         this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
       } catch (err) {
+        if (isAuthContextError(err)) throw err;
         if (isNoteVersionConflictError(err)) {
           // Stays pending (not error): unpushed local work awaiting the
           // user's Keep/Refresh choice; the registry gate above skips the
@@ -1600,28 +1697,26 @@ class SyncService {
         const { created } = await NotesService.batchCreate(
           chunk.map(({ note: n, scope }) => ({
             client_note_id: n.client_note_id,
-            title: n.title,
-            content: n.content,
-            enhanced_content: n.enhanced_content,
-            enhancement_prompt: n.enhancement_prompt,
-            enhanced_at_content_hash: n.enhanced_at_content_hash,
-            note_type: n.note_type,
-            source_file: n.source_file,
-            audio_duration_seconds: n.audio_duration_seconds,
-            transcript: n.transcript,
-            folder_id: n.folder_id ? (localToCloud.get(n.folder_id) ?? undefined) : undefined,
+            ...buildNoteCreatePayload(
+              n,
+              n.folder_id ? (localToCloud.get(n.folder_id) ?? null) : null
+            ),
             created_at: n.created_at,
-            updated_at: n.updated_at,
             ...scope,
           }))
         );
         for (const { client_note_id, id: cloudId, updated_at } of created) {
           const local = chunk.find(({ note }) => note.client_note_id === client_note_id);
           if (local) {
-            await window.electronAPI.markNoteSynced?.(local.note.id, cloudId, updated_at ?? null);
+            await this.acknowledgeCloudNoteCreate(local.note, {
+              id: cloudId,
+              client_note_id,
+              updated_at: updated_at ?? null,
+            });
           }
         }
       } catch (err) {
+        if (isAuthContextError(err)) throw err;
         if (isSpaceAccessError(err) || isPermissionDenialError(err)) {
           // A typed rejection can't be attributed to a row from the batch
           // response; create individually so one rejected note settles
@@ -1648,6 +1743,9 @@ class SyncService {
       try {
         await NotesService.delete(note.cloud_id!);
         await window.electronAPI.hardDeleteNote?.(note.id);
+        // A settled tombstone can never resolve a conflict; drop the entry
+        // (and its full cloud snapshot) from the durable registry.
+        await this.settleNoteConflict(note.client_note_id);
       } catch (err) {
         if (isPermissionDenialError(err)) {
           await this.handleDeniedNoteDelete(note);
@@ -1658,6 +1756,7 @@ class SyncService {
           // update-404 streak the row carried) instead of retrying forever.
           await window.electronAPI.hardDeleteNote?.(note.id);
           this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
+          await this.settleNoteConflict(note.client_note_id);
         } else {
           console.error("Note delete sync failed:", err);
         }
@@ -1695,6 +1794,12 @@ class SyncService {
             cloudNote.client_note_id ?? ""
           );
 
+          // A parent folder DELETE owns this note until its server result is
+          // known. Do not turn a newer live row into a conflict or apply a
+          // per-note tombstone; denial restores the journaled row in place,
+          // while confirmation removes it with the folder cascade.
+          if (local?.folder_delete_pending) continue;
+
           // Copy the cloud owner before any last-write-wins decision: an
           // unchanged note skips the upsert but must still gain its owner
           // (the owner_user_id backfill relies on this).
@@ -1719,8 +1824,12 @@ class SyncService {
               await window.electronAPI.hardDeleteNote?.(local.id);
             }
             // The pull disambiguated a 404'd push as a revocation and resolved
-            // it, so the fallback fork must stand down.
+            // it, so the fallback fork must stand down. Any unresolved
+            // conflict is moot too — its cloud copy is no longer ours to
+            // resolve — and settling drops the full snapshot the durable
+            // registry keeps in localStorage.
             this.clear404(NOTE_UPDATE_404_KEY, local.client_note_id);
+            await this.settleNoteConflict(local.client_note_id);
             continue;
           }
 
@@ -1731,6 +1840,7 @@ class SyncService {
             if (local && !local.deleted_at && ctx.byId.get(local.space_id)?.kind === "team") {
               if (cloudNote.deleted_at) {
                 await window.electronAPI.hardDeleteNote?.(local.id);
+                await this.settleNoteConflict(local.client_note_id);
               } else if (isCloudEntryNewer(cloudNote.updated_at, local.updated_at)) {
                 // 'error' rows carry unpushed work just like 'pending' ones.
                 if (local.sync_status !== "synced") {
@@ -1763,8 +1873,11 @@ class SyncService {
             if (local) {
               await window.electronAPI.hardDeleteNote?.(local.id);
               // A tombstone disambiguates a 404'd push as a genuine delete;
-              // drop any streak so it can't resurrect the note in Personal.
+              // drop any streak so it can't resurrect the note in Personal,
+              // and settle any conflict so the registry doesn't keep the
+              // deleted note's full cloud snapshot forever.
               this.clear404(NOTE_UPDATE_404_KEY, local.client_note_id);
+              await this.settleNoteConflict(local.client_note_id);
             }
             continue;
           }
@@ -1873,7 +1986,10 @@ class SyncService {
               : null,
           })),
         });
-        await window.electronAPI.markConversationSynced?.(conv.id, cloudConv.id);
+        const linked = await window.electronAPI.markConversationSynced?.(conv.id, cloudConv.id);
+        if (linked?.success === false) {
+          await ConversationsService.delete(cloudConv.id);
+        }
       } catch (err) {
         console.error("Conversation sync failed:", err);
       }
@@ -1892,9 +2008,11 @@ class SyncService {
     }
   }
 
-  private async pullConversations(): Promise<void> {
+  private async pullConversations(snapshot = false): Promise<void> {
     try {
-      const since = localStorage.getItem("lastSyncedAt.conversations") ?? undefined;
+      const since = snapshot
+        ? undefined
+        : (localStorage.getItem("lastSyncedAt.conversations") ?? undefined);
       const syncStartedAt = new Date().toISOString();
 
       let cursor: string | undefined = since;
@@ -1909,10 +2027,20 @@ class SyncService {
             cloudConv.client_conversation_id ?? ""
           );
 
+          // As with held notes, the parent folder operation owns this row.
+          // A denial revives it first and immediately runs this same pull in
+          // snapshot mode, so authoritative remote changes are not lost.
+          if (local?.folder_delete_pending) continue;
+
           if (cloudConv.deleted_at) {
             if (local) await window.electronAPI.hardDeleteConversation?.(local.id);
             continue;
           }
+
+          // A live cloud row cannot override a local pending delete. The
+          // tombstone stays queued for push; only the cloud tombstone branch
+          // above is authoritative enough to hard-delete it locally.
+          if (local?.deleted_at) continue;
 
           if (!local || isCloudEntryNewer(cloudConv.updated_at, local.updated_at)) {
             await window.electronAPI.upsertConversationFromCloud?.(
@@ -1929,7 +2057,7 @@ class SyncService {
         cursor = next;
       }
 
-      localStorage.setItem("lastSyncedAt.conversations", syncStartedAt);
+      if (!snapshot) localStorage.setItem("lastSyncedAt.conversations", syncStartedAt);
     } catch (err) {
       console.error("Conversation pull failed:", err);
     }

@@ -123,8 +123,18 @@ test("pre-guard rows omit base_updated_at entirely (legacy last-write-wins)", as
   const { buildNoteUpdatePayload } = await load();
   assert.equal("base_updated_at" in buildNoteUpdatePayload(localNote, null), false);
   assert.equal(
-    "base_updated_at" in
-      buildNoteUpdatePayload({ ...localNote, cloud_updated_at: null }, null),
+    "base_updated_at" in buildNoteUpdatePayload({ ...localNote, cloud_updated_at: null }, null),
     false
   );
+});
+
+test("note create payloads never send a stale optimistic-concurrency base", async () => {
+  const { buildNoteCreatePayload } = await load();
+  const payload = buildNoteCreatePayload(
+    { ...localNote, cloud_updated_at: "2026-07-22T08:40:00.123Z" },
+    "cloud-folder-3"
+  );
+  assert.equal("base_updated_at" in payload, false);
+  assert.equal(payload.content, localNote.content);
+  assert.equal(payload.folder_id, "cloud-folder-3");
 });

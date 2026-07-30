@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import ShareNoteDialog from "./ShareNoteDialog";
 import {
+  canOrganizeNote,
   noteCapabilities,
   resolveNotePermission,
   type NoteAclState,
@@ -265,19 +266,25 @@ export default function NoteEditor({
       : aclRequest?.cloudId === note.cloud_id
         ? aclRequest.state
         : "loading";
-  const shareCapabilities = noteCapabilities(
-    resolveNotePermission({
-      cachedPermission: shareCache?.access?.my_permission,
-      aclState,
-      isTeamNote,
-    })
-  );
+  const notePermission = resolveNotePermission({
+    cachedPermission: shareCache?.access?.my_permission,
+    aclState,
+    isTeamNote,
+  });
+  const shareCapabilities = noteCapabilities(notePermission);
   const canShare =
     isSignedIn &&
     (!note.cloud_id || isTeamNote || aclState === "loaded") &&
     shareCapabilities.canShare &&
     (isSubscribed || Boolean(note.is_shared));
   const canEditNote = shareCapabilities.canEdit;
+  // Re-filing is owner-only on shared personal notes (a denied folder_id
+  // PATCH would fork an unexpected Personal copy); team members keep
+  // same-space folder moves.
+  const canMoveToFolders = canOrganizeNote(notePermission, {
+    isTeamNote,
+    hasCloudCopy: Boolean(note.cloud_id),
+  });
   useEffect(() => {
     if (!isSignedIn || !note.cloud_id || shareCache) return;
     const cloudId = note.cloud_id;
@@ -839,14 +846,20 @@ export default function NoteEditor({
                   )}
                   <span className="truncate max-w-32">{space.name}</span>
                 </button>
-                {folders && onMoveToFolder && (
+                {folders && onMoveToFolder && (canMoveToFolders || folderName) && (
                   <span aria-hidden="true" className="text-[11px] text-foreground/25">
                     /
                   </span>
                 )}
               </>
             )}
-            {folders && onMoveToFolder && (
+            {folders && onMoveToFolder && !canMoveToFolders && folderName && (
+              <span className={cn(CHIP_BUTTON_CLASS, "cursor-default")}>
+                <FolderOpen size={11} className="shrink-0" />
+                {folderName}
+              </span>
+            )}
+            {folders && onMoveToFolder && canMoveToFolders && (
               <DropdownMenu
                 onOpenChange={(open) => {
                   if (!open) {
@@ -1243,7 +1256,8 @@ export default function NoteEditor({
             onStopRecording={onStopRecording}
             onAskSubmit={handleAskSubmit}
             onInputFocus={handleChatInputFocus}
-            actionPicker={isRecording ? undefined : actionPicker}
+            canRecord={canEditNote}
+            actionPicker={isRecording || !canEditNote ? undefined : actionPicker}
             hideInput={chatMode !== "hidden"}
           />
           {chatMode === "floating" && (

@@ -71,3 +71,13 @@ test("drops legacy id-only storage so a guarded push can re-surface it", async (
   assert.equal(localStorage.getItem("noteConflicts.clientIds"), null);
   assert.deepEqual([...readNoteConflictIds()], []);
 });
+
+test("account transition clears every persisted cloud conflict snapshot", async () => {
+  const { addNoteConflict, clearNoteConflicts, readNoteConflicts } = await load();
+
+  addNoteConflict("client-note", cloudNote);
+  clearNoteConflicts();
+
+  assert.deepEqual(readNoteConflicts(), {});
+  assert.equal(localStorage.getItem("noteConflicts.clientIds"), null);
+});

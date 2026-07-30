@@ -1,4 +1,11 @@
-import { cloudGet, cloudPost, cloudPatch, cloudDelete, type DataWrap } from "./cloudApi.js";
+import {
+  cloudGet,
+  cloudGetForAuthValidation,
+  cloudPost,
+  cloudPatch,
+  cloudDelete,
+  type DataWrap,
+} from "./cloudApi.js";
 import type { SpaceTeamRef, TeamMember, TeamRole } from "../types/electron";
 
 export interface MySpace {
@@ -31,6 +38,11 @@ export interface SpaceMemberEntry extends TeamMember {
 // sync pass.
 async function mySpaces(): Promise<MySpace[]> {
   const res = await cloudGet<DataWrap<MySpace[]>>("/api/me/spaces");
+  return res.data;
+}
+
+async function mySpacesForAuthValidation(generation: number): Promise<MySpace[]> {
+  const res = await cloudGetForAuthValidation<DataWrap<MySpace[]>>("/api/me/spaces", generation);
   return res.data;
 }
 
@@ -74,6 +86,7 @@ async function listMembers(spaceId: string): Promise<SpaceMemberEntry[]> {
 
 export const SpacesService = {
   mySpaces,
+  mySpacesForAuthValidation,
   create,
   update,
   remove,

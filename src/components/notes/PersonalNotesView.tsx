@@ -56,6 +56,10 @@ import { useAuth } from "../../hooks/useAuth";
 import NotesOnboarding from "./NotesOnboarding";
 import { isRegenerableNoteTitle } from "../../helpers/regenerableNoteTitle";
 import { markIntroSeen, NOTES_STRUCTURE_INTRO, shouldShowIntro } from "../../lib/versionedIntro";
+import {
+  buildPendingNoteUpdates,
+  shouldCancelPendingSavesForDelete,
+} from "../../lib/noteEditorPendingSave";
 
 function makeContentHash(content: string): string {
   return String(content.length) + "-" + content.slice(0, 50);
@@ -113,12 +117,49 @@ export default function PersonalNotesView({
     activeNoteRef.current = id;
     setSyncedNoteIdState(id);
   };
+  // Conflict-banner Refresh applies an external cloud copy: a queued
+  // debounced save would clobber it with the pre-refresh buffer, so the
+  // editor cancels pending saves before the copy is applied. With the timers
+  // cleared, the external-update resync effect picks up the fresh note.
+  const cancelPendingSaves = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    if (enhancedSaveTimeoutRef.current) {
+      clearTimeout(enhancedSaveTimeoutRef.current);
+      enhancedSaveTimeoutRef.current = null;
+    }
+  }, []);
+  const flushPendingSaves = useCallback(
+    (reason: "switch" | "overview" | "unmount") => {
+      const noteId = activeNoteRef.current;
+      const updates = buildPendingNoteUpdates({
+        title: localTitleRef.current,
+        content: localContentRef.current,
+        enhancedContent: localEnhancedContentRef.current,
+        documentPending: saveTimeoutRef.current != null,
+        enhancedPending: enhancedSaveTimeoutRef.current != null,
+      });
+      cancelPendingSaves();
+      if (!noteId || !updates) return;
+
+      void window.electronAPI.updateNote(noteId, updates).catch((err: unknown) => {
+        logger.warn(
+          `Failed to flush note before ${reason}`,
+          { error: (err as Error).message },
+          "notes"
+        );
+      });
+    },
+    [cancelPendingSaves]
+  );
   const { toast } = useToast();
   const isCloudMode = useSettingsStore(selectIsCloudNoteFormattingMode);
   const effectiveModelId = useSettingsStore((s) => selectResolvedNoteFormatting(s).model);
   const { isComplete: isOnboardingComplete, complete: completeOnboarding } = useNotesOnboarding();
   const { isSignedIn } = useAuth();
-  const teamSpacesAvailable = useTeamSpacesCapability();
+  const teamSpacesAvailable = useTeamSpacesCapability(isSignedIn);
   const isTreeLoading = useIsTreeLoading();
   const [structureIntroPending, setStructureIntroPending] = useState(() =>
     shouldShowIntro(localStorage, NOTES_STRUCTURE_INTRO)
@@ -257,45 +298,21 @@ export default function PersonalNotesView({
 
   useEffect(() => {
     if (activeNote && activeNote.id !== activeNoteRef.current) {
-      // --- Switching notes ---
-      // 1. Capture old note state before anything changes
-      const oldNoteId = activeNoteRef.current;
-      const oldTitle = localTitleRef.current;
-      const oldContent = localContentRef.current;
-      const hadPendingSave = !!saveTimeoutRef.current;
-
-      // 2. Clear all pending timers
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-      }
-      if (enhancedSaveTimeoutRef.current) {
-        clearTimeout(enhancedSaveTimeoutRef.current);
-        enhancedSaveTimeoutRef.current = null;
-      }
-
-      // 3. Switch to new note IMMEDIATELY (no await, eliminates race window)
+      // Drain the old note before changing the ref that owns its save timers.
+      flushPendingSaves("switch");
       markNoteAsSynced(activeNote.id);
       setLocalTitle(activeNote.title);
       setLocalContent(activeNote.content);
       setLocalEnhancedContent(activeNote.enhanced_content ?? null);
-      // Also update refs directly so callbacks are correct before next render
       localTitleRef.current = activeNote.title;
       localContentRef.current = activeNote.content;
-
-      // 4. Flush old note data fire-and-forget (uses captured values, not refs)
-      if (hadPendingSave && oldNoteId) {
-        window.electronAPI
-          .updateNote(oldNoteId, { title: oldTitle, content: oldContent })
-          .catch((err: unknown) => {
-            logger.warn(
-              "Failed to flush note on switch",
-              { error: (err as Error).message },
-              "notes"
-            );
-          });
-      }
-    } else if (activeNote && activeNote.id === activeNoteRef.current && !saveTimeoutRef.current) {
+      localEnhancedContentRef.current = activeNote.enhanced_content ?? null;
+    } else if (
+      activeNote &&
+      activeNote.id === activeNoteRef.current &&
+      !saveTimeoutRef.current &&
+      !enhancedSaveTimeoutRef.current
+    ) {
       // External update (e.g. AI chat tool) — resync only when no user save is pending
       if (activeNote.title !== localTitleRef.current) setLocalTitle(activeNote.title);
       if (activeNote.content !== localContentRef.current) setLocalContent(activeNote.content);
@@ -303,35 +320,15 @@ export default function PersonalNotesView({
         setLocalEnhancedContent(activeNote.enhanced_content ?? null);
       }
     } else if (!activeNote) {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-      }
-      if (enhancedSaveTimeoutRef.current) {
-        clearTimeout(enhancedSaveTimeoutRef.current);
-        enhancedSaveTimeoutRef.current = null;
-      }
+      // Space/folder activation shows its overview by clearing activeNoteId.
+      // Persist pending editor buffers before that navigation discards them.
+      flushPendingSaves("overview");
       markNoteAsSynced(null);
       setLocalTitle("");
       setLocalContent("");
       setLocalEnhancedContent(null);
     }
-  }, [activeNote]);
-
-  // Conflict-banner Refresh applies an external cloud copy: a queued
-  // debounced save would clobber it with the pre-refresh buffer, so the
-  // editor cancels pending saves before the copy is applied. With the timers
-  // cleared, the external-update resync effect above picks up the fresh note.
-  const cancelPendingSaves = useCallback(() => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-    if (enhancedSaveTimeoutRef.current) {
-      clearTimeout(enhancedSaveTimeoutRef.current);
-      enhancedSaveTimeoutRef.current = null;
-    }
-  }, []);
+  }, [activeNote, flushPendingSaves]);
 
   const debouncedSave = useCallback((noteId: number, title: string, content: string) => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -349,14 +346,12 @@ export default function PersonalNotesView({
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      if (enhancedSaveTimeoutRef.current) clearTimeout(enhancedSaveTimeoutRef.current);
-    };
-  }, []);
+    return () => flushPendingSaves("unmount");
+  }, [flushPendingSaves]);
 
   const handleTitleChange = useCallback(
     (title: string) => {
+      localTitleRef.current = title;
       setLocalTitle(title);
       if (activeNoteRef.current)
         debouncedSave(activeNoteRef.current, title, localContentRef.current);
@@ -366,6 +361,7 @@ export default function PersonalNotesView({
 
   const handleContentChange = useCallback(
     (content: string) => {
+      localContentRef.current = content;
       setLocalContent(content);
       if (activeNoteRef.current)
         debouncedSave(activeNoteRef.current, localTitleRef.current, content);
@@ -374,6 +370,7 @@ export default function PersonalNotesView({
   );
 
   const handleEnhancedContentChange = useCallback((content: string) => {
+    localEnhancedContentRef.current = content;
     setLocalEnhancedContent(content);
     if (!activeNoteRef.current) return;
     const noteId = activeNoteRef.current;
@@ -431,13 +428,15 @@ export default function PersonalNotesView({
     loadFolders();
   }, [activeFolderId]);
 
-  const handleDelete = useCallback(async (id: number) => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-    await window.electronAPI.deleteNote(id);
-  }, []);
+  const handleDelete = useCallback(
+    async (id: number) => {
+      if (shouldCancelPendingSavesForDelete(activeNoteRef.current, id)) {
+        cancelPendingSaves();
+      }
+      await window.electronAPI.deleteNote(id);
+    },
+    [cancelPendingSaves]
+  );
 
   const handleMoveNote = useCallback(
     async (noteId: number, target: NoteMoveTarget) => {
@@ -759,7 +758,11 @@ export default function PersonalNotesView({
           </>
         ) : activeContext && overviewSpace ? (
           <ContainerOverview
-            key={activeContext.folderId != null ? `f:${activeContext.folderId}` : `s:${activeContext.spaceId}`}
+            key={
+              activeContext.folderId != null
+                ? `f:${activeContext.folderId}`
+                : `s:${activeContext.spaceId}`
+            }
             space={overviewSpace}
             folder={overviewFolder}
             onOpenNote={setActiveNoteId}

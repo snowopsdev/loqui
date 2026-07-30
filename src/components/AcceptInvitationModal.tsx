@@ -45,10 +45,23 @@ export default function AcceptInvitationModal({ token, onClose, onAccepted }: Pr
     setError(null);
     if (!token) return;
     setLoading(true);
+    // Ignore stale resolutions: a slower preview for a previous token must
+    // not overwrite the current one, or the modal would describe invitation
+    // A while accepting B.
+    let cancelled = false;
     InvitationsService.preview(token)
-      .then(setPreview)
-      .catch((err) => setError(err instanceof Error ? err.message : t("common.unknownError")))
-      .finally(() => setLoading(false));
+      .then((result) => {
+        if (!cancelled) setPreview(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : t("common.unknownError"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [token, t]);
 
   const wrongAccount =
@@ -83,9 +96,13 @@ export default function AcceptInvitationModal({ token, onClose, onAccepted }: Pr
           : undefined,
       });
       onClose();
+      // Navigate with the accept response, not the preview: the invitation
+      // may have been re-targeted since it was previewed, and the server's
+      // team_ids are authoritative. The preview only fills in for API
+      // responses that predate team_ids.
       onAccepted?.({
         workspaceId: accepted.workspace_id,
-        teamIds: preview?.team_ids ?? [],
+        teamIds: accepted.team_ids ?? preview?.team_ids ?? [],
       });
     } catch (err) {
       toast({

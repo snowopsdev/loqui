@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-07-30
+
+A critical fix on top of 1.8.0. If you installed 1.8.0, update to 1.8.1 right away.
+
+### Fixed
+
+- **Note content no longer leaks between notes.** In 1.8.0, switching from one note to another could copy the second note's content into the first — even when you edited neither — because the editor re-mounting on a note switch registered a phantom edit against the note you'd just left. Editor edits and pending saves are now tied to the specific note they came from, and switching notes no longer emits a spurious change. (#1406)
+
 ## [1.8.0] - 2026-07-30
 
 Team spaces and web note sharing headline this release: create shared spaces inside your workspace, invite teammates with roles and one-click deep links, and publish notes to the web with link, domain, or invite-only visibility — all local-first, with access enforced server-side and revocation handled gracefully. Alongside it: workspace management lands in Settings, new Gemma 4 local models, configurable privacy retention, custom-dictionary management over the CLI, and a broad reliability pass across transcription, notes sync, translation, exports, and per-platform polish.

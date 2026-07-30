@@ -2394,6 +2394,7 @@ declare global {
         folder?: FolderItem;
         notes?: NoteItem[];
         conversationIds?: number[];
+        reason?: "name-taken";
         error?: string;
       }>;
       hardDeleteFolder?: (id: number) => Promise<{ success: boolean; id: number }>;

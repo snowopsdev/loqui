@@ -152,3 +152,57 @@ test("a token replacement while fetch is in flight discards the old response", a
 
   await assert.rejects(responsePromise, { code: "AUTH_CONTEXT_CHANGED" });
 });
+
+test("a transient get-session network failure keeps the binding but fences sync", async (t) => {
+  const auth = await import("../../src/lib/authRequestContext.ts");
+  auth.resetAuthRequestContextForTests();
+  const state = { current: { token: "token-a", generation: 3 } };
+  t.after(installWindow(state));
+
+  await auth.handleAuthRequestSuccess({
+    data: { user: { id: "user-a" } },
+    response: new Response("{}", { status: 200 }),
+    request: sessionRequest(3, "token-a"),
+  });
+  assert.equal(auth.commitValidatedAuthContext(3, "user-a"), true);
+  assert.equal(auth.getValidatedAuthGeneration(), 3);
+
+  const request = await auth.prepareAuthRequest({
+    url: "https://auth.openwhispr.test/api/auth/get-session",
+    headers: new Headers(),
+  });
+  const previousFetch = global.fetch;
+  global.fetch = async () => {
+    throw new TypeError("network down");
+  };
+  t.after(() => {
+    global.fetch = previousFetch;
+  });
+
+  await assert.rejects(auth.authContextFetch(request.url, request), { message: "network down" });
+
+  // The credential never changed, so the session stays presentable...
+  assert.equal(auth.getBoundSessionGeneration("user-a"), 3);
+  // ...but sync is fenced until a refetch succeeds.
+  assert.equal(auth.getValidatedAuthGeneration(), null);
+});
+
+test("a get-session 401 clears the binding so the app drops to guest", async (t) => {
+  const auth = await import("../../src/lib/authRequestContext.ts");
+  auth.resetAuthRequestContextForTests();
+  const state = { current: { token: "token-a", generation: 9 } };
+  t.after(installWindow(state));
+
+  await auth.handleAuthRequestSuccess({
+    data: { user: { id: "user-a" } },
+    response: new Response("{}", { status: 200 }),
+    request: sessionRequest(9, "token-a"),
+  });
+  assert.equal(auth.getBoundSessionGeneration("user-a"), 9);
+
+  // better-fetch routes a received 401 to onError (handleAuthRequestError),
+  // never through authContextFetch's network catch.
+  await auth.handleAuthRequestError({ request: sessionRequest(9, "token-a") });
+
+  assert.equal(auth.getBoundSessionGeneration("user-a"), null);
+});

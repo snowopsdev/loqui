@@ -176,7 +176,8 @@ export async function authContextFetch(
     // failure and must prevent stale session data from being trusted.
     await assertAuthRequestCurrent(init);
     if (isGetSessionRequest((init ?? {}) as AuthRequest)) {
-      clearSessionResolutionFor(requestGeneration(init));
+      // Fence sync, but keep the session binding so a transient refetch failure
+      // keeps presenting the account. A real 401 clears it via handleAuthRequestError.
       invalidateValidatedAuthContext();
     }
     throw error;

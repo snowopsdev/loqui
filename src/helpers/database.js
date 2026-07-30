@@ -4391,7 +4391,12 @@ class DatabaseManager {
           )
           .get(folder.name, folder.space_id, id);
         if (collision) {
-          return { success: false, id, error: "Folder name is no longer available" };
+          return {
+            success: false,
+            id,
+            reason: "name-taken",
+            error: "Folder name is no longer available",
+          };
         }
 
         const noteStates = journalRows.filter((row) => row.entity_type === "note");

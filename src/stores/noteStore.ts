@@ -93,6 +93,16 @@ const useNoteStore = create<NoteState>()(() => ({
   noteConflicts: readNoteConflicts(),
 }));
 
+// Drive SyncService's faster pull off the open note. Keyed on activeNoteId (not
+// just open/closed) so switching notes also refreshes, and so account-reset
+// teardown that clears it via setState stops the fast pull too.
+let syncedActiveNoteId: number | null = null;
+useNoteStore.subscribe((state) => {
+  if (state.activeNoteId === syncedActiveNoteId) return;
+  syncedActiveNoteId = state.activeNoteId;
+  syncService.setNoteOpen(state.activeNoteId != null);
+});
+
 let hasBoundIpcListeners = false;
 const DEFAULT_LIMIT = 50;
 let currentLimit = DEFAULT_LIMIT;

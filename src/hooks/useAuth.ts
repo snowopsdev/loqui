@@ -73,8 +73,9 @@ export function useAuth() {
 
   const ambientUser = ambientSession?.user ?? null;
   const ambientUserId = typeof ambientUser?.id === "string" ? ambientUser.id : null;
-  const boundGeneration =
-    !isPending && !sessionError ? getBoundSessionGeneration(ambientUserId) : null;
+  // Not gated on sessionError: the binding survives a transient refetch failure
+  // and is cleared on its own by a 401 or a credential-generation change.
+  const boundGeneration = isPending ? null : getBoundSessionGeneration(ambientUserId);
   const sessionIsBound = boundGeneration != null;
   const resolvedUserId = sessionIsBound ? ambientUserId : null;
   const rawIsSignedIn = sessionIsBound && Boolean(ambientUser);
@@ -95,7 +96,16 @@ export function useAuth() {
       sessionResolutionFailed
     ) ||
     !cloudContextReady;
-  const isSignedIn = rawIsSignedIn && !accountScopeBlocked;
+  // A reconciled session whose refetch failed transiently keeps its binding but
+  // loses its validated lease. Keep presenting it instead of flashing to guest;
+  // sync stays fenced by getValidatedAuthGeneration() until a refetch succeeds.
+  const transientlyAuthenticated =
+    Boolean(sessionError) &&
+    rawIsSignedIn &&
+    !requiresReconciliation &&
+    !accountScopeHasMandatoryReconciliation();
+  const accountScopePresentable = !accountScopeBlocked || transientlyAuthenticated;
+  const isSignedIn = rawIsSignedIn && accountScopePresentable;
   // Loaded means the session settled: fully validated, or failed/signed-out
   // (presented as a guest). Resolution failure must not hold windows hostage —
   // dictation works without an account, and sync stays fenced by
@@ -118,7 +128,12 @@ export function useAuth() {
   useEffect(() => {
     if (
       boundGeneration == null ||
-      !shouldReconcileAccountScope(isPending, gracePeriodActive, rawIsSignedIn, sessionResolutionFailed)
+      !shouldReconcileAccountScope(
+        isPending,
+        gracePeriodActive,
+        rawIsSignedIn,
+        sessionResolutionFailed
+      )
     ) {
       return;
     }
@@ -208,7 +223,7 @@ export function useAuth() {
     isSignedIn,
     isGracePeriodOnly: gracePeriodActive,
     isLoaded,
-    session: sessionIsBound && !accountScopeBlocked ? ambientSession : null,
+    session: sessionIsBound && accountScopePresentable ? ambientSession : null,
     user: isSignedIn ? ambientUser : null,
   };
 }

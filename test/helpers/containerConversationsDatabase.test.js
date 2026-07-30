@@ -767,6 +767,57 @@ test("denied folder delete restores the same notes, speakers, and conversations 
   );
 });
 
+test("denied folder delete rollback reports a name clash instead of failing hard", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const space = createTestTeamSpace(db, { name: "Eng" }).space;
+  const folder = db.createFolder("Docs", space.id).folder;
+  db.markFolderSynced(folder.id, "cloud-folder-held");
+  const child = db.saveNote("Child", "body", "personal", null, null, folder.id).note;
+
+  assert.equal(db.deleteFolder(folder.id).success, true);
+  const journalBefore = db.db
+    .prepare("SELECT COUNT(*) AS count FROM optimistic_folder_delete_rows WHERE folder_id = ?")
+    .get(folder.id).count;
+  assert.ok(journalBefore > 0);
+
+  // A pull inserts a teammate's live folder reusing the held name (the pull
+  // path bypasses the local name reservation, and the held row is deleted_at so
+  // the partial unique index doesn't stop the insert), so the name is no longer
+  // free when the server later denies the delete.
+  db.upsertFolderFromCloud(
+    {
+      client_folder_id: "cf-remote-docs",
+      id: "cloud-folder-live",
+      name: "Docs",
+      sort_order: 0,
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-02T00:00:00.000Z",
+    },
+    space.id
+  );
+
+  const restored = db.restoreFolderAfterDeniedDelete(folder.id);
+  assert.equal(restored.success, false);
+  assert.equal(
+    restored.reason,
+    "name-taken",
+    "a name clash is a recoverable, surfaced outcome — not a hard error the sync pass rethrows"
+  );
+
+  // The rollback transaction is atomic: a clash restores nothing, so the held
+  // folder and its journal stay intact for the next pass to retry once the user
+  // frees the name.
+  assert.ok(db.db.prepare("SELECT deleted_at FROM folders WHERE id = ?").get(folder.id).deleted_at);
+  assert.equal(
+    db.db
+      .prepare("SELECT COUNT(*) AS count FROM optimistic_folder_delete_rows WHERE folder_id = ?")
+      .get(folder.id).count,
+    journalBefore
+  );
+  assert.equal(db.getNote(child.id).sync_status, "folder_delete_pending");
+});
+
 test("confirmed folder delete scrubs chats and finalizes held rows", (t) => {
   const db = createDb(t);
   if (!db) return;

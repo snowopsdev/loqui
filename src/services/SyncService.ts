@@ -109,6 +109,9 @@ const SNIPPET_BATCH_SIZE = 200;
 // any window (the stamp lives in shared localStorage).
 const AUTO_SYNC_THROTTLE_MS = 20000;
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+// While a note is open, pull on this much shorter cadence so a teammate's edits
+// surface in seconds rather than at the ambient interval above.
+const OPEN_NOTE_SYNC_INTERVAL_MS = 30_000;
 const TEAM_SPACES_RETRY_MS = 10_000;
 const TEAM_SPACES_MAX_RETRY_MS = AUTO_SYNC_INTERVAL_MS;
 // Web Lock name serializing syncAll() across windows (each renderer has its
@@ -212,6 +215,7 @@ class SyncService {
   private pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private teamSpacesRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private teamSpacesRetryAttempt = 0;
+  private openNoteSyncTimer: ReturnType<typeof setInterval> | null = null;
 
   canSync(): boolean {
     return (
@@ -384,6 +388,26 @@ class SyncService {
     // kicks a pass through the reactive flag instead.
     subscribeIsSubscribed(() => this.requestSyncAll("start"));
     setInterval(() => this.requestSyncAll("interval"), AUTO_SYNC_INTERVAL_MS);
+  }
+
+  // Called by noteStore when a note opens or closes: while one is open, keep an
+  // extra fast pull running so remote edits land in seconds. Reuses
+  // requestSyncAll, so the shared throttle and cross-window lock still bound the
+  // real passes — this only adds a recurring trigger.
+  setNoteOpen(open: boolean): void {
+    if (!open) {
+      if (this.openNoteSyncTimer) {
+        clearInterval(this.openNoteSyncTimer);
+        this.openNoteSyncTimer = null;
+      }
+      return;
+    }
+    this.requestSyncAll("interval");
+    if (this.openNoteSyncTimer) return;
+    this.openNoteSyncTimer = setInterval(
+      () => this.requestSyncAll("interval"),
+      OPEN_NOTE_SYNC_INTERVAL_MS
+    );
   }
 
   private scheduleTeamSpacesRetry(): void {
@@ -908,7 +932,10 @@ class SyncService {
             purged.code
           );
         }
-        throw new Error(`Could not purge revoked team space ${space.id}`);
+        // Isolate one space's failure instead of aborting the whole pass; it
+        // stays marked revoked, so the next pass retries.
+        console.error(`Could not purge revoked team space ${space.id}`);
+        continue;
       }
       this.dispatchSpaceRevoked(space.name, space.id);
       // Never-synced notes survive the purge in Personal (plan §10.6) —
@@ -1158,9 +1185,17 @@ class SyncService {
   private async handleDeniedFolderDelete(folder: FolderItem): Promise<void> {
     const restored = await window.electronAPI.restoreFolderAfterDeniedDelete?.(folder.id);
     if (!restored?.success) {
-      throw new Error(
-        `Could not roll back denied folder delete ${folder.id}: ${restored?.error ?? "unknown error"}`
-      );
+      // Must not throw: this runs in pushFolderDeletes' per-row catch, so a
+      // throw would abort the whole pass. Surface a name clash for the user to
+      // resolve; the tombstone stays journaled and retries next pass.
+      if (restored?.reason === "name-taken") {
+        this.dispatchFolderNameTaken(folder.name);
+      } else {
+        console.error(
+          `Could not roll back denied folder delete ${folder.id}: ${restored?.error ?? "unknown error"}`
+        );
+      }
+      return;
     }
     this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
     this.emitSyncUiEvent("folder-delete-denied", { name: folder.name });

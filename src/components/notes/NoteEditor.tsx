@@ -96,7 +96,7 @@ function formatNoteDate(dateStr: string): string {
 export interface Enhancement {
   content: string;
   isStale: boolean;
-  onChange: (content: string) => void;
+  onChange: (sourceNoteId: number, content: string) => void;
 }
 
 type MeetingViewMode = "raw" | "transcript" | "enhanced";
@@ -173,8 +173,8 @@ function LiveMeetingTranscriptChat({
 
 interface NoteEditorProps {
   note: NoteItem;
-  onTitleChange: (title: string) => void;
-  onContentChange: (content: string) => void;
+  onTitleChange: (sourceNoteId: number, title: string) => void;
+  onContentChange: (sourceNoteId: number, content: string) => void;
   isSaving: boolean;
   isRecording: boolean;
   isProcessing: boolean;
@@ -199,7 +199,7 @@ interface NoteEditorProps {
   onMoveToFolder?: (noteId: number, folderId: number) => void;
   onCreateFolderAndMove?: (noteId: number, folderName: string) => void;
   /** Cancels the owner's debounced autosaves before an external copy is applied. */
-  onCancelPendingSaves?: () => void;
+  onCancelPendingSaves?: (noteId: number) => void;
 }
 
 export default function NoteEditor({
@@ -712,9 +712,9 @@ export default function NoteEditor({
   const handleTitleInput = useCallback(() => {
     if (titleRef.current) {
       const text = titleRef.current.textContent || "";
-      onTitleChange(text);
+      onTitleChange(note.id, text);
     }
-  }, [onTitleChange]);
+  }, [note.id, onTitleChange]);
 
   const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -739,16 +739,16 @@ export default function NoteEditor({
 
   const handleContentChange = useCallback(
     (newValue: string) => {
-      onContentChange(newValue);
+      onContentChange(note.id, newValue);
     },
-    [onContentChange]
+    [note.id, onContentChange]
   );
 
   const handleEnhancedChange = useCallback(
     (value: string) => {
-      enhancement?.onChange(value);
+      enhancement?.onChange(note.id, value);
     },
-    [enhancement]
+    [enhancement, note.id]
   );
 
   const handleAskSubmit = useCallback(
@@ -774,7 +774,7 @@ export default function NoteEditor({
     // Cancel any queued autosave FIRST: a pending debounced save holds the
     // pre-refresh buffer and would both block the editor resync and clobber
     // the cloud copy in SQLite a second later.
-    onCancelPendingSaves?.();
+    onCancelPendingSaves?.(note.id);
     const fresh = await window.electronAPI.upsertNoteFromCloud?.(
       conflict as unknown as Record<string, unknown>,
       note.folder_id,
@@ -784,7 +784,7 @@ export default function NoteEditor({
     // With no save pending, the owner's external-update resync applies the
     // fresh copy to the visible editor buffer.
     if (fresh) updateNoteInStore(fresh);
-  }, [conflict, note.client_note_id, note.folder_id, note.space_id, onCancelPendingSaves]);
+  }, [conflict, note.client_note_id, note.folder_id, note.id, note.space_id, onCancelPendingSaves]);
 
   // Keep the local edits, overwriting the cloud revision the user just saw.
   // Advancing the base first is what lets the next push succeed instead of

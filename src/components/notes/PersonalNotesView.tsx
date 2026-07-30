@@ -102,6 +102,9 @@ export default function PersonalNotesView({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const enhancedSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activeNoteRef = useRef<number | null>(null);
+  // The note the editor buffers below currently describe. Moves atomically with
+  // the buffers so a flush can refuse to write them to the wrong note id.
+  const bufferOwnerRef = useRef<number | null>(null);
   const [syncedNoteId, setSyncedNoteIdState] = useState<number | null>(null);
   const localContentRef = useRef(localContent);
   const localTitleRef = useRef(localTitle);
@@ -140,6 +143,8 @@ export default function PersonalNotesView({
         enhancedContent: localEnhancedContentRef.current,
         documentPending: saveTimeoutRef.current != null,
         enhancedPending: enhancedSaveTimeoutRef.current != null,
+        bufferOwnerId: bufferOwnerRef.current,
+        targetNoteId: noteId,
       });
       cancelPendingSaves();
       if (!noteId || !updates) return;
@@ -307,6 +312,7 @@ export default function PersonalNotesView({
       localTitleRef.current = activeNote.title;
       localContentRef.current = activeNote.content;
       localEnhancedContentRef.current = activeNote.enhanced_content ?? null;
+      bufferOwnerRef.current = activeNote.id;
     } else if (
       activeNote &&
       activeNote.id === activeNoteRef.current &&
@@ -327,6 +333,13 @@ export default function PersonalNotesView({
       setLocalTitle("");
       setLocalContent("");
       setLocalEnhancedContent(null);
+      // Clear the buffers synchronously (mirroring the switch branch), so the
+      // previously-open note's text can't leak into a note created from the
+      // overview before the async state->ref effect catches up.
+      localTitleRef.current = "";
+      localContentRef.current = "";
+      localEnhancedContentRef.current = null;
+      bufferOwnerRef.current = null;
     }
   }, [activeNote, flushPendingSaves]);
 
@@ -351,6 +364,7 @@ export default function PersonalNotesView({
 
   const handleTitleChange = useCallback(
     (title: string) => {
+      bufferOwnerRef.current = activeNoteRef.current;
       localTitleRef.current = title;
       setLocalTitle(title);
       if (activeNoteRef.current)
@@ -361,6 +375,7 @@ export default function PersonalNotesView({
 
   const handleContentChange = useCallback(
     (content: string) => {
+      bufferOwnerRef.current = activeNoteRef.current;
       localContentRef.current = content;
       setLocalContent(content);
       if (activeNoteRef.current)
@@ -370,6 +385,7 @@ export default function PersonalNotesView({
   );
 
   const handleEnhancedContentChange = useCallback((content: string) => {
+    bufferOwnerRef.current = activeNoteRef.current;
     localEnhancedContentRef.current = content;
     setLocalEnhancedContent(content);
     if (!activeNoteRef.current) return;

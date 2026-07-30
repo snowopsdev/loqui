@@ -13,6 +13,8 @@ test("returns no update when the editor has no pending timers", async () => {
       enhancedContent: "Enhanced",
       documentPending: false,
       enhancedPending: false,
+      bufferOwnerId: 5,
+      targetNoteId: 5,
     }),
     null
   );
@@ -24,6 +26,8 @@ test("flushes only the editor buffers represented by pending timers", async () =
     title: "Latest title",
     content: "Latest body",
     enhancedContent: "Latest enhancement",
+    bufferOwnerId: 5,
+    targetNoteId: 5,
   };
 
   assert.deepEqual(
@@ -53,6 +57,26 @@ test("flushes only the editor buffers represented by pending timers", async () =
       content: "Latest body",
       enhanced_content: "Latest enhancement",
     }
+  );
+});
+
+test("never writes a buffer to a note it does not belong to", async () => {
+  const { buildPendingNoteUpdates } = await load();
+
+  // The editor buffer still holds note A's content while the active-note ref
+  // has already been repointed at the freshly created note B. A flush here
+  // must write nothing, otherwise B silently fills with A's text.
+  assert.equal(
+    buildPendingNoteUpdates({
+      title: "A's title",
+      content: "A's body",
+      enhancedContent: "A's enhancement",
+      documentPending: true,
+      enhancedPending: true,
+      bufferOwnerId: 1,
+      targetNoteId: 2,
+    }),
+    null
   );
 });
 

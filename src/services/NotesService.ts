@@ -46,6 +46,9 @@ export interface CloudNote {
   expected_speaker_count: number | null;
   workspace_id: string | null;
   space_id: string | null;
+  // The note's owner (creator), not its last editor. Absent on access_removed
+  // stubs and on API versions that predate ownership.
+  user_id?: string | null;
   updated_by_user_id: string | null;
   previous_space_id?: string | null;
   // Redacted stub for a row that moved out of one of the caller's spaces —

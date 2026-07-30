@@ -39,9 +39,12 @@ import { useAuth } from "../../hooks/useAuth";
 import { useWorkspace } from "../../hooks/useWorkspace";
 import { EmojiPickerInput } from "./EmojiPickerInput";
 import {
+  canChangeSpaceNoteScope,
+  canDeleteSpaceNote,
   canManageSpace,
   canManageWorkspace,
   canMoveBetweenSpaces,
+  canMoveOrDeleteSpaceFolder,
 } from "../../lib/spacePermissions";
 import { groupTeamSpacesByWorkspace } from "../../lib/workspaceSelection";
 import { localMutationErrorKey } from "../../lib/localMutationError";
@@ -54,7 +57,7 @@ import { getCachedPlatform } from "../../utils/platform";
 import CreateSpaceDialog from "./CreateSpaceDialog";
 import DeleteSpaceDialog from "./DeleteSpaceDialog";
 import SpaceMembersDialog from "./SpaceMembersDialog";
-import type { FolderItem, NoteItem, SpaceItem } from "../../types/electron";
+import type { FolderItem, NoteItem, SpaceItem, WorkspaceRole } from "../../types/electron";
 import {
   folderContainerKey,
   spaceContainerKey,
@@ -571,6 +574,7 @@ function FolderRow({
   dropHandlers,
   noteFilesEnabled,
   fileManagerName,
+  canManageDestructive,
   onActivate,
   onToggle,
   onRename,
@@ -590,6 +594,7 @@ function FolderRow({
   dropHandlers: DropHandlers;
   noteFilesEnabled: boolean;
   fileManagerName: string;
+  canManageDestructive: boolean;
   onActivate: () => void;
   onToggle: () => void;
   onRename: () => void;
@@ -599,7 +604,7 @@ function FolderRow({
   t: TFn;
 }) {
   const [spaceSearch, setSpaceSearch] = useState("");
-  const canMoveToSpace = !folder.is_default && spaces.length > 1;
+  const canMoveToSpace = canManageDestructive && !folder.is_default && spaces.length > 1;
   const filteredSpaces = useMemo(
     () =>
       spaceSearch
@@ -731,20 +736,24 @@ function FolderRow({
                     )}
                   </SearchableMoveSubmenu>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete();
-                  }}
-                  className={cn(
-                    MENU_ITEM_CLASS,
-                    "text-destructive focus:text-destructive focus:bg-destructive/10"
-                  )}
-                >
-                  <Trash2 size={11} />
-                  {t("notes.context.delete")}
-                </DropdownMenuItem>
+                {canManageDestructive && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete();
+                      }}
+                      className={cn(
+                        MENU_ITEM_CLASS,
+                        "text-destructive focus:text-destructive focus:bg-destructive/10"
+                      )}
+                    >
+                      <Trash2 size={11} />
+                      {t("notes.context.delete")}
+                    </DropdownMenuItem>
+                  </>
+                )}
               </>
             )}
           </DropdownMenuContent>
@@ -773,6 +782,7 @@ function NoteLeaf({
   folders,
   noteFilesEnabled,
   fileManagerName,
+  canDelete,
   onOpen,
   onMove,
   onCreateFolderAndMove,
@@ -794,6 +804,7 @@ function NoteLeaf({
   folders: FolderItem[];
   noteFilesEnabled: boolean;
   fileManagerName: string;
+  canDelete: boolean;
   onOpen: () => void;
   onMove: (target: NoteMoveTarget) => void;
   onCreateFolderAndMove: (noteId: number, folderName: string) => void;
@@ -1040,20 +1051,24 @@ function NoteLeaf({
               moveOptions.map((option) => renderOption(option, option.label))
             )}
           </SearchableMoveSubmenu>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(note.id);
-            }}
-            className={cn(
-              MENU_ITEM_CLASS,
-              "text-destructive focus:text-destructive focus:bg-destructive/10"
-            )}
-          >
-            <Trash2 size={11} />
-            {t("notes.context.delete")}
-          </DropdownMenuItem>
+          {canDelete && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(note.id);
+                }}
+                className={cn(
+                  MENU_ITEM_CLASS,
+                  "text-destructive focus:text-destructive focus:bg-destructive/10"
+                )}
+              >
+                <Trash2 size={11} />
+                {t("notes.context.delete")}
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -1168,11 +1183,42 @@ export default function SpacesTree({
     workspacesLoaded &&
     (workspaces.length === 0 || workspaces.some((w) => canManageWorkspace(w.role)));
 
+  const currentUserId = user?.id ?? null;
+  const workspaceRoleFor = (space: SpaceItem | undefined): WorkspaceRole | null =>
+    workspaces.find((w) => w.id === space?.workspace_id)?.role ?? null;
+
   // Local-only spaces (no cloud id) stay fully manageable; cloud spaces
   // follow space/workspace roles. Cosmetic — the server enforces.
   const canManageTeamSpace = (space: SpaceItem): boolean =>
-    !space.cloud_space_id ||
-    canManageSpace(space, workspaces.find((w) => w.id === space.workspace_id)?.role ?? null);
+    !space.cloud_space_id || canManageSpace(space, workspaceRoleFor(space));
+
+  // Destructive/scope-changing note and folder actions mirror the server's
+  // rules (spacePermissions). Menus, keyboard, drag/drop, and undo all route
+  // through these so no path bypasses them; the server enforces regardless.
+  const canDeleteNote = (note: NoteItem): boolean => {
+    const space = spacesById.get(note.space_id);
+    return canDeleteSpaceNote(note, space, currentUserId, workspaceRoleFor(space));
+  };
+  const canChangeNoteScope = (note: NoteItem): boolean => {
+    const space = spacesById.get(note.space_id);
+    return canChangeSpaceNoteScope(note, space, currentUserId, workspaceRoleFor(space));
+  };
+  const canManageFolderDestructive = (folder: FolderItem): boolean => {
+    const space = spacesById.get(folder.space_id);
+    return canMoveOrDeleteSpaceFolder(space, workspaceRoleFor(space));
+  };
+
+  // Cross-space targets require scope-change permission; same-space folder
+  // targets stay available to every member.
+  const noteMoveTargets = (note: NoteItem): SpaceItem[] => {
+    const targets = moveTargetsBySpace.get(note.space_id) ?? [];
+    return canChangeNoteScope(note) ? targets : targets.filter((s) => s.id === note.space_id);
+  };
+
+  const requestDeleteNote = (note: NoteItem): void => {
+    if (!canDeleteNote(note)) return;
+    onDeleteNote(note.id);
+  };
 
   const openCreateSpace = (workspaceId: string | null = null): void => {
     setCreateSpaceWorkspaceId(workspaceId);
@@ -1256,6 +1302,13 @@ export default function SpacesTree({
       toast({ title: t("notes.spaces.couldNotMoveNote"), variant: "destructive" });
       return;
     }
+    // Undo restores across spaces outside the normal one-way policy, but it
+    // must not bypass scope-change permissions after a role change.
+    const current = getNoteFromStore(noteId);
+    if (current && current.space_id !== prev.spaceId && !canChangeNoteScope(current)) {
+      toast({ title: t("notes.spaces.couldNotMoveNote"), variant: "destructive" });
+      return;
+    }
     const folderGone =
       prev.folderId != null && !getFoldersValue().some((f) => f.id === prev.folderId);
     const restore = folderGone ? { spaceId: prev.spaceId, folderId: null } : prev;
@@ -1289,6 +1342,7 @@ export default function SpacesTree({
     if (!note) return;
     if (note.space_id !== target.spaceId) {
       if (!allowsCrossSpaceMove(note.space_id, target.spaceId)) return;
+      if (!canChangeNoteScope(note)) return;
       confirmCrossSpaceMove(target.spaceId, false, () => void commitMoveNote(noteId, target));
     } else {
       void commitMoveNote(noteId, target);
@@ -1318,16 +1372,22 @@ export default function SpacesTree({
     const result = await moveFolderSafely(folder.id, space.id);
     if (!result.success) return;
     revealContainer(space.id, null);
-    showUndoToast(
-      folder.name,
-      spaceDisplayName(space, t),
-      () => void moveFolderSafely(folder.id, prevSpaceId)
-    );
+    showUndoToast(folder.name, spaceDisplayName(space, t), () => {
+      // Undo is a folder move like any other: after a role change it must
+      // not bypass the destructive-folder-action rules in the new space.
+      const current = getFoldersValue().find((f) => f.id === folder.id);
+      if (!current || !canManageFolderDestructive(current)) {
+        toast({ title: t("notes.spaces.couldNotMove"), variant: "destructive" });
+        return;
+      }
+      void moveFolderSafely(folder.id, prevSpaceId);
+    });
   };
 
   const requestMoveFolder = (folder: FolderItem, space: SpaceItem): void => {
     if (space.id === folder.space_id) return;
     if (!allowsCrossSpaceMove(folder.space_id, space.id)) return;
+    if (!canManageFolderDestructive(folder)) return;
     confirmCrossSpaceMove(space.id, true, () => void commitMoveFolder(folder, space));
   };
 
@@ -1337,8 +1397,19 @@ export default function SpacesTree({
     onCrossSpaceDrop: (_note, target, commit) => {
       confirmCrossSpaceMove(target.spaceId, false, commit);
     },
-    canCrossSpaceDrop: (note, target) => allowsCrossSpaceMove(note.spaceId, target.spaceId),
-    onCrossSpaceVeto: () => toast({ title: t("notes.spaces.cantMoveOut"), duration: 4000 }),
+    canCrossSpaceDrop: (note, target) => {
+      if (!allowsCrossSpaceMove(note.spaceId, target.spaceId)) return false;
+      const stored = getNoteFromStore(note.id);
+      return !!stored && canChangeNoteScope(stored);
+    },
+    onCrossSpaceVeto: (note) => {
+      const stored = getNoteFromStore(note.id);
+      const scopeDenied = !!stored && !canChangeNoteScope(stored);
+      toast({
+        title: t(scopeDenied ? "notes.spaces.cantMoveTeammate" : "notes.spaces.cantMoveOut"),
+        duration: 4000,
+      });
+    },
     onHoverTarget: (key) => setContainerExpanded(key, true),
   });
 
@@ -1443,6 +1514,7 @@ export default function SpacesTree({
   };
 
   const requestDeleteFolder = (folder: FolderItem) => {
+    if (!canManageFolderDestructive(folder)) return;
     const count = folderCounts[folder.id] ?? 0;
     showConfirmDialog({
       title: t("notes.folders.deleteTitle"),
@@ -1534,8 +1606,9 @@ export default function SpacesTree({
         if (e.key === "Backspace" && !(e.metaKey || e.ctrlKey)) break;
         e.preventDefault();
         if (row.type === "note") {
+          if (!canDeleteNote(row.note)) break;
           focusRow(visibleRows[idx + 1]?.key ?? visibleRows[idx - 1]?.key);
-          onDeleteNote(row.note.id);
+          requestDeleteNote(row.note);
         } else if (row.type === "folder" && !row.folder.is_default) {
           requestDeleteFolder(row.folder);
         } else if (
@@ -1650,14 +1723,15 @@ export default function SpacesTree({
         folderId: note.folder_id,
         spaceId: note.space_id,
       })}
-      spaces={moveTargetsBySpace.get(note.space_id) ?? []}
+      spaces={noteMoveTargets(note)}
       folders={folders}
       noteFilesEnabled={noteFilesEnabled}
       fileManagerName={fileManagerName}
+      canDelete={canDeleteNote(note)}
       onOpen={() => activateRow({ type: "note", key: `n:${note.id}`, note, parentKey, level })}
       onMove={(target) => requestMoveNote(note.id, target)}
       onCreateFolderAndMove={onCreateFolderAndMove}
-      onDelete={onDeleteNote}
+      onDelete={() => requestDeleteNote(note)}
       a11y={a11yFor(`n:${note.id}`)}
       t={t}
     />
@@ -1713,6 +1787,7 @@ export default function SpacesTree({
           })}
           noteFilesEnabled={noteFilesEnabled}
           fileManagerName={fileManagerName}
+          canManageDestructive={canManageFolderDestructive(folder)}
           onActivate={() =>
             activateRow({ type: "folder", key: folderKey, folder, parentKey, level })
           }

@@ -859,6 +859,15 @@ class DatabaseManager {
         if (!err.message.includes("duplicate column")) throw err;
       }
 
+      // The note's owner (CloudNote.user_id) — who created it, not who last
+      // edited it (updated_by_user_id). Drives the client-side delete/scope
+      // permission checks; NULL until a cloud pull or push response fills it.
+      try {
+        this.db.exec("ALTER TABLE notes ADD COLUMN owner_user_id TEXT");
+      } catch (err) {
+        if (!err.message.includes("duplicate column")) throw err;
+      }
+
       // Space vector purges owed to Qdrant while the sidecar was down/booting;
       // drained once the vector index is ready.
       this.db.exec(`
@@ -3606,9 +3615,9 @@ class DatabaseManager {
         INSERT INTO notes (client_note_id, cloud_id, title, content, enhanced_content,
           enhancement_prompt, enhanced_at_content_hash, note_type, source_file,
           audio_duration_seconds, transcript, folder_id, space_id, participants, calendar_event_id,
-          diarization_enabled, expected_speaker_count, updated_by_user_id, sync_status, created_at, updated_at,
+          diarization_enabled, expected_speaker_count, updated_by_user_id, owner_user_id, sync_status, created_at, updated_at,
           cloud_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?)
         ON CONFLICT(client_note_id) DO UPDATE SET
           cloud_id = excluded.cloud_id,
           title = excluded.title,
@@ -3634,6 +3643,7 @@ class DatabaseManager {
           diarization_enabled = COALESCE(excluded.diarization_enabled, diarization_enabled),
           expected_speaker_count = COALESCE(excluded.expected_speaker_count, expected_speaker_count),
           updated_by_user_id = COALESCE(excluded.updated_by_user_id, updated_by_user_id),
+          owner_user_id = COALESCE(excluded.owner_user_id, owner_user_id),
           sync_status = 'synced',
           left_team = 0,
           updated_at = excluded.updated_at,
@@ -3658,6 +3668,7 @@ class DatabaseManager {
         cloudNote.diarization_enabled ?? null,
         cloudNote.expected_speaker_count ?? null,
         cloudNote.updated_by_user_id || null,
+        cloudNote.user_id || null,
         cloudNote.created_at,
         cloudNote.updated_at,
         cloudNote.updated_at
@@ -3671,17 +3682,18 @@ class DatabaseManager {
     }
   }
 
-  markNoteSynced(id, cloudId, cloudUpdatedAt = null) {
+  markNoteSynced(id, cloudId, cloudUpdatedAt = null, ownerUserId = null) {
     try {
       if (!this.db) throw new Error("Database not initialized");
-      // cloud_updated_at is overwritten even with null: a forked row that
-      // re-creates under a new cloud_id must not keep the old note's base (a
-      // null base just means that push settles last-write-wins once).
+      // cloud_updated_at and owner_user_id are overwritten even with null: a
+      // forked row that re-creates under a new cloud_id must not keep the old
+      // note's base or its previous owner (a null base settles last-write-wins
+      // once; a null owner fails closed until a pull records the real one).
       this.db
         .prepare(
-          "UPDATE notes SET sync_status = 'synced', cloud_id = ?, left_team = 0, cloud_updated_at = ? WHERE id = ?"
+          "UPDATE notes SET sync_status = 'synced', cloud_id = ?, left_team = 0, cloud_updated_at = ?, owner_user_id = ? WHERE id = ?"
         )
-        .run(cloudId, cloudUpdatedAt, id);
+        .run(cloudId, cloudUpdatedAt, ownerUserId, id);
       return { success: true };
     } catch (error) {
       debugLogger.error("Error marking note synced", { error: error.message }, "database");
@@ -3693,16 +3705,25 @@ class DatabaseManager {
   // PATCH was in flight — a mid-flight edit must stay pending so its content
   // still pushes (a blind settle would let the next pass re-PATCH the stale
   // snapshot over a teammate's newer server copy).
-  markNoteSyncedIfUnchanged(id, cloudId, snapshotUpdatedAt, cloudUpdatedAt = null) {
+  markNoteSyncedIfUnchanged(
+    id,
+    cloudId,
+    snapshotUpdatedAt,
+    cloudUpdatedAt = null,
+    ownerUserId = null
+  ) {
     try {
       if (!this.db) throw new Error("Database not initialized");
       // The base advances unconditionally: even when a mid-flight edit keeps
       // the row pending, the PATCH landed — the next push must echo the new
       // server revision or it would 409 against this device's own write.
-      if (cloudUpdatedAt) {
+      // The owner rides along the same way (COALESCE keeps a known owner).
+      if (cloudUpdatedAt || ownerUserId) {
         this.db
-          .prepare("UPDATE notes SET cloud_updated_at = ? WHERE id = ?")
-          .run(cloudUpdatedAt, id);
+          .prepare(
+            "UPDATE notes SET cloud_updated_at = COALESCE(?, cloud_updated_at), owner_user_id = COALESCE(?, owner_user_id) WHERE id = ?"
+          )
+          .run(cloudUpdatedAt, ownerUserId, id);
       }
       const result = this.db
         .prepare(
@@ -3713,6 +3734,48 @@ class DatabaseManager {
     } catch (error) {
       debugLogger.error(
         "Error marking note synced if unchanged",
+        { error: error.message },
+        "database"
+      );
+      throw error;
+    }
+  }
+
+  // Copies the cloud owner onto a local row without touching updated_at or
+  // sync_status: an unchanged note skips the last-write-wins upsert but must
+  // still gain its owner (the owner_user_id backfill relies on this).
+  setNoteOwnerFromCloud(id, ownerUserId) {
+    try {
+      if (!this.db) throw new Error("Database not initialized");
+      this.db.prepare("UPDATE notes SET owner_user_id = ? WHERE id = ?").run(ownerUserId, id);
+      return { success: true };
+    } catch (error) {
+      debugLogger.error(
+        "Error setting note owner from cloud",
+        { error: error.message },
+        "database"
+      );
+      throw error;
+    }
+  }
+
+  // Live cloud-backed team notes whose owner is still unknown — the UI fails
+  // closed on them, so a snapshot backfill runs while any remain.
+  countTeamNotesMissingOwner() {
+    try {
+      if (!this.db) throw new Error("Database not initialized");
+      const row = this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM notes n
+             JOIN spaces s ON s.id = n.space_id
+            WHERE s.kind = 'team' AND n.deleted_at IS NULL
+              AND n.cloud_id IS NOT NULL AND n.owner_user_id IS NULL`
+        )
+        .get();
+      return row?.count ?? 0;
+    } catch (error) {
+      debugLogger.error(
+        "Error counting team notes missing owner",
         { error: error.message },
         "database"
       );

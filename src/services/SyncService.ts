@@ -27,6 +27,8 @@ import {
 } from "../helpers/cloudSyncGuards.js";
 import {
   clearUpdate404,
+  isPermissionDenialCode,
+  isSpaceAccessErrorCode,
   keepPurgedSpaceEntry,
   normalizePurgedSpaceEntries,
   prunePurgedSpaceEntries,
@@ -34,6 +36,7 @@ import {
   resolvePulledNoteFolderId,
   resolvePullCursorAdvance,
   revokedNoteForkUpdate,
+  shouldSetOwnerFromCloud,
   UPDATE_404_FORK_THRESHOLD,
   type PurgedSpaceEntry,
   type PurgedSpaceReason,
@@ -43,15 +46,20 @@ function isHttpStatus(err: unknown, status: number): boolean {
   return err instanceof CloudApiError && err.status === status;
 }
 
-// Typed errors from team write-access checks: membership revoked (403),
-// team archived (410) or team gone (404).
-function isTeamAccessError(err: unknown): boolean {
-  return (
-    err instanceof CloudApiError &&
-    (err.code === "team_access_revoked" ||
-      err.code === "team_archived" ||
-      err.code === "team_not_found")
-  );
+// Typed errors from space write-access checks (legacy team_* and canonical
+// space_* names — see isSpaceAccessErrorCode): the caller lost the whole
+// space, so the row settles terminally instead of retrying forever.
+function isSpaceAccessError(err: unknown): boolean {
+  return err instanceof CloudApiError && isSpaceAccessErrorCode(err.code);
+}
+
+// Typed per-row permission denial (note_access_denied,
+// note_scope_change_denied, folder_access_denied): the caller keeps the
+// space but may not perform this operation. Terminal — never retried — and
+// recovered by preserving dirty work in Personal and snapshot-pulling the
+// untouched server row back.
+function isPermissionDenialError(err: unknown): boolean {
+  return err instanceof CloudApiError && isPermissionDenialCode(err.code);
 }
 
 // Typed 409 from a folder rename/move colliding with a same-named folder in
@@ -191,6 +199,8 @@ class SyncService {
   private autoSyncStarted = false;
   private dictionaryDirty = false;
   private snippetsDirty = false;
+  // One owner_user_id backfill probe per session (see backfillNoteOwners).
+  private ownerBackfillChecked = false;
   private pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private teamSpacesRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private teamSpacesRetryAttempt = 0;
@@ -546,7 +556,10 @@ class SyncService {
       } catch (err) {
         if (isFolderNameTakenError(err)) {
           this.dispatchFolderNameTaken(folder.name);
-        } else if (isTeamAccessError(err)) {
+        } else if (isPermissionDenialError(err)) {
+          await this.handleDeniedFolderUpdate(folder, ctx);
+          await this.restoreDeniedRows("folder");
+        } else if (isSpaceAccessError(err)) {
           // Recover like the batch path — otherwise a revoked folder edited
           // via the debounce just logs errors until the next full pass.
           await this.handleRevokedFolderPush(folder, ctx);
@@ -561,26 +574,31 @@ class SyncService {
         }
       }
     } else {
-      const cloud = await FoldersService.create({
-        name: folder.name,
-        client_folder_id: folder.client_folder_id,
-        is_default: !!folder.is_default,
-        sort_order: folder.sort_order,
-        ...scope,
-      });
-      // On a same-name collision the API returns the WINNER's existing row;
-      // adopt its identity (as the batch path does) so later pulls of that
-      // row match this folder instead of inserting a colliding duplicate.
-      if (cloud.client_folder_id && cloud.client_folder_id !== folder.client_folder_id) {
-        await window.electronAPI.adoptFolderIdentity?.(
-          folder.id,
-          cloud.client_folder_id,
-          cloud.id,
-          cloud.updated_at
-        );
-      } else {
-        await window.electronAPI.markFolderSynced?.(folder.id, cloud.id);
-      }
+      await this.createCloudFolder(folder, scope);
+    }
+  }
+
+  // Single-folder create shared by the debounced push and the batch-create
+  // isolation fallback. On a same-name collision the API returns the WINNER's
+  // existing row; adopt its identity (as the batch path does) so later pulls
+  // of that row match this folder instead of inserting a colliding duplicate.
+  private async createCloudFolder(folder: FolderItem, scope: PushScopeFields): Promise<void> {
+    const cloud = await FoldersService.create({
+      name: folder.name,
+      client_folder_id: folder.client_folder_id,
+      is_default: !!folder.is_default,
+      sort_order: folder.sort_order,
+      ...scope,
+    });
+    if (cloud.client_folder_id && cloud.client_folder_id !== folder.client_folder_id) {
+      await window.electronAPI.adoptFolderIdentity?.(
+        folder.id,
+        cloud.client_folder_id,
+        cloud.id,
+        cloud.updated_at
+      );
+    } else {
+      await window.electronAPI.markFolderSynced?.(folder.id, cloud.id);
     }
   }
 
@@ -631,15 +649,11 @@ class SyncService {
           note.id,
           note.cloud_id,
           note.updated_at,
-          cloud.updated_at
+          cloud.updated_at,
+          cloud.user_id ?? null
         );
       } else {
-        const cloud = await NotesService.create({
-          client_note_id: note.client_note_id,
-          ...this.notePushPayload(note, cloudFolderId, scope),
-          created_at: note.created_at,
-        });
-        await window.electronAPI.markNoteSynced?.(note.id, cloud.id, cloud.updated_at);
+        await this.createCloudNote(note, cloudFolderId, scope);
       }
     } catch (err) {
       if (isNoteVersionConflictError(err)) {
@@ -649,7 +663,12 @@ class SyncService {
         if (cloudNote) await this.surfaceNoteConflict(note.client_note_id, cloudNote);
         return;
       }
-      if (isTeamAccessError(err)) {
+      if (isPermissionDenialError(err)) {
+        await this.handleDeniedNoteUpdate(note, ctx);
+        await this.restoreDeniedRows("note");
+        return;
+      }
+      if (isSpaceAccessError(err)) {
         await this.handleRevokedNotePush(note, ctx);
         return;
       }
@@ -666,6 +685,48 @@ class SyncService {
     // A push into a team must reach teammates fast; a pull may also carry
     // their concurrent edits back (throttled like other ambient triggers).
     if (scope.space_id) this.requestSyncAll("team-push");
+  }
+
+  // Single-note create shared by the debounced push and the batch-create
+  // isolation fallback. The returned row carries the server-assigned owner
+  // (user_id), persisted so the UI can tell "my note" from a teammate's.
+  private async createCloudNote(
+    note: NoteItem,
+    cloudFolderId: string | null,
+    scope: PushScopeFields
+  ): Promise<void> {
+    const cloud = await NotesService.create({
+      client_note_id: note.client_note_id,
+      ...this.notePushPayload(note, cloudFolderId, scope),
+      created_at: note.created_at,
+    });
+    await window.electronAPI.markNoteSynced?.(
+      note.id,
+      cloud.id,
+      cloud.updated_at,
+      cloud.user_id ?? null
+    );
+  }
+
+  // Batch-create fallback row push: recognized terminal rejections settle the
+  // row by forking it to Personal; anything else re-queues as 'error'.
+  private async pushFreshNote(
+    note: NoteItem,
+    scope: PushScopeFields,
+    localToCloud: Map<number, string>,
+    ctx: SpaceSyncContext
+  ): Promise<void> {
+    try {
+      const cloudFolderId = note.folder_id ? (localToCloud.get(note.folder_id) ?? null) : null;
+      await this.createCloudNote(note, cloudFolderId, scope);
+    } catch (err) {
+      if (isSpaceAccessError(err) || isPermissionDenialError(err)) {
+        await this.handleRevokedNotePush(note, ctx);
+        this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
+      } else {
+        await window.electronAPI.markNoteSyncError?.(note.id);
+      }
+    }
   }
 
   // Sharing requires a cloud copy. Deliberate single-note push that does not
@@ -925,7 +986,7 @@ class SyncService {
 
   // Folder counterpart of handleNoteUpdate404. A revoked member's folder PATCH
   // is already coded (team_not_found / team_access_revoked, caught by
-  // isTeamAccessError), so a bare 404 here is a genuine-delete race; defer to
+  // isSpaceAccessError), so a bare 404 here is a genuine-delete race; defer to
   // the pull (access_removed stub → relocateRevokedFolder; tombstone →
   // hardDeleteFolder) and fork to Personal only as the stub-less fallback.
   // Folders have no 'error' status: an unsettled row stays 'pending', which
@@ -961,6 +1022,63 @@ class SyncService {
     if (!ctx.privateSpace) return;
     await window.electronAPI.relocateRevokedFolder?.(folder.id, ctx.privateSpace.id, true);
     this.dispatchNoteRelocated(folder.name, ctx.byId.get(folder.space_id)?.name);
+  }
+
+  // A note PATCH was denied (note_access_denied / note_scope_change_denied):
+  // the server row is intact but this user may not change it. Preserve the
+  // dirty local copy as a Personal fork with a new client identity — the
+  // server row keeps the old one — then the caller snapshot-pulls the
+  // untouched server note back into its original space.
+  private async handleDeniedNoteUpdate(note: NoteItem, ctx: SpaceSyncContext): Promise<void> {
+    if (!ctx.privateSpace) {
+      console.error(`Cannot preserve denied note ${note.id}: private space is missing`);
+      return;
+    }
+    const { update } = revokedNoteForkUpdate(note, ctx.privateSpace.id, "push");
+    await window.electronAPI.updateNote(note.id, update);
+    this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
+    this.emitSyncUiEvent("note-update-denied", { title: note.title });
+  }
+
+  // A note DELETE was denied: only the owner or an admin may delete it. The
+  // tombstone can never succeed — drop it and let the caller snapshot-pull
+  // the server note back.
+  private async handleDeniedNoteDelete(note: NoteItem): Promise<void> {
+    await window.electronAPI.hardDeleteNote?.(note.id);
+    this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
+    this.emitSyncUiEvent("note-delete-denied", { title: note.title });
+  }
+
+  // A folder PATCH was denied (folder_access_denied): only a space admin may
+  // move a space folder. Preserve the dirty folder and its dirty/unsynced
+  // child notes in Personal (forked identities); the caller snapshot-pulls
+  // the untouched server folder and its contents back.
+  private async handleDeniedFolderUpdate(folder: FolderItem, ctx: SpaceSyncContext): Promise<void> {
+    if (!ctx.privateSpace) {
+      console.error(`Cannot preserve denied folder ${folder.id}: private space is missing`);
+      return;
+    }
+    await window.electronAPI.relocateRevokedFolder?.(folder.id, ctx.privateSpace.id, true);
+    this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
+    this.emitSyncUiEvent("folder-update-denied", { name: folder.name });
+  }
+
+  // A folder DELETE was denied: only a space admin may delete a space folder.
+  private async handleDeniedFolderDelete(folder: FolderItem): Promise<void> {
+    await window.electronAPI.hardDeleteFolder?.(folder.id);
+    this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
+    this.emitSyncUiEvent("folder-delete-denied", { name: folder.name });
+  }
+
+  // After a permission denial the server rows are unchanged but the local
+  // copies were forked away or tombstone-dropped; only a snapshot pull can
+  // restore them (their updated_at never moved, so delta pulls skip them).
+  // Folders pull before notes so restored notes find their folder; snapshot
+  // passes never advance the delta cursors (resolvePullCursorAdvance).
+  private async restoreDeniedRows(kind: "note" | "folder"): Promise<void> {
+    const teamOnly = !this.canSync();
+    if (kind === "folder") await this.pullFolders(teamOnly, true);
+    await this.pullNotes(teamOnly, true);
   }
 
   // Sync passes run in whichever window holds the web lock (often the always-
@@ -1048,22 +1166,28 @@ class SyncService {
       const { byId } = await this.buildSpaceContext();
       deletes = deletes.filter((f) => byId.get(f.space_id)?.kind === "team");
     }
+    let denied = false;
     for (const f of deletes) {
       if (!f.cloud_id) continue;
       try {
         await FoldersService.delete(f.cloud_id);
         await window.electronAPI.hardDeleteFolder?.(f.id);
       } catch (err) {
-        // An already-gone row or a team row we can no longer access can never
-        // be deleted by this client. Clear the local tombstone instead of
-        // retrying forever.
-        if (isHttpStatus(err, 404) || isTeamAccessError(err)) {
+        if (isPermissionDenialError(err)) {
+          await this.handleDeniedFolderDelete(f);
+          denied = true;
+        } else if (isHttpStatus(err, 404) || isSpaceAccessError(err)) {
+          // An already-gone row or a space we can no longer access can never
+          // be deleted by this client. Clear the local tombstone (and any
+          // update-404 streak the row carried) instead of retrying forever.
           await window.electronAPI.hardDeleteFolder?.(f.id);
+          this.clear404(FOLDER_UPDATE_404_KEY, f.client_folder_id);
         } else {
           console.error("Folder delete sync failed:", err);
         }
       }
     }
+    if (denied) await this.restoreDeniedRows("folder");
   }
 
   private async pushPendingFolders(teamOnly = false): Promise<void> {
@@ -1082,6 +1206,7 @@ class SyncService {
     const migration = pushable.filter(({ folder }) => folder.cloud_id);
     const fresh = pushable.filter(({ folder }) => !folder.cloud_id);
 
+    let denied = false;
     for (const { folder, scope } of migration) {
       try {
         await FoldersService.update(folder.cloud_id!, { name: folder.name, ...scope });
@@ -1098,7 +1223,10 @@ class SyncService {
           // proves the folder is still accessible, so reset any 404 streak.
           this.dispatchFolderNameTaken(folder.name);
           this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
-        } else if (isTeamAccessError(err)) {
+        } else if (isPermissionDenialError(err)) {
+          await this.handleDeniedFolderUpdate(folder, ctx);
+          denied = true;
+        } else if (isSpaceAccessError(err)) {
           await this.handleRevokedFolderPush(folder, ctx);
           this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
         } else if (isHttpStatus(err, 404)) {
@@ -1108,6 +1236,7 @@ class SyncService {
         }
       }
     }
+    if (denied) await this.restoreDeniedRows("folder");
 
     if (fresh.length > 0) {
       try {
@@ -1146,7 +1275,38 @@ class SyncService {
           }
         }
       } catch (err) {
-        console.error("Folder batch create failed:", err);
+        if (isSpaceAccessError(err) || isPermissionDenialError(err)) {
+          // A typed rejection can't be attributed to a row from the batch
+          // response; create individually so one rejected folder settles
+          // terminally without stranding (or relocating) the rest.
+          for (const { folder, scope } of fresh) {
+            await this.pushFreshFolder(folder, scope, ctx);
+          }
+        } else {
+          console.error("Folder batch create failed:", err);
+        }
+      }
+    }
+  }
+
+  // Batch-create fallback row push: recognized terminal rejections settle the
+  // row by forking it to Personal; anything else stays 'pending' for the next
+  // pass.
+  private async pushFreshFolder(
+    folder: FolderItem,
+    scope: PushScopeFields,
+    ctx: SpaceSyncContext
+  ): Promise<void> {
+    try {
+      await this.createCloudFolder(folder, scope);
+    } catch (err) {
+      if (isFolderNameTakenError(err)) {
+        this.dispatchFolderNameTaken(folder.name);
+      } else if (isSpaceAccessError(err) || isPermissionDenialError(err)) {
+        await this.handleRevokedFolderPush(folder, ctx);
+        this.clear404(FOLDER_UPDATE_404_KEY, folder.client_folder_id);
+      } else {
+        console.error("Folder create sync failed:", err);
       }
     }
   }
@@ -1330,12 +1490,31 @@ class SyncService {
   private async syncNotes(teamOnly = false): Promise<void> {
     await this.pushPendingNotes(teamOnly);
     await this.pushNoteDeletes();
+    await this.backfillNoteOwners(teamOnly);
     if (!teamOnly && this.teamCursorLagging("notes")) {
       await this.pullNotes(true);
     }
     // A parked pull left its cursors in place, so the next pass re-sees the
     // parked rows — typically after syncSpaces has mirrored the missing team.
     await this.pullNotes(teamOnly);
+  }
+
+  // Team notes mirrored before owner_user_id existed have a NULL owner, and
+  // their server rows may never re-enter a delta pull (unchanged updated_at
+  // is skipped), so the UI would fail closed on them forever. One snapshot
+  // pull fills them via the pull's set-owner hook (shouldSetOwnerFromCloud),
+  // which applies even when last-write-wins skips the content upsert. At most
+  // once per session: enough to converge, bounded if the API doesn't return
+  // user_id yet.
+  private async backfillNoteOwners(teamOnly: boolean): Promise<void> {
+    if (this.ownerBackfillChecked) return;
+    this.ownerBackfillChecked = true;
+    try {
+      const missing = (await window.electronAPI.countTeamNotesMissingOwner?.()) ?? 0;
+      if (missing > 0) await this.pullNotes(teamOnly, true);
+    } catch (err) {
+      console.error("Note owner backfill failed:", err);
+    }
   }
 
   private async pushPendingNotes(teamOnly = false): Promise<void> {
@@ -1369,6 +1548,7 @@ class SyncService {
     const migration = pushable.filter(({ note }) => note.cloud_id);
     const fresh = pushable.filter(({ note }) => !note.cloud_id);
 
+    let denied = false;
     for (const { note, scope } of migration) {
       try {
         // Carry the full content: a pending row may hold edits that never
@@ -1386,7 +1566,8 @@ class SyncService {
           note.id,
           note.cloud_id!,
           note.updated_at,
-          cloud.updated_at
+          cloud.updated_at,
+          cloud.user_id ?? null
         );
         this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
       } catch (err) {
@@ -1398,7 +1579,10 @@ class SyncService {
           const cloudNote = conflictCloudNote(err);
           if (cloudNote) await this.surfaceNoteConflict(note.client_note_id, cloudNote);
           this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
-        } else if (isTeamAccessError(err)) {
+        } else if (isPermissionDenialError(err)) {
+          await this.handleDeniedNoteUpdate(note, ctx);
+          denied = true;
+        } else if (isSpaceAccessError(err)) {
           await this.handleRevokedNotePush(note, ctx);
           this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
         } else if (isHttpStatus(err, 404)) {
@@ -1408,6 +1592,7 @@ class SyncService {
         }
       }
     }
+    if (denied) await this.restoreDeniedRows("note");
 
     for (let i = 0; i < fresh.length; i += BATCH_SIZE) {
       const chunk = fresh.slice(i, i + BATCH_SIZE);
@@ -1436,9 +1621,18 @@ class SyncService {
             await window.electronAPI.markNoteSynced?.(local.note.id, cloudId, updated_at ?? null);
           }
         }
-      } catch {
-        for (const { note } of chunk) {
-          await window.electronAPI.markNoteSyncError?.(note.id);
+      } catch (err) {
+        if (isSpaceAccessError(err) || isPermissionDenialError(err)) {
+          // A typed rejection can't be attributed to a row from the batch
+          // response; create individually so one rejected note settles
+          // terminally without stranding (or relocating) the rest.
+          for (const { note, scope } of chunk) {
+            await this.pushFreshNote(note, scope, localToCloud, ctx);
+          }
+        } else {
+          for (const { note } of chunk) {
+            await window.electronAPI.markNoteSyncError?.(note.id);
+          }
         }
       }
     }
@@ -1449,21 +1643,27 @@ class SyncService {
   // backup toggle off.
   private async pushNoteDeletes(): Promise<void> {
     const deletes = (await window.electronAPI.getPendingNoteDeletes?.()) ?? [];
+    let denied = false;
     for (const note of deletes) {
       try {
         await NotesService.delete(note.cloud_id!);
         await window.electronAPI.hardDeleteNote?.(note.id);
       } catch (err) {
-        // An already-gone row or a team row we can no longer access can never
-        // be deleted by this client. Clear the local tombstone instead of
-        // retrying forever.
-        if (isHttpStatus(err, 404) || isTeamAccessError(err)) {
+        if (isPermissionDenialError(err)) {
+          await this.handleDeniedNoteDelete(note);
+          denied = true;
+        } else if (isHttpStatus(err, 404) || isSpaceAccessError(err)) {
+          // An already-gone row or a space we can no longer access can never
+          // be deleted by this client. Clear the local tombstone (and any
+          // update-404 streak the row carried) instead of retrying forever.
           await window.electronAPI.hardDeleteNote?.(note.id);
+          this.clear404(NOTE_UPDATE_404_KEY, note.client_note_id);
         } else {
           console.error("Note delete sync failed:", err);
         }
       }
     }
+    if (denied) await this.restoreDeniedRows("note");
   }
 
   private async pullNotes(teamOnly = false, snapshot = false): Promise<boolean> {
@@ -1494,6 +1694,13 @@ class SyncService {
           const local = await window.electronAPI.getNoteByClientId?.(
             cloudNote.client_note_id ?? ""
           );
+
+          // Copy the cloud owner before any last-write-wins decision: an
+          // unchanged note skips the upsert but must still gain its owner
+          // (the owner_user_id backfill relies on this).
+          if (local && shouldSetOwnerFromCloud(cloudNote, local)) {
+            await window.electronAPI.setNoteOwnerFromCloud?.(local.id, cloudNote.user_id!);
+          }
 
           // Redacted stub: the note moved out of one of our teams. Clean local
           // copies are no longer ours to keep; dirty ones ('pending' or

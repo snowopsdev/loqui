@@ -67,6 +67,29 @@ export default function SpaceSyncToastListener() {
             title: title || t("notes.list.untitled"),
           }),
         });
+      } else if (name === "note-update-denied" || name === "note-delete-denied") {
+        const { title } = (payload ?? {}) as { title?: string | null };
+        toast({
+          title: t(
+            name === "note-update-denied"
+              ? "notes.spaces.updateDeniedNote"
+              : "notes.spaces.deleteDeniedNote",
+            { title: title || t("notes.list.untitled") }
+          ),
+          variant: "destructive",
+        });
+      } else if (name === "folder-update-denied" || name === "folder-delete-denied") {
+        const { name: folderName } = (payload ?? {}) as { name?: string | null };
+        if (!folderName) return;
+        toast({
+          title: t(
+            name === "folder-update-denied"
+              ? "notes.spaces.updateDeniedFolder"
+              : "notes.spaces.deleteDeniedFolder",
+            { name: folderName }
+          ),
+          variant: "destructive",
+        });
       }
     });
 

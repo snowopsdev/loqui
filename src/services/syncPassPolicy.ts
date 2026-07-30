@@ -131,12 +131,68 @@ export function revokedNoteForkUpdate(
   };
 }
 
+// Terminal access errors from space write checks: membership revoked (403),
+// space archived (410) or space gone (404). The API's sync endpoints still
+// emit the legacy team_* names; the canonical space_* names replace them once
+// the compatibility bridge is removed. Both families classify identically so
+// the desktop recovers the same way (fork dirty rows to Personal, settle
+// tombstones) regardless of which side of the rollout the API is on.
+const SPACE_ACCESS_ERROR_CODES = new Set([
+  "team_not_found",
+  "team_access_revoked",
+  "team_archived",
+  "space_not_found",
+  "space_access_revoked",
+  "space_archived",
+]);
+
+export function isSpaceAccessErrorCode(code: string | undefined): boolean {
+  return code !== undefined && SPACE_ACCESS_ERROR_CODES.has(code);
+}
+
+// Typed per-row permission denials (the caller keeps space access but lacks
+// the right to this operation: delete a teammate's note, change its scope, or
+// move/delete a space folder). Terminal like the access errors — retrying can
+// never succeed — but recovered differently: the server row is untouched, so
+// the local copy is restored from a snapshot pull instead of being settled.
+const PERMISSION_DENIAL_CODES = new Set([
+  "note_access_denied",
+  "note_scope_change_denied",
+  "folder_access_denied",
+]);
+
+export function isPermissionDenialCode(code: string | undefined): boolean {
+  return code !== undefined && PERMISSION_DENIAL_CODES.has(code);
+}
+
+// Whether a pulled note should copy its cloud owner onto the local row. Kept
+// independent of the last-write-wins upsert: an unchanged note (same
+// updated_at) skips the content upsert but must still gain an owner, or
+// pre-owner_user_id rows would fail closed in the UI forever. Stubs carry no
+// user_id and tombstoned rows are about to be deleted locally.
+export function shouldSetOwnerFromCloud(
+  cloudNote: {
+    user_id?: string | null;
+    deleted_at?: string | null;
+    access_removed?: boolean;
+  },
+  local: { owner_user_id?: string | null } | null
+): boolean {
+  return (
+    !!local &&
+    !cloudNote.access_removed &&
+    !cloudNote.deleted_at &&
+    cloudNote.user_id != null &&
+    local.owner_user_id !== cloudNote.user_id
+  );
+}
+
 // Consecutive-404 tracking for note/folder update (PATCH) pushes. A bare 404
 // on an update push is ambiguous — the row was deleted server-side, or the
 // pusher lost access. For notes, a revoked member's PATCH now returns a bare
 // 404 (the server hides the note so its id can't be probed) rather than 403
 // team_access_revoked; for folders the revoked case is already coded
-// (team_not_found / team_access_revoked, caught by isTeamAccessError), so a
+// (team_not_found / team_access_revoked, caught by isSpaceAccessError), so a
 // bare 404 there is a genuine-delete race. Either way we do NOT fork to
 // Personal on the first 404: the same pass's pull disambiguates a revocation
 // (access_removed stub → fork, preserving edits) from a deletion (tombstone →

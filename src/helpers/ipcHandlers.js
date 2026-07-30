@@ -1742,21 +1742,28 @@ class IPCHandlers {
       }
       return note;
     });
-    ipcMain.handle("db-mark-note-synced", (_, id, cloudId, cloudUpdatedAt) =>
-      this.databaseManager.markNoteSynced(id, cloudId, cloudUpdatedAt)
+    ipcMain.handle("db-mark-note-synced", (_, id, cloudId, cloudUpdatedAt, ownerUserId) =>
+      this.databaseManager.markNoteSynced(id, cloudId, cloudUpdatedAt, ownerUserId)
     );
     ipcMain.handle(
       "db-mark-note-synced-if-unchanged",
-      (_, id, cloudId, snapshotUpdatedAt, cloudUpdatedAt) =>
+      (_, id, cloudId, snapshotUpdatedAt, cloudUpdatedAt, ownerUserId) =>
         this.databaseManager.markNoteSyncedIfUnchanged(
           id,
           cloudId,
           snapshotUpdatedAt,
-          cloudUpdatedAt
+          cloudUpdatedAt,
+          ownerUserId
         )
     );
     ipcMain.handle("db-set-note-cloud-base", (_, id, cloudUpdatedAt) =>
       this.databaseManager.setNoteCloudBase(id, cloudUpdatedAt)
+    );
+    ipcMain.handle("db-set-note-owner-from-cloud", (_, id, ownerUserId) =>
+      this.databaseManager.setNoteOwnerFromCloud(id, ownerUserId)
+    );
+    ipcMain.handle("db-count-team-notes-missing-owner", () =>
+      this.databaseManager.countTeamNotesMissingOwner()
     );
     ipcMain.handle("db-mark-note-sync-error", (_, id) =>
       this.databaseManager.markNoteSyncError(id)
@@ -7520,7 +7527,10 @@ class IPCHandlers {
 
         const method = (opts.method || "GET").toUpperCase();
         const sendWith = (header) => {
-          const headers = { ...header };
+          // Set after the spread so no caller-provided header can shadow it:
+          // the API's adoption tracking keys off this version on every
+          // request, authenticated or public, including the 401 cookie retry.
+          const headers = { ...header, "x-openwhispr-version": app.getVersion() };
           const fetchOpts = { method, headers };
           if (opts.body !== undefined) {
             headers["Content-Type"] = "application/json";

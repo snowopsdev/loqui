@@ -237,3 +237,82 @@ test("update 404: clearing drops the streak, and is a no-op when untracked", asy
   const untracked = { n2: 1 };
   assert.equal(clearUpdate404(untracked, "n1"), untracked, "same reference when untracked");
 });
+
+// --- terminal error-code classification -------------------------------------
+// The API's sync endpoints still emit legacy team_* names; canonical space_*
+// names take over once the compatibility bridge is removed. Both families
+// must classify identically or one side of the rollout retries forever.
+
+test("access codes: legacy team_* and canonical space_* classify identically", async () => {
+  const { isSpaceAccessErrorCode } = await load();
+  const pairs = [
+    ["team_not_found", "space_not_found"],
+    ["team_access_revoked", "space_access_revoked"],
+    ["team_archived", "space_archived"],
+  ];
+  for (const [legacy, canonical] of pairs) {
+    assert.equal(isSpaceAccessErrorCode(legacy), true, legacy);
+    assert.equal(isSpaceAccessErrorCode(canonical), true, canonical);
+    assert.equal(isSpaceAccessErrorCode(legacy), isSpaceAccessErrorCode(canonical));
+  }
+});
+
+test("access codes: unrelated and missing codes are not terminal", async () => {
+  const { isSpaceAccessErrorCode } = await load();
+  for (const code of [
+    undefined,
+    "",
+    "note_version_conflict",
+    "folder_name_taken",
+    "note_access_denied",
+    "space_full",
+  ]) {
+    assert.equal(isSpaceAccessErrorCode(code), false, String(code));
+  }
+});
+
+test("denial codes: all three permission denials are terminal", async () => {
+  const { isPermissionDenialCode } = await load();
+  for (const code of ["note_access_denied", "note_scope_change_denied", "folder_access_denied"]) {
+    assert.equal(isPermissionDenialCode(code), true, code);
+  }
+});
+
+test("denial codes: access errors and unknown codes are not denials", async () => {
+  const { isPermissionDenialCode } = await load();
+  for (const code of [undefined, "", "team_access_revoked", "space_not_found", "denied"]) {
+    assert.equal(isPermissionDenialCode(code), false, String(code));
+  }
+});
+
+// --- shouldSetOwnerFromCloud -------------------------------------------------
+// Ownership must fill independently of the last-write-wins upsert: an
+// unchanged note (identical updated_at) skips the content upsert but still
+// needs its owner, or pre-owner_user_id rows fail closed in the UI forever.
+
+test("owner fill: fills a local row whose owner is missing or stale", async () => {
+  const { shouldSetOwnerFromCloud } = await load();
+  assert.equal(shouldSetOwnerFromCloud({ user_id: "u1" }, { owner_user_id: null }), true);
+  assert.equal(shouldSetOwnerFromCloud({ user_id: "u1" }, { owner_user_id: undefined }), true);
+  assert.equal(shouldSetOwnerFromCloud({ user_id: "u2" }, { owner_user_id: "u1" }), true);
+});
+
+test("owner fill: skips when already correct, no local row, or no cloud owner", async () => {
+  const { shouldSetOwnerFromCloud } = await load();
+  assert.equal(shouldSetOwnerFromCloud({ user_id: "u1" }, { owner_user_id: "u1" }), false);
+  assert.equal(shouldSetOwnerFromCloud({ user_id: "u1" }, null), false);
+  assert.equal(shouldSetOwnerFromCloud({ user_id: null }, { owner_user_id: null }), false);
+  assert.equal(shouldSetOwnerFromCloud({}, { owner_user_id: null }), false);
+});
+
+test("owner fill: never fires on stubs or tombstones", async () => {
+  const { shouldSetOwnerFromCloud } = await load();
+  assert.equal(
+    shouldSetOwnerFromCloud({ user_id: "u1", access_removed: true }, { owner_user_id: null }),
+    false
+  );
+  assert.equal(
+    shouldSetOwnerFromCloud({ user_id: "u1", deleted_at: "2026-01-01" }, { owner_user_id: null }),
+    false
+  );
+});

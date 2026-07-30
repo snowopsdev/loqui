@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const debugLogger = require("./debugLogger");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const tokenStore = require("./tokenStore");
+const { createCloudApiRequestHandler } = require("./cloudApiRequest");
 const { classifyAndLog } = require("./networkErrors");
 const { resolveLocalServerNeeds } = require("./localServerPolicy");
 const GnomeShortcutManager = require("./gnomeShortcut");
@@ -528,6 +529,13 @@ class IPCHandlers {
     this._setupRetentionCleanup();
     this._logDetectedGpus();
     this.setupHandlers();
+    // Lives for the app's lifetime; IPCHandlers has no teardown path.
+    tokenStore.subscribe(({ generation, token }) => {
+      this.broadcastToWindows("auth-token-state-changed", {
+        generation,
+        hasToken: Boolean(token),
+      });
+    });
 
     if (this.whisperManager?.serverManager) {
       this.whisperManager.serverManager.on("cuda-fallback", () => {
@@ -584,7 +592,9 @@ class IPCHandlers {
       if (!vectorIndex.isReady()) return;
       const { LocalEmbeddings } = require("./localEmbeddings");
       const text = LocalEmbeddings.noteEmbedText(note.title, note.content, note.enhanced_content);
-      vectorIndex.upsertNote(note.id, text).catch(() => {});
+      vectorIndex
+        .upsertNote(note.id, text, { space_id: note.space_id, folder_id: note.folder_id ?? null })
+        .catch(() => {});
     });
   }
 
@@ -594,6 +604,40 @@ class IPCHandlers {
       if (!vectorIndex.isReady()) return;
       vectorIndex.deleteNote(noteId).catch(() => {});
     });
+  }
+
+  // Space vector purges are persisted (pending_vector_purges) so a purge that
+  // lands while Qdrant is booting or down is retried once the index is ready.
+  drainPendingVectorPurges() {
+    setImmediate(() => {
+      void (async () => {
+        const vectorIndex = require("./vectorIndex");
+        if (!vectorIndex.isReady()) return;
+        for (const { space_id } of this.databaseManager.getPendingVectorPurges()) {
+          if (await vectorIndex.deleteBySpace(space_id)) {
+            this.databaseManager.clearPendingVectorPurge(space_id);
+          }
+        }
+      })().catch((error) => {
+        debugLogger.error(
+          "Pending vector purge drain failed",
+          { error: error?.message || String(error) },
+          "semantic-search"
+        );
+      });
+    });
+  }
+
+  _mirrorDeleteFolderIfUnshared(folderName) {
+    if (!this._noteFilesEnabled) return;
+    // Folder names are only unique per space — a live same-named folder in
+    // another space shares the mirror directory, so leave it on disk.
+    const stillLive = this.databaseManager.db
+      .prepare("SELECT 1 FROM folders WHERE name = ? AND deleted_at IS NULL")
+      .get(folderName);
+    if (stillLive) return;
+    const markdownMirror = require("./markdownMirror");
+    markdownMirror.deleteFolder(folderName);
   }
 
   _asyncMirrorWrite(note) {
@@ -1293,14 +1337,15 @@ class IPCHandlers {
 
     ipcMain.handle(
       "db-save-note",
-      async (event, title, content, noteType, sourceFile, audioDuration, folderId) => {
+      async (event, title, content, noteType, sourceFile, audioDuration, folderId, spaceId) => {
         const result = this.databaseManager.saveNote(
           title,
           content,
           noteType,
           sourceFile,
           audioDuration,
-          folderId
+          folderId,
+          spaceId
         );
         if (result?.success && result?.note) {
           setImmediate(() => this.broadcastToWindows("note-added", result.note));
@@ -1315,8 +1360,12 @@ class IPCHandlers {
       return this.databaseManager.getNote(id);
     });
 
-    ipcMain.handle("db-get-notes", async (event, noteType, limit, folderId) => {
-      return this.databaseManager.getNotes(noteType, limit, folderId);
+    ipcMain.handle("db-get-notes", async (event, noteType, limit, folderId, spaceId) => {
+      return this.databaseManager.getNotes(noteType, limit, folderId, spaceId);
+    });
+
+    ipcMain.handle("db-get-space-notes", async (event, spaceId, limit) => {
+      return this.databaseManager.getNotesForSpace(spaceId, limit);
     });
 
     ipcMain.handle("db-update-note", async (event, id, updates) => {
@@ -1334,54 +1383,76 @@ class IPCHandlers {
       return this.deleteNoteInternal(id);
     });
 
-    ipcMain.handle("db-search-notes", async (event, query, limit) => {
-      return this.databaseManager.searchNotes(query, limit);
+    ipcMain.handle("db-search-notes", async (event, query, limit, spaceId, folderId) => {
+      return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
     });
 
-    ipcMain.handle("db-semantic-search-notes", async (event, query, limit = 5) => {
-      const vectorIndex = require("./vectorIndex");
-      if (!vectorIndex.isReady()) {
-        return this.databaseManager.searchNotes(query, limit);
-      }
-
-      try {
-        const [ftsResults, vectorResults] = await Promise.all([
-          this.databaseManager.searchNotes(query, limit * 2),
-          vectorIndex.search(query, limit * 2),
-        ]);
-
-        // Filter low-confidence semantic matches before RRF
-        const filteredVectorResults = vectorResults.filter(({ score }) => score > 0.3);
-
-        // Reciprocal Rank Fusion (K=60, matching cloud implementation)
-        const scores = new Map();
-        ftsResults.forEach((note, i) => {
-          scores.set(note.id, (scores.get(note.id) || 0) + 1 / (60 + i));
-        });
-        filteredVectorResults.forEach(({ noteId }, i) => {
-          scores.set(noteId, (scores.get(noteId) || 0) + 1 / (60 + i));
-        });
-
-        const rankedIds = [...scores.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, limit)
-          .map(([id]) => id);
-
-        const noteMap = new Map();
-        ftsResults.forEach((n) => noteMap.set(n.id, n));
-        for (const id of rankedIds) {
-          if (!noteMap.has(id)) {
-            const note = this.databaseManager.getNote(id);
-            if (note) noteMap.set(id, note);
-          }
+    ipcMain.handle(
+      "db-semantic-search-notes",
+      async (event, query, limit = 5, spaceId, folderId) => {
+        const vectorIndex = require("./vectorIndex");
+        if (!vectorIndex.isReady()) {
+          return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
         }
 
-        return rankedIds.map((id) => noteMap.get(id)).filter(Boolean);
-      } catch (error) {
-        debugLogger.error("Semantic search failed, falling back to FTS5", { error: error.message });
-        return this.databaseManager.searchNotes(query, limit);
+        try {
+          // Qdrant payload updates are best-effort. Use its space filter to
+          // reduce the candidate set, then validate every scoped vector hit
+          // against SQLite before it can enter the fused ranking.
+          const overFetch = folderId != null ? limit * 4 : limit * 2;
+          const vectorFilter =
+            spaceId != null
+              ? { must: [{ key: "space_id", match: { value: spaceId } }] }
+              : undefined;
+          const [ftsResults, vectorResults] = await Promise.all([
+            this.databaseManager.searchNotes(query, overFetch, spaceId, folderId),
+            vectorIndex.search(query, overFetch, vectorFilter),
+          ]);
+          const scopedIds = new Set(
+            this.databaseManager.getNoteIdsInScope(
+              spaceId,
+              folderId,
+              vectorResults.map(({ noteId }) => noteId)
+            )
+          );
+
+          // Filter low-confidence semantic matches before RRF
+          const filteredVectorResults = vectorResults.filter(
+            ({ noteId, score }) => score > 0.3 && scopedIds.has(noteId)
+          );
+
+          // Reciprocal Rank Fusion (K=60, matching cloud implementation)
+          const scores = new Map();
+          ftsResults.forEach((note, i) => {
+            scores.set(note.id, (scores.get(note.id) || 0) + 1 / (60 + i));
+          });
+          filteredVectorResults.forEach(({ noteId }, i) => {
+            scores.set(noteId, (scores.get(noteId) || 0) + 1 / (60 + i));
+          });
+
+          const rankedIds = [...scores.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, limit)
+            .map(([id]) => id);
+
+          const noteMap = new Map();
+          ftsResults.forEach((n) => noteMap.set(n.id, n));
+          for (const id of rankedIds) {
+            if (!noteMap.has(id)) {
+              const note = this.databaseManager.getNote(id);
+              if (note) noteMap.set(id, note);
+            }
+          }
+
+          return rankedIds.map((id) => noteMap.get(id)).filter(Boolean);
+        } catch (error) {
+          debugLogger.error("Semantic search failed, falling back to FTS5", {
+            error: error.message,
+          });
+          return this.databaseManager.searchNotes(query, limit, spaceId, folderId);
+        }
       }
-    });
+    );
 
     ipcMain.handle("db-semantic-reindex-all", async () => {
       const vectorIndex = require("./vectorIndex");
@@ -1389,23 +1460,32 @@ class IPCHandlers {
 
       const notes = this.databaseManager.getNotes(null, 100000);
       let done = 0;
-      await vectorIndex.reindexAll(notes, (completed, total) => {
+      const { failed } = await vectorIndex.reindexAll(notes, (completed, total) => {
         done = completed;
         this.broadcastToWindows("semantic-reindex-progress", { done: completed, total });
       });
-      return { success: true, indexed: done };
+      // Report failed batches so callers only latch their done-flag on a clean pass.
+      return { success: failed === 0, indexed: done - failed };
     });
 
     ipcMain.handle("db-update-note-cloud-id", async (event, id, cloudId) => {
       return this.databaseManager.updateNoteCloudId(id, cloudId);
     });
 
-    ipcMain.handle("db-get-folders", async () => {
-      return this.databaseManager.getFolders();
+    ipcMain.handle("db-update-note-share-state", async (event, id, state) => {
+      const note = this.databaseManager.updateNoteShareState(id, state);
+      if (note) {
+        setImmediate(() => this.broadcastToWindows("note-updated", note));
+      }
+      return note;
     });
 
-    ipcMain.handle("db-create-folder", async (event, name) => {
-      const result = this.databaseManager.createFolder(name);
+    ipcMain.handle("db-get-folders", async (event, spaceId) => {
+      return this.databaseManager.getFolders(spaceId);
+    });
+
+    ipcMain.handle("db-create-folder", async (event, name, spaceId) => {
+      const result = this.databaseManager.createFolder(name, spaceId);
       if (result?.success && result?.folder) {
         setImmediate(() => {
           this.broadcastToWindows("folder-created", result.folder);
@@ -1427,10 +1507,7 @@ class IPCHandlers {
         }
         setImmediate(() => {
           this.broadcastToWindows("folder-deleted", { id });
-          if (this._noteFilesEnabled && folderName) {
-            const markdownMirror = require("./markdownMirror");
-            markdownMirror.deleteFolder(folderName);
-          }
+          if (folderName) this._mirrorDeleteFolderIfUnshared(folderName);
         });
       }
       return result;
@@ -1451,8 +1528,66 @@ class IPCHandlers {
       return result;
     });
 
+    ipcMain.handle("db-move-folder-to-space", async (event, id, spaceId) => {
+      const result = this.databaseManager.moveFolderToSpace(id, spaceId);
+      if (result?.success) {
+        // Qdrant payloads carry space_id — refresh the moved notes' vectors.
+        for (const note of result.notes ?? []) {
+          this._asyncVectorUpsert(note);
+        }
+        if (result.folder) {
+          setImmediate(() => this.broadcastToWindows("folder-synced", result.folder));
+        }
+      }
+      return result;
+    });
+
     ipcMain.handle("db-get-folder-note-counts", async () => {
       return this.databaseManager.getFolderNoteCounts();
+    });
+
+    ipcMain.handle("db-get-spaces", async () => {
+      return this.databaseManager.getSpaces();
+    });
+
+    ipcMain.handle("db-update-space", async (event, id, updates) => {
+      const result = this.databaseManager.updateSpace(id, updates);
+      if (result?.success && result.space) {
+        setImmediate(() => this.broadcastToWindows("space-synced", result.space));
+      }
+      return result;
+    });
+
+    ipcMain.handle("db-purge-space", async (event, id, options) => {
+      if (options?.expectedAuthGeneration !== undefined) {
+        const state = tokenStore.getState();
+        if (!state.token || state.generation !== options.expectedAuthGeneration) {
+          return {
+            success: false,
+            error: "Authentication context changed before account cleanup",
+            code: "AUTH_CONTEXT_CHANGED",
+          };
+        }
+      }
+      const result = this.databaseManager.purgeSpace(id, options);
+      if (result?.success) {
+        this.databaseManager.addPendingVectorPurge(result.spaceId);
+        this.drainPendingVectorPurges();
+        for (const note of result.relocatedNotes ?? []) {
+          this._asyncVectorUpsert(note);
+          this._asyncMirrorWrite(note);
+        }
+        for (const noteId of result.noteIds ?? []) {
+          this._asyncMirrorDelete(noteId);
+        }
+        setImmediate(() => {
+          this.broadcastToWindows("space-purged", { spaceId: result.spaceId });
+          for (const folderName of result.folderNames ?? []) {
+            this._mirrorDeleteFolderIfUnshared(folderName);
+          }
+        });
+      }
+      return result;
     });
 
     ipcMain.handle("db-get-actions", async () => {
@@ -1494,13 +1629,23 @@ class IPCHandlers {
     });
 
     // Agent conversation handlers
-    ipcMain.handle("db-create-agent-conversation", async (event, title, noteId) => {
-      return this.databaseManager.createAgentConversation(title, noteId);
-    });
+    ipcMain.handle(
+      "db-create-agent-conversation",
+      async (event, title, noteId, spaceId, folderId) => {
+        return this.databaseManager.createAgentConversation(title, noteId, spaceId, folderId);
+      }
+    );
 
     ipcMain.handle("db-get-conversations-for-note", async (event, noteId, limit) => {
       return this.databaseManager.getConversationsForNote(noteId, limit);
     });
+
+    ipcMain.handle(
+      "db-get-conversations-for-container",
+      async (event, spaceId, folderId, limit) => {
+        return this.databaseManager.getConversationsForContainer(spaceId, folderId, limit);
+      }
+    );
 
     ipcMain.handle("db-get-agent-conversations", async (event, limit) => {
       return this.databaseManager.getAgentConversations(limit);
@@ -1531,7 +1676,7 @@ class IPCHandlers {
           content,
           metadata
         );
-        if (this.vectorIndex?.isReady?.()) {
+        if (result && this.vectorIndex?.isReady?.()) {
           const conv = this.databaseManager.getAgentConversation(conversationId);
           if (conv && conv.messages?.length % 3 === 0) {
             this.vectorIndex
@@ -1598,21 +1743,60 @@ class IPCHandlers {
     });
 
     // Notes sync
-    ipcMain.handle("db-get-pending-notes", () => this.databaseManager.getPendingNotes());
+    ipcMain.handle("db-get-pending-notes", (_, spaceKind) =>
+      this.databaseManager.getPendingNotes(spaceKind)
+    );
     ipcMain.handle("db-get-pending-note-deletes", () =>
       this.databaseManager.getPendingNoteDeletes()
     );
     ipcMain.handle("db-get-note-by-client-id", (_, clientNoteId) =>
       this.databaseManager.getNoteByClientId(clientNoteId)
     );
-    ipcMain.handle("db-upsert-note-from-cloud", (_, cloudNote, localFolderId) =>
-      this.databaseManager.upsertNoteFromCloud(cloudNote, localFolderId)
+    ipcMain.handle("db-upsert-note-from-cloud", (_, cloudNote, localFolderId, localSpaceId) => {
+      const note = this.databaseManager.upsertNoteFromCloud(cloudNote, localFolderId, localSpaceId);
+      if (note) {
+        setImmediate(() => this.broadcastToWindows("note-synced", note));
+        this._asyncVectorUpsert(note);
+      }
+      return note;
+    });
+    ipcMain.handle(
+      "db-acknowledge-note-create",
+      (_, id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, settleIfUnchanged) =>
+        this.databaseManager.acknowledgeNoteCreate(
+          id,
+          snapshot,
+          cloudId,
+          cloudUpdatedAt,
+          ownerUserId,
+          settleIfUnchanged
+        )
     );
-    ipcMain.handle("db-mark-note-synced", (_, id, cloudId) =>
-      this.databaseManager.markNoteSynced(id, cloudId)
+    ipcMain.handle(
+      "db-mark-note-synced-if-unchanged",
+      (_, id, snapshot, expectedCloudId, cloudUpdatedAt, ownerUserId) =>
+        this.databaseManager.markNoteSyncedIfUnchanged(
+          id,
+          snapshot,
+          expectedCloudId,
+          cloudUpdatedAt,
+          ownerUserId
+        )
+    );
+    ipcMain.handle("db-set-note-cloud-base", (_, id, cloudUpdatedAt) =>
+      this.databaseManager.setNoteCloudBase(id, cloudUpdatedAt)
+    );
+    ipcMain.handle("db-set-note-owner-from-cloud", (_, id, ownerUserId) =>
+      this.databaseManager.setNoteOwnerFromCloud(id, ownerUserId)
+    );
+    ipcMain.handle("db-count-team-notes-missing-owner", () =>
+      this.databaseManager.countTeamNotesMissingOwner()
     );
     ipcMain.handle("db-mark-note-sync-error", (_, id) =>
       this.databaseManager.markNoteSyncError(id)
+    );
+    ipcMain.handle("db-restore-note-after-denied-delete", (_, id) =>
+      this.databaseManager.restoreNoteAfterDeniedDelete(id)
     );
     ipcMain.handle("db-hard-delete-note", (_, id) => {
       const result = this.databaseManager.hardDeleteNote(id);
@@ -1625,23 +1809,52 @@ class IPCHandlers {
     });
 
     // Folders sync
-    ipcMain.handle("db-get-pending-folders", () => this.databaseManager.getPendingFolders());
+    ipcMain.handle("db-get-pending-folders", (_, spaceKind) =>
+      this.databaseManager.getPendingFolders(spaceKind)
+    );
     ipcMain.handle("db-get-folder-by-client-id", (_, clientFolderId) =>
       this.databaseManager.getFolderByClientId(clientFolderId)
     );
-    ipcMain.handle("db-upsert-folder-from-cloud", (_, cloudFolder) =>
-      this.databaseManager.upsertFolderFromCloud(cloudFolder)
+    ipcMain.handle("db-upsert-folder-from-cloud", (_, cloudFolder, localSpaceId) => {
+      const folder = this.databaseManager.upsertFolderFromCloud(cloudFolder, localSpaceId);
+      if (folder) setImmediate(() => this.broadcastToWindows("folder-synced", folder));
+      return folder;
+    });
+    ipcMain.handle(
+      "db-acknowledge-folder-create",
+      (_, id, snapshot, expectedCloudId, responseClientFolderId, cloudId, cloudUpdatedAt) =>
+        this.databaseManager.acknowledgeFolderCreate(
+          id,
+          snapshot,
+          expectedCloudId,
+          responseClientFolderId,
+          cloudId,
+          cloudUpdatedAt
+        )
     );
-    ipcMain.handle("db-mark-folder-synced", (_, id, cloudId) =>
-      this.databaseManager.markFolderSynced(id, cloudId)
-    );
-    ipcMain.handle("db-adopt-folder-identity", (_, id, clientFolderId, cloudId, updatedAt) =>
-      this.databaseManager.adoptFolderIdentity(id, clientFolderId, cloudId, updatedAt)
+    ipcMain.handle("db-mark-folder-synced-if-unchanged", (_, id, snapshot, expectedCloudId) =>
+      this.databaseManager.markFolderSyncedIfUnchanged(id, snapshot, expectedCloudId)
     );
     ipcMain.handle("db-get-folder-id-map", () => this.databaseManager.getFolderIdMap());
     ipcMain.handle("db-get-pending-folder-deletes", () =>
       this.databaseManager.getPendingFolderDeletes()
     );
+    ipcMain.handle("db-restore-folder-after-denied-delete", (_, id) => {
+      const result = this.databaseManager.restoreFolderAfterDeniedDelete(id);
+      if (result?.success) {
+        for (const note of result.notes ?? []) {
+          this._asyncVectorUpsert(note);
+          this._asyncMirrorWrite(note);
+        }
+        setImmediate(() => {
+          if (result.folder) this.broadcastToWindows("folder-synced", result.folder);
+          for (const note of result.notes ?? []) {
+            this.broadcastToWindows("note-synced", note);
+          }
+        });
+      }
+      return result;
+    });
     ipcMain.handle("db-hard-delete-folder", (_, id) => {
       const result = this.databaseManager.hardDeleteFolder(id);
       if (result?.success) {
@@ -1650,11 +1863,60 @@ class IPCHandlers {
         }
         setImmediate(() => {
           this.broadcastToWindows("folder-deleted", { id });
-          if (this._noteFilesEnabled && result.name) {
-            const markdownMirror = require("./markdownMirror");
-            markdownMirror.deleteFolder(result.name);
+          if (result.name) this._mirrorDeleteFolderIfUnshared(result.name);
+        });
+      }
+      return result;
+    });
+    ipcMain.handle("db-relocate-revoked-folder", (_, id, privateSpaceId, preserveFolder) => {
+      const result = this.databaseManager.relocateRevokedFolder(id, privateSpaceId, preserveFolder);
+      if (result?.success) {
+        // Qdrant payloads carry space_id and the markdown mirror files by
+        // folder — refresh relocated notes, drop the server-owned ones.
+        for (const note of result.relocatedNotes ?? []) {
+          this._asyncVectorUpsert(note);
+          this._asyncMirrorWrite(note);
+        }
+        for (const noteId of result.deletedNoteIds ?? []) {
+          this._asyncVectorDelete(noteId);
+          this._asyncMirrorDelete(noteId);
+        }
+        setImmediate(() => {
+          if (result.folder) this.broadcastToWindows("folder-synced", result.folder);
+          else this.broadcastToWindows("folder-deleted", { id });
+          for (const note of result.relocatedNotes ?? []) {
+            this.broadcastToWindows("note-updated", note);
+          }
+          for (const noteId of result.deletedNoteIds ?? []) {
+            this.broadcastToWindows("note-deleted", { id: noteId });
+          }
+          const folderGone = !result.folder || result.folder.name !== result.folderName;
+          if (result.folderName && folderGone) {
+            this._mirrorDeleteFolderIfUnshared(result.folderName);
           }
         });
+      }
+      return result;
+    });
+
+    // Renderer-side sync events (conflicts, revocation toasts, …) happen in
+    // whichever window ran the pass — rebroadcast them to ALL windows.
+    ipcMain.handle("broadcast-sync-event", (_, name, payload) => {
+      this.broadcastToWindows("sync-event", { name, payload });
+      return { success: true };
+    });
+
+    // Spaces sync
+    ipcMain.handle("db-upsert-space-from-cloud", (_, cloudSpace) => {
+      const space = this.databaseManager.upsertSpaceFromCloud(cloudSpace);
+      if (space) setImmediate(() => this.broadcastToWindows("space-synced", space));
+      return space;
+    });
+    ipcMain.handle("db-set-space-sync-status", (_, id, status) => {
+      const result = this.databaseManager.setSpaceSyncStatus(id, status);
+      if (result?.success && result.space) {
+        // Live skeleton toggling: the tree keys pending/synced off this flag.
+        setImmediate(() => this.broadcastToWindows("space-synced", result.space));
       }
       return result;
     });
@@ -4016,6 +4278,18 @@ class IPCHandlers {
     ipcMain.handle("open-accessibility-settings", () => openSystemSettings("accessibility"));
     ipcMain.handle("open-system-audio-settings", () => openSystemSettings("systemAudio"));
 
+    ipcMain.handle("show-emoji-panel", () => {
+      try {
+        if (app.isEmojiPanelSupported()) {
+          app.showEmojiPanel();
+          return true;
+        }
+      } catch (error) {
+        debugLogger.error("Failed to show native emoji panel:", error);
+      }
+      return false;
+    });
+
     ipcMain.handle("toggle-media-playback", () => {
       const mediaPlayer = require("./mediaPlayer");
       return mediaPlayer.toggleMedia();
@@ -4174,12 +4448,16 @@ class IPCHandlers {
 
     ipcMain.handle("auth-clear-session", async (event) => {
       try {
-        tokenStore.clear();
+        const tokenState = tokenStore.clear();
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win) {
           await win.webContents.session.clearStorageData({ storages: ["cookies"] });
         }
-        return { success: true };
+        return {
+          success: tokenState.success,
+          tokenState,
+          ...(tokenState.success ? {} : { error: "Could not clear persisted bearer token" }),
+        };
       } catch (error) {
         debugLogger.error("Failed to clear auth session:", error);
         return { success: false, error: error.message };
@@ -4187,16 +4465,21 @@ class IPCHandlers {
     });
 
     ipcMain.handle("auth-get-token", () => tokenStore.get());
-    ipcMain.handle("auth-set-token", (_event, token) => {
-      if (typeof token === "string" && token) {
-        tokenStore.set(token);
-      } else {
+    ipcMain.handle("auth-get-token-state", () => tokenStore.getState());
+    ipcMain.handle("auth-set-token", (_event, token, expectedGeneration) => {
+      if (typeof token !== "string" || !token) {
         // Surface silent rotation-to-empty so we can spot regressions where the
         // renderer thinks it's persisting a token but the value never lands.
         debugLogger.debug("auth-set-token ignored: empty or non-string token", {
           type: typeof token,
         });
+        return {
+          success: false,
+          code: "AUTH_CONTEXT_UNVALIDATED",
+          ...tokenStore.getState(),
+        };
       }
+      return tokenStore.setIfGeneration(token, expectedGeneration);
     });
 
     // In production, VITE_* env vars aren't available in the main process because
@@ -4292,6 +4575,13 @@ class IPCHandlers {
     // Honors system proxy via Electron's net stack. useSessionCookies:false so
     // Electron doesn't auto-attach jar cookies on top of our explicit headers.
     const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
+    const handleCloudApiRequest = createCloudApiRequestHandler({
+      getApiUrl,
+      getAppVersion: () => app.getVersion(),
+      proxyFetch,
+      tokenStore,
+      logger: debugLogger,
+    });
 
     ipcMain.handle("cloud-transcribe", async (event, audioBuffer, opts = {}) => {
       try {
@@ -7286,75 +7576,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("cloud-api-request", async (event, opts) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        if (typeof opts?.path !== "string" || !opts.path.startsWith("/")) {
-          return { success: false, error: "Invalid API path" };
-        }
-        const targetUrl = new URL(opts.path, apiUrl);
-        if (targetUrl.origin !== new URL(apiUrl).origin) {
-          return { success: false, error: "Invalid API path" };
-        }
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const method = (opts.method || "GET").toUpperCase();
-        const sendWith = (header) => {
-          const headers = { ...header };
-          const fetchOpts = { method, headers };
-          if (opts.body !== undefined) {
-            headers["Content-Type"] = "application/json";
-            fetchOpts.body = JSON.stringify(opts.body);
-          }
-          return proxyFetch(`${apiUrl}${opts.path}`, fetchOpts);
-        };
-
-        let response = await sendWith(authHeader);
-
-        // A stale bearer is rejected even when the window still holds a valid session
-        // cookie; retry with the cookie alone (a tagging-along bearer overrides it).
-        if (response.status === 401 && authHeader.Authorization) {
-          const cookieHeader = await getSessionCookies(event);
-          if (cookieHeader) response = await sendWith({ Cookie: cookieHeader });
-        }
-
-        if (response.status === 401) {
-          return {
-            success: false,
-            error: "Session expired",
-            code: "AUTH_EXPIRED",
-            status: 401,
-          };
-        }
-        if (response.status === 503) {
-          return {
-            success: false,
-            error: "Service temporarily unavailable",
-            code: "SERVER_ERROR",
-            status: 503,
-          };
-        }
-
-        const data = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          const message = data?.error?.message || data?.error || `API error: ${response.status}`;
-          return { success: false, error: message, status: response.status };
-        }
-
-        return { success: true, data };
-      } catch (error) {
-        debugLogger.error(
-          `Cloud API request error (${opts?.path}): ${error?.message || error} ${error?.code || ""}`.trim(),
-          error?.stack
-        );
-        return { success: false, error: error.message };
-      }
-    });
+    ipcMain.handle("cloud-api-request", (_event, opts) => handleCloudApiRequest(opts));
 
     ipcMain.handle("get-stt-config", async (event) => {
       try {

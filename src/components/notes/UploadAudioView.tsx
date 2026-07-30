@@ -325,14 +325,30 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   }, []);
 
   useEffect(() => {
-    window.electronAPI.getFolders?.().then((f) => {
-      setFolders(f);
-      const personal = findDefaultFolder(f);
-      if (personal) {
-        setSelectedFolderId(String(personal.id));
-        setBatchFolderId(String(personal.id));
+    // Uploads and URL downloads are a personal flow: scope the folder list
+    // (and the by-name "Videos" destination lookup) to the private space so a
+    // same-named team folder can never capture them.
+    let cancelled = false;
+    const loadFolders = async () => {
+      try {
+        const spaces = (await window.electronAPI.getSpaces?.()) ?? [];
+        const privateSpace = spaces.find((space) => space.kind === "private");
+        const items = (await window.electronAPI.getFolders?.(privateSpace?.id ?? null)) ?? [];
+        if (cancelled) return;
+        setFolders(items);
+        const personal = findDefaultFolder(items);
+        if (personal) {
+          setSelectedFolderId(String(personal.id));
+          setBatchFolderId(String(personal.id));
+        }
+      } catch (error) {
+        if (!cancelled) console.error("Failed to load upload folders:", error);
       }
-    });
+    };
+    void loadFolders();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

@@ -3,7 +3,10 @@ const { i18nMain } = require("./i18nMain");
 function resolveSpeaker(seg, speakerMappings) {
   if (seg.speakerName && !seg.speakerIsPlaceholder) return seg.speakerName;
   if (seg.speaker && speakerMappings[seg.speaker]) return speakerMappings[seg.speaker];
-  if (seg.speaker === "you") return "You";
+  // Diarization stamps mic segments with "you"; segments it never touched fall
+  // through to the source check below. Both are the speaker, so both resolve
+  // through the same key — otherwise one person renders under two names.
+  if (seg.speaker === "you") return i18nMain.t("transcript.speaker.you");
   if (seg.speaker) {
     const num = parseInt(seg.speaker.replace("speaker_", ""), 10);
     if (!isNaN(num)) return `Speaker ${num + 1}`;

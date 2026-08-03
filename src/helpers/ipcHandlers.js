@@ -10,6 +10,7 @@ const tokenStore = require("./tokenStore");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
 const { classifyAndLog } = require("./networkErrors");
 const { resolveLocalServerNeeds } = require("./localServerPolicy");
+const { isValidPolicyShape } = require("./policyValidation");
 const GnomeShortcutManager = require("./gnomeShortcut");
 const HyprlandShortcutManager = require("./hyprlandShortcut");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
@@ -7630,6 +7631,11 @@ class IPCHandlers {
       }
     });
 
+    const withAppVersion = (headers) => ({
+      ...headers,
+      "x-openwhispr-version": app.getVersion(),
+    });
+
     ipcMain.handle("cloud-api-request", (_event, opts) => handleCloudApiRequest(opts));
 
     ipcMain.handle("get-stt-config", async (event) => {
@@ -7641,7 +7647,7 @@ class IPCHandlers {
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
 
         const response = await proxyFetch(`${apiUrl}/api/stt-config`, {
-          headers: { ...authHeader, "x-openwhispr-version": app.getVersion() },
+          headers: withAppVersion(authHeader),
         });
 
         if (!response.ok) {
@@ -7677,7 +7683,7 @@ class IPCHandlers {
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
 
         const response = await proxyFetch(`${apiUrl}/api/workspace-policy`, {
-          headers: { ...authHeader, "x-openwhispr-version": app.getVersion() },
+          headers: withAppVersion(authHeader),
         });
         if (!response.ok) throw new Error(`API error: ${response.status}`);
 
@@ -7686,7 +7692,11 @@ class IPCHandlers {
         // Treat a malformed 200 body as a failure, not an authoritative
         // "unmanaged" verdict, so the catch serves the cached policy (fail-closed)
         // instead of deleting it and unlocking the user.
-        if (!data || typeof data.managed !== "boolean") {
+        if (
+          !data ||
+          typeof data.managed !== "boolean" ||
+          (data.managed && !isValidPolicyShape(data.policy))
+        ) {
           throw new Error("Malformed policy response");
         }
         if (data.managed) {
@@ -7707,7 +7717,11 @@ class IPCHandlers {
         try {
           if (fs.existsSync(cachePath)) {
             const cached = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-            return { success: true, status: "cached", ...cached };
+            // Re-validate: a cache written by a build that predates shape
+            // validation (or a corrupted file) must not reach the renderer.
+            if (cached?.managed === true && isValidPolicyShape(cached.policy)) {
+              return { success: true, status: "cached", ...cached };
+            }
           }
         } catch (err) {
           debugLogger.error("Policy cache read failed:", err);

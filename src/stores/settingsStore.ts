@@ -6,7 +6,12 @@ import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup";
 import { useStreamingProvidersStore } from "./streamingProvidersStore";
 import logger from "../utils/logger";
 import whisperVadConstants from "../constants/whisperVad.json";
-import type { LocalTranscriptionProvider, InferenceMode, SelfHostedType } from "../types/electron";
+import type {
+  ChineseScriptPreference,
+  LocalTranscriptionProvider,
+  InferenceMode,
+  SelfHostedType,
+} from "../types/electron";
 import type { GoogleCalendarAccount } from "../types/calendar";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import {
@@ -21,6 +26,7 @@ import {
   type InferenceScopeDefinition,
   type InferenceScopeStoreKeys,
 } from "../config/inferenceScopes";
+import { normalizeChineseScriptPreference } from "../utils/chineseScript";
 import type {
   TranscriptionSettings,
   CleanupSettings,
@@ -590,6 +596,7 @@ export interface SettingsState
   setAllowLocalFallback: (value: boolean) => void;
   setFallbackWhisperModel: (value: string) => void;
   setPreferredLanguage: (value: string) => void;
+  setChineseScriptPreference: (value: ChineseScriptPreference) => void;
   setCloudTranscriptionProvider: (value: string) => void;
   setCloudTranscriptionModel: (value: string) => void;
   setCloudTranscriptionBaseUrl: (value: string) => void;
@@ -944,6 +951,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   allowLocalFallback: readBoolean("allowLocalFallback", false),
   fallbackWhisperModel: readString("fallbackWhisperModel", "base"),
   preferredLanguage: readString("preferredLanguage", "auto"),
+  chineseScriptPreference: normalizeChineseScriptPreference(
+    readString("chineseScriptPreference", "as-transcribed")
+  ),
   cloudTranscriptionProvider: readString("cloudTranscriptionProvider", "openai"),
   cloudTranscriptionModel: readString("cloudTranscriptionModel", "gpt-4o-mini-transcribe"),
   cloudTranscriptionBaseUrl: readString(
@@ -1354,6 +1364,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setAllowLocalFallback: createBooleanSetter("allowLocalFallback"),
   setFallbackWhisperModel: createStringSetter("fallbackWhisperModel"),
   setPreferredLanguage: createStringSetter("preferredLanguage"),
+  setChineseScriptPreference: (value: ChineseScriptPreference) =>
+    createStringSetter("chineseScriptPreference")(normalizeChineseScriptPreference(value)),
   setCloudTranscriptionProvider: createStringSetter("cloudTranscriptionProvider"),
   setCloudTranscriptionModel: createStringSetter("cloudTranscriptionModel"),
   setCloudTranscriptionBaseUrl: createStringSetter("cloudTranscriptionBaseUrl"),
@@ -1815,6 +1827,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       s.setFallbackWhisperModel(settings.fallbackWhisperModel);
     if (settings.preferredLanguage !== undefined)
       s.setPreferredLanguage(settings.preferredLanguage);
+    if (settings.chineseScriptPreference !== undefined)
+      s.setChineseScriptPreference(settings.chineseScriptPreference);
     if (settings.cloudTranscriptionProvider !== undefined)
       s.setCloudTranscriptionProvider(settings.cloudTranscriptionProvider);
     if (settings.cloudTranscriptionModel !== undefined)

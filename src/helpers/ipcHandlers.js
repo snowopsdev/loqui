@@ -9049,6 +9049,11 @@ class IPCHandlers {
       try {
         return this.microsoftCalendarManager.getConnectionStatus();
       } catch (error) {
+        debugLogger.error(
+          "Microsoft Calendar connection status failed",
+          { error: error.message },
+          "calendar"
+        );
         return { connected: false, accounts: [] };
       }
     });

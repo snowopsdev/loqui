@@ -13,6 +13,7 @@ const CALENDAR_SCOPE =
 class MicrosoftCalendarOAuth {
   constructor(databaseManager) {
     this.databaseManager = databaseManager;
+    this._refreshInFlight = new Map();
   }
 
   getClientId() {
@@ -20,6 +21,11 @@ class MicrosoftCalendarOAuth {
   }
 
   startOAuthFlow() {
+    if (!this.getClientId()) {
+      // Fail fast instead of opening the browser on a client_id=undefined URL
+      // and hanging until the loopback flow times out.
+      throw new Error("MICROSOFT_CALENDAR_CLIENT_ID is not configured");
+    }
     return runOAuthLoopbackFlow({
       errorParam: "mcal_error",
       buildAuthUrl: (redirectUri, state, codeChallenge) => {
@@ -89,24 +95,37 @@ class MicrosoftCalendarOAuth {
     if (!tokens) throw new Error(`No Microsoft tokens found for ${accountEmail}`);
 
     const fiveMinutes = 5 * 60 * 1000;
-    if (tokens.expires_at - fiveMinutes < Date.now()) {
-      const refreshed = await this.refreshAccessToken(tokens.refresh_token);
-      if (refreshed.error) {
-        throw new Error(`Token refresh failed: ${refreshed.error_description || refreshed.error}`);
-      }
-
-      // Microsoft rotates refresh tokens on every refresh; persist the new one
-      // or the old refresh token stops working within 24h.
-      this._saveTokens(tokens.microsoft_email, {
-        ...refreshed,
-        refresh_token: refreshed.refresh_token || tokens.refresh_token,
-        scope: refreshed.scope || tokens.scope,
-      });
-
-      return refreshed.access_token;
+    if (tokens.expires_at - fiveMinutes >= Date.now()) {
+      return tokens.access_token;
     }
 
-    return tokens.access_token;
+    // Microsoft rotates refresh tokens on every refresh, so concurrent
+    // refreshes (focus sync racing the interval sync) would persist competing
+    // rotations; share one in-flight refresh per account instead.
+    let refreshPromise = this._refreshInFlight.get(accountEmail);
+    if (!refreshPromise) {
+      refreshPromise = this._refreshAndSaveTokens(tokens).finally(() => {
+        this._refreshInFlight.delete(accountEmail);
+      });
+      this._refreshInFlight.set(accountEmail, refreshPromise);
+    }
+    return refreshPromise;
+  }
+
+  async _refreshAndSaveTokens(tokens) {
+    const refreshed = await this.refreshAccessToken(tokens.refresh_token);
+    if (refreshed.error) {
+      throw new Error(`Token refresh failed: ${refreshed.error_description || refreshed.error}`);
+    }
+
+    // Persist the rotated refresh token or the old one stops working within 24h.
+    this._saveTokens(tokens.microsoft_email, {
+      ...refreshed,
+      refresh_token: refreshed.refresh_token || tokens.refresh_token,
+      scope: refreshed.scope || tokens.scope,
+    });
+
+    return refreshed.access_token;
   }
 
   _saveTokens(email, tokenData) {

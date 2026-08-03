@@ -3187,7 +3187,9 @@ class DatabaseManager {
         if (calendarIds.length > 0) {
           const placeholders = calendarIds.map(() => "?").join(", ");
           this.db
-            .prepare(`DELETE FROM calendar_events WHERE calendar_id IN (${placeholders})`)
+            .prepare(
+              `DELETE FROM calendar_events WHERE provider = 'google' AND calendar_id IN (${placeholders})`
+            )
             .run(...calendarIds);
         }
         this.db.prepare("DELETE FROM google_calendars WHERE account_email = ?").run(email);
@@ -3639,7 +3641,9 @@ class DatabaseManager {
         if (calendarIds.length > 0) {
           const placeholders = calendarIds.map(() => "?").join(", ");
           this.db
-            .prepare(`DELETE FROM calendar_events WHERE calendar_id IN (${placeholders})`)
+            .prepare(
+              `DELETE FROM calendar_events WHERE provider = 'microsoft' AND calendar_id IN (${placeholders})`
+            )
             .run(...calendarIds);
         }
         this.db.prepare("DELETE FROM microsoft_calendars WHERE account_email = ?").run(email);
@@ -3655,7 +3659,7 @@ class DatabaseManager {
     }
   }
 
-  saveMicrosoftCalendars(calendars, accountEmail = null) {
+  saveMicrosoftCalendars(calendars, accountEmail) {
     try {
       if (!this.db) throw new Error("Database not initialized");
       const stmt = this.db.prepare(

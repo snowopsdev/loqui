@@ -183,6 +183,8 @@ export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsView
   const [appleSourceNames, setAppleSourceNames] = useState<string[]>([]);
   const [confirmAppleDisconnect, setConfirmAppleDisconnect] = useState(false);
   const [appleConnectError, setAppleConnectError] = useState<"denied" | "failed" | null>(null);
+  // i18n prefix of the provider whose OAuth flow failed, e.g. "integrations.googleCalendar"
+  const [oauthErrorKey, setOauthErrorKey] = useState<string | null>(null);
   const [apiKeysDialogOpen, setApiKeysDialogOpen] = useState(false);
   const systemAudio = useSystemAudioPermission();
   const { request: requestSystemAudioAccess } = systemAudio;
@@ -200,6 +202,9 @@ export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsView
           ...current.filter((a) => a.email !== result.email),
           { email: result.email },
         ]);
+      } else if (!result?.error?.includes("access_denied")) {
+        // access_denied means the user cancelled on the consent screen
+        setOauthErrorKey("integrations.googleCalendar");
       }
     } finally {
       setIsConnecting(false);
@@ -216,6 +221,8 @@ export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsView
           ...current.filter((a) => a.email !== result.email),
           { email: result.email },
         ]);
+      } else if (!result?.error?.includes("access_denied")) {
+        setOauthErrorKey("integrations.microsoftCalendar");
       }
     } finally {
       setIsMsConnecting(false);
@@ -572,6 +579,14 @@ export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsView
         onOpenChange={(open) => !open && setAppleConnectError(null)}
         title={t("integrations.appleCalendar.connectFailed")}
         description={t("integrations.appleCalendar.connectFailedDescription")}
+        onOk={() => {}}
+      />
+
+      <AlertDialog
+        open={!!oauthErrorKey}
+        onOpenChange={(open) => !open && setOauthErrorKey(null)}
+        title={oauthErrorKey ? t(`${oauthErrorKey}.connectFailed`) : ""}
+        description={oauthErrorKey ? t(`${oauthErrorKey}.connectFailedDescription`) : ""}
         onOk={() => {}}
       />
     </div>

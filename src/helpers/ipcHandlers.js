@@ -521,7 +521,7 @@ class IPCHandlers {
     this.speakerDiarizationEnabled = true;
     this.activeMeetingSpeakerConfig = null;
     this.whisperVadSettings = {
-      dictationSileroEnabled: true,
+      dictationSileroEnabled: false,
       noteRecordingSileroEnabled: true,
       meetingSileroEnabled: true,
       ...DEFAULT_WHISPER_VAD_CONFIG,
@@ -552,7 +552,7 @@ class IPCHandlers {
   _getWhisperVadSettings() {
     const current = this.whisperVadSettings || {};
     return {
-      dictationSileroEnabled: current.dictationSileroEnabled !== false,
+      dictationSileroEnabled: current.dictationSileroEnabled === true,
       noteRecordingSileroEnabled: current.noteRecordingSileroEnabled !== false,
       meetingSileroEnabled: current.meetingSileroEnabled !== false,
       ...sanitizeWhisperVadConfig(current),
@@ -2310,9 +2310,14 @@ class IPCHandlers {
       });
 
       try {
-        const vadOptions = this._resolveWhisperVadOptions("dictation");
+        // skipVad: dictionary-echo rescue retries decode VAD-free, since VAD
+        // stripping the speech is what turned the transcript into prompt echo.
+        const { skipVad, ...requestOptions } = options;
+        const vadOptions = skipVad
+          ? { vadEnabled: false }
+          : this._resolveWhisperVadOptions("dictation");
         const result = await this.whisperManager.transcribeLocalWhisper(audioBlob, {
-          ...options,
+          ...requestOptions,
           ...vadOptions,
         });
 

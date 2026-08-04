@@ -1,4 +1,6 @@
 import { withSessionRefresh } from "../lib/auth";
+import { getTranscriptionProviders } from "../models/ModelRegistry";
+import { isTinfoilInferenceUrl, resolveByokBaseUrl } from "./transcriptionBaseUrl";
 
 export interface FileTranscriptionResult {
   success: boolean;
@@ -61,12 +63,31 @@ export async function transcribeFile(
     });
   }
 
+  // Built-in providers resolve from the registry; only Custom uses the
+  // stored URL, which provider tab switches no longer overwrite (#1459).
+  const providers = getTranscriptionProviders();
+  const baseUrl = resolveByokBaseUrl(
+    cfg.cloudTranscriptionProvider,
+    cfg.cloudTranscriptionBaseUrl || "",
+    providers
+  );
+  // A Custom URL pointing at Tinfoil (e.g. persisted by the pre-#1459 tab
+  // clobber) must not bypass the attested main-process proxy. Self-hosted
+  // mode is exempt: the handler routes it to remoteTranscriptionUrl.
+  if (
+    cfg.cloudTranscriptionProvider === "custom" &&
+    cfg.transcriptionMode !== "self-hosted" &&
+    isTinfoilInferenceUrl(baseUrl, providers)
+  ) {
+    throw new Error("Tinfoil transcription must go through the attested main-process proxy");
+  }
+
   // Self-hosted fields make the handler route to the configured server
   // (fail-closed on misconfiguration) instead of stale BYOK settings.
   return window.electronAPI.transcribeAudioFileByok!({
     filePath,
     apiKey: cfg.getApiKey(),
-    baseUrl: cfg.cloudTranscriptionBaseUrl || "",
+    baseUrl,
     model: cfg.cloudTranscriptionModel,
     diarize: diarize || undefined,
     provider: cfg.cloudTranscriptionProvider,

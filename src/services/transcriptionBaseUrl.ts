@@ -29,6 +29,11 @@ function parseHostname(url: string): string | null {
   return null;
 }
 
+// Shared by every guard that refuses a direct Tinfoil endpoint, so the
+// dictation and upload paths can't drift apart.
+export const TINFOIL_PROXY_REQUIRED_ERROR =
+  "Tinfoil transcription must go through the attested main-process proxy";
+
 /**
  * True when a URL points at Tinfoil's inference host. Tinfoil audio must go
  * through the attested main-process proxy, so request paths use this to

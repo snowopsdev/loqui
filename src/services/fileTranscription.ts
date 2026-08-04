@@ -1,6 +1,10 @@
 import { withSessionRefresh } from "../lib/auth";
 import { getTranscriptionProviders } from "../models/ModelRegistry";
-import { isTinfoilInferenceUrl, resolveByokBaseUrl } from "./transcriptionBaseUrl";
+import {
+  TINFOIL_PROXY_REQUIRED_ERROR,
+  isTinfoilInferenceUrl,
+  resolveByokBaseUrl,
+} from "./transcriptionBaseUrl";
 
 export interface FileTranscriptionResult {
   success: boolean;
@@ -79,7 +83,7 @@ export async function transcribeFile(
     cfg.transcriptionMode !== "self-hosted" &&
     isTinfoilInferenceUrl(baseUrl, providers)
   ) {
-    throw new Error("Tinfoil transcription must go through the attested main-process proxy");
+    throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
   }
 
   // Self-hosted fields make the handler route to the configured server

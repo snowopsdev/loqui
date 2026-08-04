@@ -39,7 +39,10 @@ import {
   getTranscriptionProviders,
   isOnlineParakeetModel,
 } from "../models/ModelRegistry";
-import { isTinfoilInferenceUrl } from "../services/transcriptionBaseUrl";
+import {
+  TINFOIL_PROXY_REQUIRED_ERROR,
+  isTinfoilInferenceUrl,
+} from "../services/transcriptionBaseUrl";
 import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
 import {
   isSelfHostedTranscription,
@@ -2875,7 +2878,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // Backstop against the OpenAI-default leak: Tinfoil goes through the main-process
     // proxy, never here — except self-hosted, which resolves its remote URL below.
     if (currentProvider === "tinfoil" && !isSelfHostedTranscription(s)) {
-      throw new Error("Tinfoil transcription must go through the attested main-process proxy");
+      throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
     }
 
     const currentBaseUrl = s.cloudTranscriptionBaseUrl || "";
@@ -2903,7 +2906,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       !isSelfHosted &&
       isTinfoilInferenceUrl(currentBaseUrl, getTranscriptionProviders())
     ) {
-      throw new Error("Tinfoil transcription must go through the attested main-process proxy");
+      throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
     }
 
     if (

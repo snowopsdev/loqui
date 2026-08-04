@@ -110,9 +110,8 @@ export default function LocalModelPicker({
   useEffect(() => {
     const initAndValidate = async () => {
       const downloaded = await loadDownloadedModels();
-      // Only clear a selection this picker owns (a known model that is no
-      // longer on disk). A foreign id — e.g. a cloud model selected while
-      // the user browses the local tab — must survive untouched.
+      // Only clear ids this picker owns — a foreign id (e.g. a cloud model)
+      // must survive untouched.
       if (
         downloaded &&
         selectedModel &&
@@ -152,12 +151,8 @@ export default function LocalModelPicker({
 
   const handleDownload = useCallback(
     (modelId: string) => {
-      // Bootstrap only: auto-select the freshly downloaded model when there
-      // is no current selection, or the selection is a known model that was
-      // deleted. Decided when the download finishes — possibly minutes after
-      // the click — against the ref'd current state, so a model the user
-      // picked while the download ran is never stolen. A foreign selection
-      // (e.g. a cloud model id) blocks the bootstrap too.
+      // Bootstrap auto-select, decided against current state when the download
+      // finishes so a model picked while it ran is never stolen.
       downloadModel(modelId, (downloadedId) => {
         const { selectedModel: current, downloadedModels: downloaded, knownModelIds: known } =
           selectionStateRef.current;

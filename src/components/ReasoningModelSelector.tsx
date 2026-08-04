@@ -15,9 +15,13 @@ import LocalModelPicker, { type LocalProvider } from "./LocalModelPicker";
 import { ProviderTabs } from "./ui/ProviderTabs";
 import OpenAICompatiblePanel from "./OpenAICompatiblePanel";
 import { API_ENDPOINTS } from "../config/constants";
-import { REASONING_PROVIDERS, toReasoningModel } from "../models/ModelRegistry";
+import {
+  REASONING_PROVIDERS,
+  toReasoningModel,
+  modelRegistry,
+  isProviderValidForMode,
+} from "../models/ModelRegistry";
 import { useTinfoilModels } from "../hooks/useTinfoilModels";
-import { modelRegistry } from "../models/ModelRegistry";
 import { getRemoteProviderIcon } from "../utils/providerIcons";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import { getCachedPlatform } from "../utils/platform";
@@ -422,16 +426,10 @@ export default function ReasoningModelSelector({
     }
   }, [localProviders, localReasoningProvider]);
 
-  // The persisted selection is only ever written by an explicit user action:
-  // clicking a model card commits that model together with the provider tab
-  // it was clicked under. Switching provider tabs is pure browsing and never
-  // touches the persisted selection, so a previously chosen model (and its
-  // "Active" tag) survives tab hopping. The only implicit selection is the
-  // first-download bootstrap in LocalModelPicker.
+  // A selection commits only on an explicit click: the model together with
+  // the provider tab it was clicked under. Tab switching is pure browsing.
   const handleModelSelect = (modelId: string) => {
     if (!modelId) {
-      // Stale-selection clear (selected model was deleted) — leave the
-      // provider untouched.
       setReasoningModel("");
       return;
     }
@@ -442,7 +440,12 @@ export default function ReasoningModelSelector({
 
   const handleModeChange = (newMode: "cloud" | "local") => {
     setSelectedMode(newMode);
-    setReasoningModeProp?.(newMode === "local" ? "local" : "providers");
+    const inferenceMode: InferenceMode = newMode === "local" ? "local" : "providers";
+    setReasoningModeProp?.(inferenceMode);
+    if (!isProviderValidForMode(localReasoningProvider, inferenceMode)) {
+      setLocalReasoningProvider("");
+      setReasoningModel("");
+    }
 
     if (newMode === "cloud") {
       window.electronAPI?.llamaServerStop?.();
@@ -497,16 +500,8 @@ export default function ReasoningModelSelector({
           />
 
           <div>
-            {/*
-              Custom/OpenRouter fetch their model list dynamically — the model
-              id is committed explicitly from the panel (together with this
-              provider) so another provider's model id can't persist under
-              this one. Tab switches never clear or overwrite it. The panel
-              only shows a model as selected when this tab is the committed
-              provider: a same-id model committed under another provider must
-              not render as active, or it would suppress the "select a model"
-              hint and the click that commits the provider would never happen.
-            */}
+            {/* A model renders as selected only under its committed provider —
+                free-form custom/OpenRouter ids can collide with registry ids. */}
             {selectedCloudProvider === OPENROUTER_TAB ? (
               <OpenAICompatiblePanel
                 key={OPENROUTER_TAB}
@@ -636,7 +631,9 @@ export default function ReasoningModelSelector({
                   </h4>
                   <ModelCardList
                     models={selectedCloudModels}
-                    selectedModel={reasoningModel}
+                    selectedModel={
+                      localReasoningProvider === selectedCloudProvider ? reasoningModel : ""
+                    }
                     onModelSelect={handleModelSelect}
                   />
                   {selectedCloudProvider === "tinfoil" && (

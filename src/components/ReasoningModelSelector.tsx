@@ -501,7 +501,11 @@ export default function ReasoningModelSelector({
               Custom/OpenRouter fetch their model list dynamically — the model
               id is committed explicitly from the panel (together with this
               provider) so another provider's model id can't persist under
-              this one. Tab switches never clear or overwrite it.
+              this one. Tab switches never clear or overwrite it. The panel
+              only shows a model as selected when this tab is the committed
+              provider: a same-id model committed under another provider must
+              not render as active, or it would suppress the "select a model"
+              hint and the click that commits the provider would never happen.
             */}
             {selectedCloudProvider === OPENROUTER_TAB ? (
               <OpenAICompatiblePanel
@@ -510,7 +514,7 @@ export default function ReasoningModelSelector({
                 setBaseUrl={() => {}}
                 apiKey={openrouterApiKey}
                 setApiKey={setOpenrouterApiKey}
-                model={reasoningModel}
+                model={localReasoningProvider === OPENROUTER_TAB ? reasoningModel : ""}
                 setModel={(m) => {
                   setLocalReasoningProvider(OPENROUTER_TAB);
                   setReasoningModel(m);
@@ -526,7 +530,7 @@ export default function ReasoningModelSelector({
                 setBaseUrl={setCloudReasoningBaseUrl}
                 apiKey={customReasoningApiKey}
                 setApiKey={setCustomReasoningApiKey || (() => {})}
-                model={reasoningModel}
+                model={localReasoningProvider === "custom" ? reasoningModel : ""}
                 setModel={(m) => {
                   setLocalReasoningProvider("custom");
                   setReasoningModel(m);

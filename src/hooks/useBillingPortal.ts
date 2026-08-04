@@ -10,9 +10,6 @@ interface UseBillingPortalReturn {
 }
 
 /**
- * Opens Stripe's portal and reports a refusal with the copy that fits its code.
- * Every entry point shares this so the same failure never reads two ways.
- *
  * Takes the caller's usage object rather than calling `useUsage` itself: the
  * in-flight guard behind `openBillingPortal` is per-instance, so a second
  * instance would let a checkout and a portal open at the same time.
@@ -26,8 +23,6 @@ export function useBillingPortal(usage: UseUsageResult | null): UseBillingPortal
     if (!usage) return;
     setIsOpening(true);
     try {
-      // A rejection (rather than a coded refusal) has no self-serve copy; it
-      // falls through to the generic toast instead of escaping the click handler.
       const result: { success: boolean; code?: string } = await usage
         .openBillingPortal()
         .catch(() => ({ success: false }));

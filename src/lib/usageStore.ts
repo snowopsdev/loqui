@@ -1,10 +1,6 @@
 import { CACHE_CONFIG } from "../config/constants.ts";
 import { clearIsSubscribed, writeIsSubscribed } from "./subscriptionFlag.ts";
 
-// One account-scoped entitlement result shared by every consumer, so two
-// screens can never disagree about the same account. Unknown is a real state:
-// nothing here manufactures a free plan out of missing data.
-
 const USAGE_ACCOUNT_KEY = "openwhispr:usageAccountId";
 const USAGE_CACHE_TTL = CACHE_CONFIG.API_KEY_TTL;
 const RETRY_DELAYS_MS = [2000, 4000, 8000];
@@ -59,8 +55,6 @@ export type UsageState =
 const IDLE_SIGNED_OUT: UsageState = { status: "idle", accountId: null };
 
 let state: UsageState = IDLE_SIGNED_OUT;
-// Bumped on every account change; a response whose generation is stale is
-// dropped, so user A's in-flight request cannot land on user B's session.
 let generation = 0;
 let lastFetchAt = 0;
 let inFlight: Promise<void> | null = null;
@@ -104,8 +98,8 @@ export function normalizeUsage(response: UsageResponse): UsageData {
   return {
     wordsUsed: response.wordsUsed ?? 0,
     wordsRemaining: response.wordsRemaining ?? 0,
-    // Not the free-tier allowance: a missing limit is an unknown one, and every
-    // meter is guarded on `limit > 0` so it stays hidden rather than wrong.
+    // Not the free-tier allowance: a missing limit is unknown, and meters
+    // guard on `limit > 0` so they stay hidden rather than wrong.
     limit: response.limit ?? 0,
     plan,
     subscriptionStatus,
@@ -130,11 +124,6 @@ export function isPastDueUsage(data: UsageData): boolean {
   return PAID_PLANS.has(data.plan) && data.subscriptionStatus === "past_due";
 }
 
-/**
- * Point the store at the authenticated account. Any previous account's data,
- * in-flight request, retry timer and persisted subscription flag are dropped
- * atomically, so user B never inherits user A's entitlement.
- */
 export function setUsageAccount(accountId: string | null): void {
   if (state.accountId === accountId) return;
 
@@ -145,11 +134,9 @@ export function setUsageAccount(accountId: string | null): void {
   lastFetchAt = 0;
   retryAttempt = 0;
 
-  // The flag survives only for the account that produced it: a relaunch of the
-  // same account keeps it, so offline sessions still sync before the first
-  // successful usage fetch. Sign-out, a different account, or a build that
-  // never recorded an owner all invalidate it — an unattributable `true` would
-  // hand user B user A's entitlement.
+  // The persisted flag survives only for the account that produced it: a
+  // same-account relaunch keeps it for offline use; anything unattributable
+  // would hand user B user A's entitlement.
   const store = storage();
   const previousAccountId = store?.getItem(USAGE_ACCOUNT_KEY) ?? null;
   if (accountId === null || previousAccountId !== accountId) clearIsSubscribed();
@@ -206,19 +193,13 @@ function startLoad(accountId: string, fetcher: UsageFetcher): Promise<void> {
   return run;
 }
 
-/**
- * Fetch usage for the active account. Concurrent callers share one request, and
- * a successful result is reused for the cache TTL — mounting another consumer
- * costs nothing. Errors are never TTL-cached.
- */
 export function loadUsage(fetcher: UsageFetcher, opts: { force?: boolean } = {}): Promise<void> {
   const { accountId } = state;
   if (!accountId) return Promise.resolve();
   if (inFlight) {
     if (!opts.force) return inFlight;
-    // A forced caller knows something the in-flight request predates — words
-    // just spent, a plan just switched — so its answer is already stale.
-    // Every such caller coalesces into one follow-up rather than stampeding.
+    // The in-flight answer predates whatever forced the refetch; coalesce all
+    // forced callers into one follow-up rather than stampeding.
     const forceGeneration = generation;
     queuedForce ??= inFlight.then(() => {
       // Clear before the check and a stale chain would wipe the follow-up the
@@ -235,16 +216,12 @@ export function loadUsage(fetcher: UsageFetcher, opts: { force?: boolean } = {})
   return startLoad(accountId, fetcher);
 }
 
-/** Manual retry: clears the backoff budget so the user gets an immediate attempt. */
 export function retryUsage(fetcher: UsageFetcher): Promise<void> {
   retryAttempt = 0;
   return loadUsage(fetcher, { force: true });
 }
 
-/**
- * Post-checkout poll that outlives webhook lag. Guarded so mounting N consumers
- * still runs one poll.
- */
+/** Post-checkout poll that outlives Stripe webhook lag. */
 export async function watchForUpgrade(fetcher: UsageFetcher): Promise<void> {
   if (upgradeWatchActive) return;
   upgradeWatchActive = true;

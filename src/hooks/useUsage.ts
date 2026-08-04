@@ -25,9 +25,8 @@ export interface UseUsageResult {
   hasPaidAccess: boolean | null;
   /**
    * `hasPaidAccess` with the unknown case resolved in the account's favour, for
-   * gates where wrongly locking out a payer costs more than briefly over-granting
-   * (the server stays authoritative). Signed out the hook is `null`, so a
-   * `?? false` at the call site keeps that a known "not entitled".
+   * gates where locking out a payer costs more than briefly over-granting
+   * (the server stays authoritative).
    */
   hasPaidAccessOptimistic: boolean;
   plan: string;
@@ -45,12 +44,7 @@ export interface UseUsageResult {
   isOverLimit: boolean;
   isApproachingLimit: boolean;
   resetAt: string | null;
-  /**
-   * Any Stripe action — checkout, switch-plan or portal — is in flight. They
-   * share one in-flight guard, so this is what sibling buttons disable on.
-   * `useBillingPortal`'s `isOpening` narrows it to the portal, for the buttons
-   * whose own label changes while it opens.
-   */
+  /** Any Stripe action — checkout, switch-plan or portal — is in flight; they share one guard. */
   checkoutLoading: boolean;
   openCheckout: (opts?: {
     plan?: "monthly" | "annual";

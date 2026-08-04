@@ -7450,9 +7450,8 @@ class IPCHandlers {
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
 
-        // Entitlement must never be served from Chromium's HTTP cache: the
-        // desktop authenticates with a bearer token, so a cached response can
-        // outlive both the account that produced it and a mid-flight upgrade.
+        // Never serve entitlement from Chromium's HTTP cache: a cached
+        // response can outlive the account that produced it.
         const response = await proxyFetch(`${apiUrl}/api/usage`, {
           headers: authHeader,
           cache: "no-store",
@@ -7468,8 +7467,6 @@ class IPCHandlers {
           const errorData = await response.json().catch(() => ({}));
           const message = errorData.error || `API error: ${response.status}`;
           debugLogger.error(`Cloud usage fetch error: ${message}`);
-          // The refusal code drives the renderer's retry policy — a coded
-          // refusal must not be retried as if it were a transport blip.
           return { success: false, error: message, code: errorData.code };
         }
 
@@ -7508,8 +7505,6 @@ class IPCHandlers {
           const errorData = await response.json().catch(() => ({}));
           const message = errorData.error || `API error: ${response.status}`;
           debugLogger.error(`${errorPrefix}: ${message}`);
-          // The refusal code lets the renderer branch on why — a non-owner of a
-          // past-due workspace needs different copy from a generic failure.
           return { success: false, error: message, code: errorData.code };
         }
 

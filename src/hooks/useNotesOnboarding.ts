@@ -12,7 +12,6 @@ interface UseNotesOnboardingReturn {
 
 export function useNotesOnboarding(): UseNotesOnboardingReturn {
   const usage = useUsage();
-  // Unknown entitlement is treated as loading, never as free.
   const isProUser = usage?.hasPaidAccess === true;
   const isProLoading = usage !== null && usage.status !== "success";
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);

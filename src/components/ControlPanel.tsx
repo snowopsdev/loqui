@@ -313,7 +313,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, [toast, t]);
 
   useEffect(() => {
-    // isPastDue is only ever true on a successful usage response.
     if (!usage?.isPastDue) return;
     if (sessionStorage.getItem("pastDueNotified")) return;
     sessionStorage.setItem("pastDueNotified", "true");

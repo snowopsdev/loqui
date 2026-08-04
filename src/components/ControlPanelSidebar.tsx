@@ -19,6 +19,7 @@ import { cn } from "./lib/utils";
 import SupportDropdown from "./ui/SupportDropdown";
 import { getCachedPlatform } from "../utils/platform";
 import type { UpsellDecision } from "../lib/upsell";
+import { usePolicyStore, isAgentAllowed } from "../stores/policyStore";
 
 const platform = getCachedPlatform();
 
@@ -73,13 +74,17 @@ export default function ControlPanelSidebar({
   const showLimitBanner = upsell === "show" && Boolean(isSignedIn) && Boolean(isOverLimit);
   const showUpgradeBanner = upsell === "show" && !showLimitBanner && !upgradeDismissed;
 
+  const policyManaged = usePolicyStore((s) => s.managed);
+  const policyDoc = usePolicyStore((s) => s.policy);
+  const agentAllowed = isAgentAllowed({ managed: policyManaged, policy: policyDoc });
+
   const navItems: {
     id: ControlPanelView;
     label: string;
     icon: React.ComponentType<{ size?: number; className?: string }>;
   }[] = [
     { id: "home", label: t("sidebar.home"), icon: Home },
-    { id: "chat", label: t("sidebar.chat"), icon: MessageSquare },
+    ...(agentAllowed ? [{ id: "chat" as const, label: t("sidebar.chat"), icon: MessageSquare }] : []),
     { id: "personal-notes", label: t("sidebar.notes"), icon: NotebookPen },
     { id: "upload", label: t("sidebar.upload"), icon: Upload },
     { id: "dictionary", label: t("sidebar.dictionary"), icon: BookOpen },

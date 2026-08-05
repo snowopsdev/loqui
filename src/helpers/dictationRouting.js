@@ -38,6 +38,9 @@ export function resolveDictationAgentProvider({
 }) {
   if (isCloudAgent) return "openwhispr";
   if (dictationAgentMode === "local") return "local";
+  // Self-hosted routes by endpoint, so a leftover cloud id would send the
+  // request off-device. Mirrors buildNoteFormattingOverrides.
+  if (dictationAgentMode === "self-hosted") return undefined;
   return dictationAgentProvider?.trim() || undefined;
 }
 

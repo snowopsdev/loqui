@@ -46,6 +46,13 @@ function completed(transcript) {
   return JSON.stringify({ type: COMPLETED_EVENT, transcript });
 }
 
+function commitEmptyError() {
+  return JSON.stringify({
+    type: "error",
+    error: { code: "input_audio_buffer_commit_empty", message: "buffer too small" },
+  });
+}
+
 // Wires a connected instance directly, mirroring the existing realtime test
 // style: cadence behavior is driven through handleMessage + mocked timers.
 async function makeConnected() {
@@ -329,5 +336,170 @@ test("cleanup() stops the commit timer so a dead instance never commits", (t) =>
 
     t.mock.timers.tick(5000);
     assert.equal(sentCommits(socket).length, 0);
+  })();
+});
+
+// -- disconnect drain: an in-flight timer commit must finalize before the flush --
+
+test("disconnect() drains the in-flight timer commit so the tail transcript still lands", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    const socket = streaming.ws;
+    streaming.sendAudio(Buffer.alloc(480));
+
+    streaming.handleMessage(delta("first utterance"));
+    t.mock.timers.tick(850);
+    assert.equal(sentCommits(socket).length, 1, "timer commit in flight");
+    streaming.handleMessage(delta("tail spoken after the commit"));
+
+    const disconnected = streaming.disconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sentCommits(socket).length, 1, "flush must wait for the in-flight commit");
+
+    streaming.handleMessage(completed("first utterance"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sentCommits(socket).length, 2, "flush commit follows the drained completed");
+
+    streaming.handleMessage(completed("tail spoken after the commit"));
+    const result = await disconnected;
+    assert.equal(result.text, "first utterance tail spoken after the commit");
+  })();
+});
+
+test("disconnect() with an unanswered commit resolves within the bounded deadlines", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    streaming.sendAudio(Buffer.alloc(480));
+    streaming.handleMessage(delta("hello"));
+    t.mock.timers.tick(850);
+    assert.equal(sentCommits(streaming.ws).length, 1);
+
+    const disconnected = streaming.disconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(3000);
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(3000);
+    const result = await disconnected;
+    assert.equal(result.text, "", "resolves with accumulated text instead of hanging");
+  })();
+});
+
+// -- empty-commit replies: benign for timer commits, bounded against loops --
+
+test("empty-buffer reply to a timer commit is swallowed and retried after a fresh idle window", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    let surfaced = 0;
+    streaming.onError = () => {
+      surfaced += 1;
+    };
+
+    streaming.handleMessage(delta("hello"));
+    t.mock.timers.tick(850);
+    assert.equal(sentCommits(streaming.ws).length, 1);
+
+    streaming.handleMessage(commitEmptyError());
+    assert.equal(surfaced, 0, "benign empty reply must not reach the meeting error channel");
+    assert.equal(streaming._commitInFlight, false);
+
+    t.mock.timers.tick(250);
+    assert.equal(sentCommits(streaming.ws).length, 1, "no instant re-commit before the idle window");
+    t.mock.timers.tick(600);
+    assert.equal(sentCommits(streaming.ws).length, 2, "retry follows a full idle window");
+  })();
+});
+
+test("a second empty-buffer reply drops the unfinalizable partial instead of looping commits", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    let surfaced = 0;
+    streaming.onError = () => {
+      surfaced += 1;
+    };
+
+    streaming.handleMessage(delta("hello"));
+    t.mock.timers.tick(850);
+    streaming.handleMessage(commitEmptyError());
+    t.mock.timers.tick(850);
+    assert.equal(sentCommits(streaming.ws).length, 2, "one retry after the first empty reply");
+
+    streaming.handleMessage(commitEmptyError());
+    assert.equal(surfaced, 0);
+    assert.equal(streaming.currentPartial, "", "unfinalizable partial dropped");
+    assert.equal(streaming.speechStartedAt, null);
+
+    t.mock.timers.tick(5000);
+    assert.equal(sentCommits(streaming.ws).length, 2, "no commit loop after dropping the partial");
+  })();
+});
+
+test("empty-buffer error with no timer commit in flight still reaches onError", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    let errMsg = null;
+    streaming.onError = (err) => {
+      errMsg = err.message;
+    };
+
+    streaming.handleMessage(commitEmptyError());
+
+    assert.equal(errMsg, "buffer too small", "base disconnect-flush tolerance must still see it");
+  })();
+});
+
+test("server errors during an in-flight commit still surface", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    let errMsg = null;
+    streaming.onError = (err) => {
+      errMsg = err.message;
+    };
+
+    streaming.handleMessage(delta("hello"));
+    t.mock.timers.tick(850);
+    streaming.handleMessage(
+      JSON.stringify({ type: "error", error: { code: "server_error", message: "something broke" } })
+    );
+
+    assert.equal(errMsg, "something broke");
+    assert.equal(streaming._commitInFlight, false);
+  })();
+});
+
+// -- empty delta frames must not touch the utterance timers --
+
+test("an empty delta frame does not stamp speechStartedAt", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+
+    streaming.handleMessage(delta(""));
+    assert.equal(streaming.speechStartedAt, null, "an empty frame is not speech");
+
+    t.mock.timers.tick(250);
+    streaming.handleMessage(delta("real"));
+    assert.equal(streaming.speechStartedAt, 100250);
+  })();
+});
+
+test("empty delta frames do not starve the idle commit", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+
+    streaming.handleMessage(delta("hi"));
+    t.mock.timers.tick(250);
+    streaming.handleMessage(delta(""));
+    t.mock.timers.tick(250);
+    streaming.handleMessage(delta(""));
+    t.mock.timers.tick(250);
+
+    assert.equal(sentCommits(streaming.ws).length, 1, "empty frames must not reset the idle clock");
   })();
 });

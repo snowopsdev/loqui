@@ -11,6 +11,14 @@ const COMMIT_IDLE_MS = 600;
 // Bounds the text lost on abrupt socket death and keeps segments flowing to diarization.
 const MAX_UTTERANCE_MS = 30000;
 const COMMIT_ACK_TIMEOUT_MS = 10000;
+// Mirrors the base class's disconnect timeout so a dead server can't hang the stop.
+const COMMIT_DRAIN_TIMEOUT_MS = 3000;
+
+// Matches the empty-buffer signatures the base class tolerates at disconnect.
+const isEmptyBufferError = (error) =>
+  error?.code === "input_audio_buffer_commit_empty" ||
+  (error?.message || "").includes("buffer too small") ||
+  (error?.message || "").includes("commit_empty");
 
 // Tinfoil's transcription intent has no server VAD, so utterance boundaries
 // are decided client-side from the delta stream and committed explicitly.
@@ -21,7 +29,10 @@ class TinfoilRealtimeStreaming extends OpenAIRealtimeStreaming {
     this._commitTimer = null;
     this._commitInFlight = false;
     this._commitSentAt = 0;
+    this._commitDrain = null;
+    this._commitDrainResolve = null;
     this._lastDeltaAt = 0;
+    this._emptyCommitStreak = 0;
   }
 
   // Audio must only ever reach the attested Tinfoil socket, so a
@@ -37,24 +48,53 @@ class TinfoilRealtimeStreaming extends OpenAIRealtimeStreaming {
   }
 
   handleMessage(data) {
-    let type;
+    let event;
     try {
-      type = JSON.parse(data.toString()).type;
+      event = JSON.parse(data.toString());
     } catch {
       // Malformed frames are logged by the base handler.
+      super.handleMessage(data);
+      return;
     }
-    if (type === "conversation.item.input_audio_transcription.delta") {
-      this._lastDeltaAt = Date.now();
-      // No speech_started events without server VAD; the first delta of an
-      // utterance is the closest signal for the mic-suppression window.
-      if (!this.speechStartedAt) this.speechStartedAt = this._lastDeltaAt;
-    } else if (
-      type === "conversation.item.input_audio_transcription.completed" ||
-      type === "error"
-    ) {
-      this._commitInFlight = false;
+    if (event.type === "conversation.item.input_audio_transcription.delta") {
+      // Only real text moves the idle clock; without server VAD the first delta
+      // of an utterance is also the speech-start signal for mic suppression.
+      if (event.delta) {
+        this._lastDeltaAt = Date.now();
+        if (!this.speechStartedAt) this.speechStartedAt = this._lastDeltaAt;
+      }
+    } else if (event.type === "conversation.item.input_audio_transcription.completed") {
+      this._emptyCommitStreak = 0;
+      this._settleCommit();
+    } else if (event.type === "error") {
+      const wasTimerCommit = this._commitInFlight;
+      this._settleCommit();
+      if (wasTimerCommit && isEmptyBufferError(event.error)) {
+        this._handleEmptyCommitReply();
+        return;
+      }
     }
     super.handleMessage(data);
+  }
+
+  // An empty-buffer reply to a timer commit is benign (a lost completed or a
+  // double commit); surfacing it would flash an error mid-meeting.
+  _handleEmptyCommitReply() {
+    this._emptyCommitStreak += 1;
+    // Restart the idle window so a late completed can land before any retry.
+    this._lastDeltaAt = Date.now();
+    if (this._emptyCommitStreak >= 2) {
+      // A second empty reply means this text can't finalize; drop it rather
+      // than loop commits forever. A late completed would still deliver it.
+      debugLogger.error("Tinfoil Realtime utterance could not be finalized, dropping partial", {
+        partialLength: this.currentPartial.length,
+      });
+      this.currentPartial = "";
+      this.speechStartedAt = null;
+      this._emptyCommitStreak = 0;
+      return;
+    }
+    debugLogger.debug("Tinfoil Realtime empty commit reply, awaiting late completed");
   }
 
   _markConnected() {
@@ -81,7 +121,7 @@ class TinfoilRealtimeStreaming extends OpenAIRealtimeStreaming {
       // A commit the server never answered must not block the session forever.
       if (now - this._commitSentAt >= COMMIT_ACK_TIMEOUT_MS) {
         debugLogger.debug("Tinfoil Realtime commit unanswered, re-arming");
-        this._commitInFlight = false;
+        this._settleCommit();
       }
       return;
     }
@@ -92,17 +132,46 @@ class TinfoilRealtimeStreaming extends OpenAIRealtimeStreaming {
     if (idleFor < COMMIT_IDLE_MS && utteranceAge < MAX_UTTERANCE_MS) return;
     this._commitInFlight = true;
     this._commitSentAt = now;
+    this._commitDrain = new Promise((resolve) => {
+      this._commitDrainResolve = resolve;
+    });
     try {
       this.ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     } catch (err) {
-      this._commitInFlight = false;
+      this._settleCommit();
       debugLogger.debug("Tinfoil Realtime commit send failed", { error: err.message });
     }
   }
 
+  _settleCommit() {
+    this._commitInFlight = false;
+    if (this._commitDrainResolve) {
+      this._commitDrainResolve();
+      this._commitDrainResolve = null;
+      this._commitDrain = null;
+    }
+  }
+
+  // The base flush resolves on the first completed, so a commit the timer
+  // already sent must finalize first or its tail transcript is lost.
+  async disconnect() {
+    this._stopCommitTimer();
+    if (this._commitInFlight && this._commitDrain) {
+      let timer;
+      await Promise.race([
+        this._commitDrain,
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, COMMIT_DRAIN_TIMEOUT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+    return super.disconnect();
+  }
+
   cleanup() {
     this._stopCommitTimer();
-    this._commitInFlight = false;
+    this._settleCommit();
     super.cleanup();
   }
 }

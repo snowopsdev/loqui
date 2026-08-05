@@ -1434,7 +1434,9 @@
         "couldNotOpenTitle": "Impossible d'ouvrir la facturation",
         "manageBilling": "Gérer la facturation",
         "opening": "Ouverture...",
-        "updatePaymentMethod": "Mettre à jour le moyen de paiement"
+        "updatePaymentMethod": "Mettre à jour le moyen de paiement",
+        "contactOwnerTitle": "Contactez le propriétaire de l'espace de travail",
+        "contactOwnerDescription": "Seul le propriétaire de l'espace de travail peut modifier sa facturation."
       },
       "checkout": {
         "couldNotOpenDescription": "Nous avons eu un problème pour ouvrir la page de paiement. Veuillez réessayer.",
@@ -1631,6 +1633,10 @@
           "noPassword": "Aucun mot de passe n'est défini pour ce compte.",
           "generic": "Une erreur est survenue. Veuillez réessayer."
         }
+      },
+      "planUnavailable": {
+        "title": "Forfait indisponible",
+        "description": "Nous n'avons pas pu charger votre forfait pour le moment. Votre accès reste inchangé."
       }
     },
     "agentConfig": {
@@ -2464,26 +2470,6 @@
       "stop": "Arrêter",
       "playSignal": "Lire le signal"
     }
-  },
-  "usage": {
-    "approachingLimit": "Limite hebdomadaire bientôt atteinte",
-    "approachingLimitDescription": "Vous avez utilisé {{wordsUsed}} de vos {{limit}} mots gratuits cette semaine.",
-    "yourPlan": "Votre abonnement",
-    "trial": "Essai ({{days}} jour restant)",
-    "trial_other": "Essai ({{days}} jours restants)",
-    "pro": "Pro",
-    "business": "Business",
-    "unlimitedTrial": "Transcriptions illimitées pendant votre période d'essai",
-    "unlimited": "Transcriptions illimitées",
-    "manageSubscription": "Gérer l'abonnement",
-    "weeklyUsage": "Utilisation hebdomadaire",
-    "limitReached": "Limite atteinte",
-    "free": "Gratuit",
-    "wordsRemaining": "{{remaining}} mots restants",
-    "rollingLimit": "Limite hebdomadaire glissante",
-    "upgradeToPro": "Passer à Pro",
-    "useYourOwnKey": "Utiliser votre propre clé API",
-    "upgradeUnlimited": "Passer à Pro — transcriptions illimitées"
   },
   "notes": {
     "mutationErrors": {

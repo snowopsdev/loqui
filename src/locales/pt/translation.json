@@ -1135,7 +1135,9 @@
         "couldNotOpenTitle": "Não foi possível abrir cobrança",
         "manageBilling": "Gerenciar cobrança",
         "opening": "Abrindo...",
-        "updatePaymentMethod": "Atualizar forma de pagamento"
+        "updatePaymentMethod": "Atualizar forma de pagamento",
+        "contactOwnerTitle": "Fale com o proprietário do workspace",
+        "contactOwnerDescription": "Apenas o proprietário do workspace pode atualizar a cobrança dele."
       },
       "checkout": {
         "couldNotOpenDescription": "Tivemos dificuldade em abrir a página de checkout. Tente novamente.",
@@ -1332,6 +1334,10 @@
           "noPassword": "Nenhuma senha está definida para esta conta.",
           "generic": "Algo deu errado. Tente novamente."
         }
+      },
+      "planUnavailable": {
+        "title": "Plano indisponível",
+        "description": "Não conseguimos carregar seu plano agora. Seu acesso permanece o mesmo."
       }
     },
     "agentConfig": {
@@ -2822,26 +2828,6 @@
     "searchTitle": "Pesquisar conversas",
     "searchDescription": "Pesquisar em todas as conversas",
     "newChatEmpty": "Pergunte sobre suas notas, transcrições ou qualquer coisa"
-  },
-  "usage": {
-    "approachingLimit": "Próximo do limite semanal",
-    "approachingLimitDescription": "Você usou {{wordsUsed}} de {{limit}} palavras gratuitas esta semana.",
-    "yourPlan": "Seu plano",
-    "trial": "Teste ({{days}} dia restante)",
-    "trial_other": "Teste ({{days}} dias restantes)",
-    "pro": "Pro",
-    "business": "Business",
-    "unlimitedTrial": "Transcrições ilimitadas durante o seu período de teste",
-    "unlimited": "Transcrições ilimitadas",
-    "manageSubscription": "Gerenciar assinatura",
-    "weeklyUsage": "Uso semanal",
-    "limitReached": "Limite atingido",
-    "free": "Grátis",
-    "wordsRemaining": "{{remaining}} palavras restantes",
-    "rollingLimit": "Limite semanal contínuo",
-    "upgradeToPro": "Fazer upgrade para Pro",
-    "useYourOwnKey": "Usar sua própria chave API",
-    "upgradeUnlimited": "Fazer upgrade para Pro — transcrições ilimitadas"
   },
   "support": {
     "documentation": "Documentação",

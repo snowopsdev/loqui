@@ -28,12 +28,20 @@ test("accepts a well-formed policy", () => {
   assert.equal(isValidPolicyShape(validPolicy()), true);
 });
 
-test("accepts empty allowlists", () => {
+test("accepts empty provider allowlists", () => {
   const policy = validPolicy();
-  policy.transcription.allowedModes = [];
-  policy.llm.allowedModes = [];
+  policy.transcription.allowedByokProviders = [];
+  policy.llm.allowedByokProviders = [];
   policy.llm.allowedEnterpriseProviders = [];
   assert.equal(isValidPolicyShape(policy), true);
+});
+
+test("rejects empty allowedModes (canonical schema enforces min 1)", () => {
+  for (const scope of ["transcription", "llm"]) {
+    const policy = validPolicy();
+    policy[scope].allowedModes = [];
+    assert.equal(isValidPolicyShape(policy), false, `${scope}.allowedModes empty`);
+  }
 });
 
 test("rejects a missing or non-object policy", () => {

@@ -1,10 +1,6 @@
 import { create } from "zustand";
 import logger from "../utils/logger";
-import {
-  useSettingsStore,
-  selectResolvedLLMConfig,
-  setResolvedLLMConfig,
-} from "./settingsStore";
+import { useSettingsStore, selectResolvedLLMConfig, setResolvedLLMConfig } from "./settingsStore";
 import { INFERENCE_SCOPES, type InferenceScope } from "../config/inferenceScopes";
 import {
   isProviderValidForMode,
@@ -201,8 +197,10 @@ function reconcileModes(policy: OrgPolicy): void {
   }
 }
 
-// Providers are only reconciled for the mode that actually uses them; stale
-// values behind an inactive mode are filtered by the pickers when re-entered.
+// The transcription provider is a single store field, so it is reconciled
+// unconditionally. LLM providers are per-scope and only reconciled for the
+// mode that actually uses them; stale values behind an inactive mode are
+// filtered by the pickers when re-entered.
 function reconcileProviders(policy: OrgPolicy): void {
   const settings = useSettingsStore.getState();
 

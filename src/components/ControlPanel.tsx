@@ -185,6 +185,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const agentAllowedByPolicy = usePolicyStore((s) =>
     isAgentAllowed({ managed: s.managed, policy: s.policy })
   );
+  // The sidebar hides the chat item when the policy disallows the agent, but
+  // the user may already be on the chat view when the policy arrives.
+  useEffect(() => {
+    if (!agentAllowedByPolicy && activeView === "chat") setActiveView("home");
+  }, [agentAllowedByPolicy, activeView]);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   useEffect(() => {
     if (!policyMinAppVersion) return;

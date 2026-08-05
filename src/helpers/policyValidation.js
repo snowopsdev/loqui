@@ -13,7 +13,11 @@ function isValidPolicyShape(policy) {
     typeof policy === "object" &&
     POLICY_SCOPES.every(
       (scope) =>
+        // The canonical schema enforces min-1 allowedModes ("enable at least
+        // one mode"), and reconciliation relies on allowedModes[0] existing to
+        // move users off a disallowed mode — an empty list is malformed.
         Array.isArray(policy[scope]?.allowedModes) &&
+        policy[scope].allowedModes.length > 0 &&
         Array.isArray(policy[scope]?.allowedByokProviders)
     ) &&
     Array.isArray(policy.llm?.allowedEnterpriseProviders) &&

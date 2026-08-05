@@ -662,7 +662,13 @@ export default function TranscriptionModelPicker({
         }
       }
     },
-    [cloudProviders, onCloudProviderSelect, onCloudModelSelect, setCloudTranscriptionBaseUrl, providerAllowed]
+    [
+      cloudProviders,
+      onCloudProviderSelect,
+      onCloudModelSelect,
+      setCloudTranscriptionBaseUrl,
+      providerAllowed,
+    ]
   );
 
   const handleLocalProviderChange = useCallback(

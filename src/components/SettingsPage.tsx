@@ -311,7 +311,7 @@ function TranscriptionSection({
     ],
     "transcription",
     { managed: policyManaged, policy: policyDoc },
-    t("common.managedByOrg"),
+    t("common.managedByOrg")
   );
 
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {

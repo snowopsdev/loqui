@@ -215,8 +215,36 @@ test("the JSON export counts both own-voice segment shapes as one speaker", (t) 
     )
   );
 
-  assert.deepEqual(parsed.speakers, ["Du", "Speaker 1"]);
+  assert.deepEqual(parsed.speakers, ["Du", "Sprecher 1"]);
   assert.equal(parsed.metadata.speaker_count, 2);
+});
+
+test("diarized speaker numbers render in the UI language", (t) => {
+  changeLanguage("de");
+  t.after(() => changeLanguage("en"));
+
+  const txtOutput = formatTxt(
+    { title: "Standup", created_at: "2026-01-01T00:00:00Z" },
+    [{ source: "system", speaker: "speaker_0", timestamp: 0, text: "Hallo." }],
+    {}
+  );
+
+  assert.ok(txtOutput.includes("[00:00:00] Sprecher 1:\nHallo."));
+  assert.ok(!txtOutput.includes("Speaker 1"));
+});
+
+test("segments with no speaker information get a localized unknown label", (t) => {
+  changeLanguage("de");
+  t.after(() => changeLanguage("en"));
+
+  const txtOutput = formatTxt(
+    { title: "Standup", created_at: "2026-01-01T00:00:00Z" },
+    [{ timestamp: 0, text: "Hallo." }],
+    {}
+  );
+
+  assert.ok(txtOutput.includes("[00:00:00] Unbekannter Sprecher:\nHallo."));
+  assert.ok(!txtOutput.includes("Unknown Speaker"));
 });
 
 test("an explicit speaker mapping still overrides the own-voice label", () => {

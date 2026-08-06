@@ -213,9 +213,11 @@ class ReasoningService extends BaseReasoningService {
 
     // gpt-oss defaults to medium reasoning effort; low cuts hidden reasoning
     // tokens (latency) and the tendency to answer the transcript instead of
-    // cleaning it. applyThinkingSuppression still wins when thinking is
-    // disabled by the user.
-    if (isCleanup && model.includes("gpt-oss")) {
+    // cleaning it. Selection edits need it too: at higher efforts Groq's
+    // gpt-oss can leave the whole reply in the reasoning channel and return
+    // whitespace content, failing the edit. applyThinkingSuppression still
+    // wins when thinking is disabled by the user.
+    if ((isCleanup || config.requireCompleteOutput) && model.includes("gpt-oss")) {
       requestBody.reasoning_effort = "low";
     }
 
@@ -308,6 +310,9 @@ class ReasoningService extends BaseReasoningService {
     }
 
     const choice = response.choices[0];
+    if (config.requireCompleteOutput && ["length", "max_tokens"].includes(choice?.finish_reason)) {
+      throw new Error("Model output was truncated before the selection edit completed");
+    }
     // Reasoning models leak <think> blocks into non-streamed output; strip them
     // unless the user explicitly enabled thinking (same default as streaming).
     const rawContent = choice.message?.content?.trim() || "";

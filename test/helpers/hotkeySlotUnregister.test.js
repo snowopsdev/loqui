@@ -73,6 +73,9 @@ test("unregisterSlot never releases an accelerator the slot does not own", async
 
   await manager.registerSlot("agent", "F7", noop, { atomic: true });
   await manager.registerSlot("cancel", "F8", noop, { atomic: true });
+  // On Linux, registration defensively unregisters its own accelerator before
+  // registering it; only the teardown's unregister calls are under test here.
+  unregisterCalls.length = 0;
 
   manager.unregisterSlot("agent");
 

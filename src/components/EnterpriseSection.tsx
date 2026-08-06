@@ -28,10 +28,14 @@ export default function EnterpriseSection({
   const { t } = useTranslation();
   const azureDeploymentName = useSettingsStore((s) => s.azureDeploymentName);
   const bedrockRegion = useSettingsStore((s) => s.bedrockRegion);
-  const policyManaged = usePolicyStore((s) => s.managed);
+  const policyStatus = usePolicyStore((s) => s.status);
   const policyDoc = usePolicyStore((s) => s.policy);
+  const appVersion = usePolicyStore((s) => s.appVersion);
   const providerAllowed = (providerId: string) =>
-    isEnterpriseProviderAllowed({ managed: policyManaged, policy: policyDoc }, providerId);
+    isEnterpriseProviderAllowed(
+      { status: policyStatus, policy: policyDoc, appVersion },
+      providerId
+    );
 
   const providerTabs = ENTERPRISE_PROVIDER_TABS.map((tab) =>
     providerAllowed(tab.id)

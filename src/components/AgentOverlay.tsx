@@ -194,15 +194,9 @@ export default function AgentOverlay() {
     window.electronAPI?.hideAgentOverlay?.();
   }, []);
 
-  // The overlay is its own BrowserWindow, so this renderer has to fetch the
-  // policy itself — the control panel's fetch lives in a different context.
-  const policyManaged = usePolicyStore((s) => s.managed);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const agentAllowed = isAgentAllowed({ managed: policyManaged, policy: policyDoc });
-
-  useEffect(() => {
-    void usePolicyStore.getState().fetchPolicy();
-  }, []);
+  // The overlay is its own BrowserWindow; MainApp's useAuth populates this
+  // renderer's independent policy store before the overlay is shown.
+  const agentAllowed = usePolicyStore(isAgentAllowed);
 
   useEffect(() => {
     if (!agentAllowed) window.electronAPI?.hideAgentOverlay?.();

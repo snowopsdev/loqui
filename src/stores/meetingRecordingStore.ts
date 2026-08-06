@@ -20,6 +20,7 @@ import {
   MAX_SPEAKER_COUNT,
 } from "../constants/speakerDetection.json";
 import logger from "../utils/logger";
+import { isTranscriptionContextAllowed, usePolicyStore } from "./policyStore";
 import {
   lockTranscriptSpeaker,
   normalizeTranscriptSegment,
@@ -674,6 +675,7 @@ async function cleanup(): Promise<void> {
 
 export async function prepareTranscription(): Promise<void> {
   if (isPrepared || isRecordingFlag || isStartingFlag) return;
+  if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "meeting")) return;
   if (preparePromise) return preparePromise;
 
   logger.info("Meeting transcription preparing (pre-warming WebSockets)...", {}, "meeting");
@@ -718,8 +720,15 @@ export interface StartRecordingArgs {
   expectedCount?: number | null;
 }
 
-export async function startRecording(args: StartRecordingArgs): Promise<void> {
-  if (isRecordingFlag || isStartingFlag) return;
+export async function startRecording(args: StartRecordingArgs): Promise<boolean> {
+  if (isRecordingFlag || isStartingFlag) return true;
+  if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "meeting")) {
+    logger.warn("Meeting recording blocked by workspace policy", {}, "meeting");
+    useMeetingRecordingStore.setState({
+      error: "Meeting transcription is restricted by your organization.",
+    });
+    return false;
+  }
   isStartingFlag = true;
 
   const initialEnabled =
@@ -838,7 +847,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       stopMediaStream(micResult);
       stopMediaStream(systemCaptureResult.stream);
       isStartingFlag = false;
-      return;
+      return true;
     }
 
     if (!startResult?.success) {
@@ -856,7 +865,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       stopMediaStream(systemCaptureResult.stream);
       isRecordingFlag = false;
       isStartingFlag = false;
-      return;
+      return true;
     }
 
     const systemAudioMode = startResult.systemAudioMode || initialSystemAudioAccess.mode;
@@ -894,7 +903,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       await window.electronAPI?.meetingTranscriptionStop?.();
       isRecordingFlag = false;
       isStartingFlag = false;
-      return;
+      return true;
     }
 
     const segmentCleanup = window.electronAPI?.onMeetingTranscriptionSegment?.(
@@ -1198,7 +1207,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       );
       isStartingFlag = false;
       await cleanup();
-      return;
+      return true;
     }
 
     isStartingFlag = false;
@@ -1225,6 +1234,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       },
       "meeting"
     );
+    return true;
   } catch (err) {
     logger.error(
       "Meeting transcription setup failed",
@@ -1239,6 +1249,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
     isRecordingFlag = false;
     isStartingFlag = false;
     await cleanup();
+    return true;
   }
 }
 

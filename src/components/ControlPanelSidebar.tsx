@@ -19,7 +19,7 @@ import { cn } from "./lib/utils";
 import SupportDropdown from "./ui/SupportDropdown";
 import { getCachedPlatform } from "../utils/platform";
 import type { UpsellDecision } from "../lib/upsell";
-import { usePolicyStore, isAgentAllowed } from "../stores/policyStore";
+import { isAgentAllowed, isDesktopActionAllowed, usePolicyStore } from "../stores/policyStore";
 
 const platform = getCachedPlatform();
 
@@ -74,9 +74,8 @@ export default function ControlPanelSidebar({
   const showLimitBanner = upsell === "show" && Boolean(isSignedIn) && Boolean(isOverLimit);
   const showUpgradeBanner = upsell === "show" && !showLimitBanner && !upgradeDismissed;
 
-  const policyManaged = usePolicyStore((s) => s.managed);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const agentAllowed = isAgentAllowed({ managed: policyManaged, policy: policyDoc });
+  const agentAllowed = usePolicyStore(isAgentAllowed);
+  const policyActionsAllowed = usePolicyStore((state) => isDesktopActionAllowed(state, "capture"));
 
   const navItems: {
     id: ControlPanelView;
@@ -88,7 +87,9 @@ export default function ControlPanelSidebar({
       ? [{ id: "chat" as const, label: t("sidebar.chat"), icon: MessageSquare }]
       : []),
     { id: "personal-notes", label: t("sidebar.notes"), icon: NotebookPen },
-    { id: "upload", label: t("sidebar.upload"), icon: Upload },
+    ...(policyActionsAllowed
+      ? [{ id: "upload" as const, label: t("sidebar.upload"), icon: Upload }]
+      : []),
     { id: "dictionary", label: t("sidebar.dictionary"), icon: BookOpen },
     { id: "integrations", label: t("sidebar.integrations"), icon: Blocks },
   ];

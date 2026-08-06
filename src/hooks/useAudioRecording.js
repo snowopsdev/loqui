@@ -7,6 +7,11 @@ import { getSettings } from "../stores/settingsStore";
 import { expandSnippets } from "../utils/snippets";
 import { getRecordingErrorTitle, getRecordingErrorDescription } from "../utils/recordingErrors";
 import { isAccessibilitySkipped } from "../utils/permissions";
+import {
+  isAgentAllowed,
+  isTranscriptionContextAllowed,
+  usePolicyStore,
+} from "../stores/policyStore";
 
 // Maps a failed selection-replacement code to its `selectionEditing.*` toast
 // detail key; unlisted codes fall back to the generic "unavailable" message.
@@ -38,6 +43,14 @@ export const useAudioRecording = (toast, options = {}) => {
       startLockRef.current = true;
       try {
         if (!audioManagerRef.current) return false;
+        const policyState = usePolicyStore.getState();
+        if (
+          !isTranscriptionContextAllowed(policyState, getSettings(), "dictation") ||
+          (voiceAgentRequested && !isAgentAllowed(policyState))
+        ) {
+          toast({ title: t("common.managedByOrg"), variant: "default" });
+          return false;
+        }
 
         const currentState = audioManagerRef.current.getState();
         if (currentState.isRecording || currentState.isProcessing) return false;
@@ -82,7 +95,7 @@ export const useAudioRecording = (toast, options = {}) => {
         startLockRef.current = false;
       }
     },
-    []
+    [t, toast]
   );
 
   const performStopRecording = useCallback(async () => {

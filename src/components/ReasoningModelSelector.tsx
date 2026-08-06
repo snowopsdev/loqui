@@ -349,12 +349,13 @@ export default function ReasoningModelSelector({
     loading: tinfoilModelsLoading,
     error: tinfoilModelsError,
   } = useTinfoilModels(selectedCloudProvider === "tinfoil");
-  const policyManaged = usePolicyStore((s) => s.managed);
+  const policyStatus = usePolicyStore((s) => s.status);
   const policyDoc = usePolicyStore((s) => s.policy);
+  const appVersion = usePolicyStore((s) => s.appVersion);
   const providerAllowed = useCallback(
     (providerId: string) =>
-      isProviderAllowed({ managed: policyManaged, policy: policyDoc }, "llm", providerId),
-    [policyManaged, policyDoc]
+      isProviderAllowed({ status: policyStatus, policy: policyDoc, appVersion }, "llm", providerId),
+    [policyStatus, policyDoc, appVersion]
   );
 
   const effectiveMode = mode || selectedMode;

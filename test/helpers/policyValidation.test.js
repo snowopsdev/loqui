@@ -28,19 +28,54 @@ test("accepts a well-formed policy", () => {
   assert.equal(isValidPolicyShape(validPolicy()), true);
 });
 
-test("accepts empty provider allowlists", () => {
+test("ignores stale additive analytics metadata", () => {
   const policy = validPolicy();
-  policy.transcription.allowedByokProviders = [];
-  policy.llm.allowedByokProviders = [];
+  policy.analytics = {
+    enabled: false,
+    provider: "legacy-server-field",
+  };
+
+  assert.equal(isValidPolicyShape(policy), true);
+});
+
+test("requires the supported policy schema version", () => {
+  for (const version of [undefined, null, 0, 2, "1"]) {
+    const policy = validPolicy();
+    policy.version = version;
+    assert.equal(isValidPolicyShape(policy), false, String(version));
+  }
+});
+
+test("accepts empty allowlists", () => {
+  const policy = validPolicy();
+  policy.transcription.allowedModes = [];
+  policy.llm.allowedModes = [];
   policy.llm.allowedEnterpriseProviders = [];
   assert.equal(isValidPolicyShape(policy), true);
 });
 
-test("rejects empty allowedModes (canonical schema enforces min 1)", () => {
-  for (const scope of ["transcription", "llm"]) {
+test("rejects unknown modes and providers", () => {
+  const cases = [
+    [
+      "transcription.allowedModes",
+      (policy) => policy.transcription.allowedModes.push("enterprise"),
+    ],
+    ["llm.allowedModes", (policy) => policy.llm.allowedModes.push("future-mode")],
+    [
+      "transcription.allowedByokProviders",
+      (policy) => policy.transcription.allowedByokProviders.push("future-stt"),
+    ],
+    ["llm.allowedByokProviders", (policy) => policy.llm.allowedByokProviders.push("future-llm")],
+    [
+      "llm.allowedEnterpriseProviders",
+      (policy) => policy.llm.allowedEnterpriseProviders.push("future-enterprise"),
+    ],
+  ];
+
+  for (const [label, mutate] of cases) {
     const policy = validPolicy();
-    policy[scope].allowedModes = [];
-    assert.equal(isValidPolicyShape(policy), false, `${scope}.allowedModes empty`);
+    mutate(policy);
+    assert.equal(isValidPolicyShape(policy), false, label);
   }
 });
 
@@ -114,9 +149,15 @@ test("rejects mistyped retention fields", () => {
   const cappedDays = validPolicy();
   cappedDays.dataRetention.audioRetentionMaxDays = 30;
   assert.equal(isValidPolicyShape(cappedDays), true);
+
+  for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const policy = validPolicy();
+    policy.dataRetention.audioRetentionMaxDays = value;
+    assert.equal(isValidPolicyShape(policy), false, String(value));
+  }
 });
 
-test("accepts null or string minAppVersion, rejects other types", () => {
+test("accepts null or canonical minAppVersion, rejects malformed versions", () => {
   const versioned = validPolicy();
   versioned.minAppVersion = "1.8.0";
   assert.equal(isValidPolicyShape(versioned), true);
@@ -124,6 +165,12 @@ test("accepts null or string minAppVersion, rejects other types", () => {
   const badVersion = validPolicy();
   badVersion.minAppVersion = 1.8;
   assert.equal(isValidPolicyShape(badVersion), false);
+
+  for (const value of ["1.8", "01.8.1", "1.8.1-beta.1", "required"]) {
+    const policy = validPolicy();
+    policy.minAppVersion = value;
+    assert.equal(isValidPolicyShape(policy), false, value);
+  }
 
   const noVersion = validPolicy();
   delete noVersion.minAppVersion;

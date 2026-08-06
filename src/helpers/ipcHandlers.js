@@ -8,9 +8,16 @@ const { broadcastToWindows } = require("./windowBroadcast");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const tokenStore = require("./tokenStore");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
+const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
+const { createWorkspacePolicyManager } = require("./workspacePolicyManager");
+const { createSttConfigRequestHandler } = require("./sttConfigRequest");
+const {
+  createPolicyResponseError,
+  readPolicyResponseError,
+  toPolicyFailure,
+} = require("./policyResponseError");
 const { classifyAndLog } = require("./networkErrors");
 const { resolveLocalServerNeeds } = require("./localServerPolicy");
-const { isValidPolicyShape } = require("./policyValidation");
 const GnomeShortcutManager = require("./gnomeShortcut");
 const HyprlandShortcutManager = require("./hyprlandShortcut");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
@@ -31,7 +38,10 @@ const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
 const { partitionPendingMicFinals, isWithinRetractWindow } = require("./meetingMicHoldback");
 const { applySmartSpacing } = require("./smartSpacing");
 const { applyAutoLearnSetting } = require("./autoLearnSetting");
-const { DEFAULT_RETENTION_SETTINGS, applyRetentionSettings } = require("./retentionSettings");
+const {
+  DEFAULT_RETENTION_SETTINGS,
+  createRetentionSettingsHandler,
+} = require("./retentionSettings");
 const {
   transcriptsOverlap,
   transcriptsLooselyOverlap,
@@ -300,9 +310,7 @@ function interpretTranscribeResponse(data) {
     });
   }
   if (data.statusCode !== 200) {
-    throw Object.assign(new Error(data.data?.error || `API error: ${data.statusCode}`), {
-      statusCode: data.statusCode,
-    });
+    throw createPolicyResponseError(data.statusCode, data.data, `API error: ${data.statusCode}`);
   }
   return data.data;
 }
@@ -311,7 +319,7 @@ async function chunkedCloudTranscribe({
   buffer = null,
   filePath = null,
   apiUrl,
-  authHeader,
+  policyHeaders,
   multipartFields = {},
   onProgress,
   signal,
@@ -373,7 +381,7 @@ async function chunkedCloudTranscribe({
             "audio/mpeg",
             multipartFields
           );
-          const data = await postMultipart(url, body, boundary, authHeader, {
+          const data = await postMultipart(url, body, boundary, policyHeaders, {
             signal: AbortSignal.any([jobSignal, timeoutSignal]),
             session: getCloudUploadSession(),
           });
@@ -1162,12 +1170,17 @@ class IPCHandlers {
       return this.audioStorageManager.getStorageUsage();
     });
 
-    ipcMain.on("retention-settings-changed", (_event, incoming) => {
-      const { changed, settings } = applyRetentionSettings(this._retentionSettings, incoming);
-      if (!changed) return;
-      this._retentionSettings = settings;
-      this._runRetentionCleanup();
-    });
+    ipcMain.on(
+      "retention-settings-changed",
+      createRetentionSettingsHandler({
+        getCurrentSettings: () => this._retentionSettings,
+        getOwner: () => this.windowManager.mainWindow?.webContents,
+        onSettingsChanged: (settings) => {
+          this._retentionSettings = settings;
+          this._runRetentionCleanup();
+        },
+      })
+    );
 
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
@@ -4622,11 +4635,28 @@ class IPCHandlers {
     // Honors system proxy via Electron's net stack. useSessionCookies:false so
     // Electron doesn't auto-attach jar cookies on top of our explicit headers.
     const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
+    const withPolicyHeaders = (headers) => withPolicyRequestHeaders(headers, app.getVersion());
     const handleCloudApiRequest = createCloudApiRequestHandler({
       getApiUrl,
       getAppVersion: () => app.getVersion(),
       proxyFetch,
       tokenStore,
+      logger: debugLogger,
+    });
+    const workspacePolicyManager = createWorkspacePolicyManager({
+      cachePath: path.join(app.getPath("userData"), "workspace-policy.json"),
+      getApiUrl,
+      getAppVersion: () => app.getVersion(),
+      proxyFetch,
+      tokenStore,
+      broadcast: (snapshot) => broadcastToWindows("workspace-policy-changed", snapshot),
+      logger: debugLogger,
+    });
+    const handleSttConfigRequest = createSttConfigRequestHandler({
+      getApiUrl,
+      getAuthHeader,
+      proxyFetch,
+      withPolicyHeaders,
       logger: debugLogger,
     });
 
@@ -4659,7 +4689,7 @@ class IPCHandlers {
           const { text, responses, lastResponse, warning } = await chunkedCloudTranscribe({
             buffer: audioData,
             apiUrl,
-            authHeader,
+            policyHeaders: withPolicyHeaders(authHeader),
             multipartFields,
           });
           const sum = (field) => responses.reduce((s, r) => s + (r?.[field] || 0), 0);
@@ -4688,7 +4718,7 @@ class IPCHandlers {
           multipartFields
         );
         const url = new URL(`${apiUrl}/api/transcribe`);
-        const data = await postMultipart(url, body, boundary, authHeader, {
+        const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
           signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
           session: getCloudUploadSession(),
         });
@@ -4717,10 +4747,7 @@ class IPCHandlers {
         };
       } catch (error) {
         debugLogger.error("Cloud transcription error", { error: error.message }, "cloud-api");
-        if (error.code) {
-          return { success: false, error: error.message, code: error.code, ...error };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -4826,7 +4853,7 @@ class IPCHandlers {
                   const { text } = await chunkedCloudTranscribe({
                     buffer,
                     apiUrl,
-                    authHeader,
+                    policyHeaders: withPolicyHeaders(authHeader),
                     multipartFields,
                   });
                   result = { text, source: "openwhispr", model: "cloud" };
@@ -4838,10 +4865,16 @@ class IPCHandlers {
                     multipartFields
                   );
                   const url = new URL(`${apiUrl}/api/transcribe`);
-                  const data = await postMultipart(url, body, boundary, authHeader, {
-                    signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
-                    session: getCloudUploadSession(),
-                  });
+                  const data = await postMultipart(
+                    url,
+                    body,
+                    boundary,
+                    withPolicyHeaders(authHeader),
+                    {
+                      signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
+                      session: getCloudUploadSession(),
+                    }
+                  );
                   const responseData = interpretTranscribeResponse(data);
                   result = {
                     text: responseData.text,
@@ -5495,7 +5528,7 @@ class IPCHandlers {
         try {
           response = await proxyFetch(url, {
             method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeader },
+            headers: withPolicyHeaders({ "Content-Type": "application/json", ...authHeader }),
             body: JSON.stringify(body),
           });
         } catch (err) {
@@ -5510,8 +5543,7 @@ class IPCHandlers {
           throw err;
         }
         if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err.error || `Token request failed: ${response.status}`);
+          throw await readPolicyResponseError(response, `Token request failed: ${response.status}`);
         }
         return response.json();
       };
@@ -6604,7 +6636,7 @@ class IPCHandlers {
           return { success: true };
         } catch (error) {
           debugLogger.error("Meeting transcription prepare error", { error: error.message });
-          return { success: false, error: error.message };
+          return toPolicyFailure(error);
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           meetingTranscriptionPrepareInProgress = false;
@@ -6747,7 +6779,7 @@ class IPCHandlers {
         await rollbackMeetingTranscriptionStart();
         this.meetingDetectionEngine?.setUserRecording(false);
         debugLogger.error("Meeting transcription start error", { error: error.message });
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       } finally {
         meetingTranscriptionStartInProgress = false;
       }
@@ -6999,8 +7031,7 @@ class IPCHandlers {
     });
 
     const streamingStartFailure = (err) => {
-      const result = { success: false, error: err.message };
-      if (err.code) result.code = err.code;
+      const result = toPolicyFailure(err);
       if (err.messageKey) result.messageKey = err.messageKey;
       if (err.networkCode) result.networkCode = err.networkCode;
       return result;
@@ -7232,10 +7263,10 @@ class IPCHandlers {
 
         const response = await proxyFetch(`${apiUrl}/api/reason`, {
           method: "POST",
-          headers: {
+          headers: withPolicyHeaders({
             "Content-Type": "application/json",
             ...authHeader,
-          },
+          }),
           body: JSON.stringify({
             text,
             model: opts.model,
@@ -7269,8 +7300,7 @@ class IPCHandlers {
           if (response.status === 503) {
             return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
           }
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `API error: ${response.status}`);
+          throw await readPolicyResponseError(response, `API error: ${response.status}`);
         }
 
         const data = await response.json();
@@ -7295,7 +7325,7 @@ class IPCHandlers {
         };
       } catch (error) {
         debugLogger.error("Cloud reasoning error:", error);
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -7309,10 +7339,10 @@ class IPCHandlers {
 
         const response = await proxyFetch(`${apiUrl}/api/agent/stream`, {
           method: "POST",
-          headers: {
+          headers: withPolicyHeaders({
             "Content-Type": "application/json",
             ...authHeader,
-          },
+          }),
           body: JSON.stringify({
             messages,
             systemPrompt: opts.systemPrompt,
@@ -7324,16 +7354,10 @@ class IPCHandlers {
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          event.sender.send("cloud-agent-stream-error", {
-            error: errorData.error || `API error: ${response.status}`,
-            code:
-              response.status === 401
-                ? "AUTH_EXPIRED"
-                : response.status === 503
-                  ? "SERVER_ERROR"
-                  : undefined,
-          });
+          const error = await readPolicyResponseError(response, `API error: ${response.status}`);
+          if (response.status === 401 && !error.code) error.code = "AUTH_EXPIRED";
+          if (response.status === 503 && !error.code) error.code = "SERVER_ERROR";
+          event.sender.send("cloud-agent-stream-error", toPolicyFailure(error));
           return;
         }
 
@@ -7373,7 +7397,7 @@ class IPCHandlers {
         event.sender.send("cloud-agent-stream-end");
       } catch (error) {
         debugLogger.error("Cloud agent stream error:", error);
-        event.sender.send("cloud-agent-stream-error", { error: error.message });
+        event.sender.send("cloud-agent-stream-error", toPolicyFailure(error));
       }
     });
 
@@ -7403,10 +7427,10 @@ class IPCHandlers {
 
         const response = await proxyFetch(`${apiUrl}/api/agent/web-search`, {
           method: "POST",
-          headers: {
+          headers: withPolicyHeaders({
             "Content-Type": "application/json",
             ...authHeader,
-          },
+          }),
           body: JSON.stringify({ query, numResults }),
         });
 
@@ -7417,18 +7441,15 @@ class IPCHandlers {
           if (response.status === 503) {
             return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
           }
-          const errorData = await response.json().catch(() => ({}));
-          return {
-            success: false,
-            error: errorData.error || `API error: ${response.status}`,
-          };
+          const error = await readPolicyResponseError(response, `API error: ${response.status}`);
+          return toPolicyFailure(error);
         }
 
         const data = await response.json();
         return { success: true, ...data };
       } catch (error) {
         debugLogger.error("Agent web search error:", error);
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -7631,104 +7652,22 @@ class IPCHandlers {
       }
     });
 
-    const withAppVersion = (headers) => ({
-      ...headers,
-      "x-openwhispr-version": app.getVersion(),
-    });
-
     ipcMain.handle("cloud-api-request", (_event, opts) => handleCloudApiRequest(opts));
 
-    ipcMain.handle("get-stt-config", async (event) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+    ipcMain.handle("get-stt-config", handleSttConfigRequest);
 
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/stt-config`, {
-          headers: withAppVersion(authHeader),
+    ipcMain.handle(
+      "get-workspace-policy",
+      async (event, accountId, expectedAuthGeneration, reason) => {
+        const authHeaders = await getAuthHeader(event);
+        return workspacePolicyManager.getPolicy({
+          accountId,
+          expectedAuthGeneration,
+          authHeaders,
+          reason: reason === "recovery" ? "recovery" : "default",
         });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error("STT config fetch error:", error);
-        return null;
       }
-    });
-
-    // Org policy delivered by the API and enforced by the app. Cached to disk so
-    // enforcement survives a network failure (fail-closed): on error we keep
-    // serving the last policy rather than falling back to unmanaged. An
-    // authoritative `managed: false` clears the cache so leaving a workspace
-    // unlocks settings.
-    ipcMain.handle("get-workspace-policy", async (event) => {
-      const cachePath = path.join(app.getPath("userData"), "workspace-policy.json");
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/workspace-policy`, {
-          headers: withAppVersion(authHeader),
-        });
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const json = await response.json();
-        const data = json?.data;
-        // Treat a malformed 200 body as a failure, not an authoritative
-        // "unmanaged" verdict, so the catch serves the cached policy (fail-closed)
-        // instead of deleting it and unlocking the user.
-        if (
-          !data ||
-          typeof data.managed !== "boolean" ||
-          (data.managed && !isValidPolicyShape(data.policy))
-        ) {
-          throw new Error("Malformed policy response");
-        }
-        if (data.managed) {
-          try {
-            fs.writeFileSync(cachePath, JSON.stringify(data), { mode: 0o600 });
-          } catch (err) {
-            debugLogger.error("Policy cache write failed:", err);
-          }
-        } else {
-          try {
-            if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
-          } catch {
-            /* ignore */
-          }
-        }
-        return { success: true, status: "ok", ...data };
-      } catch (error) {
-        try {
-          if (fs.existsSync(cachePath)) {
-            const cached = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-            // Re-validate: a cache written by a build that predates shape
-            // validation (or a corrupted file) must not reach the renderer.
-            if (cached?.managed === true && isValidPolicyShape(cached.policy)) {
-              return { success: true, status: "cached", ...cached };
-            }
-          }
-        } catch (err) {
-          debugLogger.error("Policy cache read failed:", err);
-        }
-        return { success: false, status: "error", error: error.message };
-      }
-    });
+    );
 
     ipcMain.handle("get-note-recording-config", async (event) => {
       try {
@@ -7792,7 +7731,7 @@ class IPCHandlers {
           const { text, warning } = await chunkedCloudTranscribe({
             filePath: realCloud,
             apiUrl,
-            authHeader,
+            policyHeaders: withPolicyHeaders(authHeader),
             multipartFields,
             onProgress: (payload) => event.sender.send("upload-transcription-progress", payload),
             signal: controller.signal,
@@ -7812,7 +7751,7 @@ class IPCHandlers {
           multipartFields
         );
         const url = new URL(`${apiUrl}/api/transcribe`);
-        const data = await postMultipart(url, body, boundary, authHeader, {
+        const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
           signal: AbortSignal.any([
             controller.signal,
             AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
@@ -7828,10 +7767,7 @@ class IPCHandlers {
           return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
         }
         debugLogger.error("Cloud audio file transcription error", { error: error.message });
-        if (error.code) {
-          return { success: false, error: error.message, code: error.code, ...error };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       } finally {
         if (requestId) this._uploadTranscriptionControllers.delete(requestId);
       }
@@ -8340,9 +8276,9 @@ class IPCHandlers {
 
       const tokenResponse = await proxyFetch(`${apiUrl}/api/streaming-token`, {
         method: "POST",
-        headers: {
+        headers: withPolicyHeaders({
           ...authHeader,
-        },
+        }),
       });
 
       if (!tokenResponse.ok) {
@@ -8351,9 +8287,9 @@ class IPCHandlers {
           err.code = "AUTH_EXPIRED";
           throw err;
         }
-        const errorData = await tokenResponse.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || `Failed to get streaming token: ${tokenResponse.status}`
+        throw await readPolicyResponseError(
+          tokenResponse,
+          `Failed to get streaming token: ${tokenResponse.status}`
         );
       }
 
@@ -8393,10 +8329,7 @@ class IPCHandlers {
         return { success: true };
       } catch (error) {
         debugLogger.error("AssemblyAI warmup error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -8541,7 +8474,7 @@ class IPCHandlers {
 
       const tokenResponse = await proxyFetch(`${apiUrl}/api/deepgram-streaming-token`, {
         method: "POST",
-        headers: authHeader,
+        headers: withPolicyHeaders(authHeader),
       });
 
       if (!tokenResponse.ok) {
@@ -8550,7 +8483,10 @@ class IPCHandlers {
           err.code = "AUTH_EXPIRED";
           throw err;
         }
-        throw new Error(`Failed to get Deepgram streaming token: ${tokenResponse.status}`);
+        throw await readPolicyResponseError(
+          tokenResponse,
+          `Failed to get Deepgram streaming token: ${tokenResponse.status}`
+        );
       }
 
       const { token } = await tokenResponse.json();
@@ -8571,9 +8507,9 @@ class IPCHandlers {
 
       const tokenResponse = await proxyFetch(`${apiUrl}/api/deepgram-streaming-token`, {
         method: "POST",
-        headers: {
+        headers: withPolicyHeaders({
           ...authHeader,
-        },
+        }),
       });
 
       if (!tokenResponse.ok) {
@@ -8582,9 +8518,9 @@ class IPCHandlers {
           err.code = "AUTH_EXPIRED";
           throw err;
         }
-        const errorData = await tokenResponse.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || `Failed to get Deepgram streaming token: ${tokenResponse.status}`
+        throw await readPolicyResponseError(
+          tokenResponse,
+          `Failed to get Deepgram streaming token: ${tokenResponse.status}`
         );
       }
 
@@ -8634,10 +8570,7 @@ class IPCHandlers {
         return { success: true };
       } catch (error) {
         debugLogger.error("Deepgram warmup error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 

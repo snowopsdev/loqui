@@ -32,7 +32,13 @@ import {
   clearTranscriptions as clearStore,
 } from "../stores/transcriptionStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { usePolicyStore, isAgentAllowed } from "../stores/policyStore";
+import {
+  isAgentAllowed,
+  isDesktopActionAllowed,
+  isTranscriptionContextAllowed,
+  usePolicyStore,
+} from "../stores/policyStore";
+import { isControlPanelViewAllowed } from "../stores/policyRules";
 import { compareAppVersions } from "../utils/version";
 import {
   useIsMeetingMode,
@@ -182,14 +188,13 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const policyMinAppVersion = usePolicyStore((s) =>
     s.managed ? (s.policy?.minAppVersion ?? null) : null
   );
-  const agentAllowedByPolicy = usePolicyStore((s) =>
-    isAgentAllowed({ managed: s.managed, policy: s.policy })
-  );
-  // The sidebar hides the chat item when the policy disallows the agent, but
-  // the user may already be on the chat view when the policy arrives.
+  const agentAllowedByPolicy = usePolicyStore(isAgentAllowed);
+  const policyActionsAllowed = usePolicyStore((state) => isDesktopActionAllowed(state, "capture"));
   useEffect(() => {
-    if (!agentAllowedByPolicy && activeView === "chat") setActiveView("home");
-  }, [agentAllowedByPolicy, activeView]);
+    if (!isControlPanelViewAllowed(activeView, agentAllowedByPolicy, policyActionsAllowed)) {
+      setActiveView("home");
+    }
+  }, [activeView, agentAllowedByPolicy, policyActionsAllowed]);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   useEffect(() => {
     if (!policyMinAppVersion) return;
@@ -598,6 +603,10 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     async (id: number, options?: { isRecover?: boolean }) => {
       try {
         const s = useSettingsStore.getState();
+        if (!isTranscriptionContextAllowed(usePolicyStore.getState(), s, "dictation")) {
+          toast({ title: t("common.managedByOrg"), variant: "default" });
+          return;
+        }
         const result = await window.electronAPI.retryTranscription(id, {
           useLocalWhisper: s.useLocalWhisper,
           localTranscriptionProvider: s.localTranscriptionProvider,
@@ -1180,7 +1189,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                 <DictionaryView />
               </Suspense>
             )}
-            {activeView === "upload" && (
+            {activeView === "upload" && policyActionsAllowed && (
               <Suspense fallback={null}>
                 <UploadAudioView
                   onNoteCreated={(noteId, folderId) => {

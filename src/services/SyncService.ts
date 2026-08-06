@@ -26,6 +26,7 @@ import {
 } from "../lib/teamSpacesCapability";
 import { readIsSubscribed, subscribeIsSubscribed } from "../lib/subscriptionFlag";
 import { readNoteConflictIds } from "../lib/noteConflictRegistry";
+import { isCloudBackupAllowed, usePolicyStore } from "../stores/policyStore";
 import {
   buildNoteCreatePayload,
   buildNoteUpdatePayload,
@@ -222,7 +223,8 @@ export class SyncService {
       hasValidatedAuthContext() &&
       localStorage.getItem("isSignedIn") === "true" &&
       localStorage.getItem("cloudBackupEnabled") === "true" &&
-      readIsSubscribed()
+      readIsSubscribed() &&
+      isCloudBackupAllowed(usePolicyStore.getState())
     );
   }
 
@@ -387,6 +389,9 @@ export class SyncService {
     // subscription flag itself (post-checkout refetch, invite acceptance)
     // kicks a pass through the reactive flag instead.
     subscribeIsSubscribed(() => this.requestSyncAll("start"));
+    usePolicyStore.subscribe((policyState) => {
+      if (isCloudBackupAllowed(policyState)) this.requestSyncAll("start");
+    });
     setInterval(() => this.requestSyncAll("interval"), AUTO_SYNC_INTERVAL_MS);
   }
 

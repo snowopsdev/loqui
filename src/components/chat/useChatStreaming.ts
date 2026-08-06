@@ -3,7 +3,12 @@ import { useTranslation } from "react-i18next";
 import ReasoningService, { type AgentStreamChunk } from "../../services/ReasoningService";
 import { isEnterpriseProvider } from "../../models/ModelRegistry";
 import { getSettings } from "../../stores/settingsStore";
-import { usePolicyStore, isWebSearchAllowed } from "../../stores/policyStore";
+import {
+  isAgentAllowed,
+  isLlmSelectionAllowed,
+  isWebSearchAllowed,
+  usePolicyStore,
+} from "../../stores/policyStore";
 import { getAgentSystemPrompt } from "../../config/prompts";
 import { createToolRegistry } from "../../services/tools";
 import type { ToolRegistry } from "../../services/tools/ToolRegistry";
@@ -104,10 +109,23 @@ export function useChatStreaming({
 
   const sendToAI = useCallback(
     async (userText: string, allMessages: Message[]) => {
-      setAgentState("thinking");
-
       const settings = getSettings();
       const chatAgentMode = settings.chatAgentMode || "openwhispr";
+      const policyState = usePolicyStore.getState();
+      const policyProvider =
+        chatAgentMode === "openwhispr"
+          ? "openwhispr"
+          : chatAgentMode === "local"
+            ? "local"
+            : settings.chatAgentProvider;
+      if (
+        !isAgentAllowed(policyState) ||
+        !isLlmSelectionAllowed(policyState, chatAgentMode, policyProvider)
+      ) {
+        return;
+      }
+
+      setAgentState("thinking");
       const isCloudAgent = chatAgentMode === "openwhispr" && settings.isSignedIn;
       const isLanAgent = chatAgentMode === "self-hosted" && !!settings.chatAgentRemoteUrl;
       const isCustomAgent =

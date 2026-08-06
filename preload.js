@@ -605,7 +605,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   cloudPreviewSwitch: (opts) => ipcRenderer.invoke("cloud-preview-switch", opts),
   cloudApiRequest: (opts) => ipcRenderer.invoke("cloud-api-request", opts),
   getSttConfig: () => ipcRenderer.invoke("get-stt-config"),
-  getWorkspacePolicy: () => ipcRenderer.invoke("get-workspace-policy"),
+  getWorkspacePolicy: (accountId, expectedAuthGeneration, reason) =>
+    ipcRenderer.invoke("get-workspace-policy", accountId, expectedAuthGeneration, reason),
+  onWorkspacePolicyChanged: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot);
+    ipcRenderer.on("workspace-policy-changed", listener);
+    return () => ipcRenderer.removeListener("workspace-policy-changed", listener);
+  },
   getNoteRecordingConfig: () => ipcRenderer.invoke("get-note-recording-config"),
 
   // Cloud audio file transcription

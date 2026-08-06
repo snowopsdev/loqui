@@ -32,6 +32,14 @@ import {
   isCloudDictationAgentMode,
   isCloudTranslationMode,
 } from "../stores/settingsStore";
+import {
+  effectiveAudioRetentionDays,
+  effectiveLocalHistoryEnabled,
+  isAgentAllowed,
+  isTranscriptionContextAllowed,
+  usePolicyStore,
+} from "../stores/policyStore";
+import { isTranscriptionSelectionAllowed } from "../stores/policyRules";
 import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 import {
   getBatchTranscriptionModel,
@@ -74,6 +82,15 @@ const RECORDING_TIMESLICE_MS = 250; // flush chunks periodically so short record
 // Failure detector only: fires when the worklet or audio graph is dead and never flushes.
 const PREVIEW_FLUSH_WATCHDOG_MS = 1000;
 const REALTIME_MODELS = new Set(["gpt-4o-mini-transcribe", "gpt-4o-transcribe"]);
+
+function getEffectiveRetentionPreferences() {
+  const settings = getSettings();
+  const policyState = usePolicyStore.getState();
+  return {
+    dataRetentionEnabled: effectiveLocalHistoryEnabled(policyState, settings.dataRetentionEnabled),
+    audioRetentionDays: effectiveAudioRetentionDays(policyState, settings.audioRetentionDays),
+  };
+}
 
 function dictationAgentReachable(settings) {
   return resolveDictationAgentInference(settings, { isCloudAgent: isCloudDictationAgentMode() })
@@ -571,6 +588,29 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     this.context = context;
   }
 
+  isRecordingAllowedByPolicy() {
+    const policyState = usePolicyStore.getState();
+    return (
+      isTranscriptionContextAllowed(policyState, getSettings(), "dictation") &&
+      (this.context !== "agent" || isAgentAllowed(policyState)) &&
+      (!this.voiceAgentRequested || isAgentAllowed(policyState))
+    );
+  }
+
+  assertTranscriptionSelectionAllowed(selection) {
+    if (isTranscriptionSelectionAllowed(usePolicyStore.getState(), selection)) return;
+    const error = new Error("Transcription is restricted by your organization.");
+    error.code = "POLICY_RESTRICTED";
+    throw error;
+  }
+
+  assertAgentAllowedByPolicy() {
+    if (isAgentAllowed(usePolicyStore.getState())) return;
+    const error = new Error("AI agent use is restricted by your organization.");
+    error.code = "POLICY_RESTRICTED";
+    throw error;
+  }
+
   setSttConfig(config) {
     this.sttConfig = config;
   }
@@ -795,6 +835,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   async startRecording(forceDefaultMic = false) {
     try {
+      if (!this.isRecordingAllowedByPolicy()) {
+        logger.warn("Recording blocked by workspace policy", { context: this.context }, "audio");
+        return false;
+      }
       if (this.isRecording || this.isProcessing || this.mediaRecorder?.state === "recording") {
         return false;
       }
@@ -1210,7 +1254,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // whether to retain the discarded audio from the snapshot rather than live
     // manager state (which may already belong to a new recording).
     const shouldSave =
-      shouldSaveDiscardedRecording(getSettings(), durationSeconds) &&
+      shouldSaveDiscardedRecording(getSettings(), durationSeconds, usePolicyStore.getState()) &&
       (chunks.length > 0 || segments.length > 0);
     if (shouldSave) {
       // Assemble and save in the background — the merge crosses IPC into FFmpeg
@@ -1481,6 +1525,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const { allowOpenAIFallback, useLocalWhisper: isLocalMode } = getSettings();
 
       if (allowOpenAIFallback && isLocalMode) {
+        const fallbackProvider = getSettings().cloudTranscriptionProvider || "openai";
+        this.assertTranscriptionSelectionAllowed({ mode: "providers", provider: fallbackProvider });
         try {
           const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
           return { ...fallbackResult, source: "openai-fallback" };
@@ -1573,6 +1619,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const { allowOpenAIFallback, useLocalWhisper: isLocalMode } = getSettings();
 
       if (allowOpenAIFallback && isLocalMode) {
+        const fallbackProvider = getSettings().cloudTranscriptionProvider || "openai";
+        this.assertTranscriptionSelectionAllowed({ mode: "providers", provider: fallbackProvider });
         try {
           const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
           return { ...fallbackResult, source: "openai-fallback" };
@@ -1727,6 +1775,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async processWithReasoningModel(text, model, agentName, config) {
+    if (config?.requiresAgent) this.assertAgentAllowedByPolicy();
     logger.logReasoning("CALLING_REASONING_SERVICE", {
       model,
       agentName,
@@ -2100,6 +2149,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
         const targetModel = route.kind === "agent" ? route.model : cleanupModel;
         const reasoningConfig = route.config;
+        if (route.kind === "agent") this.assertAgentAllowedByPolicy();
 
         logger.logReasoning("SENDING_TO_REASONING", {
           preparedTextLength: normalizedText.length,
@@ -2115,7 +2165,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
                 normalizedText,
                 targetModel,
                 agentName,
-                reasoningConfig
+                { ...reasoningConfig, requiresAgent: true }
               )
             : await this.processWithReasoningModel(
                 normalizedText,
@@ -2371,11 +2421,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       try {
         if (route.kind === "agent") {
+          this.assertAgentAllowedByPolicy();
           const reasoned = await this.processAgentCommand(
             processedText,
             route.model,
             agentName,
-            route.config
+            { ...route.config, requiresAgent: true }
           );
           if (reasoned) processedText = reasoned;
         } else if (route.kind === "cleanup" && cleanupCloudMode === "openwhispr") {
@@ -2920,6 +2971,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const isOpenAIMode = !getSettings().useLocalWhisper;
 
       if (allowLocalFallback && isOpenAIMode) {
+        this.assertTranscriptionSelectionAllowed({ mode: "local", provider: "" });
         try {
           const arrayBuffer = await audioBlob.arrayBuffer();
           const options = { model: fallbackModel };
@@ -3201,7 +3253,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async saveTranscription(text, rawText = null, { clientTranscriptionId } = {}) {
-    if (!getSettings().dataRetentionEnabled) {
+    const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
+    if (!dataRetentionEnabled) {
       logger.debug("Skipping transcription save — data retention disabled", {}, "audio");
       this.lastAudioBlob = null;
       this.lastAudioMetadata = null;
@@ -3217,16 +3270,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       // Save audio if we have a captured blob and the transcription was saved successfully
       if (result?.id && this.lastAudioBlob) {
-        try {
-          const arrayBuffer = await this.lastAudioBlob.arrayBuffer();
-          await window.electronAPI.saveTranscriptionAudio(
-            result.id,
-            arrayBuffer,
-            this.lastAudioMetadata
-          );
-        } catch (audioErr) {
-          // Non-blocking: transcription is saved even if audio save fails
-          logger.warn("Failed to save transcription audio", { error: audioErr.message }, "audio");
+        if (audioRetentionDays > 0) {
+          try {
+            const arrayBuffer = await this.lastAudioBlob.arrayBuffer();
+            await window.electronAPI.saveTranscriptionAudio(
+              result.id,
+              arrayBuffer,
+              this.lastAudioMetadata
+            );
+          } catch (audioErr) {
+            // Non-blocking: transcription is saved even if audio save fails
+            logger.warn("Failed to save transcription audio", { error: audioErr.message }, "audio");
+          }
         }
         this.lastAudioBlob = null;
         this.lastAudioMetadata = null;
@@ -3239,7 +3294,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async saveFailedTranscription(errorMessage, errorCode = null, metadata = {}) {
-    if (!getSettings().dataRetentionEnabled) {
+    const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
+    if (!dataRetentionEnabled) {
       logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
       this.lastAudioBlob = null;
       this.lastAudioMetadata = null;
@@ -3256,24 +3312,26 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       if (result?.id) syncService.debouncedPush("transcription", result.id);
 
       if (result?.id && this.lastAudioBlob) {
-        try {
-          const durationMs = metadata?.durationSeconds
-            ? Math.round(metadata.durationSeconds * 1000)
-            : null;
-          const arrayBuffer = await this.lastAudioBlob.arrayBuffer();
-          await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, {
-            durationMs,
-            provider: null,
-            model: null,
-          });
-        } catch (audioErr) {
-          logger.warn(
-            "Failed to save audio for failed transcription",
-            {
-              error: audioErr.message,
-            },
-            "audio"
-          );
+        if (audioRetentionDays > 0) {
+          try {
+            const durationMs = metadata?.durationSeconds
+              ? Math.round(metadata.durationSeconds * 1000)
+              : null;
+            const arrayBuffer = await this.lastAudioBlob.arrayBuffer();
+            await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, {
+              durationMs,
+              provider: null,
+              model: null,
+            });
+          } catch (audioErr) {
+            logger.warn(
+              "Failed to save audio for failed transcription",
+              {
+                error: audioErr.message,
+              },
+              "audio"
+            );
+          }
         }
         this.lastAudioBlob = null;
         this.lastAudioMetadata = null;
@@ -3386,6 +3444,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   async warmupStreamingConnection({ isSignedIn: isSignedInOverride } = {}) {
+    if (!this.isRecordingAllowedByPolicy()) {
+      logger.debug("Streaming warmup skipped by workspace policy", {}, "streaming");
+      return false;
+    }
     if (!this.shouldUseStreaming(isSignedInOverride)) {
       logger.debug("Streaming warmup skipped - not in streaming mode", {}, "streaming");
       return false;
@@ -3558,6 +3620,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   async startStreamingRecording(forceDefaultMic = false) {
     try {
+      if (!this.isRecordingAllowedByPolicy()) {
+        logger.warn(
+          "Streaming recording blocked by workspace policy",
+          { context: this.context },
+          "audio"
+        );
+        return false;
+      }
       if (this.streamingStartInProgress) {
         return false;
       }
@@ -3972,11 +4042,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       try {
         if (route.kind === "agent") {
+          this.assertAgentAllowedByPolicy();
           const reasoned = await this.processAgentCommand(
             finalText,
             route.model,
             agentName,
-            route.config
+            { ...route.config, requiresAgent: true }
           );
           if (reasoned) finalText = reasoned;
           logger.info(

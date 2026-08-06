@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { usePolicyStore, enforceModeOptions, isModeAllowed } from "../../stores/policyStore";
 import { InferenceModeSelector, SettingsRow } from "../ui/SettingsSection";
 import type { InferenceModeOption } from "../ui/SettingsSection";
 import { Toggle } from "../ui/toggle";
@@ -52,37 +53,47 @@ export function MeetingTranscriptionPanel() {
     meetingRemoteTranscriptionUrl,
     setMeetingRemoteTranscriptionUrl,
   } = useSettingsStore();
+  const policyStatus = usePolicyStore((state) => state.status);
+  const policy = usePolicyStore((state) => state.policy);
+  const appVersion = usePolicyStore((state) => state.appVersion);
+  const policyState = { status: policyStatus, policy, appVersion };
 
-  const transcriptionModes: InferenceModeOption[] = [
-    {
-      id: "openwhispr",
-      label: t("settingsPage.transcription.modes.openwhispr"),
-      description: t("settingsPage.transcription.modes.openwhisprDesc"),
-      icon: <Cloud className="w-4 h-4" />,
-      disabled: !isSignedIn,
-      badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
-    },
-    {
-      id: "providers",
-      label: t("settingsPage.transcription.modes.providers"),
-      description: t("settingsPage.transcription.modes.providersDesc"),
-      icon: <Key className="w-4 h-4" />,
-    },
-    {
-      id: "local",
-      label: t("settingsPage.transcription.modes.local"),
-      description: t("settingsPage.transcription.modes.localDesc"),
-      icon: <Cpu className="w-4 h-4" />,
-    },
-    {
-      id: "self-hosted",
-      label: t("settingsPage.transcription.modes.selfHosted"),
-      description: t("settingsPage.transcription.modes.selfHostedDesc"),
-      icon: <Network className="w-4 h-4" />,
-    },
-  ];
+  const transcriptionModes: InferenceModeOption[] = enforceModeOptions(
+    [
+      {
+        id: "openwhispr",
+        label: t("settingsPage.transcription.modes.openwhispr"),
+        description: t("settingsPage.transcription.modes.openwhisprDesc"),
+        icon: <Cloud className="w-4 h-4" />,
+        disabled: !isSignedIn,
+        badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
+      },
+      {
+        id: "providers",
+        label: t("settingsPage.transcription.modes.providers"),
+        description: t("settingsPage.transcription.modes.providersDesc"),
+        icon: <Key className="w-4 h-4" />,
+      },
+      {
+        id: "local",
+        label: t("settingsPage.transcription.modes.local"),
+        description: t("settingsPage.transcription.modes.localDesc"),
+        icon: <Cpu className="w-4 h-4" />,
+      },
+      {
+        id: "self-hosted",
+        label: t("settingsPage.transcription.modes.selfHosted"),
+        description: t("settingsPage.transcription.modes.selfHostedDesc"),
+        icon: <Network className="w-4 h-4" />,
+      },
+    ],
+    "transcription",
+    policyState,
+    t("common.managedByOrg")
+  );
 
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
+    if (!isModeAllowed(policyState, "transcription", mode)) return;
     if (mode === "openwhispr" && !isSignedIn) {
       startOnboarding();
       return;

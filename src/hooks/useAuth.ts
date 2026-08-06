@@ -127,6 +127,11 @@ export function useAuth() {
   }, [sessionError]);
 
   useEffect(() => {
+    if (!sessionResolutionFailed || !resolvedUserId || boundGeneration == null) return;
+    void usePolicyStore.getState().fetchPolicy(resolvedUserId, boundGeneration);
+  }, [boundGeneration, resolvedUserId, sessionResolutionFailed]);
+
+  useEffect(() => {
     if (
       boundGeneration == null ||
       !shouldReconcileAccountScope(
@@ -177,6 +182,7 @@ export function useAuth() {
         // This legacy marker drives every already-running SyncService window;
         // its generation gate provides the immediate fence.
         useSettingsStore.getState().setIsSignedIn(false);
+        usePolicyStore.getState().clearPolicy();
       }
 
       await reconcileAccountScope(resolvedUserId, {
@@ -192,11 +198,14 @@ export function useAuth() {
         if (!cancelled) {
           logger.debug("Auth state sync", { isSignedIn: true, userId: resolvedUserId }, "auth");
           useSettingsStore.getState().setIsSignedIn(true);
-          void usePolicyStore.getState().fetchPolicy();
+          void usePolicyStore.getState().fetchPolicy(resolvedUserId, boundGeneration);
         }
       } else {
         invalidateValidatedAuthContext();
-        if (!cancelled) useSettingsStore.getState().setIsSignedIn(false);
+        if (!cancelled) {
+          useSettingsStore.getState().setIsSignedIn(false);
+          usePolicyStore.getState().clearPolicy();
+        }
       }
       resetAccountScopeRetry();
     };

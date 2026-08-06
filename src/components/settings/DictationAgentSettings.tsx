@@ -15,9 +15,7 @@ export default function DictationAgentSettings() {
   const { t } = useTranslation();
   const useDictationAgent = useSettingsStore((s) => s.useDictationAgent);
   const setUseDictationAgent = useSettingsStore((s) => s.setUseDictationAgent);
-  const policyManaged = usePolicyStore((s) => s.managed);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const agentAllowed = isAgentAllowed({ managed: policyManaged, policy: policyDoc });
+  const agentAllowed = usePolicyStore(isAgentAllowed);
 
   const { agentName, setAgentName } = useAgentName();
   const [agentNameInput, setAgentNameInput] = useState(agentName);

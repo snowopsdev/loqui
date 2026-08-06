@@ -110,12 +110,15 @@ import { clearMissingLocalModelSelections, useSettingsStore } from "../stores/se
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import {
   usePolicyStore,
+  effectiveAudioRetentionDays,
+  effectiveLocalHistoryEnabled,
   enforceModeOptions,
   isModeAllowed,
   lockedLocalHistoryValue,
   isCloudBackupAllowed,
   maxAudioRetentionDays,
 } from "../stores/policyStore";
+import { canChangeCloudBackupPreference } from "../stores/policyRules";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
 import WorkspaceSection from "./settings/WorkspaceSection";
 import WorkspaceBillingOverview from "./settings/WorkspaceBillingOverview";
@@ -277,8 +280,10 @@ function TranscriptionSection({
   toast,
 }: TranscriptionSectionProps) {
   const { t } = useTranslation();
-  const policyManaged = usePolicyStore((s) => s.managed);
+  const policyStatus = usePolicyStore((s) => s.status);
   const policyDoc = usePolicyStore((s) => s.policy);
+  const policyAppVersion = usePolicyStore((s) => s.appVersion);
+  const policyState = { status: policyStatus, policy: policyDoc, appVersion: policyAppVersion };
 
   const transcriptionModes: InferenceModeOption[] = enforceModeOptions(
     [
@@ -310,14 +315,14 @@ function TranscriptionSection({
       },
     ],
     "transcription",
-    { managed: policyManaged, policy: policyDoc },
+    policyState,
     t("common.managedByOrg")
   );
 
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     // "Disabled" mode options still fire onSelect (the sign-in gate relies on
     // that to start onboarding), so policy must be enforced here, not in the UI.
-    if (!isModeAllowed({ managed: policyManaged, policy: policyDoc }, "transcription", mode)) {
+    if (!isModeAllowed(policyState, "transcription", mode)) {
       return;
     }
     if (mode === "openwhispr" && !isSignedIn) {
@@ -871,12 +876,25 @@ export default function SettingsPage({
   const translationKey = useSettingsStore((s) => s.translationKey);
   const setTranslationKey = useSettingsStore((s) => s.setTranslationKey);
 
-  const settingsPolicyManaged = usePolicyStore((s) => s.managed);
+  const settingsPolicyStatus = usePolicyStore((s) => s.status);
   const settingsPolicyDoc = usePolicyStore((s) => s.policy);
-  const settingsPolicyState = { managed: settingsPolicyManaged, policy: settingsPolicyDoc };
+  const settingsPolicyAppVersion = usePolicyStore((s) => s.appVersion);
+  const settingsPolicyState = {
+    status: settingsPolicyStatus,
+    policy: settingsPolicyDoc,
+    appVersion: settingsPolicyAppVersion,
+  };
   const historyLockedByPolicy = lockedLocalHistoryValue(settingsPolicyState) !== null;
+  const effectiveDataRetentionEnabled = effectiveLocalHistoryEnabled(
+    settingsPolicyState,
+    dataRetentionEnabled
+  );
   const cloudBackupPolicyAllowed = isCloudBackupAllowed(settingsPolicyState);
   const audioRetentionCap = maxAudioRetentionDays(settingsPolicyState);
+  const enforcedAudioRetentionDays = effectiveAudioRetentionDays(
+    settingsPolicyState,
+    audioRetentionDays
+  );
 
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
@@ -3536,7 +3554,12 @@ EOF`,
                       >
                         <Toggle
                           checked={cloudBackupEnabled}
-                          disabled={!cloudBackupPolicyAllowed}
+                          disabled={
+                            !canChangeCloudBackupPreference(
+                              cloudBackupPolicyAllowed,
+                              cloudBackupEnabled
+                            )
+                          }
                           onChange={(v) => {
                             setCloudBackupEnabled(v);
                             if (v) {
@@ -3634,7 +3657,7 @@ EOF`,
                     description={t("settingsPage.privacy.audioRetentionDescription")}
                   >
                     <select
-                      value={audioRetentionDays}
+                      value={enforcedAudioRetentionDays}
                       onChange={(e) => {
                         const days = parseInt(e.target.value, 10);
                         if (audioRetentionCap !== null && days > audioRetentionCap) return;
@@ -3643,6 +3666,14 @@ EOF`,
                       className={RETENTION_SELECT_CLASS}
                     >
                       <option value={0}>{t("settingsPage.privacy.audioRetentionDisabled")}</option>
+                      {enforcedAudioRetentionDays > 0 &&
+                        !RETENTION_DAY_OPTIONS.includes(enforcedAudioRetentionDays) && (
+                          <option value={enforcedAudioRetentionDays}>
+                            {t("settingsPage.privacy.retentionDays", {
+                              count: enforcedAudioRetentionDays,
+                            })}
+                          </option>
+                        )}
                       {RETENTION_DAY_OPTIONS.map((days) => (
                         <option
                           key={days}
@@ -3694,7 +3725,7 @@ EOF`,
                     }
                   >
                     <Toggle
-                      checked={dataRetentionEnabled}
+                      checked={effectiveDataRetentionEnabled}
                       disabled={historyLockedByPolicy}
                       onChange={setDataRetentionEnabled}
                     />
@@ -3707,7 +3738,7 @@ EOF`,
                   >
                     <select
                       value={transcriptRetentionDays}
-                      disabled={!dataRetentionEnabled}
+                      disabled={!effectiveDataRetentionEnabled}
                       onChange={(e) => setTranscriptRetentionDays(parseInt(e.target.value, 10))}
                       className={RETENTION_SELECT_CLASS}
                     >
@@ -3729,7 +3760,7 @@ EOF`,
                   >
                     <Toggle
                       checked={saveDiscardedTranscriptions}
-                      disabled={!dataRetentionEnabled || audioRetentionDays === 0}
+                      disabled={!effectiveDataRetentionEnabled || enforcedAudioRetentionDays === 0}
                       onChange={setSaveDiscardedTranscriptions}
                     />
                   </SettingsRow>

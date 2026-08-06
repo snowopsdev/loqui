@@ -1,10 +1,23 @@
-import {
-  isCanonicalAppVersion as isCanonicalVersion,
-  parseCanonicalAppVersion,
-} from "../helpers/appVersion.js";
+const CANONICAL_APP_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
+type AppVersionParts = readonly [number, number, number];
+
+function parseCanonicalAppVersion(value: unknown): AppVersionParts | null {
+  if (typeof value !== "string") return null;
+
+  const match = CANONICAL_APP_VERSION.exec(value);
+  if (!match) return null;
+
+  const parts: AppVersionParts = [
+    Number(match[1]),
+    Number(match[2]),
+    Number(match[3]),
+  ];
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
 
 export function isCanonicalAppVersion(value: unknown): value is string {
-  return isCanonicalVersion(value);
+  return parseCanonicalAppVersion(value) !== null;
 }
 
 /** Returns negative when a < b, positive when a > b, and zero when equal. */

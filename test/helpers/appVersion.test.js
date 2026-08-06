@@ -1,7 +1,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const load = () => import("../../src/utils/version.ts");
+
+test("keeps the renderer version utility browser-compatible", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../../src/utils/version.ts"),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /helpers\/appVersion\.js/);
+});
 
 test("recognizes only canonical three-part app versions", async () => {
   const { isCanonicalAppVersion } = await load();
@@ -20,4 +31,32 @@ test("an invalid installed version never satisfies a valid minimum", async () =>
   assert.equal(compareAppVersions("required", "1.8.1"), -1);
   assert.equal(compareAppVersions("1.8.1-beta.1", "1.8.1"), -1);
   assert.equal(compareAppVersions("1.9.0", "1.8.1"), 1);
+});
+
+test("keeps renderer and main-process validation behavior aligned", async () => {
+  const { isCanonicalAppVersion } = await load();
+  const mainVersion = require("../../src/helpers/appVersion.js");
+  const versions = [
+    undefined,
+    null,
+    1,
+    "",
+    "0.0.0",
+    "1.8.1",
+    "24.10.300",
+    "1.8",
+    "1.8.1.0",
+    "01.8.1",
+    "1.8.1-beta.1",
+    "required",
+    "1.x.1",
+  ];
+
+  for (const version of versions) {
+    assert.equal(
+      isCanonicalAppVersion(version),
+      mainVersion.isCanonicalAppVersion(version),
+      String(version),
+    );
+  }
 });

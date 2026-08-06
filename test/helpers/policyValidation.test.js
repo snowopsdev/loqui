@@ -28,6 +28,14 @@ test("accepts a well-formed policy", () => {
   assert.equal(isValidPolicyShape(validPolicy()), true);
 });
 
+test("accepts special providers from the API policy contract", () => {
+  const policy = validPolicy();
+  policy.transcription.allowedByokProviders = ["custom"];
+  policy.llm.allowedByokProviders = ["custom", "openrouter"];
+
+  assert.equal(isValidPolicyShape(policy), true);
+});
+
 test("ignores stale additive analytics metadata", () => {
   const policy = validPolicy();
   policy.analytics = {

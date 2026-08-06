@@ -10,9 +10,11 @@ const POLICY_SCOPES = ["transcription", "llm"];
 const TRANSCRIPTION_MODES = new Set(["openwhispr", "providers", "local", "self-hosted"]);
 const LLM_MODES = new Set([...TRANSCRIPTION_MODES, "enterprise"]);
 const TRANSCRIPTION_PROVIDERS = new Set(
-  modelRegistryData.transcriptionProviders.map((provider) => provider.id)
+  modelRegistryData.transcriptionProviders.map((provider) => provider.id).concat("custom")
 );
-const LLM_PROVIDERS = new Set(modelRegistryData.cloudProviders.map((provider) => provider.id));
+const LLM_PROVIDERS = new Set(
+  modelRegistryData.cloudProviders.map((provider) => provider.id).concat("custom", "openrouter")
+);
 const ENTERPRISE_PROVIDERS = new Set(
   modelRegistryData.enterpriseProviders.map((provider) => provider.id)
 );

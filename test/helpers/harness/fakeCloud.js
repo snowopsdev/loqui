@@ -227,12 +227,17 @@ function createFakeCloud(config = {}) {
     const limitRaw = Number(query.get("limit"));
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50;
     const since = query.get("since");
+    const sinceId = query.get("since_id");
     const before = query.get("before");
+    const beforeId = query.get("before_id");
     let rows = [...collection.store.values()];
 
     if (since) {
       const bound = normalizeTimestamp(since);
-      rows = rows.filter((r) => normalizeTimestamp(r.updated_at) > bound);
+      rows = rows.filter((r) => {
+        const timestampOrder = compare(normalizeTimestamp(r.updated_at), bound);
+        return timestampOrder > 0 || (timestampOrder === 0 && (!sinceId || r.id > sinceId));
+      });
       rows.sort(
         (a, b) =>
           compare(normalizeTimestamp(a.updated_at), normalizeTimestamp(b.updated_at)) ||
@@ -242,7 +247,10 @@ function createFakeCloud(config = {}) {
       rows = rows.filter((r) => !r.deleted_at);
       if (before) {
         const bound = normalizeTimestamp(before);
-        rows = rows.filter((r) => normalizeTimestamp(r[orderKey]) < bound);
+        rows = rows.filter((r) => {
+          const timestampOrder = compare(normalizeTimestamp(r[orderKey]), bound);
+          return timestampOrder < 0 || (timestampOrder === 0 && !!beforeId && r.id < beforeId);
+        });
       }
       rows.sort(
         (a, b) =>

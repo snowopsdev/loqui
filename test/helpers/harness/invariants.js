@@ -40,21 +40,35 @@ function erasureExcused(cloudRow, before, after, field) {
   return (cloudRow[field] ?? null) === (after[field] ?? null);
 }
 
+function deletionExcused(cloudRow, before) {
+  if (before.deleted_at) return true;
+  if (!cloudRow?.deleted_at) return false;
+  return normalizeTimestamp(cloudRow.deleted_at) >= normalizeTimestamp(before.updated_at);
+}
+
 function assertNoContentRegression(dbBefore, dbAfter, cloudTruth) {
   const before = indexByClientId(dbBefore);
+  const after = indexByClientId(dbAfter);
   const cloud = indexByClientId(
     cloudTruth instanceof Map ? [...cloudTruth.values()] : (cloudTruth ?? [])
   );
 
-  for (const after of dbAfter ?? []) {
-    const prior = before.get(after.client_note_id);
-    if (!prior) continue;
-    for (const field of CONTENT_FIELDS) {
-      if (isEmpty(prior[field]) || !isEmpty(after[field])) continue;
-      if (erasureExcused(cloud.get(after.client_note_id), prior, after, field)) continue;
+  for (const prior of before.values()) {
+    const current = after.get(prior.client_note_id);
+    if (!current) {
+      if (!CONTENT_FIELDS.some((field) => !isEmpty(prior[field]))) continue;
+      if (deletionExcused(cloud.get(prior.client_note_id), prior)) continue;
       assert.fail(
-        `sync erased ${field} on note ${after.id} (client_note_id ${after.client_note_id}): ` +
-          `had ${JSON.stringify(String(prior[field]).slice(0, 60))}, now ${JSON.stringify(after[field])}` +
+        `sync hard-deleted note ${prior.id} (client_note_id ${prior.client_note_id}) ` +
+          "without a matching cloud tombstone"
+      );
+    }
+    for (const field of CONTENT_FIELDS) {
+      if (isEmpty(prior[field]) || !isEmpty(current[field])) continue;
+      if (erasureExcused(cloud.get(current.client_note_id), prior, current, field)) continue;
+      assert.fail(
+        `sync erased ${field} on note ${current.id} (client_note_id ${current.client_note_id}): ` +
+          `had ${JSON.stringify(String(prior[field]).slice(0, 60))}, now ${JSON.stringify(current[field])}` +
           " — and no strictly-newer non-empty cloud copy explains it"
       );
     }

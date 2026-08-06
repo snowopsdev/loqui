@@ -180,9 +180,6 @@ test("a manually named segment does not absorb the adjacent un-named one", () =>
 });
 
 test("own-voice segments share one label whether or not diarization stamped them", (t) => {
-  // Diarization stamps mic segments with speaker "you"; a transcript saved
-  // before (or without) it keeps the un-stamped shape. Both are the same
-  // person and must render identically under any UI language.
   changeLanguage("de");
   t.after(() => changeLanguage("en"));
 

@@ -1,12 +1,12 @@
 const crypto = require("crypto");
 
+// Policy requests fence cookie- or bearer-based identities (hashed headers),
+// which captureAuthFence's token-only capture cannot represent — so the fence
+// logic stays local here, but the error taxonomy is shared.
+const { AuthContextError } = require("./cloudApiRequest");
 const { isValidPolicyShape } = require("./policyValidation");
 const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
 const { readWorkspacePolicyCache, writeWorkspacePolicyCache } = require("./workspacePolicyCache");
-
-function authError(message, code = "AUTH_CONTEXT_CHANGED") {
-  return Object.assign(new Error(message), { code });
-}
 
 function unresolvablePolicyError(message) {
   return Object.assign(new Error(message), { code: "POLICY_UNRESOLVABLE" });
@@ -71,19 +71,22 @@ function createWorkspacePolicyManager({
       !Number.isSafeInteger(request.expectedAuthGeneration) ||
       request.expectedAuthGeneration < 0
     ) {
-      throw authError(
+      throw new AuthContextError(
         "Authenticated policy request has no validated credential generation",
         "AUTH_CONTEXT_UNVALIDATED"
       );
     }
     if (request.expectedAuthGeneration !== tokenState.generation) {
-      throw authError("Authentication context changed before policy request");
+      throw new AuthContextError("Authentication context changed before policy request");
     }
     const apiUrl = getApiUrl();
     if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
     const authHeaders = normalizeAuthHeaders(request.authHeaders, tokenState?.token);
     if (!Object.keys(authHeaders).length) {
-      throw authError("Authenticated policy request has no credential", "AUTH_CONTEXT_UNVALIDATED");
+      throw new AuthContextError(
+        "Authenticated policy request has no credential",
+        "AUTH_CONTEXT_UNVALIDATED"
+      );
     }
     const apiOrigin = new URL(apiUrl).origin;
     const accountId = normalizeAccountId(request.accountId);
@@ -108,7 +111,7 @@ function createWorkspacePolicyManager({
       current?.generation !== identity.authGeneration ||
       (identity.token ? current?.token !== identity.token : Boolean(current?.token))
     ) {
-      throw authError("Authentication context changed during policy request");
+      throw new AuthContextError("Authentication context changed during policy request");
     }
   }
 

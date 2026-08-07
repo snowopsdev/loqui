@@ -1,10 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
-const fs = require("node:fs");
 const Module = require("node:module");
-const os = require("node:os");
-const path = require("node:path");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
 function loadMeetingDetectionEngine() {
   const originalLoad = Module._load;
@@ -26,6 +24,24 @@ function loadMeetingDetectionEngine() {
     Module._load = originalLoad;
   }
 }
+
+const blockedMeetingPolicy = {
+  version: 1,
+  transcription: { allowedModes: [], allowedByokProviders: [] },
+  llm: {
+    allowedModes: ["openwhispr"],
+    allowedByokProviders: [],
+    allowedEnterpriseProviders: [],
+  },
+  features: { agentEnabled: false, webSearchEnabled: false },
+  sharing: { externalLinkSharing: "disabled" },
+  dataRetention: {
+    audioRetentionMaxDays: null,
+    localHistoryMode: "user_choice",
+    cloudBackupAllowed: false,
+  },
+  minAppVersion: null,
+};
 
 test("a policy-rejected automatic meeting start restores manager mode before clearing", async (t) => {
   const MeetingDetectionEngine = loadMeetingDetectionEngine();
@@ -62,60 +78,9 @@ test("a policy-rejected automatic meeting start restores manager mode before cle
     { noteId: 41, folderId: 7 }
   );
 
-  const originalWindow = globalThis.window;
-  const originalLocalStorage = globalThis.localStorage;
-  const values = new Map();
-  const storage = {
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, String(value)),
-    removeItem: (key) => values.delete(key),
-  };
-  globalThis.localStorage = storage;
-  globalThis.window = {
-    innerWidth: 1200,
-    localStorage: storage,
-    addEventListener() {},
-    electronAPI: {},
-  };
-
-  const { createServer } = await import("vite");
-  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-meeting-policy-test-"));
-  const vite = await createServer({
-    root: path.resolve(__dirname, "../../src"),
-    cacheDir,
-    configFile: false,
-    appType: "custom",
-    logLevel: "silent",
-    optimizeDeps: { noDiscovery: true },
-    plugins: [
-      {
-        name: "meeting-policy-test-app-version",
-        enforce: "pre",
-        resolveId(source) {
-          return source.endsWith("/helpers/appVersion.js") ? "\0meeting-policy-app-version" : null;
-        },
-        load(id) {
-          if (id !== "\0meeting-policy-app-version") return null;
-          return `
-            export function parseCanonicalAppVersion(value) {
-              const match = typeof value === "string" ? /^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.exec(value) : null;
-              return match ? match.slice(1).map(Number) : null;
-            }
-            export function isCanonicalAppVersion(value) {
-              return parseCanonicalAppVersion(value) !== null;
-            }
-          `;
-        },
-      },
-    ],
-  });
-  t.after(async () => {
-    await vite.close();
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-    if (originalWindow === undefined) delete globalThis.window;
-    else globalThis.window = originalWindow;
-    if (originalLocalStorage === undefined) delete globalThis.localStorage;
-    else globalThis.localStorage = originalLocalStorage;
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "openwhispr-meeting-policy-test-",
   });
 
   const { handleMeetingRecordingRequest } = await vite.ssrLoadModule(
@@ -128,23 +93,7 @@ test("a policy-rejected automatic meeting start restores manager mode before cle
   usePolicyStore.setState({
     status: "managed",
     appVersion: "1.8.1",
-    policy: {
-      version: 1,
-      transcription: { allowedModes: [], allowedByokProviders: [] },
-      llm: {
-        allowedModes: ["openwhispr"],
-        allowedByokProviders: [],
-        allowedEnterpriseProviders: [],
-      },
-      features: { agentEnabled: false, webSearchEnabled: false },
-      sharing: { externalLinkSharing: "disabled" },
-      dataRetention: {
-        audioRetentionMaxDays: null,
-        localHistoryMode: "user_choice",
-        cloudBackupAllowed: false,
-      },
-      minAppVersion: null,
-    },
+    policy: blockedMeetingPolicy,
   });
 
   const lifecycle = [];
@@ -187,5 +136,33 @@ test("a policy-rejected automatic meeting start restores manager mode before cle
     rejectionLifecycle,
     ["handled"],
     "a failed start must still clear the pending request so it is not re-attempted"
+  );
+});
+
+test("a repeated policy denial re-notifies the toast effect", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "openwhispr-meeting-denial-test-",
+  });
+
+  const { startRecording, useMeetingRecordingStore } = await vite.ssrLoadModule(
+    "/stores/meetingRecordingStore.ts"
+  );
+  const { usePolicyStore } = await vite.ssrLoadModule("/stores/policyStore.ts");
+  usePolicyStore.setState({
+    status: "managed",
+    appVersion: "1.8.1",
+    policy: blockedMeetingPolicy,
+  });
+
+  assert.equal(await startRecording({ noteId: 1, noteTitle: "A", folderId: null }), false);
+  const first = useMeetingRecordingStore.getState();
+  assert.equal(first.error, "policyRestricted");
+
+  assert.equal(await startRecording({ noteId: 1, noteTitle: "A", folderId: null }), false);
+  assert.equal(
+    useMeetingRecordingStore.getState().errorNonce,
+    first.errorNonce + 1,
+    "an identical repeated denial must still produce a distinct notification"
   );
 });

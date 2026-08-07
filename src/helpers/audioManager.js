@@ -597,14 +597,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     );
   }
 
-  assertTranscriptionSelectionAllowed(selection) {
-    if (isTranscriptionSelectionAllowed(usePolicyStore.getState(), selection)) return;
-    const error = new Error("Transcription is restricted by your organization.");
-    error.code = "POLICY_RESTRICTED";
-    error.messageKey = "common.policyTranscriptionRestricted";
-    throw error;
-  }
-
   assertAgentAllowedByPolicy() {
     if (isAgentAllowed(usePolicyStore.getState())) return;
     const error = new Error("AI agent use is restricted by your organization.");
@@ -2981,9 +2973,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       }
 
       const isOpenAIMode = !getSettings().useLocalWhisper;
+      // A policy-blocked fallback surfaces the cloud failure, not a policy error.
+      const fallbackAllowedByPolicy = isTranscriptionSelectionAllowed(usePolicyStore.getState(), {
+        mode: "local",
+        provider: "",
+      });
 
-      if (allowLocalFallback && isOpenAIMode) {
-        this.assertTranscriptionSelectionAllowed({ mode: "local", provider: "" });
+      if (allowLocalFallback && isOpenAIMode && fallbackAllowedByPolicy) {
         try {
           const arrayBuffer = await audioBlob.arrayBuffer();
           const options = { model: fallbackModel };

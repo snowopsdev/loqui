@@ -303,3 +303,25 @@ test("active control-panel views reroute on their specific policy capability", a
   assert.equal(isControlPanelViewAllowed("upload", false, true), true);
   assert.equal(isControlPanelViewAllowed("home", false, false), true);
 });
+
+test("cloud-backup resume fires only on a denial-to-grant transition", async () => {
+  const { cloudBackupResumed } = await load();
+  const unmanaged = { status: "unmanaged", policy: null, appVersion: null };
+  const loading = { status: "loading", policy: null, appVersion: null };
+  const managedAllowed = { status: "managed", policy, appVersion: null };
+  const managedDenied = {
+    status: "managed",
+    policy: {
+      ...policy,
+      dataRetention: { ...policy.dataRetention, cloudBackupAllowed: false },
+    },
+    appVersion: null,
+  };
+
+  assert.equal(cloudBackupResumed(managedDenied, managedAllowed), true);
+  assert.equal(cloudBackupResumed(loading, unmanaged), true);
+  assert.equal(cloudBackupResumed(managedAllowed, managedDenied), false);
+  // A periodic refresh that keeps the grant unchanged must not kick a resync.
+  assert.equal(cloudBackupResumed(unmanaged, unmanaged), false);
+  assert.equal(cloudBackupResumed(managedAllowed, managedAllowed), false);
+});

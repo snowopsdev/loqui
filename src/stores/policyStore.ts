@@ -18,6 +18,12 @@ export interface PolicyState extends PolicyDecisionSnapshot {
   managed: boolean;
   fetchPolicy: (accountId: string, authGeneration: number) => Promise<void>;
   clearPolicy: () => void;
+  /**
+   * Fail-closed placeholder while account reconciliation resolves the active
+   * identity. Unlike clearPolicy (idle = allowed), "loading" denies managed
+   * actions until the new account's policy is fetched.
+   */
+  suspendPolicy: () => void;
 }
 
 // Several components mount useAuth at startup; share one in-flight fetch
@@ -155,95 +161,107 @@ function ensurePolicyLifecycleListeners(): void {
   window.setInterval(refreshResolvedPolicy, POLICY_SUCCESS_REFRESH_MS);
 }
 
-export const usePolicyStore = create<PolicyState>()((set, get) => ({
-  accountId: null,
-  authGeneration: null,
-  revision: 0,
-  status: "idle",
-  managed: false,
-  policy: null,
-  appVersion: null,
-  fetchPolicy: (accountId: string, authGeneration: number): Promise<void> => {
-    ensurePolicyLifecycleListeners();
-    if (fetchInFlight?.accountId === accountId && fetchInFlight.authGeneration === authGeneration) {
-      return fetchInFlight.promise;
-    }
-
-    const previous = get();
-    const sameIdentity =
-      previous.accountId === accountId && previous.authGeneration === authGeneration;
-    const preserveResolvedPolicy =
-      sameIdentity && (previous.status === "managed" || previous.status === "unmanaged");
-    const sequence = ++fetchSequence;
-    if (!preserveResolvedPolicy) {
-      set({
-        accountId,
-        authGeneration,
-        revision: sameIdentity ? previous.revision : 0,
-        status: "loading",
-        managed: false,
-        policy: null,
-        appVersion: null,
-      });
-    }
-
-    const promise = (async () => {
-      const versionPromise = readAppVersion();
-      try {
-        const result = await window.electronAPI.getWorkspacePolicy?.(accountId, authGeneration);
-        const appVersion = await versionPromise;
-        if (sequence !== fetchSequence) return;
-        if (result?.success) {
-          if (applyPolicySnapshot(result, appVersion)) return;
-          throw new Error("Workspace policy response did not match the active credential");
-        }
-        throw Object.assign(new Error(result?.error || "Workspace policy is unavailable"), {
-          code: result?.code,
-        });
-      } catch (error) {
-        if (sequence !== fetchSequence) return;
-        logger.error("Failed to fetch workspace policy:", error);
-        const current = get();
-        const failureCode =
-          error && typeof error === "object" && "code" in error && typeof error.code === "string"
-            ? error.code
-            : undefined;
-        if (!(
-          current.accountId === accountId &&
-          shouldPreserveResolvedPolicyOnFailure(current.status, failureCode)
-        )) {
-          set({
-            accountId,
-            status: "error",
-            managed: false,
-            policy: null,
-            appVersion: await versionPromise,
-          });
-        }
-      } finally {
-        if (
-          fetchInFlight?.accountId === accountId &&
-          fetchInFlight.authGeneration === authGeneration
-        ) {
-          fetchInFlight = null;
-        }
-      }
-    })();
-
-    fetchInFlight = { accountId, authGeneration, promise };
-    return promise;
-  },
-  clearPolicy: (): void => {
+export const usePolicyStore = create<PolicyState>()((set, get) => {
+  const resetPolicy = (status: "idle" | "loading"): void => {
     fetchSequence += 1;
     fetchInFlight = null;
     set({
       accountId: null,
       authGeneration: null,
       revision: 0,
-      status: "idle",
+      status,
       managed: false,
       policy: null,
       appVersion: null,
     });
-  },
-}));
+  };
+
+  return {
+    accountId: null,
+    authGeneration: null,
+    revision: 0,
+    status: "idle",
+    managed: false,
+    policy: null,
+    appVersion: null,
+    fetchPolicy: (accountId: string, authGeneration: number): Promise<void> => {
+      ensurePolicyLifecycleListeners();
+      if (
+        fetchInFlight?.accountId === accountId &&
+        fetchInFlight.authGeneration === authGeneration
+      ) {
+        return fetchInFlight.promise;
+      }
+
+      const previous = get();
+      const sameIdentity =
+        previous.accountId === accountId && previous.authGeneration === authGeneration;
+      const preserveResolvedPolicy =
+        sameIdentity && (previous.status === "managed" || previous.status === "unmanaged");
+      const sequence = ++fetchSequence;
+      if (!preserveResolvedPolicy) {
+        set({
+          accountId,
+          authGeneration,
+          revision: sameIdentity ? previous.revision : 0,
+          status: "loading",
+          managed: false,
+          policy: null,
+          appVersion: null,
+        });
+      }
+
+      const promise = (async () => {
+        const versionPromise = readAppVersion();
+        try {
+          const result = await window.electronAPI.getWorkspacePolicy?.(accountId, authGeneration);
+          const appVersion = await versionPromise;
+          if (sequence !== fetchSequence) return;
+          if (result?.success) {
+            if (applyPolicySnapshot(result, appVersion)) return;
+            throw new Error("Workspace policy response did not match the active credential");
+          }
+          throw Object.assign(new Error(result?.error || "Workspace policy is unavailable"), {
+            code: result?.code,
+          });
+        } catch (error) {
+          if (sequence !== fetchSequence) return;
+          logger.error("Failed to fetch workspace policy:", error);
+          const failureCode =
+            error && typeof error === "object" && "code" in error && typeof error.code === "string"
+              ? error.code
+              : undefined;
+          // Resolve the version before the staleness re-check: awaiting inside set()
+          // would let a clearPolicy()/newer fetch land first and then be clobbered.
+          const appVersion = await versionPromise;
+          if (sequence !== fetchSequence) return;
+          const current = get();
+          if (!(
+            current.accountId === accountId &&
+            shouldPreserveResolvedPolicyOnFailure(current.status, failureCode)
+          )) {
+            set({
+              accountId,
+              status: "error",
+              managed: false,
+              policy: null,
+              appVersion,
+            });
+          }
+        } finally {
+          if (
+            fetchInFlight?.accountId === accountId &&
+            fetchInFlight.authGeneration === authGeneration
+          ) {
+            fetchInFlight = null;
+          }
+        }
+      })();
+
+      fetchInFlight = { accountId, authGeneration, promise };
+      return promise;
+    },
+    clearPolicy: (): void => resetPolicy("idle"),
+    suspendPolicy: (): void => resetPolicy("loading"),
+  };
+});

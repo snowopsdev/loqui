@@ -182,7 +182,7 @@ export function useAuth() {
         // This legacy marker drives every already-running SyncService window;
         // its generation gate provides the immediate fence.
         useSettingsStore.getState().setIsSignedIn(false);
-        usePolicyStore.getState().clearPolicy();
+        usePolicyStore.getState().suspendPolicy();
       }
 
       await reconcileAccountScope(resolvedUserId, {

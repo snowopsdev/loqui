@@ -20,6 +20,7 @@ export default function MeetingRecordingMount(): null {
   const { toast } = useToast();
   const isRecording = useMeetingRecordingStore((s) => s.isRecording);
   const error = useMeetingRecordingStore((s) => s.error);
+  const errorNonce = useMeetingRecordingStore((s) => s.errorNonce);
   const micCaptureStatus = useMeetingRecordingStore((s) => s.micCaptureStatus);
   const wasMicUnavailable = useRef(false);
 
@@ -34,7 +35,8 @@ export default function MeetingRecordingMount(): null {
       description: MEETING_ERROR_KEYS[error] ? t(MEETING_ERROR_KEYS[error]) : error,
       variant: "destructive",
     });
-  }, [error, toast, t]);
+    // errorNonce re-fires this toast when the same error repeats back-to-back.
+  }, [error, errorNonce, toast, t]);
 
   useEffect(() => {
     if (micCaptureStatus === "unavailable" && !wasMicUnavailable.current) {

@@ -114,6 +114,17 @@ export function isCloudBackupAllowed(state: PolicyDecisionSnapshot): boolean {
   return managedPolicyDecision(state, (policy) => policy.dataRetention.cloudBackupAllowed);
 }
 
+/**
+ * True only when a policy transition newly grants cloud backup, so sync
+ * resumes once per grant instead of on every periodic policy refresh.
+ */
+export function cloudBackupResumed(
+  previous: PolicyDecisionSnapshot,
+  next: PolicyDecisionSnapshot
+): boolean {
+  return isCloudBackupAllowed(next) && !isCloudBackupAllowed(previous);
+}
+
 export interface LlmSelection {
   mode: InferenceMode;
   provider: string;

@@ -187,6 +187,25 @@ test("domain-only sharing permits only private recovery and domain visibility", 
   assert.equal(isShareActionAllowed(snapshot, "copy-link", "link"), false);
   assert.equal(isShareActionAllowed(snapshot, "rotate-link", "link"), false);
   assert.equal(isShareActionAllowed(snapshot, "invite", "private"), false);
+  // A domain share's link stays copyable — it is scoped to the allowed domain.
+  assert.equal(isShareActionAllowed(snapshot, "copy-link", "domain"), true);
+  assert.equal(isShareActionAllowed(snapshot, "rotate-link", "domain"), true);
+  assert.equal(isShareActionAllowed(snapshot, "copy-link", "invited"), false);
+});
+
+test("copying an existing share link follows its own visibility", async () => {
+  const { isShareActionAllowed } = await load();
+  const unmanaged = { status: "unmanaged", policy: null, appVersion: "1.8.1" };
+  const allowed = { status: "managed", policy, appVersion: "1.8.1" };
+
+  for (const snapshot of [unmanaged, allowed]) {
+    for (const visibility of ["link", "domain", "invited"]) {
+      assert.equal(isShareActionAllowed(snapshot, "copy-link", visibility), true);
+      assert.equal(isShareActionAllowed(snapshot, "rotate-link", visibility), true);
+    }
+    // Nothing to copy before a link exists; the dialog asks for create-link.
+    assert.equal(isShareActionAllowed(snapshot, "copy-link", "private"), false);
+  }
 });
 
 test("sharing recovery remains available when exposure-increasing actions are blocked", async () => {

@@ -597,6 +597,36 @@ test("a managed cache remains fail-closed during an unresolvable refresh", async
   assert.deepEqual(fallback.policy, managed.policy);
 });
 
+test("a first-ever unresolvable verdict still fails closed after restart", async (t) => {
+  const context = setup(async () =>
+    response(503, {
+      error: "Organization policy could not be resolved.",
+      code: "POLICY_UNRESOLVABLE",
+    })
+  );
+  t.after(context.cleanup);
+  const request = { accountId: "account-a", expectedAuthGeneration: 1 };
+
+  const unresolvable = await context.manager.getPolicy(request);
+  assert.equal(unresolvable.success, false);
+  assert.equal(unresolvable.code, "POLICY_UNRESOLVABLE");
+
+  // Nothing was ever cached for this identity, so the marker is the only thing
+  // on disk standing between a restart and a fail-open on an unsupported route.
+  const restarted = createWorkspacePolicyManager({
+    cachePath: context.cachePath,
+    getApiUrl: () => "https://api.openwhispr.test",
+    getAppVersion: () => "1.8.1",
+    proxyFetch: async () => response(404, { error: "Not found" }),
+    tokenStore: { getState: () => ({ ...context.tokenState }) },
+    logger: { error() {}, warn() {} },
+  });
+  const afterRestart = await restarted.getPolicy(request);
+
+  assert.equal(afterRestart.success, false);
+  assert.equal(afterRestart.code, "POLICY_UNRESOLVABLE");
+});
+
 test("a managed-unresolvable signal survives throttling, other windows, and restart", async (t) => {
   let currentTime = 0;
   let requestCount = 0;

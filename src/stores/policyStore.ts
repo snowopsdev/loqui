@@ -53,7 +53,7 @@ interface PolicyIpcSnapshot {
 
 function readAppVersion(): Promise<string | null> {
   if (!appVersionPromise) {
-    appVersionPromise =
+    const pending: Promise<string | null> =
       window.electronAPI
         .getAppVersion?.()
         .then((result) => result?.version ?? null)
@@ -61,6 +61,12 @@ function readAppVersion(): Promise<string | null> {
           logger.error("Failed to read app version for workspace policy:", error);
           return null;
         }) ?? Promise.resolve(null);
+    // An unknown version denies every managed action while hiding the update
+    // banner that explains it, so never cache a failed read for the session.
+    appVersionPromise = pending.then((version) => {
+      if (!version) appVersionPromise = null;
+      return version;
+    });
   }
   return appVersionPromise;
 }

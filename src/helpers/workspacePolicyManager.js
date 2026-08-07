@@ -164,17 +164,17 @@ function createWorkspacePolicyManager({
 
     const wasRequired = requiresManagedPolicy(identity);
     managedPolicyRequired.add(key);
-    if (cached && !wasRequired) {
+    if (!wasRequired) {
       try {
+        // A first-ever unresolvable verdict has nothing cached to mark, so seed
+        // an unmanaged entry; without it a restart fails open on 404/501.
         writeWorkspacePolicyCache(cachePath, cacheIdentity(identity), {
-          ...cached,
+          ...(cached ?? { managed: false, policy: null, policyUpdatedAt: null }),
           requiresManagedPolicy: true,
         });
       } catch (error) {
         logger?.error?.("Policy fail-closed marker write failed", error);
       }
-    }
-    if (!wasRequired) {
       broadcast?.(errorSnapshot(identity, "POLICY_UNRESOLVABLE", message));
     }
   }

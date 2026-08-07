@@ -225,7 +225,9 @@ export function isShareActionAllowed(
     return true;
   }
   if (action === "copy-link" || action === "rotate-link") {
-    return currentVisibility === "link" && isShareVisibilityAllowed(state, "link");
+    // A domain or invited share has a link too, scoped by that visibility, so
+    // the current visibility governs rather than open link sharing.
+    return currentVisibility !== "private" && isShareVisibilityAllowed(state, currentVisibility);
   }
   if (action === "create-link") return isShareVisibilityAllowed(state, "link");
   if (action === "set-domain") return isShareVisibilityAllowed(state, "domain");

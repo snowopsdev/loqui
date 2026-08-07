@@ -398,19 +398,16 @@ export default function TranscriptionModelPicker({
     (providerId: string) => isProviderAllowedByPolicy(policyState, "transcription", providerId),
     [policyState]
   );
+  const availableCloudProviders = useMemo(
+    () => (streamingOnly ? getStreamingTranscriptionProviders() : getTranscriptionProviders()),
+    [streamingOnly]
+  );
   const cloudProviders = useMemo(
-    () =>
-      (streamingOnly ? getStreamingTranscriptionProviders() : getTranscriptionProviders()).filter(
-        (p) => providerAllowed(p.id)
-      ),
-    [streamingOnly, providerAllowed]
+    () => availableCloudProviders.filter((p) => providerAllowed(p.id)),
+    [availableCloudProviders, providerAllowed]
   );
   const cloudProviderTabs = useMemo(() => {
-    const availableIds = new Set(
-      (streamingOnly ? getStreamingTranscriptionProviders() : getTranscriptionProviders()).map(
-        (p) => p.id
-      )
-    );
+    const availableIds = new Set(availableCloudProviders.map((p) => p.id));
     availableIds.add("custom");
     return CLOUD_PROVIDER_TABS.filter((p) => availableIds.has(p.id)).map((provider) => {
       const named =
@@ -421,7 +418,7 @@ export default function TranscriptionModelPicker({
         ? named
         : { ...named, disabled: true, disabledLabel: t("common.managedByOrg") };
     });
-  }, [streamingOnly, providerAllowed, t]);
+  }, [availableCloudProviders, providerAllowed, t]);
 
   useEffect(() => {
     selectedLocalModelRef.current = selectedLocalModel;
@@ -482,7 +479,10 @@ export default function TranscriptionModelPicker({
   }, []);
 
   const ensureValidCloudSelection = useCallback(() => {
-    const knownProviderUrls = cloudProviders.map((provider) => provider.baseUrl);
+    // Every provider's URL counts as known, including policy-blocked ones:
+    // otherwise a blocked provider's stored URL reads as a custom endpoint and
+    // reconciliation would keep pointing "custom" at what policy just denied.
+    const knownProviderUrls = availableCloudProviders.map((provider) => provider.baseUrl);
     const hasCustomUrl = Boolean(
       cloudTranscriptionBaseUrl &&
       cloudTranscriptionBaseUrl.trim() !== "" &&
@@ -500,6 +500,7 @@ export default function TranscriptionModelPicker({
     if (selection.provider !== selectedCloudProvider) onCloudProviderSelect(selection.provider);
     if (selection.model !== selectedCloudModel) onCloudModelSelect(selection.model);
   }, [
+    availableCloudProviders,
     cloudProviders,
     cloudTranscriptionBaseUrl,
     selectedCloudProvider,

@@ -7274,6 +7274,7 @@ class IPCHandlers {
             customDictionary: opts.customDictionary,
             customPrompt: opts.customPrompt,
             systemPrompt: opts.systemPrompt,
+            requestPurpose: opts.requestPurpose,
             promptMode: opts.promptMode,
             language: opts.language,
             locale: opts.locale,

@@ -38,3 +38,12 @@ test("selects only resolved policy identities for cadence and focus refresh", as
     null
   );
 });
+
+test("an unmanaged verdict is preserved for transient failures but not a managed-unresolvable signal", async () => {
+  const { shouldPreserveResolvedPolicyOnFailure } = await load();
+
+  assert.equal(shouldPreserveResolvedPolicyOnFailure("unmanaged", "POLICY_UNAVAILABLE"), true);
+  assert.equal(shouldPreserveResolvedPolicyOnFailure("unmanaged", "POLICY_UNRESOLVABLE"), false);
+  assert.equal(shouldPreserveResolvedPolicyOnFailure("managed", "POLICY_UNRESOLVABLE"), true);
+  assert.equal(shouldPreserveResolvedPolicyOnFailure("error", "POLICY_UNRESOLVABLE"), false);
+});

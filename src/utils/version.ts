@@ -8,11 +8,7 @@ function parseCanonicalAppVersion(value: unknown): AppVersionParts | null {
   const match = CANONICAL_APP_VERSION.exec(value);
   if (!match) return null;
 
-  const parts: AppVersionParts = [
-    Number(match[1]),
-    Number(match[2]),
-    Number(match[3]),
-  ];
+  const parts: AppVersionParts = [Number(match[1]), Number(match[2]), Number(match[3])];
   return parts.every(Number.isSafeInteger) ? parts : null;
 }
 

@@ -8,6 +8,10 @@ function authError(message, code = "AUTH_CONTEXT_CHANGED") {
   return Object.assign(new Error(message), { code });
 }
 
+function unresolvablePolicyError(message) {
+  return Object.assign(new Error(message), { code: "POLICY_UNRESOLVABLE" });
+}
+
 function normalizeAccountId(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -59,6 +63,7 @@ function createWorkspacePolicyManager({
   const successfulRefreshes = new Map();
   const lastAttempts = new Map();
   const lastRecoveryAttempts = new Map();
+  const managedPolicyRequired = new Set();
   let revision = 0;
 
   function captureIdentity(request = {}) {
@@ -116,9 +121,56 @@ function createWorkspacePolicyManager({
     };
   }
 
-  function cachedData(identity) {
+  function rawCachedData(identity) {
     const cached = readWorkspacePolicyCache(cachePath, cacheIdentity(identity));
     return validatePolicyData(cached) ? cached : null;
+  }
+
+  function cachedData(identity) {
+    const cached = rawCachedData(identity);
+    return cached?.managed === false && cached.requiresManagedPolicy === true ? null : cached;
+  }
+
+  function requiresManagedPolicy(identity) {
+    if (managedPolicyRequired.has(identityKey(identity))) return true;
+    const cached = rawCachedData(identity);
+    return cached?.managed === false && cached.requiresManagedPolicy === true;
+  }
+
+  function errorSnapshot(identity, code, error) {
+    const current = snapshots.get(identityKey(identity));
+    return {
+      success: false,
+      status: "error",
+      revision: current?.revision ?? revision,
+      accountId: identity.accountId,
+      authGeneration: identity.authGeneration,
+      code,
+      error,
+    };
+  }
+
+  function markManagedPolicyRequired(identity, message) {
+    const key = identityKey(identity);
+    const current = snapshots.get(key);
+    const cached = rawCachedData(identity);
+    if (current?.data.managed || cached?.managed) return;
+
+    const wasRequired = requiresManagedPolicy(identity);
+    managedPolicyRequired.add(key);
+    if (cached && !wasRequired) {
+      try {
+        writeWorkspacePolicyCache(cachePath, cacheIdentity(identity), {
+          ...cached,
+          requiresManagedPolicy: true,
+        });
+      } catch (error) {
+        logger?.error?.("Policy fail-closed marker write failed", error);
+      }
+    }
+    if (!wasRequired) {
+      broadcast?.(errorSnapshot(identity, "POLICY_UNRESOLVABLE", message));
+    }
   }
 
   function publicSnapshot(identity, data, status, snapshotRevision) {
@@ -169,6 +221,7 @@ function createWorkspacePolicyManager({
   }
 
   function acceptSuccessfulResponse(identity, data, status) {
+    managedPolicyRequired.delete(identityKey(identity));
     const result = accept(identity, data, status);
     if (result.status !== "current") successfulRefreshes.set(identityKey(identity), now());
     return result;
@@ -191,6 +244,9 @@ function createWorkspacePolicyManager({
           if (current?.data.managed) {
             return publicSnapshot(identity, current.data, "cached", current.revision);
           }
+          if (requiresManagedPolicy(identity)) {
+            throw unresolvablePolicyError("Organization policy was previously unresolved");
+          }
           const cached = cachedData(identity);
           if (cached?.managed) return accept(identity, cached, "cached");
           return acceptSuccessfulResponse(
@@ -200,6 +256,13 @@ function createWorkspacePolicyManager({
           );
         }
         if (!response.ok) {
+          let errorBody = null;
+          try {
+            errorBody = await response.json();
+          } catch {}
+          if (errorBody?.code === "POLICY_UNRESOLVABLE") {
+            throw unresolvablePolicyError(errorBody.error || "Organization policy is unresolvable");
+          }
           const error = new Error(`API error: ${response.status}`);
           error.status = response.status;
           throw error;
@@ -211,7 +274,12 @@ function createWorkspacePolicyManager({
           ...json?.data,
           endpointSupported: true,
         };
-        if (!validatePolicyData(data)) throw new Error("Malformed policy response");
+        if (!validatePolicyData(data)) {
+          if (data.managed === true) {
+            throw unresolvablePolicyError("Managed policy response is malformed");
+          }
+          throw new Error("Malformed policy response");
+        }
         return acceptSuccessfulResponse(identity, data, "network");
       } finally {
         clearTimeout(timeout);
@@ -228,20 +296,20 @@ function createWorkspacePolicyManager({
         };
       }
 
+      const requiresManagedFallback = error?.code === "POLICY_UNRESOLVABLE";
+      if (requiresManagedFallback) markManagedPolicyRequired(identity, error.message);
       const cached = cachedData(identity);
-      if (cached) {
+      if (cached && (!requiresManagedFallback || cached.managed)) {
         const key = identityKey(identity);
         const current = snapshots.get(key);
         if (current) return publicSnapshot(identity, current.data, "cached", current.revision);
         return accept(identity, cached, "cached");
       }
       logger?.warn?.("Workspace policy unavailable", { error: error?.message });
-      return {
-        success: false,
-        status: "error",
-        code: "POLICY_UNAVAILABLE",
-        error: error?.message || String(error),
-      };
+      const code = requiresManagedPolicy(identity)
+        ? "POLICY_UNRESOLVABLE"
+        : error?.code || "POLICY_UNAVAILABLE";
+      return errorSnapshot(identity, code, error?.message || String(error));
     }
   }
 
@@ -264,6 +332,7 @@ function createWorkspacePolicyManager({
       lastSuccessfulRefresh === undefined ? null : now() - lastSuccessfulRefresh;
     if (
       current &&
+      !(current.data.managed === false && requiresManagedPolicy(identity)) &&
       successfulRefreshAge !== null &&
       successfulRefreshAge >= 0 &&
       successfulRefreshAge < successfulRefreshMs
@@ -293,6 +362,13 @@ function createWorkspacePolicyManager({
           recoveryAttemptAge < minimumAttemptIntervalMs
         : attemptAge !== null && attemptAge >= 0 && attemptAge < minimumAttemptIntervalMs;
     if (attemptIsThrottled) {
+      if (requiresManagedPolicy(identity)) {
+        return errorSnapshot(
+          identity,
+          "POLICY_UNRESOLVABLE",
+          "Organization policy is awaiting a successful refresh"
+        );
+      }
       if (current) return publicSnapshot(identity, current.data, "cached", current.revision);
       const cached = cachedData(identity);
       if (cached) return accept(identity, cached, "cached");

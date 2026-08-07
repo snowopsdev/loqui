@@ -7,6 +7,7 @@ import {
   POLICY_SUCCESS_REFRESH_MS,
   resolvedPolicyRefreshIdentity,
   shouldAcceptPolicySnapshot,
+  shouldPreserveResolvedPolicyOnFailure,
 } from "./policyLifecycle";
 import {
   effectiveAudioRetentionDays as effectiveAudioRetentionDaysRule,
@@ -151,10 +152,35 @@ function applyPolicySnapshot(result: PolicyIpcSnapshot, appVersion: string | nul
   return true;
 }
 
+function applyPolicyFailure(result: PolicyIpcSnapshot): boolean {
+  const current = usePolicyStore.getState();
+  if (
+    result.code !== "POLICY_UNRESOLVABLE" ||
+    !current.accountId ||
+    current.authGeneration == null ||
+    result.accountId !== current.accountId ||
+    result.authGeneration !== current.authGeneration
+  ) {
+    return false;
+  }
+  if (current.status === "managed") return true;
+  usePolicyStore.setState({
+    status: "error",
+    managed: false,
+    policy: null,
+    loaded: true,
+  });
+  return true;
+}
+
 function ensurePolicyLifecycleListeners(): void {
   if (lifecycleListenersReady) return;
   lifecycleListenersReady = true;
   window.electronAPI.onWorkspacePolicyChanged?.((snapshot) => {
+    if (!snapshot.success) {
+      applyPolicyFailure(snapshot);
+      return;
+    }
     void readAppVersion().then((appVersion) => applyPolicySnapshot(snapshot, appVersion));
   });
   const refreshResolvedPolicy = (): void => {
@@ -224,14 +250,20 @@ export const usePolicyStore = create<PolicyState>()((set, get) => ({
           if (applyPolicySnapshot(result, appVersion)) return;
           throw new Error("Workspace policy response did not match the active credential");
         }
-        throw new Error(result?.error || "Workspace policy is unavailable");
+        throw Object.assign(new Error(result?.error || "Workspace policy is unavailable"), {
+          code: result?.code,
+        });
       } catch (error) {
         if (sequence !== fetchSequence) return;
         logger.error("Failed to fetch workspace policy:", error);
         const current = get();
+        const failureCode =
+          error && typeof error === "object" && "code" in error && typeof error.code === "string"
+            ? error.code
+            : undefined;
         if (
           current.accountId === accountId &&
-          (current.status === "managed" || current.status === "unmanaged")
+          shouldPreserveResolvedPolicyOnFailure(current.status, failureCode)
         ) {
           set({ loaded: true });
         } else {

@@ -509,7 +509,7 @@ test("rejects an older policy response instead of downgrading main or cache stat
   assert.equal(context.broadcasts.length, 1);
 });
 
-test("invalid managed policy fails closed and is never broadcast", async (t) => {
+test("invalid managed policy fails closed and broadcasts only the error state", async (t) => {
   const malformed = validPolicy();
   malformed.data.policy.version = 2;
   const context = setup(async () => response(200, malformed));
@@ -520,8 +520,10 @@ test("invalid managed policy fails closed and is never broadcast", async (t) => 
     expectedAuthGeneration: 1,
   });
   assert.equal(result.success, false);
-  assert.equal(result.code, "POLICY_UNAVAILABLE");
-  assert.equal(context.broadcasts.length, 0);
+  assert.equal(result.code, "POLICY_UNRESOLVABLE");
+  assert.equal(context.broadcasts.length, 1);
+  assert.equal(context.broadcasts[0].success, false);
+  assert.equal(context.broadcasts[0].code, "POLICY_UNRESOLVABLE");
 });
 
 test("a first policy-enabled offline launch remains unavailable without a policy verdict", async (t) => {
@@ -555,6 +557,106 @@ test("HTTP policy denials and malformed success payloads remain unavailable", as
     assert.equal(result.success, false);
     assert.equal(result.status, "error");
   }
+});
+
+test("a positive managed-unresolvable signal cannot reuse an unmanaged cache", async (t) => {
+  for (const failedResponse of [
+    response(503, {
+      error: "Organization policy could not be resolved.",
+      code: "POLICY_UNRESOLVABLE",
+    }),
+    response(200, { data: { managed: true, policy: null, policyUpdatedAt: null } }),
+  ]) {
+    const responses = [
+      response(200, { data: { managed: false, policy: null, policyUpdatedAt: null } }),
+      failedResponse,
+    ];
+    const context = setup(async () => responses.shift());
+    t.after(context.cleanup);
+    const request = { accountId: "account-a", expectedAuthGeneration: 1 };
+
+    const unmanaged = await context.manager.getPolicy(request);
+    const transitioned = await context.manager.getPolicy(request);
+
+    assert.equal(unmanaged.success, true);
+    assert.equal(unmanaged.managed, false);
+    assert.equal(transitioned.success, false);
+    assert.equal(transitioned.status, "error");
+    assert.equal(transitioned.code, "POLICY_UNRESOLVABLE");
+  }
+});
+
+test("a managed cache remains fail-closed during an unresolvable refresh", async (t) => {
+  const responses = [
+    response(200, validPolicy()),
+    response(503, {
+      error: "Organization policy could not be resolved.",
+      code: "POLICY_UNRESOLVABLE",
+    }),
+  ];
+  const context = setup(async () => responses.shift());
+  t.after(context.cleanup);
+  const request = { accountId: "account-a", expectedAuthGeneration: 1 };
+
+  const managed = await context.manager.getPolicy(request);
+  const fallback = await context.manager.getPolicy(request);
+
+  assert.equal(fallback.success, true);
+  assert.equal(fallback.status, "cached");
+  assert.equal(fallback.managed, true);
+  assert.deepEqual(fallback.policy, managed.policy);
+});
+
+test("a managed-unresolvable signal survives throttling, other windows, and restart", async (t) => {
+  let currentTime = 0;
+  let requestCount = 0;
+  const context = setup(
+    async () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        return response(200, { data: { managed: false, policy: null, policyUpdatedAt: null } });
+      }
+      return response(503, {
+        error: "Organization policy could not be resolved.",
+        code: "POLICY_UNRESOLVABLE",
+      });
+    },
+    {
+      now: () => currentTime,
+      successfulRefreshMs: 0,
+      minimumAttemptIntervalMs: 5_000,
+    }
+  );
+  t.after(context.cleanup);
+  const request = { accountId: "account-a", expectedAuthGeneration: 1 };
+
+  assert.equal((await context.manager.getPolicy(request)).managed, false);
+  currentTime = 5_000;
+  const unresolvable = await context.manager.getPolicy(request);
+  const throttledOtherWindow = await context.manager.getPolicy(request);
+
+  assert.equal(unresolvable.success, false);
+  assert.equal(unresolvable.code, "POLICY_UNRESOLVABLE");
+  assert.equal(throttledOtherWindow.success, false);
+  assert.equal(throttledOtherWindow.code, "POLICY_UNRESOLVABLE");
+  assert.equal(requestCount, 2);
+  assert.equal(context.broadcasts.at(-1).success, false);
+  assert.equal(context.broadcasts.at(-1).code, "POLICY_UNRESOLVABLE");
+
+  const restarted = createWorkspacePolicyManager({
+    cachePath: context.cachePath,
+    getApiUrl: () => "https://api.openwhispr.test",
+    getAppVersion: () => "1.8.1",
+    proxyFetch: async () => {
+      throw new Error("offline");
+    },
+    tokenStore: { getState: () => ({ ...context.tokenState }) },
+    logger: { error() {}, warn() {} },
+  });
+  const offlineRestart = await restarted.getPolicy(request);
+
+  assert.equal(offlineRestart.success, false);
+  assert.equal(offlineRestart.code, "POLICY_UNRESOLVABLE");
 });
 
 test("a corrupt policy cache cannot authorize an offline identity", async (t) => {

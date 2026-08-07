@@ -12,6 +12,16 @@ interface ResolvedPolicyRefreshState {
   authGeneration: number | null;
 }
 
+type PolicyLifecycleStatus = ResolvedPolicyRefreshState["status"];
+
+export function shouldPreserveResolvedPolicyOnFailure(
+  status: PolicyLifecycleStatus,
+  failureCode?: string
+): boolean {
+  if (status === "managed") return true;
+  return status === "unmanaged" && failureCode !== "POLICY_UNRESOLVABLE";
+}
+
 export function resolvedPolicyRefreshIdentity(
   state: ResolvedPolicyRefreshState
 ): Omit<PolicySnapshotIdentity, "revision"> | null {

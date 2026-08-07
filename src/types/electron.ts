@@ -801,17 +801,29 @@ declare global {
         error?: string;
       }>;
       onWorkspacePolicyChanged?: (
-        callback: (snapshot: {
-          success: true;
-          status: "network" | "cached" | "current" | "unsupported";
-          revision: number;
-          accountId: string | null;
-          authGeneration: number;
-          managed: boolean;
-          policy: OrgPolicy | null;
-          policyUpdatedAt: string | null;
-          endpointSupported: boolean;
-        }) => void
+        callback: (
+          snapshot:
+            | {
+                success: true;
+                status: "network" | "cached" | "current" | "unsupported";
+                revision: number;
+                accountId: string | null;
+                authGeneration: number;
+                managed: boolean;
+                policy: OrgPolicy | null;
+                policyUpdatedAt: string | null;
+                endpointSupported: boolean;
+              }
+            | {
+                success: false;
+                status: "error";
+                revision: number;
+                accountId: string | null;
+                authGeneration: number;
+                code: "POLICY_UNRESOLVABLE";
+                error: string;
+              }
+        ) => void
       ) => () => void;
 
       getNoteRecordingConfig?: () => Promise<{
@@ -1637,6 +1649,7 @@ declare global {
           customDictionary?: string[];
           customPrompt?: string;
           systemPrompt?: string;
+          requestPurpose?: "agent";
           promptMode?: "cleanup";
           language?: string;
           locale?: string;

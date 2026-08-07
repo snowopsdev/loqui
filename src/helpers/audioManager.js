@@ -2161,12 +2161,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
         const result =
           route.kind === "agent"
-            ? await this.processAgentCommand(
-                normalizedText,
-                targetModel,
-                agentName,
-                { ...reasoningConfig, requiresAgent: true }
-              )
+            ? await this.processAgentCommand(normalizedText, targetModel, agentName, {
+                ...reasoningConfig,
+                requiresAgent: true,
+              })
             : await this.processWithReasoningModel(
                 normalizedText,
                 targetModel,
@@ -2422,12 +2420,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       try {
         if (route.kind === "agent") {
           this.assertAgentAllowedByPolicy();
-          const reasoned = await this.processAgentCommand(
-            processedText,
-            route.model,
-            agentName,
-            { ...route.config, requiresAgent: true }
-          );
+          const reasoned = await this.processAgentCommand(processedText, route.model, agentName, {
+            ...route.config,
+            requiresAgent: true,
+          });
           if (reasoned) processedText = reasoned;
         } else if (route.kind === "cleanup" && cleanupCloudMode === "openwhispr") {
           const reasonResult = await withSessionRefresh(async () => {
@@ -4043,12 +4039,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       try {
         if (route.kind === "agent") {
           this.assertAgentAllowedByPolicy();
-          const reasoned = await this.processAgentCommand(
-            finalText,
-            route.model,
-            agentName,
-            { ...route.config, requiresAgent: true }
-          );
+          const reasoned = await this.processAgentCommand(finalText, route.model, agentName, {
+            ...route.config,
+            requiresAgent: true,
+          });
           if (reasoned) finalText = reasoned;
           logger.info(
             "Streaming dictation-agent complete",

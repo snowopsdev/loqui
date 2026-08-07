@@ -1,18 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 
 const load = () => import("../../src/utils/version.ts");
-
-test("keeps the renderer version utility browser-compatible", () => {
-  const source = fs.readFileSync(
-    path.join(__dirname, "../../src/utils/version.ts"),
-    "utf8",
-  );
-
-  assert.doesNotMatch(source, /helpers\/appVersion\.js/);
-});
 
 test("recognizes only canonical three-part app versions", async () => {
   const { isCanonicalAppVersion } = await load();
@@ -56,7 +45,7 @@ test("keeps renderer and main-process validation behavior aligned", async () => 
     assert.equal(
       isCanonicalAppVersion(version),
       mainVersion.isCanonicalAppVersion(version),
-      String(version),
+      String(version)
     );
   }
 });

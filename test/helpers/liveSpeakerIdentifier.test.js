@@ -204,6 +204,35 @@ test("a voice force-merged at the cap becomes its own speaker once the cap rises
   );
 });
 
+test("an at-cap fold never steals the cluster's identity for a profile-matched voice", () => {
+  const { LiveSpeakerIdentifier } = loadIdentifier();
+  const identifier = new LiveSpeakerIdentifier();
+  identifier.setMaxSpeakers(1);
+  identifier.getSpeakerProfiles = () => [
+    { id: 1, display_name: "Alice", embedding: voiceA },
+    { id: 2, display_name: "Bob", embedding: voiceB },
+  ];
+
+  const alice = identifier._resolveSpeakerForEmbedding(voiceA, { updateCentroid: true });
+  assert.equal(alice.displayName, "Alice");
+
+  // Bob overflows the cap: his utterance is folded into Alice's cluster, but
+  // the cluster must keep Alice's identity — retagging it as Bob would both
+  // mislabel Alice and re-capture Bob through the profile lookup later.
+  const bobAtCap = identifier._resolveSpeakerForEmbedding(voiceB, { updateCentroid: true });
+  assert.equal(bobAtCap.speakerId, alice.speakerId);
+  assert.equal(bobAtCap.displayName, "Alice");
+
+  identifier.setMaxSpeakers(3);
+  const bobAfter = identifier._resolveSpeakerForEmbedding(voiceB, { updateCentroid: true });
+  assert.notEqual(bobAfter.speakerId, alice.speakerId, "Bob must get his own cluster");
+  assert.equal(bobAfter.displayName, "Bob");
+
+  const aliceAgain = identifier._resolveSpeakerForEmbedding(voiceA, { updateCentroid: true });
+  assert.equal(aliceAgain.speakerId, alice.speakerId);
+  assert.equal(aliceAgain.displayName, "Alice", "Alice's cluster must still be hers");
+});
+
 test("distinct voices are folded into one cluster when the session cap is 1", () => {
   const { LiveSpeakerIdentifier } = loadIdentifier();
   const identifier = new LiveSpeakerIdentifier();

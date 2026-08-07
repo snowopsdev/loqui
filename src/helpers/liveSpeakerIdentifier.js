@@ -710,10 +710,22 @@ class LiveSpeakerIdentifier {
     const matchedProfile = this._findStoredProfileMatch(embedding);
     if (matchedProfile) {
       speakerId = this._findTransientSpeakerForProfile(matchedProfile.id);
+      let forced = false;
       if (!speakerId) {
-        speakerId = this._assignOrForceCluster(embedding);
+        ({ speakerId, forced } = this._assignOrForceCluster(embedding));
       } else if (updateCentroid) {
         this._updateCentroid(speakerId, embedding);
+      }
+
+      // A forced at-cap fold lands on someone else's cluster — retagging it
+      // with the overflow speaker's profile would erase the original identity
+      // and keep capturing this voice via the profile lookup even after the
+      // cap rises.
+      if (forced) {
+        return {
+          speakerId,
+          displayName: this.transientDisplayNames.get(speakerId) || null,
+        };
       }
 
       this.transientProfileIds.set(speakerId, matchedProfile.id);
@@ -724,9 +736,13 @@ class LiveSpeakerIdentifier {
       };
     }
 
-    speakerId = this.currentSegmentSpeakerId || this._assignOrForceCluster(embedding);
-    if (updateCentroid && this.currentSegmentSpeakerId) {
-      this._updateCentroid(speakerId, embedding);
+    speakerId = this.currentSegmentSpeakerId;
+    if (speakerId) {
+      if (updateCentroid) {
+        this._updateCentroid(speakerId, embedding);
+      }
+    } else {
+      ({ speakerId } = this._assignOrForceCluster(embedding));
     }
 
     return {
@@ -743,10 +759,10 @@ class LiveSpeakerIdentifier {
         // overflow is usually a different voice, and a polluted centroid would
         // keep capturing it even after the cap rises (participants added
         // mid-meeting).
-        return nearest;
+        return { speakerId: nearest, forced: true };
       }
     }
-    return this._assignSpeakerId(embedding);
+    return { speakerId: this._assignSpeakerId(embedding), forced: false };
   }
 
   _findNearestTransient(embedding) {

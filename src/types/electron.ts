@@ -2147,6 +2147,9 @@ declare global {
           }>
         ) => void
       ) => () => void;
+      onMeetingSessionSpeakerConfigUpdated?: (
+        callback: (config: { enabled: boolean; expectedCount: number }) => void
+      ) => () => void;
       onMeetingTranscriptionError?: (callback: (error: string) => void) => () => void;
 
       // Speaker diarization

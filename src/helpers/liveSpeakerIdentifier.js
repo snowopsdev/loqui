@@ -134,7 +134,6 @@ class LiveSpeakerIdentifier {
     this.transientDisplayNames = new Map();
     this.transientProfileIds = new Map();
     this.transientNoteIds = new Map();
-    this.nextLiveIndex = 0;
     this.currentSegmentSpeakerId = null;
     this.currentSegmentSpeakerName = null;
     this.lastLiveIdentificationSample = 0;
@@ -333,6 +332,11 @@ class LiveSpeakerIdentifier {
 
   mapSpeaker(liveId, profileId, displayName, noteId) {
     if (!liveId || !this.transientEmbeddings.has(liveId)) {
+      debugLogger.warn("Live speaker mapping dropped: unknown speaker id", {
+        liveId,
+        displayName,
+        knownSpeakers: [...this.transientEmbeddings.keys()],
+      });
       return false;
     }
 
@@ -382,7 +386,6 @@ class LiveSpeakerIdentifier {
     this.transientDisplayNames = new Map();
     this.transientProfileIds = new Map();
     this.transientNoteIds = new Map();
-    this.nextLiveIndex = 0;
     this.currentSegmentSpeakerId = null;
     this.currentSegmentSpeakerName = null;
     this.lastLiveIdentificationSample = 0;
@@ -755,9 +758,15 @@ class LiveSpeakerIdentifier {
     return null;
   }
 
+  // Cluster ids double as the transcript's speaker labels, so a slot freed by a
+  // recluster merge is reused for the next new voice — the renderer has already
+  // rewritten the merged label's segments via the merge event.
   _assignSpeakerId(embedding) {
-    const speakerId = `speaker_${this.nextLiveIndex}`;
-    this.nextLiveIndex += 1;
+    let index = 0;
+    while (this.transientEmbeddings.has(`speaker_${index}`)) {
+      index += 1;
+    }
+    const speakerId = `speaker_${index}`;
     this.transientEmbeddings.set(speakerId, cloneFloat32Array(embedding));
     this.transientCounts.set(speakerId, 1);
     return speakerId;

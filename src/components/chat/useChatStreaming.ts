@@ -7,8 +7,8 @@ import {
   isAgentAllowed,
   isLlmSelectionAllowed,
   isWebSearchAllowed,
-  usePolicyStore,
-} from "../../stores/policyStore";
+} from "../../stores/policyRules";
+import { usePolicyStore } from "../../stores/policyStore";
 import { getAgentSystemPrompt } from "../../config/prompts";
 import { createToolRegistry } from "../../services/tools";
 import type { ToolRegistry } from "../../services/tools/ToolRegistry";
@@ -120,8 +120,16 @@ export function useChatStreaming({
             : settings.chatAgentProvider;
       if (
         !isAgentAllowed(policyState) ||
-        !isLlmSelectionAllowed(policyState, chatAgentMode, policyProvider)
+        !isLlmSelectionAllowed(policyState, { mode: chatAgentMode, provider: policyProvider })
       ) {
+        // The user message is already appended; answer it instead of dead-ending silently.
+        const restriction = !isAgentAllowed(policyState)
+          ? t("common.policyAgentRestricted")
+          : t("common.policyAiProcessingRestricted");
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: "assistant", content: restriction, isStreaming: false },
+        ]);
         return;
       }
 

@@ -7,11 +7,8 @@ import { getSettings } from "../stores/settingsStore";
 import { expandSnippets } from "../utils/snippets";
 import { getRecordingErrorTitle, getRecordingErrorDescription } from "../utils/recordingErrors";
 import { isAccessibilitySkipped } from "../utils/permissions";
-import {
-  isAgentAllowed,
-  isTranscriptionContextAllowed,
-  usePolicyStore,
-} from "../stores/policyStore";
+import { isAgentAllowed, isTranscriptionContextAllowed } from "../stores/policyRules";
+import { usePolicyStore } from "../stores/policyStore";
 
 // Maps a failed selection-replacement code to its `selectionEditing.*` toast
 // detail key; unlisted codes fall back to the generic "unavailable" message.

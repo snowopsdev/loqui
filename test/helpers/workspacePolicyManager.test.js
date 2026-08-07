@@ -361,7 +361,7 @@ test("known-managed unsupported fallbacks do not extend successful freshness", a
   assert.equal(requestCount, 3);
 });
 
-test("throttles sequential focus refreshes after a fallback but lets recovery retry", async (t) => {
+test("throttles sequential focus refreshes after a fallback", async (t) => {
   let currentTime = 0;
   let requestCount = 0;
   const updated = validPolicy("2026-08-05T00:05:00.000Z");
@@ -370,7 +370,7 @@ test("throttles sequential focus refreshes after a fallback but lets recovery re
     async () => {
       requestCount += 1;
       if (requestCount === 1) return response(200, validPolicy());
-      if (requestCount <= 3) throw new Error("offline");
+      if (requestCount <= 2) throw new Error("offline");
       return response(200, updated);
     },
     {
@@ -389,20 +389,10 @@ test("throttles sequential focus refreshes after a fallback but lets recovery re
   assert.equal((await context.manager.getPolicy(request)).status, "cached");
   assert.equal(requestCount, 2);
 
-  const firstRecovery = await context.manager.getPolicy({ ...request, reason: "recovery" });
-  currentTime = 300_002;
-  const secondWindowRecovery = await context.manager.getPolicy({
-    ...request,
-    reason: "recovery",
-  });
-  assert.equal(firstRecovery.status, "cached");
-  assert.equal(secondWindowRecovery.status, "cached");
-  assert.equal(requestCount, 3);
-
-  currentTime = 305_001;
-  const recovered = await context.manager.getPolicy({ ...request, reason: "recovery" });
+  currentTime = 305_002;
+  const recovered = await context.manager.getPolicy(request);
   assert.equal(recovered.policy.features.agentEnabled, true);
-  assert.equal(requestCount, 4);
+  assert.equal(requestCount, 3);
 });
 
 test("a stale managed HTTP response cannot replace a newer disk policy after restart", async (t) => {
@@ -717,4 +707,80 @@ test("an unmanaged verdict cannot be rebound to a new credential or API origin",
 
   assert.equal(reboundOrigin.success, false);
   assert.equal(reboundOrigin.code, "POLICY_UNAVAILABLE");
+});
+
+test("serves the in-memory verdict when the disk cache is unreadable during an outage", async (t) => {
+  let online = true;
+  const context = setup(async () => {
+    if (!online) throw new Error("offline");
+    return response(200, { data: validPolicy().data });
+  });
+  t.after(context.cleanup);
+  const request = { accountId: "account-a", expectedAuthGeneration: 1 };
+
+  const first = await context.manager.getPolicy(request);
+  assert.equal(first.status, "network");
+
+  fs.writeFileSync(context.cachePath, "not json");
+  online = false;
+  const fallback = await context.manager.getPolicy(request);
+  assert.equal(fallback.success, true);
+  assert.equal(fallback.status, "cached");
+  assert.equal(fallback.managed, true);
+});
+
+test("a stale-but-successful refresh still counts toward the refresh TTL", async (t) => {
+  let currentTime = 0;
+  let fetches = 0;
+  const context = setup(
+    async () => {
+      fetches += 1;
+      return response(200, {
+        data: validPolicy(fetches === 1 ? "2026-08-05T00:00:00.000Z" : "2026-08-01T00:00:00.000Z")
+          .data,
+      });
+    },
+    { successfulRefreshMs: 5 * 60 * 1000, now: () => currentTime }
+  );
+  t.after(context.cleanup);
+  const request = { accountId: "account-a", expectedAuthGeneration: 1 };
+
+  await context.manager.getPolicy(request);
+  currentTime += 6 * 60 * 1000;
+  const stale = await context.manager.getPolicy(request);
+  assert.equal(stale.status, "current");
+  assert.equal(fetches, 2);
+
+  currentTime += 60 * 1000;
+  const held = await context.manager.getPolicy(request);
+  assert.equal(held.status, "current");
+  assert.equal(fetches, 2, "a lagging server must not defeat the refresh TTL");
+});
+
+test("a policy request without a validated auth generation fails closed", async (t) => {
+  const context = setup(async () => response(200, { data: validPolicy().data }));
+  t.after(context.cleanup);
+
+  const result = await context.manager.getPolicy({ accountId: "account-a" });
+  assert.equal(result.success, false);
+  assert.equal(result.code, "AUTH_CONTEXT_UNVALIDATED");
+  assert.equal(result.accountId, "account-a");
+  assert.equal(result.authGeneration, 1);
+});
+
+test("throttled errors carry the snapshot identity fields", async (t) => {
+  const context = setup(
+    async () => {
+      throw new Error("offline");
+    },
+    { minimumAttemptIntervalMs: 60_000, now: () => 1_000_000 }
+  );
+  t.after(context.cleanup);
+  const request = { accountId: "account-a", expectedAuthGeneration: 1 };
+
+  await context.manager.getPolicy(request);
+  const throttled = await context.manager.getPolicy(request);
+  assert.equal(throttled.code, "POLICY_RETRY_THROTTLED");
+  assert.equal(throttled.accountId, "account-a");
+  assert.equal(throttled.authGeneration, 1);
 });

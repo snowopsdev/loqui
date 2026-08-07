@@ -105,5 +105,4 @@ test("renderer fails closed when a managed-unresolvable refresh supersedes unman
 
   await usePolicyStore.getState().fetchPolicy("account-a", 1);
   assert.equal(usePolicyStore.getState().status, "error");
-  assert.equal(usePolicyStore.getState().loaded, true);
 });

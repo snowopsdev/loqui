@@ -3,7 +3,8 @@ import { transcribeFileWithSpeakers } from "../services/fileTranscription";
 import type { FileTranscriptionConfig, DiarizationSettings } from "../services/fileTranscription";
 import { DOWNLOAD_ERROR_KEYS } from "../components/notes/shared";
 import { getSettings } from "./settingsStore";
-import { isTranscriptionContextAllowed, usePolicyStore } from "./policyStore";
+import { isTranscriptionContextAllowed } from "./policyRules";
+import { usePolicyStore } from "./policyStore";
 
 export type QueueItemStatus = "queued" | "downloading" | "transcribing" | "done" | "error";
 

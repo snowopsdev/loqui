@@ -33,9 +33,9 @@ import MemberAvatar from "../MemberAvatar";
 import {
   isShareActionAllowed,
   isShareVisibilityAllowed,
-  usePolicyStore,
-} from "../../stores/policyStore";
-import type { SharePolicyAction } from "../../stores/policyRules";
+  type SharePolicyAction,
+} from "../../stores/policyRules";
+import { usePolicySnapshot } from "../../hooks/usePolicy";
 import { emailDomain, isPersonalEmailDomain } from "../../utils/personalEmailDomains";
 import { EMAIL_REGEX } from "../../utils/validation";
 import type {
@@ -96,22 +96,14 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
     localIsSharedRef.current = Boolean(note.is_shared);
   }, [note.is_shared]);
 
-  const policyStatus = usePolicyStore((s) => s.status);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const appVersion = usePolicyStore((s) => s.appVersion);
-  const policyState = useMemo(
-    () => ({ status: policyStatus, policy: policyDoc, appVersion }),
-    [policyStatus, policyDoc, appVersion]
-  );
+  const policyState = usePolicySnapshot();
   const visibilityAllowed = useCallback(
     (visibility: ShareVisibility) => isShareVisibilityAllowed(policyState, visibility),
     [policyState]
   );
 
   const ownerDomain = useMemo(() => emailDomain(ownerEmail), [ownerEmail]);
-  const showDomainOption = Boolean(
-    ownerDomain && !isPersonalEmailDomain(ownerDomain) && visibilityAllowed("domain")
-  );
+  const showDomainOption = Boolean(ownerDomain && !isPersonalEmailDomain(ownerDomain));
 
   const share = cached?.share ?? null;
   const access = cached?.access;
@@ -123,9 +115,9 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
   );
   const canManageAccess = access?.can_manage_access ?? true;
   const canInvite = canManageAccess && shareActionAllowed("invite");
-  const canBeginSharing =
-    canManageAccess &&
-    (visibilityAllowed("link") || visibilityAllowed("domain") || visibilityAllowed("invited"));
+  const sharingRestrictedByPolicy =
+    !visibilityAllowed("link") && !visibilityAllowed("domain") && !visibilityAllowed("invited");
+  const canBeginSharing = canManageAccess && !sharingRestrictedByPolicy;
   const canUseLink =
     canManageAccess &&
     shareActionAllowed(currentVisibility === "private" ? "create-link" : "copy-link");
@@ -660,6 +652,7 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
               size="sm"
               onClick={() => void handleSyncAndShare()}
               disabled={syncing || !canBeginSharing}
+              title={sharingRestrictedByPolicy ? t("common.managedByOrg") : undefined}
               className="h-8 px-3 text-xs gap-1.5 justify-self-start"
             >
               {syncing && <Loader2 size={12} className="animate-spin" />}
@@ -804,6 +797,11 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
                     (!grant.inherited || access.can_manage_inherited_access) &&
                     shareActionAllowed("remove-grant")
                   )}
+                  policyRestrictedReason={
+                    access?.can_manage_access && !shareActionAllowed("change-grant")
+                      ? t("common.managedByOrg")
+                      : undefined
+                  }
                   busy={busyGrantId === grant.id}
                   onPermissionChange={(permission) => void handleGrantPermission(grant, permission)}
                   onRemove={() => void handleRemoveGrant(grant)}
@@ -890,7 +888,11 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
                 value={share?.visibility ?? "private"}
                 ownerDomain={ownerDomain}
                 showDomainOption={showDomainOption}
-                showLinkOption={visibilityAllowed("link")}
+                optionDisabledReasons={{
+                  ...(visibilityAllowed("invited") ? {} : { invited: t("common.managedByOrg") }),
+                  ...(visibilityAllowed("link") ? {} : { link: t("common.managedByOrg") }),
+                  ...(visibilityAllowed("domain") ? {} : { domain: t("common.managedByOrg") }),
+                }}
                 disabled={loading || !share || !canManageAccess || savingVisibility || linkBusy}
                 onChange={(v) => void applyVisibility(v)}
               />
@@ -966,6 +968,7 @@ function AccessGrantRow({
   grant,
   canChangePermission,
   canRemove,
+  policyRestrictedReason,
   busy,
   onPermissionChange,
   onRemove,
@@ -973,6 +976,7 @@ function AccessGrantRow({
   grant: NoteAccessGrant;
   canChangePermission: boolean;
   canRemove: boolean;
+  policyRestrictedReason?: string;
   busy: boolean;
   onPermissionChange: (permission: NoteAccessGrant["permission"]) => void;
   onRemove: () => void;
@@ -1038,6 +1042,11 @@ function AccessGrantRow({
               >
                 {grant.permission === "viewer" && <Check size={11} />}
                 {t("noteEditor.share.dialog.viewer")}
+                {!canChangePermission && policyRestrictedReason && (
+                  <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    {policyRestrictedReason}
+                  </span>
+                )}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-xs gap-2"
@@ -1046,6 +1055,11 @@ function AccessGrantRow({
               >
                 {grant.permission === "editor" && <Check size={11} />}
                 {t("noteEditor.share.dialog.editor")}
+                {!canChangePermission && policyRestrictedReason && (
+                  <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    {policyRestrictedReason}
+                  </span>
+                )}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-xs text-red-500"

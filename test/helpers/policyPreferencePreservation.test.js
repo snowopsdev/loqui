@@ -101,8 +101,9 @@ test("managed policy gates preserve the user's raw preferences", async (t) => {
     else globalThis.localStorage = originalLocalStorage;
   });
 
-  const { usePolicyStore, isCloudBackupAllowed, lockedLocalHistoryValue } =
-    await vite.ssrLoadModule("/stores/policyStore.ts");
+  const { usePolicyStore } = await vite.ssrLoadModule("/stores/policyStore.ts");
+  const { isCloudBackupAllowed, lockedLocalHistoryValue } =
+    await vite.ssrLoadModule("/stores/policyRules.ts");
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
   const before = useSettingsStore.getState();
   assert.equal(before.transcriptionMode, "local");

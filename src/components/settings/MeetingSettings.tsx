@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { usePolicyStore, enforceModeOptions, isModeAllowed } from "../../stores/policyStore";
+import { usePolicyModeOptions } from "../../hooks/usePolicy";
 import { InferenceModeSelector, SettingsRow } from "../ui/SettingsSection";
 import type { InferenceModeOption } from "../ui/SettingsSection";
 import { Toggle } from "../ui/toggle";
@@ -53,12 +53,7 @@ export function MeetingTranscriptionPanel() {
     meetingRemoteTranscriptionUrl,
     setMeetingRemoteTranscriptionUrl,
   } = useSettingsStore();
-  const policyStatus = usePolicyStore((state) => state.status);
-  const policy = usePolicyStore((state) => state.policy);
-  const appVersion = usePolicyStore((state) => state.appVersion);
-  const policyState = { status: policyStatus, policy, appVersion };
-
-  const transcriptionModes: InferenceModeOption[] = enforceModeOptions(
+  const { modes: transcriptionModes, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
     [
       {
         id: "openwhispr",
@@ -87,13 +82,11 @@ export function MeetingTranscriptionPanel() {
         icon: <Network className="w-4 h-4" />,
       },
     ],
-    "transcription",
-    policyState,
-    t("common.managedByOrg")
+    "transcription"
   );
 
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
-    if (!isModeAllowed(policyState, "transcription", mode)) return;
+    if (!isModeAllowed(mode)) return;
     if (mode === "openwhispr" && !isSignedIn) {
       startOnboarding();
       return;

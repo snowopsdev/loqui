@@ -13,7 +13,10 @@ export async function handleMeetingRecordingRequest({
   restoreFromMeetingMode,
   onHandled,
 }: MeetingRecordingRequestOptions): Promise<void> {
-  const accepted = await startRecording(args);
-  if (!accepted) await restoreFromMeetingMode();
-  onHandled();
+  try {
+    const accepted = await startRecording(args);
+    if (!accepted) await restoreFromMeetingMode();
+  } finally {
+    onHandled();
+  }
 }

@@ -19,7 +19,8 @@ import { cn } from "./lib/utils";
 import SupportDropdown from "./ui/SupportDropdown";
 import { getCachedPlatform } from "../utils/platform";
 import type { UpsellDecision } from "../lib/upsell";
-import { isAgentAllowed, isDesktopActionAllowed, usePolicyStore } from "../stores/policyStore";
+import { isAgentAllowed, isPolicyActionAllowed } from "../stores/policyRules";
+import { usePolicyStore } from "../stores/policyStore";
 
 const platform = getCachedPlatform();
 
@@ -75,7 +76,7 @@ export default function ControlPanelSidebar({
   const showUpgradeBanner = upsell === "show" && !showLimitBanner && !upgradeDismissed;
 
   const agentAllowed = usePolicyStore(isAgentAllowed);
-  const policyActionsAllowed = usePolicyStore((state) => isDesktopActionAllowed(state, "capture"));
+  const policyActionsAllowed = usePolicyStore((state) => isPolicyActionAllowed(state));
 
   const navItems: {
     id: ControlPanelView;

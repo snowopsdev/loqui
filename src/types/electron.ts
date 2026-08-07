@@ -785,8 +785,7 @@ declare global {
       // Org policy (see src/types/policy.ts)
       getWorkspacePolicy?: (
         accountId?: string,
-        expectedAuthGeneration?: number,
-        reason?: "default" | "recovery"
+        expectedAuthGeneration?: number
       ) => Promise<{
         success: boolean;
         status?: "network" | "cached" | "current" | "unsupported" | "restricted" | "error";

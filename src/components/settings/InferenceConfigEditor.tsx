@@ -7,7 +7,7 @@ import {
   selectResolvedLLMConfig,
   setResolvedLLMConfig,
 } from "../../stores/settingsStore";
-import { usePolicyStore, enforceModeOptions, isModeAllowed } from "../../stores/policyStore";
+import { usePolicyModeOptions } from "../../hooks/usePolicy";
 import { InferenceModeSelector } from "../ui/SettingsSection";
 import type { InferenceModeOption } from "../ui/SettingsSection";
 import ReasoningModelSelector from "../ReasoningModelSelector";
@@ -42,13 +42,9 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
   const { t } = useTranslation();
   const config = useSettingsStore(useShallow((s) => selectResolvedLLMConfig(s, scope)));
   const isSignedIn = useSettingsStore((s) => s.isSignedIn);
-  const policyStatus = usePolicyStore((s) => s.status);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const appVersion = usePolicyStore((s) => s.appVersion);
-  const policyState = { status: policyStatus, policy: policyDoc, appVersion };
 
   const prefix = MODE_LABEL_PREFIX[scope];
-  const modes: InferenceModeOption[] = enforceModeOptions(
+  const { modes, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
     [
       {
         id: "openwhispr",
@@ -83,9 +79,7 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
         icon: <Building2 className="w-4 h-4" />,
       },
     ],
-    "llm",
-    policyState,
-    t("common.managedByOrg")
+    "llm"
   );
 
   const setField = useCallback(
@@ -98,11 +92,7 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
 
   const handleModeSelect = useCallback(
     (mode: InferenceMode) => {
-      // "Disabled" mode options still fire onSelect (the sign-in gate relies on
-      // that to start onboarding), so policy must be enforced here, not in the UI.
-      if (!isModeAllowed({ status: policyStatus, policy: policyDoc, appVersion }, "llm", mode)) {
-        return;
-      }
+      if (!isModeAllowed(mode)) return;
       if (mode === "openwhispr" && !isSignedIn) {
         startCloudOnboarding();
         return;
@@ -125,16 +115,7 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
 
       onModeChange?.(mode);
     },
-    [
-      scope,
-      config.mode,
-      config.provider,
-      isSignedIn,
-      onModeChange,
-      policyStatus,
-      policyDoc,
-      appVersion,
-    ]
+    [scope, config.mode, config.provider, isSignedIn, onModeChange, isModeAllowed]
   );
 
   const setMode = setField("mode");

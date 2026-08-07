@@ -1,5 +1,6 @@
 import type { InferenceMode, ShareVisibility } from "../types/electron";
 import type { OrgPolicy, PolicyScope } from "../types/policy";
+import type { SettingsState } from "./settingsStore";
 import { compareAppVersions } from "../utils/version.ts";
 
 export type PolicyStatus = "idle" | "loading" | "managed" | "unmanaged" | "error";
@@ -10,6 +11,10 @@ export interface PolicyDecisionSnapshot {
   appVersion: string | null;
 }
 
+function managedPolicy(state: PolicyDecisionSnapshot): OrgPolicy | null {
+  return state.status === "managed" && state.policy ? state.policy : null;
+}
+
 export function isPolicyActionAllowed(state: PolicyDecisionSnapshot): boolean {
   if (state.status === "idle" || state.status === "unmanaged") return true;
   if (state.status !== "managed" || !state.policy) return false;
@@ -18,77 +23,95 @@ export function isPolicyActionAllowed(state: PolicyDecisionSnapshot): boolean {
   return compareAppVersions(state.appVersion, state.policy.minAppVersion) >= 0;
 }
 
-export type DesktopPolicyAction =
-  | "capture"
-  | "inference"
-  | "agent"
-  | "sharing"
-  | "cloud-backup"
-  | "history"
-  | "retention-settings"
-  | "updater"
-  | "diagnostics"
-  | "permissions"
-  | "account"
-  | "sign-out";
+/** Whether the org's minimum app version blocks this build (drives the update banner). */
+export function isUpdateRequiredByOrg(state: PolicyDecisionSnapshot): boolean {
+  const minAppVersion = managedPolicy(state)?.minAppVersion;
+  if (!minAppVersion || !state.appVersion) return false;
+  return compareAppVersions(state.appVersion, minAppVersion) < 0;
+}
 
-const RECOVERY_ACTIONS = new Set<DesktopPolicyAction>([
-  "history",
-  "retention-settings",
-  "updater",
-  "diagnostics",
-  "permissions",
-  "account",
-  "sign-out",
-]);
-
-export function isDesktopActionAllowed(
+/** Fail closed while unresolved, allow unmanaged users, else ask the policy. */
+function managedPolicyDecision(
   state: PolicyDecisionSnapshot,
-  action: DesktopPolicyAction
+  decide: (policy: OrgPolicy) => boolean
 ): boolean {
-  return RECOVERY_ACTIONS.has(action) || isPolicyActionAllowed(state);
+  if (!isPolicyActionAllowed(state)) return false;
+  const policy = managedPolicy(state);
+  return policy ? decide(policy) : true;
 }
 
 export function effectiveLocalHistoryEnabled(
   state: PolicyDecisionSnapshot,
   personalPreference: boolean
 ): boolean {
-  if (state.status !== "managed" || !state.policy) return personalPreference;
-  const mode = state.policy.dataRetention.localHistoryMode;
+  return lockedLocalHistoryValue(state) ?? personalPreference;
+}
+
+/** The org-forced local history value, or null when the user may choose. */
+export function lockedLocalHistoryValue(state: PolicyDecisionSnapshot): boolean | null {
+  const mode = managedPolicy(state)?.dataRetention.localHistoryMode;
   if (mode === "always_on") return true;
   if (mode === "always_off") return false;
-  return personalPreference;
+  return null;
 }
 
 export function effectiveAudioRetentionDays(
   state: PolicyDecisionSnapshot,
   personalPreference: number
 ): number {
-  if (personalPreference === 0 || state.status !== "managed" || !state.policy) {
-    return personalPreference;
-  }
-  const maximumDays = state.policy.dataRetention.audioRetentionMaxDays;
+  if (personalPreference === 0) return personalPreference;
+  const maximumDays = maxAudioRetentionDays(state);
   return maximumDays === null ? personalPreference : Math.min(personalPreference, maximumDays);
 }
 
+/** The org cap on audio retention days, or null when uncapped. */
+export function maxAudioRetentionDays(state: PolicyDecisionSnapshot): number | null {
+  return managedPolicy(state)?.dataRetention.audioRetentionMaxDays ?? null;
+}
+
+/** Whether a transcription/LLM mode is allowed. Unmanaged users allow everything. */
 export function isModeAllowedByPolicy(
   state: PolicyDecisionSnapshot,
   scope: PolicyScope,
   mode: InferenceMode
 ): boolean {
-  if (!isPolicyActionAllowed(state)) return false;
-  if (state.status !== "managed" || !state.policy) return true;
-  return state.policy[scope].allowedModes.includes(mode);
+  return managedPolicyDecision(state, (policy) => policy[scope].allowedModes.includes(mode));
 }
 
+/** Whether a BYOK provider id is allowed for a scope. Unmanaged users allow everything. */
 export function isProviderAllowedByPolicy(
   state: PolicyDecisionSnapshot,
   scope: PolicyScope,
   providerId: string
 ): boolean {
-  if (!isPolicyActionAllowed(state)) return false;
-  if (state.status !== "managed" || !state.policy) return true;
-  return state.policy[scope].allowedByokProviders.includes(providerId);
+  return managedPolicyDecision(state, (policy) =>
+    policy[scope].allowedByokProviders.includes(providerId)
+  );
+}
+
+/** Whether an enterprise-cloud provider id is allowed. Unmanaged users allow everything. */
+export function isEnterpriseProviderAllowed(
+  state: PolicyDecisionSnapshot,
+  providerId: string
+): boolean {
+  return managedPolicyDecision(state, (policy) =>
+    policy.llm.allowedEnterpriseProviders.includes(providerId)
+  );
+}
+
+/** Whether the AI agent (dictation, voice, and chat) is allowed. */
+export function isAgentAllowed(state: PolicyDecisionSnapshot): boolean {
+  return managedPolicyDecision(state, (policy) => policy.features.agentEnabled);
+}
+
+/** Whether the agent's web_search tool is allowed. */
+export function isWebSearchAllowed(state: PolicyDecisionSnapshot): boolean {
+  return managedPolicyDecision(state, (policy) => policy.features.webSearchEnabled);
+}
+
+/** Whether cloud backup/sync is allowed. */
+export function isCloudBackupAllowed(state: PolicyDecisionSnapshot): boolean {
+  return managedPolicyDecision(state, (policy) => policy.dataRetention.cloudBackupAllowed);
 }
 
 export interface LlmSelection {
@@ -105,8 +128,7 @@ export function isLlmSelectionAllowed(
     return isProviderAllowedByPolicy(state, "llm", selection.provider);
   }
   if (selection.mode === "enterprise") {
-    if (state.status !== "managed" || !state.policy) return true;
-    return state.policy.llm.allowedEnterpriseProviders.includes(selection.provider);
+    return isEnterpriseProviderAllowed(state, selection.provider);
   }
   return true;
 }
@@ -125,16 +147,49 @@ export function isTranscriptionSelectionAllowed(
   return isProviderAllowedByPolicy(state, "transcription", selection.provider);
 }
 
+export type TranscriptionPolicyContext = "dictation" | "meeting" | "upload";
+
+export function getTranscriptionSelection(
+  settings: SettingsState,
+  context: TranscriptionPolicyContext
+): TranscriptionSelection {
+  if (context === "meeting") {
+    return {
+      mode: settings.meetingTranscriptionMode,
+      provider: settings.meetingCloudTranscriptionProvider || settings.cloudTranscriptionProvider,
+    };
+  }
+  if (context === "upload") {
+    return {
+      mode: settings.uploadTranscriptionMode,
+      provider: settings.uploadCloudTranscriptionProvider || settings.cloudTranscriptionProvider,
+    };
+  }
+  return {
+    mode: settings.transcriptionMode,
+    provider: settings.cloudTranscriptionProvider,
+  };
+}
+
+export function isTranscriptionContextAllowed(
+  state: PolicyDecisionSnapshot,
+  settings: SettingsState,
+  context: TranscriptionPolicyContext
+): boolean {
+  return isTranscriptionSelectionAllowed(state, getTranscriptionSelection(settings, context));
+}
+
+/** Whether a note share visibility is allowed under the org's external-sharing mode. */
 export function isShareVisibilityAllowed(
   state: PolicyDecisionSnapshot,
   visibility: ShareVisibility
 ): boolean {
-  if (!isPolicyActionAllowed(state)) return false;
-  if (state.status !== "managed" || !state.policy) return true;
-  const mode = state.policy.sharing.externalLinkSharing;
-  if (mode === "allowed") return true;
-  if (mode === "domain_only") return visibility === "private" || visibility === "domain";
-  return visibility === "private";
+  return managedPolicyDecision(state, (policy) => {
+    const mode = policy.sharing.externalLinkSharing;
+    if (mode === "allowed") return true;
+    if (mode === "domain_only") return visibility === "private" || visibility === "domain";
+    return visibility === "private";
+  });
 }
 
 export type SharePolicyAction =
@@ -181,6 +236,18 @@ export function isControlPanelViewAllowed(
   if (view === "chat") return agentAllowed;
   if (view === "upload") return policyActionsAllowed;
   return true;
+}
+
+/** Mark policy-disallowed mode options disabled with a "managed" badge. */
+export function enforceModeOptions<
+  T extends { id: InferenceMode; disabled?: boolean; badge?: string },
+>(options: T[], scope: PolicyScope, state: PolicyDecisionSnapshot, managedBadge: string): T[] {
+  if (state.status === "idle" || state.status === "unmanaged") return options;
+  return options.map((option) =>
+    isModeAllowedByPolicy(state, scope, option.id)
+      ? option
+      : { ...option, disabled: true, badge: managedBadge }
+  );
 }
 
 interface CloudProviderOption {

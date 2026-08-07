@@ -25,8 +25,8 @@ import {
   type ModelPickerStyles,
 } from "../utils/modelPickerStyles";
 import { useSettingsStore } from "../stores/settingsStore";
-import { usePolicyStore, isProviderAllowed } from "../stores/policyStore";
-import { reconcileCloudProviderSelection } from "../stores/policyRules";
+import { isProviderAllowedByPolicy, reconcileCloudProviderSelection } from "../stores/policyRules";
+import { usePolicySnapshot } from "../hooks/usePolicy";
 import { getRemoteProviderIcon } from "../utils/providerIcons";
 import { createExternalLinkHandler } from "../utils/externalLinks";
 import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
@@ -393,17 +393,10 @@ export default function TranscriptionModelPicker({
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
   const colorScheme: ColorScheme = variant === "settings" ? "purple" : "blue";
   const styles = useMemo(() => MODEL_PICKER_COLORS[colorScheme], [colorScheme]);
-  const policyStatus = usePolicyStore((s) => s.status);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const appVersion = usePolicyStore((s) => s.appVersion);
+  const policyState = usePolicySnapshot();
   const providerAllowed = useCallback(
-    (providerId: string) =>
-      isProviderAllowed(
-        { status: policyStatus, policy: policyDoc, appVersion },
-        "transcription",
-        providerId
-      ),
-    [policyStatus, policyDoc, appVersion]
+    (providerId: string) => isProviderAllowedByPolicy(policyState, "transcription", providerId),
+    [policyState]
   );
   const cloudProviders = useMemo(
     () =>
@@ -413,12 +406,22 @@ export default function TranscriptionModelPicker({
     [streamingOnly, providerAllowed]
   );
   const cloudProviderTabs = useMemo(() => {
-    const visibleIds = new Set(cloudProviders.map((p) => p.id));
-    if (providerAllowed("custom")) visibleIds.add("custom");
-    return CLOUD_PROVIDER_TABS.filter((p) => visibleIds.has(p.id)).map((provider) =>
-      provider.id === "custom" ? { ...provider, name: t("transcription.customProvider") } : provider
+    const availableIds = new Set(
+      (streamingOnly ? getStreamingTranscriptionProviders() : getTranscriptionProviders()).map(
+        (p) => p.id
+      )
     );
-  }, [cloudProviders, providerAllowed, t]);
+    availableIds.add("custom");
+    return CLOUD_PROVIDER_TABS.filter((p) => availableIds.has(p.id)).map((provider) => {
+      const named =
+        provider.id === "custom"
+          ? { ...provider, name: t("transcription.customProvider") }
+          : provider;
+      return providerAllowed(named.id)
+        ? named
+        : { ...named, disabled: true, disabledLabel: t("common.managedByOrg") };
+    });
+  }, [streamingOnly, providerAllowed, t]);
 
   useEffect(() => {
     selectedLocalModelRef.current = selectedLocalModel;

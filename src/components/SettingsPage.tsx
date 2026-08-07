@@ -109,16 +109,14 @@ import { formatBytes } from "../utils/formatBytes";
 import { clearMissingLocalModelSelections, useSettingsStore } from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import {
-  usePolicyStore,
+  canChangeCloudBackupPreference,
   effectiveAudioRetentionDays,
   effectiveLocalHistoryEnabled,
-  enforceModeOptions,
-  isModeAllowed,
-  lockedLocalHistoryValue,
   isCloudBackupAllowed,
+  lockedLocalHistoryValue,
   maxAudioRetentionDays,
-} from "../stores/policyStore";
-import { canChangeCloudBackupPreference } from "../stores/policyRules";
+} from "../stores/policyRules";
+import { usePolicyModeOptions, usePolicySnapshot } from "../hooks/usePolicy";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
 import WorkspaceSection from "./settings/WorkspaceSection";
 import WorkspaceBillingOverview from "./settings/WorkspaceBillingOverview";
@@ -280,12 +278,7 @@ function TranscriptionSection({
   toast,
 }: TranscriptionSectionProps) {
   const { t } = useTranslation();
-  const policyStatus = usePolicyStore((s) => s.status);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const policyAppVersion = usePolicyStore((s) => s.appVersion);
-  const policyState = { status: policyStatus, policy: policyDoc, appVersion: policyAppVersion };
-
-  const transcriptionModes: InferenceModeOption[] = enforceModeOptions(
+  const { modes: transcriptionModes, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
     [
       {
         id: "openwhispr",
@@ -314,17 +307,11 @@ function TranscriptionSection({
         icon: <Network className="w-4 h-4" />,
       },
     ],
-    "transcription",
-    policyState,
-    t("common.managedByOrg")
+    "transcription"
   );
 
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
-    // "Disabled" mode options still fire onSelect (the sign-in gate relies on
-    // that to start onboarding), so policy must be enforced here, not in the UI.
-    if (!isModeAllowed(policyState, "transcription", mode)) {
-      return;
-    }
+    if (!isModeAllowed(mode)) return;
     if (mode === "openwhispr" && !isSignedIn) {
       startOnboarding();
       return;
@@ -876,14 +863,7 @@ export default function SettingsPage({
   const translationKey = useSettingsStore((s) => s.translationKey);
   const setTranslationKey = useSettingsStore((s) => s.setTranslationKey);
 
-  const settingsPolicyStatus = usePolicyStore((s) => s.status);
-  const settingsPolicyDoc = usePolicyStore((s) => s.policy);
-  const settingsPolicyAppVersion = usePolicyStore((s) => s.appVersion);
-  const settingsPolicyState = {
-    status: settingsPolicyStatus,
-    policy: settingsPolicyDoc,
-    appVersion: settingsPolicyAppVersion,
-  };
+  const settingsPolicyState = usePolicySnapshot();
   const historyLockedByPolicy = lockedLocalHistoryValue(settingsPolicyState) !== null;
   const effectiveDataRetentionEnabled = effectiveLocalHistoryEnabled(
     settingsPolicyState,

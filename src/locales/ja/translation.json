@@ -169,7 +169,10 @@
     "copy": "コピー",
     "copied": "コピーしました",
     "done": "完了",
-    "skip": "スキップ"
+    "skip": "スキップ",
+    "policyAiProcessingRestricted": "AI処理は組織によって制限されています。",
+    "policyAgentRestricted": "AIエージェントの使用は組織によって制限されています。",
+    "policyTranscriptionRestricted": "文字起こしは組織によって制限されています。"
   },
   "onboarding": {
     "steps": {
@@ -2556,7 +2559,8 @@
       "title": "議事録",
       "description": "文字起こしと構造化されたサマリー",
       "comingSoon": "近日公開",
-      "back": "戻る"
+      "back": "戻る",
+      "restrictedByOrg": "会議の文字起こしは組織によって制限されています。"
     },
     "meetingPill": {
       "returnToNote": "録音に戻る",

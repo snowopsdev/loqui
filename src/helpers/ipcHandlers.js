@@ -10,7 +10,7 @@ const tokenStore = require("./tokenStore");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
 const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
 const { createWorkspacePolicyManager } = require("./workspacePolicyManager");
-const { createSttConfigRequestHandler } = require("./sttConfigRequest");
+const { createCloudConfigRequestHandler } = require("./cloudConfigRequest");
 const {
   createPolicyResponseError,
   readPolicyResponseError,
@@ -4652,12 +4652,21 @@ class IPCHandlers {
       broadcast: (snapshot) => broadcastToWindows("workspace-policy-changed", snapshot),
       logger: debugLogger,
     });
-    const handleSttConfigRequest = createSttConfigRequestHandler({
+    const handleSttConfigRequest = createCloudConfigRequestHandler({
       getApiUrl,
       getAuthHeader,
       proxyFetch,
       withPolicyHeaders,
       logger: debugLogger,
+      configPath: "stt-config",
+    });
+    const handleNoteRecordingConfigRequest = createCloudConfigRequestHandler({
+      getApiUrl,
+      getAuthHeader,
+      proxyFetch,
+      withPolicyHeaders,
+      logger: debugLogger,
+      configPath: "note-recording-config",
     });
 
     ipcMain.handle("cloud-transcribe", async (event, audioBuffer, opts = {}) => {
@@ -7657,45 +7666,12 @@ class IPCHandlers {
 
     ipcMain.handle("get-stt-config", handleSttConfigRequest);
 
-    ipcMain.handle(
-      "get-workspace-policy",
-      async (event, accountId, expectedAuthGeneration, reason) => {
-        const authHeaders = await getAuthHeader(event);
-        return workspacePolicyManager.getPolicy({
-          accountId,
-          expectedAuthGeneration,
-          authHeaders,
-          reason: reason === "recovery" ? "recovery" : "default",
-        });
-      }
-    );
-
-    ipcMain.handle("get-note-recording-config", async (event) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/note-recording-config`, {
-          headers: authHeader,
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error("Note recording config fetch error:", error);
-        return null;
-      }
+    ipcMain.handle("get-workspace-policy", async (event, accountId, expectedAuthGeneration) => {
+      const authHeaders = await getAuthHeader(event);
+      return workspacePolicyManager.getPolicy({ accountId, expectedAuthGeneration, authHeaders });
     });
+
+    ipcMain.handle("get-note-recording-config", handleNoteRecordingConfigRequest);
 
     ipcMain.handle("transcribe-audio-file-cloud", async (event, filePath, opts = {}) => {
       const requestId = typeof opts?.requestId === "string" ? opts.requestId : null;

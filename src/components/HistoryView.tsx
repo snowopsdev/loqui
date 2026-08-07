@@ -10,7 +10,8 @@ import { cn } from "./lib/utils";
 import { useUpcomingEvents } from "../hooks/useUpcomingEvents";
 import UpcomingMeetings from "./UpcomingMeetings";
 import { useSettingsStore } from "../stores/settingsStore";
-import { effectiveLocalHistoryEnabled, usePolicyStore } from "../stores/policyStore";
+import { effectiveLocalHistoryEnabled } from "../stores/policyRules";
+import { usePolicyStore } from "../stores/policyStore";
 
 interface HistoryViewProps {
   history: TranscriptionItemType[];

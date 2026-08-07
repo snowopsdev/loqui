@@ -62,18 +62,21 @@ function createWorkspacePolicyManager({
   const inFlight = new Map();
   const successfulRefreshes = new Map();
   const lastAttempts = new Map();
-  const lastRecoveryAttempts = new Map();
   const managedPolicyRequired = new Set();
   let revision = 0;
 
   function captureIdentity(request = {}) {
     const tokenState = tokenStore.getState();
     if (
-      request.expectedAuthGeneration !== undefined &&
-      (!Number.isSafeInteger(request.expectedAuthGeneration) ||
-        request.expectedAuthGeneration < 0 ||
-        request.expectedAuthGeneration !== tokenState.generation)
+      !Number.isSafeInteger(request.expectedAuthGeneration) ||
+      request.expectedAuthGeneration < 0
     ) {
+      throw authError(
+        "Authenticated policy request has no validated credential generation",
+        "AUTH_CONTEXT_UNVALIDATED"
+      );
+    }
+    if (request.expectedAuthGeneration !== tokenState.generation) {
       throw authError("Authentication context changed before policy request");
     }
     const apiUrl = getApiUrl();
@@ -222,9 +225,10 @@ function createWorkspacePolicyManager({
 
   function acceptSuccessfulResponse(identity, data, status) {
     managedPolicyRequired.delete(identityKey(identity));
-    const result = accept(identity, data, status);
-    if (result.status !== "current") successfulRefreshes.set(identityKey(identity), now());
-    return result;
+    // A stale (anti-downgraded) response is still a successful server round
+    // trip; recording it keeps the refresh TTL engaged behind lagging replicas.
+    successfulRefreshes.set(identityKey(identity), now());
+    return accept(identity, data, status);
   }
 
   async function fetchPolicy(identity) {
@@ -288,21 +292,19 @@ function createWorkspacePolicyManager({
       try {
         assertIdentityCurrent(identity);
       } catch (authContextError) {
-        return {
-          success: false,
-          status: "error",
-          code: authContextError.code,
-          error: authContextError.message,
-        };
+        return errorSnapshot(identity, authContextError.code, authContextError.message);
       }
 
       const requiresManagedFallback = error?.code === "POLICY_UNRESOLVABLE";
       if (requiresManagedFallback) markManagedPolicyRequired(identity, error.message);
+      // Prefer the in-memory verdict; the disk cache only backs it up, so an
+      // unreadable cache file must not discard a valid session snapshot.
+      const current = snapshots.get(identityKey(identity));
+      if (current && (!requiresManagedFallback || current.data.managed)) {
+        return publicSnapshot(identity, current.data, "cached", current.revision);
+      }
       const cached = cachedData(identity);
       if (cached && (!requiresManagedFallback || cached.managed)) {
-        const key = identityKey(identity);
-        const current = snapshots.get(key);
-        if (current) return publicSnapshot(identity, current.data, "cached", current.revision);
         return accept(identity, cached, "cached");
       }
       logger?.warn?.("Workspace policy unavailable", { error: error?.message });
@@ -321,6 +323,9 @@ function createWorkspacePolicyManager({
       return {
         success: false,
         status: "error",
+        revision,
+        accountId: normalizeAccountId(request?.accountId),
+        authGeneration: tokenStore.getState()?.generation ?? null,
         code: error.code || "POLICY_UNAVAILABLE",
         error: error.message,
       };
@@ -352,15 +357,8 @@ function createWorkspacePolicyManager({
     }
     const lastAttempt = lastAttempts.get(key);
     const attemptAge = lastAttempt === undefined ? null : now() - lastAttempt;
-    const lastRecoveryAttempt = lastRecoveryAttempts.get(key);
-    const recoveryAttemptAge =
-      lastRecoveryAttempt === undefined ? null : now() - lastRecoveryAttempt;
     const attemptIsThrottled =
-      request?.reason === "recovery"
-        ? recoveryAttemptAge !== null &&
-          recoveryAttemptAge >= 0 &&
-          recoveryAttemptAge < minimumAttemptIntervalMs
-        : attemptAge !== null && attemptAge >= 0 && attemptAge < minimumAttemptIntervalMs;
+      attemptAge !== null && attemptAge >= 0 && attemptAge < minimumAttemptIntervalMs;
     if (attemptIsThrottled) {
       if (requiresManagedPolicy(identity)) {
         return errorSnapshot(
@@ -372,16 +370,13 @@ function createWorkspacePolicyManager({
       if (current) return publicSnapshot(identity, current.data, "cached", current.revision);
       const cached = cachedData(identity);
       if (cached) return accept(identity, cached, "cached");
-      return {
-        success: false,
-        status: "error",
-        code: "POLICY_RETRY_THROTTLED",
-        error: "Workspace policy refresh is rate limited",
-      };
+      return errorSnapshot(
+        identity,
+        "POLICY_RETRY_THROTTLED",
+        "Workspace policy refresh is rate limited"
+      );
     }
-    const attemptStartedAt = now();
-    lastAttempts.set(key, attemptStartedAt);
-    if (request?.reason === "recovery") lastRecoveryAttempts.set(key, attemptStartedAt);
+    lastAttempts.set(key, now());
     const pending = fetchPolicy(identity).finally(() => {
       if (inFlight.get(key) === pending) inFlight.delete(key);
     });

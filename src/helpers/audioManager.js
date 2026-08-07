@@ -37,9 +37,9 @@ import {
   effectiveLocalHistoryEnabled,
   isAgentAllowed,
   isTranscriptionContextAllowed,
-  usePolicyStore,
-} from "../stores/policyStore";
-import { isTranscriptionSelectionAllowed } from "../stores/policyRules";
+  isTranscriptionSelectionAllowed,
+} from "../stores/policyRules";
+import { usePolicyStore } from "../stores/policyStore";
 import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 import {
   getBatchTranscriptionModel,
@@ -601,6 +601,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (isTranscriptionSelectionAllowed(usePolicyStore.getState(), selection)) return;
     const error = new Error("Transcription is restricted by your organization.");
     error.code = "POLICY_RESTRICTED";
+    error.messageKey = "common.policyTranscriptionRestricted";
     throw error;
   }
 
@@ -608,6 +609,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     if (isAgentAllowed(usePolicyStore.getState())) return;
     const error = new Error("AI agent use is restricted by your organization.");
     error.code = "POLICY_RESTRICTED";
+    error.messageKey = "common.policyAgentRestricted";
     throw error;
   }
 
@@ -1522,11 +1524,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw error;
       }
 
-      const { allowOpenAIFallback, useLocalWhisper: isLocalMode } = getSettings();
+      const {
+        allowOpenAIFallback,
+        useLocalWhisper: isLocalMode,
+        cloudTranscriptionProvider,
+      } = getSettings();
+      // A policy-blocked fallback surfaces the local failure, not a policy error.
+      const fallbackAllowedByPolicy = isTranscriptionSelectionAllowed(usePolicyStore.getState(), {
+        mode: "providers",
+        provider: cloudTranscriptionProvider || "openai",
+      });
 
-      if (allowOpenAIFallback && isLocalMode) {
-        const fallbackProvider = getSettings().cloudTranscriptionProvider || "openai";
-        this.assertTranscriptionSelectionAllowed({ mode: "providers", provider: fallbackProvider });
+      if (allowOpenAIFallback && isLocalMode && fallbackAllowedByPolicy) {
         try {
           const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
           return { ...fallbackResult, source: "openai-fallback" };
@@ -1616,11 +1625,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw error;
       }
 
-      const { allowOpenAIFallback, useLocalWhisper: isLocalMode } = getSettings();
+      const {
+        allowOpenAIFallback,
+        useLocalWhisper: isLocalMode,
+        cloudTranscriptionProvider,
+      } = getSettings();
+      // A policy-blocked fallback surfaces the local failure, not a policy error.
+      const fallbackAllowedByPolicy = isTranscriptionSelectionAllowed(usePolicyStore.getState(), {
+        mode: "providers",
+        provider: cloudTranscriptionProvider || "openai",
+      });
 
-      if (allowOpenAIFallback && isLocalMode) {
-        const fallbackProvider = getSettings().cloudTranscriptionProvider || "openai";
-        this.assertTranscriptionSelectionAllowed({ mode: "providers", provider: fallbackProvider });
+      if (allowOpenAIFallback && isLocalMode && fallbackAllowedByPolicy) {
         try {
           const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
           return { ...fallbackResult, source: "openai-fallback" };

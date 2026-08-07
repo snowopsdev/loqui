@@ -54,7 +54,7 @@ import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
 import { useTeamSpacesCapability } from "../../hooks/useTeamSpacesCapability";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useAuth } from "../../hooks/useAuth";
-import { isTranscriptionContextAllowed, usePolicyStore } from "../../stores/policyStore";
+import { useTranscriptionContextAllowed } from "../../hooks/usePolicy";
 import NotesOnboarding from "./NotesOnboarding";
 import { isRegenerableNoteTitle } from "../../helpers/regenerableNoteTitle";
 import { handleMeetingRecordingRequest } from "../../helpers/meetingRecordingRequest";
@@ -215,9 +215,7 @@ export default function PersonalNotesView({
   const sessionDiarizationEnabled = useMeetingRecordingStore((s) => s.sessionDiarizationEnabled);
   const sessionExpectedCount = useMeetingRecordingStore((s) => s.sessionExpectedCount);
   const userTouchedStepper = useMeetingRecordingStore((s) => s.userTouchedStepper);
-  const meetingRecordingAllowed = usePolicyStore((policyState) =>
-    isTranscriptionContextAllowed(policyState, useSettingsStore.getState(), "meeting")
-  );
+  const meetingRecordingAllowed = useTranscriptionContextAllowed("meeting");
 
   const spaces = useSpaces();
   const folders = useFolders();

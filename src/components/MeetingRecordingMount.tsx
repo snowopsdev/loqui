@@ -10,6 +10,11 @@ import {
 const EMA_PREV = 0.5;
 const EMA_NEXT = 0.5;
 
+// Sentinel errors set by meetingRecordingStore, translated at display time.
+const MEETING_ERROR_KEYS: Record<string, string> = {
+  policyRestricted: "notes.meeting.restrictedByOrg",
+};
+
 export default function MeetingRecordingMount(): null {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -26,7 +31,7 @@ export default function MeetingRecordingMount(): null {
     if (!error) return;
     toast({
       title: t("notes.meeting.title"),
-      description: error,
+      description: MEETING_ERROR_KEYS[error] ? t(MEETING_ERROR_KEYS[error]) : error,
       variant: "destructive",
     });
   }, [error, toast, t]);

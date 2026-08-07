@@ -26,7 +26,8 @@ import {
 } from "../lib/teamSpacesCapability";
 import { readIsSubscribed, subscribeIsSubscribed } from "../lib/subscriptionFlag";
 import { readNoteConflictIds } from "../lib/noteConflictRegistry";
-import { isCloudBackupAllowed, usePolicyStore } from "../stores/policyStore";
+import { isCloudBackupAllowed } from "../stores/policyRules";
+import { usePolicyStore } from "../stores/policyStore";
 import {
   buildNoteCreatePayload,
   buildNoteUpdatePayload,

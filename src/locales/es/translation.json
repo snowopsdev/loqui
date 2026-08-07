@@ -169,7 +169,10 @@
     "copy": "Copiar",
     "copied": "Copiado",
     "done": "Listo",
-    "skip": "Omitir"
+    "skip": "Omitir",
+    "policyAiProcessingRestricted": "El procesamiento con IA está restringido por tu organización.",
+    "policyAgentRestricted": "El uso del agente de IA está restringido por tu organización.",
+    "policyTranscriptionRestricted": "La transcripción está restringida por tu organización."
   },
   "onboarding": {
     "steps": {
@@ -2620,7 +2623,8 @@
       "title": "Notas de reunión",
       "description": "Transcripciones y resúmenes estructurados",
       "comingSoon": "Próximamente",
-      "back": "Atrás"
+      "back": "Atrás",
+      "restrictedByOrg": "La transcripción de reuniones está restringida por tu organización."
     },
     "meetingPill": {
       "returnToNote": "Volver a la grabación",

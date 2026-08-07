@@ -24,7 +24,7 @@ import { detectEndpointDialect } from "./ai/thinkingSuppressionDialects";
 import { extractApiErrorMessage } from "./ai/apiErrorMessage";
 import { clearTinfoilClientCache } from "./ai/tinfoilClient";
 import { resolveChatRoute } from "../helpers/chatRouting";
-import { isAgentAllowed, isLlmSelectionAllowed, usePolicyStore } from "../stores/policyStore";
+import { assertAgentAllowedByPolicy, assertReasoningAllowedByPolicy } from "./reasoningPolicy";
 import type { InferenceMode } from "../types/electron";
 
 export type ToolMetadata = Record<string, unknown> | Array<Record<string, unknown>>;
@@ -58,17 +58,8 @@ function resolveLlmDispatchMode(
   return "providers";
 }
 
-function assertReasoningAllowedByPolicy(provider: string, mode: InferenceMode): void {
-  if (!isLlmSelectionAllowed(usePolicyStore.getState(), mode, provider)) {
-    throw new Error("AI processing is restricted by your organization.");
-  }
-}
-
 function assertAgentSessionAllowedByPolicy(provider: string, mode: InferenceMode): void {
-  const policyState = usePolicyStore.getState();
-  if (!isAgentAllowed(policyState)) {
-    throw new Error("AI agent use is restricted by your organization.");
-  }
+  assertAgentAllowedByPolicy();
   assertReasoningAllowedByPolicy(provider, mode);
 }
 
@@ -377,9 +368,7 @@ class ReasoningService extends BaseReasoningService {
     const providerId = isLanCleanup
       ? "lan"
       : resolveInferenceProvider(config.provider, trimmedModel);
-    if (config.requiresAgent && !isAgentAllowed(usePolicyStore.getState())) {
-      throw new Error("AI agent use is restricted by your organization.");
-    }
+    if (config.requiresAgent) assertAgentAllowedByPolicy();
     assertReasoningAllowedByPolicy(providerId, resolveLlmDispatchMode(providerId, config));
 
     if (!trimmedModel && providerId !== "openwhispr" && providerId !== "lan") {

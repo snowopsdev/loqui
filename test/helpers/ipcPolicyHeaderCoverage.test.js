@@ -44,17 +44,9 @@ test("direct policy-aware JSON and token routes apply the shared headers", () =>
 });
 
 test("policy headers are not injected into BYOK or self-hosted transports", () => {
-  const thirdPartySections = [
-    source.slice(
-      source.indexOf('provider === "tinfoil"'),
-      source.indexOf('provider === "tinfoil"') + 1200
-    ),
-    source.slice(
-      source.indexOf('kind === "self-hosted"'),
-      source.indexOf('kind === "self-hosted"') + 1200
-    ),
-  ];
-  for (const section of thirdPartySections) {
-    assert.doesNotMatch(section, /withPolicyHeaders/);
+  for (const anchor of ['provider === "tinfoil"', 'kind === "self-hosted"']) {
+    const anchorIndex = source.indexOf(anchor);
+    assert.notEqual(anchorIndex, -1, `anchor ${anchor} must exist in ipcHandlers.js`);
+    assert.doesNotMatch(source.slice(anchorIndex, anchorIndex + 1200), /withPolicyHeaders/);
   }
 });

@@ -20,7 +20,8 @@ import {
   MAX_SPEAKER_COUNT,
 } from "../constants/speakerDetection.json";
 import logger from "../utils/logger";
-import { isTranscriptionContextAllowed, usePolicyStore } from "./policyStore";
+import { isTranscriptionContextAllowed } from "./policyRules";
+import { usePolicyStore } from "./policyStore";
 import {
   lockTranscriptSpeaker,
   normalizeTranscriptSegment,
@@ -725,7 +726,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
   if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "meeting")) {
     logger.warn("Meeting recording blocked by workspace policy", {}, "meeting");
     useMeetingRecordingStore.setState({
-      error: "Meeting transcription is restricted by your organization.",
+      error: "policyRestricted",
     });
     return false;
   }

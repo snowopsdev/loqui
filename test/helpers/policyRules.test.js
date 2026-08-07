@@ -24,6 +24,24 @@ const policy = {
   minAppVersion: null,
 };
 
+test("update-required derives from the org minimum and known app version", async () => {
+  const { isUpdateRequiredByOrg } = await load();
+  const managedWithMin = (minAppVersion, appVersion) => ({
+    status: "managed",
+    policy: { ...policy, minAppVersion },
+    appVersion,
+  });
+
+  assert.equal(isUpdateRequiredByOrg(managedWithMin("2.0.0", "1.8.1")), true);
+  assert.equal(isUpdateRequiredByOrg(managedWithMin("1.0.0", "1.8.1")), false);
+  assert.equal(isUpdateRequiredByOrg(managedWithMin(null, "1.8.1")), false);
+  assert.equal(isUpdateRequiredByOrg(managedWithMin("2.0.0", null)), false);
+  assert.equal(
+    isUpdateRequiredByOrg({ status: "unmanaged", policy: null, appVersion: "1.8.1" }),
+    false
+  );
+});
+
 test("allows guests and resolved unmanaged accounts", async () => {
   const { isPolicyActionAllowed } = await load();
 
@@ -192,30 +210,6 @@ test("sharing recovery remains available when exposure-increasing actions are bl
     assert.equal(isShareActionAllowed(snapshot, "revoke-invitation", "invited"), true);
     assert.equal(isShareActionAllowed(snapshot, "remove-grant", "invited"), true);
     assert.equal(isShareActionAllowed(snapshot, "create-link", "private"), false);
-  }
-});
-
-test("minimum-version enforcement preserves recovery and maintenance surfaces", async () => {
-  const { isDesktopActionAllowed } = await load();
-  const snapshot = {
-    status: "managed",
-    policy: { ...policy, minAppVersion: "2.0.0" },
-    appVersion: "1.8.1",
-  };
-
-  for (const action of [
-    "history",
-    "retention-settings",
-    "updater",
-    "diagnostics",
-    "permissions",
-    "account",
-    "sign-out",
-  ]) {
-    assert.equal(isDesktopActionAllowed(snapshot, action), true, action);
-  }
-  for (const action of ["capture", "inference", "agent", "sharing", "cloud-backup"]) {
-    assert.equal(isDesktopActionAllowed(snapshot, action), false, action);
   }
 });
 

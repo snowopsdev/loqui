@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { usePolicyStore, isAgentAllowed } from "../../stores/policyStore";
+import { isAgentAllowed } from "../../stores/policyRules";
+import { usePolicyStore } from "../../stores/policyStore";
 import { useAgentName } from "../../utils/agentName";
 import { useDialogs } from "../../hooks/useDialogs";
 import { Toggle } from "../ui/toggle";

@@ -54,7 +54,9 @@ import { MAX_SPEAKER_COUNT } from "../../constants/speakerDetection.json";
 import BatchQueueView from "./BatchQueueView";
 import { generateNoteTitle } from "../../utils/generateTitle";
 import { getBaseLanguageCode } from "../../utils/languageSupport";
-import { isTranscriptionContextAllowed, usePolicyStore } from "../../stores/policyStore";
+import { isTranscriptionContextAllowed } from "../../stores/policyRules";
+import { usePolicyStore } from "../../stores/policyStore";
+import { useTranscriptionContextAllowed } from "../../hooks/usePolicy";
 
 type UploadState = "idle" | "selected" | "downloading" | "transcribing" | "complete" | "error";
 
@@ -251,9 +253,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     cloudTranscriptionMode,
     transcriptionMode,
   } = useSettingsStore(useShallow(selectResolvedUploadTranscription));
-  const uploadAllowedByPolicy = usePolicyStore((policyState) =>
-    isTranscriptionContextAllowed(policyState, getSettings(), "upload")
-  );
+  const uploadAllowedByPolicy = useTranscriptionContextAllowed("upload");
 
   const remoteTranscriptionUrl = useSettingsStore((s) => s.remoteTranscriptionUrl);
   const remoteTranscriptionModel = useSettingsStore((s) => s.remoteTranscriptionModel);

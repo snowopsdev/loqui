@@ -166,6 +166,26 @@ test("a policy-rejected automatic meeting start restores manager mode before cle
   assert.deepEqual(lifecycle, ["restored", "handled"]);
   assert.equal(
     useMeetingRecordingStore.getState().error,
-    "Meeting transcription is restricted by your organization."
+    "policyRestricted",
+    "the store must hold the sentinel key so the mount can localize it"
+  );
+
+  const rejectionLifecycle = [];
+  await assert.rejects(
+    handleMeetingRecordingRequest({
+      args: { noteId: 42, noteTitle: "New note", folderId: null },
+      startRecording: async () => {
+        throw new Error("start failed");
+      },
+      restoreFromMeetingMode: () => rejectionLifecycle.push("restored"),
+      onHandled: () => rejectionLifecycle.push("handled"),
+    }),
+    /start failed/,
+    "a failed start must still propagate its error"
+  );
+  assert.deepEqual(
+    rejectionLifecycle,
+    ["handled"],
+    "a failed start must still clear the pending request so it is not re-attempted"
   );
 });

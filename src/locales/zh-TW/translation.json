@@ -169,7 +169,10 @@
     "copy": "複製",
     "copied": "已複製",
     "done": "完成",
-    "skip": "略過"
+    "skip": "略過",
+    "policyAiProcessingRestricted": "AI 處理已被您的組織限制。",
+    "policyAgentRestricted": "AI 代理的使用已被您的組織限制。",
+    "policyTranscriptionRestricted": "轉錄已被您的組織限制。"
   },
   "onboarding": {
     "steps": {
@@ -2572,7 +2575,8 @@
       "title": "會議筆記",
       "description": "轉錄與結構化摘要",
       "comingSoon": "即將推出",
-      "back": "返回"
+      "back": "返回",
+      "restrictedByOrg": "會議轉錄已被您的組織限制。"
     },
     "meetingPill": {
       "returnToNote": "返回到錄音",

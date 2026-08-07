@@ -32,14 +32,14 @@ import {
   clearTranscriptions as clearStore,
 } from "../stores/transcriptionStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { usePolicyStore } from "../stores/policyStore";
 import {
   isAgentAllowed,
-  isDesktopActionAllowed,
+  isControlPanelViewAllowed,
+  isPolicyActionAllowed,
   isTranscriptionContextAllowed,
-  usePolicyStore,
-} from "../stores/policyStore";
-import { isControlPanelViewAllowed } from "../stores/policyRules";
-import { compareAppVersions } from "../utils/version";
+  isUpdateRequiredByOrg,
+} from "../stores/policyRules";
 import {
   useIsMeetingMode,
   useIsNarrowWindow,
@@ -181,28 +181,18 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     isInstalling,
     downloadUpdate,
     installUpdate,
-    getAppVersion,
     error: updateError,
   } = useUpdater();
 
-  const policyMinAppVersion = usePolicyStore((s) =>
-    s.managed ? (s.policy?.minAppVersion ?? null) : null
-  );
   const agentAllowedByPolicy = usePolicyStore(isAgentAllowed);
-  const policyActionsAllowed = usePolicyStore((state) => isDesktopActionAllowed(state, "capture"));
+  const policyActionsAllowed = usePolicyStore((state) => isPolicyActionAllowed(state));
   useEffect(() => {
     if (!isControlPanelViewAllowed(activeView, agentAllowedByPolicy, policyActionsAllowed)) {
       setActiveView("home");
     }
   }, [activeView, agentAllowedByPolicy, policyActionsAllowed]);
-  const [appVersion, setAppVersion] = useState<string | null>(null);
-  useEffect(() => {
-    if (!policyMinAppVersion) return;
-    void getAppVersion().then((version: string | null) => setAppVersion(version));
-  }, [policyMinAppVersion, getAppVersion]);
-  const updateRequiredByOrg = Boolean(
-    policyMinAppVersion && appVersion && compareAppVersions(appVersion, policyMinAppVersion) < 0
-  );
+  const updateRequiredByOrg = usePolicyStore(isUpdateRequiredByOrg);
+  const policyMinAppVersion = usePolicyStore((s) => s.policy?.minAppVersion ?? null);
 
   const {
     confirmDialog,

@@ -4,7 +4,8 @@ import EnterpriseProviderConfig from "./EnterpriseProviderConfig";
 import { REASONING_PROVIDERS } from "../models/ModelRegistry";
 import { useSettingsStore } from "../stores/settingsStore";
 import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
-import { usePolicyStore, isEnterpriseProviderAllowed } from "../stores/policyStore";
+import { isEnterpriseProviderAllowed } from "../stores/policyRules";
+import { usePolicySnapshot } from "../hooks/usePolicy";
 
 const ENTERPRISE_PROVIDER_TABS = [
   { id: "bedrock", name: "AWS Bedrock" },
@@ -28,14 +29,9 @@ export default function EnterpriseSection({
   const { t } = useTranslation();
   const azureDeploymentName = useSettingsStore((s) => s.azureDeploymentName);
   const bedrockRegion = useSettingsStore((s) => s.bedrockRegion);
-  const policyStatus = usePolicyStore((s) => s.status);
-  const policyDoc = usePolicyStore((s) => s.policy);
-  const appVersion = usePolicyStore((s) => s.appVersion);
+  const policyState = usePolicySnapshot();
   const providerAllowed = (providerId: string) =>
-    isEnterpriseProviderAllowed(
-      { status: policyStatus, policy: policyDoc, appVersion },
-      providerId
-    );
+    isEnterpriseProviderAllowed(policyState, providerId);
 
   const providerTabs = ENTERPRISE_PROVIDER_TABS.map((tab) =>
     providerAllowed(tab.id)

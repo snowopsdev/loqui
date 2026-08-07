@@ -169,7 +169,10 @@
     "copy": "Copia",
     "copied": "Copiato",
     "done": "Fatto",
-    "skip": "Salta"
+    "skip": "Salta",
+    "policyAiProcessingRestricted": "L’elaborazione con IA è limitata dalla tua organizzazione.",
+    "policyAgentRestricted": "L’uso dell’agente IA è limitato dalla tua organizzazione.",
+    "policyTranscriptionRestricted": "La trascrizione è limitata dalla tua organizzazione."
   },
   "onboarding": {
     "steps": {
@@ -2572,7 +2575,8 @@
       "title": "Note delle riunioni",
       "description": "Trascrizioni e riassunti strutturati",
       "comingSoon": "Prossimamente",
-      "back": "Indietro"
+      "back": "Indietro",
+      "restrictedByOrg": "La trascrizione delle riunioni è limitata dalla tua organizzazione."
     },
     "meetingPill": {
       "returnToNote": "Torna alla registrazione",

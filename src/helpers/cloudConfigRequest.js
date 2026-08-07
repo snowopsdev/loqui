@@ -1,13 +1,14 @@
 const { readPolicyResponseError, toPolicyFailure } = require("./policyResponseError");
 
-function createSttConfigRequestHandler({
+function createCloudConfigRequestHandler({
   getApiUrl,
   getAuthHeader,
   proxyFetch,
   withPolicyHeaders,
   logger,
+  configPath,
 }) {
-  return async function handleSttConfigRequest(event) {
+  return async function handleCloudConfigRequest(event) {
     try {
       const apiUrl = getApiUrl();
       if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
@@ -15,7 +16,7 @@ function createSttConfigRequestHandler({
       const authHeader = await getAuthHeader(event);
       if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
 
-      const response = await proxyFetch(`${apiUrl}/api/stt-config`, {
+      const response = await proxyFetch(`${apiUrl}/api/${configPath}`, {
         headers: withPolicyHeaders(authHeader),
       });
       if (!response.ok) {
@@ -41,10 +42,10 @@ function createSttConfigRequestHandler({
       const data = await response.json();
       return { success: true, ...data };
     } catch (error) {
-      logger?.error?.("STT config fetch error:", error);
+      logger?.error?.(`${configPath} fetch error:`, error);
       return toPolicyFailure(error);
     }
   };
 }
 
-module.exports = { createSttConfigRequestHandler };
+module.exports = { createCloudConfigRequestHandler };

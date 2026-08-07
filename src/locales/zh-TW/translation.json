@@ -1307,8 +1307,8 @@
           "accountCredit": "帳戶餘額",
           "newPrice": "新價格",
           "nextBilling": "下次計費",
-          "mo": "mo",
-          "yr": "yr",
+          "mo": "月",
+          "yr": "年",
           "cancel": "取消",
           "confirm": "確認"
         }
@@ -1646,7 +1646,7 @@
       },
       "updates": {
         "badges": {
-          "dev": "Dev",
+          "dev": "開發版",
           "latest": "最新",
           "update": "更新"
         },
@@ -1779,7 +1779,7 @@
       "description": "設定用於聽寫清理、筆記格式化和聊天的模型",
       "tabs": {
         "dictationCleanup": "聽寫清理",
-        "dictationAgent": "Voice Agent",
+        "dictationAgent": "語音助手",
         "noteFormatting": "筆記格式化",
         "chatIntelligence": "聊天",
         "dictationTranslation": "翻譯"
@@ -2169,8 +2169,8 @@
         "bedrock_gpt_oss_120b": "OpenAI 開放權重模型。低成本下的強大推理能力。",
         "bedrock_deepseek_v3_2": "開放權重前沿模型。智慧助手模式的高性價比之選。",
         "bedrock_qwen3_next_80b": "稀疏開放權重模型。快速且多語言。",
-        "vertex_gemini_2_5_flash": "Fast multimodal model via Vertex",
-        "vertex_gemini_2_5_pro": "Advanced reasoning via Vertex"
+        "vertex_gemini_2_5_flash": "透過 Vertex 提供的快速多模態模型",
+        "vertex_gemini_2_5_pro": "透過 Vertex 提供的進階推理模型"
       },
       "local": {
         "qwen_qwen3_5_9b_q4_k_m": "強大的混合模型",

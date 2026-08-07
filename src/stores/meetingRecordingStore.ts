@@ -1061,7 +1061,8 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
         next = next.map((seg) => {
           if (seg.speaker !== remove) return seg;
           // Locked segments keep their user-set name but must still move to the
-          // kept cluster: the freed id is reused for the next new voice.
+          // kept cluster: the removed id no longer exists in the identifier, so
+          // later merges and renames would never reach a segment left on it.
           if (seg.speakerLocked) {
             return normalizeTranscriptSegment({ ...seg, speaker: keep });
           }

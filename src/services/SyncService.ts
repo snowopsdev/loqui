@@ -1775,8 +1775,9 @@ export class SyncService {
     const deletes = (await window.electronAPI.getPendingNoteDeletes?.()) ?? [];
     let denied = false;
     for (const note of deletes) {
+      if (!note.cloud_id) continue;
       try {
-        await NotesService.delete(note.cloud_id!);
+        await NotesService.delete(note.cloud_id);
         await window.electronAPI.hardDeleteNote?.(note.id);
         // A settled tombstone can never resolve a conflict; drop the entry
         // (and its full cloud snapshot) from the durable registry.
@@ -1924,6 +1925,7 @@ export class SyncService {
             continue;
           }
 
+          if (local?.deleted_at) continue;
           if (!local || isCloudEntryNewer(cloudNote.updated_at, local.updated_at)) {
             if (local && local.sync_status !== "synced") {
               // A newer cloud copy over unpushed local edits ('pending' or
@@ -2034,8 +2036,9 @@ export class SyncService {
   private async pushConversationDeletes(): Promise<void> {
     const deletes = (await window.electronAPI.getPendingConversationDeletes?.()) ?? [];
     for (const conv of deletes) {
+      if (!conv.cloud_id) continue;
       try {
-        await ConversationsService.delete(conv.cloud_id!);
+        await ConversationsService.delete(conv.cloud_id);
         await window.electronAPI.hardDeleteConversation?.(conv.id);
       } catch (err) {
         console.error("Conversation delete sync failed:", err);

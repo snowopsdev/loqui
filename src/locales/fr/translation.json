@@ -2861,6 +2861,7 @@
     "speaker": {
       "you": "Vous",
       "them": "Eux",
+      "unknown": "Intervenant inconnu",
       "label": "Intervenant {{n}}",
       "identifyingSpeakers": "Identification des intervenants...",
       "liveAccuracyHint": "Identification des intervenants en cours. La précision des étiquettes s'améliorera à la fin de l'appel.",

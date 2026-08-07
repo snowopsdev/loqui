@@ -74,19 +74,18 @@ function seedMergedSession(identifier) {
   return merges[0];
 }
 
-test("new voice after a recluster merge reuses the freed speaker slot", () => {
+test("new voice after a recluster merge gets a fresh id — freed ids are never reused", () => {
   const { LiveSpeakerIdentifier } = loadIdentifier();
   const identifier = new LiveSpeakerIdentifier();
 
   const merge = seedMergedSession(identifier);
   assert.equal(merge.remove, "speaker_2");
 
+  // Durable state (note speaker mappings, NoteEditor's name map) may still
+  // reference the retired id, so recycling it would let a new voice inherit
+  // the previous person's identity.
   const resolved = identifier._resolveSpeakerForEmbedding(voiceC, { updateCentroid: true });
-  assert.equal(
-    resolved.speakerId,
-    "speaker_2",
-    "a freed slot must be reused so cluster ids stay aligned with the labels the UI shows"
-  );
+  assert.equal(resolved.speakerId, "speaker_3", "ids must stay monotonic within a meeting");
 });
 
 test("manual identification sticks for a voice that appeared after a merge", () => {
@@ -94,14 +93,14 @@ test("manual identification sticks for a voice that appeared after a merge", () 
   const identifier = new LiveSpeakerIdentifier();
 
   seedMergedSession(identifier);
-  identifier._resolveSpeakerForEmbedding(voiceC, { updateCentroid: true });
+  const resolved = identifier._resolveSpeakerForEmbedding(voiceC, { updateCentroid: true });
 
-  // "speaker_2" is the label the transcript shows for the new voice — the
-  // renderer reuses the slot freed by the merge. Naming that label must work.
-  const mapped = identifier.mapSpeaker("speaker_2", 42, "Carol", 7);
+  // With no remapper layer, the id the transcript shows IS the cluster id, so
+  // naming it must reach the right cluster.
+  const mapped = identifier.mapSpeaker(resolved.speakerId, 42, "Carol", 7);
   assert.equal(mapped, true, "mapSpeaker must recognize the id shown in the transcript");
 
-  const embedding = identifier.getSpeakerEmbedding("speaker_2");
+  const embedding = identifier.getSpeakerEmbedding(resolved.speakerId);
   assert.ok(embedding, "profile persistence needs the cluster embedding");
 
   const again = identifier._resolveSpeakerForEmbedding(voiceC, { updateCentroid: true });
@@ -118,7 +117,7 @@ test("stop() state keys match the resolved speaker ids", async () => {
   const state = identifier.getTransientState();
   assert.deepEqual(
     Object.keys(state).sort(),
-    ["speaker_0", "speaker_1", "speaker_2"],
+    ["speaker_0", "speaker_1", "speaker_3"],
     "post-meeting reconciliation looks mappings up by these keys"
   );
 });
@@ -132,9 +131,11 @@ test("mapSpeaker on an unknown id fails loudly", () => {
 
   const mapped = identifier.mapSpeaker("speaker_9", 1, "Alice", null);
   assert.equal(mapped, false);
+  const warning = warnings.find((w) => /speaker/i.test(w.message));
+  assert.ok(warning, "a dropped manual identification must leave a trace in the logs");
   assert.ok(
-    warnings.some((w) => /speaker/i.test(w.message)),
-    "a dropped manual identification must leave a trace in the logs"
+    !JSON.stringify(warning.data ?? {}).includes("Alice"),
+    "the participant's name must not be written to the logs"
   );
 });
 

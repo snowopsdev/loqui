@@ -472,7 +472,7 @@ export const useMeetingRecordingStore = create<MeetingRecordingState>()(() => ({
 
 export const getMicAnalyser = (): AnalyserNode | null => micAnalyser;
 
-function pushConfig(enabled: boolean, expectedCount: number) {
+function pushConfig(enabled: boolean, expectedCount: number, countIsExplicit: boolean) {
   if (pushConfigTimeout) clearTimeout(pushConfigTimeout);
   pushConfigTimeout = setTimeout(() => {
     (
@@ -480,15 +480,19 @@ function pushConfig(enabled: boolean, expectedCount: number) {
         setMeetingSessionSpeakerConfig?: (config: {
           enabled: boolean;
           expectedCount: number;
+          countIsExplicit: boolean;
         }) => void;
       }
-    )?.setMeetingSessionSpeakerConfig?.({ enabled, expectedCount });
+    )?.setMeetingSessionSpeakerConfig?.({ enabled, expectedCount, countIsExplicit });
   }, 150);
 }
 
 export function setSessionDiarizationEnabled(enabled: boolean): void {
   useMeetingRecordingStore.setState({ sessionDiarizationEnabled: enabled });
-  pushConfig(enabled, useMeetingRecordingStore.getState().sessionExpectedCount);
+  // The toggle only carries the count along — it is explicit solely when the
+  // user has actually touched the stepper, so roster refreshes stay possible.
+  const state = useMeetingRecordingStore.getState();
+  pushConfig(enabled, state.sessionExpectedCount, state.userTouchedStepper);
   const noteId = useMeetingRecordingStore.getState().recordingNoteId;
   if (noteId != null) {
     window.electronAPI?.updateNote?.(noteId, { diarization_enabled: enabled ? 1 : 0 });
@@ -501,7 +505,7 @@ export function setSessionExpectedCount(count: number): void {
     sessionExpectedCount: clamped,
     userTouchedStepper: true,
   });
-  pushConfig(useMeetingRecordingStore.getState().sessionDiarizationEnabled, clamped);
+  pushConfig(useMeetingRecordingStore.getState().sessionDiarizationEnabled, clamped, true);
   const noteId = useMeetingRecordingStore.getState().recordingNoteId;
   if (noteId != null) {
     window.electronAPI?.updateNote?.(noteId, { expected_speaker_count: clamped });

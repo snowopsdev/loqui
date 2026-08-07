@@ -134,6 +134,7 @@ class LiveSpeakerIdentifier {
     this.transientDisplayNames = new Map();
     this.transientProfileIds = new Map();
     this.transientNoteIds = new Map();
+    this.nextLiveIndex = 0;
     this.currentSegmentSpeakerId = null;
     this.currentSegmentSpeakerName = null;
     this.lastLiveIdentificationSample = 0;
@@ -334,7 +335,7 @@ class LiveSpeakerIdentifier {
     if (!liveId || !this.transientEmbeddings.has(liveId)) {
       debugLogger.warn("Live speaker mapping dropped: unknown speaker id", {
         liveId,
-        displayName,
+        hasDisplayName: !!displayName,
         knownSpeakers: [...this.transientEmbeddings.keys()],
       });
       return false;
@@ -386,6 +387,7 @@ class LiveSpeakerIdentifier {
     this.transientDisplayNames = new Map();
     this.transientProfileIds = new Map();
     this.transientNoteIds = new Map();
+    this.nextLiveIndex = 0;
     this.currentSegmentSpeakerId = null;
     this.currentSegmentSpeakerName = null;
     this.lastLiveIdentificationSample = 0;
@@ -758,15 +760,13 @@ class LiveSpeakerIdentifier {
     return null;
   }
 
-  // Cluster ids double as the transcript's speaker labels, so a slot freed by a
-  // recluster merge is reused for the next new voice — the renderer has already
-  // rewritten the merged label's segments via the merge event.
+  // Cluster ids double as the transcript's speaker labels. Ids freed by a
+  // recluster merge are never reused: durable state (note speaker mappings,
+  // the renderer's name map) may still reference them, and a recycled id would
+  // let a new voice inherit the previous person's identity.
   _assignSpeakerId(embedding) {
-    let index = 0;
-    while (this.transientEmbeddings.has(`speaker_${index}`)) {
-      index += 1;
-    }
-    const speakerId = `speaker_${index}`;
+    const speakerId = `speaker_${this.nextLiveIndex}`;
+    this.nextLiveIndex += 1;
     this.transientEmbeddings.set(speakerId, cloneFloat32Array(embedding));
     this.transientCounts.set(speakerId, 1);
     return speakerId;

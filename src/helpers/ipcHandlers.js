@@ -9193,7 +9193,13 @@ class IPCHandlers {
             Number(payload?.expectedCount) || DEFAULT_EXPECTED_SPEAKER_COUNT
           )
         );
-        this.activeMeetingSpeakerConfig = { enabled, expectedCount, explicit: true };
+        // Only a stepper-set count is explicit; the diarization toggle reuses this
+        // channel and must not freeze the count against roster-driven refreshes.
+        this.activeMeetingSpeakerConfig = {
+          enabled,
+          expectedCount,
+          explicit: payload?.countIsExplicit === true,
+        };
         liveSpeakerIdentifier.setEnabled(enabled);
         // Live identification only labels other speakers (the mic track is "you"),
         // so cap at expectedCount - 1 to match resolveSessionMaxSpeakers().
@@ -9655,7 +9661,11 @@ class IPCHandlers {
             profileId,
             displayName
           );
-          this.databaseManager.removeSpeakerMapping(bestEntry.noteId, bestEntry.speakerId);
+          // Live and offline ids share one namespace now, so they often match —
+          // removing the "old" row would delete the mapping just written.
+          if (bestEntry.speakerId !== mappedId) {
+            this.databaseManager.removeSpeakerMapping(bestEntry.noteId, bestEntry.speakerId);
+          }
         } else if (displayName) {
           this.databaseManager.setSpeakerMapping(
             bestEntry.noteId,

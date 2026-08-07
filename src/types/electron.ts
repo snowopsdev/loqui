@@ -21,6 +21,23 @@ export interface PolicyFailureMetadata {
   details?: unknown;
 }
 
+export interface NoteRecordingProviderModel {
+  id: string;
+  name: string;
+  default?: boolean;
+}
+
+export interface NoteRecordingProvider {
+  id: string;
+  name: string;
+  models: NoteRecordingProviderModel[];
+}
+
+export type NoteRecordingConfigFailure = { success: false } & PolicyFailureMetadata;
+
+export type NoteRecordingConfigResult =
+  { success: true; providers: NoteRecordingProvider[] } | NoteRecordingConfigFailure;
+
 export type TranscriptionErrorCode =
   | "TIMEOUT"
   | "NETWORK"
@@ -825,14 +842,7 @@ declare global {
         ) => void
       ) => () => void;
 
-      getNoteRecordingConfig?: () => Promise<{
-        success: boolean;
-        providers: Array<{
-          id: string;
-          name: string;
-          models: Array<{ id: string; name: string; default?: boolean }>;
-        }>;
-      } | null>;
+      getNoteRecordingConfig?: () => Promise<NoteRecordingConfigResult | null>;
 
       // Database operations
       saveTranscription: (

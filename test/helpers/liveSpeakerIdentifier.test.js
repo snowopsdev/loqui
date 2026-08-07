@@ -139,6 +139,71 @@ test("mapSpeaker on an unknown id fails loudly", () => {
   );
 });
 
+// Plants exactly two clusters ~0.70 similar (above the 0.65 recluster
+// threshold) — creating them via resolution would just match them together.
+function seedSimilarIdentifiedPair(identifier) {
+  identifier.setMaxSpeakers(3);
+  identifier._assignSpeakerId(voiceA);
+  identifier._assignSpeakerId(ambiguousVoice);
+}
+
+test("clusters mapped to different profiles never merge on similarity alone", () => {
+  const { LiveSpeakerIdentifier } = loadIdentifier();
+  const identifier = new LiveSpeakerIdentifier();
+
+  seedSimilarIdentifiedPair(identifier);
+  assert.equal(identifier.mapSpeaker("speaker_0", 1, "Alice", null), true);
+  assert.equal(identifier.mapSpeaker("speaker_1", 2, "Bob", null), true);
+
+  const merges = identifier._performRecluster();
+  assert.deepEqual(merges, [], "two confirmed-distinct people must not be merged");
+  assert.ok(identifier.getSpeakerEmbedding("speaker_1"), "Bob's cluster must survive");
+});
+
+test("clusters with different manual names never merge on similarity alone", () => {
+  const { LiveSpeakerIdentifier } = loadIdentifier();
+  const identifier = new LiveSpeakerIdentifier();
+
+  seedSimilarIdentifiedPair(identifier);
+  assert.equal(identifier.mapSpeaker("speaker_0", null, "Alice", null), true);
+  assert.equal(identifier.mapSpeaker("speaker_1", null, "Bob", null), true);
+
+  const merges = identifier._performRecluster();
+  assert.deepEqual(merges, [], "differing user-set names assert distinct identities");
+});
+
+test("an unidentified cluster still merges into an identified one", () => {
+  const { LiveSpeakerIdentifier } = loadIdentifier();
+  const identifier = new LiveSpeakerIdentifier();
+
+  seedSimilarIdentifiedPair(identifier);
+  assert.equal(identifier.mapSpeaker("speaker_0", 1, "Alice", null), true);
+
+  const merges = identifier._performRecluster();
+  assert.equal(merges.length, 1, "the guard must not block ordinary convergence");
+  assert.equal(merges[0].displayName, "Alice");
+});
+
+test("a voice force-merged at the cap becomes its own speaker once the cap rises", () => {
+  const { LiveSpeakerIdentifier } = loadIdentifier();
+  const identifier = new LiveSpeakerIdentifier();
+  identifier.setMaxSpeakers(1);
+
+  const first = identifier._resolveSpeakerForEmbedding(voiceA, { updateCentroid: true });
+  const folded = identifier._resolveSpeakerForEmbedding(voiceB, { updateCentroid: true });
+  assert.equal(folded.speakerId, first.speakerId, "at the cap the voice is folded");
+
+  // Participants added mid-meeting raise the cap; the folded voice must not
+  // stay captured by a centroid polluted during the at-cap period.
+  identifier.setMaxSpeakers(3);
+  const recovered = identifier._resolveSpeakerForEmbedding(voiceB, { updateCentroid: true });
+  assert.notEqual(
+    recovered.speakerId,
+    first.speakerId,
+    "after the cap rises the folded voice must get its own cluster"
+  );
+});
+
 test("distinct voices are folded into one cluster when the session cap is 1", () => {
   const { LiveSpeakerIdentifier } = loadIdentifier();
   const identifier = new LiveSpeakerIdentifier();

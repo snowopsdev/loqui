@@ -701,6 +701,12 @@ async function cleanup(): Promise<void> {
 
   ipcCleanups.forEach((fn) => fn());
   ipcCleanups = [];
+  // A debounced config push firing after stop would repopulate the session
+  // config main just cleared, leaking this session's count into the next one.
+  if (pushConfigTimeout) {
+    clearTimeout(pushConfigTimeout);
+    pushConfigTimeout = null;
+  }
   isPrepared = false;
   isRecordingFlag = false;
   isStartingFlag = false;

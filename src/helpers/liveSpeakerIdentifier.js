@@ -244,6 +244,15 @@ class LiveSpeakerIdentifier {
         const similarity = speakerEmbeddings.cosineSimilarity(speakers[i][1], speakers[j][1]);
         if (similarity < MATCH_THRESHOLD) continue;
 
+        // Confirmed-distinct identities (different profiles, or different
+        // user-set names) must never merge on embedding similarity alone.
+        const profileI = this.transientProfileIds.get(speakers[i][0]);
+        const profileJ = this.transientProfileIds.get(speakers[j][0]);
+        if (profileI != null && profileJ != null && profileI !== profileJ) continue;
+        const nameI = this.transientDisplayNames.get(speakers[i][0]);
+        const nameJ = this.transientDisplayNames.get(speakers[j][0]);
+        if (nameI && nameJ && nameI !== nameJ) continue;
+
         const countI = this.transientCounts.get(speakers[i][0]) || 1;
         const countJ = this.transientCounts.get(speakers[j][0]) || 1;
         const hasNameI = !!this.transientDisplayNames.get(speakers[i][0]);
@@ -730,7 +739,10 @@ class LiveSpeakerIdentifier {
     if (this.transientEmbeddings.size >= this.maxSpeakers) {
       const nearest = this._findNearestTransient(embedding);
       if (nearest) {
-        this._updateCentroid(nearest, embedding);
+        // Label only — never fold the embedding into the centroid. At-cap
+        // overflow is usually a different voice, and a polluted centroid would
+        // keep capturing it even after the cap rises (participants added
+        // mid-meeting).
         return nearest;
       }
     }

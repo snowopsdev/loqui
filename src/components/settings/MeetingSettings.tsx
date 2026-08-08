@@ -9,6 +9,11 @@ import { Toggle } from "../ui/toggle";
 import TranscriptionModelPicker from "../TranscriptionModelPicker";
 import type { InferenceMode } from "../../types/electron";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
+import { getStreamingTranscriptionProviders } from "../../models/ModelRegistry";
+
+const MEETING_BYOK_PROVIDER_IDS = getStreamingTranscriptionProviders().map(
+  (provider) => provider.id
+);
 
 export function MeetingSpeakerDetectionRow() {
   const { t } = useTranslation();
@@ -50,7 +55,11 @@ export function MeetingTranscriptionPanel() {
     setMeetingCloudTranscriptionBaseUrl,
     setMeetingCloudTranscriptionMode,
   } = useSettingsStore();
-  const { modes: transcriptionModes, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
+  const {
+    modes: transcriptionModes,
+    effectiveMode: effectiveTranscriptionMode,
+    isModeAllowed,
+  } = usePolicyModeOptions<InferenceModeOption>(
     [
       {
         id: "openwhispr",
@@ -81,9 +90,10 @@ export function MeetingTranscriptionPanel() {
         badge: t("settings.meeting.comingSoon"),
       },
     ],
-    "transcription"
+    "transcription",
+    meetingTranscriptionMode,
+    { byokProviders: MEETING_BYOK_PROVIDER_IDS }
   );
-
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
     if (mode === "self-hosted") return;
@@ -91,7 +101,7 @@ export function MeetingTranscriptionPanel() {
       startOnboarding();
       return;
     }
-    if (mode === meetingTranscriptionMode) return;
+    if (mode === effectiveTranscriptionMode) return;
     setMeetingTranscriptionMode(mode);
     setMeetingUseLocalWhisper(mode === "local");
     setMeetingCloudTranscriptionMode(mode === "openwhispr" ? "openwhispr" : "byok");
@@ -134,12 +144,12 @@ export function MeetingTranscriptionPanel() {
     <div className="space-y-3">
       <InferenceModeSelector
         modes={transcriptionModes}
-        activeMode={meetingTranscriptionMode}
+        activeMode={effectiveTranscriptionMode}
         onSelect={handleTranscriptionModeSelect}
       />
 
-      {meetingTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
-      {meetingTranscriptionMode === "local" && renderTranscriptionPicker("local")}
+      {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
+      {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}
       <MeetingSpeakerDetectionRow />
     </div>
   );

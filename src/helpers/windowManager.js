@@ -133,17 +133,21 @@ class WindowManager {
     }
   }
 
-  setNotificationInteractivity(interactive) {
-    if (!this.notificationWindow || this.notificationWindow.isDestroyed()) {
+  // Only the meeting prompt owns this: another overlay reporting its own hover
+  // must not pause a countdown it cannot resume — it may be destroyed before
+  // its pointer ever leaves.
+  setNotificationInteractivity(sender, interactive) {
+    const win = this.notificationWindow;
+    if (!win || win.isDestroyed() || sender !== win.webContents) {
       return;
     }
     // Hovering means the user is reading or about to click — the auto-dismiss
     // countdown must not close the card under their pointer.
     if (interactive) {
-      this.notificationWindow.setIgnoreMouseEvents(false);
+      win.setIgnoreMouseEvents(false);
       this._notificationDismissTimer.pause();
     } else {
-      this.notificationWindow.setIgnoreMouseEvents(true, { forward: true });
+      win.setIgnoreMouseEvents(true, { forward: true });
       this._notificationDismissTimer.resume();
     }
   }
@@ -1230,38 +1234,40 @@ class WindowManager {
     this.notificationWindow = win;
 
     // Keep the prompt visible to the user but out of screen shares and recordings.
-    this.notificationWindow.setContentProtection(true);
+    win.setContentProtection(true);
 
     if (process.platform === "darwin") {
-      this.notificationWindow.setIgnoreMouseEvents(true, { forward: true });
+      win.setIgnoreMouseEvents(true, { forward: true });
     }
 
-    WindowPositionUtil.setupAlwaysOnTop(this.notificationWindow);
+    WindowPositionUtil.setupAlwaysOnTop(win);
 
     this._pendingNotificationData = promptData;
 
+    // Everything past the load addresses `win` directly: a replacement taking
+    // over mid-load must not have this prompt's data, countdown or force-show
+    // applied to its window.
     if (process.env.NODE_ENV === "development") {
       await DevServerManager.waitForDevServer();
-      await this.notificationWindow.loadURL(
-        `${DevServerManager.DEV_SERVER_URL}?meeting-notification=true`
-      );
+      await win.loadURL(`${DevServerManager.DEV_SERVER_URL}?meeting-notification=true`);
     } else {
       const fileInfo = DevServerManager.getAppFilePath(false);
-      await this.notificationWindow.loadFile(fileInfo.path, {
+      await win.loadFile(fileInfo.path, {
         query: { ...fileInfo.query, "meeting-notification": "true" },
       });
     }
+    if (this.notificationWindow !== win) return;
 
     this._notificationReadyFallback = setTimeout(() => {
       this._notificationReadyFallback = null;
-      if (this.notificationWindow && !this.notificationWindow.isDestroyed()) {
+      if (!win.isDestroyed()) {
         debugLogger.warn(
           "Notification renderer did not signal ready, force-showing",
           {},
           "meeting"
         );
-        this.notificationWindow.webContents.send("meeting-notification-data", promptData);
-        this.notificationWindow.showInactive();
+        win.webContents.send("meeting-notification-data", promptData);
+        win.showInactive();
       }
     }, 3000);
 

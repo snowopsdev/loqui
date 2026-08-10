@@ -348,3 +348,25 @@ test("darwin: a warm-hold that releases cleanly does not produce a stale prompt"
   assert.equal(emitted.length, 0, "the release edge must cancel the pending re-evaluation");
   detector.stop();
 });
+
+test("win32: an unrelated app's mic session ending does not hide an ongoing dismissed call", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10_000 });
+  const { detector, children } = createDetector("win32");
+  const emitted = [];
+  detector.on("sustained-audio-detected", (data) => emitted.push(data));
+
+  await detector.start();
+  children[0].stdout.emit("data", "MIC_START 11\n");
+  t.mock.timers.tick(SUSTAINED_MS);
+  assert.equal(emitted.length, 1);
+  detector.dismiss();
+
+  // pid 11 never stopped, so the reference count must still hold it — otherwise
+  // pid 22's stop reads as "every mic closed" and cancels the re-evaluation.
+  children[0].stdout.emit("data", "MIC_START 22\nMIC_STOP 22\n");
+  t.mock.timers.tick(COOLDOWN_MS);
+  t.mock.timers.tick(SUSTAINED_MS);
+
+  assert.equal(emitted.length, 2, "the still-running call must re-prompt after the cooldown");
+  detector.stop();
+});

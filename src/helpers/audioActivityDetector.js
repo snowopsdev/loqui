@@ -96,8 +96,7 @@ class AudioActivityDetector extends EventEmitter {
     this._killListenerProcess();
     this._clearSustainedTimer();
     this._clearResetTimer();
-    this._clearCooldownReevalTimer();
-    this._lastKnownMicState = false;
+    this._resetListenerState();
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
       this.checkInterval = null;
@@ -135,9 +134,18 @@ class AudioActivityDetector extends EventEmitter {
     this.consecutiveChecks = 0;
     this.audioActiveStart = null;
     this.hasPrompted = false;
+    this._clearResetTimer();
+  }
+
+  // The pid set and source count mirror what the OS told us is open, not our
+  // own detection state — only losing the listener invalidates them. Clearing
+  // them on dismissal would desync the reference count, so an unrelated app's
+  // mic session ending would report the still-running call as gone.
+  _resetListenerState() {
     this._activeMicPids.clear();
     this._activeSources = 0;
-    this._clearResetTimer();
+    this._lastKnownMicState = false;
+    this._clearCooldownReevalTimer();
   }
 
   _clearSustainedTimer() {
@@ -257,8 +265,7 @@ class AudioActivityDetector extends EventEmitter {
       this._listenerProcess = null;
       if (this._running && this._eventDriven) {
         this._eventDriven = false;
-        this._clearCooldownReevalTimer();
-        this._lastKnownMicState = false;
+        this._resetListenerState();
         this._startPolling();
       }
     };

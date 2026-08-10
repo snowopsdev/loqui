@@ -7,7 +7,6 @@ import { InferenceModeSelector, SettingsRow } from "../ui/SettingsSection";
 import type { InferenceModeOption } from "../ui/SettingsSection";
 import { Toggle } from "../ui/toggle";
 import TranscriptionModelPicker from "../TranscriptionModelPicker";
-import SelfHostedPanel from "../SelfHostedPanel";
 import type { InferenceMode } from "../../types/electron";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
 
@@ -50,8 +49,6 @@ export function MeetingTranscriptionPanel() {
     meetingCloudTranscriptionBaseUrl,
     setMeetingCloudTranscriptionBaseUrl,
     setMeetingCloudTranscriptionMode,
-    meetingRemoteTranscriptionUrl,
-    setMeetingRemoteTranscriptionUrl,
   } = useSettingsStore();
   const { modes: transcriptionModes, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
     [
@@ -80,6 +77,8 @@ export function MeetingTranscriptionPanel() {
         label: t("settingsPage.transcription.modes.selfHosted"),
         description: t("settingsPage.transcription.modes.selfHostedDesc"),
         icon: <Network className="w-4 h-4" />,
+        disabled: true,
+        badge: t("settings.meeting.comingSoon"),
       },
     ],
     "transcription"
@@ -87,6 +86,7 @@ export function MeetingTranscriptionPanel() {
 
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
+    if (mode === "self-hosted") return;
     if (mode === "openwhispr" && !isSignedIn) {
       startOnboarding();
       return;
@@ -140,18 +140,6 @@ export function MeetingTranscriptionPanel() {
 
       {meetingTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
       {meetingTranscriptionMode === "local" && renderTranscriptionPicker("local")}
-      {meetingTranscriptionMode === "self-hosted" && (
-        <>
-          <SelfHostedPanel
-            service="transcription"
-            url={meetingRemoteTranscriptionUrl}
-            onUrlChange={setMeetingRemoteTranscriptionUrl}
-          />
-          <p className="text-xs text-muted-foreground/80 px-1">
-            {t("settingsPage.speechToText.selfHostedStreamingNote")}
-          </p>
-        </>
-      )}
       <MeetingSpeakerDetectionRow />
     </div>
   );

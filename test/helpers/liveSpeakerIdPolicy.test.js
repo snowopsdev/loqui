@@ -41,11 +41,32 @@ test("missing mode never identifies speakers", async () => {
   assert.equal(supportsLiveSpeakerIdentification(null, "darwin"), false);
 });
 
+// The sole production call site passes only the mode, so the defaulted platform
+// is the path that actually ships. Asserting it against process.platform would
+// compare the function to itself and pass on CI (Linux) even if the default were
+// deleted, so stub the platform instead.
 test("platform defaults to the current process platform", async () => {
   const { supportsLiveSpeakerIdentification } = await load();
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
 
-  assert.equal(
-    supportsLiveSpeakerIdentification("loopback"),
-    supportsLiveSpeakerIdentification("loopback", process.platform)
-  );
+  const onPlatform = (platform, run) => {
+    Object.defineProperty(process, "platform", { value: platform, configurable: true });
+    try {
+      run();
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatform);
+    }
+  };
+
+  onPlatform("win32", () => {
+    assert.equal(supportsLiveSpeakerIdentification("loopback"), true);
+    assert.equal(supportsLiveSpeakerIdentification("native"), true);
+  });
+  onPlatform("linux", () => {
+    assert.equal(supportsLiveSpeakerIdentification("loopback"), false);
+    assert.equal(supportsLiveSpeakerIdentification("native"), true);
+  });
+  onPlatform("darwin", () => {
+    assert.equal(supportsLiveSpeakerIdentification("loopback"), false);
+  });
 });

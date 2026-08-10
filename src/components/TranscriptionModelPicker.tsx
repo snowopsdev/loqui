@@ -408,7 +408,7 @@ export default function TranscriptionModelPicker({
   );
   const cloudProviderTabs = useMemo(() => {
     const availableIds = new Set(availableCloudProviders.map((p) => p.id));
-    availableIds.add("custom");
+    if (!streamingOnly) availableIds.add("custom");
     return CLOUD_PROVIDER_TABS.filter((p) => availableIds.has(p.id)).map((provider) => {
       const named =
         provider.id === "custom"
@@ -418,7 +418,7 @@ export default function TranscriptionModelPicker({
         ? named
         : { ...named, disabled: true, disabledLabel: t("common.managedByOrg") };
     });
-  }, [availableCloudProviders, providerAllowed, t]);
+  }, [availableCloudProviders, providerAllowed, streamingOnly, t]);
 
   useEffect(() => {
     selectedLocalModelRef.current = selectedLocalModel;

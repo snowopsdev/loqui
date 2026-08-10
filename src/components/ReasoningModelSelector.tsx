@@ -529,10 +529,8 @@ export default function ReasoningModelSelector({
   };
 
   const handleLocalModelSelect = (modelId: string) => {
-    // Persist the owning catalog provider with the model: an empty provider
-    // sends this scope's routing through another scope's heuristics.
-    const owner = modelId ? modelRegistry.getModel(modelId)?.provider.id : undefined;
-    if (owner) setLocalReasoningProvider(owner);
+    const providerId = modelId ? modelRegistry.getModel(modelId)?.provider.id : undefined;
+    if (providerId) setLocalReasoningProvider(providerId);
     setReasoningModel(modelId);
   };
 

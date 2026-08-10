@@ -296,7 +296,7 @@ class HotkeyManager extends EventEmitter {
 
   unregisterSlot(slotName) {
     const slot = this.slots.get(slotName);
-    if (!slot || !(slot.hotkeys && slot.hotkeys.length)) return;
+    if (!slot || !(slot.hotkeys?.length || slot.accelerators?.length)) return;
 
     // On KDE (X11 or Wayland), persistent slots are managed via KGlobalAccel
     if (this.useKDE && this.kdeManager && slotName !== "cancel") {
@@ -324,11 +324,7 @@ class HotkeyManager extends EventEmitter {
       return;
     }
 
-    // Release exactly what was registered. `accelerators` mirrors `hotkeys`
-    // index-for-index and holds null for the entries a native listener owns, so
-    // it cannot drift from the platform rules in _registerSingleHotkey the way
-    // a re-derived list does — modifier-only combos only bypass globalShortcut
-    // on Windows.
+    // Release what was actually registered; native-listener entries are null.
     for (const accel of slot.accelerators || []) {
       if (!accel) continue;
       try {

@@ -41,19 +41,13 @@ test.beforeEach(() => {
 test("unregisterSlot releases every accelerator the slot registered", async () => {
   const manager = new HotkeyManager();
 
-  // "Control+Alt" is modifier-only. Only Windows diverts those to the native
-  // low-level listener; everywhere else globalShortcut owns them, so the
-  // teardown has to release them too.
-  await manager.registerSlot("agent", "F7,Control+Alt", noop);
-  const heldAfterRegister = [...registered.keys()];
+  // Only Windows diverts modifier-only combos to the native listener, so
+  // everywhere else globalShortcut owns "Control+Alt" and must release it.
+  await manager.registerSlot("agent", "F7,Control+Alt", noop, { atomic: true });
 
   manager.unregisterSlot("agent");
 
-  assert.deepEqual(
-    [...registered.keys()],
-    [],
-    `slot teardown left accelerators registered (held after register: ${heldAfterRegister.join(", ")})`
-  );
+  assert.deepEqual([...registered.keys()], []);
   assert.deepEqual(manager.getSlotHotkeys("agent"), []);
 });
 
@@ -73,8 +67,7 @@ test("unregisterSlot never releases an accelerator the slot does not own", async
 
   await manager.registerSlot("agent", "F7", noop, { atomic: true });
   await manager.registerSlot("cancel", "F8", noop, { atomic: true });
-  // On Linux, registration defensively unregisters its own accelerator before
-  // registering it; only the teardown's unregister calls are under test here.
+  // Linux registration defensively unregisters first; only teardown is under test.
   unregisterCalls.length = 0;
 
   manager.unregisterSlot("agent");
@@ -82,6 +75,18 @@ test("unregisterSlot never releases an accelerator the slot does not own", async
   assert.deepEqual(unregisterCalls, ["F7"]);
   assert.deepEqual([...registered.keys()], ["F8"]);
   assert.deepEqual(manager.getSlotHotkeys("cancel"), ["F8"]);
+});
+
+test("unregisterSlot skips hotkeys a native listener owns", async () => {
+  const manager = new HotkeyManager();
+
+  // "RightShift" gets a null accelerator on every platform.
+  await manager.registerSlot("dictation", "F7,RightShift", noop, { atomic: true });
+  unregisterCalls.length = 0;
+
+  manager.unregisterSlot("dictation");
+
+  assert.deepEqual(unregisterCalls, ["F7"]);
 });
 
 test("unregisterSlot on an already-cleared slot is a no-op", async () => {

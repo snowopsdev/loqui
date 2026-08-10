@@ -4,8 +4,6 @@ const { EventEmitter } = require("node:events");
 const WS = require("ws");
 
 const load = () => import("../../src/helpers/tinfoilRealtimeStreaming.js");
-
-const DELTA_EVENT = "conversation.item.input_audio_transcription.delta";
 const COMPLETED_EVENT = "conversation.item.input_audio_transcription.completed";
 
 function makeFakeSocket(readyState) {
@@ -13,7 +11,6 @@ function makeFakeSocket(readyState) {
   socket.readyState = readyState;
   socket.sent = [];
   socket.send = (data) => socket.sent.push(data);
-  // A healthy connection answers pings, or the keep-alive terminates it mid-test.
   socket.ping = () => socket.emit("pong");
   socket.terminate = () => {
     socket.readyState = WS.CLOSED;
@@ -27,19 +24,17 @@ function makeFakeSocket(readyState) {
 
 function makeRecordingFactory(socket) {
   const calls = [];
-  const factory = async (args) => {
-    calls.push(args);
-    return socket;
+  return {
+    calls,
+    factory: async (args) => {
+      calls.push(args);
+      return socket;
+    },
   };
-  return { factory, calls };
 }
 
-function sentCommits(socket) {
-  return socket.sent.filter((raw) => JSON.parse(raw).type === "input_audio_buffer.commit");
-}
-
-function delta(text) {
-  return JSON.stringify({ type: DELTA_EVENT, delta: text });
+function sentEvents(socket, type) {
+  return socket.sent.map((raw) => JSON.parse(raw)).filter((event) => event.type === type);
 }
 
 function completed(transcript) {
@@ -53,8 +48,14 @@ function commitEmptyError() {
   });
 }
 
-// Wires a connected instance directly, mirroring the existing realtime test
-// style: cadence behavior is driven through handleMessage + mocked timers.
+function speechPcm(sampleCount = 480, amplitude = 2000) {
+  const samples = new Int16Array(sampleCount);
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = index % 2 === 0 ? amplitude : -amplitude;
+  }
+  return Buffer.from(samples.buffer);
+}
+
 async function makeConnected() {
   const { TinfoilRealtimeStreaming } = await load();
   const streaming = new TinfoilRealtimeStreaming();
@@ -63,44 +64,16 @@ async function makeConnected() {
   return streaming;
 }
 
-// -- connect: attested socket factory --
-
-test("connect() passes the configured model and key to the attested socket factory", async () => {
-  const { TinfoilRealtimeStreaming } = await load();
-  const socket = makeFakeSocket(WS.CONNECTING);
-  const { factory, calls } = makeRecordingFactory(socket);
-  const streaming = new TinfoilRealtimeStreaming(factory);
-
-  const connected = streaming.connect({ apiKey: "tk-secret", model: "custom-rt-model" });
+async function finishConnect(streaming, socket, preconfigured = false) {
   await new Promise((resolve) => setImmediate(resolve));
   socket.readyState = WS.OPEN;
   socket.emit("message", JSON.stringify({ type: "session.created" }));
-  socket.emit("message", JSON.stringify({ type: "session.updated" }));
-  await connected;
+  if (!preconfigured) {
+    socket.emit("message", JSON.stringify({ type: "session.updated" }));
+  }
+}
 
-  assert.deepEqual(calls, [{ model: "custom-rt-model", apiKey: "tk-secret" }]);
-  streaming.cleanup();
-});
-
-test("connect() defaults the model to voxtral-mini-4b-realtime when the caller omits one", async () => {
-  const { TinfoilRealtimeStreaming, TINFOIL_REALTIME_MODEL } = await load();
-  const socket = makeFakeSocket(WS.CONNECTING);
-  const { factory, calls } = makeRecordingFactory(socket);
-  const streaming = new TinfoilRealtimeStreaming(factory);
-
-  const connected = streaming.connect({ apiKey: "tk-secret" });
-  await new Promise((resolve) => setImmediate(resolve));
-  socket.readyState = WS.OPEN;
-  socket.emit("message", JSON.stringify({ type: "session.created" }));
-  socket.emit("message", JSON.stringify({ type: "session.updated" }));
-  await connected;
-
-  assert.equal(calls[0].model, TINFOIL_REALTIME_MODEL);
-  assert.equal(TINFOIL_REALTIME_MODEL, "voxtral-mini-4b-realtime");
-  streaming.cleanup();
-});
-
-test("connect() overrides a caller-supplied createSocket with the attested factory", async () => {
+test("connect uses only the attested socket factory with the selected model and key", async () => {
   const { TinfoilRealtimeStreaming } = await load();
   const socket = makeFakeSocket(WS.CONNECTING);
   const { factory, calls } = makeRecordingFactory(socket);
@@ -109,70 +82,74 @@ test("connect() overrides a caller-supplied createSocket with the attested facto
 
   const connected = streaming.connect({
     apiKey: "tk-secret",
+    model: "custom-rt-model",
     createSocket: async () => {
       rogueCalled = true;
       return makeFakeSocket(WS.OPEN);
     },
   });
-  await new Promise((resolve) => setImmediate(resolve));
-  socket.readyState = WS.OPEN;
-  socket.emit("message", JSON.stringify({ type: "session.created" }));
-  socket.emit("message", JSON.stringify({ type: "session.updated" }));
+  await finishConnect(streaming, socket);
   await connected;
 
-  assert.equal(rogueCalled, false, "audio must only travel over the attested socket");
-  assert.equal(calls.length, 1);
+  assert.equal(rogueCalled, false);
+  assert.deepEqual(calls, [{ model: "custom-rt-model", apiKey: "tk-secret" }]);
   streaming.cleanup();
 });
 
-test("the default socket factory is the attested Tinfoil transport", async () => {
+test("connect defaults to the supported Tinfoil realtime model", async () => {
+  const { TinfoilRealtimeStreaming, TINFOIL_REALTIME_MODEL } = await load();
+  const socket = makeFakeSocket(WS.CONNECTING);
+  const { factory, calls } = makeRecordingFactory(socket);
+  const streaming = new TinfoilRealtimeStreaming(factory);
+
+  const connected = streaming.connect({ apiKey: "tk-secret" });
+  await finishConnect(streaming, socket);
+  await connected;
+
+  assert.equal(TINFOIL_REALTIME_MODEL, "voxtral-mini-4b-realtime");
+  assert.equal(calls[0].model, TINFOIL_REALTIME_MODEL);
+  streaming.cleanup();
+});
+
+test("the default factory is the pinned Tinfoil transport", async () => {
   const { TinfoilRealtimeStreaming } = await load();
   const { createTinfoilRealtimeSocket } = require("../../src/helpers/tinfoilSecureClient");
 
-  const streaming = new TinfoilRealtimeStreaming();
-
-  assert.equal(streaming._createSocketImpl, createTinfoilRealtimeSocket);
+  assert.equal(new TinfoilRealtimeStreaming()._createSocketImpl, createTinfoilRealtimeSocket);
 });
 
-test("factory failure rejects connect() without constructing any fallback socket", async () => {
+test("attestation failure rejects without opening a fallback socket", async () => {
   const { TinfoilRealtimeStreaming } = await load();
   const streaming = new TinfoilRealtimeStreaming(async () => {
     throw new Error("attestation failed");
   });
 
   await assert.rejects(() => streaming.connect({ apiKey: "tk-secret" }), /attestation failed/);
-
-  assert.equal(streaming.ws, null, "no socket of any kind may exist after a factory failure");
-  assert.equal(streaming.isConnecting, false);
+  assert.equal(streaming.ws, null);
   assert.equal(streaming.isConnected, false);
 });
 
-test("each fresh instance re-invokes the factory (meeting reconnect swaps instances)", async () => {
+test("every fresh instance invokes the attested factory", async () => {
   const { TinfoilRealtimeStreaming } = await load();
   const calls = [];
 
-  for (let i = 0; i < 2; i++) {
+  for (let index = 0; index < 2; index += 1) {
     const socket = makeFakeSocket(WS.CONNECTING);
     const streaming = new TinfoilRealtimeStreaming(async (args) => {
       calls.push(args);
       return socket;
     });
     const connected = streaming.connect({ apiKey: "tk-secret" });
-    await new Promise((resolve) => setImmediate(resolve));
-    socket.readyState = WS.OPEN;
-    socket.emit("message", JSON.stringify({ type: "session.created" }));
-    socket.emit("message", JSON.stringify({ type: "session.updated" }));
+    await finishConnect(streaming, socket);
     await connected;
     streaming.cleanup();
   }
 
-  assert.equal(calls.length, 2, "every connect must dial a fresh attested socket");
+  assert.equal(calls.length, 2);
   assert.deepEqual(calls[0], calls[1]);
 });
 
-// -- session configuration --
-
-test("connect() sends the GA transcription session.update declaring the 24kHz meeting rate", async () => {
+test("meeting sessions declare the 24kHz PCM input format", async () => {
   const { TinfoilRealtimeStreaming } = await load();
   const socket = makeFakeSocket(WS.CONNECTING);
   const { factory } = makeRecordingFactory(socket);
@@ -183,10 +160,7 @@ test("connect() sends the GA transcription session.update declaring the 24kHz me
   socket.readyState = WS.OPEN;
   socket.emit("message", JSON.stringify({ type: "session.created" }));
 
-  assert.equal(socket.sent.length, 1);
-  const update = JSON.parse(socket.sent[0]);
-  assert.equal(update.type, "session.update");
-  assert.equal(update.session.type, "transcription");
+  const [update] = sentEvents(socket, "session.update");
   assert.deepEqual(update.session.audio.input.format, { type: "audio/pcm", rate: 24000 });
   assert.equal(update.session.audio.input.transcription.model, "voxtral-mini-4b-realtime");
 
@@ -195,311 +169,242 @@ test("connect() sends the GA transcription session.update declaring the 24kHz me
   streaming.cleanup();
 });
 
-test("preconfigured sessions get no session.update (dictation semantics survive subclassing)", async () => {
+test("preconfigured sessions do not send a client session update", async () => {
   const { TinfoilRealtimeStreaming } = await load();
   const socket = makeFakeSocket(WS.CONNECTING);
   const { factory } = makeRecordingFactory(socket);
   const streaming = new TinfoilRealtimeStreaming(factory);
 
   const connected = streaming.connect({ apiKey: "tk-secret", preconfigured: true });
-  await new Promise((resolve) => setImmediate(resolve));
-  socket.readyState = WS.OPEN;
-  socket.emit("message", JSON.stringify({ type: "session.created" }));
+  await finishConnect(streaming, socket, true);
   await connected;
 
-  assert.equal(socket.sent.length, 0, "session.update must not override a preconfigured session");
+  assert.equal(sentEvents(socket, "session.update").length, 0);
   streaming.cleanup();
 });
 
-// -- client-side utterance commits (Tinfoil has no server VAD) --
-
-test("commits after the delta stream goes idle for the silence window", (t) => {
+test("speech followed by 600ms of PCM silence commits the turn", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
+    streaming.sendAudio(speechPcm());
 
-    streaming.handleMessage(delta("hello"));
     t.mock.timers.tick(500);
-    assert.equal(sentCommits(streaming.ws).length, 0, "no commit while under the idle window");
+    streaming.sendAudio(Buffer.alloc(960));
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 0);
 
     t.mock.timers.tick(250);
-    const commits = sentCommits(streaming.ws);
-    assert.equal(commits.length, 1);
-    assert.deepEqual(JSON.parse(commits[0]), { type: "input_audio_buffer.commit" });
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
   })();
 });
 
-test("keeps streaming without commits while deltas keep arriving", (t) => {
+test("continuous speech is bounded by a 30-second turn", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
 
-    for (let i = 0; i < 8; i++) {
-      streaming.handleMessage(delta("word "));
+    for (let index = 0; index < 119; index += 1) {
+      streaming.sendAudio(speechPcm());
       t.mock.timers.tick(250);
     }
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 0);
 
-    assert.equal(sentCommits(streaming.ws).length, 0, "an active utterance must not be split");
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(250);
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
   })();
 });
 
-test("commits a continuous utterance at the max-utterance cap", (t) => {
+test("a silent backend turn is recycled before the provider zombie window", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
+    streaming.sendAudio(Buffer.alloc(960));
 
-    for (let i = 0; i < 118; i++) {
-      streaming.handleMessage(delta("word "));
-      t.mock.timers.tick(250);
-    }
-    assert.equal(sentCommits(streaming.ws).length, 0, "cap must not fire before 30s");
-
-    for (let i = 0; i < 4; i++) {
-      streaming.handleMessage(delta("word "));
-      t.mock.timers.tick(250);
-    }
-    assert.equal(sentCommits(streaming.ws).length, 1, "cap must bound an endless utterance");
+    t.mock.timers.tick(29750);
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 0);
+    t.mock.timers.tick(250);
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
   })();
 });
 
-test("never commits while nothing has been transcribed (empty-buffer guard)", (t) => {
+test("no audio produces no commits", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
-
-    t.mock.timers.tick(5000);
-
-    assert.equal(streaming.ws.sent.length, 0, "silence must never produce a commit");
+    t.mock.timers.tick(60000);
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 0);
   })();
 });
 
-test("one commit in flight at a time; completed re-arms the next utterance", (t) => {
+test("completed re-arms the next buffered turn", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
     const finals = [];
     streaming.onFinalTranscript = (text) => finals.push(text);
 
-    streaming.handleMessage(delta("first utterance"));
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(streaming.ws).length, 1);
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
 
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(streaming.ws).length, 1, "no second commit before the server answers");
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
 
-    streaming.handleMessage(completed("first utterance"));
-    streaming.handleMessage(delta("second utterance"));
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(streaming.ws).length, 2, "next utterance must commit again");
-    assert.deepEqual(finals, ["first utterance"], "finalized text must still reach the consumer");
-  })();
-});
-
-test("an unanswered commit re-arms after the ack deadline instead of stalling the session", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-
-    streaming.handleMessage(delta("hello"));
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(streaming.ws).length, 1);
-
-    t.mock.timers.tick(10250);
-    assert.equal(sentCommits(streaming.ws).length, 2, "session must self-heal after a lost commit");
-  })();
-});
-
-test("first delta stamps speechStartedAt for the mic-suppression window", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-    assert.equal(streaming.speechStartedAt, null);
-
-    t.mock.timers.tick(1000);
-    streaming.handleMessage(delta("hello"));
-    assert.equal(streaming.speechStartedAt, 101000);
-
-    streaming.handleMessage(completed("hello"));
-    assert.equal(streaming.speechStartedAt, null, "utterance boundary must reset the stamp");
-  })();
-});
-
-test("cleanup() stops the commit timer so a dead instance never commits", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-    const socket = streaming.ws;
-
-    streaming.handleMessage(delta("hello"));
-    streaming.cleanup();
-    assert.equal(streaming._commitTimer, null);
-
-    t.mock.timers.tick(5000);
-    assert.equal(sentCommits(socket).length, 0);
-  })();
-});
-
-// -- disconnect drain: an in-flight timer commit must finalize before the flush --
-
-test("disconnect() drains the in-flight timer commit so the tail transcript still lands", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-    const socket = streaming.ws;
-    streaming.sendAudio(Buffer.alloc(480));
-
-    streaming.handleMessage(delta("first utterance"));
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(socket).length, 1, "timer commit in flight");
-    streaming.handleMessage(delta("tail spoken after the commit"));
-
-    const disconnected = streaming.disconnect();
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(sentCommits(socket).length, 1, "flush must wait for the in-flight commit");
-
-    streaming.handleMessage(completed("first utterance"));
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(sentCommits(socket).length, 2, "flush commit follows the drained completed");
-
-    streaming.handleMessage(completed("tail spoken after the commit"));
-    const result = await disconnected;
-    assert.equal(result.text, "first utterance tail spoken after the commit");
-  })();
-});
-
-test("disconnect() with an unanswered commit resolves within the bounded deadlines", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-    streaming.sendAudio(Buffer.alloc(480));
-    streaming.handleMessage(delta("hello"));
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(streaming.ws).length, 1);
-
-    const disconnected = streaming.disconnect();
-    await new Promise((resolve) => setImmediate(resolve));
-    t.mock.timers.tick(3000);
-    await new Promise((resolve) => setImmediate(resolve));
-    t.mock.timers.tick(3000);
-    const result = await disconnected;
-    assert.equal(result.text, "", "resolves with accumulated text instead of hanging");
-  })();
-});
-
-// -- empty-commit replies: benign for timer commits, bounded against loops --
-
-test("empty-buffer reply to a timer commit is swallowed and retried after a fresh idle window", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-    let surfaced = 0;
-    streaming.onError = () => {
-      surfaced += 1;
-    };
-
-    streaming.handleMessage(delta("hello"));
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(streaming.ws).length, 1);
-
-    streaming.handleMessage(commitEmptyError());
-    assert.equal(surfaced, 0, "benign empty reply must not reach the meeting error channel");
-    assert.equal(streaming._commitInFlight, false);
-
+    streaming.handleMessage(completed("first"));
     t.mock.timers.tick(250);
-    assert.equal(sentCommits(streaming.ws).length, 1, "no instant re-commit before the idle window");
-    t.mock.timers.tick(600);
-    assert.equal(sentCommits(streaming.ws).length, 2, "retry follows a full idle window");
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 2);
+    assert.deepEqual(finals, ["first"]);
   })();
 });
 
-test("a second empty-buffer reply drops the unfinalizable partial instead of looping commits", (t) => {
+test("commit timeout requests recovery without sending a duplicate commit", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
-    let surfaced = 0;
-    streaming.onError = () => {
-      surfaced += 1;
-    };
+    const errors = [];
+    streaming.onConnectionLost = (error) => errors.push(error.message);
 
-    streaming.handleMessage(delta("hello"));
-    t.mock.timers.tick(850);
-    streaming.handleMessage(commitEmptyError());
-    t.mock.timers.tick(850);
-    assert.equal(sentCommits(streaming.ws).length, 2, "one retry after the first empty reply");
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+    t.mock.timers.tick(20250);
 
-    streaming.handleMessage(commitEmptyError());
-    assert.equal(surfaced, 0);
-    assert.equal(streaming.currentPartial, "", "unfinalizable partial dropped");
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
+    assert.deepEqual(errors, ["Tinfoil did not finish the current transcript segment."]);
+  })();
+});
+
+test("speech timing comes from PCM activity rather than transcript timing", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+
+    streaming.sendAudio(Buffer.alloc(960));
     assert.equal(streaming.speechStartedAt, null);
-
-    t.mock.timers.tick(5000);
-    assert.equal(sentCommits(streaming.ws).length, 2, "no commit loop after dropping the partial");
-  })();
-});
-
-test("empty-buffer error with no timer commit in flight still reaches onError", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-    let errMsg = null;
-    streaming.onError = (err) => {
-      errMsg = err.message;
-    };
-
-    streaming.handleMessage(commitEmptyError());
-
-    assert.equal(errMsg, "buffer too small", "base disconnect-flush tolerance must still see it");
-  })();
-});
-
-test("server errors during an in-flight commit still surface", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-    let errMsg = null;
-    streaming.onError = (err) => {
-      errMsg = err.message;
-    };
-
-    streaming.handleMessage(delta("hello"));
-    t.mock.timers.tick(850);
-    streaming.handleMessage(
-      JSON.stringify({ type: "error", error: { code: "server_error", message: "something broke" } })
-    );
-
-    assert.equal(errMsg, "something broke");
-    assert.equal(streaming._commitInFlight, false);
-  })();
-});
-
-// -- empty delta frames must not touch the utterance timers --
-
-test("an empty delta frame does not stamp speechStartedAt", (t) => {
-  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
-  return (async () => {
-    const streaming = await makeConnected();
-
-    streaming.handleMessage(delta(""));
-    assert.equal(streaming.speechStartedAt, null, "an empty frame is not speech");
-
     t.mock.timers.tick(250);
-    streaming.handleMessage(delta("real"));
+    streaming.sendAudio(speechPcm());
     assert.equal(streaming.speechStartedAt, 100250);
   })();
 });
 
-test("empty delta frames do not starve the idle commit", (t) => {
+test("disconnect drains an in-flight commit before committing the tail", (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
   return (async () => {
     const streaming = await makeConnected();
+    const socket = streaming.ws;
 
-    streaming.handleMessage(delta("hi"));
-    t.mock.timers.tick(250);
-    streaming.handleMessage(delta(""));
-    t.mock.timers.tick(250);
-    streaming.handleMessage(delta(""));
-    t.mock.timers.tick(250);
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+    streaming.sendAudio(speechPcm());
 
-    assert.equal(sentCommits(streaming.ws).length, 1, "empty frames must not reset the idle clock");
+    const disconnected = streaming.disconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sentEvents(socket, "input_audio_buffer.commit").length, 1);
+
+    streaming.handleMessage(completed("first"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sentEvents(socket, "input_audio_buffer.commit").length, 2);
+
+    streaming.handleMessage(completed("tail"));
+    assert.deepEqual(await disconnected, { text: "first tail" });
+  })();
+});
+
+test("disconnect remains bounded when the provider never completes", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+
+    const disconnected = streaming.disconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(3000);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(await disconnected, { text: "" });
+  })();
+});
+
+test("disconnect uses one drain deadline across the active turn and its tail", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    const socket = streaming.ws;
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+    streaming.sendAudio(speechPcm());
+
+    let finished = false;
+    const disconnected = streaming.disconnect().then((result) => {
+      finished = true;
+      return result;
+    });
+
+    t.mock.timers.tick(2000);
+    streaming.handleMessage(completed("first"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sentEvents(socket, "input_audio_buffer.commit").length, 2);
+
+    t.mock.timers.tick(999);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(finished, false);
+
+    t.mock.timers.tick(1);
+    assert.deepEqual(await disconnected, { text: "first" });
+  })();
+});
+
+test("empty commit replies are swallowed without a retry loop", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    let surfaced = 0;
+    streaming.onError = () => {
+      surfaced += 1;
+    };
+
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+    streaming.handleMessage(commitEmptyError());
+    t.mock.timers.tick(5000);
+
+    assert.equal(surfaced, 0);
+    assert.equal(sentEvents(streaming.ws, "input_audio_buffer.commit").length, 1);
+  })();
+});
+
+test("provider errors surface and request connection recovery", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    const errors = [];
+    const recoveries = [];
+    streaming.onError = (error) => errors.push(error.message);
+    streaming.onConnectionLost = (error) => recoveries.push(error.message);
+
+    streaming.sendAudio(speechPcm());
+    t.mock.timers.tick(750);
+    streaming.handleMessage(
+      JSON.stringify({ type: "error", error: { code: "server_error", message: "failed" } })
+    );
+
+    assert.deepEqual(errors, ["failed"]);
+    assert.deepEqual(recoveries, ["failed"]);
+  })();
+});
+
+test("cleanup stops the turn timer", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 100000 });
+  return (async () => {
+    const streaming = await makeConnected();
+    const socket = streaming.ws;
+    streaming.sendAudio(speechPcm());
+    streaming.cleanup();
+
+    t.mock.timers.tick(5000);
+    assert.equal(streaming._commitTimer, null);
+    assert.equal(sentEvents(socket, "input_audio_buffer.commit").length, 0);
   })();
 });

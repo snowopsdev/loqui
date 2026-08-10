@@ -5,7 +5,8 @@ const load = () => import("../../src/helpers/meetingStreamingProviders.js");
 
 test("tinfoil-realtime resolves to the Tinfoil client, never the OpenAI default", async () => {
   const { STREAMING_CLIENT_BY_PROVIDER } = await load();
-  const { TinfoilRealtimeStreaming } = await import("../../src/helpers/tinfoilRealtimeStreaming.js");
+  const { TinfoilRealtimeStreaming } =
+    await import("../../src/helpers/tinfoilRealtimeStreaming.js");
   const OpenAIRealtimeStreaming = (await import("../../src/helpers/openaiRealtimeStreaming.js"))
     .default;
 
@@ -39,4 +40,33 @@ test("allow-list rejects unknown and batch-only providers", async () => {
   for (const provider of ["tinfoil", "openai", "mistral-realtime", "grok-stt", "", undefined]) {
     assert.equal(ALLOWED_MEETING_PROVIDERS.has(provider), false, `${provider} must be rejected`);
   }
+});
+
+test("client lookup fails closed instead of defaulting to OpenAI", async () => {
+  const { getMeetingStreamingClient } = await load();
+
+  assert.throws(() => getMeetingStreamingClient("unknown-realtime"), /Unsupported meeting/);
+});
+
+test("connection identity includes every provider-specific option", async () => {
+  const { getMeetingConnectionKey } = await load();
+  const options = {
+    provider: "corti-realtime",
+    model: "corti-transcribe",
+    language: "en",
+    mode: "byok",
+    environment: "us",
+    tenant: "tenant-a",
+    keyterms: ["OpenWhispr"],
+  };
+
+  assert.equal(getMeetingConnectionKey(options), getMeetingConnectionKey({ ...options }));
+  assert.notEqual(
+    getMeetingConnectionKey(options),
+    getMeetingConnectionKey({ ...options, provider: "tinfoil-realtime" })
+  );
+  assert.notEqual(
+    getMeetingConnectionKey(options),
+    getMeetingConnectionKey({ ...options, tenant: "tenant-b" })
+  );
 });

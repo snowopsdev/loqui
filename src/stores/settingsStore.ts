@@ -3,7 +3,6 @@ import { API_ENDPOINTS } from "../config/constants";
 import i18n, { normalizeUiLanguage } from "../i18n";
 import { ensureAgentNameInDictionary } from "../utils/agentName";
 import { chooseDictionaryStartupAction } from "../helpers/dictionaryStartup";
-import { useStreamingProvidersStore } from "./streamingProvidersStore";
 import logger from "../utils/logger";
 import whisperVadConstants from "../constants/whisperVad.json";
 import type {
@@ -2025,27 +2024,21 @@ export interface ResolvedMeetingTranscription {
 
 export const selectResolvedMeetingTranscription = (
   state: SettingsState
-): ResolvedMeetingTranscription => {
-  const catalog = useStreamingProvidersStore.getState().providers;
-  // TODO(1.8.0): Catalog has one cloud entry today (OpenAI Realtime).
-  // When a second is added, resolve as `meetingCloudTranscriptionProvider || cloudTranscriptionProvider || catalog[0]?.id`, then validate against catalog.
-  const cloudTranscriptionProvider = catalog?.[0]?.id ?? "";
-
-  return {
-    useLocalWhisper: state.meetingUseLocalWhisper,
-    whisperModel: state.meetingWhisperModel || state.whisperModel,
-    localTranscriptionProvider: state.meetingLocalTranscriptionProvider,
-    parakeetModel: state.meetingParakeetModel || state.parakeetModel,
-    cloudTranscriptionProvider,
-    cloudTranscriptionModel: state.meetingCloudTranscriptionModel || state.cloudTranscriptionModel,
-    cloudTranscriptionBaseUrl:
-      state.meetingCloudTranscriptionBaseUrl || state.cloudTranscriptionBaseUrl || "",
-    cloudTranscriptionMode: state.meetingCloudTranscriptionMode || state.cloudTranscriptionMode,
-    transcriptionMode: state.meetingTranscriptionMode,
-    remoteTranscriptionType: state.meetingRemoteTranscriptionType,
-    remoteTranscriptionUrl: state.meetingRemoteTranscriptionUrl || state.remoteTranscriptionUrl,
-  };
-};
+): ResolvedMeetingTranscription => ({
+  useLocalWhisper: state.meetingUseLocalWhisper,
+  whisperModel: state.meetingWhisperModel || state.whisperModel,
+  localTranscriptionProvider: state.meetingLocalTranscriptionProvider,
+  parakeetModel: state.meetingParakeetModel || state.parakeetModel,
+  cloudTranscriptionProvider:
+    state.meetingCloudTranscriptionProvider || state.cloudTranscriptionProvider,
+  cloudTranscriptionModel: state.meetingCloudTranscriptionModel || state.cloudTranscriptionModel,
+  cloudTranscriptionBaseUrl:
+    state.meetingCloudTranscriptionBaseUrl || state.cloudTranscriptionBaseUrl || "",
+  cloudTranscriptionMode: state.meetingCloudTranscriptionMode || state.cloudTranscriptionMode,
+  transcriptionMode: state.meetingTranscriptionMode,
+  remoteTranscriptionType: state.meetingRemoteTranscriptionType,
+  remoteTranscriptionUrl: state.meetingRemoteTranscriptionUrl || state.remoteTranscriptionUrl,
+});
 
 export interface ResolvedUploadTranscription {
   useLocalWhisper: boolean;

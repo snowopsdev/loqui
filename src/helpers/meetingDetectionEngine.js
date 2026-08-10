@@ -106,12 +106,12 @@ class MeetingDetectionEngine {
     if (this._userRecording || this._postRecordingCooldown) {
       debugLogger.info("Detection queued — user is recording", { detectionId, source }, "meeting");
       this._notificationQueue.push({ source, key, data });
-      this.activeDetections.set(detectionId, { source, key, data, dismissed: false });
+      this.activeDetections.set(detectionId, { source, key, data });
       return;
     }
 
     debugLogger.info("Meeting detection triggered", { detectionId, source }, "meeting");
-    this.activeDetections.set(detectionId, { source, key, data, dismissed: false });
+    this.activeDetections.set(detectionId, { source, key, data });
     this._showPrompt(detectionId, source, key, data);
   }
 
@@ -366,7 +366,7 @@ class MeetingDetectionEngine {
     const detectionId = `${best.source}:${best.key}`;
 
     const detection = this.activeDetections.get(detectionId);
-    if (detection && !detection.dismissed) {
+    if (detection) {
       this._showPrompt(detectionId, best.source, best.key, best.data);
     }
 

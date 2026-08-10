@@ -1223,10 +1223,11 @@ class WindowManager {
     const display = screen.getPrimaryDisplay();
     const position = WindowPositionUtil.getNotificationPosition(display);
 
-    this.notificationWindow = new BrowserWindow({
+    const win = new BrowserWindow({
       ...NOTIFICATION_WINDOW_CONFIG,
       ...position,
     });
+    this.notificationWindow = win;
 
     // Keep the prompt visible to the user but out of screen shares and recordings.
     this.notificationWindow.setContentProtection(true);
@@ -1266,7 +1267,10 @@ class WindowManager {
 
     this._notificationDismissTimer.start(getNotificationTimeoutMs(promptData.source));
 
-    this.notificationWindow.on("closed", () => {
+    // "closed" fires asynchronously, so a replaced prompt's window emits it
+    // after the replacement already took over the reference and the countdown.
+    win.on("closed", () => {
+      if (this.notificationWindow !== win) return;
       this.notificationWindow = null;
       this._notificationDismissTimer.cancel();
     });
@@ -1309,10 +1313,11 @@ class WindowManager {
     const display = screen.getPrimaryDisplay();
     const position = WindowPositionUtil.getNotificationPosition(display);
 
-    this.updateNotificationWindow = new BrowserWindow({
+    const win = new BrowserWindow({
       ...NOTIFICATION_WINDOW_CONFIG,
       ...position,
     });
+    this.updateNotificationWindow = win;
 
     WindowPositionUtil.setupAlwaysOnTop(this.updateNotificationWindow);
 
@@ -1348,7 +1353,8 @@ class WindowManager {
       this.dismissUpdateNotification({ persistent: false });
     }, 5000);
 
-    this.updateNotificationWindow.on("closed", () => {
+    win.on("closed", () => {
+      if (this.updateNotificationWindow !== win) return;
       this.updateNotificationWindow = null;
       if (this._updateNotificationAutoDismiss) {
         clearTimeout(this._updateNotificationAutoDismiss);

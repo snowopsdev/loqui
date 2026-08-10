@@ -39,6 +39,7 @@ import {
 } from "../utils/transcriptSpeakerState";
 import { parseTranscriptSegments } from "../utils/parseTranscriptSegments";
 import { resolveDiarizationTarget, selectBaseSegments } from "../utils/diarizationCompletion";
+import { createSerialQueue } from "../utils/serialQueue";
 
 export interface TranscriptSegment {
   id: string;
@@ -1384,72 +1385,84 @@ export function cancelPreparedTranscription(): void {
 // session (#1495). Registered once at module load so results survive the
 // notes view unmounting; NoteEditor only mirrors `completedDiarization`.
 if (typeof window !== "undefined") {
-  window.electronAPI?.onMeetingDiarizationComplete?.(async (data) => {
-    const {
-      diarizationSessionId,
-      recordingNoteId,
-      segments: liveSegments,
-    } = useMeetingRecordingStore.getState();
-    const { targetNoteId, isCurrentSession } = resolveDiarizationTarget({
-      payloadNoteId: data?.noteId,
-      payloadSessionId: data?.sessionId,
-      currentSessionId: diarizationSessionId,
-      recordingNoteId,
-    });
-    if (targetNoteId == null) return;
+  // Serialized so rapid re-record completions can't interleave around the
+  // getNote await and overwrite each other's speaker labels — the later
+  // result merges on top of the earlier one's persisted transcript.
+  const enqueueDiarizationCompletion = createSerialQueue();
+  window.electronAPI?.onMeetingDiarizationComplete?.((data) => {
+    enqueueDiarizationCompletion(async () => {
+      const {
+        diarizationSessionId,
+        recordingNoteId,
+        segments: liveSegments,
+      } = useMeetingRecordingStore.getState();
+      const { targetNoteId, isCurrentSession } = resolveDiarizationTarget({
+        payloadNoteId: data?.noteId,
+        payloadSessionId: data?.sessionId,
+        currentSessionId: diarizationSessionId,
+        recordingNoteId,
+      });
+      if (targetNoteId == null) return;
 
-    const publish = (segments: TranscriptSegment[]) => {
-      if (isCurrentSession) {
-        useMeetingRecordingStore.setState({
-          completedDiarization: { noteId: targetNoteId, segments },
-        });
+      const publish = (segments: TranscriptSegment[]) => {
+        if (isCurrentSession) {
+          useMeetingRecordingStore.setState({
+            completedDiarization: { noteId: targetNoteId, segments },
+          });
+        }
+      };
+
+      if (!data?.segments?.length) {
+        // Diarization failed or was skipped — publish so a waiting editor can
+        // clear its spinner, but there is nothing to persist.
+        publish([]);
+        return;
       }
-    };
 
-    if (!data?.segments?.length) {
-      // Diarization failed or was skipped — publish so a waiting editor can
-      // clear its spinner, but there is nothing to persist.
-      publish([]);
-      return;
-    }
+      let persisted;
+      try {
+        persisted = await window.electronAPI?.getNote?.(targetNoteId);
+      } catch {
+        // Without the persisted note there is no safe base to merge into —
+        // publish the empty result so a waiting editor still clears its spinner.
+        publish([]);
+        return;
+      }
+      // Writing to a deleted note would resurrect its tombstone in the
+      // sidebar, cloud mirror, and vector index.
+      if (!persisted || persisted.deleted_at) return;
 
-    let persisted;
-    try {
-      persisted = await window.electronAPI?.getNote?.(targetNoteId);
-    } catch {
-      // Without the persisted note there is no safe base to merge into —
-      // publish the empty result so a waiting editor still clears its spinner.
-      publish([]);
-      return;
-    }
-    // Writing to a deleted note would resurrect its tombstone in the
-    // sidebar, cloud mirror, and vector index.
-    if (!persisted || persisted.deleted_at) return;
+      const existing = selectBaseSegments({
+        persistedSegments: persisted.transcript
+          ? parseTranscriptSegments(persisted.transcript)
+          : null,
+        liveSegments,
+        recordingNoteId,
+        targetNoteId,
+      });
+      const enriched = mergeTranscriptSegments(
+        existing,
+        data.segments.map((segment, index) => ({
+          ...segment,
+          id: segment.id || `diarized-${index}`,
+        }))
+      );
 
-    const existing = selectBaseSegments({
-      persistedSegments: persisted.transcript
-        ? parseTranscriptSegments(persisted.transcript)
-        : null,
-      liveSegments,
-      recordingNoteId,
-      targetNoteId,
+      window.electronAPI?.updateNote?.(targetNoteId, {
+        transcript: serializeTranscriptSegments(enriched),
+      });
+      if (data.speakerEmbeddings) {
+        window.electronAPI?.saveNoteSpeakerEmbeddings?.(targetNoteId, data.speakerEmbeddings);
+      }
+
+      publish(enriched);
+    }).catch((error) => {
+      logger.error(
+        "Diarization completion handling failed",
+        { error: (error as Error).message },
+        "meeting"
+      );
     });
-    const enriched = mergeTranscriptSegments(
-      existing,
-      data.segments.map((segment, index) => ({
-        ...segment,
-        id: segment.id || `diarized-${index}`,
-      }))
-    );
-
-    window.electronAPI?.updateNote?.(targetNoteId, {
-      transcript: serializeTranscriptSegments(enriched),
-    });
-    if (data.speakerEmbeddings) {
-      window.electronAPI?.saveNoteSpeakerEmbeddings?.(targetNoteId, data.speakerEmbeddings);
-    }
-
-    publish(enriched);
   });
 }
 

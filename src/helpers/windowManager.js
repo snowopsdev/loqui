@@ -278,6 +278,7 @@ class WindowManager {
 
     if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
     this.showDictationPanel();
+    this.sendPrepareDictation();
 
     const safetyTimeoutId = setTimeout(() => {
       if (this.macCompoundPushState?.active) {
@@ -325,6 +326,7 @@ class WindowManager {
     if (wasRecording) {
       this.sendStopDictation();
     } else {
+      this.sendCancelDictationPreparation();
       this.hideDictationPanel();
     }
   }
@@ -343,6 +345,8 @@ class WindowManager {
 
     if (wasRecording) {
       this.sendStopDictation();
+    } else {
+      this.sendCancelDictationPreparation();
     }
     this.hideDictationPanel();
 
@@ -402,6 +406,7 @@ class WindowManager {
     const downTime = Date.now();
 
     this.showDictationPanel();
+    this.sendPrepareDictation();
 
     this.winPushState = {
       active: true,
@@ -438,6 +443,7 @@ class WindowManager {
     if (wasRecording) {
       this.sendStopDictation();
     } else {
+      this.sendCancelDictationPreparation();
       this.hideDictationPanel();
     }
   }
@@ -455,7 +461,21 @@ class WindowManager {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      // Capture the paste target and any selection on every toggle press,
+      // before the overlay steals focus — the paste can't refocus the target
+      // otherwise (#668). The renderer owns the real recording state and may
+      // decline a toggle (mic error, silence gate, Esc cancel), so gating this
+      // on _isDictatingToggle desyncs and leaves a stale target from a
+      // previous app. Press-time capture matches the dictation hotkey call
+      // sites in main.js; a stop-press capture resolves the same frontmost
+      // app, since NSWorkspace ignores the overlay panel.
+      if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
+      void this.selectionManager?.captureTarget?.();
       this.showDictationPanel();
+      // About-to-start guess: open the mic one IPC message ahead of the toggle.
+      // A wrong guess (renderer declines) is bounded by the prepared capture's
+      // max-age expiry, and the renderer dedups its own prepare call.
+      if (!this._isDictatingToggle) this.sendPrepareDictation();
       this.mainWindow.webContents.send(channel);
       this._isDictatingToggle = !this._isDictatingToggle;
       this.meetingDetectionEngine?.setUserRecording(this._isDictatingToggle);
@@ -467,10 +487,6 @@ class WindowManager {
   }
 
   sendToggleVoiceAgent() {
-    // The voice-agent hotkeys, unlike the dictation paths, don't capture the
-    // target PID at their call sites, so capture here or the paste can't
-    // refocus the target (#668).
-    if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
     this._sendDictationToggle("toggle-voice-agent");
   }
 
@@ -486,6 +502,8 @@ class WindowManager {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
+      void this.selectionManager?.captureTarget?.();
       this.showDictationPanel();
       this.mainWindow.webContents.send("start-dictation");
       this.meetingDetectionEngine?.setUserRecording(true);
@@ -503,11 +521,27 @@ class WindowManager {
     }
   }
 
+  sendPrepareDictation() {
+    if (this.hotkeyManager.isInListeningMode()) {
+      return;
+    }
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("prepare-dictation");
+    }
+  }
+
+  sendCancelDictationPreparation() {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("cancel-dictation-preparation");
+    }
+  }
+
   sendCancelDictation() {
     if (this.hotkeyManager.isInListeningMode()) {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("cancel-dictation-preparation");
       this.mainWindow.webContents.send("cancel-hotkey-pressed");
       this._isDictatingToggle = false;
       this.meetingDetectionEngine?.setUserRecording(false);

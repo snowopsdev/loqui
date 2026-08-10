@@ -8,6 +8,14 @@ const { broadcastToWindows } = require("./windowBroadcast");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const tokenStore = require("./tokenStore");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
+const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
+const { createWorkspacePolicyManager } = require("./workspacePolicyManager");
+const { createCloudConfigRequestHandler } = require("./cloudConfigRequest");
+const {
+  createPolicyResponseError,
+  readPolicyResponseError,
+  toPolicyFailure,
+} = require("./policyResponseError");
 const { classifyAndLog } = require("./networkErrors");
 const { resolveLocalServerNeeds } = require("./localServerPolicy");
 const GnomeShortcutManager = require("./gnomeShortcut");
@@ -28,7 +36,10 @@ const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
 const { partitionPendingMicFinals, isWithinRetractWindow } = require("./meetingMicHoldback");
 const { applySmartSpacing } = require("./smartSpacing");
 const { applyAutoLearnSetting } = require("./autoLearnSetting");
-const { DEFAULT_RETENTION_SETTINGS, applyRetentionSettings } = require("./retentionSettings");
+const {
+  DEFAULT_RETENTION_SETTINGS,
+  createRetentionSettingsHandler,
+} = require("./retentionSettings");
 const {
   transcriptsOverlap,
   transcriptsLooselyOverlap,
@@ -288,9 +299,7 @@ function interpretTranscribeResponse(data) {
     });
   }
   if (data.statusCode !== 200) {
-    throw Object.assign(new Error(data.data?.error || `API error: ${data.statusCode}`), {
-      statusCode: data.statusCode,
-    });
+    throw createPolicyResponseError(data.statusCode, data.data, `API error: ${data.statusCode}`);
   }
   return data.data;
 }
@@ -299,7 +308,7 @@ async function chunkedCloudTranscribe({
   buffer = null,
   filePath = null,
   apiUrl,
-  authHeader,
+  policyHeaders,
   multipartFields = {},
   onProgress,
   signal,
@@ -361,7 +370,7 @@ async function chunkedCloudTranscribe({
             "audio/mpeg",
             multipartFields
           );
-          const data = await postMultipart(url, body, boundary, authHeader, {
+          const data = await postMultipart(url, body, boundary, policyHeaders, {
             signal: AbortSignal.any([jobSignal, timeoutSignal]),
             session: getCloudUploadSession(),
           });
@@ -472,6 +481,7 @@ class IPCHandlers {
     this.windowsKeyManager = managers.windowsKeyManager;
     this.linuxKeyManager = managers.linuxKeyManager;
     this.textEditMonitor = managers.textEditMonitor;
+    this.selectionManager = managers.selectionManager;
     this.getTrayManager = managers.getTrayManager;
     this.whisperCudaManager = managers.whisperCudaManager;
     this.whisperVulkanManager = managers.whisperVulkanManager;
@@ -488,6 +498,8 @@ class IPCHandlers {
     // requestId -> AbortController for in-flight audio-upload transcriptions,
     // so a cancel can abort the exact job.
     this._uploadTranscriptionControllers = new Map();
+    // webContents id -> its release listener, for renderers holding the mic open.
+    this._micHoldSenders = new Map();
     this.assemblyAiStreaming = null;
     this.deepgramStreaming = null;
     this.cortiStreaming = null;
@@ -536,6 +548,15 @@ class IPCHandlers {
         broadcastToWindows("gpu-fallback-notification", {});
       });
     }
+  }
+
+  _releaseMicHold(sender) {
+    const release = this._micHoldSenders.get(sender.id);
+    if (!release) return;
+    this._micHoldSenders.delete(sender.id);
+    sender.off("destroyed", release);
+    sender.off("did-finish-load", release);
+    this.meetingDetectionEngine?.setMicWarmHold(this._micHoldSenders.size > 0);
   }
 
   _getWhisperVadSettings() {
@@ -1009,6 +1030,12 @@ class IPCHandlers {
       this.windowManager.showDictationPanel();
     });
 
+    ipcMain.handle("capture-dictation-target", async () => {
+      const pid = (await this.textEditMonitor?.captureTargetPid?.()) ?? null;
+      await this.selectionManager?.captureTarget?.();
+      return { success: true, pid };
+    });
+
     ipcMain.handle("force-stop-dictation", () => {
       if (this.windowManager?.forceStopMacCompoundPush) {
         this.windowManager.forceStopMacCompoundPush("manual");
@@ -1143,12 +1170,17 @@ class IPCHandlers {
       return this.audioStorageManager.getStorageUsage();
     });
 
-    ipcMain.on("retention-settings-changed", (_event, incoming) => {
-      const { changed, settings } = applyRetentionSettings(this._retentionSettings, incoming);
-      if (!changed) return;
-      this._retentionSettings = settings;
-      this._runRetentionCleanup();
-    });
+    ipcMain.on(
+      "retention-settings-changed",
+      createRetentionSettingsHandler({
+        getCurrentSettings: () => this._retentionSettings,
+        getOwner: () => this.windowManager.mainWindow?.webContents,
+        onSettingsChanged: (settings) => {
+          this._retentionSettings = settings;
+          this._runRetentionCleanup();
+        },
+      })
+    );
 
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
@@ -1171,6 +1203,23 @@ class IPCHandlers {
 
     ipcMain.handle("get-transcription-by-id", async (event, id) => {
       return this.databaseManager.getTranscriptionById(id);
+    });
+
+    // Every window's AudioManager can hold the mic open outside a recording, so
+    // gate the audio-evidence meeting detector until they all release. A
+    // renderer that reloads or goes away releases implicitly — otherwise a
+    // crash mid-hold would gate detection for the rest of the session.
+    ipcMain.on("mic-warm-hold-changed", (event, active) => {
+      if (!active) {
+        this._releaseMicHold(event.sender);
+        return;
+      }
+      if (this._micHoldSenders.has(event.sender.id)) return;
+      const release = () => this._releaseMicHold(event.sender);
+      this._micHoldSenders.set(event.sender.id, release);
+      event.sender.on("destroyed", release);
+      event.sender.on("did-finish-load", release);
+      this.meetingDetectionEngine?.setMicWarmHold(true);
     });
 
     // Dictionary handlers
@@ -2217,6 +2266,24 @@ class IPCHandlers {
       }
     });
 
+    ipcMain.handle("capture-selected-text", async () => {
+      if (!this.selectionManager) {
+        return { status: "unavailable", code: "selection_manager_unavailable" };
+      }
+      return this.selectionManager.captureSelectedText();
+    });
+
+    ipcMain.handle("replace-selected-text", async (event, sessionId, text, options = {}) => {
+      if (!this.selectionManager) {
+        return { success: false, code: "selection_manager_unavailable" };
+      }
+      return this.selectionManager.replaceSelectedText(sessionId, text, {
+        restoreClipboard: options.restoreClipboard !== false,
+        allowClipboardFallback: options.allowClipboardFallback === true,
+        webContents: event.sender,
+      });
+    });
+
     ipcMain.handle("paste-text", async (event, text, options) => {
       const mainWindow = this.windowManager?.mainWindow;
       const targetPid = this.textEditMonitor?.lastTargetPid || null;
@@ -2245,7 +2312,7 @@ class IPCHandlers {
       // too slow for the paste hot path.
       const textToPaste = applySmartSpacing({ text, mode: "append" });
 
-      const result = await this.clipboardManager.pasteText(textToPaste, {
+      await this.clipboardManager.pasteText(textToPaste, {
         ...options,
         webContents: event.sender,
       });
@@ -2266,7 +2333,11 @@ class IPCHandlers {
           }
         }, 500);
       }
-      return result;
+      // ClipboardManager returns `restoreComplete` so main-process callers can
+      // serialize subsequent clipboard work behind its delayed restore. A
+      // Promise cannot cross Electron's IPC boundary, though, and renderer
+      // callers only need to know that the paste was accepted.
+      return { success: true };
     });
 
     ipcMain.handle("check-accessibility-permission", async (_event, silent = false) => {
@@ -3668,7 +3739,7 @@ class IPCHandlers {
           // Opus 4.7 / GPT-5 / o-series dropped `temperature`; renderer
           // derives support from the model registry and we honor that here.
           const useTemperature = config?.supportsTemperature !== false;
-          const { text: generated } = await generateText({
+          const { text: generated, finishReason } = await generateText({
             model,
             system: config?.systemPrompt || "",
             prompt: text,
@@ -3676,6 +3747,13 @@ class IPCHandlers {
             ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),
             abortSignal: AbortSignal.timeout(timeoutMs),
           });
+
+          if (
+            config?.requireCompleteOutput &&
+            ["length", "max-tokens", "max_tokens"].includes(finishReason)
+          ) {
+            throw new Error("Model output was truncated before the selection edit completed");
+          }
 
           return { success: true, text: (generated || "").trim() };
         } catch (err) {
@@ -3969,12 +4047,15 @@ class IPCHandlers {
             throw new Error("No model specified for Anthropic API call");
           }
 
+          // Claude models from Opus 4.7 onward reject `temperature` with a 400;
+          // the renderer derives support from the model registry.
+          const useTemperature = config?.supportsTemperature === true;
           const requestBody = {
             model: modelId,
             messages: [{ role: "user", content: userPrompt }],
             system: systemPrompt,
             max_tokens: config?.maxTokens || Math.max(100, Math.min(text.length * 2, 4096)),
-            temperature: config?.temperature || 0.3,
+            ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),
           };
 
           const response = await proxyFetch("https://api.anthropic.com/v1/messages", {
@@ -4003,6 +4084,9 @@ class IPCHandlers {
           }
 
           const data = await response.json();
+          if (config?.requireCompleteOutput && data.stop_reason === "max_tokens") {
+            throw new Error("Model output was truncated before the selection edit completed");
+          }
           return { success: true, text: data.content[0].text.trim() };
         } catch (error) {
           debugLogger.error("Anthropic reasoning error:", error);
@@ -4568,12 +4652,38 @@ class IPCHandlers {
     // Honors system proxy via Electron's net stack. useSessionCookies:false so
     // Electron doesn't auto-attach jar cookies on top of our explicit headers.
     const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
+    const withPolicyHeaders = (headers) => withPolicyRequestHeaders(headers, app.getVersion());
     const handleCloudApiRequest = createCloudApiRequestHandler({
       getApiUrl,
       getAppVersion: () => app.getVersion(),
       proxyFetch,
       tokenStore,
       logger: debugLogger,
+    });
+    const workspacePolicyManager = createWorkspacePolicyManager({
+      cachePath: path.join(app.getPath("userData"), "workspace-policy.json"),
+      getApiUrl,
+      getAppVersion: () => app.getVersion(),
+      proxyFetch,
+      tokenStore,
+      broadcast: (snapshot) => broadcastToWindows("workspace-policy-changed", snapshot),
+      logger: debugLogger,
+    });
+    const handleSttConfigRequest = createCloudConfigRequestHandler({
+      getApiUrl,
+      getAuthHeader,
+      proxyFetch,
+      withPolicyHeaders,
+      logger: debugLogger,
+      configPath: "stt-config",
+    });
+    const handleNoteRecordingConfigRequest = createCloudConfigRequestHandler({
+      getApiUrl,
+      getAuthHeader,
+      proxyFetch,
+      withPolicyHeaders,
+      logger: debugLogger,
+      configPath: "note-recording-config",
     });
 
     ipcMain.handle("cloud-transcribe", async (event, audioBuffer, opts = {}) => {
@@ -4605,7 +4715,7 @@ class IPCHandlers {
           const { text, responses, lastResponse, warning } = await chunkedCloudTranscribe({
             buffer: audioData,
             apiUrl,
-            authHeader,
+            policyHeaders: withPolicyHeaders(authHeader),
             multipartFields,
           });
           const sum = (field) => responses.reduce((s, r) => s + (r?.[field] || 0), 0);
@@ -4634,7 +4744,7 @@ class IPCHandlers {
           multipartFields
         );
         const url = new URL(`${apiUrl}/api/transcribe`);
-        const data = await postMultipart(url, body, boundary, authHeader, {
+        const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
           signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
           session: getCloudUploadSession(),
         });
@@ -4663,10 +4773,7 @@ class IPCHandlers {
         };
       } catch (error) {
         debugLogger.error("Cloud transcription error", { error: error.message }, "cloud-api");
-        if (error.code) {
-          return { success: false, error: error.message, code: error.code, ...error };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -4772,7 +4879,7 @@ class IPCHandlers {
                   const { text } = await chunkedCloudTranscribe({
                     buffer,
                     apiUrl,
-                    authHeader,
+                    policyHeaders: withPolicyHeaders(authHeader),
                     multipartFields,
                   });
                   result = { text, source: "openwhispr", model: "cloud" };
@@ -4784,10 +4891,16 @@ class IPCHandlers {
                     multipartFields
                   );
                   const url = new URL(`${apiUrl}/api/transcribe`);
-                  const data = await postMultipart(url, body, boundary, authHeader, {
-                    signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
-                    session: getCloudUploadSession(),
-                  });
+                  const data = await postMultipart(
+                    url,
+                    body,
+                    boundary,
+                    withPolicyHeaders(authHeader),
+                    {
+                      signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
+                      session: getCloudUploadSession(),
+                    }
+                  );
                   const responseData = interpretTranscribeResponse(data);
                   result = {
                     text: responseData.text,
@@ -5441,7 +5554,7 @@ class IPCHandlers {
         try {
           response = await proxyFetch(url, {
             method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeader },
+            headers: withPolicyHeaders({ "Content-Type": "application/json", ...authHeader }),
             body: JSON.stringify(body),
           });
         } catch (err) {
@@ -5456,8 +5569,7 @@ class IPCHandlers {
           throw err;
         }
         if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err.error || `Token request failed: ${response.status}`);
+          throw await readPolicyResponseError(response, `Token request failed: ${response.status}`);
         }
         return response.json();
       };
@@ -6550,7 +6662,7 @@ class IPCHandlers {
           return { success: true };
         } catch (error) {
           debugLogger.error("Meeting transcription prepare error", { error: error.message });
-          return { success: false, error: error.message };
+          return toPolicyFailure(error);
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           meetingTranscriptionPrepareInProgress = false;
@@ -6693,7 +6805,7 @@ class IPCHandlers {
         await rollbackMeetingTranscriptionStart();
         this.meetingDetectionEngine?.setUserRecording(false);
         debugLogger.error("Meeting transcription start error", { error: error.message });
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       } finally {
         meetingTranscriptionStartInProgress = false;
       }
@@ -6945,8 +7057,7 @@ class IPCHandlers {
     });
 
     const streamingStartFailure = (err) => {
-      const result = { success: false, error: err.message };
-      if (err.code) result.code = err.code;
+      const result = toPolicyFailure(err);
       if (err.messageKey) result.messageKey = err.messageKey;
       if (err.networkCode) result.networkCode = err.networkCode;
       return result;
@@ -7178,10 +7289,10 @@ class IPCHandlers {
 
         const response = await proxyFetch(`${apiUrl}/api/reason`, {
           method: "POST",
-          headers: {
+          headers: withPolicyHeaders({
             "Content-Type": "application/json",
             ...authHeader,
-          },
+          }),
           body: JSON.stringify({
             text,
             model: opts.model,
@@ -7189,6 +7300,7 @@ class IPCHandlers {
             customDictionary: opts.customDictionary,
             customPrompt: opts.customPrompt,
             systemPrompt: opts.systemPrompt,
+            requestPurpose: opts.requestPurpose,
             promptMode: opts.promptMode,
             language: opts.language,
             locale: opts.locale,
@@ -7215,8 +7327,7 @@ class IPCHandlers {
           if (response.status === 503) {
             return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
           }
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `API error: ${response.status}`);
+          throw await readPolicyResponseError(response, `API error: ${response.status}`);
         }
 
         const data = await response.json();
@@ -7241,7 +7352,7 @@ class IPCHandlers {
         };
       } catch (error) {
         debugLogger.error("Cloud reasoning error:", error);
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -7255,10 +7366,10 @@ class IPCHandlers {
 
         const response = await proxyFetch(`${apiUrl}/api/agent/stream`, {
           method: "POST",
-          headers: {
+          headers: withPolicyHeaders({
             "Content-Type": "application/json",
             ...authHeader,
-          },
+          }),
           body: JSON.stringify({
             messages,
             systemPrompt: opts.systemPrompt,
@@ -7270,16 +7381,10 @@ class IPCHandlers {
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          event.sender.send("cloud-agent-stream-error", {
-            error: errorData.error || `API error: ${response.status}`,
-            code:
-              response.status === 401
-                ? "AUTH_EXPIRED"
-                : response.status === 503
-                  ? "SERVER_ERROR"
-                  : undefined,
-          });
+          const error = await readPolicyResponseError(response, `API error: ${response.status}`);
+          if (response.status === 401 && !error.code) error.code = "AUTH_EXPIRED";
+          if (response.status === 503 && !error.code) error.code = "SERVER_ERROR";
+          event.sender.send("cloud-agent-stream-error", toPolicyFailure(error));
           return;
         }
 
@@ -7319,7 +7424,7 @@ class IPCHandlers {
         event.sender.send("cloud-agent-stream-end");
       } catch (error) {
         debugLogger.error("Cloud agent stream error:", error);
-        event.sender.send("cloud-agent-stream-error", { error: error.message });
+        event.sender.send("cloud-agent-stream-error", toPolicyFailure(error));
       }
     });
 
@@ -7349,10 +7454,10 @@ class IPCHandlers {
 
         const response = await proxyFetch(`${apiUrl}/api/agent/web-search`, {
           method: "POST",
-          headers: {
+          headers: withPolicyHeaders({
             "Content-Type": "application/json",
             ...authHeader,
-          },
+          }),
           body: JSON.stringify({ query, numResults }),
         });
 
@@ -7363,18 +7468,15 @@ class IPCHandlers {
           if (response.status === 503) {
             return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
           }
-          const errorData = await response.json().catch(() => ({}));
-          return {
-            success: false,
-            error: errorData.error || `API error: ${response.status}`,
-          };
+          const error = await readPolicyResponseError(response, `API error: ${response.status}`);
+          return toPolicyFailure(error);
         }
 
         const data = await response.json();
         return { success: true, ...data };
       } catch (error) {
         debugLogger.error("Agent web search error:", error);
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -7579,62 +7681,14 @@ class IPCHandlers {
 
     ipcMain.handle("cloud-api-request", (_event, opts) => handleCloudApiRequest(opts));
 
-    ipcMain.handle("get-stt-config", async (event) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+    ipcMain.handle("get-stt-config", handleSttConfigRequest);
 
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/stt-config`, {
-          headers: authHeader,
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error("STT config fetch error:", error);
-        return null;
-      }
+    ipcMain.handle("get-workspace-policy", async (event, accountId, expectedAuthGeneration) => {
+      const authHeaders = await getAuthHeader(event);
+      return workspacePolicyManager.getPolicy({ accountId, expectedAuthGeneration, authHeaders });
     });
 
-    ipcMain.handle("get-note-recording-config", async (event) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/note-recording-config`, {
-          headers: authHeader,
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error("Note recording config fetch error:", error);
-        return null;
-      }
-    });
+    ipcMain.handle("get-note-recording-config", handleNoteRecordingConfigRequest);
 
     ipcMain.handle("transcribe-audio-file-cloud", async (event, filePath, opts = {}) => {
       const requestId = typeof opts?.requestId === "string" ? opts.requestId : null;
@@ -7671,7 +7725,7 @@ class IPCHandlers {
           const { text, warning } = await chunkedCloudTranscribe({
             filePath: realCloud,
             apiUrl,
-            authHeader,
+            policyHeaders: withPolicyHeaders(authHeader),
             multipartFields,
             onProgress: (payload) => event.sender.send("upload-transcription-progress", payload),
             signal: controller.signal,
@@ -7691,7 +7745,7 @@ class IPCHandlers {
           multipartFields
         );
         const url = new URL(`${apiUrl}/api/transcribe`);
-        const data = await postMultipart(url, body, boundary, authHeader, {
+        const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
           signal: AbortSignal.any([
             controller.signal,
             AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
@@ -7707,10 +7761,7 @@ class IPCHandlers {
           return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
         }
         debugLogger.error("Cloud audio file transcription error", { error: error.message });
-        if (error.code) {
-          return { success: false, error: error.message, code: error.code, ...error };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       } finally {
         if (requestId) this._uploadTranscriptionControllers.delete(requestId);
       }
@@ -8219,9 +8270,9 @@ class IPCHandlers {
 
       const tokenResponse = await proxyFetch(`${apiUrl}/api/streaming-token`, {
         method: "POST",
-        headers: {
+        headers: withPolicyHeaders({
           ...authHeader,
-        },
+        }),
       });
 
       if (!tokenResponse.ok) {
@@ -8230,9 +8281,9 @@ class IPCHandlers {
           err.code = "AUTH_EXPIRED";
           throw err;
         }
-        const errorData = await tokenResponse.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || `Failed to get streaming token: ${tokenResponse.status}`
+        throw await readPolicyResponseError(
+          tokenResponse,
+          `Failed to get streaming token: ${tokenResponse.status}`
         );
       }
 
@@ -8272,10 +8323,7 @@ class IPCHandlers {
         return { success: true };
       } catch (error) {
         debugLogger.error("AssemblyAI warmup error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 
@@ -8420,7 +8468,7 @@ class IPCHandlers {
 
       const tokenResponse = await proxyFetch(`${apiUrl}/api/deepgram-streaming-token`, {
         method: "POST",
-        headers: authHeader,
+        headers: withPolicyHeaders(authHeader),
       });
 
       if (!tokenResponse.ok) {
@@ -8429,7 +8477,10 @@ class IPCHandlers {
           err.code = "AUTH_EXPIRED";
           throw err;
         }
-        throw new Error(`Failed to get Deepgram streaming token: ${tokenResponse.status}`);
+        throw await readPolicyResponseError(
+          tokenResponse,
+          `Failed to get Deepgram streaming token: ${tokenResponse.status}`
+        );
       }
 
       const { token } = await tokenResponse.json();
@@ -8450,9 +8501,9 @@ class IPCHandlers {
 
       const tokenResponse = await proxyFetch(`${apiUrl}/api/deepgram-streaming-token`, {
         method: "POST",
-        headers: {
+        headers: withPolicyHeaders({
           ...authHeader,
-        },
+        }),
       });
 
       if (!tokenResponse.ok) {
@@ -8461,9 +8512,9 @@ class IPCHandlers {
           err.code = "AUTH_EXPIRED";
           throw err;
         }
-        const errorData = await tokenResponse.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || `Failed to get Deepgram streaming token: ${tokenResponse.status}`
+        throw await readPolicyResponseError(
+          tokenResponse,
+          `Failed to get Deepgram streaming token: ${tokenResponse.status}`
         );
       }
 
@@ -8513,10 +8564,7 @@ class IPCHandlers {
         return { success: true };
       } catch (error) {
         debugLogger.error("Deepgram warmup error", { error: error.message });
-        if (error.code === "AUTH_EXPIRED") {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        return { success: false, error: error.message };
+        return toPolicyFailure(error);
       }
     });
 

@@ -408,7 +408,7 @@ export default function TranscriptionModelPicker({
   );
   const cloudProviderTabs = useMemo(() => {
     const availableIds = new Set(availableCloudProviders.map((p) => p.id));
-    availableIds.add("custom");
+    if (!streamingOnly) availableIds.add("custom");
     return CLOUD_PROVIDER_TABS.filter((p) => availableIds.has(p.id)).map((provider) => {
       const named =
         provider.id === "custom"
@@ -418,7 +418,7 @@ export default function TranscriptionModelPicker({
         ? named
         : { ...named, disabled: true, disabledLabel: t("common.managedByOrg") };
     });
-  }, [availableCloudProviders, providerAllowed, t]);
+  }, [availableCloudProviders, providerAllowed, streamingOnly, t]);
 
   useEffect(() => {
     selectedLocalModelRef.current = selectedLocalModel;
@@ -642,6 +642,9 @@ export default function TranscriptionModelPicker({
     [onModeChange, ensureValidCloudSelection]
   );
 
+  // Never writes cloudTranscriptionBaseUrl: that key is the Custom tab's only
+  // storage, and built-in providers resolve their endpoints from the registry
+  // at request time — writing it here destroyed the user's URL (#1459).
   const handleCloudProviderChange = useCallback(
     (providerId: string) => {
       if (!providerAllowed(providerId)) return;
@@ -653,20 +656,11 @@ export default function TranscriptionModelPicker({
         return;
       }
 
-      if (provider) {
-        setCloudTranscriptionBaseUrl?.(provider.baseUrl);
-        if (provider.models?.length) {
-          onCloudModelSelect(provider.models[0].id);
-        }
+      if (provider?.models?.length) {
+        onCloudModelSelect(provider.models[0].id);
       }
     },
-    [
-      cloudProviders,
-      onCloudProviderSelect,
-      onCloudModelSelect,
-      setCloudTranscriptionBaseUrl,
-      providerAllowed,
-    ]
+    [cloudProviders, onCloudProviderSelect, onCloudModelSelect, providerAllowed]
   );
 
   const handleLocalProviderChange = useCallback(

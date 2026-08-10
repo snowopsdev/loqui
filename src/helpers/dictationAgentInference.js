@@ -1,7 +1,9 @@
 import {
+  resolveDictationAgentDisplayProvider,
   resolveDictationAgentProvider,
   resolveDictationAgentReachability,
 } from "./dictationRouting.js";
+import { isProviderValidForMode } from "../models/ModelRegistry";
 import { getManagedScopeResolution } from "../stores/enterpriseIdentityStore";
 
 // The dictation agent's inference scope, shared by the dictation route in
@@ -17,6 +19,7 @@ export function resolveDictationAgentInference(settings, { isCloudAgent = false 
     return {
       reachable: settings.useDictationAgent,
       model: managed.model,
+      displayProvider: managed.provider,
       config: {
         inferenceScope: /** @type {const} */ ("dictationAgent"),
         provider: managed.provider,
@@ -27,21 +30,31 @@ export function resolveDictationAgentInference(settings, { isCloudAgent = false 
   const model = settings.dictationAgentModel?.trim() || "";
   const isSelfHosted =
     settings.dictationAgentMode === "self-hosted" && !!settings.dictationAgentRemoteUrl?.trim();
+  const storedProvider = settings.dictationAgentProvider?.trim() || "";
+  const providerForMode = isProviderValidForMode(storedProvider, settings.dictationAgentMode)
+    ? storedProvider
+    : undefined;
   const provider = resolveDictationAgentProvider({
     isCloudAgent,
     dictationAgentMode: settings.dictationAgentMode,
-    dictationAgentProvider: settings.dictationAgentProvider,
+    dictationAgentProvider: providerForMode,
   });
   const isCustom = settings.dictationAgentMode === "providers" && provider === "custom";
 
   return {
     reachable: resolveDictationAgentReachability({
       useDictationAgent: settings.useDictationAgent,
+      dictationAgentMode: settings.dictationAgentMode,
+      dictationAgentProvider: provider,
       dictationAgentModel: model,
       isCloudAgent,
       isSelfHostedAgent: isSelfHosted,
     }),
     model,
+    displayProvider: resolveDictationAgentDisplayProvider({
+      dictationAgentMode: settings.dictationAgentMode,
+      dictationAgentProvider: providerForMode,
+    }),
     config: {
       inferenceScope: /** @type {const} */ ("dictationAgent"),
       provider,

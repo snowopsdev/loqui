@@ -1074,7 +1074,7 @@ class IPCHandlers {
     });
 
     ipcMain.handle("set-notification-interactivity", (event, interactive) => {
-      this.windowManager.setNotificationInteractivity(Boolean(interactive));
+      this.windowManager.setNotificationInteractivity(event.sender, Boolean(interactive));
       return { success: true };
     });
 

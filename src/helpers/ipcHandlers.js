@@ -9874,7 +9874,7 @@ class IPCHandlers {
   ) {
     const send = (payload) => {
       if (win && !win.isDestroyed()) {
-        win.webContents.send("meeting-diarization-complete", { sessionId, ...payload });
+        win.webContents.send("meeting-diarization-complete", { sessionId, noteId, ...payload });
       }
     };
 

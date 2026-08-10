@@ -31,10 +31,14 @@ import { isTranscriptionContextAllowed } from "./policyRules";
 import { usePolicyStore } from "./policyStore";
 import {
   lockTranscriptSpeaker,
+  mergeTranscriptSegments,
   normalizeTranscriptSegment,
+  serializeTranscriptSegments,
   type TranscriptSpeakerLockSource,
   type TranscriptSpeakerStatus,
 } from "../utils/transcriptSpeakerState";
+import { parseTranscriptSegments } from "../utils/parseTranscriptSegments";
+import { resolveDiarizationTarget, selectBaseSegments } from "../utils/diarizationCompletion";
 
 export interface TranscriptSegment {
   id: string;
@@ -80,6 +84,8 @@ interface MeetingRecordingState {
   systemPartialSpeakerId: string | null;
   systemPartialSpeakerName: string | null;
   diarizationSessionId: string | null;
+  /** Latest diarization result published for UI mirroring; consumed (nulled) by the editor that applies it. */
+  completedDiarization: { noteId: number; segments: TranscriptSegment[] } | null;
   sessionDiarizationEnabled: boolean;
   sessionExpectedCount: number;
   userTouchedStepper: boolean;
@@ -434,6 +440,7 @@ export const useMeetingRecordingStore = create<MeetingRecordingState>()(() => ({
   systemPartialSpeakerId: null,
   systemPartialSpeakerName: null,
   diarizationSessionId: null,
+  completedDiarization: null,
   sessionDiarizationEnabled:
     (getSettings() as { speakerDiarizationEnabled?: boolean }).speakerDiarizationEnabled ?? true,
   sessionExpectedCount: DEFAULT_EXPECTED_SPEAKER_COUNT,
@@ -802,6 +809,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
     systemPartialSpeakerId: null,
     systemPartialSpeakerName: null,
     diarizationSessionId: null,
+    completedDiarization: null,
     error: null,
     micCaptureStatus: "inactive",
   });
@@ -1370,6 +1378,71 @@ export function lockSpeaker(speakerId: string, displayName: string): void {
 
 export function cancelPreparedTranscription(): void {
   window.electronAPI?.meetingTranscriptionCancel?.();
+}
+
+// Persists delayed diarization results to the note that owns the recording
+// session (#1495). Registered once at module load so results survive the
+// notes view unmounting; NoteEditor only mirrors `completedDiarization`.
+if (typeof window !== "undefined") {
+  window.electronAPI?.onMeetingDiarizationComplete?.(async (data) => {
+    const {
+      diarizationSessionId,
+      recordingNoteId,
+      segments: liveSegments,
+    } = useMeetingRecordingStore.getState();
+    const { targetNoteId, isCurrentSession } = resolveDiarizationTarget({
+      payloadNoteId: data?.noteId,
+      payloadSessionId: data?.sessionId,
+      currentSessionId: diarizationSessionId,
+      recordingNoteId,
+    });
+    if (targetNoteId == null) return;
+
+    const publish = (segments: TranscriptSegment[]) => {
+      if (isCurrentSession) {
+        useMeetingRecordingStore.setState({
+          completedDiarization: { noteId: targetNoteId, segments },
+        });
+      }
+    };
+
+    if (!data?.segments?.length) {
+      // Diarization failed or was skipped — publish so a waiting editor can
+      // clear its spinner, but there is nothing to persist.
+      publish([]);
+      return;
+    }
+
+    const persisted = await window.electronAPI?.getNote?.(targetNoteId);
+    // Writing to a deleted note would resurrect its tombstone in the
+    // sidebar, cloud mirror, and vector index.
+    if (!persisted || persisted.deleted_at) return;
+
+    const existing = selectBaseSegments({
+      persistedSegments: persisted.transcript
+        ? parseTranscriptSegments(persisted.transcript)
+        : null,
+      liveSegments,
+      recordingNoteId,
+      targetNoteId,
+    });
+    const enriched = mergeTranscriptSegments(
+      existing,
+      data.segments.map((segment, index) => ({
+        ...segment,
+        id: segment.id || `diarized-${index}`,
+      }))
+    );
+
+    window.electronAPI?.updateNote?.(targetNoteId, {
+      transcript: serializeTranscriptSegments(enriched),
+    });
+    if (data.speakerEmbeddings) {
+      window.electronAPI?.saveNoteSpeakerEmbeddings?.(targetNoteId, data.speakerEmbeddings);
+    }
+
+    publish(enriched);
+  });
 }
 
 // Throttled resize listener — keeps layout reflows during drag from thrashing

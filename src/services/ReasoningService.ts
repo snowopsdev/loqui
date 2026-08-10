@@ -24,6 +24,8 @@ import { detectEndpointDialect } from "./ai/thinkingSuppressionDialects";
 import { extractApiErrorMessage } from "./ai/apiErrorMessage";
 import { clearTinfoilClientCache } from "./ai/tinfoilClient";
 import { resolveChatRoute } from "../helpers/chatRouting";
+import { assertAgentAllowedByPolicy, assertReasoningAllowedByPolicy } from "./reasoningPolicy";
+import type { InferenceMode } from "../types/electron";
 
 export type ToolMetadata = Record<string, unknown> | Array<Record<string, unknown>>;
 
@@ -44,6 +46,22 @@ export type AgentStreamChunk =
       metadata?: ToolMetadata;
     }
   | { type: "done"; finishReason?: string };
+
+function resolveLlmDispatchMode(
+  provider: string,
+  config: Pick<ReasoningConfig, "lanUrl">
+): InferenceMode {
+  if (config.lanUrl || provider === "lan") return "self-hosted";
+  if (provider === "openwhispr") return "openwhispr";
+  if (provider === "local") return "local";
+  if (isEnterpriseProvider(provider)) return "enterprise";
+  return "providers";
+}
+
+function assertAgentSessionAllowedByPolicy(provider: string, mode: InferenceMode): void {
+  assertAgentAllowedByPolicy();
+  assertReasoningAllowedByPolicy(provider, mode);
+}
 
 // Old Ollama/strict proxies reject the `reasoning` object; drop it and retry once.
 async function fetchWithReasoningFieldFallback(
@@ -213,9 +231,11 @@ class ReasoningService extends BaseReasoningService {
 
     // gpt-oss defaults to medium reasoning effort; low cuts hidden reasoning
     // tokens (latency) and the tendency to answer the transcript instead of
-    // cleaning it. applyThinkingSuppression still wins when thinking is
-    // disabled by the user.
-    if (isCleanup && model.includes("gpt-oss")) {
+    // cleaning it. Selection edits need it too: at higher efforts Groq's
+    // gpt-oss can leave the whole reply in the reasoning channel and return
+    // whitespace content, failing the edit. applyThinkingSuppression still
+    // wins when thinking is disabled by the user.
+    if ((isCleanup || config.requireCompleteOutput) && model.includes("gpt-oss")) {
       requestBody.reasoning_effort = "low";
     }
 
@@ -308,6 +328,9 @@ class ReasoningService extends BaseReasoningService {
     }
 
     const choice = response.choices[0];
+    if (config.requireCompleteOutput && ["length", "max_tokens"].includes(choice?.finish_reason)) {
+      throw new Error("Model output was truncated before the selection edit completed");
+    }
     // Reasoning models leak <think> blocks into non-streamed output; strip them
     // unless the user explicitly enabled thinking (same default as streaming).
     const rawContent = choice.message?.content?.trim() || "";
@@ -345,6 +368,8 @@ class ReasoningService extends BaseReasoningService {
     const providerId = isLanCleanup
       ? "lan"
       : resolveInferenceProvider(config.provider, trimmedModel);
+    if (config.requiresAgent) assertAgentAllowedByPolicy();
+    assertReasoningAllowedByPolicy(providerId, resolveLlmDispatchMode(providerId, config));
 
     if (!trimmedModel && providerId !== "openwhispr" && providerId !== "lan") {
       throw new Error("No reasoning model selected");
@@ -402,6 +427,9 @@ class ReasoningService extends BaseReasoningService {
       lanUrl: config.lanUrl,
       customApiKey: config.customApiKey,
     });
+    const mode: InferenceMode =
+      route.kind === "self-hosted" ? "self-hosted" : route.kind === "local" ? "local" : "providers";
+    assertAgentSessionAllowedByPolicy(provider, mode);
     const isLocalProvider = route.kind === "local";
     const isLanChat = route.kind === "self-hosted";
 
@@ -611,6 +639,15 @@ class ReasoningService extends BaseReasoningService {
       customApiKey: config.customApiKey,
       isEnterpriseProvider: isEnterpriseProvider(provider),
     });
+    const mode: InferenceMode =
+      route.kind === "self-hosted"
+        ? "self-hosted"
+        : route.kind === "enterprise"
+          ? "enterprise"
+          : route.kind === "local"
+            ? "local"
+            : "providers";
+    assertAgentSessionAllowedByPolicy(provider, mode);
     const isEnterprise = route.kind === "enterprise";
     const isLocalProvider = route.kind === "local";
     const isLanChat = route.kind === "self-hosted";
@@ -835,6 +872,7 @@ class ReasoningService extends BaseReasoningService {
       executeToolCall?: (name: string, args: string) => Promise<ToolExecutionResult>;
     }
   ): AsyncGenerator<AgentStreamChunk, void, unknown> {
+    assertAgentSessionAllowedByPolicy("openwhispr", "openwhispr");
     const maxSteps = config.tools?.length ? ReasoningService.MAX_TOOL_STEPS : 1;
     let currentMessages = [...messages];
 

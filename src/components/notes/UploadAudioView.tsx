@@ -54,6 +54,9 @@ import { MAX_SPEAKER_COUNT } from "../../constants/speakerDetection.json";
 import BatchQueueView from "./BatchQueueView";
 import { generateNoteTitle } from "../../utils/generateTitle";
 import { getBaseLanguageCode } from "../../utils/languageSupport";
+import { isTranscriptionContextAllowed } from "../../stores/policyRules";
+import { usePolicyStore } from "../../stores/policyStore";
+import { useTranscriptionContextAllowed } from "../../hooks/usePolicy";
 
 type UploadState = "idle" | "selected" | "downloading" | "transcribing" | "complete" | "error";
 
@@ -226,7 +229,9 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
 
   const { isSignedIn } = useAuth();
   const usage = useUsage();
-  const isProUser = usage?.isSubscribed || usage?.isTrial;
+  // The server enforces the free-tier size limit regardless, so an unresolved
+  // entitlement should not block a payer's upload.
+  const isProUser = usage?.hasPaidAccessOptimistic ?? false;
 
   const {
     openaiApiKey,
@@ -248,6 +253,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     cloudTranscriptionMode,
     transcriptionMode,
   } = useSettingsStore(useShallow(selectResolvedUploadTranscription));
+  const uploadAllowedByPolicy = useTranscriptionContextAllowed("upload");
 
   const remoteTranscriptionUrl = useSettingsStore((s) => s.remoteTranscriptionUrl);
   const remoteTranscriptionModel = useSettingsStore((s) => s.remoteTranscriptionModel);
@@ -587,9 +593,12 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     runIdRef.current++;
     reset();
   };
-
   const handleTranscribe = async () => {
     if (!file || batch.isProcessing) return;
+    if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "upload")) {
+      setError(t("common.managedByOrg"));
+      return;
+    }
     const currentFile = file;
     const currentTempPath = downloadedTempPath;
     const runId = ++runIdRef.current;
@@ -818,6 +827,10 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
 
   const startBatchProcessing = () => {
     if (state === "downloading" || state === "transcribing") return;
+    if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "upload")) {
+      setBatchUrlNotice(t("common.managedByOrg"));
+      return;
+    }
     setBatchUrlNotice(null);
 
     const transcribeOpts: TranscribeOptions = {
@@ -1047,7 +1060,11 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                       variant="default"
                       size="sm"
                       onClick={startBatchProcessing}
-                      disabled={state === "downloading" || state === "transcribing"}
+                      disabled={
+                        !uploadAllowedByPolicy ||
+                        state === "downloading" ||
+                        state === "transcribing"
+                      }
                       className="h-8 text-xs px-5"
                     >
                       {t("notes.upload.transcribe")}
@@ -1065,7 +1082,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               getActiveModelLabel={getActiveModelLabel}
               reset={reset}
               handleTranscribe={handleTranscribe}
-              transcribeDisabled={batch.isProcessing}
+              transcribeDisabled={batch.isProcessing || !uploadAllowedByPolicy}
               requiresUpgrade={!!requiresUpgrade}
               fileTooLarge={fileTooLarge}
               isLargeFile={isLargeFile}

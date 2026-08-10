@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { getSettings, selectResolvedMeetingTranscription } from "./settingsStore";
 import { useStreamingProvidersStore } from "./streamingProvidersStore";
+import { getStreamingTranscriptionProviders } from "../models/ModelRegistry";
+import { resolveMeetingTranscriptionOptions } from "../helpers/meetingTranscriptionRouting";
 import { isBuiltInMicrophone } from "../utils/audioDeviceUtils";
 import {
   followsSystemDefaultMic,
@@ -20,6 +22,8 @@ import {
   MAX_SPEAKER_COUNT,
 } from "../constants/speakerDetection.json";
 import logger from "../utils/logger";
+import { isTranscriptionContextAllowed } from "./policyRules";
+import { usePolicyStore } from "./policyStore";
 import {
   lockTranscriptSpeaker,
   normalizeTranscriptSegment,
@@ -75,6 +79,8 @@ interface MeetingRecordingState {
   sessionExpectedCount: number;
   userTouchedStepper: boolean;
   error: string | null;
+  /** Bumped on every error report so identical repeated errors still re-notify. */
+  errorNonce: number;
   currentMicLevel: number;
   micCaptureStatus: "inactive" | "active" | "reconnecting" | "unavailable";
   windowWidth: number;
@@ -118,52 +124,20 @@ const getMeetingTranscriptionOptions = () => {
   const resolved = selectResolvedMeetingTranscription(state);
   const language = getBaseLanguageCode(state.preferredLanguage);
 
-  if (resolved.useLocalWhisper) {
-    return {
-      provider: "local" as const,
-      localProvider: resolved.localTranscriptionProvider,
-      localModel:
-        resolved.localTranscriptionProvider === "nvidia"
-          ? resolved.parakeetModel || "parakeet-tdt-0.6b-v3"
-          : resolved.whisperModel || "base",
-      language,
-    };
-  }
-
-  // Corti (BYOK) streams over its own WSS — independent of the server-driven catalog.
-  const selectedProvider =
-    state.meetingCloudTranscriptionProvider || state.cloudTranscriptionProvider;
-  if (resolved.cloudTranscriptionMode === "byok" && selectedProvider === "corti") {
-    return {
-      provider: "corti-realtime" as const,
-      model: "corti-transcribe",
-      mode: "byok" as const,
-      language,
-      environment: state.cortiEnvironment,
-      tenant: state.cortiTenant,
-      keyterms: (state.customDictionary ?? []).filter(Boolean),
-    };
-  }
-
-  const catalog = useStreamingProvidersStore.getState().providers;
-  const provider =
-    catalog?.find((p) => p.id === resolved.cloudTranscriptionProvider) ?? catalog?.[0];
-  const byokKeyAvailable = provider?.id === "openai" ? !!state.openaiApiKey : true;
-  const mode =
-    resolved.cloudTranscriptionMode === "byok" && byokKeyAvailable ? "byok" : "openwhispr";
-  if (!provider) {
-    logger.debug(
-      "Streaming providers catalog not loaded, falling back to OpenAI default",
-      {},
-      "meeting"
-    );
-    return { provider: "openai-realtime" as const, model: "gpt-4o-mini-transcribe", mode };
-  }
-  const model =
-    provider.models.find((m) => m.id === resolved.cloudTranscriptionModel)?.id ??
-    provider.models.find((m) => m.default)?.id ??
-    provider.models[0]?.id;
-  return { provider: `${provider.id}-realtime` as const, model, mode };
+  return resolveMeetingTranscriptionOptions({
+    transcriptionMode: resolved.transcriptionMode,
+    language,
+    localProvider: resolved.localTranscriptionProvider,
+    whisperModel: resolved.whisperModel,
+    parakeetModel: resolved.parakeetModel,
+    selectedProvider: resolved.cloudTranscriptionProvider,
+    selectedModel: resolved.cloudTranscriptionModel,
+    byokProviders: getStreamingTranscriptionProviders(),
+    managedProviders: useStreamingProvidersStore.getState().providers,
+    cortiEnvironment: state.cortiEnvironment,
+    cortiTenant: state.cortiTenant,
+    keyterms: (state.customDictionary ?? []).filter(Boolean),
+  });
 };
 
 const stopMediaStream = (stream: MediaStream | null) => {
@@ -460,10 +434,19 @@ export const useMeetingRecordingStore = create<MeetingRecordingState>()(() => ({
   sessionExpectedCount: DEFAULT_EXPECTED_SPEAKER_COUNT,
   userTouchedStepper: false,
   error: null,
+  errorNonce: 0,
   currentMicLevel: 0,
   micCaptureStatus: "inactive",
   windowWidth: typeof window !== "undefined" ? window.innerWidth : SIDE_PANEL_BREAKPOINT_PX,
 }));
+
+function reportMeetingError(error: string, extra: Partial<MeetingRecordingState> = {}): void {
+  useMeetingRecordingStore.setState((state) => ({
+    ...extra,
+    error,
+    errorNonce: state.errorNonce + 1,
+  }));
+}
 
 export const getMicAnalyser = (): AnalyserNode | null => micAnalyser;
 
@@ -674,6 +657,7 @@ async function cleanup(): Promise<void> {
 
 export async function prepareTranscription(): Promise<void> {
   if (isPrepared || isRecordingFlag || isStartingFlag) return;
+  if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "meeting")) return;
   if (preparePromise) return preparePromise;
 
   logger.info("Meeting transcription preparing (pre-warming WebSockets)...", {}, "meeting");
@@ -718,8 +702,13 @@ export interface StartRecordingArgs {
   expectedCount?: number | null;
 }
 
-export async function startRecording(args: StartRecordingArgs): Promise<void> {
-  if (isRecordingFlag || isStartingFlag) return;
+export async function startRecording(args: StartRecordingArgs): Promise<boolean> {
+  if (isRecordingFlag || isStartingFlag) return true;
+  if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "meeting")) {
+    logger.warn("Meeting recording blocked by workspace policy", {}, "meeting");
+    reportMeetingError("policyRestricted");
+    return false;
+  }
   isStartingFlag = true;
 
   const initialEnabled =
@@ -838,7 +827,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       stopMediaStream(micResult);
       stopMediaStream(systemCaptureResult.stream);
       isStartingFlag = false;
-      return;
+      return true;
     }
 
     if (!startResult?.success) {
@@ -847,8 +836,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
         { error: startResult?.error },
         "meeting"
       );
-      useMeetingRecordingStore.setState({
-        error: startResult?.error || "Failed to start meeting transcription",
+      reportMeetingError(startResult?.error || "Failed to start meeting transcription", {
         isRecording: false,
         isTranscribing: false,
       });
@@ -856,7 +844,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       stopMediaStream(systemCaptureResult.stream);
       isRecordingFlag = false;
       isStartingFlag = false;
-      return;
+      return true;
     }
 
     const systemAudioMode = startResult.systemAudioMode || initialSystemAudioAccess.mode;
@@ -875,26 +863,22 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
     const systemCaptureError = systemAudioHandledInMain ? null : systemCaptureResult.error;
 
     if (!micResult && (systemAudioHandledInMain || systemCaptureResult.stream)) {
-      useMeetingRecordingStore.setState({
-        error: "Microphone capture failed. Continuing with system audio only.",
-      });
+      reportMeetingError("Microphone capture failed. Continuing with system audio only.");
     }
 
     if (!micResult && !systemCaptureResult.stream && !systemAudioHandledInMain) {
       logger.error("Meeting transcription has no available audio source", {}, "meeting");
-      useMeetingRecordingStore.setState({
-        error:
-          systemAudioMode === "unsupported"
-            ? "No microphone is available and system audio capture is unsupported on this device."
-            : systemCaptureError?.message ||
+      reportMeetingError(
+        systemAudioMode === "unsupported"
+          ? "No microphone is available and system audio capture is unsupported on this device."
+          : systemCaptureError?.message ||
               "No microphone is available and system audio capture could not be started.",
-        isRecording: false,
-        isTranscribing: false,
-      });
+        { isRecording: false, isTranscribing: false }
+      );
       await window.electronAPI?.meetingTranscriptionStop?.();
       isRecordingFlag = false;
       isStartingFlag = false;
-      return;
+      return true;
     }
 
     const segmentCleanup = window.electronAPI?.onMeetingTranscriptionSegment?.(
@@ -1046,10 +1030,21 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
     if (mergeCleanup) ipcCleanups.push(mergeCleanup);
 
     const errorCleanup = window.electronAPI?.onMeetingTranscriptionError?.((err) => {
-      useMeetingRecordingStore.setState({ error: err });
+      reportMeetingError(err);
       logger.error("Meeting transcription stream error", { error: err }, "meeting");
     });
     if (errorCleanup) ipcCleanups.push(errorCleanup);
+
+    const fatalErrorCleanup = window.electronAPI?.onMeetingTranscriptionFatalError?.((err) => {
+      reportMeetingError(err);
+      logger.error(
+        "Meeting transcription stopped after connection loss",
+        { error: err },
+        "meeting"
+      );
+      if (isRecordingFlag) void stopRecording();
+    });
+    if (fatalErrorCleanup) ipcCleanups.push(fatalErrorCleanup);
 
     if (startResult.oneOnOneAttendee) {
       const synthetic: SpeakerIdentification = {
@@ -1183,9 +1178,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
           "meeting"
         );
         if (micResult) {
-          useMeetingRecordingStore.setState({
-            error: "System audio capture failed. Continuing with microphone only.",
-          });
+          reportMeetingError("System audio capture failed. Continuing with microphone only.");
         }
       }
     }
@@ -1198,7 +1191,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       );
       isStartingFlag = false;
       await cleanup();
-      return;
+      return true;
     }
 
     isStartingFlag = false;
@@ -1225,6 +1218,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
       },
       "meeting"
     );
+    return true;
   } catch (err) {
     logger.error(
       "Meeting transcription setup failed",
@@ -1239,6 +1233,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<void> {
     isRecordingFlag = false;
     isStartingFlag = false;
     await cleanup();
+    return true;
   }
 }
 
@@ -1267,10 +1262,10 @@ export async function stopRecording(): Promise<StopRecordingResult> {
     if (result?.success && result.transcript) {
       useMeetingRecordingStore.setState({ transcript: result.transcript });
     } else if (result?.error) {
-      useMeetingRecordingStore.setState({ error: result.error });
+      reportMeetingError(result.error);
     }
   } catch (err) {
-    useMeetingRecordingStore.setState({ error: (err as Error).message });
+    reportMeetingError((err as Error).message);
     logger.error("Meeting transcription stop failed", { error: (err as Error).message }, "meeting");
   }
 

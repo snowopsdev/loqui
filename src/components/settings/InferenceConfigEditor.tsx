@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
-import { Cloud, Key, Cpu, Network, Building2 } from "lucide-react";
+import { Cloud, Key, Cpu, Network, Building2, ShieldCheck, AlertTriangle } from "lucide-react";
 import {
   useSettingsStore,
   selectResolvedLLMConfig,
@@ -17,6 +17,13 @@ import { Toggle } from "../ui/toggle";
 import type { InferenceMode } from "../../types/electron";
 import type { InferenceScope } from "../../config/inferenceScopes";
 import { isProviderValidForMode, getCloudModel, getLocalModel } from "../../models/ModelRegistry";
+import {
+  useEnterpriseIdentityStore,
+  getManagedScopeResolution,
+} from "../../stores/enterpriseIdentityStore";
+import TestConnectionButton from "../TestConnectionButton";
+import { getEnterpriseCallSettings } from "../../services/ai/enterpriseSettings";
+import { Button } from "../ui/button";
 
 const MODE_LABEL_PREFIX: Record<InferenceScope, string> = {
   dictationCleanup: "settingsPage.aiModels.modes",
@@ -42,6 +49,11 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
   const { t } = useTranslation();
   const config = useSettingsStore(useShallow((s) => selectResolvedLLMConfig(s, scope)));
   const isSignedIn = useSettingsStore((s) => s.isSignedIn);
+  const enterpriseSetupMode = useSettingsStore((s) => s.enterpriseSetupMode);
+  const setEnterpriseSetupMode = useSettingsStore((s) => s.setEnterpriseSetupMode);
+  useEnterpriseIdentityStore(useShallow((s) => [s.status, s.config, s.error]));
+  const managed = getManagedScopeResolution(scope, enterpriseSetupMode);
+  const managedAvailable = getManagedScopeResolution(scope, "managed");
 
   const prefix = MODE_LABEL_PREFIX[scope];
   const { modes, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
@@ -145,8 +157,84 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
         !!getCloudModel(config.model)?.supportsThinking)) ||
     (config.mode === "local" && !!getLocalModel(config.model)?.supportsThinking);
 
+  if (managed.kind === "error") {
+    return (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3" role="alert">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <div>
+            <p className="text-sm font-medium">Managed enterprise AI needs attention</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{managed.message}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (managed.kind === "managed") {
+    const providerName = managed.provider === "bedrock" ? "Amazon Bedrock" : "Azure OpenAI";
+    return (
+      <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+        <div className="flex items-start gap-2.5">
+          <div className="rounded-md bg-primary/10 p-1.5 text-primary">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Managed by your organization</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {providerName} · <span className="font-mono">{managed.model}</span>
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sign-in supplies short-lived access automatically. No cloud keys or CLI setup are
+              required.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+          <TestConnectionButton
+            provider={managed.provider}
+            getConfig={() => ({
+              ...getEnterpriseCallSettings(managed.provider, scope),
+              model: managed.model,
+            })}
+          />
+          {managed.mode !== "managed_required" && managed.allowManualSetup && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setEnterpriseSetupMode("manual")}
+            >
+              Use personal setup
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
+      {enterpriseSetupMode === "manual" && managedAvailable.kind === "managed" && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Organization setup available</p>
+            <p className="text-xs text-muted-foreground">
+              Use {managedAvailable.provider === "bedrock" ? "Amazon Bedrock" : "Azure OpenAI"}
+              without managing credentials.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setEnterpriseSetupMode("managed")}
+          >
+            Use managed
+          </Button>
+        </div>
+      )}
       <InferenceModeSelector modes={modes} activeMode={config.mode} onSelect={handleModeSelect} />
 
       {config.mode === "providers" && renderModelSelector("cloud")}

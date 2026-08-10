@@ -25,6 +25,13 @@ function createBedrockModel(model, enterprise) {
   const { createAmazonBedrock } = require("@ai-sdk/amazon-bedrock");
   const region = enterprise?.bedrockRegion || "us-east-1";
 
+  if (enterprise?.managedCredentialProvider) {
+    return createAmazonBedrock({
+      region,
+      credentialProvider: enterprise.managedCredentialProvider,
+    })(model);
+  }
+
   if (enterprise?.bedrockProfile) {
     const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
     return createAmazonBedrock({
@@ -48,7 +55,9 @@ function createBedrockModel(model, enterprise) {
 function createAzureModel(model, apiKey, enterprise) {
   const { createAzure } = require("@ai-sdk/azure");
   return createAzure({
-    apiKey,
+    ...(enterprise?.managedTokenProvider
+      ? { tokenProvider: enterprise.managedTokenProvider }
+      : { apiKey }),
     baseURL: enterprise?.azureEndpoint,
     apiVersion: enterprise?.azureApiVersion || "2024-10-21",
   })(model);

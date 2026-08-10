@@ -40,6 +40,7 @@ import {
   isCloudCleanupMode,
   isCloudDictationAgentMode,
   isCloudTranslationMode,
+  selectResolvedLLMConfig,
 } from "../stores/settingsStore";
 import {
   effectiveAudioRetentionDays,
@@ -109,12 +110,13 @@ function dictationAgentReachable(settings) {
 }
 
 function translationChainReachable(settings) {
+  const translation = selectResolvedLLMConfig(settings, "dictationTranslation");
   const isSelfHostedTranslation =
-    settings.translationMode === "self-hosted" && !!settings.translationRemoteUrl?.trim();
+    translation.mode === "self-hosted" && !!translation.remoteUrl?.trim();
   return resolveDictationTranslationReachability({
     useDictationTranslation: settings.useDictationTranslation,
     translationTargetLanguage: settings.translationTargetLanguage,
-    translationModel: settings.translationModel,
+    translationModel: translation.model,
     isCloudTranslation: isCloudTranslationMode(),
     isSelfHostedTranslation,
   });
@@ -127,19 +129,21 @@ function resolveReasoningRoute(
   voiceAgentRequested,
   translationRequested
 ) {
+  const cleanup = selectResolvedLLMConfig(settings, "dictationCleanup");
+  const translation = selectResolvedLLMConfig(settings, "dictationTranslation");
   const cleanupReachable =
-    !!settings.useCleanupModel && (!!settings.cleanupModel?.trim() || isCloudCleanupMode());
+    !!settings.useCleanupModel && (!!cleanup.model?.trim() || isCloudCleanupMode());
   const agent = resolveDictationAgentInference(settings, {
     isCloudAgent: isCloudDictationAgentMode(),
   });
 
   const isCloudTranslation = isCloudTranslationMode();
   const isSelfHostedTranslation =
-    settings.translationMode === "self-hosted" && !!settings.translationRemoteUrl?.trim();
+    translation.mode === "self-hosted" && !!translation.remoteUrl?.trim();
   const translationReachable = resolveDictationTranslationReachability({
     useDictationTranslation: settings.useDictationTranslation,
     translationTargetLanguage: settings.translationTargetLanguage,
-    translationModel: settings.translationModel,
+    translationModel: translation.model,
     isCloudTranslation,
     isSelfHostedTranslation,
   });
@@ -164,20 +168,22 @@ function resolveReasoningRoute(
     );
   }
   if (kind === "translation") {
-    const provider = isCloudTranslation
-      ? "openwhispr"
-      : settings.translationProvider?.trim() || undefined;
-    const isCustomTranslation = settings.translationMode === "providers" && provider === "custom";
+    const provider = isCloudTranslation ? "openwhispr" : translation.provider?.trim() || undefined;
+    const isCustomTranslation = translation.mode === "providers" && provider === "custom";
     return {
       kind: "translation",
-      model: settings.translationModel?.trim() || "",
+      model: translation.model?.trim() || "",
       cleanupReachable,
-      cleanupConfig: { disableThinking: settings.cleanupDisableThinking },
+      cleanupConfig: {
+        inferenceScope: /** @type {const} */ ("dictationCleanup"),
+        disableThinking: settings.cleanupDisableThinking,
+      },
       config: {
+        inferenceScope: /** @type {const} */ ("dictationTranslation"),
         provider,
         language: settings.translationTargetLanguage,
-        lanUrl: isSelfHostedTranslation ? settings.translationRemoteUrl : undefined,
-        baseUrl: isCustomTranslation ? settings.translationCloudBaseUrl || undefined : undefined,
+        lanUrl: isSelfHostedTranslation ? translation.remoteUrl : undefined,
+        baseUrl: isCustomTranslation ? translation.cloudBaseUrl || undefined : undefined,
         customApiKey:
           isCustomTranslation || isSelfHostedTranslation
             ? settings.translationCustomApiKey || undefined
@@ -210,7 +216,10 @@ function resolveReasoningRoute(
   if (kind === "cleanup") {
     return {
       kind: "cleanup",
-      config: { disableThinking: settings.cleanupDisableThinking },
+      config: {
+        inferenceScope: /** @type {const} */ ("dictationCleanup"),
+        disableThinking: settings.cleanupDisableThinking,
+      },
     };
   }
   return { kind: "skip" };

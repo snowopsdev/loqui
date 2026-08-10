@@ -39,6 +39,8 @@ import type {
   ChatAgentSettings,
 } from "../hooks/useSettings";
 import type { Snippet } from "../utils/snippets";
+import type { EnterpriseSetupMode } from "../types/enterpriseIdentity";
+import { getManagedScopeResolution } from "./enterpriseIdentityStore";
 
 let _ReasoningService: typeof import("../services/ReasoningService").default | null = null;
 
@@ -646,6 +648,7 @@ export interface SettingsState
   setCortiTenant: (value: string) => void;
 
   // Enterprise providers
+  enterpriseSetupMode: EnterpriseSetupMode;
   bedrockAuthMode: string;
   bedrockRegion: string;
   bedrockProfile: string;
@@ -661,6 +664,7 @@ export interface SettingsState
   vertexLocation: string;
   vertexApiKey: string;
   setBedrockAuthMode: (value: string) => void;
+  setEnterpriseSetupMode: (value: EnterpriseSetupMode) => void;
   setBedrockRegion: (value: string) => void;
   setBedrockProfile: (value: string) => void;
   setBedrockAccessKeyId: (key: string) => void;
@@ -1010,6 +1014,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   cleanupCustomApiKey: "",
 
   // Enterprise providers
+  enterpriseSetupMode: (["auto", "managed", "manual"].includes(
+    readString("enterpriseSetupMode", "auto")
+  )
+    ? readString("enterpriseSetupMode", "auto")
+    : "auto") as EnterpriseSetupMode,
   bedrockAuthMode: readString("bedrockAuthMode", "sso"),
   bedrockRegion: readString("bedrockRegion", "us-east-1"),
   bedrockProfile: readString("bedrockProfile", ""),
@@ -1523,6 +1532,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
 
   // Enterprise provider setters
+  setEnterpriseSetupMode: createStringSetter("enterpriseSetupMode") as (
+    value: EnterpriseSetupMode
+  ) => void,
   setBedrockAuthMode: (value: string) => {
     if (isBrowser) localStorage.setItem("bedrockAuthMode", value);
     set({ bedrockAuthMode: value });
@@ -2141,7 +2153,7 @@ export const selectResolvedLLMConfig = (
   const disableThinkingKey = def.storeKeys.disableThinking;
   const disableThinking = disableThinkingKey ? (state[disableThinkingKey] as boolean) : true;
 
-  return {
+  const localConfig: ResolvedLLMConfig = {
     scope,
     mode: state[def.storeKeys.mode] as InferenceMode,
     provider: read("provider") || fallback?.provider || "",
@@ -2154,6 +2166,14 @@ export const selectResolvedLLMConfig = (
     // belongs on the request path — see selectResolvedNoteFormatting.
     customApiKey: read("customApiKey"),
     disableThinking,
+  };
+  const managed = getManagedScopeResolution(scope, state.enterpriseSetupMode);
+  if (managed.kind !== "managed") return localConfig;
+  return {
+    ...localConfig,
+    mode: "enterprise",
+    provider: managed.provider,
+    model: managed.model,
   };
 };
 
@@ -2226,7 +2246,7 @@ export function getEffectiveCleanupModel() {
   if (selectIsCloudCleanupMode(state)) {
     return "";
   }
-  return state.cleanupModel;
+  return selectResolvedLLMConfig(state, "dictationCleanup").model;
 }
 
 export function isCloudCleanupMode() {
@@ -2315,6 +2335,19 @@ export async function initializeSettings(): Promise<void> {
         azureApiKey: azureApiKey || "",
         vertexApiKey: vertexApiKey || "",
       });
+
+      if (!localStorage.getItem("enterpriseSetupMode")) {
+        const hasLegacyEnterpriseSetup = Boolean(
+          useSettingsStore.getState().bedrockProfile.trim() ||
+          (bedrockAccessKeyId && bedrockSecretAccessKey) ||
+          azureApiKey
+        );
+        const enterpriseSetupMode: EnterpriseSetupMode = hasLegacyEnterpriseSetup
+          ? "manual"
+          : "auto";
+        localStorage.setItem("enterpriseSetupMode", enterpriseSetupMode);
+        useSettingsStore.setState({ enterpriseSetupMode });
+      }
 
       for (const key of STALE_SECRET_LOCALSTORAGE_KEYS) {
         localStorage.removeItem(key);

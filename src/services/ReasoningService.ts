@@ -17,6 +17,7 @@ import { stripThinkingTags } from "../helpers/stripThinking.js";
 import { streamText, stepCountIs } from "ai";
 import { getAIModel } from "./ai/providers";
 import { createEnterpriseChatModel } from "./ai/enterpriseChatModel";
+import { getManagedScopeResolution } from "../stores/enterpriseIdentityStore";
 import { PROVIDER_REGISTRY, type ProviderContext } from "./ai/inferenceProviders";
 import { getConfiguredOpenAIBase } from "./ai/openaiBase";
 import { applyThinkingSuppression } from "./ai/thinkingSuppression";
@@ -363,6 +364,13 @@ class ReasoningService extends BaseReasoningService {
     agentName: string | null = null,
     config: ReasoningConfig = {}
   ): Promise<string> {
+    const inferenceScope = config.inferenceScope || "dictationCleanup";
+    const managed = getManagedScopeResolution(inferenceScope, getSettings().enterpriseSetupMode);
+    if (managed.kind === "error") throw new Error(managed.message);
+    if (managed.kind === "managed") {
+      model = managed.model;
+      config = { ...config, provider: managed.provider, inferenceScope };
+    }
     const trimmedModel = model?.trim?.() || "";
     const isLanCleanup = !!config.lanUrl || this.isLanCleanupMode();
     const providerId = isLanCleanup
@@ -633,6 +641,14 @@ class ReasoningService extends BaseReasoningService {
     config: ReasoningConfig & { systemPrompt: string },
     tools?: Record<string, import("ai").Tool>
   ): AsyncGenerator<AgentStreamChunk, void, unknown> {
+    const inferenceScope = config.inferenceScope || "chatIntelligence";
+    const managed = getManagedScopeResolution(inferenceScope, getSettings().enterpriseSetupMode);
+    if (managed.kind === "error") throw new Error(managed.message);
+    if (managed.kind === "managed") {
+      provider = managed.provider;
+      model = managed.model;
+      config = { ...config, inferenceScope };
+    }
     const route = resolveChatRoute({
       provider,
       lanUrl: config.lanUrl,
@@ -694,7 +710,7 @@ class ReasoningService extends BaseReasoningService {
     const openrouterDisableThinking = provider === "openrouter" && config.disableThinking === true;
     // Resolving a Tinfoil model refreshes the registry, so read model config after it.
     const aiModel = isEnterprise
-      ? createEnterpriseChatModel(provider as EnterpriseProvider, model)
+      ? createEnterpriseChatModel(provider as EnterpriseProvider, model, inferenceScope)
       : await getAIModel(aiProvider, model, apiKey, baseURL, {
           disableThinking: openrouterDisableThinking,
         });
@@ -963,6 +979,11 @@ class ReasoningService extends BaseReasoningService {
       }
 
       const settings = getSettings();
+      const managedCleanup = getManagedScopeResolution(
+        "dictationCleanup",
+        settings.enterpriseSetupMode
+      );
+      if (managedCleanup.kind === "managed") return true;
       if (settings.cleanupProvider === "custom" && settings.cleanupCloudBaseUrl?.trim()) {
         logger.logReasoning("API_KEY_CHECK", {
           customProvider: true,

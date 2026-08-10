@@ -2,6 +2,7 @@ import {
   resolveDictationAgentProvider,
   resolveDictationAgentReachability,
 } from "./dictationRouting.js";
+import { getManagedScopeResolution } from "../stores/enterpriseIdentityStore";
 
 // The dictation agent's inference scope, shared by the dictation route in
 // audioManager and the Prompt Studio test tab so a prompt test hits the same
@@ -11,6 +12,18 @@ import {
 // missing one as its cleanup path, which echoes the input back instead of
 // running the instruction.
 export function resolveDictationAgentInference(settings, { isCloudAgent = false } = {}) {
+  const managed = getManagedScopeResolution("dictationAgent", settings.enterpriseSetupMode);
+  if (managed.kind === "managed") {
+    return {
+      reachable: settings.useDictationAgent,
+      model: managed.model,
+      config: {
+        inferenceScope: /** @type {const} */ ("dictationAgent"),
+        provider: managed.provider,
+        disableThinking: settings.dictationAgentDisableThinking,
+      },
+    };
+  }
   const model = settings.dictationAgentModel?.trim() || "";
   const isSelfHosted =
     settings.dictationAgentMode === "self-hosted" && !!settings.dictationAgentRemoteUrl?.trim();
@@ -30,6 +43,7 @@ export function resolveDictationAgentInference(settings, { isCloudAgent = false 
     }),
     model,
     config: {
+      inferenceScope: /** @type {const} */ ("dictationAgent"),
       provider,
       lanUrl: isSelfHosted ? settings.dictationAgentRemoteUrl : undefined,
       baseUrl: isCustom ? settings.dictationAgentCloudBaseUrl || undefined : undefined,

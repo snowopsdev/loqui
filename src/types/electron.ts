@@ -2,6 +2,7 @@ import type { ModelDefinition } from "../models/ModelRegistry";
 import type { TinfoilCatalogModel } from "../models/tinfoilModels";
 import type { UsageResponse } from "../lib/usageStore";
 import type { OrgPolicy } from "./policy";
+import type { ManagedEnterpriseConfig } from "./enterpriseIdentity";
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia";
 
@@ -1336,7 +1337,7 @@ declare global {
         streamId: string;
         provider: string;
         modelId: string;
-        config: Record<string, string>;
+        config: Record<string, unknown>;
         options: Record<string, unknown>;
       }) => Promise<{ success: boolean; error?: string }>;
       enterpriseStreamCancel?: (streamId: string) => Promise<void>;
@@ -1348,7 +1349,7 @@ declare global {
           error?: string;
         }) => void
       ) => () => void;
-      listBedrockModels?: (config: Record<string, string>) => Promise<{
+      listBedrockModels?: (config: Record<string, unknown>) => Promise<{
         success: boolean;
         models?: Array<{ value: string; label: string; vendor: string }>;
         error?: string;
@@ -1555,8 +1556,23 @@ declare global {
       saveVertexApiKey?: (key: string) => Promise<void>;
       testEnterpriseConnection?: (
         provider: string,
-        config: Record<string, string>
+        config: Record<string, unknown>
       ) => Promise<{ success: boolean; error?: string; action?: string; copyCommand?: string }>;
+      getManagedEnterpriseConfig?: (
+        accountId: string,
+        workspaceId: string,
+        expectedAuthGeneration: number
+      ) => Promise<{
+        success: boolean;
+        status?: "network" | "current" | "cached" | "error";
+        accountId?: string | null;
+        workspaceId?: string | null;
+        authGeneration?: number | null;
+        config?: ManagedEnterpriseConfig;
+        code?: string;
+        error?: string;
+      }>;
+      clearManagedEnterpriseIdentity?: () => Promise<void>;
 
       // Dictation key persistence (file-based for reliable startup)
       getDictationKey?: () => Promise<string | null>;

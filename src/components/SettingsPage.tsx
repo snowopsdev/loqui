@@ -1137,10 +1137,6 @@ export default function SettingsPage({
   const [autoStartLoading, setAutoStartLoading] = useState(true);
 
   useEffect(() => {
-    if (platform === "linux") {
-      setAutoStartLoading(false);
-      return;
-    }
     const loadAutoStart = async () => {
       if (window.electronAPI?.getAutoStartEnabled) {
         try {
@@ -1153,7 +1149,7 @@ export default function SettingsPage({
       setAutoStartLoading(false);
     };
     loadAutoStart();
-  }, [platform]);
+  }, []);
 
   useEffect(() => {
     window.electronAPI?.syncNotificationPreferences?.({
@@ -2781,20 +2777,18 @@ export default function SettingsPage({
                 description={t("settingsPage.general.startup.description")}
               />
               <SettingsPanel>
-                {platform !== "linux" && (
-                  <SettingsPanelRow>
-                    <SettingsRow
-                      label={t("settingsPage.general.startup.launchAtLogin")}
-                      description={t("settingsPage.general.startup.launchAtLoginDescription")}
-                    >
-                      <Toggle
-                        checked={autoStartEnabled}
-                        onChange={(checked: boolean) => handleAutoStartChange(checked)}
-                        disabled={autoStartLoading}
-                      />
-                    </SettingsRow>
-                  </SettingsPanelRow>
-                )}
+                <SettingsPanelRow>
+                  <SettingsRow
+                    label={t("settingsPage.general.startup.launchAtLogin")}
+                    description={t("settingsPage.general.startup.launchAtLoginDescription")}
+                  >
+                    <Toggle
+                      checked={autoStartEnabled}
+                      onChange={(checked: boolean) => handleAutoStartChange(checked)}
+                      disabled={autoStartLoading}
+                    />
+                  </SettingsRow>
+                </SettingsPanelRow>
                 <SettingsPanelRow>
                   <SettingsRow
                     label={t("settingsPage.general.startup.startMinimized")}

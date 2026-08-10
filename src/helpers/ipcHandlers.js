@@ -18,6 +18,7 @@ const {
 } = require("./policyResponseError");
 const { classifyAndLog } = require("./networkErrors");
 const { resolveLocalServerNeeds } = require("./localServerPolicy");
+const linuxAutostart = require("./linuxAutostart");
 const GnomeShortcutManager = require("./gnomeShortcut");
 const HyprlandShortcutManager = require("./hyprlandShortcut");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
@@ -3269,6 +3270,9 @@ class IPCHandlers {
 
     ipcMain.handle("get-auto-start-enabled", async () => {
       try {
+        if (process.platform === "linux") {
+          return linuxAutostart.isAutostartEnabled();
+        }
         const loginSettings = app.getLoginItemSettings();
         return loginSettings.openAtLogin;
       } catch (error) {
@@ -3279,10 +3283,14 @@ class IPCHandlers {
 
     ipcMain.handle("set-auto-start-enabled", async (event, enabled) => {
       try {
-        app.setLoginItemSettings({
-          openAtLogin: enabled,
-          openAsHidden: true, // Start minimized to tray
-        });
+        if (process.platform === "linux") {
+          linuxAutostart.setAutostartEnabled(enabled);
+        } else {
+          app.setLoginItemSettings({
+            openAtLogin: enabled,
+            openAsHidden: true, // Start minimized to tray
+          });
+        }
         debugLogger.debug("Auto-start setting updated", { enabled });
         return { success: true };
       } catch (error) {

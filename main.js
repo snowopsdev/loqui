@@ -380,6 +380,17 @@ function cleanupOrphanedLinuxRestoreToken() {
   } catch {}
 }
 
+function syncLinuxAutostartEntry() {
+  if (process.platform !== "linux") return;
+  try {
+    if (require("./src/helpers/linuxAutostart").syncAutostartEntry()) {
+      debugLogger.info("Re-pointed the autostart entry at the current executable");
+    }
+  } catch (error) {
+    debugLogger.warn("Failed to sync the autostart entry", { error: error?.message });
+  }
+}
+
 function initializeCoreManagers() {
   setupProductionPath();
 
@@ -432,6 +443,7 @@ function initializeCoreManagers() {
   // doesn't pay the probe spawn. No-ops on non-Windows.
   windowsLoopbackAudioManager.getCapability().catch(() => {});
   cleanupOrphanedLinuxRestoreToken();
+  syncLinuxAutostartEntry();
   meetingAecManager = new MeetingAecManager();
   windowManager.textEditMonitor = textEditMonitor;
   windowManager.selectionManager = selectionManager;

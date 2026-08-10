@@ -61,7 +61,9 @@ const TRANSCRIPTION_POLICY_CATALOG = {
 };
 
 const MEETING_TRANSCRIPTION_POLICY_CATALOG = {
-  ...TRANSCRIPTION_POLICY_CATALOG,
+  // Meeting self-hosted deliberately streams through the managed realtime
+  // pipeline, so it is not a private destination a policy fallback may select.
+  modes: ["openwhispr", "providers", "local"] as const,
   byokProviders: modelRegistryData.transcriptionProviders
     .filter((provider) => provider.models.some((model) => model.streaming))
     .map((provider) => provider.id),

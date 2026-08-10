@@ -224,6 +224,11 @@ export function getTranscriptionSelection(
   context: TranscriptionPolicyContext
 ): TranscriptionSelection {
   if (context === "meeting") {
+    // Meeting self-hosted deliberately falls back to the managed realtime
+    // pipeline, so policy must judge that actual destination.
+    if (settings.meetingTranscriptionMode === "self-hosted") {
+      return { mode: "openwhispr", provider: "openwhispr" };
+    }
     return {
       mode: settings.meetingTranscriptionMode,
       provider: settings.meetingCloudTranscriptionProvider || settings.cloudTranscriptionProvider,

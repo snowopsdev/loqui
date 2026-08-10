@@ -629,3 +629,37 @@ test("cloud-backup resume fires only on a denial-to-grant transition", async () 
   assert.equal(cloudBackupResumed(unmanaged, unmanaged), false);
   assert.equal(cloudBackupResumed(managedAllowed, managedAllowed), false);
 });
+
+test("meeting self-hosted is judged by its managed-cloud fallback destination", async () => {
+  const { getTranscriptionSelection, isTranscriptionContextAllowed } = await load();
+  const settings = {
+    meetingTranscriptionMode: "self-hosted",
+    meetingCloudTranscriptionProvider: "",
+    cloudTranscriptionProvider: "openai",
+  };
+
+  // Note Recording routes self-hosted to the managed realtime pipeline, so
+  // the policy selection must reflect that real destination.
+  assert.deepEqual(getTranscriptionSelection(settings, "meeting"), {
+    mode: "openwhispr",
+    provider: "openwhispr",
+  });
+
+  const managedNoCloud = {
+    status: "managed",
+    policy: {
+      ...policy,
+      transcription: { allowedModes: ["local", "self-hosted"], allowedByokProviders: [] },
+    },
+    appVersion: null,
+  };
+  assert.equal(isTranscriptionContextAllowed(managedNoCloud, settings, "meeting"), false);
+  assert.equal(
+    isTranscriptionContextAllowed(
+      { status: "managed", policy, appVersion: null },
+      settings,
+      "meeting"
+    ),
+    true
+  );
+});

@@ -133,20 +133,20 @@ test("reconciliation migrates the mapping when the offline id differs", () => {
   assert.deepEqual(calls.remove, [{ noteId: NOTE_ID, speakerId: "speaker_3" }]);
 });
 
-function refreshConfig(explicit) {
+const THREE_ATTENDEES = [
+  { email: "one@example.com" },
+  { email: "two@example.com" },
+  { email: "three@example.com" },
+];
+
+function refreshConfig(explicit, { expectedCount = 2, attendees = THREE_ATTENDEES } = {}) {
   const { IPCHandlers, liveSpeakerIdentifier, broadcasts } = loadHandlers();
   const fakeThis = Object.assign(Object.create(IPCHandlers.prototype), {
-    activeMeetingSpeakerConfig: { enabled: true, expectedCount: 2, explicit },
+    activeMeetingSpeakerConfig: { enabled: true, expectedCount, explicit },
     _activeMeetingNoteId: NOTE_ID,
     databaseManager: { getGoogleAccounts: () => [] },
   });
-  const note = {
-    participants: JSON.stringify([
-      { email: "one@example.com" },
-      { email: "two@example.com" },
-      { email: "three@example.com" },
-    ]),
-  };
+  const note = { participants: JSON.stringify(attendees) };
 
   IPCHandlers.prototype._refreshMeetingSpeakerConfigFromNote.call(fakeThis, NOTE_ID, note);
   return { fakeThis, liveSpeakerIdentifier, broadcasts };
@@ -167,4 +167,61 @@ test("an explicit stepper count is never overridden by roster changes", () => {
 
   assert.equal(fakeThis.activeMeetingSpeakerConfig.expectedCount, 2);
   assert.deepEqual(broadcasts, []);
+});
+
+// Lowering the cap below the clusters already discovered makes the identifier
+// fold every later voice onto an existing speaker — the collapse this refresh
+// exists to prevent. A shrinking or emptied roster must be ignored.
+test("a shrinking roster leaves the speaker cap untouched", () => {
+  const shrunk = refreshConfig(false, {
+    expectedCount: 4,
+    attendees: [{ email: "one@example.com" }],
+  });
+
+  assert.equal(shrunk.fakeThis.activeMeetingSpeakerConfig.expectedCount, 4);
+  assert.deepEqual(shrunk.broadcasts, []);
+
+  const emptied = refreshConfig(false, { expectedCount: 4, attendees: [] });
+
+  assert.equal(emptied.fakeThis.activeMeetingSpeakerConfig.expectedCount, 4);
+  assert.deepEqual(emptied.broadcasts, []);
+});
+
+// Only system audio reaches the diarizer, so every branch must report `cap` as a
+// count of other speakers (total - 1). The no-signal fallback used to return the
+// total itself, which let one remote voice split across two labels.
+test("speaker expectation reports cap as other-speaker count in every branch", () => {
+  const { IPCHandlers } = loadHandlers();
+  const resolve = (args) =>
+    IPCHandlers.prototype._resolveSpeakerExpectation.call(
+      Object.assign(Object.create(IPCHandlers.prototype), {
+        databaseManager: { getNote: () => args.note ?? null },
+      }),
+      {
+        sessionConfig: args.sessionConfig ?? null,
+        noteId: args.noteId ?? null,
+        observedSpeakerIds: args.observedSpeakerIds ?? new Set(),
+      }
+    );
+
+  assert.deepEqual(
+    resolve({ sessionConfig: { expectedCount: 3, explicit: true } }),
+    { numSpeakers: 2, cap: 2 },
+    "an explicit count of 3 means 2 other speakers"
+  );
+  assert.deepEqual(
+    resolve({ noteId: NOTE_ID, note: { expected_speaker_count: 4 } }),
+    { numSpeakers: 3, cap: 3 },
+    "a note count outranks a non-explicit session config"
+  );
+  assert.deepEqual(
+    resolve({ observedSpeakerIds: new Set(["speaker_0", "speaker_1"]) }),
+    { numSpeakers: 2, cap: 2 },
+    "observed ids are already other-speaker ids"
+  );
+  assert.deepEqual(
+    resolve({}),
+    { numSpeakers: -1, cap: 1 },
+    "the default total of 2 means a single other speaker, not 2"
+  );
 });

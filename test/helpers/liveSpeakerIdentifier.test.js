@@ -122,12 +122,13 @@ test("stop() state keys match the resolved speaker ids", async () => {
   );
 });
 
-test("mapSpeaker on an unknown id fails loudly", () => {
+test("mapSpeaker on an unknown id fails loudly during a live session", () => {
   const { LiveSpeakerIdentifier, warnings } = loadIdentifier();
   const identifier = new LiveSpeakerIdentifier();
 
   identifier.setMaxSpeakers(3);
   identifier._resolveSpeakerForEmbedding(voiceA, { updateCentroid: true });
+  identifier.running = true;
 
   const mapped = identifier.mapSpeaker("speaker_9", 1, "Alice", null);
   assert.equal(mapped, false);
@@ -137,6 +138,17 @@ test("mapSpeaker on an unknown id fails loudly", () => {
     !JSON.stringify(warning.data ?? {}).includes("Alice"),
     "the participant's name must not be written to the logs"
   );
+});
+
+// Labeling a speaker in a past note, or editing that note's participants, routes
+// through mapSpeaker with no live session and no transient clusters. Nothing was
+// dropped, so warning there would put noise in every user's production log file.
+test("mapSpeaker stays quiet when no session is running", () => {
+  const { LiveSpeakerIdentifier, warnings } = loadIdentifier();
+  const identifier = new LiveSpeakerIdentifier();
+
+  assert.equal(identifier.mapSpeaker("speaker_0", 1, "Alice", 42), false);
+  assert.deepEqual(warnings, []);
 });
 
 // Plants exactly two clusters ~0.70 similar (above the 0.65 recluster

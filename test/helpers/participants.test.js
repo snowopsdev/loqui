@@ -87,6 +87,26 @@ test("participant changes do not override another recording, a manual count, or 
   );
 });
 
+// A roster that shrinks mid-recording must not pull the cap below the speakers
+// already discovered — that would fold later voices onto an existing speaker.
+test("a shrinking roster never lowers the session count", async () => {
+  const { resolveParticipantSpeakerCountSync } = await load();
+  const base = { recordingNoteId: 42, noteId: 42, userTouchedStepper: false };
+
+  assert.equal(
+    resolveParticipantSpeakerCountSync({
+      ...base,
+      currentExpectedCount: 4,
+      participants: [{ email: "one@example.com", self: false }],
+    }),
+    null
+  );
+  assert.equal(
+    resolveParticipantSpeakerCountSync({ ...base, currentExpectedCount: 4, participants: [] }),
+    null
+  );
+});
+
 test("participant-derived startup counts remain eligible for roster synchronization", async () => {
   const { resolveInitialSpeakerCountOverride } = await load();
 

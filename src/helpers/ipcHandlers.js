@@ -762,13 +762,18 @@ class IPCHandlers {
   // Participants added mid-meeting must raise the speaker cap that was derived
   // from the note at recording start. A count the user set via the stepper
   // (explicit) is never overridden.
+  //
+  // Raise-only: lowering the cap below the clusters already discovered would make
+  // _assignOrForceCluster fold every later voice onto an existing speaker — the
+  // exact identity collapse this refresh exists to prevent. A roster that shrinks
+  // (or empties) mid-meeting therefore leaves the cap where it is.
   _refreshMeetingSpeakerConfigFromNote(noteId, note) {
     const config = this.activeMeetingSpeakerConfig;
     if (!config || config.explicit) return;
     if (noteId == null || this._activeMeetingNoteId !== noteId) return;
 
-    const expectedCount = this._resolveNoteExpectedSpeakerCount(note);
-    if (expectedCount === config.expectedCount) return;
+    const expectedCount = this._noteExpectedSpeakerCountOrNull(note);
+    if (expectedCount == null || expectedCount <= config.expectedCount) return;
 
     this.activeMeetingSpeakerConfig = { ...config, expectedCount };
     liveSpeakerIdentifier.setMaxSpeakers(Math.max(1, expectedCount - 1));
@@ -9823,7 +9828,9 @@ class IPCHandlers {
       return { numSpeakers, cap: numSpeakers };
     }
 
-    return { numSpeakers: -1, cap: DEFAULT_EXPECTED_SPEAKER_COUNT };
+    // Only system audio reaches the diarizer (the mic track is "you"), so the cap
+    // counts other speakers — same total - 1 basis as the branches above.
+    return { numSpeakers: -1, cap: Math.max(1, DEFAULT_EXPECTED_SPEAKER_COUNT - 1) };
   }
 
   _startOrSkipDiarization(

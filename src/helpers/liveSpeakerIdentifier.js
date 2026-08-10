@@ -342,11 +342,15 @@ class LiveSpeakerIdentifier {
 
   mapSpeaker(liveId, profileId, displayName, noteId) {
     if (!liveId || !this.transientEmbeddings.has(liveId)) {
-      debugLogger.warn("Live speaker mapping dropped: unknown speaker id", {
-        liveId,
-        hasDisplayName: !!displayName,
-        knownSpeakers: [...this.transientEmbeddings.keys()],
-      });
+      // Labeling a speaker in a past note routes here with no live session, so
+      // only an active session losing a mapping is worth flagging.
+      if (this.running) {
+        debugLogger.warn("Live speaker mapping dropped: unknown speaker id", {
+          liveId,
+          hasDisplayName: !!displayName,
+          knownSpeakers: [...this.transientEmbeddings.keys()],
+        });
+      }
       return false;
     }
 

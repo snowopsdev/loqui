@@ -80,6 +80,17 @@ test("link-local, IPv6 ULA, and .local hostnames are allowed over http", async (
   assert.equal(isSecureEndpoint("http://myserver.local:8080"), true);
 });
 
+test("Tailscale MagicDNS hostnames (.ts.net) are allowed over http", async () => {
+  const { isSecureEndpoint, isSecureHttpEndpoint } = await load();
+
+  assert.equal(isSecureEndpoint("http://myserver.tailnet-1234.ts.net:8080"), true);
+  assert.equal(isSecureHttpEndpoint("http://myserver.tailnet-1234.ts.net:8080"), true);
+  // Only true subdomains of ts.net qualify — look-alike public domains do not.
+  assert.equal(isSecureEndpoint("http://myts.net:8080"), false);
+  assert.equal(isSecureEndpoint("http://evil-ts.net:8080"), false);
+  assert.equal(isSecureEndpoint("http://ts.net:8080"), false);
+});
+
 test("unparseable input is never secure", async () => {
   const { isSecureEndpoint } = await load();
 

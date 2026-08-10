@@ -34,7 +34,6 @@ import {
   filterShareVisibilityOptions,
   hasUsableExternalShareVisibility,
   isShareActionAllowed,
-  isShareVisibilityAllowed,
   type SharePolicyAction,
 } from "../../stores/policyRules";
 import { usePolicySnapshot } from "../../hooks/usePolicy";
@@ -105,10 +104,6 @@ export default function ShareNoteDialog({ open, onOpenChange, note }: ShareNoteD
   }, [note.is_shared]);
 
   const policyState = usePolicySnapshot();
-  const visibilityAllowed = useCallback(
-    (visibility: ShareVisibility) => isShareVisibilityAllowed(policyState, visibility),
-    [policyState]
-  );
 
   const ownerDomain = useMemo(() => emailDomain(ownerEmail), [ownerEmail]);
   const showDomainOption = Boolean(ownerDomain && !isPersonalEmailDomain(ownerDomain));

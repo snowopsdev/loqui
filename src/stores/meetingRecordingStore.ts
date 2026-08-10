@@ -14,7 +14,7 @@ import {
   resolveInitialSpeakerCountOverride,
   resolveParticipantSpeakerCountSync,
 } from "../utils/participants";
-import type { SystemAudioAccessResult, SystemAudioStrategy } from "../types/electron";
+import type { NoteItem, SystemAudioAccessResult, SystemAudioStrategy } from "../types/electron";
 import type { CalendarAttendee } from "../types/calendar";
 import {
   DEFAULT_SYSTEM_AUDIO_ACCESS,
@@ -1400,10 +1400,11 @@ if (typeof window !== "undefined") {
         payloadNoteId: data?.noteId,
         payloadSessionId: data?.sessionId,
         currentSessionId: diarizationSessionId,
-        recordingNoteId,
       });
       if (targetNoteId == null) return;
 
+      // Publishing an empty result clears a waiting editor's spinner without
+      // painting an overlay; anything non-empty is already persisted.
       const publish = (segments: TranscriptSegment[]) => {
         if (isCurrentSession) {
           useMeetingRecordingStore.setState({
@@ -1413,24 +1414,27 @@ if (typeof window !== "undefined") {
       };
 
       if (!data?.segments?.length) {
-        // Diarization failed or was skipped — publish so a waiting editor can
-        // clear its spinner, but there is nothing to persist.
         publish([]);
         return;
       }
 
-      let persisted;
+      let persisted: NoteItem | null | undefined;
       try {
         persisted = await window.electronAPI?.getNote?.(targetNoteId);
-      } catch {
-        // Without the persisted note there is no safe base to merge into —
-        // publish the empty result so a waiting editor still clears its spinner.
+      } catch (error) {
+        logger.error(
+          "Diarization completion could not read its note",
+          { noteId: targetNoteId, error: (error as Error).message },
+          "meeting"
+        );
+      }
+      // No note means no safe base to merge into, and writing to a deleted one
+      // would resurrect its tombstone in the sidebar, cloud mirror, and vector
+      // index.
+      if (!persisted || persisted.deleted_at) {
         publish([]);
         return;
       }
-      // Writing to a deleted note would resurrect its tombstone in the
-      // sidebar, cloud mirror, and vector index.
-      if (!persisted || persisted.deleted_at) return;
 
       const existing = selectBaseSegments({
         persistedSegments: persisted.transcript
@@ -1456,8 +1460,6 @@ if (typeof window !== "undefined") {
           transcript: serializeTranscriptSegments(enriched),
         });
       } catch (error) {
-        // Clear a waiting spinner without an overlay the database never
-        // accepted; the outer catch logs the failure.
         publish([]);
         throw error;
       }

@@ -526,8 +526,8 @@ export default function NoteEditor({
   const completedDiarization = useMeetingRecordingStore((s) => s.completedDiarization);
   useEffect(() => {
     if (!completedDiarization || completedDiarization.noteId !== note.id) return;
-    // Consume so a later remount doesn't reapply a stale overlay on top of
-    // newer edits; the transcript itself is already persisted.
+    // Consume so a remount can't repaint this overlay over newer edits; the
+    // transcript itself is already persisted.
     useMeetingRecordingStore.setState({ completedDiarization: null });
     setIsDiarizing(false);
 

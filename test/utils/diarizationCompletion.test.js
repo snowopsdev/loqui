@@ -16,7 +16,6 @@ test("payload noteId targets the owning note", () => {
     payloadNoteId: 1,
     payloadSessionId: "diar-100",
     currentSessionId: "diar-100",
-    recordingNoteId: 1,
   });
   assert.deepEqual(result, { targetNoteId: 1, isCurrentSession: true });
 });
@@ -29,7 +28,6 @@ test("payload noteId still targets the owning note after a new session started",
     payloadNoteId: 1,
     payloadSessionId: "diar-100",
     currentSessionId: "diar-200",
-    recordingNoteId: 2,
   });
   assert.deepEqual(result, { targetNoteId: 1, isCurrentSession: false });
 });
@@ -41,47 +39,18 @@ test("payload noteId with no pending session is current", () => {
     payloadNoteId: 1,
     payloadSessionId: "diar-100",
     currentSessionId: null,
-    recordingNoteId: null,
   });
   assert.deepEqual(result, { targetNoteId: 1, isCurrentSession: true });
 });
 
-test("without payload noteId, a matching session attributes to the recording note", () => {
+test("a payload without a noteId is dropped", () => {
+  // Main snapshots the same noteId the renderer passed to
+  // meetingTranscriptionStart, so a missing one means the recording was never
+  // tied to a note and there is nothing to persist to.
   const result = resolveDiarizationTarget({
     payloadNoteId: null,
     payloadSessionId: "diar-100",
     currentSessionId: "diar-100",
-    recordingNoteId: 2,
-  });
-  assert.deepEqual(result, { targetNoteId: 2, isCurrentSession: true });
-});
-
-test("without payload noteId and no recording note, the result is dropped", () => {
-  const result = resolveDiarizationTarget({
-    payloadNoteId: null,
-    payloadSessionId: "diar-100",
-    currentSessionId: "diar-100",
-    recordingNoteId: null,
-  });
-  assert.deepEqual(result, { targetNoteId: null, isCurrentSession: true });
-});
-
-test("without payload noteId, a session mismatch produces no target", () => {
-  const result = resolveDiarizationTarget({
-    payloadNoteId: null,
-    payloadSessionId: "diar-100",
-    currentSessionId: "diar-200",
-    recordingNoteId: 2,
-  });
-  assert.deepEqual(result, { targetNoteId: null, isCurrentSession: false });
-});
-
-test("without payload noteId and no current session, the result is dropped", () => {
-  const result = resolveDiarizationTarget({
-    payloadNoteId: null,
-    payloadSessionId: "diar-100",
-    currentSessionId: null,
-    recordingNoteId: 2,
   });
   assert.deepEqual(result, { targetNoteId: null, isCurrentSession: true });
 });

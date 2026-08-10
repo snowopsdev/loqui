@@ -1675,7 +1675,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       );
 
       const transcriptionStart = performance.now();
-      const result = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, options);
+      let result = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, options);
       timings.transcriptionProcessingDurationMs = Math.round(
         performance.now() - transcriptionStart
       );
@@ -1691,7 +1691,27 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       if (result.success && result.text) {
         if (this.isDictionaryEcho(result.text)) {
-          throw new Error("No audio detected");
+          // Whisper decoded (near-)silence and continued the dictionary prompt —
+          // typically VAD stripping pause-heavy speech (#1454). Retry once
+          // without the prompt and without VAD: real speech comes back as the
+          // true transcript, true silence comes back empty.
+          const retry = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, {
+            model: options.model,
+            ...(options.language ? { language: options.language } : {}),
+            skipVad: true,
+          });
+          if (!retry?.success || !retry.text?.trim() || this.isDictionaryEcho(retry.text)) {
+            throw new Error("No audio detected");
+          }
+          logger.info(
+            "Recovered transcript after dictionary-echo detection",
+            { retryTextLength: retry.text.length },
+            "audio"
+          );
+          result = retry;
+          timings.transcriptionProcessingDurationMs = Math.round(
+            performance.now() - transcriptionStart
+          );
         }
         const rawText = result.text;
         const reasoningStart = performance.now();

@@ -11,6 +11,8 @@ import type {
 import type { InferenceScope } from "../config/inferenceScopes";
 import logger from "../utils/logger";
 import { resolveManagedEnterpriseScope } from "../helpers/enterpriseManagedConfig.mjs";
+import { isLlmSelectionAllowed } from "./policyRules";
+import { usePolicyStore } from "./policyStore";
 
 interface EnterpriseIdentityState {
   accountId: string | null;
@@ -103,13 +105,52 @@ export const useEnterpriseIdentityStore = create<EnterpriseIdentityState>((set, 
   },
 }));
 
+function resolveScope(
+  config: ManagedEnterpriseConfig | null,
+  scope: InferenceScope,
+  setupMode: EnterpriseSetupMode
+): ManagedEnterpriseScopeResolution {
+  const resolution = resolveManagedEnterpriseScope(
+    config,
+    scope,
+    setupMode
+  ) as ManagedEnterpriseScopeResolution;
+  // Managed access and the provider allowlist are separate admin pages, so a workspace can end up
+  // pointing at a provider its own policy forbids. Leave the employee on their own configuration
+  // rather than failing every request on policy; policy still governs whatever they fall back to.
+  if (
+    resolution.kind === "managed" &&
+    !isLlmSelectionAllowed(usePolicyStore.getState(), {
+      mode: "enterprise",
+      provider: resolution.provider,
+    })
+  ) {
+    logger.warn(
+      "Managed enterprise provider is blocked by workspace policy; using local configuration",
+      { provider: resolution.provider, scope },
+      "auth"
+    );
+    return { kind: "manual" };
+  }
+  return resolution;
+}
+
+/** Imperative reads (services, stores). Components should use useManagedScopeResolution. */
 export function getManagedScopeResolution(
   scope: InferenceScope,
   setupMode: EnterpriseSetupMode
 ): ManagedEnterpriseScopeResolution {
-  return resolveManagedEnterpriseScope(
-    useEnterpriseIdentityStore.getState().config,
+  return resolveScope(useEnterpriseIdentityStore.getState().config, scope, setupMode);
+}
+
+/** Subscribes to the managed config so the UI re-renders when an administrator changes it. */
+export function useManagedScopeResolution(
+  scope: InferenceScope,
+  setupMode: EnterpriseSetupMode
+): ManagedEnterpriseScopeResolution {
+  return resolveScope(
+    useEnterpriseIdentityStore((state) => state.config),
     scope,
     setupMode
-  ) as ManagedEnterpriseScopeResolution;
+  );
 }

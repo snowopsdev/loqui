@@ -121,9 +121,10 @@ test("required managed access overrides manual setup", () => {
   assert.equal(result.model, "model-a");
 });
 
-test("ambiguous organization defaults fail with an administrator action", () => {
+test("a cached envelope from before a provider switch resolves to the newest provider", () => {
   const azure = provider({
     provider: "azure",
+    updatedAt: "2026-08-11T00:00:00.000Z",
     config: {
       tenantId: "11111111-1111-4111-8111-111111111111",
       clientId: "22222222-2222-4222-8222-222222222222",
@@ -140,6 +141,7 @@ test("ambiguous organization defaults fail with an administrator action", () => 
     "dictationCleanup",
     "auto"
   );
-  assert.equal(result.kind, "error");
-  assert.equal(result.code, "MANAGED_PROVIDER_AMBIGUOUS");
+  assert.equal(result.kind, "managed");
+  assert.equal(result.provider, "azure");
+  assert.equal(result.model, "deployment-a");
 });

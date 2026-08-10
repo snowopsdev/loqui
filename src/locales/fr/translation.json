@@ -796,7 +796,11 @@
     "sso": {
       "continueWithSSO": "Se connecter avec le SSO",
       "emailRequired": "Saisissez votre e-mail professionnel pour utiliser le SSO.",
-      "failed": "Échec de l’authentification unique. Veuillez réessayer."
+      "failed": "Échec de l’authentification unique. Veuillez réessayer.",
+      "companySignInTitle": "Utiliser la connexion de votre entreprise",
+      "requiredDescription": "{{domain}} exige le SSO pour OpenWhispr.",
+      "availableDescription": "Votre compte {{domain}} est prêt pour le SSO de l'entreprise.",
+      "useEmailInstead": "Utiliser plutôt l'e-mail et le mot de passe"
     },
     "social": {
       "completeInBrowser": "Terminez la connexion dans votre navigateur",
@@ -1735,6 +1739,15 @@
           "title": "Enterprise",
           "description": "Utilise le compte cloud de votre organisation."
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "L'IA d'entreprise gérée nécessite votre attention",
+        "title": "Géré par votre organisation",
+        "description": "La connexion fournit automatiquement un accès de courte durée. Aucune clé cloud ni configuration CLI n'est nécessaire.",
+        "usePersonalSetup": "Utiliser la configuration personnelle",
+        "availableTitle": "Configuration de l'organisation disponible",
+        "availableDescription": "Utilisez {{provider}} sans gérer d'identifiants.",
+        "useManaged": "Utiliser la version gérée"
       }
     },
     "developer": {

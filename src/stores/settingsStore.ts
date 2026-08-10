@@ -1014,11 +1014,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   cleanupCustomApiKey: "",
 
   // Enterprise providers
-  enterpriseSetupMode: (["auto", "managed", "manual"].includes(
-    readString("enterpriseSetupMode", "auto")
-  )
-    ? readString("enterpriseSetupMode", "auto")
-    : "auto") as EnterpriseSetupMode,
+  enterpriseSetupMode: (() => {
+    const v = readString("enterpriseSetupMode", "auto");
+    if (v === "auto" || v === "managed" || v === "manual") return v;
+    return "auto" as EnterpriseSetupMode;
+  })(),
   bedrockAuthMode: readString("bedrockAuthMode", "sso"),
   bedrockRegion: readString("bedrockRegion", "us-east-1"),
   bedrockProfile: readString("bedrockProfile", ""),
@@ -2337,14 +2337,20 @@ export async function initializeSettings(): Promise<void> {
       });
 
       if (!localStorage.getItem("enterpriseSetupMode")) {
-        const hasLegacyEnterpriseSetup = Boolean(
-          useSettingsStore.getState().bedrockProfile.trim() ||
-          (bedrockAccessKeyId && bedrockSecretAccessKey) ||
-          azureApiKey
-        );
-        const enterpriseSetupMode: EnterpriseSetupMode = hasLegacyEnterpriseSetup
-          ? "manual"
-          : "auto";
+        // One-time migration. "Managed by default" is meant to equip employees who never chose a
+        // provider — not to move someone who deliberately set up local, self-hosted, BYOK, or
+        // enterprise inference. Anyone with an existing choice starts on "manual" and opts in.
+        const hasChosenProvider =
+          Object.values(INFERENCE_SCOPES).some((scope) => {
+            const stored = localStorage.getItem(scope.storeKeys.mode as string);
+            return Boolean(stored) && stored !== "openwhispr";
+          }) ||
+          Boolean(
+            useSettingsStore.getState().bedrockProfile.trim() ||
+              (bedrockAccessKeyId && bedrockSecretAccessKey) ||
+              azureApiKey
+          );
+        const enterpriseSetupMode: EnterpriseSetupMode = hasChosenProvider ? "manual" : "auto";
         localStorage.setItem("enterpriseSetupMode", enterpriseSetupMode);
         useSettingsStore.setState({ enterpriseSetupMode });
       }

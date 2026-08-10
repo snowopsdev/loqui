@@ -797,7 +797,11 @@
     "sso": {
       "continueWithSSO": "SSO でサインイン",
       "emailRequired": "SSO を使用するには勤務先のメールアドレスを入力してください。",
-      "failed": "シングルサインオンに失敗しました。もう一度お試しください。"
+      "failed": "シングルサインオンに失敗しました。もう一度お試しください。",
+      "companySignInTitle": "会社のサインインを使用",
+      "requiredDescription": "{{domain}} では OpenWhispr に SSO が必須です。",
+      "availableDescription": "{{domain}} のアカウントは会社の SSO に対応しています。",
+      "useEmailInstead": "メールアドレスとパスワードを使用"
     },
     "social": {
       "completeInBrowser": "ブラウザでサインインを完了してください",
@@ -1457,6 +1461,15 @@
           "title": "エンタープライズ",
           "description": "組織のクラウドアカウントを使用しています。"
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "マネージド エンタープライズ AI に対応が必要です",
+        "title": "組織によって管理されています",
+        "description": "サインインすると短期間のアクセスが自動的に付与されます。クラウドキーや CLI の設定は不要です。",
+        "usePersonalSetup": "個人の設定を使用",
+        "availableTitle": "組織の設定が利用できます",
+        "availableDescription": "認証情報を管理せずに {{provider}} を使用できます。",
+        "useManaged": "マネージドを使用"
       }
     },
     "developer": {

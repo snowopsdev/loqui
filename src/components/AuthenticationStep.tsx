@@ -166,13 +166,10 @@ export default function AuthenticationStep({
     [t]
   );
 
-  const handleSSOSignIn = useCallback(async () => {
-    if (!email.trim()) {
-      setError(t("auth.sso.emailRequired"));
-      return;
-    }
-    await startSSOSignIn(email);
-  }, [email, startSSOSignIn, t]);
+  const handleSSOSignIn = useCallback(
+    () => startSSOSignIn(email),
+    [email, startSSOSignIn]
+  );
 
   const handleEmailContinue = useCallback(async () => {
     if (!email.trim() || !authClient) return;
@@ -406,18 +403,12 @@ export default function AuthenticationStep({
         <div className="pb-1 text-center">
           <p className="mb-2 text-sm leading-tight text-muted-foreground/70">{email}</p>
           <p className="text-lg font-semibold leading-tight tracking-tight text-foreground">
-            {t("auth.sso.companySignInTitle", { defaultValue: "Use your company sign-in" })}
+            {t("auth.sso.companySignInTitle")}
           </p>
           <p className="mt-1 text-xs leading-snug text-muted-foreground">
             {ssoDiscovery.required
-              ? t("auth.sso.requiredDescription", {
-                  defaultValue: "{{domain}} requires SSO for OpenWhispr.",
-                  domain: ssoDiscovery.domain,
-                })
-              : t("auth.sso.availableDescription", {
-                  defaultValue: "Your {{domain}} account is ready for company SSO.",
-                  domain: ssoDiscovery.domain,
-                })}
+              ? t("auth.sso.requiredDescription", { domain: ssoDiscovery.domain })
+              : t("auth.sso.availableDescription", { domain: ssoDiscovery.domain })}
           </p>
         </div>
 
@@ -449,7 +440,7 @@ export default function AuthenticationStep({
               setAuthMode(ssoDiscovery.exists ? "sign-in" : "sign-up");
             }}
           >
-            {t("auth.sso.useEmailInstead", { defaultValue: "Use email and password instead" })}
+            {t("auth.sso.useEmailInstead")}
           </Button>
         )}
 

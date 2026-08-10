@@ -200,12 +200,12 @@ function createEnterpriseIdentityManager({
     return { config, status: "network" };
   }
 
-  async function resolveConfig(identity, forceRefresh = false) {
+  async function resolveConfig(identity) {
     const current = configs.get(identity.cacheKey);
-    if (!forceRefresh && current && now() - current.refreshedAt < CONFIG_REFRESH_MS) {
+    if (current && now() - current.refreshedAt < CONFIG_REFRESH_MS) {
       return { config: current.config, status: "current" };
     }
-    if (!forceRefresh && configRequests.has(identity.cacheKey)) {
+    if (configRequests.has(identity.cacheKey)) {
       return configRequests.get(identity.cacheKey);
     }
     const pending = fetchConfig(identity)

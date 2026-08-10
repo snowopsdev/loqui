@@ -37,21 +37,34 @@ let refreshPromise: Promise<void> | null = null;
 let membersRequestSeq = 0;
 let accountGeneration = 0;
 
-function refreshManagedEnterpriseIdentity(workspaceId: string | null): void {
+/**
+ * Managed enterprise config is keyed by account + workspace + auth generation, so it has to be
+ * re-resolved whenever any of the three changes. Callers that already know the account identity
+ * pass it in; the active workspace comes from this store.
+ */
+export function refreshManagedEnterpriseIdentity(
+  accountId: string | null,
+  authGeneration: number | null,
+  workspaceId: string | null = useWorkspaceStore.getState().activeWorkspaceId
+): void {
   const enterprise = useEnterpriseIdentityStore.getState();
-  const policy = usePolicyStore.getState();
-  if (!workspaceId || !policy.accountId || policy.authGeneration == null) {
+  if (!workspaceId || !accountId || authGeneration == null) {
     enterprise.clear();
     return;
   }
   if (
     enterprise.workspaceId !== workspaceId ||
-    enterprise.accountId !== policy.accountId ||
-    enterprise.authGeneration !== policy.authGeneration
+    enterprise.accountId !== accountId ||
+    enterprise.authGeneration !== authGeneration
   ) {
     enterprise.clear();
   }
-  void enterprise.refresh(policy.accountId, workspaceId, policy.authGeneration);
+  void enterprise.refresh(accountId, workspaceId, authGeneration);
+}
+
+function refreshForWorkspace(workspaceId: string | null): void {
+  const { accountId, authGeneration } = usePolicyStore.getState();
+  refreshManagedEnterpriseIdentity(accountId, authGeneration, workspaceId);
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -68,7 +81,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // land under the new one.
     membersRequestSeq++;
     set({ activeWorkspaceId: id, members: [] });
-    refreshManagedEnterpriseIdentity(id);
+    refreshForWorkspace(id);
   },
 
   resetForAccountChange: () => {
@@ -113,7 +126,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           activeWorkspaceId: resolvedActiveId,
         });
         if (resolvedActiveId !== activeId) writeActiveWorkspaceId(resolvedActiveId);
-        refreshManagedEnterpriseIdentity(resolvedActiveId);
+        refreshForWorkspace(resolvedActiveId);
       } catch (error) {
         if (generation !== accountGeneration) return;
         logger.error(

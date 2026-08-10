@@ -796,7 +796,11 @@
     "sso": {
       "continueWithSSO": "使用 SSO 登入",
       "emailRequired": "輸入您的工作電子郵件以使用 SSO。",
-      "failed": "單一登入失敗，請再試一次。"
+      "failed": "單一登入失敗，請再試一次。",
+      "companySignInTitle": "使用公司登入",
+      "requiredDescription": "{{domain}} 要求透過 SSO 登入 OpenWhispr。",
+      "availableDescription": "您的 {{domain}} 帳戶已可使用公司 SSO。",
+      "useEmailInstead": "改用電子郵件和密碼"
     },
     "social": {
       "completeInBrowser": "請在瀏覽器中完成登入",
@@ -1457,6 +1461,15 @@
           "title": "企業級",
           "description": "正在使用你組織的雲端帳號。"
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "託管企業 AI 需要處理",
+        "title": "由您的組織管理",
+        "description": "登入後會自動取得短期存取權限，無需雲端金鑰或 CLI 設定。",
+        "usePersonalSetup": "使用個人設定",
+        "availableTitle": "可使用組織設定",
+        "availableDescription": "使用 {{provider}}，無需管理憑證。",
+        "useManaged": "使用託管設定"
       }
     },
     "developer": {

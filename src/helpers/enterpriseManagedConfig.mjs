@@ -127,14 +127,13 @@ function resolveManagedEnterpriseScope(envelope, scope, setupMode = "auto") {
   );
   const candidates = enforced.length ? enforced : setupMode === "manual" ? [] : configured;
   if (!candidates.length) return { kind: "manual" };
-  if (candidates.length > 1) {
-    return resolutionError(
-      "MANAGED_PROVIDER_AMBIGUOUS",
-      "Your organization configured more than one managed provider for this feature. Contact your IT administrator."
-    );
-  }
 
-  const record = candidates[0];
+  // The API allows one active provider per workspace, so more than one candidate only means a
+  // cached envelope from before a switch. Take the newest rather than stranding the user: the
+  // next config refresh reconciles it.
+  const record = candidates.reduce((newest, candidate) =>
+    candidate.updatedAt > newest.updatedAt ? candidate : newest
+  );
   return {
     kind: "managed",
     provider: record.provider,

@@ -33,7 +33,6 @@ function mapManagedIdentityError(error, provider) {
       "PROVIDER_NOT_ALLOWED",
       "PROVIDER_NOT_CONFIGURED",
       "WORKSPACE_SUBSCRIPTION_REQUIRED",
-      "MANAGED_PROVIDER_AMBIGUOUS",
       "MANAGED_CONFIG_INVALID",
     ].includes(code)
   ) {

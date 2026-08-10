@@ -242,6 +242,10 @@ export function isEnterpriseProvider(value: unknown): value is EnterpriseProvide
   return typeof value === "string" && (ENTERPRISE_PROVIDERS as readonly string[]).includes(value);
 }
 
+export function enterpriseProviderName(provider: EnterpriseProvider): string {
+  return modelRegistry.getEnterpriseProviders().find((p) => p.id === provider)?.name ?? provider;
+}
+
 export function toReasoningModel(m: CloudModelDefinition): ReasoningModel {
   return {
     value: m.id,

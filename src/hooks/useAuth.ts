@@ -59,13 +59,8 @@ async function loadAccountDependencies() {
 }
 
 async function refreshManagedEnterpriseIdentity(accountId: string, authGeneration: number) {
-  const { useWorkspaceStore } = await import("../stores/workspaceStore");
-  const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-  if (!workspaceId) {
-    useEnterpriseIdentityStore.getState().clear();
-    return;
-  }
-  await useEnterpriseIdentityStore.getState().refresh(accountId, workspaceId, authGeneration);
+  const { refreshManagedEnterpriseIdentity: refresh } = await import("../stores/workspaceStore");
+  refresh(accountId, authGeneration);
 }
 
 export function useAuth() {

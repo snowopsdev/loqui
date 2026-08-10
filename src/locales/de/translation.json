@@ -796,7 +796,11 @@
     "sso": {
       "continueWithSSO": "Mit SSO anmelden",
       "emailRequired": "Geben Sie Ihre geschäftliche E-Mail-Adresse ein, um SSO zu verwenden.",
-      "failed": "Single Sign-on fehlgeschlagen. Bitte versuchen Sie es erneut."
+      "failed": "Single Sign-on fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      "companySignInTitle": "Unternehmensanmeldung verwenden",
+      "requiredDescription": "{{domain}} erfordert SSO für OpenWhispr.",
+      "availableDescription": "Ihr {{domain}}-Konto ist für das Unternehmens-SSO bereit.",
+      "useEmailInstead": "Stattdessen E-Mail und Passwort verwenden"
     },
     "social": {
       "completeInBrowser": "Anmeldung im Browser abschließen",
@@ -1735,6 +1739,15 @@
           "title": "Enterprise",
           "description": "Verwendet das Cloud-Konto Ihrer Organisation."
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "Verwaltete Unternehmens-KI erfordert Aufmerksamkeit",
+        "title": "Von Ihrer Organisation verwaltet",
+        "description": "Die Anmeldung stellt automatisch kurzlebigen Zugriff bereit. Cloud-Schlüssel oder CLI-Einrichtung sind nicht erforderlich.",
+        "usePersonalSetup": "Persönliche Einrichtung verwenden",
+        "availableTitle": "Einrichtung der Organisation verfügbar",
+        "availableDescription": "{{provider}} ohne Verwaltung von Anmeldedaten nutzen.",
+        "useManaged": "Verwaltet nutzen"
       }
     },
     "developer": {

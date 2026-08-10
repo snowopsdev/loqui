@@ -34,11 +34,8 @@ function parseHostname(url: string): string | null {
 export const TINFOIL_PROXY_REQUIRED_ERROR =
   "Tinfoil transcription must go through the attested main-process proxy";
 
-/**
- * True when a URL points at Tinfoil's inference host. Tinfoil audio must go
- * through the attested main-process proxy, so request paths use this to
- * refuse a Custom-provider base URL that targets Tinfoil directly.
- */
+// True when a URL points at Tinfoil's inference host, so request paths can
+// refuse a Custom base URL that targets Tinfoil directly.
 export function isTinfoilInferenceUrl(
   url: string,
   providers: readonly TranscriptionProviderBaseUrl[]

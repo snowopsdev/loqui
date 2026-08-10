@@ -81,6 +81,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
 
   const isCloudDictationAgent = useSettingsStore(selectIsCloudDictationAgentMode);
   const useDictationAgent = useSettingsStore((s) => s.useDictationAgent);
+  const dictationAgentMode = useSettingsStore((s) => s.dictationAgentMode);
   const dictationAgentProvider = useSettingsStore((s) => s.dictationAgentProvider);
   const dictationAgentModel = useSettingsStore((s) => s.dictationAgentModel);
 
@@ -441,14 +442,27 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
               : isAgent
                 ? dictationAgentModel
                 : cleanupModel;
+            const agentDisplayProvider = isAgent
+              ? resolveDictationAgentInference(
+                  {
+                    useDictationAgent,
+                    dictationAgentMode,
+                    dictationAgentProvider,
+                    dictationAgentModel,
+                  },
+                  { isCloudAgent: isCloudDictationAgent }
+                ).displayProvider
+              : "";
             const scopeProvider = isTranslate
               ? translationProvider.trim()
               : isAgent
-                ? dictationAgentProvider.trim()
+                ? agentDisplayProvider
                 : "";
-            const testProvider = testIsCloud
-              ? "openwhispr"
-              : scopeProvider || (testModel ? getModelProvider(testModel) : "openai");
+            const testProvider = isAgent
+              ? scopeProvider
+              : testIsCloud
+                ? "openwhispr"
+                : scopeProvider || (testModel ? getModelProvider(testModel) : "openai");
             const providerConfig = PROVIDER_CONFIG[testProvider] || {
               label: testProvider.charAt(0).toUpperCase() + testProvider.slice(1),
             };

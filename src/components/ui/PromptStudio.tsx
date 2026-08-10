@@ -29,6 +29,7 @@ import {
 import { getLanguageLabel } from "../../utils/languageSupport";
 import { getDictionaryHintWords } from "../../utils/snippets";
 import { resolveDictationAgentInference } from "../../helpers/dictationAgentInference";
+import { resolveDictationTranslationInference } from "../../helpers/dictationTranslationInference";
 
 interface PromptStudioProps {
   className?: string;
@@ -81,6 +82,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
 
   const isCloudDictationAgent = useSettingsStore(selectIsCloudDictationAgentMode);
   const useDictationAgent = useSettingsStore((s) => s.useDictationAgent);
+  const dictationAgentMode = useSettingsStore((s) => s.dictationAgentMode);
   const dictationAgentProvider = useSettingsStore((s) => s.dictationAgentProvider);
   const dictationAgentModel = useSettingsStore((s) => s.dictationAgentModel);
 
@@ -90,9 +92,6 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
   const translationProvider = useSettingsStore((s) => s.translationProvider);
   const translationModel = useSettingsStore((s) => s.translationModel);
   const translationRemoteUrl = useSettingsStore((s) => s.translationRemoteUrl);
-  const translationCloudBaseUrl = useSettingsStore((s) => s.translationCloudBaseUrl);
-  const translationCustomApiKey = useSettingsStore((s) => s.translationCustomApiKey);
-  const translationDisableThinking = useSettingsStore((s) => s.translationDisableThinking);
   const translationTargetLanguage = useSettingsStore((s) => s.translationTargetLanguage);
 
   const isTranslate = kind === "translate";
@@ -143,37 +142,35 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
           return;
         }
 
-        const isSelfHosted = translationMode === "self-hosted" && !!translationRemoteUrl.trim();
-        const isCustom = translationMode === "providers" && translationProvider.trim() === "custom";
-
-        if (!isCloudTranslation && !isSelfHosted && !translationModel.trim()) {
+        const translation = resolveDictationTranslationInference(useSettingsStore.getState(), {
+          isCloudTranslation,
+        });
+        if (!translation.reachable) {
+          if (translationMode === "self-hosted" && !translationRemoteUrl.trim()) {
+            setTestResult(t("notes.actions.errors.noEndpoint"));
+            return;
+          }
           setTestResult(t("promptStudio.test.noModelSelected"));
           return;
         }
 
-        const provider = isCloudTranslation
-          ? "openwhispr"
-          : translationProvider.trim() || undefined;
-        const modelToUse = isCloudTranslation ? translationModel || "auto" : translationModel;
-
         const previous = customPrompt;
         setCustomPrompt(kind, editedPrompt);
         try {
-          const result = await ReasoningService.processText(testText, modelToUse, agentName, {
-            provider,
-            lanUrl: isSelfHosted ? translationRemoteUrl : undefined,
-            baseUrl: isCustom ? translationCloudBaseUrl || undefined : undefined,
-            customApiKey:
-              isCustom || isSelfHosted ? translationCustomApiKey || undefined : undefined,
-            disableThinking: translationDisableThinking,
-            language: translationTargetLanguage,
-            systemPrompt: resolvePrompt("translate", {
-              agentName,
-              targetLanguageLabel: getLanguageLabel(translationTargetLanguage),
-              customDictionary: getDictionaryHintWords(useSettingsStore.getState()),
-              uiLanguage,
-            }),
-          });
+          const result = await ReasoningService.processText(
+            testText,
+            translation.model,
+            agentName,
+            {
+              ...translation.config,
+              systemPrompt: resolvePrompt("translate", {
+                agentName,
+                targetLanguageLabel: getLanguageLabel(translationTargetLanguage),
+                customDictionary: getDictionaryHintWords(useSettingsStore.getState()),
+                uiLanguage,
+              }),
+            }
+          );
           setTestResult(result);
         } finally {
           setCustomPrompt(kind, previous);
@@ -441,14 +438,37 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
               : isAgent
                 ? dictationAgentModel
                 : cleanupModel;
+            const agentDisplayProvider = isAgent
+              ? resolveDictationAgentInference(
+                  {
+                    useDictationAgent,
+                    dictationAgentMode,
+                    dictationAgentProvider,
+                    dictationAgentModel,
+                  },
+                  { isCloudAgent: isCloudDictationAgent }
+                ).displayProvider
+              : "";
+            const translationDisplayProvider = isTranslate
+              ? resolveDictationTranslationInference(
+                  {
+                    translationMode,
+                    translationProvider,
+                  },
+                  { isCloudTranslation }
+                ).displayProvider
+              : "";
             const scopeProvider = isTranslate
-              ? translationProvider.trim()
+              ? translationDisplayProvider
               : isAgent
-                ? dictationAgentProvider.trim()
+                ? agentDisplayProvider
                 : "";
-            const testProvider = testIsCloud
-              ? "openwhispr"
-              : scopeProvider || (testModel ? getModelProvider(testModel) : "openai");
+            const testProvider =
+              isAgent || isTranslate
+                ? scopeProvider
+                : testIsCloud
+                  ? "openwhispr"
+                  : scopeProvider || (testModel ? getModelProvider(testModel) : "openai");
             const providerConfig = PROVIDER_CONFIG[testProvider] || {
               label: testProvider.charAt(0).toUpperCase() + testProvider.slice(1),
             };

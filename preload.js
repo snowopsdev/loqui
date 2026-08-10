@@ -56,6 +56,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onToggleTranslation: registerListener("toggle-translation", (callback) => () => callback()),
   onStartDictation: registerListener("start-dictation", (callback) => () => callback()),
   onStopDictation: registerListener("stop-dictation", (callback) => () => callback()),
+  onPrepareDictation: registerListener("prepare-dictation", (callback) => () => callback()),
+  onCancelDictationPreparation: registerListener(
+    "cancel-dictation-preparation",
+    (callback) => () => callback()
+  ),
+  micWarmHoldChanged: (active) => ipcRenderer.send("mic-warm-hold-changed", active),
 
   // Database functions
   saveTranscription: (text, rawText, options) =>
@@ -728,6 +734,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   ),
   onMeetingTranscriptionError: registerListener(
     "meeting-transcription-error",
+    (callback) => (_event, data) => callback(data)
+  ),
+  onMeetingTranscriptionFatalError: registerListener(
+    "meeting-transcription-fatal-error",
     (callback) => (_event, data) => callback(data)
   ),
 

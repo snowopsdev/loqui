@@ -528,6 +528,12 @@ export default function ReasoningModelSelector({
     }
   };
 
+  const handleLocalModelSelect = (modelId: string) => {
+    const providerId = modelId ? modelRegistry.getModel(modelId)?.provider.id : undefined;
+    if (providerId) setLocalReasoningProvider(providerId);
+    setReasoningModel(modelId);
+  };
+
   const MODE_TABS = [
     { id: "cloud", name: t("reasoning.mode.cloud") },
     { id: "local", name: t("reasoning.mode.local") },
@@ -721,7 +727,7 @@ export default function ReasoningModelSelector({
             providers={localProviders}
             selectedModel={reasoningModel}
             selectedProvider={selectedLocalProvider}
-            onModelSelect={setReasoningModel}
+            onModelSelect={handleLocalModelSelect}
             onProviderSelect={handleLocalProviderChange}
             modelType="llm"
             colorScheme="purple"

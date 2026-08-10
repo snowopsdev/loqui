@@ -32,6 +32,7 @@ const { getTinfoilChatModels } = require("./tinfoilCatalog");
 const { transcribeWithTinfoil } = require("./tinfoilTranscription");
 const AudioStorageManager = require("./audioStorage");
 const liveSpeakerIdentifier = require("./liveSpeakerIdentifier");
+const { supportsLiveSpeakerIdentification } = require("./liveSpeakerIdPolicy");
 const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
 const { partitionPendingMicFinals, isWithinRetractWindow } = require("./meetingMicHoldback");
 const { applySmartSpacing } = require("./smartSpacing");
@@ -6166,7 +6167,10 @@ class IPCHandlers {
     const startLiveSpeakerIdentification = async (win, systemAudioMode) => {
       await stopLiveSpeakerIdentification();
 
-      if (systemAudioMode !== "native" || !liveSpeakerIdentifier.isAvailable()) {
+      if (
+        !supportsLiveSpeakerIdentification(systemAudioMode) ||
+        !liveSpeakerIdentifier.isAvailable()
+      ) {
         return false;
       }
 
@@ -6176,58 +6180,71 @@ class IPCHandlers {
       }
 
       meetingLiveSpeakerState = null;
-      meetingLiveSpeakerStartedAt = Date.now();
-      const started = await liveSpeakerIdentifier.start(
-        (identification) => {
-          if (!win || win.isDestroyed()) {
-            return;
-          }
-
-          bindOneOnOneAttendeeToSpeaker(identification.speakerId);
-
-          const displayName = meetingOneOnOneAttendee
-            ? meetingOneOnOneAttendee.displayName
-            : identification.displayName;
-
-          const startTime = Math.max(
-            meetingLiveSpeakerStartedAt || 0,
-            (meetingLiveSpeakerStartedAt || 0) + identification.startTime * 1000
-          );
-          const endTime = Math.max(
-            startTime,
-            (meetingLiveSpeakerStartedAt || 0) + identification.endTime * 1000
-          );
-          const enrichedIdentification = {
-            ...identification,
-            displayName,
-            startTime,
-            endTime,
-          };
-
-          win.webContents.send("meeting-speaker-identified", enrichedIdentification);
-
-          for (const seg of meetingDiarizationSegments) {
-            if (
-              seg.source === "system" &&
-              seg.timestamp != null &&
-              seg.timestamp >= startTime &&
-              seg.timestamp <= endTime &&
-              (!seg.speaker || seg.speakerIsPlaceholder)
-            ) {
-              applyConfirmedSpeaker(seg, {
-                speaker: identification.speakerId,
-                speakerName: displayName || seg.speakerName,
-                speakerIsPlaceholder: false,
-              });
+      // Anchored on the first system chunk instead, in sendMeetingAudio.
+      meetingLiveSpeakerStartedAt = null;
+      const started = await liveSpeakerIdentifier
+        .start(
+          (identification) => {
+            if (!win || win.isDestroyed() || meetingLiveSpeakerStartedAt == null) {
+              return;
             }
+
+            bindOneOnOneAttendeeToSpeaker(identification.speakerId);
+
+            const displayName = meetingOneOnOneAttendee
+              ? meetingOneOnOneAttendee.displayName
+              : identification.displayName;
+
+            const startTime = Math.max(
+              meetingLiveSpeakerStartedAt,
+              meetingLiveSpeakerStartedAt + identification.startTime * 1000
+            );
+            const endTime = Math.max(
+              startTime,
+              meetingLiveSpeakerStartedAt + identification.endTime * 1000
+            );
+            const enrichedIdentification = {
+              ...identification,
+              displayName,
+              startTime,
+              endTime,
+            };
+
+            win.webContents.send("meeting-speaker-identified", enrichedIdentification);
+
+            for (const seg of meetingDiarizationSegments) {
+              if (
+                seg.source === "system" &&
+                seg.timestamp != null &&
+                seg.timestamp >= startTime &&
+                seg.timestamp <= endTime &&
+                (!seg.speaker || seg.speakerIsPlaceholder)
+              ) {
+                applyConfirmedSpeaker(seg, {
+                  speaker: identification.speakerId,
+                  speakerName: displayName || seg.speakerName,
+                  speakerIsPlaceholder: false,
+                });
+              }
+            }
+          },
+          {
+            getSpeakerProfiles: getLiveSpeakerProfiles,
+            maxSpeakers: resolveSessionMaxSpeakers(),
+            enabled: true,
           }
-        },
-        {
-          getSpeakerProfiles: getLiveSpeakerProfiles,
-          maxSpeakers: resolveSessionMaxSpeakers(),
-          enabled: true,
-        }
-      );
+        )
+        .catch((error) => {
+          // isAvailable() only stats the model file, so a corrupt model or an
+          // onnxruntime binding that won't load still throws here. Speaker labels
+          // are an enhancement — never let them take the recording down with them.
+          debugLogger.warn(
+            "Live speaker identification start failed",
+            { error: error.message },
+            "speaker"
+          );
+          return false;
+        });
 
       if (started) {
         meetingLiveSpeakerActive = true;
@@ -6952,6 +6969,13 @@ class IPCHandlers {
         flushPendingMeetingMicChunks();
 
         if (meetingLiveSpeakerActive) {
+          // identification.startTime counts samples from the first chunk the
+          // identifier sees, so the wall-clock anchor has to be the arrival of
+          // that chunk. Stamping it when identification starts is only correct
+          // when capture is already running (the macOS tap); the Windows
+          // loopback helper can take seconds to hand over its first buffer, and
+          // a stale anchor shifts every label earlier by that gap.
+          meetingLiveSpeakerStartedAt ??= receivedAt;
           void liveSpeakerIdentifier.feedAudio(outboundBuffer);
         }
 

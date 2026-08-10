@@ -1448,14 +1448,24 @@ if (typeof window !== "undefined") {
         }))
       );
 
-      window.electronAPI?.updateNote?.(targetNoteId, {
-        transcript: serializeTranscriptSegments(enriched),
-      });
-      if (data.speakerEmbeddings) {
-        window.electronAPI?.saveNoteSpeakerEmbeddings?.(targetNoteId, data.speakerEmbeddings);
+      try {
+        // Awaited so the next queued completion's getNote is guaranteed to
+        // read this write — without it the ordering depends on db-update-note
+        // staying synchronous ahead of its first await.
+        await window.electronAPI?.updateNote?.(targetNoteId, {
+          transcript: serializeTranscriptSegments(enriched),
+        });
+      } catch (error) {
+        // Clear a waiting spinner without an overlay the database never
+        // accepted; the outer catch logs the failure.
+        publish([]);
+        throw error;
       }
-
       publish(enriched);
+
+      if (data.speakerEmbeddings) {
+        await window.electronAPI?.saveNoteSpeakerEmbeddings?.(targetNoteId, data.speakerEmbeddings);
+      }
     }).catch((error) => {
       logger.error(
         "Diarization completion handling failed",

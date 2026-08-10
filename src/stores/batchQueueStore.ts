@@ -2,6 +2,9 @@ import { create } from "zustand";
 import { transcribeFileWithSpeakers } from "../services/fileTranscription";
 import type { FileTranscriptionConfig, DiarizationSettings } from "../services/fileTranscription";
 import { DOWNLOAD_ERROR_KEYS } from "../components/notes/shared";
+import { getSettings } from "./settingsStore";
+import { isTranscriptionContextAllowed } from "./policyRules";
+import { usePolicyStore } from "./policyStore";
 
 export type QueueItemStatus = "queued" | "downloading" | "transcribing" | "done" | "error";
 
@@ -40,10 +43,12 @@ export const useBatchQueueStore = create<BatchQueueStoreState>()(() => ({
   isProcessing: false,
 }));
 
-// Bumping the run id soft-cancels the drain loop: the in-flight transcription
-// IPC can't be aborted, so the orphaned run's late results are discarded on
-// arrival while the UI unlocks immediately.
+// Bumping the run id soft-cancels the drain loop; cloud uploads additionally
+// get a true backend abort via cancel-upload-transcription (other providers'
+// in-flight IPC still can't be aborted). Either way the orphaned run's late
+// results are discarded on arrival while the UI unlocks immediately.
 let runId = 0;
+let activeUploadRequestId: string | null = null;
 
 function updateQueue(updater: (prev: QueueItem[]) => QueueItem[]) {
   useBatchQueueStore.setState((s) => ({ queue: updater(s.queue) }));
@@ -84,6 +89,10 @@ export function removeQueueItem(id: string) {
 
 export function cancelBatch() {
   runId++;
+  if (activeUploadRequestId) {
+    window.electronAPI.cancelUploadTranscription?.(activeUploadRequestId);
+    activeUploadRequestId = null;
+  }
   window.electronAPI.cancelUrlDownload();
   useBatchQueueStore.setState((s) => ({
     isProcessing: false,
@@ -109,6 +118,7 @@ export function processBatchQueue(
   diarization: DiarizationSettings
 ): void {
   if (useBatchQueueStore.getState().isProcessing) return;
+  if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "upload")) return;
   const run = ++runId;
   useBatchQueueStore.setState({ isProcessing: true });
 
@@ -180,12 +190,17 @@ export function processBatchQueue(
 
       updateItem(item.id, { status: "transcribing", progress: 0 });
 
+      const requestId = crypto.randomUUID();
+      activeUploadRequestId = requestId;
       const transcriptionResult = await transcribeFileWithSpeakers(
         filePath,
         transcription,
         diarization,
-        durationSeconds
-      );
+        durationSeconds,
+        { requestId }
+      ).finally(() => {
+        if (activeUploadRequestId === requestId) activeUploadRequestId = null;
+      });
 
       if (run !== runId) return;
 

@@ -1,4 +1,11 @@
 import { withSessionRefresh } from "../lib/auth";
+import { resolveCustomTranscriptionRoute } from "../helpers/retryTranscriptionRouting.js";
+import { getTranscriptionProviders } from "../models/ModelRegistry";
+import {
+  TINFOIL_PROXY_REQUIRED_ERROR,
+  isTinfoilInferenceUrl,
+  resolveByokBaseUrl,
+} from "./transcriptionBaseUrl";
 
 export interface FileTranscriptionResult {
   success: boolean;
@@ -39,11 +46,12 @@ export interface FileTranscriptionConfig {
 export async function transcribeFile(
   filePath: string,
   cfg: FileTranscriptionConfig,
-  diarize: boolean
+  diarize: boolean,
+  opts: { requestId?: string } = {}
 ): Promise<FileTranscriptionResult> {
   if (cfg.isOpenWhisprCloud) {
     return withSessionRefresh(async () => {
-      const r = await window.electronAPI.transcribeAudioFileCloud!(filePath);
+      const r = await window.electronAPI.transcribeAudioFileCloud!(filePath, opts);
       if (!r.success && r.code) {
         throw Object.assign(new Error(r.error || "Cloud transcription failed"), {
           code: r.code,
@@ -60,12 +68,47 @@ export async function transcribeFile(
     });
   }
 
+  // Built-in providers resolve from the registry; only Custom uses the
+  // stored URL, which provider tab switches no longer overwrite (#1459).
+  const providers = getTranscriptionProviders();
+  let baseUrl = resolveByokBaseUrl(
+    cfg.cloudTranscriptionProvider,
+    cfg.cloudTranscriptionBaseUrl || "",
+    providers
+  );
+
+  if (cfg.transcriptionMode !== "self-hosted") {
+    const customRoute = resolveCustomTranscriptionRoute({
+      provider: cfg.cloudTranscriptionProvider,
+      baseUrl,
+    });
+    if (customRoute?.kind === "configuration-error") {
+      return {
+        success: false,
+        error: customRoute.error,
+        code: "CUSTOM_ENDPOINT_INVALID",
+      };
+    }
+    if (customRoute) baseUrl = customRoute.baseUrl;
+  }
+
+  // A Custom URL pointing at Tinfoil (e.g. persisted by the pre-#1459 tab
+  // clobber) must not bypass the attested main-process proxy. Self-hosted
+  // mode is exempt: the handler routes it to remoteTranscriptionUrl.
+  if (
+    cfg.cloudTranscriptionProvider === "custom" &&
+    cfg.transcriptionMode !== "self-hosted" &&
+    isTinfoilInferenceUrl(baseUrl, providers)
+  ) {
+    throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
+  }
+
   // Self-hosted fields make the handler route to the configured server
   // (fail-closed on misconfiguration) instead of stale BYOK settings.
   return window.electronAPI.transcribeAudioFileByok!({
     filePath,
     apiKey: cfg.getApiKey(),
-    baseUrl: cfg.cloudTranscriptionBaseUrl || "",
+    baseUrl,
     model: cfg.cloudTranscriptionModel,
     diarize: diarize || undefined,
     provider: cfg.cloudTranscriptionProvider,
@@ -101,7 +144,8 @@ export async function transcribeFileWithSpeakers(
   filePath: string,
   cfg: FileTranscriptionConfig,
   diarization: DiarizationSettings,
-  durationSeconds?: number | null
+  durationSeconds?: number | null,
+  opts: { requestId?: string } = {}
 ): Promise<FileTranscriptionResult> {
   const byokDiarize = shouldUseByokDiarize(cfg, diarization.enabled);
   const diarizePromise =
@@ -114,7 +158,7 @@ export async function transcribeFileWithSpeakers(
       : Promise.resolve(null);
 
   const [result, diar] = await Promise.all([
-    transcribeFile(filePath, cfg, byokDiarize),
+    transcribeFile(filePath, cfg, byokDiarize, opts),
     diarizePromise,
   ]);
 

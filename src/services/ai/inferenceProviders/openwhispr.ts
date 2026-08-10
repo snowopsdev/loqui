@@ -20,7 +20,8 @@ export const openwhisprProvider: InferenceProvider = {
     // "agent" only rides with a screenshot (which already requires the new
     // API) — older servers reject unknown promptMode values, so plain agent
     // requests omit it. Explicit "cleanup" stops the server flipping to the
-    // action prompt on an agent-name mention.
+    // action prompt on an agent-name mention. Distinct from requestPurpose,
+    // which declares intent for org-policy enforcement.
     const promptMode = config.systemPrompt
       ? config.screenContext
         ? "agent"
@@ -33,9 +34,10 @@ export const openwhisprProvider: InferenceProvider = {
         customDictionary: ctx.getCustomDictionary(),
         customPrompt,
         systemPrompt: config.systemPrompt,
+        requestPurpose: config.requiresAgent ? "agent" : undefined,
         promptMode,
         screenContext: config.screenContext,
-        language: ctx.getPreferredLanguage(),
+        language: config.language || ctx.getPreferredLanguage(),
         locale: ctx.getUiLanguage(),
       });
 

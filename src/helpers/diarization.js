@@ -3,6 +3,7 @@ const fsPromises = require("fs").promises;
 const path = require("path");
 const { spawn } = require("child_process");
 const debugLogger = require("./debugLogger");
+const { runSystemTar } = require("./systemTar");
 const { downloadFile, createDownloadSignal, checkDiskSpace } = require("./downloadUtils");
 const { resolveBinaryPath, gracefulStopProcess } = require("../utils/serverUtils");
 const { getModelsDirForService } = require("./modelDirUtils");
@@ -15,6 +16,10 @@ const {
   transcriptsLooselyOverlap,
   buildMergedCandidates,
 } = require("./transcriptText");
+const {
+  computeTranscriptionTimeoutMs,
+  PCM16_MONO_16K_BYTES_PER_SECOND,
+} = require("./transcriptionTimeout");
 
 const DIARIZATION_TIMEOUT_MS = 3600000; // 60 minutes
 const POST_MERGE_CONTEXT_WINDOW_MS = 6000;
@@ -266,34 +271,7 @@ class DiarizationManager {
   }
 
   _runSystemTar(archivePath, destDir) {
-    return new Promise((resolve, reject) => {
-      // Use relative paths from archive dir as cwd so neither -f nor -C args
-      // contain Windows drive letter colons (GNU tar treats C: as remote host)
-      const cwd = path.dirname(archivePath);
-      const tarProcess = spawn(
-        "tar",
-        ["-xjf", path.basename(archivePath), "-C", path.relative(cwd, destDir)],
-        { stdio: ["ignore", "pipe", "pipe"], cwd }
-      );
-
-      let stderr = "";
-
-      tarProcess.stderr.on("data", (data) => {
-        stderr += data.toString();
-      });
-
-      tarProcess.on("close", (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`tar extraction failed with code ${code}: ${stderr}`));
-        }
-      });
-
-      tarProcess.on("error", (err) => {
-        reject(new Error(`Failed to start tar process: ${err.message}`));
-      });
-    });
+    return runSystemTar(archivePath, destDir);
   }
 
   async cancelDownload() {
@@ -344,6 +322,17 @@ class DiarizationManager {
       wavPath,
     });
 
+    // Scale with the recording length, but never below the 60-minute floor.
+    let timeoutMs = DIARIZATION_TIMEOUT_MS;
+    try {
+      timeoutMs = Math.max(
+        DIARIZATION_TIMEOUT_MS,
+        computeTranscriptionTimeoutMs(fs.statSync(wavPath).size / PCM16_MONO_16K_BYTES_PER_SECOND)
+      );
+    } catch {
+      // Unreadable WAV: keep the flat cap.
+    }
+
     return new Promise((resolve) => {
       let stdout = "";
       let stderr = "";
@@ -367,10 +356,10 @@ class DiarizationManager {
       };
 
       const timeout = setTimeout(() => {
-        debugLogger.warn("Diarization timed out", { timeoutMs: DIARIZATION_TIMEOUT_MS });
+        debugLogger.warn("Diarization timed out", { timeoutMs });
         gracefulStopProcess(proc);
         resolve([]);
-      }, DIARIZATION_TIMEOUT_MS);
+      }, timeoutMs);
 
       proc.stdout.on("data", (data) => {
         stdout += data.toString();

@@ -18,7 +18,7 @@ const DEFAULT_HOTKEY = "Control+Super";
 
 // Slots routed through GNOME native gsettings (not globalShortcut).
 // Temporary slots like "cancel" stay on globalShortcut.
-const GNOME_NATIVE_SLOTS = new Set(["agent", "meeting", "voiceAgent"]);
+const GNOME_NATIVE_SLOTS = new Set(["agent", "meeting", "voiceAgent", "translation"]);
 
 // KDE registration failure reasons — reuse existing i18n keys
 const KDE_FAILURE_REASONS = {
@@ -226,6 +226,8 @@ class HotkeyManager extends EventEmitter {
         this.gnomeManager.setMeetingCallback(callback);
       } else if (slotName === "voiceAgent") {
         this.gnomeManager.setVoiceAgentCallback(callback);
+      } else if (slotName === "translation") {
+        this.gnomeManager.setTranslationCallback(callback);
       }
 
       const success = await this.gnomeManager.registerKeybinding(gnomeHotkey, slotName);
@@ -294,7 +296,7 @@ class HotkeyManager extends EventEmitter {
 
   unregisterSlot(slotName) {
     const slot = this.slots.get(slotName);
-    if (!slot || !(slot.hotkeys && slot.hotkeys.length)) return;
+    if (!slot || !(slot.hotkeys?.length || slot.accelerators?.length)) return;
 
     // On KDE (X11 or Wayland), persistent slots are managed via KGlobalAccel
     if (this.useKDE && this.kdeManager && slotName !== "cancel") {
@@ -322,19 +324,13 @@ class HotkeyManager extends EventEmitter {
       return;
     }
 
-    for (const hk of slot.hotkeys || []) {
-      if (
-        !isGlobeLikeHotkey(hk) &&
-        !isMouseButtonHotkey(hk) &&
-        !isRightSideModifier(hk) &&
-        !isModifierOnlyHotkey(hk)
-      ) {
-        const accel = normalizeToAccelerator(hk);
-        try {
-          globalShortcut.unregister(accel);
-        } catch {
-          // already unregistered
-        }
+    // Release what was actually registered; native-listener entries are null.
+    for (const accel of slot.accelerators || []) {
+      if (!accel) continue;
+      try {
+        globalShortcut.unregister(accel);
+      } catch {
+        // already unregistered
       }
     }
     slot.hotkeys = [];

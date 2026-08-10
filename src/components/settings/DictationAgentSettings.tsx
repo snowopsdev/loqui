@@ -2,8 +2,9 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Monitor } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { isAgentAllowed } from "../../stores/policyRules";
+import { usePolicyStore } from "../../stores/policyStore";
 import { useAgentName } from "../../utils/agentName";
-import { useSettings } from "../../hooks/useSettings";
 import { useDialogs } from "../../hooks/useDialogs";
 import { useScreenRecordingPermission } from "../../hooks/useScreenRecordingPermission";
 import { Toggle } from "../ui/toggle";
@@ -30,27 +31,18 @@ export default function DictationAgentSettings() {
     supported: screenSupported,
     request: requestScreenAccess,
   } = useScreenRecordingPermission();
+  const agentAllowed = usePolicyStore(isAgentAllowed);
 
   const { agentName, setAgentName } = useAgentName();
   const [agentNameInput, setAgentNameInput] = useState(agentName);
-  const { customDictionary, setCustomDictionary } = useSettings();
   const { showAlertDialog } = useDialogs();
 
   const handleSaveAgentName = useCallback(() => {
     const trimmed = agentNameInput.trim();
-    const previousName = agentName;
 
+    // setAgentName also moves the name in the dictionary.
     setAgentName(trimmed);
     setAgentNameInput(trimmed);
-
-    let nextDictionary = customDictionary.filter((w) => w !== previousName);
-    if (trimmed) {
-      const hasName = nextDictionary.some((w) => w.toLowerCase() === trimmed.toLowerCase());
-      if (!hasName) {
-        nextDictionary = [trimmed, ...nextDictionary];
-      }
-    }
-    setCustomDictionary(nextDictionary);
 
     showAlertDialog({
       title: t("settingsPage.agentConfig.dialogs.updatedTitle"),
@@ -58,15 +50,7 @@ export default function DictationAgentSettings() {
         name: trimmed,
       }),
     });
-  }, [
-    agentNameInput,
-    agentName,
-    customDictionary,
-    setAgentName,
-    setCustomDictionary,
-    showAlertDialog,
-    t,
-  ]);
+  }, [agentNameInput, setAgentName, showAlertDialog, t]);
 
   const handleScreenContextToggle = useCallback(
     (enabled: boolean) => {
@@ -157,16 +141,27 @@ export default function DictationAgentSettings() {
         <SettingsPanelRow>
           <SettingsRow
             label={t("dictationAgent.enabled")}
-            description={t("dictationAgent.enabledDescription", { agentName })}
+            description={
+              agentAllowed
+                ? t("dictationAgent.enabledDescription", { agentName })
+                : t("common.managedByOrg")
+            }
           >
-            <Toggle checked={useDictationAgent} onChange={setUseDictationAgent} />
+            <Toggle
+              checked={useDictationAgent}
+              onChange={setUseDictationAgent}
+              disabled={!agentAllowed}
+            />
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
 
       {useDictationAgent && <InferenceConfigEditor scope="dictationAgent" />}
 
-      {useDictationAgent && (
+      {/* Screen context is a voice-agent sub-feature: hidden when an org
+          blocks the agent, since enabling it would grant screen-capture
+          permission for a route that can never run. */}
+      {useDictationAgent && agentAllowed && (
         <div className="border-t border-border/40 pt-6 space-y-3">
           <SectionHeader
             title={t("dictationAgent.screenContext.title")}

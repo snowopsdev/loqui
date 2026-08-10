@@ -1,5 +1,5 @@
 import {
-  getModelProvider,
+  resolveInferenceProvider,
   getCloudModel,
   getOpenAiApiConfig,
   getProviderDisplayName,
@@ -8,7 +8,7 @@ import {
 } from "../models/ModelRegistry";
 import { BaseReasoningService, ReasoningConfig } from "./BaseReasoningService";
 import { SecureCache } from "../utils/SecureCache";
-import { withRetry, createApiRetryStrategy } from "../utils/retry";
+import { withRetry, createApiRetryStrategy, httpError } from "../utils/retry";
 import { API_ENDPOINTS, TOKEN_LIMITS, buildApiUrl, ensureV1Suffix } from "../config/constants";
 import logger from "../utils/logger";
 import { getSettings, isCloudCleanupMode } from "../stores/settingsStore";
@@ -18,10 +18,22 @@ import { streamText, stepCountIs } from "ai";
 import { getAIModel } from "./ai/providers";
 import { createEnterpriseChatModel } from "./ai/enterpriseChatModel";
 import { PROVIDER_REGISTRY, type ProviderContext } from "./ai/inferenceProviders";
-import { getConfiguredOpenAIBase } from "./ai/openaiBase";
+import { resolveConfiguredOpenAIBase, resolveSelfHostedOpenAIBase } from "./ai/openaiBase";
 import { applyThinkingSuppression } from "./ai/thinkingSuppression";
+import { detectEndpointDialect } from "./ai/thinkingSuppressionDialects";
+import { extractApiErrorMessage } from "./ai/apiErrorMessage";
 import { clearTinfoilClientCache } from "./ai/tinfoilClient";
 import { resolveChatRoute } from "../helpers/chatRouting";
+import { assertAgentAllowedByPolicy, assertReasoningAllowedByPolicy } from "./reasoningPolicy";
+import type { InferenceMode } from "../types/electron";
+
+export type ToolMetadata = Record<string, unknown> | Array<Record<string, unknown>>;
+
+interface ToolExecutionResult {
+  data: string;
+  displayText: string;
+  metadata?: ToolMetadata;
+}
 
 export type AgentStreamChunk =
   | { type: "content"; text: string }
@@ -31,9 +43,25 @@ export type AgentStreamChunk =
       callId: string;
       toolName: string;
       displayText: string;
-      metadata?: Record<string, unknown>;
+      metadata?: ToolMetadata;
     }
   | { type: "done"; finishReason?: string };
+
+function resolveLlmDispatchMode(
+  provider: string,
+  config: Pick<ReasoningConfig, "lanUrl">
+): InferenceMode {
+  if (config.lanUrl || provider === "lan") return "self-hosted";
+  if (provider === "openwhispr") return "openwhispr";
+  if (provider === "local") return "local";
+  if (isEnterpriseProvider(provider)) return "enterprise";
+  return "providers";
+}
+
+function assertAgentSessionAllowedByPolicy(provider: string, mode: InferenceMode): void {
+  assertAgentAllowedByPolicy();
+  assertReasoningAllowedByPolicy(provider, mode);
+}
 
 // Old Ollama/strict proxies reject the `reasoning` object; drop it and retry once.
 async function fetchWithReasoningFieldFallback(
@@ -79,9 +107,9 @@ class ReasoningService extends BaseReasoningService {
     }
   }
 
-  private isLanCleanupMode(): boolean {
+  private hasLanCleanupConfiguration(): boolean {
     const settings = getSettings();
-    return settings.cleanupMode === "self-hosted" && !!settings.cleanupRemoteUrl;
+    return settings.cleanupMode === "self-hosted" && !!settings.cleanupRemoteUrl?.trim();
   }
 
   private async getApiKey(
@@ -203,13 +231,15 @@ class ReasoningService extends BaseReasoningService {
 
     // gpt-oss defaults to medium reasoning effort; low cuts hidden reasoning
     // tokens (latency) and the tendency to answer the transcript instead of
-    // cleaning it. applyThinkingSuppression still wins when thinking is
-    // disabled by the user.
-    if (isCleanup && model.includes("gpt-oss")) {
+    // cleaning it. Selection edits need it too: at higher efforts Groq's
+    // gpt-oss can leave the whole reply in the reasoning channel and return
+    // whitespace content, failing the edit. applyThinkingSuppression still
+    // wins when thinking is disabled by the user.
+    if ((isCleanup || config.requireCompleteOutput) && model.includes("gpt-oss")) {
       requestBody.reasoning_effort = "low";
     }
 
-    applyThinkingSuppression(requestBody, model, providerName, config);
+    applyThinkingSuppression(requestBody, model, providerName, config, endpoint);
 
     logger.logReasoning(`${providerName.toUpperCase()}_REQUEST`, {
       endpoint,
@@ -251,20 +281,19 @@ class ReasoningService extends BaseReasoningService {
             errorData = { error: errorText || res.statusText };
           }
 
+          const errorMessage = extractApiErrorMessage(
+            errorData,
+            `${providerName} API error: ${res.status}`
+          );
+
           logger.logReasoning(`${providerName.toUpperCase()}_API_ERROR_DETAIL`, {
             status: res.status,
             statusText: res.statusText,
             error: errorData,
-            errorMessage: errorData.error?.message || errorData.message || errorData.error,
+            errorMessage,
             fullResponse: errorText.substring(0, 500),
           });
-
-          const errorMessage =
-            errorData.error?.message ||
-            errorData.message ||
-            errorData.error ||
-            `${providerName} API error: ${res.status}`;
-          throw new Error(errorMessage);
+          throw httpError(errorMessage, res.status);
         }
 
         const jsonResponse = await res.json();
@@ -299,6 +328,9 @@ class ReasoningService extends BaseReasoningService {
     }
 
     const choice = response.choices[0];
+    if (config.requireCompleteOutput && ["length", "max_tokens"].includes(choice?.finish_reason)) {
+      throw new Error("Model output was truncated before the selection edit completed");
+    }
     // Reasoning models leak <think> blocks into non-streamed output; strip them
     // unless the user explicitly enabled thinking (same default as streaming).
     const rawContent = choice.message?.content?.trim() || "";
@@ -332,8 +364,33 @@ class ReasoningService extends BaseReasoningService {
     config: ReasoningConfig = {}
   ): Promise<string> {
     const trimmedModel = model?.trim?.() || "";
-    const isLanCleanup = !!config.lanUrl || this.isLanCleanupMode();
-    const providerId = isLanCleanup ? "lan" : config.provider || getModelProvider(trimmedModel);
+    const settings = getSettings();
+    const isImplicitCleanup =
+      config.provider === undefined && config.baseUrl === undefined && config.lanUrl === undefined;
+    const implicitProvider =
+      settings.cleanupMode === "openwhispr"
+        ? "openwhispr"
+        : settings.cleanupMode === "self-hosted"
+          ? "lan"
+          : settings.cleanupProvider || undefined;
+    const isImplicitCustomCleanup =
+      isImplicitCleanup && settings.cleanupMode === "providers" && implicitProvider === "custom";
+    const dispatchConfig: ReasoningConfig = isImplicitCleanup
+      ? {
+          ...config,
+          provider: implicitProvider,
+          baseUrl: isImplicitCustomCleanup ? settings.cleanupCloudBaseUrl : undefined,
+          customApiKey: isImplicitCustomCleanup
+            ? (config.customApiKey ?? settings.cleanupCustomApiKey)
+            : config.customApiKey,
+        }
+      : config;
+    const isLanCleanup = !!dispatchConfig.lanUrl || dispatchConfig.provider === "lan";
+    const providerId = isLanCleanup
+      ? "lan"
+      : resolveInferenceProvider(dispatchConfig.provider, trimmedModel);
+    if (dispatchConfig.requiresAgent) assertAgentAllowedByPolicy();
+    assertReasoningAllowedByPolicy(providerId, resolveLlmDispatchMode(providerId, dispatchConfig));
 
     if (!trimmedModel && providerId !== "openwhispr" && providerId !== "lan") {
       throw new Error("No reasoning model selected");
@@ -358,7 +415,7 @@ class ReasoningService extends BaseReasoningService {
         text,
         model: trimmedModel,
         agentName,
-        config,
+        config: dispatchConfig,
         ctx: this.providerContext,
       });
 
@@ -391,6 +448,9 @@ class ReasoningService extends BaseReasoningService {
       lanUrl: config.lanUrl,
       customApiKey: config.customApiKey,
     });
+    const mode: InferenceMode =
+      route.kind === "self-hosted" ? "self-hosted" : route.kind === "local" ? "local" : "providers";
+    assertAgentSessionAllowedByPolicy(provider, mode);
     const isLocalProvider = route.kind === "local";
     const isLanChat = route.kind === "self-hosted";
 
@@ -398,7 +458,7 @@ class ReasoningService extends BaseReasoningService {
     let apiKey = "";
 
     if (isLanChat) {
-      const baseUrl = ensureV1Suffix(route.baseUrl);
+      const baseUrl = resolveSelfHostedOpenAIBase(route.baseUrl);
       endpoint = buildApiUrl(baseUrl, "/chat/completions");
       apiKey = route.apiKey;
     } else if (isLocalProvider) {
@@ -429,9 +489,11 @@ class ReasoningService extends BaseReasoningService {
         case "tinfoil":
           throw new Error("Tinfoil streaming must use the verified SDK transport");
         case "openai":
+          endpoint = buildApiUrl(API_ENDPOINTS.OPENAI_BASE, "/chat/completions");
+          break;
         case "custom":
           endpoint = buildApiUrl(
-            config.baseUrl?.trim() || getConfiguredOpenAIBase(),
+            resolveConfiguredOpenAIBase(providerKey, config.baseUrl),
             "/chat/completions"
           );
           break;
@@ -441,7 +503,8 @@ class ReasoningService extends BaseReasoningService {
       }
     }
 
-    const apiConfig = getOpenAiApiConfig(model, provider);
+    // A known endpoint host knows its own request shape better than the model id does.
+    const apiConfig = detectEndpointDialect(endpoint) ?? getOpenAiApiConfig(model, provider);
     const useOldTokenParam = isLocalProvider || isLanChat || provider === "groq";
 
     const requestBody: Record<string, unknown> = {
@@ -462,7 +525,7 @@ class ReasoningService extends BaseReasoningService {
       }
     }
 
-    applyThinkingSuppression(requestBody, model, isLanChat ? "lan" : provider, config);
+    applyThinkingSuppression(requestBody, model, isLanChat ? "lan" : provider, config, endpoint);
 
     logger.logReasoning("AGENT_STREAM_REQUEST", {
       endpoint,
@@ -510,11 +573,7 @@ class ReasoningService extends BaseReasoningService {
       let errorMessage: string;
       try {
         const errorData = JSON.parse(errorText);
-        errorMessage =
-          errorData.error?.message ||
-          errorData.message ||
-          errorData.error ||
-          `API error: ${response.status}`;
+        errorMessage = extractApiErrorMessage(errorData, `API error: ${response.status}`);
       } catch {
         errorMessage = errorText || `API error: ${response.status}`;
       }
@@ -603,6 +662,15 @@ class ReasoningService extends BaseReasoningService {
       customApiKey: config.customApiKey,
       isEnterpriseProvider: isEnterpriseProvider(provider),
     });
+    const mode: InferenceMode =
+      route.kind === "self-hosted"
+        ? "self-hosted"
+        : route.kind === "enterprise"
+          ? "enterprise"
+          : route.kind === "local"
+            ? "local"
+            : "providers";
+    assertAgentSessionAllowedByPolicy(provider, mode);
     const isEnterprise = route.kind === "enterprise";
     const isLocalProvider = route.kind === "local";
     const isLanChat = route.kind === "self-hosted";
@@ -624,7 +692,7 @@ class ReasoningService extends BaseReasoningService {
       // doStream over IPC, so no key or base URL is resolved here.
     } else if (isLanChat) {
       apiKey = route.apiKey;
-      baseURL = ensureV1Suffix(route.baseUrl);
+      baseURL = resolveSelfHostedOpenAIBase(route.baseUrl);
     } else if (isLocalProvider) {
       const serverResult = await window.electronAPI.llamaServerStart(model);
       if (!serverResult.success || !serverResult.port) {
@@ -640,7 +708,7 @@ class ReasoningService extends BaseReasoningService {
         provider === "openrouter"
           ? API_ENDPOINTS.OPENROUTER_BASE
           : provider === "custom"
-            ? config.baseUrl?.trim() || getConfiguredOpenAIBase()
+            ? resolveConfiguredOpenAIBase(provider, config.baseUrl)
             : undefined;
     }
     const aiProvider = isLocalProvider || isLanChat ? "local" : provider;
@@ -654,7 +722,7 @@ class ReasoningService extends BaseReasoningService {
           disableThinking: openrouterDisableThinking,
         });
 
-    const apiConfig = getOpenAiApiConfig(model, provider);
+    const apiConfig = detectEndpointDialect(baseURL) ?? getOpenAiApiConfig(model, provider);
     const modelDef = getCloudModel(model);
     const userSuppressesThinking = config.disableThinking === true && !!modelDef?.supportsThinking;
     const needsGroqDisableThinking =
@@ -824,12 +892,10 @@ class ReasoningService extends BaseReasoningService {
     config: {
       systemPrompt: string;
       tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>;
-      executeToolCall?: (
-        name: string,
-        args: string
-      ) => Promise<{ data: string; displayText: string; metadata?: Record<string, unknown> }>;
+      executeToolCall?: (name: string, args: string) => Promise<ToolExecutionResult>;
     }
   ): AsyncGenerator<AgentStreamChunk, void, unknown> {
+    assertAgentSessionAllowedByPolicy("openwhispr", "openwhispr");
     const maxSteps = config.tools?.length ? ReasoningService.MAX_TOOL_STEPS : 1;
     let currentMessages = [...messages];
 
@@ -861,7 +927,7 @@ class ReasoningService extends BaseReasoningService {
       }
 
       for (const call of pendingToolCalls) {
-        let toolResult: { data: string; displayText: string; metadata?: Record<string, unknown> };
+        let toolResult: ToolExecutionResult;
         try {
           toolResult = await config.executeToolCall(call.name, call.arguments);
         } catch (error) {
@@ -914,7 +980,7 @@ class ReasoningService extends BaseReasoningService {
         return true;
       }
 
-      if (this.isLanCleanupMode()) {
+      if (this.hasLanCleanupConfiguration()) {
         logger.logReasoning("API_KEY_CHECK", { lanCleanup: true });
         return true;
       }

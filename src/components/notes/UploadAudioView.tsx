@@ -39,6 +39,7 @@ import { getAllReasoningModels, getBatchTranscriptionModel } from "../../models/
 import {
   useSettingsStore,
   selectIsCloudCleanupMode,
+  selectPolicyEffectiveSettings,
   selectResolvedUploadTranscription,
   getSettings,
 } from "../../stores/settingsStore";
@@ -54,10 +55,14 @@ import { MAX_SPEAKER_COUNT } from "../../constants/speakerDetection.json";
 import BatchQueueView from "./BatchQueueView";
 import { generateNoteTitle } from "../../utils/generateTitle";
 import { getBaseLanguageCode } from "../../utils/languageSupport";
+import { isTranscriptionContextAllowed } from "../../stores/policyRules";
+import { usePolicyStore } from "../../stores/policyStore";
+import { usePolicySnapshot, useTranscriptionContextAllowed } from "../../hooks/usePolicy";
+import { resolveCustomTranscriptionRoute } from "../../helpers/retryTranscriptionRouting";
 
 type UploadState = "idle" | "selected" | "downloading" | "transcribing" | "complete" | "error";
 
-const SUPPORTED_EXTENSIONS = ["mp3", "wav", "m4a", "webm", "ogg", "oga", "flac", "aac"];
+const SUPPORTED_EXTENSIONS = ["mp3", "wav", "m4a", "webm", "ogg", "oga", "flac", "aac", "opus"];
 
 const BYOK_MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB — hard limit for bring-your-own-key
 const CLOUD_FREE_MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB — free plan cloud limit
@@ -142,6 +147,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   } | null>(null);
   const progressCleanupRef = useRef<(() => void) | null>(null);
   const runIdRef = useRef(0);
+  const activeRequestIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const urlDownloadActiveRef = useRef(false);
 
@@ -225,7 +231,9 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
 
   const { isSignedIn } = useAuth();
   const usage = useUsage();
-  const isProUser = usage?.isSubscribed || usage?.isTrial;
+  // The server enforces the free-tier size limit regardless, so an unresolved
+  // entitlement should not block a payer's upload.
+  const isProUser = usage?.hasPaidAccessOptimistic ?? false;
 
   const {
     openaiApiKey,
@@ -235,6 +243,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     tinfoilApiKey,
     customTranscriptionApiKey,
   } = useSettings();
+  const policyState = usePolicySnapshot();
 
   const {
     useLocalWhisper,
@@ -246,7 +255,12 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     cloudTranscriptionBaseUrl,
     cloudTranscriptionMode,
     transcriptionMode,
-  } = useSettingsStore(useShallow(selectResolvedUploadTranscription));
+  } = useSettingsStore(
+    useShallow((settings) =>
+      selectResolvedUploadTranscription(selectPolicyEffectiveSettings(settings, policyState))
+    )
+  );
+  const uploadAllowedByPolicy = useTranscriptionContextAllowed("upload");
 
   const remoteTranscriptionUrl = useSettingsStore((s) => s.remoteTranscriptionUrl);
   const remoteTranscriptionModel = useSettingsStore((s) => s.remoteTranscriptionModel);
@@ -262,10 +276,13 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   const cortiEnvironment = useSettingsStore((s) => s.cortiEnvironment);
   const cortiTenant = useSettingsStore((s) => s.cortiTenant);
   const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
-  const isCloudCleanup = useSettingsStore(selectIsCloudCleanupMode);
-  const effectiveCleanupModel = useSettingsStore((s) =>
-    selectIsCloudCleanupMode(s) ? "" : s.cleanupModel
+  const isCloudCleanup = useSettingsStore((settings) =>
+    selectIsCloudCleanupMode(selectPolicyEffectiveSettings(settings, policyState))
   );
+  const effectiveCleanupModel = useSettingsStore((settings) => {
+    const effectiveSettings = selectPolicyEffectiveSettings(settings, policyState);
+    return selectIsCloudCleanupMode(effectiveSettings) ? "" : effectiveSettings.cleanupModel;
+  });
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
 
   const isOpenWhisprCloud =
@@ -324,14 +341,30 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   }, []);
 
   useEffect(() => {
-    window.electronAPI.getFolders?.().then((f) => {
-      setFolders(f);
-      const personal = findDefaultFolder(f);
-      if (personal) {
-        setSelectedFolderId(String(personal.id));
-        setBatchFolderId(String(personal.id));
+    // Uploads and URL downloads are a personal flow: scope the folder list
+    // (and the by-name "Videos" destination lookup) to the private space so a
+    // same-named team folder can never capture them.
+    let cancelled = false;
+    const loadFolders = async () => {
+      try {
+        const spaces = (await window.electronAPI.getSpaces?.()) ?? [];
+        const privateSpace = spaces.find((space) => space.kind === "private");
+        const items = (await window.electronAPI.getFolders?.(privateSpace?.id ?? null)) ?? [];
+        if (cancelled) return;
+        setFolders(items);
+        const personal = findDefaultFolder(items);
+        if (personal) {
+          setSelectedFolderId(String(personal.id));
+          setBatchFolderId(String(personal.id));
+        }
+      } catch (error) {
+        if (!cancelled) console.error("Failed to load upload folders:", error);
       }
-    });
+    };
+    void loadFolders();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -345,8 +378,11 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         if (isSelfHosted) {
           if (!cancelled) setProviderReady(!!remoteTranscriptionUrl?.trim());
         } else if (cloudTranscriptionProvider === "custom") {
-          // Custom providers only need a base URL; API key is truly optional
-          if (!cancelled) setProviderReady(!!cloudTranscriptionBaseUrl?.trim());
+          const customRoute = resolveCustomTranscriptionRoute({
+            provider: cloudTranscriptionProvider,
+            baseUrl: cloudTranscriptionBaseUrl,
+          });
+          if (!cancelled) setProviderReady(customRoute?.kind === "custom");
         } else if (cloudTranscriptionProvider === "corti") {
           if (!cancelled) setProviderReady(!!(cortiClientId && cortiClientSecret));
         } else {
@@ -561,15 +597,26 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   };
 
   const cancelTranscription = () => {
+    // True backend abort for cloud uploads; the run-id bump still discards any
+    // late result from providers that can't be aborted.
+    if (activeRequestIdRef.current) {
+      window.electronAPI.cancelUploadTranscription?.(activeRequestIdRef.current);
+      activeRequestIdRef.current = null;
+    }
     runIdRef.current++;
     reset();
   };
-
   const handleTranscribe = async () => {
     if (!file || batch.isProcessing) return;
+    if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "upload")) {
+      setError(t("common.managedByOrg"));
+      return;
+    }
     const currentFile = file;
     const currentTempPath = downloadedTempPath;
     const runId = ++runIdRef.current;
+    const requestId = crypto.randomUUID();
+    activeRequestIdRef.current = requestId;
     setState("transcribing");
     setError(null);
     setProgress(0);
@@ -609,8 +656,11 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
           localModelsReady: !!diarizationModelsReady,
           numSpeakers: diarizationNumSpeakers ? Number(diarizationNumSpeakers) : null,
         },
-        currentFile.durationSeconds
-      );
+        currentFile.durationSeconds,
+        { requestId }
+      ).finally(() => {
+        if (activeRequestIdRef.current === requestId) activeRequestIdRef.current = null;
+      });
 
       if (runId !== runIdRef.current) return;
 
@@ -790,6 +840,10 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
 
   const startBatchProcessing = () => {
     if (state === "downloading" || state === "transcribing") return;
+    if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "upload")) {
+      setBatchUrlNotice(t("common.managedByOrg"));
+      return;
+    }
     setBatchUrlNotice(null);
 
     const transcribeOpts: TranscribeOptions = {
@@ -1019,7 +1073,11 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                       variant="default"
                       size="sm"
                       onClick={startBatchProcessing}
-                      disabled={state === "downloading" || state === "transcribing"}
+                      disabled={
+                        !uploadAllowedByPolicy ||
+                        state === "downloading" ||
+                        state === "transcribing"
+                      }
                       className="h-8 text-xs px-5"
                     >
                       {t("notes.upload.transcribe")}
@@ -1037,7 +1095,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
               getActiveModelLabel={getActiveModelLabel}
               reset={reset}
               handleTranscribe={handleTranscribe}
-              transcribeDisabled={batch.isProcessing}
+              transcribeDisabled={batch.isProcessing || !uploadAllowedByPolicy}
               requiresUpgrade={!!requiresUpgrade}
               fileTooLarge={fileTooLarge}
               isLargeFile={isLargeFile}
@@ -1385,7 +1443,7 @@ function IdleView({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".mp3,.wav,.m4a,.webm,.ogg,.oga,.flac,.aac"
+        accept=".mp3,.wav,.m4a,.webm,.ogg,.oga,.flac,.aac,.opus"
         onChange={handleFileInputChange}
         className="sr-only"
         tabIndex={-1}

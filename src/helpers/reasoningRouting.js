@@ -7,11 +7,19 @@ export function deriveReasoningMode(cloudMode, provider) {
   return "openwhispr";
 }
 
-// Fan a cleanup config out to all four LLM scopes; the three non-cleanup scopes
+// Whether a scope may borrow the fallback scope's API key along with its endpoint.
+// A scope pointing somewhere of its own, or in another mode, would send that key to
+// a host it was never entered for.
+export function inheritsFallbackEndpoint(own, fallbackMode) {
+  if (own.cloudBaseUrl || own.remoteUrl) return false;
+  return !!fallbackMode && own.mode === fallbackMode;
+}
+
+// Fan a cleanup config out to all five LLM scopes; the four non-cleanup scopes
 // mirror only cloud routing plus the derived mode (each tab selects on its mode).
 export function buildReasoningScopePatches(settings, mode) {
   const dictationCleanup = { ...settings, cleanupMode: mode };
-  // The three non-cleanup scopes mirror only the cloud routing fields that are set.
+  // The four non-cleanup scopes mirror only the cloud routing fields that are set.
   const routing = {
     ...(settings.cleanupProvider !== undefined ? { provider: settings.cleanupProvider } : {}),
     ...(settings.cleanupModel !== undefined ? { model: settings.cleanupModel } : {}),
@@ -22,6 +30,7 @@ export function buildReasoningScopePatches(settings, mode) {
     noteFormatting: { mode, ...routing },
     dictationAgent: { mode, ...routing },
     chatIntelligence: { mode, ...routing },
+    dictationTranslation: { mode, ...routing },
   };
 }
 

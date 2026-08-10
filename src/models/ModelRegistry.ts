@@ -1,6 +1,7 @@
 import modelDataRaw from "./modelRegistryData.json";
 import { isCloudCleanupMode, getSettings } from "../stores/settingsStore";
 import { readCachedTinfoilModels } from "./tinfoilModelCache";
+import type { InferenceMode } from "../types/electron";
 
 export interface ModelDefinition {
   id: string;
@@ -15,6 +16,10 @@ export interface ModelDefinition {
   hfRepo: string;
   recommended?: boolean;
   supportsThinking?: boolean;
+  // Optional MTP speculative-decoding drafter downloaded alongside the main GGUF.
+  draftHfRepo?: string;
+  draftFileName?: string;
+  draftSizeBytes?: number;
 }
 
 export interface LocalProviderData {
@@ -247,6 +252,23 @@ export function toReasoningModel(m: CloudModelDefinition): ReasoningModel {
   };
 }
 
+export function isProviderValidForMode(provider: string, mode: InferenceMode): boolean {
+  switch (mode) {
+    case "providers":
+      return (
+        provider === "custom" ||
+        provider === "openrouter" ||
+        modelRegistry.getCloudProviders().some((p) => p.id === provider)
+      );
+    case "local":
+      return modelRegistry.getAllProviders().some((p) => p.id === provider);
+    case "enterprise":
+      return isEnterpriseProvider(provider);
+    default:
+      return true;
+  }
+}
+
 function buildReasoningProviders(): ReasoningProviders {
   const providers: ReasoningProviders = {};
 
@@ -384,6 +406,17 @@ export function getModelProvider(modelId: string): string {
   return model?.provider || "openai";
 }
 
+// Local catalog IDs group models for selection and downloads, but all execute
+// through the single local llama.cpp inference provider.
+export function resolveInferenceProvider(
+  configuredProvider: string | undefined,
+  modelId: string
+): string {
+  const provider = configuredProvider?.trim();
+  if (provider && modelRegistry.getProvider(provider)) return "local";
+  return provider || getModelProvider(modelId);
+}
+
 export function getTranscriptionProviders(): TranscriptionProviderData[] {
   return modelRegistry.getTranscriptionProviders();
 }
@@ -488,6 +521,10 @@ export function getParakeetModels(): ParakeetModelsMap {
 
 export function getParakeetModelInfo(modelId: string): ParakeetModelInfo | undefined {
   return modelData.parakeetModels[modelId];
+}
+
+export function isOnlineParakeetModel(modelId: string): boolean {
+  return modelData.parakeetModels[modelId]?.runtime === "online";
 }
 
 export const PARAKEET_MODEL_INFO = modelData.parakeetModels;

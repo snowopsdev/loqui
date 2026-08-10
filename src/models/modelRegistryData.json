@@ -381,6 +381,7 @@
           "name": "Claude Fable 5",
           "description": "Anthropic's most capable model, Mythos-class, 1M context",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_fable_5",
+          "supportsTemperature": false,
           "supportsVision": true
         },
         {
@@ -388,6 +389,7 @@
           "name": "Claude Sonnet 5",
           "description": "Fast, capable agentic model at lower cost",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_sonnet_5",
+          "supportsTemperature": false,
           "supportsVision": true
         },
         {
@@ -395,6 +397,7 @@
           "name": "Claude Sonnet 4.6",
           "description": "Balanced performance",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_sonnet_4_6",
+          "supportsTemperature": true,
           "supportsVision": true
         },
         {
@@ -402,6 +405,15 @@
           "name": "Claude Haiku 4.5",
           "description": "Fast with near-frontier intelligence",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_haiku_4_5",
+          "supportsTemperature": true,
+          "supportsVision": true
+        },
+        {
+          "id": "claude-opus-5",
+          "name": "Claude Opus 5",
+          "description": "Most capable Opus model, 1M context",
+          "descriptionKey": "models.descriptions.cloud.anthropic_claude_opus_5",
+          "supportsTemperature": false,
           "supportsVision": true
         },
         {
@@ -409,6 +421,7 @@
           "name": "Claude Opus 4.8",
           "description": "Powerful Opus model tuned for honesty and reliability, 1M context",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_opus_4_8",
+          "supportsTemperature": false,
           "supportsVision": true
         },
         {
@@ -416,6 +429,7 @@
           "name": "Claude Opus 4.7",
           "description": "Powerful Opus model, 1M context",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_opus_4_7",
+          "supportsTemperature": false,
           "supportsVision": true
         },
         {
@@ -423,6 +437,7 @@
           "name": "Claude Opus 4.6",
           "description": "Previous Opus generation, 1M context",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_opus_4_6",
+          "supportsTemperature": true,
           "supportsVision": true
         },
         {
@@ -430,6 +445,7 @@
           "name": "Claude Sonnet 4.5",
           "description": "Previous Sonnet generation",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_sonnet_4_5",
+          "supportsTemperature": true,
           "supportsVision": true
         },
         {
@@ -437,6 +453,7 @@
           "name": "Claude Opus 4.5",
           "description": "Earlier Opus model",
           "descriptionKey": "models.descriptions.cloud.anthropic_claude_opus_4_5",
+          "supportsTemperature": true,
           "supportsVision": true
         }
       ]
@@ -527,12 +544,6 @@
           "descriptionKey": "models.descriptions.cloud.groq_llama_3_1_8b_instant"
         },
         {
-          "id": "meta-llama/llama-4-scout-17b-16e-instruct",
-          "name": "Llama 4 Scout",
-          "description": "Meta's efficient multimodal, 750 T/sec",
-          "descriptionKey": "models.descriptions.cloud.groq_llama_4_scout"
-        },
-        {
           "id": "groq/compound",
           "name": "Compound",
           "description": "Groq's compound system, 450 T/sec",
@@ -543,12 +554,6 @@
           "name": "Compound Mini",
           "description": "Fast compound system, 3x lower latency",
           "descriptionKey": "models.descriptions.cloud.groq_compound_mini"
-        },
-        {
-          "id": "moonshotai/kimi-k2-instruct-0905",
-          "name": "Kimi K2 0905",
-          "description": "Moonshot AI's 1T MoE, 256K context",
-          "descriptionKey": "models.descriptions.cloud.groq_kimi_k2_0905"
         }
       ]
     },
@@ -973,7 +978,7 @@
           "size": "12.1GB",
           "sizeBytes": 12999763968,
           "description": "OpenAI's open-weight model for consumer hardware",
-          "fileName": "gpt-oss-20b-mxfp4.gguf",
+          "fileName": "gpt-oss-20b-MXFP4.gguf",
           "quantization": "mxfp4",
           "contextLength": 128000,
           "hfRepo": "ggml-org/gpt-oss-20b-GGUF",
@@ -1002,6 +1007,21 @@
           "descriptionKey": "models.descriptions.local.gemma_gemma_4_31b_it_q4_k_m"
         },
         {
+          "id": "gemma-4-31b-it-qat-q4_0",
+          "name": "Gemma 4 31B QAT",
+          "size": "17.9GB",
+          "sizeBytes": 17651001568,
+          "description": "Google's official QAT build, smaller with quality preserved",
+          "fileName": "gemma-4-31B_q4_0-it.gguf",
+          "quantization": "q4_0",
+          "contextLength": 262144,
+          "hfRepo": "google/gemma-4-31B-it-qat-q4_0-gguf",
+          "draftHfRepo": "unsloth/gemma-4-31B-it-qat-GGUF",
+          "draftFileName": "mtp-gemma-4-31B-it.gguf",
+          "draftSizeBytes": 279955968,
+          "descriptionKey": "models.descriptions.local.gemma_gemma_4_31b_it_qat_q4_0"
+        },
+        {
           "id": "gemma-4-26b-a4b-it-q4_k_m",
           "name": "Gemma 4 26B MoE",
           "size": "17.0GB",
@@ -1014,6 +1034,21 @@
           "descriptionKey": "models.descriptions.local.gemma_gemma_4_26b_a4b_it_q4_k_m"
         },
         {
+          "id": "gemma-4-26b-a4b-it-qat-q4_0",
+          "name": "Gemma 4 26B MoE QAT",
+          "size": "14.7GB",
+          "sizeBytes": 14439363584,
+          "description": "Google's official QAT MoE build, smaller with quality preserved",
+          "fileName": "gemma-4-26B_q4_0-it.gguf",
+          "quantization": "q4_0",
+          "contextLength": 262144,
+          "hfRepo": "google/gemma-4-26B-A4B-it-qat-q4_0-gguf",
+          "draftHfRepo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF",
+          "draftFileName": "mtp-gemma-4-26B-A4B-it.gguf",
+          "draftSizeBytes": 251939328,
+          "descriptionKey": "models.descriptions.local.gemma_gemma_4_26b_a4b_it_qat_q4_0"
+        },
+        {
           "id": "gemma-4-e4b-it-q4_k_m",
           "name": "Gemma 4 E4B",
           "size": "5.4GB",
@@ -1023,8 +1058,23 @@
           "quantization": "q4_k_m",
           "contextLength": 262144,
           "hfRepo": "bartowski/google_gemma-4-E4B-it-GGUF",
-          "recommended": true,
           "descriptionKey": "models.descriptions.local.gemma_gemma_4_e4b_it_q4_k_m"
+        },
+        {
+          "id": "gemma-4-e4b-it-qat-q4_0",
+          "name": "Gemma 4 E4B QAT",
+          "size": "5.2GB",
+          "sizeBytes": 5154941280,
+          "description": "Google's official QAT build, strong reasoning, smaller size",
+          "fileName": "gemma-4-E4B_q4_0-it.gguf",
+          "quantization": "q4_0",
+          "contextLength": 262144,
+          "hfRepo": "google/gemma-4-E4B-it-qat-q4_0-gguf",
+          "draftHfRepo": "unsloth/gemma-4-E4B-it-qat-GGUF",
+          "draftFileName": "mtp-gemma-4-E4B-it.gguf",
+          "draftSizeBytes": 59678016,
+          "recommended": true,
+          "descriptionKey": "models.descriptions.local.gemma_gemma_4_e4b_it_qat_q4_0"
         },
         {
           "id": "gemma-4-e2b-it-q4_k_m",
@@ -1037,6 +1087,21 @@
           "contextLength": 262144,
           "hfRepo": "bartowski/google_gemma-4-E2B-it-GGUF",
           "descriptionKey": "models.descriptions.local.gemma_gemma_4_e2b_it_q4_k_m"
+        },
+        {
+          "id": "gemma-4-e2b-it-qat-q4_0",
+          "name": "Gemma 4 E2B QAT",
+          "size": "3.4GB",
+          "sizeBytes": 3349516256,
+          "description": "Google's official compact QAT build, quality preserved",
+          "fileName": "gemma-4-E2B_q4_0-it.gguf",
+          "quantization": "q4_0",
+          "contextLength": 262144,
+          "hfRepo": "google/gemma-4-E2B-it-qat-q4_0-gguf",
+          "draftHfRepo": "unsloth/gemma-4-E2B-it-qat-GGUF",
+          "draftFileName": "mtp-gemma-4-E2B-it.gguf",
+          "draftSizeBytes": 59235648,
+          "descriptionKey": "models.descriptions.local.gemma_gemma_4_e2b_it_qat_q4_0"
         },
         {
           "id": "gemma-3-12b-it-q4_k_m",
@@ -1173,8 +1238,8 @@
         "provider": "openrouter",
         "models": [
           {
-            "id": "anthropic/claude-sonnet-4",
-            "name": "Claude Sonnet 4",
+            "id": "anthropic/claude-sonnet-4.6",
+            "name": "Claude Sonnet 4.6",
             "description": "Balanced performance and quality",
             "recommended": true
           },
@@ -1191,8 +1256,8 @@
         "provider": "openrouter",
         "models": [
           {
-            "id": "anthropic/claude-opus-4",
-            "name": "Claude Opus 4",
+            "id": "anthropic/claude-opus-4.8",
+            "name": "Claude Opus 4.8",
             "description": "Most capable, highest quality",
             "recommended": true
           },

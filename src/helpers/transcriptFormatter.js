@@ -3,28 +3,38 @@ const { i18nMain } = require("./i18nMain");
 function resolveSpeaker(seg, speakerMappings) {
   if (seg.speakerName && !seg.speakerIsPlaceholder) return seg.speakerName;
   if (seg.speaker && speakerMappings[seg.speaker]) return speakerMappings[seg.speaker];
-  if (seg.speaker === "you") return "You";
+  if (seg.speaker === "you") return i18nMain.t("transcript.speaker.you");
   if (seg.speaker) {
     const num = parseInt(seg.speaker.replace("speaker_", ""), 10);
-    if (!isNaN(num)) return `Speaker ${num + 1}`;
+    if (!isNaN(num)) return i18nMain.t("notes.speaker.label", { n: num + 1 });
   }
   if (seg.source === "mic") return i18nMain.t("transcript.speaker.you");
   if (seg.source === "system") return i18nMain.t("transcript.speaker.others");
-  return "Unknown Speaker";
+  return i18nMain.t("notes.speaker.unknown");
+}
+
+// Segments merge only when they resolve to the same display name, so the key has
+// to cover every field resolveSpeaker reads — a manually named segment would
+// otherwise absorb the un-named one beside it.
+function speakerKey(seg) {
+  const named = seg.speakerName && !seg.speakerIsPlaceholder ? seg.speakerName : "";
+  return [seg.speaker || "", named, seg.speaker ? "" : seg.source || ""].join("\u0000");
 }
 
 function mergeSegments(segments) {
   const merged = [];
+  let lastTimestamp = null;
   for (const seg of segments) {
     if (!seg.text?.trim()) continue;
     const ts = seg.timestamp || 0;
     const last = merged[merged.length - 1];
-    if (last && last.speaker === (seg.speaker || "") && ts - last.timestamp < 2) {
+    if (last && speakerKey(last) === speakerKey(seg) && ts - lastTimestamp < 2) {
       last.text = last.text + " " + seg.text.trim();
-      last.timestamp = ts;
+      last.endTimestamp = ts;
     } else {
-      merged.push({ ...seg, timestamp: ts, text: seg.text.trim() });
+      merged.push({ ...seg, timestamp: ts, endTimestamp: ts, text: seg.text.trim() });
     }
+    lastTimestamp = ts;
   }
   return merged;
 }
@@ -38,8 +48,9 @@ function formatTimestamp(seconds) {
 }
 
 function formatSrtTimestamp(seconds) {
-  const s = Math.floor(seconds);
-  const ms = Math.round((seconds - s) * 1000);
+  const totalMs = Math.round(seconds * 1000);
+  const ms = totalMs % 1000;
+  const s = Math.floor(totalMs / 1000);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
@@ -57,7 +68,7 @@ function extractMetadata(note) {
   let participants = [];
   try {
     const parsed = JSON.parse(note.participants || "[]");
-    participants = parsed.map((p) => p.name).filter(Boolean);
+    participants = parsed.map((p) => p.displayName || p.email).filter(Boolean);
   } catch {}
 
   return { title, dateStr, participants };
@@ -68,7 +79,8 @@ function formatTxt(note, segments, speakerMappings) {
   const { title, dateStr, participants } = extractMetadata(note);
 
   const lines = [title, dateStr];
-  if (participants.length) lines.push(`Participants: ${participants.join(", ")}`);
+  if (participants.length)
+    lines.push(`${i18nMain.t("notes.editor.participants")}: ${participants.join(", ")}`);
   lines.push("", "──────────────────────────────────", "");
   for (const seg of merged) {
     lines.push(`[${formatTimestamp(seg.timestamp)}] ${resolveSpeaker(seg, speakerMappings)}:`);
@@ -83,7 +95,7 @@ function formatSrt(segments, speakerMappings) {
   const entries = [];
   for (let i = 0; i < merged.length; i++) {
     const seg = merged[i];
-    const nextTs = i + 1 < merged.length ? merged[i + 1].timestamp : seg.timestamp + 3;
+    const nextTs = i + 1 < merged.length ? merged[i + 1].timestamp : seg.endTimestamp + 3;
     entries.push(`${i + 1}`);
     entries.push(`${formatSrtTimestamp(seg.timestamp)} --> ${formatSrtTimestamp(nextTs)}`);
     entries.push(`${resolveSpeaker(seg, speakerMappings)}: ${seg.text}`);
@@ -105,7 +117,7 @@ function formatJson(note, segments, speakerMappings) {
       metadata: {
         title,
         date: dateStr,
-        duration_seconds: lastSeg ? Math.round(lastSeg.timestamp) : 0,
+        duration_seconds: lastSeg ? Math.round(lastSeg.endTimestamp) : 0,
         speaker_count: speakersSet.size,
         segment_count: merged.length,
       },
@@ -126,7 +138,8 @@ function formatMd(note, segments, speakerMappings) {
   const { title, dateStr, participants } = extractMetadata(note);
 
   const lines = [`# ${title}`, "", `**Date:** ${dateStr}`];
-  if (participants.length) lines.push(`**Participants:** ${participants.join(", ")}`);
+  if (participants.length)
+    lines.push(`**${i18nMain.t("notes.editor.participants")}:** ${participants.join(", ")}`);
   lines.push("", "---", "");
   for (const seg of merged) {
     lines.push(`**${resolveSpeaker(seg, speakerMappings)}** \`${formatTimestamp(seg.timestamp)}\``);

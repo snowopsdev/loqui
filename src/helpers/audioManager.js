@@ -1704,6 +1704,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
             "audio"
           );
           result = retry;
+          timings.transcriptionProcessingDurationMs = Math.round(
+            performance.now() - transcriptionStart
+          );
         }
         const rawText = result.text;
         const reasoningStart = performance.now();

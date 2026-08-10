@@ -1413,7 +1413,15 @@ if (typeof window !== "undefined") {
       return;
     }
 
-    const persisted = await window.electronAPI?.getNote?.(targetNoteId);
+    let persisted;
+    try {
+      persisted = await window.electronAPI?.getNote?.(targetNoteId);
+    } catch {
+      // Without the persisted note there is no safe base to merge into —
+      // publish the empty result so a waiting editor still clears its spinner.
+      publish([]);
+      return;
+    }
     // Writing to a deleted note would resurrect its tombstone in the
     // sidebar, cloud mirror, and vector index.
     if (!persisted || persisted.deleted_at) return;

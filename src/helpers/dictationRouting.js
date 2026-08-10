@@ -1,4 +1,15 @@
-// Whether the dictation agent has a complete configuration for its active mode.
+function resolveModeReachability({ mode, provider, model, isCloud, isSelfHosted }) {
+  if (mode === "openwhispr") return isCloud;
+  if (mode === "self-hosted") return isSelfHosted;
+
+  const hasModel = (model?.trim()?.length ?? 0) > 0;
+  if (mode === "local") return hasModel;
+  if (mode === "providers" || mode === "enterprise") {
+    return !!provider?.trim() && hasModel;
+  }
+  return false;
+}
+
 export function resolveDictationAgentReachability({
   useDictationAgent,
   dictationAgentMode,
@@ -8,61 +19,91 @@ export function resolveDictationAgentReachability({
   isSelfHostedAgent,
 }) {
   if (!useDictationAgent) return false;
-  if (dictationAgentMode === "openwhispr") return isCloudAgent;
-  if (dictationAgentMode === "self-hosted") return isSelfHostedAgent;
-
-  const hasModel = (dictationAgentModel?.trim()?.length ?? 0) > 0;
-  if (dictationAgentMode === "local") return hasModel;
-  if (dictationAgentMode === "providers" || dictationAgentMode === "enterprise") {
-    return !!dictationAgentProvider?.trim() && hasModel;
-  }
-  return false;
+  return resolveModeReachability({
+    mode: dictationAgentMode,
+    provider: dictationAgentProvider,
+    model: dictationAgentModel,
+    isCloud: isCloudAgent,
+    isSelfHosted: isSelfHostedAgent,
+  });
 }
 
-// Whether the translation step can run: cloud/self-hosted accept an empty model,
-// every other mode requires one; a target language is always required.
 export function resolveDictationTranslationReachability({
   useDictationTranslation,
   translationTargetLanguage,
+  translationMode,
+  translationProvider,
   translationModel,
   isCloudTranslation,
   isSelfHostedTranslation,
 }) {
   if (!useDictationTranslation) return false;
   if (!translationTargetLanguage?.trim()) return false;
-  if (isCloudTranslation || isSelfHostedTranslation) return true;
-  return (translationModel?.trim()?.length ?? 0) > 0;
+  return resolveModeReachability({
+    mode: translationMode,
+    provider: translationProvider,
+    model: translationModel,
+    isCloud: isCloudTranslation,
+    isSelfHosted: isSelfHostedTranslation,
+  });
 }
 
-// Maps the active mode to the provider ReasoningService must dispatch through.
-export function resolveDictationAgentProvider({
-  isCloudAgent,
-  dictationAgentMode,
-  dictationAgentProvider,
-}) {
-  switch (dictationAgentMode) {
+function resolveModeProvider({ isCloud, mode, provider }) {
+  switch (mode) {
     case "openwhispr":
-      return isCloudAgent ? "openwhispr" : undefined;
+      return isCloud ? "openwhispr" : undefined;
     case "local":
       return "local";
     case "self-hosted":
       return undefined;
     case "providers":
     case "enterprise":
-      return dictationAgentProvider?.trim() || undefined;
+      return provider?.trim() || undefined;
     default:
       return undefined;
   }
+}
+
+export function resolveDictationAgentProvider({
+  isCloudAgent,
+  dictationAgentMode,
+  dictationAgentProvider,
+}) {
+  return resolveModeProvider({
+    isCloud: isCloudAgent,
+    mode: dictationAgentMode,
+    provider: dictationAgentProvider,
+  });
+}
+
+function resolveModeDisplayProvider(mode, provider) {
+  if (mode === "openwhispr") return "openwhispr";
+  if (mode === "local") return "local";
+  if (mode === "self-hosted") return "self-hosted";
+  return provider?.trim() || "none";
 }
 
 export function resolveDictationAgentDisplayProvider({
   dictationAgentMode,
   dictationAgentProvider,
 }) {
-  if (dictationAgentMode === "openwhispr") return "openwhispr";
-  if (dictationAgentMode === "local") return "local";
-  if (dictationAgentMode === "self-hosted") return "self-hosted";
-  return dictationAgentProvider?.trim() || "none";
+  return resolveModeDisplayProvider(dictationAgentMode, dictationAgentProvider);
+}
+
+export function resolveTranslationProviderId({
+  isCloudTranslation,
+  translationMode,
+  translationProvider,
+}) {
+  return resolveModeProvider({
+    isCloud: isCloudTranslation,
+    mode: translationMode,
+    provider: translationProvider,
+  });
+}
+
+export function resolveTranslationDisplayProvider({ translationMode, translationProvider }) {
+  return resolveModeDisplayProvider(translationMode, translationProvider);
 }
 
 // Decides which reasoning path ("translation" | "agent" | "cleanup" | "skip")

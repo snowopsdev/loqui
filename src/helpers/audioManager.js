@@ -67,11 +67,9 @@ import {
   shouldRunTranslateStep,
 } from "./translationChain";
 import { detectAgentName } from "../config/agentDetection";
-import {
-  resolveDictationRouteKind,
-  resolveDictationTranslationReachability,
-} from "./dictationRouting";
+import { resolveDictationRouteKind } from "./dictationRouting";
 import { resolveDictationAgentInference } from "./dictationAgentInference";
+import { resolveDictationTranslationInference } from "./dictationTranslationInference";
 import { resolvePrompt } from "../config/prompts";
 import { syncService } from "../services/SyncService.js";
 import { evaluateFinishedRecording, withSalvageWarning } from "./recordingValidation";
@@ -109,15 +107,9 @@ function dictationAgentReachable(settings) {
 }
 
 function translationChainReachable(settings) {
-  const isSelfHostedTranslation =
-    settings.translationMode === "self-hosted" && !!settings.translationRemoteUrl?.trim();
-  return resolveDictationTranslationReachability({
-    useDictationTranslation: settings.useDictationTranslation,
-    translationTargetLanguage: settings.translationTargetLanguage,
-    translationModel: settings.translationModel,
+  return resolveDictationTranslationInference(settings, {
     isCloudTranslation: isCloudTranslationMode(),
-    isSelfHostedTranslation,
-  });
+  }).reachable;
 }
 
 function resolveReasoningRoute(
@@ -133,15 +125,8 @@ function resolveReasoningRoute(
     isCloudAgent: isCloudDictationAgentMode(),
   });
 
-  const isCloudTranslation = isCloudTranslationMode();
-  const isSelfHostedTranslation =
-    settings.translationMode === "self-hosted" && !!settings.translationRemoteUrl?.trim();
-  const translationReachable = resolveDictationTranslationReachability({
-    useDictationTranslation: settings.useDictationTranslation,
-    translationTargetLanguage: settings.translationTargetLanguage,
-    translationModel: settings.translationModel,
-    isCloudTranslation,
-    isSelfHostedTranslation,
+  const translation = resolveDictationTranslationInference(settings, {
+    isCloudTranslation: isCloudTranslationMode(),
   });
 
   const kind = resolveDictationRouteKind({
@@ -150,7 +135,7 @@ function resolveReasoningRoute(
     agentInvoked: !!agentName && detectAgentName(text, agentName),
     voiceAgentRequested,
     translationRequested,
-    translationReachable,
+    translationReachable: translation.reachable,
   });
   if (translationRequested && kind !== "translation") {
     logger.warn(
@@ -164,25 +149,13 @@ function resolveReasoningRoute(
     );
   }
   if (kind === "translation") {
-    const provider = isCloudTranslation
-      ? "openwhispr"
-      : settings.translationProvider?.trim() || undefined;
-    const isCustomTranslation = settings.translationMode === "providers" && provider === "custom";
     return {
       kind: "translation",
-      model: settings.translationModel?.trim() || "",
+      model: translation.model,
       cleanupReachable,
       cleanupConfig: { disableThinking: settings.cleanupDisableThinking },
       config: {
-        provider,
-        language: settings.translationTargetLanguage,
-        lanUrl: isSelfHostedTranslation ? settings.translationRemoteUrl : undefined,
-        baseUrl: isCustomTranslation ? settings.translationCloudBaseUrl || undefined : undefined,
-        customApiKey:
-          isCustomTranslation || isSelfHostedTranslation
-            ? settings.translationCustomApiKey || undefined
-            : undefined,
-        disableThinking: settings.translationDisableThinking,
+        ...translation.config,
         systemPrompt: resolvePrompt("translate", {
           agentName,
           targetLanguageLabel: getLanguageLabel(settings.translationTargetLanguage),

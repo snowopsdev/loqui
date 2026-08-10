@@ -59,6 +59,9 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
           if (source.endsWith("/helpers/dictationAgentInference")) {
             return "\0prompt-studio-agent-inference";
           }
+          if (source.endsWith("/helpers/dictationTranslationInference")) {
+            return "\0prompt-studio-translation-inference";
+          }
           return null;
         },
         load(id) {
@@ -175,6 +178,18 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
           if (id === "\0prompt-studio-agent-inference") {
             return `
               export function resolveDictationAgentInference() {
+                return {
+                  reachable: true,
+                  model: "auto",
+                  displayProvider: "openwhispr",
+                  config: { provider: "openwhispr" },
+                };
+              }
+            `;
+          }
+          if (id === "\0prompt-studio-translation-inference") {
+            return `
+              export function resolveDictationTranslationInference() {
                 return {
                   reachable: true,
                   model: "auto",

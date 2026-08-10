@@ -2776,7 +2776,6 @@
     "meeting": {
       "title": "Besprechungsnotizen",
       "description": "Transkriptionen und strukturierte Zusammenfassungen",
-      "comingSoon": "Demnächst verfügbar",
       "back": "Zurück",
       "restrictedByOrg": "Die Transkription von Besprechungen ist durch Ihre Organisation eingeschränkt."
     },

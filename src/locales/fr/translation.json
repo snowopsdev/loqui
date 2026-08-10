@@ -2776,7 +2776,6 @@
     "meeting": {
       "title": "Notes de réunion",
       "description": "Transcriptions et résumés structurés",
-      "comingSoon": "Bientôt disponible",
       "back": "Retour",
       "restrictedByOrg": "La transcription des réunions est restreinte par votre organisation."
     },

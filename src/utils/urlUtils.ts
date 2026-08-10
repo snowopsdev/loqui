@@ -45,15 +45,6 @@ function isPrivateHost(hostname: string): boolean {
   return false;
 }
 
-export function isSecureEndpoint(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || isPrivateHost(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
-
 export function isSecureHttpEndpoint(url: string): boolean {
   try {
     const parsed = new URL(url);

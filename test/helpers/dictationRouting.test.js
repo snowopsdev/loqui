@@ -109,6 +109,8 @@ test("agent is reachable in cloud mode without an explicit model", async () => {
   assert.equal(
     resolveDictationAgentReachability({
       useDictationAgent: true,
+      dictationAgentMode: "openwhispr",
+      dictationAgentProvider: undefined,
       dictationAgentModel: "",
       isCloudAgent: true,
       isSelfHostedAgent: false,
@@ -123,6 +125,8 @@ test("agent is reachable in self-hosted mode without an explicit model", async (
   assert.equal(
     resolveDictationAgentReachability({
       useDictationAgent: true,
+      dictationAgentMode: "self-hosted",
+      dictationAgentProvider: undefined,
       dictationAgentModel: "",
       isCloudAgent: false,
       isSelfHostedAgent: true,
@@ -137,6 +141,8 @@ test("agent is unreachable with an empty model on a model-required provider", as
   assert.equal(
     resolveDictationAgentReachability({
       useDictationAgent: true,
+      dictationAgentMode: "providers",
+      dictationAgentProvider: "openai",
       dictationAgentModel: "   ",
       isCloudAgent: false,
       isSelfHostedAgent: false,
@@ -151,6 +157,8 @@ test("agent is reachable with an explicit model (BYOK/local/enterprise)", async 
   assert.equal(
     resolveDictationAgentReachability({
       useDictationAgent: true,
+      dictationAgentMode: "providers",
+      dictationAgentProvider: "openai",
       dictationAgentModel: "gpt-5.5",
       isCloudAgent: false,
       isSelfHostedAgent: false,
@@ -165,6 +173,8 @@ test("disabling the dictation agent overrides cloud reachability", async () => {
   assert.equal(
     resolveDictationAgentReachability({
       useDictationAgent: false,
+      dictationAgentMode: "openwhispr",
+      dictationAgentProvider: undefined,
       dictationAgentModel: "",
       isCloudAgent: true,
       isSelfHostedAgent: true,
@@ -342,7 +352,7 @@ test("translation needs a model on model-required providers", async () => {
   );
 });
 
-test("cloud agent always resolves the openwhispr provider", async () => {
+test("available managed mode resolves the OpenWhispr provider", async () => {
   const { resolveDictationAgentProvider } = await load();
 
   assert.equal(
@@ -355,11 +365,9 @@ test("cloud agent always resolves the openwhispr provider", async () => {
   );
 });
 
-test("local mode resolves the local provider, not the stored brand group", async () => {
+test("local mode resolves the local provider, not stale provider state", async () => {
   const { resolveDictationAgentProvider } = await load();
 
-  // The local model picker stores its brand group ("qwen", "llama", ...) in
-  // dictationAgentProvider; ReasoningService only knows "local".
   assert.equal(
     resolveDictationAgentProvider({
       isCloudAgent: false,
@@ -393,5 +401,97 @@ test("blank stored provider resolves to undefined outside local mode", async () 
       dictationAgentProvider: "  ",
     }),
     undefined
+  );
+});
+
+test("managed mode fails closed when its cloud session is unavailable", async () => {
+  const { resolveDictationAgentProvider } = await load();
+
+  assert.equal(
+    resolveDictationAgentProvider({
+      isCloudAgent: false,
+      dictationAgentMode: "openwhispr",
+      dictationAgentProvider: "openai",
+    }),
+    undefined
+  );
+});
+
+test("local mode wins over an inconsistent cloud flag", async () => {
+  const { resolveDictationAgentProvider } = await load();
+
+  assert.equal(
+    resolveDictationAgentProvider({
+      isCloudAgent: true,
+      dictationAgentMode: "local",
+      dictationAgentProvider: "openai",
+    }),
+    "local"
+  );
+});
+
+test("self-hosted mode clears stale providers", async () => {
+  const { resolveDictationAgentProvider } = await load();
+
+  assert.equal(
+    resolveDictationAgentProvider({
+      isCloudAgent: false,
+      dictationAgentMode: "self-hosted",
+      dictationAgentProvider: "openai",
+    }),
+    undefined
+  );
+});
+
+test("self-hosted mode is unreachable without its endpoint", async () => {
+  const { resolveDictationAgentReachability } = await load();
+
+  assert.equal(
+    resolveDictationAgentReachability({
+      useDictationAgent: true,
+      dictationAgentMode: "self-hosted",
+      dictationAgentProvider: undefined,
+      dictationAgentModel: "gpt-5-mini",
+      isCloudAgent: false,
+      isSelfHostedAgent: false,
+    }),
+    false
+  );
+});
+
+test("provider and enterprise modes require an explicit provider", async () => {
+  const { resolveDictationAgentReachability } = await load();
+
+  for (const dictationAgentMode of ["providers", "enterprise"]) {
+    assert.equal(
+      resolveDictationAgentReachability({
+        useDictationAgent: true,
+        dictationAgentMode,
+        dictationAgentProvider: undefined,
+        dictationAgentModel: "gpt-5-mini",
+        isCloudAgent: false,
+        isSelfHostedAgent: false,
+      }),
+      false
+    );
+  }
+});
+
+test("display provider follows the active mode instead of stale state", async () => {
+  const { resolveDictationAgentDisplayProvider } = await load();
+
+  assert.equal(
+    resolveDictationAgentDisplayProvider({
+      dictationAgentMode: "local",
+      dictationAgentProvider: "openai",
+    }),
+    "local"
+  );
+  assert.equal(
+    resolveDictationAgentDisplayProvider({
+      dictationAgentMode: "self-hosted",
+      dictationAgentProvider: "openai",
+    }),
+    "self-hosted"
   );
 });

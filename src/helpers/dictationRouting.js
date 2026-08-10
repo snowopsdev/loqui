@@ -1,15 +1,22 @@
-// Whether the dictation agent can actually run. Mirrors ReasoningService.processText,
-// which accepts an empty model only for the cloud ("openwhispr") and self-hosted ("lan")
-// providers; every other mode (BYOK, local, enterprise) requires an explicit model.
+// Whether the dictation agent has a complete configuration for its active mode.
 export function resolveDictationAgentReachability({
   useDictationAgent,
+  dictationAgentMode,
+  dictationAgentProvider,
   dictationAgentModel,
   isCloudAgent,
   isSelfHostedAgent,
 }) {
   if (!useDictationAgent) return false;
-  if (isCloudAgent || isSelfHostedAgent) return true;
-  return (dictationAgentModel?.trim()?.length ?? 0) > 0;
+  if (dictationAgentMode === "openwhispr") return isCloudAgent;
+  if (dictationAgentMode === "self-hosted") return isSelfHostedAgent;
+
+  const hasModel = (dictationAgentModel?.trim()?.length ?? 0) > 0;
+  if (dictationAgentMode === "local") return hasModel;
+  if (dictationAgentMode === "providers" || dictationAgentMode === "enterprise") {
+    return !!dictationAgentProvider?.trim() && hasModel;
+  }
+  return false;
 }
 
 // Whether the translation step can run: cloud/self-hosted accept an empty model,
@@ -27,21 +34,35 @@ export function resolveDictationTranslationReachability({
   return (translationModel?.trim()?.length ?? 0) > 0;
 }
 
-// Maps the dictation agent's stored provider to a ReasoningService provider id.
-// In local mode the store holds the model picker's brand group ("qwen",
-// "llama", ...), which is UI state, not an inference provider — route it to
-// "local" so PROVIDER_REGISTRY can resolve it.
+// Maps the active mode to the provider ReasoningService must dispatch through.
 export function resolveDictationAgentProvider({
   isCloudAgent,
   dictationAgentMode,
   dictationAgentProvider,
 }) {
-  if (isCloudAgent) return "openwhispr";
+  switch (dictationAgentMode) {
+    case "openwhispr":
+      return isCloudAgent ? "openwhispr" : undefined;
+    case "local":
+      return "local";
+    case "self-hosted":
+      return undefined;
+    case "providers":
+    case "enterprise":
+      return dictationAgentProvider?.trim() || undefined;
+    default:
+      return undefined;
+  }
+}
+
+export function resolveDictationAgentDisplayProvider({
+  dictationAgentMode,
+  dictationAgentProvider,
+}) {
+  if (dictationAgentMode === "openwhispr") return "openwhispr";
   if (dictationAgentMode === "local") return "local";
-  // Self-hosted routes by endpoint, so a leftover cloud id would send the
-  // request off-device. Mirrors buildNoteFormattingOverrides.
-  if (dictationAgentMode === "self-hosted") return undefined;
-  return dictationAgentProvider?.trim() || undefined;
+  if (dictationAgentMode === "self-hosted") return "self-hosted";
+  return dictationAgentProvider?.trim() || "none";
 }
 
 // Decides which reasoning path ("translation" | "agent" | "cleanup" | "skip")

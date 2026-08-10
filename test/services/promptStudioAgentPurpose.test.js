@@ -142,6 +142,7 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
                 useCleanupModel: true,
                 cleanupModel: "",
                 useDictationAgent: true,
+                dictationAgentMode: "openwhispr",
                 dictationAgentProvider: "openwhispr",
                 dictationAgentModel: "auto",
                 useDictationTranslation: true,
@@ -174,7 +175,12 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
           if (id === "\0prompt-studio-agent-inference") {
             return `
               export function resolveDictationAgentInference() {
-                return { reachable: true, model: "auto", config: { provider: "openwhispr" } };
+                return {
+                  reachable: true,
+                  model: "auto",
+                  displayProvider: "openwhispr",
+                  config: { provider: "openwhispr" },
+                };
               }
             `;
           }

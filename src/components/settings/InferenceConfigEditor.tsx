@@ -3,6 +3,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network, Building2 } from "lucide-react";
 import {
+  LLM_ENTERPRISE_POLICY_PROVIDER_IDS,
+  LLM_POLICY_PROVIDER_IDS,
   useSettingsStore,
   selectPolicyEffectiveSettings,
   selectResolvedLLMConfig,
@@ -86,7 +88,11 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
       },
     ],
     "llm",
-    config.mode
+    config.mode,
+    {
+      byokProviders: LLM_POLICY_PROVIDER_IDS,
+      enterpriseProviders: LLM_ENTERPRISE_POLICY_PROVIDER_IDS,
+    }
   );
 
   const setField = useCallback(

@@ -34,10 +34,7 @@ export function resolveMeetingTranscriptionOptions({
     };
   }
 
-  // Self-hosted deliberately shares this branch: Note Recording requires
-  // realtime streaming, so it falls back to the managed pipeline instead of an
-  // endpoint we can't control — and never a stale BYOK provider selection.
-  if (transcriptionMode === "openwhispr" || transcriptionMode === "self-hosted") {
+  if (transcriptionMode === "openwhispr") {
     const provider = managedProviders?.[0] ?? DEFAULT_MANAGED_PROVIDER;
     return {
       provider: `${provider.id}-realtime`,
@@ -45,6 +42,12 @@ export function resolveMeetingTranscriptionOptions({
       mode: "openwhispr",
       language,
     };
+  }
+
+  if (transcriptionMode === "self-hosted") {
+    throw new Error(
+      "Self-hosted realtime transcription is not supported for Note Recording. Choose Local or Cloud Providers."
+    );
   }
 
   if (transcriptionMode !== "providers") {

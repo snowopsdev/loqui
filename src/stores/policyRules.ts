@@ -159,6 +159,7 @@ export function resolveEffectivePolicySelection(
     policy.llm.allowedEnterpriseProviders.includes(provider)
   );
   const modeIsUsable = (mode: InferenceMode): boolean => {
+    if (!catalog.modes.includes(mode)) return false;
     if (!policy[scope].allowedModes.includes(mode)) return false;
     if (mode === "providers") return allowedByokProviders.length > 0;
     if (mode === "enterprise") return scope === "llm" && allowedEnterpriseProviders.length > 0;
@@ -224,11 +225,6 @@ export function getTranscriptionSelection(
   context: TranscriptionPolicyContext
 ): TranscriptionSelection {
   if (context === "meeting") {
-    // Meeting self-hosted deliberately falls back to the managed realtime
-    // pipeline, so policy must judge that actual destination.
-    if (settings.meetingTranscriptionMode === "self-hosted") {
-      return { mode: "openwhispr", provider: "openwhispr" };
-    }
     return {
       mode: settings.meetingTranscriptionMode,
       provider: settings.meetingCloudTranscriptionProvider || settings.cloudTranscriptionProvider,
@@ -409,7 +405,7 @@ export function filterEnterpriseProviderOptionsByPolicy<T extends { id: string }
   return options.filter((option) => isEnterpriseProviderAllowed(state, option.id));
 }
 
-/** Preserve legacy cleanup writes only when no managed policy can be overwritten. */
+/** Preserve legacy fallback writes only when no managed policy can be overwritten. */
 export function shouldPersistProviderFallback(
   state: PolicyDecisionSnapshot,
   isSignedIn: boolean
@@ -448,7 +444,9 @@ export function reconcileCloudProviderSelection({
   if (selectedProvider === "custom" && customAllowed) return null;
   const selected = allowedProviders.find((provider) => provider.id === selectedProvider);
   if (selected) {
-    if (selectedModel || !selected.models?.length) return null;
+    if (!selected.models?.length || selected.models.some((model) => model.id === selectedModel)) {
+      return null;
+    }
     return { provider: selected.id, model: selected.models[0].id };
   }
   if (hasCustomUrl && customAllowed) {

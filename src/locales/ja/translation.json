@@ -2569,6 +2569,7 @@
     "meeting": {
       "title": "議事録",
       "description": "文字起こしと構造化されたサマリー",
+      "comingSoon": "近日公開",
       "back": "戻る",
       "restrictedByOrg": "会議の文字起こしは組織によって制限されています。"
     },

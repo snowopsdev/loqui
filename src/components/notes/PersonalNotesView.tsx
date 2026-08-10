@@ -345,6 +345,7 @@ export default function PersonalNotesView({
       seedSegments,
       diarizationEnabled: note?.diarization_enabled == null ? null : note.diarization_enabled === 1,
       expectedCount: resolveExpectedSpeakerCount(note),
+      expectedCountIsExplicit: note?.expected_speaker_count != null,
     });
   }, [activeNote]);
 
@@ -639,6 +640,7 @@ export default function PersonalNotesView({
         diarizationEnabled:
           note?.diarization_enabled == null ? null : note.diarization_enabled === 1,
         expectedCount: resolveExpectedSpeakerCount(note),
+        expectedCountIsExplicit: note?.expected_speaker_count != null,
       },
       startRecording: storeStartRecording,
       restoreFromMeetingMode: async () => {

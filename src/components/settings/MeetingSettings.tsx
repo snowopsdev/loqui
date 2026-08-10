@@ -86,6 +86,8 @@ export function MeetingTranscriptionPanel() {
         label: t("settingsPage.transcription.modes.selfHosted"),
         description: t("settingsPage.transcription.modes.selfHostedDesc"),
         icon: <Network className="w-4 h-4" />,
+        disabled: true,
+        badge: t("settings.meeting.comingSoon"),
       },
     ],
     "transcription",
@@ -94,6 +96,7 @@ export function MeetingTranscriptionPanel() {
   );
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
+    if (mode === "self-hosted") return;
     if (mode === "openwhispr" && !isSignedIn) {
       startOnboarding();
       return;
@@ -147,11 +150,6 @@ export function MeetingTranscriptionPanel() {
 
       {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
       {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}
-      {effectiveTranscriptionMode === "self-hosted" && (
-        <p className="text-xs text-muted-foreground/80 px-1">
-          {t("settingsPage.speechToText.selfHostedStreamingNote")}
-        </p>
-      )}
       <MeetingSpeakerDetectionRow />
     </div>
   );

@@ -144,6 +144,35 @@ test("provider-backed modes are hidden when their provider allowlist is empty", 
   );
 });
 
+test("provider-backed modes are hidden when policy providers are unavailable in the surface", async () => {
+  const { filterModeOptionsByPolicy, reconcilePolicyModeSelection } = await load();
+  const unknownProviderPolicy = {
+    ...policy,
+    transcription: {
+      allowedModes: ["providers", "local"],
+      allowedByokProviders: ["server-only-provider"],
+    },
+  };
+  const snapshot = {
+    status: "managed",
+    policy: unknownProviderPolicy,
+    appVersion: "1.8.1",
+  };
+  const options = [{ id: "providers" }, { id: "local" }];
+  const catalog = { byokProviders: ["openai", "custom"] };
+
+  assert.deepEqual(
+    filterModeOptionsByPolicy(options, "transcription", snapshot, catalog).map(
+      (option) => option.id
+    ),
+    ["local"]
+  );
+  assert.equal(
+    reconcilePolicyModeSelection(options, "transcription", snapshot, "providers", catalog),
+    "local"
+  );
+});
+
 test("enterprise mode stays hidden when policy allows only unavailable desktop providers", async () => {
   const { filterModeOptionsByPolicy } = await load();
   const unavailableEnterprisePolicy = {
@@ -303,6 +332,19 @@ test("effective selection skips policy providers unavailable to a narrower surfa
       }
     ),
     { mode: "local", provider: "groq" }
+  );
+
+  assert.deepEqual(
+    resolveEffectivePolicySelection(
+      { status: "managed", policy: meetingPolicy, appVersion: "1.8.1" },
+      "transcription",
+      { mode: "self-hosted", provider: "openai" },
+      {
+        modes: ["openwhispr", "providers", "local"],
+        byokProviders: ["openai", "corti", "tinfoil"],
+      }
+    ),
+    { mode: "local", provider: "openai" }
   );
 });
 
@@ -588,6 +630,17 @@ test("re-entering providers mode replaces a dormant policy-disallowed provider",
 
   assert.deepEqual(
     reconcileCloudProviderSelection({
+      selectedProvider: "openai",
+      selectedModel: "whisper-large-v3",
+      allowedProviders,
+      customAllowed: false,
+      hasCustomUrl: false,
+    }),
+    { provider: "openai", model: "whisper-1" }
+  );
+
+  assert.deepEqual(
+    reconcileCloudProviderSelection({
       selectedProvider: "groq",
       selectedModel: "whisper-large-v3",
       allowedProviders: [],
@@ -628,38 +681,4 @@ test("cloud-backup resume fires only on a denial-to-grant transition", async () 
   // A periodic refresh that keeps the grant unchanged must not kick a resync.
   assert.equal(cloudBackupResumed(unmanaged, unmanaged), false);
   assert.equal(cloudBackupResumed(managedAllowed, managedAllowed), false);
-});
-
-test("meeting self-hosted is judged by its managed-cloud fallback destination", async () => {
-  const { getTranscriptionSelection, isTranscriptionContextAllowed } = await load();
-  const settings = {
-    meetingTranscriptionMode: "self-hosted",
-    meetingCloudTranscriptionProvider: "",
-    cloudTranscriptionProvider: "openai",
-  };
-
-  // Note Recording routes self-hosted to the managed realtime pipeline, so
-  // the policy selection must reflect that real destination.
-  assert.deepEqual(getTranscriptionSelection(settings, "meeting"), {
-    mode: "openwhispr",
-    provider: "openwhispr",
-  });
-
-  const managedNoCloud = {
-    status: "managed",
-    policy: {
-      ...policy,
-      transcription: { allowedModes: ["local", "self-hosted"], allowedByokProviders: [] },
-    },
-    appVersion: null,
-  };
-  assert.equal(isTranscriptionContextAllowed(managedNoCloud, settings, "meeting"), false);
-  assert.equal(
-    isTranscriptionContextAllowed(
-      { status: "managed", policy, appVersion: null },
-      settings,
-      "meeting"
-    ),
-    true
-  );
 });

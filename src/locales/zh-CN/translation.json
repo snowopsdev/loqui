@@ -2585,6 +2585,7 @@
     "meeting": {
       "title": "会议笔记",
       "description": "转录与结构化摘要",
+      "comingSoon": "即将推出",
       "back": "返回",
       "restrictedByOrg": "会议转录已被您的组织限制。"
     },

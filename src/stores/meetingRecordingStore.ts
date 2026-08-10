@@ -10,7 +10,12 @@ import {
 } from "../helpers/micSelectionRecovery";
 import { ActiveMicRecoveryController } from "../helpers/activeMicRecovery";
 import { getBaseLanguageCode } from "../utils/languageSupport";
+import {
+  resolveInitialSpeakerCountOverride,
+  resolveParticipantSpeakerCountSync,
+} from "../utils/participants";
 import type { SystemAudioAccessResult, SystemAudioStrategy } from "../types/electron";
+import type { CalendarAttendee } from "../types/calendar";
 import {
   DEFAULT_SYSTEM_AUDIO_ACCESS,
   getDisplayCaptureModeForStrategy,
@@ -450,7 +455,7 @@ function reportMeetingError(error: string, extra: Partial<MeetingRecordingState>
 
 export const getMicAnalyser = (): AnalyserNode | null => micAnalyser;
 
-function pushConfig(enabled: boolean, expectedCount: number) {
+function pushConfig(enabled: boolean, expectedCount: number, countIsExplicit: boolean) {
   if (pushConfigTimeout) clearTimeout(pushConfigTimeout);
   pushConfigTimeout = setTimeout(() => {
     (
@@ -458,15 +463,19 @@ function pushConfig(enabled: boolean, expectedCount: number) {
         setMeetingSessionSpeakerConfig?: (config: {
           enabled: boolean;
           expectedCount: number;
+          countIsExplicit: boolean;
         }) => void;
       }
-    )?.setMeetingSessionSpeakerConfig?.({ enabled, expectedCount });
+    )?.setMeetingSessionSpeakerConfig?.({ enabled, expectedCount, countIsExplicit });
   }, 150);
 }
 
 export function setSessionDiarizationEnabled(enabled: boolean): void {
   useMeetingRecordingStore.setState({ sessionDiarizationEnabled: enabled });
-  pushConfig(enabled, useMeetingRecordingStore.getState().sessionExpectedCount);
+  // The toggle only carries the count along — it is explicit solely when the
+  // user has actually touched the stepper, so roster refreshes stay possible.
+  const state = useMeetingRecordingStore.getState();
+  pushConfig(enabled, state.sessionExpectedCount, state.userTouchedStepper);
   const noteId = useMeetingRecordingStore.getState().recordingNoteId;
   if (noteId != null) {
     window.electronAPI?.updateNote?.(noteId, { diarization_enabled: enabled ? 1 : 0 });
@@ -479,11 +488,36 @@ export function setSessionExpectedCount(count: number): void {
     sessionExpectedCount: clamped,
     userTouchedStepper: true,
   });
-  pushConfig(useMeetingRecordingStore.getState().sessionDiarizationEnabled, clamped);
+  pushConfig(useMeetingRecordingStore.getState().sessionDiarizationEnabled, clamped, true);
   const noteId = useMeetingRecordingStore.getState().recordingNoteId;
   if (noteId != null) {
     window.electronAPI?.updateNote?.(noteId, { expected_speaker_count: clamped });
   }
+}
+
+// Instant stepper feedback when the roster changes mid-recording. The
+// authoritative cap update happens in main (db-update-note →
+// _refreshMeetingSpeakerConfigFromNote), which broadcasts
+// meeting-session-speaker-config-updated back to this store — so no pushConfig
+// here, or the config would be marked as an explicit stepper choice.
+export function syncSessionExpectedCountFromParticipants(
+  noteId: number,
+  participants: readonly CalendarAttendee[]
+): void {
+  const state = useMeetingRecordingStore.getState();
+  const expectedCount = resolveParticipantSpeakerCountSync({
+    recordingNoteId: state.recordingNoteId,
+    noteId,
+    userTouchedStepper: state.userTouchedStepper,
+    currentExpectedCount: state.sessionExpectedCount,
+    participants,
+  });
+  if (expectedCount == null) return;
+
+  const clamped = Math.max(1, Math.min(MAX_SPEAKER_COUNT, expectedCount));
+  if (clamped === state.sessionExpectedCount) return;
+
+  useMeetingRecordingStore.setState({ sessionExpectedCount: clamped });
 }
 
 function setSystemPartialSpeakerIdentity(speakerId: string | null, speakerName: string | null) {
@@ -650,6 +684,12 @@ async function cleanup(): Promise<void> {
 
   ipcCleanups.forEach((fn) => fn());
   ipcCleanups = [];
+  // A debounced config push firing after stop would repopulate the session
+  // config main just cleared, leaking this session's count into the next one.
+  if (pushConfigTimeout) {
+    clearTimeout(pushConfigTimeout);
+    pushConfigTimeout = null;
+  }
   isPrepared = false;
   isRecordingFlag = false;
   isStartingFlag = false;
@@ -700,6 +740,7 @@ export interface StartRecordingArgs {
   seedSegments?: TranscriptSegment[];
   diarizationEnabled?: boolean | null;
   expectedCount?: number | null;
+  expectedCountIsExplicit?: boolean;
 }
 
 export async function startRecording(args: StartRecordingArgs): Promise<boolean> {
@@ -750,7 +791,10 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
     recordingFolderId: args.folderId,
     sessionDiarizationEnabled: initialEnabled,
     sessionExpectedCount: initialCount,
-    userTouchedStepper: args.expectedCount != null,
+    userTouchedStepper: resolveInitialSpeakerCountOverride(
+      args.expectedCount,
+      args.expectedCountIsExplicit
+    ),
     segments: seed,
     transcript: buildTranscriptText(seed),
     micPartial: "",
@@ -999,7 +1043,13 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
       let next = useMeetingRecordingStore.getState().segments;
       for (const { keep, remove, displayName } of merges) {
         next = next.map((seg) => {
-          if (seg.speaker !== remove || seg.speakerLocked) return seg;
+          if (seg.speaker !== remove) return seg;
+          // Locked segments keep their user-set name but must still move to the
+          // kept cluster: the removed id no longer exists in the identifier, so
+          // later merges and renames would never reach a segment left on it.
+          if (seg.speakerLocked) {
+            return normalizeTranscriptSegment({ ...seg, speaker: keep });
+          }
           return normalizeTranscriptSegment({
             ...seg,
             speaker: keep,
@@ -1045,6 +1095,16 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
       if (isRecordingFlag) void stopRecording();
     });
     if (fatalErrorCleanup) ipcCleanups.push(fatalErrorCleanup);
+
+    // Main re-derives the expected count when participants are added mid-meeting
+    // (never for a count set explicitly via the stepper — main skips those).
+    const speakerConfigCleanup = window.electronAPI?.onMeetingSessionSpeakerConfigUpdated?.(
+      (config) => {
+        const clamped = Math.max(1, Math.min(MAX_SPEAKER_COUNT, config.expectedCount));
+        useMeetingRecordingStore.setState({ sessionExpectedCount: clamped });
+      }
+    );
+    if (speakerConfigCleanup) ipcCleanups.push(speakerConfigCleanup);
 
     if (startResult.oneOnOneAttendee) {
       const synthetic: SpeakerIdentification = {

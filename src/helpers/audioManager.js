@@ -53,8 +53,13 @@ import { recordCleanupFailure } from "../stores/cleanupFailureStore";
 import {
   getBatchTranscriptionModel,
   getTranscriptionProvider,
+  getTranscriptionProviders,
   isOnlineParakeetModel,
 } from "../models/ModelRegistry";
+import {
+  TINFOIL_PROXY_REQUIRED_ERROR,
+  isTinfoilInferenceUrl,
+} from "../services/transcriptionBaseUrl";
 import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
 import {
   isSelfHostedTranscription,
@@ -1670,7 +1675,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       );
 
       const transcriptionStart = performance.now();
-      const result = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, options);
+      let result = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, options);
       timings.transcriptionProcessingDurationMs = Math.round(
         performance.now() - transcriptionStart
       );
@@ -1686,7 +1691,27 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       if (result.success && result.text) {
         if (this.isDictionaryEcho(result.text)) {
-          throw new Error("No audio detected");
+          // Whisper decoded (near-)silence and continued the dictionary prompt —
+          // typically VAD stripping pause-heavy speech (#1454). Retry once
+          // without the prompt and without VAD: real speech comes back as the
+          // true transcript, true silence comes back empty.
+          const retry = await window.electronAPI.transcribeLocalWhisper(arrayBuffer, {
+            model: options.model,
+            ...(options.language ? { language: options.language } : {}),
+            skipVad: true,
+          });
+          if (!retry?.success || !retry.text?.trim() || this.isDictionaryEcho(retry.text)) {
+            throw new Error("No audio detected");
+          }
+          logger.info(
+            "Recovered transcript after dictionary-echo detection",
+            { retryTextLength: retry.text.length },
+            "audio"
+          );
+          result = retry;
+          timings.transcriptionProcessingDurationMs = Math.round(
+            performance.now() - transcriptionStart
+          );
         }
         const rawText = result.text;
         const reasoningStart = performance.now();
@@ -3262,7 +3287,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // Backstop against the OpenAI-default leak: Tinfoil goes through the main-process
     // proxy, never here — except self-hosted, which resolves its remote URL below.
     if (currentProvider === "tinfoil" && !isSelfHostedTranscription(s)) {
-      throw new Error("Tinfoil transcription must go through the attested main-process proxy");
+      throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
     }
 
     const currentBaseUrl = s.cloudTranscriptionBaseUrl || "";
@@ -3294,6 +3319,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // OpenAI here would send audio and credentials to a policy-denied provider.
     if (isManagedCustomEndpoint && !currentBaseUrl.trim()) {
       rejectManagedCustomEndpoint();
+    }
+
+    // The provider-id guard above can't catch a Custom base URL that points at
+    // Tinfoil's inference host (e.g. persisted by the pre-#1459 tab clobber) —
+    // check the URL too. Must stay outside the try below: its catch swallows
+    // errors into the OpenAI default endpoint.
+    if (
+      currentProvider === "custom" &&
+      !isSelfHosted &&
+      isTinfoilInferenceUrl(currentBaseUrl, getTranscriptionProviders())
+    ) {
+      throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
     }
 
     if (

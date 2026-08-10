@@ -107,9 +107,9 @@ class ReasoningService extends BaseReasoningService {
     }
   }
 
-  private isLanCleanupMode(): boolean {
+  private hasLanCleanupConfiguration(): boolean {
     const settings = getSettings();
-    return settings.cleanupMode === "self-hosted" && !!settings.cleanupRemoteUrl;
+    return settings.cleanupMode === "self-hosted" && !!settings.cleanupRemoteUrl?.trim();
   }
 
   private async getApiKey(
@@ -365,20 +365,27 @@ class ReasoningService extends BaseReasoningService {
   ): Promise<string> {
     const trimmedModel = model?.trim?.() || "";
     const settings = getSettings();
+    const isImplicitCleanup =
+      config.provider === undefined && config.baseUrl === undefined && config.lanUrl === undefined;
+    const implicitProvider =
+      settings.cleanupMode === "openwhispr"
+        ? "openwhispr"
+        : settings.cleanupMode === "self-hosted"
+          ? "lan"
+          : settings.cleanupProvider || undefined;
     const isImplicitCustomCleanup =
-      config.provider === undefined &&
-      config.baseUrl === undefined &&
-      settings.cleanupMode === "providers" &&
-      settings.cleanupProvider === "custom";
-    const dispatchConfig: ReasoningConfig = isImplicitCustomCleanup
+      isImplicitCleanup && settings.cleanupMode === "providers" && implicitProvider === "custom";
+    const dispatchConfig: ReasoningConfig = isImplicitCleanup
       ? {
           ...config,
-          provider: "custom",
-          baseUrl: settings.cleanupCloudBaseUrl,
-          customApiKey: config.customApiKey ?? settings.cleanupCustomApiKey,
+          provider: implicitProvider,
+          baseUrl: isImplicitCustomCleanup ? settings.cleanupCloudBaseUrl : undefined,
+          customApiKey: isImplicitCustomCleanup
+            ? (config.customApiKey ?? settings.cleanupCustomApiKey)
+            : config.customApiKey,
         }
       : config;
-    const isLanCleanup = !!dispatchConfig.lanUrl || this.isLanCleanupMode();
+    const isLanCleanup = !!dispatchConfig.lanUrl || dispatchConfig.provider === "lan";
     const providerId = isLanCleanup
       ? "lan"
       : resolveInferenceProvider(dispatchConfig.provider, trimmedModel);
@@ -973,7 +980,7 @@ class ReasoningService extends BaseReasoningService {
         return true;
       }
 
-      if (this.isLanCleanupMode()) {
+      if (this.hasLanCleanupConfiguration()) {
         logger.logReasoning("API_KEY_CHECK", { lanCleanup: true });
         return true;
       }

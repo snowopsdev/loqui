@@ -2585,6 +2585,7 @@
     "meeting": {
       "title": "會議筆記",
       "description": "轉錄與結構化摘要",
+      "comingSoon": "即將推出",
       "back": "返回",
       "restrictedByOrg": "會議轉錄已被您的組織限制。"
     },

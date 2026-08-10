@@ -106,7 +106,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { startMigration, useMigration } from "../stores/noteStore.js";
 import { syncService } from "../services/SyncService.js";
 import { formatBytes } from "../utils/formatBytes";
-import { clearMissingLocalModelSelections, useSettingsStore } from "../stores/settingsStore";
+import {
+  clearMissingLocalModelSelections,
+  TRANSCRIPTION_POLICY_PROVIDER_IDS,
+  useSettingsStore,
+} from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import {
   canChangeCloudBackupPreference,
@@ -314,7 +318,8 @@ function TranscriptionSection({
       },
     ],
     "transcription",
-    transcriptionMode
+    transcriptionMode,
+    { byokProviders: TRANSCRIPTION_POLICY_PROVIDER_IDS }
   );
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;

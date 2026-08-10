@@ -485,12 +485,14 @@ export default function TranscriptionModelPicker({
     // Every provider's URL counts as known, including policy-blocked ones:
     // otherwise a blocked provider's stored URL reads as a custom endpoint and
     // reconciliation would keep pointing "custom" at what policy just denied.
-    const knownProviderUrls = availableCloudProviders.map((provider) => provider.baseUrl);
+    const knownProviderUrls = new Set(
+      availableCloudProviders.map((provider) => normalizeBaseUrl(provider.baseUrl))
+    );
+    const normalizedBaseUrl = normalizeBaseUrl(cloudTranscriptionBaseUrl);
     const hasCustomUrl = Boolean(
-      cloudTranscriptionBaseUrl &&
-      cloudTranscriptionBaseUrl.trim() !== "" &&
-      cloudTranscriptionBaseUrl !== API_ENDPOINTS.TRANSCRIPTION_BASE &&
-      !knownProviderUrls.includes(cloudTranscriptionBaseUrl)
+      normalizedBaseUrl &&
+      normalizedBaseUrl !== normalizeBaseUrl(API_ENDPOINTS.TRANSCRIPTION_BASE) &&
+      !knownProviderUrls.has(normalizedBaseUrl)
     );
     return (
       reconcileCloudProviderSelection({
@@ -665,6 +667,9 @@ export default function TranscriptionModelPicker({
     [onModeChange]
   );
 
+  // Never writes cloudTranscriptionBaseUrl: that key is the Custom tab's only
+  // storage, and built-in providers resolve their endpoints from the registry
+  // at request time — writing it here destroyed the user's URL (#1459).
   const handleCloudProviderChange = useCallback(
     (providerId: string) => {
       if (!providerAllowed(providerId)) return;
@@ -676,20 +681,11 @@ export default function TranscriptionModelPicker({
         return;
       }
 
-      if (provider) {
-        setCloudTranscriptionBaseUrl?.(provider.baseUrl);
-        if (provider.models?.length) {
-          onCloudModelSelect(provider.models[0].id);
-        }
+      if (provider?.models?.length) {
+        onCloudModelSelect(provider.models[0].id);
       }
     },
-    [
-      cloudProviders,
-      onCloudProviderSelect,
-      onCloudModelSelect,
-      setCloudTranscriptionBaseUrl,
-      providerAllowed,
-    ]
+    [cloudProviders, onCloudProviderSelect, onCloudModelSelect, providerAllowed]
   );
 
   const handleLocalProviderChange = useCallback(

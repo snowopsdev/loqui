@@ -2585,6 +2585,7 @@
     "meeting": {
       "title": "Note delle riunioni",
       "description": "Trascrizioni e riassunti strutturati",
+      "comingSoon": "Prossimamente",
       "back": "Indietro",
       "restrictedByOrg": "La trascrizione delle riunioni è limitata dalla tua organizzazione."
     },

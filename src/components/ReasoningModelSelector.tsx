@@ -26,6 +26,7 @@ import { getCachedPlatform } from "../utils/platform";
 import { useSettingsStore } from "../stores/settingsStore";
 import {
   filterByokProviderOptionsByPolicy,
+  isModeAllowedByPolicy,
   isProviderAllowedByPolicy,
   reconcileProviderSelection,
 } from "../stores/policyRules";
@@ -349,18 +350,11 @@ export default function ReasoningModelSelector({
   const [selectedMode, setSelectedMode] = useState<"cloud" | "local">(mode || "cloud");
   const [selectedCloudProvider, setSelectedCloudProvider] = useState("openai");
   const [selectedLocalProvider, setSelectedLocalProvider] = useState("qwen");
-  const {
-    models: tinfoilModels,
-    loading: tinfoilModelsLoading,
-    error: tinfoilModelsError,
-  } = useTinfoilModels(selectedCloudProvider === "tinfoil");
   const policyState = usePolicySnapshot();
   const providerAllowed = useCallback(
     (providerId: string) => isProviderAllowedByPolicy(policyState, "llm", providerId),
     [policyState]
   );
-
-  const effectiveMode = mode || selectedMode;
 
   const cloudProviderTabs = useMemo(
     () =>
@@ -382,6 +376,24 @@ export default function ReasoningModelSelector({
   const cloudProviders = cloudProviderTabs;
   const cloudProviderFallback = reconcileProviderSelection(selectedCloudProvider, cloudProviders);
   const displayedCloudProvider = cloudProviderFallback ?? selectedCloudProvider;
+  const {
+    models: tinfoilModels,
+    loading: tinfoilModelsLoading,
+    error: tinfoilModelsError,
+  } = useTinfoilModels(displayedCloudProvider === "tinfoil");
+  const modeTabs = [
+    ...(isModeAllowedByPolicy(policyState, "llm", "providers") && cloudProviders.length > 0
+      ? [{ id: "cloud", name: t("reasoning.mode.cloud") }]
+      : []),
+    ...(isModeAllowedByPolicy(policyState, "llm", "local")
+      ? [{ id: "local", name: t("reasoning.mode.local") }]
+      : []),
+  ];
+  const effectiveMode =
+    mode ??
+    (modeTabs.some((tab) => tab.id === selectedMode)
+      ? selectedMode
+      : (modeTabs[0]?.id as "cloud" | "local" | undefined));
 
   const localProviders = useMemo<LocalProvider[]>(() => {
     return modelRegistry.getAllProviders().map((provider) => ({
@@ -487,6 +499,9 @@ export default function ReasoningModelSelector({
   );
 
   const handleModeChange = async (newMode: "cloud" | "local") => {
+    const policyMode = newMode === "local" ? "local" : "providers";
+    if (!isModeAllowedByPolicy(policyState, "llm", policyMode)) return;
+    if (newMode === "cloud" && cloudProviders.length === 0) return;
     setSelectedMode(newMode);
     setReasoningModeProp?.(newMode === "local" ? "local" : "providers");
 
@@ -549,11 +564,6 @@ export default function ReasoningModelSelector({
     setReasoningModel(modelId);
   };
 
-  const MODE_TABS = [
-    { id: "cloud", name: t("reasoning.mode.cloud") },
-    { id: "local", name: t("reasoning.mode.local") },
-  ];
-
   const renderModeIcon = (id: string) => {
     if (id === "cloud") return <Cloud className="w-4 h-4" />;
     return <Lock className="w-4 h-4" />;
@@ -563,18 +573,24 @@ export default function ReasoningModelSelector({
     <div className="space-y-4">
       {!mode && (
         <div className="space-y-2">
-          <ProviderTabs
-            providers={MODE_TABS}
-            selectedId={effectiveMode}
-            onSelect={(id) => handleModeChange(id as "cloud" | "local")}
-            renderIcon={renderModeIcon}
-            colorScheme="purple"
-          />
-          <p className="text-xs text-muted-foreground text-center">
-            {effectiveMode === "local"
-              ? t("reasoning.mode.localDescription")
-              : t("reasoning.mode.cloudDescription")}
-          </p>
+          {modeTabs.length > 0 ? (
+            <>
+              <ProviderTabs
+                providers={modeTabs}
+                selectedId={effectiveMode}
+                onSelect={(id) => handleModeChange(id as "cloud" | "local")}
+                renderIcon={renderModeIcon}
+                colorScheme="purple"
+              />
+              <p className="text-xs text-muted-foreground text-center">
+                {effectiveMode === "local"
+                  ? t("reasoning.mode.localDescription")
+                  : t("reasoning.mode.cloudDescription")}
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center">{t("common.managedByOrg")}</p>
+          )}
         </div>
       )}
 

@@ -199,3 +199,40 @@ test("automatic Custom fallbacks never inherit another provider's endpoint", asy
   assert.equal(raw.cleanupProvider, "openai");
   assert.equal(raw.cleanupCloudBaseUrl, unrelatedEndpoint);
 });
+
+test("Note Recording never inherits an unsupported self-hosted policy fallback", async (t) => {
+  installBrowserGlobals(t, {
+    initialStorage: {
+      _providerSettingsMigrated: "1",
+      uploadTranscriptionMigrated: "true",
+      transcriptionMode: "self-hosted",
+      meetingTranscriptionMode: "self-hosted",
+      uploadTranscriptionMode: "self-hosted",
+    },
+  });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "openwhispr-policy-effective-meeting-self-hosted-test-",
+  });
+  const { usePolicyStore } = await vite.ssrLoadModule("/stores/policyStore.ts");
+  const { getSettings } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const selfHostedPolicy = {
+    ...managedPolicy,
+    transcription: {
+      allowedModes: ["self-hosted", "local"],
+      allowedByokProviders: [],
+    },
+  };
+
+  usePolicyStore.setState({
+    status: "managed",
+    managed: true,
+    policy: selfHostedPolicy,
+    appVersion: "1.8.1",
+  });
+
+  const effective = getSettings();
+  assert.equal(effective.transcriptionMode, "self-hosted");
+  assert.equal(effective.uploadTranscriptionMode, "self-hosted");
+  assert.equal(effective.meetingTranscriptionMode, "local");
+  assert.equal(effective.meetingUseLocalWhisper, true);
+});

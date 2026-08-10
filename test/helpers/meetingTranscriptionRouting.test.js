@@ -64,19 +64,13 @@ test("BYOK OpenAI never downgrades to managed cloud when its key is unavailable"
 test("self-hosted mode never follows a stale Tinfoil provider", async () => {
   const { resolveMeetingTranscriptionOptions } = await load();
 
-  // Realtime is required for Note Recording, so self-hosted deliberately
-  // falls back to the managed pipeline — not the stale BYOK selection.
-  assert.deepEqual(
-    resolveMeetingTranscriptionOptions({
-      ...baseOptions,
-      transcriptionMode: "self-hosted",
-    }),
-    {
-      provider: "assemblyai-realtime",
-      model: "universal-streaming",
-      mode: "openwhispr",
-      language: "en",
-    }
+  assert.throws(
+    () =>
+      resolveMeetingTranscriptionOptions({
+        ...baseOptions,
+        transcriptionMode: "self-hosted",
+      }),
+    /Self-hosted realtime transcription is not supported/
   );
 });
 

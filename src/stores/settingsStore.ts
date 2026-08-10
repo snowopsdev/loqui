@@ -52,17 +52,27 @@ let _ReasoningService: typeof import("../services/ReasoningService").default | n
 
 const isBrowser = typeof window !== "undefined";
 
+export const TRANSCRIPTION_POLICY_PROVIDER_IDS = [
+  ...modelRegistryData.transcriptionProviders.map((provider) => provider.id),
+  "custom",
+] as const;
+
+export const LLM_POLICY_PROVIDER_IDS = [
+  ...modelRegistryData.cloudProviders.map((provider) => provider.id),
+  "openrouter",
+  "custom",
+] as const;
+
+// Azure and Vertex remain intentionally unavailable in the desktop picker.
+export const LLM_ENTERPRISE_POLICY_PROVIDER_IDS = ["bedrock"] as const;
+
 const TRANSCRIPTION_POLICY_CATALOG = {
   modes: ["openwhispr", "providers", "local", "self-hosted"] as const,
-  byokProviders: [
-    ...modelRegistryData.transcriptionProviders.map((provider) => provider.id),
-    "custom",
-  ],
+  byokProviders: TRANSCRIPTION_POLICY_PROVIDER_IDS,
 };
 
 const MEETING_TRANSCRIPTION_POLICY_CATALOG = {
-  // Meeting self-hosted deliberately streams through the managed realtime
-  // pipeline, so it is not a private destination a policy fallback may select.
+  // Self-hosted realtime is not implemented for Note Recording.
   modes: ["openwhispr", "providers", "local"] as const,
   byokProviders: modelRegistryData.transcriptionProviders
     .filter((provider) => provider.models.some((model) => model.streaming))
@@ -71,13 +81,8 @@ const MEETING_TRANSCRIPTION_POLICY_CATALOG = {
 
 const LLM_POLICY_CATALOG = {
   modes: ["openwhispr", "providers", "local", "self-hosted", "enterprise"] as const,
-  byokProviders: [
-    ...modelRegistryData.cloudProviders.map((provider) => provider.id),
-    "openrouter",
-    "custom",
-  ],
-  // Azure and Vertex remain intentionally unavailable in the desktop picker.
-  enterpriseProviders: ["bedrock"],
+  byokProviders: LLM_POLICY_PROVIDER_IDS,
+  enterpriseProviders: LLM_ENTERPRISE_POLICY_PROVIDER_IDS,
 };
 
 const localLlmProviderIds = new Set(
@@ -1167,7 +1172,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   appleCalendarConnected: readBoolean("appleCalendarConnected", false),
   meetingProcessDetection: readBoolean("meetingProcessDetection", true),
   speakerDiarizationEnabled: readBoolean("speakerDiarizationEnabled", true),
-  dictationSileroEnabled: readBoolean("dictationSileroEnabled", true),
+  // Off by default: VAD on pause-heavy dictations can strip the speech and make
+  // Whisper hallucinate the dictionary prompt as the transcript (#1454).
+  dictationSileroEnabled: readBoolean("dictationSileroEnabled", false),
   noteRecordingSileroEnabled: readBoolean("noteRecordingSileroEnabled", true),
   meetingSileroEnabled: readBoolean("meetingSileroEnabled", true),
   whisperVadThreshold: clampVadValue("threshold", readString("whisperVadThreshold", "0.5")),

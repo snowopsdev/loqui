@@ -1,5 +1,11 @@
 import { withSessionRefresh } from "../lib/auth";
 import { resolveCustomTranscriptionRoute } from "../helpers/retryTranscriptionRouting.js";
+import { getTranscriptionProviders } from "../models/ModelRegistry";
+import {
+  TINFOIL_PROXY_REQUIRED_ERROR,
+  isTinfoilInferenceUrl,
+  resolveByokBaseUrl,
+} from "./transcriptionBaseUrl";
 
 export interface FileTranscriptionResult {
   success: boolean;
@@ -62,16 +68,39 @@ export async function transcribeFile(
     });
   }
 
-  const customRoute = resolveCustomTranscriptionRoute({
-    provider: cfg.cloudTranscriptionProvider,
-    baseUrl: cfg.cloudTranscriptionBaseUrl,
-  });
-  if (customRoute?.kind === "configuration-error") {
-    return {
-      success: false,
-      error: customRoute.error,
-      code: "CUSTOM_ENDPOINT_INVALID",
-    };
+  // Built-in providers resolve from the registry; only Custom uses the
+  // stored URL, which provider tab switches no longer overwrite (#1459).
+  const providers = getTranscriptionProviders();
+  let baseUrl = resolveByokBaseUrl(
+    cfg.cloudTranscriptionProvider,
+    cfg.cloudTranscriptionBaseUrl || "",
+    providers
+  );
+
+  if (cfg.transcriptionMode !== "self-hosted") {
+    const customRoute = resolveCustomTranscriptionRoute({
+      provider: cfg.cloudTranscriptionProvider,
+      baseUrl,
+    });
+    if (customRoute?.kind === "configuration-error") {
+      return {
+        success: false,
+        error: customRoute.error,
+        code: "CUSTOM_ENDPOINT_INVALID",
+      };
+    }
+    if (customRoute) baseUrl = customRoute.baseUrl;
+  }
+
+  // A Custom URL pointing at Tinfoil (e.g. persisted by the pre-#1459 tab
+  // clobber) must not bypass the attested main-process proxy. Self-hosted
+  // mode is exempt: the handler routes it to remoteTranscriptionUrl.
+  if (
+    cfg.cloudTranscriptionProvider === "custom" &&
+    cfg.transcriptionMode !== "self-hosted" &&
+    isTinfoilInferenceUrl(baseUrl, providers)
+  ) {
+    throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
   }
 
   // Self-hosted fields make the handler route to the configured server
@@ -79,7 +108,7 @@ export async function transcribeFile(
   return window.electronAPI.transcribeAudioFileByok!({
     filePath,
     apiKey: cfg.getApiKey(),
-    baseUrl: customRoute?.baseUrl ?? cfg.cloudTranscriptionBaseUrl ?? "",
+    baseUrl,
     model: cfg.cloudTranscriptionModel,
     diarize: diarize || undefined,
     provider: cfg.cloudTranscriptionProvider,

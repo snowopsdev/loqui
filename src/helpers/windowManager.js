@@ -7,6 +7,7 @@ const MenuManager = require("./menuManager");
 const DevServerManager = require("./devServerManager");
 const dockManager = require("./dockManager");
 const { i18nMain } = require("./i18nMain");
+const { NotificationDismissTimer, getNotificationTimeoutMs } = require("./notificationTimer");
 const { DEV_SERVER_PORT } = DevServerManager;
 const {
   MAIN_WINDOW_CONFIG,
@@ -25,7 +26,12 @@ class WindowManager {
     this.controlPanelWindow = null;
     this.agentWindow = null;
     this.notificationWindow = null;
-    this._notificationTimeout = null;
+    this._notificationDismissTimer = new NotificationDismissTimer(() => {
+      if (this.meetingDetectionEngine) {
+        this.meetingDetectionEngine.handleNotificationTimeout();
+      }
+      this.dismissMeetingNotification();
+    });
     this.transcriptionPreviewWindow = null;
     this.updateNotificationWindow = null;
     this._updateNotificationDismissed = false;
@@ -131,10 +137,14 @@ class WindowManager {
     if (!this.notificationWindow || this.notificationWindow.isDestroyed()) {
       return;
     }
+    // Hovering means the user is reading or about to click — the auto-dismiss
+    // countdown must not close the card under their pointer.
     if (interactive) {
       this.notificationWindow.setIgnoreMouseEvents(false);
+      this._notificationDismissTimer.pause();
     } else {
       this.notificationWindow.setIgnoreMouseEvents(true, { forward: true });
+      this._notificationDismissTimer.resume();
     }
   }
 
@@ -1208,10 +1218,7 @@ class WindowManager {
       this.notificationWindow.close();
       this.notificationWindow = null;
     }
-    if (this._notificationTimeout) {
-      clearTimeout(this._notificationTimeout);
-      this._notificationTimeout = null;
-    }
+    this._notificationDismissTimer.cancel();
 
     const display = screen.getPrimaryDisplay();
     const position = WindowPositionUtil.getNotificationPosition(display);
@@ -1257,19 +1264,11 @@ class WindowManager {
       }
     }, 3000);
 
-    this._notificationTimeout = setTimeout(() => {
-      if (this.meetingDetectionEngine) {
-        this.meetingDetectionEngine.handleNotificationTimeout();
-      }
-      this.dismissMeetingNotification();
-    }, 30000);
+    this._notificationDismissTimer.start(getNotificationTimeoutMs(promptData.source));
 
     this.notificationWindow.on("closed", () => {
       this.notificationWindow = null;
-      if (this._notificationTimeout) {
-        clearTimeout(this._notificationTimeout);
-        this._notificationTimeout = null;
-      }
+      this._notificationDismissTimer.cancel();
     });
   }
 
@@ -1289,10 +1288,7 @@ class WindowManager {
       clearTimeout(this._notificationReadyFallback);
       this._notificationReadyFallback = null;
     }
-    if (this._notificationTimeout) {
-      clearTimeout(this._notificationTimeout);
-      this._notificationTimeout = null;
-    }
+    this._notificationDismissTimer.cancel();
     if (this.notificationWindow && !this.notificationWindow.isDestroyed()) {
       this.notificationWindow.close();
     }

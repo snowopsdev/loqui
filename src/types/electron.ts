@@ -2267,6 +2267,7 @@ declare global {
       onMeetingDiarizationComplete?: (
         callback: (data: {
           sessionId?: string;
+          noteId?: number | null;
           segments: Array<{
             id: string;
             text: string;

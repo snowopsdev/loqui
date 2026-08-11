@@ -112,6 +112,7 @@ import {
   useSettingsStore,
 } from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { highestPlan } from "../lib/usageStore";
 import {
   canChangeCloudBackupPreference,
   effectiveAudioRetentionDays,
@@ -1007,9 +1008,23 @@ export default function SettingsPage({
   const { theme, setTheme } = useTheme();
   const usage = useUsage();
   const billingWorkspaces = useWorkspaceStore((s) => s.workspaces);
-  const coveringWorkspaceNames = (usage?.entitledWorkspaceIds ?? [])
-    .map((id) => billingWorkspaces.find((workspace) => workspace.id === id)?.name)
-    .filter((name): name is string => Boolean(name));
+  const coveringWorkspaces = billingWorkspaces.filter((workspace) =>
+    usage?.entitledWorkspaceIds?.includes(workspace.id)
+  );
+  const coveringWorkspaceNames = coveringWorkspaces.map((workspace) => workspace.name);
+  // Reads the usage payload, not the workspace store, so the upgrade affordances
+  // stay hidden across the window where the store is still loading.
+  const isWorkspaceCovered =
+    !usage?.isPersonallySubscribed && (usage?.entitledWorkspaceIds?.length ?? 0) > 0;
+  // Null until the store resolves, so the label waits rather than guessing a tier.
+  const coveringPlanLabel =
+    isWorkspaceCovered && coveringWorkspaces.length
+      ? t(
+          `settingsPage.workspace.billing.planLabel.${highestPlan(
+            coveringWorkspaces.map((workspace) => workspace.plan)
+          )}`
+        )
+      : null;
   const hasShownApproachingToast = useRef(false);
   useEffect(() => {
     if (usage?.isApproachingLimit && !hasShownApproachingToast.current) {
@@ -1900,7 +1915,8 @@ export default function SettingsPage({
                                     ? usage.plan === "business"
                                       ? t("settingsPage.account.planLabels.business")
                                       : t("settingsPage.account.planLabels.pro")
-                                    : t("settingsPage.account.planLabels.free")
+                                    : (coveringPlanLabel ??
+                                      t("settingsPage.account.planLabels.free"))
                             }
                             description={
                               usage.isTrial
@@ -1925,10 +1941,14 @@ export default function SettingsPage({
                                       ? t("settingsPage.unifiedBilling.providedBy", {
                                           workspaces: coveringWorkspaceNames.join(", "),
                                         })
-                                      : t("settingsPage.account.planDescriptions.freeUsage", {
-                                          used: usage.wordsUsed.toLocaleString(i18n.language),
-                                          limit: usage.limit.toLocaleString(i18n.language),
-                                        })
+                                      : // usage.limit is -1 once subscribed, which the
+                                        // free-usage copy would print as "-1 words".
+                                        isWorkspaceCovered
+                                        ? t("settingsPage.account.planDescriptions.unlimited")
+                                        : t("settingsPage.account.planDescriptions.freeUsage", {
+                                            used: usage.wordsUsed.toLocaleString(i18n.language),
+                                            limit: usage.limit.toLocaleString(i18n.language),
+                                          })
                             }
                           >
                             {usage.isTrial ? (
@@ -1943,6 +1963,8 @@ export default function SettingsPage({
                                   ? t("settingsPage.account.badges.business")
                                   : t("settingsPage.account.badges.pro")}
                               </Badge>
+                            ) : coveringPlanLabel ? (
+                              <Badge variant="success">{coveringPlanLabel}</Badge>
                             ) : usage.isOverLimit ? (
                               <Badge variant="warning">
                                 {t("settingsPage.account.badges.limitReached")}
@@ -2022,7 +2044,7 @@ export default function SettingsPage({
                                 ? t("settingsPage.account.billing.opening")
                                 : t("settingsPage.account.billing.manageBilling")}
                             </Button>
-                          ) : (
+                          ) : isWorkspaceCovered ? null : (
                             <Button
                               onClick={async () => {
                                 setCheckoutTier("plan-upgrade");
@@ -2062,7 +2084,10 @@ export default function SettingsPage({
                     <div
                       className={cn(
                         "rounded-md p-2.5 flex flex-col",
-                        planStateKnown && !usage?.isPersonallySubscribed && !usage?.isTrial
+                        planStateKnown &&
+                          !usage?.isPersonallySubscribed &&
+                          !usage?.isTrial &&
+                          !isWorkspaceCovered
                           ? "border-2 border-primary/30 bg-primary/3 dark:border-primary/20 dark:bg-primary/5"
                           : "border border-border/50 dark:border-border-subtle/60 bg-card/30 dark:bg-surface-2/30"
                       )}
@@ -2123,7 +2148,7 @@ export default function SettingsPage({
                             ? t("settingsPage.account.billing.opening")
                             : t("settingsPage.account.pricing.downgrade")}
                         </Button>
-                      ) : planStateKnown ? (
+                      ) : planStateKnown && !isWorkspaceCovered ? (
                         <div className="mt-2 text-center">
                           <span className="text-[9px] font-medium text-primary/70">
                             {t("settingsPage.account.pricing.currentPlan")}

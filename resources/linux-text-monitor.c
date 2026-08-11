@@ -17,7 +17,12 @@
  *   First line: original pasted text (informational)
  *
  * Compile:
- *   gcc -O2 linux-text-monitor.c -o linux-text-monitor $(pkg-config --cflags --libs atspi-2)
+ *   gcc -O2 linux-text-monitor.c -o linux-text-monitor $(pkg-config --cflags --libs --static atspi-2)
+ *
+ * Note: --static is required because atspi-2.pc lists gobject-2.0 under
+ * Requires.private rather than Requires, so a plain `pkg-config --libs`
+ * omits -lgobject-2.0 and fails to link with linkers defaulting to
+ * --as-needed (e.g. current Ubuntu/Arch toolchains).
  */
 
 #include <stdio.h>

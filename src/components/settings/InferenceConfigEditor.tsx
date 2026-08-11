@@ -34,6 +34,7 @@ const MODE_LABEL_PREFIX: Record<InferenceScope, string> = {
   dictationCleanup: "settingsPage.aiModels.modes",
   noteFormatting: "settingsPage.aiModels.modes",
   dictationAgent: "dictationAgent.modes",
+  dictationAgentVision: "dictationAgent.modes",
   chatIntelligence: "agentMode.settings.modes",
   dictationTranslation: "settingsPage.aiModels.modes",
 };
@@ -48,9 +49,15 @@ function startCloudOnboarding() {
 interface InferenceConfigEditorProps {
   scope: InferenceScope;
   onModeChange?: (mode: InferenceMode) => void;
+  /** Restrict the selectable modes (e.g. vision override offers cloud/BYOK only). */
+  allowedModes?: InferenceMode[];
 }
 
-export default function InferenceConfigEditor({ scope, onModeChange }: InferenceConfigEditorProps) {
+export default function InferenceConfigEditor({
+  scope,
+  onModeChange,
+  allowedModes,
+}: InferenceConfigEditorProps) {
   const { t } = useTranslation();
   const policyState = usePolicySnapshot();
   const config = useSettingsStore(
@@ -66,40 +73,42 @@ export default function InferenceConfigEditor({ scope, onModeChange }: Inference
 
   const prefix = MODE_LABEL_PREFIX[scope];
   const { modes, effectiveMode, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
-    [
-      {
-        id: "openwhispr",
-        label: t(`${prefix}.openwhispr`),
-        description: t(`${prefix}.openwhisprDesc`),
-        icon: <Cloud className="w-4 h-4" />,
-        disabled: !isSignedIn,
-        badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
-      },
-      {
-        id: "providers",
-        label: t(`${prefix}.providers`),
-        description: t(`${prefix}.providersDesc`),
-        icon: <Key className="w-4 h-4" />,
-      },
-      {
-        id: "local",
-        label: t(`${prefix}.local`),
-        description: t(`${prefix}.localDesc`),
-        icon: <Cpu className="w-4 h-4" />,
-      },
-      {
-        id: "self-hosted",
-        label: t(`${prefix}.selfHosted`),
-        description: t(`${prefix}.selfHostedDesc`),
-        icon: <Network className="w-4 h-4" />,
-      },
-      {
-        id: "enterprise",
-        label: t(`${prefix}.enterprise`),
-        description: t(`${prefix}.enterpriseDesc`),
-        icon: <Building2 className="w-4 h-4" />,
-      },
-    ],
+    (
+      [
+        {
+          id: "openwhispr",
+          label: t(`${prefix}.openwhispr`),
+          description: t(`${prefix}.openwhisprDesc`),
+          icon: <Cloud className="w-4 h-4" />,
+          disabled: !isSignedIn,
+          badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
+        },
+        {
+          id: "providers",
+          label: t(`${prefix}.providers`),
+          description: t(`${prefix}.providersDesc`),
+          icon: <Key className="w-4 h-4" />,
+        },
+        {
+          id: "local",
+          label: t(`${prefix}.local`),
+          description: t(`${prefix}.localDesc`),
+          icon: <Cpu className="w-4 h-4" />,
+        },
+        {
+          id: "self-hosted",
+          label: t(`${prefix}.selfHosted`),
+          description: t(`${prefix}.selfHostedDesc`),
+          icon: <Network className="w-4 h-4" />,
+        },
+        {
+          id: "enterprise",
+          label: t(`${prefix}.enterprise`),
+          description: t(`${prefix}.enterpriseDesc`),
+          icon: <Building2 className="w-4 h-4" />,
+        },
+      ] as InferenceModeOption[]
+    ).filter((mode) => !allowedModes || allowedModes.includes(mode.id)),
     "llm",
     config.mode,
     {

@@ -136,19 +136,6 @@ OpenWhispr tries clipboard methods in order: `wl-copy` (most reliable) → rende
 4. Restart OpenWhispr and start meeting transcription again
 5. No screen-share chooser is expected for Linux system audio; OpenWhispr captures the default sink monitor directly through PipeWire
 
-### Linux Auto-Learn Correction (AT-SPI2) Issues
-
-**Symptoms:** Auto-learn correction (Settings → Dictionary) never updates the custom dictionary after an edit, with no error shown, on Linux sessions other than GNOME.
-
-**Fix:**
-
-1. GTK/Gecko apps (Firefox, Claude Desktop, etc.) only register with AT-SPI2 when `org.gnome.desktop.interface toolkit-accessibility` is enabled — this is off by default on non-GNOME sessions (niri, Hyprland, sway, KDE). Enable it:
-   ```
-   gsettings set org.gnome.desktop.interface toolkit-accessibility true
-   ```
-2. Restart the target app (Firefox, etc.) after enabling — the flag is read once at startup, not watched live.
-3. This affects only apps that don't expose their accessibility tree; apps that do keep working as before, and unsupported apps simply skip correction learning silently rather than erroring.
-
 ### Meeting Transcription Issues
 
 **Symptoms:** Meeting detection not working, no transcription, audio not captured

@@ -106,17 +106,24 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { startMigration, useMigration } from "../stores/noteStore.js";
 import { syncService } from "../services/SyncService.js";
 import { formatBytes } from "../utils/formatBytes";
-import { clearMissingLocalModelSelections, useSettingsStore } from "../stores/settingsStore";
+import {
+  clearMissingLocalModelSelections,
+  TRANSCRIPTION_POLICY_PROVIDER_IDS,
+  useSettingsStore,
+} from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { highestPlan } from "../lib/usageStore";
 import {
   canChangeCloudBackupPreference,
   effectiveAudioRetentionDays,
   effectiveLocalHistoryEnabled,
+  isAgentAllowed,
   isCloudBackupAllowed,
   lockedLocalHistoryValue,
   maxAudioRetentionDays,
 } from "../stores/policyRules";
 import { usePolicyModeOptions, usePolicySnapshot } from "../hooks/usePolicy";
+import { usePolicyStore } from "../stores/policyStore";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
 import WorkspaceSection from "./settings/WorkspaceSection";
 import WorkspaceBillingOverview from "./settings/WorkspaceBillingOverview";
@@ -278,7 +285,11 @@ function TranscriptionSection({
   toast,
 }: TranscriptionSectionProps) {
   const { t } = useTranslation();
-  const { modes: transcriptionModes, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
+  const {
+    modes: transcriptionModes,
+    effectiveMode: effectiveTranscriptionMode,
+    isModeAllowed,
+  } = usePolicyModeOptions<InferenceModeOption>(
     [
       {
         id: "openwhispr",
@@ -307,16 +318,17 @@ function TranscriptionSection({
         icon: <Network className="w-4 h-4" />,
       },
     ],
-    "transcription"
+    "transcription",
+    transcriptionMode,
+    { byokProviders: TRANSCRIPTION_POLICY_PROVIDER_IDS }
   );
-
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
     if (mode === "openwhispr" && !isSignedIn) {
       startOnboarding();
       return;
     }
-    if (mode === transcriptionMode) return;
+    if (mode === effectiveTranscriptionMode) return;
     setTranscriptionMode(mode);
     setUseLocalWhisper(mode === "local");
     updateTranscriptionSettings({ useLocalWhisper: mode === "local" });
@@ -391,19 +403,19 @@ function TranscriptionSection({
     <div className="space-y-4">
       <InferenceModeSelector
         modes={transcriptionModes}
-        activeMode={transcriptionMode}
+        activeMode={effectiveTranscriptionMode}
         onSelect={handleTranscriptionModeSelect}
       />
 
-      {transcriptionMode === "providers" && renderTranscriptionPicker("cloud")}
-      {transcriptionMode === "local" && (
+      {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
+      {effectiveTranscriptionMode === "local" && (
         <>
           {renderTranscriptionPicker("local")}
           {renderPreviewToggle()}
         </>
       )}
 
-      {transcriptionMode === "self-hosted" && (
+      {effectiveTranscriptionMode === "self-hosted" && (
         <SelfHostedPanel
           service="transcription"
           url={remoteTranscriptionUrl}
@@ -511,6 +523,7 @@ const LLM_TABS: LlmTab[] = [
   "noteFormatting",
   "chatIntelligence",
 ];
+const AGENT_LLM_TABS = new Set<LlmTab>(["dictationAgent", "chatIntelligence"]);
 
 function useSubTab<T extends string>(storageKey: string, options: readonly T[], initial?: T) {
   const [tab, setTab] = useLocalStorage<T>(storageKey, initial ?? options[0]);
@@ -633,7 +646,11 @@ function LlmsTabs({
   renderChatIntelligence: () => React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useSubTab<LlmTab>("settings.llmsTab", LLM_TABS, initialTab);
+  const agentAllowed = usePolicyStore(isAgentAllowed);
+  const visibleTabIds = agentAllowed
+    ? LLM_TABS
+    : LLM_TABS.filter((tabId) => !AGENT_LLM_TABS.has(tabId));
+  const [tab, setTab] = useSubTab<LlmTab>("settings.llmsTab", visibleTabIds, initialTab);
 
   const subTabs = [
     { id: "dictationCleanup", name: t("settingsPage.llms.tabs.dictationCleanup") },
@@ -641,7 +658,7 @@ function LlmsTabs({
     { id: "dictationTranslation", name: t("settingsPage.llms.tabs.dictationTranslation") },
     { id: "noteFormatting", name: t("settingsPage.llms.tabs.noteFormatting") },
     { id: "chatIntelligence", name: t("settingsPage.llms.tabs.chatIntelligence") },
-  ];
+  ].filter((item) => visibleTabIds.includes(item.id as LlmTab));
 
   return (
     <div className="space-y-4">
@@ -662,10 +679,14 @@ function LlmsTabs({
         }}
       />
       <TabPanel active={tab === "dictationCleanup"}>{renderDictationCleanup()}</TabPanel>
-      <TabPanel active={tab === "dictationAgent"}>{renderDictationAgent()}</TabPanel>
+      {agentAllowed && (
+        <TabPanel active={tab === "dictationAgent"}>{renderDictationAgent()}</TabPanel>
+      )}
       <TabPanel active={tab === "dictationTranslation"}>{renderDictationTranslation()}</TabPanel>
       <TabPanel active={tab === "noteFormatting"}>{renderNoteFormatting()}</TabPanel>
-      <TabPanel active={tab === "chatIntelligence"}>{renderChatIntelligence()}</TabPanel>
+      {agentAllowed && (
+        <TabPanel active={tab === "chatIntelligence"}>{renderChatIntelligence()}</TabPanel>
+      )}
     </div>
   );
 }
@@ -866,6 +887,7 @@ export default function SettingsPage({
   const setTranslationKey = useSettingsStore((s) => s.setTranslationKey);
 
   const settingsPolicyState = usePolicySnapshot();
+  const agentAllowedByPolicy = isAgentAllowed(settingsPolicyState);
   const historyLockedByPolicy = lockedLocalHistoryValue(settingsPolicyState) !== null;
   const effectiveDataRetentionEnabled = effectiveLocalHistoryEnabled(
     settingsPolicyState,
@@ -986,9 +1008,23 @@ export default function SettingsPage({
   const { theme, setTheme } = useTheme();
   const usage = useUsage();
   const billingWorkspaces = useWorkspaceStore((s) => s.workspaces);
-  const coveringWorkspaceNames = (usage?.entitledWorkspaceIds ?? [])
-    .map((id) => billingWorkspaces.find((workspace) => workspace.id === id)?.name)
-    .filter((name): name is string => Boolean(name));
+  const coveringWorkspaces = billingWorkspaces.filter((workspace) =>
+    usage?.entitledWorkspaceIds?.includes(workspace.id)
+  );
+  const coveringWorkspaceNames = coveringWorkspaces.map((workspace) => workspace.name);
+  // Reads the usage payload, not the workspace store, so the upgrade affordances
+  // stay hidden across the window where the store is still loading.
+  const isWorkspaceCovered =
+    !usage?.isPersonallySubscribed && (usage?.entitledWorkspaceIds?.length ?? 0) > 0;
+  // Null until the store resolves, so the label waits rather than guessing a tier.
+  const coveringPlanLabel =
+    isWorkspaceCovered && coveringWorkspaces.length
+      ? t(
+          `settingsPage.workspace.billing.planLabel.${highestPlan(
+            coveringWorkspaces.map((workspace) => workspace.plan)
+          )}`
+        )
+      : null;
   const hasShownApproachingToast = useRef(false);
   useEffect(() => {
     if (usage?.isApproachingLimit && !hasShownApproachingToast.current) {
@@ -1879,7 +1915,8 @@ export default function SettingsPage({
                                     ? usage.plan === "business"
                                       ? t("settingsPage.account.planLabels.business")
                                       : t("settingsPage.account.planLabels.pro")
-                                    : t("settingsPage.account.planLabels.free")
+                                    : (coveringPlanLabel ??
+                                      t("settingsPage.account.planLabels.free"))
                             }
                             description={
                               usage.isTrial
@@ -1904,10 +1941,14 @@ export default function SettingsPage({
                                       ? t("settingsPage.unifiedBilling.providedBy", {
                                           workspaces: coveringWorkspaceNames.join(", "),
                                         })
-                                      : t("settingsPage.account.planDescriptions.freeUsage", {
-                                          used: usage.wordsUsed.toLocaleString(i18n.language),
-                                          limit: usage.limit.toLocaleString(i18n.language),
-                                        })
+                                      : // usage.limit is -1 once subscribed, which the
+                                        // free-usage copy would print as "-1 words".
+                                        isWorkspaceCovered
+                                        ? t("settingsPage.account.planDescriptions.unlimited")
+                                        : t("settingsPage.account.planDescriptions.freeUsage", {
+                                            used: usage.wordsUsed.toLocaleString(i18n.language),
+                                            limit: usage.limit.toLocaleString(i18n.language),
+                                          })
                             }
                           >
                             {usage.isTrial ? (
@@ -1922,6 +1963,8 @@ export default function SettingsPage({
                                   ? t("settingsPage.account.badges.business")
                                   : t("settingsPage.account.badges.pro")}
                               </Badge>
+                            ) : coveringPlanLabel ? (
+                              <Badge variant="success">{coveringPlanLabel}</Badge>
                             ) : usage.isOverLimit ? (
                               <Badge variant="warning">
                                 {t("settingsPage.account.badges.limitReached")}
@@ -2001,7 +2044,7 @@ export default function SettingsPage({
                                 ? t("settingsPage.account.billing.opening")
                                 : t("settingsPage.account.billing.manageBilling")}
                             </Button>
-                          ) : (
+                          ) : isWorkspaceCovered ? null : (
                             <Button
                               onClick={async () => {
                                 setCheckoutTier("plan-upgrade");
@@ -2041,7 +2084,10 @@ export default function SettingsPage({
                     <div
                       className={cn(
                         "rounded-md p-2.5 flex flex-col",
-                        planStateKnown && !usage?.isPersonallySubscribed && !usage?.isTrial
+                        planStateKnown &&
+                          !usage?.isPersonallySubscribed &&
+                          !usage?.isTrial &&
+                          !isWorkspaceCovered
                           ? "border-2 border-primary/30 bg-primary/3 dark:border-primary/20 dark:bg-primary/5"
                           : "border border-border/50 dark:border-border-subtle/60 bg-card/30 dark:bg-surface-2/30"
                       )}
@@ -2102,7 +2148,7 @@ export default function SettingsPage({
                             ? t("settingsPage.account.billing.opening")
                             : t("settingsPage.account.pricing.downgrade")}
                         </Button>
-                      ) : planStateKnown ? (
+                      ) : planStateKnown && !isWorkspaceCovered ? (
                         <div className="mt-2 text-center">
                           <span className="text-[9px] font-medium text-primary/70">
                             {t("settingsPage.account.pricing.currentPlan")}
@@ -3397,24 +3443,26 @@ EOF`,
             </div>
 
             {/* Voice Agent Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.voiceAgentHotkey.title")}
-                description={t("settingsPage.general.voiceAgentHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={voiceAgentKey}
-                    onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
-                    onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
-                    validate={validateVoiceAgentHotkey}
-                    disabled={isAgentHotkeyCommitting}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
+            {agentAllowedByPolicy && (
+              <div>
+                <SectionHeader
+                  title={t("settingsPage.general.voiceAgentHotkey.title")}
+                  description={t("settingsPage.general.voiceAgentHotkey.description")}
+                />
+                <SettingsPanel>
+                  <SettingsPanelRow>
+                    <HotkeyListInput
+                      value={voiceAgentKey}
+                      onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
+                      onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
+                      validate={validateVoiceAgentHotkey}
+                      disabled={isAgentHotkeyCommitting}
+                      maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                    />
+                  </SettingsPanelRow>
+                </SettingsPanel>
+              </div>
+            )}
 
             {/* Translation Hotkey */}
             <div>
@@ -3489,24 +3537,26 @@ EOF`,
             </div>
 
             {/* Chat Agent Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("agentMode.settings.hotkey")}
-                description={t("agentMode.settings.hotkeyDescription")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    value={chatAgentKey}
-                    onChange={(list) => commitAgentHotkey(setChatAgentKey, list)}
-                    onClear={() => commitAgentHotkey(setChatAgentKey, "")}
-                    validate={validateChatAgentHotkey}
-                    disabled={isAgentHotkeyCommitting}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
+            {agentAllowedByPolicy && (
+              <div>
+                <SectionHeader
+                  title={t("agentMode.settings.hotkey")}
+                  description={t("agentMode.settings.hotkeyDescription")}
+                />
+                <SettingsPanel>
+                  <SettingsPanelRow>
+                    <HotkeyListInput
+                      value={chatAgentKey}
+                      onChange={(list) => commitAgentHotkey(setChatAgentKey, list)}
+                      onClear={() => commitAgentHotkey(setChatAgentKey, "")}
+                      validate={validateChatAgentHotkey}
+                      disabled={isAgentHotkeyCommitting}
+                      maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
+                    />
+                  </SettingsPanelRow>
+                </SettingsPanel>
+              </div>
+            )}
           </div>
         );
 

@@ -11,6 +11,25 @@ function clampMaxSpeakers(value) {
   return Math.max(1, Math.min(MAX_SPEAKER_COUNT, Math.floor(n)));
 }
 
+// onnxruntime-node ships no darwin/x64 prebuilt binding since 1.24, so the
+// require throws on Intel Macs (#1500). A missing binding must degrade live
+// speaker identification, never fail the meeting start that triggers it.
+let ortLoadFailed = false;
+
+function loadOnnxRuntime() {
+  if (ortLoadFailed) return null;
+  try {
+    return require("onnxruntime-node");
+  } catch (error) {
+    ortLoadFailed = true;
+    debugLogger.warn(
+      "onnxruntime-node binding failed to load — live speaker identification disabled",
+      { error: error.message, platform: process.platform, arch: process.arch }
+    );
+    return null;
+  }
+}
+
 const SAMPLE_RATE = 16000;
 const VAD_WINDOW_SIZE = 512;
 const MIN_SEGMENT_SECONDS = 1.5;
@@ -148,7 +167,11 @@ class LiveSpeakerIdentifier {
   }
 
   isAvailable() {
-    return this._diarizationManager?.isVadModelDownloaded() && speakerEmbeddings.isAvailable();
+    return (
+      this._diarizationManager?.isVadModelDownloaded() &&
+      speakerEmbeddings.isAvailable() &&
+      loadOnnxRuntime() !== null
+    );
   }
 
   getTransientState() {
@@ -377,7 +400,9 @@ class LiveSpeakerIdentifier {
       return;
     }
 
-    const ort = require("onnxruntime-node");
+    const ort = loadOnnxRuntime();
+    if (!ort) return;
+
     this.session = await ort.InferenceSession.create(vadModelPath);
     this.vadStateInputs = (this.session.inputNames || []).filter((name) => /state|h|c/i.test(name));
     this.vadStateOutputs = (this.session.outputNames || []).filter((name) =>
@@ -482,7 +507,8 @@ class LiveSpeakerIdentifier {
   async _getVadProbability(window) {
     if (!this.session) return 0;
 
-    const ort = require("onnxruntime-node");
+    const ort = loadOnnxRuntime();
+    if (!ort) return 0;
     const feeds = {};
     const audioInputName = (this.session.inputNames || []).find(
       (name) => !this.vadStateInputs.includes(name) && !/sr|sample.?rate/i.test(name)

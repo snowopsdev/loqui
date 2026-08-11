@@ -14,7 +14,7 @@ import {
   resolveInitialSpeakerCountOverride,
   resolveParticipantSpeakerCountSync,
 } from "../utils/participants";
-import type { SystemAudioAccessResult, SystemAudioStrategy } from "../types/electron";
+import type { NoteItem, SystemAudioAccessResult, SystemAudioStrategy } from "../types/electron";
 import type { CalendarAttendee } from "../types/calendar";
 import {
   DEFAULT_SYSTEM_AUDIO_ACCESS,
@@ -31,10 +31,15 @@ import { isTranscriptionContextAllowed } from "./policyRules";
 import { usePolicyStore } from "./policyStore";
 import {
   lockTranscriptSpeaker,
+  mergeTranscriptSegments,
   normalizeTranscriptSegment,
+  serializeTranscriptSegments,
   type TranscriptSpeakerLockSource,
   type TranscriptSpeakerStatus,
 } from "../utils/transcriptSpeakerState";
+import { parseTranscriptSegments } from "../utils/parseTranscriptSegments";
+import { resolveDiarizationTarget, selectBaseSegments } from "../utils/diarizationCompletion";
+import { createSerialQueue } from "../utils/serialQueue";
 
 export interface TranscriptSegment {
   id: string;
@@ -80,6 +85,8 @@ interface MeetingRecordingState {
   systemPartialSpeakerId: string | null;
   systemPartialSpeakerName: string | null;
   diarizationSessionId: string | null;
+  /** Latest diarization result published for UI mirroring; consumed (nulled) by the editor that applies it. */
+  completedDiarization: { noteId: number; segments: TranscriptSegment[] } | null;
   sessionDiarizationEnabled: boolean;
   sessionExpectedCount: number;
   userTouchedStepper: boolean;
@@ -434,6 +441,7 @@ export const useMeetingRecordingStore = create<MeetingRecordingState>()(() => ({
   systemPartialSpeakerId: null,
   systemPartialSpeakerName: null,
   diarizationSessionId: null,
+  completedDiarization: null,
   sessionDiarizationEnabled:
     (getSettings() as { speakerDiarizationEnabled?: boolean }).speakerDiarizationEnabled ?? true,
   sessionExpectedCount: DEFAULT_EXPECTED_SPEAKER_COUNT,
@@ -802,6 +810,7 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
     systemPartialSpeakerId: null,
     systemPartialSpeakerName: null,
     diarizationSessionId: null,
+    completedDiarization: null,
     error: null,
     micCaptureStatus: "inactive",
   });
@@ -1370,6 +1379,103 @@ export function lockSpeaker(speakerId: string, displayName: string): void {
 
 export function cancelPreparedTranscription(): void {
   window.electronAPI?.meetingTranscriptionCancel?.();
+}
+
+// Persists delayed diarization results to the note that owns the recording
+// session (#1495). Registered once at module load so results survive the
+// notes view unmounting; NoteEditor only mirrors `completedDiarization`.
+if (typeof window !== "undefined") {
+  // Serialized so rapid re-record completions can't interleave around the
+  // getNote await and overwrite each other's speaker labels — the later
+  // result merges on top of the earlier one's persisted transcript.
+  const enqueueDiarizationCompletion = createSerialQueue();
+  window.electronAPI?.onMeetingDiarizationComplete?.((data) => {
+    enqueueDiarizationCompletion(async () => {
+      const {
+        diarizationSessionId,
+        recordingNoteId,
+        segments: liveSegments,
+      } = useMeetingRecordingStore.getState();
+      const { targetNoteId, isCurrentSession } = resolveDiarizationTarget({
+        payloadNoteId: data?.noteId,
+        payloadSessionId: data?.sessionId,
+        currentSessionId: diarizationSessionId,
+      });
+      if (targetNoteId == null) return;
+
+      // Publishing an empty result clears a waiting editor's spinner without
+      // painting an overlay; anything non-empty is already persisted.
+      const publish = (segments: TranscriptSegment[]) => {
+        if (isCurrentSession) {
+          useMeetingRecordingStore.setState({
+            completedDiarization: { noteId: targetNoteId, segments },
+          });
+        }
+      };
+
+      if (!data?.segments?.length) {
+        publish([]);
+        return;
+      }
+
+      let persisted: NoteItem | null | undefined;
+      try {
+        persisted = await window.electronAPI?.getNote?.(targetNoteId);
+      } catch (error) {
+        logger.error(
+          "Diarization completion could not read its note",
+          { noteId: targetNoteId, error: (error as Error).message },
+          "meeting"
+        );
+      }
+      // No note means no safe base to merge into, and writing to a deleted one
+      // would resurrect its tombstone in the sidebar, cloud mirror, and vector
+      // index.
+      if (!persisted || persisted.deleted_at) {
+        publish([]);
+        return;
+      }
+
+      const existing = selectBaseSegments({
+        persistedSegments: persisted.transcript
+          ? parseTranscriptSegments(persisted.transcript)
+          : null,
+        liveSegments,
+        recordingNoteId,
+        targetNoteId,
+      });
+      const enriched = mergeTranscriptSegments(
+        existing,
+        data.segments.map((segment, index) => ({
+          ...segment,
+          id: segment.id || `diarized-${index}`,
+        }))
+      );
+
+      try {
+        // Awaited so the next queued completion's getNote is guaranteed to
+        // read this write — without it the ordering depends on db-update-note
+        // staying synchronous ahead of its first await.
+        await window.electronAPI?.updateNote?.(targetNoteId, {
+          transcript: serializeTranscriptSegments(enriched),
+        });
+      } catch (error) {
+        publish([]);
+        throw error;
+      }
+      publish(enriched);
+
+      if (data.speakerEmbeddings) {
+        await window.electronAPI?.saveNoteSpeakerEmbeddings?.(targetNoteId, data.speakerEmbeddings);
+      }
+    }).catch((error) => {
+      logger.error(
+        "Diarization completion handling failed",
+        { error: (error as Error).message },
+        "meeting"
+      );
+    });
+  });
 }
 
 // Throttled resize listener — keeps layout reflows during drag from thrashing

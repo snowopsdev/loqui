@@ -1076,7 +1076,7 @@ class IPCHandlers {
     });
 
     ipcMain.handle("set-notification-interactivity", (event, interactive) => {
-      this.windowManager.setNotificationInteractivity(Boolean(interactive));
+      this.windowManager.setNotificationInteractivity(event.sender, Boolean(interactive));
       return { success: true };
     });
 
@@ -4911,7 +4911,8 @@ class IPCHandlers {
           preferredLanguage && preferredLanguage !== "auto"
             ? preferredLanguage.split("-")[0]
             : undefined;
-        const { resolveSelfHostedRetryRoute } = await import("./retryTranscriptionRouting.js");
+        const { resolveCustomTranscriptionRoute, resolveSelfHostedRetryRoute } =
+          await import("./retryTranscriptionRouting.js");
         const selfHostedRoute = resolveSelfHostedRetryRoute(settings);
 
         if (selfHostedRoute?.kind === "configuration-error") {
@@ -5032,12 +5033,16 @@ class IPCHandlers {
             endpoint = MISTRAL_TRANSCRIPTION_URL;
           } else if (provider === "custom") {
             apiKey = this.environmentManager.getCustomTranscriptionKey();
-            const base = (settings?.cloudTranscriptionBaseUrl || "").trim();
-            endpoint = base
-              ? /\/audio\/(transcriptions|translations)$/i.test(base)
-                ? base
-                : `${base}/audio/transcriptions`
-              : "https://api.openai.com/v1/audio/transcriptions";
+            const customRoute = resolveCustomTranscriptionRoute({
+              provider,
+              baseUrl: settings?.cloudTranscriptionBaseUrl,
+            });
+            if (customRoute?.kind !== "custom") {
+              throw new Error(
+                customRoute?.error || "Custom transcription endpoint is not configured"
+              );
+            }
+            endpoint = customRoute.endpoint;
           } else {
             apiKey = this.environmentManager.getOpenAIKey();
             endpoint = "https://api.openai.com/v1/audio/transcriptions";
@@ -8034,7 +8039,8 @@ class IPCHandlers {
           const realByok = resolveAllowedAudioPath(filePath);
           if (!realByok) return { success: false, error: "File path not allowed" };
 
-          const { resolveSelfHostedRetryRoute } = await import("./retryTranscriptionRouting.js");
+          const { resolveCustomTranscriptionRoute, resolveSelfHostedRetryRoute } =
+            await import("./retryTranscriptionRouting.js");
           const selfHostedRoute = resolveSelfHostedRetryRoute({
             transcriptionMode,
             remoteTranscriptionUrl,
@@ -8104,7 +8110,13 @@ class IPCHandlers {
             return { success: true, text };
           }
 
-          if (!apiKey) throw new Error("No API key configured. Add your key in Settings.");
+          if (!apiKey && provider !== "custom") {
+            throw new Error("No API key configured. Add your key in Settings.");
+          }
+          const customRoute = resolveCustomTranscriptionRoute({ provider, baseUrl });
+          if (customRoute?.kind === "configuration-error") {
+            throw new Error(customRoute.error);
+          }
           if (!baseUrl && provider !== "xai") {
             throw new Error("No transcription endpoint configured.");
           }
@@ -8124,8 +8136,8 @@ class IPCHandlers {
               multipartFields.format = "true";
             }
           } else {
-            transcriptionUrl = baseUrl.replace(/\/+$/, "");
-            if (!transcriptionUrl.endsWith("/audio/transcriptions")) {
+            transcriptionUrl = customRoute?.endpoint ?? baseUrl.replace(/\/+$/, "");
+            if (!customRoute && !transcriptionUrl.endsWith("/audio/transcriptions")) {
               transcriptionUrl += "/audio/transcriptions";
             }
             multipartFields.model = model || "whisper-1";
@@ -8167,9 +8179,8 @@ class IPCHandlers {
           );
 
           const url = new URL(transcriptionUrl);
-          const data = await postMultipart(url, body, boundary, {
-            Authorization: `Bearer ${apiKey}`,
-          });
+          const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+          const data = await postMultipart(url, body, boundary, headers);
 
           if (data.statusCode === 401) {
             return { success: false, error: "Invalid API key. Check your key in Settings." };
@@ -9952,7 +9963,7 @@ class IPCHandlers {
   ) {
     const send = (payload) => {
       if (win && !win.isDestroyed()) {
-        win.webContents.send("meeting-diarization-complete", { sessionId, ...payload });
+        win.webContents.send("meeting-diarization-complete", { sessionId, noteId, ...payload });
       }
     };
 

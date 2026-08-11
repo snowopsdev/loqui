@@ -18,9 +18,10 @@ function cosineSimilarity(a, b) {
   return denom === 0 ? 0 : dot / denom;
 }
 
-function loadIdentifier() {
+function loadIdentifier(options = {}) {
   delete require.cache[identifierModulePath];
   const warnings = [];
+  const interceptsOrt = "ort" in options;
 
   Module._load = function loadWithMocks(request, parent, isMain) {
     if (request === "./debugLogger") {
@@ -41,14 +42,23 @@ function loadIdentifier() {
         extractEmbeddingFromSamples: async () => null,
       };
     }
+    if (interceptsOrt && request === "onnxruntime-node") {
+      return options.ort();
+    }
     return originalLoad.call(this, request, parent, isMain);
+  };
+
+  const restore = () => {
+    Module._load = originalLoad;
   };
 
   try {
     const { LiveSpeakerIdentifier } = require(identifierModulePath);
-    return { LiveSpeakerIdentifier, warnings };
+    return { LiveSpeakerIdentifier, warnings, restore };
   } finally {
-    Module._load = originalLoad;
+    // The ort hook must outlive module load: the identifier requires
+    // onnxruntime-node lazily, from inside the test body.
+    if (!interceptsOrt) restore();
   }
 }
 
@@ -243,6 +253,67 @@ test("an at-cap fold never steals the cluster's identity for a profile-matched v
   const aliceAgain = identifier._resolveSpeakerForEmbedding(voiceA, { updateCentroid: true });
   assert.equal(aliceAgain.speakerId, alice.speakerId);
   assert.equal(aliceAgain.displayName, "Alice", "Alice's cluster must still be hers");
+});
+
+// onnxruntime-node ships no darwin/x64 prebuilt binding since 1.24, so on Intel
+// Macs the lazy require throws MODULE_NOT_FOUND (#1500). Speaker identification
+// must degrade to "unavailable" — never take the whole meeting start down.
+function missingBindingRequire() {
+  const error = new Error(
+    "Cannot find module '../bin/napi-v6/darwin/x64/onnxruntime_binding.node'"
+  );
+  error.code = "MODULE_NOT_FOUND";
+  throw error;
+}
+
+function stubDownloadedModels(identifier) {
+  identifier.setDiarizationManager({
+    isVadModelDownloaded: () => true,
+    getVadModelPath: () => __filename,
+  });
+}
+
+test("isAvailable() is false when the onnxruntime binding cannot load", (t) => {
+  const { LiveSpeakerIdentifier, restore } = loadIdentifier({ ort: missingBindingRequire });
+  t.after(restore);
+  const identifier = new LiveSpeakerIdentifier();
+  stubDownloadedModels(identifier);
+
+  assert.equal(identifier.isAvailable(), false);
+});
+
+test("start() resolves false instead of rejecting when the binding is missing", async (t) => {
+  const { LiveSpeakerIdentifier, restore } = loadIdentifier({ ort: missingBindingRequire });
+  t.after(restore);
+  const identifier = new LiveSpeakerIdentifier();
+  stubDownloadedModels(identifier);
+
+  const started = await identifier.start(() => {}, {});
+  assert.equal(started, false, "a missing native binding must not fail meeting start");
+});
+
+test("the binding failure is logged once, not on every availability check", (t) => {
+  const { LiveSpeakerIdentifier, warnings, restore } = loadIdentifier({
+    ort: missingBindingRequire,
+  });
+  t.after(restore);
+  const identifier = new LiveSpeakerIdentifier();
+  stubDownloadedModels(identifier);
+
+  identifier.isAvailable();
+  identifier.isAvailable();
+
+  const bindingWarnings = warnings.filter((w) => /onnxruntime/i.test(w.message));
+  assert.equal(bindingWarnings.length, 1, "repeated checks must not spam the logs");
+});
+
+test("isAvailable() stays true when the binding loads", (t) => {
+  const { LiveSpeakerIdentifier, restore } = loadIdentifier({ ort: () => ({}) });
+  t.after(restore);
+  const identifier = new LiveSpeakerIdentifier();
+  stubDownloadedModels(identifier);
+
+  assert.equal(Boolean(identifier.isAvailable()), true);
 });
 
 test("distinct voices are folded into one cluster when the session cap is 1", () => {

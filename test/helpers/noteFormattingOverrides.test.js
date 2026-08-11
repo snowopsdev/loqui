@@ -115,6 +115,7 @@ test("enterprise mode pins its provider instead of inheriting cleanup routing", 
     false
   );
   assert.deepEqual(overrides, {
+    inferenceScope: "noteFormatting",
     provider: "bedrock",
     baseUrl: undefined,
     customApiKey: undefined,

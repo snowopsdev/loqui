@@ -133,7 +133,10 @@ test("managed enterprise access outranks a leftover self-hosted route", async (t
     useEnterpriseIdentityStore.setState({ config: null, status: "idle" });
     setPolicy(enterpriseOnly);
     await assert.rejects(
-      reasoningService.processText("hi", "", null, { inferenceScope: "dictationCleanup" }),
+      reasoningService.processText("hi", "", null, {
+        inferenceScope: "dictationCleanup",
+        lanUrl: "http://192.0.2.1:8080",
+      }),
       { message: REASONING_RESTRICTED }
     );
   });

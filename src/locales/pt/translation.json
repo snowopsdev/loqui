@@ -106,7 +106,8 @@
     "microphone": "Abra as configurações do sistema para configurar as permissões de microfone.",
     "sound": "Abra as configurações de som do sistema (por exemplo, pavucontrol).",
     "accessibility": "As configurações de acessibilidade não estão disponíveis nesta plataforma.",
-    "systemAudio": "As configurações de áudio do sistema não estão disponíveis nesta plataforma."
+    "systemAudio": "As configurações de áudio do sistema não estão disponíveis nesta plataforma.",
+    "screenRecording": "As configurações de gravação de tela não estão disponíveis nesta plataforma."
   },
   "windows": {
     "pttUnavailable": "O listener nativo de Push-to-Talk não está disponível"
@@ -123,6 +124,7 @@
     "cancel": "Cancelar",
     "recommended": "Recomendado",
     "active": "Ativo",
+    "managedByOrg": "Gerenciado pela sua organização",
     "freeAccountRequired": "Conta gratuita necessária",
     "cloud": "Nuvem",
     "local": "Local",
@@ -147,7 +149,10 @@
     "copy": "Copiar",
     "copied": "Copiado",
     "done": "Listo",
-    "skip": "Pular"
+    "skip": "Pular",
+    "policyAiProcessingRestricted": "O processamento de IA está restrito pela sua organização.",
+    "policyAgentRestricted": "O uso do agente de IA está restrito pela sua organização.",
+    "policyTranscriptionRestricted": "A transcrição está restrita pela sua organização."
   },
   "onboarding": {
     "steps": {
@@ -208,7 +213,7 @@
       "title": "Configuração do agente de voz",
       "description": "Fale com seu agente de IA com um único atalho",
       "hotkey": "Atalho",
-      "howItWorks": "Pressione a tecla e diga o que quer — por exemplo, “escreva uma breve nota de agradecimento”. {{agentName}} escreve o resultado onde estiver o cursor. Não precisa dizer “Hey {{agentName}}” antes.",
+      "howItWorks": "Pressione a tecla e diga o que quer — por exemplo, “escreva uma breve nota de agradecimento”. Se houver texto destacado, {{agentName}} edita e substitui essa seleção; caso contrário, escreve o resultado onde estiver o cursor. Não precisa dizer “Hey {{agentName}}” antes.",
       "test": "Experimente",
       "testInstruction": "Clique abaixo, pressione {{hotkey}} e diga um comando",
       "testSetHotkey": "Defina um atalho acima para experimentar",
@@ -302,6 +307,10 @@
     }
   },
   "controlPanel": {
+    "updateRequiredByOrg": {
+      "title": "Atualização obrigatória",
+      "description": "Sua organização exige o OpenWhispr {{version}} ou mais recente. Atualize o aplicativo."
+    },
     "update": {
       "readyTitle": "Atualização pronta para instalar",
       "readyDescription": "Clique em 'Instalar atualização' para reiniciar com a versão mais recente.",
@@ -540,6 +549,8 @@
       "errorTitles": {
         "sessionExpired": "Sessão expirada",
         "offline": "Sem conexão",
+        "agentUnavailable": "Agente indisponível",
+        "screenContextSkipped": "Contexto de tela ignorado",
         "dailyLimitReached": "Limite diário atingido",
         "providerRateLimited": "Limite de taxa do provedor"
       },
@@ -568,13 +579,25 @@
         "sessionExpired": "Sua sessão do OpenWhispr Cloud está indisponível. Entre novamente nas Configurações.",
         "offline": "Você está offline. A transcrição na nuvem exige conexão com a internet.",
         "dailyLimitReached": "Você atingiu o limite de transcrições de hoje. Tente novamente amanhã ou faça upgrade do seu plano.",
-        "providerRateLimited": "Seu provedor de transcrição limitou a solicitação. Aguarde um momento e tente novamente."
+        "providerRateLimited": "Seu provedor de transcrição limitou a solicitação. Aguarde um momento e tente novamente.",
+        "chunkLoss": "Um problema de rede fez perder grande parte da gravação. Retranscreva-a a partir do histórico.",
+        "agentReasoningFailed": "Seu agente de voz não conseguiu processar o comando; a transcrição bruta foi inserida no lugar.",
+        "screenContextSkipped": "Não foi possível enviar a captura, então seu comando foi executado sem contexto de tela."
       },
       "translationFallback": {
         "unreachableTitle": "Tradução indisponível",
         "unreachableDescription": "Seu ditado foi colado sem tradução. Verifique as configurações de tradução.",
         "failedTitle": "Falha na tradução",
         "failedDescription": "O texto original foi colado. Você pode tentar novamente pelo Histórico."
+      },
+      "selectionEditing": {
+        "notAppliedTitle": "Edição da seleção não aplicada",
+        "changed": "O texto selecionado ou o aplicativo de destino mudou durante o processamento. Nada foi substituído.",
+        "expired": "A edição expirou. Selecione o texto novamente e tente de novo.",
+        "pasteFailed": "O OpenWhispr gerou a edição, mas não conseguiu substituir o texto selecionado.",
+        "unavailable": "O OpenWhispr não conseguiu ler o texto selecionado com segurança. Verifique as permissões de acessibilidade ou automação.",
+        "tooLarge": "A seleção é muito grande. Selecione no máximo 6.000 caracteres.",
+        "reasoningFailed": "A IA não conseguiu concluir a edição. O texto original não foi alterado."
       }
     },
     "clipboard": {
@@ -958,7 +981,18 @@
     "selectPlaceholder": "Selecione um microfone",
     "systemDefault": "Padrão do sistema",
     "unknownDevice": "Dispositivo desconhecido",
-    "using": "Usando: {{device}}"
+    "using": "Usando: {{device}}",
+    "warmHold": {
+      "label": "Manter o microfone ativo",
+      "description": "Após um ditado, mantenha o microfone aberto por um breve período para que o próximo comece na hora, sem palavras cortadas",
+      "privacyNote": "Enquanto o microfone estiver aberto, o indicador de microfone em uso do sistema permanece aceso. Nada é gravado entre os ditados.",
+      "options": {
+        "0": "Desativado",
+        "10": "10 segundos",
+        "60": "1 minuto",
+        "900": "15 minutos"
+      }
+    }
   },
   "pasteToolsInfo": {
     "checking": "Verificando capacidades do sistema...",
@@ -1050,6 +1084,7 @@
     "defaultTestInputTranslate": "O tempo está lindo hoje, quer dar um passeio?"
   },
   "settingsModal": {
+    "managedByOrg": "Algumas configurações são gerenciadas pela sua organização.",
     "groups": {
       "account": "Conta",
       "app": "Aplicativo",
@@ -1349,7 +1384,7 @@
       },
       "examplesTitle": "Exemplos",
       "helper": "Escolha algo curto e natural de se dizer em voz alta",
-      "howItWorksDescription": "Quando você diz \"Ei {{agentName}}\" seguido de uma instrução, a IA executa seu comando — redigindo conteúdo, formatando texto ou respondendo perguntas — em vez de transcrevê-lo literalmente.",
+      "howItWorksDescription": "Quando você diz \"Ei {{agentName}}\" seguido de uma instrução, a IA executa seu comando. Se houver texto destacado, esse texto é enviado ao modelo de agente de voz configurado e substituído com segurança pelo resultado.",
       "howItWorksTitle": "Como funciona",
       "instructionMode": "Instrução",
       "placeholder": "ex.: Jarvis, Nova, Atlas...",
@@ -1357,7 +1392,7 @@
       "title": "Agente de voz",
       "examples": {
         "formalEmail": "Hey {{agentName}}, escreva um e-mail formal sobre o orçamento",
-        "professional": "Hey {{agentName}}, torne isso mais profissional",
+        "professional": "Selecione o texto e depois diga: Hey {{agentName}}, torne isso mais profissional",
         "bulletPoints": "Hey {{agentName}}, converta isso em tópicos"
       }
     },
@@ -1504,7 +1539,7 @@
       },
       "voiceAgentHotkey": {
         "title": "Atalho do agente de voz",
-        "description": "Diga o que você precisa — seu agente de IA escreve o resultado, não suas palavras"
+        "description": "Diga o que você precisa — o texto destacado é editado no lugar; caso contrário, seu agente escreve onde estiver o cursor"
       },
       "microphone": {
         "description": "Selecione qual dispositivo de entrada usar para ditado",
@@ -1882,7 +1917,7 @@
       "tab": {
         "general": "Geral",
         "members": "Membros",
-        "teams": "Espaços de equipe",
+        "teams": "Equipes",
         "developer": "Desenvolvedor"
       },
       "role": {
@@ -2109,10 +2144,8 @@
         "groq_openai_gpt_oss_20b": "Modelo open source rápido, 1000 T/seg",
         "groq_llama_3_3_70b_versatile": "Modelo versátil da Meta, 280 T/seg",
         "groq_llama_3_1_8b_instant": "Ultrarápido 560 T/seg, contexto de 131K",
-        "groq_llama_4_scout": "Multimodal eficiente da Meta, 750 T/seg",
         "groq_compound": "Sistema compound da Groq, 450 T/seg",
         "groq_compound_mini": "Sistema compound rápido, 3x menor latência",
-        "groq_kimi_k2_0905": "Moonshot AI 1T MoE, contexto 256K",
         "openai_gpt_5_6_sol": "GPT-5.6 principal para programação e pesquisa complexas",
         "openai_gpt_5_6_terra": "GPT-5.6 equilibrado para o trabalho do dia a dia",
         "openai_gpt_5_6_luna": "O GPT-5.6 mais rápido e econômico",
@@ -2493,6 +2526,8 @@
       "cancelTranscription": "Cancelar transcrição",
       "transcriptionComplete": "Transcrição concluída",
       "partialWarning": "Não foi possível transcrever parte do áudio.",
+      "partialWarningCount": "Não foi possível transcrever {{failed}} de {{total}} seções do áudio.",
+      "chunkLossExceeded": "Muito áudio foi perdido devido a um problema de rede. Verifique sua conexão e tente novamente.",
       "openNote": "Abrir nota",
       "uploadAnother": "Enviar outro",
       "retry": "Tentar novamente",
@@ -2539,6 +2574,8 @@
       "speakerDetection": "Detecção de locutores",
       "speakerDetectionDescription": "Identificar diferentes locutores no áudio",
       "numSpeakersPlaceholder": "Detecção automática",
+      "numSpeakersLabel": "Número de falantes",
+      "numSpeakersHint": "Definir o número exato melhora a precisão, principalmente em gravações longas.",
       "downloadingModels": "Baixando modelos...",
       "openaiDiarizeNote": "Substitui seu modelo de transcrição por gpt-4o-transcribe-diarize, o único modelo OpenAI com detecção de falantes. Os custos podem diferir do modelo selecionado.",
       "mistralDiarizeNote": "Detecção de falantes incluída sem custo adicional com Voxtral.",
@@ -2559,7 +2596,8 @@
       "title": "Notas de reunião",
       "description": "Transcrições e resumos estruturados",
       "comingSoon": "Em breve",
-      "back": "Voltar"
+      "back": "Voltar",
+      "restrictedByOrg": "A transcrição de reuniões está restrita pela sua organização."
     },
     "meetingPill": {
       "returnToNote": "Voltar à gravação",
@@ -2653,6 +2691,7 @@
     "speaker": {
       "you": "Você",
       "them": "Outro",
+      "unknown": "Participante desconhecido",
       "label": "Participante {{n}}",
       "identifyingSpeakers": "Identificando participantes...",
       "liveAccuracyHint": "Ainda identificando participantes. A precisão dos rótulos melhorará quando a chamada terminar.",
@@ -2908,7 +2947,18 @@
   },
   "dictationAgent": {
     "enabled": "Ativar agente de voz",
-    "enabledDescription": "Dite instruções para o seu agente. Ative dizendo \"{{agentName}}\". Configurável abaixo.",
+    "enabledDescription": "Dite instruções para o seu agente. O texto destacado é enviado ao modelo configurado e editado no lugar. Ative dizendo \"{{agentName}}\".",
+    "screenContext": {
+      "title": "Contexto de tela",
+      "description": "Anexa uma captura da tela ativa aos comandos do agente de voz.",
+      "enable": "Compartilhar contexto de tela",
+      "enableDescription": "Captura a tela onde o cursor está ao iniciar uma gravação do agente de voz. Nunca é salva nem registrada.",
+      "unsupported": "A captura de tela não está disponível no Linux Wayland.",
+      "visionModel": "Modelo de visão separado",
+      "visionModelDescription": "Encaminha comandos que incluem captura de tela para outro modelo com visão.",
+      "permissionTitle": "Gravação de tela",
+      "permissionDescription": "O macOS exige permissão de gravação de tela para capturar sua tela."
+    },
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Use o agente gerenciado pelo OpenWhispr, sem precisar de chave API.",
@@ -3324,7 +3374,8 @@
     "speaker": {
       "you": "Você",
       "others": "Outros"
-    }
+    },
+    "missingAudio": "[áudio ausente {{from}}-{{to}}]"
   },
   "workspaces": {
     "switcher": {

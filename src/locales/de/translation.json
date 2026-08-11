@@ -106,7 +106,8 @@
     "microphone": "Bitte öffnen Sie die Systemeinstellungen, um Mikrofonberechtigungen zu konfigurieren.",
     "sound": "Bitte öffnen Sie die Sound-Einstellungen des Systems (z. B. pavucontrol).",
     "accessibility": "Bedienungshilfen-Einstellungen sind auf dieser Plattform nicht verfügbar.",
-    "systemAudio": "Systemaudio-Einstellungen sind auf dieser Plattform nicht verfügbar."
+    "systemAudio": "Systemaudio-Einstellungen sind auf dieser Plattform nicht verfügbar.",
+    "screenRecording": "Einstellungen zur Bildschirmaufnahme sind auf dieser Plattform nicht verfügbar."
   },
   "upgradePrompt": {
     "paymentFailed": "Ihre Zahlung konnte nicht verarbeitet werden",
@@ -144,6 +145,7 @@
     "cancel": "Abbrechen",
     "recommended": "Empfohlen",
     "active": "Aktiv",
+    "managedByOrg": "Von Ihrer Organisation verwaltet",
     "freeAccountRequired": "Kostenloses Konto erforderlich",
     "cloud": "Cloud",
     "local": "Lokal",
@@ -168,7 +170,10 @@
     "copy": "Kopieren",
     "copied": "Kopiert",
     "done": "Fertig",
-    "skip": "Überspringen"
+    "skip": "Überspringen",
+    "policyAiProcessingRestricted": "Die KI-Verarbeitung ist durch Ihre Organisation eingeschränkt.",
+    "policyAgentRestricted": "Die Nutzung des KI-Agenten ist durch Ihre Organisation eingeschränkt.",
+    "policyTranscriptionRestricted": "Die Transkription ist durch Ihre Organisation eingeschränkt."
   },
   "onboarding": {
     "steps": {
@@ -229,7 +234,7 @@
       "title": "Sprachagent-Einrichtung",
       "description": "Sprechen Sie mit Ihrem KI-Agenten per Tastendruck",
       "hotkey": "Hotkey",
-      "howItWorks": "Drücken Sie die Taste und sagen Sie, was Sie möchten — zum Beispiel „schreibe eine kurze Dankesnachricht“. {{agentName}} schreibt das Ergebnis direkt an Ihren Cursor. Sie müssen nicht zuerst „Hey {{agentName}}“ sagen.",
+      "howItWorks": "Drücken Sie die Taste und sagen Sie, was Sie möchten — zum Beispiel „schreibe eine kurze Dankesnachricht“. Ist Text markiert, bearbeitet und ersetzt {{agentName}} diese Auswahl; andernfalls schreibt {{agentName}} das Ergebnis an Ihren Cursor. Sie müssen nicht zuerst „Hey {{agentName}}“ sagen.",
       "test": "Ausprobieren",
       "testInstruction": "Klicke unten, drücke {{hotkey}} und sprich einen Befehl",
       "testSetHotkey": "Lege oben einen Hotkey fest, um es auszuprobieren",
@@ -323,6 +328,10 @@
     }
   },
   "controlPanel": {
+    "updateRequiredByOrg": {
+      "title": "Update erforderlich",
+      "description": "Ihre Organisation erfordert OpenWhispr {{version}} oder neuer. Bitte aktualisieren Sie die App."
+    },
     "update": {
       "readyTitle": "Update bereit zur Installation",
       "readyDescription": "Klicken Sie auf 'Update installieren', um mit der neuesten Version neu zu starten.",
@@ -561,6 +570,8 @@
       "errorTitles": {
         "sessionExpired": "Sitzung abgelaufen",
         "offline": "Sie sind offline",
+        "agentUnavailable": "Agent nicht verfügbar",
+        "screenContextSkipped": "Bildschirmkontext übersprungen",
         "dailyLimitReached": "Tägliches Limit erreicht",
         "providerRateLimited": "Anbieter-Ratenlimit erreicht"
       },
@@ -589,13 +600,25 @@
         "sessionExpired": "Deine OpenWhispr-Cloud-Sitzung ist nicht verfügbar. Bitte melde dich erneut über die Einstellungen an.",
         "offline": "Du bist offline. Die Cloud-Transkription benötigt eine Internetverbindung.",
         "dailyLimitReached": "Du hast dein heutiges Transkriptionslimit erreicht. Versuch es morgen erneut oder upgrade deinen Plan.",
-        "providerRateLimited": "Dein Transkriptionsanbieter hat die Anfrage begrenzt. Warte kurz und versuch es erneut."
+        "providerRateLimited": "Dein Transkriptionsanbieter hat die Anfrage begrenzt. Warte kurz und versuch es erneut.",
+        "chunkLoss": "Ein Netzwerkproblem hat zu viel von der Aufnahme verloren. Transkribieren Sie sie über den Verlauf erneut.",
+        "agentReasoningFailed": "Ihr Sprachagent konnte den Befehl nicht verarbeiten – stattdessen wurde das unbearbeitete Transkript eingefügt.",
+        "screenContextSkipped": "Der Screenshot konnte nicht gesendet werden, daher lief Ihr Befehl ohne Bildschirmkontext."
       },
       "translationFallback": {
         "unreachableTitle": "Übersetzung nicht verfügbar",
         "unreachableDescription": "Dein Diktat wurde unübersetzt eingefügt. Überprüfe die Übersetzungseinstellungen.",
         "failedTitle": "Übersetzung fehlgeschlagen",
         "failedDescription": "Der Originaltext wurde eingefügt. Du kannst es im Verlauf erneut versuchen."
+      },
+      "selectionEditing": {
+        "notAppliedTitle": "Auswahlbearbeitung nicht angewendet",
+        "changed": "Der ausgewählte Text oder die Ziel-App wurde während der Verarbeitung geändert. Es wurde nichts ersetzt.",
+        "expired": "Die Auswahlbearbeitung ist abgelaufen. Wähle den Text erneut aus und versuche es noch einmal.",
+        "pasteFailed": "OpenWhispr hat die Bearbeitung erstellt, konnte den ausgewählten Text aber nicht ersetzen.",
+        "unavailable": "OpenWhispr konnte den ausgewählten Text nicht sicher lesen. Prüfe die Bedienungshilfen oder Eingabeautomatisierung.",
+        "tooLarge": "Die Auswahl ist zu groß. Wähle höchstens 6.000 Zeichen aus.",
+        "reasoningFailed": "Die KI konnte die Auswahlbearbeitung nicht abschließen. Dein ursprünglicher Text wurde nicht geändert."
       }
     },
     "clipboard": {
@@ -1067,7 +1090,18 @@
     "selectPlaceholder": "Mikrofon auswählen",
     "systemDefault": "Systemstandard",
     "unknownDevice": "Unbekanntes Gerät",
-    "using": "Verwendet: {{device}}"
+    "using": "Verwendet: {{device}}",
+    "warmHold": {
+      "label": "Mikrofon warmhalten",
+      "description": "Nach einem Diktat das Mikrofon kurz geöffnet lassen, damit das nächste sofort und ohne abgeschnittene Wörter startet",
+      "privacyNote": "Solange das Mikrofon gehalten wird, bleibt die Mikrofonanzeige des Systems aktiv. Zwischen den Diktaten wird nichts aufgezeichnet.",
+      "options": {
+        "0": "Aus",
+        "10": "10 Sekunden",
+        "60": "1 Minute",
+        "900": "15 Minuten"
+      }
+    }
   },
   "pasteToolsInfo": {
     "checking": "Systemfähigkeiten werden geprüft...",
@@ -1159,6 +1193,7 @@
     "defaultTestInputTranslate": "Das Wetter ist heute wunderschön, hast du Lust auf einen Spaziergang?"
   },
   "settingsModal": {
+    "managedByOrg": "Einige Einstellungen werden von Ihrer Organisation verwaltet.",
     "groups": {
       "account": "Konto",
       "app": "App",
@@ -1222,7 +1257,7 @@
       "tab": {
         "general": "Allgemein",
         "members": "Mitglieder",
-        "teams": "Team-Bereiche",
+        "teams": "Teams",
         "developer": "Entwickler"
       },
       "role": {
@@ -1648,7 +1683,7 @@
       },
       "examplesTitle": "Beispiele",
       "helper": "Wählen Sie etwas Kurzes und Natürliches zum Aussprechen",
-      "howItWorksDescription": "Wenn Sie 'Hey {{agentName}}' gefolgt von einer Anweisung sagen, führt die KI Ihren Befehl aus — Inhalte verfassen, Text formatieren oder Fragen beantworten — statt ihn wörtlich zu transkribieren.",
+      "howItWorksDescription": "Wenn Sie 'Hey {{agentName}}' gefolgt von einer Anweisung sagen, führt die KI Ihren Befehl aus. Ist Text markiert, wird er an Ihr konfiguriertes Voice-Agent-Modell gesendet und sicher durch das Ergebnis ersetzt.",
       "howItWorksTitle": "So funktioniert es",
       "instructionMode": "Anweisung",
       "placeholder": "z. B. Jarvis, Nova, Atlas...",
@@ -1656,7 +1691,7 @@
       "title": "Sprachagent",
       "examples": {
         "formalEmail": "Hey {{agentName}}, schreibe eine formelle E-Mail zum Thema Budget",
-        "professional": "Hey {{agentName}}, mach das professioneller",
+        "professional": "Text markieren, dann sagen: Hey {{agentName}}, mach das professioneller",
         "bulletPoints": "Hey {{agentName}}, wandle das in Stichpunkte um"
       }
     },
@@ -1803,7 +1838,7 @@
       },
       "voiceAgentHotkey": {
         "title": "Sprachagent-Hotkey",
-        "description": "Sagen Sie, was Sie brauchen — Ihr KI-Agent schreibt das Ergebnis, nicht Ihre Worte"
+        "description": "Sagen Sie, was Sie brauchen — markierter Text wird direkt bearbeitet, andernfalls schreibt Ihr Agent an den Cursor"
       },
       "microphone": {
         "description": "Wählen Sie das Eingabegerät für das Diktat",
@@ -2222,10 +2257,8 @@
         "groq_openai_gpt_oss_20b": "Schnelles Open-Source-Modell, 1000 T/s",
         "groq_llama_3_3_70b_versatile": "Vielseitiges Modell von Meta, 280 T/s",
         "groq_llama_3_1_8b_instant": "Ultraschnell 560 T/s, 131K Kontext",
-        "groq_llama_4_scout": "Effizientes Multimodal von Meta, 750 T/s",
         "groq_compound": "Groqs Compound-System, 450 T/s",
         "groq_compound_mini": "Schnelles Compound-System, 3x niedrigere Latenz",
-        "groq_kimi_k2_0905": "Moonshot AI 1T MoE, 256K Kontext",
         "openai_gpt_5_6_sol": "Flaggschiff-GPT-5.6 für komplexes Coding und Forschung",
         "openai_gpt_5_6_terra": "Ausgewogenes GPT-5.6 für die tägliche Arbeit",
         "openai_gpt_5_6_luna": "Schnellstes und günstigstes GPT-5.6",
@@ -2684,6 +2717,8 @@
       "cancelTranscription": "Transkription abbrechen",
       "transcriptionComplete": "Transkription abgeschlossen",
       "partialWarning": "Ein Teil der Audiodatei konnte nicht transkribiert werden.",
+      "partialWarningCount": "{{failed}} von {{total}} Audioabschnitten konnten nicht transkribiert werden.",
+      "chunkLossExceeded": "Wegen eines Netzwerkproblems ging zu viel Audio verloren. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
       "openNote": "Notiz öffnen",
       "uploadAnother": "Weitere hochladen",
       "retry": "Erneut versuchen",
@@ -2730,6 +2765,8 @@
       "speakerDetection": "Sprechererkennung",
       "speakerDetectionDescription": "Verschiedene Sprecher im Audio identifizieren",
       "numSpeakersPlaceholder": "Automatisch erkennen",
+      "numSpeakersLabel": "Anzahl der Sprecher",
+      "numSpeakersHint": "Die genaue Anzahl verbessert die Genauigkeit, besonders bei langen Aufnahmen.",
       "downloadingModels": "Modelle werden heruntergeladen...",
       "openaiDiarizeNote": "Überschreibt Ihr Transkriptionsmodell mit gpt-4o-transcribe-diarize, dem einzigen OpenAI-Modell mit Sprechererkennung. Die Kosten können von Ihrem gewählten Modell abweichen.",
       "mistralDiarizeNote": "Sprechererkennung ohne Zusatzkosten mit Voxtral enthalten.",
@@ -2750,7 +2787,8 @@
       "title": "Besprechungsnotizen",
       "description": "Transkriptionen und strukturierte Zusammenfassungen",
       "comingSoon": "Demnächst verfügbar",
-      "back": "Zurück"
+      "back": "Zurück",
+      "restrictedByOrg": "Die Transkription von Besprechungen ist durch Ihre Organisation eingeschränkt."
     },
     "meetingPill": {
       "returnToNote": "Zurück zur Aufnahme",
@@ -2844,6 +2882,7 @@
     "speaker": {
       "you": "Du",
       "them": "Gegenüber",
+      "unknown": "Unbekannter Sprecher",
       "label": "Sprecher {{n}}",
       "identifyingSpeakers": "Sprecher werden identifiziert...",
       "liveAccuracyHint": "Sprecher werden noch identifiziert. Die Genauigkeit der Beschriftung verbessert sich, sobald das Gespräch endet.",
@@ -3056,7 +3095,18 @@
   },
   "dictationAgent": {
     "enabled": "Voice Agent aktivieren",
-    "enabledDescription": "Diktieren Sie Anweisungen an Ihren Agenten. Aktivieren Sie ihn, indem Sie \"{{agentName}}\" sagen. Unten konfigurierbar.",
+    "enabledDescription": "Diktieren Sie Anweisungen an Ihren Agenten. Markierter Text wird an das konfigurierte Modell gesendet und direkt bearbeitet. Aktivieren Sie ihn, indem Sie \"{{agentName}}\" sagen.",
+    "screenContext": {
+      "title": "Bildschirmkontext",
+      "description": "Hängt einen Screenshot Ihres aktiven Bildschirms an Sprachagent-Befehle an.",
+      "enable": "Bildschirmkontext teilen",
+      "enableDescription": "Erfasst beim Start einer Sprachagent-Aufnahme den Bildschirm, auf dem sich der Cursor befindet. Wird nie gespeichert oder protokolliert.",
+      "unsupported": "Bildschirmaufnahme ist unter Linux Wayland nicht verfügbar.",
+      "visionModel": "Separates Vision-Modell",
+      "visionModelDescription": "Leitet Befehle mit Screenshot an ein anderes Modell mit Bildverständnis weiter.",
+      "permissionTitle": "Bildschirmaufnahme",
+      "permissionDescription": "macOS benötigt die Berechtigung zur Bildschirmaufnahme, um Ihren Bildschirm zu erfassen."
+    },
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Den von OpenWhispr verwalteten Agenten nutzen, kein API-Schlüssel nötig.",
@@ -3384,7 +3434,8 @@
     "speaker": {
       "you": "Du",
       "others": "Andere"
-    }
+    },
+    "missingAudio": "[fehlendes Audio {{from}}-{{to}}]"
   },
   "dictationTranslation": {
     "title": "Diktat-Übersetzung",

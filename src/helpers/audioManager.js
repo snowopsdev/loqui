@@ -114,6 +114,17 @@ function getEffectiveRetentionPreferences() {
 const providerSupportsImages = (providerId) =>
   !!(providerId && PROVIDER_REGISTRY[providerId]?.supportsImages);
 
+// Shared by the agent route and its text-only retry, which needs the prompt
+// without the screen-context suffix.
+function dictationAgentPrompt(settings, agentName) {
+  return resolvePrompt("dictationAgent", {
+    agentName,
+    language: settings.preferredLanguage,
+    customDictionary: getDictionaryHintWords(settings),
+    uiLanguage: settings.uiLanguage,
+  });
+}
+
 function dictationAgentReachable(settings) {
   return resolveDictationAgentInference(settings, { isCloudAgent: isCloudDictationAgentMode() })
     .reachable;
@@ -193,20 +204,16 @@ function resolveReasoningRoute(
     });
     const target = useVisionOverride ? vision : agent;
 
-    let systemPrompt = resolvePrompt("dictationAgent", {
-      agentName,
-      language: settings.preferredLanguage,
-      customDictionary: getDictionaryHintWords(settings),
-      uiLanguage: settings.uiLanguage,
-    });
-    if (attach) systemPrompt = appendScreenContextSuffix(systemPrompt, settings.uiLanguage);
+    const systemPrompt = dictationAgentPrompt(settings, agentName);
 
     return {
       kind: "agent",
       model: target.model,
       config: {
         ...target.config,
-        systemPrompt,
+        systemPrompt: attach
+          ? appendScreenContextSuffix(systemPrompt, settings.uiLanguage)
+          : systemPrompt,
         ...(attach ? { screenContext } : {}),
       },
     };
@@ -668,6 +675,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       code: "AGENT_REASONING_FAILED",
       title: "Agent Unavailable",
       messageKey: "hooks.audioRecording.errorDescriptions.agentReasoningFailed",
+    });
+  }
+
+  // The command still ran, so this is a downgrade notice rather than a failure.
+  _notifyScreenContextSkipped() {
+    this.onError?.({
+      code: "SCREEN_CONTEXT_SKIPPED",
+      title: "Screen Context Skipped",
+      messageKey: "hooks.audioRecording.errorDescriptions.screenContextSkipped",
+      variant: "default",
     });
   }
 
@@ -2097,6 +2114,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         error: error.message,
         stack: error.stack,
       });
+
+      // A screenshot the model or transport rejects must not cost the user
+      // their command — rerun it text-only. Only the agent route attaches one,
+      // so rebuilding its prompt also drops the screen-context instructions
+      // that would otherwise reference an image we are no longer sending.
+      if (config?.screenContext) {
+        const { screenContext, ...textOnlyConfig } = config;
+        const result = await ReasoningService.processText(text, model, agentName, {
+          ...textOnlyConfig,
+          systemPrompt: dictationAgentPrompt(getSettings(), agentName),
+        });
+        this._notifyScreenContextSkipped();
+        return result;
+      }
 
       throw error;
     }

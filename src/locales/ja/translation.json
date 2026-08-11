@@ -571,6 +571,7 @@
         "sessionExpired": "セッション期限切れ",
         "offline": "オフラインです",
         "agentUnavailable": "エージェントを利用できません",
+        "screenContextSkipped": "画面コンテキストをスキップしました",
         "dailyLimitReached": "1 日の上限に達しました",
         "providerRateLimited": "プロバイダーのレート制限"
       },
@@ -601,7 +602,7 @@
         "dailyLimitReached": "本日の文字起こし上限に達しました。明日もう一度お試しいただくか、プランをアップグレードしてください。",
         "providerRateLimited": "文字起こしプロバイダーがリクエストを制限しました。しばらく待ってからもう一度お試しください。",
         "agentReasoningFailed": "ボイスエージェントがコマンドを処理できなかったため、未処理の文字起こしを挿入しました。",
-        "providerRateLimited": "文字起こしプロバイダーがリクエストを制限しました。しばらく待ってからもう一度お試しください。"
+        "screenContextSkipped": "スクリーンショットを送信できなかったため、画面コンテキストなしでコマンドを実行しました。"
       },
       "translationFallback": {
         "unreachableTitle": "翻訳を利用できません",
@@ -2941,7 +2942,7 @@
   },
   "dictationAgent": {
     "enabled": "音声エージェントを有効にする",
-    "enabledDescription": "エージェントに指示を口述できます。「{{agentName}}」と話しかけて起動します。設定は以下で行えます。",
+    "enabledDescription": "エージェントに指示を口述できます。選択中のテキストは設定済みのモデルに送信され、その場で編集されます。「{{agentName}}」と話しかけて起動します。",
     "screenContext": {
       "title": "画面コンテキスト",
       "description": "ボイスエージェントのコマンドに、作業中の画面のスクリーンショットを添付します。",
@@ -2953,7 +2954,6 @@
       "permissionTitle": "画面収録",
       "permissionDescription": "画面をキャプチャするには macOS の画面収録の許可が必要です。"
     },
-    "enabledDescription": "エージェントに指示を口述できます。選択中のテキストは設定済みのモデルに送信され、その場で編集されます。「{{agentName}}」と話しかけて起動します。",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "OpenWhispr が管理するエージェントを使用。API キーは不要です。",

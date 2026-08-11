@@ -571,6 +571,7 @@
         "sessionExpired": "Session expirée",
         "offline": "Vous êtes hors ligne",
         "agentUnavailable": "Agent indisponible",
+        "screenContextSkipped": "Contexte d'écran ignoré",
         "dailyLimitReached": "Limite quotidienne atteinte",
         "providerRateLimited": "Limite de débit du fournisseur"
       },
@@ -601,7 +602,7 @@
         "dailyLimitReached": "Vous avez atteint votre limite de transcription du jour. Réessayez demain ou améliorez votre forfait.",
         "providerRateLimited": "Votre fournisseur de transcription a limité la requête. Patientez un instant et réessayez.",
         "agentReasoningFailed": "Votre agent vocal n'a pas pu traiter la commande ; la transcription brute a été insérée à la place.",
-        "providerRateLimited": "Votre fournisseur de transcription a limité la requête. Patientez un instant et réessayez."
+        "screenContextSkipped": "La capture n'a pas pu être envoyée ; votre commande a été exécutée sans contexte d'écran."
       },
       "translationFallback": {
         "unreachableTitle": "Traduction indisponible",
@@ -3089,7 +3090,7 @@
   },
   "dictationAgent": {
     "enabled": "Activer l'agent vocal",
-    "enabledDescription": "Dictez des instructions à votre agent. Activez-le en disant « \"{{agentName}}\" ». Configurable ci-dessous.",
+    "enabledDescription": "Dictez des instructions à votre agent. Le texte surligné est envoyé au modèle configuré et modifié sur place. Activez-le en disant « \"{{agentName}}\" ».",
     "screenContext": {
       "title": "Contexte d'écran",
       "description": "Joint une capture de votre écran actif aux commandes de l'agent vocal.",
@@ -3101,7 +3102,6 @@
       "permissionTitle": "Enregistrement de l'écran",
       "permissionDescription": "macOS exige l'autorisation d'enregistrement de l'écran pour capturer votre écran."
     },
-    "enabledDescription": "Dictez des instructions à votre agent. Le texte surligné est envoyé au modèle configuré et modifié sur place. Activez-le en disant « \"{{agentName}}\" ».",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Utilisez l'agent géré par OpenWhispr, sans clé API.",

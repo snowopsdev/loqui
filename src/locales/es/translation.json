@@ -571,6 +571,7 @@
         "sessionExpired": "Sesión expirada",
         "offline": "Sin conexión",
         "agentUnavailable": "Agente no disponible",
+        "screenContextSkipped": "Contexto de pantalla omitido",
         "dailyLimitReached": "Límite diario alcanzado",
         "providerRateLimited": "Límite de tasa del proveedor"
       },
@@ -601,7 +602,7 @@
         "dailyLimitReached": "Has alcanzado el límite de transcripción de hoy. Inténtalo mañana o mejora tu plan.",
         "providerRateLimited": "Tu proveedor de transcripción limitó la solicitud. Espera un momento e inténtalo de nuevo.",
         "agentReasoningFailed": "Tu agente de voz no pudo procesar el comando; se insertó la transcripción sin procesar.",
-        "providerRateLimited": "Tu proveedor de transcripción limitó la solicitud. Espera un momento e inténtalo de nuevo."
+        "screenContextSkipped": "No se pudo enviar la captura, así que tu comando se ejecutó sin contexto de pantalla."
       },
       "translationFallback": {
         "unreachableTitle": "Traducción no disponible",
@@ -2989,7 +2990,7 @@
   },
   "dictationAgent": {
     "enabled": "Activar agente de voz",
-    "enabledDescription": "Dicta instrucciones a tu agente. Actívalo diciendo \"{{agentName}}\". Configurable más abajo.",
+    "enabledDescription": "Dicta instrucciones a tu agente. El texto resaltado se envía al modelo configurado y se edita en su lugar. Actívalo diciendo \"{{agentName}}\".",
     "screenContext": {
       "title": "Contexto de pantalla",
       "description": "Adjunta una captura de tu pantalla activa a los comandos del agente de voz.",
@@ -3001,7 +3002,6 @@
       "permissionTitle": "Grabación de pantalla",
       "permissionDescription": "macOS requiere permiso de grabación de pantalla para capturar tu pantalla."
     },
-    "enabledDescription": "Dicta instrucciones a tu agente. El texto resaltado se envía al modelo configurado y se edita en su lugar. Actívalo diciendo \"{{agentName}}\".",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Usa el agente gestionado por OpenWhispr, sin necesidad de clave API.",

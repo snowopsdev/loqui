@@ -4,7 +4,14 @@ const debugLogger = require("./debugLogger");
 // Vision models downsample images past ~1.5k px on the long edge; capturing
 // larger only inflates the payload without adding model-visible detail.
 const MAX_EDGE_PX = 1568;
-const JPEG_QUALITY = 75;
+// A 1568px screenshot lands well under the cap at this quality, so spend the
+// headroom on legible on-screen text; the ladder below covers the rare
+// near-incompressible screen (video, noise) that doesn't fit.
+const QUALITY_LADDER = [82, 70, 55];
+// Keeps the base64 payload (~1.37x) inside the API's 2.8M character limit
+// with room for the transcript, prompt and dictionary.
+const MAX_ENCODED_BYTES = 1_500_000;
+const FALLBACK_EDGE_PX = 1024;
 
 // Wayland routes desktopCapturer through the xdg-desktop-portal picker (a
 // dialog per capture) and cursor coordinates are unreliable there, so screen
@@ -23,6 +30,19 @@ function getAccessStatus() {
     return systemPreferences.getMediaAccessStatus("screen");
   }
   return "granted";
+}
+
+// Encodes from the same source bitmap at each step, so lowering quality never
+// compounds artifacts from an earlier pass.
+function encodeWithinBudget(image) {
+  for (const quality of QUALITY_LADDER) {
+    const encoded = image.toJPEG(quality);
+    if (encoded.length <= MAX_ENCODED_BYTES) return encoded;
+  }
+
+  const resized = image.resize({ width: FALLBACK_EDGE_PX, quality: "good" });
+  const smallest = resized.toJPEG(QUALITY_LADDER.at(-1));
+  return smallest.length <= MAX_ENCODED_BYTES ? smallest : null;
 }
 
 // Returns null on any failure — a screenshot must never break the dictation
@@ -44,10 +64,13 @@ async function captureCursorDisplay() {
     const source = sources.find((s) => s.display_id === String(display.id)) || sources[0];
     if (!source || source.thumbnail.isEmpty()) return null;
 
-    return {
-      mediaType: "image/jpeg",
-      data: source.thumbnail.toJPEG(JPEG_QUALITY).toString("base64"),
-    };
+    const encoded = encodeWithinBudget(source.thumbnail);
+    if (!encoded) {
+      debugLogger.warn("Screen context too large to send", {}, "screenContext");
+      return null;
+    }
+
+    return { mediaType: "image/jpeg", data: encoded.toString("base64") };
   } catch (error) {
     debugLogger.warn("Screen context capture failed", { error: error.message }, "screenContext");
     return null;

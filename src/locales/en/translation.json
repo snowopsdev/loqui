@@ -571,6 +571,7 @@
         "sessionExpired": "Session Expired",
         "offline": "You're Offline",
         "agentUnavailable": "Agent Unavailable",
+        "screenContextSkipped": "Screen Context Skipped",
         "dailyLimitReached": "Daily Limit Reached",
         "providerRateLimited": "Provider Rate Limited"
       },
@@ -601,7 +602,7 @@
         "dailyLimitReached": "You've reached today's transcription limit. Try again tomorrow or upgrade your plan.",
         "providerRateLimited": "Your transcription provider rate-limited the request. Wait a moment and try again.",
         "agentReasoningFailed": "Your voice agent couldn't process the command — the raw transcript was inserted instead.",
-        "providerRateLimited": "Your transcription provider rate-limited the request. Wait a moment and try again."
+        "screenContextSkipped": "The screenshot couldn't be sent, so your command ran without screen context."
       },
       "translationFallback": {
         "unreachableTitle": "Translation unavailable",
@@ -3089,7 +3090,7 @@
   },
   "dictationAgent": {
     "enabled": "Enable voice agent",
-    "enabledDescription": "Dictate instructions to your agent. Activate by saying \"{{agentName}}\". Configurable below.",
+    "enabledDescription": "Dictate instructions to your agent. Highlighted text is sent to the configured model and edited in place. Activate by saying \"{{agentName}}\".",
     "screenContext": {
       "title": "Screen Context",
       "description": "Attach a screenshot of your active screen to voice agent commands.",
@@ -3101,7 +3102,6 @@
       "permissionTitle": "Screen Recording",
       "permissionDescription": "macOS requires Screen Recording permission to capture your screen."
     },
-    "enabledDescription": "Dictate instructions to your agent. Highlighted text is sent to the configured model and edited in place. Activate by saying \"{{agentName}}\".",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Use the OpenWhispr-managed agent — no API key needed.",

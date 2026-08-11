@@ -571,6 +571,7 @@
         "sessionExpired": "Sessione scaduta",
         "offline": "Sei offline",
         "agentUnavailable": "Agente non disponibile",
+        "screenContextSkipped": "Contesto dello schermo ignorato",
         "dailyLimitReached": "Limite giornaliero raggiunto",
         "providerRateLimited": "Limite di velocità del provider"
       },
@@ -601,7 +602,7 @@
         "dailyLimitReached": "Hai raggiunto il limite di trascrizioni di oggi. Riprova domani o aggiorna il tuo piano.",
         "providerRateLimited": "Il tuo provider di trascrizione ha limitato la richiesta. Attendi un momento e riprova.",
         "agentReasoningFailed": "L'agente vocale non è riuscito a elaborare il comando; è stata inserita la trascrizione grezza.",
-        "providerRateLimited": "Il tuo provider di trascrizione ha limitato la richiesta. Attendi un momento e riprova."
+        "screenContextSkipped": "Non è stato possibile inviare lo screenshot, quindi il comando è stato eseguito senza contesto dello schermo."
       },
       "translationFallback": {
         "unreachableTitle": "Traduzione non disponibile",
@@ -2941,7 +2942,7 @@
   },
   "dictationAgent": {
     "enabled": "Attiva agente vocale",
-    "enabledDescription": "Detta istruzioni al tuo agente. Attivalo dicendo \"{{agentName}}\". Configurabile qui sotto.",
+    "enabledDescription": "Detta istruzioni al tuo agente. Il testo evidenziato viene inviato al modello configurato e modificato sul posto. Attivalo dicendo \"{{agentName}}\".",
     "screenContext": {
       "title": "Contesto dello schermo",
       "description": "Allega uno screenshot dello schermo attivo ai comandi dell'agente vocale.",
@@ -2953,7 +2954,6 @@
       "permissionTitle": "Registrazione schermo",
       "permissionDescription": "macOS richiede l'autorizzazione alla registrazione dello schermo per catturare lo schermo."
     },
-    "enabledDescription": "Detta istruzioni al tuo agente. Il testo evidenziato viene inviato al modello configurato e modificato sul posto. Attivalo dicendo \"{{agentName}}\".",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Usa l'agente gestito da OpenWhispr, senza bisogno di chiave API.",

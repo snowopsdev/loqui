@@ -550,6 +550,7 @@
         "sessionExpired": "Sessão expirada",
         "offline": "Sem conexão",
         "agentUnavailable": "Agente indisponível",
+        "screenContextSkipped": "Contexto de tela ignorado",
         "dailyLimitReached": "Limite diário atingido",
         "providerRateLimited": "Limite de taxa do provedor"
       },
@@ -580,7 +581,7 @@
         "dailyLimitReached": "Você atingiu o limite de transcrições de hoje. Tente novamente amanhã ou faça upgrade do seu plano.",
         "providerRateLimited": "Seu provedor de transcrição limitou a solicitação. Aguarde um momento e tente novamente.",
         "agentReasoningFailed": "Seu agente de voz não conseguiu processar o comando; a transcrição bruta foi inserida no lugar.",
-        "providerRateLimited": "Seu provedor de transcrição limitou a solicitação. Aguarde um momento e tente novamente."
+        "screenContextSkipped": "Não foi possível enviar a captura, então seu comando foi executado sem contexto de tela."
       },
       "translationFallback": {
         "unreachableTitle": "Tradução indisponível",
@@ -2941,7 +2942,7 @@
   },
   "dictationAgent": {
     "enabled": "Ativar agente de voz",
-    "enabledDescription": "Dite instruções para o seu agente. Ative dizendo \"{{agentName}}\". Configurável abaixo.",
+    "enabledDescription": "Dite instruções para o seu agente. O texto destacado é enviado ao modelo configurado e editado no lugar. Ative dizendo \"{{agentName}}\".",
     "screenContext": {
       "title": "Contexto de tela",
       "description": "Anexa uma captura da tela ativa aos comandos do agente de voz.",
@@ -2953,7 +2954,6 @@
       "permissionTitle": "Gravação de tela",
       "permissionDescription": "O macOS exige permissão de gravação de tela para capturar sua tela."
     },
-    "enabledDescription": "Dite instruções para o seu agente. O texto destacado é enviado ao modelo configurado e editado no lugar. Ative dizendo \"{{agentName}}\".",
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
       "openwhisprDesc": "Use o agente gerenciado pelo OpenWhispr, sem precisar de chave API.",

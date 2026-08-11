@@ -199,7 +199,7 @@ export const useAudioRecording = (toast, options = {}) => {
         toast({
           title,
           description,
-          variant: "destructive",
+          variant: error.variant || "destructive",
           duration: error.code === "AUTH_EXPIRED" ? 8000 : undefined,
         });
         if (getSettings().pauseMediaOnDictation) {

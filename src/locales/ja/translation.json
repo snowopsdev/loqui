@@ -3439,6 +3439,7 @@
       "description": "これらのワークスペースに、あなたと同じメールドメインのメンバーがいます。",
       "invitedDescription": "ワークスペースに招待されています。",
       "invitedBy": "{{inviter}} が {{role}} として招待しました",
+      "memberCount_one": "メンバー {{count}} 人",
       "memberCount_other": "メンバー {{count}} 人",
       "join": "参加",
       "requestErrorTitle": "リクエストを送信できませんでした",

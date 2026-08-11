@@ -59,7 +59,12 @@ async function loadAccountDependencies() {
 }
 
 async function refreshManagedEnterpriseIdentity(accountId: string, authGeneration: number) {
-  const { refreshManagedEnterpriseIdentity: refresh } = await import("../stores/workspaceStore");
+  const { refreshManagedEnterpriseIdentity: refresh, useWorkspaceStore } =
+    await import("../stores/workspaceStore");
+  // A newly authenticated employee has no active workspace cached yet. Load
+  // memberships first so a single SCIM-provisioned Enterprise workspace is
+  // selected and its managed provider config resolves without opening Settings.
+  await useWorkspaceStore.getState().refresh();
   refresh(accountId, authGeneration);
 }
 

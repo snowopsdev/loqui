@@ -3439,6 +3439,7 @@
       "description": "这些工作区中有与你相同邮箱域名的成员。",
       "invitedDescription": "有人邀请你加入一个工作区。",
       "invitedBy": "{{inviter}} 邀请你担任{{role}}",
+      "memberCount_one": "{{count}} 位成员",
       "memberCount_other": "{{count}} 位成员",
       "join": "加入",
       "requestErrorTitle": "无法发送申请",

@@ -3439,6 +3439,7 @@
       "description": "這些工作區中有與你相同電子郵件網域的成員。",
       "invitedDescription": "有人邀請你加入一個工作區。",
       "invitedBy": "{{inviter}} 邀請你擔任{{role}}",
+      "memberCount_one": "{{count}} 位成員",
       "memberCount_other": "{{count}} 位成員",
       "join": "加入",
       "requestErrorTitle": "無法送出申請",

@@ -393,9 +393,9 @@ export interface JoinableMember {
 
 /**
  * A workspace the signed-in user can act on, from GET /api/me/joinable.
- * `source` is why they can see it, `mode` is what the button does: an
- * invitation or an opted-in domain joins outright, a plain domain match only
- * earns the right to ask an admin.
+ * `source` is why they can see it, `mode` is what the button does: a direct
+ * invitation joins, while a company-domain match only earns the right to ask
+ * an admin. Enterprise SSO and SCIM provision through the SSO callback.
  */
 export interface JoinableWorkspace {
   source: "invitation" | "domain";

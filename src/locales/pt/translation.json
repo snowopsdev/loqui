@@ -580,6 +580,7 @@
         "offline": "Você está offline. A transcrição na nuvem exige conexão com a internet.",
         "dailyLimitReached": "Você atingiu o limite de transcrições de hoje. Tente novamente amanhã ou faça upgrade do seu plano.",
         "providerRateLimited": "Seu provedor de transcrição limitou a solicitação. Aguarde um momento e tente novamente.",
+        "chunkLoss": "Um problema de rede fez perder grande parte da gravação. Retranscreva-a a partir do histórico.",
         "agentReasoningFailed": "Seu agente de voz não conseguiu processar o comando; a transcrição bruta foi inserida no lugar.",
         "screenContextSkipped": "Não foi possível enviar a captura, então seu comando foi executado sem contexto de tela."
       },
@@ -2525,6 +2526,8 @@
       "cancelTranscription": "Cancelar transcrição",
       "transcriptionComplete": "Transcrição concluída",
       "partialWarning": "Não foi possível transcrever parte do áudio.",
+      "partialWarningCount": "Não foi possível transcrever {{failed}} de {{total}} seções do áudio.",
+      "chunkLossExceeded": "Muito áudio foi perdido devido a um problema de rede. Verifique sua conexão e tente novamente.",
       "openNote": "Abrir nota",
       "uploadAnother": "Enviar outro",
       "retry": "Tentar novamente",
@@ -2571,6 +2574,8 @@
       "speakerDetection": "Detecção de locutores",
       "speakerDetectionDescription": "Identificar diferentes locutores no áudio",
       "numSpeakersPlaceholder": "Detecção automática",
+      "numSpeakersLabel": "Número de falantes",
+      "numSpeakersHint": "Definir o número exato melhora a precisão, principalmente em gravações longas.",
       "downloadingModels": "Baixando modelos...",
       "openaiDiarizeNote": "Substitui seu modelo de transcrição por gpt-4o-transcribe-diarize, o único modelo OpenAI com detecção de falantes. Os custos podem diferir do modelo selecionado.",
       "mistralDiarizeNote": "Detecção de falantes incluída sem custo adicional com Voxtral.",
@@ -3352,7 +3357,8 @@
     "speaker": {
       "you": "Você",
       "others": "Outros"
-    }
+    },
+    "missingAudio": "[áudio ausente {{from}}-{{to}}]"
   },
   "workspaces": {
     "switcher": {

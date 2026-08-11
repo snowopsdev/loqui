@@ -133,36 +133,56 @@ const {
   CLOUD_UPLOAD_TIMEOUT_MS,
   CLOUD_CHUNK_MAX_ATTEMPTS,
   CLOUD_CHUNK_GLOBAL_CONCURRENCY,
+  CLOUD_CHUNK_MAX_TEARDOWN_REFUNDS,
+  CLOUD_CHUNK_MAX_LOSS_RATIO,
+  SILENT_CHUNK,
   FATAL_CHUNK_CODES,
   isTransientChunkError,
   isNetworkLevelFailure,
+  isConnectionPoisoningFailure,
+  isTeardownCollateral,
+  summarizeChunkResults,
+  assembleChunkTranscript,
   chunkRetryDelayMs,
   abortableSleep,
   createTeardownGate,
   createUploadSlots,
 } = require("./cloudChunkPolicy");
 
-// Every cloud upload rides a dedicated in-memory session so stalled large
-// bodies can't wedge the HTTP/2 connection the rest of the app multiplexes
-// over, and a failed attempt can drop the pool without collateral damage
-// outside the upload path (#1326).
-const CLOUD_UPLOAD_SESSION_PARTITION = "ow-cloud-uploads";
+// Chunk retries need their own connection pool: recovering a wedged chunk pool
+// must not abort an unrelated inline upload that has no collateral retry path.
+const CLOUD_CHUNK_UPLOAD_SESSION_PARTITION = "ow-cloud-chunk-uploads";
+const CLOUD_INLINE_UPLOAD_SESSION_PARTITION = "ow-cloud-uploads";
 const cloudUploadSlots = createUploadSlots(CLOUD_CHUNK_GLOBAL_CONCURRENCY);
 const shouldDropUploadPool = createTeardownGate();
-let cloudUploadSession = null;
+const cloudUploadSessions = new Map();
 
-function getCloudUploadSession() {
-  if (!cloudUploadSession) {
-    cloudUploadSession = session.fromPartition(CLOUD_UPLOAD_SESSION_PARTITION);
-    applyOpenWhisprOriginHeader(cloudUploadSession);
+function getCloudUploadSession(partition) {
+  if (!cloudUploadSessions.has(partition)) {
+    const uploadSession = session.fromPartition(partition);
+    applyOpenWhisprOriginHeader(uploadSession);
+    cloudUploadSessions.set(partition, uploadSession);
   }
-  return cloudUploadSession;
+  return cloudUploadSessions.get(partition);
 }
 
-async function dropUploadConnections() {
-  if (!shouldDropUploadPool()) return;
+function getChunkCloudUploadSession() {
+  return getCloudUploadSession(CLOUD_CHUNK_UPLOAD_SESSION_PARTITION);
+}
+
+function getInlineCloudUploadSession() {
+  return getCloudUploadSession(CLOUD_INLINE_UPLOAD_SESSION_PARTITION);
+}
+
+// Counts initiated pool drops so a chunk can tell whether its failure was
+// collateral from a teardown that happened while its body was on the wire.
+let uploadPoolTeardowns = 0;
+
+async function dropUploadConnections(force = false) {
+  if (!shouldDropUploadPool(force)) return;
+  uploadPoolTeardowns++;
   try {
-    await getCloudUploadSession().closeAllConnections();
+    await getChunkCloudUploadSession().closeAllConnections();
   } catch {
     // pool teardown is best-effort
   }
@@ -333,7 +353,7 @@ async function chunkedCloudTranscribe({
   try {
     onProgress?.({ stage: "splitting", chunksTotal: 0, chunksCompleted: 0 });
 
-    const chunkPaths = await splitAudioFile(inputPath, chunkDir, {
+    const { chunkPaths, durationSeconds } = await splitAudioFile(inputPath, chunkDir, {
       segmentDuration,
       signal: jobSignal,
     });
@@ -343,51 +363,83 @@ async function chunkedCloudTranscribe({
 
     const url = new URL(`${apiUrl}/api/transcribe`);
     const results = new Array(totalChunks).fill(null);
-    const failureCodes = new Set();
     let fatalError = null;
     let completedCount = 0;
 
     const transcribeChunk = async (index) => {
-      for (let attempt = 1; ; attempt++) {
+      let attempt = 1;
+      let teardownRefunds = CLOUD_CHUNK_MAX_TEARDOWN_REFUNDS;
+      while (true) {
         if (jobSignal.aborted) throw createAbortError();
 
         // Held only while a body is on the wire, so the backoff below never
         // occupies a slot and queue time never eats the upload timeout.
         const releaseSlot = await cloudUploadSlots.acquire(jobSignal);
         const timeoutSignal = AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS);
+        const teardownsAtStart = uploadPoolTeardowns;
         let failure = null;
+        let timedOut = false;
+        let collateral = false;
         try {
-          const { body, boundary } = buildMultipartBody(
-            fs.readFileSync(chunkPaths[index]),
-            path.basename(chunkPaths[index]),
-            "audio/mpeg",
-            multipartFields
-          );
-          const data = await postMultipart(url, body, boundary, policyHeaders, {
-            signal: AbortSignal.any([jobSignal, timeoutSignal]),
-            session: getCloudUploadSession(),
-          });
-          results[index] = interpretTranscribeResponse(data);
-        } catch (err) {
-          failure = err;
+          try {
+            const { body, boundary } = buildMultipartBody(
+              fs.readFileSync(chunkPaths[index]),
+              path.basename(chunkPaths[index]),
+              "audio/mpeg",
+              multipartFields
+            );
+            const data = await postMultipart(url, body, boundary, policyHeaders, {
+              signal: AbortSignal.any([jobSignal, timeoutSignal]),
+              session: getChunkCloudUploadSession(),
+            });
+            results[index] = interpretTranscribeResponse(data);
+          } catch (err) {
+            failure = err;
+            timedOut = timeoutSignal.aborted;
+            collateral = isTeardownCollateral(err, {
+              timedOut,
+              teardownsDuringAttempt: uploadPoolTeardowns - teardownsAtStart,
+            });
+            // Drop the pool while still holding the slot — released first, a
+            // queued sibling is admitted onto the pool microseconds before
+            // closeAllConnections() kills it and burns an attempt it never
+            // owned. A fatal TLS/protocol alert proves the pool is poisoned,
+            // so that drop is forced through the cooldown gate.
+            if (!jobSignal.aborted && !collateral) {
+              const poisoned = isConnectionPoisoningFailure(err);
+              if (poisoned || isNetworkLevelFailure(err, { timedOut })) {
+                await dropUploadConnections(poisoned);
+              }
+            }
+          }
         } finally {
           releaseSlot();
         }
         if (!failure) break;
 
+        if (failure.code === "NO_SPEECH_DETECTED") {
+          results[index] = SILENT_CHUNK;
+          break;
+        }
+
         if (jobSignal.aborted) throw createAbortError();
-        const timedOut = timeoutSignal.aborted;
+        if (collateral && teardownRefunds > 0) {
+          teardownRefunds--;
+          debugLogger.warn(`Chunk ${index} attempt ${attempt} killed by pool teardown, refunded`, {
+            error: failure.message,
+          });
+          await abortableSleep(chunkRetryDelayMs(1), jobSignal);
+          continue;
+        }
         if (attempt >= CLOUD_CHUNK_MAX_ATTEMPTS || !(timedOut || isTransientChunkError(failure))) {
           throw failure;
         }
-        // No HTTP answer ever arrived — treat the pool as wedged and drop it so
-        // the retry dials a fresh connection instead of re-entering the dying one.
-        if (isNetworkLevelFailure(failure, { timedOut })) await dropUploadConnections();
         debugLogger.warn(`Chunk ${index} attempt ${attempt} failed, retrying`, {
           error: failure.message,
           timedOut,
         });
         await abortableSleep(chunkRetryDelayMs(attempt), jobSignal);
+        attempt++;
       }
 
       completedCount++;
@@ -409,7 +461,6 @@ async function chunkedCloudTranscribe({
             abortJob();
             return;
           }
-          if (err.code) failureCodes.add(err.code);
           debugLogger.warn(`Chunk ${index} failed`, { error: err.message, code: err.code });
         })
       )
@@ -420,9 +471,9 @@ async function chunkedCloudTranscribe({
     }
     if (fatalError) throw fatalError;
 
-    const succeeded = results.filter((r) => r !== null);
-    if (succeeded.length === 0) {
-      if (failureCodes.size === 1 && failureCodes.has("NO_SPEECH_DETECTED")) {
+    const { responses, failedChunks: failed, silentChunks } = summarizeChunkResults(results);
+    if (responses.length === 0) {
+      if (silentChunks === totalChunks) {
         throw Object.assign(new Error("No speech detected in audio"), {
           code: "NO_SPEECH_DETECTED",
         });
@@ -430,19 +481,24 @@ async function chunkedCloudTranscribe({
       throw new Error("All chunks failed to transcribe");
     }
 
-    const text = results
-      .filter((r) => r !== null)
-      .map((r) => r.text)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
+    if (failed / totalChunks > CLOUD_CHUNK_MAX_LOSS_RATIO) {
+      throw Object.assign(new Error(`${failed} of ${totalChunks} audio segments were lost`), {
+        code: "CHUNK_LOSS_EXCEEDED",
+      });
+    }
 
-    const failed = totalChunks - succeeded.length;
+    const text = assembleChunkTranscript(results, segmentDuration, durationSeconds);
     return {
       text,
-      responses: succeeded,
-      lastResponse: succeeded[succeeded.length - 1],
-      ...(failed > 0 ? { warning: `${failed} of ${totalChunks} chunks failed` } : {}),
+      responses,
+      lastResponse: responses[responses.length - 1],
+      ...(failed > 0
+        ? {
+            warning: `${failed} of ${totalChunks} chunks failed`,
+            failedChunks: failed,
+            totalChunks,
+          }
+        : {}),
     };
   } finally {
     signal?.removeEventListener("abort", abortJob);
@@ -2933,21 +2989,33 @@ class IPCHandlers {
         if (!realPath) return { success: false, error: "File path not allowed" };
         filePath = realPath;
 
-        const diarOpts = {
-          numSpeakers: Math.min(
-            MAX_SPEAKER_COUNT,
-            Math.max(-1, Math.round(Number(options.numSpeakers) || -1))
-          ),
-          threshold: Math.min(1, Math.max(0, Number(options.threshold) || 0.55)),
-        };
+        const numSpeakers = Math.min(
+          MAX_SPEAKER_COUNT,
+          Math.max(-1, Math.round(Number(options.numSpeakers) || -1))
+        );
 
         const { convertToWav } = require("./ffmpegUtils");
         const { getSafeTempDir } = require("./safeTempDir");
+        const { resolveClusterThreshold, dropNegligibleClusters } = require("./diarizationPolicy");
+        const { PCM16_MONO_16K_BYTES_PER_SECOND } = require("./transcriptionTimeout");
         const wavPath = path.join(getSafeTempDir(), `ow-diarize-${Date.now()}.wav`);
 
         try {
           await convertToWav(filePath, wavPath, { sampleRate: 16000, channels: 1 });
-          const segments = await this.diarizationManager.diarize(wavPath, diarOpts);
+          // Auto-clustering over-splits long single-mic audio at the 0.55
+          // default, so the threshold ramps with duration unless pinned.
+          const durationSeconds = fs.statSync(wavPath).size / PCM16_MONO_16K_BYTES_PER_SECOND;
+          const threshold = resolveClusterThreshold(durationSeconds, options.threshold);
+
+          let segments = await this.diarizationManager.diarize(wavPath, { numSpeakers, threshold });
+          // The meeting path caps clusters via its expectation resolver; this
+          // path fed raw sherpa output to the merge, which is how a 2-person
+          // voice memo surfaced 46 speakers.
+          segments = dropNegligibleClusters(segments);
+          segments = this.diarizationManager.capSpeakerClusters(
+            segments,
+            numSpeakers > 0 ? numSpeakers : MAX_SPEAKER_COUNT
+          );
           return { success: true, segments };
         } finally {
           try {
@@ -4830,7 +4898,7 @@ class IPCHandlers {
         const url = new URL(`${apiUrl}/api/transcribe`);
         const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
           signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
-          session: getCloudUploadSession(),
+          session: getInlineCloudUploadSession(),
         });
 
         debugLogger.debug(
@@ -4983,7 +5051,7 @@ class IPCHandlers {
                     withPolicyHeaders(authHeader),
                     {
                       signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
-                      session: getCloudUploadSession(),
+                      session: getInlineCloudUploadSession(),
                     }
                   );
                   const responseData = interpretTranscribeResponse(data);
@@ -7935,7 +8003,7 @@ class IPCHandlers {
             fileSize,
             filePath: path.basename(realCloud),
           });
-          const { text, warning } = await chunkedCloudTranscribe({
+          const { text, warning, failedChunks, totalChunks } = await chunkedCloudTranscribe({
             filePath: realCloud,
             apiUrl,
             policyHeaders: withPolicyHeaders(authHeader),
@@ -7943,7 +8011,11 @@ class IPCHandlers {
             onProgress: (payload) => event.sender.send("upload-transcription-progress", payload),
             signal: controller.signal,
           });
-          return { success: true, text, ...(warning ? { warning } : {}) };
+          return {
+            success: true,
+            text,
+            ...(warning ? { warning, failedChunks, totalChunks } : {}),
+          };
         }
 
         const audioBuffer = fs.readFileSync(realCloud);
@@ -7963,7 +8035,7 @@ class IPCHandlers {
             controller.signal,
             AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
           ]),
-          session: getCloudUploadSession(),
+          session: getInlineCloudUploadSession(),
         });
         const result = interpretTranscribeResponse(data);
 

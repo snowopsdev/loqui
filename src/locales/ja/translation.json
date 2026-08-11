@@ -601,6 +601,7 @@
         "offline": "オフラインです。クラウド文字起こしにはインターネット接続が必要です。",
         "dailyLimitReached": "本日の文字起こし上限に達しました。明日もう一度お試しいただくか、プランをアップグレードしてください。",
         "providerRateLimited": "文字起こしプロバイダーがリクエストを制限しました。しばらく待ってからもう一度お試しください。",
+        "chunkLoss": "ネットワークの問題で録音の大部分が失われました。履歴から再文字起こししてください。",
         "agentReasoningFailed": "ボイスエージェントがコマンドを処理できなかったため、未処理の文字起こしを挿入しました。",
         "screenContextSkipped": "スクリーンショットを送信できなかったため、画面コンテキストなしでコマンドを実行しました。"
       },
@@ -2509,6 +2510,8 @@
       "cancelTranscription": "文字起こしをキャンセル",
       "transcriptionComplete": "文字起こし完了",
       "partialWarning": "音声の一部を文字起こしできませんでした。",
+      "partialWarningCount": "{{total}}個の音声セクションのうち{{failed}}個を文字起こしできませんでした。",
+      "chunkLossExceeded": "ネットワークの問題で音声の大部分が失われました。接続を確認してもう一度お試しください。",
       "openNote": "ノートを開く",
       "uploadAnother": "別のファイルをアップロード",
       "retry": "再試行",
@@ -2555,6 +2558,8 @@
       "speakerDetection": "話者検出",
       "speakerDetectionDescription": "音声内の異なる話者を識別",
       "numSpeakersPlaceholder": "自動検出",
+      "numSpeakersLabel": "話者の人数",
+      "numSpeakersHint": "正確な人数を設定すると、特に長い録音で精度が向上します。",
       "downloadingModels": "モデルをダウンロード中...",
       "openaiDiarizeNote": "話者検出をサポートする唯一のOpenAIモデルであるgpt-4o-transcribe-diarizeに切り替わります。選択したモデルとコストが異なる場合があります。",
       "mistralDiarizeNote": "Voxtralでの話者検出は追加料金なしで利用できます。",
@@ -3352,7 +3357,8 @@
     "speaker": {
       "you": "あなた",
       "others": "他の人"
-    }
+    },
+    "missingAudio": "[音声欠落 {{from}}-{{to}}]"
   },
   "workspaces": {
     "switcher": {

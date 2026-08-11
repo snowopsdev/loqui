@@ -601,6 +601,7 @@
         "offline": "Sei offline. La trascrizione cloud richiede una connessione Internet.",
         "dailyLimitReached": "Hai raggiunto il limite di trascrizioni di oggi. Riprova domani o aggiorna il tuo piano.",
         "providerRateLimited": "Il tuo provider di trascrizione ha limitato la richiesta. Attendi un momento e riprova.",
+        "chunkLoss": "Un problema di rete ha fatto perdere troppa parte della registrazione. Ritrascrivila dalla cronologia.",
         "agentReasoningFailed": "L'agente vocale non è riuscito a elaborare il comando; è stata inserita la trascrizione grezza.",
         "screenContextSkipped": "Non è stato possibile inviare lo screenshot, quindi il comando è stato eseguito senza contesto dello schermo."
       },
@@ -2525,6 +2526,8 @@
       "cancelTranscription": "Annulla trascrizione",
       "transcriptionComplete": "Trascrizione completata",
       "partialWarning": "Non è stato possibile trascrivere una parte dell'audio.",
+      "partialWarningCount": "Non è stato possibile trascrivere {{failed}} sezioni audio su {{total}}.",
+      "chunkLossExceeded": "Troppo audio è andato perso a causa di un problema di rete. Controlla la connessione e riprova.",
       "openNote": "Apri nota",
       "uploadAnother": "Carica un altro",
       "retry": "Riprova",
@@ -2571,6 +2574,8 @@
       "speakerDetection": "Rilevamento parlanti",
       "speakerDetectionDescription": "Identifica i diversi parlanti nell'audio",
       "numSpeakersPlaceholder": "Rilevamento automatico",
+      "numSpeakersLabel": "Numero di parlanti",
+      "numSpeakersHint": "Indicare il numero esatto migliora la precisione, soprattutto nelle registrazioni lunghe.",
       "downloadingModels": "Download modelli in corso...",
       "openaiDiarizeNote": "Sostituisce il tuo modello di trascrizione con gpt-4o-transcribe-diarize, l’unico modello OpenAI con rilevamento dei parlanti. I costi potrebbero differire dal modello selezionato.",
       "mistralDiarizeNote": "Rilevamento dei parlanti incluso senza costi aggiuntivi con Voxtral.",
@@ -3352,7 +3357,8 @@
     "speaker": {
       "you": "Tu",
       "others": "Altri"
-    }
+    },
+    "missingAudio": "[audio mancante {{from}}-{{to}}]"
   },
   "workspaces": {
     "switcher": {

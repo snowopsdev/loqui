@@ -601,6 +601,7 @@
         "offline": "You're offline. Cloud transcription requires an internet connection.",
         "dailyLimitReached": "You've reached today's transcription limit. Try again tomorrow or upgrade your plan.",
         "providerRateLimited": "Your transcription provider rate-limited the request. Wait a moment and try again.",
+        "chunkLoss": "A network problem lost too much of the recording. Re-transcribe it from History.",
         "agentReasoningFailed": "Your voice agent couldn't process the command — the raw transcript was inserted instead.",
         "screenContextSkipped": "The screenshot couldn't be sent, so your command ran without screen context."
       },
@@ -2716,6 +2717,8 @@
       "cancelTranscription": "Cancel transcription",
       "transcriptionComplete": "Transcription complete",
       "partialWarning": "Part of the audio couldn't be transcribed.",
+      "partialWarningCount": "{{failed}} of {{total}} audio sections couldn't be transcribed.",
+      "chunkLossExceeded": "Too much of the audio was lost to a network problem. Check your connection and try again.",
       "openNote": "Open Note",
       "uploadAnother": "Upload Another",
       "retry": "Retry",
@@ -2762,6 +2765,8 @@
       "speakerDetection": "Speaker detection",
       "speakerDetectionDescription": "Identify different speakers in the audio",
       "numSpeakersPlaceholder": "Auto-detect",
+      "numSpeakersLabel": "Number of speakers",
+      "numSpeakersHint": "Setting the exact count improves accuracy, especially on long recordings.",
       "downloadingModels": "Downloading models...",
       "openaiDiarizeNote": "Overrides your transcription model with gpt-4o-transcribe-diarize, the only OpenAI model with speaker detection. Costs may differ from your selected model.",
       "mistralDiarizeNote": "Speaker detection included at no extra cost with Voxtral.",
@@ -3412,7 +3417,8 @@
     "speaker": {
       "you": "You",
       "others": "Others"
-    }
+    },
+    "missingAudio": "[missing audio {{from}}-{{to}}]"
   },
   "dictationTranslation": {
     "title": "Dictation Translation",

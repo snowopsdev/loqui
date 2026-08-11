@@ -601,6 +601,7 @@
         "offline": "Vous êtes hors ligne. La transcription cloud nécessite une connexion Internet.",
         "dailyLimitReached": "Vous avez atteint votre limite de transcription du jour. Réessayez demain ou améliorez votre forfait.",
         "providerRateLimited": "Votre fournisseur de transcription a limité la requête. Patientez un instant et réessayez.",
+        "chunkLoss": "Un problème réseau a fait perdre une trop grande partie de l'enregistrement. Retranscrivez-le depuis l'historique.",
         "agentReasoningFailed": "Votre agent vocal n'a pas pu traiter la commande ; la transcription brute a été insérée à la place.",
         "screenContextSkipped": "La capture n'a pas pu être envoyée ; votre commande a été exécutée sans contexte d'écran."
       },
@@ -2716,6 +2717,8 @@
       "cancelTranscription": "Annuler la transcription",
       "transcriptionComplete": "Transcription terminée",
       "partialWarning": "Une partie de l'audio n'a pas pu être transcrite.",
+      "partialWarningCount": "{{failed}} sections audio sur {{total}} n'ont pas pu être transcrites.",
+      "chunkLossExceeded": "Une trop grande partie de l'audio a été perdue à cause d'un problème réseau. Vérifiez votre connexion et réessayez.",
       "openNote": "Ouvrir la note",
       "uploadAnother": "Téléverser un autre fichier",
       "retry": "Réessayer",
@@ -2762,6 +2765,8 @@
       "speakerDetection": "Détection des intervenants",
       "speakerDetectionDescription": "Identifier les différents intervenants dans l'audio",
       "numSpeakersPlaceholder": "Détection automatique",
+      "numSpeakersLabel": "Nombre d'intervenants",
+      "numSpeakersHint": "Indiquer le nombre exact améliore la précision, surtout pour les enregistrements longs.",
       "downloadingModels": "Téléchargement des modèles...",
       "openaiDiarizeNote": "Remplace votre modèle de transcription par gpt-4o-transcribe-diarize, le seul modèle OpenAI avec détection des locuteurs. Les coûts peuvent différer de votre modèle sélectionné.",
       "mistralDiarizeNote": "Détection des locuteurs incluse sans frais supplémentaires avec Voxtral.",
@@ -3412,7 +3417,8 @@
     "speaker": {
       "you": "Vous",
       "others": "Autres"
-    }
+    },
+    "missingAudio": "[audio manquant {{from}}-{{to}}]"
   },
   "dictationTranslation": {
     "title": "Traduction de Dictée",

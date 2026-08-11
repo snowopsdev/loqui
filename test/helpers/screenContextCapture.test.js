@@ -25,9 +25,22 @@ function fakeImage(bytesAtQuality, { edge = 1568, resizes = [] } = {}) {
   };
 }
 
-function loadCapture({ image, platform = "darwin", accessStatus = "granted" }) {
+// The module reads `process.platform` when called, not when imported, so the
+// override has to outlive the import — otherwise the darwin-only permission
+// branch is skipped on Linux CI and every status looks granted.
+function loadCapture(t, { image, platform = "darwin", accessStatus = "granted" }) {
   delete require.cache[modulePath];
   const calls = { thumbnailSizes: [] };
+
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, "platform", { value: platform, configurable: true });
+  t.after(() => {
+    Object.defineProperty(process, "platform", {
+      value: originalPlatform,
+      configurable: true,
+    });
+    delete require.cache[modulePath];
+  });
 
   Module._load = function loadWithMocks(request, parent, isMain) {
     if (request === "electron") {
@@ -48,21 +61,15 @@ function loadCapture({ image, platform = "darwin", accessStatus = "granted" }) {
     return originalLoad.call(this, request, parent, isMain);
   };
 
-  const originalPlatform = process.platform;
-  Object.defineProperty(process, "platform", { value: platform, configurable: true });
   try {
-    return { capture: require(modulePath), calls, originalPlatform };
+    return { capture: require(modulePath), calls };
   } finally {
     Module._load = originalLoad;
-    Object.defineProperty(process, "platform", {
-      value: originalPlatform,
-      configurable: true,
-    });
   }
 }
 
-test("a typical screenshot is sent at the highest quality", async () => {
-  const { capture } = loadCapture({ image: fakeImage(() => 300_000) });
+test("a typical screenshot is sent at the highest quality", async (t) => {
+  const { capture } = loadCapture(t, { image: fakeImage(() => 300_000) });
 
   const result = await capture.captureCursorDisplay();
 
@@ -70,9 +77,9 @@ test("a typical screenshot is sent at the highest quality", async () => {
   assert.equal(Buffer.from(result.data, "base64").toString(), "jpeg-82");
 });
 
-test("an oversized screenshot steps down the quality ladder until it fits", async () => {
+test("an oversized screenshot steps down the quality ladder until it fits", async (t) => {
   // Only the lowest quality gets under the budget.
-  const { capture } = loadCapture({
+  const { capture } = loadCapture(t, {
     image: fakeImage((quality) => (quality === 55 ? 900_000 : 2_000_000)),
   });
 
@@ -81,9 +88,9 @@ test("an oversized screenshot steps down the quality ladder until it fits", asyn
   assert.equal(Buffer.from(result.data, "base64").toString(), "jpeg-55");
 });
 
-test("a screenshot that no quality fits is resized before a final attempt", async () => {
+test("a screenshot that no quality fits is resized before a final attempt", async (t) => {
   const resizes = [];
-  const { capture } = loadCapture({
+  const { capture } = loadCapture(t, {
     // Incompressible at full size; fits once the long edge shrinks.
     image: fakeImage((_quality, edge) => (edge < 1568 ? 800_000 : 4_000_000), { resizes }),
   });
@@ -94,14 +101,14 @@ test("a screenshot that no quality fits is resized before a final attempt", asyn
   assert.equal(Buffer.from(result.data, "base64").toString(), "jpeg-55");
 });
 
-test("a screenshot that still cannot fit is dropped rather than sent oversized", async () => {
-  const { capture } = loadCapture({ image: fakeImage(() => 9_000_000) });
+test("a screenshot that still cannot fit is dropped rather than sent oversized", async (t) => {
+  const { capture } = loadCapture(t, { image: fakeImage(() => 9_000_000) });
 
   assert.equal(await capture.captureCursorDisplay(), null);
 });
 
-test("capture is skipped when screen recording access is not granted", async () => {
-  const { capture, calls } = loadCapture({
+test("capture is skipped when screen recording access is not granted", async (t) => {
+  const { capture, calls } = loadCapture(t, {
     image: fakeImage(() => 300_000),
     accessStatus: "denied",
   });
@@ -110,8 +117,8 @@ test("capture is skipped when screen recording access is not granted", async () 
   assert.equal(calls.thumbnailSizes.length, 0);
 });
 
-test("the captured thumbnail is bounded to the vision-model edge", async () => {
-  const { capture, calls } = loadCapture({ image: fakeImage(() => 300_000) });
+test("the captured thumbnail is bounded to the vision-model edge", async (t) => {
+  const { capture, calls } = loadCapture(t, { image: fakeImage(() => 300_000) });
 
   await capture.captureCursorDisplay();
 

@@ -11,7 +11,7 @@ import type {
   InferenceMode,
   SelfHostedType,
 } from "../types/electron";
-import type { GoogleCalendarAccount } from "../types/calendar";
+import type { CalendarAccount } from "../types/calendar";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import {
   deriveReasoningMode,
@@ -265,6 +265,7 @@ const BOOLEAN_SETTINGS = new Set([
   "notifyCalendarReminders",
   "notifyUpdates",
   "gcalPrimaryOnly",
+  "mcalPrimaryOnly",
   "appleCalendarConnected",
 ]);
 
@@ -272,6 +273,7 @@ const ARRAY_SETTINGS = new Set([
   "customDictionary",
   "snippets",
   "gcalAccounts",
+  "mcalAccounts",
   "onboardingUseCases",
   "translationTargets",
 ]);
@@ -536,14 +538,17 @@ export interface SettingsState
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
   startMinimized: boolean;
-  gcalAccounts: GoogleCalendarAccount[];
+  gcalAccounts: CalendarAccount[];
   gcalConnected: boolean;
   gcalEmail: string;
+  mcalAccounts: CalendarAccount[];
+  mcalConnected: boolean;
   notificationsEnabled: boolean;
   notifyMeetingDetection: boolean;
   notifyCalendarReminders: boolean;
   notifyUpdates: boolean;
   gcalPrimaryOnly: boolean;
+  mcalPrimaryOnly: boolean;
   appleCalendarConnected: boolean;
   meetingProcessDetection: boolean;
   speakerDiarizationEnabled: boolean;
@@ -817,12 +822,14 @@ export interface SettingsState
   setPauseMediaOnDictation: (value: boolean) => void;
   setFloatingIconAutoHide: (enabled: boolean) => void;
   setStartMinimized: (enabled: boolean) => void;
-  setGcalAccounts: (accounts: GoogleCalendarAccount[]) => void;
+  setGcalAccounts: (accounts: CalendarAccount[]) => void;
+  setMcalAccounts: (accounts: CalendarAccount[]) => void;
   setNotificationsEnabled: (value: boolean) => void;
   setNotifyMeetingDetection: (value: boolean) => void;
   setNotifyCalendarReminders: (value: boolean) => void;
   setNotifyUpdates: (value: boolean) => void;
   setGcalPrimaryOnly: (value: boolean) => void;
+  setMcalPrimaryOnly: (value: boolean) => void;
   setAppleCalendarConnected: (value: boolean) => void;
   setMeetingProcessDetection: (value: boolean) => void;
   setSpeakerDiarizationEnabled: (value: boolean) => void;
@@ -1180,7 +1187,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   notifyCalendarReminders: readBoolean("notifyCalendarReminders", true),
   notifyUpdates: readBoolean("notifyUpdates", true),
   ...(() => {
-    let accounts: GoogleCalendarAccount[] = [];
+    let accounts: CalendarAccount[] = [];
     try {
       const parsed = JSON.parse(readString("gcalAccounts", "[]"));
       if (Array.isArray(parsed)) accounts = parsed;
@@ -1193,7 +1200,21 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       gcalEmail: accounts[0]?.email ?? "",
     };
   })(),
+  ...(() => {
+    let accounts: CalendarAccount[] = [];
+    try {
+      const parsed = JSON.parse(readString("mcalAccounts", "[]"));
+      if (Array.isArray(parsed)) accounts = parsed;
+    } catch {
+      /* use empty default */
+    }
+    return {
+      mcalAccounts: accounts,
+      mcalConnected: accounts.length > 0,
+    };
+  })(),
   gcalPrimaryOnly: readBoolean("gcalPrimaryOnly", true),
+  mcalPrimaryOnly: readBoolean("mcalPrimaryOnly", true),
   appleCalendarConnected: readBoolean("appleCalendarConnected", false),
   meetingProcessDetection: readBoolean("meetingProcessDetection", true),
   speakerDiarizationEnabled: readBoolean("speakerDiarizationEnabled", true),
@@ -1845,12 +1866,19 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
   },
 
-  setGcalAccounts: (accounts: GoogleCalendarAccount[]) => {
+  setGcalAccounts: (accounts: CalendarAccount[]) => {
     if (isBrowser) localStorage.setItem("gcalAccounts", JSON.stringify(accounts));
     useSettingsStore.setState({
       gcalAccounts: accounts,
       gcalConnected: accounts.length > 0,
       gcalEmail: accounts[0]?.email ?? "",
+    });
+  },
+  setMcalAccounts: (accounts: CalendarAccount[]) => {
+    if (isBrowser) localStorage.setItem("mcalAccounts", JSON.stringify(accounts));
+    useSettingsStore.setState({
+      mcalAccounts: accounts,
+      mcalConnected: accounts.length > 0,
     });
   },
   setNotificationsEnabled: createBooleanSetter("notificationsEnabled"),
@@ -1861,6 +1889,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (isBrowser) localStorage.setItem("gcalPrimaryOnly", String(value));
     useSettingsStore.setState({ gcalPrimaryOnly: value });
     if (isBrowser) window.electronAPI?.gcalSetPrimaryOnly?.(value);
+  },
+  setMcalPrimaryOnly: (value: boolean) => {
+    if (isBrowser) localStorage.setItem("mcalPrimaryOnly", String(value));
+    useSettingsStore.setState({ mcalPrimaryOnly: value });
+    if (isBrowser) window.electronAPI?.mcalSetPrimaryOnly?.(value);
   },
   setAppleCalendarConnected: createBooleanSetter("appleCalendarConnected"),
   setMeetingProcessDetection: createBooleanSetter("meetingProcessDetection"),
@@ -2854,6 +2887,17 @@ export async function initializeSettings(): Promise<void> {
 
     try {
       const currentState = useSettingsStore.getState();
+      await window.electronAPI.mcalSetPrimaryOnly?.(currentState.mcalPrimaryOnly);
+    } catch (err) {
+      logger.warn(
+        "Failed to sync mcal primary-only on startup",
+        { error: (err as Error).message },
+        "settings"
+      );
+    }
+
+    try {
+      const currentState = useSettingsStore.getState();
       await window.electronAPI.setSpeakerDiarizationEnabled?.(
         currentState.speakerDiarizationEnabled
       );
@@ -2953,11 +2997,15 @@ export async function initializeSettings(): Promise<void> {
     useSettingsStore.setState({ [key]: value });
 
     if (key === "gcalAccounts" && Array.isArray(value)) {
-      const accounts = value as GoogleCalendarAccount[];
+      const accounts = value as CalendarAccount[];
       useSettingsStore.setState({
         gcalConnected: accounts.length > 0,
         gcalEmail: accounts[0]?.email ?? "",
       });
+    }
+
+    if (key === "mcalAccounts" && Array.isArray(value)) {
+      useSettingsStore.setState({ mcalConnected: (value as CalendarAccount[]).length > 0 });
     }
 
     if (key === "uiLanguage" && typeof value === "string") {

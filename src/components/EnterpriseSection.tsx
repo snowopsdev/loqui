@@ -12,7 +12,7 @@ import { usePolicySnapshot } from "../hooks/usePolicy";
 
 const ENTERPRISE_PROVIDER_TABS = [
   { id: "bedrock", name: "AWS Bedrock" },
-  { id: "azure", name: "Azure OpenAI", disabled: true, disabledLabel: "Soon" },
+  { id: "azure", name: "Azure OpenAI" },
   { id: "vertex", name: "Vertex AI", disabled: true, disabledLabel: "Soon" },
 ];
 

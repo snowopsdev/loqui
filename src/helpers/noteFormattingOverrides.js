@@ -4,6 +4,7 @@
 export function buildNoteFormattingOverrides(noteFormatting, isCloudMode) {
   if (isCloudMode) {
     return {
+      inferenceScope: /** @type {const} */ ("noteFormatting"),
       provider: "openwhispr",
       baseUrl: undefined,
       customApiKey: undefined,
@@ -15,6 +16,7 @@ export function buildNoteFormattingOverrides(noteFormatting, isCloudMode) {
 
   if (mode === "self-hosted") {
     return {
+      inferenceScope: /** @type {const} */ ("noteFormatting"),
       provider: undefined,
       baseUrl: undefined,
       customApiKey: noteFormatting?.customApiKey || undefined,
@@ -32,6 +34,7 @@ export function buildNoteFormattingOverrides(noteFormatting, isCloudMode) {
         : undefined;
   const isCustom = provider === "custom";
   return {
+    inferenceScope: /** @type {const} */ ("noteFormatting"),
     provider,
     baseUrl: isCustom ? noteFormatting?.cloudBaseUrl || undefined : undefined,
     customApiKey: isCustom ? noteFormatting?.customApiKey || undefined : undefined,

@@ -4,6 +4,7 @@ import {
   resolveTranslationProviderId,
 } from "./dictationRouting.js";
 import { isProviderValidForMode } from "../models/ModelRegistry";
+import { getManagedScopeResolution } from "../stores/enterpriseIdentityStore";
 
 // Shared by live dictation and Prompt Studio so both translation entry points
 // use the same provider, endpoint, and credentials.
@@ -11,6 +12,23 @@ export function resolveDictationTranslationInference(
   settings,
   { isCloudTranslation = false } = {}
 ) {
+  const managed = getManagedScopeResolution("dictationTranslation", settings.enterpriseSetupMode);
+  if (managed.kind === "managed") {
+    return {
+      reachable: Boolean(
+        settings.useDictationTranslation && settings.translationTargetLanguage?.trim()
+      ),
+      model: managed.model,
+      displayProvider: managed.provider,
+      config: {
+        inferenceScope: /** @type {const} */ ("dictationTranslation"),
+        provider: managed.provider,
+        language: settings.translationTargetLanguage,
+        disableThinking: settings.translationDisableThinking,
+      },
+    };
+  }
+
   const mode = settings.translationMode;
   const model = settings.translationModel?.trim() || "";
   const storedProvider = settings.translationProvider?.trim() || "";
@@ -39,6 +57,7 @@ export function resolveDictationTranslationInference(
       translationProvider: providerForMode,
     }),
     config: {
+      inferenceScope: /** @type {const} */ ("dictationTranslation"),
       provider,
       language: settings.translationTargetLanguage,
       lanUrl: isSelfHosted ? settings.translationRemoteUrl : undefined,

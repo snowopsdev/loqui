@@ -782,7 +782,11 @@
     "sso": {
       "continueWithSSO": "Entrar com SSO",
       "emailRequired": "Insira seu e-mail corporativo para usar o SSO.",
-      "failed": "Falha no logon único. Tente novamente."
+      "failed": "Falha no logon único. Tente novamente.",
+      "companySignInTitle": "Usar o login da sua empresa",
+      "requiredDescription": "{{domain}} exige SSO para o OpenWhispr.",
+      "availableDescription": "A sua conta {{domain}} está pronta para o SSO da empresa.",
+      "useEmailInstead": "Usar e-mail e senha em vez disso"
     },
     "social": {
       "completeInBrowser": "Conclua o login no navegador",
@@ -1440,6 +1444,15 @@
           "title": "Corporativo",
           "description": "Usando a conta de nuvem da sua organização."
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "A IA empresarial gerenciada precisa de atenção",
+        "title": "Gerenciado pela sua organização",
+        "description": "O login fornece acesso de curta duração automaticamente. Não são necessárias chaves de nuvem nem configuração da CLI.",
+        "usePersonalSetup": "Usar configuração pessoal",
+        "availableTitle": "Configuração da organização disponível",
+        "availableDescription": "Use {{provider}} sem gerenciar credenciais.",
+        "useManaged": "Usar gerenciado"
       }
     },
     "developer": {

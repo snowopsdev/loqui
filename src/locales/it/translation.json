@@ -803,7 +803,11 @@
     "sso": {
       "continueWithSSO": "Accedi con SSO",
       "emailRequired": "Inserisci la tua email di lavoro per usare l’SSO.",
-      "failed": "Accesso SSO non riuscito. Riprova."
+      "failed": "Accesso SSO non riuscito. Riprova.",
+      "companySignInTitle": "Usa l'accesso aziendale",
+      "requiredDescription": "{{domain}} richiede l'SSO per OpenWhispr.",
+      "availableDescription": "Il tuo account {{domain}} è pronto per l'SSO aziendale.",
+      "useEmailInstead": "Usa invece e-mail e password"
     },
     "social": {
       "completeInBrowser": "Completa l'accesso nel browser",
@@ -1461,6 +1465,15 @@
           "title": "Enterprise",
           "description": "Usa l'account cloud della tua organizzazione."
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "L'IA aziendale gestita richiede attenzione",
+        "title": "Gestito dalla tua organizzazione",
+        "description": "L'accesso fornisce automaticamente credenziali di breve durata. Non servono chiavi cloud né configurazione della CLI.",
+        "usePersonalSetup": "Usa la configurazione personale",
+        "availableTitle": "Configurazione dell'organizzazione disponibile",
+        "availableDescription": "Usa {{provider}} senza gestire credenziali.",
+        "useManaged": "Usa la versione gestita"
       }
     },
     "developer": {

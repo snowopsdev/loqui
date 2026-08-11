@@ -802,7 +802,11 @@
     "sso": {
       "continueWithSSO": "使用 SSO 登录",
       "emailRequired": "输入您的工作邮箱以使用 SSO。",
-      "failed": "单点登录失败，请重试。"
+      "failed": "单点登录失败，请重试。",
+      "companySignInTitle": "使用公司登录",
+      "requiredDescription": "{{domain}} 要求通过 SSO 登录 OpenWhispr。",
+      "availableDescription": "您的 {{domain}} 账户已可使用公司 SSO。",
+      "useEmailInstead": "改用邮箱和密码"
     },
     "social": {
       "completeInBrowser": "在浏览器中完成登录",
@@ -1461,6 +1465,15 @@
           "title": "企业级",
           "description": "正在使用你组织的云账号。"
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "托管企业 AI 需要处理",
+        "title": "由您的组织管理",
+        "description": "登录后会自动获取短期访问权限，无需云密钥或 CLI 配置。",
+        "usePersonalSetup": "使用个人配置",
+        "availableTitle": "可使用组织配置",
+        "availableDescription": "使用 {{provider}}，无需管理凭据。",
+        "useManaged": "使用托管配置"
       }
     },
     "developer": {
@@ -3426,6 +3439,7 @@
       "description": "这些工作区中有与你相同邮箱域名的成员。",
       "invitedDescription": "有人邀请你加入一个工作区。",
       "invitedBy": "{{inviter}} 邀请你担任{{role}}",
+      "memberCount_one": "{{count}} 位成员",
       "memberCount_other": "{{count}} 位成员",
       "join": "加入",
       "requestErrorTitle": "无法发送申请",

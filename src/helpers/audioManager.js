@@ -41,6 +41,7 @@ import {
   isCloudCleanupMode,
   isCloudDictationAgentMode,
   isCloudTranslationMode,
+  selectResolvedLLMConfig,
 } from "../stores/settingsStore";
 import {
   effectiveAudioRetentionDays,
@@ -144,8 +145,9 @@ function resolveReasoningRoute(
   translationRequested,
   screenContext
 ) {
+  const cleanup = selectResolvedLLMConfig(settings, "dictationCleanup");
   const cleanupReachable =
-    !!settings.useCleanupModel && (!!settings.cleanupModel?.trim() || isCloudCleanupMode());
+    !!settings.useCleanupModel && (!!cleanup.model?.trim() || isCloudCleanupMode());
   const agent = resolveDictationAgentInference(settings, {
     isCloudAgent: isCloudDictationAgentMode(),
   });
@@ -178,7 +180,10 @@ function resolveReasoningRoute(
       kind: "translation",
       model: translation.model,
       cleanupReachable,
-      cleanupConfig: { disableThinking: settings.cleanupDisableThinking },
+      cleanupConfig: {
+        inferenceScope: /** @type {const} */ ("dictationCleanup"),
+        disableThinking: settings.cleanupDisableThinking,
+      },
       config: {
         ...translation.config,
         systemPrompt: resolvePrompt("translate", {
@@ -221,7 +226,10 @@ function resolveReasoningRoute(
   if (kind === "cleanup") {
     return {
       kind: "cleanup",
-      config: { disableThinking: settings.cleanupDisableThinking },
+      config: {
+        inferenceScope: /** @type {const} */ ("dictationCleanup"),
+        disableThinking: settings.cleanupDisableThinking,
+      },
     };
   }
   return { kind: "skip" };

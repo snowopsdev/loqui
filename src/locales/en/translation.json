@@ -802,7 +802,11 @@
     "sso": {
       "continueWithSSO": "Sign in with SSO",
       "emailRequired": "Enter your work email to use SSO.",
-      "failed": "Single sign-on failed. Please try again."
+      "failed": "Single sign-on failed. Please try again.",
+      "companySignInTitle": "Use your company sign-in",
+      "requiredDescription": "{{domain}} requires SSO for OpenWhispr.",
+      "availableDescription": "Your {{domain}} account is ready for company SSO.",
+      "useEmailInstead": "Use email and password instead"
     },
     "social": {
       "completeInBrowser": "Complete sign-in in your browser",
@@ -1747,6 +1751,15 @@
           "title": "Enterprise",
           "description": "Using your organization's cloud account."
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "Managed enterprise AI needs attention",
+        "title": "Managed by your organization",
+        "description": "Sign-in supplies short-lived access automatically. No cloud keys or CLI setup are required.",
+        "usePersonalSetup": "Use personal setup",
+        "availableTitle": "Organization setup available",
+        "availableDescription": "Use {{provider}} without managing credentials.",
+        "useManaged": "Use managed"
       }
     },
     "developer": {

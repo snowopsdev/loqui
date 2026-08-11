@@ -6,6 +6,7 @@ import {
   resolveModeReachability,
 } from "./dictationRouting.js";
 import { isProviderValidForMode } from "../models/ModelRegistry";
+import { getManagedScopeResolution } from "../stores/enterpriseIdentityStore";
 import { selectResolvedLLMConfig } from "../stores/settingsStore";
 
 // The dictation agent's inference scope, shared by the dictation route in
@@ -16,6 +17,19 @@ import { selectResolvedLLMConfig } from "../stores/settingsStore";
 // missing one as its cleanup path, which echoes the input back instead of
 // running the instruction.
 export function resolveDictationAgentInference(settings, { isCloudAgent = false } = {}) {
+  const managed = getManagedScopeResolution("dictationAgent", settings.enterpriseSetupMode);
+  if (managed.kind === "managed") {
+    return {
+      reachable: settings.useDictationAgent,
+      model: managed.model,
+      displayProvider: managed.provider,
+      config: {
+        inferenceScope: /** @type {const} */ ("dictationAgent"),
+        provider: managed.provider,
+        disableThinking: settings.dictationAgentDisableThinking,
+      },
+    };
+  }
   const model = settings.dictationAgentModel?.trim() || "";
   const isSelfHosted =
     settings.dictationAgentMode === "self-hosted" && !!settings.dictationAgentRemoteUrl?.trim();
@@ -45,6 +59,7 @@ export function resolveDictationAgentInference(settings, { isCloudAgent = false 
       dictationAgentProvider: providerForMode,
     }),
     config: {
+      inferenceScope: /** @type {const} */ ("dictationAgent"),
       provider,
       lanUrl: isSelfHosted ? settings.dictationAgentRemoteUrl : undefined,
       baseUrl: isCustom ? settings.dictationAgentCloudBaseUrl || undefined : undefined,

@@ -540,6 +540,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, payload) => callback(payload)
   ),
   listBedrockModels: (config) => ipcRenderer.invoke("bedrock-list-models", config),
+  getManagedEnterpriseConfig: (accountId, workspaceId, expectedAuthGeneration, forceRefresh) =>
+    ipcRenderer.invoke(
+      "get-managed-enterprise-config",
+      accountId,
+      workspaceId,
+      expectedAuthGeneration,
+      forceRefresh
+    ),
+  onManagedEnterpriseConfigChanged: registerListener(
+    "managed-enterprise-config-changed",
+    (callback) => (_event, snapshot) => callback(snapshot)
+  ),
+  clearManagedEnterpriseIdentity: () => ipcRenderer.invoke("clear-managed-enterprise-identity"),
 
   // llama.cpp
   llamaCppCheck: () => ipcRenderer.invoke("llama-cpp-check"),

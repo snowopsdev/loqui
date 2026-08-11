@@ -10,6 +10,7 @@ const tokenStore = require("./tokenStore");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
 const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
 const { createWorkspacePolicyManager } = require("./workspacePolicyManager");
+const { createEnterpriseIdentityManager } = require("./enterpriseIdentityManager");
 const { createCloudConfigRequestHandler } = require("./cloudConfigRequest");
 const {
   createPolicyResponseError,
@@ -584,6 +585,7 @@ class IPCHandlers {
     this.setupHandlers();
     // Lives for the app's lifetime; IPCHandlers has no teardown path.
     tokenStore.subscribe(({ generation, token }) => {
+      this.enterpriseIdentityManager?.clear();
       broadcastToWindows("auth-token-state-changed", {
         generation,
         hasToken: Boolean(token),
@@ -3783,20 +3785,25 @@ class IPCHandlers {
     ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
       const {
         mapEnterpriseError,
-        pickEnterpriseConfig,
         validateEnterpriseEndpoint,
       } = require("./enterpriseProviderErrors");
       try {
-        validateEnterpriseEndpoint(config.azureEndpoint);
+        const runtime = await resolveEnterpriseRuntime(
+          event,
+          provider,
+          config?.model || "test",
+          config
+        );
+        validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
 
         const { generateText } = require("ai");
         const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
 
         const model = getEnterpriseAIModel(
-          provider,
-          config.model || "test",
-          config.apiKey || "",
-          pickEnterpriseConfig(config)
+          runtime.provider,
+          runtime.model,
+          runtime.apiKey,
+          runtime.enterprise
         );
 
         await generateText({
@@ -3824,7 +3831,6 @@ class IPCHandlers {
         const {
           isEnterpriseProvider,
           mapEnterpriseError,
-          pickEnterpriseConfig,
           validateEnterpriseEndpoint,
         } = require("./enterpriseProviderErrors");
         const provider = config?.provider;
@@ -3832,20 +3838,18 @@ class IPCHandlers {
           if (!isEnterpriseProvider(provider)) {
             throw new Error(`Unsupported enterprise provider: ${provider}`);
           }
-          if (!modelId) {
-            throw new Error("No model specified for enterprise reasoning");
-          }
-
-          validateEnterpriseEndpoint(config?.azureEndpoint);
+          const runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
+          if (!runtime.model) throw new Error("No model specified for enterprise reasoning");
+          validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
 
           const { generateText } = require("ai");
           const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
 
           const model = getEnterpriseAIModel(
-            provider,
-            modelId,
-            config.apiKey || "",
-            pickEnterpriseConfig(config)
+            runtime.provider,
+            runtime.model,
+            runtime.apiKey,
+            runtime.enterprise
           );
 
           const timeoutMs = config?.timeoutMs || 60000;
@@ -3884,7 +3888,6 @@ class IPCHandlers {
       const {
         isEnterpriseProvider,
         mapEnterpriseError,
-        pickEnterpriseConfig,
         validateEnterpriseEndpoint,
       } = require("./enterpriseProviderErrors");
       const { streamId, provider, modelId, config, options } = payload || {};
@@ -3908,17 +3911,16 @@ class IPCHandlers {
         if (!streamId || !isEnterpriseProvider(provider)) {
           throw new Error(`Unsupported enterprise provider: ${provider}`);
         }
-        if (!modelId) {
-          throw new Error("No model specified for enterprise streaming");
-        }
-        validateEnterpriseEndpoint(config?.azureEndpoint);
+        const runtime = await resolveEnterpriseRuntime(event, provider, modelId, config || {});
+        if (!runtime.model) throw new Error("No model specified for enterprise streaming");
+        validateEnterpriseEndpoint(runtime.enterprise.azureEndpoint);
 
         const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
         const model = getEnterpriseAIModel(
-          provider,
-          modelId,
-          config?.apiKey || "",
-          pickEnterpriseConfig(config || {})
+          runtime.provider,
+          runtime.model,
+          runtime.apiKey,
+          runtime.enterprise
         );
 
         const { stream } = await model.doStream({
@@ -3965,6 +3967,12 @@ class IPCHandlers {
     ipcMain.handle("bedrock-list-models", async (event, config) => {
       const { mapEnterpriseError } = require("./enterpriseProviderErrors");
       try {
+        const runtime = await resolveEnterpriseRuntime(
+          event,
+          "bedrock",
+          config?.model || "test",
+          config
+        );
         const {
           BedrockClient,
           ListFoundationModelsCommand,
@@ -3972,16 +3980,21 @@ class IPCHandlers {
         } = require("@aws-sdk/client-bedrock");
         const { normalizeBedrockCatalog } = require("./bedrockCatalog");
 
-        const region = config?.bedrockRegion || "us-east-1";
+        const region = runtime.enterprise.bedrockRegion || "us-east-1";
         let credentials;
-        if (config?.bedrockProfile) {
+        if (runtime.enterprise.managedCredentialProvider) {
+          credentials = runtime.enterprise.managedCredentialProvider;
+        } else if (runtime.enterprise.bedrockProfile) {
           const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
-          credentials = fromNodeProviderChain({ profile: config.bedrockProfile });
-        } else if (config?.bedrockAccessKeyId && config?.bedrockSecretAccessKey) {
+          credentials = fromNodeProviderChain({ profile: runtime.enterprise.bedrockProfile });
+        } else if (
+          runtime.enterprise.bedrockAccessKeyId &&
+          runtime.enterprise.bedrockSecretAccessKey
+        ) {
           credentials = {
-            accessKeyId: config.bedrockAccessKeyId,
-            secretAccessKey: config.bedrockSecretAccessKey,
-            sessionToken: config.bedrockSessionToken || undefined,
+            accessKeyId: runtime.enterprise.bedrockAccessKeyId,
+            secretAccessKey: runtime.enterprise.bedrockSecretAccessKey,
+            sessionToken: runtime.enterprise.bedrockSessionToken || undefined,
           };
         }
         const client = new BedrockClient({ region, ...(credentials ? { credentials } : {}) });
@@ -4832,6 +4845,71 @@ class IPCHandlers {
       broadcast: (snapshot) => broadcastToWindows("workspace-policy-changed", snapshot),
       logger: debugLogger,
     });
+    this.enterpriseIdentityManager = createEnterpriseIdentityManager({
+      cachePath: path.join(app.getPath("userData"), "managed-enterprise-config.json"),
+      getApiUrl,
+      getAppVersion: () => app.getVersion(),
+      proxyFetch,
+      tokenStore,
+      broadcast: (snapshot) => broadcastToWindows("managed-enterprise-config-changed", snapshot),
+      logger: debugLogger,
+    });
+    const resolveEnterpriseRuntime = async (event, provider, model, config = {}) => {
+      const manual = {
+        provider,
+        model,
+        apiKey: config.apiKey || "",
+        enterprise: require("./enterpriseProviderErrors").pickEnterpriseConfig(config),
+      };
+      const context = config.managedContext;
+      if (!context) return manual;
+      const authHeaders = await getAuthHeader(event);
+      const resolved = await this.enterpriseIdentityManager.resolveProvider({
+        accountId: context.accountId,
+        workspaceId: context.workspaceId,
+        expectedAuthGeneration: context.authGeneration,
+        inferenceScope: context.inferenceScope,
+        setupMode: context.setupMode,
+        authHeaders,
+      });
+      if (!resolved.managed) {
+        throw Object.assign(
+          new Error("Managed enterprise configuration changed. Retry the request."),
+          { code: "MANAGED_CONFIG_CHANGED" }
+        );
+      }
+      if (
+        resolved.provider !== context.provider ||
+        resolved.generation !== context.generation ||
+        resolved.version !== context.providerVersion
+      ) {
+        throw Object.assign(
+          new Error("Managed enterprise configuration changed. Retry the request."),
+          { code: "MANAGED_CONFIG_CHANGED" }
+        );
+      }
+      if (resolved.provider === "bedrock") {
+        return {
+          provider: resolved.provider,
+          model: resolved.model,
+          apiKey: "",
+          enterprise: {
+            bedrockRegion: resolved.config.region,
+            managedCredentialProvider: resolved.credentialProvider,
+          },
+        };
+      }
+      return {
+        provider: resolved.provider,
+        model: resolved.model,
+        apiKey: "",
+        enterprise: {
+          azureEndpoint: resolved.config.endpoint,
+          azureApiVersion: resolved.config.apiVersion,
+          managedTokenProvider: resolved.tokenProvider,
+        },
+      };
+    };
     const handleSttConfigRequest = createCloudConfigRequestHandler({
       getApiUrl,
       getAuthHeader,
@@ -7978,6 +8056,23 @@ class IPCHandlers {
     ipcMain.handle("get-workspace-policy", async (event, accountId, expectedAuthGeneration) => {
       const authHeaders = await getAuthHeader(event);
       return workspacePolicyManager.getPolicy({ accountId, expectedAuthGeneration, authHeaders });
+    });
+
+    ipcMain.handle(
+      "get-managed-enterprise-config",
+      async (event, accountId, workspaceId, expectedAuthGeneration, forceRefresh = false) => {
+        const authHeaders = await getAuthHeader(event);
+        return this.enterpriseIdentityManager.getConfig({
+          accountId,
+          workspaceId,
+          expectedAuthGeneration,
+          authHeaders,
+          forceRefresh,
+        });
+      }
+    );
+    ipcMain.handle("clear-managed-enterprise-identity", async () => {
+      this.enterpriseIdentityManager.clear();
     });
 
     ipcMain.handle("get-note-recording-config", handleNoteRecordingConfigRequest);

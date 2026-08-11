@@ -2,6 +2,7 @@ import { getCleanupSystemPrompt } from "../config/prompts";
 import { getSettings } from "../stores/settingsStore";
 import { resolveCleanupLanguage } from "../utils/chineseScript";
 import { getDictionaryHintWords } from "../utils/snippets";
+import type { InferenceScope } from "../config/inferenceScopes";
 import type { ScreenContextImage } from "../types/electron";
 
 export interface ReasoningConfig {
@@ -19,6 +20,7 @@ export interface ReasoningConfig {
   language?: string;
   requireCompleteOutput?: boolean;
   requiresAgent?: boolean;
+  inferenceScope?: InferenceScope;
 }
 
 export abstract class BaseReasoningService {

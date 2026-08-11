@@ -92,7 +92,7 @@ async function updateSeats(
   return res.data;
 }
 
-/** Workspaces the caller can join: pending invitations plus opted-in domain matches. */
+/** Invitations the caller can accept and company-domain workspaces they can ask to join. */
 async function listJoinable(): Promise<JoinableWorkspace[]> {
   const res = await cloudGet<DataWrap<JoinableWorkspace[]>>("/api/me/joinable");
   return res.data;

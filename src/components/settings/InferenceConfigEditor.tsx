@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
-import { Cloud, Key, Cpu, Network, Building2 } from "lucide-react";
+import { Cloud, Key, Cpu, Network, Building2, ShieldCheck, AlertTriangle } from "lucide-react";
 import {
   LLM_ENTERPRISE_POLICY_PROVIDER_IDS,
   LLM_POLICY_PROVIDER_IDS,
@@ -19,7 +19,16 @@ import OpenAICompatiblePanel from "../OpenAICompatiblePanel";
 import { Toggle } from "../ui/toggle";
 import type { InferenceMode } from "../../types/electron";
 import type { InferenceScope } from "../../config/inferenceScopes";
-import { isProviderValidForMode, getCloudModel, getLocalModel } from "../../models/ModelRegistry";
+import {
+  isProviderValidForMode,
+  getCloudModel,
+  getLocalModel,
+  enterpriseProviderName,
+} from "../../models/ModelRegistry";
+import { useManagedScopeResolution } from "../../stores/enterpriseIdentityStore";
+import TestConnectionButton from "../TestConnectionButton";
+import { getEnterpriseCallSettings } from "../../services/ai/enterpriseSettings";
+import { Button } from "../ui/button";
 
 const MODE_LABEL_PREFIX: Record<InferenceScope, string> = {
   dictationCleanup: "settingsPage.aiModels.modes",
@@ -57,6 +66,10 @@ export default function InferenceConfigEditor({
     )
   );
   const isSignedIn = useSettingsStore((s) => s.isSignedIn);
+  const enterpriseSetupMode = useSettingsStore((s) => s.enterpriseSetupMode);
+  const setEnterpriseSetupMode = useSettingsStore((s) => s.setEnterpriseSetupMode);
+  const managed = useManagedScopeResolution(scope, enterpriseSetupMode);
+  const managedAvailable = useManagedScopeResolution(scope, "managed");
 
   const prefix = MODE_LABEL_PREFIX[scope];
   const { modes, effectiveMode, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
@@ -167,8 +180,90 @@ export default function InferenceConfigEditor({
         !!getCloudModel(config.model)?.supportsThinking)) ||
     (effectiveMode === "local" && !!getLocalModel(config.model)?.supportsThinking);
 
+  if (managed.kind === "error") {
+    return (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3" role="alert">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <div>
+            <p className="text-sm font-medium">
+              {t("settingsPage.aiModels.managedEnterprise.errorTitle")}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{managed.message}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (managed.kind === "managed") {
+    return (
+      <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+        <div className="flex items-start gap-2.5">
+          <div className="rounded-md bg-primary/10 p-1.5 text-primary">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              {t("settingsPage.aiModels.managedEnterprise.title")}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {enterpriseProviderName(managed.provider)} ·{" "}
+              <span className="font-mono">{managed.model}</span>
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("settingsPage.aiModels.managedEnterprise.description")}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+          <TestConnectionButton
+            provider={managed.provider}
+            getConfig={() => ({
+              ...getEnterpriseCallSettings(managed.provider, scope),
+              model: managed.model,
+            })}
+          />
+          {managed.mode !== "managed_required" && managed.allowManualSetup && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setEnterpriseSetupMode("manual")}
+            >
+              {t("settingsPage.aiModels.managedEnterprise.usePersonalSetup")}
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
+      {enterpriseSetupMode === "manual" && managedAvailable.kind === "managed" && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">
+              {t("settingsPage.aiModels.managedEnterprise.availableTitle")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("settingsPage.aiModels.managedEnterprise.availableDescription", {
+                provider: enterpriseProviderName(managedAvailable.provider),
+              })}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setEnterpriseSetupMode("managed")}
+          >
+            {t("settingsPage.aiModels.managedEnterprise.useManaged")}
+          </Button>
+        </div>
+      )}
       <InferenceModeSelector modes={modes} activeMode={effectiveMode} onSelect={handleModeSelect} />
 
       {effectiveMode === "providers" && renderModelSelector("cloud")}

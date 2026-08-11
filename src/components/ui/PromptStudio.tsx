@@ -208,6 +208,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
         try {
           const result = await ReasoningService.processText(testText, agent.model, agentName, {
             ...agent.config,
+            inferenceScope: "dictationAgent",
             requiresAgent: true,
             systemPrompt: resolvePrompt("dictationAgent", {
               agentName,
@@ -279,6 +280,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
       setCustomPrompt(kind, editedPrompt);
       try {
         const result = await ReasoningService.processText(testText, modelToUse, agentName, {
+          inferenceScope: "dictationCleanup",
           disableThinking: effectiveSettings.cleanupDisableThinking,
         });
         setTestResult(result);

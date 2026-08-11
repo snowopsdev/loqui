@@ -802,7 +802,11 @@
     "sso": {
       "continueWithSSO": "Iniciar sesión con SSO",
       "emailRequired": "Introduce tu correo del trabajo para usar SSO.",
-      "failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo."
+      "failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo.",
+      "companySignInTitle": "Usa el inicio de sesión de tu empresa",
+      "requiredDescription": "{{domain}} requiere SSO para OpenWhispr.",
+      "availableDescription": "Tu cuenta de {{domain}} está lista para el SSO de la empresa.",
+      "useEmailInstead": "Usar correo y contraseña en su lugar"
     },
     "social": {
       "completeInBrowser": "Completa el inicio de sesión en tu navegador",
@@ -1509,6 +1513,15 @@
           "title": "Empresarial",
           "description": "Usando la cuenta en la nube de tu organización."
         }
+      },
+      "managedEnterprise": {
+        "errorTitle": "La IA empresarial gestionada requiere atención",
+        "title": "Gestionado por tu organización",
+        "description": "El inicio de sesión concede acceso temporal automáticamente. No hacen falta claves de nube ni configurar la CLI.",
+        "usePersonalSetup": "Usar configuración personal",
+        "availableTitle": "Configuración de la organización disponible",
+        "availableDescription": "Usa {{provider}} sin gestionar credenciales.",
+        "useManaged": "Usar gestionado"
       }
     },
     "developer": {

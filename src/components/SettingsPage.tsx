@@ -95,7 +95,6 @@ import type {
   GpuDevice,
   LocalTranscriptionProvider,
   InferenceMode,
-  Workspace,
 } from "../types/electron";
 import logger from "../utils/logger";
 import { SettingsRow, InferenceModeSelector } from "./ui/SettingsSection";
@@ -1009,24 +1008,23 @@ export default function SettingsPage({
   const { theme, setTheme } = useTheme();
   const usage = useUsage();
   const billingWorkspaces = useWorkspaceStore((s) => s.workspaces);
-  const coveringWorkspaces = (usage?.entitledWorkspaceIds ?? [])
-    .map((id) => billingWorkspaces.find((workspace) => workspace.id === id))
-    .filter((workspace): workspace is Workspace => Boolean(workspace));
+  const coveringWorkspaces = billingWorkspaces.filter((workspace) =>
+    usage?.entitledWorkspaceIds?.includes(workspace.id)
+  );
   const coveringWorkspaceNames = coveringWorkspaces.map((workspace) => workspace.name);
-  // Gated on the usage payload rather than the resolved workspaces: the workspace
-  // store loads separately, and the upgrade affordances must stay hidden while it
-  // does, or a covered member is invited to buy a plan their seat already grants.
+  // Reads the usage payload, not the workspace store, so the upgrade affordances
+  // stay hidden across the window where the store is still loading.
   const isWorkspaceCovered =
     !usage?.isPersonallySubscribed && (usage?.entitledWorkspaceIds?.length ?? 0) > 0;
-  // Names the tier the seat actually grants. Null until the store resolves, which
-  // leaves the personal-plan label untouched rather than guessing at a tier.
-  const coveringPlanLabel = coveringWorkspaces.length
-    ? t(
-        `settingsPage.workspace.billing.planLabel.${highestPlan(
-          coveringWorkspaces.map((workspace) => workspace.plan)
-        )}`
-      )
-    : null;
+  // Null until the store resolves, so the label waits rather than guessing a tier.
+  const coveringPlanLabel =
+    isWorkspaceCovered && coveringWorkspaces.length
+      ? t(
+          `settingsPage.workspace.billing.planLabel.${highestPlan(
+            coveringWorkspaces.map((workspace) => workspace.plan)
+          )}`
+        )
+      : null;
   const hasShownApproachingToast = useRef(false);
   useEffect(() => {
     if (usage?.isApproachingLimit && !hasShownApproachingToast.current) {
@@ -1943,9 +1941,8 @@ export default function SettingsPage({
                                       ? t("settingsPage.unifiedBilling.providedBy", {
                                           workspaces: coveringWorkspaceNames.join(", "),
                                         })
-                                      : // Covered, but the workspace store hasn't resolved a
-                                        // name yet. The free-usage copy would print the
-                                        // subscribed sentinel limit as "-1 words".
+                                      : // usage.limit is -1 once subscribed, which the
+                                        // free-usage copy would print as "-1 words".
                                         isWorkspaceCovered
                                         ? t("settingsPage.account.planDescriptions.unlimited")
                                         : t("settingsPage.account.planDescriptions.freeUsage", {

@@ -6,8 +6,7 @@ const USAGE_CACHE_TTL = CACHE_CONFIG.API_KEY_TTL;
 const RETRY_DELAYS_MS = [2000, 4000, 8000];
 const PAID_PLANS = new Set(["pro", "business", "enterprise"]);
 
-// Ascending tier ladder. Unknown plans rank as free so a tier this build has
-// never heard of can never out-rank a known paid one.
+// Unknown tiers rank as free so a plan this build predates can't out-rank a paid one.
 const PLAN_ORDER: Record<string, number> = { free: 0, pro: 1, business: 2, enterprise: 3 };
 
 export function highestPlan(plans: string[]): string {

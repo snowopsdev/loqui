@@ -166,10 +166,7 @@ export default function AuthenticationStep({
     [t]
   );
 
-  const handleSSOSignIn = useCallback(
-    () => startSSOSignIn(email),
-    [email, startSSOSignIn]
-  );
+  const handleSSOSignIn = useCallback(() => startSSOSignIn(email), [email, startSSOSignIn]);
 
   const handleEmailContinue = useCallback(async () => {
     if (!email.trim() || !authClient) return;

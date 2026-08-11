@@ -26,6 +26,10 @@ export interface ManagedEnterpriseProviderRecord {
 export interface ManagedEnterpriseConfig {
   workspaceId: string;
   version: number;
+  generation: number;
+  refreshAfter?: string;
+  supportedClouds?: { bedrock: ["aws", "aws-us-gov"]; azure: ["public"] };
+  azureEndpointContract?: "resource-origin";
   identity: {
     issuer: string;
     jwksUri: string;
@@ -53,4 +57,7 @@ export interface ManagedEnterpriseRequestContext {
   authGeneration: number;
   setupMode: EnterpriseSetupMode;
   inferenceScope: InferenceScope;
+  provider: ManagedEnterpriseProvider;
+  generation: number;
+  providerVersion: number;
 }

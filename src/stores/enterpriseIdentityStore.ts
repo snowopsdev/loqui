@@ -21,7 +21,13 @@ interface EnterpriseIdentityState {
   status: "idle" | "loading" | "ready" | "error";
   config: ManagedEnterpriseConfig | null;
   error: string | null;
-  refresh: (accountId: string, workspaceId: string, authGeneration: number) => Promise<void>;
+  failClosed: boolean;
+  refresh: (
+    accountId: string,
+    workspaceId: string,
+    authGeneration: number,
+    forceRefresh?: boolean
+  ) => Promise<void>;
   clear: () => void;
 }
 
@@ -36,9 +42,10 @@ export const useEnterpriseIdentityStore = create<EnterpriseIdentityState>((set, 
   status: "idle",
   config: null,
   error: null,
+  failClosed: false,
 
-  refresh: (accountId, workspaceId, authGeneration) => {
-    const key = `${accountId}:${workspaceId}:${authGeneration}`;
+  refresh: (accountId, workspaceId, authGeneration, forceRefresh = false) => {
+    const key = `${accountId}:${workspaceId}:${authGeneration}:${forceRefresh ? "force" : "normal"}`;
     if (inFlightKey === key && inFlightPromise) return inFlightPromise;
     const sequence = ++requestSequence;
     const current = get();
@@ -53,11 +60,17 @@ export const useEnterpriseIdentityStore = create<EnterpriseIdentityState>((set, 
       status: sameIdentity && current.config ? "ready" : "loading",
       config: sameIdentity ? current.config : null,
       error: null,
+      failClosed: sameIdentity ? current.failClosed : false,
     });
 
     const promise = (async () => {
       try {
-        const result = await getManagedEnterpriseConfig(accountId, workspaceId, authGeneration);
+        const result = await getManagedEnterpriseConfig(
+          accountId,
+          workspaceId,
+          authGeneration,
+          forceRefresh
+        );
         if (sequence !== requestSequence) return;
         if (
           !result.success ||
@@ -65,18 +78,39 @@ export const useEnterpriseIdentityStore = create<EnterpriseIdentityState>((set, 
           result.workspaceId !== workspaceId ||
           result.authGeneration !== authGeneration
         ) {
-          throw new Error(result.error || "Managed enterprise AI configuration is unavailable.");
+          throw Object.assign(
+            new Error(result.error || "Managed enterprise AI configuration is unavailable."),
+            { enforcementRequired: result.enforcementRequired }
+          );
         }
-        set({ status: "ready", config: result.config ?? null, error: null });
+        set({
+          status: "ready",
+          config: result.config ?? null,
+          error: null,
+          failClosed: false,
+        });
       } catch (error) {
         if (sequence !== requestSequence) return;
         const message = error instanceof Error ? error.message : String(error);
+        const enforcementRequired = (error as { enforcementRequired?: boolean })
+          .enforcementRequired;
         logger.warn("Managed enterprise AI configuration unavailable", { error: message }, "auth");
-        set((state) => ({
+        set({
           status: "error",
-          config: state.config,
+          config: null,
           error: message,
-        }));
+          failClosed:
+            typeof enforcementRequired === "boolean"
+              ? enforcementRequired
+              : current.failClosed ||
+                Boolean(
+                  current.config?.providers.some(
+                    (record) =>
+                      record.mode !== "disabled" &&
+                      (record.mode === "managed_required" || !record.allowManualSetup)
+                  )
+                ),
+        });
       } finally {
         if (inFlightKey === key) {
           inFlightKey = null;
@@ -101,23 +135,69 @@ export const useEnterpriseIdentityStore = create<EnterpriseIdentityState>((set, 
       status: "idle",
       config: null,
       error: null,
+      failClosed: false,
     });
   },
 }));
 
+function refreshCurrentManagedIdentity(): void {
+  const state = useEnterpriseIdentityStore.getState();
+  if (!state.accountId || !state.workspaceId || state.authGeneration == null) return;
+  void state.refresh(state.accountId, state.workspaceId, state.authGeneration, true);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("focus", refreshCurrentManagedIdentity);
+  window.setInterval(refreshCurrentManagedIdentity, 5 * 60 * 1000);
+  window.electronAPI?.onManagedEnterpriseConfigChanged?.((snapshot) => {
+    const state = useEnterpriseIdentityStore.getState();
+    if (
+      snapshot.accountId !== state.accountId ||
+      snapshot.workspaceId !== state.workspaceId ||
+      snapshot.authGeneration !== state.authGeneration
+    ) {
+      return;
+    }
+    const currentGeneration = state.config?.generation ?? -1;
+    if (snapshot.config && snapshot.config.generation < currentGeneration) return;
+    useEnterpriseIdentityStore.setState({
+      status: snapshot.config ? "ready" : "error",
+      config: snapshot.config,
+      error: snapshot.config ? null : snapshot.code,
+      failClosed: snapshot.config
+        ? false
+        : typeof snapshot.enforcementRequired === "boolean"
+          ? snapshot.enforcementRequired
+          : state.failClosed ||
+            Boolean(
+              state.config?.providers.some(
+                (record) =>
+                  record.mode !== "disabled" &&
+                  (record.mode === "managed_required" || !record.allowManualSetup)
+              )
+            ),
+    });
+  });
+}
+
 function resolveScope(
   config: ManagedEnterpriseConfig | null,
   scope: InferenceScope,
-  setupMode: EnterpriseSetupMode
+  setupMode: EnterpriseSetupMode,
+  failClosed: boolean
 ): ManagedEnterpriseScopeResolution {
+  if (!config && failClosed) {
+    return {
+      kind: "error",
+      code: "MANAGED_CONFIG_UNAVAILABLE",
+      message: "Managed enterprise access is unavailable. Sign in with company SSO or contact IT.",
+    };
+  }
   const resolution = resolveManagedEnterpriseScope(
     config,
     scope,
     setupMode
   ) as ManagedEnterpriseScopeResolution;
-  // Managed access and the provider allowlist are separate admin pages, so a workspace can end up
-  // pointing at a provider its own policy forbids. Leave the employee on their own configuration
-  // rather than failing every request on policy; policy still governs whatever they fall back to.
   if (
     resolution.kind === "managed" &&
     !isLlmSelectionAllowed(usePolicyStore.getState(), {
@@ -125,12 +205,20 @@ function resolveScope(
       provider: resolution.provider,
     })
   ) {
-    logger.warn(
-      "Managed enterprise provider is blocked by workspace policy; using local configuration",
-      { provider: resolution.provider, scope },
-      "auth"
-    );
-    return { kind: "manual" };
+    const required = resolution.mode === "managed_required" || !resolution.allowManualSetup;
+    logger.warn("Managed enterprise provider is blocked by workspace policy", {
+      provider: resolution.provider,
+      scope,
+      required,
+    });
+    return required
+      ? {
+          kind: "error",
+          code: "PROVIDER_POLICY_CONFLICT",
+          message:
+            "Managed access is blocked by your workspace policy. Contact your IT administrator.",
+        }
+      : { kind: "manual" };
   }
   return resolution;
 }
@@ -140,7 +228,13 @@ export function getManagedScopeResolution(
   scope: InferenceScope,
   setupMode: EnterpriseSetupMode
 ): ManagedEnterpriseScopeResolution {
-  return resolveScope(useEnterpriseIdentityStore.getState().config, scope, setupMode);
+  const state = useEnterpriseIdentityStore.getState();
+  return resolveScope(
+    state.config,
+    scope,
+    setupMode,
+    state.failClosed || (setupMode === "managed" && state.status === "error")
+  );
 }
 
 /** Subscribes to the managed config so the UI re-renders when an administrator changes it. */
@@ -148,9 +242,9 @@ export function useManagedScopeResolution(
   scope: InferenceScope,
   setupMode: EnterpriseSetupMode
 ): ManagedEnterpriseScopeResolution {
-  return resolveScope(
-    useEnterpriseIdentityStore((state) => state.config),
-    scope,
-    setupMode
+  const config = useEnterpriseIdentityStore((state) => state.config);
+  const failClosed = useEnterpriseIdentityStore(
+    (state) => state.failClosed || (setupMode === "managed" && state.status === "error")
   );
+  return resolveScope(config, scope, setupMode, failClosed);
 }

@@ -79,7 +79,7 @@ test("rejects unsafe cached cloud destinations and identity metadata", () => {
       tenantId: "11111111-1111-4111-8111-111111111111",
       clientId: "22222222-2222-4222-8222-222222222222",
       endpoint: "https://openai.azure.com.evil.example",
-      apiVersion: "2025-01-01-preview",
+      apiVersion: "v1",
       allowedDeployments: ["deployment-a"],
       scopeDefaults: Object.fromEntries(
         Object.keys(scopes).map((scope) => [scope, "deployment-a"])
@@ -121,7 +121,7 @@ test("required managed access overrides manual setup", () => {
   assert.equal(result.model, "model-a");
 });
 
-test("a cached envelope from before a provider switch resolves to the newest provider", () => {
+test("an ambiguous cached provider switch fails closed", () => {
   const azure = provider({
     provider: "azure",
     updatedAt: "2026-08-11T00:00:00.000Z",
@@ -129,7 +129,7 @@ test("a cached envelope from before a provider switch resolves to the newest pro
       tenantId: "11111111-1111-4111-8111-111111111111",
       clientId: "22222222-2222-4222-8222-222222222222",
       endpoint: "https://example.openai.azure.com",
-      apiVersion: "2024-10-21",
+      apiVersion: "v1",
       allowedDeployments: ["deployment-a"],
       scopeDefaults: Object.fromEntries(
         Object.keys(scopes).map((scope) => [scope, "deployment-a"])
@@ -141,7 +141,58 @@ test("a cached envelope from before a provider switch resolves to the newest pro
     "dictationCleanup",
     "auto"
   );
-  assert.equal(result.kind, "managed");
-  assert.equal(result.provider, "azure");
-  assert.equal(result.model, "deployment-a");
+  assert.equal(result.kind, "error");
+  assert.equal(result.code, "MANAGED_CONFIG_AMBIGUOUS");
+});
+
+test("rejects sovereign, Foundry, and path-qualified Azure endpoints", () => {
+  const makeAzure = (endpoint) =>
+    provider({
+      provider: "azure",
+      config: {
+        tenantId: "11111111-1111-4111-8111-111111111111",
+        clientId: "22222222-2222-4222-8222-222222222222",
+        endpoint,
+        apiVersion: "v1",
+        allowedDeployments: ["deployment-a"],
+        scopeDefaults: Object.fromEntries(
+          Object.keys(scopes).map((scope) => [scope, "deployment-a"])
+        ),
+      },
+    });
+  assert.ok(
+    validateManagedEnterpriseEnvelope(
+      envelope([makeAzure("https://example.openai.azure.com")]),
+      "workspace-a"
+    )
+  );
+  for (const endpoint of [
+    "https://example.openai.azure.us",
+    "https://example.services.ai.azure.com",
+    "https://example.openai.azure.com/openai",
+  ]) {
+    assert.equal(
+      validateManagedEnterpriseEnvelope(envelope([makeAzure(endpoint)]), "workspace-a"),
+      null
+    );
+  }
+});
+
+test("accepts dated Azure versions from previously issued managed envelopes", () => {
+  const azure = provider({
+    provider: "azure",
+    config: {
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      clientId: "22222222-2222-4222-8222-222222222222",
+      endpoint: "https://example.openai.azure.com",
+      apiVersion: "2024-10-21",
+      allowedDeployments: ["deployment-a"],
+      scopeDefaults: Object.fromEntries(
+        Object.keys(scopes).map((scope) => [scope, "deployment-a"])
+      ),
+    },
+  });
+  assert.ok(validateManagedEnterpriseEnvelope(envelope([azure]), "workspace-a"));
+  azure.config.apiVersion = "latest";
+  assert.equal(validateManagedEnterpriseEnvelope(envelope([azure]), "workspace-a"), null);
 });

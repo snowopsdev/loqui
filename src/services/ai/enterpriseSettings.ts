@@ -2,7 +2,10 @@ import { getSettings } from "../../stores/settingsStore";
 import type { EnterpriseProvider } from "../../models/ModelRegistry";
 import type { InferenceScope } from "../../config/inferenceScopes";
 import type { ManagedEnterpriseRequestContext } from "../../types/enterpriseIdentity";
-import { useEnterpriseIdentityStore } from "../../stores/enterpriseIdentityStore";
+import {
+  getManagedScopeResolution,
+  useEnterpriseIdentityStore,
+} from "../../stores/enterpriseIdentityStore";
 
 export type EnterpriseCallSettings = {
   apiKey: string;
@@ -24,7 +27,12 @@ export function getEnterpriseCallSettings(
 ): EnterpriseCallSettings {
   const s = getSettings();
   const managedState = useEnterpriseIdentityStore.getState();
+  const resolution = getManagedScopeResolution(inferenceScope, s.enterpriseSetupMode);
+  if (resolution.kind === "error") {
+    throw Object.assign(new Error(resolution.message), { code: resolution.code });
+  }
   const managedContext =
+    resolution.kind === "managed" &&
     managedState.config &&
     managedState.accountId &&
     managedState.workspaceId &&
@@ -35,6 +43,9 @@ export function getEnterpriseCallSettings(
           authGeneration: managedState.authGeneration,
           setupMode: s.enterpriseSetupMode,
           inferenceScope,
+          provider: resolution.provider,
+          generation: managedState.config.generation,
+          providerVersion: resolution.record.version,
         }
       : undefined;
   return {

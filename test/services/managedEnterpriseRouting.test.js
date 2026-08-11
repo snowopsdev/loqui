@@ -20,6 +20,7 @@ function managedBedrockConfig() {
   return {
     workspaceId: "workspace-a",
     version: 1,
+    generation: 1,
     identity: {
       issuer: "https://api.example.com/enterprise-identity",
       jwksUri: "https://api.example.com/enterprise-identity/jwks.json",
@@ -142,10 +143,53 @@ test("managed enterprise access outranks a leftover self-hosted route", async (t
   });
 });
 
-// Managed access and the enterprise provider allowlist are configured on separate admin pages.
-// If they disagree, employees must keep working on their own setup rather than have every
-// request rejected by the workspace's own policy.
-test("a managed provider that workspace policy forbids falls back to the employee's setup", async (t) => {
+test("enterprise call settings cannot omit or bypass a resolved managed route", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "openwhispr-managed-call-settings-test-",
+  });
+  const { getEnterpriseCallSettings } = await vite.ssrLoadModule(
+    "/services/ai/enterpriseSettings.ts"
+  );
+  const { usePolicyStore } = await vite.ssrLoadModule("/stores/policyStore.ts");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { useEnterpriseIdentityStore } = await vite.ssrLoadModule(
+    "/stores/enterpriseIdentityStore.ts"
+  );
+
+  useSettingsStore.setState({ enterpriseSetupMode: "auto" });
+  usePolicyStore.setState({
+    status: "managed",
+    appVersion: "1.8.1",
+    policy: buildPolicy({ llmModes: ["enterprise"], llmEnterpriseProviders: ["bedrock"] }),
+  });
+  useEnterpriseIdentityStore.setState({
+    accountId: "account-a",
+    workspaceId: "workspace-a",
+    authGeneration: 1,
+    status: "ready",
+    config: managedBedrockConfig(),
+    error: null,
+    failClosed: false,
+  });
+
+  const settings = getEnterpriseCallSettings("azure", "dictationCleanup");
+  assert.equal(settings.managedContext.provider, "bedrock");
+  assert.equal(settings.managedContext.generation, 1);
+
+  useEnterpriseIdentityStore.setState({
+    status: "error",
+    config: null,
+    error: "Company SSO is required",
+    failClosed: true,
+  });
+  assert.throws(
+    () => getEnterpriseCallSettings("azure", "dictationCleanup"),
+    (error) => error.code === "MANAGED_CONFIG_UNAVAILABLE"
+  );
+});
+
+test("required managed access fails closed when workspace policy forbids it", async (t) => {
   installBrowserGlobals(t);
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-managed-policy-gate-test-",
@@ -182,7 +226,19 @@ test("a managed provider that workspace policy forbids falls back to the employe
     appVersion: "1.8.1",
     policy: buildPolicy({ llmModes: ["local"], llmEnterpriseProviders: [] }),
   });
-  const fallback = resolvedMode();
-  assert.equal(fallback.mode, "local", "forbidden managed provider leaves the local mode intact");
-  assert.equal(fallback.model, "qwen-local");
+  const blocked = resolvedMode();
+  assert.equal(blocked.mode, "enterprise");
+  assert.equal(blocked.provider, "");
+  assert.equal(blocked.model, "");
+
+  useEnterpriseIdentityStore.setState({
+    status: "error",
+    config: null,
+    error: "Sign in with company SSO",
+    failClosed: true,
+  });
+  const unavailable = resolvedMode();
+  assert.equal(unavailable.mode, "enterprise");
+  assert.equal(unavailable.provider, "");
+  assert.equal(unavailable.model, "");
 });

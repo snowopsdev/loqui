@@ -9,12 +9,14 @@ export interface ManagedEnterpriseConfigResult {
   config?: ManagedEnterpriseConfig;
   code?: string;
   error?: string;
+  enforcementRequired?: boolean;
 }
 
 export async function getManagedEnterpriseConfig(
   accountId: string,
   workspaceId: string,
-  authGeneration: number
+  authGeneration: number,
+  forceRefresh = false
 ): Promise<ManagedEnterpriseConfigResult> {
   const request = window.electronAPI?.getManagedEnterpriseConfig;
   if (!request) {
@@ -25,7 +27,7 @@ export async function getManagedEnterpriseConfig(
       error: "Managed enterprise AI requires a newer version of OpenWhispr.",
     };
   }
-  return request(accountId, workspaceId, authGeneration);
+  return request(accountId, workspaceId, authGeneration, forceRefresh);
 }
 
 export function clearManagedEnterpriseIdentity(): void {

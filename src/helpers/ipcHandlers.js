@@ -4840,6 +4840,7 @@ class IPCHandlers {
       getAppVersion: () => app.getVersion(),
       proxyFetch,
       tokenStore,
+      broadcast: (snapshot) => broadcastToWindows("managed-enterprise-config-changed", snapshot),
       logger: debugLogger,
     });
     const resolveEnterpriseRuntime = async (event, provider, model, config = {}) => {
@@ -4860,7 +4861,22 @@ class IPCHandlers {
         setupMode: context.setupMode,
         authHeaders,
       });
-      if (!resolved.managed) return manual;
+      if (!resolved.managed) {
+        throw Object.assign(
+          new Error("Managed enterprise configuration changed. Retry the request."),
+          { code: "MANAGED_CONFIG_CHANGED" }
+        );
+      }
+      if (
+        resolved.provider !== context.provider ||
+        resolved.generation !== context.generation ||
+        resolved.version !== context.providerVersion
+      ) {
+        throw Object.assign(
+          new Error("Managed enterprise configuration changed. Retry the request."),
+          { code: "MANAGED_CONFIG_CHANGED" }
+        );
+      }
       if (resolved.provider === "bedrock") {
         return {
           provider: resolved.provider,
@@ -8033,13 +8049,14 @@ class IPCHandlers {
 
     ipcMain.handle(
       "get-managed-enterprise-config",
-      async (event, accountId, workspaceId, expectedAuthGeneration) => {
+      async (event, accountId, workspaceId, expectedAuthGeneration, forceRefresh = false) => {
         const authHeaders = await getAuthHeader(event);
         return this.enterpriseIdentityManager.getConfig({
           accountId,
           workspaceId,
           expectedAuthGeneration,
           authHeaders,
+          forceRefresh,
         });
       }
     );

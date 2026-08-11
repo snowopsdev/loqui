@@ -22,6 +22,7 @@ function managedConfig() {
   return {
     workspaceId,
     version: 1,
+    generation: 1,
     identity: {
       issuer: "https://api.example.com/enterprise-identity",
       jwksUri: "https://api.example.com/enterprise-identity/jwks.json",
@@ -37,7 +38,7 @@ function managedConfig() {
           tenantId: "22222222-2222-4222-8222-222222222222",
           clientId: "33333333-3333-4333-8333-333333333333",
           endpoint: "https://example.openai.azure.com",
-          apiVersion: "2024-10-21",
+          apiVersion: "v1",
           allowedDeployments: ["deployment-a"],
           scopeDefaults: defaults,
         },
@@ -109,6 +110,145 @@ test("deduplicates config and Azure token refreshes while keeping cloud tokens o
   assert.equal(await runtime.tokenProvider(), "azure-bearer-token");
   assert.equal(await runtime.tokenProvider(), "azure-bearer-token");
   assert.deepEqual(calls, { config: 1, assertion: 1, azure: 1 });
+});
+
+test("authorization failures evict cached config while server failures use it transiently", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-enterprise-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const cachePath = path.join(tempDir, "config.json");
+  const enforcedConfig = managedConfig();
+  enforcedConfig.providers[0].mode = "managed_required";
+  enforcedConfig.providers[0].allowManualSetup = false;
+  let response = jsonResponse({ data: enforcedConfig });
+  const manager = createEnterpriseIdentityManager({
+    cachePath,
+    getApiUrl: () => "https://api.example.com",
+    getAppVersion: () => "1.8.1",
+    proxyFetch: async () => response,
+    tokenStore: { getState: () => ({ token: "session", generation: 4 }) },
+  });
+
+  assert.equal((await manager.getConfig(request())).status, "network");
+  response = jsonResponse({ error: "Temporarily unavailable" }, 503);
+  assert.equal((await manager.getConfig({ ...request(), forceRefresh: true })).status, "cached");
+
+  response = jsonResponse({ error: "Sign in with company SSO", code: "SSO_REQUIRED" }, 403);
+  const denied = await manager.getConfig({ ...request(), forceRefresh: true });
+  assert.equal(denied.success, false);
+  assert.equal(denied.code, "SSO_REQUIRED");
+  assert.equal(denied.enforcementRequired, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(cachePath, "utf8")).entries, []);
+});
+
+test("an Enterprise-plan downgrade clears prior managed enforcement", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-enterprise-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const enforcedConfig = managedConfig();
+  enforcedConfig.providers[0].mode = "managed_required";
+  enforcedConfig.providers[0].allowManualSetup = false;
+  let response = jsonResponse({ data: enforcedConfig });
+  const snapshots = [];
+  const manager = createEnterpriseIdentityManager({
+    cachePath: path.join(tempDir, "config.json"),
+    getApiUrl: () => "https://api.example.com",
+    getAppVersion: () => "1.8.1",
+    proxyFetch: async () => response,
+    tokenStore: { getState: () => ({ token: "session", generation: 4 }) },
+    broadcast: (snapshot) => snapshots.push(snapshot),
+  });
+
+  assert.equal((await manager.getConfig(request())).success, true);
+  response = jsonResponse(
+    { error: "An active Enterprise workspace is required", code: "ENTERPRISE_REQUIRED" },
+    403
+  );
+  const downgraded = await manager.getConfig({ ...request(), forceRefresh: true });
+  assert.equal(downgraded.success, false);
+  assert.equal(downgraded.code, "ENTERPRISE_REQUIRED");
+  assert.equal(downgraded.enforcementRequired, false);
+  assert.equal(snapshots.at(-1).enforcementRequired, false);
+});
+
+test("a malformed successful config response fails closed instead of using disk cache", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-enterprise-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const enforcedConfig = managedConfig();
+  enforcedConfig.providers[0].mode = "managed_required";
+  enforcedConfig.providers[0].allowManualSetup = false;
+  let response = jsonResponse({ data: enforcedConfig });
+  const cachePath = path.join(tempDir, "config.json");
+  const manager = createEnterpriseIdentityManager({
+    cachePath,
+    getApiUrl: () => "https://api.example.com",
+    getAppVersion: () => "1.8.1",
+    proxyFetch: async () => response,
+    tokenStore: { getState: () => ({ token: "session", generation: 4 }) },
+  });
+
+  assert.equal((await manager.getConfig(request())).success, true);
+  response = new Response("{", { status: 200, headers: { "Content-Type": "application/json" } });
+  const malformed = await manager.getConfig({ ...request(), forceRefresh: true });
+  assert.equal(malformed.success, false);
+  assert.equal(malformed.code, "MANAGED_CONFIG_INVALID");
+  assert.equal(malformed.enforcementRequired, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(cachePath, "utf8")).entries, []);
+});
+
+test("a first transient failure does not claim that enforcement is disabled", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-enterprise-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const manager = createEnterpriseIdentityManager({
+    cachePath: path.join(tempDir, "config.json"),
+    getApiUrl: () => "https://api.example.com",
+    getAppVersion: () => "1.8.1",
+    proxyFetch: async () => {
+      throw new Error("offline");
+    },
+    tokenStore: { getState: () => ({ token: "session", generation: 4 }) },
+  });
+
+  const unavailable = await manager.getConfig(request());
+  assert.equal(unavailable.success, false);
+  assert.equal(unavailable.enforcementRequired, undefined);
+});
+
+test("a generation change discards old cloud credentials and broadcasts the new envelope", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-enterprise-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  let generation = 1;
+  let tokenCalls = 0;
+  const snapshots = [];
+  const manager = createEnterpriseIdentityManager({
+    cachePath: path.join(tempDir, "config.json"),
+    getApiUrl: () => "https://api.example.com",
+    getAppVersion: () => "1.8.1",
+    proxyFetch: async (url) => {
+      if (url.includes("/assertion")) {
+        return jsonResponse({ data: { assertion: `assertion-${generation}` } });
+      }
+      if (url.startsWith("https://login.microsoftonline.com/")) {
+        tokenCalls += 1;
+        return jsonResponse({ access_token: `token-${generation}`, expires_in: 3600 });
+      }
+      const config = managedConfig();
+      config.generation = generation;
+      return jsonResponse({ data: config });
+    },
+    tokenStore: { getState: () => ({ token: "session", generation: 4 }) },
+    broadcast: (snapshot) => snapshots.push(snapshot),
+  });
+
+  const first = await manager.resolveProvider(request());
+  assert.equal(await first.tokenProvider(), "token-1");
+  generation = 2;
+  await manager.getConfig({ ...request(), forceRefresh: true });
+  const second = await manager.resolveProvider(request());
+  assert.equal(await second.tokenProvider(), "token-2");
+  assert.equal(tokenCalls, 2);
+  assert.deepEqual(
+    snapshots.map((snapshot) => snapshot.config?.generation),
+    [1, 2]
+  );
 });
 
 test("rejects stale auth generations before making a request", async (t) => {

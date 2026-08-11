@@ -831,6 +831,7 @@ declare global {
         endpointSupported?: boolean;
         code?: string;
         error?: string;
+        enforcementRequired?: boolean;
       }>;
       onWorkspacePolicyChanged?: (
         callback: (
@@ -1573,7 +1574,8 @@ declare global {
       getManagedEnterpriseConfig?: (
         accountId: string,
         workspaceId: string,
-        expectedAuthGeneration: number
+        expectedAuthGeneration: number,
+        forceRefresh?: boolean
       ) => Promise<{
         success: boolean;
         status?: "network" | "current" | "cached" | "error";
@@ -1583,7 +1585,18 @@ declare global {
         config?: ManagedEnterpriseConfig;
         code?: string;
         error?: string;
+        enforcementRequired?: boolean;
       }>;
+      onManagedEnterpriseConfigChanged?: (
+        callback: (snapshot: {
+          accountId: string;
+          workspaceId: string;
+          authGeneration: number;
+          config: ManagedEnterpriseConfig | null;
+          code: string | null;
+          enforcementRequired?: boolean;
+        }) => void
+      ) => () => void;
       clearManagedEnterpriseIdentity?: () => Promise<void>;
 
       // Dictation key persistence (file-based for reliable startup)

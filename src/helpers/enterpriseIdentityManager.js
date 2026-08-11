@@ -57,7 +57,52 @@ function cachedConfig(cachePath, identity) {
   return validateManagedEnterpriseEnvelope(entry?.config, identity.workspaceId);
 }
 
-function responseError(code, error, identity = null) {
+function removeCachedConfig(cachePath, identity) {
+  const envelope = readCache(cachePath);
+  const entries = envelope.entries.filter((entry) => entry?.key !== identity.cacheKey);
+  try {
+    fs.writeFileSync(cachePath, JSON.stringify({ version: CONFIG_CACHE_VERSION, entries }), {
+      mode: 0o600,
+    });
+  } catch {
+    // A read-only cache must never prevent fail-closed in-memory eviction.
+  }
+}
+
+function isTransientConfigError(error) {
+  return (
+    error?.name === "AbortError" ||
+    (!Number.isFinite(error?.status) && error?.code !== "MANAGED_CONFIG_INVALID") ||
+    error?.status >= 500
+  );
+}
+
+function isAuthorizationError(error) {
+  return (
+    [401, 403, 404].includes(error?.status) ||
+    [
+      "AUTH_EXPIRED",
+      "ENTERPRISE_REQUIRED",
+      "SSO_REQUIRED",
+      "DIRECTORY_ASSIGNMENT_REQUIRED",
+      "PROVIDER_NOT_ALLOWED",
+      "PROVIDER_NOT_CONFIGURED",
+      "POLICY_UNRESOLVABLE",
+    ].includes(error?.code)
+  );
+}
+
+function requiresEnforcedManagedAccess(config) {
+  return Boolean(
+    config?.providers?.some(
+      (record) =>
+        record.mode !== "disabled" &&
+        (record.mode === "managed_required" || !record.allowManualSetup)
+    )
+  );
+}
+
+function responseError(code, error, identity = null, enforcementRequired) {
   return {
     success: false,
     status: "error",
@@ -66,6 +111,7 @@ function responseError(code, error, identity = null) {
     authGeneration: identity?.authGeneration ?? null,
     code,
     error,
+    ...(typeof enforcementRequired === "boolean" ? { enforcementRequired } : {}),
   };
 }
 
@@ -76,6 +122,7 @@ function createEnterpriseIdentityManager({
   proxyFetch,
   tokenStore,
   logger,
+  broadcast,
   createAwsWebIdentityProvider = (init) =>
     require("@aws-sdk/credential-providers").fromWebToken(init),
   now = Date.now,
@@ -85,6 +132,33 @@ function createEnterpriseIdentityManager({
   const configRequests = new Map();
   const cloudCredentials = new Map();
   const cloudCredentialRequests = new Map();
+  let credentialEpoch = 0;
+
+  function clearIdentityCredentials(identity) {
+    credentialEpoch += 1;
+    const prefix = `${identity.cacheKey}\n`;
+    for (const key of cloudCredentials.keys()) {
+      if (key.startsWith(prefix)) cloudCredentials.delete(key);
+    }
+    for (const key of cloudCredentialRequests.keys()) {
+      if (key.startsWith(prefix)) cloudCredentialRequests.delete(key);
+    }
+  }
+
+  function evictIdentity(identity, code, enforcementRequired = false) {
+    configs.delete(identity.cacheKey);
+    configRequests.delete(identity.cacheKey);
+    clearIdentityCredentials(identity);
+    removeCachedConfig(cachePath, identity);
+    broadcast?.({
+      accountId: identity.accountId,
+      workspaceId: identity.workspaceId,
+      authGeneration: identity.authGeneration,
+      config: null,
+      code,
+      enforcementRequired,
+    });
+  }
 
   function captureIdentity(request = {}) {
     const tokenState = tokenStore.getState();
@@ -181,13 +255,24 @@ function createEnterpriseIdentityManager({
       error.status = response.status;
       throw error;
     }
-    const body = await response.json();
+    let body;
+    try {
+      body = await response.json();
+    } catch (cause) {
+      const error = new Error("Managed enterprise configuration response is malformed", { cause });
+      error.code = "MANAGED_CONFIG_INVALID";
+      throw error;
+    }
     assertIdentityCurrent(identity);
     const config = validateManagedEnterpriseEnvelope(body?.data, identity.workspaceId);
     if (!config) {
       const error = new Error("Managed enterprise configuration is malformed");
       error.code = "MANAGED_CONFIG_INVALID";
       throw error;
+    }
+    const previous = configs.get(identity.cacheKey)?.config;
+    if (previous && previous.generation !== config.generation) {
+      clearIdentityCredentials(identity);
     }
     configs.set(identity.cacheKey, { config, refreshedAt: now() });
     try {
@@ -197,12 +282,19 @@ function createEnterpriseIdentityManager({
         error: error?.message,
       });
     }
+    broadcast?.({
+      accountId: identity.accountId,
+      workspaceId: identity.workspaceId,
+      authGeneration: identity.authGeneration,
+      config,
+      code: null,
+    });
     return { config, status: "network" };
   }
 
-  async function resolveConfig(identity) {
+  async function resolveConfig(identity, forceRefresh = false) {
     const current = configs.get(identity.cacheKey);
-    if (current && now() - current.refreshedAt < CONFIG_REFRESH_MS) {
+    if (!forceRefresh && current && now() - current.refreshedAt < CONFIG_REFRESH_MS) {
       return { config: current.config, status: "current" };
     }
     if (configRequests.has(identity.cacheKey)) {
@@ -210,6 +302,14 @@ function createEnterpriseIdentityManager({
     }
     const pending = fetchConfig(identity)
       .catch((error) => {
+        if (isAuthorizationError(error) || error?.code === "MANAGED_CONFIG_INVALID") {
+          const prior = configs.get(identity.cacheKey)?.config || cachedConfig(cachePath, identity);
+          error.enforcementRequired =
+            error?.code === "ENTERPRISE_REQUIRED" ? false : requiresEnforcedManagedAccess(prior);
+          evictIdentity(identity, error.code || "MANAGED_CONFIG_FAILED", error.enforcementRequired);
+          throw error;
+        }
+        if (!isTransientConfigError(error)) throw error;
         const memory = configs.get(identity.cacheKey)?.config;
         const disk = memory || cachedConfig(cachePath, identity);
         if (disk) {
@@ -231,7 +331,7 @@ function createEnterpriseIdentityManager({
     let identity;
     try {
       identity = captureIdentity(request);
-      const resolved = await resolveConfig(identity);
+      const resolved = await resolveConfig(identity, Boolean(request.forceRefresh));
       return {
         success: true,
         status: resolved.status,
@@ -241,7 +341,12 @@ function createEnterpriseIdentityManager({
         config: resolved.config,
       };
     } catch (error) {
-      return responseError(error.code || "MANAGED_CONFIG_FAILED", error.message, identity);
+      return responseError(
+        error.code || "MANAGED_CONFIG_FAILED",
+        error.message,
+        identity,
+        error.enforcementRequired
+      );
     }
   }
 
@@ -261,6 +366,12 @@ function createEnterpriseIdentityManager({
       error.code =
         detail.code || (response.status === 401 ? "AUTH_EXPIRED" : "IDENTITY_EXCHANGE_FAILED");
       error.status = response.status;
+      if (isAuthorizationError(error)) {
+        const prior = configs.get(identity.cacheKey)?.config || cachedConfig(cachePath, identity);
+        error.enforcementRequired =
+          error.code === "ENTERPRISE_REQUIRED" ? false : requiresEnforcedManagedAccess(prior);
+        evictIdentity(identity, error.code, error.enforcementRequired);
+      }
       throw error;
     }
     const body = await response.json();
@@ -272,8 +383,8 @@ function createEnterpriseIdentityManager({
     return body.data.assertion;
   }
 
-  function credentialKey(identity, provider, version) {
-    return `${identity.cacheKey}\n${provider}\n${version}`;
+  function credentialKey(identity, generation, provider, version) {
+    return `${identity.cacheKey}\n${generation}\n${provider}\n${version}`;
   }
 
   function usableCredential(entry) {
@@ -284,8 +395,15 @@ function createEnterpriseIdentityManager({
     const cached = cloudCredentials.get(key);
     if (usableCredential(cached)) return cached.value;
     if (cloudCredentialRequests.has(key)) return cloudCredentialRequests.get(key);
+    const epoch = credentialEpoch;
     const pending = create()
       .then((entry) => {
+        if (epoch !== credentialEpoch) {
+          throw Object.assign(
+            new Error("Managed enterprise configuration changed. Retry the request."),
+            { code: "MANAGED_CONFIG_CHANGED" }
+          );
+        }
         cloudCredentials.set(key, entry);
         return entry.value;
       })
@@ -298,7 +416,7 @@ function createEnterpriseIdentityManager({
 
   function managedProviderFunctions(identity, resolution) {
     const record = resolution.record;
-    const key = credentialKey(identity, record.provider, record.version);
+    const key = credentialKey(identity, resolution.generation, record.provider, record.version);
     if (record.provider === "bedrock") {
       return {
         credentialProvider: () =>
@@ -395,15 +513,22 @@ function createEnterpriseIdentityManager({
       model: resolution.model,
       config: resolution.record.config,
       version: resolution.record.version,
-      ...managedProviderFunctions(identity, resolution),
+      generation: config.generation,
+      ...managedProviderFunctions(identity, { ...resolution, generation: config.generation }),
     };
   }
 
   function clear() {
+    credentialEpoch += 1;
     configs.clear();
     configRequests.clear();
     cloudCredentials.clear();
     cloudCredentialRequests.clear();
+    try {
+      fs.unlinkSync(cachePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") logger?.warn?.("Managed enterprise cache removal failed");
+    }
   }
 
   return { getConfig, resolveProvider, clear };

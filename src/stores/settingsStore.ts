@@ -2309,6 +2309,9 @@ export const selectResolvedLLMConfig = (
     disableThinking,
   };
   const managed = getManagedScopeResolution(scope, state.enterpriseSetupMode);
+  if (managed.kind === "error") {
+    return { ...localConfig, mode: "enterprise", provider: "", model: "" };
+  }
   if (managed.kind !== "managed") return localConfig;
   return {
     ...localConfig,
@@ -2639,8 +2642,8 @@ export async function initializeSettings(): Promise<void> {
           }) ||
           Boolean(
             useSettingsStore.getState().bedrockProfile.trim() ||
-              (bedrockAccessKeyId && bedrockSecretAccessKey) ||
-              azureApiKey
+            (bedrockAccessKeyId && bedrockSecretAccessKey) ||
+            azureApiKey
           );
         const enterpriseSetupMode: EnterpriseSetupMode = hasChosenProvider ? "manual" : "auto";
         localStorage.setItem("enterpriseSetupMode", enterpriseSetupMode);

@@ -2479,12 +2479,7 @@ export default function SettingsPage({
         );
 
       case "workspace":
-        return (
-          <WorkspaceSection
-            initialSubTab={initialSubTab}
-            onNavigateToBilling={() => onNavigateToSection?.("plansBilling")}
-          />
-        );
+        return <WorkspaceSection initialSubTab={initialSubTab} />;
 
       case "general":
         return (

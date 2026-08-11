@@ -385,6 +385,42 @@ export interface WorkspaceInvitation {
   revoked_at: string | null;
 }
 
+export interface JoinableMember {
+  name: string | null;
+  email: string;
+  image: string | null;
+}
+
+/**
+ * A workspace the signed-in user can act on, from GET /api/me/joinable.
+ * `source` is why they can see it, `mode` is what the button does: an
+ * invitation or an opted-in domain joins outright, a plain domain match only
+ * earns the right to ask an admin.
+ */
+export interface JoinableWorkspace {
+  source: "invitation" | "domain";
+  mode: "join" | "request";
+  request_state: "none" | "pending";
+  invitation_id: string | null;
+  workspace_id: string;
+  workspace_name: string;
+  workspace_slug: string;
+  role: WorkspaceRole;
+  member_count: number;
+  members: JoinableMember[];
+  inviter_name: string | null;
+  inviter_email: string | null;
+}
+
+export interface WorkspaceJoinRequest {
+  id: string;
+  user_id: string;
+  name: string | null;
+  email: string;
+  image: string | null;
+  created_at: string;
+}
+
 export interface InvitationPreview {
   id: string;
   email: string;
@@ -2381,6 +2417,17 @@ declare global {
       // Google Calendar event listeners
       onGcalConnectionChanged?: (callback: (data: any) => void) => () => void;
       onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
+
+      // Microsoft Calendar
+      mcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
+      mcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
+      mcalGetConnectionStatus?: () => Promise<{
+        connected: boolean;
+        accounts: Array<{ email: string }>;
+      }>;
+      mcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
+      onMcalConnectionChanged?: (callback: (data: any) => void) => () => void;
+      onMcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
       // Apple Calendar (macOS EventKit)
       acalConnect?: () => Promise<{ success: boolean; reason?: string; error?: string }>;

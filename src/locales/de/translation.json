@@ -1313,6 +1313,14 @@
           "description": "{{name}} wird Inhaber von {{workspace}}. Ihre Rolle ändert sich zu Administrator und nur der neue Inhaber kann das Eigentum zurückübertragen."
         }
       },
+      "joinRequests": {
+        "title": "Beitrittsanfragen",
+        "approve": "Annehmen",
+        "deny": "Ablehnen",
+        "approved": "{{name}} ist dem Workspace beigetreten",
+        "denied": "Anfrage abgelehnt",
+        "errorTitle": "Anfrage konnte nicht aktualisiert werden"
+      },
       "teams": {
         "title": "Teams",
         "description": "Gruppen von Workspace-Mitgliedern, die Zugriff auf Team-Spaces gewähren.",
@@ -1442,8 +1450,6 @@
       "nonBillableSeat": "Nur Admin-Zugriff · kein kostenpflichtiger Platz",
       "managedBy": "Die Abrechnung wird von {{owner}} verwaltet.",
       "addSeat": "Platz hinzufügen",
-      "startWithSeats_one": "Business mit {{count}} Platz starten",
-      "startWithSeats_other": "Business mit {{count}} Plätzen starten",
       "seatUpdated_one": "Workspace-Kapazität auf {{count}} Platz aktualisiert",
       "seatUpdated_other": "Workspace-Kapazität auf {{count}} Plätze aktualisiert",
       "seatUpdateFailed": "Workspace-Plätze konnten nicht aktualisiert werden",
@@ -2389,9 +2395,7 @@
       "emailPlaceholder": "teammitglied@example.com",
       "roleLabel": "Rolle",
       "seatUsage": "{{used}} von {{seats}} Plätzen belegt",
-      "seatLimit": "Alle {{seats}} Plätze sind belegt.",
-      "askOwner": "Alle {{seats}} Plätze sind belegt. Bitten Sie den Workspace-Inhaber, Plätze hinzuzufügen.",
-      "manageSeats": "Plätze verwalten",
+      "seatCost": "Fügt deinem Tarif einen Platz hinzu · {{amount}} werden jetzt berechnet.",
       "submit": "Einladung senden",
       "submitting": "Sende…",
       "sentTitle": "Einladung gesendet",
@@ -2407,6 +2411,25 @@
         "admin": "Verwaltet Mitglieder und Abrechnung",
         "member": "Nutzt den Workspace"
       }
+    },
+    "join": {
+      "title": "Team beitreten",
+      "domainTitle": "Dein Team ist schon auf OpenWhispr",
+      "description": "In diesen Workspaces ist jemand aus deiner E-Mail-Domain.",
+      "invitedDescription": "Du wurdest zu einem Workspace eingeladen.",
+      "invitedBy": "Eingeladen von {{inviter}} als {{role}}",
+      "memberCount_one": "{{count}} Mitglied",
+      "memberCount_other": "{{count}} Mitglieder",
+      "join": "Beitreten",
+      "requestErrorTitle": "Anfrage konnte nicht gesendet werden",
+      "requestedDescription": "Ein Admin von {{workspace}} sieht sie sich an.",
+      "requestedTitle": "Anfrage gesendet",
+      "requested": "Angefragt",
+      "request": "Zutritt anfragen",
+      "notNow": "Jetzt nicht",
+      "successTitle": "Beigetreten",
+      "successDescription": "Du bist jetzt Mitglied von {{workspace}}.",
+      "errorTitle": "Beitritt fehlgeschlagen"
     },
     "accept": {
       "title": "Workspace beitreten",
@@ -2576,12 +2599,6 @@
       "undo": "Rückgängig",
       "emptySpace": "Noch keine Notizen. Notizen hier sind für alle in {{space}} sichtbar.",
       "emptyTeamHint": "Mit Ihnen geteilte Bereiche erscheinen hier.",
-      "lockedPitch": "Erstellen Sie gemeinsame Bereiche, in denen die Notizen Ihres Teams synchron bleiben.",
-      "planBlocked": {
-        "title": "{{workspace}} nutzt den Free-Tarif",
-        "description": "Workspaces haben ein eigenes Abonnement, getrennt von Ihrem persönlichen Tarif. Team-Bereiche erfordern einen kostenpflichtigen Workspace-Tarif.",
-        "cta": "Workspace-Abrechnung anzeigen"
-      },
       "noteCount_one": "{{count}} Notiz",
       "noteCount_other": "{{count}} Notizen",
       "accessRevoked": "Du hast keinen Zugriff mehr auf {{space}}",
@@ -3228,7 +3245,24 @@
       "disconnectDescription": "Besprechungsnotizen werden von diesem Kalender nicht mehr aufgezeichnet.",
       "systemAudioRequired": "Systemaudio-Berechtigung erforderlich",
       "systemAudioDescription": "Zum Transkribieren von Meetings benötigt OpenWhispr die Systemaudio-Berechtigung, um den Ton anderer Teilnehmer aufzunehmen. Wir nehmen Ihren Bildschirm nie auf. Sie werden zu den Systemeinstellungen weitergeleitet, um diese zu aktivieren.",
-      "openSettings": "Systemeinstellungen öffnen"
+      "openSettings": "Systemeinstellungen öffnen",
+      "connectFailed": "Verbindung fehlgeschlagen",
+      "connectFailedDescription": "Beim Verbinden mit Google Calendar ist ein Fehler aufgetreten. Bitte versuche es erneut."
+    },
+    "microsoftCalendar": {
+      "title": "Microsoft Calendar",
+      "optional": "Optional",
+      "description": "Besprechungen aus deinem Outlook- oder Microsoft 365-Kalender lesen.",
+      "connect": "Microsoft Calendar verbinden",
+      "connected": "Verbunden",
+      "addAnother": "Weiteren Kalender hinzufügen",
+      "primaryOnly": "Nur Hauptkalender synchronisieren",
+      "primaryOnlyDescription": "Termine aus mit dir geteilten Kalendern ignorieren.",
+      "disconnect": "Trennen",
+      "disconnectConfirm": "{{email}} trennen?",
+      "disconnectDescription": "Besprechungsnotizen werden von diesem Kalender nicht mehr aufgezeichnet.",
+      "connectFailed": "Verbindung fehlgeschlagen",
+      "connectFailedDescription": "Beim Verbinden mit Microsoft Calendar ist ein Fehler aufgetreten. Bitte versuche es erneut."
     },
     "appleCalendar": {
       "title": "Apple Kalender",

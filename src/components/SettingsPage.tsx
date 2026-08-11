@@ -105,6 +105,10 @@ import { cn } from "./lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { startMigration, useMigration } from "../stores/noteStore.js";
 import { syncService } from "../services/SyncService.js";
+import {
+  LLM_REQUEST_TIMEOUT_SECONDS_MIN,
+  LLM_REQUEST_TIMEOUT_SECONDS_MAX,
+} from "../helpers/llmRequestTimeout.js";
 import { formatBytes } from "../utils/formatBytes";
 import {
   clearMissingLocalModelSelections,
@@ -648,6 +652,8 @@ function LlmsTabs({
 }) {
   const { t } = useTranslation();
   const agentAllowed = usePolicyStore(isAgentAllowed);
+  const llmRequestTimeoutSeconds = useSettingsStore((s) => s.llmRequestTimeoutSeconds);
+  const setLlmRequestTimeoutSeconds = useSettingsStore((s) => s.setLlmRequestTimeoutSeconds);
   const visibleTabIds = agentAllowed
     ? LLM_TABS
     : LLM_TABS.filter((tabId) => !AGENT_LLM_TABS.has(tabId));
@@ -688,6 +694,28 @@ function LlmsTabs({
       {agentAllowed && (
         <TabPanel active={tab === "chatIntelligence"}>{renderChatIntelligence()}</TabPanel>
       )}
+
+      {/* Applies to every scope above — the shared abort timeout for non-streaming requests. */}
+      <div className="border-t border-border/40 pt-4 mt-4">
+        <SettingsPanel>
+          <SettingsPanelRow>
+            <SettingsRow
+              label={t("settingsPage.llms.requestTimeout.label")}
+              description={t("settingsPage.llms.requestTimeout.description")}
+            >
+              <Input
+                type="number"
+                min={LLM_REQUEST_TIMEOUT_SECONDS_MIN}
+                max={LLM_REQUEST_TIMEOUT_SECONDS_MAX}
+                step={5}
+                value={llmRequestTimeoutSeconds}
+                onChange={(e) => setLlmRequestTimeoutSeconds(Number(e.target.value))}
+                className="w-20"
+              />
+            </SettingsRow>
+          </SettingsPanelRow>
+        </SettingsPanel>
+      </div>
     </div>
   );
 }

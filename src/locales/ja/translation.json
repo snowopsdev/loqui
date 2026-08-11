@@ -1830,6 +1830,10 @@
         "noteFormatting": "ノートのフォーマット",
         "chatIntelligence": "チャット",
         "dictationTranslation": "翻訳"
+      },
+      "requestTimeout": {
+        "label": "リクエストのタイムアウト(秒)",
+        "description": "応答を待つ時間の上限です。セルフホストやローカルモデルでは、特に長いノートの場合、デフォルトの30秒より長い時間が必要になることがあります。"
       }
     },
     "noteFormatting": {

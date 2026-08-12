@@ -107,7 +107,8 @@
     "sound": "Please open your system sound settings (for example, pavucontrol).",
     "accessibility": "Accessibility settings are not available on this platform.",
     "systemAudio": "System audio settings are not available on this platform.",
-    "screenRecording": "Screen recording settings are not available on this platform."
+    "screenRecording": "Screen recording settings are not available on this platform.",
+    "loginItems": "Login item settings are not available on this platform."
   },
   "upgradePrompt": {
     "paymentFailed": "We couldn't process your payment",
@@ -1892,11 +1893,16 @@
       },
       "startup": {
         "launchAtLogin": "Launch at login",
-        "launchAtLoginDescription": "Start OpenWhispr automatically when you log in",
+        "launchAtLoginDescription": "Start OpenWhispr in the background when you log in",
         "title": "Startup",
         "description": "Control how OpenWhispr behaves when it launches",
         "startMinimized": "Start minimized",
-        "startMinimizedDescription": "Launch without showing the control panel window"
+        "startMinimizedDescription": "Launch without showing the control panel window",
+        "needsApproval": {
+          "title": "Approval needed in System Settings",
+          "description": "macOS registered OpenWhispr as a login item but is waiting for you to allow it under Login Items.",
+          "action": "Open Login Items"
+        }
       },
       "waylandPaste": {
         "title": "Wayland Paste Setup",

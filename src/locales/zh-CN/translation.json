@@ -107,7 +107,8 @@
     "sound": "请打开系统声音设置（例如 pavucontrol）。",
     "accessibility": "此平台不支持辅助功能设置。",
     "systemAudio": "系统音频设置在此平台上不可用。",
-    "screenRecording": "此平台不提供屏幕录制设置。"
+    "screenRecording": "此平台不提供屏幕录制设置。",
+    "loginItems": "此平台不支持登录项设置。"
   },
   "upgradePrompt": {
     "paymentFailed": "我们无法处理你的付款",
@@ -1606,11 +1607,16 @@
       },
       "startup": {
         "launchAtLogin": "登录时启动",
-        "launchAtLoginDescription": "登录时自动启动 OpenWhispr",
+        "launchAtLoginDescription": "登录时在后台启动 OpenWhispr",
         "title": "启动",
         "description": "控制 OpenWhispr 启动时的行为",
         "startMinimized": "启动时最小化",
-        "startMinimizedDescription": "启动时不显示控制面板窗口"
+        "startMinimizedDescription": "启动时不显示控制面板窗口",
+        "needsApproval": {
+          "title": "需要在系统设置中批准",
+          "description": "macOS 已将 OpenWhispr 注册为登录项，但仍在等待你在“登录项”中允许它。",
+          "action": "打开登录项"
+        }
       },
       "waylandPaste": {
         "title": "Wayland 粘贴设置",

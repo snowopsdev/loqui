@@ -266,6 +266,7 @@ const ParakeetManager = require("./src/helpers/parakeet");
 const DiarizationManager = require("./src/helpers/diarization");
 const TrayManager = require("./src/helpers/tray");
 const dockManager = require("./src/helpers/dockManager");
+const autoStart = require("./src/helpers/autoStart");
 const IPCHandlers = require("./src/helpers/ipcHandlers");
 const CliBridge = require("./src/helpers/cliBridge");
 const UpdateManager = require("./src/updater");
@@ -382,14 +383,13 @@ function cleanupOrphanedLinuxRestoreToken() {
   } catch {}
 }
 
-function syncLinuxAutostartEntry() {
-  if (process.platform !== "linux") return;
+function syncAutoStartEntry() {
   try {
-    if (require("./src/helpers/linuxAutostart").syncAutostartEntry()) {
-      debugLogger.info("Re-pointed the autostart entry at the current executable");
+    if (autoStart.syncAutoStartEntry()) {
+      debugLogger.info("Re-pointed the launch-at-login entry at the current executable");
     }
   } catch (error) {
-    debugLogger.warn("Failed to sync the autostart entry", { error: error?.message });
+    debugLogger.warn("Failed to sync the launch-at-login entry", { error: error?.message });
   }
 }
 
@@ -449,7 +449,7 @@ function initializeCoreManagers() {
   // doesn't pay the probe spawn. No-ops on non-Windows.
   windowsLoopbackAudioManager.getCapability().catch(() => {});
   cleanupOrphanedLinuxRestoreToken();
-  syncLinuxAutostartEntry();
+  syncAutoStartEntry();
   meetingAecManager = new MeetingAecManager();
   windowManager.textEditMonitor = textEditMonitor;
   windowManager.selectionManager = selectionManager;
@@ -957,9 +957,12 @@ async function startApp() {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  // Create windows FIRST so the user sees UI as soon as possible
-  const startMinimized = environmentManager.getStartMinimized();
-  if (debugLogger) debugLogger.info("Start minimized", { enabled: startMinimized });
+  // Create windows FIRST so the user sees UI as soon as possible.
+  // A login launch goes to the tray whatever the preference says: the user asked
+  // the OS to start us, not to put a window in front of them at every login.
+  const launchedHidden = autoStart.wasLaunchedAtLoginHidden();
+  const startMinimized = environmentManager.getStartMinimized() || launchedHidden;
+  if (debugLogger) debugLogger.info("Start minimized", { enabled: startMinimized, launchedHidden });
   await windowManager.createMainWindow();
   if (!startMinimized) {
     await windowManager.createControlPanelWindow();

@@ -107,7 +107,8 @@
     "sound": "Apri le impostazioni audio di sistema (ad esempio, pavucontrol).",
     "accessibility": "Le impostazioni di accessibilità non sono disponibili su questa piattaforma.",
     "systemAudio": "Le impostazioni audio di sistema non sono disponibili su questa piattaforma.",
-    "screenRecording": "Le impostazioni di registrazione dello schermo non sono disponibili su questa piattaforma."
+    "screenRecording": "Le impostazioni di registrazione dello schermo non sono disponibili su questa piattaforma.",
+    "loginItems": "Le impostazioni degli elementi di login non sono disponibili su questa piattaforma."
   },
   "upgradePrompt": {
     "paymentFailed": "Non siamo riusciti a elaborare il pagamento",
@@ -1606,11 +1607,16 @@
       },
       "startup": {
         "launchAtLogin": "Avvia all'accesso",
-        "launchAtLoginDescription": "Avvia OpenWhispr automaticamente all'accesso",
+        "launchAtLoginDescription": "Avvia OpenWhispr in background all'accesso",
         "title": "Avvio",
         "description": "Controlla il comportamento di OpenWhispr all'avvio",
         "startMinimized": "Avvia ridotto a icona",
-        "startMinimizedDescription": "Avvia senza mostrare la finestra del pannello di controllo"
+        "startMinimizedDescription": "Avvia senza mostrare la finestra del pannello di controllo",
+        "needsApproval": {
+          "title": "Approvazione necessaria in Impostazioni di Sistema",
+          "description": "macOS ha registrato OpenWhispr come elemento di login, ma attende che tu lo consenta in Elementi login.",
+          "action": "Apri Elementi login"
+        }
       },
       "waylandPaste": {
         "title": "Configurazione incolla su Wayland",

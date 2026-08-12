@@ -45,7 +45,7 @@ const diarizationHost = (endpoint) => {
   return null;
 };
 const { resolveLocalServerNeeds } = require("./localServerPolicy");
-const linuxAutostart = require("./linuxAutostart");
+const autoStart = require("./autoStart");
 const GnomeShortcutManager = require("./gnomeShortcut");
 const HyprlandShortcutManager = require("./hyprlandShortcut");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
@@ -3391,27 +3391,16 @@ class IPCHandlers {
 
     ipcMain.handle("get-auto-start-enabled", async () => {
       try {
-        if (process.platform === "linux") {
-          return linuxAutostart.isAutostartEnabled();
-        }
-        const loginSettings = app.getLoginItemSettings();
-        return loginSettings.openAtLogin;
+        return autoStart.getAutoStartState();
       } catch (error) {
         debugLogger.error("Error getting auto-start status:", error);
-        return false;
+        return { enabled: false, requiresApproval: false };
       }
     });
 
     ipcMain.handle("set-auto-start-enabled", async (event, enabled) => {
       try {
-        if (process.platform === "linux") {
-          linuxAutostart.setAutostartEnabled(enabled);
-        } else {
-          app.setLoginItemSettings({
-            openAtLogin: enabled,
-            openAsHidden: true, // Start minimized to tray
-          });
-        }
+        autoStart.setAutoStartEnabled(enabled);
         debugLogger.debug("Auto-start setting updated", { enabled });
         return { success: true };
       } catch (error) {
@@ -4448,10 +4437,12 @@ class IPCHandlers {
         screenRecording:
           "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
         calendars: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
+        loginItems: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
       },
       win32: {
         microphone: "ms-settings:privacy-microphone",
         sound: "ms-settings:sound",
+        loginItems: "ms-settings:startupapps",
       },
     };
 
@@ -4468,6 +4459,7 @@ class IPCHandlers {
           accessibility: i18nMain.t("systemSettings.accessibility"),
           systemAudio: i18nMain.t("systemSettings.systemAudio"),
           screenRecording: i18nMain.t("systemSettings.screenRecording"),
+          loginItems: i18nMain.t("systemSettings.loginItems"),
         };
         return {
           success: false,
@@ -4490,6 +4482,7 @@ class IPCHandlers {
     ipcMain.handle("open-accessibility-settings", () => openSystemSettings("accessibility"));
     ipcMain.handle("open-system-audio-settings", () => openSystemSettings("systemAudio"));
     ipcMain.handle("open-screen-recording-settings", () => openSystemSettings("screenRecording"));
+    ipcMain.handle("open-login-items-settings", () => openSystemSettings("loginItems"));
 
     ipcMain.handle("capture-screen-context", () => screenContextCapture.captureCursorDisplay());
 

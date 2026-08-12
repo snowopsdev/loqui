@@ -107,7 +107,8 @@
     "sound": "Bitte öffnen Sie die Sound-Einstellungen des Systems (z. B. pavucontrol).",
     "accessibility": "Bedienungshilfen-Einstellungen sind auf dieser Plattform nicht verfügbar.",
     "systemAudio": "Systemaudio-Einstellungen sind auf dieser Plattform nicht verfügbar.",
-    "screenRecording": "Einstellungen zur Bildschirmaufnahme sind auf dieser Plattform nicht verfügbar."
+    "screenRecording": "Einstellungen zur Bildschirmaufnahme sind auf dieser Plattform nicht verfügbar.",
+    "loginItems": "Einstellungen für Anmeldeobjekte sind auf dieser Plattform nicht verfügbar."
   },
   "upgradePrompt": {
     "paymentFailed": "Ihre Zahlung konnte nicht verarbeitet werden",
@@ -1892,11 +1893,16 @@
       },
       "startup": {
         "launchAtLogin": "Beim Anmelden starten",
-        "launchAtLoginDescription": "OpenWhispr automatisch starten, wenn Sie sich anmelden",
+        "launchAtLoginDescription": "OpenWhispr bei der Anmeldung im Hintergrund starten",
         "title": "Autostart",
         "description": "Steuern Sie das Verhalten von OpenWhispr beim Start",
         "startMinimized": "Minimiert starten",
-        "startMinimizedDescription": "Starten, ohne das Einstellungsfenster anzuzeigen"
+        "startMinimizedDescription": "Starten, ohne das Einstellungsfenster anzuzeigen",
+        "needsApproval": {
+          "title": "Bestätigung in den Systemeinstellungen erforderlich",
+          "description": "macOS hat OpenWhispr als Anmeldeobjekt registriert, wartet aber darauf, dass du es unter Anmeldeobjekte erlaubst.",
+          "action": "Anmeldeobjekte öffnen"
+        }
       },
       "waylandPaste": {
         "title": "Wayland-Einfügen einrichten",

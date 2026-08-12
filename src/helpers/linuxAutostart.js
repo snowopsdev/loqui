@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { HIDDEN_LAUNCH_FLAG } = require("./autoStartPolicy");
 
 const DESKTOP_ENTRY_GROUP = "[Desktop Entry]";
 
@@ -86,13 +87,20 @@ function quoteExecPath(execPath) {
   return `"${escaped}"`;
 }
 
+// A session launch goes straight to the tray, so the entry carries the same flag
+// the Windows login item passes. syncAutostartEntry() compares against this, not
+// against the bare path, or every launch would look stale and rewrite the file.
+function buildExecValue(execPath) {
+  return `${quoteExecPath(execPath)} ${HIDDEN_LAUNCH_FLAG}`;
+}
+
 function buildDesktopFileContents(execPath, iconName) {
   return [
     DESKTOP_ENTRY_GROUP,
     "Type=Application",
     "Name=OpenWhispr",
     "Comment=Voice dictation and AI agent",
-    `Exec=${quoteExecPath(execPath)}`,
+    `Exec=${buildExecValue(execPath)}`,
     iconName ? `Icon=${iconName}` : null,
     "Terminal=false",
     "Categories=Utility;",
@@ -181,7 +189,7 @@ function syncAutostartEntry() {
 
   const entry = readDesktopEntry();
   if (!isEntryEnabled(entry)) return false;
-  if (entry.Exec === quoteExecPath(resolveExecutablePath())) return false;
+  if (entry.Exec === buildExecValue(resolveExecutablePath())) return false;
 
   writeAutostartEntry();
   return true;

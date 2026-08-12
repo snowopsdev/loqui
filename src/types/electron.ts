@@ -1692,6 +1692,7 @@ declare global {
       openAccessibilitySettings?: () => Promise<{ success: boolean; error?: string }>;
       openSystemAudioSettings?: () => Promise<{ success: boolean; error?: string }>;
       openScreenRecordingSettings?: () => Promise<{ success: boolean; error?: string }>;
+      openLoginItemsSettings?: () => Promise<{ success: boolean; error?: string }>;
       checkScreenRecordingAccess?: () => Promise<ScreenRecordingAccessResult>;
       requestScreenRecordingAccess?: () => Promise<ScreenRecordingAccessResult>;
       captureScreenContext?: () => Promise<ScreenContextImage | null>;
@@ -1711,8 +1712,10 @@ declare global {
       notifyStartMinimizedChanged?: (enabled: boolean) => void;
       notifyPanelStartPositionChanged?: (position: string) => void;
 
-      // Auto-start at login
-      getAutoStartEnabled?: () => Promise<boolean>;
+      // Auto-start at login. requiresApproval is macOS-only: SMAppService can
+      // register the login item and still leave it awaiting approval in System
+      // Settings, which otherwise looks like a toggle that will not stick.
+      getAutoStartEnabled?: () => Promise<{ enabled: boolean; requiresApproval: boolean }>;
       setAutoStartEnabled?: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
 
       // Auth

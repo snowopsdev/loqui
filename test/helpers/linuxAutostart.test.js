@@ -64,9 +64,42 @@ test(
     const { buildDesktopFileContents } = await load();
 
     const contents = buildDesktopFileContents("/a/b/OpenWhispr.AppImage", "open-whispr");
-    assert.match(contents, /^Exec="\/a\/b\/OpenWhispr\.AppImage"$/m);
+    assert.match(contents, /^Exec="\/a\/b\/OpenWhispr\.AppImage" --hidden$/m);
     assert.match(contents, /^Icon=open-whispr$/m);
     assert.match(contents, /^X-GNOME-Autostart-enabled=true$/m);
+  })
+);
+
+// The flag has to be part of what syncAutostartEntry() compares against, or an
+// up-to-date entry looks stale and gets rewritten on every single launch.
+test(
+  "an entry already carrying the hidden flag is not rewritten on startup",
+  withTmpXdgDirs(async () => {
+    const { setAutostartEnabled, syncAutostartEntry, getDesktopFilePath } = await load();
+
+    process.env.APPIMAGE = "/apps/OpenWhispr.AppImage";
+    setAutostartEnabled(true);
+    assert.match(fs.readFileSync(getDesktopFilePath(), "utf8"), /^Exec=.* --hidden$/m);
+
+    assert.equal(syncAutostartEntry(), false);
+  })
+);
+
+// Entries written before the flag existed still launch the app, just with its
+// window showing, so startup has to re-point them.
+test(
+  "an entry written before the hidden flag is re-pointed on startup",
+  withTmpXdgDirs(async () => {
+    const { syncAutostartEntry, getDesktopFilePath } = await load();
+
+    process.env.APPIMAGE = "/apps/OpenWhispr.AppImage";
+    writeEntry(
+      getDesktopFilePath(),
+      '[Desktop Entry]\nType=Application\nExec="/apps/OpenWhispr.AppImage"\n'
+    );
+
+    assert.equal(syncAutostartEntry(), true);
+    assert.match(fs.readFileSync(getDesktopFilePath(), "utf8"), /^Exec=.* --hidden$/m);
   })
 );
 
@@ -88,7 +121,10 @@ test(
     const { buildDesktopFileContents } = await load();
 
     const contents = buildDesktopFileContents('/home/o"neill/$HOME/`app`\\v/OpenWhispr', null);
-    assert.match(contents, /^Exec="\/home\/o\\"neill\/\\\$HOME\/\\`app\\`\\\\\\\\v\/OpenWhispr"$/m);
+    assert.match(
+      contents,
+      /^Exec="\/home\/o\\"neill\/\\\$HOME\/\\`app\\`\\\\\\\\v\/OpenWhispr" --hidden$/m
+    );
   })
 );
 
@@ -211,7 +247,7 @@ test(
     assert.equal(syncAutostartEntry(), true);
 
     const contents = fs.readFileSync(getDesktopFilePath(), "utf8");
-    assert.match(contents, /^Exec="\/new\/path\/OpenWhispr-1\.9\.0\.AppImage"$/m);
+    assert.match(contents, /^Exec="\/new\/path\/OpenWhispr-1\.9\.0\.AppImage" --hidden$/m);
   })
 );
 
@@ -269,6 +305,6 @@ test(
     assert.equal(syncAutostartEntry(), false);
 
     const contents = fs.readFileSync(getDesktopFilePath(), "utf8");
-    assert.match(contents, /^Exec="\/installed\/OpenWhispr\.AppImage"$/m);
+    assert.match(contents, /^Exec="\/installed\/OpenWhispr\.AppImage" --hidden$/m);
   })
 );

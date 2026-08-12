@@ -96,7 +96,7 @@ OpenWhispr is an Electron-based desktop dictation application that uses whisper.
   - Only active on Linux + KDE desktop (detected via `XDG_CURRENT_DESKTOP`)
   - D-Bus transport: `@homebridge/dbus-native` (pure JavaScript, no native addons)
 - **linuxAutostart.js**: Launch-at-login on Linux via an XDG autostart entry
-  - `app.setLoginItemSettings()` is a no-op on Linux, so the entry is written directly to `$XDG_CONFIG_HOME/autostart/openwhispr.desktop`
+  - `app.setLoginItemSettings()` is a no-op on Linux, so the entry is written directly to `$XDG_CONFIG_HOME/autostart/open-whispr.desktop`, matching the executable name electron-builder packages under
   - `Exec` resolves from `$APPIMAGE` first: `process.execPath` is the ephemeral AppImage FUSE mount
   - `isAutostartEnabled()` honors `X-GNOME-Autostart-enabled=false` and `Hidden=true`, which GNOME Tweaks and KDE's autostart editor write in place instead of deleting the file
   - `syncAutostartEntry()` runs from `initializeCoreManagers()` in `main.js` and re-points a stale `Exec` after the executable moves (renamed or auto-updated AppImage); it never re-enables an entry the user disabled, and no-ops in development
@@ -775,7 +775,7 @@ const { t } = useTranslation();
 - No standardized URL scheme for system settings (user must open manually)
 - Privacy settings button hidden in UI (not applicable on Linux)
 - Recommend `pavucontrol` for audio device management
-- **Launch at login**: XDG autostart entry at `~/.config/autostart/openwhispr.desktop` (see `linuxAutostart.js`), since Electron's `setLoginItemSettings()` does nothing on Linux
+- **Launch at login**: XDG autostart entry at `~/.config/autostart/open-whispr.desktop` (see `linuxAutostart.js`), since Electron's `setLoginItemSettings()` does nothing on Linux
   - Disabling it from GNOME Tweaks or KDE's autostart editor is reflected in the Settings toggle
   - "Start minimized" is handled app-side by the `startMinimized` setting, not by the desktop entry
 - **Clipboard paste tools** (at least one required for auto-paste):

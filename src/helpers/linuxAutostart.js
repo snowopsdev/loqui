@@ -4,18 +4,36 @@ const os = require("os");
 
 const DESKTOP_ENTRY_GROUP = "[Desktop Entry]";
 
+// electron-builder names the packaged desktop entry and icon after the Linux
+// executable, which main.js also passes to app.setDesktopName(). Reusing it here
+// keeps our entry and the packaged one referring to the same icon.
+const LINUX_APP_NAME = "open-whispr";
+const ICON_THEME_SUBPATH = path.join(
+  "icons",
+  "hicolor",
+  "256x256",
+  "apps",
+  `${LINUX_APP_NAME}.png`
+);
+
 function getAutostartDir() {
   const xdgConfigHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
   return path.join(xdgConfigHome, "autostart");
 }
 
 function getDesktopFilePath() {
-  return path.join(getAutostartDir(), "openwhispr.desktop");
+  return path.join(getAutostartDir(), `${LINUX_APP_NAME}.desktop`);
 }
 
-function getIconInstallPath() {
+// Icon= is resolved against the theme search path, so deb/rpm installs already
+// have one and only unpackaged layouts (AppImage, tar.gz) need a copy. The user
+// directory comes first because that is the only one we may write to.
+function getIconThemePaths() {
   const xdgDataHome = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
-  return path.join(xdgDataHome, "icons", "hicolor", "256x256", "apps", "openwhispr.png");
+  const systemDataDirs = (process.env.XDG_DATA_DIRS || "/usr/local/share:/usr/share")
+    .split(":")
+    .filter(Boolean);
+  return [xdgDataHome, ...systemDataDirs].map((dir) => path.join(dir, ICON_THEME_SUBPATH));
 }
 
 function isDevelopment() {
@@ -40,32 +58,42 @@ function findBundledIconSource() {
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
 
+// The icon is decoration; an unwritable data directory must not stop the entry
+// itself from being written, which is the only thing the toggle promises.
 function ensureIconInstalled() {
-  const iconDest = getIconInstallPath();
-  if (fs.existsSync(iconDest)) return iconDest;
+  try {
+    const [userIconPath, ...systemIconPaths] = getIconThemePaths();
+    if (fs.existsSync(userIconPath)) return true;
+    if (systemIconPaths.some((iconPath) => fs.existsSync(iconPath))) return true;
 
-  const iconSource = findBundledIconSource();
-  if (!iconSource) return null;
+    const iconSource = findBundledIconSource();
+    if (!iconSource) return false;
 
-  fs.mkdirSync(path.dirname(iconDest), { recursive: true });
-  fs.copyFileSync(iconSource, iconDest);
-  return iconDest;
+    fs.mkdirSync(path.dirname(userIconPath), { recursive: true });
+    fs.copyFileSync(iconSource, userIconPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-// Reserved characters inside a quoted Exec argument have to be backslash-escaped
-// per the Desktop Entry spec, so a home directory containing one still resolves.
+// Exec goes through two unescaping passes: the desktop-entry string rule runs
+// first, then the argument-quoting rule. Reserved characters need a single
+// backslash for the quoting rule, but a literal backslash needs four, since the
+// string rule collapses each pair into one before quoting is applied.
 function quoteExecPath(execPath) {
-  return `"${execPath.replace(/(["`$\\])/g, "\\$1")}"`;
+  const escaped = execPath.replace(/\\/g, "\\\\\\\\").replace(/(["`$])/g, "\\$1");
+  return `"${escaped}"`;
 }
 
-function buildDesktopFileContents(execPath, iconPath) {
+function buildDesktopFileContents(execPath, iconName) {
   return [
     DESKTOP_ENTRY_GROUP,
     "Type=Application",
     "Name=OpenWhispr",
     "Comment=Voice dictation and AI agent",
     `Exec=${quoteExecPath(execPath)}`,
-    iconPath ? `Icon=${iconPath}` : null,
+    iconName ? `Icon=${iconName}` : null,
     "Terminal=false",
     "Categories=Utility;",
     "X-GNOME-Autostart-enabled=true",
@@ -116,17 +144,24 @@ function readBoolean(value) {
 
 // GNOME Tweaks and KDE's autostart editor disable an entry by rewriting these
 // keys in place rather than deleting the file, so existence alone is not enough.
-function isAutostartEnabled() {
-  const entry = readDesktopEntry();
+function isEntryEnabled(entry) {
   if (!entry) return false;
   if (readBoolean(entry.Hidden) === true) return false;
   return readBoolean(entry["X-GNOME-Autostart-enabled"]) !== false;
 }
 
+function isAutostartEnabled() {
+  return isEntryEnabled(readDesktopEntry());
+}
+
 function writeAutostartEntry() {
   fs.mkdirSync(getAutostartDir(), { recursive: true });
-  const contents = buildDesktopFileContents(resolveExecutablePath(), ensureIconInstalled());
-  fs.writeFileSync(getDesktopFilePath(), contents, { mode: 0o644 });
+  const iconName = ensureIconInstalled() ? LINUX_APP_NAME : null;
+  fs.writeFileSync(
+    getDesktopFilePath(),
+    buildDesktopFileContents(resolveExecutablePath(), iconName),
+    { mode: 0o644 }
+  );
 }
 
 function setAutostartEnabled(enabled) {
@@ -143,9 +178,9 @@ function setAutostartEnabled(enabled) {
 // nothing. Skipped in development, where execPath is the local Electron binary.
 function syncAutostartEntry() {
   if (isDevelopment()) return false;
-  if (!isAutostartEnabled()) return false;
 
   const entry = readDesktopEntry();
+  if (!isEntryEnabled(entry)) return false;
   if (entry.Exec === quoteExecPath(resolveExecutablePath())) return false;
 
   writeAutostartEntry();

@@ -8,7 +8,9 @@ const load = () => import("../../src/helpers/linuxAutostart.js");
 
 // Assigning undefined to process.env coerces to the string "undefined", which
 // would leak a bogus value into every later test in this file.
-const MANAGED_ENV = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "APPIMAGE", "NODE_ENV"];
+const MANAGED_ENV = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_DATA_DIRS", "APPIMAGE", "NODE_ENV"];
+
+const ICON_THEME_SUBPATH = path.join("icons", "hicolor", "256x256", "apps", "open-whispr.png");
 
 function setEnv(name, value) {
   if (value === undefined) delete process.env[name];
@@ -22,6 +24,7 @@ function withTmpXdgDirs(fn) {
     MANAGED_ENV.forEach((name) => setEnv(name, undefined));
     process.env.XDG_CONFIG_HOME = path.join(root, "config");
     process.env.XDG_DATA_HOME = path.join(root, "data");
+    process.env.XDG_DATA_DIRS = path.join(root, "system-data");
     try {
       await fn(root);
     } finally {
@@ -56,13 +59,13 @@ test(
 );
 
 test(
-  "desktop file contents quote the exec path and include the icon when present",
+  "desktop file contents quote the exec path and reference the icon by theme name",
   withTmpXdgDirs(async () => {
     const { buildDesktopFileContents } = await load();
 
-    const contents = buildDesktopFileContents("/a/b/OpenWhispr.AppImage", "/a/b/icon.png");
+    const contents = buildDesktopFileContents("/a/b/OpenWhispr.AppImage", "open-whispr");
     assert.match(contents, /^Exec="\/a\/b\/OpenWhispr\.AppImage"$/m);
-    assert.match(contents, /^Icon=\/a\/b\/icon\.png$/m);
+    assert.match(contents, /^Icon=open-whispr$/m);
     assert.match(contents, /^X-GNOME-Autostart-enabled=true$/m);
   })
 );
@@ -77,13 +80,43 @@ test(
   })
 );
 
+// The desktop-entry string rule unescapes the value before the quoting rule
+// splits it into arguments, so a literal backslash has to survive both passes.
 test(
   "exec paths containing reserved characters are escaped, not written raw",
   withTmpXdgDirs(async () => {
     const { buildDesktopFileContents } = await load();
 
     const contents = buildDesktopFileContents('/home/o"neill/$HOME/`app`\\v/OpenWhispr', null);
-    assert.match(contents, /^Exec="\/home\/o\\"neill\/\\\$HOME\/\\`app\\`\\\\v\/OpenWhispr"$/m);
+    assert.match(contents, /^Exec="\/home\/o\\"neill\/\\\$HOME\/\\`app\\`\\\\\\\\v\/OpenWhispr"$/m);
+  })
+);
+
+test(
+  "an icon the package already installed is referenced, not copied into the user theme",
+  withTmpXdgDirs(async (root) => {
+    const { setAutostartEnabled, getDesktopFilePath } = await load();
+
+    writeEntry(path.join(root, "system-data", ICON_THEME_SUBPATH), "pretend png");
+
+    setAutostartEnabled(true);
+    assert.match(fs.readFileSync(getDesktopFilePath(), "utf8"), /^Icon=open-whispr$/m);
+    assert.ok(!fs.existsSync(path.join(root, "data", ICON_THEME_SUBPATH)));
+  })
+);
+
+test(
+  "an unwritable icon directory still leaves launch at login enabled",
+  withTmpXdgDirs(async (root) => {
+    const { setAutostartEnabled, isAutostartEnabled, getDesktopFilePath } = await load();
+
+    // A file where the icon tree has to go makes every mkdir below it fail with
+    // ENOTDIR, standing in for a read-only or quota-exhausted home directory.
+    fs.writeFileSync(path.join(root, "data"), "not a directory");
+
+    assert.doesNotThrow(() => setAutostartEnabled(true));
+    assert.equal(isAutostartEnabled(), true);
+    assert.doesNotMatch(fs.readFileSync(getDesktopFilePath(), "utf8"), /^Icon=/m);
   })
 );
 

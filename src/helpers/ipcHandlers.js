@@ -10,7 +10,10 @@ const { BYOK_API_KEYS } = require("../config/secretKeys");
 const tokenStore = require("./tokenStore");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
 const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
-const { createWorkspacePolicyManager } = require("./workspacePolicyManager");
+const {
+  createWorkspacePolicyManager,
+  isScreenContextBlocked,
+} = require("./workspacePolicyManager");
 const { createEnterpriseIdentityManager } = require("./enterpriseIdentityManager");
 const { createCloudConfigRequestHandler } = require("./cloudConfigRequest");
 const {
@@ -4548,7 +4551,39 @@ class IPCHandlers {
     ipcMain.handle("open-screen-recording-settings", () => openSystemSettings("screenRecording"));
     ipcMain.handle("open-login-items-settings", () => openSystemSettings("loginItems"));
 
-    ipcMain.handle("capture-screen-context", () => screenContextCapture.captureCursorDisplay());
+    ipcMain.handle("capture-screen-context", async (event) => {
+      // Capture immediately so the screenshot reflects the invocation moment;
+      // the policy verdict resolves concurrently and decides whether to
+      // return it. A signed-out user has no workspace and no policy; managed
+      // users are gated even if a stale renderer asks. null matches capture's
+      // contract — a screenshot must never break the dictation it accompanies.
+      const capturePromise = screenContextCapture.captureCursorDisplay();
+      const authHeaders = await getAuthHeader(event);
+      if (authHeaders.Authorization || authHeaders.Cookie) {
+        // Bound the verdict wait: a lapsed policy TTL on a degraded network
+        // must not stall an allowed user's capture past the renderer's 3s
+        // consume race. The renderer gate already fails closed while policy
+        // is unresolved, so this defense-in-depth gate lets an unresolved
+        // verdict through while the refresh completes in flight — a resolved
+        // denial (cached or fresh) still blocks.
+        const snapshot = await Promise.race([
+          workspacePolicyManager.getPolicy({
+            expectedAuthGeneration: tokenStore.getState().generation,
+            authHeaders,
+          }),
+          new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+        ]);
+        if (snapshot && isScreenContextBlocked(snapshot)) {
+          debugLogger.warn(
+            "Screen context capture blocked by org policy",
+            { code: snapshot.code ?? null },
+            "screenContext"
+          );
+          return null;
+        }
+      }
+      return capturePromise;
+    });
 
     // Snapshot the launch-time TCC status so a mid-session grant (which macOS
     // only honors after a relaunch) is detectable even if the renderer never

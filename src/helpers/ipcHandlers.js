@@ -2733,7 +2733,7 @@ class IPCHandlers {
       }
       try {
         const reloadModel = this._whisperReloadModel();
-        // Stop the server first: swapping a pack a running binary is loaded
+        // Stop the server first: swapping in a pack a running binary is loaded
         // from EBUSYs on Windows (same rule as the Vulkan handler below)
         await this.whisperManager.stopServer().catch(() => {});
         await this.whisperCudaManager.download((downloaded, total) => {

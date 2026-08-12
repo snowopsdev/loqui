@@ -491,6 +491,8 @@ export interface CudaWhisperStatus {
   downloading: boolean;
   path: string | null;
   gpuInfo: GpuInfo;
+  /** CUDA fell back to CPU on this machine and stays off until retried. */
+  gpuFailed?: boolean;
 }
 
 export interface VulkanWhisperStatus {
@@ -498,6 +500,21 @@ export interface VulkanWhisperStatus {
   downloading: boolean;
   vulkan: VulkanGpuResult;
   hasNvidiaGpu: boolean;
+  /** Vulkan fell back to CPU on this machine and stays off until retried. */
+  gpuFailed?: boolean;
+}
+
+export interface WhisperServerStatus {
+  available: boolean;
+  running: boolean;
+  port: number | null;
+  hostname: string;
+  isRemote: boolean;
+  modelPath: string | null;
+  modelName: string | null;
+  gpuBackend: "cuda" | "vulkan" | null;
+  /** True only when the running server is actually using a local GPU backend. */
+  gpuAccelerated: boolean;
 }
 
 export interface WhisperCheckResult {
@@ -1275,6 +1292,10 @@ declare global {
         error?: string;
       }>;
 
+      // Whisper server lifecycle
+      whisperServerStatus: () => Promise<WhisperServerStatus>;
+      whisperGpuRetry: () => Promise<{ success: boolean; willRestart: boolean }>;
+
       // CUDA GPU acceleration
       listGpus?: () => Promise<GpuDevice[]>;
       setGpuDeviceIndex?: (
@@ -1284,7 +1305,11 @@ declare global {
       getGpuDeviceIndex?: (purpose: "transcription" | "intelligence") => Promise<string>;
       detectGpu: () => Promise<GpuInfo>;
       getCudaWhisperStatus: () => Promise<CudaWhisperStatus>;
-      downloadCudaWhisperBinary: () => Promise<{ success: boolean; error?: string }>;
+      downloadCudaWhisperBinary: () => Promise<{
+        success: boolean;
+        willRestart?: boolean;
+        error?: string;
+      }>;
       cancelCudaWhisperDownload: () => Promise<{ success: boolean }>;
       deleteCudaWhisperBinary: () => Promise<{ success: boolean }>;
       onCudaDownloadProgress: (
@@ -1298,7 +1323,11 @@ declare global {
 
       // Vulkan GPU acceleration (whisper on AMD/Intel GPUs)
       getVulkanWhisperStatus: () => Promise<VulkanWhisperStatus>;
-      downloadVulkanWhisperBinary: () => Promise<{ success: boolean; error?: string }>;
+      downloadVulkanWhisperBinary: () => Promise<{
+        success: boolean;
+        willRestart?: boolean;
+        error?: string;
+      }>;
       cancelVulkanWhisperDownload: () => Promise<{ success: boolean }>;
       deleteVulkanWhisperBinary: () => Promise<{ success: boolean; deletedCount?: number }>;
       onVulkanWhisperDownloadProgress: (

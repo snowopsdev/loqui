@@ -425,6 +425,8 @@ function initializeCoreManagers() {
   if (process.platform !== "darwin") {
     whisperCudaManager = new WhisperCudaManager();
     whisperVulkanManager = new WhisperVulkanManager();
+    // Lets every server start resolve its GPU backend from installed packs
+    whisperManager.setGpuBinaryManagers({ cuda: whisperCudaManager, vulkan: whisperVulkanManager });
   }
   parakeetManager = new ParakeetManager();
   diarizationManager = new DiarizationManager();
@@ -1128,16 +1130,10 @@ async function startApp() {
     }, WHISPER_WAKE_REWARM_DELAY_MS);
   });
 
-  // Non-blocking server pre-warming. CUDA wins when both GPU backends are enabled.
-  const useCuda = process.env.WHISPER_CUDA_ENABLED === "true" && whisperCudaManager?.isDownloaded();
+  // Non-blocking server pre-warming; GPU backend resolved by the manager
   const whisperSettings = {
     localTranscriptionProvider: process.env.LOCAL_TRANSCRIPTION_PROVIDER || "",
     whisperModel: process.env.LOCAL_WHISPER_MODEL,
-    useCuda,
-    useVulkan:
-      !useCuda &&
-      process.env.WHISPER_VULKAN_ENABLED === "true" &&
-      whisperVulkanManager?.isDownloaded(),
   };
   whisperManager.initializeAtStartup(whisperSettings).catch((err) => {
     debugLogger.debug("Whisper startup init error (non-fatal)", { error: err.message });

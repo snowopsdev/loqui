@@ -312,6 +312,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   whisperServerStart: (modelName) => ipcRenderer.invoke("whisper-server-start", modelName),
   whisperServerStop: () => ipcRenderer.invoke("whisper-server-stop"),
   whisperServerStatus: () => ipcRenderer.invoke("whisper-server-status"),
+  whisperGpuRetry: () => ipcRenderer.invoke("whisper-gpu-retry"),
 
   // CUDA GPU acceleration
   listGpus: () => ipcRenderer.invoke("list-gpus"),

@@ -9,6 +9,7 @@ const DESKTOP_ENTRY_GROUP = "[Desktop Entry]";
 // executable, which main.js also passes to app.setDesktopName(). Reusing it here
 // keeps our entry and the packaged one referring to the same icon.
 const LINUX_APP_NAME = "open-whispr";
+const WRAPPED_BINARY_SUFFIX = "-app";
 const ICON_THEME_SUBPATH = path.join(
   "icons",
   "hicolor",
@@ -41,10 +42,20 @@ function isDevelopment() {
   return process.env.NODE_ENV === "development";
 }
 
-// electron.d.ts marks setLoginItemSettings' path override as win32-only; on Linux
-// process.execPath is the ephemeral AppImage FUSE mount, so we resolve it ourselves.
+// What the entry should launch, which is never plain process.execPath:
+//   - On AppImage, execPath is the ephemeral FUSE mount, gone by the next boot.
+//   - Elsewhere, scripts/afterPack.js renames the binary to <name>-app and leaves
+//     a wrapper script under the original name, so execPath is the inner binary.
+//     Launching it directly skips XWayland forcing, the --no-sandbox fallback and
+//     the user's flags file (see scripts/lib/linux-launcher.js).
 function resolveExecutablePath() {
-  return process.env.APPIMAGE || process.execPath;
+  if (process.env.APPIMAGE) return process.env.APPIMAGE;
+
+  if (process.execPath.endsWith(WRAPPED_BINARY_SUFFIX)) {
+    const wrapperPath = process.execPath.slice(0, -WRAPPED_BINARY_SUFFIX.length);
+    if (fs.existsSync(wrapperPath)) return wrapperPath;
+  }
+  return process.execPath;
 }
 
 function findBundledIconSource() {

@@ -49,12 +49,15 @@ test("Windows re-enables through executableWillLaunchAtLogin when only the args 
   assert.equal(state.enabled, true);
 });
 
-test("macOS reports an item awaiting approval as enabled but unapproved", () => {
+// Electron derives openAtLogin on macOS 13+ from `status == "enabled"`, so an item
+// awaiting approval necessarily reads as off. Surfacing the reason is what turns
+// that from a toggle that silently will not stick into something explainable.
+test("an item awaiting approval reads as off, with the reason surfaced", () => {
   const state = resolveAutoStartState({
     platform: "darwin",
-    loginItemSettings: { openAtLogin: true, status: "requires-approval" },
+    loginItemSettings: { openAtLogin: false, status: "requires-approval" },
   });
-  assert.deepEqual(state, { enabled: true, requiresApproval: true });
+  assert.deepEqual(state, { enabled: false, requiresApproval: true });
 });
 
 test("macOS reports an approved item without prompting for approval", () => {

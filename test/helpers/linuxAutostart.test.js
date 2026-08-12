@@ -39,6 +39,16 @@ function writeEntry(filePath, contents) {
   fs.writeFileSync(filePath, contents);
 }
 
+function withExecPath(execPath, fn) {
+  const saved = process.execPath;
+  Object.defineProperty(process, "execPath", { value: execPath, configurable: true });
+  try {
+    fn();
+  } finally {
+    Object.defineProperty(process, "execPath", { value: saved, configurable: true });
+  }
+}
+
 test(
   "prefers APPIMAGE over process.execPath, since execPath is the ephemeral mount",
   withTmpXdgDirs(async () => {
@@ -50,11 +60,41 @@ test(
 );
 
 test(
-  "falls back to process.execPath for deb/rpm/tar.gz installs (no APPIMAGE set)",
+  "falls back to process.execPath when there is no AppImage and no wrapper",
   withTmpXdgDirs(async () => {
     const { resolveExecutablePath } = await load();
 
     assert.equal(resolveExecutablePath(), process.execPath);
+  })
+);
+
+// afterPack.js renames the binary to <name>-app and puts a wrapper script in its
+// place, so pointing the entry at execPath would skip XWayland forcing, the
+// --no-sandbox fallback and the user's flags file.
+test(
+  "points deb/rpm/tar.gz installs at the launcher wrapper, not the inner binary",
+  withTmpXdgDirs(async (root) => {
+    const { resolveExecutablePath } = await load();
+
+    const installDir = path.join(root, "opt");
+    fs.mkdirSync(installDir, { recursive: true });
+    fs.writeFileSync(path.join(installDir, "open-whispr"), "#!/bin/bash\n");
+    withExecPath(path.join(installDir, "open-whispr-app"), () => {
+      assert.equal(resolveExecutablePath(), path.join(installDir, "open-whispr"));
+    });
+  })
+);
+
+test(
+  "keeps the inner binary when no wrapper sits beside it",
+  withTmpXdgDirs(async (root) => {
+    const { resolveExecutablePath } = await load();
+
+    const orphan = path.join(root, "opt", "open-whispr-app");
+    fs.mkdirSync(path.dirname(orphan), { recursive: true });
+    withExecPath(orphan, () => {
+      assert.equal(resolveExecutablePath(), orphan);
+    });
   })
 );
 

@@ -1,6 +1,6 @@
-// Single entry point for launch at login. Electron's setLoginItemSettings covers
-// macOS and Windows; Linux is handled by an XDG autostart entry (linuxAutostart).
-// Decisions live in autoStartPolicy so they can be tested without Electron.
+// Launch at login, for ipcHandlers.js and main.js. setLoginItemSettings covers
+// macOS and Windows; on Linux it does nothing, so an XDG autostart entry stands in
+// (linuxAutostart.js). Decisions live in autoStartPolicy.js.
 
 const { app } = require("electron");
 const linuxAutostart = require("./linuxAutostart");
@@ -24,8 +24,7 @@ function writeLoginItem(enabled) {
   });
 }
 
-// { enabled, requiresApproval } — requiresApproval is macOS-only and means the
-// item is registered but still waiting on the user in System Settings.
+// { enabled, requiresApproval } — requiresApproval is macOS-only.
 function getAutoStartState() {
   if (isLinux()) {
     return { enabled: linuxAutostart.isAutostartEnabled(), requiresApproval: false };
@@ -53,19 +52,13 @@ function wasLaunchedAtLoginHidden() {
 }
 
 // Repairs an entry that still exists but no longer starts this executable, or
-// starts it without the flag that sends it to the tray. Returns true when
-// something was rewritten, so the caller can log it.
+// starts it without the flag that sends it to the tray. True when it rewrote one.
 function syncAutoStartEntry() {
   if (isLinux()) return linuxAutostart.syncAutostartEntry();
 
-  if (
-    !needsHiddenFlagMigration({
-      platform: process.platform,
-      loginItemSettings: readLoginItemSettings(),
-    })
-  ) {
-    return false;
-  }
+  const loginItemSettings = readLoginItemSettings();
+  if (!needsHiddenFlagMigration({ platform: process.platform, loginItemSettings })) return false;
+
   writeLoginItem(true);
   return true;
 }

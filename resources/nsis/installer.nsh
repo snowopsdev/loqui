@@ -17,12 +17,12 @@
 ; production builds (keep in sync with BASE_WINDOWS_APP_ID and VALID_CHANNELS
 ; there). Disabling an item leaves a second value behind under StartupApproved,
 ; so both have to go.
-!define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
-!define STARTUP_APPROVED_KEY "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+!define OW_RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+!define OW_STARTUP_APPROVED_KEY "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
 
 !macro DeleteAutoStartEntry NAME
-  DeleteRegValue HKCU "${RUN_KEY}" "${NAME}"
-  DeleteRegValue HKCU "${STARTUP_APPROVED_KEY}" "${NAME}"
+  DeleteRegValue HKCU "${OW_RUN_KEY}" "${NAME}"
+  DeleteRegValue HKCU "${OW_STARTUP_APPROVED_KEY}" "${NAME}"
 !macroend
 
 !macro customInstall

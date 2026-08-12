@@ -14,7 +14,10 @@ import logger from "../utils/logger";
 import { getSettings, isCloudCleanupMode } from "../stores/settingsStore";
 import { wrapCleanupTranscript } from "../config/prompts";
 import { stripThinkingTags } from "../helpers/stripThinking.js";
-import { resolveLlmRequestTimeoutSeconds } from "../helpers/llmRequestTimeout.js";
+import {
+  resolveLlmRequestTimeoutSeconds,
+  LLM_STREAMING_TIMEOUT_FLOOR_SECONDS,
+} from "../helpers/llmRequestTimeout.js";
 import { streamText, stepCountIs } from "ai";
 import { getAIModel } from "./ai/providers";
 import { createEnterpriseChatModel } from "./ai/enterpriseChatModel";
@@ -313,8 +316,8 @@ class ReasoningService extends BaseReasoningService {
       const controller = new AbortController();
       // Self-hosted/local models can legitimately take well past the 30s default
       // to format a long note; the setting is clamped to a sane range in case of
-      // a stray or hand-edited value. Streaming requests have their own
-      // inactivity timeouts and don't go through here.
+      // a stray or hand-edited value. Streaming requests don't go through here
+      // (see processTextStreaming), but read the same setting with its own floor.
       const timeoutSeconds = resolveLlmRequestTimeoutSeconds(
         getSettings().llmRequestTimeoutSeconds
       );
@@ -595,7 +598,14 @@ class ReasoningService extends BaseReasoningService {
 
     this.streamAbortController = new AbortController();
     const controller = this.streamAbortController;
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    // The configured setting raises the ceiling for slow self-hosted models;
+    // it must never lower streaming below its historical 60s budget, since
+    // that would be a regression for existing users.
+    const timeoutSeconds = Math.max(
+      resolveLlmRequestTimeoutSeconds(getSettings().llmRequestTimeoutSeconds),
+      LLM_STREAMING_TIMEOUT_FLOOR_SECONDS
+    );
+    const timeoutId = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
 
     let response: Response;
     try {
@@ -619,6 +629,7 @@ class ReasoningService extends BaseReasoningService {
     }
 
     if (!response.ok) {
+      clearTimeout(timeoutId);
       const errorText = await response.text();
       let errorMessage: string;
       try {
@@ -632,7 +643,10 @@ class ReasoningService extends BaseReasoningService {
     }
 
     const reader = response.body?.getReader();
-    if (!reader) throw new Error("No response body");
+    if (!reader) {
+      clearTimeout(timeoutId);
+      throw new Error("No response body");
+    }
 
     const decoder = new TextDecoder();
     let buffer = "";

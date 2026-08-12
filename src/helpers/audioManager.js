@@ -1,13 +1,8 @@
 import ReasoningService from "../services/ReasoningService";
 import { PROVIDER_REGISTRY } from "../services/ai/inferenceProviders";
-import { API_ENDPOINTS, buildApiUrl, normalizeBaseUrl } from "../config/constants";
 import logger from "../utils/logger";
 import { isBuiltInMicrophone } from "../utils/audioDeviceUtils";
-import {
-  isSecureHttpEndpoint,
-  isAzureOpenAIEndpoint,
-  buildAzureTranscriptionUrl,
-} from "../utils/urlUtils";
+import { isAzureOpenAIEndpoint } from "../utils/urlUtils";
 import { withSessionRefresh } from "../lib/auth";
 import { getBaseLanguageCode, getLanguageLabel } from "../utils/languageSupport";
 import {
@@ -59,10 +54,8 @@ import {
   getTranscriptionProviders,
   isOnlineParakeetModel,
 } from "../models/ModelRegistry";
-import {
-  TINFOIL_PROXY_REQUIRED_ERROR,
-  isTinfoilInferenceUrl,
-} from "../services/transcriptionBaseUrl";
+import { TINFOIL_PROXY_REQUIRED_ERROR } from "../services/transcriptionBaseUrl";
+import { resolveByokModel, resolveTranscriptionRoute } from "./transcriptionRoute.ts";
 import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
 import {
   isSelfHostedTranscription,
@@ -321,6 +314,54 @@ const STREAMING_PROVIDERS = {
   },
 };
 
+// Batch providers that must transcribe via a main-process proxy (CORS,
+// non-Bearer auth, OAuth, or attested transport) instead of a renderer fetch.
+const PROXY_TRANSCRIPTION_PROVIDERS = {
+  tinfoil: {
+    displayName: "Tinfoil",
+    ipc: () => window.electronAPI?.proxyTinfoilTranscription,
+    buildPayload: ({ audioBuffer, language, dictionaryPrompt }) => ({
+      audioBuffer,
+      language,
+      prompt: dictionaryPrompt || undefined,
+    }),
+  },
+  mistral: {
+    displayName: "Mistral",
+    ipc: () => window.electronAPI?.proxyMistralTranscription,
+    buildPayload: ({ audioBuffer, model, language, dictionaryPrompt }) => {
+      const payload = { audioBuffer, model, language };
+      const tokens = (dictionaryPrompt || "")
+        .split(",")
+        .flatMap((entry) => entry.trim().split(/\s+/))
+        .filter(Boolean)
+        .slice(0, 100);
+      if (tokens.length > 0) payload.contextBias = tokens;
+      return payload;
+    },
+  },
+  xai: {
+    displayName: "xAI",
+    ipc: () => window.electronAPI?.proxyXaiTranscription,
+    buildPayload: ({ audioBuffer, language, keyterms }) => {
+      const payload = { audioBuffer, language: language !== "auto" ? language : undefined };
+      if (keyterms.length > 0) payload.keyterms = keyterms;
+      return payload;
+    },
+  },
+  corti: {
+    displayName: "Corti",
+    ipc: () => window.electronAPI?.proxyCortiTranscription,
+    buildPayload: ({ audioBuffer, language, apiSettings }) => ({
+      audioBuffer,
+      // Corti requires a concrete primaryLanguage; default to English when auto-detecting
+      language: language || "en",
+      environment: apiSettings.cortiEnvironment || "us",
+      tenant: (apiSettings.cortiTenant || "").trim() || "base",
+    }),
+  },
+};
+
 class AudioManager {
   constructor() {
     this.mediaRecorder = null;
@@ -386,9 +427,6 @@ class AudioManager {
       this.micStreamHold.drop();
     };
     navigator.mediaDevices?.addEventListener?.("devicechange", this._onDeviceChange);
-    this.cachedTranscriptionEndpoint = null;
-    this.cachedEndpointProvider = null;
-    this.cachedEndpointBaseUrl = null;
     this.recordingStartTime = null;
     this.reasoningAvailabilityCache = { value: false, expiresAt: 0 };
     this.cachedReasoningPreference = null;
@@ -2919,18 +2957,27 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const optimizedAudio = audioBlob;
 
       // Dispatch before endpoint resolution (which defaults to OpenAI and would leak
-      // the key). Self-hosted wins, so a leftover "tinfoil" provider isn't diverted here.
-      if (provider === "tinfoil" && !isSelfHostedTranscription(apiSettings)) {
-        if (!window.electronAPI?.proxyTinfoilTranscription) {
-          throw new Error("Tinfoil transcription is unavailable in this window");
+      // the key). Self-hosted wins, so a leftover proxied provider isn't diverted here.
+      const proxySpec = PROXY_TRANSCRIPTION_PROVIDERS[provider];
+      if (proxySpec && !isSelfHostedTranscription(apiSettings)) {
+        const call = proxySpec.ipc();
+        if (!call) {
+          throw new Error(`${proxySpec.displayName} transcription is unavailable in this window`);
         }
-        const dictionaryPrompt = this.getWhisperPrompt(apiSettings);
         const apiCallStart = performance.now();
-        const result = await window.electronAPI.proxyTinfoilTranscription({
-          audioBuffer: await optimizedAudio.arrayBuffer(),
-          language,
-          prompt: dictionaryPrompt || undefined,
-        });
+        const result = await call(
+          proxySpec.buildPayload({
+            audioBuffer: await optimizedAudio.arrayBuffer(),
+            model,
+            language,
+            apiSettings,
+            dictionaryPrompt: this.getWhisperPrompt(apiSettings),
+            keyterms: this.getKeyterms()
+              .map((t) => t.trim().slice(0, 50))
+              .filter(Boolean)
+              .slice(0, 100),
+          })
+        );
         if (result?.error) {
           const err = new Error(result.error);
           if (result.code) err.code = result.code;
@@ -2939,17 +2986,17 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         }
         const proxyText = result?.text;
         if (!proxyText?.trim()) {
-          throw new Error("No text transcribed - Tinfoil response was empty");
+          throw new Error(`No text transcribed - ${proxySpec.displayName} response was empty`);
         }
         if (this.isDictionaryEcho(proxyText)) {
           throw dictionaryEchoError();
         }
         timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
         const reasoningStart = performance.now();
-        const text = await this.processTranscription(proxyText, "tinfoil");
+        const text = await this.processTranscription(proxyText, provider);
         timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
 
-        const source = (await this.isReasoningAvailable()) ? "tinfoil-reasoned" : "tinfoil";
+        const source = (await this.isReasoningAvailable()) ? `${provider}-reasoned` : provider;
         return { success: true, text, rawText: proxyText, source, timings };
       }
 
@@ -3017,125 +3064,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         formData.append("stream", "true");
       }
 
-      const isCustomEndpoint =
-        provider === "custom" ||
-        (!endpoint.includes("api.openai.com") &&
-          !endpoint.includes("api.groq.com") &&
-          !endpoint.includes("api.x.ai") &&
-          !endpoint.includes("api.mistral.ai"));
-
       const apiCallStart = performance.now();
-
-      // Mistral uses x-api-key auth (not Bearer) and doesn't allow browser CORS — proxy through main process
-      if (provider === "mistral" && window.electronAPI?.proxyMistralTranscription) {
-        const audioBuffer = await optimizedAudio.arrayBuffer();
-        const proxyData = { audioBuffer, model, language };
-
-        if (dictionaryPrompt) {
-          const tokens = dictionaryPrompt
-            .split(",")
-            .flatMap((entry) => entry.trim().split(/\s+/))
-            .filter(Boolean)
-            .slice(0, 100);
-          if (tokens.length > 0) {
-            proxyData.contextBias = tokens;
-          }
-        }
-
-        const result = await window.electronAPI.proxyMistralTranscription(proxyData);
-        const proxyText = result?.text;
-
-        if (proxyText && proxyText.trim().length > 0) {
-          if (this.isDictionaryEcho(proxyText)) {
-            throw dictionaryEchoError();
-          }
-          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
-          const rawText = proxyText;
-          const reasoningStart = performance.now();
-          const text = await this.processTranscription(proxyText, "mistral");
-          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
-
-          const source = (await this.isReasoningAvailable()) ? "mistral-reasoned" : "mistral";
-          return { success: true, text, rawText, source, timings };
-        }
-
-        throw new Error("No text transcribed - Mistral response was empty");
-      }
-
-      // xAI STT has a non-OpenAI-compatible API — proxy through main process. See #910.
-      if (provider === "xai" && window.electronAPI?.proxyXaiTranscription) {
-        const audioBuffer = await optimizedAudio.arrayBuffer();
-        const proxyData = { audioBuffer, language: language !== "auto" ? language : undefined };
-
-        const keyterms = this.getKeyterms()
-          .map((t) => t.trim().slice(0, 50))
-          .filter(Boolean)
-          .slice(0, 100);
-        if (keyterms.length > 0) {
-          proxyData.keyterms = keyterms;
-        }
-
-        const result = await window.electronAPI.proxyXaiTranscription(proxyData);
-        const proxyText = result?.text;
-
-        if (proxyText && proxyText.trim().length > 0) {
-          if (this.isDictionaryEcho(proxyText)) {
-            throw dictionaryEchoError();
-          }
-          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
-          const rawText = proxyText;
-          const reasoningStart = performance.now();
-          const text = await this.processTranscription(proxyText, "xai");
-          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
-
-          const source = (await this.isReasoningAvailable()) ? "xai-reasoned" : "xai";
-          return { success: true, text, rawText, source, timings };
-        }
-
-        throw new Error("No text transcribed - xAI response was empty");
-      }
-
-      // Corti uses OAuth client credentials and an interaction-based REST flow — proxy through main process
-      if (provider === "corti" && window.electronAPI?.proxyCortiTranscription) {
-        const audioBuffer = await optimizedAudio.arrayBuffer();
-        const proxyData = {
-          audioBuffer,
-          // Corti requires a concrete primaryLanguage; default to English when auto-detecting
-          language: language || "en",
-          environment: apiSettings.cortiEnvironment || "us",
-          tenant: (apiSettings.cortiTenant || "").trim() || "base",
-        };
-
-        const result = await window.electronAPI.proxyCortiTranscription(proxyData);
-        const proxyText = result?.text;
-
-        if (proxyText && proxyText.trim().length > 0) {
-          if (this.isDictionaryEcho(proxyText)) {
-            throw dictionaryEchoError();
-          }
-          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
-          const rawText = proxyText;
-          const reasoningStart = performance.now();
-          const text = await this.processTranscription(proxyText, "corti");
-          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
-
-          const source = (await this.isReasoningAvailable()) ? "corti-reasoned" : "corti";
-          return { success: true, text, rawText, source, timings };
-        }
-
-        throw new Error("No text transcribed - Corti response was empty");
-      }
 
       logger.debug(
         "Making transcription API request",
-        {
-          endpoint,
-          shouldStream,
-          model,
-          provider,
-          isCustomEndpoint,
-          hasApiKey: !!apiKey,
-        },
+        { endpoint, shouldStream, model, provider, hasApiKey: !!apiKey },
         "transcription"
       );
 
@@ -3348,9 +3281,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           if (fallbackError.selectionEditFatal) {
             throw fallbackError;
           }
-          throw new Error(
+          const wrapped = new Error(
             `OpenAI API failed: ${error.message}. Local fallback also failed: ${fallbackError.message}`
           );
+          if (error.code) wrapped.code = error.code;
+          if (error.messageKey) wrapped.messageKey = error.messageKey;
+          throw wrapped;
         }
       }
 
@@ -3364,262 +3300,46 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const selfHostedModel = resolveSelfHostedTranscriptionModel(s);
       if (selfHostedModel) return selfHostedModel;
       const provider = s.cloudTranscriptionProvider || "openai";
-      const trimmedModel = (s.cloudTranscriptionModel || "").trim();
-
-      // For custom provider, use whatever model is set (or fallback to whisper-1)
-      if (provider === "custom") {
-        return trimmedModel || "whisper-1";
-      }
-
+      // Tinfoil pins its batch model in the registry rather than in settings.
       if (provider === "tinfoil") {
         return getBatchTranscriptionModel("tinfoil");
       }
-
-      // Validate model matches provider to handle settings migration
-      if (trimmedModel) {
-        const isGroqModel = trimmedModel.startsWith("whisper-large-v3");
-        const isOpenAIModel = trimmedModel.startsWith("gpt-4o") || trimmedModel === "whisper-1";
-        const isMistralModel = trimmedModel.startsWith("voxtral-");
-        const isCortiModel = trimmedModel.startsWith("corti-");
-
-        if (provider === "groq" && isGroqModel) {
-          return trimmedModel;
-        }
-        if (provider === "openai" && isOpenAIModel) {
-          return trimmedModel;
-        }
-        if (provider === "mistral" && isMistralModel) {
-          return trimmedModel;
-        }
-        if (provider === "corti" && isCortiModel) {
-          return trimmedModel;
-        }
-        // Model doesn't match provider - fall through to default
-      }
-
-      // Return provider-appropriate default
-      if (provider === "groq") return "whisper-large-v3-turbo";
-      if (provider === "xai") return "grok-stt";
-      if (provider === "mistral") return "voxtral-mini-latest";
-      if (provider === "corti") return "corti-transcribe";
-      return "gpt-4o-mini-transcribe";
+      return resolveByokModel(provider, s.cloudTranscriptionModel);
     } catch (error) {
       return "gpt-4o-mini-transcribe";
     }
   }
 
+  // Local-vs-cloud is decided upstream, so useLocalWhisper is forced off here:
+  // the local→cloud fallback resolves its cloud endpoint through this too.
   getTranscriptionEndpoint(deploymentName = "") {
-    const s = getSettings();
-    const currentProvider = s.cloudTranscriptionProvider || "openai";
-
-    // Backstop against the OpenAI-default leak: Tinfoil goes through the main-process
-    // proxy, never here — except self-hosted, which resolves its remote URL below.
-    if (currentProvider === "tinfoil" && !isSelfHostedTranscription(s)) {
-      throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
-    }
-
-    const currentBaseUrl = s.cloudTranscriptionBaseUrl || "";
-    const transcriptionMode = s.transcriptionMode || "";
-    const remoteUrl = (s.remoteTranscriptionUrl || "").trim();
-    const deployment = (deploymentName || "").trim();
-
-    const isSelfHosted = isSelfHostedTranscription(s);
-    const isCustomEndpoint = isSelfHosted || currentProvider === "custom";
-    const isManagedCustomEndpoint =
-      currentProvider === "custom" && usePolicyStore.getState().status === "managed";
-
-    const rejectManagedCustomEndpoint = () => {
-      const error = new Error("Transcription is restricted by your organization.");
-      error.code = "POLICY_RESTRICTED";
-      error.messageKey = "common.policyTranscriptionRestricted";
+    const route = resolveTranscriptionRoute({
+      settings: { ...getSettings(), useLocalWhisper: false },
+      policy: usePolicyStore.getState(),
+      providers: getTranscriptionProviders(),
+      request: { model: deploymentName },
+    });
+    if (route.transport === "error") {
+      const error = new Error(route.message);
+      if (route.code) error.code = route.code;
+      if (route.messageKey) error.messageKey = route.messageKey;
       throw error;
-    };
-
-    // Never fall back to the cloud default for self-hosted — fail closed instead.
-    if (isSelfHosted) {
-      const normalizedRemote = normalizeBaseUrl(remoteUrl);
-      if (!normalizedRemote || !isSecureHttpEndpoint(normalizedRemote)) {
-        throw new Error("Self-hosted transcription URL is invalid or unsupported");
-      }
     }
-
-    // A managed Custom-only fallback has no safe implicit destination. Reusing
-    // OpenAI here would send audio and credentials to a policy-denied provider.
-    if (isManagedCustomEndpoint && !currentBaseUrl.trim()) {
-      rejectManagedCustomEndpoint();
-    }
-
-    // The provider-id guard above can't catch a Custom base URL that points at
-    // Tinfoil's inference host (e.g. persisted by the pre-#1459 tab clobber) —
-    // check the URL too. Must stay outside the try below: its catch swallows
-    // errors into the OpenAI default endpoint.
-    if (
-      currentProvider === "custom" &&
-      !isSelfHosted &&
-      isTinfoilInferenceUrl(currentBaseUrl, getTranscriptionProviders())
-    ) {
-      throw new Error(TINFOIL_PROXY_REQUIRED_ERROR);
-    }
-
-    if (
-      this.cachedTranscriptionEndpoint &&
-      (this.cachedEndpointProvider !== currentProvider ||
-        this.cachedEndpointDeployment !== deployment ||
-        this.cachedEndpointBaseUrl !== currentBaseUrl ||
-        this.cachedEndpointMode !== transcriptionMode ||
-        this.cachedEndpointRemoteUrl !== remoteUrl)
-    ) {
-      logger.debug(
-        "STT endpoint cache invalidated",
-        {
-          previousProvider: this.cachedEndpointProvider,
-          newProvider: currentProvider,
-          previousBaseUrl: this.cachedEndpointBaseUrl,
-          newBaseUrl: currentBaseUrl,
-          previousMode: this.cachedEndpointMode,
-          newMode: transcriptionMode,
-          previousRemoteUrl: this.cachedEndpointRemoteUrl,
-          newRemoteUrl: remoteUrl,
-        },
-        "transcription"
+    if (route.transport !== "http-batch") {
+      // Proxied providers are dispatched before endpoint resolution; reaching
+      // here means that guard was bypassed — never fall open to a default.
+      throw new Error(
+        route.provider === "tinfoil"
+          ? TINFOIL_PROXY_REQUIRED_ERROR
+          : `${route.provider} transcription must go through the main-process proxy`
       );
-      this.cachedTranscriptionEndpoint = null;
     }
-
-    if (this.cachedTranscriptionEndpoint) {
-      return this.cachedTranscriptionEndpoint;
-    }
-
-    try {
-      let base;
-      if (isSelfHosted) {
-        base = remoteUrl;
-      } else if (currentProvider === "custom") {
-        base = currentBaseUrl.trim() || API_ENDPOINTS.TRANSCRIPTION_BASE;
-      } else if (currentProvider === "groq") {
-        base = API_ENDPOINTS.GROQ_BASE;
-      } else if (currentProvider === "xai") {
-        base = API_ENDPOINTS.XAI_BASE;
-      } else if (currentProvider === "mistral") {
-        base = API_ENDPOINTS.MISTRAL_BASE;
-      } else {
-        // OpenAI or other standard providers
-        base = API_ENDPOINTS.TRANSCRIPTION_BASE;
-      }
-
-      const normalizedBase = normalizeBaseUrl(base);
-
-      logger.debug(
-        "STT endpoint resolution",
-        {
-          provider: currentProvider,
-          mode: transcriptionMode,
-          isSelfHosted,
-          isCustomEndpoint,
-          rawBaseUrl: currentBaseUrl,
-          remoteUrl,
-          normalizedBase,
-          defaultBase: API_ENDPOINTS.TRANSCRIPTION_BASE,
-        },
-        "transcription"
-      );
-
-      const cacheResult = (endpoint) => {
-        this.cachedTranscriptionEndpoint = endpoint;
-        this.cachedEndpointProvider = currentProvider;
-        this.cachedEndpointBaseUrl = currentBaseUrl;
-        this.cachedEndpointMode = transcriptionMode;
-        this.cachedEndpointRemoteUrl = remoteUrl;
-        this.cachedEndpointDeployment = deployment;
-
-        logger.debug(
-          "STT endpoint resolved",
-          {
-            endpoint,
-            provider: currentProvider,
-            isCustomEndpoint,
-            usingDefault: endpoint === API_ENDPOINTS.TRANSCRIPTION,
-          },
-          "transcription"
-        );
-
-        return endpoint;
-      };
-
-      if (!normalizedBase) {
-        logger.debug(
-          "STT endpoint: using default (normalization failed)",
-          { rawBase: base },
-          "transcription"
-        );
-        return cacheResult(API_ENDPOINTS.TRANSCRIPTION);
-      }
-
-      // Only validate HTTPS for custom endpoints (known providers are already HTTPS)
-      if (isCustomEndpoint && !isSecureHttpEndpoint(normalizedBase)) {
-        if (isManagedCustomEndpoint) {
-          rejectManagedCustomEndpoint();
-        }
-        logger.warn(
-          "STT endpoint: HTTPS required, falling back to default",
-          { attemptedUrl: normalizedBase },
-          "transcription"
-        );
-        return cacheResult(API_ENDPOINTS.TRANSCRIPTION);
-      }
-
-      let endpoint;
-      if (isCustomEndpoint && isAzureOpenAIEndpoint(normalizedBase)) {
-        // Azure OpenAI routes by deployment in the URL path and requires an
-        // api-version query string — the plain {base}/audio/transcriptions
-        // shape returns DeploymentNotFound. Build the deployment-style URL.
-        // The api-version defaults to a transcribe-capable preview; a user can
-        // override it by appending ?api-version=... to their endpoint URL.
-        // Built from the raw base — normalization strips the /audio/transcriptions
-        // suffix that marks a deployment the user pinned.
-        const azureUrl = buildAzureTranscriptionUrl(base, deployment);
-        if (azureUrl) {
-          endpoint = azureUrl;
-          logger.debug(
-            "STT endpoint: built Azure deployment URL",
-            { base, deployment, endpoint },
-            "transcription"
-          );
-        } else {
-          endpoint = buildApiUrl(normalizedBase, "/audio/transcriptions");
-          logger.warn(
-            "STT endpoint: Azure host detected but no deployment name; falling back to default path",
-            { base: normalizedBase, endpoint },
-            "transcription"
-          );
-        }
-      } else if (/\/audio\/(transcriptions|translations)$/i.test(normalizedBase)) {
-        endpoint = normalizedBase;
-        logger.debug("STT endpoint: using full path from config", { endpoint }, "transcription");
-      } else {
-        endpoint = buildApiUrl(normalizedBase, "/audio/transcriptions");
-        logger.debug(
-          "STT endpoint: appending /audio/transcriptions to base",
-          { base: normalizedBase, endpoint },
-          "transcription"
-        );
-      }
-
-      return cacheResult(endpoint);
-    } catch (error) {
-      logger.error(
-        "STT endpoint resolution failed",
-        { error: error.message, stack: error.stack },
-        "transcription"
-      );
-      if (isSelfHosted || isManagedCustomEndpoint) throw error;
-      this.cachedTranscriptionEndpoint = API_ENDPOINTS.TRANSCRIPTION;
-      this.cachedEndpointProvider = currentProvider;
-      this.cachedEndpointBaseUrl = currentBaseUrl;
-      this.cachedEndpointMode = transcriptionMode;
-      this.cachedEndpointRemoteUrl = remoteUrl;
-      return API_ENDPOINTS.TRANSCRIPTION;
-    }
+    logger.debug(
+      "STT endpoint resolved",
+      { endpoint: route.endpoint, provider: route.provider },
+      "transcription"
+    );
+    return route.endpoint;
   }
 
   async safePaste(text, options = {}) {

@@ -90,7 +90,6 @@ import {
   extractSelectionEditReplacement,
   getSelectionCaptureDisposition,
 } from "./selectionEditing";
-import { isAccessibilitySkipped } from "../utils/permissions";
 
 const REASONING_CACHE_TTL = 30000; // 30 seconds
 const RECORDING_TIMESLICE_MS = 250; // flush chunks periodically so short recordings still carry audio frames. See #871.
@@ -478,6 +477,7 @@ class AudioManager {
     this.translationApplied = false;
     this.pendingSelectionEdit = null;
     this.screenContextPromise = null;
+    this.selectionCapturePromise = null;
     this.context = "dictation";
     this.sttConfig = null;
     this.lastAudioBlob = null;
@@ -706,6 +706,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // cancelled voice-agent recording, even after the setting was turned
     // off). A live voice-agent start re-captures right after this call.
     this.screenContextPromise = null;
+    // Same for a prefetched selection: bounded to one recording, so a read taken
+    // in an earlier app can never be edited in place by this command.
+    this.selectionCapturePromise = null;
   }
 
   setTranslationRequested(requested) {
@@ -726,6 +729,22 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   // invocation moment) and consumed after transcription by the reasoning route.
   beginScreenContextCapture() {
     this.screenContextPromise = window.electronAPI?.captureScreenContext?.() ?? null;
+  }
+
+  // Kicked off at voice-agent recording start, alongside the screenshot, so the
+  // read resolves while the user is still speaking.
+  beginSelectionCapture() {
+    this.selectionCapturePromise = window.electronAPI?.captureSelectedText?.() ?? null;
+    // Marks the stored promise handled without consuming it: a failure nobody is
+    // awaiting yet must not surface as an unhandled rejection, and the awaiting
+    // caller must still see the original error.
+    this.selectionCapturePromise?.catch(() => {});
+  }
+
+  consumeSelectionCapture() {
+    const pending = this.selectionCapturePromise;
+    this.selectionCapturePromise = null;
+    return pending ?? window.electronAPI?.captureSelectedText?.();
   }
 
   async consumeScreenContext() {
@@ -2223,7 +2242,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   async processAgentCommand(text, model, agentName, config) {
     let capture;
     try {
-      capture = await window.electronAPI?.captureSelectedText?.();
+      capture = await this.consumeSelectionCapture();
     } catch (cause) {
       const error = new Error(
         `Selection edit could not safely read the selection: ${cause.message}`
@@ -2248,12 +2267,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       throw error;
     }
 
-    const captureDisposition = getSelectionCaptureDisposition(capture, isAccessibilitySkipped());
+    const captureDisposition = getSelectionCaptureDisposition(capture);
 
     if (captureDisposition === "standalone") {
-      // No selection, or selection capture is unavailable by design (for
-      // example, the user explicitly skipped macOS Accessibility): preserve
-      // the existing Voice Agent behavior and type at the cursor.
+      // Nothing selected, or a target that can never report one: type at the
+      // cursor (see STANDALONE_CAPTURE_CODES).
       return this.processWithReasoningModel(text, model, agentName, config);
     }
 

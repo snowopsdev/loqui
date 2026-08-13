@@ -171,7 +171,6 @@ class WindowManager {
       x: currentBounds.x + currentBounds.width / 2,
       y: currentBounds.y + currentBounds.height,
     });
-    const workArea = display.workArea || display.bounds;
 
     let newX, newY;
 
@@ -191,18 +190,11 @@ class WindowManager {
       newY = currentBounds.y + currentBounds.height - newSize.height;
     }
 
-    // Clamp to work area
-    newX = Math.max(workArea.x, Math.min(newX, workArea.x + workArea.width - newSize.width));
-    newY = Math.max(workArea.y, Math.min(newY, workArea.y + workArea.height - newSize.height));
+    const clamped = WindowPositionUtil.clampToWorkArea({ x: newX, y: newY, ...newSize }, display);
 
-    this.mainWindow.setBounds({
-      x: newX,
-      y: newY,
-      width: newSize.width,
-      height: newSize.height,
-    });
+    this.mainWindow.setBounds({ ...clamped, ...newSize });
 
-    return { success: true, bounds: { x: newX, y: newY, ...newSize } };
+    return { success: true, bounds: { ...clamped, ...newSize } };
   }
 
   async loadWindowContent(window, isControlPanel = false, isAgent = false) {
@@ -1104,11 +1096,23 @@ class WindowManager {
     this.agentWindow.setBounds(bounds);
   }
 
-  _repositionToCursorDisplay() {
+  // The display the user is working on is the one showing the app being dictated
+  // into, which on a multi-monitor desk is often not the one the mouse rests on.
+  // Falls back to the cursor when the target has no readable window (non-macOS,
+  // no target captured yet, or an app with no ordinary window).
+  async _resolveActiveDisplay() {
+    const pid = this.textEditMonitor?.lastTargetPid;
+    const bounds = pid ? await this.textEditMonitor.getTargetWindowBounds(pid) : null;
+    return bounds
+      ? screen.getDisplayMatching(bounds)
+      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  }
+
+  async _repositionToActiveDisplay() {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
 
-    const cursorPos = screen.getCursorScreenPoint();
-    const cursorDisplay = screen.getDisplayNearestPoint(cursorPos);
+    const activeDisplay = await this._resolveActiveDisplay();
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
 
     const currentBounds = this.mainWindow.getBounds();
     const currentDisplay = screen.getDisplayNearestPoint({
@@ -1116,12 +1120,27 @@ class WindowManager {
       y: currentBounds.y + currentBounds.height / 2,
     });
 
-    if (currentDisplay.id === cursorDisplay.id) return;
+    if (currentDisplay.id === activeDisplay.id) {
+      // Nearest-display math can't tell "on this display" from "just past its
+      // edge", so a rearranged monitor or a drag that ended over another
+      // display can leave the panel stranded in dead space, looking like the
+      // overlay vanished. Pull it back before showing it.
+      const clamped = WindowPositionUtil.clampToWorkArea(currentBounds, currentDisplay);
+      if (clamped.x !== currentBounds.x || clamped.y !== currentBounds.y) {
+        this.mainWindow.setBounds({ ...currentBounds, ...clamped });
+      }
+      return;
+    }
 
     const newPos = WindowPositionUtil.getMainWindowPosition(
-      cursorDisplay,
+      activeDisplay,
       { width: currentBounds.width, height: currentBounds.height },
       this._panelStartPosition
+    );
+    debugLogger.debug(
+      "[WindowManager] Moving dictation panel to the active display",
+      { from: currentBounds, to: newPos, displayId: activeDisplay.id },
+      "window"
     );
     this.mainWindow.setBounds(newPos);
   }
@@ -1129,7 +1148,10 @@ class WindowManager {
   showDictationPanel(options = {}) {
     const { focus = false } = options;
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this._repositionToCursorDisplay();
+      // Reading the target's window costs a helper spawn, so show now and move
+      // when the answer lands: a visible hop only happens when the panel was on
+      // the wrong display, which is the case being corrected.
+      void this._repositionToActiveDisplay();
 
       if (this.mainWindow.isMinimized()) {
         this.mainWindow.restore();

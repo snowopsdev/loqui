@@ -15,6 +15,10 @@ const ACTIVATE_CONFIRM_DELAY_MS = 25;
 // across that burst. Kept short so back-to-back dictations in different apps
 // still get a fresh capture.
 const TARGET_CAPTURE_FRESHNESS_MS = 250;
+// Must outlast the binary's retry ladder (5 attempts, 300ms apart, ~1.25s): a
+// killed run's verdict is discarded, so a tighter timeout means the app below is
+// never learned and every read pays the full ladder.
+const SELECTED_TEXT_TIMEOUT_MS = 1600;
 // AXError -25212 (kAXErrorNoValue) on the focused-element read is how
 // Chromium/Electron apps respond while their AX tree is dormant, making the
 // native binary's 5-attempt retry (~1.2s) dead time on every read. A single
@@ -119,6 +123,7 @@ class TextEditMonitor extends EventEmitter {
     this.lastTargetPid = null;
     this._captureTargetPromise = null;
     this._lastCaptureAt = 0;
+    this._windowBounds = null;
     // PIDs whose AX tree never yields a focused element (see
     // isPersistentAxNoValueFailure). A recycled PID only costs a detour via
     // AppleScript, which is still correct.
@@ -229,7 +234,7 @@ class TextEditMonitor extends EventEmitter {
     return false;
   }
 
-  getSelectedText(pid, timeoutMs = 1200) {
+  getSelectedText(pid, timeoutMs = SELECTED_TEXT_TIMEOUT_MS) {
     return new Promise((resolve) => {
       if (process.platform !== "darwin" || !pid) {
         resolve({ state: "unavailable" });
@@ -314,6 +319,50 @@ class TextEditMonitor extends EventEmitter {
         }
       }
     );
+  }
+
+  /**
+   * macOS: the target app's largest on-screen window rect, used to decide which
+   * display the user is working on. Resolves to null when the app has no
+   * ordinary window (or off macOS), leaving the caller to fall back to the
+   * cursor. Cached over the same press-time burst as captureTargetPid, so the
+   * dictation panel and the screen-context capture share one spawn.
+   */
+  async getTargetWindowBounds(pid, timeoutMs = 700) {
+    if (process.platform !== "darwin" || !pid) return null;
+    if (
+      this._windowBounds?.pid === pid &&
+      Date.now() - this._windowBounds.at < TARGET_CAPTURE_FRESHNESS_MS
+    ) {
+      return this._windowBounds.bounds;
+    }
+
+    const resolved = this.resolveBinary();
+    if (!resolved) return null;
+
+    const bounds = await new Promise((resolve) => {
+      execFile(
+        resolved.command,
+        [...resolved.args, "--window-bounds", String(pid)],
+        { timeout: timeoutMs },
+        (error, stdout) => {
+          const match = stdout?.match(/^BOUNDS:(-?\d+),(-?\d+),(\d+),(\d+)$/m);
+          if (!match) {
+            resolve(null);
+            return;
+          }
+          resolve({
+            x: Number(match[1]),
+            y: Number(match[2]),
+            width: Number(match[3]),
+            height: Number(match[4]),
+          });
+        }
+      );
+    });
+
+    this._windowBounds = { pid, bounds, at: Date.now() };
+    return bounds;
   }
 
   /**

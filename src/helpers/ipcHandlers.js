@@ -8601,9 +8601,10 @@ class IPCHandlers {
 
     ipcMain.handle("get-ydotool-status", () => {
       const { getYdotoolStatus } = require("./ensureYdotool");
+      const { getLinuxSessionInfo } = require("./linuxSession");
       const { execFileSync } = require("child_process");
       const status = getYdotoolStatus();
-      const isKde = (process.env.XDG_CURRENT_DESKTOP || "").toLowerCase().includes("kde");
+      const { isKde } = getLinuxSessionInfo();
       let hasXclip = false;
       let hasXsel = false;
       if (isKde) {
@@ -8616,7 +8617,7 @@ class IPCHandlers {
           hasXsel = true;
         } catch {}
       }
-      return { ...status, isKde, hasXclip, hasXsel };
+      return { ...status, hasXclip, hasXsel };
     });
 
     ipcMain.handle("get-debug-state", async () => {

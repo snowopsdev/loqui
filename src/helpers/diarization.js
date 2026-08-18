@@ -16,6 +16,10 @@ const {
   transcriptsLooselyOverlap,
   buildMergedCandidates,
 } = require("./transcriptText");
+const {
+  computeTranscriptionTimeoutMs,
+  PCM16_MONO_16K_BYTES_PER_SECOND,
+} = require("./transcriptionTimeout");
 
 const DIARIZATION_TIMEOUT_MS = 3600000; // 60 minutes
 const POST_MERGE_CONTEXT_WINDOW_MS = 6000;
@@ -318,6 +322,17 @@ class DiarizationManager {
       wavPath,
     });
 
+    // Scale with the recording length, but never below the 60-minute floor.
+    let timeoutMs = DIARIZATION_TIMEOUT_MS;
+    try {
+      timeoutMs = Math.max(
+        DIARIZATION_TIMEOUT_MS,
+        computeTranscriptionTimeoutMs(fs.statSync(wavPath).size / PCM16_MONO_16K_BYTES_PER_SECOND)
+      );
+    } catch {
+      // Unreadable WAV: keep the flat cap.
+    }
+
     return new Promise((resolve) => {
       let stdout = "";
       let stderr = "";
@@ -341,10 +356,10 @@ class DiarizationManager {
       };
 
       const timeout = setTimeout(() => {
-        debugLogger.warn("Diarization timed out", { timeoutMs: DIARIZATION_TIMEOUT_MS });
+        debugLogger.warn("Diarization timed out", { timeoutMs });
         gracefulStopProcess(proc);
         resolve([]);
-      }, DIARIZATION_TIMEOUT_MS);
+      }, timeoutMs);
 
       proc.stdout.on("data", (data) => {
         stdout += data.toString();
@@ -456,7 +471,8 @@ class DiarizationManager {
         const segStart = seg.timestamp;
         const segEnd = nextSystemTimestampAt(index) ?? segStart + 2.5;
         const midpoint = segStart + (segEnd - segStart) / 2;
-        let bestSpeaker = null;
+        let overlapSpeaker = null;
+        let nearestSpeaker = null;
         let bestOverlap = 0;
         let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -464,7 +480,7 @@ class DiarizationManager {
           const overlap = Math.min(segEnd, dSeg.end) - Math.max(segStart, dSeg.start);
           if (overlap > bestOverlap) {
             bestOverlap = overlap;
-            bestSpeaker = dSeg.speaker;
+            overlapSpeaker = dSeg.speaker;
           }
 
           const distance =
@@ -474,11 +490,15 @@ class DiarizationManager {
                 ? midpoint - dSeg.end
                 : 0;
 
-          if (!bestSpeaker && distance < bestDistance) {
+          if (distance < bestDistance) {
             bestDistance = distance;
-            bestSpeaker = dSeg.speaker;
+            nearestSpeaker = dSeg.speaker;
           }
         }
+
+        // Tracked separately so the between-clusters fallback compares every
+        // distance instead of latching onto the first cluster it sees.
+        const bestSpeaker = overlapSpeaker ?? nearestSpeaker;
 
         if (bestSpeaker) {
           applyConfirmedSpeaker(enriched, {

@@ -33,8 +33,22 @@ class MarkdownMirror {
   _buildFrontmatter(note, folderName) {
     const escYaml = (str) => {
       if (!str) return '""';
-      if (/[:#{}[\],&*?|>!%@`]/.test(str) || str.includes('"') || str.includes("'")) {
-        return `"${str.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+      // A control character (newline, carriage return, tab) in a title splits the
+      // mapping onto a bare line and makes the whole frontmatter block unparseable,
+      // so force quoting and escape them like `"` and `\` — keeping the value on
+      // one line and round-tripping back to the original when parsed.
+      if (
+        /[:#{}[\],&*?|>!%@`]/.test(str) ||
+        /[\n\r\t]/.test(str) ||
+        str.includes('"') ||
+        str.includes("'")
+      ) {
+        return `"${str
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, "\\n")
+          .replace(/\r/g, "\\r")
+          .replace(/\t/g, "\\t")}"`;
       }
       return str;
     };
@@ -122,7 +136,18 @@ class MarkdownMirror {
     try {
       const files = [...this._globNoteFiles(noteId), ...this._globTranscriptFiles(noteId)];
       for (const f of files) {
-        fs.unlinkSync(f);
+        // Isolate each unlink like writeNote/writeTranscript do: a single file we
+        // can't remove (e.g. locked by an external editor) must not orphan the
+        // note's other mirrored files.
+        try {
+          fs.unlinkSync(f);
+        } catch (err) {
+          debugLogger.error(
+            "Failed to delete note file",
+            { noteId, file: f, error: err.message },
+            "note-files"
+          );
+        }
       }
     } catch (err) {
       debugLogger.error("Failed to delete note file", { noteId, error: err.message }, "note-files");
@@ -203,6 +228,23 @@ class MarkdownMirror {
     return fs.existsSync(dirPath) ? dirPath : null;
   }
 
+  // Note markdown opens with the frontmatter this mirror writes; transcript
+  // companions open with "# <title>". BOM and CRLF are tolerated so a note an
+  // external editor re-saved is still recognised.
+  _isNoteMarkdownFile(filePath) {
+    let fd;
+    try {
+      fd = fs.openSync(filePath, "r");
+      const marker = Buffer.alloc(8);
+      const bytesRead = fs.readSync(fd, marker, 0, marker.length, 0);
+      return /^\uFEFF?---\r?\n/.test(marker.toString("utf8", 0, bytesRead));
+    } catch {
+      return false;
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+
   _globNoteFiles(noteId) {
     if (!this._basePath) return [];
     const results = [];
@@ -214,8 +256,13 @@ class MarkdownMirror {
         const dirPath = path.join(this._basePath, dir.name);
         const files = fs.readdirSync(dirPath);
         for (const file of files) {
-          if (file.startsWith(prefix) && file.endsWith(".md")) {
-            results.push(path.join(dirPath, file));
+          const filePath = path.join(dirPath, file);
+          if (
+            file.startsWith(prefix) &&
+            file.endsWith(".md") &&
+            this._isNoteMarkdownFile(filePath)
+          ) {
+            results.push(filePath);
           }
         }
       }
@@ -234,11 +281,13 @@ class MarkdownMirror {
         const dirPath = path.join(this._basePath, dir.name);
         const files = fs.readdirSync(dirPath);
         for (const file of files) {
+          const filePath = path.join(dirPath, file);
           if (
             file.startsWith(prefix) &&
-            (file.endsWith("-transcript.md") || file.endsWith("-transcript.txt"))
+            (file.endsWith("-transcript.txt") ||
+              (file.endsWith("-transcript.md") && !this._isNoteMarkdownFile(filePath)))
           ) {
-            results.push(path.join(dirPath, file));
+            results.push(filePath);
           }
         }
       }

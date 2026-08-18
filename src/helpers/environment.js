@@ -47,6 +47,8 @@ const PERSISTED_KEYS = [
   "UI_LANGUAGE",
   "WHISPER_CUDA_ENABLED",
   "WHISPER_VULKAN_ENABLED",
+  "WHISPER_VULKAN_DEVICE",
+  "WHISPER_GPU_FAILED",
   "WHISPER_THREADS",
   "TRANSCRIPTION_GPU_UUID",
   "INTELLIGENCE_GPU_UUID",
@@ -487,8 +489,9 @@ class EnvironmentManager {
     return result;
   }
 
-  getUiLanguage() {
-    return normalizeUiLanguage(this._getKey("UI_LANGUAGE"));
+  getUiLanguage(fallbackLanguage = "") {
+    const language = this._getKey("UI_LANGUAGE") || fallbackLanguage;
+    return language ? normalizeUiLanguage(language) : "";
   }
 
   saveUiLanguage(language) {

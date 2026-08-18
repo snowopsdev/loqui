@@ -1,6 +1,7 @@
-const { BrowserWindow, shell } = require("electron");
+const { shell } = require("electron");
 const debugLogger = require("./debugLogger");
 const { getMeetingJoinUrl } = require("./meetingJoinUrl");
+const { broadcastToWindows } = require("./windowBroadcast");
 
 const IMMINENT_THRESHOLD_MS = 5 * 60 * 1000;
 
@@ -25,13 +26,13 @@ function placeholderEvent(calendarId) {
 
 class MeetingDetectionEngine {
   constructor(
-    googleCalendarManager,
+    reminderScheduler,
     meetingProcessDetector,
     audioActivityDetector,
     windowManager,
     databaseManager
   ) {
-    this.googleCalendarManager = googleCalendarManager;
+    this.reminderScheduler = reminderScheduler;
     this.meetingProcessDetector = meetingProcessDetector;
     this.audioActivityDetector = audioActivityDetector;
     this.windowManager = windowManager;
@@ -105,12 +106,12 @@ class MeetingDetectionEngine {
     if (this._userRecording || this._postRecordingCooldown) {
       debugLogger.info("Detection queued — user is recording", { detectionId, source }, "meeting");
       this._notificationQueue.push({ source, key, data });
-      this.activeDetections.set(detectionId, { source, key, data, dismissed: false });
+      this.activeDetections.set(detectionId, { source, key, data });
       return;
     }
 
     debugLogger.info("Meeting detection triggered", { detectionId, source }, "meeting");
-    this.activeDetections.set(detectionId, { source, key, data, dismissed: false });
+    this.activeDetections.set(detectionId, { source, key, data });
     this._showPrompt(detectionId, source, key, data);
   }
 
@@ -124,8 +125,7 @@ class MeetingDetectionEngine {
   // activeMeeting only means the event's scheduled window is open — actual meeting
   // recordings are tracked by _meetingModeActive.
   _findCalendarEvent() {
-    const calendarState = this.googleCalendarManager?.getActiveMeetingState?.();
-    if (!calendarState) return null;
+    const calendarState = this.reminderScheduler.getActiveMeetingState();
     if (calendarState.activeMeeting) return calendarState.activeMeeting;
 
     const now = Date.now();
@@ -212,7 +212,7 @@ class MeetingDetectionEngine {
 
         this._meetingModeActive = true;
 
-        this.broadcastToWindows("note-added", noteResult.note);
+        broadcastToWindows("note-added", noteResult.note);
 
         const isRealEvent =
           detection.event?.calendar_id &&
@@ -227,7 +227,7 @@ class MeetingDetectionEngine {
           }
           const updateResult = this.databaseManager.updateNote(noteResult.note.id, updates);
           if (updateResult?.success && updateResult?.note) {
-            this.broadcastToWindows("note-updated", updateResult.note);
+            broadcastToWindows("note-updated", updateResult.note);
           }
         }
 
@@ -284,7 +284,7 @@ class MeetingDetectionEngine {
       return;
     }
 
-    this.broadcastToWindows("note-added", noteResult.note);
+    broadcastToWindows("note-added", noteResult.note);
 
     await this.windowManager.queueMeetingNoteNavigation({
       noteId: noteResult.note.id,
@@ -324,7 +324,7 @@ class MeetingDetectionEngine {
     }
     const updateResult = this.databaseManager.updateNote(noteResult.note.id, updates);
 
-    this.broadcastToWindows("note-added", updateResult?.note || noteResult.note);
+    broadcastToWindows("note-added", updateResult?.note || noteResult.note);
 
     await this.windowManager.queueMeetingNoteNavigation({
       noteId: noteResult.note.id,
@@ -335,21 +335,13 @@ class MeetingDetectionEngine {
   }
 
   handleNotificationTimeout() {
-    // Expiring unanswered is not a decline: only an audio prompt's timeout cools
-    // down the mic detector, so an ignored calendar reminder leaves mic detection
-    // armed and joining the call late still prompts.
-    const audioTimedOut = [...this.activeDetections.values()].some(
-      (d) => !d.dismissed && d.source === "audio"
-    );
-    if (audioTimedOut) {
-      this._dismiss();
-    }
+    // Expiring unanswered is not a decline, so no dismissal cooldown starts:
+    // the detector's hasPrompted flag already keeps the ongoing call from
+    // re-prompting, while a call starting right after the timeout still
+    // prompts. Only an explicit dismissal (handleNotificationResponse) cools
+    // the mic detector down.
     this.activeDetections.clear();
-    debugLogger.info(
-      "Notification auto-dismissed, detections cleared",
-      { audioTimedOut },
-      "meeting"
-    );
+    debugLogger.info("Notification auto-dismissed, detections cleared", {}, "meeting");
   }
 
   _flushNotificationQueue() {
@@ -374,7 +366,7 @@ class MeetingDetectionEngine {
     const detectionId = `${best.source}:${best.key}`;
 
     const detection = this.activeDetections.get(detectionId);
-    if (detection && !detection.dismissed) {
+    if (detection) {
       this._showPrompt(detectionId, best.source, best.key, best.data);
     }
 
@@ -409,6 +401,13 @@ class MeetingDetectionEngine {
         this._flushNotificationQueue();
       }, 2500);
     }
+  }
+
+  // Forward-only: unlike setUserRecording there is no cooldown or queue flush —
+  // that machinery exists for real recordings, while a warm-hold merely means
+  // our own renderer still has the device open.
+  setMicWarmHold(active) {
+    this.audioActivityDetector.setMicWarmHold(active);
   }
 
   setPreferences(prefs) {
@@ -449,15 +448,6 @@ class MeetingDetectionEngine {
       this._postRecordingCooldown = null;
     }
     this._notificationQueue = [];
-  }
-
-  broadcastToWindows(channel, data) {
-    const windows = BrowserWindow.getAllWindows();
-    windows.forEach((win) => {
-      if (!win.isDestroyed()) {
-        win.webContents.send(channel, data);
-      }
-    });
   }
 }
 

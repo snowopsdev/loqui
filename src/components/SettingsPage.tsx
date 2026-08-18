@@ -352,8 +352,8 @@ function TranscriptionSection({
   };
 
   const handleLocalModelSelect = useCallback(
-    (modelId: string) => {
-      if (localTranscriptionProvider === "nvidia") {
+    (modelId: string, providerId?: string) => {
+      if (providerId === "nvidia" || (!providerId && localTranscriptionProvider === "nvidia")) {
         setParakeetModel(modelId);
       } else {
         setWhisperModel(modelId);

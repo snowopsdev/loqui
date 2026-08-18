@@ -110,6 +110,7 @@ const NOTIFICATION_WINDOW_CONFIG = {
   focusable: false,
   hasShadow: false,
   show: false,
+  acceptFirstMouse: true,
   webPreferences: {
     preload: path.join(__dirname, "..", "..", "preload.js"),
     nodeIntegration: false,
@@ -119,6 +120,21 @@ const NOTIFICATION_WINDOW_CONFIG = {
   visibleOnAllWorkspaces: process.platform !== "win32",
   type: FLOATING_OVERLAY_TYPE,
 };
+
+const AUTO_END_NOTIFICATION_WINDOW_SIZE = {
+  width: 620,
+  height: 116,
+};
+
+function getMeetingNotificationWindowSize(promptData) {
+  if (promptData?.kind === "auto-end") {
+    return AUTO_END_NOTIFICATION_WINDOW_SIZE;
+  }
+  return {
+    width: NOTIFICATION_WINDOW_CONFIG.width,
+    height: NOTIFICATION_WINDOW_CONFIG.height,
+  };
+}
 
 const TRANSCRIPTION_PREVIEW_SIZE_LIMITS = {
   minWidth: 400,
@@ -191,8 +207,8 @@ class WindowPositionUtil {
     };
   }
 
-  static getNotificationPosition(display) {
-    const { width, height } = NOTIFICATION_WINDOW_CONFIG;
+  static getNotificationPosition(display, customSize = null) {
+    const { width, height } = customSize || NOTIFICATION_WINDOW_CONFIG;
     const MARGIN = 16;
     const workArea = display.workArea || display.bounds;
     // Same negative-origin trap as getMainWindowPosition: clamp to the display,
@@ -287,6 +303,8 @@ module.exports = {
   CONTROL_PANEL_CONFIG,
   AGENT_OVERLAY_CONFIG,
   NOTIFICATION_WINDOW_CONFIG,
+  AUTO_END_NOTIFICATION_WINDOW_SIZE,
+  getMeetingNotificationWindowSize,
   TRANSCRIPTION_PREVIEW_CONFIG,
   TRANSCRIPTION_PREVIEW_SIZE_LIMITS,
   WINDOW_SIZES,

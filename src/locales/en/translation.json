@@ -29,6 +29,10 @@
       "speakerDetection": {
         "title": "Identify and label speakers",
         "description": "When off, transcripts show \"You\" and \"Others\""
+      },
+      "autoEnd": {
+        "title": "Auto-end forgotten recordings",
+        "description": "Stop meeting recordings automatically when the call seems over, after a countdown you can cancel"
       }
     }
   },
@@ -2832,7 +2836,8 @@
       "title": "Meeting Notes",
       "description": "Transcriptions & structured summaries",
       "back": "Back",
-      "restrictedByOrg": "Meeting transcription is restricted by your organization."
+      "restrictedByOrg": "Meeting transcription is restricted by your organization.",
+      "autoEnded": "Recording stopped automatically after your meeting ended."
     },
     "meetingPill": {
       "returnToNote": "Return to recording",
@@ -3517,6 +3522,15 @@
       "underway": "It sounds like your meeting is underway. Want to take notes?"
     },
     "start": "Take notes",
-    "join": "Join & transcribe"
+    "join": "Join & transcribe",
+    "autoEnd": {
+      "title": "Meeting may have ended",
+      "body": {
+        "micReleased": "No other app is using your microphone. Recording will stop in {{seconds}}s.",
+        "silence": "No audio detected. Recording will stop in {{seconds}}s.",
+        "processExit": "Your meeting app closed. Recording will stop in {{seconds}}s."
+      },
+      "keep": "Keep recording"
+    }
   }
 }

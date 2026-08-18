@@ -667,7 +667,11 @@ export interface WhisperDownloadProgressData {
 export interface ParakeetCheckResult {
   installed: boolean;
   working: boolean;
+  supported?: boolean;
   path?: string;
+  code?: string;
+  message?: string;
+  minimumMacOSVersion?: string;
 }
 
 export interface ParakeetModelResult {

@@ -107,6 +107,9 @@ class ParakeetServerManager {
       isWavFormat: isWavFormat(audioBuffer),
     });
 
+    // An already-cancelled upload skips the ffmpeg conversion entirely.
+    throwIfAborted();
+
     const { wavBuffer, filesToCleanup } = await this._ensureWav(audioBuffer);
     try {
       throwIfAborted();

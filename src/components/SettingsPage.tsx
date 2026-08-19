@@ -113,6 +113,7 @@ import { syncService } from "../services/SyncService.js";
 import {
   LLM_REQUEST_TIMEOUT_SECONDS_MIN,
   LLM_REQUEST_TIMEOUT_SECONDS_MAX,
+  resolveLlmRequestTimeoutSeconds,
 } from "../helpers/llmRequestTimeout.js";
 import { formatBytes } from "../utils/formatBytes";
 import {
@@ -731,6 +732,13 @@ function LlmsTabs({
                 step={5}
                 value={llmRequestTimeoutSeconds}
                 onChange={(e) => setLlmRequestTimeoutSeconds(Number(e.target.value))}
+                // Clamp on blur so the stored value always matches the effective
+                // one (point of use clamps to 10-600s; a cleared field stores 0).
+                onBlur={() =>
+                  setLlmRequestTimeoutSeconds(
+                    resolveLlmRequestTimeoutSeconds(llmRequestTimeoutSeconds)
+                  )
+                }
                 className="w-20"
               />
             </SettingsRow>

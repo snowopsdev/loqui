@@ -76,7 +76,13 @@ const {
   selectRacingMicEntryIndices,
   partitionOverlappingPendingMicFinals,
 } = require("./meetingMicHoldback");
-const { computeChunkStats, resolveMicChunkAction } = require("./meetingMicGate");
+const {
+  computeChunkStats,
+  resolveMicChunkAction,
+  MEETING_MIC_SILENCE_RMS,
+  MEETING_MIC_SILENCE_PEAK,
+} = require("./meetingMicGate");
+const { resolveDiarizationInput } = require("./meetingDiarizationInput");
 const { applySmartSpacing } = require("./smartSpacing");
 const { applyAutoLearnSetting } = require("./autoLearnSetting");
 const {
@@ -5728,17 +5734,42 @@ class IPCHandlers {
     };
 
     const captureMeetingDiarizationState = async () => {
-      const diarizationPcmPath = meetingDiarizationPath;
+      const systemPcmPath = meetingDiarizationPath;
+      const systemStartedAt = meetingDiarizationStartedAt;
+      const micPcmPath = meetingMicDiarizationPath;
+      const micStartedAt = meetingMicDiarizationStartedAt;
+      const systemAudioHeard = meetingSystemAudioHeard;
       const diarizationSegments = meetingDiarizationSegments;
-      const diarizationStartedAt = meetingDiarizationStartedAt;
       if (meetingDiarizationStream) {
         await new Promise((resolve) => meetingDiarizationStream.end(resolve));
         meetingDiarizationStream = null;
       }
+      if (meetingMicDiarizationStream) {
+        await new Promise((resolve) => meetingMicDiarizationStream.end(resolve));
+        meetingMicDiarizationStream = null;
+      }
       meetingDiarizationPath = null;
       meetingDiarizationStartedAt = null;
+      meetingMicDiarizationPath = null;
+      meetingMicDiarizationStartedAt = null;
+      meetingSystemAudioHeard = false;
       meetingDiarizationSegments = [];
-      return { diarizationPcmPath, diarizationSegments, diarizationStartedAt };
+      const { pcmPath, startedAt, diarizedSource, cleanupPcmPaths } = resolveDiarizationInput({
+        systemPcmPath,
+        micPcmPath,
+        systemAudioHeard,
+        systemStartedAt,
+        micStartedAt,
+      });
+      for (const stalePath of cleanupPcmPaths) {
+        fs.unlink(stalePath, () => {});
+      }
+      return {
+        diarizationPcmPath: pcmPath,
+        diarizationSegments,
+        diarizationStartedAt: startedAt,
+        diarizedSource,
+      };
     };
 
     const attachMeetingStreamingHandlers = (streaming, win, source) => {
@@ -6238,6 +6269,12 @@ class IPCHandlers {
     let meetingDiarizationStream = null;
     let meetingDiarizationPath = null;
     let meetingDiarizationStartedAt = null;
+    // Parallel raw mic capture so an in-person session (no audible system
+    // audio) can be diarized; dropped as soon as the session proves to be a call.
+    let meetingMicDiarizationStream = null;
+    let meetingMicDiarizationPath = null;
+    let meetingMicDiarizationStartedAt = null;
+    let meetingSystemAudioHeard = false;
     let meetingDiarizationSegments = [];
     let meetingLiveSpeakerActive = false;
     let meetingLiveSpeakerState = null;
@@ -6780,6 +6817,18 @@ class IPCHandlers {
       }
     };
 
+    const dropMeetingMicDiarizationCapture = () => {
+      if (meetingMicDiarizationStream) {
+        meetingMicDiarizationStream.end();
+        meetingMicDiarizationStream = null;
+      }
+      if (meetingMicDiarizationPath) {
+        fs.unlink(meetingMicDiarizationPath, () => {});
+        meetingMicDiarizationPath = null;
+      }
+      meetingMicDiarizationStartedAt = null;
+    };
+
     const resetMeetingLocalState = () => {
       if (meetingLocalTimer) {
         clearInterval(meetingLocalTimer);
@@ -6807,6 +6856,8 @@ class IPCHandlers {
         meetingDiarizationPath = null;
       }
       meetingDiarizationStartedAt = null;
+      dropMeetingMicDiarizationCapture();
+      meetingSystemAudioHeard = false;
       meetingDiarizationSegments = [];
       meetingLocalWin = null;
       meetingLocalTranscript = "";
@@ -7325,11 +7376,39 @@ class IPCHandlers {
           meetingDiarizationStartedAt = receivedAt;
         }
         meetingDiarizationStream.write(outboundBuffer);
+
+        if (!meetingSystemAudioHeard) {
+          const { rms, peak } = computeChunkStats(outboundBuffer);
+          if (rms >= MEETING_MIC_SILENCE_RMS || peak >= MEETING_MIC_SILENCE_PEAK) {
+            // A call is audibly underway: diarization stays on the system
+            // channel, so stop paying the mic capture's disk cost.
+            meetingSystemAudioHeard = true;
+            dropMeetingMicDiarizationCapture();
+          }
+        }
+
         dispatchMeetingAudioBuffer(outboundBuffer, "system");
         return;
       }
 
       if (source === "mic") {
+        // Until the session proves to be a call (audible system audio), keep a
+        // raw mic capture so an in-person recording can be diarized. Written
+        // pre-AEC/pre-gate so the timeline stays continuous, like the system
+        // capture above.
+        if (!meetingSystemAudioHeard) {
+          if (!meetingMicDiarizationStream) {
+            const receivedAt = Date.now();
+            meetingMicDiarizationPath = path.join(
+              os.tmpdir(),
+              `ow-diarize-raw-mic-${receivedAt}.pcm`
+            );
+            meetingMicDiarizationStream = fs.createWriteStream(meetingMicDiarizationPath);
+            meetingMicDiarizationStartedAt = receivedAt;
+          }
+          meetingMicDiarizationStream.write(outboundBuffer);
+        }
+
         if (processMeetingMicWithAec(outboundBuffer)) {
           return;
         }
@@ -7500,7 +7579,7 @@ class IPCHandlers {
             debugLogger.error("Local meeting final transcription failed", { error: err.message });
           }
           flushPendingMicFinals(true);
-          const { diarizationPcmPath, diarizationSegments, diarizationStartedAt } =
+          const { diarizationPcmPath, diarizationSegments, diarizationStartedAt, diarizedSource } =
             await captureMeetingDiarizationState();
           const transcript =
             buildOrderedTranscriptText(diarizationSegments) || meetingLocalTranscript;
@@ -7518,14 +7597,15 @@ class IPCHandlers {
             diarizationWin,
             liveSpeakerState,
             sessionSpeakerConfigSnapshot,
-            noteIdSnapshot
+            noteIdSnapshot,
+            diarizedSource
           );
 
           return { success: true, transcript, diarizationSessionId };
         }
 
         const results = await disconnectMeetingStreaming({ flushPending: true });
-        const { diarizationPcmPath, diarizationSegments, diarizationStartedAt } =
+        const { diarizationPcmPath, diarizationSegments, diarizationStartedAt, diarizedSource } =
           await captureMeetingDiarizationState();
         const transcript =
           buildOrderedTranscriptText(diarizationSegments) ||
@@ -7544,7 +7624,8 @@ class IPCHandlers {
           diarizationWin,
           liveSpeakerState,
           sessionSpeakerConfigSnapshot,
-          noteIdSnapshot
+          noteIdSnapshot,
+          diarizedSource
         );
 
         return { success: true, transcript, diarizationSessionId };
@@ -10321,7 +10402,7 @@ class IPCHandlers {
     return reconciledSpeakers;
   }
 
-  _resolveSpeakerExpectation({ sessionConfig, noteId, observedSpeakerIds }) {
+  _resolveSpeakerExpectation({ sessionConfig, noteId, observedSpeakerIds, diarizedSource }) {
     // Only a count the user set explicitly outranks the note: participants added
     // mid-meeting postdate the config snapshot taken at recording start.
     let expectedTotal = sessionConfig?.explicit ? sessionConfig.expectedCount : null;
@@ -10334,15 +10415,24 @@ class IPCHandlers {
       }
     }
 
+    // Diarizing the mic track (in-person session) means the user is one of the
+    // diarized voices, so the expected total applies without the -1 the
+    // system-audio branches use.
+    const micMode = diarizedSource === "mic";
+
     if (expectedTotal) {
       const total = Math.min(expectedTotal, MAX_SPEAKER_COUNT);
-      const numSpeakers = Math.max(1, total - 1);
+      const numSpeakers = micMode ? total : Math.max(1, total - 1);
       return { numSpeakers, cap: numSpeakers };
     }
 
     if (observedSpeakerIds.size >= 2) {
       const numSpeakers = Math.min(observedSpeakerIds.size, MAX_SPEAKER_COUNT);
       return { numSpeakers, cap: numSpeakers };
+    }
+
+    if (micMode) {
+      return { numSpeakers: -1, cap: DEFAULT_EXPECTED_SPEAKER_COUNT };
     }
 
     // Only system audio reaches the diarizer (the mic track is "you"), so the cap
@@ -10358,7 +10448,8 @@ class IPCHandlers {
     win,
     liveSpeakerState = null,
     sessionConfig = null,
-    noteId = null
+    noteId = null,
+    diarizedSource = "system"
   ) {
     const send = (payload) => {
       if (win && !win.isDestroyed()) {
@@ -10403,6 +10494,7 @@ class IPCHandlers {
           sessionConfig,
           noteId,
           observedSpeakerIds,
+          diarizedSource,
         });
         let diarizationSegments = await this.diarizationManager.diarize(
           tmpWav,
@@ -10417,7 +10509,7 @@ class IPCHandlers {
 
         const startMs =
           (Number.isFinite(audioStartedAt) && audioStartedAt) ||
-          transcriptSegments.find((segment) => segment.source === "system")?.timestamp ||
+          transcriptSegments.find((segment) => segment.source === diarizedSource)?.timestamp ||
           transcriptSegments[0]?.timestamp ||
           0;
         const isEpochMs = startMs > 1e9;
@@ -10433,7 +10525,8 @@ class IPCHandlers {
 
         const enrichedSegments = this.diarizationManager.mergeWithTranscript(
           normalized,
-          diarizationSegments
+          diarizationSegments,
+          { diarizedSource }
         );
 
         const speakerSet = new Set(diarizationSegments.map((d) => d.speaker));
@@ -10444,10 +10537,15 @@ class IPCHandlers {
           sIdx++;
         }
 
+        // Mirrors the mic-mode single-cluster softening in mergeWithTranscript:
+        // every segment stays "you", so persisting an embedding keyed to a
+        // cluster id that owns no segments would leave the note inconsistent.
+        const micSingleClusterSoftened = diarizedSource === "mic" && speakerSet.size === 1;
+
         let speakerEmbeddingsMap = null;
         const speakerEmb = require("./speakerEmbeddings");
         try {
-          if (speakerEmb.isAvailable() && tmpWav) {
+          if (!micSingleClusterSoftened && speakerEmb.isAvailable() && tmpWav) {
             const speakerIds = [...new Set(diarizationSegments.map((s) => s.speaker))];
             speakerEmbeddingsMap = {};
 

@@ -686,7 +686,10 @@ test("a browsed provider resolves for display without leaking the committed mode
     null
   );
 
-  // A browsed provider that policy has since disallowed falls back.
+  // A browsed provider that policy has since disallowed falls back. The
+  // component can't browse there directly (handleCloudProviderChange guards
+  // providerAllowed); this state is only reachable when policy flips while
+  // the tab is already being browsed.
   assert.deepEqual(
     reconcileCloudProviderSelection({
       selectedProvider: "xai",

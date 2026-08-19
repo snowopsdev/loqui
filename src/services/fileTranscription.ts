@@ -15,6 +15,9 @@ export interface FileTranscriptionResult {
   // Measured duration of the source audio, for persisting as
   // audio_duration_seconds. Only transcribeFileWithSpeakers sets it.
   durationSeconds?: number | null;
+  // Segment-level timing from BYOK providers that support it (opts.timestamps
+  // or BYOK diarization). Absent whenever the provider returned text only.
+  segments?: Array<{ text: string; start: number; end: number; speaker?: string }>;
 }
 
 export interface DiarizationSettings {
@@ -76,7 +79,7 @@ export async function transcribeFile(
   filePath: string,
   cfg: FileTranscriptionConfig,
   diarize: boolean,
-  opts: { requestId?: string } = {}
+  opts: { requestId?: string; timestamps?: boolean } = {}
 ): Promise<FileTranscriptionResult> {
   if (cfg.isOpenWhisprCloud) {
     return withSessionRefresh(async () => {
@@ -127,6 +130,7 @@ export async function transcribeFile(
     baseUrl: cfg.cloudTranscriptionBaseUrl,
     model: cfg.cloudTranscriptionModel,
     diarize: diarize || undefined,
+    timestamps: opts.timestamps || undefined,
     provider: cfg.cloudTranscriptionProvider,
     language: cfg.language,
     environment: cfg.cortiEnvironment,
@@ -161,7 +165,7 @@ export async function transcribeFileWithSpeakers(
   cfg: FileTranscriptionConfig,
   diarization: DiarizationSettings,
   durationSeconds?: number | null,
-  opts: { requestId?: string } = {}
+  opts: { requestId?: string; timestamps?: boolean } = {}
 ): Promise<FileTranscriptionResult> {
   const byokDiarize = shouldUseByokDiarize(cfg, diarization.enabled);
   const diarizePromise =

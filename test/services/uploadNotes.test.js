@@ -75,6 +75,67 @@ test("unusable durations degrade to null", async () => {
   }
 });
 
+test("provider segments serialize into the meeting-path transcript shape", async () => {
+  const { buildUploadTranscript } = await load();
+
+  const transcript = buildUploadTranscript([
+    { text: " Hello world. ", start: 0, end: 4.2 },
+    { text: "Named part.", start: 4.2, end: 7.5, speaker: "Speaker 1" },
+  ]);
+
+  // Relative seconds are stored as-is: normalizeSegmentTimestamps only
+  // rebases epoch-millisecond values, so export math stays correct.
+  assert.deepEqual(JSON.parse(transcript), [
+    { text: "Hello world.", timestamp: 0 },
+    { text: "Named part.", timestamp: 4.2, speakerName: "Speaker 1" },
+  ]);
+});
+
+test("unusable segments produce no transcript at all", async () => {
+  const { buildUploadTranscript } = await load();
+
+  assert.equal(buildUploadTranscript(undefined), undefined);
+  assert.equal(buildUploadTranscript(null), undefined);
+  assert.equal(buildUploadTranscript([]), undefined);
+  assert.equal(
+    buildUploadTranscript([
+      { text: "   ", start: 0 },
+      { text: "no start", start: NaN },
+    ]),
+    undefined
+  );
+});
+
+test("segments persist the transcript even when diarization is off", async () => {
+  const { buildUploadNoteMetadata } = await load();
+
+  const { noteUpdates } = buildUploadNoteMetadata(
+    { enabled: false, localModelsReady: false, numSpeakers: null },
+    60,
+    [{ text: "Hello.", start: 0, end: 2 }]
+  );
+
+  // The transcript must not drag the diarization columns along: a null
+  // diarization_enabled still defers to the global speaker setting.
+  assert.deepEqual(noteUpdates, { transcript: JSON.stringify([{ text: "Hello.", timestamp: 0 }]) });
+});
+
+test("segments and diarization metadata share one noteUpdates write", async () => {
+  const { buildUploadNoteMetadata } = await load();
+
+  const { noteUpdates } = buildUploadNoteMetadata(
+    { enabled: true, localModelsReady: true, numSpeakers: 2 },
+    60,
+    [{ text: "Hi.", start: 1, speaker: "Speaker 1" }]
+  );
+
+  assert.deepEqual(noteUpdates, {
+    diarization_enabled: 1,
+    expected_speaker_count: 2,
+    transcript: JSON.stringify([{ text: "Hi.", timestamp: 1, speakerName: "Speaker 1" }]),
+  });
+});
+
 test("upload titles fall back to the transcript, then the file name", async () => {
   const { uploadTitleFallback } = await load();
 

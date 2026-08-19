@@ -207,6 +207,7 @@ const {
   mergeSpeakersWithText,
   formatSpeakerTranscript,
 } = require("./speakerMerge");
+const { timestampRequestFields, mapVerboseSegments } = require("./uploadTimestamps");
 
 // Canonicalize allowed dirs so realpath'd inputs match on macOS (/var -> /private/var).
 // Deliberately narrow: user-picked paths anywhere else are approved individually via
@@ -8286,6 +8287,7 @@ class IPCHandlers {
           baseUrl,
           model,
           diarize,
+          timestamps,
           provider,
           language,
           environment,
@@ -8431,6 +8433,11 @@ class IPCHandlers {
                 { provider: route.provider, endpoint: route.endpoint }
               );
             }
+          } else if (timestamps) {
+            // Providers/models that don't support the request keep the
+            // plain-text request untouched (helper returns null).
+            const fields = timestampRequestFields(route.provider, route.model);
+            if (fields) Object.assign(multipartFields, fields);
           }
 
           const { body, boundary } = buildMultipartBody(
@@ -8476,26 +8483,30 @@ class IPCHandlers {
                   `[${s.speaker}] ${formatDiarTime(s.start)} - ${formatDiarTime(s.end)}\n${s.text}`
               )
               .join("\n\n");
-            return { success: true, text: formatted, diarized: true };
+            return { success: true, text: formatted, diarized: true, segments };
           }
 
           if (diarize && data.data?.segments) {
-            const segments = data.data.segments || [];
+            const segments = (data.data.segments || []).map((s) => ({
+              speaker: s.speaker || "Speaker ?",
+              text: s.text || "",
+              start: s.start || 0,
+              end: s.end || 0,
+            }));
             const formatted = segments
-              .map((s) => {
-                const speaker = s.speaker || "Speaker ?";
-                const start = formatDiarTime(s.start || 0);
-                const end = formatDiarTime(s.end || 0);
-                return `[${speaker}] ${start} - ${end}\n${s.text || ""}`;
-              })
+              .map(
+                (s) =>
+                  `[${s.speaker}] ${formatDiarTime(s.start)} - ${formatDiarTime(s.end)}\n${s.text}`
+              )
               .join("\n\n");
-            return { success: true, text: formatted, diarized: true };
+            return { success: true, text: formatted, diarized: true, segments };
           }
 
           if (diarize) {
             debugLogger.warn("BYOK diarization requested but provider returned no speaker data");
           }
-          return { success: true, text: data.data.text };
+          const segments = timestamps ? mapVerboseSegments(data.data) : null;
+          return { success: true, text: data.data.text, ...(segments ? { segments } : {}) };
         } catch (error) {
           debugLogger.error("BYOK audio file transcription error", { error: error.message });
           return { success: false, error: error.message };

@@ -198,7 +198,7 @@ export function processBatchQueue(
         transcription,
         diarization,
         durationSeconds,
-        { requestId }
+        { requestId, timestamps: true }
       ).finally(() => {
         if (activeUploadRequestId === requestId) activeUploadRequestId = null;
       });
@@ -235,6 +235,7 @@ export function processBatchQueue(
         folderId: transcribeOpts.folderId,
         diarization,
         durationSeconds: transcriptionResult.durationSeconds,
+        segments: transcriptionResult.segments,
       });
 
       if (noteRes.success && noteRes.note) {

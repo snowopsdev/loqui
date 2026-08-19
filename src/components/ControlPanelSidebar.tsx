@@ -205,11 +205,7 @@ export default function ControlPanelSidebar({
             >
               <X size={12} />
             </button>
-            <img
-              src={logoIcon}
-              alt=""
-              className="w-9 h-9 rounded-full ring-2 ring-white/70 dark:ring-white/15 shadow-sm mb-2.5"
-            />
+            <img src={logoIcon} alt="" className="w-7 h-7 rounded-md mb-2.5" />
             <p className="text-[13px] font-semibold text-foreground mb-0.5">
               {t("sidebar.upgradeTitle")}
             </p>
@@ -232,7 +228,7 @@ export default function ControlPanelSidebar({
             </div>
             <button
               onClick={onUpgrade}
-              className="w-full h-8 rounded-full bg-[#4079ed] text-white text-xs font-medium hover:bg-[#3568d9] active:bg-[#2f5dc4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4079ed]/40 transition-colors"
+              className="w-full h-7 rounded-full bg-[#4079ed] text-white text-xs font-medium hover:bg-[#3568d9] active:bg-[#2f5dc4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4079ed]/40 transition-colors"
             >
               {t("sidebar.learnMore")}
             </button>

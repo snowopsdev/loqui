@@ -143,6 +143,7 @@ const CLOUD_INLINE_LIMIT = 4 * 1024 * 1024;
 const CLOUD_CHUNK_SEGMENT_SECONDS = 240;
 
 const { createAbortError } = require("./abortError");
+const { createUploadCancelRegistry } = require("./uploadCancelRegistry");
 const { applyOpenWhisprOriginHeader } = require("./sessionHeaders");
 const {
   CLOUD_UPLOAD_TIMEOUT_MS,
@@ -561,9 +562,10 @@ class IPCHandlers {
     this.oauthProtocolRegistered = managers.oauthProtocolRegistered === true;
     this.oauthProtocol = managers.oauthProtocol || "openwhispr";
     this.sessionId = crypto.randomUUID();
-    // requestId -> AbortController for in-flight audio-upload transcriptions,
-    // so a cancel can abort the exact job.
-    this._uploadTranscriptionControllers = new Map();
+    // requestId -> AbortControllers for in-flight audio-upload work (cloud
+    // upload, or local transcription + diarization sharing one id), so a
+    // cancel can abort the exact job.
+    this._uploadCancelRegistry = createUploadCancelRegistry();
     // webContents id -> its release listener, for renderers holding the mic open.
     this._micHoldSenders = new Map();
     this.assemblyAiStreaming = null;
@@ -2402,6 +2404,9 @@ class IPCHandlers {
 
     ipcMain.handle("transcribe-audio-file", async (event, filePath, options = {}) => {
       const fs = require("fs");
+      // Uploads pass a requestId so cancel-upload-transcription can abort the
+      // local decode; flows without one (voice drafts) register nothing.
+      const { signal, release } = this._uploadCancelRegistry.register(options.requestId);
       try {
         if (typeof filePath !== "string") {
           return { success: false, error: "Invalid file path" };
@@ -2410,18 +2415,30 @@ class IPCHandlers {
         if (!real) return { success: false, error: "File path not allowed" };
         const audioBuffer = fs.readFileSync(real);
         if (options.provider === "nvidia") {
-          const result = await this.parakeetManager.transcribeLocalParakeet(audioBuffer, options);
+          const result = await this.parakeetManager.transcribeLocalParakeet(audioBuffer, {
+            ...options,
+            signal,
+          });
           return result;
         }
         const vadOptions = this._resolveWhisperVadOptions("noteRecording");
         const result = await this.whisperManager.transcribeLocalWhisper(audioBuffer, {
           ...options,
           ...vadOptions,
+          signal,
         });
         return result;
       } catch (error) {
+        if (error?.name === "AbortError" || signal?.aborted) {
+          debugLogger.debug("Local audio file transcription cancelled", {
+            requestId: options.requestId,
+          });
+          return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
+        }
         debugLogger.error("Audio file transcription error", { error: error.message });
         return { success: false, error: error.message };
+      } finally {
+        release();
       }
     });
 
@@ -3116,6 +3133,9 @@ class IPCHandlers {
     });
 
     ipcMain.handle("diarize-audio-file", async (event, filePath, options = {}) => {
+      // Registered under the same requestId as the upload's transcription, so
+      // one cancel kills both the decode and the diarization child process.
+      const { signal, release } = this._uploadCancelRegistry.register(options.requestId);
       try {
         if (!this.diarizationManager) {
           return { success: false, error: "Diarization not available" };
@@ -3144,12 +3164,22 @@ class IPCHandlers {
 
         try {
           await convertToWav(filePath, wavPath, { sampleRate: 16000, channels: 1 });
+          if (signal?.aborted) {
+            return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
+          }
           // Auto-clustering over-splits long single-mic audio at the 0.55
           // default, so the threshold ramps with duration unless pinned.
           const durationSeconds = fs.statSync(wavPath).size / PCM16_MONO_16K_BYTES_PER_SECOND;
           const threshold = resolveClusterThreshold(durationSeconds, options.threshold);
 
-          let segments = await this.diarizationManager.diarize(wavPath, { numSpeakers, threshold });
+          let segments = await this.diarizationManager.diarize(wavPath, {
+            numSpeakers,
+            threshold,
+            signal,
+          });
+          if (signal?.aborted) {
+            return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
+          }
           // The meeting path caps clusters via its expectation resolver; this
           // path fed raw sherpa output to the merge, which is how a 2-person
           // voice memo surfaced 46 speakers.
@@ -3167,8 +3197,14 @@ class IPCHandlers {
           } catch {}
         }
       } catch (error) {
+        if (error?.name === "AbortError" || signal?.aborted) {
+          debugLogger.debug("Diarization cancelled", { requestId: options.requestId });
+          return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
+        }
         debugLogger.error("Diarization error", { error: error.message });
         return { success: false, error: error.message };
+      } finally {
+        release();
       }
     });
 
@@ -8216,8 +8252,7 @@ class IPCHandlers {
 
     ipcMain.handle("transcribe-audio-file-cloud", async (event, filePath, opts = {}) => {
       const requestId = typeof opts?.requestId === "string" ? opts.requestId : null;
-      const controller = new AbortController();
-      if (requestId) this._uploadTranscriptionControllers.set(requestId, controller);
+      const { signal, release } = this._uploadCancelRegistry.register(requestId);
       try {
         if (typeof filePath !== "string") {
           return { success: false, error: "Invalid file path" };
@@ -8252,7 +8287,7 @@ class IPCHandlers {
             policyHeaders: withPolicyHeaders(authHeader),
             multipartFields,
             onProgress: (payload) => event.sender.send("upload-transcription-progress", payload),
-            signal: controller.signal,
+            signal,
           });
           return {
             success: true,
@@ -8275,7 +8310,7 @@ class IPCHandlers {
         const url = new URL(`${apiUrl}/api/transcribe`);
         const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
           signal: AbortSignal.any([
-            controller.signal,
+            ...(signal ? [signal] : []),
             AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
           ]),
           session: getInlineCloudUploadSession(),
@@ -8284,23 +8319,21 @@ class IPCHandlers {
 
         return { success: true, text: result.text };
       } catch (error) {
-        if (controller.signal.aborted) {
+        if (signal?.aborted) {
           debugLogger.debug("Cloud audio file transcription cancelled", { requestId });
           return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
         }
         debugLogger.error("Cloud audio file transcription error", { error: error.message });
         return toPolicyFailure(error);
       } finally {
-        if (requestId) this._uploadTranscriptionControllers.delete(requestId);
+        release();
       }
     });
 
-    // Unknown ids are a no-op: providers other than OpenWhispr cloud don't
-    // register a controller, and the renderer fires this for every cancel.
+    // Unknown ids are a no-op: BYOK providers don't register a controller,
+    // and the renderer fires this for every cancel.
     ipcMain.handle("cancel-upload-transcription", async (_event, requestId) => {
-      const controller = this._uploadTranscriptionControllers.get(requestId);
-      controller?.abort();
-      return { success: !!controller };
+      return { success: this._uploadCancelRegistry.cancel(requestId) > 0 };
     });
 
     ipcMain.handle(

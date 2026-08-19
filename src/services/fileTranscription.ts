@@ -97,6 +97,7 @@ export async function transcribeFile(
     return window.electronAPI.transcribeAudioFile(filePath, {
       provider: cfg.localTranscriptionProvider as "whisper" | "nvidia",
       model: cfg.localTranscriptionProvider === "nvidia" ? cfg.parakeetModel : cfg.whisperModel,
+      requestId: opts.requestId,
     });
   }
 
@@ -173,6 +174,7 @@ export async function transcribeFileWithSpeakers(
       ? (window.electronAPI
           .diarizeAudioFile?.(filePath, {
             numSpeakers: diarization.numSpeakers ?? undefined,
+            requestId: opts.requestId,
           })
           .catch(() => null) ?? Promise.resolve(null))
       : Promise.resolve(null);

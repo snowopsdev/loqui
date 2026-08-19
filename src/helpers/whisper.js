@@ -11,6 +11,7 @@ const {
   checkDiskSpace,
 } = require("./downloadUtils");
 const WhisperServerManager = require("./whisperServer");
+const { createAbortError } = require("./abortError");
 const { getModelsDirForService } = require("./modelDirUtils");
 
 const modelRegistryData = require("../models/modelRegistryData.json");
@@ -392,6 +393,7 @@ class WhisperManager {
     return await this.transcribeViaServer(audioBlob, model, language, initialPrompt, {
       vadEnabled,
       vadConfig,
+      signal: options.signal,
     });
   }
 
@@ -406,6 +408,11 @@ class WhisperManager {
   }
 
   async _runServerTranscription(audioBlob, model, language, initialPrompt = null, options = {}) {
+    // An already-cancelled upload skips the server boot entirely.
+    if (options.signal?.aborted) {
+      throw createAbortError("whisper-server transcription cancelled");
+    }
+
     debugLogger.info("Transcription mode: SERVER", { model, language: language || "auto" });
     const modelPath = this.getModelPath(model);
 
@@ -451,7 +458,11 @@ class WhisperManager {
     });
 
     const startTime = Date.now();
-    const result = await this.serverManager.transcribe(audioBuffer, { language, initialPrompt });
+    const result = await this.serverManager.transcribe(audioBuffer, {
+      language,
+      initialPrompt,
+      signal: options.signal,
+    });
     const elapsed = Date.now() - startTime;
 
     debugLogger.logWhisperPipeline("transcribeViaServer - completed", {

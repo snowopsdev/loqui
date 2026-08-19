@@ -590,8 +590,8 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   };
 
   const cancelTranscription = () => {
-    // True backend abort for cloud uploads; the run-id bump still discards any
-    // late result from providers that can't be aborted.
+    // True backend abort for cloud and local uploads; the run-id bump still
+    // discards any late result from providers that can't be aborted (BYOK).
     if (activeRequestIdRef.current) {
       window.electronAPI.cancelUploadTranscription?.(activeRequestIdRef.current);
       activeRequestIdRef.current = null;

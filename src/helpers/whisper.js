@@ -77,7 +77,11 @@ class WhisperManager {
 
   // The GPU backend for every server start is resolved fresh from the current
   // env + installed packs, so enabling or removing a pack applies immediately
-  // instead of after an app restart. WHISPER_GPU_FAILED lists backends that
+  // instead of after an app restart. A pack on disk implies intent: the user
+  // downloaded it, so it engages unless WHISPER_*_ENABLED is explicitly set to
+  // "false" (an opt-out that survives without deleting the pack). Requiring
+  // the flag to be present stranded downloaded packs on silent CPU whenever
+  // the .env line was lost (#1340). WHISPER_GPU_FAILED lists backends that
   // crashed on this machine (persisted by ipcHandlers when the server falls
   // back to CPU); they stay off until the user retries or re-downloads, so a
   // doomed backend isn't re-attempted — and its model reload re-paid — on
@@ -85,12 +89,12 @@ class WhisperManager {
   resolveGpuStartOptions() {
     const failed = resolveFailedGpuBackends(process.env.WHISPER_GPU_FAILED);
     const useCuda =
-      process.env.WHISPER_CUDA_ENABLED === "true" &&
+      process.env.WHISPER_CUDA_ENABLED !== "false" &&
       !failed.includes("cuda") &&
       !!this._cudaBinaryManager?.isDownloaded();
     const useVulkan =
       !useCuda &&
-      process.env.WHISPER_VULKAN_ENABLED === "true" &&
+      process.env.WHISPER_VULKAN_ENABLED !== "false" &&
       !failed.includes("vulkan") &&
       !!this._vulkanBinaryManager?.isDownloaded();
     return { useCuda, useVulkan };

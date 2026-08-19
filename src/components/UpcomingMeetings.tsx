@@ -277,7 +277,7 @@ function SidebarCard({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center rounded-lg border border-border/40 bg-card/50 px-4 py-6 text-center dark:border-border-subtle/60 dark:bg-surface-2/60">
+    <div className="flex flex-col items-center rounded-lg border border-border bg-card/50 px-4 py-6 text-center dark:bg-surface-2/60">
       <Icon size={20} className="mb-2 text-muted-foreground/40" />
       {title && <p className="text-xs font-medium text-foreground/80">{title}</p>}
       {description && (

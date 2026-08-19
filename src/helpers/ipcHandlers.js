@@ -1107,7 +1107,15 @@ class IPCHandlers {
         set: Object.keys(setVars),
         cleared: clearVars.filter((k) => !process.env[k]),
       });
-      this.environmentManager.saveAllKeysToEnvFile().catch(() => {});
+      // A swallowed .env write failure here left GPU enablement flags silently
+      // out of sync with the packs on disk (#1340) — log which keys were lost.
+      this.environmentManager.saveAllKeysToEnvFile().catch((err) => {
+        debugLogger.error("Failed to persist startup env vars to .env", {
+          set: Object.keys(setVars),
+          clearRequested: clearVars,
+          error: err.message,
+        });
+      });
     }
   }
 

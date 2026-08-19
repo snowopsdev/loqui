@@ -61,6 +61,35 @@ test("string dates are accepted", async (t2) => {
   assert.equal(formatDateGroup(new Date(NOON_JUNE_15).toISOString(), t), "Today");
 });
 
+test("date-only event starts parse as the local calendar day, not UTC midnight", async () => {
+  const { parseEventDate } = await load();
+  const previousTimezone = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+
+  try {
+    // A UTC-midnight parse would land on June 14 in Los Angeles.
+    const parsed = parseEventDate("2024-06-15");
+    assert.equal(parsed.getFullYear(), 2024);
+    assert.equal(parsed.getMonth(), 5);
+    assert.equal(parsed.getDate(), 15);
+  } finally {
+    if (previousTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimezone;
+  }
+});
+
+test("timed event starts keep their instant and invalid values return null", async () => {
+  const { parseEventDate } = await load();
+
+  assert.equal(
+    parseEventDate("2024-06-15T10:00:00-07:00").getTime(),
+    Date.parse("2024-06-15T10:00:00-07:00")
+  );
+  assert.equal(parseEventDate("not-a-date"), null);
+  assert.equal(parseEventDate(""), null);
+  assert.equal(parseEventDate(null), null);
+});
+
 test("history groups zone-less SQLite timestamps as UTC near a local day boundary", async (t2) => {
   const { formatDateGroup } = await load();
   const previousTimezone = process.env.TZ;

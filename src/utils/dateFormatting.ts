@@ -1,3 +1,16 @@
+// Calendar events store all-day starts as date-only `YYYY-MM-DD` (Google's
+// `start.date`). The ECMAScript parser reads that form as UTC midnight, which
+// is still the previous local calendar day west of UTC, so date-only values
+// must be parsed as local dates.
+export function parseEventDate(value: string): Date | null {
+  if (typeof value !== "string" || !value) return null;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function normalizeDbDate(dateStr: string): Date {
   const hasExplicitZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(dateStr);
   const source = hasExplicitZone ? dateStr : `${dateStr}Z`;

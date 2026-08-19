@@ -9,6 +9,7 @@ import type { CalendarAttendee, CalendarEvent } from "../types/calendar";
 import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
 import { getMeetingJoinUrl } from "../helpers/meetingJoinUrl";
+import { parseEventDate } from "../utils/dateFormatting";
 
 interface UpcomingMeetingsProps {
   events: CalendarEvent[];
@@ -52,7 +53,8 @@ function groupEventsByDay(events: CalendarEvent[], now: Date): DayGroup[] {
   const groups: DayGroup[] = [];
   const byKey = new Map<string, DayGroup>();
   for (const event of events) {
-    const date = new Date(event.start_time);
+    const date = parseEventDate(event.start_time);
+    if (!date) continue;
     const key = date.toDateString();
     let group = byKey.get(key);
     if (!group) {

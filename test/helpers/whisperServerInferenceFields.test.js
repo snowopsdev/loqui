@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 
 const WhisperServerManager = require("../../src/helpers/whisperServer");
-const { INFERENCE_DECODER_FIELDS } = require("../../src/helpers/whisperServer");
+const { INFERENCE_DECODER_FIELDS } = WhisperServerManager;
 
 function startCapturingServer() {
   let captured = null;

@@ -20,17 +20,25 @@ export interface UploadSegment {
 
 // Serializes provider timing segments into the note.transcript JSON the
 // meeting path already stores, unlocking the Transcript tab and the
-// SRT/TXT/JSON/MD export for upload notes. Timestamps stay in relative
-// seconds — normalizeSegmentTimestamps only rebases epoch-ms values.
+// SRT/TXT/JSON/MD export for upload notes. Timestamps are stored on the same
+// epoch-ms base the meeting path writes (anchorMs + offset), NOT in relative
+// seconds: the record button on any note seeds a meeting recording from
+// note.transcript and appends Date.now()-stamped live segments, and a
+// mixed-base transcript defeats the export rebase (normalizeSegmentTimestamps
+// keys off min timestamp > 1e9), rendering garbage cue times. The rebase
+// subtracts the minimum on export, so pure-upload output is unchanged.
 // Undefined when there is nothing usable, so plain-text uploads stay exactly
 // as they were.
-export function buildUploadTranscript(segments?: UploadSegment[] | null): string | undefined {
+export function buildUploadTranscript(
+  segments?: UploadSegment[] | null,
+  anchorMs: number = Date.now()
+): string | undefined {
   if (!segments?.length) return undefined;
   const stored = segments
     .filter((seg) => seg.text?.trim() && Number.isFinite(seg.start))
     .map((seg) => ({
       text: seg.text.trim(),
-      timestamp: seg.start,
+      timestamp: anchorMs + seg.start * 1000,
       ...(seg.speaker ? { speakerName: seg.speaker } : {}),
     }));
   return stored.length ? JSON.stringify(stored) : undefined;
@@ -48,9 +56,10 @@ export function buildUploadTranscript(segments?: UploadSegment[] | null): string
 export function buildUploadNoteMetadata(
   diarization: DiarizationSettings,
   durationSeconds?: number | null,
-  segments?: UploadSegment[] | null
+  segments?: UploadSegment[] | null,
+  anchorMs?: number
 ) {
-  const transcript = buildUploadTranscript(segments);
+  const transcript = buildUploadTranscript(segments, anchorMs);
   const noteUpdates: Record<string, unknown> | null =
     diarization.enabled || transcript
       ? {

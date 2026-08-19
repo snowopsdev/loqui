@@ -284,7 +284,9 @@ class DiarizationManager {
   }
 
   async diarize(wavPath, options = {}) {
-    const { numSpeakers = -1, threshold = 0.55 } = options;
+    const { numSpeakers = -1, threshold = 0.55, signal = null } = options;
+
+    if (signal?.aborted) return [];
 
     const binaryPath = this.getBinaryPath();
     if (!binaryPath) {
@@ -361,6 +363,15 @@ class DiarizationManager {
         resolve([]);
       }, timeoutMs);
 
+      // A cancelled upload kills the child immediately (same stop the timeout
+      // path uses); the close handler below still fires and cleans up.
+      const onAbort = () => {
+        debugLogger.info("Diarization cancelled, stopping process");
+        gracefulStopProcess(proc);
+        resolve([]);
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+
       proc.stdout.on("data", (data) => {
         stdout += data.toString();
       });
@@ -371,6 +382,7 @@ class DiarizationManager {
 
       proc.on("close", (code) => {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
         untrack();
 
         if (code !== 0) {
@@ -389,6 +401,7 @@ class DiarizationManager {
 
       proc.on("error", (err) => {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
         untrack();
         debugLogger.warn("Diarization process error", { error: err.message });
         resolve([]);

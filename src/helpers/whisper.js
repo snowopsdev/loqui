@@ -388,6 +388,7 @@ class WhisperManager {
     return await this.transcribeViaServer(audioBlob, model, language, initialPrompt, {
       vadEnabled,
       vadConfig,
+      signal: options.signal,
     });
   }
 
@@ -447,7 +448,11 @@ class WhisperManager {
     });
 
     const startTime = Date.now();
-    const result = await this.serverManager.transcribe(audioBuffer, { language, initialPrompt });
+    const result = await this.serverManager.transcribe(audioBuffer, {
+      language,
+      initialPrompt,
+      signal: options.signal,
+    });
     const elapsed = Date.now() - startTime;
 
     debugLogger.logWhisperPipeline("transcribeViaServer - completed", {

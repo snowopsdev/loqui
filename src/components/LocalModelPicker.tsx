@@ -154,8 +154,11 @@ export default function LocalModelPicker({
       // Bootstrap auto-select, decided against current state when the download
       // finishes so a model picked while it ran is never stolen.
       downloadModel(modelId, (downloadedId) => {
-        const { selectedModel: current, downloadedModels: downloaded, knownModelIds: known } =
-          selectionStateRef.current;
+        const {
+          selectedModel: current,
+          downloadedModels: downloaded,
+          knownModelIds: known,
+        } = selectionStateRef.current;
         const selectionGone = known.has(current) && !downloaded.has(current);
         if (!current || selectionGone) {
           onModelSelect(downloadedId);

@@ -511,6 +511,9 @@ export default function TranscriptionModelPicker({
       normalizedBaseUrl !== normalizeBaseUrl(API_ENDPOINTS.TRANSCRIPTION_BASE) &&
       !knownProviderUrls.has(normalizedBaseUrl)
     );
+    // Reconcile null means the input needs no correction — echo the browsed
+    // input, not the committed pair, or browsing to the Custom tab (always
+    // reconciled as valid) would never display it.
     return (
       reconcileCloudProviderSelection({
         selectedProvider: browsedCloudProvider ?? selectedCloudProvider,
@@ -518,7 +521,10 @@ export default function TranscriptionModelPicker({
         allowedProviders: cloudProviders,
         customAllowed: !streamingOnly && providerAllowed("custom"),
         hasCustomUrl,
-      }) ?? { provider: selectedCloudProvider, model: selectedCloudModel }
+      }) ?? {
+        provider: browsedCloudProvider ?? selectedCloudProvider,
+        model: selectedCloudModel,
+      }
     );
   }, [
     availableCloudProviders,
@@ -762,14 +768,11 @@ export default function TranscriptionModelPicker({
     [providerAllowed]
   );
 
-  const handleLocalProviderChange = useCallback(
-    (providerId: string) => {
-      const tab = LOCAL_PROVIDER_TABS.find((t) => t.id === providerId);
-      if (tab?.disabled) return;
-      setInternalLocalProvider(providerId);
-    },
-    []
-  );
+  const handleLocalProviderChange = useCallback((providerId: string) => {
+    const tab = LOCAL_PROVIDER_TABS.find((t) => t.id === providerId);
+    if (tab?.disabled) return;
+    setInternalLocalProvider(providerId);
+  }, []);
 
   const handleCloudModelSelect = useCallback(
     (modelId: string) => {

@@ -69,8 +69,6 @@ interface ReasoningModelSelectorProps {
   setCustomReasoningApiKey?: (key: string) => void;
   setReasoningMode?: (mode: InferenceMode) => void;
   mode?: "cloud" | "local";
-  /** Retained for callers that use scope-specific provider model memory. */
-  onCloudProviderSelect?: (provider: string, fallbackModel: string) => void;
 }
 
 function GpuStatusBadge() {
@@ -335,7 +333,6 @@ export default function ReasoningModelSelector({
   setCustomReasoningApiKey,
   setReasoningMode: setReasoningModeProp,
   mode,
-  onCloudProviderSelect: _onCloudProviderSelect,
 }: ReasoningModelSelectorProps) {
   const { t } = useTranslation();
   const openaiApiKey = useSettingsStore((s) => s.openaiApiKey);
@@ -465,12 +462,18 @@ export default function ReasoningModelSelector({
 
   // A selection commits only on an explicit click: the model together with
   // the provider tab it was clicked under. Tab switching is pure browsing.
+  // Local models resolve their provider from the registry so an async select
+  // (e.g. a download finishing while another tab is browsed) can never commit
+  // a mismatched (provider, model) pair.
   const handleModelSelect = (modelId: string) => {
     if (!modelId) {
       setReasoningModel("");
       return;
     }
-    const provider = effectiveMode === "local" ? selectedLocalProvider : displayedCloudProvider;
+    const provider =
+      effectiveMode === "local"
+        ? (modelRegistry.getModel(modelId)?.provider.id ?? selectedLocalProvider)
+        : displayedCloudProvider;
     setLocalReasoningProvider(provider);
     setReasoningModel(modelId);
   };
@@ -499,12 +502,6 @@ export default function ReasoningModelSelector({
 
   const handleLocalProviderChange = (providerId: string) => {
     setSelectedLocalProvider(providerId);
-  };
-
-  const handleLocalModelSelect = (modelId: string) => {
-    const providerId = modelId ? modelRegistry.getModel(modelId)?.provider.id : undefined;
-    if (providerId) setLocalReasoningProvider(providerId);
-    setReasoningModel(modelId);
   };
 
   const renderModeIcon = (id: string) => {
@@ -551,164 +548,8 @@ export default function ReasoningModelSelector({
 
           {providerAllowed(displayedCloudProvider) && (
             <div>
-            {/* A model renders as selected only under its committed provider —
+              {/* A model renders as selected only under its committed provider —
                 free-form custom/OpenRouter ids can collide with registry ids. */}
-            {displayedCloudProvider === OPENROUTER_TAB ? (
-              <OpenAICompatiblePanel
-                key={OPENROUTER_TAB}
-                baseUrl={API_ENDPOINTS.OPENROUTER_BASE}
-                setBaseUrl={() => {}}
-                apiKey={openrouterApiKey}
-                setApiKey={setOpenrouterApiKey}
-                model={localReasoningProvider === OPENROUTER_TAB ? reasoningModel : ""}
-                setModel={(m) => {
-                  setLocalReasoningProvider(OPENROUTER_TAB);
-                  setReasoningModel(m);
-                }}
-                lockedBaseUrl
-                apiKeyRequired
-                getKeyUrl={OPENROUTER_KEYS_URL}
-              />
-            ) : displayedCloudProvider === "custom" ? (
-              <OpenAICompatiblePanel
-                key="custom"
-                baseUrl={cloudReasoningBaseUrl}
-                setBaseUrl={setCloudReasoningBaseUrl}
-                apiKey={customReasoningApiKey}
-                setApiKey={setCustomReasoningApiKey || (() => {})}
-                model={localReasoningProvider === "custom" ? reasoningModel : ""}
-                setModel={(m) => {
-                  setLocalReasoningProvider("custom");
-                  setReasoningModel(m);
-                }}
-                defaultBaseUrl={API_ENDPOINTS.OPENAI_BASE}
-              />
-            ) : (
-              <>
-                {displayedCloudProvider === "openai" && (
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between">
-                      <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <GetApiKeyLink url="https://platform.openai.com/api-keys" />
-                    </div>
-                    <ApiKeyInput
-                      apiKey={openaiApiKey}
-                      setApiKey={setOpenaiApiKey}
-                      label=""
-                      helpText=""
-                    />
-                  </div>
-                )}
-
-                {displayedCloudProvider === "anthropic" && (
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between">
-                      <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <GetApiKeyLink url="https://console.anthropic.com/settings/keys" />
-                    </div>
-                    <ApiKeyInput
-                      apiKey={anthropicApiKey}
-                      setApiKey={setAnthropicApiKey}
-                      label=""
-                      helpText=""
-                    />
-                  </div>
-                )}
-
-                {displayedCloudProvider === "gemini" && (
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between">
-                      <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <GetApiKeyLink url="https://aistudio.google.com/app/api-keys" />
-                    </div>
-                    <ApiKeyInput
-                      apiKey={geminiApiKey}
-                      setApiKey={setGeminiApiKey}
-                      label=""
-                      helpText=""
-                    />
-                  </div>
-                )}
-
-                {displayedCloudProvider === "groq" && (
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between">
-                      <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <GetApiKeyLink url="https://console.groq.com/keys" />
-                    </div>
-                    <ApiKeyInput
-                      apiKey={groqApiKey}
-                      setApiKey={setGroqApiKey}
-                      label=""
-                      helpText=""
-                    />
-                  </div>
-                )}
-
-                {displayedCloudProvider === "tinfoil" && (
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between">
-                      <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <GetApiKeyLink url="https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr" />
-                    </div>
-                    <ApiKeyInput
-                      apiKey={tinfoilApiKey}
-                      setApiKey={setTinfoilApiKey}
-                      label=""
-                      helpText=""
-                    />
-                  </div>
-                )}
-
-                {displayedCloudProvider === "corti" && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">{t("reasoning.corti.euOnly")}</p>
-                    <div className="flex items-baseline justify-between">
-                      <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                      <GetApiKeyLink url="https://www.corti.ai/?utm_source=referral&utm_campaign=openwhispr" />
-                    </div>
-                    <ApiKeyInput
-                      apiKey={cortiApiKey}
-                      setApiKey={setCortiApiKey}
-                      label=""
-                      helpText=""
-                    />
-                  </div>
-                )}
-
-                <div className="pt-3 space-y-2">
-                  <h4 className="text-sm font-medium text-foreground">
-                    {t("reasoning.selectModel")}
-                  </h4>
-                  <ModelCardList
-                    models={selectedCloudModels}
-                    selectedModel={
-                      localReasoningProvider === displayedCloudProvider ? reasoningModel : ""
-                    }
-                    onModelSelect={handleModelSelect}
-                  />
-                  {displayedCloudProvider === "tinfoil" && (
-                    <>
-                      {tinfoilModelsLoading && (
-                        <p className="text-xs text-muted-foreground">
-                          {t("reasoning.tinfoil.refreshingModels")}
-                        </p>
-                      )}
-                      {!tinfoilModelsLoading && tinfoilModelsError && (
-                        <p className="text-xs text-destructive">
-                          {t("reasoning.custom.unableToLoadModels")}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-          )}
-          {/*
-          {providerAllowed(displayedCloudProvider) && (
-            <div>
               {displayedCloudProvider === OPENROUTER_TAB ? (
                 <OpenAICompatiblePanel
                   key={OPENROUTER_TAB}
@@ -716,8 +557,11 @@ export default function ReasoningModelSelector({
                   setBaseUrl={() => {}}
                   apiKey={openrouterApiKey}
                   setApiKey={setOpenrouterApiKey}
-                  model={reasoningModel}
-                  setModel={setReasoningModel}
+                  model={localReasoningProvider === OPENROUTER_TAB ? reasoningModel : ""}
+                  setModel={(m) => {
+                    setLocalReasoningProvider(OPENROUTER_TAB);
+                    setReasoningModel(m);
+                  }}
                   lockedBaseUrl
                   apiKeyRequired
                   getKeyUrl={OPENROUTER_KEYS_URL}
@@ -729,8 +573,11 @@ export default function ReasoningModelSelector({
                   setBaseUrl={setCloudReasoningBaseUrl}
                   apiKey={customReasoningApiKey}
                   setApiKey={setCustomReasoningApiKey || (() => {})}
-                  model={reasoningModel}
-                  setModel={setReasoningModel}
+                  model={localReasoningProvider === "custom" ? reasoningModel : ""}
+                  setModel={(m) => {
+                    setLocalReasoningProvider("custom");
+                    setReasoningModel(m);
+                  }}
                   defaultBaseUrl={API_ENDPOINTS.OPENAI_BASE}
                 />
               ) : (
@@ -832,8 +679,10 @@ export default function ReasoningModelSelector({
                     </h4>
                     <ModelCardList
                       models={selectedCloudModels}
-                      selectedModel={reasoningModel}
-                      onModelSelect={setReasoningModel}
+                      selectedModel={
+                        localReasoningProvider === displayedCloudProvider ? reasoningModel : ""
+                      }
+                      onModelSelect={handleModelSelect}
                     />
                     {displayedCloudProvider === "tinfoil" && (
                       <>
@@ -854,7 +703,6 @@ export default function ReasoningModelSelector({
               )}
             </div>
           )}
-          */}
         </div>
       )}
 

@@ -32,6 +32,15 @@ const DEFAULT_WHISPER_THREADS = 4;
 const MAX_AUTO_WHISPER_THREADS = 12;
 const MAX_MANUAL_WHISPER_THREADS = 64;
 const AUTO_THREAD_RATIO = 0.75;
+// Decoder anti-hallucination thresholds sent with every /inference request. whisper.cpp's
+// defaults (entropy 2.4, logprob -1.0) let a mostly-silent 30s decode window pass the
+// repetition check and emit training-data outro boilerplate ("Thank you for watching",
+// "Продолжение следует..."). These values cut the hallucinated-tail rate from 2.25% to
+// 0.06% over 4,814 real dictations. See #1458.
+const INFERENCE_DECODER_FIELDS = Object.freeze({
+  entropy_thold: "2.8",
+  logprob_thold: "-1.25",
+});
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -854,6 +863,14 @@ class WhisperServerManager extends EventEmitter {
         `${language || "auto"}\r\n`
     );
 
+    for (const [name, value] of Object.entries(INFERENCE_DECODER_FIELDS)) {
+      parts.push(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
+          `${value}\r\n`
+      );
+    }
+
     // Add initial prompt for custom dictionary words
     if (initialPrompt) {
       parts.push(
@@ -1118,6 +1135,7 @@ class WhisperServerManager extends EventEmitter {
 
 module.exports = WhisperServerManager;
 module.exports.buildWhisperServerArgs = buildWhisperServerArgs;
+module.exports.INFERENCE_DECODER_FIELDS = INFERENCE_DECODER_FIELDS;
 module.exports.parseVulkanDevices = parseVulkanDevices;
 module.exports.resolveVulkanPinAction = resolveVulkanPinAction;
 module.exports.getVadSignature = getVadSignature;

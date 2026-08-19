@@ -56,7 +56,7 @@ test("Parakeet reports its packaged runtime as unsupported on macOS below 15.5",
     supported: false,
     code: "PARAKEET_UNSUPPORTED_OS",
     message:
-      "Parakeet requires macOS 15.5 or later. Use Whisper or cloud transcription on this Mac.",
+      "Parakeet requires macOS 15.5 or later. Use cloud transcription (or Whisper where supported) on this Mac.",
     minimumMacOSVersion: "15.5",
   });
 });
@@ -77,7 +77,7 @@ test("Parakeet refuses explicit server startup on unsupported macOS", async (t) 
     success: false,
     code: "PARAKEET_UNSUPPORTED_OS",
     reason:
-      "Parakeet requires macOS 15.5 or later. Use Whisper or cloud transcription on this Mac.",
+      "Parakeet requires macOS 15.5 or later. Use cloud transcription (or Whisper where supported) on this Mac.",
   });
   assert.equal(startCalls, 0);
 });
@@ -102,7 +102,7 @@ test("Parakeet refuses a missing-model download before filesystem or download se
     (error) =>
       error.code === "PARAKEET_UNSUPPORTED_OS" &&
       error.message ===
-        "Parakeet requires macOS 15.5 or later. Use Whisper or cloud transcription on this Mac."
+        "Parakeet requires macOS 15.5 or later. Use cloud transcription (or Whisper where supported) on this Mac."
   );
   assert.equal(modelStatusChecks, 0);
   assert.equal(modelDirectoryChecks, 0);

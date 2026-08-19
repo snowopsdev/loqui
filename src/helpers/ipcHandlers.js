@@ -2620,6 +2620,7 @@ class IPCHandlers {
             message: errorMessage,
           };
         }
+
         throw error;
       }
     });

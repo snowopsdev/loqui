@@ -30,7 +30,7 @@ function getParakeetCapability({ platform = process.platform, systemVersion } = 
   return {
     supported: false,
     code: PARAKEET_UNSUPPORTED_OS_CODE,
-    message: `Parakeet requires macOS ${PARAKEET_MINIMUM_MACOS_VERSION} or later. Use Whisper or cloud transcription on this Mac.`,
+    message: `Parakeet requires macOS ${PARAKEET_MINIMUM_MACOS_VERSION} or later. Use cloud transcription (or Whisper where supported) on this Mac.`,
     minimumMacOSVersion: PARAKEET_MINIMUM_MACOS_VERSION,
   };
 }

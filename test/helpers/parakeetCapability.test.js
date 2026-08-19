@@ -17,9 +17,19 @@ test("Parakeet rejects macOS below the packaged ONNX Runtime floor", () => {
     supported: false,
     code: "PARAKEET_UNSUPPORTED_OS",
     message:
-      "Parakeet requires macOS 15.5 or later. Use Whisper or cloud transcription on this Mac.",
+      "Parakeet requires macOS 15.5 or later. Use cloud transcription (or Whisper where supported) on this Mac.",
     minimumMacOSVersion: "15.5",
   });
+});
+
+test("Parakeet treats a missing system-version API as supported (plain Node)", (t) => {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "getSystemVersion");
+  delete process.getSystemVersion;
+  t.after(() => {
+    if (descriptor) Object.defineProperty(process, "getSystemVersion", descriptor);
+  });
+
+  assert.deepEqual(getParakeetCapability({ platform: "darwin" }), { supported: true });
 });
 
 test("Parakeet capability gating does not change Windows or Linux", () => {

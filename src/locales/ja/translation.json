@@ -29,6 +29,10 @@
       "speakerDetection": {
         "title": "話者を識別してラベル付け",
         "description": "オフにすると、文字起こしには「あなた」と「他の人」と表示されます"
+      },
+      "autoEnd": {
+        "title": "停止し忘れた録音を自動終了",
+        "description": "通話が終わったと判断されると、キャンセル可能なカウントダウンの後に会議の録音を自動的に停止します"
       }
     }
   },
@@ -2188,7 +2192,9 @@
         "anthropic_claude_sonnet_4_5": "前世代の Sonnet モデル",
         "anthropic_claude_haiku_4_5": "高速でフロンティアに近い知能",
         "gemini_gemini_3_5_flash": "最新の高速で高性能な Gemini モデル",
+        "gemini_gemini_3_5_flash_lite": "最速かつ最も低コストの 3.5 モデル",
         "gemini_gemini_3_1_pro_preview": "複雑な推論向けの次世代フラッグシップモデル",
+        "gemini_gemini_3_1_flash_lite": "フロンティア級の性能を低コストで",
         "gemini_gemini_3_flash_preview": "超高速・高性能の次世代モデル",
         "gemini_gemini_2_5_flash_lite": "最低レイテンシーとコスト",
         "gemini_gemma_4_31b_it": "Google 最大の Gemma 4、31B デンス、256K コンテキスト",
@@ -2609,7 +2615,8 @@
       "title": "議事録",
       "description": "文字起こしと構造化されたサマリー",
       "back": "戻る",
-      "restrictedByOrg": "会議の文字起こしは組織によって制限されています。"
+      "restrictedByOrg": "会議の文字起こしは組織によって制限されています。",
+      "autoEnded": "会議の終了後、録音は自動的に停止しました。"
     },
     "meetingPill": {
       "returnToNote": "録音に戻る",
@@ -3517,6 +3524,15 @@
       "underway": "会議はすでに進行中のようです。メモを取りますか？"
     },
     "start": "メモを取る",
-    "join": "参加して文字起こし"
+    "join": "参加して文字起こし",
+    "autoEnd": {
+      "title": "会議が終了した可能性があります",
+      "body": {
+        "micReleased": "ほかのアプリはマイクを使用していません。録音は{{seconds}}秒後に停止します。",
+        "silence": "音声が検出されません。録音は{{seconds}}秒後に停止します。",
+        "processExit": "会議アプリが終了しました。録音は{{seconds}}秒後に停止します。"
+      },
+      "keep": "録音を続ける"
+    }
   }
 }

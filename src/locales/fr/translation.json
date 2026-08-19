@@ -29,6 +29,10 @@
       "speakerDetection": {
         "title": "Identifier et étiqueter les intervenants",
         "description": "Lorsque désactivé, les transcriptions affichent « Vous » et « Autres »"
+      },
+      "autoEnd": {
+        "title": "Terminer les enregistrements oubliés",
+        "description": "Arrête automatiquement les enregistrements de réunion quand l'appel semble terminé, après un compte à rebours annulable"
       }
     }
   },
@@ -2280,7 +2284,9 @@
         "anthropic_claude_sonnet_4_5": "Génération Sonnet précédente",
         "anthropic_claude_haiku_4_5": "Rapide avec une intelligence de pointe",
         "gemini_gemini_3_5_flash": "Dernier modèle Gemini rapide et très performant",
+        "gemini_gemini_3_5_flash_lite": "Le modèle 3.5 le plus rapide et économique",
         "gemini_gemini_3_1_pro_preview": "Modèle phare nouvelle génération pour le raisonnement complexe",
+        "gemini_gemini_3_1_flash_lite": "Performances de pointe à faible coût",
         "gemini_gemini_3_flash_preview": "Modèle nouvelle génération ultra-rapide et très performant",
         "gemini_gemini_2_5_flash_lite": "Latence et coût les plus faibles",
         "gemini_gemma_4_31b_it": "Le plus grand Gemma 4 de Google, 31B dense, contexte 256K",
@@ -2832,7 +2838,8 @@
       "title": "Notes de réunion",
       "description": "Transcriptions et résumés structurés",
       "back": "Retour",
-      "restrictedByOrg": "La transcription des réunions est restreinte par votre organisation."
+      "restrictedByOrg": "La transcription des réunions est restreinte par votre organisation.",
+      "autoEnded": "L'enregistrement s'est arrêté automatiquement à la fin de votre réunion."
     },
     "meetingPill": {
       "returnToNote": "Revenir à l'enregistrement",
@@ -3517,6 +3524,15 @@
       "underway": "On dirait que votre réunion est déjà en cours. Vous voulez prendre des notes ?"
     },
     "start": "Prendre des notes",
-    "join": "Rejoindre et transcrire"
+    "join": "Rejoindre et transcrire",
+    "autoEnd": {
+      "title": "La réunion est peut-être terminée",
+      "body": {
+        "micReleased": "Aucune autre app n'utilise votre micro. L'enregistrement s'arrêtera dans {{seconds}}s.",
+        "silence": "Aucun son détecté. L'enregistrement s'arrêtera dans {{seconds}}s.",
+        "processExit": "Votre app de réunion s'est fermée. L'enregistrement s'arrêtera dans {{seconds}}s."
+      },
+      "keep": "Continuer l’enregistrement"
+    }
   }
 }

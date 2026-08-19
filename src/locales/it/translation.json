@@ -29,6 +29,10 @@
       "speakerDetection": {
         "title": "Identifica ed etichetta i partecipanti",
         "description": "Se disattivato, le trascrizioni mostrano \"Tu\" e \"Altri\""
+      },
+      "autoEnd": {
+        "title": "Termina le registrazioni dimenticate",
+        "description": "Interrompe automaticamente le registrazioni delle riunioni quando la chiamata sembra finita, dopo un conto alla rovescia annullabile"
       }
     }
   },
@@ -2188,7 +2192,9 @@
         "anthropic_claude_sonnet_4_5": "Generazione Sonnet precedente",
         "anthropic_claude_haiku_4_5": "Veloce con intelligenza quasi da frontiera",
         "gemini_gemini_3_5_flash": "Ultimo modello Gemini veloce e ad alta capacità",
+        "gemini_gemini_3_5_flash_lite": "Il modello 3.5 più veloce ed economico",
         "gemini_gemini_3_1_pro_preview": "Modello di punta di nuova generazione per ragionamento complesso",
+        "gemini_gemini_3_1_flash_lite": "Prestazioni di punta a basso costo",
         "gemini_gemini_3_flash_preview": "Modello di nuova generazione ultra-veloce e ad alta capacità",
         "gemini_gemini_2_5_flash_lite": "Latenza e costo minimi",
         "gemini_gemma_4_31b_it": "Il più grande Gemma 4 di Google, 31B denso, contesto 256K",
@@ -2625,7 +2631,8 @@
       "title": "Note delle riunioni",
       "description": "Trascrizioni e riassunti strutturati",
       "back": "Indietro",
-      "restrictedByOrg": "La trascrizione delle riunioni è limitata dalla tua organizzazione."
+      "restrictedByOrg": "La trascrizione delle riunioni è limitata dalla tua organizzazione.",
+      "autoEnded": "La registrazione si è interrotta automaticamente al termine della riunione."
     },
     "meetingPill": {
       "returnToNote": "Torna alla registrazione",
@@ -3517,6 +3524,15 @@
       "underway": "Sembra che la tua riunione sia già in corso. Vuoi prendere appunti?"
     },
     "start": "Prendi appunti",
-    "join": "Partecipa e trascrivi"
+    "join": "Partecipa e trascrivi",
+    "autoEnd": {
+      "title": "La riunione potrebbe essere finita",
+      "body": {
+        "micReleased": "Nessun'altra app sta usando il microfono. La registrazione si fermerà tra {{seconds}}s.",
+        "silence": "Nessun audio rilevato. La registrazione si fermerà tra {{seconds}}s.",
+        "processExit": "L'app della riunione è stata chiusa. La registrazione si fermerà tra {{seconds}}s."
+      },
+      "keep": "Continua a registrare"
+    }
   }
 }

@@ -81,8 +81,6 @@ test("clearing the failure re-enables the backend (Retry)", () => {
 });
 
 test("a downloaded pack with a lost env flag still engages (#1340)", () => {
-  // A pack on disk implies intent: losing the WHISPER_*_ENABLED line from .env
-  // must not strand the pack on silent CPU.
   const vulkanOnly = managerWith({ vulkanDownloaded: true });
   assert.deepEqual(vulkanOnly.resolveGpuStartOptions(), { useCuda: false, useVulkan: true });
 

@@ -717,7 +717,7 @@ function LlmsTabs({
         <TabPanel active={tab === "chatIntelligence"}>{renderChatIntelligence()}</TabPanel>
       )}
 
-      {/* Applies to every scope above — the shared abort timeout for non-streaming requests. */}
+      {/* Applies to every scope above — the timeout setting is global, not per-scope. */}
       <div className="border-t border-border/40 pt-4 mt-4">
         <SettingsPanel>
           <SettingsPanelRow>

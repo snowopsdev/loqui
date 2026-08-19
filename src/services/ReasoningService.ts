@@ -595,9 +595,6 @@ class ReasoningService extends BaseReasoningService {
 
     this.streamAbortController = new AbortController();
     const controller = this.streamAbortController;
-    // The configured setting raises the ceiling for slow self-hosted models;
-    // it must never lower streaming below its historical 60s budget, since
-    // that would be a regression for existing users.
     const timeoutSeconds = Math.max(
       resolveLlmRequestTimeoutSeconds(getSettings().llmRequestTimeoutSeconds),
       LLM_STREAMING_TIMEOUT_FLOOR_SECONDS

@@ -636,9 +636,9 @@ export interface SettingsState
   remoteTranscriptionModel: string;
   cleanupMode: InferenceMode;
   cleanupRemoteUrl: string;
-  // Abort timeout for every non-streaming LLM request (cleanup, note formatting,
-  // agent tool calls, self-hosted LAN calls), in seconds. Clamped to a sane range
-  // at the point of use — see src/helpers/llmRequestTimeout.js.
+  // Abort timeout for LLM requests (cleanup, note formatting, agent tool calls,
+  // self-hosted LAN calls), in seconds. Clamped to a sane range at the point of
+  // use, and floored at 60s for streaming — see src/helpers/llmRequestTimeout.js.
   llmRequestTimeoutSeconds: number;
 
   meetingTranscriptionMode: InferenceMode;

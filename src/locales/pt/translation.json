@@ -29,6 +29,10 @@
       "speakerDetection": {
         "title": "Identificar e rotular participantes",
         "description": "Quando desativado, as transcrições mostram \"Você\" e \"Outros\""
+      },
+      "autoEnd": {
+        "title": "Encerrar gravações esquecidas",
+        "description": "Para as gravações de reunião automaticamente quando a chamada parece ter terminado, após uma contagem regressiva que você pode cancelar"
       }
     }
   },
@@ -1007,8 +1011,10 @@
     "installCommands": {
       "archLinux": "# Arch Linux",
       "debianUbuntu": "# Debian / Ubuntu",
+      "debianUbuntuPop": "# Debian / Ubuntu / Pop!_OS",
       "debianUbuntuMint": "# Debian / Ubuntu / Mint",
-      "fedoraRhel": "# Fedora / RHEL"
+      "fedoraRhel": "# Fedora / RHEL",
+      "openSuse": "# openSUSE Tumbleweed / Leap"
     },
     "installPrefix": "Para colagem automática de texto, instale",
     "methodReady": "para colagem automática de texto",
@@ -1024,6 +1030,7 @@
     "waylandClipboardTitle": "Modo área de transferência no Wayland",
     "windowsReady": "O Windows suporta colagem automática nativamente. Nenhuma configuração necessária!",
     "withoutToolPrefix": "Sem essa ferramenta, o OpenWhispr copiará o texto para a área de transferência. Você poderá colar manualmente com Ctrl+V.",
+    "wtypeFallbackDescription": "O wtype é o método de colagem automática preferido para este compositor wlroots. Há uma alternativa disponível, mas ela pode ser menos confiável.",
     "xwaylandAppsOnly": "a colagem automática funciona apenas para apps XWayland"
   },
   "promptStudio": {
@@ -1102,7 +1109,7 @@
     "sections": {
       "account": {
         "description": "Perfil e login",
-        "label": "Conta"
+        "label": "Perfil"
       },
       "plansBilling": {
         "description": "Planos, uso e cobrança",
@@ -1217,7 +1224,6 @@
         "signOut": "Sair",
         "signingOut": "Saindo..."
       },
-      "signedIn": "Conectado",
       "title": "Conta",
       "toasts": {
         "approachingLimit": {
@@ -1265,7 +1271,7 @@
             "Compartilhe notas com links públicos",
             "Acesso pessoal à API",
             "Integração MCP em todos os seus apps",
-            "Aplicativo móvel (iOS em breve)",
+            "Aplicativo móvel",
             "Suporte por e-mail"
           ],
           "cta": "Começar",
@@ -1281,9 +1287,8 @@
           "includesPrefix": "Todos os recursos do Pro +",
           "badge": "Mais popular",
           "features": [
-            "Espaços de equipe para notas compartilhadas",
-            "Funções e gestão de membros do espaço de trabalho",
             "Gravações de reuniões ilimitadas",
+            "Funções e gestão de membros do espaço de trabalho",
             "Modo agente",
             "Converse com seus dados",
             "Suporte prioritário"
@@ -1607,6 +1612,7 @@
         "recheck": "Verificar novamente",
         "copy": "Copiar",
         "ydotoolDesc": "Ferramenta de automação de entrada para Wayland",
+        "wtypeDesc": "Ferramenta de automação de entrada preferida em compositores wlroots",
         "ydotooldDesc": "Daemon do ydotool (pacote separado no Ubuntu/Pop!_OS)",
         "uinputDesc": "Acesso ao dispositivo de entrada do kernel",
         "uinputRuleFound": "Regra presente mas não ativa. Uma reinicialização deve resolver.",
@@ -1624,6 +1630,11 @@
             "step1Desc": "Use o gestor de pacotes da sua distribuição para instalar o ydotool.",
             "step2Title": "Verificar a instalação",
             "step2Desc": "Verifique se o ydotool está disponível no seu PATH."
+          },
+          "wtype": {
+            "step1Title": "Instalar o wtype",
+            "step1Desc": "O wtype é o método principal de colagem automática no Hyprland, Sway e outros compositores wlroots.",
+            "step2Title": "Verificar a instalação"
           },
           "ydotoold": {
             "step1Title": "Instalar o ydotoold",
@@ -1773,7 +1784,7 @@
       "lastSynced": "Última sincronização {{time}}",
       "minutesAgo": "há {{count}}min",
       "audioRetention": "Retenção de áudio",
-      "audioRetentionDescription": "Armazena gravações de áudio localmente para retranscrição e download. Os arquivos são excluídos automaticamente após o período de retenção.",
+      "audioRetentionDescription": "Armazena o áudio de ditado localmente para retranscrição e download. Os arquivos são excluídos automaticamente após o período de retenção. O áudio de reuniões nunca é armazenado.",
       "audioRetentionDisabled": "Desativado",
       "retentionDays_one": "{{count}} dia",
       "retentionDays_other": "{{count}} dias",
@@ -2164,7 +2175,9 @@
         "anthropic_claude_sonnet_4_5": "Geração anterior do Sonnet",
         "anthropic_claude_haiku_4_5": "Rápido com inteligência quase de ponta",
         "gemini_gemini_3_5_flash": "Modelo Gemini mais recente, rápido e de alta capacidade",
+        "gemini_gemini_3_5_flash_lite": "O modelo 3.5 mais rápido e econômico",
         "gemini_gemini_3_1_pro_preview": "Modelo principal de nova geração para raciocínio complexo",
+        "gemini_gemini_3_1_flash_lite": "Desempenho de ponta a baixo custo",
         "gemini_gemini_3_flash_preview": "Modelo de nova geração ultrarápido e de alta capacidade",
         "gemini_gemini_2_5_flash_lite": "Menor latência e custo",
         "gemini_gemma_4_31b_it": "O maior Gemma 4 do Google, 31B denso, contexto 256K",
@@ -2360,8 +2373,8 @@
       "actions": "Ações"
     },
     "spaces": {
-      "privateSpaces": "Espaços privados",
-      "teamSpaces": "Espaços de equipe",
+      "privateSpaces": "Notas privadas",
+      "teamSpaces": "Teamspaces",
       "personal": "Pessoal",
       "privateTooltip": "Somente você pode ver seu espaço pessoal",
       "newSpace": "Novo espaço de equipe",
@@ -2622,7 +2635,8 @@
       "title": "Notas de reunião",
       "description": "Transcrições e resumos estruturados",
       "back": "Voltar",
-      "restrictedByOrg": "A transcrição de reuniões está restrita pela sua organização."
+      "restrictedByOrg": "A transcrição de reuniões está restrita pela sua organização.",
+      "autoEnded": "A gravação parou automaticamente após o fim da reunião."
     },
     "meetingPill": {
       "returnToNote": "Voltar à gravação",
@@ -2747,14 +2761,15 @@
         "identifying": "Identificando participantes",
         "notLabeled": "Participantes sem rótulo",
         "finalizing": "Finalizando participantes…",
-        "justYou": "só você",
-        "defaultingHint": "assumindo 1 outra pessoa",
+        "justYou": "Só você",
+        "assumedHint": "assumindo 2 — ajuste se houver mais",
+        "speakersLabel": "Participantes",
+        "labelToggle": "Rotular participantes",
         "toggleAria": "Alternar identificação de participantes para esta gravação",
         "incAria": "Aumentar número esperado de participantes",
-        "decAria": "Diminuir número esperado de participantes",
-        "othersInCall_one": "{{count}} outra pessoa na chamada",
-        "othersInCall_other": "{{count}} outras pessoas na chamada"
-      }
+        "decAria": "Diminuir número esperado de participantes"
+      },
+      "consentNotice": "Sempre obtenha consentimento ao gravar outras pessoas"
     },
     "overview": {
       "subtitle": {
@@ -3417,7 +3432,6 @@
       "description": "Um espaço de trabalho reúne os membros e a cobrança da sua organização. Crie espaços de equipe dentro dele para notas compartilhadas.",
       "nameLabel": "Nome do espaço de trabalho",
       "namePlaceholder": "Acme Corp",
-      "freePlanNote": "Novos espaços de trabalho começam no plano Free. Os espaços de equipe exigem um plano do espaço de trabalho.",
       "submit": "Criar espaço de trabalho",
       "submitting": "Criando…",
       "errorTitle": "Não foi possível criar o espaço de trabalho"
@@ -3514,6 +3528,15 @@
       "underway": "Parece que sua reunião já está em andamento. Quer fazer anotações?"
     },
     "start": "Fazer anotações",
-    "join": "Entrar e transcrever"
+    "join": "Entrar e transcrever",
+    "autoEnd": {
+      "title": "A reunião pode ter terminado",
+      "body": {
+        "micReleased": "Nenhum outro app está usando o microfone. A gravação vai parar em {{seconds}}s.",
+        "silence": "Nenhum áudio detectado. A gravação vai parar em {{seconds}}s.",
+        "processExit": "Seu app de reunião foi fechado. A gravação vai parar em {{seconds}}s."
+      },
+      "keep": "Continuar gravando"
+    }
   }
 }

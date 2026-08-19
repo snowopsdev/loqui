@@ -4,6 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
 const debugLogger = require("./debugLogger");
+const { PARAKEET_UNSUPPORTED_OS_CODE } = require("./parakeetCapability");
 const { broadcastToWindows } = require("./windowBroadcast");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
@@ -2960,6 +2961,13 @@ class IPCHandlers {
           return {
             success: false,
             error: "model_not_found",
+            message: errorMessage,
+          };
+        }
+        if (error.code === PARAKEET_UNSUPPORTED_OS_CODE) {
+          return {
+            success: false,
+            error: error.code,
             message: errorMessage,
           };
         }

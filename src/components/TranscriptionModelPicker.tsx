@@ -39,6 +39,7 @@ import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import { getCachedPlatform } from "../utils/platform";
 import logger from "../utils/logger";
+import type { ParakeetCheckResult } from "../types/electron";
 
 interface LocalModel {
   model: string;
@@ -380,6 +381,7 @@ export default function TranscriptionModelPicker({
   const effectiveLocal = mode === "local" ? true : mode === "cloud" ? false : useLocalWhisper;
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [parakeetModels, setParakeetModels] = useState<LocalModel[]>([]);
+  const [parakeetCapability, setParakeetCapability] = useState<ParakeetCheckResult | null>(null);
   const [browsedCloudProvider, setBrowsedCloudProvider] = useState<string | null>(null);
   const [internalLocalProvider, setInternalLocalProvider] = useState(selectedLocalProvider);
   const hasLoadedRef = useRef(false);
@@ -406,6 +408,35 @@ export default function TranscriptionModelPicker({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync prop→state: only re-run when the prop changes
   }, [selectedLocalProvider]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    window.electronAPI
+      ?.checkParakeetInstallation?.()
+      .then((capability) => {
+        if (!cancelled) setParakeetCapability(capability);
+      })
+      .catch((error) => {
+        logger.error("Failed to check Parakeet compatibility", { error }, "models");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (parakeetCapability?.supported !== false) return;
+
+    // Tabs are pure browse state, so the browsed tab and the committed
+    // provider must each leave "nvidia" on their own: moving the tab off the
+    // disabled Parakeet entry keeps the UI usable, while committing "whisper"
+    // is what actually reroutes transcription on unsupported Macs.
+    if (internalLocalProvider === "nvidia") setInternalLocalProvider("whisper");
+    if (selectedLocalProvider === "nvidia") onLocalProviderSelect?.("whisper");
+  }, [internalLocalProvider, onLocalProviderSelect, parakeetCapability, selectedLocalProvider]);
+
   const localModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const parakeetModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const loadLocalModelsRef = useRef<(() => Promise<void>) | null>(null);
@@ -440,6 +471,23 @@ export default function TranscriptionModelPicker({
     );
     return filterByokProviderOptionsByPolicy(tabs, "transcription", policyState);
   }, [availableCloudProviders, policyState, streamingOnly, t]);
+  const localProviderTabs = useMemo(
+    () =>
+      LOCAL_PROVIDER_TABS.map((provider) =>
+        provider.id === "nvidia" && parakeetCapability?.supported === false
+          ? {
+              ...provider,
+              disabled: true,
+              disabledLabel: parakeetCapability.minimumMacOSVersion
+                ? t("transcription.parakeet.requiresMacOS", {
+                    version: parakeetCapability.minimumMacOSVersion,
+                  })
+                : t("transcription.parakeet.unavailable"),
+            }
+          : provider
+      ),
+    [parakeetCapability, t]
+  );
 
   useEffect(() => {
     selectedLocalModelRef.current = selectedLocalModel;
@@ -769,11 +817,14 @@ export default function TranscriptionModelPicker({
     [providerAllowed]
   );
 
-  const handleLocalProviderChange = useCallback((providerId: string) => {
-    const tab = LOCAL_PROVIDER_TABS.find((t) => t.id === providerId);
-    if (tab?.disabled) return;
-    setInternalLocalProvider(providerId);
-  }, []);
+  const handleLocalProviderChange = useCallback(
+    (providerId: string) => {
+      const tab = localProviderTabs.find((candidate) => candidate.id === providerId);
+      if (tab?.disabled) return;
+      setInternalLocalProvider(providerId);
+    },
+    [localProviderTabs]
+  );
 
   const handleCloudModelSelect = useCallback(
     (modelId: string) => {
@@ -1211,7 +1262,7 @@ export default function TranscriptionModelPicker({
       ) : (
         <>
           <ProviderTabs
-            providers={LOCAL_PROVIDER_TABS}
+            providers={localProviderTabs}
             selectedId={internalLocalProvider}
             onSelect={handleLocalProviderChange}
             colorScheme="purple"

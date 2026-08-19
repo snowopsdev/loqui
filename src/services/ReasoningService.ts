@@ -315,10 +315,6 @@ class ReasoningService extends BaseReasoningService {
 
     const response = await withRetry(async () => {
       const controller = new AbortController();
-      // Self-hosted/local models can legitimately take well past the 30s default
-      // to format a long note; the setting is clamped to a sane range in case of
-      // a stray or hand-edited value. Streaming requests don't go through here
-      // (see processTextStreaming), but read the same setting with its own floor.
       const timeoutSeconds = resolveLlmRequestTimeoutSeconds(
         getSettings().llmRequestTimeoutSeconds
       );

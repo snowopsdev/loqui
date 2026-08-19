@@ -1841,6 +1841,10 @@
         "noteFormatting": "Formattazione note",
         "chatIntelligence": "Chat",
         "dictationTranslation": "Traduzione"
+      },
+      "requestTimeout": {
+        "label": "Timeout della richiesta (secondi)",
+        "description": "Per quanto tempo attendere una risposta prima di rinunciare. I modelli self-hosted o locali possono richiedere più dei 30 s predefiniti, soprattutto per le note lunghe."
       }
     },
     "noteFormatting": {

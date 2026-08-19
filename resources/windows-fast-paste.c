@@ -260,8 +260,11 @@ int main(int argc, char* argv[]) {
 
     /* Restore the captured target to the foreground before pasting. If it is
        gone or can't be restored we fall through to whatever is foreground now,
-       which is the pre-#859 behavior. */
-    if (restoreWindow && RestoreForegroundWindow(restoreWindow)) {
+       which is the pre-#859 behavior. The settle sleep only applies when a
+       window switch actually happened — in the common case where the target
+       never lost the foreground, the paste goes out immediately. */
+    if (restoreWindow && GetForegroundWindow() != restoreWindow &&
+        RestoreForegroundWindow(restoreWindow)) {
         Sleep(20);
     }
 

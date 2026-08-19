@@ -548,7 +548,9 @@
     },
     "parakeet": {
       "multilingual": "25 言語対応",
-      "english": "英語"
+      "english": "英語",
+      "requiresMacOS": "macOS {{version}}+",
+      "unavailable": "利用不可"
     },
     "apiKeyOptional": "API キー（任意）",
     "getKey": "キーを取得 ->",

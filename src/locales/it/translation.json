@@ -548,7 +548,9 @@
     },
     "parakeet": {
       "multilingual": "25 lingue",
-      "english": "Inglese"
+      "english": "Inglese",
+      "requiresMacOS": "macOS {{version}}+",
+      "unavailable": "Non disponibile"
     },
     "apiKeyOptional": "Chiave API (opzionale)",
     "getKey": "Ottieni chiave ->",

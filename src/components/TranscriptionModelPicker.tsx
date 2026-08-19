@@ -473,12 +473,14 @@ export default function TranscriptionModelPicker({
               ...provider,
               disabled: true,
               disabledLabel: parakeetCapability.minimumMacOSVersion
-                ? `macOS ${parakeetCapability.minimumMacOSVersion}+`
-                : "Unavailable",
+                ? t("transcription.parakeet.requiresMacOS", {
+                    version: parakeetCapability.minimumMacOSVersion,
+                  })
+                : t("transcription.parakeet.unavailable"),
             }
           : provider
       ),
-    [parakeetCapability]
+    [parakeetCapability, t]
   );
 
   useEffect(() => {

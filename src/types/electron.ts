@@ -1994,6 +1994,7 @@ declare global {
         baseUrl: string;
         model: string;
         diarize?: boolean;
+        timestamps?: boolean;
         provider?: string;
         language?: string;
         environment?: string;
@@ -2006,6 +2007,7 @@ declare global {
         text?: string;
         error?: string;
         diarized?: boolean;
+        segments?: Array<{ text: string; start: number; end: number; speaker?: string }>;
       }>;
 
       // Usage limit events

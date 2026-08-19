@@ -651,7 +651,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
         buildTranscriptionConfig(),
         diarization,
         currentFile.durationSeconds,
-        { requestId }
+        { requestId, timestamps: true }
       ).finally(() => {
         if (activeRequestIdRef.current === requestId) activeRequestIdRef.current = null;
       });
@@ -687,6 +687,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
           folderId: selectedFolderId ? Number(selectedFolderId) : null,
           diarization,
           durationSeconds: res.durationSeconds,
+          segments: res.segments,
         });
         if (runId !== runIdRef.current) return;
         if (noteRes.success && noteRes.note) setNoteId(noteRes.note.id);

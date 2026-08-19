@@ -431,6 +431,7 @@ export default function TranscriptionModelPicker({
     setInternalLocalProvider("whisper");
     onLocalProviderSelect?.("whisper");
   }, [internalLocalProvider, onLocalProviderSelect, parakeetCapability]);
+
   const localModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const parakeetModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const loadLocalModelsRef = useRef<(() => Promise<void>) | null>(null);

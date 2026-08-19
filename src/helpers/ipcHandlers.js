@@ -7335,12 +7335,13 @@ class IPCHandlers {
         // capture above.
         if (!meetingSystemAudioHeard) {
           if (!meetingMicDiarizationStream) {
+            const receivedAt = Date.now();
             meetingMicDiarizationPath = path.join(
               os.tmpdir(),
-              `ow-diarize-raw-mic-${Date.now()}.pcm`
+              `ow-diarize-raw-mic-${receivedAt}.pcm`
             );
             meetingMicDiarizationStream = fs.createWriteStream(meetingMicDiarizationPath);
-            meetingMicDiarizationStartedAt = Date.now();
+            meetingMicDiarizationStartedAt = receivedAt;
           }
           meetingMicDiarizationStream.write(outboundBuffer);
         }
@@ -10466,10 +10467,15 @@ class IPCHandlers {
           sIdx++;
         }
 
+        // Mirrors the mic-mode single-cluster softening in mergeWithTranscript:
+        // every segment stays "you", so persisting an embedding keyed to a
+        // cluster id that owns no segments would leave the note inconsistent.
+        const micSingleClusterSoftened = diarizedSource === "mic" && speakerSet.size === 1;
+
         let speakerEmbeddingsMap = null;
         const speakerEmb = require("./speakerEmbeddings");
         try {
-          if (speakerEmb.isAvailable() && tmpWav) {
+          if (!micSingleClusterSoftened && speakerEmb.isAvailable() && tmpWav) {
             const speakerIds = [...new Set(diarizationSegments.map((s) => s.speaker))];
             speakerEmbeddingsMap = {};
 

@@ -26,6 +26,7 @@ interface HistoryViewProps {
   deleteTranscription: (id: number) => void;
   clearAllTranscriptions: () => void;
   onOpenSettings: (section?: string) => void;
+  onOpenIntegrations: () => void;
   onShowAudioInFolder: (id: number) => void;
   onRetryTranscription: (id: number, options?: { isRecover?: boolean }) => Promise<void>;
   showDiscarded: boolean;
@@ -45,6 +46,7 @@ export default function HistoryView({
   deleteTranscription,
   clearAllTranscriptions,
   onOpenSettings,
+  onOpenIntegrations,
   onShowAudioInFolder,
   onRetryTranscription,
   showDiscarded,
@@ -171,16 +173,14 @@ export default function HistoryView({
           </div>
         )}
 
-        <div className={cn(isConnected ? "flex gap-6" : "")}>
-          <div className={cn("min-w-0", isConnected ? "flex-1" : "w-full")}>
-            {isConnected && (
-              <div className="flex items-center gap-1.5 pb-2.5">
-                <Mic size={12} className="text-muted-foreground" />
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                  {t("upcoming.transcriptions")}
-                </span>
-              </div>
-            )}
+        <div className="flex gap-6">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 pb-2.5">
+              <Mic size={12} className="text-muted-foreground" />
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                {t("upcoming.transcriptions")}
+              </span>
+            </div>
             {!dataRetentionEnabled && (
               <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10 px-3.5 py-2.5 flex items-center gap-2.5">
                 <span className="text-amber-600 dark:text-amber-400 shrink-0 text-sm">⊘</span>
@@ -340,13 +340,16 @@ export default function HistoryView({
             )}
           </div>
 
-          {isConnected && (
-            <div className="w-64 shrink-0 hidden sm:block">
-              <div className="sticky top-4">
-                <UpcomingMeetings events={events} isLoading={eventsLoading} />
-              </div>
+          <div className="w-64 shrink-0 hidden sm:block">
+            <div className="sticky top-4">
+              <UpcomingMeetings
+                events={events}
+                isLoading={eventsLoading}
+                isConnected={isConnected}
+                onConnectCalendar={onOpenIntegrations}
+              />
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

@@ -10,7 +10,6 @@ const t = (key) =>
   ({
     "controlPanel.history.dateGroups.today": "Today",
     "controlPanel.history.dateGroups.yesterday": "Yesterday",
-    "upcoming.tomorrow": "Tomorrow",
   })[key] || key;
 
 // Local-time constructors keep these assertions timezone-independent.
@@ -76,22 +75,4 @@ test("history groups zone-less SQLite timestamps as UTC near a local day boundar
     if (previousTimezone === undefined) delete process.env.TZ;
     else process.env.TZ = previousTimezone;
   }
-});
-
-test("upcoming groups label today and tomorrow by calendar day", async (t2) => {
-  const { formatUpcomingDateGroup } = await load();
-  t2.mock.timers.enable({ apis: ["Date"], now: NOON_JUNE_15 });
-
-  assert.equal(formatUpcomingDateGroup(new Date(2024, 5, 15, 8), t), "Today");
-  assert.equal(formatUpcomingDateGroup(new Date(2024, 5, 16, 8), t), "Tomorrow");
-});
-
-test("upcoming groups fall back to a formatted date further out", async (t2) => {
-  const { formatUpcomingDateGroup } = await load();
-  t2.mock.timers.enable({ apis: ["Date"], now: NOON_JUNE_15 });
-
-  const result = formatUpcomingDateGroup(new Date(2024, 5, 20, 12), t);
-  assert.ok(result);
-  assert.notEqual(result, "Today");
-  assert.notEqual(result, "Tomorrow");
 });

@@ -1112,7 +1112,7 @@ class IPCHandlers {
       this.environmentManager.saveAllKeysToEnvFile().catch((err) => {
         debugLogger.error("Failed to persist startup env vars to .env", {
           set: Object.keys(setVars),
-          cleared: clearVars,
+          clearRequested: clearVars,
           error: err.message,
         });
       });

@@ -100,6 +100,17 @@ test("explicit 'false' opts a downloaded pack out", () => {
   assert.deepEqual(cudaOnly.resolveGpuStartOptions(), { useCuda: false, useVulkan: false });
 });
 
+test("the 'false' opt-out is case-insensitive (hand-edited .env)", () => {
+  // The flag is a hand-edit surface now, so FALSE/False must opt out too.
+  process.env.WHISPER_VULKAN_ENABLED = "FALSE";
+  const vulkanOnly = managerWith({ vulkanDownloaded: true });
+  assert.deepEqual(vulkanOnly.resolveGpuStartOptions(), { useCuda: false, useVulkan: false });
+
+  process.env.WHISPER_CUDA_ENABLED = "False";
+  const cudaOnly = managerWith({ cudaDownloaded: true });
+  assert.deepEqual(cudaOnly.resolveGpuStartOptions(), { useCuda: false, useVulkan: false });
+});
+
 test("a remembered failure still gates a flag-less downloaded pack", () => {
   process.env.WHISPER_GPU_FAILED = "vulkan";
   const manager = managerWith({ vulkanDownloaded: true });

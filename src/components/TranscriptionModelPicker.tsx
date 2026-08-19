@@ -202,7 +202,7 @@ interface TranscriptionModelPickerProps {
   selectedCloudModel: string;
   onCloudModelSelect: (modelId: string) => void;
   selectedLocalModel: string;
-  onLocalModelSelect: (modelId: string) => void;
+  onLocalModelSelect: (modelId: string, providerId?: string) => void;
   selectedLocalProvider?: string;
   onLocalProviderSelect?: (providerId: string) => void;
   useLocalWhisper: boolean;
@@ -380,6 +380,7 @@ export default function TranscriptionModelPicker({
   const effectiveLocal = mode === "local" ? true : mode === "cloud" ? false : useLocalWhisper;
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [parakeetModels, setParakeetModels] = useState<LocalModel[]>([]);
+  const [browsedCloudProvider, setBrowsedCloudProvider] = useState<string | null>(null);
   const [internalLocalProvider, setInternalLocalProvider] = useState(selectedLocalProvider);
   const hasLoadedRef = useRef(false);
   const hasLoadedParakeetRef = useRef(false);
@@ -451,14 +452,14 @@ export default function TranscriptionModelPicker({
     const current = selectedLocalModelRef.current;
     if (!current) return;
 
-    const downloaded = loadedModels.filter((m) => m.downloaded);
-    const isCurrentDownloaded = loadedModels.find((m) => m.model === current)?.downloaded;
+    // The whisper list loads on a mere browse of the Whisper tab, so the
+    // committed selection can be a foreign id (a Parakeet model while nvidia
+    // is committed) — only replace ids this list owns.
+    const currentEntry = loadedModels.find((m) => m.model === current);
+    if (!currentEntry || currentEntry.downloaded) return;
 
-    if (!isCurrentDownloaded && downloaded.length > 0) {
-      onLocalModelSelectRef.current(downloaded[0].model);
-    } else if (!isCurrentDownloaded && downloaded.length === 0) {
-      onLocalModelSelectRef.current("");
-    }
+    const downloaded = loadedModels.filter((m) => m.downloaded);
+    onLocalModelSelectRef.current(downloaded[0]?.model ?? "", "whisper");
   }, []);
 
   const loadLocalModels = useCallback(() => {
@@ -511,19 +512,26 @@ export default function TranscriptionModelPicker({
       normalizedBaseUrl !== normalizeBaseUrl(API_ENDPOINTS.TRANSCRIPTION_BASE) &&
       !knownProviderUrls.has(normalizedBaseUrl)
     );
+    // Reconcile null means the input needs no correction — echo the browsed
+    // input, not the committed pair, or browsing to the Custom tab (always
+    // reconciled as valid) would never display it.
     return (
       reconcileCloudProviderSelection({
-        selectedProvider: selectedCloudProvider,
+        selectedProvider: browsedCloudProvider ?? selectedCloudProvider,
         selectedModel: selectedCloudModel,
         allowedProviders: cloudProviders,
         customAllowed: !streamingOnly && providerAllowed("custom"),
         hasCustomUrl,
-      }) ?? { provider: selectedCloudProvider, model: selectedCloudModel }
+      }) ?? {
+        provider: browsedCloudProvider ?? selectedCloudProvider,
+        model: selectedCloudModel,
+      }
     );
   }, [
     availableCloudProviders,
     cloudProviders,
     cloudTranscriptionBaseUrl,
+    browsedCloudProvider,
     selectedCloudProvider,
     selectedCloudModel,
     providerAllowed,
@@ -535,6 +543,7 @@ export default function TranscriptionModelPicker({
   useEffect(() => {
     if (
       effectiveLocal ||
+      browsedCloudProvider ||
       !shouldPersistProviderFallback(policyState, isSignedIn) ||
       (effectiveCloudSelection.provider === selectedCloudProvider &&
         effectiveCloudSelection.model === selectedCloudModel)
@@ -550,6 +559,7 @@ export default function TranscriptionModelPicker({
   }, [
     effectiveCloudSelection,
     effectiveLocal,
+    browsedCloudProvider,
     isSignedIn,
     onCloudModelSelect,
     onCloudProviderSelect,
@@ -751,42 +761,51 @@ export default function TranscriptionModelPicker({
     [onModeChange]
   );
 
-  // switchCloudTranscriptionProvider writes both the provider and the model for
-  // this scope: it remembers the outgoing provider's model and restores the
-  // incoming one. It never touches cloudTranscriptionBaseUrl — that key is the
-  // Custom tab's only storage, and writing it here destroyed the URL (#1459).
   const handleCloudProviderChange = useCallback(
     (providerId: string) => {
       if (!providerAllowed(providerId)) return;
-      switchCloudTranscriptionProvider(transcriptionContext, providerId);
+      setBrowsedCloudProvider(providerId);
     },
-    [providerAllowed, switchCloudTranscriptionProvider, transcriptionContext]
+    [providerAllowed]
   );
 
-  const handleLocalProviderChange = useCallback(
-    (providerId: string) => {
-      const tab = LOCAL_PROVIDER_TABS.find((t) => t.id === providerId);
-      if (tab?.disabled) return;
-      setInternalLocalProvider(providerId);
-      onLocalProviderSelect?.(providerId);
+  const handleLocalProviderChange = useCallback((providerId: string) => {
+    const tab = LOCAL_PROVIDER_TABS.find((t) => t.id === providerId);
+    if (tab?.disabled) return;
+    setInternalLocalProvider(providerId);
+  }, []);
+
+  const handleCloudModelSelect = useCallback(
+    (modelId: string) => {
+      if (displayedCloudProvider !== selectedCloudProvider) {
+        switchCloudTranscriptionProvider(transcriptionContext, displayedCloudProvider);
+      }
+      onCloudModelSelect(modelId);
+      setBrowsedCloudProvider(null);
     },
-    [onLocalProviderSelect]
+    [
+      displayedCloudProvider,
+      onCloudModelSelect,
+      selectedCloudProvider,
+      switchCloudTranscriptionProvider,
+      transcriptionContext,
+    ]
   );
 
   const handleWhisperModelSelect = useCallback(
     (modelId: string) => {
-      onLocalProviderSelect?.("whisper");
       setInternalLocalProvider("whisper");
-      onLocalModelSelect(modelId);
+      onLocalProviderSelect?.("whisper");
+      onLocalModelSelect(modelId, "whisper");
     },
     [onLocalModelSelect, onLocalProviderSelect]
   );
 
   const handleParakeetModelSelect = useCallback(
     (modelId: string) => {
-      onLocalProviderSelect?.("nvidia");
       setInternalLocalProvider("nvidia");
-      onLocalModelSelect(modelId);
+      onLocalProviderSelect?.("nvidia");
+      onLocalModelSelect(modelId, "nvidia");
     },
     [onLocalModelSelect, onLocalProviderSelect]
   );
@@ -1096,8 +1115,10 @@ export default function TranscriptionModelPicker({
                       {t("common.model")}
                     </label>
                     <Input
-                      value={displayedCloudModel}
-                      onChange={(e) => onCloudModelSelect(e.target.value)}
+                      value={
+                        selectedCloudProvider === displayedCloudProvider ? displayedCloudModel : ""
+                      }
+                      onChange={(e) => handleCloudModelSelect(e.target.value)}
                       placeholder="whisper-1"
                       className="h-8 text-sm"
                     />
@@ -1163,8 +1184,10 @@ export default function TranscriptionModelPicker({
                     </label>
                     <ModelCardList
                       models={cloudModelOptions}
-                      selectedModel={displayedCloudModel}
-                      onModelSelect={onCloudModelSelect}
+                      selectedModel={
+                        selectedCloudProvider === displayedCloudProvider ? displayedCloudModel : ""
+                      }
+                      onModelSelect={handleCloudModelSelect}
                       colorScheme="purple"
                     />
                     {displayedCloudProvider === "tinfoil" && (

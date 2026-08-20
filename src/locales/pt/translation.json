@@ -92,6 +92,7 @@
     "errors": {
       "callbackRequired": "Uma função de callback é obrigatória para configurar o atalho",
       "globeOnlyMac": "A tecla Globe está disponível apenas no macOS.",
+      "fnCombinationUnsupported": "A tecla Globe/Fn só pode ser usada sozinha.",
       "mouseButtonOnlyMac": "Atalhos com botões do mouse atualmente são compatíveis apenas no macOS.",
       "alreadyRegistered": "\"{{hotkey}}\" já está registrada por outro aplicativo.",
       "osReserved": "\"{{hotkey}}\" pode estar reservada pelo seu ambiente de desktop.",
@@ -113,6 +114,7 @@
     "pttUnavailable": "O listener nativo de Push-to-Talk não está disponível"
   },
   "common": {
+    "continue": "Continuar",
     "add": "Adicionar",
     "retry": "Tentar novamente",
     "back": "Voltar",
@@ -156,6 +158,221 @@
     "policyTranscriptionRestricted": "A transcrição está restrita pela sua organização."
   },
   "onboarding": {
+    "rehaul": {
+      "permissions": {
+        "title": "Configure o OpenWhispr em 3 minutos",
+        "microphoneDescription": "Transforma voz em texto.",
+        "accessibilityDescription": "Cola o texto no app ativo.",
+        "systemAudioTitle": "Áudio do Sistema",
+        "systemAudioDescription": "Captura o áudio de outros apps.",
+        "enable": "Ativar",
+        "enabled": "Ativado"
+      },
+      "languages": {
+        "title": "Quais idiomas você fala?",
+        "titleLineOne": "Quais idiomas",
+        "titleLineTwo": "você fala?",
+        "description": "Selecione todas as opções aplicáveis. Isso ajuda o OpenWhispr a reconhecer trocas de idioma com mais precisão."
+      },
+      "dictationHotkey": {
+        "title": "Configure seu atalho de teclado",
+        "titleLineOne": "Configure seu",
+        "titleLineTwo": "atalho de teclado",
+        "description": "Escolha um atalho de teclado para iniciar e parar o ditado de qualquer lugar."
+      },
+      "assistantHotkey": {
+        "title": "Configure o OpenWhispr Assistant",
+        "titleLineOne": "Configure o",
+        "titleLineTwo": "OpenWhispr Assistant",
+        "description": "Fale um pedido e o OpenWhispr Assistant escreve o resultado para você."
+      },
+      "hotkey": {
+        "capture": "Pressione as teclas que você quer usar",
+        "chooseAnother": "Escolher outro atalho",
+        "inUse": "Esse atalho já está em uso. Escolha outro.",
+        "holding": "Continue pressionando ou pressione outra tecla"
+      },
+      "dictationDemo": {
+        "title": "Experimente seu primeiro ditado",
+        "titleLineOne": "Experimente seu",
+        "titleLineTwo": "primeiro ditado",
+        "description": "Pressione {{hotkey}} e comece a falar. O OpenWhispr vai transformar sua voz em texto.",
+        "founder": "Olá, sou o Gabe, fundador do OpenWhispr",
+        "prompt": "Tente dizer: “Estou testando o ditado pela primeira vez.”",
+        "placeholder": "Seu ditado vai aparecer aqui…"
+      },
+      "assistantDemo": {
+        "title": "Conheça o OpenWhispr Assistant",
+        "titleLineOne": "Conheça o",
+        "titleLineTwo": "OpenWhispr Assistant",
+        "description": "Fale um pedido e o OpenWhispr Assistant escreve o resultado para você.",
+        "senderName": "Eren Lauren",
+        "senderEmail": "eren32@gmail.com",
+        "recipientLabel": "para John Doe",
+        "email": "Oi! Vamos tomar um café na semana que vem? Me diga o que funciona para você.",
+        "prompt": "Responda que terça às 15h funciona. Envie um convite.",
+        "response": "Olá Eren,\n\nAdoraria colocar o papo em dia. Terça-feira às 15h funciona bem para mim. Se estiver bom para você, envio um convite de calendário.\nAté breve,\nJohn"
+      },
+      "demo": {
+        "listening": "Ouvindo…",
+        "processing": "Transformando sua voz em texto…",
+        "stop": "Parar",
+        "typing": "Digitando…"
+      },
+      "notes": {
+        "title": "Grave reuniões sem bot com o OpenWhispr Notes",
+        "titleLineOne": "Grave reuniões sem um bot",
+        "titleLineTwoPrefix": "com o OpenWhispr",
+        "titleLineTwoBrand": "Notes",
+        "description": "O OpenWhispr transforma sua conversa em notas claras. Nenhum bot de reunião entra na sua chamada.",
+        "hero": {
+          "description": "Grave sua reunião e deixe o OpenWhispr transformar a conversa em notas claras e organizadas.",
+          "chat": "Converse com as notas da reunião",
+          "transcript": "Revise a transcrição completa",
+          "speakers": "Veja quem disse o quê"
+        },
+        "connectors": {
+          "connect": "Conectar",
+          "googleTitle": "Google Agenda",
+          "googleDescription": "Sincronize suas reuniões.",
+          "microsoftTitle": "Microsoft Outlook",
+          "microsoftDescription": "Traga reuniões e convites de trabalho.",
+          "appleTitle": "Calendário da Apple",
+          "appleDescription": "Sincronize eventos do seu Mac e iPhone."
+        }
+      },
+      "setupChoice": {
+        "title": "Escolha sua configuração do OpenWhispr",
+        "titleLineOne": "Escolha sua configuração",
+        "titleLineTwo": "do OpenWhispr",
+        "description": "Escolha a opção que combina com o seu jeito de trabalhar.",
+        "unavailable": {
+          "title": "Nenhuma opção de configuração disponível",
+          "description": "A política do seu espaço de trabalho não permite uma configuração completa de transcrição e IA. Entre em contato com o administrador."
+        },
+        "cloud": {
+          "title": "OpenWhispr Cloud",
+          "description": "Receba 2.000 palavras grátis por semana. Suas configurações ficam sincronizadas entre dispositivos.",
+          "continue": "Continuar de graça",
+          "signIn": "Entre para usar a Nuvem",
+          "features": {
+            "fast": "O mais rápido, sem configuração",
+            "privacy": "Privacy-focused processing",
+            "sync": "Configurações sincronizadas entre dispositivos",
+            "features": "Recursos de IA para notas e ações"
+          }
+        },
+        "byok": {
+          "title": "Provedor de API",
+          "description": "Use sua própria chave de API."
+        },
+        "local": {
+          "title": "No seu dispositivo",
+          "description": "Transcrição privada offline. Precisa de pelo menos {{minimumSpace}} GB de espaço livre.",
+          "badge": "Grátis",
+          "download": "Baixar modelos",
+          "features": {
+            "device": "Roda no seu dispositivo",
+            "offline": "Funciona offline depois da configuração",
+            "models": "Escolha modelos para ditado e assistente",
+            "free": "Grátis para sempre"
+          }
+        },
+        "warnings": {
+          "byok": {
+            "title": "Seu provedor cuida dos seus dados",
+            "description": "Você vai adicionar credenciais para provedores separados de ditado e Assistant. Os preços e as políticas de retenção do provedor se aplicam.",
+            "continue": "Configurar provedor de API",
+            "steps": {
+              "1": "Escolha provedores para ditado e Assistant",
+              "2": "Adicione credenciais com armazenamento seguro",
+              "3": "Teste cada conexão antes de ativar"
+            }
+          },
+          "local": {
+            "title": "A configuração local leva alguns passos extras",
+            "description": "O processamento local mantém sua fala neste dispositivo, mas exige uma configuração inicial e pelo menos {{minimumSpace}} GB de espaço livre.",
+            "continue": "Configurar localmente",
+            "steps": {
+              "1": "Escolha um motor de transcrição",
+              "2": "Configure ou baixe um modelo, cerca de {{modelSize}}",
+              "3": "Aguarde a instalação e a ativação"
+            }
+          }
+        },
+        "useCloud": "Usar a Nuvem em vez disso",
+        "continueSetup": "Continuar a configuração",
+        "showMore": "Mostrar mais opções",
+        "moreOptions": {
+          "title": "Escolha sua configuração de API",
+          "description": "Adicione uma chave de API ou conecte um modelo auto-hospedado.",
+          "selfHosted": {
+            "title": "Auto-hospedado",
+            "description": "Conecte seu próprio modelo hospedado."
+          }
+        }
+      },
+      "provider": {
+        "progress": "Progresso da configuração do provedor",
+        "dictation": "Ditado",
+        "assistant": "Assistente",
+        "title": "Conecte seu provedor de IA",
+        "description": "Escolha um provedor, adicione suas credenciais e teste a conexão.",
+        "descriptionLineOne": "Escolha um provedor e adicione",
+        "descriptionLineTwo": "sua chave de API.",
+        "selfHosted": "Tenho uma chave de modelo auto-hospedado",
+        "providerLabel": "Provedor",
+        "providerPlaceholder": "Escolha o provedor do modelo",
+        "modelLabel": "Modelo",
+        "modelPlaceholder": "Escolha o modelo",
+        "apiKey": "Chave de API",
+        "apiKeyPlaceholder": "Cole sua chave de API",
+        "endpointUrl": "URL do endpoint",
+        "endpointPlaceholder": "Cole a URL do seu endpoint",
+        "optional": "Opcional",
+        "modelId": "ID do modelo",
+        "modelIdPlaceholder": "Escreva o ID do seu modelo",
+        "testConnection": "Testar conexão",
+        "proceed": "Prosseguir",
+        "clinical": "PARA TRANSCRIÇÃO CLÍNICA",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "runTest": "Executar teste",
+        "testing": "Testando…",
+        "connected": "Conectado",
+        "connectionFailed": "Não foi possível verificar a conexão.",
+        "errors": {
+          "endpointRequired": "Insira a URL do endpoint antes de testar.",
+          "invalidUrl": "O endpoint deve ser uma URL HTTP ou HTTPS válida.",
+          "httpsRequired": "Endpoints públicos devem usar HTTPS. HTTP só é permitido em endereços privados.",
+          "unsupportedProvider": "O teste de conexão não está disponível para este provedor.",
+          "apiKeyRequired": "Adicione uma chave de API antes de testar.",
+          "credentialsRejected": "O provedor rejeitou essas credenciais.",
+          "endpointNotFound": "O endpoint não expõe uma lista de modelos compatível com OpenAI.",
+          "modelNotFound": "O modelo selecionado não está disponível neste provedor.",
+          "providerStatus": "O provedor retornou o status {{status}}.",
+          "timeout": "O teste de conexão expirou.",
+          "network": "Não foi possível contatar o provedor."
+        }
+      },
+      "local": {
+        "title": "Configurar modelos locais",
+        "description": "Escolha os modelos que você quer executar no seu dispositivo.",
+        "descriptionLineOne": "Escolha os modelos que você quer",
+        "descriptionLineTwo": "executar no seu dispositivo.",
+        "providerLabel": "Provedor",
+        "agent": "Agente",
+        "download": "Baixar",
+        "downloadingShort": "Baixando",
+        "selected": "Selecionado",
+        "use": "Usar",
+        "downloadInProgress": "Download em andamento",
+        "cancelDownload": "Cancelar o download de {{model}}",
+        "downloads": "Downloads de modelos",
+        "downloading": "Baixando… {{progress}}%",
+        "installing": "Instalando o modelo…"
+      }
+    },
     "steps": {
       "welcome": "Boas-vindas",
       "setup": "Configuração",
@@ -233,34 +450,37 @@
       "continue": "Continuar mesmo assim"
     },
     "useCase": {
-      "title": "O que traz você aqui?",
-      "description": "Somos uma equipe pequena lançando melhorias toda semana. O que você escolher configura o app para você — e nos diz o que construir em seguida.",
+      "title": "Como você vai usar o OpenWhispr?",
+      "titleLineOne": "Como você usará",
+      "titleLineTwo": "o OpenWhispr?",
+      "description": "Escolha todas as opções que se aplicam. Vamos adaptar sua configuração.",
       "noteLabel": "Algo mais que gostaria de nos contar?",
-      "notePlaceholder": "Opcional",
+      "notePlaceholder": "Conte como você pretende usar o OpenWhispr (opcional)",
+      "proceedToSetup": "Continuar a configuração",
       "options": {
         "dictation": {
-          "title": "Escrever mais rápido",
-          "description": "Dite em qualquer aplicativo em vez de digitar"
+          "title": "Escreva mais rápido",
+          "description": "Fale em vez de digitar, em qualquer aplicativo."
         },
         "meetings": {
-          "title": "Notas e resumos de reuniões",
-          "description": "Grave, transcreva e resuma suas reuniões"
+          "title": "Notas de reuniões",
+          "description": "Grave, transcreva e resuma reuniões."
         },
         "healthcare": {
-          "title": "Transcrição médica, clínica e terapêutica",
-          "description": "Dite notas de pacientes, notas de sessão e relatórios"
+          "title": "Documentação clínica",
+          "description": "Crie notas de pacientes, notas de sessão e relatórios."
         },
         "translation": {
-          "title": "Traduzir idiomas",
-          "description": "Fale um idioma, escreva em outro"
+          "title": "Traduza enquanto fala",
+          "description": "Fale um idioma e escreva em outro."
         },
         "ai": {
-          "title": "Falar com minha IA",
-          "description": "Controle por voz o ChatGPT, o Claude e outros agentes"
+          "title": "Fale com sua IA",
+          "description": "Use sua voz com o ChatGPT, o Claude e outras ferramentas de IA."
         },
         "upload": {
-          "title": "Enviar arquivos de áudio",
-          "description": "Envie e transcreva MP3, OGG e mais"
+          "title": "Transcreva arquivos de áudio",
+          "description": "Envie arquivos de áudio para transcrição."
         }
       },
       "selectHint": "Selecione todas as opções aplicáveis"
@@ -742,9 +962,12 @@
       "or": "ou"
     },
     "emailStep": {
+      "checkingEmail": "Verificando seu e-mail...",
       "continueWithEmail": "Continuar com e-mail",
-      "continueWithoutAccount": "Continuar sem conta",
-      "emailPlaceholder": "voce@exemplo.com"
+      "continueWithoutAccount": "Usar o OpenWhispr sem conta",
+      "emailLabel": "E-mail",
+      "emailPlaceholder": "voce@exemplo.com",
+      "useDifferentEmail": "Usar outro e-mail"
     },
     "errors": {
       "accountExistsSignIn": "Já existe uma conta com este e-mail. Faça login.",
@@ -767,17 +990,19 @@
     },
     "passwordForm": {
       "createAccount": "Criar uma conta",
-      "createAccountButton": "Criar conta",
+      "createAccountButton": "Continuar com e-mail",
       "createAccountLink": "Criar conta",
       "createPasswordPlaceholder": "Crie uma senha",
       "creatingAccount": "Criando conta...",
       "enterPasswordPlaceholder": "Digite sua senha",
       "forgotPassword": "Esqueceu a senha?",
-      "fullNamePlaceholder": "Nome completo",
+      "fullNamePlaceholder": "Adicione seu nome",
+      "nameLabel": "Nome",
+      "passwordLabel": "Senha",
       "haveAccount": "Já tem uma conta?",
       "newHere": "Novo por aqui?",
       "passwordMinLength": "A senha deve ter pelo menos 8 caracteres",
-      "signIn": "Entrar",
+      "signIn": "Continuar com e-mail",
       "signInLink": "Entrar",
       "signingIn": "Entrando...",
       "welcomeBack": "Que bom ter você de volta"
@@ -803,7 +1028,7 @@
       "continueWithMicrosoft": "Continuar com a Microsoft",
       "protocolUnavailable": "Login pelo navegador indisponível — registre novamente o protocolo openwhispr:// nas configurações de Aplicativos Padrão do sistema."
     },
-    "welcomeSubtitle": "Use sua voz para ditar em qualquer lugar",
+    "welcomeSubtitle": "Use sua voz para tudo",
     "welcomeTitle": "Boas-vindas ao OpenWhispr"
   },
   "cleanupPrompt": "Limpeza",
@@ -874,8 +1099,8 @@
   },
   "dictionarySuffix": "Sufixo do dicionário",
   "emailVerification": {
-    "checkEmailDescription": "Enviamos um link de verificação para",
-    "checkEmailTitle": "Verifique seu e-mail",
+    "checkEmailDescription": "Enviamos um link de verificação para o seu e-mail:",
+    "checkEmailTitle": "E-mail de verificação enviado",
     "errors": {
       "resendFailed": "Não foi possível reenviar o e-mail. Tente novamente.",
       "serverUnreachable": "Não foi possível acessar o servidor. Verifique sua conexão e tente novamente."
@@ -883,8 +1108,8 @@
     "resendButton": "Reenviar e-mail de verificação",
     "resendIn": "Reenviar em {{seconds}}s",
     "verifiedDescription": "Sua conta está pronta.",
-    "verifiedTitle": "E-mail verificado",
-    "waiting": "Aguardando verificação...",
+    "verifiedTitle": "Verificado",
+    "waiting": "Aguardando verificação",
     "backToSignIn": "Voltar para o login"
   },
   "errorBoundary": {
@@ -972,11 +1197,12 @@
     "tryShortcutMac": "Tente ⌘⇧K",
     "remove": "Remover atalho",
     "addAnother": "Adicionar outro atalho",
-    "duplicate": "Já adicionado"
+    "duplicate": "Já adicionado",
+    "singleModifierNeedsRightSide": "{{key}} sozinha não pode ser um atalho. Pressione {{alternative}} ou adicione uma segunda tecla."
   },
   "languageSelector": {
     "noLanguagesFound": "Nenhum idioma encontrado",
-    "searchPlaceholder": "Buscar..."
+    "searchPlaceholder": "Buscar idiomas"
   },
   "microphoneSettings": {
     "builtIn": "(Integrado)",
@@ -1607,7 +1833,7 @@
       },
       "waylandPaste": {
         "title": "Configuração de colagem no Wayland",
-        "description": "A colagem automática no Wayland requer o ydotool. Verifique o estado de cada componente abaixo.",
+        "description": "A colagem automática no Wayland usa ydotool ou wtype. Em compositores wlroots, o wtype é preferido.",
         "allGoodDesc": "A colagem automática está pronta.",
         "recheck": "Verificar novamente",
         "copy": "Copiar",

@@ -22,6 +22,7 @@ const DRAG_MOVE_TOLERANCE_PX = 2;
 const {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
+  ONBOARDING_WINDOW_SIZES,
   NOTIFICATION_WINDOW_CONFIG,
   fitAssistantContentWindowToWorkArea,
   fitAssistantWindowToWorkArea,
@@ -32,11 +33,24 @@ const {
   WINDOW_SIZES,
   WindowPositionUtil,
 } = require("./windowConfig");
+const { centeredBounds, clampedBounds } = require("./onboardingWindowBounds");
+const { ONBOARDING_DEMO_KINDS, isOnboardingInputAllowed } = require("./onboardingInputPolicy");
 
 class WindowManager {
   constructor() {
     this.mainWindow = null;
     this.controlPanelWindow = null;
+    this._controlPanelVisibilityTimer = null;
+    this._onboardingRestoreBounds = null;
+    this._onboardingWindowMode = null;
+    this._onboardingWindowState = null;
+    // Fail closed until AppRouter has resolved persisted onboarding state and
+    // committed the normal app. This covers the startup gap before React mounts.
+    this._onboardingActive = true;
+    this._onboardingDemoKind = null;
+    // Set by IPCHandlers so its demo session dies with the demo kind on every
+    // teardown path (id-matched end, onboarding exit, control panel closed).
+    this.onOnboardingDemoTeardown = null;
     this.notificationWindow = null;
     this._notificationLoadTimeout = null;
     this._notificationDismissTimer = new NotificationDismissTimer(() => {
@@ -46,6 +60,8 @@ class WindowManager {
       this.dismissMeetingNotification();
     });
     this.updateNotificationWindow = null;
+    this._pendingUpdateNotificationData = null;
+    this._deferredUpdateNotificationInfo = null;
     this._updateNotificationDismissed = false;
     this.notificationPrefs = {
       notificationsEnabled: true,
@@ -120,6 +136,10 @@ class WindowManager {
     );
 
     this.mainWindow.webContents.on("did-finish-load", () => {
+      // A reload has not resolved its route yet. AppRouter releases this gate
+      // after it renders the normal app; fresh onboarding keeps it active.
+      this.setOnboardingActive(true);
+      this.endOnboardingDemo();
       this.mainWindow.setTitle(i18nMain.t("window.voiceRecorderTitle"));
       this.enforceMainWindowOnTop();
       this._notifyMainWindowHorizontalDirection();
@@ -519,6 +539,7 @@ class WindowManager {
   }
 
   startMacCompoundPushToTalk(hotkey) {
+    if (!this._isOnboardingInputAllowed("dictation")) return;
     if (this.macCompoundPushState?.active || this.isDictationProcessing()) {
       return;
     }
@@ -654,6 +675,7 @@ class WindowManager {
   }
 
   startWindowsPushToTalk(key) {
+    if (!this._isOnboardingInputAllowed("dictation")) return;
     if (this.winPushState?.active || this.isDictationProcessing()) {
       return;
     }
@@ -712,7 +734,19 @@ class WindowManager {
     this.handleWindowsPushKeyUp();
   }
 
-  _sendDictationToggle(channel) {
+  _isOnboardingInputAllowed(inputKind) {
+    return isOnboardingInputAllowed(this._onboardingActive, this._onboardingDemoKind, inputKind);
+  }
+
+  // Public gate for main.js's meeting hotkey call sites, which invoke the
+  // detection engine directly rather than routing through a send method here.
+  // "meeting" is never a demo kind, so this is simply "not during onboarding".
+  isMeetingInputAllowed() {
+    return this._isOnboardingInputAllowed("meeting");
+  }
+
+  _sendDictationToggle(channel, inputKind) {
+    if (!this._isOnboardingInputAllowed(inputKind)) return;
     const voiceAgentRequested = channel === "toggle-voice-agent";
     if (
       shouldBlockDictationWhilePanelOpen({
@@ -753,8 +787,12 @@ class WindowManager {
       });
       // About-to-start guess: open the mic one IPC message ahead of the toggle.
       // A wrong guess (renderer declines) is bounded by the prepared capture's
-      // max-age expiry, and the renderer dedups its own prepare call.
-      if (isStarting) this.sendPrepareDictation({ voiceAgentRequested });
+      // max-age expiry, and the renderer dedups its own prepare call. Pass the
+      // toggle's own kind so the pre-warm survives the assistant demo, whose
+      // gate rejects "dictation".
+      if (isStarting) {
+        this.sendPrepareDictation({ inputKind, voiceAgentRequested });
+      }
       this.mainWindow.webContents.send(channel);
     }
   }
@@ -773,18 +811,19 @@ class WindowManager {
   }
 
   sendToggleDictation() {
-    this._sendDictationToggle("toggle-dictation");
+    this._sendDictationToggle("toggle-dictation", "dictation");
   }
 
   sendToggleVoiceAgent() {
-    this._sendDictationToggle("toggle-voice-agent");
+    this._sendDictationToggle("toggle-voice-agent", "assistant");
   }
 
   sendToggleTranslation() {
-    this._sendDictationToggle("toggle-translation");
+    this._sendDictationToggle("toggle-translation", "translation");
   }
 
   sendStartDictation() {
+    if (!this._isOnboardingInputAllowed("dictation")) return;
     if (
       shouldBlockDictationWhilePanelOpen({
         assistantPanelOpen: this._assistantPanelOpen,
@@ -819,7 +858,8 @@ class WindowManager {
     }
   }
 
-  sendPrepareDictation({ voiceAgentRequested = false } = {}) {
+  sendPrepareDictation({ inputKind = "dictation", voiceAgentRequested = false } = {}) {
+    if (!this._isOnboardingInputAllowed(inputKind)) return;
     if (
       shouldBlockDictationWhilePanelOpen({
         assistantPanelOpen: this._assistantPanelOpen,
@@ -872,11 +912,17 @@ class WindowManager {
   reconcileNativeKeyListeners() {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     if (this.hotkeyManager.isInListeningMode()) return;
-    // GNOME/KDE/Hyprland deliver hotkeys via D-Bus native shortcuts; the low-level
-    // listener would be redundant there and could double-fire, so watch nothing.
+    const activationMode = this.getActivationMode();
+    const nativeListenerKeys = this.hotkeyManager.getNativeListenerKeys(activationMode);
+    // GNOME/KDE/Hyprland native shortcuts are press-only. They replace the
+    // low-level listener in tap mode, but push-to-talk still needs raw dictation
+    // key-down/key-up events; createHotkeyCallback ignores the native press in
+    // that mode, so keeping only this slot cannot double-fire.
     const keys = this.hotkeyManager.isUsingNativeShortcut()
-      ? []
-      : this.hotkeyManager.getNativeListenerKeys(this.getActivationMode());
+      ? activationMode === "push"
+        ? nativeListenerKeys.filter((key) => this.hotkeyManager.slotHasHotkey("dictation", key))
+        : []
+      : nativeListenerKeys;
     if (process.platform === "win32" && this.windowsKeyManager) {
       this.windowsKeyManager.setKeys(keys);
     } else if (process.platform === "linux" && this.linuxKeyManager) {
@@ -1013,6 +1059,9 @@ class WindowManager {
     }
 
     this.controlPanelWindow = new BrowserWindow(CONTROL_PANEL_CONFIG);
+    this._onboardingRestoreBounds = null;
+    this._onboardingWindowMode = null;
+    this._onboardingWindowState = null;
 
     this.controlPanelWindow.webContents.on("will-navigate", (event, url) => {
       const appUrl = DevServerManager.getAppUrl(true);
@@ -1042,27 +1091,15 @@ class WindowManager {
       }
     });
 
-    const visibilityTimer = setTimeout(() => {
-      if (!this.controlPanelWindow || this.controlPanelWindow.isDestroyed()) {
-        return;
-      }
-      if (!this.controlPanelWindow.isVisible()) {
-        this.controlPanelWindow.show();
-        this.controlPanelWindow.focus();
-        dockManager.setControlPanelVisible(true);
-      }
+    // Nothing else shows this window: ready-to-show deliberately doesn't, so the
+    // renderer can pick the onboarding size first and avoid a visible
+    // expanded → compact flash on fresh installs. That makes this the only
+    // backstop if the renderer never gets that far — it loads but throws, a lazy
+    // chunk fails, or auth/policy resolution never settles — so it must outlive
+    // did-finish-load. Only a real show cancels it.
+    this._controlPanelVisibilityTimer = setTimeout(() => {
+      this._showControlPanel();
     }, 10000);
-
-    const clearVisibilityTimer = () => {
-      clearTimeout(visibilityTimer);
-    };
-
-    this.controlPanelWindow.once("ready-to-show", () => {
-      clearVisibilityTimer();
-      this.controlPanelWindow.show();
-      this.controlPanelWindow.focus();
-      dockManager.setControlPanelVisible(true);
-    });
 
     this.controlPanelWindow.on("close", (event) => {
       if (!this.isQuitting) {
@@ -1072,15 +1109,25 @@ class WindowManager {
     });
 
     this.controlPanelWindow.on("closed", () => {
-      clearVisibilityTimer();
+      this._clearControlPanelVisibilityTimer();
+      this.endOnboardingDemo();
       this.controlPanelWindow = null;
+      this._onboardingActive = true;
+      this._hideNormalAppSurfaces();
+      this._onboardingRestoreBounds = null;
+      this._onboardingWindowMode = null;
+      this._onboardingWindowState = null;
       dockManager.setControlPanelVisible(false);
     });
 
     MenuManager.setupControlPanelMenu(this.controlPanelWindow, () => this.openSettings());
 
     this.controlPanelWindow.webContents.on("did-finish-load", () => {
-      clearVisibilityTimer();
+      // Every fresh document starts unresolved. AppRouter releases the gate
+      // only after it commits the normal app, so OAuth/onboarding reloads cannot
+      // expose the dictation pill, hotkeys, or popup surfaces in between.
+      this.setOnboardingActive(true);
+      this.endOnboardingDemo();
       this.controlPanelWindow.setTitle(i18nMain.t("window.controlPanelTitle"));
     });
 
@@ -1090,15 +1137,12 @@ class WindowManager {
         if (!isMainFrame) {
           return;
         }
-        clearVisibilityTimer();
         if (process.env.NODE_ENV !== "development") {
           this.showLoadFailureDialog("Control panel", errorCode, errorDescription, validatedURL);
         }
-        if (!this.controlPanelWindow.isVisible()) {
-          this.controlPanelWindow.show();
-          this.controlPanelWindow.focus();
-          dockManager.setControlPanelVisible(true);
-        }
+        // Show it regardless: a failed load can't reach the renderer path that
+        // normally does, and a hidden window leaves the failure invisible.
+        this._showControlPanel();
       }
     );
 
@@ -1109,6 +1153,9 @@ class WindowManager {
           { reason: details.reason, exitCode: details.exitCode },
           "window"
         );
+        // The renderer owned any running demo; without this, its stale session
+        // keeps swallowing dictations after the reload.
+        this.endOnboardingDemo();
         setTimeout(() => this.loadControlPanel(), 1000);
       }
     });
@@ -1128,6 +1175,7 @@ class WindowManager {
   }
 
   async showTranscriptionPreview(text) {
+    if (this._onboardingActive) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.webContents.send("preview-text", text);
     this.mainWindow.showInactive();
@@ -1135,11 +1183,13 @@ class WindowManager {
   }
 
   appendTranscriptionPreview(text) {
+    if (this._onboardingActive) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.webContents.send("preview-append", text);
   }
 
   holdTranscriptionPreview(options = {}) {
+    if (this._onboardingActive) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.webContents.send("preview-hold", {
       showCleanup: !!options.showCleanup,
@@ -1147,6 +1197,7 @@ class WindowManager {
   }
 
   completeTranscriptionPreview(text) {
+    if (this._onboardingActive) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.webContents.send("preview-result", { text });
     this.enforceMainWindowOnTop();
@@ -1238,6 +1289,7 @@ class WindowManager {
   }
 
   showDictationPanel(options = {}) {
+    if (this._onboardingActive) return;
     const { focus = false, reposition = false, targetPidPromise } = options;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     if (this._assistantPanelOpen) {
@@ -1265,11 +1317,211 @@ class WindowManager {
     }
   }
 
+  setOnboardingActive(active) {
+    const nextActive = active === true;
+    if (nextActive === this._onboardingActive) {
+      if (nextActive) this._hideNormalAppSurfaces();
+      return true;
+    }
+
+    if (nextActive) {
+      this._onboardingActive = true;
+      this.sendCancelDictation();
+      this._hideNormalAppSurfaces();
+      return true;
+    }
+
+    this.endOnboardingDemo();
+    this.sendCancelDictation();
+    this.hideDictationPanel();
+    this._onboardingActive = false;
+    if (!this._floatingIconAutoHide) this.showDictationPanel();
+    const deferredUpdate = this._deferredUpdateNotificationInfo;
+    this._deferredUpdateNotificationInfo = null;
+    if (deferredUpdate) void this.showUpdateNotification(deferredUpdate);
+    return true;
+  }
+
+  _hideNormalAppSurfaces() {
+    this.hideDictationPanel();
+    this.hideTranscriptionPreview();
+    this.dismissMeetingNotification();
+
+    if (this._pendingUpdateNotificationData) {
+      this._deferredUpdateNotificationInfo = { ...this._pendingUpdateNotificationData };
+    }
+    this.dismissUpdateNotification({ persistent: false });
+  }
+
+  beginOnboardingDemo(kind) {
+    if (!ONBOARDING_DEMO_KINDS.has(kind)) return false;
+    this._onboardingActive = true;
+    this._onboardingDemoKind = kind;
+    // A prior recording must not leak into a new correlated demo session.
+    this.sendCancelDictation();
+    this.hideDictationPanel();
+    return true;
+  }
+
+  isOnboardingDemoActive() {
+    return this._onboardingDemoKind !== null;
+  }
+
+  stopOnboardingDemoRecording() {
+    if (!this._onboardingDemoKind) return false;
+    this.sendStopDictation();
+    this.hideDictationPanel();
+    return true;
+  }
+
+  endOnboardingDemo() {
+    // Before the early return on purpose: IPCHandlers' demo session must die
+    // on every teardown path even if the demo kind is already gone — a stale
+    // session broadcasts every later dictation on onboarding-demo-event.
+    this.onOnboardingDemoTeardown?.();
+    if (!this._onboardingDemoKind) return false;
+    // Leaving/retrying is cancellation, not a transcription request. The
+    // overlay owns AudioManager, so route cleanup must be delivered there.
+    this.sendCancelDictation();
+    this.hideDictationPanel();
+    this._onboardingDemoKind = null;
+    return true;
+  }
+
+  _clearControlPanelVisibilityTimer() {
+    clearTimeout(this._controlPanelVisibilityTimer);
+    this._controlPanelVisibilityTimer = null;
+  }
+
+  _showControlPanel() {
+    const win = this.controlPanelWindow;
+    if (!win || win.isDestroyed()) return;
+    // Cancel the backstop either way: once the window has been shown on purpose,
+    // a later timer firing could pull it back out of the tray.
+    this._clearControlPanelVisibilityTimer();
+    if (win.isVisible()) return;
+    win.show();
+    win.focus();
+    dockManager.setControlPanelVisible(true);
+  }
+
+  // Compact onboarding stays fixed-size; expanded onboarding can resize and
+  // maximize. Both modes remain minimizable and closable so a frameless window
+  // never traps the user in setup.
+  _applyOnboardingWindowChrome(win, mode) {
+    const expanded = mode === "expanded";
+    win.setResizable(expanded);
+    win.setMinimizable(true);
+    win.setMaximizable(expanded);
+    win.setClosable(true);
+    win.setFullScreenable(false);
+    // Floor at the mode's canonical size so no step renders below the bounds
+    // it was designed for — clamped to the work area, or a 1366x768-class
+    // display could never fit (and setContentBounds would fight the minimum).
+    const floor = expanded ? ONBOARDING_WINDOW_SIZES.EXPANDED : ONBOARDING_WINDOW_SIZES.COMPACT;
+    const { workArea } = screen.getDisplayMatching(win.getBounds());
+    win.setMinimumSize(
+      Math.min(floor.width, workArea.width),
+      Math.min(floor.height, workArea.height)
+    );
+    if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
+      win.setWindowButtonVisibility(expanded);
+    }
+  }
+
+  setOnboardingWindowMode(mode) {
+    const win = this.controlPanelWindow;
+    if (!win || win.isDestroyed()) return false;
+    if (!new Set(["compact", "expanded", "restore"]).has(mode)) return false;
+    if (mode !== "restore" && (win.isFullScreen() || win.isMaximized())) {
+      // Entering onboarding from a maximized/fullscreen control panel must not
+      // refuse: refusing leaves the native chrome (traffic lights, resize) on a
+      // window whose flow assumes it is locked to the canonical bounds.
+      if (win.isFullScreen()) win.setFullScreen(false);
+      if (win.isMaximized()) win.unmaximize();
+    }
+
+    const current = win.getContentBounds();
+    const { workArea } = screen.getDisplayMatching(win.getBounds());
+
+    if (mode === "restore") {
+      // A maximized/fullscreen window the user made keeps its bounds, but the
+      // chrome state below must still be restored and the tracking cleared —
+      // refusing outright left setFullScreenable(false) and onboarding's
+      // minimum-size floor on the control panel for the rest of its life.
+      if (!win.isFullScreen() && !win.isMaximized() && this._onboardingRestoreBounds) {
+        win.setContentBounds(clampedBounds(this._onboardingRestoreBounds, workArea), true);
+      }
+      const state = this._onboardingWindowState;
+      if (state) {
+        win.setResizable(state.resizable);
+        win.setMinimizable(state.minimizable);
+        win.setMaximizable(state.maximizable);
+        win.setClosable(state.closable);
+        win.setFullScreenable(state.fullscreenable);
+        if (state.minimumSize) win.setMinimumSize(...state.minimumSize);
+      }
+      if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
+        win.setWindowButtonVisibility(true);
+      }
+      this._onboardingRestoreBounds = null;
+      this._onboardingWindowMode = null;
+      this._onboardingWindowState = null;
+      this._showControlPanel();
+      return true;
+    }
+
+    if (!this._onboardingRestoreBounds) {
+      this._onboardingRestoreBounds = current;
+      this._onboardingWindowState = {
+        resizable: win.isResizable(),
+        minimizable: win.isMinimizable(),
+        maximizable: win.isMaximizable(),
+        closable: win.isClosable(),
+        fullscreenable: win.isFullScreenable(),
+        minimumSize: win.getMinimumSize(),
+      };
+    }
+
+    this._applyOnboardingWindowChrome(win, mode);
+
+    if (this._onboardingWindowMode === mode) {
+      this._showControlPanel();
+      return true;
+    }
+
+    const target =
+      mode === "compact" ? ONBOARDING_WINDOW_SIZES.COMPACT : ONBOARDING_WINDOW_SIZES.EXPANDED;
+    const next = centeredBounds(current, target, workArea);
+    if (
+      current.x === next.x &&
+      current.y === next.y &&
+      current.width === next.width &&
+      current.height === next.height
+    ) {
+      this._onboardingWindowMode = mode;
+      this._showControlPanel();
+      return true;
+    }
+
+    win.setContentBounds(next, true);
+    this._onboardingWindowMode = mode;
+    this._showControlPanel();
+    return true;
+  }
+
   hideControlPanelToTray() {
     if (!this.controlPanelWindow || this.controlPanelWindow.isDestroyed()) {
       return;
     }
 
+    // An explicit hide is authoritative: the visibility backstop exists to
+    // rescue a window that never got shown, and letting it fire now would
+    // pull the panel (and the Dock icon) back out of the tray.
+    this._clearControlPanelVisibilityTimer();
+    // A demo left running when the panel hides would keep swallowing normal
+    // dictations (paste suppressed, transcripts rerouted to the demo session).
+    this.endOnboardingDemo();
     this.controlPanelWindow.hide();
     dockManager.setControlPanelVisible(false);
   }
@@ -1316,11 +1568,7 @@ class WindowManager {
       clearTimeout(showTimeout);
       this.enforceMainWindowOnTop();
       if (!this.mainWindow.isVisible() && !this._floatingIconAutoHide) {
-        if (typeof this.mainWindow.showInactive === "function") {
-          this.mainWindow.showInactive();
-        } else {
-          this.mainWindow.show();
-        }
+        this.showDictationPanel();
       }
     });
 
@@ -1345,6 +1593,7 @@ class WindowManager {
   }
 
   async showMeetingNotification(promptData, { autoDismiss = true } = {}) {
+    if (this._onboardingActive) return false;
     if (this.notificationWindow && !this.notificationWindow.isDestroyed()) {
       const previousWindow = this.notificationWindow;
       this.notificationWindow = null;
@@ -1453,11 +1702,15 @@ class WindowManager {
       }
     }
     if (this.notificationWindow !== win) return;
+    if (this._onboardingActive) {
+      this.dismissMeetingNotification();
+      return false;
+    }
 
     const readyFallback = setTimeout(() => {
       if (this._notificationReadyFallback !== readyFallback) return;
       this._notificationReadyFallback = null;
-      if (this.notificationWindow !== win || win.isDestroyed()) return;
+      if (this._onboardingActive || this.notificationWindow !== win || win.isDestroyed()) return;
       debugLogger.warn("Notification renderer did not signal ready, force-showing", {}, "meeting");
       win.webContents.send("meeting-notification-data", promptData);
       win.showInactive();
@@ -1474,6 +1727,10 @@ class WindowManager {
   // Only the window that loaded the prompt may reveal it: a stale window's late
   // "ready" must not clear the fallback that would force-show its replacement.
   showNotificationWindow(ownerWebContents) {
+    if (this._onboardingActive) {
+      this.dismissMeetingNotification();
+      return;
+    }
     const win = this.notificationWindow;
     if (!win || win.isDestroyed() || (ownerWebContents && win.webContents !== ownerWebContents)) {
       return;
@@ -1520,6 +1777,11 @@ class WindowManager {
   }
 
   async showUpdateNotification(info) {
+    if (this._onboardingActive) {
+      this._deferredUpdateNotificationInfo = info;
+      return false;
+    }
+    this._deferredUpdateNotificationInfo = null;
     if (this._updateNotificationDismissed) return;
     if (this.updateNotificationWindow && !this.updateNotificationWindow.isDestroyed()) {
       this.updateNotificationWindow.close();
@@ -1538,35 +1800,38 @@ class WindowManager {
       ...position,
     });
     this.updateNotificationWindow = win;
-
-    WindowPositionUtil.setupAlwaysOnTop(this.updateNotificationWindow);
-
-    if (process.env.NODE_ENV === "development") {
-      await DevServerManager.waitForDevServer();
-      await this.updateNotificationWindow.loadURL(
-        `${DevServerManager.DEV_SERVER_URL}?update-notification=true`
-      );
-    } else {
-      const fileInfo = DevServerManager.getAppFilePath(false);
-      await this.updateNotificationWindow.loadFile(fileInfo.path, {
-        query: { ...fileInfo.query, "update-notification": "true" },
-      });
-    }
-
     this._pendingUpdateNotificationData = {
       version: info?.version,
       releaseDate: info?.releaseDate,
     };
 
+    WindowPositionUtil.setupAlwaysOnTop(win);
+
+    try {
+      if (process.env.NODE_ENV === "development") {
+        await DevServerManager.waitForDevServer();
+        await win.loadURL(`${DevServerManager.DEV_SERVER_URL}?update-notification=true`);
+      } else {
+        const fileInfo = DevServerManager.getAppFilePath(false);
+        await win.loadFile(fileInfo.path, {
+          query: { ...fileInfo.query, "update-notification": "true" },
+        });
+      }
+    } catch (error) {
+      // Entering onboarding closes any in-flight normal-app popup. Its aborted
+      // load is expected, and the saved update is replayed once the gate opens.
+      if (this._onboardingActive || this.updateNotificationWindow !== win) return false;
+      throw error;
+    }
+
+    if (this._onboardingActive || this.updateNotificationWindow !== win) return false;
+
     this._updateNotificationReadyFallback = setTimeout(() => {
       this._updateNotificationReadyFallback = null;
-      if (this.updateNotificationWindow && !this.updateNotificationWindow.isDestroyed()) {
-        this.updateNotificationWindow.webContents.send(
-          "update-notification-data",
-          this._pendingUpdateNotificationData
-        );
-        this.updateNotificationWindow.showInactive();
-      }
+      if (this._onboardingActive || this.updateNotificationWindow !== win || win.isDestroyed())
+        return;
+      win.webContents.send("update-notification-data", this._pendingUpdateNotificationData);
+      win.showInactive();
     }, 3000);
 
     this._updateNotificationAutoDismiss = setTimeout(() => {
@@ -1584,6 +1849,7 @@ class WindowManager {
   }
 
   showUpdateNotificationWindow() {
+    if (this._onboardingActive) return;
     if (this._updateNotificationReadyFallback) {
       clearTimeout(this._updateNotificationReadyFallback);
       this._updateNotificationReadyFallback = null;
@@ -1595,7 +1861,10 @@ class WindowManager {
 
   dismissUpdateNotification({ persistent = true } = {}) {
     this._pendingUpdateNotificationData = null;
-    if (persistent) this._updateNotificationDismissed = true;
+    if (persistent) {
+      this._updateNotificationDismissed = true;
+      this._deferredUpdateNotificationInfo = null;
+    }
     if (this._updateNotificationReadyFallback) {
       clearTimeout(this._updateNotificationReadyFallback);
       this._updateNotificationReadyFallback = null;

@@ -5,11 +5,19 @@ import AuthenticationStep from "./components/AuthenticationStep.tsx";
 import MeetingNotificationOverlay from "./components/MeetingNotificationOverlay.tsx";
 import UpdateNotificationOverlay from "./components/UpdateNotificationOverlay.tsx";
 import WindowControls from "./components/WindowControls.tsx";
+import BackgroundModelDownloadTray from "./components/onboarding/BackgroundModelDownloadTray.tsx";
 import { Card, CardContent } from "./components/ui/card.tsx";
+import { LEGACY_ONBOARDING_STEP_KEY, ONBOARDING_SESSION_KEY } from "./components/onboarding/flow";
 import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
 import { usePolicyStore } from "./stores/policyStore";
 import { isControlPanelWindow } from "./utils/windowContext.ts";
+
+// Either marker means the flow is mid-way: the legacy step key is kept for
+// back-compat, the v2 session is what the rebuilt flow actually persists.
+const isOnboardingInProgress = () =>
+  localStorage.getItem(LEGACY_ONBOARDING_STEP_KEY) !== null ||
+  localStorage.getItem(ONBOARDING_SESSION_KEY) !== null;
 
 const ControlPanel = React.lazy(() => import("./components/ControlPanel.tsx"));
 const OnboardingFlow = React.lazy(() => import("./components/OnboardingFlow.tsx"));
@@ -75,7 +83,7 @@ function MainApp() {
     const authSkipped =
       localStorage.getItem("authenticationSkipped") === "true" ||
       localStorage.getItem("skipAuth") === "true";
-    const onboardingInProgress = localStorage.getItem("onboardingCurrentStep") !== null;
+    const onboardingInProgress = isOnboardingInProgress();
     const isReturningUser =
       !onboardingCompleted && isSignedIn && !isGracePeriodOnly && !onboardingInProgress;
 
@@ -102,6 +110,38 @@ function MainApp() {
     setIsLoading(false);
   }, [authLoaded, isControlPanel, isDictationPanel, isGracePeriodOnly, isSignedIn]);
 
+  useEffect(() => {
+    if (!isControlPanel) return;
+    // Fast path: a user who already finished onboarding can never enter the
+    // compact flow, so show the control panel immediately instead of holding
+    // it hidden behind auth/policy resolution. Fresh installs and mid-flow
+    // restarts fall through to the effect below, preserving the no-flash
+    // guarantee for windows that will enter compact onboarding mode.
+    const completed = localStorage.getItem("onboardingCompleted") === "true";
+    if (completed && !isOnboardingInProgress()) {
+      void window.electronAPI?.setOnboardingWindowMode?.("restore");
+    }
+  }, [isControlPanel]);
+
+  useEffect(() => {
+    if (!isControlPanel || isLoading || isWaitingForPolicyStart || showOnboarding) return;
+    // The main process waits for this renderer decision before showing the
+    // control panel, preventing a fresh install from flashing at 1200×800
+    // before the compact onboarding mode is applied.
+    void window.electronAPI?.setOnboardingWindowMode?.("restore");
+  }, [isControlPanel, isLoading, isWaitingForPolicyStart, showOnboarding]);
+
+  useEffect(() => {
+    if (isLoading || isWaitingForPolicyStart) return;
+
+    const onboardingCompleted = localStorage.getItem("onboardingCompleted") === "true";
+    const normalAppVisible = onboardingCompleted && (!isControlPanel || !showOnboarding);
+    // Main starts fail-closed. Only a renderer that has resolved the route and
+    // actually committed the normal app may release global hotkeys and popup
+    // surfaces; fresh installs and onboarding reloads keep them suppressed.
+    void window.electronAPI?.setOnboardingActive?.(!normalAppVisible);
+  }, [isControlPanel, isLoading, isWaitingForPolicyStart, showOnboarding]);
+
   const handleOnboardingComplete = (options) => {
     if (options?.openSettings) {
       setPostOnboardingSettingsSection("transcription");
@@ -121,6 +161,7 @@ function MainApp() {
     return (
       <Suspense fallback={<LoadingFallback />}>
         <OnboardingFlow onComplete={handleOnboardingComplete} />
+        <BackgroundModelDownloadTray />
       </Suspense>
     );
   }
@@ -153,6 +194,7 @@ function MainApp() {
                   }}
                   onAuthComplete={() => setNeedsReauth(false)}
                   onNeedsVerification={() => {}}
+                  embedded
                 />
               </CardContent>
             </Card>
@@ -165,6 +207,7 @@ function MainApp() {
   return isControlPanel ? (
     <Suspense fallback={<LoadingFallback />}>
       <ControlPanel initialSettingsSection={postOnboardingSettingsSection} />
+      <BackgroundModelDownloadTray />
     </Suspense>
   ) : (
     <App />

@@ -13,6 +13,7 @@ import {
   isTranscriptionContextAllowed,
 } from "../stores/policyRules";
 import { usePolicyStore } from "../stores/policyStore";
+import { getOnboardingDemoKind } from "../utils/onboardingDemo";
 import {
   buildLiveTranscriptionPreview,
   shouldShowByokStreamingPreview,
@@ -47,6 +48,8 @@ export const useAudioRecording = (toast, options = {}) => {
   const preparationGenerationRef = useRef(0);
   const wasRecordingRef = useRef(false);
   const wasMicUnavailableRef = useRef(false);
+  const demoKindRef = useRef("dictation");
+  const onDemoEventRef = useRef(onDemoEvent);
   const reportedLifecycleRef = useRef(null);
   const lastStartOptionsRef = useRef({
     voiceAgentRequested: false,
@@ -59,7 +62,12 @@ export const useAudioRecording = (toast, options = {}) => {
     onDictationError,
     getAssistantSelectionContext,
     onShowTranscript,
+    onDemoEvent,
   } = options;
+
+  useEffect(() => {
+    onDemoEventRef.current = onDemoEvent;
+  }, [onDemoEvent]);
 
   // Read through a ref so a re-render never tears down the AudioManager
   // (the mount effect below must not depend on this callback).
@@ -124,6 +132,7 @@ export const useAudioRecording = (toast, options = {}) => {
           logger.warn("Failed to refresh dictation target", { error: error?.message });
         }
 
+        demoKindRef.current = getOnboardingDemoKind(voiceAgentRequested);
         audioManagerRef.current.setVoiceAgentRequested(voiceAgentRequested);
         audioManagerRef.current.setAssistantSelectionContext(assistantSelectionContext);
         audioManagerRef.current.setTranslationRequested(translationRequested);
@@ -302,6 +311,11 @@ export const useAudioRecording = (toast, options = {}) => {
     audioManagerRef.current.setCallbacks({
       onStateChange: ({ isRecording, isProcessing, isStreaming, micCaptureStatus }) => {
         reportLifecycle(isRecording ? "recording" : isProcessing ? "processing" : "idle");
+        if (isRecording) {
+          onDemoEventRef.current?.({ kind: demoKindRef.current, status: "listening" });
+        } else if (isProcessing) {
+          onDemoEventRef.current?.({ kind: demoKindRef.current, status: "processing" });
+        }
         if (!isRecording) {
           window.electronAPI?.unregisterCancelHotkey?.();
           // Resume media the instant recording ends, not after transcription.
@@ -348,6 +362,11 @@ export const useAudioRecording = (toast, options = {}) => {
         setIsPreparing(false);
         setIsStopping(false);
         if (error?.code === "TRANSCRIPTION_CANCELLED" || error?.code === "REASON_CANCELLED") return;
+        onDemoEventRef.current?.({
+          kind: demoKindRef.current,
+          status: "error",
+          message: error?.message,
+        });
         if (error?.title !== "Paste Error") {
           window.electronAPI?.hideDictationPreview?.();
         }
@@ -371,6 +390,11 @@ export const useAudioRecording = (toast, options = {}) => {
       onNoAudio: () => {
         setIsPreparing(false);
         setIsStopping(false);
+        onDemoEventRef.current?.({
+          kind: demoKindRef.current,
+          status: "error",
+          message: t("hooks.audioRecording.noAudio.title"),
+        });
         window.electronAPI?.hideDictationPreview?.();
         if (getSettings().pauseMediaOnDictation) {
           window.electronAPI?.resumeMediaPlayback?.();
@@ -381,6 +405,7 @@ export const useAudioRecording = (toast, options = {}) => {
         });
       },
       onPartialTranscript: (text) => {
+        onDemoEventRef.current?.({ kind: demoKindRef.current, status: "partial", text });
         setPartialTranscript(text);
         const settings = getSettings();
         if (
@@ -424,21 +449,33 @@ export const useAudioRecording = (toast, options = {}) => {
           }
 
           setTranscript(result.text);
+          onDemoEventRef.current?.({
+            kind: demoKindRef.current,
+            status: "success",
+            text: result.text,
+          });
           if (result.assistantConversation) {
-            // Panel-first: the command streams into the assistant panel;
-            // nothing types at the cursor and nothing lands in the clipboard.
-            // The directive's transcript is the command to send — it carries
-            // the quoted selection when the selection-without-editor fallback
-            // routed a highlighted passage here.
-            window.electronAPI?.hideDictationPreview?.();
-            const { screenContext, transcript, selectedContext } = result.assistantConversation;
-            onAssistantCommandRef.current?.({
-              text: expandSnippets(transcript, getSettings().snippets),
-              attachment: screenContext
-                ? { image: screenContext.data, mediaType: screenContext.mediaType }
-                : null,
-              selectedContext: selectedContext ?? null,
-            });
+            // The onboarding demo owns the transcript/result surface. Opening
+            // the normal Assistant panel here would cover the flow even though
+            // the main-process onboarding gate correctly hid normal surfaces.
+            if (localStorage.getItem("onboardingCompleted") !== "true") {
+              window.electronAPI?.hideDictationPreview?.();
+            } else {
+              // Panel-first: the command streams into the assistant panel;
+              // nothing types at the cursor and nothing lands in the clipboard.
+              // The directive's transcript is the command to send — it carries
+              // the quoted selection when the selection-without-editor fallback
+              // routed a highlighted passage here.
+              window.electronAPI?.hideDictationPreview?.();
+              const { screenContext, transcript, selectedContext } = result.assistantConversation;
+              onAssistantCommandRef.current?.({
+                text: expandSnippets(transcript, getSettings().snippets),
+                attachment: screenContext
+                  ? { image: screenContext.data, mediaType: screenContext.mediaType }
+                  : null,
+                selectedContext: selectedContext ?? null,
+              });
+            }
           } else {
             window.electronAPI?.completeDictationPreview?.({ text: result.text });
           }

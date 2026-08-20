@@ -191,6 +191,26 @@ function readStringArray(key: string, fallback: string[]): string[] {
   }
 }
 
+type MicrophoneSelectionMode = "system" | "built-in" | "specific";
+
+function migrateMicrophoneSelectionMode() {
+  if (!isBrowser) return;
+  const current = localStorage.getItem("microphoneSelectionMode");
+  if (current === "system" || current === "built-in" || current === "specific") return;
+
+  const selectedDeviceId = localStorage.getItem("selectedMicDeviceId") || "";
+  const legacyBuiltIn = localStorage.getItem("preferBuiltInMic");
+  const mode: MicrophoneSelectionMode =
+    legacyBuiltIn === "true"
+      ? "built-in"
+      : selectedDeviceId && selectedDeviceId !== "default"
+        ? "specific"
+        : "system";
+  localStorage.setItem("microphoneSelectionMode", mode);
+}
+
+migrateMicrophoneSelectionMode();
+
 // One-time migration for legacy `meetingFollows{Transcription,Reasoning}` flags.
 // When the flag was true (the default), meeting/note recordings inherited the
 // main dictation/intelligence settings. We've removed the toggle; copy the
@@ -291,6 +311,7 @@ const ARRAY_SETTINGS = new Set([
   "gcalAccounts",
   "mcalAccounts",
   "onboardingUseCases",
+  "spokenLanguages",
   "translationTargets",
 ]);
 
@@ -880,9 +901,11 @@ export interface SettingsState
   setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => void;
   setOnboardingUseCases: (useCases: string[]) => void;
   setOnboardingUseCaseNote: (note: string) => void;
+  setSpokenLanguages: (languages: string[]) => void;
   setActivationMode: (mode: "tap" | "push") => void;
 
   setPreferBuiltInMic: (value: boolean) => void;
+  setMicrophoneSelectionMode: (mode: MicrophoneSelectionMode) => void;
   setSelectedMicDevice: (deviceId: string, label: string) => void;
   setMicWarmHoldSeconds: (seconds: number) => void;
 
@@ -1270,13 +1293,20 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   translationKey: readString("translationKey", ""),
   onboardingUseCases: readStringArray("onboardingUseCases", []),
   onboardingUseCaseNote: readString("onboardingUseCaseNote", ""),
+  spokenLanguages: readStringArray("spokenLanguages", []),
   meetingHotkeyLayoutMode: (readString("meetingHotkeyLayoutMode", "full-width") === "side-panel"
     ? "side-panel"
     : "full-width") as "side-panel" | "full-width",
   activationMode: (readString("activationMode", "tap") === "push" ? "push" : "tap") as
     "tap" | "push",
 
-  preferBuiltInMic: readBoolean("preferBuiltInMic", true),
+  microphoneSelectionMode: (() => {
+    const mode = readString("microphoneSelectionMode", "system");
+    return (
+      mode === "built-in" || mode === "specific" ? mode : "system"
+    ) as MicrophoneSelectionMode;
+  })(),
+  preferBuiltInMic: readBoolean("preferBuiltInMic", false),
   selectedMicDeviceId: readString("selectedMicDeviceId", ""),
   selectedMicDeviceLabel: readString("selectedMicDeviceLabel", ""),
   micWarmHoldSeconds: snapMicWarmHold(readNumber("micWarmHoldSeconds", 0)),
@@ -1993,6 +2023,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   setOnboardingUseCaseNote: createStringSetter("onboardingUseCaseNote"),
 
+  setSpokenLanguages: (languages: string[]) => {
+    if (isBrowser) localStorage.setItem("spokenLanguages", JSON.stringify(languages));
+    set({ spokenLanguages: languages });
+  },
+
   setActivationMode: (mode: "tap" | "push") => {
     if (isBrowser) localStorage.setItem("activationMode", mode);
     set({ activationMode: mode });
@@ -2001,7 +2036,24 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
   },
 
-  setPreferBuiltInMic: createBooleanSetter("preferBuiltInMic"),
+  setPreferBuiltInMic: (value: boolean) => {
+    const mode: MicrophoneSelectionMode = value ? "built-in" : "system";
+    if (isBrowser) {
+      localStorage.setItem("preferBuiltInMic", String(value));
+      localStorage.setItem("microphoneSelectionMode", mode);
+    }
+    set({ preferBuiltInMic: value, microphoneSelectionMode: mode });
+  },
+  setMicrophoneSelectionMode: (mode: MicrophoneSelectionMode) => {
+    const normalized: MicrophoneSelectionMode =
+      mode === "built-in" || mode === "specific" ? mode : "system";
+    const preferBuiltInMic = normalized === "built-in";
+    if (isBrowser) {
+      localStorage.setItem("microphoneSelectionMode", normalized);
+      localStorage.setItem("preferBuiltInMic", String(preferBuiltInMic));
+    }
+    set({ microphoneSelectionMode: normalized, preferBuiltInMic });
+  },
   setSelectedMicDevice: (deviceId: string, label: string) => {
     if (isBrowser) {
       localStorage.setItem("selectedMicDeviceLabel", label);
@@ -2289,19 +2341,30 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   // one provider so PHI never reaches a second LLM (e.g. Corti for medical providers).
   setCloudReasoningForAllScopes: (settings: Partial<CleanupSettings>) => {
     const s = useSettingsStore.getState();
+    // Onboarding routes every scope to the local runtime or the enterprise
+    // provider by passing "local"/"enterprise" as cleanupCloudMode. Those are
+    // InferenceModes of their own, not cloud routings — deriveReasoningMode
+    // collapses everything non-byok to "openwhispr", which would misroute
+    // privacy-local and manual-enterprise setups to the managed cloud. Map them
+    // straight through and keep them out of the *CloudMode fields, which only
+    // ever hold real cloud routings ("openwhispr"/"byok").
+    const requestedCloudMode = settings.cleanupCloudMode ?? s.cleanupCloudMode;
+    const isDirectMode = requestedCloudMode === "local" || requestedCloudMode === "enterprise";
     // Derive the mode from the incoming patch (falling back to current state) so
     // the helper patches are the single source of truth for every scope's mode.
-    const mode = deriveReasoningMode(
-      settings.cleanupCloudMode ?? s.cleanupCloudMode,
-      settings.cleanupProvider ?? s.cleanupProvider
-    );
+    const mode = isDirectMode
+      ? requestedCloudMode
+      : deriveReasoningMode(requestedCloudMode, settings.cleanupProvider ?? s.cleanupProvider);
     const {
       dictationCleanup,
       noteFormatting,
       dictationAgent,
       chatIntelligence,
       dictationTranslation,
-    } = buildReasoningScopePatches(settings, mode);
+    } = buildReasoningScopePatches(
+      isDirectMode ? { ...settings, cleanupCloudMode: undefined } : settings,
+      mode
+    );
     s.updateCleanupSettings(dictationCleanup);
     s.setCleanupMode(dictationCleanup.cleanupMode);
     // Each Settings tab selects on its own mode field, so set the mode for every

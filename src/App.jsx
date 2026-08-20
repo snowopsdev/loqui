@@ -187,6 +187,11 @@ export default function App() {
     getAudioLevel,
   } = useAudioRecording(toast, {
     onToggle: handleDictationToggle,
+    onDemoEvent: (event) => {
+      // Demo sessions only exist while onboarding is incomplete — skip the IPC otherwise.
+      if (localStorage.getItem("onboardingCompleted") === "true") return;
+      window.electronAPI?.publishOnboardingDemoEvent?.(event);
+    },
     onAssistantCommand: assistant.handleCommand,
     dismissDictationError,
     onDictationError: handleDictationError,

@@ -92,6 +92,7 @@
     "errors": {
       "callbackRequired": "設定快捷鍵需要回呼函式",
       "globeOnlyMac": "Globe 鍵僅在 macOS 上可用。",
+      "fnCombinationUnsupported": "Globe/Fn 鍵只能單獨使用。",
       "mouseButtonOnlyMac": "滑鼠按鍵快捷鍵目前僅在 macOS 上受支援。",
       "alreadyRegistered": "\"{{hotkey}}\" 已被其他應用程式註冊。",
       "osReserved": "\"{{hotkey}}\" 可能被你的作業系統保留。",
@@ -134,6 +135,7 @@
     "pttUnavailable": "按住說話原生監聽程式無法使用"
   },
   "common": {
+    "continue": "繼續",
     "add": "新增",
     "retry": "重試",
     "back": "返回",
@@ -177,6 +179,221 @@
     "policyTranscriptionRestricted": "轉錄已被您的組織限制。"
   },
   "onboarding": {
+    "rehaul": {
+      "permissions": {
+        "title": "3 分鐘完成 OpenWhispr 設定",
+        "microphoneDescription": "將語音轉換為文字。",
+        "accessibilityDescription": "將文字貼到目前的 App。",
+        "systemAudioTitle": "系統音訊",
+        "systemAudioDescription": "擷取其他 App 的音訊。",
+        "enable": "啟用",
+        "enabled": "已啟用"
+      },
+      "languages": {
+        "title": "你會說哪些語言？",
+        "titleLineOne": "你會說",
+        "titleLineTwo": "哪些語言？",
+        "description": "選擇所有適用的語言。這有助於 OpenWhispr 更準確地辨識語言切換。"
+      },
+      "dictationHotkey": {
+        "title": "設定鍵盤快速鍵",
+        "titleLineOne": "設定你的",
+        "titleLineTwo": "鍵盤快速鍵",
+        "description": "選擇一個鍵盤快速鍵，隨時開始和停止聽寫。"
+      },
+      "assistantHotkey": {
+        "title": "設定 OpenWhispr Assistant",
+        "titleLineOne": "設定",
+        "titleLineTwo": "OpenWhispr Assistant",
+        "description": "說出你的需求，OpenWhispr Assistant 就會為你寫好結果。"
+      },
+      "hotkey": {
+        "capture": "請按下你想使用的按鍵",
+        "chooseAnother": "選擇其他快速鍵",
+        "inUse": "此快速鍵已被使用。請選擇其他快速鍵。",
+        "holding": "繼續按住，或按下另一個鍵"
+      },
+      "dictationDemo": {
+        "title": "試試第一次聽寫",
+        "titleLineOne": "試試你的",
+        "titleLineTwo": "第一次語音輸入",
+        "description": "按 {{hotkey}} 開始說話，OpenWhispr 會把你的語音轉成文字。",
+        "founder": "你好，我是 Gabe，OpenWhispr 的創辦人",
+        "prompt": "試著說：「我第一次測試聽寫功能。」",
+        "placeholder": "你的語音輸入結果會顯示在這裡…"
+      },
+      "assistantDemo": {
+        "title": "認識 OpenWhispr Assistant",
+        "titleLineOne": "來認識",
+        "titleLineTwo": "OpenWhispr Assistant",
+        "description": "說出你的需求，OpenWhispr Assistant 就會為你寫好結果。",
+        "senderName": "Eren Lauren",
+        "senderEmail": "eren32@gmail.com",
+        "recipientLabel": "寄給 John Doe",
+        "email": "嗨！下週一起喝杯咖啡嗎？告訴我你什麼時候方便。",
+        "prompt": "回覆說週二下午 3 點可以。傳送一個邀請。",
+        "response": "你好，Eren：\n\n很想和你聊聊近況。週二下午 3 點對我來說很合適。如果你方便，我會發送行事曆邀請。\n期待見面，\nJohn"
+      },
+      "demo": {
+        "listening": "正在聆聽…",
+        "processing": "正在將你的語音轉成文字…",
+        "stop": "停止",
+        "typing": "正在輸入…"
+      },
+      "notes": {
+        "title": "用 OpenWhispr Notes 錄製會議，無需機器人加入",
+        "titleLineOne": "不需機器人也能錄製會議",
+        "titleLineTwoPrefix": "使用 OpenWhispr",
+        "titleLineTwoBrand": "Notes",
+        "description": "OpenWhispr 把你的對話變成清楚的筆記。不會有會議機器人加入你的通話。",
+        "hero": {
+          "description": "錄製你的會議，讓 OpenWhispr 把對話整理成清楚有條理的筆記。",
+          "chat": "與會議筆記對話",
+          "transcript": "檢視完整逐字稿",
+          "speakers": "看看誰說了什麼"
+        },
+        "connectors": {
+          "connect": "連接",
+          "googleTitle": "Google 日曆",
+          "googleDescription": "同步你的會議。",
+          "microsoftTitle": "Microsoft Outlook",
+          "microsoftDescription": "匯入工作會議與邀請。",
+          "appleTitle": "Apple 日曆",
+          "appleDescription": "同步你 Mac 和 iPhone 上的行程。"
+        }
+      },
+      "setupChoice": {
+        "title": "選擇你的 OpenWhispr 設定",
+        "titleLineOne": "選擇你的",
+        "titleLineTwo": "OpenWhispr 設定",
+        "description": "選擇最符合你工作方式的方案。",
+        "unavailable": {
+          "title": "沒有可用的設定選項",
+          "description": "你的工作區政策不允許完整設定轉錄與 AI。請聯絡管理員。"
+        },
+        "cloud": {
+          "title": "OpenWhispr Cloud",
+          "description": "每週獲得 2,000 個免費字數。你的設定會在各裝置間保持同步。",
+          "continue": "免費繼續",
+          "signIn": "登入以使用雲端",
+          "features": {
+            "fast": "最快，無需設定",
+            "privacy": "Privacy-focused processing",
+            "sync": "設定在各裝置間同步",
+            "features": "為筆記與動作提供的 AI 功能"
+          }
+        },
+        "byok": {
+          "title": "API 服務商",
+          "description": "使用你自己的 API Key。"
+        },
+        "local": {
+          "title": "在你的裝置上",
+          "description": "私密的離線逐字稿。至少需要 {{minimumSpace}} GB 可用空間。",
+          "badge": "免費",
+          "download": "下載模型",
+          "features": {
+            "device": "在你的裝置上執行",
+            "offline": "設定完成後可離線使用",
+            "models": "為語音輸入與助理選擇模型",
+            "free": "永久免費使用"
+          }
+        },
+        "warnings": {
+          "byok": {
+            "title": "你的資料由服務商處理",
+            "description": "你需要分別為語音輸入與 Assistant 服務商新增憑證。將適用服務商的定價與資料保留政策。",
+            "continue": "設定 API 服務商",
+            "steps": {
+              "1": "為語音輸入與 Assistant 選擇服務商",
+              "2": "使用安全儲存新增憑證",
+              "3": "啟用前測試每個連線"
+            }
+          },
+          "local": {
+            "title": "本機設定需要多幾個步驟",
+            "description": "本機處理會把你的語音保留在這台裝置上，但需要一次性設定和至少 {{minimumSpace}} GB 可用空間。",
+            "continue": "本機設定",
+            "steps": {
+              "1": "選擇逐字稿引擎",
+              "2": "設定或下載模型，約 {{modelSize}}",
+              "3": "等待安裝與啟用"
+            }
+          }
+        },
+        "useCloud": "改用雲端",
+        "continueSetup": "繼續設定",
+        "showMore": "顯示更多選項",
+        "moreOptions": {
+          "title": "選擇你的 API 設定方式",
+          "description": "新增 API Key 或連接自架模型。",
+          "selfHosted": {
+            "title": "自架",
+            "description": "連接你自己託管的模型。"
+          }
+        }
+      },
+      "provider": {
+        "progress": "服務商設定進度",
+        "dictation": "語音輸入",
+        "assistant": "助理",
+        "title": "連接你的 AI 服務商",
+        "description": "選擇服務商、新增憑證，然後測試連線。",
+        "descriptionLineOne": "選擇服務商並新增",
+        "descriptionLineTwo": "你的 API Key。",
+        "selfHosted": "我有自架模型的金鑰",
+        "providerLabel": "服務商",
+        "providerPlaceholder": "選擇模型服務商",
+        "modelLabel": "模型",
+        "modelPlaceholder": "選擇模型",
+        "apiKey": "API 金鑰",
+        "apiKeyPlaceholder": "貼上你的 API Key",
+        "endpointUrl": "端點 URL",
+        "endpointPlaceholder": "貼上你的端點 URL",
+        "optional": "選填",
+        "modelId": "模型 ID",
+        "modelIdPlaceholder": "填寫你的模型 ID",
+        "testConnection": "測試連線",
+        "proceed": "繼續",
+        "clinical": "用於臨床逐字稿",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "runTest": "執行測試",
+        "testing": "測試中…",
+        "connected": "已連接",
+        "connectionFailed": "無法驗證這個連線。",
+        "errors": {
+          "endpointRequired": "測試前請先輸入端點 URL。",
+          "invalidUrl": "端點必須是有效的 HTTP 或 HTTPS URL。",
+          "httpsRequired": "公開端點必須使用 HTTPS。HTTP 僅允許用於私有位址。",
+          "unsupportedProvider": "這個服務商不支援連線測試。",
+          "apiKeyRequired": "測試前請先新增 API Key。",
+          "credentialsRejected": "服務商拒絕了這些憑證。",
+          "endpointNotFound": "這個端點未提供相容 OpenAI 的模型清單。",
+          "modelNotFound": "所選模型無法從此服務商取得。",
+          "providerStatus": "服務商回傳了狀態碼 {{status}}。",
+          "timeout": "連線測試逾時。",
+          "network": "無法連上服務商。"
+        }
+      },
+      "local": {
+        "title": "設定本機模型",
+        "description": "選擇你想在裝置上執行的模型。",
+        "descriptionLineOne": "選擇你想在裝置上",
+        "descriptionLineTwo": "執行的模型。",
+        "providerLabel": "服務商",
+        "agent": "代理程式",
+        "download": "下載",
+        "downloadingShort": "下載中",
+        "selected": "已選擇",
+        "use": "使用",
+        "downloadInProgress": "下載進行中",
+        "cancelDownload": "取消下載 {{model}}",
+        "downloads": "模型下載",
+        "downloading": "正在下載… {{progress}}%",
+        "installing": "正在安裝模型…"
+      }
+    },
     "steps": {
       "welcome": "歡迎",
       "setup": "設定",
@@ -254,34 +471,37 @@
       "continue": "仍然繼續"
     },
     "useCase": {
-      "title": "你為什麼來到這裡？",
-      "description": "我們是一個小團隊，每週發布更新。你的選擇會為你設定應用程式，也告訴我們接下來該做什麼。",
+      "title": "你會如何使用 OpenWhispr？",
+      "titleLineOne": "你會如何使用",
+      "titleLineTwo": "OpenWhispr？",
+      "description": "選擇所有適用項目，我們會據此為你量身設定。",
       "noteLabel": "還有什麼想告訴我們的嗎？",
-      "notePlaceholder": "選填",
+      "notePlaceholder": "告訴我們你打算如何使用 OpenWhispr（選填）",
+      "proceedToSetup": "繼續設定",
       "options": {
         "dictation": {
           "title": "更快地寫作",
-          "description": "在任何應用程式中口述，而不是打字"
+          "description": "在任何應用程式中用說話代替打字。"
         },
         "meetings": {
-          "title": "會議筆記與摘要",
-          "description": "錄製、轉寫並總結會議"
+          "title": "會議筆記",
+          "description": "錄製、轉寫並總結會議。"
         },
         "healthcare": {
-          "title": "醫療、臨床與治療轉寫",
-          "description": "口述病歷、諮商紀錄和報告"
+          "title": "臨床紀錄",
+          "description": "建立病歷、諮商紀錄和報告。"
         },
         "translation": {
-          "title": "語言翻譯",
-          "description": "說一種語言，輸出另一種"
+          "title": "邊說邊翻譯",
+          "description": "說一種語言，寫出另一種。"
         },
         "ai": {
-          "title": "與我的 AI 對話",
-          "description": "用語音驅動 ChatGPT、Claude 等代理"
+          "title": "與你的 AI 對話",
+          "description": "用語音使用 ChatGPT、Claude 等 AI 工具。"
         },
         "upload": {
-          "title": "上傳音訊檔案",
-          "description": "上傳並轉寫 MP3、OGG 等"
+          "title": "轉寫音訊檔案",
+          "description": "上傳音訊檔案進行轉寫。"
         }
       },
       "selectHint": "可複選"
@@ -762,9 +982,12 @@
       "or": "或"
     },
     "emailStep": {
+      "checkingEmail": "正在檢查您的電子郵件...",
       "continueWithEmail": "使用電子郵件繼續",
-      "continueWithoutAccount": "不建立帳號繼續",
-      "emailPlaceholder": "you@example.com"
+      "continueWithoutAccount": "無需帳號使用 OpenWhispr",
+      "emailLabel": "電子郵件",
+      "emailPlaceholder": "you@example.com",
+      "useDifferentEmail": "使用其他電子郵件"
     },
     "errors": {
       "accountExistsSignIn": "此電子郵件已有帳號。請直接登入。",
@@ -787,17 +1010,19 @@
     },
     "passwordForm": {
       "createAccount": "建立帳號",
-      "createAccountButton": "建立帳號",
+      "createAccountButton": "使用電子郵件繼續",
       "createAccountLink": "建立帳號",
       "createPasswordPlaceholder": "建立密碼",
       "creatingAccount": "正在建立帳號...",
       "enterPasswordPlaceholder": "輸入你的密碼",
       "forgotPassword": "忘記密碼？",
-      "fullNamePlaceholder": "姓名",
+      "fullNamePlaceholder": "填寫你的姓名",
+      "nameLabel": "姓名",
+      "passwordLabel": "密碼",
       "haveAccount": "已經有帳號了？",
       "newHere": "第一次來？",
       "passwordMinLength": "密碼至少需要 8 個字元",
-      "signIn": "登入",
+      "signIn": "使用電子郵件繼續",
       "signInLink": "登入",
       "signingIn": "登入中...",
       "welcomeBack": "歡迎回來"
@@ -823,7 +1048,7 @@
       "continueWithMicrosoft": "使用 Microsoft 繼續",
       "protocolUnavailable": "無法透過瀏覽器登入 — 請在系統的「預設應用程式」設定中重新註冊 openwhispr:// 協定。"
     },
-    "welcomeSubtitle": "隨時隨地用語音輸入文字",
+    "welcomeSubtitle": "用語音完成一切",
     "welcomeTitle": "歡迎使用 OpenWhispr",
     "sessionExpired": "工作階段已過期，請重新登入。"
   },
@@ -895,8 +1120,8 @@
   },
   "dictionarySuffix": "字典後綴",
   "emailVerification": {
-    "checkEmailDescription": "我們已寄送驗證連結至",
-    "checkEmailTitle": "請查看你的電子郵件",
+    "checkEmailDescription": "我們已將驗證連結寄送至你的電子郵件：",
+    "checkEmailTitle": "驗證郵件已寄出",
     "errors": {
       "resendFailed": "無法重新寄送驗證信。請再試一次。",
       "serverUnreachable": "無法連線到伺服器。請檢查你的網路連線後再試。"
@@ -904,8 +1129,8 @@
     "resendButton": "重新寄送驗證信",
     "resendIn": "{{seconds}} 秒後可重新寄送",
     "verifiedDescription": "你的帳號已設定完成。",
-    "verifiedTitle": "電子郵件已驗證",
-    "waiting": "等待驗證中...",
+    "verifiedTitle": "已驗證",
+    "waiting": "等待驗證中",
     "backToSignIn": "返回登入"
   },
   "errorBoundary": {
@@ -993,11 +1218,12 @@
     "tryShortcutMac": "試試 ⌘⇧K",
     "remove": "移除快捷鍵",
     "addAnother": "新增其他快捷鍵",
-    "duplicate": "已新增"
+    "duplicate": "已新增",
+    "singleModifierNeedsRightSide": "{{key}} 單獨無法作為快速鍵。請按 {{alternative}}，或再加一個按鍵。"
   },
   "languageSelector": {
     "noLanguagesFound": "找不到語言",
-    "searchPlaceholder": "搜尋..."
+    "searchPlaceholder": "搜尋語言"
   },
   "microphoneSettings": {
     "builtIn": "（內建）",
@@ -1628,7 +1854,7 @@
       },
       "waylandPaste": {
         "title": "Wayland 貼上設定",
-        "description": "Wayland 下的自動貼上需要 ydotool。請檢查以下各元件的狀態。",
+        "description": "Wayland 下的自動貼上使用 ydotool 或 wtype。在 wlroots 合成器上優先使用 wtype。",
         "allGoodDesc": "自動貼上已就緒。",
         "recheck": "重新檢查",
         "copy": "複製",

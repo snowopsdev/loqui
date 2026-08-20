@@ -1087,6 +1087,8 @@ async function startApp() {
   // Set up meeting mode hotkey
   const meetingHotkeyCallback = () => {
     if (hotkeyManager.isInListeningMode()) return;
+    // Fail closed during onboarding, like every other hotkey slot.
+    if (!windowManager.isMeetingInputAllowed()) return;
     debugLogger.info("Meeting hotkey triggered", {}, "meeting");
     meetingDetectionEngine?.startManualMeeting();
   };
@@ -1625,7 +1627,9 @@ async function startApp() {
       } else if (hotkeyManager.slotHasHotkey("translation", key)) {
         windowManager.sendToggleTranslation();
       } else if (hotkeyManager.slotHasHotkey("meeting", key)) {
-        if (!hotkeyManager.isInListeningMode()) meetingDetectionEngine?.startManualMeeting();
+        if (!hotkeyManager.isInListeningMode() && windowManager.isMeetingInputAllowed()) {
+          meetingDetectionEngine?.startManualMeeting();
+        }
       }
     };
 

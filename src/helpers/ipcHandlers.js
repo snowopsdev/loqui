@@ -23,6 +23,7 @@ const {
   toPolicyFailure,
 } = require("./policyResponseError");
 const { classifyAndLog } = require("./networkErrors");
+const { resolveSystemDefaultMicrophone } = require("./systemDefaultMicrophone");
 // The renderer's ModelRegistry is not main-loadable; the raw registry data is
 // packaged, and the route resolver only needs {id, baseUrl} per provider.
 const transcriptionProviderBaseUrls = () =>
@@ -59,6 +60,8 @@ const DeepgramStreaming = require("./deepgramStreaming");
 const CortiStreaming = require("./cortiStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
+const { ONBOARDING_DEMO_KINDS } = require("./onboardingInputPolicy");
+const { focusWindowsHotkeyCaptureWindow } = require("./hotkeyCaptureFocus");
 const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
 const { getTinfoilChatModels } = require("./tinfoilCatalog");
@@ -150,6 +153,7 @@ const CLOUD_INLINE_LIMIT = 4 * 1024 * 1024;
 const CLOUD_CHUNK_SEGMENT_SECONDS = 240;
 
 const { createAbortError } = require("./abortError");
+const { testProviderConnection } = require("./providerConnectionTest");
 const { createUploadCancelRegistry } = require("./uploadCancelRegistry");
 const { applyOpenWhisprOriginHeader } = require("./sessionHeaders");
 const {
@@ -593,6 +597,7 @@ class IPCHandlers {
     this._autoLearnLatestData = null;
     this._textEditHandler = null;
     this._activeRecordingPipeline = null;
+    this._onboardingDemoSession = null;
     this.audioStorageManager = new AudioStorageManager();
     this._retentionCleanupInterval = null;
     this._retentionSettings = { ...DEFAULT_RETENTION_SETTINGS }; // Synced from renderer
@@ -1150,6 +1155,121 @@ class IPCHandlers {
   }
 
   setupHandlers() {
+    ipcMain.handle("onboarding-set-window-mode", (_event, mode) =>
+      this.windowManager.setOnboardingWindowMode(mode)
+    );
+
+    // WindowManager owns every teardown path for a demo (id-matched end,
+    // onboarding-set-active(false), control panel closed); without this hook a
+    // renderer crash mid-demo would leave the session set and broadcast every
+    // later dictation's transcripts on onboarding-demo-event forever.
+    this.windowManager.onOnboardingDemoTeardown = () => {
+      this._onboardingDemoSession = null;
+    };
+
+    ipcMain.handle("onboarding-set-active", (_event, active) => {
+      if (typeof active !== "boolean") return false;
+      return this.windowManager.setOnboardingActive(active);
+    });
+
+    ipcMain.handle("onboarding-demo-begin", (_event, session) => {
+      if (
+        !session ||
+        typeof session.id !== "string" ||
+        session.id.length > 128 ||
+        !ONBOARDING_DEMO_KINDS.has(session.kind)
+      ) {
+        return false;
+      }
+      this._onboardingDemoSession = {
+        id: session.id,
+        kind: session.kind,
+        startedAt: Date.now(),
+      };
+      return this.windowManager.beginOnboardingDemo(session.kind);
+    });
+
+    ipcMain.handle("onboarding-demo-end", (_event, id) => {
+      if (this._onboardingDemoSession?.id === id) {
+        // Session cleanup rides on the teardown hook above.
+        this.windowManager.endOnboardingDemo();
+      }
+      return true;
+    });
+
+    ipcMain.handle("onboarding-demo-stop", (_event, id) => {
+      if (this._onboardingDemoSession?.id !== id) return false;
+      return this.windowManager.stopOnboardingDemoRecording();
+    });
+
+    ipcMain.handle("onboarding-demo-publish", (_event, event) => {
+      const session = this._onboardingDemoSession;
+      if (!session || !event || event.kind !== session.kind) return false;
+      if (!["listening", "processing", "partial", "success", "error"].includes(event.status)) {
+        return false;
+      }
+      const text = typeof event.text === "string" ? event.text.slice(0, 20000) : undefined;
+      const message = typeof event.message === "string" ? event.message.slice(0, 500) : undefined;
+      broadcastToWindows("onboarding-demo-event", {
+        demoId: session.id,
+        kind: session.kind,
+        status: event.status,
+        text,
+        message,
+      });
+      return true;
+    });
+
+    ipcMain.handle("test-provider-connection", async (_event, config) => {
+      if (config?.provider === "corti" && config?.scope === "transcription") {
+        try {
+          const clientId = String(config.clientId || "").trim();
+          const clientSecret = String(config.clientSecret || "").trim();
+          if (clientId && clientSecret) {
+            await getCortiToken({
+              environment: config.environment || "us",
+              tenant: String(config.tenant || "").trim() || "base",
+              clientId,
+              clientSecret,
+            });
+          } else {
+            await this._mintStoredCortiToken({
+              environment: config.environment,
+              tenant: config.tenant,
+            });
+          }
+          return { success: true };
+        } catch (error) {
+          // errorCode is the machine-readable field the renderer maps to i18n;
+          // the English string stays for logs/back-compat. Only a response
+          // Corti actually sent counts as a rejection (getCortiToken prefixes
+          // those); a fetch that never reached it is a network problem, and
+          // reporting it as "credentials rejected" sends the user to re-type a
+          // key that was never the issue.
+          if (error?.name === "AbortError") {
+            return {
+              success: false,
+              errorCode: "timeout",
+              error: "The connection test timed out.",
+            };
+          }
+          if (!/^(Corti authentication failed|Invalid Corti)/.test(error?.message || "")) {
+            return {
+              success: false,
+              errorCode: "network",
+              error: "The provider could not be reached.",
+            };
+          }
+          return {
+            success: false,
+            errorCode: "credentialsRejected",
+            error: "Corti rejected these credentials.",
+          };
+        }
+      }
+      return testProviderConnection(config);
+    });
+
     ipcMain.handle("window-minimize", () => {
       if (this.windowManager.controlPanelWindow) {
         this.windowManager.controlPanelWindow.minimize();
@@ -2499,6 +2619,14 @@ class IPCHandlers {
     });
 
     ipcMain.handle("paste-text", async (event, text, options) => {
+      // An onboarding demo already puts the transcript in its own textarea from
+      // the demo event, and that textarea is what has focus — pasting on top of
+      // it appends the same sentence a second time. Reported as success because
+      // nothing failed and the caller would otherwise toast a paste error.
+      if (this.windowManager?.isOnboardingDemoActive()) {
+        return { success: true };
+      }
+
       const mainWindow = this.windowManager?.mainWindow;
       const targetPid = this.textEditMonitor?.lastTargetPid || null;
 
@@ -3389,6 +3517,15 @@ class IPCHandlers {
     });
 
     ipcMain.handle("set-hotkey-listening-mode", async (event, enabled) => {
+      if (enabled) {
+        const captureWindow = BrowserWindow.fromWebContents(event.sender);
+        // Only the control panel owns editable hotkey fields. Refocusing the
+        // sender before the idempotence check also repairs a stale capture-mode
+        // flag after Windows has moved foreground focus to another window.
+        if (captureWindow === this.windowManager.controlPanelWindow) {
+          focusWindowsHotkeyCaptureWindow(captureWindow);
+        }
+      }
       if (this._hotkeyCaptureMode === enabled) return { success: true, skipped: true };
       this._hotkeyCaptureMode = enabled;
       this.windowManager.setHotkeyListeningMode(enabled);
@@ -3476,7 +3613,7 @@ class IPCHandlers {
           // may hold several).
           for (const hk of hotkeyManager.getSlotHotkeys("dictation")) {
             if (!hk || usesNativeListener(hk)) continue;
-            const accelerator = hk.startsWith("Fn+") ? hk.slice(3) : hk;
+            const accelerator = hk;
             if (!globalShortcut.isRegistered(accelerator)) {
               debugLogger.log(
                 `[IPC] Re-registering globalShortcut "${accelerator}" after capture mode`
@@ -4694,6 +4831,9 @@ class IPCHandlers {
 
     ipcMain.handle("open-microphone-settings", () => openSystemSettings("microphone"));
     ipcMain.handle("open-sound-input-settings", () => openSystemSettings("sound"));
+    ipcMain.handle("get-system-default-microphone", (_event, options = {}) =>
+      resolveSystemDefaultMicrophone({ refresh: options?.refresh === true })
+    );
     ipcMain.handle("open-accessibility-settings", () => openSystemSettings("accessibility"));
     ipcMain.handle("open-system-audio-settings", () => openSystemSettings("systemAudio"));
     ipcMain.handle("open-screen-recording-settings", () => openSystemSettings("screenRecording"));

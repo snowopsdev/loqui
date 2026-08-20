@@ -64,9 +64,11 @@ export interface HotkeySettings {
 export interface OnboardingSettings {
   onboardingUseCases: string[];
   onboardingUseCaseNote: string;
+  spokenLanguages: string[];
 }
 
 export interface MicrophoneSettings {
+  microphoneSelectionMode: "system" | "built-in" | "specific";
   preferBuiltInMic: boolean;
   selectedMicDeviceId: string;
   selectedMicDeviceLabel: string;
@@ -332,6 +334,8 @@ function useSettingsInternal() {
     setOnboardingUseCases: store.setOnboardingUseCases,
     onboardingUseCaseNote: store.onboardingUseCaseNote,
     setOnboardingUseCaseNote: store.setOnboardingUseCaseNote,
+    spokenLanguages: store.spokenLanguages,
+    setSpokenLanguages: store.setSpokenLanguages,
     setTheme: store.setTheme,
     activationMode: store.activationMode,
     setActivationMode: store.setActivationMode,
@@ -353,10 +357,12 @@ function useSettingsInternal() {
     setStartMinimized: store.setStartMinimized,
     panelStartPosition: store.panelStartPosition,
     setPanelStartPosition: store.setPanelStartPosition,
+    microphoneSelectionMode: store.microphoneSelectionMode,
     preferBuiltInMic: store.preferBuiltInMic,
     selectedMicDeviceId: store.selectedMicDeviceId,
     selectedMicDeviceLabel: store.selectedMicDeviceLabel,
     micWarmHoldSeconds: store.micWarmHoldSeconds,
+    setMicrophoneSelectionMode: store.setMicrophoneSelectionMode,
     setPreferBuiltInMic: store.setPreferBuiltInMic,
     setSelectedMicDevice: store.setSelectedMicDevice,
     setMicWarmHoldSeconds: store.setMicWarmHoldSeconds,

@@ -65,13 +65,15 @@ function isMouseButtonHotkey(hotkey) {
 }
 
 function normalizeToAccelerator(hotkey) {
-  let accelerator = hotkey.startsWith("Fn+") ? hotkey.slice(3) : hotkey;
-  accelerator = accelerator
+  return hotkey
     .replace(/\bRight(Command|Cmd)\b/g, "Command")
     .replace(/\bRight(Control|Ctrl)\b/g, "Control")
     .replace(/\bRight(Alt|Option)\b/g, "Alt")
     .replace(/\bRightShift\b/g, "Shift");
-  return accelerator;
+}
+
+function isUnsupportedFnCombination(hotkey) {
+  return /^Fn\+/i.test(hotkey || "");
 }
 
 // Suggested alternative hotkeys when registration fails
@@ -420,6 +422,20 @@ class HotkeyManager extends EventEmitter {
         }
         debugLogger.log(`[HotkeyManager] GLOBE/Fn key "${hotkey}" set successfully`);
         return { success: true, hotkey, accelerator: null };
+      }
+
+      // Electron cannot represent Fn as part of an accelerator. Registering
+      // Fn+A as A claims an ordinary typing key globally, so only standalone
+      // Globe/Fn (handled by the native listener above) is supported.
+      if (isUnsupportedFnCombination(hotkey)) {
+        return {
+          success: false,
+          hotkey,
+          error: i18nMain.t("hotkey.errors.fnCombinationUnsupported", {
+            defaultValue: "The Globe/Fn key can only be used by itself.",
+          }),
+          reason: "fn_combination_unsupported",
+        };
       }
 
       if (isRightSideModifier(hotkey)) {

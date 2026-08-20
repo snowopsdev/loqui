@@ -861,6 +861,16 @@ export interface ConversationPreview {
   last_message_role?: "user" | "assistant" | "system" | null;
 }
 
+export type OnboardingDemoKind = "dictation" | "assistant";
+export type OnboardingDemoStatus = "listening" | "processing" | "partial" | "success" | "error";
+export interface OnboardingDemoEvent {
+  demoId: string;
+  kind: OnboardingDemoKind;
+  status: OnboardingDemoStatus;
+  text?: string;
+  message?: string;
+}
+
 export interface ReferralItem {
   id: string;
   email: string;
@@ -874,6 +884,24 @@ declare global {
   interface Window {
     electronAPI: {
       // Basic window operations
+      setOnboardingWindowMode?: (mode: "compact" | "expanded" | "restore") => Promise<boolean>;
+      setOnboardingActive?: (active: boolean) => Promise<boolean>;
+      beginOnboardingDemo?: (session: { id: string; kind: OnboardingDemoKind }) => Promise<boolean>;
+      endOnboardingDemo?: (id: string) => Promise<boolean>;
+      stopOnboardingDemo?: (id: string) => Promise<boolean>;
+      publishOnboardingDemoEvent?: (event: Omit<OnboardingDemoEvent, "demoId">) => Promise<boolean>;
+      onOnboardingDemoEvent?: (callback: (event: OnboardingDemoEvent) => void) => () => void;
+      testProviderConnection?: (config: {
+        scope: "transcription" | "reasoning";
+        provider: string;
+        apiKey?: string;
+        baseUrl?: string;
+        model?: string;
+        clientId?: string;
+        clientSecret?: string;
+        environment?: string;
+        tenant?: string;
+      }) => Promise<{ success: boolean; error?: string; errorCode?: string; status?: number }>;
       pasteText: (
         text: string,
         options?: {
@@ -1818,6 +1846,12 @@ declare global {
       // System settings helpers
       requestMicrophoneAccess?: () => Promise<{ granted: boolean }>;
       checkMicrophoneAccess?: () => Promise<{ granted: boolean; status: string }>;
+      getSystemDefaultMicrophone?: (options?: { refresh?: boolean }) => Promise<{
+        name: string;
+        nativeId?: string;
+        platform: string;
+        source: "system" | "unavailable";
+      }>;
       checkSystemAudioAccess?: () => Promise<SystemAudioAccessResult>;
       requestSystemAudioAccess?: () => Promise<SystemAudioAccessResult>;
       openMicrophoneSettings?: () => Promise<{ success: boolean; error?: string }>;

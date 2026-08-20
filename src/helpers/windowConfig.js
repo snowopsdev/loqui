@@ -187,11 +187,22 @@ const MAIN_WINDOW_CONFIG = {
   type: OVERLAY_WINDOW_TYPES.main,
 };
 
+// The expanded flow deliberately uses a denser frame than the main control
+// panel. Its typography, cards and spacing are sized for this 1000x740 canvas;
+// clampedBounds still handles displays whose work area is smaller.
+const ONBOARDING_WINDOW_SIZES = {
+  COMPACT: { width: 480, height: 624 },
+  EXPANDED: { width: 1000, height: 740 },
+};
+
 // Control panel window configuration
 const CONTROL_PANEL_CONFIG = {
   width: 1200,
   height: 800,
-  backgroundColor: "#1c1c2e",
+  // macOS: fully transparent, so nothing paints into the compact onboarding
+  // frame's rounded corners. Windows/Linux keep an opaque backing (the renderer
+  // paints its own background on top) — see the transparent flag below.
+  backgroundColor: process.platform === "darwin" ? "#00000000" : "#1c1c2e",
   webPreferences: {
     preload: path.join(__dirname, "..", "..", "preload.js"),
     nodeIntegration: false,
@@ -215,7 +226,16 @@ const CONTROL_PANEL_CONFIG = {
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 20, y: 20 },
   }),
-  transparent: false,
+  // macOS only: transparent so a renderer that insets or rounds itself shows
+  // the desktop rather than a square page backing bleeding out behind it. Safe
+  // for the other control panel screens because each paints its own opaque
+  // background (ControlPanel's root is `bg-background`); only the compact
+  // onboarding steps clear body/#root — see index.css. Not on Windows/Linux:
+  // transparency is creation-time-only and this window outlives onboarding, and
+  // on Windows `transparent` forces thickFrame:false (no maximize/Aero-snap)
+  // and renders black when compositing is off. The compact onboarding frame
+  // falls back to square corners there by design.
+  transparent: process.platform === "darwin",
   minimizable: true,
   maximizable: true,
   closable: true,
@@ -346,6 +366,7 @@ class WindowPositionUtil {
 module.exports = {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
+  ONBOARDING_WINDOW_SIZES,
   NOTIFICATION_WINDOW_CONFIG,
   ASSISTANT_PANEL_SIZE_LIMITS,
   fitAssistantContentWindowToWorkArea,

@@ -94,6 +94,7 @@ import { Skeleton } from "./ui/skeleton";
 import { Progress } from "./ui/progress";
 import { useToast } from "./ui/useToast";
 import { useTheme } from "../hooks/useTheme";
+import { resetOnboardingProgress } from "./onboarding/flow";
 import type {
   ChineseScriptPreference,
   GpuDevice,
@@ -815,11 +816,11 @@ export default function SettingsPage({
     dictationKey,
     activationMode,
     setActivationMode,
-    preferBuiltInMic,
+    microphoneSelectionMode,
     selectedMicDeviceId,
     selectedMicDeviceLabel,
     micWarmHoldSeconds,
-    setPreferBuiltInMic,
+    setMicrophoneSelectionMode,
     setSelectedMicDevice,
     setMicWarmHoldSeconds,
     setUseLocalWhisper,
@@ -1091,7 +1092,10 @@ export default function SettingsPage({
 
   const meetingRegisterFn = useCallback(async (hotkey: string) => {
     const result = await window.electronAPI?.registerMeetingHotkey?.(hotkey);
-    return result ?? { success: false, message: "Electron API unavailable" };
+    // No `message`: useHotkeyRegistration falls back to the translated
+    // hooks.hotkeyRegistration.errors.couldNotRegister, and that string is what
+    // gets shown in a toast. An English literal here would surface untranslated.
+    return result ?? { success: false };
   }, []);
 
   const { registerHotkey: registerMeetingHotkey, isRegistering: isMeetingHotkeyRegistering } =
@@ -1453,8 +1457,7 @@ export default function SettingsPage({
 
   const startOnboarding = useCallback(() => {
     localStorage.setItem("pendingCloudMigration", "true");
-    localStorage.setItem("onboardingCurrentStep", "0");
-    localStorage.removeItem("onboardingCompleted");
+    resetOnboardingProgress(localStorage);
     window.location.reload();
   }, []);
 
@@ -2895,11 +2898,11 @@ export default function SettingsPage({
               <SettingsPanel>
                 <SettingsPanelRow>
                   <MicrophoneSettings
-                    preferBuiltInMic={preferBuiltInMic}
+                    microphoneSelectionMode={microphoneSelectionMode}
                     selectedMicDeviceId={selectedMicDeviceId}
                     selectedMicDeviceLabel={selectedMicDeviceLabel}
                     micWarmHoldSeconds={micWarmHoldSeconds}
-                    onPreferBuiltInChange={setPreferBuiltInMic}
+                    onSelectionModeChange={setMicrophoneSelectionMode}
                     onDeviceSelect={setSelectedMicDevice}
                     onMicWarmHoldSecondsChange={setMicWarmHoldSeconds}
                   />

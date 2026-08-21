@@ -119,7 +119,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setPermissionAlert({ title: dialog.title, description: dialog.description })
   );
   const systemAudio = useSystemAudioPermission();
-  const { isUsingNativeShortcut, supportsPushToTalk } = useHotkeyModeInfo("onboarding");
+  const { supportsPushToTalk, pushToTalkUnavailableReason } = useHotkeyModeInfo(
+    "onboarding",
+    dictationHotkey
+  );
   const { activationMode, setActivationMode } = settings;
   // This hook also starts the membership fetch for already-authenticated users;
   // relying on the login transition alone would leave resumed onboarding stuck
@@ -197,12 +200,6 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   useEffect(() => {
     setStageReady(false);
   }, [currentStepId]);
-
-  useEffect(() => {
-    if (isUsingNativeShortcut && !supportsPushToTalk && activationMode === "push") {
-      setActivationMode("tap");
-    }
-  }, [activationMode, isUsingNativeShortcut, setActivationMode, supportsPushToTalk]);
 
   // Track main's actual registration: the platform default may be unregistrable
   // (GNOME gsettings and X11 reject modifier-only combos like Control+Super), in
@@ -716,7 +713,15 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                     )}
                   </p>
                 </div>
-                <ActivationModeSelector value={activationMode} onChange={setActivationMode} />
+                <ActivationModeSelector
+                  value={activationMode}
+                  onChange={setActivationMode}
+                  pushDisabledReason={
+                    !supportsPushToTalk
+                      ? pushToTalkUnavailableReason || t("windows.pttUnavailable")
+                      : undefined
+                  }
+                />
               </div>
               {getPlatform() === "linux" && activationMode === "push" && (
                 <LinuxPttSetupInfo isAvailable={supportsPushToTalk} />

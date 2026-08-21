@@ -69,8 +69,10 @@ function buildManagedBindsContent(lines = [], format = "conf") {
   return header + "\n" + (body ? body + "\n" : "");
 }
 
-function buildLuaBindExpression(luaKeys, dbusCommand) {
-  return `hl.bind(${JSON.stringify(luaKeys)}, hl.dsp.exec_cmd(${JSON.stringify(dbusCommand)}))`;
+function buildLuaBindExpression(luaKeys, dbusCommand, flags = "") {
+  return `hl.bind(${JSON.stringify(luaKeys)}, hl.dsp.exec_cmd(${JSON.stringify(
+    dbusCommand
+  )})${flags ? `, ${flags}` : ""})`;
 }
 
 function runHyprctl(args) {
@@ -84,6 +86,14 @@ function runHyprctl(args) {
   if (response !== "ok") {
     throw new Error(response || `hyprctl ${args[0]} returned an empty response`);
   }
+}
+
+function isModifierOnlyHotkey(hotkey) {
+  const parts = hotkey
+    .split("+")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  return parts.length > 0 && parts.every((part) => ELECTRON_TO_HYPRLAND_MOD[part]);
 }
 
 function getHyprConfigDir() {
@@ -194,7 +204,7 @@ class HyprlandShortcutManager {
   }
 
   /**
-   * Initialize a D-Bus service to receive Toggle() calls from Hyprland keybindings.
+   * Initialize a D-Bus service to receive hotkey events from Hyprland keybindings.
    * Reuses the same D-Bus service name/path as the GNOME integration.
    */
   async initDBusService(callback) {
@@ -221,12 +231,24 @@ class HyprlandShortcutManager {
               this.callback();
             }
           },
+          PttDown: () => {
+            if (this.callback) {
+              this.callback(undefined, "down");
+            }
+          },
+          PttUp: () => {
+            if (this.callback) {
+              this.callback(undefined, "up");
+            }
+          },
         },
         DBUS_OBJECT_PATH,
         {
           name: DBUS_INTERFACE,
           methods: {
             Toggle: ["", ""],
+            PttDown: ["", ""],
+            PttUp: ["", ""],
           },
         }
       );
@@ -328,7 +350,7 @@ class HyprlandShortcutManager {
     };
   }
 
-  _writeBindToConfig(config, bindLine) {
+  _writeBindToConfig(config, bindLines) {
     fs.mkdirSync(path.dirname(config.bindsPath), { recursive: true });
 
     let content = "";
@@ -345,7 +367,8 @@ class HyprlandShortcutManager {
       return !trimmed.includes(DBUS_SERVICE_NAME);
     });
 
-    const newContent = buildManagedBindsContent([...lines, bindLine], config.format);
+    const managedBindLines = Array.isArray(bindLines) ? bindLines : [bindLines];
+    const newContent = buildManagedBindsContent([...lines, ...managedBindLines], config.format);
 
     fs.writeFileSync(config.bindsPath, newContent, "utf-8");
   }
@@ -455,12 +478,51 @@ class HyprlandShortcutManager {
     runHyprctl(args);
   }
 
-  _bindRuntime(config, binding, bindValue, dbusCommand) {
-    const args =
-      config.format === "lua"
-        ? ["eval", buildLuaBindExpression(binding, dbusCommand)]
-        : ["keyword", "bind", bindValue];
-    runHyprctl(args);
+  _bindRuntime(config, converted, isPushToTalk, pressCommand, releaseCommand) {
+    const runtimeBinding = config.format === "lua" ? converted.luaKeys : converted.bindKey;
+
+    if (config.format === "lua") {
+      runHyprctl([
+        "eval",
+        buildLuaBindExpression(
+          converted.luaKeys,
+          pressCommand,
+          isPushToTalk ? "{ transparent = true }" : ""
+        ),
+      ]);
+      if (isPushToTalk) {
+        try {
+          runHyprctl([
+            "eval",
+            buildLuaBindExpression(
+              converted.luaKeys,
+              releaseCommand,
+              "{ release = true, transparent = true }"
+            ),
+          ]);
+        } catch (err) {
+          try {
+            this._unbindRuntime(config, runtimeBinding);
+          } catch {}
+          throw err;
+        }
+      }
+      return runtimeBinding;
+    }
+
+    const bindValue = `${converted.bindKey}, exec, ${pressCommand}`;
+    runHyprctl(["keyword", isPushToTalk ? "bindt" : "bind", bindValue]);
+    if (isPushToTalk) {
+      try {
+        runHyprctl(["keyword", "bindrt", `${converted.bindKey}, exec, ${releaseCommand}`]);
+      } catch (err) {
+        try {
+          this._unbindRuntime(config, runtimeBinding);
+        } catch {}
+        throw err;
+      }
+    }
+    return runtimeBinding;
   }
 
   static getHyprlandConfigStatus() {
@@ -492,7 +554,7 @@ class HyprlandShortcutManager {
    * Also writes the bind to a format-specific config file so it survives
    * `hyprctl reload`.
    */
-  async registerKeybinding(hotkey) {
+  async registerKeybinding(hotkey, isPushToTalk = false) {
     if (!HyprlandShortcutManager.isHyprland()) {
       debugLogger.log("[HyprlandShortcut] Not running on Hyprland, skipping registration");
       return false;
@@ -500,6 +562,13 @@ class HyprlandShortcutManager {
 
     if (!HyprlandShortcutManager.isValidHotkey(hotkey)) {
       debugLogger.log(`[HyprlandShortcut] Invalid hotkey format: "${hotkey}"`);
+      return false;
+    }
+
+    if (isPushToTalk && isModifierOnlyHotkey(hotkey)) {
+      debugLogger.log(
+        `[HyprlandShortcut] Modifier-only hotkey "${hotkey}" does not support push-to-talk`
+      );
       return false;
     }
 
@@ -519,10 +588,8 @@ class HyprlandShortcutManager {
         if (!unregistered) return false;
       }
 
-      const dbusCommand = `dbus-send --session --type=method_call --dest=${DBUS_SERVICE_NAME} ${DBUS_OBJECT_PATH} ${DBUS_INTERFACE}.Toggle`;
-
-      // Legacy bind payload; Lua builds its expression from the same converted values.
-      const bindValue = `${converted.bindKey}, exec, ${dbusCommand}`;
+      const pressCommand = `dbus-send --session --type=method_call --dest=${DBUS_SERVICE_NAME} ${DBUS_OBJECT_PATH} ${DBUS_INTERFACE}.${isPushToTalk ? "PttDown" : "Toggle"}`;
+      const releaseCommand = `dbus-send --session --type=method_call --dest=${DBUS_SERVICE_NAME} ${DBUS_OBJECT_PATH} ${DBUS_INTERFACE}.PttUp`;
 
       try {
         this._unbindRuntime(config, runtimeBinding);
@@ -533,17 +600,30 @@ class HyprlandShortcutManager {
         );
       }
 
-      this._bindRuntime(config, runtimeBinding, bindValue, dbusCommand);
+      this._bindRuntime(config, converted, isPushToTalk, pressCommand, releaseCommand);
 
       this.currentBinding = runtimeBinding;
       this.isRegistered = true;
 
       try {
-        const persistedBind =
+        const persistedPressBind =
           config.format === "lua"
-            ? buildLuaBindExpression(converted.luaKeys, dbusCommand)
-            : `bind = ${bindValue}`;
-        this._writeBindToConfig(config, persistedBind);
+            ? buildLuaBindExpression(
+                converted.luaKeys,
+                pressCommand,
+                isPushToTalk ? "{ transparent = true }" : ""
+              )
+            : `${isPushToTalk ? "bindt" : "bind"} = ${converted.bindKey}, exec, ${pressCommand}`;
+        const persistedReleaseBind = !isPushToTalk
+          ? null
+          : config.format === "lua"
+            ? buildLuaBindExpression(
+                converted.luaKeys,
+                releaseCommand,
+                "{ release = true, transparent = true }"
+              )
+            : `bindrt = ${converted.bindKey}, exec, ${releaseCommand}`;
+        this._writeBindToConfig(config, [persistedPressBind, persistedReleaseBind].filter(Boolean));
         const mainConfigFound = this._ensureSourceInMainConfig(config);
         if (mainConfigFound) this._removeLegacyArtifacts(config);
       } catch (err) {
@@ -566,9 +646,9 @@ class HyprlandShortcutManager {
   /**
    * Update the keybinding to a new hotkey.
    */
-  async updateKeybinding(hotkey) {
+  async updateKeybinding(hotkey, isPushToTalk = false) {
     // Just unregister old and register new
-    return this.registerKeybinding(hotkey);
+    return this.registerKeybinding(hotkey, isPushToTalk);
   }
 
   /**

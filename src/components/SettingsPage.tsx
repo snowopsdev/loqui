@@ -1187,8 +1187,13 @@ export default function SettingsPage({
     [dictationKey, meetingKey, voiceAgentKey, t]
   );
 
-  const { isUsingNativeShortcut, isUsingHyprland, hyprlandConfigStatus, supportsPushToTalk } =
-    useHotkeyModeInfo("settings");
+  const {
+    isUsingNativeShortcut,
+    isUsingHyprland,
+    hyprlandConfigStatus,
+    supportsPushToTalk,
+    pushToTalkUnavailableReason,
+  } = useHotkeyModeInfo("settings", dictationKey);
   const [effectiveDefaultHotkey, setEffectiveDefaultHotkey] = useState<string | null>(null);
   const [linuxPttAvailable, setLinuxPttAvailable] = useState(true);
 
@@ -1297,12 +1302,6 @@ export default function SettingsPage({
       clearTimeout(timer);
     };
   }, [checkWhisperInstallation, getAppVersion]);
-
-  useEffect(() => {
-    if (isUsingNativeShortcut && !supportsPushToTalk) {
-      setActivationMode("tap");
-    }
-  }, [isUsingNativeShortcut, supportsPushToTalk, setActivationMode]);
 
   useEffect(() => {
     const loadEffectiveDefaultHotkey = async () => {
@@ -3487,7 +3486,15 @@ EOF`,
                       <span className="text-xs text-muted-foreground/80">
                         {t("settingsPage.general.hotkey.activationMode")}
                       </span>
-                      <ActivationModeSelector value={activationMode} onChange={setActivationMode} />
+                      <ActivationModeSelector
+                        value={activationMode}
+                        onChange={setActivationMode}
+                        pushDisabledReason={
+                          !supportsPushToTalk
+                            ? pushToTalkUnavailableReason || t("windows.pttUnavailable")
+                            : undefined
+                        }
+                      />
                     </div>
                     {getCachedPlatform() === "linux" && activationMode === "push" && (
                       <LinuxPttSetupInfo isAvailable={linuxPttAvailable} />

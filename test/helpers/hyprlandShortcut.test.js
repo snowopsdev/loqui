@@ -149,6 +149,64 @@ test(
 );
 
 test(
+  "rejects modifier-only push-to-talk bindings",
+  withTempHyprConfig(async (configDir) => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "hyprland.conf"), "# legacy config\n");
+    const hyprctl = successfulHyprctl("hyprlang");
+    const HyprlandShortcutManager = loadManager(hyprctl.execFileSync);
+
+    const manager = new HyprlandShortcutManager();
+    assert.equal(await manager.registerKeybinding("Control+Super", true), false);
+    assert.equal(
+      hyprctl.calls.some(({ args }) => args[0] === "keyword"),
+      false
+    );
+  })
+);
+
+test(
+  "registers keyed legacy push-to-talk press and release bindings",
+  withTempHyprConfig(async (configDir) => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "hyprland.conf"), "# legacy config\n");
+    const hyprctl = successfulHyprctl("hyprlang");
+    const HyprlandShortcutManager = loadManager(hyprctl.execFileSync);
+
+    const manager = new HyprlandShortcutManager();
+    assert.equal(await manager.registerKeybinding("Alt+R", true), true);
+
+    const bindCalls = hyprctl.calls.filter(({ args }) => args[0] === "keyword");
+    assert.deepEqual(
+      bindCalls.map(({ args }) => args[1]),
+      ["unbind", "bindt", "bindrt"]
+    );
+    assert.match(bindCalls[1].args[2], /PttDown/);
+    assert.match(bindCalls[2].args[2], /PttUp/);
+  })
+);
+
+test(
+  "registers Lua push-to-talk bindings through the active runtime API",
+  withTempHyprConfig(async (configDir) => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "hyprland.lua"), "-- lua config\n");
+    const hyprctl = successfulHyprctl("lua");
+    const HyprlandShortcutManager = loadManager(hyprctl.execFileSync);
+
+    const manager = new HyprlandShortcutManager();
+    assert.equal(await manager.registerKeybinding("F8", true), true);
+
+    const runtimeCalls = hyprctl.calls.filter(({ args }) => args[0] === "eval");
+    assert.equal(runtimeCalls.length, 3);
+    assert.match(runtimeCalls[1].args[1], /PttDown/);
+    assert.match(runtimeCalls[1].args[1], /transparent = true/);
+    assert.match(runtimeCalls[2].args[1], /PttUp/);
+    assert.match(runtimeCalls[2].args[1], /release = true/);
+  })
+);
+
+test(
   "reuses each exact Lua key string when changing and unregistering a hotkey",
   withTempHyprConfig(async (configDir) => {
     fs.mkdirSync(configDir, { recursive: true });

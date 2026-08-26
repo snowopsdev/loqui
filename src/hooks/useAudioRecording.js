@@ -20,6 +20,7 @@ import {
 } from "../utils/transcriptionPreview";
 import { canStartDictation } from "../utils/dictationReadiness";
 import { waitForVisualFrames } from "../utils/visualFrame";
+import { createAssistantResponseDelivery } from "../helpers/assistantResponseDelivery";
 
 // Maps a failed selection-replacement code to its `selectionEditing.*` toast
 // detail key; unlisted codes fall back to the generic "unavailable" message.
@@ -461,19 +462,22 @@ export const useAudioRecording = (toast, options = {}) => {
             if (localStorage.getItem("onboardingCompleted") !== "true") {
               window.electronAPI?.hideDictationPreview?.();
             } else {
-              // Panel-first: the command streams into the assistant panel;
-              // nothing types at the cursor and nothing lands in the clipboard.
-              // The directive's transcript is the command to send — it carries
-              // the quoted selection when the selection-without-editor fallback
-              // routed a highlighted passage here.
               window.electronAPI?.hideDictationPreview?.();
-              const { screenContext, transcript, selectedContext } = result.assistantConversation;
+              const { screenContext, transcript, selectedContext, deliverySessionId } =
+                result.assistantConversation;
+              const { autoPasteEnabled, keepTranscriptionInClipboard } = getSettings();
               onAssistantCommandRef.current?.({
                 text: expandSnippets(transcript, getSettings().snippets),
                 attachment: screenContext
                   ? { image: screenContext.data, mediaType: screenContext.mediaType }
                   : null,
                 selectedContext: selectedContext ?? null,
+                delivery: createAssistantResponseDelivery({
+                  autoPasteEnabled,
+                  deliverySessionId,
+                  restoreClipboard: !keepTranscriptionInClipboard,
+                  allowClipboardFallback: isAccessibilitySkipped(),
+                }),
               });
             }
           } else {

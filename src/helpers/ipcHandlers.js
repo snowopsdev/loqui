@@ -10,6 +10,7 @@ const { openExternalUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const tokenStore = require("./tokenStore");
+const accountScopeBinding = require("./accountScopeBinding");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
 const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
 const {
@@ -577,6 +578,7 @@ class IPCHandlers {
     this.linuxPortalAudioManager = managers.linuxPortalAudioManager;
     this.windowsLoopbackAudioManager = managers.windowsLoopbackAudioManager;
     this.meetingAecManager = managers.meetingAecManager;
+    this.getQdrantManager = managers.getQdrantManager;
     this.oauthProtocolRegistered = managers.oauthProtocolRegistered === true;
     this.oauthProtocol = managers.oauthProtocol || "openwhispr";
     this.sessionId = crypto.randomUUID();
@@ -627,6 +629,10 @@ class IPCHandlers {
     // Lives for the app's lifetime; IPCHandlers has no teardown path.
     tokenStore.subscribe(({ generation, token }) => {
       this.enterpriseIdentityManager?.clear();
+      if (!token) {
+        this.databaseManager.setActiveAccountId(null);
+        accountScopeBinding.clear();
+      }
       broadcastToWindows("auth-token-state-changed", {
         generation,
         hasToken: Boolean(token),
@@ -1872,6 +1878,11 @@ class IPCHandlers {
         for (const noteId of result.noteIds ?? []) {
           this._asyncVectorDelete(noteId);
         }
+        // Other accounts' notes were released to the space root; their mirror
+        // files leave with the folder directory, so rewrite the live ones.
+        for (const note of result.relocatedNotes ?? []) {
+          if (!note.deleted_at) this._asyncMirrorWrite(note);
+        }
         setImmediate(() => {
           broadcastToWindows("folder-deleted", { id });
           if (folderName) this._mirrorDeleteFolderIfUnshared(folderName);
@@ -1917,6 +1928,56 @@ class IPCHandlers {
       return this.databaseManager.getSpaces();
     });
 
+    ipcMain.handle("set-active-account-scope", async (_event, accountId, expectedGeneration) => {
+      const state = tokenStore.getState();
+      const verdict = accountScopeBinding.evaluateScopeRequest({
+        accountId,
+        expectedGeneration,
+        token: state.token,
+        generation: state.generation,
+      });
+      if (!verdict.ok) {
+        return {
+          success: false,
+          code: verdict.code,
+          error:
+            verdict.code === "INVALID_ACCOUNT"
+              ? "Invalid account scope"
+              : "Authentication context changed before account scoping",
+        };
+      }
+      this.databaseManager.setActiveAccountId(accountId);
+      if (accountId !== null) accountScopeBinding.persist(accountId, state.token);
+      else accountScopeBinding.clear();
+      return { success: true };
+    });
+
+    ipcMain.handle("delete-account-data", async (_event, accountId, expectedGeneration) => {
+      const state = tokenStore.getState();
+      if (
+        typeof accountId !== "string" ||
+        accountId.trim().length === 0 ||
+        !state.token ||
+        state.generation !== expectedGeneration
+      ) {
+        return {
+          success: false,
+          code: "AUTH_CONTEXT_CHANGED",
+          error: "Authentication context changed before local account cleanup",
+        };
+      }
+      try {
+        const result = this.databaseManager.deleteAccountData(accountId);
+        for (const noteId of result.deletedNoteIds) {
+          this._asyncVectorDelete(noteId);
+          this._asyncMirrorDelete(noteId);
+        }
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, code: "LOCAL_ACCOUNT_CLEANUP_FAILED", error: error.message };
+      }
+    });
+
     ipcMain.handle("db-update-space", async (event, id, updates) => {
       const result = this.databaseManager.updateSpace(id, updates);
       if (result?.success && result.space) {
@@ -1938,14 +1999,16 @@ class IPCHandlers {
       }
       const result = this.databaseManager.purgeSpace(id, options);
       if (result?.success) {
-        this.databaseManager.addPendingVectorPurge(result.spaceId);
-        this.drainPendingVectorPurges();
-        for (const note of result.relocatedNotes ?? []) {
-          this._asyncVectorUpsert(note);
-          this._asyncMirrorWrite(note);
-        }
-        for (const noteId of result.noteIds ?? []) {
-          this._asyncMirrorDelete(noteId);
+        if (!result.preservedForOtherAccounts) {
+          this.databaseManager.addPendingVectorPurge(result.spaceId);
+          this.drainPendingVectorPurges();
+          for (const note of result.relocatedNotes ?? []) {
+            this._asyncVectorUpsert(note);
+            this._asyncMirrorWrite(note);
+          }
+          for (const noteId of result.noteIds ?? []) {
+            this._asyncMirrorDelete(noteId);
+          }
         }
         setImmediate(() => {
           broadcastToWindows("space-purged", { spaceId: result.spaceId });
@@ -2227,6 +2290,11 @@ class IPCHandlers {
       if (result?.success) {
         for (const noteId of result.noteIds ?? []) {
           this._asyncVectorDelete(noteId);
+        }
+        // Other accounts' notes were released to the space root; their mirror
+        // files leave with the folder directory, so rewrite the live ones.
+        for (const note of result.relocatedNotes ?? []) {
+          if (!note.deleted_at) this._asyncMirrorWrite(note);
         }
         setImmediate(() => {
           broadcastToWindows("folder-deleted", { id });
@@ -3436,6 +3504,22 @@ class IPCHandlers {
       } catch (e) {
         errors.push(`ACal stop: ${e.message}`);
       }
+      try {
+        await this.diarizationManager?.shutdown();
+      } catch (e) {
+        errors.push(`Diarization stop: ${e.message}`);
+      }
+      try {
+        await this.getQdrantManager?.()?.stop();
+      } catch (e) {
+        errors.push(`Vector index stop: ${e.message}`);
+      }
+      try {
+        const onnxWorkerClient = require("./onnxWorkerClient");
+        await onnxWorkerClient.stop();
+      } catch (e) {
+        errors.push(`Embedding worker stop: ${e.message}`);
+      }
 
       // Revoke Google OAuth tokens before DB is closed
       try {
@@ -3472,10 +3556,26 @@ class IPCHandlers {
         errors.push(`Parakeet models: ${e.message}`);
       }
       try {
+        await this.diarizationManager?.deleteModels();
+      } catch (e) {
+        errors.push(`Diarization models: ${e.message}`);
+      }
+      try {
         const modelManager = require("./modelManagerBridge").default;
         await modelManager.deleteAllModels();
       } catch (e) {
         errors.push(`LLM models: ${e.message}`);
+      }
+
+      // These caches are not owned by one account. Remove them only through
+      // the explicit device-erasure path, never during normal account deletion.
+      const homeCacheRoot = path.join(os.homedir(), ".cache", "openwhispr");
+      for (const cacheName of ["embedding-models", "qdrant-data", "qdrant-data-dev", "yt-dlp"]) {
+        try {
+          fs.rmSync(path.join(homeCacheRoot, cacheName), { recursive: true, force: true });
+        } catch (e) {
+          errors.push(`${cacheName} cache: ${e.message}`);
+        }
       }
 
       // Delete database file + WAL/SHM
@@ -3491,20 +3591,62 @@ class IPCHandlers {
         errors.push(`DB file: ${e.message}`);
       }
 
-      // Delete .env file
+      // Delete device-wide settings and encrypted credentials.
       try {
-        const envPath = path.join(app.getPath("userData"), ".env");
-        if (fs.existsSync(envPath)) fs.unlinkSync(envPath);
+        await this.environmentManager?.clearAllPersistedData();
       } catch (e) {
-        errors.push(`Env file: ${e.message}`);
+        errors.push(`Environment settings: ${e.message}`);
+      }
+      try {
+        const tokenCleanup = tokenStore.clear();
+        if (!tokenCleanup.success) throw new Error("Could not clear the stored bearer token");
+      } catch (e) {
+        errors.push(`Authentication token: ${e.message}`);
+      }
+      try {
+        this.enterpriseIdentityManager?.clear();
+      } catch (e) {
+        errors.push(`Enterprise settings: ${e.message}`);
+      }
+      try {
+        for (const fileName of [
+          "workspace-policy.json",
+          "managed-enterprise-config.json",
+          "globe-preference-state.json",
+          ".system-audio-permission",
+          "account-scope-binding.json",
+        ]) {
+          fs.rmSync(path.join(app.getPath("userData"), fileName), { force: true });
+        }
+      } catch (e) {
+        errors.push(`Device setting files: ${e.message}`);
+      }
+      for (const directoryName of ["bin", "llama-cpp"]) {
+        try {
+          fs.rmSync(path.join(app.getPath("userData"), directoryName), {
+            recursive: true,
+            force: true,
+          });
+        } catch (e) {
+          errors.push(`${directoryName} runtime: ${e.message}`);
+        }
+      }
+      try {
+        autoStart.setAutoStartEnabled(false);
+      } catch (e) {
+        errors.push(`Launch at login: ${e.message}`);
       }
 
-      // Clear session cookies
+      // Clear browser-held account/session state, including cookies, IndexedDB,
+      // Cache Storage and localStorage persisted by any app window.
       try {
         const win = BrowserWindow.fromWebContents(event.sender);
-        if (win) await win.webContents.session.clearStorageData({ storages: ["cookies"] });
+        if (win) {
+          await win.webContents.session.clearStorageData();
+          await win.webContents.session.clearCache();
+        }
       } catch (e) {
-        errors.push(`Cookies: ${e.message}`);
+        errors.push(`Browser data: ${e.message}`);
       }
 
       // Clear localStorage

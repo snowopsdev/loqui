@@ -1600,7 +1600,9 @@
             "SSO y cumplimiento normativo",
             "Soporte dedicado"
           ],
-          "cta": "Contactar a ventas"
+          "cta": "Contactar a ventas",
+          "upgradeCta": "Mejorar a Enterprise",
+          "askOwner": "Pide a {{name}} que actualice tu espacio de trabajo."
         },
         "currentPlan": "Plan actual",
         "coveredByWorkspace": "Incluido en tu plan de espacio de trabajo",
@@ -2437,7 +2439,40 @@
             "admin": "Administrador del espacio de trabajo"
           }
         }
+      },
+      "enterpriseConsole": {
+        "title": "Consola Enterprise",
+        "description": "Gestiona SSO, políticas y miembros desde la web",
+        "open": "Abrir consola"
       }
+    },
+    "enterpriseCheckout": {
+      "title": "Mejorar a Enterprise",
+      "description": "Elige el espacio de trabajo, los puestos y el ciclo de facturación. El pago se completa en Stripe Checkout.",
+      "allSubscribed": "Los espacios de trabajo de tu propiedad ya están en Enterprise o no se pueden cambiar aquí. Para cambios de plan, contacta con ventas.",
+      "workspaceLabel": "Espacio de trabajo",
+      "seatsLabel": "Puestos",
+      "seatsHint_one": "{{count}} puesto en uso actualmente",
+      "seatsHint_other": "{{count}} puestos en uso actualmente",
+      "intervalLabel": "Ciclo de facturación",
+      "interval": {
+        "monthly": "Mensual",
+        "annual": "Anual"
+      },
+      "proratedCharge": "Cargo prorrateado",
+      "prorationNote": "La diferencia prorrateada se añade a tu próxima factura.",
+      "errors": {
+        "previewFailed": "No se pudo cargar la vista previa de la mejora.",
+        "alreadyEnterprise": "Este espacio de trabajo ya está en Enterprise.",
+        "subscriptionInactive": "La suscripción de este espacio de trabajo no está activa. Actualiza tus datos de facturación e inténtalo de nuevo.",
+        "priceNotConfigured": "Los precios de Enterprise no están disponibles ahora mismo. Contacta con ventas."
+      },
+      "priceNote": "El precio final se muestra al pagar.",
+      "continueCta": "Continuar al pago",
+      "upgradeDescription": "Actualiza {{workspace}} de {{plan}} a Enterprise. Los puestos y el ciclo de facturación se mantienen; el cambio se aplica de inmediato.",
+      "upgradeCta": "Actualizar ahora",
+      "upgradedTitle": "Actualizado a Enterprise",
+      "upgradedDescription": "{{workspace}} ahora está en Enterprise."
     }
   },
   "models": {

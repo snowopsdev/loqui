@@ -72,7 +72,7 @@ const { transcribeWithGemini } = require("./geminiTranscription");
 const AudioStorageManager = require("./audioStorage");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
 const createMeetingTranscriptionLifecycle = require("./meetingTranscriptionLifecycle");
-const { registerMeetingAutoEndKeepHandler } = require("./meetingAutoEndKeep");
+const { registerMeetingAutoEndLifecycleHandlers } = require("./meetingAutoEndLifecycle");
 const liveSpeakerIdentifier = require("./liveSpeakerIdentifier");
 const { supportsLiveSpeakerIdentification } = require("./liveSpeakerIdPolicy");
 const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
@@ -10577,7 +10577,7 @@ class IPCHandlers {
       }
     });
 
-    registerMeetingAutoEndKeepHandler(ipcMain, () => this.meetingDetectionEngine);
+    registerMeetingAutoEndLifecycleHandlers(ipcMain, () => this.meetingDetectionEngine);
 
     ipcMain.handle("join-calendar-meeting", async (_event, eventId) => {
       try {

@@ -1448,6 +1448,9 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
 
 export interface StopRecordingResult {
   diarizationSessionId: string | null;
+  // True only when this call ended a live recording — false for a no-op stop
+  // (nothing recording, or a scoped stop for a session that is not active).
+  stopped: boolean;
 }
 
 export async function stopRecording(expectedSessionId?: string): Promise<StopRecordingResult> {
@@ -1465,23 +1468,23 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
       systemAudioSilentWarning: false,
       currentMicLevel: 0,
     });
-    return { diarizationSessionId: null };
+    return { diarizationSessionId: null, stopped: false };
   }
 
   await meetingRecordingStopBarrier.waitForPendingStop();
   if (!canStopMeetingRecordingSession(activeRecordingSessionId, expectedSessionId)) {
-    return { diarizationSessionId: null };
+    return { diarizationSessionId: null, stopped: false };
   }
   if (!isRecordingFlag) {
-    return { diarizationSessionId: null };
+    return { diarizationSessionId: null, stopped: false };
   }
 
   return meetingRecordingStopBarrier.runStop(async () => {
     if (!canStopMeetingRecordingSession(activeRecordingSessionId, expectedSessionId)) {
-      return { diarizationSessionId: null };
+      return { diarizationSessionId: null, stopped: false };
     }
     if (!isRecordingFlag) {
-      return { diarizationSessionId: null };
+      return { diarizationSessionId: null, stopped: false };
     }
 
     const sessionId = activeRecordingSessionId;
@@ -1553,7 +1556,10 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
     });
 
     logger.info("Meeting transcription stopped", {}, "meeting");
-    return { diarizationSessionId };
+    // Reaching here means this call ended a live recording and its transcript
+    // was written above, so its note is resumable. A failed main-side teardown
+    // is surfaced by reportMeetingError and must not void the restart offer.
+    return { diarizationSessionId, stopped: true };
   });
 }
 
@@ -1600,6 +1606,7 @@ if (typeof window !== "undefined") {
     enqueueDiarizationCompletion(async () => {
       const {
         diarizationSessionId,
+        isRecording,
         recordingNoteId,
         segments: liveSegments,
       } = useMeetingRecordingStore.getState();
@@ -1607,6 +1614,7 @@ if (typeof window !== "undefined") {
         payloadNoteId: data?.noteId,
         payloadSessionId: data?.sessionId,
         currentSessionId: diarizationSessionId,
+        activeRecordingNoteId: isRecording ? recordingNoteId : null,
       });
       if (targetNoteId == null) return;
 

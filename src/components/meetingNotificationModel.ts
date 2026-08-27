@@ -15,9 +15,9 @@ interface AutoEndPresentation {
   titleKey: "meetingNotification.autoEnd.title";
   bodyKey: AutoEndBodyKey;
   bodyValues: { seconds: number };
-  actionKey: "meetingNotification.autoEnd.keep";
-  action: "keep";
-  dismissible: false;
+  actionKey: "meetingNotification.autoEnd.restart";
+  action: "restart";
+  dismissible: true;
   allowTitleWrap: true;
 }
 
@@ -46,9 +46,9 @@ export function getMeetingNotificationPresentation(
       bodyKey:
         AUTO_END_BODY_KEYS[data.reason ?? "mic-released"] ?? AUTO_END_BODY_KEYS["mic-released"],
       bodyValues: { seconds: secondsRemaining },
-      actionKey: "meetingNotification.autoEnd.keep",
-      action: "keep",
-      dismissible: false,
+      actionKey: "meetingNotification.autoEnd.restart",
+      action: "restart",
+      dismissible: true,
       allowTitleWrap: true,
     };
   }
@@ -128,6 +128,13 @@ const defaultCountdownClock: CountdownClock = {
   setInterval: (callback, delay) => setInterval(callback, delay),
   clearInterval: (timer) => clearInterval(timer),
 };
+
+// Main closes the notification window when it accepts a response. Anything
+// else — a rejected response, or a preload without the method — leaves the
+// window alive, so the optimistically hidden card must be restored.
+export function shouldRestoreAutoEndCard(result: { success: boolean } | null | undefined): boolean {
+  return result?.success !== true;
+}
 
 export function getMeetingAutoEndSecondsRemaining(expiresAt: number, now: number): number {
   return Math.max(0, Math.ceil((expiresAt - now) / 1000));

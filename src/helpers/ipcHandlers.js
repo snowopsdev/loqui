@@ -68,6 +68,7 @@ const { createTinfoilRealtimeSocket } = require("./tinfoilSecureClient");
 const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
 const { getTinfoilChatModels } = require("./tinfoilCatalog");
 const { transcribeWithTinfoil } = require("./tinfoilTranscription");
+const { transcribeWithGemini } = require("./geminiTranscription");
 const AudioStorageManager = require("./audioStorage");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
 const createMeetingTranscriptionLifecycle = require("./meetingTranscriptionLifecycle");
@@ -145,6 +146,11 @@ const XAI_STT_URL = "https://api.x.ai/v1/stt";
 
 // Debounce delay: wait for user to stop typing before processing corrections
 const AUTO_LEARN_DEBOUNCE_MS = 1500;
+
+// Route caps vary by provider (Gemini's inline-base64 limit is the lowest), so
+// the message reports the cap that actually applied.
+const byokSizeCapError = (sizeCapBytes) =>
+  `File too large. Maximum size for bring-your-own-key is ${Math.floor(sizeCapBytes / (1024 * 1024))} MB.`;
 
 const AUDIO_MIME_TYPES = {
   mp3: "audio/mpeg",
@@ -4233,6 +4239,22 @@ class IPCHandlers {
       })
     );
 
+    // Gemini's Interactions API takes JSON with inline base64 audio, not
+    // OpenAI-compatible multipart, so batch transcription is proxied through main.
+    ipcMain.handle(
+      "proxy-gemini-transcription",
+      serializeIpcError(async (event, { audioBuffer, model, language, keyterms }) => {
+        return await transcribeWithGemini({
+          audioBuffer: Buffer.from(audioBuffer),
+          model,
+          contentType: "audio/webm",
+          language,
+          keyterms,
+          apiKey: this.environmentManager.getGeminiKey(),
+        });
+      })
+    );
+
     ipcMain.handle("get-custom-transcription-key", async () => {
       return this.environmentManager.getCustomTranscriptionKey();
     });
@@ -5881,6 +5903,18 @@ class IPCHandlers {
             language: route.language,
           });
           if (text) result = { text, source: "corti", model: route.model };
+        } else if (route.transport === "proxied" && route.provider === "gemini") {
+          if (route.sizeCapBytes && buffer.byteLength > route.sizeCapBytes) {
+            throw new Error(byokSizeCapError(route.sizeCapBytes));
+          }
+          const { text } = await transcribeWithGemini({
+            audioBuffer: buffer,
+            model: route.model,
+            contentType: "audio/webm",
+            language: route.language,
+            apiKey: this.environmentManager.getGeminiKey(),
+          });
+          if (text) result = { text, source: "gemini", model: route.model };
         } else {
           // mistral/xai have no OpenAI-compatible endpoint — main talks to them
           // directly; everything else consumes the route endpoint as-is.
@@ -9119,10 +9153,7 @@ class IPCHandlers {
 
           const fileSize = fs.statSync(realByok).size;
           if (route.sizeCapBytes && fileSize > route.sizeCapBytes) {
-            return {
-              success: false,
-              error: "File too large. Maximum size for bring-your-own-key is 25 MB.",
-            };
+            return { success: false, error: byokSizeCapError(route.sizeCapBytes) };
           }
 
           if (route.transport === "proxied" && route.provider === "corti") {
@@ -9151,6 +9182,19 @@ class IPCHandlers {
               contentType: AUDIO_MIME_TYPES[ext] || "audio/mpeg",
               language: route.language,
               apiKey: this.environmentManager.getTinfoilKey(),
+            });
+            return { success: true, text };
+          }
+
+          if (route.transport === "proxied" && route.provider === "gemini") {
+            const ext = path.extname(realByok).toLowerCase().replace(".", "");
+            // Deliberately no language hint — same rationale as the multipart
+            // branch below, and Gemini's language_codes is a hard constraint.
+            const { text } = await transcribeWithGemini({
+              audioBuffer: fs.readFileSync(realByok),
+              model: route.model,
+              contentType: AUDIO_MIME_TYPES[ext] || "audio/mpeg",
+              apiKey: apiKey || this.environmentManager.getGeminiKey(),
             });
             return { success: true, text };
           }

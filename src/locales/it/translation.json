@@ -2482,6 +2482,7 @@
         "groq_whisper_large_v3_turbo": "Velocità 216x in tempo reale",
         "groq_whisper_large_v3": "Modello Large v3, veloce e preciso",
         "mistral_voxtral_mini_latest": "Trascrizione multilingue veloce",
+        "gemini_3_5_transcribe": "Riconoscimento vocale Gemini di Google",
         "corti_transcribe": "Trascrizione medica di livello clinico",
         "xai_grok_stt": "Riconoscimento vocale ad alta precisione di xAI",
         "tinfoil_voxtral": "Trascrizione verificabilmente privata"
@@ -2885,8 +2886,8 @@
       "largeFileNote": "I file di grandi dimensioni vengono suddivisi e trascritti in parallelo.",
       "chunkProgress": "Trascrizione parte {{completed}} di {{total}}...",
       "paidPlanRequired": "La trascrizione cloud per file superiori a 25 MB richiede un piano a pagamento. I file di grandi dimensioni vengono elaborati con OpenWhispr Cloud per risultati affidabili e di alta qualità.",
-      "byokTooLarge": "Le chiavi API di terze parti supportano solo file fino a 25 MB.",
-      "byokTooLargeDetail": "Per file superiori a 25 MB, OpenWhispr Cloud gestisce la suddivisione, l'elaborazione parallela e il riassemblaggio — per risultati affidabili senza dipendere dai limiti dei provider di terze parti.",
+      "byokTooLarge": "Le chiavi API di terze parti supportano solo file fino a {{size}} MB.",
+      "byokTooLargeDetail": "Per file superiori a {{size}} MB, OpenWhispr Cloud gestisce la suddivisione, l'elaborazione parallela e il riassemblaggio — per risultati affidabili senza dipendere dai limiti dei provider di terze parti.",
       "byokTooLargeNeedsAccount": "Crea un account e passa a un piano a pagamento per trascrivere file più grandi con OpenWhispr Cloud.",
       "byokTooLargeNeedsUpgrade": "Passa a un piano a pagamento per trascrivere file più grandi con OpenWhispr Cloud.",
       "switchToCloudForLargeFiles": "Passa a OpenWhispr Cloud per trascrivere questo file.",

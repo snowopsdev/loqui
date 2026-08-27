@@ -86,14 +86,41 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onToggleTranslation: registerListener("toggle-translation", (callback) => () => callback()),
   onStartDictation: registerListener("start-dictation", (callback) => () => callback()),
   onStopDictation: registerListener("stop-dictation", (callback) => () => callback()),
-  onPrepareDictation: registerListener("prepare-dictation", (callback) => () => callback()),
+  onPrepareDictation: registerListener(
+    "prepare-dictation",
+    (callback) => (_event, options) => callback(options)
+  ),
   onCancelDictationPreparation: registerListener(
     "cancel-dictation-preparation",
     (callback) => () => callback()
   ),
+  onCancelDictation: registerListener("cancel-dictation", (callback) => () => callback()),
   micWarmHoldChanged: (active) => ipcRenderer.send("mic-warm-hold-changed", active),
-  dictationLifecycleStateChanged: (state) =>
-    ipcRenderer.send("dictation-lifecycle-state-changed", state),
+  dictationLifecycleStateChanged: (state, inputKind) =>
+    ipcRenderer.send("dictation-lifecycle-state-changed", state, inputKind),
+  dictationAudioLevelChanged: (level) =>
+    ipcRenderer.send("dictation-audio-level-changed", level),
+  toggleAgentPanelDictation: () => ipcRenderer.invoke("toggle-agent-panel-dictation"),
+  cancelAgentPanelDictation: () => ipcRenderer.invoke("cancel-agent-panel-dictation"),
+  getAgentDictationPillState: () => ipcRenderer.invoke("get-agent-dictation-pill-state"),
+  resizeAgentDictationPillToContent: (surfaceHeight) =>
+    ipcRenderer.invoke("resize-agent-dictation-pill-to-content", surfaceHeight),
+  setAgentDictationPillInteractivity: (interactive) =>
+    ipcRenderer.invoke("set-agent-dictation-pill-interactivity", interactive),
+  onAgentDictationPillStateChanged: registerListener(
+    "agent-dictation-pill-state-changed",
+    (callback) => (_event, state) => callback(state)
+  ),
+  onAgentDictationPillAudioLevelChanged: registerListener(
+    "agent-dictation-pill-audio-level-changed",
+    (callback) => (_event, level) => callback(level)
+  ),
+  showAgentDictationFinalTranscript: (text) =>
+    ipcRenderer.send("show-agent-dictation-final-transcript", text),
+  onAgentDictationPillFinalTranscript: registerListener(
+    "agent-dictation-pill-final-transcript",
+    (callback) => (_event, text) => callback(text)
+  ),
 
   // Database functions
   saveTranscription: (text, rawText, options) =>

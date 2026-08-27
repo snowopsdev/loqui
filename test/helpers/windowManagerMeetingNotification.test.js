@@ -77,7 +77,7 @@ Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
   if (request === "electron") {
     return {
       app: { on: () => undefined },
-      screen: { getPrimaryDisplay: () => ({}) },
+      screen: { getPrimaryDisplay: () => ({}), on: () => undefined },
       BrowserWindow: FakeBrowserWindow,
       shell: {},
       dialog: {},
@@ -238,20 +238,49 @@ test("a busy Assistant blocks its voice hotkey before native side effects", () =
   manager._assistantPanelBusy = true;
 
   manager.sendToggleVoiceAgent();
+  // Before the panel opens there is no companion pill to show a plain
+  // recording either, so the busy state blocks ordinary dictation too.
+  manager.sendToggleDictation();
 
   assert.equal(showCount, 0);
   assert.equal(prepareCount, 0);
   assert.deepEqual(rendererChannels, []);
 
-  manager._assistantPanelBusy = false;
-  manager.sendToggleVoiceAgent();
+  // The open panel alone is not enough: until the companion window is live,
+  // a recording would still be invisible, so the press only re-kicks its load.
+  manager._assistantPanelOpen = true;
+  let pillShowCalls = 0;
+  manager.showAgentDictationPill = () => {
+    pillShowCalls += 1;
+  };
+  manager.sendToggleDictation();
+
+  assert.equal(showCount, 0);
+  assert.deepEqual(rendererChannels, []);
+  assert.equal(pillShowCalls, 1);
+
+  manager._agentDictationPillReady = true;
+  manager.agentDictationPillWindow = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    webContents: { send: () => undefined },
+  };
+  manager.sendToggleDictation();
 
   assert.equal(showCount, 1);
   assert.equal(prepareCount, 1);
-  assert.deepEqual(rendererChannels, ["toggle-voice-agent"]);
+  assert.deepEqual(rendererChannels, ["toggle-dictation"]);
+  assert.equal(pillShowCalls, 1);
+
+  manager._assistantPanelBusy = false;
+  manager.sendToggleVoiceAgent();
+
+  assert.equal(showCount, 2);
+  assert.equal(prepareCount, 2);
+  assert.deepEqual(rendererChannels, ["toggle-dictation", "toggle-voice-agent"]);
 });
 
-test("a busy Assistant blocks direct push-to-talk prepare and start paths", () => {
+test("push-to-talk dictation follows the companion pill's availability", () => {
   const manager = createNormalWindowManager();
   const rendererChannels = [];
   let showCount = 0;
@@ -272,11 +301,39 @@ test("a busy Assistant blocks direct push-to-talk prepare and start paths", () =
     showCount += 1;
   };
 
+  // Busy without an open panel: no surface could show the recording.
   manager.sendPrepareDictation();
   manager.sendStartDictation();
 
   assert.equal(showCount, 0);
   assert.deepEqual(rendererChannels, []);
+
+  // An open panel whose companion window is not live yet keeps PTT dictation
+  // blocked; each press re-kicks the companion load.
+  manager._assistantPanelOpen = true;
+  let pillShowCalls = 0;
+  manager.showAgentDictationPill = () => {
+    pillShowCalls += 1;
+  };
+  manager.sendPrepareDictation();
+  manager.sendStartDictation();
+
+  assert.equal(showCount, 0);
+  assert.deepEqual(rendererChannels, []);
+  assert.equal(pillShowCalls, 2);
+
+  // With a live companion pill, PTT dictation flows again.
+  manager._agentDictationPillReady = true;
+  manager.agentDictationPillWindow = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    webContents: { send: () => undefined },
+  };
+  manager.sendPrepareDictation();
+  manager.sendStartDictation();
+
+  assert.equal(showCount, 1);
+  assert.deepEqual(rendererChannels, ["prepare-dictation", "start-dictation"]);
 });
 
 test("window manager starts fail-closed and suppresses normal-app popup surfaces", async () => {

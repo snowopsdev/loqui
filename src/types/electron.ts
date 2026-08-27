@@ -981,10 +981,41 @@ declare global {
       onToggleTranslation?: (callback: () => void) => () => void;
       onStartDictation?: (callback: () => void) => () => void;
       onStopDictation?: (callback: () => void) => () => void;
-      onPrepareDictation?: (callback: () => void) => () => void;
+      onPrepareDictation?: (
+        callback: (options?: { inputKind?: "dictation" | "assistant" | "translation" }) => void
+      ) => () => void;
       onCancelDictationPreparation?: (callback: () => void) => () => void;
+      onCancelDictation?: (callback: () => void) => () => void;
       micWarmHoldChanged?: (active: boolean) => void;
-      dictationLifecycleStateChanged: (state: "idle" | "recording" | "processing") => void;
+      dictationLifecycleStateChanged: (
+        state: "idle" | "preparing" | "recording" | "processing",
+        inputKind?: "dictation" | "assistant" | "translation"
+      ) => void;
+      dictationAudioLevelChanged?: (level: number) => void;
+      toggleAgentPanelDictation?: () => Promise<{ success: boolean }>;
+      cancelAgentPanelDictation?: () => Promise<{ success: boolean }>;
+      getAgentDictationPillState?: () => Promise<{
+        lifecycle: "idle" | "preparing" | "recording" | "processing";
+        interactive: boolean;
+        horizontalDirection: "left" | "right";
+      }>;
+      resizeAgentDictationPillToContent?: (surfaceHeight: number | null) => Promise<{
+        success: boolean;
+        changed?: boolean;
+        bounds?: { x: number; y: number; width: number; height: number };
+        message?: string;
+      }>;
+      setAgentDictationPillInteractivity?: (interactive: boolean) => Promise<{ success: boolean }>;
+      onAgentDictationPillStateChanged?: (
+        callback: (state: {
+          lifecycle: "idle" | "preparing" | "recording" | "processing";
+          interactive: boolean;
+          horizontalDirection: "left" | "right";
+        }) => void
+      ) => () => void;
+      onAgentDictationPillAudioLevelChanged?: (callback: (level: number) => void) => () => void;
+      showAgentDictationFinalTranscript?: (text: string) => void;
+      onAgentDictationPillFinalTranscript?: (callback: (text: string) => void) => () => void;
 
       // STT config
       getSttConfig?: () => Promise<

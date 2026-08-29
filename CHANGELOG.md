@@ -7,13 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Meetings
-
-- **Windows meetings that recorded only your own voice.** On some machines the system-audio helper starts up reporting itself healthy and then captures nothing but digital silence, so meeting notes contained your microphone and none of the other participants — with no error anywhere in the app. The check that picked the capture method only asked Windows whether loopback capture was *available*, never whether any audio was actually arriving, so the working fallback was never reached. The helper now compares its own output against what your speakers or headphones are really playing, and a recording that hits this switches to the fallback a few seconds in and keeps the rest of the call. (#1935, thanks @KishenG)
-
 ## [1.9.2] - 2026-08-29
 
-A repair release for two 1.9.1 regressions. Windows desktop sign-in works again — every provider button had gone dead — and the three transcription paths that only failed in packaged builds are back on all platforms. Meeting prompts also pick up swipe-to-dismiss.
+A repair release for two 1.9.1 regressions. Windows desktop sign-in works again — every provider button had gone dead — and the three transcription paths that only failed in packaged builds are back on all platforms. Meetings get three fixes of their own: recordings that captured only your voice on Windows, prompts that stopped appearing after the first call, and swipe-to-dismiss on the prompt cards.
 
 ### Windows
 
@@ -25,6 +21,8 @@ A repair release for two 1.9.1 regressions. Windows desktop sign-in works again 
 
 ### Meetings
 
+- **Windows meetings that recorded only your own voice.** On some machines the system-audio helper starts up reporting itself healthy and then captures nothing but digital silence, so meeting notes contained your microphone and none of the other participants — with no error anywhere in the app. The check that picked the capture method only asked Windows whether loopback capture was *available*, never whether any audio was actually arriving, so the working fallback was never reached. The helper now compares its own output against what your speakers or headphones are really playing, and a recording that hits this switches to the fallback a few seconds in and keeps the rest of the call. (#1935, thanks @KishenG)
+- **Meeting prompts kept appearing after the first call.** Closing a meeting prompt any way other than its own buttons — a compositor killing the window on Hyprland, a failed load, onboarding taking over the screen — left the detection marked as still on screen, so no later meeting ever prompted again for the rest of the session. On Linux the prompt also fired on OpenWhispr's own microphone use, and it now waits until the audio server has said which application owns the capture. A second call raises a fresh prompt once the first one's microphone has actually gone quiet, while an ongoing call still prompts only once. Explicitly dismissing keeps its five-minute pause, and letting a card expire still costs nothing. (#1918, thanks @IdrisGit)
 - **Meeting prompts swipe away like desktop notifications.** A horizontal pointer swipe of 80px in either direction dismisses a meeting card — detection, calendar reminder, or the auto-end restart offer — taking the same path as its close button. Swipes that start on an action button are ignored. (#1906)
 
 ## [1.9.1] - 2026-08-27

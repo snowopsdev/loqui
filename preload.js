@@ -228,6 +228,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSpaces: () => ipcRenderer.invoke("db-get-spaces"),
   setActiveAccountScope: (accountId, expectedAuthGeneration) =>
     ipcRenderer.invoke("set-active-account-scope", accountId, expectedAuthGeneration),
+  getActiveAccountScope: () => ipcRenderer.invoke("get-active-account-scope"),
+  onActiveAccountScopeChanged: registerListener(
+    "active-account-scope-changed",
+    (callback) => (_event, scope) => callback(scope)
+  ),
   deleteAccountData: (accountId, expectedAuthGeneration) =>
     ipcRenderer.invoke("delete-account-data", accountId, expectedAuthGeneration),
   updateSpace: (id, updates) => ipcRenderer.invoke("db-update-space", id, updates),
@@ -664,6 +669,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, snapshot) => callback(snapshot)
   ),
   clearManagedEnterpriseIdentity: () => ipcRenderer.invoke("clear-managed-enterprise-identity"),
+  managedTranscribe: (data) => ipcRenderer.invoke("managed-transcribe", data),
 
   // llama.cpp
   llamaCppCheck: () => ipcRenderer.invoke("llama-cpp-check"),

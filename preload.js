@@ -893,6 +893,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     "meeting-system-audio-degraded",
     (callback) => () => callback()
   ),
+  onMeetingSystemAudioInterrupted: registerListener(
+    "meeting-system-audio-interrupted",
+    (callback) => (_event, data) => callback(data)
+  ),
+  onMeetingSystemAudioResumed: registerListener(
+    "meeting-system-audio-resumed",
+    (callback) => () => callback()
+  ),
 
   // Dictation realtime streaming
   dictationRealtimeWarmup: (options) => ipcRenderer.invoke("dictation-realtime-warmup", options),

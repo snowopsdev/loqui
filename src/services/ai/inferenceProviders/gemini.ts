@@ -1,11 +1,12 @@
 import type { InferenceProvider } from "./types";
 import { getCloudModel } from "../../../models/ModelRegistry";
 import { withRetry, createApiRetryStrategy, httpError } from "../../../utils/retry";
-import { API_ENDPOINTS, TOKEN_LIMITS } from "../../../config/constants";
+import { API_ENDPOINTS } from "../../../config/constants";
 import { getLlmRequestTimeoutSeconds } from "../../../helpers/llmRequestTimeout.js";
 import { extractGeminiText } from "../../../helpers/geminiResponse.js";
 import { wrapCleanupTranscript } from "../../../config/prompts";
 import { extractApiErrorMessage } from "../apiErrorMessage";
+import { emptyOutputError, truncatedOutputError } from "../chatRequestBody";
 import logger from "../../../utils/logger";
 
 interface GeminiResponse {
@@ -18,7 +19,6 @@ interface GeminiResponse {
 
 interface GeminiGenerationConfig {
   temperature: number;
-  maxOutputTokens: number;
   thinkingConfig?: {
     thinkingLevel: "minimal" | "low" | "medium" | "high";
     includeThoughts: boolean;
@@ -38,20 +38,10 @@ export const geminiProvider: InferenceProvider = {
 
     const generationConfig: GeminiGenerationConfig = {
       temperature: config.temperature ?? (config.systemPrompt ? 0.3 : 0),
-      // A caller's budget raises this ceiling, never lowers it: note formatting
-      // pins maxTokens so the local path can price it against the context
-      // window, and letting that short-circuit Gemini's own allowance halved
-      // long summaries on the provider with the most room to give (#2142).
-      maxOutputTokens: Math.max(
-        config.maxTokens || 0,
-        2000,
-        ctx.calculateMaxTokens(
-          text.length,
-          TOKEN_LIMITS.MIN_TOKENS_GEMINI,
-          TOKEN_LIMITS.MAX_TOKENS_GEMINI,
-          TOKEN_LIMITS.TOKEN_MULTIPLIER
-        )
-      ),
+      // No maxOutputTokens. Gemini bills thinking against it, so any budget sized
+      // for the text starved thinking models (#2091), and a caller's pinned budget
+      // is priced for the local path, not for Gemini (#2142). The model's own
+      // limit and the request timeout bound the reply.
     };
 
     if (config.disableThinking === true && getCloudModel(model)?.supportsThinking) {
@@ -140,7 +130,7 @@ export const geminiProvider: InferenceProvider = {
 
     const candidate = response.candidates?.[0];
     if (config.requireCompleteOutput && candidate?.finishReason === "MAX_TOKENS") {
-      throw new Error("Model output was truncated before the selection edit completed");
+      throw truncatedOutputError();
     }
     const responseText = extractGeminiText(candidate);
     if (!responseText) {
@@ -149,11 +139,12 @@ export const geminiProvider: InferenceProvider = {
         finishReason: candidate?.finishReason,
       });
       if (candidate?.finishReason === "MAX_TOKENS") {
-        throw new Error(
+        // Same cause as the truncation check above: the cap hit before any text arrived.
+        throw truncatedOutputError(
           "Gemini reached token limit before generating response. Try a shorter input or increase max tokens."
         );
       }
-      throw new Error("Gemini returned empty response");
+      throw emptyOutputError("Gemini returned empty response");
     }
     logger.logReasoning("GEMINI_RESPONSE", {
       model,

@@ -1400,8 +1400,12 @@ class WindowManager {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.webContents.send("preview-text", text);
     this._sendAgentDictationPreview("preview-text", text);
-    this.mainWindow.showInactive();
-    this.enforceMainWindowOnTop();
+    // Partials arrive several times a second; re-showing a visible window
+    // restacks it (and re-fires "show") on every chunk (#1262).
+    if (!this.mainWindow.isVisible()) {
+      this.mainWindow.showInactive();
+      this.enforceMainWindowOnTop();
+    }
   }
 
   appendTranscriptionPreview(text) {

@@ -1537,6 +1537,11 @@ class IPCHandlers {
       return { success: true };
     });
 
+    ipcMain.handle("set-main-window-input-region", (event, region) => {
+      if (event.sender !== this.windowManager.mainWindow?.webContents) return null;
+      return this.windowManager.setMainWindowInputRegion(region);
+    });
+
     ipcMain.handle("get-main-window-horizontal-direction", () => {
       return this.windowManager.getMainWindowHorizontalDirection();
     });

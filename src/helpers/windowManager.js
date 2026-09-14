@@ -1,5 +1,6 @@
 const { app, screen, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const debugLogger = require("./debugLogger");
+const { createLinuxWindowInputRegion } = require("./linuxWindowInputRegion");
 // Aliased: this class has an openExternalUrl method wrapping the helper.
 const { openExternalUrl: openUrlInExternalBrowser } = require("./externalUrlOpener");
 const HotkeyManager = require("./hotkeyManager");
@@ -236,15 +237,35 @@ class WindowManager {
 
     if (process.platform === "win32") {
       // Windows click-through forwarding is unreliable for this floating panel.
-      // Keep the panel interactive so the mic button and cancel button are always clickable.
       this.mainWindow.setIgnoreMouseEvents(false);
       return;
     }
 
-    if (shouldCapture) {
+    if (process.platform === "linux") {
+      // Native capture is the fallback when the input-region helper is unavailable.
+      this.mainWindow.setIgnoreMouseEvents(!shouldCapture);
+    } else if (shouldCapture) {
       this.mainWindow.setIgnoreMouseEvents(false);
     } else {
       this.mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    }
+  }
+
+  async setMainWindowInputRegion(region) {
+    const win = this.mainWindow;
+    if (process.platform !== "linux" || !win || win.isDestroyed()) return false;
+    if (this._linuxWindowInputRegion?.window !== win) {
+      this._linuxWindowInputRegion?.stop();
+      this._linuxWindowInputRegion = { window: win, ...createLinuxWindowInputRegion(win) };
+    }
+    try {
+      await this._linuxWindowInputRegion.set(region);
+      return !win.isDestroyed() && win.isVisible() && !win.isMinimized();
+    } catch (error) {
+      // The writer rejects after its process closes, so an old shape cannot
+      // overwrite this fallback and leave native hover unreachable.
+      if (!win.isDestroyed()) win.setIgnoreMouseEvents(false);
+      throw error;
     }
   }
 
@@ -1944,6 +1965,20 @@ class WindowManager {
   registerMainWindowEvents() {
     if (!this.mainWindow) {
       return;
+    }
+
+    if (process.platform === "linux") {
+      const win = this.mainWindow;
+      // backgroundThrottling:false keeps document.visibilityState visible even
+      // after hide(). Native visibility owns the Linux input-region updates.
+      for (const event of ["show", "hide", "minimize", "restore"]) {
+        win.on(event, () => {
+          win.webContents.send(
+            "main-window-visibility-changed",
+            win.isVisible() && !win.isMinimized()
+          );
+        });
+      }
     }
 
     // Safety timeout: force show the window if ready-to-show doesn't fire within 10 seconds

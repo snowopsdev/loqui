@@ -204,6 +204,11 @@ function resolveReasoningRoute(
 ) {
   const wakeWordLanguage = resolveWakeWordLanguage(settings, detectedLanguage, text);
   const cleanup = selectResolvedLLMConfig(settings, "dictationCleanup");
+  // Pin cleanup to 0 where supported; bridges otherwise default to 0.7 (local)
+  // or 0.3 (Anthropic/enterprise). Zero does not guarantee determinism.
+  // Direct Gemini owns its defaults (3: 1.0, older: 0); check mode to ignore stale providers.
+  const cleanupTemperature =
+    cleanup.mode === "providers" && cleanup.provider === "gemini" ? undefined : 0;
   const cleanupReachable =
     !!settings.useCleanupModel && (!!cleanup.model?.trim() || isCloudCleanupMode());
   const agent = resolveDictationAgentInference(settings, {
@@ -246,16 +251,14 @@ function resolveReasoningRoute(
       "transcription"
     );
   }
-  // Shared by the cleanup route and the translation chain's cleanup step. Cleanup is a
-  // deterministic transform: pass temperature 0 explicitly, because the IPC-bridged
-  // providers (local bridge, Anthropic, enterprise) otherwise apply their own default.
+  // Shared by ordinary cleanup and the translation chain's cleanup step.
   // A truncated reply must fail rather than replace the dictation with its first part:
   // the cleanup route pastes the raw transcript and the chain translates it, and both
   // raise the cleanup-failed toast (#2091).
   const cleanupConfig = {
     inferenceScope: /** @type {const} */ ("dictationCleanup"),
     disableThinking: settings.cleanupDisableThinking,
-    temperature: 0,
+    temperature: cleanupTemperature,
     requireCompleteOutput: true,
   };
   if (kind === "translation") {

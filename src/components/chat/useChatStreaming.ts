@@ -30,6 +30,7 @@ import {
 
 const RAG_NOTE_LIMIT = 5;
 const RAG_NOTE_SNIPPET_LENGTH = 500;
+const STREAM_FLUSH_INTERVAL_MS = 32;
 
 const LOCAL_TOOL_MIN_PARAMS_B = 4;
 
@@ -381,8 +382,28 @@ export function useChatStreaming({
       ]);
       setAgentState("streaming");
 
+      // Chat re-parses the whole answer through react-markdown on every
+      // content write, so one write per streamed token made parse cost scale
+      // with token count. Buffer and flush at most once per interval.
+      let fullContent = "";
+      let contentFlushTimer: ReturnType<typeof setTimeout> | null = null;
+      const cancelContentFlush = () => {
+        if (contentFlushTimer === null) return;
+        clearTimeout(contentFlushTimer);
+        contentFlushTimer = null;
+      };
+      const flushContentNow = () => {
+        cancelContentFlush();
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, content: fullContent } : m))
+        );
+      };
+      const scheduleContentFlush = () => {
+        if (contentFlushTimer !== null) return;
+        contentFlushTimer = setTimeout(flushContentNow, STREAM_FLUSH_INTERVAL_MS);
+      };
+
       try {
-        let fullContent = "";
         let stream: AsyncGenerator<AgentStreamChunk>;
 
         if (isCloudAgent) {
@@ -458,10 +479,11 @@ export function useChatStreaming({
           if (chunk.type === "content") {
             if (chunk.text) announceResponse();
             fullContent += chunk.text;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, content: fullContent } : m))
-            );
+            scheduleContentFlush();
           } else if (chunk.type === "tool_calls") {
+            // Text that arrived before a tool step must be on screen before the
+            // step appears, not an interval after it.
+            flushContentNow();
             if (chunk.calls.length > 0) announceResponse();
             for (const call of chunk.calls) {
               setAgentState("tool-executing");
@@ -514,6 +536,7 @@ export function useChatStreaming({
         }
 
         if (cancelled() || !mountedRef.current) {
+          flushContentNow();
           setMessages((prev) =>
             prev.map((message) =>
               message.id === assistantId ? { ...message, isStreaming: false } : message
@@ -532,6 +555,7 @@ export function useChatStreaming({
           return;
         }
 
+        flushContentNow();
         const hasDeliverableContent = fullContent.trim().length > 0;
         if (!responseAnnounced && !cancelled()) {
           // The stream ended without a visible token or tool call (think-only
@@ -560,12 +584,14 @@ export function useChatStreaming({
         }
       } catch (error) {
         if (cancelled()) {
+          flushContentNow();
           setMessages((prev) =>
             prev.map((message) =>
               message.id === assistantId ? { ...message, isStreaming: false } : message
             )
           );
         } else {
+          cancelContentFlush();
           logger.error(
             "Assistant request failed",
             {

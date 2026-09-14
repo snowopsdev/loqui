@@ -2276,7 +2276,6 @@ declare global {
       requestScreenRecordingAccess?: () => Promise<ScreenRecordingAccessResult>;
       captureScreenContext?: () => Promise<ScreenContextImage | null>;
       setScreenContextEnabled?: (enabled: boolean) => Promise<{ success: boolean }>;
-      showEmojiPanel?: () => Promise<boolean>;
       toggleMediaPlayback?: () => Promise<boolean>;
       pauseMediaPlayback?: () => Promise<boolean>;
       resumeMediaPlayback?: () => Promise<boolean>;

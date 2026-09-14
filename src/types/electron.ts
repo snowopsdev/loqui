@@ -1981,6 +1981,7 @@ declare global {
 
       // App management
       cleanupApp: () => Promise<{ success: boolean; message: string; errors?: string[] }>;
+      relaunchApp: () => Promise<void>;
 
       // Update operations
       checkForUpdates: () => Promise<UpdateCheckResult>;

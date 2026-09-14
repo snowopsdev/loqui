@@ -71,6 +71,10 @@ A follow-up to 1.10.0 built from everything that landed since. Notes open straig
 
 - **List and search endpoints reject bad `limit` and `folder_id` values.** The local CLI bridge converted query parameters with `Number()`, so `?limit=abc` or `?folder_id=-1` became `NaN` or a negative number that flowed straight into SQL and returned an empty 200 rather than an error. Those parameters must now be positive integers and anything else is a 400 `validation_error`, in line with the bridge's error contract. (#2015, thanks @hsusul)
 
+### Assistant
+
+- **Voice Assistant on OpenWhispr Cloud with a stray "Separate vision model" switch.** On a managed workspace, an override that was switched on but never given a model was shown with an invented provider and model, and every screenshot command went to that provider without a key, failing with "OpenAI API key not configured". Workspace policy no longer invents a target for an override the user never configured, and a chosen override that policy moves to another provider is cleared rather than repointed, so it asks to be picked again. A failed assistant request is now written to the debug log.
+
 ## [1.10.0] - 2026-09-11
 
 The desktop app gets a new look: an inset content container with a top bar and ⌘K search, a redesigned Home and note editor, the Yowza brand font and Nucleo icons, and one brand-blue glass surface for every primary action, onboarding included. Notes start recording the moment you create them, offer an AI summary when a recording ends, and gain Detailed Notes and Follow-up email as built-in actions. Orukeet arrives as the recommended local speech-to-text model and local models run up to three times faster on Apple silicon. Managed enterprise speech-to-text lands for workspaces on Azure OpenAI or AI Foundry, transcription gains streaming from Deepgram, AssemblyAI and Gemini Live plus Cohere Transcribe as a local engine, gpt-transcribe becomes the OpenAI default, onboarding was rebuilt and reordered, Insights gains an opt-in leaderboard and backfilled history, updates install themselves, Arabic joins as the eleventh UI language, and Astra and Fable 5.1 join the reasoning models.

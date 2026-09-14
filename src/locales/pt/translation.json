@@ -4104,7 +4104,8 @@
         "silence": "Nenhum áudio foi detectado, então a gravação parou automaticamente. Reinicie em até {{seconds}} s.",
         "processExit": "Seu app de reunião foi fechado, então a gravação parou automaticamente. Reinicie em até {{seconds}} s."
       },
-      "restart": "Reiniciar gravação"
+      "restart": "Reiniciar gravação",
+      "summary": "Gerar resumo com IA"
     }
   }
 }

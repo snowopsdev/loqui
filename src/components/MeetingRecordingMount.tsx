@@ -84,7 +84,8 @@ export default function MeetingRecordingMount(): null {
         stopRecording,
         (sessionId, stopped) => {
           // Every path that ends the recording without offering a restart card
-          // has to say so, or the recording just disappears.
+          // has to say so: the note's own summary offer only reaches a user who
+          // is looking at that note.
           const abandonRestart = () => {
             if (pendingAutoEndRestart.current?.sessionId === sessionId) {
               pendingAutoEndRestart.current = null;

@@ -4104,7 +4104,8 @@
         "silence": "No audio was detected, so recording stopped automatically. Restart within {{seconds}}s.",
         "processExit": "Your meeting app closed, so recording stopped automatically. Restart within {{seconds}}s."
       },
-      "restart": "Restart recording"
+      "restart": "Restart recording",
+      "summary": "Generate AI Summary"
     }
   }
 }

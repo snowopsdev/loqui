@@ -4104,7 +4104,8 @@
         "silence": "Es wurde kein Ton erkannt, daher wurde die Aufnahme automatisch beendet. Neustart innerhalb von {{seconds}} s.",
         "processExit": "Ihre Meeting-App wurde geschlossen, daher wurde die Aufnahme automatisch beendet. Neustart innerhalb von {{seconds}} s."
       },
-      "restart": "Aufnahme neu starten"
+      "restart": "Aufnahme neu starten",
+      "summary": "KI-Zusammenfassung erstellen"
     }
   }
 }

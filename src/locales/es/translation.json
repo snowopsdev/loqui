@@ -4104,7 +4104,8 @@
         "silence": "No se detectó audio, así que la grabación se detuvo automáticamente. Reiníciala en {{seconds}} s.",
         "processExit": "La app de reuniones se cerró, así que la grabación se detuvo automáticamente. Reiníciala en {{seconds}} s."
       },
-      "restart": "Reiniciar grabación"
+      "restart": "Reiniciar grabación",
+      "summary": "Generar resumen con IA"
     }
   }
 }

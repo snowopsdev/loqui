@@ -4104,7 +4104,8 @@
         "silence": "Aucun son n’a été détecté, donc l’enregistrement s’est arrêté automatiquement. Redémarrez-le dans les {{seconds}} s.",
         "processExit": "Votre app de réunion s’est fermée, donc l’enregistrement s’est arrêté automatiquement. Redémarrez-le dans les {{seconds}} s."
       },
-      "restart": "Redémarrer l’enregistrement"
+      "restart": "Redémarrer l’enregistrement",
+      "summary": "Générer un résumé IA"
     }
   }
 }

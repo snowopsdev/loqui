@@ -4104,7 +4104,8 @@
         "silence": "Non è stato rilevato audio, quindi la registrazione si è interrotta automaticamente. Riavviala entro {{seconds}} s.",
         "processExit": "L’app della riunione è stata chiusa, quindi la registrazione si è interrotta automaticamente. Riavviala entro {{seconds}} s."
       },
-      "restart": "Riavvia registrazione"
+      "restart": "Riavvia registrazione",
+      "summary": "Genera riepilogo AI"
     }
   }
 }

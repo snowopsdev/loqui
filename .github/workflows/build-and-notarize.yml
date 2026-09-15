@@ -296,6 +296,9 @@ jobs:
       - name: Compile macos-fast-paste binary
         run: npm run compile:fast-paste -- --arch ${{ matrix.arch }}
 
+      - name: Test macOS copy and paste keyboard layouts
+        run: node --test test/helpers/macosPasteLayout.test.js
+
       - name: Compile macos-media-remote binary
         run: npm run compile:media-remote -- --arch ${{ matrix.arch }}
 

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { getMicAnalyser, useMeetingRecordingStore } from "../../stores/meetingRecordingStore";
+import { analyserRms } from "../../utils/audioLevel";
+import { formatMmSs } from "../../utils/formatDuration";
 import { Loader2, Mic, Square } from "../icons";
 import { cn } from "../lib/utils";
 import { LiveWaveform } from "../ui/LiveWaveform";
 import { GRADIENT_CIRCLE } from "../ui/gradientCircle";
-import { analyserRms } from "../../utils/audioLevel";
-import { formatMmSs } from "../../utils/formatDuration";
-import { getMicAnalyser, useMeetingRecordingStore } from "../../stores/meetingRecordingStore";
 
 // Module-level buffer: there is a single meeting mic analyser at a time.
 const micLevelBuf: { current: Float32Array<ArrayBuffer> | null } = { current: null };
@@ -110,7 +110,7 @@ export default function NoteRecordControl({
           onClick={onStart}
           disabled={disabled || isProcessing}
           aria-label={t("notes.editor.transcribe")}
-          title={disabled ? t("common.managedByOrg") : undefined}
+          title={disabled ? t("personal.recordingUnavailable") : undefined}
           className={cn(
             "flex h-[30px] w-[30px] items-center justify-center rounded-full",
             GRADIENT_CIRCLE,

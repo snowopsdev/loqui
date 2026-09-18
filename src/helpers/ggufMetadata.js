@@ -201,7 +201,8 @@ async function readValue(cursor, type, capture) {
 }
 
 function isWantedKey(key) {
-  if (key === "general.architecture") return true;
+  if (["general.architecture", "general.name", "general.type", "split.count"].includes(key))
+    return true;
   return WANTED_SUFFIXES.some((suffix) => key.endsWith(suffix));
 }
 
@@ -221,7 +222,7 @@ async function readGgufMetadata(source) {
     const version = await cursor.readUint32();
     if (version < MIN_SUPPORTED_VERSION || version > MAX_SUPPORTED_VERSION) return null;
 
-    await cursor.readUint64(); // tensor_count, unused
+    const tensorCount = await cursor.readUint64();
     const kvCount = await cursor.readUint64();
     if (kvCount > MAX_KV_COUNT) return null;
 
@@ -237,11 +238,21 @@ async function readGgufMetadata(source) {
       if (value !== null) entries.set(key, value);
     }
 
+    // Skipped values still have to fit the file and the metadata budget.
+    if (
+      cursor.position > MAX_METADATA_BYTES ||
+      (source.size !== undefined && cursor.position > source.size)
+    )
+      return null;
     const architecture = entries.get("general.architecture");
     if (typeof architecture !== "string" || architecture.length === 0) return null;
 
     return {
       architecture,
+      tensorCount,
+      name: entries.get("general.name"),
+      type: entries.get("general.type"),
+      splitCount: entries.get("split.count"),
       blockCount: pick(entries, architecture, ".block_count"),
       contextLength: pick(entries, architecture, ".context_length"),
       embeddingLength: pick(entries, architecture, ".embedding_length"),

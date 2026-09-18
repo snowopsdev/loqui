@@ -31,7 +31,18 @@ export interface ProviderCallParams {
   ctx: ProviderContext;
 }
 
+export interface ProviderCapabilities {
+  transcription: boolean;
+  textGeneration: boolean;
+  streaming: boolean;
+  images: boolean;
+  tools: boolean;
+  webSearch: boolean;
+}
+
 export interface InferenceProvider {
+  readonly connectionType?: "local" | "api-key" | "subscription";
+  readonly capabilities?: ProviderCapabilities;
   readonly id: string;
   /** True when this client can send `config.screenContext` as image content. */
   readonly supportsImages?: boolean;

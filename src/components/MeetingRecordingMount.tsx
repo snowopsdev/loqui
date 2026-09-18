@@ -1,6 +1,6 @@
 import { createElement, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useToast } from "./ui/useToast";
+import { requestMeetingRecordingAutoEnd } from "../helpers/meetingRecordingSession";
 import {
   getActiveRecordingSessionId,
   getMicAnalyser,
@@ -8,9 +8,9 @@ import {
   stopRecording,
   useMeetingRecordingStore,
 } from "../stores/meetingRecordingStore";
-import { requestMeetingRecordingAutoEnd } from "../helpers/meetingRecordingSession";
-import { serializeTranscriptSegments } from "../utils/transcriptSpeakerState";
 import logger from "../utils/logger";
+import { serializeTranscriptSegments } from "../utils/transcriptSpeakerState";
+import { useToast } from "./ui/useToast";
 
 const EMA_PREV = 0.5;
 const EMA_NEXT = 0.5;
@@ -19,7 +19,7 @@ const EMA_NEXT = 0.5;
 // A sentinel may carry one argument after a colon, e.g. `unsupportedProvider:groq`.
 // Anything that is not a sentinel reaches the toast unchanged.
 const MEETING_ERROR_KEYS: Record<string, string> = {
-  policyRestricted: "notes.meeting.restrictedByOrg",
+  policyRestricted: "personal.recordingUnavailable",
   unsupportedSelfHosted: "notes.meeting.unsupportedSelfHosted",
   unsupportedProvider: "notes.meeting.unsupportedProvider",
   noProviderSelected: "notes.meeting.noProviderSelected",

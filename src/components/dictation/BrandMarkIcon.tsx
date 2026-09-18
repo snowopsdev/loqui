@@ -1,28 +1,24 @@
-import React from "react";
-
 interface BrandMarkIconProps {
   size?: number;
   className?: string;
 }
-
-/**
- * Circled sound-bars brand mark. Draws in `currentColor` so it follows the
- * neutral foreground treatment of the surface that contains it.
- */
 export function BrandMarkIcon({ size = 24, className }: BrandMarkIconProps) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="0 0 256 256"
       fill="none"
       className={className}
       aria-hidden="true"
     >
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-      <rect x="7.75" y="9.5" width="2" height="5" rx="1" fill="currentColor" />
-      <rect x="11" y="7" width="2" height="10" rx="1" fill="currentColor" />
-      <rect x="14.25" y="9.5" width="2" height="5" rx="1" fill="currentColor" />
+      <path
+        d="M178 87C158 54 117 48 85 72C49 99 48 145 76 172C105 200 153 188 173 155C185 135 187 107 178 87Z M151 145C173 154 169 178 189 190C202 199 215 197 226 186 M101 115V136 M124 101V149 M147 116V133"
+        stroke="currentColor"
+        strokeWidth="22"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

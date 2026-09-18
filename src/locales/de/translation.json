@@ -4,7 +4,7 @@
       "sectionTitle": "Sprache",
       "sectionDescription": "Oberflächen- und Transkriptionssprache unabhängig einstellen",
       "uiLabel": "Sprache der Oberfläche",
-      "uiDescription": "Wählen Sie die Sprache für die OpenWhispr-Oberfläche",
+      "uiDescription": "Wählen Sie die Sprache für die Loqui-Oberfläche",
       "transcriptionLabel": "Transkriptionssprache",
       "transcriptionDescription": "Wählen Sie die Sprache, die Sie sprechen, für genauere Transkription",
       "chineseScriptLabel": "Chinesische Schrift (Diktat)",
@@ -64,12 +64,12 @@
     },
     "openControlPanel": "Kontrollzentrum öffnen",
     "hideControlPanel": "Kontrollzentrum ausblenden",
-    "quit": "OpenWhispr beenden",
-    "tooltip": "OpenWhispr – Sprachdiktat"
+    "quit": "Loqui beenden",
+    "tooltip": "Loqui – Sprachdiktat"
   },
   "menu": {
-    "appLabel": "OpenWhispr",
-    "quit": "OpenWhispr beenden",
+    "appLabel": "Loqui",
+    "quit": "Loqui beenden",
     "speech": "Sprache",
     "settings": "Einstellungen …",
     "help": "Hilfe",
@@ -87,8 +87,8 @@
       "message": "Der Link konnte im Browser nicht geöffnet werden:\n{{url}}\n\nFehler: {{error}}"
     },
     "loadFailure": {
-      "title": "OpenWhispr konnte nicht geladen werden",
-      "message": "OpenWhispr konnte die Benutzeroberfläche nicht laden.",
+      "title": "Loqui konnte nicht geladen werden",
+      "message": "Loqui konnte die Benutzeroberfläche nicht laden.",
       "detail": {
         "window": "Fenster: {{windowName}}",
         "error": "Fehler {{errorCode}}: {{errorDescription}}",
@@ -99,17 +99,17 @@
   },
   "startup": {
     "error": {
-      "title": "OpenWhispr-Startfehler",
+      "title": "Loqui-Startfehler",
       "message": "Die Anwendung konnte nicht gestartet werden:\n\n{{error}}\n\nBitte melden Sie dieses Problem."
     },
     "globeHotkey": {
       "title": "Globe-Hotkey nicht verfügbar",
-      "message": "OpenWhispr konnte den Globe-Hotkey nicht aktivieren.",
+      "message": "Loqui konnte den Globe-Hotkey nicht aktivieren.",
       "details": {
         "unknown": "Unbekannter Fehler beim Starten des Globe-Listeners.",
         "fallback": "Der Globe-Hotkey bleibt deaktiviert; vorhandene Tastenkürzel funktionieren weiterhin.",
         "devHint": "Führen Sie `npm run compile:globe` aus und bauen Sie die App neu, um die Binary neu zu erzeugen.",
-        "reinstallHint": "Installieren Sie OpenWhispr neu oder kontaktieren Sie den Support, wenn das Problem bestehen bleibt."
+        "reinstallHint": "Installieren Sie Loqui neu oder kontaktieren Sie den Support, wenn das Problem bestehen bleibt."
       }
     }
   },
@@ -212,7 +212,7 @@
   "onboarding": {
     "rehaul": {
       "permissions": {
-        "title": "OpenWhispr in 3 Minuten einrichten",
+        "title": "Loqui in 3 Minuten einrichten",
         "microphoneDescription": "Macht aus dem, was Sie sagen, Text. Nur während der Aufnahme aktiv.",
         "accessibilityDescription": "Fügt den Text in die App ein, die Sie gerade nutzen.",
         "systemAudioTitle": "Systemaudio",
@@ -225,7 +225,7 @@
         "title": "Welche Sprachen sprechen Sie?",
         "titleLineOne": "Welche Sprachen",
         "titleLineTwo": "sprichst du?",
-        "description": "Wählen Sie alle zutreffenden aus. Das hilft OpenWhispr, Sprachwechsel genauer zu erkennen."
+        "description": "Wählen Sie alle zutreffenden aus. Das hilft Loqui, Sprachwechsel genauer zu erkennen."
       },
       "dictationHotkey": {
         "title": "Wählen Sie Ihr Diktier-Tastenkürzel",
@@ -235,10 +235,10 @@
         "activation": "Tippen oder halten?"
       },
       "assistantHotkey": {
-        "title": "OpenWhispr Assistant einrichten",
+        "title": "Loqui Assistant einrichten",
         "titleLineOne": "Einrichten:",
-        "titleLineTwo": "OpenWhispr Assistant",
-        "description": "Sprechen Sie eine Anfrage aus. OpenWhispr Assistant schreibt das Ergebnis für Sie."
+        "titleLineTwo": "Loqui Assistant",
+        "description": "Sprechen Sie eine Anfrage aus. Loqui Assistant schreibt das Ergebnis für Sie."
       },
       "hotkey": {
         "capture": "Drücken Sie die Taste, die Sie verwenden möchten",
@@ -250,15 +250,15 @@
         "title": "Probieren Sie Ihr erstes Diktat aus",
         "titleLineOne": "Probieren Sie Ihr",
         "titleLineTwo": "erstes Diktat aus",
-        "description": "Drücken Sie {{hotkey}} und sprechen Sie los. OpenWhispr wandelt Ihre Stimme in Text um.",
-        "founder": "Hallo, ich bin Gabe, der Gründer. Danke, dass Sie OpenWhispr ausprobieren!",
-        "prompt": "Klicken Sie in das Feld unten, drücken Sie Ihr Tastenkürzel und sagen Sie mir: Was soll OpenWhispr für Sie tun?",
-        "placeholder": "Klicken Sie hier und drücken Sie dann Ihr Tastenkürzel. OpenWhispr schreibt in jedes Textfeld."
+        "description": "Drücken Sie {{hotkey}} und sprechen Sie los. Loqui wandelt Ihre Stimme in Text um.",
+        "founder": "Hallo, ich bin Gabe, der Gründer. Danke, dass Sie Loqui ausprobieren!",
+        "prompt": "Klicken Sie in das Feld unten, drücken Sie Ihr Tastenkürzel und sagen Sie mir: Was soll Loqui für Sie tun?",
+        "placeholder": "Klicken Sie hier und drücken Sie dann Ihr Tastenkürzel. Loqui schreibt in jedes Textfeld."
       },
       "assistantDemo": {
-        "title": "OpenWhispr Assistant kennenlernen",
+        "title": "Loqui Assistant kennenlernen",
         "titleLineOne": "Das ist",
-        "titleLineTwo": "OpenWhispr Assistant",
+        "titleLineTwo": "Loqui Assistant",
         "email": {
           "subject": "Kaffee nächste Woche?",
           "senderName": "Maria Alvarez",
@@ -292,13 +292,13 @@
         "typing": "Schreibt…"
       },
       "notes": {
-        "title": "Meetings ohne Bot aufzeichnen – mit OpenWhispr Notes",
+        "title": "Meetings ohne Bot aufzeichnen – mit Loqui Notes",
         "titleLineOne": "Meetings ohne Bot aufzeichnen",
-        "titleLineTwoPrefix": "mit OpenWhispr",
+        "titleLineTwoPrefix": "mit Loqui",
         "titleLineTwoBrand": "Notes",
-        "description": "OpenWhispr verwandelt Ihr Gespräch in klare Notizen. Kein Meeting-Bot nimmt an Ihrem Anruf teil.",
+        "description": "Loqui verwandelt Ihr Gespräch in klare Notizen. Kein Meeting-Bot nimmt an Ihrem Anruf teil.",
         "hero": {
-          "description": "Zeichnen Sie Ihr Meeting auf und lassen Sie OpenWhispr das Gespräch in klare, strukturierte Notizen verwandeln.",
+          "description": "Zeichnen Sie Ihr Meeting auf und lassen Sie Loqui das Gespräch in klare, strukturierte Notizen verwandeln.",
           "chat": "Mit Ihren Meeting-Notizen chatten",
           "transcript": "Das vollständige Transkript ansehen",
           "speakers": "Sehen, wer was gesagt hat"
@@ -314,16 +314,16 @@
         }
       },
       "setupChoice": {
-        "title": "OpenWhispr-Einrichtung wählen",
+        "title": "Loqui-Einrichtung wählen",
         "titleLineOne": "Wählen Sie Ihre",
-        "titleLineTwo": "OpenWhispr-Einrichtung",
+        "titleLineTwo": "Loqui-Einrichtung",
         "description": "Wählen Sie die Option, die zu Ihrer Arbeitsweise passt.",
         "unavailable": {
           "title": "Keine Einrichtungsoption verfügbar",
           "description": "Ihre Workspace-Richtlinie erlaubt keine vollständige Einrichtung für Transkription und KI. Wenden Sie sich an Ihre Administration."
         },
         "cloud": {
-          "title": "OpenWhispr Cloud",
+          "title": "Loqui Cloud",
           "description": "2.000 Wörter pro Woche gratis. Ihre Einstellungen bleiben geräteübergreifend synchron.",
           "continue": "Kostenlos fortfahren",
           "signIn": "Anmelden, um Cloud zu nutzen",
@@ -471,14 +471,14 @@
       "accessibilityTitle": "Bedienungshilfen",
       "accessibilityDescription": "Fügt den fertigen Text direkt in die App ein, in der du gerade bist — Dokumente, E-Mail, Chat.",
       "testAndGrant": "Testen & erteilen",
-      "requiredForApp": "Erforderlich, damit OpenWhispr funktioniert",
+      "requiredForApp": "Erforderlich, damit Loqui funktioniert",
       "microphoneRequired": "Mikrofonzugriff erforderlich",
       "openSystemSettings": "Systemeinstellungen öffnen",
       "systemAudioTitle": "Systemaudio",
       "systemAudioDescription": "Lässt den Meeting-Rekorder die Gegenseite deiner Anrufe hören — Meetings, Vorlesungen, Podcasts. Kann später in den Einstellungen aktiviert werden.",
       "optional": "Optional",
       "recommended": "Empfohlen",
-      "accessibilityTroubleshooting": "Schalte in Systemeinstellungen → Bedienungshilfen den Schalter für OpenWhispr aus und wieder ein. Wenn OpenWhispr gar nicht in der Liste steht, klicke auf + und füge es aus dem Programme-Ordner hinzu. Klappt's immer noch nicht? Schreib an support@openwhispr.com."
+      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
     },
     "transcription": {
       "title": "Transkriptions-Einrichtung",
@@ -498,18 +498,18 @@
       "textareaPlaceholder": "Hier klicken und Hotkey zum Diktieren verwenden..."
     },
     "connectivity": {
-      "title": "OpenWhispr Cloud ist aus diesem Netzwerk nicht erreichbar",
+      "title": "Loqui Cloud ist aus diesem Netzwerk nicht erreichbar",
       "body": "{{cause}} Sie können zur lokalen Engine wechseln oder fortfahren und es später erneut versuchen.",
       "useLocal": "Lokale Engine verwenden",
       "continue": "Trotzdem fortfahren"
     },
     "useCase": {
-      "title": "Wie wirst du OpenWhispr nutzen?",
+      "title": "Wie wirst du Loqui nutzen?",
       "titleLineOne": "Wie wirst du",
-      "titleLineTwo": "OpenWhispr nutzen?",
+      "titleLineTwo": "Loqui nutzen?",
       "description": "Wähle alles Zutreffende aus. Wir passen die Einrichtung darauf an.",
       "noteLabel": "Möchtest du uns noch etwas mitteilen?",
-      "notePlaceholder": "Erzähl uns, wie du OpenWhispr nutzen möchtest (optional)",
+      "notePlaceholder": "Erzähl uns, wie du Loqui nutzen möchtest (optional)",
       "proceedToSetup": "Mit der Einrichtung fortfahren",
       "options": {
         "dictation": {
@@ -542,13 +542,13 @@
     "meeting": {
       "title": "Meeting-Notizen",
       "description": "Erfasse und fasse deine Meetings zusammen",
-      "autoDetect": "OpenWhispr erkennt automatisch, wenn du in einem Meeting bist, und bietet an, Notizen zu starten — ohne dich wird nichts aufgenommen.",
+      "autoDetect": "Loqui erkennt automatisch, wenn du in einem Meeting bist, und bietet an, Notizen zu starten — ohne dich wird nichts aufgenommen.",
       "hotkeyLabel": "Meeting-Hotkey",
       "hotkeyHint": "Optional — drücke ihn in jedem Meeting, um sofort eine Notiz zu starten."
     },
     "finish": {
       "title": "Alles bereit",
-      "cloudDescription": "Du nutzt OpenWhispr Cloud — schnell, präzise, keine Datenspeicherung und 2.000 Wörter gratis pro Woche. Lieber alles auf dem Gerät? Wechsle in den Einstellungen zur lokalen Verarbeitung.",
+      "cloudDescription": "Du nutzt Loqui Cloud — schnell, präzise, keine Datenspeicherung und 2.000 Wörter gratis pro Woche. Lieber alles auf dem Gerät? Wechsle in den Einstellungen zur lokalen Verarbeitung.",
       "localDescription": "Du bist mit lokaler Verarbeitung oder deinem eigenen Schlüssel eingerichtet. Passe die Audioverarbeitung jederzeit in den Einstellungen an.",
       "cleanupNote": "Die KI-Textbereinigung läuft mit sinnvollen Standardwerten. Du kannst sie jederzeit in den Einstellungen anpassen.",
       "openSettings": "Einstellungen öffnen",
@@ -582,9 +582,9 @@
   "streaming": {
     "errors": {
       "cloudUnreachable": {
-        "title": "OpenWhispr Cloud nicht erreichbar",
+        "title": "Loqui Cloud nicht erreichbar",
         "generic": "Die Netzwerkanfrage ist fehlgeschlagen. Prüfen Sie Ihre Verbindung.",
-        "dnsBlocked": "DNS löst openwhispr.com nicht auf — ein Werbeblocker oder Filter blockiert es möglicherweise.",
+        "dnsBlocked": "DNS cannot resolve the selected provider. Check the endpoint and network settings.",
         "refused": "Verbindung wurde abgelehnt — wahrscheinlich eine Firewall oder ein VPN.",
         "timeout": "Netzwerk-Zeitüberschreitung — VPN, Captive Portal oder instabile Verbindung.",
         "tls": "TLS-Handshake fehlgeschlagen — prüfen Sie Ihre Systemuhr oder einen Unternehmens-Proxy.",
@@ -595,13 +595,13 @@
   "controlPanel": {
     "updateRequiredByOrg": {
       "title": "Update erforderlich",
-      "description": "Ihre Organisation erfordert OpenWhispr {{version}} oder neuer. Bitte aktualisieren Sie die App."
+      "description": "Ihre Organisation erfordert Loqui {{version}} oder neuer. Bitte aktualisieren Sie die App."
     },
     "update": {
       "readyTitle": "Update bereit zur Installation",
       "readyDescription": "Klicken Sie auf 'Update installieren', um mit der neuesten Version neu zu starten.",
       "installTitle": "Update installieren",
-      "installDescription": "OpenWhispr startet neu, um das Update anzuwenden. Laufende Arbeit wird gespeichert.",
+      "installDescription": "Loqui startet neu, um das Update anzuwenden. Laufende Arbeit wird gespeichert.",
       "couldNotInstallTitle": "Update konnte nicht installiert werden",
       "couldNotInstallDescription": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
       "couldNotDownloadTitle": "Update konnte nicht heruntergeladen werden",
@@ -616,7 +616,7 @@
     },
     "accessibilityMissing": {
       "title": "Bedienungshilfen-Berechtigungen benötigt",
-      "description": "Wir haben festgestellt, dass OpenWhispr Bedienungshilfen-Berechtigungen benötigt, um korrekt zu funktionieren. Bitte aktivieren Sie diese unten."
+      "description": "Wir haben festgestellt, dass Loqui Bedienungshilfen-Berechtigungen benötigt, um korrekt zu funktionieren. Bitte aktivieren Sie diese unten."
     },
     "billing": {
       "pastDueTitle": "Ihre Zahlung konnte nicht verarbeitet werden",
@@ -793,7 +793,7 @@
           "modelNotFound": "AWS Bedrock konnte das ausgewählte Modell in der Region {{region}} nicht finden. Prüfe die Modell-ID und ob das Modell dort verfügbar ist.",
           "configurationRejected": "AWS Bedrock hat die Modellkonfiguration für die Region {{region}} abgelehnt. Prüfe Modell-ID, Inferenzprofil und Region.",
           "notConfigured": "AWS Bedrock ist nicht richtig konfiguriert. Prüfe Region und AWS-Anmeldedaten.",
-          "serviceUnavailable": "AWS Bedrock ist wegen hoher Nachfrage vorübergehend nicht verfügbar. Dies ist ein Problem des AWS-Dienstes und kein OpenWhispr-Ausfall. Versuche es in einigen Minuten erneut.",
+          "serviceUnavailable": "AWS Bedrock ist wegen hoher Nachfrage vorübergehend nicht verfügbar. Dies ist ein Problem des AWS-Dienstes und kein Loqui-Ausfall. Versuche es in einigen Minuten erneut.",
           "throttled": "AWS Bedrock begrenzt Anfragen vorübergehend, weil zu viele eingehen. Warte kurz und versuche es erneut. Wenn das Problem anhält, bitte deinen AWS-Administrator, Bedrock-Nutzung und Kontingente zu prüfen.",
           "timeout": "AWS Bedrock hat nicht rechtzeitig geantwortet. Versuche es erneut. Wenn das Problem anhält, prüfe deine Internetverbindung und den Status des AWS-Bedrock-Dienstes.",
           "network": "AWS Bedrock konnte nicht erreicht werden. Prüfe deine Internetverbindung und versuche es erneut.",
@@ -900,7 +900,7 @@
         "description": "Ein Teil der Aufnahme konnte nicht transkribiert werden."
       },
       "errorDescriptions": {
-        "sessionExpired": "Deine OpenWhispr-Cloud-Sitzung ist nicht verfügbar. Bitte melde dich erneut über die Einstellungen an.",
+        "sessionExpired": "Deine Loqui-Cloud-Sitzung ist nicht verfügbar. Bitte melde dich erneut über die Einstellungen an.",
         "offline": "Du bist offline. Die Cloud-Transkription benötigt eine Internetverbindung.",
         "dailyLimitReached": "Du hast dein heutiges Transkriptionslimit erreicht. Versuch es morgen erneut oder upgrade deinen Plan.",
         "providerRateLimited": "Dein Transkriptionsanbieter hat die Anfrage begrenzt. Warte kurz und versuch es erneut.",
@@ -931,8 +931,8 @@
         "notAppliedTitle": "Auswahlbearbeitung nicht angewendet",
         "changed": "Der ausgewählte Text oder die Ziel-App wurde während der Verarbeitung geändert. Es wurde nichts ersetzt.",
         "expired": "Die Auswahlbearbeitung ist abgelaufen. Wähle den Text erneut aus und versuche es noch einmal.",
-        "pasteFailed": "OpenWhispr hat die Bearbeitung erstellt, konnte den ausgewählten Text aber nicht ersetzen.",
-        "unavailable": "OpenWhispr konnte den ausgewählten Text nicht sicher lesen. Prüfe die Bedienungshilfen oder Eingabeautomatisierung.",
+        "pasteFailed": "Loqui hat die Bearbeitung erstellt, konnte den ausgewählten Text aber nicht ersetzen.",
+        "unavailable": "Loqui konnte den ausgewählten Text nicht sicher lesen. Prüfe die Bedienungshilfen oder Eingabeautomatisierung.",
         "tooLarge": "Die Auswahl ist zu groß. Wähle höchstens 6.000 Zeichen aus.",
         "reasoningFailed": "Die KI konnte die Auswahlbearbeitung nicht abschließen. Dein ursprünglicher Text wurde nicht geändert."
       }
@@ -1007,7 +1007,7 @@
       "micErrors": {
         "accessFailed": "Mikrofonzugriff fehlgeschlagen. Bitte versuchen Sie es erneut.",
         "noMicrophones": "Keine Mikrofone erkannt. Verbinden oder wählen Sie ein Mikrofon in {{settingsPath}}.",
-        "permissionDenied": "Berechtigung verweigert. Öffnen Sie {{privacyPath}} und erlauben Sie OpenWhispr.",
+        "permissionDenied": "Berechtigung verweigert. Öffnen Sie {{privacyPath}} und erlauben Sie Loqui.",
         "couldNotStart": "Ausgewähltes Mikrofon konnte nicht gestartet werden. Wählen Sie ein Eingabegerät in {{settingsPath}} und führen Sie den Test erneut aus.",
         "noActiveInput": "Keine aktive Audioeingabe gefunden. Wählen Sie ein Mikrofon in {{settingsPath}}.",
         "unknown": "Mikrofonzugriff fehlgeschlagen: {{error}}. Wählen Sie ein anderes Eingabegerät und versuchen Sie es erneut.",
@@ -1036,8 +1036,8 @@
         "accessibilityNeeded": "Bitte gewähren Sie Bedienungshilfen-Berechtigungen in den Systemeinstellungen, um automatisches Einfügen zu ermöglichen.",
         "windowsReady": "Windows benötigt keine speziellen Berechtigungen für automatisches Einfügen. Alles bereit!",
         "linuxReadyWithMethod": "Automatisches Einfügen ist mit {{method}} verfügbar. Alles bereit!",
-        "waylandClipboardMode": "Automatisches Einfügen ist in dieser Wayland-Sitzung nicht verfügbar. OpenWhispr kopiert den Text in die Zwischenablage und Sie können mit Ctrl+V einfügen.",
-        "optionalPasteTool": "Für automatisches Einfügen installieren Sie {{tool}}:\n\n{{installCmd}}{{waylandNote}}\n\nOhne dieses Tool können Sie OpenWhispr weiterhin nutzen – Text wird in die Zwischenablage kopiert und Sie können mit Ctrl+V einfügen."
+        "waylandClipboardMode": "Automatisches Einfügen ist in dieser Wayland-Sitzung nicht verfügbar. Loqui kopiert den Text in die Zwischenablage und Sie können mit Ctrl+V einfügen.",
+        "optionalPasteTool": "Für automatisches Einfügen installieren Sie {{tool}}:\n\n{{installCmd}}{{waylandNote}}\n\nOhne dieses Tool können Sie Loqui weiterhin nutzen – Text wird in die Zwischenablage kopiert und Sie können mit Ctrl+V einfügen."
       },
       "alerts": {
         "accessibilityNeeded": "Bedienungshilfen-Berechtigungen erforderlich! Bitte erlauben Sie diese in den Systemeinstellungen."
@@ -1050,7 +1050,7 @@
         "defaultPasteTool": "xdotool",
         "xdotoolXwayland": "xdotool (XWayland-Apps)"
       },
-      "accessibilityTestText": "OpenWhispr Bedienungshilfen-Test",
+      "accessibilityTestText": "Loqui Bedienungshilfen-Test",
       "warning": {
         "messages": {
           "macos": "Prüfen Sie die Toneinstellungen, um Ihr Eingabegerät auszuwählen",
@@ -1126,7 +1126,7 @@
       "emailRequired": "Geben Sie Ihre geschäftliche E-Mail-Adresse ein, um SSO zu verwenden.",
       "failed": "Single Sign-on fehlgeschlagen. Bitte versuchen Sie es erneut.",
       "companySignInTitle": "Unternehmensanmeldung verwenden",
-      "requiredDescription": "{{domain}} erfordert SSO für OpenWhispr.",
+      "requiredDescription": "{{domain}} erfordert SSO für Loqui.",
       "availableDescription": "Ihr {{domain}}-Konto ist für das Unternehmens-SSO bereit.",
       "useEmailInstead": "Stattdessen E-Mail und Passwort verwenden"
     },
@@ -1138,7 +1138,7 @@
       "protocolUnavailable": "Browser-Anmeldung nicht verfügbar — registrieren Sie das openwhispr://-Protokoll in den Standardanwendungs-Einstellungen Ihres Systems erneut."
     },
     "welcomeSubtitle": "Die Kraft Ihrer Stimme. Zu Ihren Bedingungen.",
-    "welcomeTitle": "Willkommen bei OpenWhispr",
+    "welcomeTitle": "Willkommen bei Loqui",
     "sessionExpired": "Sitzung abgelaufen"
   },
   "calendar": {
@@ -1178,7 +1178,7 @@
     "systemAudioRequired": "Die Systemaudio-Berechtigung wird benötigt, um den Ton anderer Teilnehmer aufzunehmen.",
     "openSettings": "Systemeinstellungen öffnen",
     "connectCalendar": "Kalender verbinden",
-    "connectCalendarDescription": "Sieh deine Meetings und tritt ihnen bei, ohne OpenWhispr zu verlassen.",
+    "connectCalendarDescription": "Sieh deine Meetings und tritt ihnen bei, ohne Loqui zu verlassen.",
     "connectCalendarButton": "Kalender verbinden"
   },
   "cleanupPrompt": "Textbereinigung",
@@ -1249,7 +1249,7 @@
   },
   "apiKeysSection": {
     "title": "API-Schlüssel",
-    "description": "Erstellen Sie Schlüssel für den programmatischen Zugriff auf die OpenWhispr-API.",
+    "description": "Erstellen Sie Schlüssel für den programmatischen Zugriff auf die Loqui-API.",
     "docsLink": "API-Dokumentation",
     "empty": "Noch keine API-Schlüssel",
     "createButton": "API-Schlüssel erstellen",
@@ -1455,10 +1455,10 @@
     "recheckChecking": "Wird geprüft...",
     "title": "Automatisches Einfügen",
     "usingMethodPrefix": "Verwendet",
-    "waylandClipboardDescription": "Automatisches Einfügen ist in dieser Wayland-Sitzung nicht verfügbar. OpenWhispr kopiert den Text in Ihre Zwischenablage, damit Sie ihn manuell mit Ctrl+V einfügen können.",
+    "waylandClipboardDescription": "Automatisches Einfügen ist in dieser Wayland-Sitzung nicht verfügbar. Loqui kopiert den Text in Ihre Zwischenablage, damit Sie ihn manuell mit Ctrl+V einfügen können.",
     "waylandClipboardTitle": "Zwischenablage-Modus unter Wayland",
     "windowsReady": "Windows unterstützt automatisches Einfügen direkt. Keine Einrichtung erforderlich!",
-    "withoutToolPrefix": "Ohne dieses Tool kopiert OpenWhispr den Text in Ihre Zwischenablage. Sie können ihn dann manuell mit Ctrl+V einfügen.",
+    "withoutToolPrefix": "Ohne dieses Tool kopiert Loqui den Text in Ihre Zwischenablage. Sie können ihn dann manuell mit Ctrl+V einfügen.",
     "wtypeFallbackDescription": "wtype ist die bevorzugte Methode für automatisches Einfügen auf diesem wlroots-Compositor. Eine Alternative ist verfügbar, kann aber weniger zuverlässig sein.",
     "xwaylandAppsOnly": "Automatisches Einfügen funktioniert nur für XWayland-Apps"
   },
@@ -1509,7 +1509,7 @@
       "none": "Keine",
       "outputLabel": "Ausgabe",
       "processing": "Verarbeitung...",
-      "openwhisprCloud": "OpenWhispr Cloud",
+      "openwhisprCloud": "Loqui Cloud",
       "providerLabel": "Anbieter",
       "run": "Test ausführen",
       "customEndpoint": "Benutzerdefinierter Endpoint",
@@ -1854,7 +1854,7 @@
           "price": "$0",
           "period": "für immer",
           "features": [
-            "## OpenWhispr Cloud",
+            "## Loqui Cloud",
             "2.000 Wörter/Woche Transkription",
             "5 Stunden Meeting-Aufnahmen/Monat",
             "## Immer kostenlos",
@@ -1972,7 +1972,7 @@
         "button": "Mein Konto löschen",
         "deleting": "Wird gelöscht...",
         "title": "Konto löschen?",
-        "description": "Dies löscht dauerhaft Ihr OpenWhispr-Konto und Ihre persönlichen Daten. Arbeitsbereichsdaten und Daten anderer lokaler Benutzer bleiben auf diesem Gerät erhalten.",
+        "description": "Dies löscht dauerhaft Ihr Loqui-Konto und Ihre persönlichen Daten. Arbeitsbereichsdaten und Daten anderer lokaler Benutzer bleiben auf diesem Gerät erhalten.",
         "confirmText": "Konto löschen",
         "eraseDeviceLabel": "Auch alle Daten von diesem Gerät löschen",
         "eraseDeviceDescription": "Löscht Notizen und Arbeitsbereichscaches aller lokalen Benutzer, heruntergeladene Modelle, Einstellungen, Kalenderverbindungen, Anmeldedaten und Aufnahmen.",
@@ -2050,7 +2050,7 @@
       "enableTextCleanup": "Textbereinigung aktivieren",
       "enableTextCleanupDescription": "KI entfernt Füllwörter, korrigiert Grammatik und Zeichensetzung",
       "modes": {
-        "openwhispr": "OpenWhispr Cloud",
+        "openwhispr": "Loqui Cloud",
         "providers": "Cloud-Anbieter",
         "local": "Lokal",
         "selfHosted": "Selbst gehostet",
@@ -2061,13 +2061,13 @@
         "selfHostedDesc": "Eigener Server in Ihrem Netzwerk.",
         "enterpriseDesc": "Nutzen Sie das Cloud-Konto Ihrer Organisation (AWS, Azure, GCP)."
       },
-      "openwhisprCloud": "OpenWhispr Cloud",
+      "openwhisprCloud": "Loqui Cloud",
       "openwhisprCloudDescription": "Zuverlässige Ergebnisse. Keine Einrichtung nötig.",
       "title": "KI-Textverbesserung",
       "toasts": {
         "switchedCloud": {
-          "description": "Textverbesserung verwendet jetzt den OpenWhispr-Cloud-Dienst.",
-          "title": "Zu OpenWhispr Cloud gewechselt"
+          "description": "Textverbesserung verwendet jetzt den Loqui-Cloud-Dienst.",
+          "title": "Zu Loqui Cloud gewechselt"
         },
         "switchedCustom": {
           "description": "Konfigurieren Sie Ihren eigenen Anbieter und API-Schlüssel.",
@@ -2155,7 +2155,7 @@
       "appearance": {
         "auto": "Auto",
         "dark": "Dunkel",
-        "description": "Steuern Sie das Erscheinungsbild von OpenWhispr",
+        "description": "Steuern Sie das Erscheinungsbild von Loqui",
         "light": "Hell",
         "theme": "Design",
         "themeDescription": "Wählen Sie zwischen Hell, Dunkel oder Systemstandard",
@@ -2183,8 +2183,8 @@
         "linuxPttSetupDescription": "Ihr Benutzer benötigt Zugriff auf die Tastatureingabegeräte.",
         "linuxPttSetupNote": "Melden Sie sich nach dem Ausführen des Befehls ab und wieder an.",
         "hyprlandConfigWriteWarningTitle": "Hyprland-Tastenkombinationen werden nicht dauerhaft gespeichert",
-        "hyprlandConfigWriteWarningDescription": "OpenWhispr kann nicht in {{path}} schreiben. Deshalb bleiben Tastenkombinationen nach einem Neuladen der Hyprland-Konfiguration nicht erhalten. Stellen Sie sicher, dass die Datei existiert und beschreibbar ist.",
-        "hyprlandUnbindDescription": "Unter Hyprland beansprucht OpenWhispr die ausgewählte Tastenkombination. Jede vorhandene Hyprland-Belegung mit derselben Tastenkombination wird aufgehoben, wenn OpenWhispr seine Tastenkombination registriert."
+        "hyprlandConfigWriteWarningDescription": "Loqui kann nicht in {{path}} schreiben. Deshalb bleiben Tastenkombinationen nach einem Neuladen der Hyprland-Konfiguration nicht erhalten. Stellen Sie sicher, dass die Datei existiert und beschreibbar ist.",
+        "hyprlandUnbindDescription": "Unter Hyprland beansprucht Loqui die ausgewählte Tastenkombination. Jede vorhandene Hyprland-Belegung mit derselben Tastenkombination wird aufgehoben, wenn Loqui seine Tastenkombination registriert."
       },
       "meetingHotkey": {
         "title": "Meeting-Modus-Hotkey",
@@ -2210,7 +2210,7 @@
       },
       "notifications": {
         "title": "Benachrichtigungen",
-        "description": "Legen Sie fest, welche Benachrichtigungen OpenWhispr anzeigen darf",
+        "description": "Legen Sie fest, welche Benachrichtigungen Loqui anzeigen darf",
         "disableAll": "Alle Benachrichtigungen deaktivieren",
         "disableAllDescription": "Alles stummschalten außer Fehlermeldungen",
         "meetingDetection": "Meeting-Erkennung",
@@ -2227,14 +2227,14 @@
       },
       "startup": {
         "launchAtLogin": "Beim Anmelden starten",
-        "launchAtLoginDescription": "OpenWhispr bei der Anmeldung im Hintergrund starten",
+        "launchAtLoginDescription": "Loqui bei der Anmeldung im Hintergrund starten",
         "title": "Autostart",
-        "description": "Steuern Sie das Verhalten von OpenWhispr beim Start",
+        "description": "Steuern Sie das Verhalten von Loqui beim Start",
         "startMinimized": "Minimiert starten",
         "startMinimizedDescription": "Starten, ohne das Einstellungsfenster anzuzeigen",
         "needsApproval": {
           "title": "Bestätigung in den Systemeinstellungen erforderlich",
-          "description": "macOS hat OpenWhispr als Anmeldeobjekt registriert, wartet aber darauf, dass du es unter Anmeldeobjekte erlaubst.",
+          "description": "macOS hat Loqui als Anmeldeobjekt registriert, wartet aber darauf, dass du es unter Anmeldeobjekte erlaubst.",
           "action": "Anmeldeobjekte öffnen"
         }
       },
@@ -2286,7 +2286,7 @@
           "group": {
             "step1Title": "Ihren Benutzer zur Gruppe input hinzufügen",
             "step2Title": "Abmelden und wieder anmelden",
-            "step2Desc": "Gruppenänderungen werden erst nach einer neuen Sitzung wirksam. Melden Sie sich ab, wieder an und öffnen Sie OpenWhispr erneut."
+            "step2Desc": "Gruppenänderungen werden erst nach einer neuen Sitzung wirksam. Melden Sie sich ab, wieder an und öffnen Sie Loqui erneut."
           },
           "service": {
             "step1Title": "Dienstverzeichnis erstellen",
@@ -2310,7 +2310,7 @@
           "manualTitle": "Fügen Sie dies zu Ihrer Konfiguration hinzu",
           "manualDesc": "Selbst konfigurieren, dann neu bauen.",
           "flakeTitle": "Installation über unser flake?",
-          "flakeDesc": "Wenn Sie OpenWhispr über das flake installieren, aktiviert programs.openwhispr.enable automatisch ydotool, das uinput-Modul und die erforderlichen Gruppenmitgliedschaften.",
+          "flakeDesc": "Wenn Sie Loqui über das flake installieren, aktiviert programs.openwhispr.enable automatisch ydotool, das uinput-Modul und die erforderlichen Gruppenmitgliedschaften.",
           "rebuildNote": "Führen Sie sudo nixos-rebuild switch aus, dann ab- und wieder anmelden, damit die Gruppenänderung und die /dev/uinput-Regel wirksam werden. Ersetzen Sie <you> durch Ihren Benutzernamen."
         }
       },
@@ -2345,7 +2345,7 @@
           },
           "installUpdate": {
             "confirmText": "Installieren & neu starten",
-            "description": "OpenWhispr startet neu, um das Update anzuwenden.",
+            "description": "Loqui startet neu, um das Update anzuwenden.",
             "title": "Update installieren"
           },
           "noUpdates": {
@@ -2377,13 +2377,13 @@
     "permissions": {
       "accessibilityDescription": "Erforderlich, damit automatisches Einfügen nach der Transkription funktioniert",
       "accessibilityTitle": "Bedienungshilfen",
-      "description": "Systemberechtigungen testen und verwalten, die OpenWhispr für den ordnungsgemäßen Betrieb benötigt",
+      "description": "Systemberechtigungen testen und verwalten, die Loqui für den ordnungsgemäßen Betrieb benötigt",
       "microphoneDescription": "Nimmt Ihre Stimme für Diktat und Transkription auf",
       "microphoneTitle": "Mikrofon",
       "resetAccessibility": {
-        "description": "Dadurch wird OpenWhispr aus den Bedienungshilfen-Berechtigungen entfernt. Sie müssen den Zugriff unter Systemeinstellungen > Datenschutz & Sicherheit > Bedienungshilfen erneut gewähren.",
+        "description": "Dadurch wird Loqui aus den Bedienungshilfen-Berechtigungen entfernt. Sie müssen den Zugriff unter Systemeinstellungen > Datenschutz & Sicherheit > Bedienungshilfen erneut gewähren.",
         "label": "Bedienungshilfen-Berechtigungen zurücksetzen",
-        "rowDescription": "Probleme nach Neuinstallation oder Neuerstellung der App beheben, indem OpenWhispr in den Systemeinstellungen entfernt und erneut hinzugefügt wird",
+        "rowDescription": "Probleme nach Neuinstallation oder Neuerstellung der App beheben, indem Loqui in den Systemeinstellungen entfernt und erneut hinzugefügt wird",
         "title": "Bedienungshilfen-Berechtigungen zurücksetzen"
       },
       "optional": "Optional",
@@ -2412,7 +2412,7 @@
       "leaderboardRequiresAccount": "Melden Sie sich an, um Ihre Teilnahme an Bestenlisten zu verwalten.",
       "leaderboardRequiresHistory": "Aktivieren Sie die Datenaufbewahrung, bevor Sie Bestenlisten beitreten.",
       "usageAnalytics": "Nutzungsanalysen",
-      "usageAnalyticsDescription": "Helfen Sie uns, OpenWhispr zu verbessern, indem Sie anonyme Leistungsdaten teilen. Wir senden niemals Transkriptionsinhalte – nur Timing- und Fehlerdaten.",
+      "usageAnalyticsDescription": "Helfen Sie uns, Loqui zu verbessern, indem Sie anonyme Leistungsdaten teilen. Wir senden niemals Transkriptionsinhalte – nur Timing- und Fehlerdaten.",
       "audioRetention": "Audio-Aufbewahrung",
       "audioRetentionDescription": "Diktat-Audio lokal für erneute Transkription und Download speichern. Dateien werden nach Ablauf der Aufbewahrungsfrist automatisch gelöscht. Meeting-Audio wird niemals gespeichert.",
       "audioRetentionDisabled": "Deaktiviert",
@@ -2468,9 +2468,9 @@
     "transcription": {
       "customSetup": "Benutzerdefinierte Einrichtung",
       "customSetupDescription": "Verwenden Sie Ihren eigenen Anbieter und API-Schlüssel.",
-      "description": "Wählen Sie, wie OpenWhispr Ihre Stimme transkribiert",
+      "description": "Wählen Sie, wie Loqui Ihre Stimme transkribiert",
       "modes": {
-        "openwhispr": "OpenWhispr Cloud",
+        "openwhispr": "Loqui Cloud",
         "providers": "Cloud-Anbieter",
         "local": "Lokal",
         "selfHosted": "Selbst gehostet",
@@ -2481,13 +2481,13 @@
         "enterprise": "Unternehmens-Cloud",
         "enterpriseDesc": "Audio wird an die eigene Cloud Ihrer Organisation gesendet."
       },
-      "openwhisprCloud": "OpenWhispr Cloud",
+      "openwhisprCloud": "Loqui Cloud",
       "openwhisprCloudDescription": "Zuverlässige Ergebnisse. Keine Einrichtung nötig.",
       "title": "Sprache-zu-Text",
       "toasts": {
         "switchedCloud": {
-          "description": "Transkription verwendet jetzt den OpenWhispr-Cloud-Dienst.",
-          "title": "Zu OpenWhispr Cloud gewechselt"
+          "description": "Transkription verwendet jetzt den Loqui-Cloud-Dienst.",
+          "title": "Zu Loqui Cloud gewechselt"
         },
         "switchedCustom": {
           "description": "Konfigurieren Sie Ihren eigenen Anbieter und API-Schlüssel.",
@@ -2828,7 +2828,7 @@
       "emptyStrip_one": "{{count}} Teammitglied ist der Bestenliste noch nicht beigetreten. Die Rangliste startet danach.",
       "emptyStrip_other": "{{count}} Teammitglieder sind der Bestenliste noch nicht beigetreten. Die Rangliste startet danach.",
       "copyNudge": "Erinnerung kopieren",
-      "nudgeText": "Treten Sie unter OpenWhispr → Insights der Bestenliste bei, damit wir die Team-Bestenliste sehen können.",
+      "nudgeText": "Treten Sie unter Loqui → Insights der Bestenliste bei, damit wir die Team-Bestenliste sehen können.",
       "nudgeCopied": "Erinnerung kopiert",
       "nudgeCopyError": "Erinnerung konnte nicht kopiert werden",
       "joinTitle": "Sehen Sie, wo Sie bei {{scope}} stehen",
@@ -2864,7 +2864,7 @@
         "desktop_words": "Desktop-Wörter",
         "mobile_words": "Mobil-Wörter"
       },
-      "shareText": "Sehen Sie, welchen Rang ich bei OpenWhispr habe.",
+      "shareText": "Sehen Sie, welchen Rang ich bei Loqui habe.",
       "shareTitle": "Bestenliste teilen",
       "shareDescription": "Kopiere oder lade diese Karte herunter oder kopiere sie, bevor du einen Beitrag öffnest.",
       "copyImage": "Bild kopieren",
@@ -2947,7 +2947,7 @@
     },
     "join": {
       "title": "Team beitreten",
-      "domainTitle": "Dein Team ist schon auf OpenWhispr",
+      "domainTitle": "Dein Team ist schon auf Loqui",
       "description": "In diesen Workspaces ist jemand aus deiner E-Mail-Domain.",
       "invitedDescription": "Du wurdest zu einem Workspace eingeladen.",
       "invitedBy": "Eingeladen von {{inviter}} als {{role}}",
@@ -3066,7 +3066,7 @@
     },
     "tryAgain": "Erneut versuchen",
     "card": {
-      "brand": "OpenWhispr",
+      "brand": "Loqui",
       "signalId": "Signal ID",
       "audioSignature": "Deine Audio-Signatur",
       "stop": "Stopp",
@@ -3212,7 +3212,7 @@
     },
     "structureIntro": {
       "title": "Wo Ihre Notizen gespeichert sind",
-      "description": "OpenWhispr trennt private Gedanken von gemeinsamer Arbeit, damit nur die richtigen Personen Ihre Notizen sehen.",
+      "description": "Loqui trennt private Gedanken von gemeinsamer Arbeit, damit nur die richtigen Personen Ihre Notizen sehen.",
       "personal": {
         "title": "Persönlicher Bereich",
         "description": "Nur Sie können die Ordner und Notizen hier sehen."
@@ -3326,7 +3326,7 @@
       "newFolder": "Neuer Ordner",
       "folderName": "Ordnername",
       "create": "Erstellen",
-      "openwhisprCloud": "OpenWhispr Cloud",
+      "openwhisprCloud": "Loqui Cloud",
       "custom": "Benutzerdefiniert",
       "selectFolder": "Ordner auswählen",
       "transcriptionFailed": "Transkription fehlgeschlagen",
@@ -3336,17 +3336,17 @@
       "noProviderDescription": "Fügen Sie einen API-Schlüssel hinzu oder laden Sie ein lokales Modell herunter, um mit der Transkription zu beginnen.",
       "noProviderAction": "Transkriptionseinstellungen öffnen",
       "fileTooLarge": "Diese Datei überschreitet das Limit von 500 MB.",
-      "paidPlanRequired": "Cloud-Transkription für Dateien über 25 MB erfordert einen kostenpflichtigen Plan. Große Dateien werden mit OpenWhispr Cloud für zuverlässige, hochwertige Ergebnisse verarbeitet.",
+      "paidPlanRequired": "Cloud-Transkription für Dateien über 25 MB erfordert einen kostenpflichtigen Plan. Große Dateien werden mit Loqui Cloud für zuverlässige, hochwertige Ergebnisse verarbeitet.",
       "largeFileNote": "Große Dateien werden aufgeteilt und parallel transkribiert.",
       "chunkProgress": "Transkribiere Teil {{completed}} von {{total}}...",
       "byokTooLarge": "API-Schlüssel von Drittanbietern unterstützen nur Dateien bis {{size}} MB.",
-      "byokTooLargeDetail": "Für Dateien über {{size}} MB übernimmt OpenWhispr Cloud das Aufteilen, die parallele Verarbeitung und das Zusammenführen — so erhältst du zuverlässige Ergebnisse ohne die Einschränkungen von Drittanbietern.",
-      "byokTooLargeNeedsAccount": "Erstelle ein Konto und wechsle zu einem kostenpflichtigen Plan, um größere Dateien mit OpenWhispr Cloud zu transkribieren.",
-      "byokTooLargeNeedsUpgrade": "Wechsle zu einem kostenpflichtigen Plan, um größere Dateien mit OpenWhispr Cloud zu transkribieren.",
-      "switchToCloudForLargeFiles": "Wechsle zu OpenWhispr Cloud, um diese Datei zu transkribieren.",
+      "byokTooLargeDetail": "Für Dateien über {{size}} MB übernimmt Loqui Cloud das Aufteilen, die parallele Verarbeitung und das Zusammenführen — so erhältst du zuverlässige Ergebnisse ohne die Einschränkungen von Drittanbietern.",
+      "byokTooLargeNeedsAccount": "Erstelle ein Konto und wechsle zu einem kostenpflichtigen Plan, um größere Dateien mit Loqui Cloud zu transkribieren.",
+      "byokTooLargeNeedsUpgrade": "Wechsle zu einem kostenpflichtigen Plan, um größere Dateien mit Loqui Cloud zu transkribieren.",
+      "switchToCloudForLargeFiles": "Wechsle zu Loqui Cloud, um diese Datei zu transkribieren.",
       "createAccount": "Konto erstellen",
       "upgrade": "Upgraden",
-      "switchToCloud": "OpenWhispr Cloud",
+      "switchToCloud": "Loqui Cloud",
       "orDivider": "oder",
       "urlPlaceholder": "YouTube- oder Audio-URL einfügen",
       "urlDownloading": "Audio wird heruntergeladen...",
@@ -3403,7 +3403,7 @@
       },
       "systemAudioStopped": {
         "title": "Meeting-Ton gestoppt",
-        "description": "OpenWhispr nimmt die anderen Teilnehmer nicht mehr auf. Beenden Sie die Aufnahme und starten Sie sie erneut, oder prüfen Sie Ihr Audioausgabegerät."
+        "description": "Loqui nimmt die anderen Teilnehmer nicht mehr auf. Beenden Sie die Aufnahme und starten Sie sie erneut, oder prüfen Sie Ihr Audioausgabegerät."
       },
       "systemAudioQuiet": {
         "title": "Meeting-Audio ist verstummt",
@@ -3595,7 +3595,7 @@
     "clearTitle": "Wörterbuch leeren?",
     "clearDescription": "Dadurch werden alle Wörter aus deinem benutzerdefinierten Wörterbuch entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
     "addWord": "Wort hinzufügen",
-    "addPlaceholder": "Wörter durch Kommas getrennt hinzufügen – OpenWhispr, Supabase, John Snow, ARR",
+    "addPlaceholder": "Wörter durch Kommas getrennt hinzufügen – Loqui, Supabase, John Snow, ARR",
     "removeWord": "{{word}} entfernen",
     "clearAll": "Alle löschen",
     "add": "Hinzufügen",
@@ -3627,7 +3627,7 @@
       "duplicate": "Ein Snippet mit diesem Auslöser existiert bereits",
       "emptyTitle": "Sag es nur",
       "emptyTitleAccent": "einmal",
-      "emptyDescription": "Sprich ein Auslösewort und OpenWhispr ersetzt es durch deinen gespeicherten Text – Links, Intros, Grußformeln, Prompts.",
+      "emptyDescription": "Sprich ein Auslösewort und Loqui ersetzt es durch deinen gespeicherten Text – Links, Intros, Grußformeln, Prompts.",
       "new": "Neues Snippet",
       "examples": {
         "linkedinTrigger": "Mein LinkedIn",
@@ -3654,7 +3654,7 @@
     "submitBug": "Fehler melden"
   },
   "postMigration": {
-    "title": "Willkommen zurück bei OpenWhispr",
+    "title": "Willkommen zurück bei Loqui",
     "description": "Deine Notizen und Einstellungen wurden aus der vorherigen Version übernommen. macOS behandelt das hier allerdings als neue App, daher müssen ein paar Berechtigungen erneut erteilt werden.",
     "done": "Fertig",
     "remindLater": "Später erinnern"
@@ -3677,8 +3677,8 @@
     "ready": "GPU-Beschleunigung bereit",
     "activating": "GPU wird aktiviert...",
     "activationFailed": "GPU-Beschleunigung nicht verfügbar",
-    "activationFailedDescription": "OpenWhispr verwendet die CPU-Transkription.",
-    "reasoningActivationFailedDescription": "OpenWhispr verwendet die CPU-Verarbeitung.",
+    "activationFailedDescription": "Loqui verwendet die CPU-Transkription.",
+    "reasoningActivationFailedDescription": "Loqui verwendet die CPU-Verarbeitung.",
     "retryActivation": "GPU-Beschleunigung erneut versuchen",
     "remove": "Entfernen",
     "dismiss": "Nicht jetzt",
@@ -3698,11 +3698,11 @@
       "undo": "Rückgängig",
       "accessibilityMissing": {
         "title": "Bedienungshilfen-Berechtigungen erforderlich",
-        "description": "OpenWhispr benötigt Bedienungshilfen-Berechtigungen, um Ihren Hotkey zu erkennen und Text einzufügen. Bitte aktivieren Sie diese in der Systemsteuerung."
+        "description": "Loqui benötigt Bedienungshilfen-Berechtigungen, um Ihren Hotkey zu erkennen und Text einzufügen. Bitte aktivieren Sie diese in der Systemsteuerung."
       },
       "gpuFallback": {
         "title": "GPU-Beschleunigung nicht verfügbar",
-        "description": "OpenWhispr verwendet die CPU-Transkription.",
+        "description": "Loqui verwendet die CPU-Transkription.",
         "retry": "GPU erneut versuchen"
       },
       "gpuPackMigration": {
@@ -3747,11 +3747,11 @@
       "visionModelDescription": "Leitet Befehle mit Screenshot an ein anderes Modell mit Bildverständnis weiter.",
       "permissionTitle": "Bildschirmaufnahme",
       "permissionDescription": "macOS benötigt die Berechtigung zur Bildschirmaufnahme, um Ihren Bildschirm zu erfassen.",
-      "relaunchHint": "Die Bildschirmaufnahme wurde erteilt, während OpenWhispr lief. Beenden und öffnen Sie OpenWhispr erneut, um Screenshots aufzunehmen."
+      "relaunchHint": "Die Bildschirmaufnahme wurde erteilt, während Loqui lief. Beenden und öffnen Sie Loqui erneut, um Screenshots aufzunehmen."
     },
     "modes": {
-      "openwhispr": "OpenWhispr Cloud",
-      "openwhisprDesc": "Den von OpenWhispr verwalteten Assistenten nutzen, kein API-Schlüssel nötig.",
+      "openwhispr": "Loqui Cloud",
+      "openwhisprDesc": "Den von Loqui verwalteten Assistenten nutzen, kein API-Schlüssel nötig.",
       "providers": "Eigenen Schlüssel nutzen",
       "providersDesc": "Mit Ihrem eigenen API-Schlüssel an OpenAI, Anthropic, Gemini oder Groq anbinden.",
       "local": "Lokal",
@@ -3772,7 +3772,7 @@
       "systemPromptDescription": "Benutzerdefinierte Anweisungen für den Assistenten",
       "systemPromptPlaceholder": "Benutzerdefinierten System-Prompt eingeben...",
       "modes": {
-        "openwhispr": "OpenWhispr Cloud",
+        "openwhispr": "Loqui Cloud",
         "providers": "Cloud-Anbieter",
         "local": "Lokal",
         "selfHosted": "Selbst gehostet",
@@ -3865,7 +3865,7 @@
       "disconnectConfirm": "{{email}} trennen?",
       "disconnectDescription": "Besprechungsnotizen werden von diesem Kalender nicht mehr aufgezeichnet.",
       "systemAudioRequired": "Systemaudio-Berechtigung erforderlich",
-      "systemAudioDescription": "Zum Transkribieren von Meetings benötigt OpenWhispr die Systemaudio-Berechtigung, um den Ton anderer Teilnehmer aufzunehmen. Wir nehmen Ihren Bildschirm nie auf. Sie werden zu den Systemeinstellungen weitergeleitet, um diese zu aktivieren.",
+      "systemAudioDescription": "Zum Transkribieren von Meetings benötigt Loqui die Systemaudio-Berechtigung, um den Ton anderer Teilnehmer aufzunehmen. Wir nehmen Ihren Bildschirm nie auf. Sie werden zu den Systemeinstellungen weitergeleitet, um diese zu aktivieren.",
       "openSettings": "Systemeinstellungen öffnen",
       "connectFailed": "Verbindung fehlgeschlagen",
       "connectFailedDescription": "Beim Verbinden mit Google Calendar ist ein Fehler aufgetreten. Bitte versuche es erneut."
@@ -3895,10 +3895,10 @@
       "disconnectConfirm": "Apple Kalender trennen?",
       "disconnectDescription": "Besprechungsnotizen werden von deinem Apple Kalender nicht mehr aufgezeichnet.",
       "permissionDenied": "Kalenderzugriff erforderlich",
-      "permissionDeniedDescription": "OpenWhispr benötigt Kalenderzugriff, um Besprechungen zu erkennen. Aktiviere OpenWhispr in den Systemeinstellungen unter Datenschutz & Sicherheit → Kalender.",
+      "permissionDeniedDescription": "Loqui benötigt Kalenderzugriff, um Besprechungen zu erkennen. Aktiviere Loqui in den Systemeinstellungen unter Datenschutz & Sicherheit → Kalender.",
       "openSettings": "Systemeinstellungen öffnen",
       "connectFailed": "Verbindung fehlgeschlagen",
-      "connectFailedDescription": "Beim Verbinden mit Calendar.app ist ein Fehler aufgetreten. Starte OpenWhispr neu und versuche es erneut."
+      "connectFailedDescription": "Beim Verbinden mit Calendar.app ist ein Fehler aufgetreten. Starte Loqui neu und versuche es erneut."
     },
     "sections": {
       "calendar": "Kalender",
@@ -3917,13 +3917,13 @@
     "mcp": {
       "title": "Bring deine Notizen in deine KI-Tools",
       "description": "Chatte, suche und arbeite mit deinen Notizen in Claude, ChatGPT und Cursor.",
-      "step1": "Füge OpenWhispr MCP in deinem KI-Tool mit der öffentlichen URL hinzu",
+      "step1": "Füge Loqui MCP in deinem KI-Tool mit der öffentlichen URL hinzu",
       "step2": "Erstelle oben einen API-Schlüssel mit den benötigten Berechtigungen.",
       "step3": "Füge den Schlüssel als Authorization-Header ein, um zu verbinden.",
       "learnMore": "Mehr erfahren",
       "viewPlans": "Pläne ansehen",
       "copyUrl": "MCP-URL kopieren",
-      "proRequired": "Upgrade auf einen kostenpflichtigen Plan, um OpenWhispr mit Claude, ChatGPT und Cursor zu verbinden.",
+      "proRequired": "Upgrade auf einen kostenpflichtigen Plan, um Loqui mit Claude, ChatGPT und Cursor zu verbinden.",
       "copied": "Kopiert"
     },
     "cli": {
@@ -3937,7 +3937,7 @@
       "local": {
         "label": "Lokal",
         "freeBadge": "Kostenlos",
-        "description": "Greife direkt auf deine lokalen Notizen zu. Kein Login oder API-Key — funktioniert, solange OpenWhispr läuft."
+        "description": "Greife direkt auf deine lokalen Notizen zu. Kein Login oder API-Key — funktioniert, solange Loqui läuft."
       },
       "cloud": {
         "label": "Cloud",
@@ -3957,8 +3957,8 @@
       "upgrade": "Upgrade"
     },
     "notABot": {
-      "title": "OpenWhispr ist ein Meeting-Rekorder, kein Bot",
-      "description": "OpenWhispr erfasst Audio direkt von deinem System — es nimmt niemals als Teilnehmer an deinen Meetings teil. Verbinde einfach deinen Kalender und mach Notizen wie gewohnt."
+      "title": "Loqui ist ein Meeting-Rekorder, kein Bot",
+      "description": "Loqui erfasst Audio direkt von deinem System — es nimmt niemals als Teilnehmer an deinen Meetings teil. Verbinde einfach deinen Kalender und mach Notizen wie gewohnt."
     }
   },
   "notesView": {
@@ -4008,7 +4008,7 @@
         "invitationActions": "Einladungsaktionen",
         "resendSent": "Einladung gesendet",
         "resendThrottled": "Einladung wurde kürzlich gesendet. Versuche es in einer Minute erneut.",
-        "syncPrompt": "Beim Teilen wird eine Kopie dieser Notiz in deiner OpenWhispr-Cloud gespeichert. Nur du kannst sie sehen, bis du auswählst, mit wem du sie teilst.",
+        "syncPrompt": "Beim Teilen wird eine Kopie dieser Notiz in deiner Loqui-Cloud gespeichert. Nur du kannst sie sehen, bis du auswählst, mit wem du sie teilst.",
         "syncAndShare": "Notiz synchronisieren",
         "visibility": {
           "label": "Sichtbarkeit",
@@ -4070,7 +4070,7 @@
   },
   "permissionsGate": {
     "title": "Berechtigungen erforderlich",
-    "description": "OpenWhispr benötigt einige Berechtigungen, um auf diesem Computer zu funktionieren.",
+    "description": "Loqui benötigt einige Berechtigungen, um auf diesem Computer zu funktionieren.",
     "continue": "Weiter"
   },
   "embeddedChat": {
@@ -4132,5 +4132,72 @@
     },
     "start": "Notizen aufnehmen",
     "join": "Beitreten & transkribieren"
+  },
+  "codexConnection": {
+    "title": "ChatGPT subscription (Codex)",
+    "description": "Connect your ChatGPT subscription for text processing. Audio transcription uses your selected speech provider. Supports installed Codex CLI 0.154.x and 0.155.x.",
+    "connected": "Verbunden: {{account}}",
+    "remaining": "{{percent}} % im am stärksten genutzten Zeitfenster verbleibend",
+    "disconnect": "Trennen",
+    "waiting": "Schließe die Anmeldung in deinem Browser ab.",
+    "cancel": "Anmeldung abbrechen",
+    "connect": "ChatGPT verbinden",
+    "refresh": "Aktualisieren",
+    "loginFailed": "Die Anmeldung konnte nicht abgeschlossen werden."
+  },
+  "personal": {
+    "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",
+    "finishSetup": "Finish setup",
+    "deleteFolder": "Delete folder?",
+    "providerFileTooLarge": "Choose a local model or a provider that accepts larger files.",
+    "keyConfigured": "Key saved securely",
+    "removeKey": "Remove key",
+    "refreshModels": "Refresh models",
+    "moreActions": "More actions",
+    "privacyDescription": "Your history, notes and recordings are stored on this device. Direct providers receive only requests you choose to send.",
+    "supportDownloadFailed": "The model download failed. Please retry.",
+    "downloading": "Downloading…",
+    "supportModels": {
+      "meeting": "Local speaker identification",
+      "meetingDescription": "Download the models used to distinguish speakers in meetings.",
+      "search": "Local semantic search",
+      "searchDescription": "Download the embedding model to search notes by meaning."
+    },
+    "directAwsCredentials": "A named AWS CLI profile takes precedence. Leave the profile empty to use saved access keys, or leave both empty to use the AWS default credential chain.",
+    "noCompatibleProvider": "No compatible provider is available for this task.",
+    "recordingUnavailable": "Recording is unavailable. Check your audio and model settings.",
+    "providerSearch": "Allow provider web search",
+    "providerSearchDescription": "Let this assistant use the selected provider’s built-in web search. Search queries leave this device and may incur provider charges.",
+    "subscriptionSetupTitle": "Connect your ChatGPT subscription (optional)",
+    "subscriptionSetupHelp": "Connecting is optional. To use your subscription, choose Codex (ChatGPT) under Cloud Providers for each text task below. Your speech model stays independent; local models and API keys are also available."
+  },
+  "localModels": {
+    "importedProvider": "Imported GGUF",
+    "importGguf": "Import GGUF",
+    "testLoad": "Test loading",
+    "importHint": "Copy a single GGUF text model into this app and check that it loads. Your original file stays in place.",
+    "importing": "Copying model…",
+    "testing": "Testing model compatibility and memory…",
+    "ready": "Model loaded successfully.",
+    "loadFailed": "The model could not be loaded.",
+    "importFailed": "The model could not be imported.",
+    "status": {
+      "untested": "Needs load test",
+      "ready": "Ready",
+      "failed": "Load failed"
+    }
+  },
+  "updates": {
+    "title": "Loqui updates",
+    "automatic": "Download updates automatically",
+    "description": "After setup, Loqui checks its GitHub releases about once a day and downloads updates. You choose when to restart. Turn this off for fully offline use.",
+    "channel": "Release channel",
+    "stable": "Stable",
+    "beta": "Beta and stable",
+    "downloading": "Downloading update: {{percent}}%",
+    "ready": "Loqui {{version}} is ready. Finish active work before restarting.",
+    "download": "Download from GitHub",
+    "check": "Check for Updates",
+    "restart": "Restart to Update"
   }
 }

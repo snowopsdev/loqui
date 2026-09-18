@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "./ui/button";
+import { applyImportedModels, type ModelDefinition } from "../models/ModelRegistry";
+import { LOCAL_MODELS_CHANGED_EVENT } from "../hooks/useModelDownload";
 import { ProviderTabs } from "./ui/ProviderTabs";
 import { DownloadProgressBar } from "./ui/DownloadProgressBar";
 import { ConfirmDialog } from "./ui/dialog";
@@ -20,6 +23,9 @@ export interface LocalModel {
   isDownloaded?: boolean;
   downloaded?: boolean;
   recommended?: boolean;
+  imported?: boolean;
+  loadStatus?: "untested" | "ready" | "failed";
+  loadError?: string;
 }
 
 export interface LocalProvider {
@@ -54,10 +60,29 @@ export default function LocalModelPicker({
   const { t } = useTranslation();
   const [downloadedModels, setDownloadedModels] = useState<Set<string>>(new Set());
   const loadDownloadedModelsRequestRef = useRef(0);
+  const [inventoryLoaded, setInventoryLoaded] = useState(false);
+  const [importedModels, setImportedModels] = useState<LocalModel[]>([]);
+  const [modelOperation, setModelOperation] = useState<string | null>(null);
+  const [operationMessage, setOperationMessage] = useState<string | null>(null);
+  const effectiveProviders = useMemo(
+    () =>
+      modelType === "llm"
+        ? [
+            ...providers.filter((provider) => provider.id !== "imported"),
+            {
+              id: "imported",
+              name: t("localModels.importedProvider"),
+              models: importedModels,
+            },
+          ]
+        : providers,
+    [providers, modelType, importedModels, t]
+  );
 
   const knownModelIds = useMemo(
-    () => new Set(providers.flatMap((provider) => provider.models.map((model) => model.id))),
-    [providers]
+    () =>
+      new Set(effectiveProviders.flatMap((provider) => provider.models.map((model) => model.id))),
+    [effectiveProviders]
   );
 
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
@@ -89,6 +114,11 @@ export default function LocalModelPicker({
       } else {
         const result = await window.electronAPI?.modelGetAll?.();
         if (result && Array.isArray(result)) {
+          if (requestId === loadDownloadedModelsRequestRef.current) {
+            const imports = result.filter((model) => model.imported) as ModelDefinition[];
+            setImportedModels(imports);
+            applyImportedModels(imports);
+          }
           downloaded = new Set(
             result
               .filter((m: { isDownloaded?: boolean }) => m.isDownloaded)
@@ -98,6 +128,7 @@ export default function LocalModelPicker({
       }
       if (requestId === loadDownloadedModelsRequestRef.current) {
         setDownloadedModels(downloaded);
+        setInventoryLoaded(true);
         return downloaded;
       }
       return null;
@@ -108,21 +139,82 @@ export default function LocalModelPicker({
   }, [modelType]);
 
   useEffect(() => {
-    const initAndValidate = async () => {
-      const downloaded = await loadDownloadedModels();
-      // Only clear ids this picker owns — a foreign id (e.g. a cloud model)
-      // must survive untouched.
-      if (
-        downloaded &&
-        selectedModel &&
-        knownModelIds.has(selectedModel) &&
-        !downloaded.has(selectedModel)
-      ) {
-        onModelSelect("");
-      }
+    void loadDownloadedModels();
+    const reload = () => {
+      void loadDownloadedModels();
     };
-    initAndValidate();
-  }, [loadDownloadedModels, selectedModel, onModelSelect, knownModelIds]);
+    window.addEventListener(LOCAL_MODELS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(LOCAL_MODELS_CHANGED_EVENT, reload);
+  }, [loadDownloadedModels]);
+
+  useEffect(() => {
+    if (
+      inventoryLoaded &&
+      selectedModel &&
+      knownModelIds.has(selectedModel) &&
+      !downloadedModels.has(selectedModel)
+    ) {
+      onModelSelect("");
+    }
+  }, [inventoryLoaded, selectedModel, knownModelIds, downloadedModels, onModelSelect]);
+
+  const testModel = useCallback(
+    async (modelId: string, selectWhenReady = false) => {
+      setModelOperation("testing");
+      setOperationMessage(null);
+      try {
+        const result = await window.electronAPI.modelTestLoad(modelId);
+        if (result.success) {
+          setOperationMessage(t("localModels.ready"));
+          if (selectWhenReady) {
+            onProviderSelect("imported");
+            onModelSelect(modelId);
+          }
+        } else if (!result.canceled) {
+          setOperationMessage(result.error || t("localModels.loadFailed"));
+        }
+      } catch (error) {
+        setOperationMessage(error instanceof Error ? error.message : t("localModels.loadFailed"));
+      } finally {
+        setModelOperation(null);
+        await loadDownloadedModels();
+        window.dispatchEvent(new Event(LOCAL_MODELS_CHANGED_EVENT));
+      }
+    },
+    [loadDownloadedModels, onModelSelect, onProviderSelect, t]
+  );
+
+  const importModel = useCallback(async () => {
+    setModelOperation("importing");
+    setOperationMessage(null);
+    try {
+      const result = await window.electronAPI.modelImportGguf();
+      if (result.success && result.modelId) {
+        await loadDownloadedModels();
+        onProviderSelect("imported");
+        await testModel(result.modelId, true);
+      } else if (!result.canceled) {
+        setOperationMessage(result.error || t("localModels.importFailed"));
+      }
+    } catch (error) {
+      setOperationMessage(error instanceof Error ? error.message : t("localModels.importFailed"));
+    } finally {
+      setModelOperation(null);
+    }
+  }, [loadDownloadedModels, onProviderSelect, testModel, t]);
+
+  const selectModel = useCallback(
+    (modelId: string) => {
+      if (modelOperation) return;
+      const imported = importedModels.find((model) => model.id === modelId);
+      if (imported && imported.loadStatus !== "ready") {
+        void testModel(modelId, true);
+        return;
+      }
+      onModelSelect(modelId);
+    },
+    [importedModels, onModelSelect, testModel, modelOperation]
+  );
 
   const handleDownloadComplete = useCallback(async () => {
     await loadDownloadedModels();
@@ -142,7 +234,10 @@ export default function LocalModelPicker({
     onModelsCleared: loadDownloadedModels,
   });
 
-  const allModels = useMemo(() => providers.flatMap((provider) => provider.models), [providers]);
+  const allModels = useMemo(
+    () => effectiveProviders.flatMap((provider) => provider.models),
+    [effectiveProviders]
+  );
   const selectionStateRef = useRef({ selectedModel, downloadedModels, knownModelIds });
 
   useEffect(() => {
@@ -172,6 +267,7 @@ export default function LocalModelPicker({
 
   const handleDelete = useCallback(
     (modelId: string) => {
+      if (modelOperation) return;
       showConfirmDialog({
         title: t("transcription.deleteModel.title"),
         description: t("transcription.deleteModel.description"),
@@ -179,22 +275,67 @@ export default function LocalModelPicker({
         variant: "destructive",
       });
     },
-    [showConfirmDialog, deleteModel, loadDownloadedModels, t]
+    [showConfirmDialog, deleteModel, loadDownloadedModels, t, modelOperation]
   );
 
-  const currentProvider = providers.find((p) => p.id === selectedProvider);
+  const currentProvider = effectiveProviders.find((p) => p.id === selectedProvider);
   const models = useMemo(() => currentProvider?.models || [], [currentProvider?.models]);
   const activeModels = allModels.filter((model) => downloads[model.id]);
 
   return (
     <div className={className}>
       <ProviderTabs
-        providers={providers}
+        providers={effectiveProviders}
         selectedId={selectedProvider}
         onSelect={onProviderSelect}
         colorScheme={colorScheme}
         wrap
       />
+
+      {modelType === "llm" && (
+        <div className="my-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void importModel()}
+              disabled={Boolean(modelOperation)}
+            >
+              {t("localModels.importGguf")}
+            </Button>
+            {selectedModel && downloadedModels.has(selectedModel) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void testModel(selectedModel)}
+                disabled={Boolean(modelOperation)}
+              >
+                {t("localModels.testLoad")}
+              </Button>
+            )}
+            {modelOperation && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void window.electronAPI.modelCancelLoadTest()}
+              >
+                {t("common.cancel")}
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">{t("localModels.importHint")}</p>
+          {modelOperation && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {t(modelOperation === "testing" ? "localModels.testing" : "localModels.importing")}
+            </p>
+          )}
+          {operationMessage && (
+            <p role="status" className="text-xs">
+              {operationMessage}
+            </p>
+          )}
+        </div>
+      )}
 
       {activeModels.length > 0 && (
         <div className="space-y-2">
@@ -223,7 +364,9 @@ export default function LocalModelPicker({
           models={models.map((model): ModelCardOption => ({
             value: model.id,
             label: model.name,
-            description: model.size,
+            description: model.imported
+              ? `${model.size} · ${t(`localModels.status.${model.loadStatus || "untested"}`)}`
+              : model.size,
             specUrl: model.specUrl,
             icon: getProviderIcon(selectedProvider),
             invertInDark: isMonochromeProvider(selectedProvider),
@@ -233,13 +376,21 @@ export default function LocalModelPicker({
             isCancelling: isCancellingModel(model.id),
           }))}
           selectedModel={selectedModel}
-          onModelSelect={onModelSelect}
+          onModelSelect={selectModel}
           onDownload={handleDownload}
           onDelete={handleDelete}
           onCancelDownload={cancelDownload}
           colorScheme={colorScheme}
         />
       </div>
+
+      {models
+        .filter((model) => model.loadError)
+        .map((model) => (
+          <p key={model.id} role="status" className="mt-2 text-xs text-destructive">
+            {model.name}: {model.loadError}
+          </p>
+        ))}
 
       <ConfirmDialog
         open={confirmDialog.open}

@@ -1,40 +1,30 @@
+import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { supportsProviderSearch } from "../../utils/providerSearch";
+import { SettingsRow } from "../ui/SettingsSection";
 import { useCallback } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
-import { Cloud, Key, Cpu, Network, Building2, ShieldCheck, AlertTriangle } from "../icons";
+import { useShallow } from "zustand/react/shallow";
+import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import {
-  LLM_ENTERPRISE_POLICY_PROVIDER_IDS,
-  LLM_POLICY_PROVIDER_IDS,
-  useSettingsStore,
-  selectPolicyEffectiveSettings,
   selectResolvedLLMConfig,
   setResolvedLLMConfig,
+  useSettingsStore,
   type ResolvedLLMConfig,
 } from "../../stores/settingsStore";
-import { usePolicyModeOptions, usePolicySnapshot } from "../../hooks/usePolicy";
-import { InferenceModeSelector } from "../ui/SettingsSection";
-import type { InferenceModeOption } from "../ui/SettingsSection";
+import { Cpu, Key, Network } from "../icons";
 import ReasoningModelSelector from "../ReasoningModelSelector";
-import EnterpriseSection from "../EnterpriseSection";
-import OpenAICompatiblePanel from "../OpenAICompatiblePanel";
-import { Toggle } from "../ui/toggle";
-import type { InferenceMode } from "../../types/electron";
+import type { InferenceModeOption } from "../ui/SettingsSection";
+import { InferenceModeSelector } from "../ui/SettingsSection";
+
 import {
   INFERENCE_SCOPES,
   type InferenceScope,
   type InferenceScopeDefinition,
 } from "../../config/inferenceScopes";
-import {
-  isProviderValidForMode,
-  getCloudModel,
-  getLocalModel,
-  enterpriseProviderName,
-} from "../../models/ModelRegistry";
-import { useManagedScopeResolution } from "../../stores/enterpriseIdentityStore";
-import TestConnectionButton from "../TestConnectionButton";
-import { getEnterpriseCallSettings } from "../../services/ai/enterpriseSettings";
-import { Button } from "../ui/button";
-import { useStartOnboarding } from "../../hooks/useStartOnboarding";
+import { getCloudModel, getLocalModel, isProviderValidForMode } from "../../models/ModelRegistry";
+import type { InferenceMode } from "../../types/electron";
+import OpenAICompatiblePanel from "../OpenAICompatiblePanel";
+import { Toggle } from "../ui/toggle";
 
 const MODE_LABEL_PREFIX: Record<InferenceScope, string> = {
   dictationCleanup: "settingsPage.aiModels.modes",
@@ -58,11 +48,10 @@ export default function InferenceConfigEditor({
   allowedModes,
 }: InferenceConfigEditorProps) {
   const { t } = useTranslation();
-  const startOnboarding = useStartOnboarding();
-  const policyState = usePolicySnapshot();
+
   const config = useSettingsStore(
     useShallow((settings): ResolvedLLMConfig => {
-      const effective = selectPolicyEffectiveSettings(settings, policyState);
+      const effective = settings;
       const resolved = selectResolvedLLMConfig(effective, scope);
       const definition: InferenceScopeDefinition = INFERENCE_SCOPES[scope];
       // Inherited runtime defaults are not an explicit selection in an optional picker.
@@ -71,24 +60,11 @@ export default function InferenceConfigEditor({
         : resolved;
     })
   );
-  const isSignedIn = useSettingsStore((s) => s.isSignedIn);
-  const enterpriseSetupMode = useSettingsStore((s) => s.enterpriseSetupMode);
-  const setEnterpriseSetupMode = useSettingsStore((s) => s.setEnterpriseSetupMode);
-  const managed = useManagedScopeResolution(scope, enterpriseSetupMode);
-  const managedAvailable = useManagedScopeResolution(scope, "managed");
 
   const prefix = MODE_LABEL_PREFIX[scope];
-  const { modes, effectiveMode, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
+  const { modes, effectiveMode, isModeAllowed } = useInferenceModeOptions(
     (
       [
-        {
-          id: "openwhispr",
-          label: t(`${prefix}.openwhispr`),
-          description: t(`${prefix}.openwhisprDesc`),
-          icon: <Cloud className="w-4 h-4" />,
-          disabled: !isSignedIn,
-          badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
-        },
         {
           id: "providers",
           label: t(`${prefix}.providers`),
@@ -107,20 +83,9 @@ export default function InferenceConfigEditor({
           description: t(`${prefix}.selfHostedDesc`),
           icon: <Network className="w-4 h-4" />,
         },
-        {
-          id: "enterprise",
-          label: t(`${prefix}.enterprise`),
-          description: t(`${prefix}.enterpriseDesc`),
-          icon: <Building2 className="w-4 h-4" />,
-        },
       ] as InferenceModeOption[]
     ).filter((mode) => !allowedModes || allowedModes.includes(mode.id)),
-    "llm",
-    config.mode,
-    {
-      byokProviders: LLM_POLICY_PROVIDER_IDS,
-      enterpriseProviders: LLM_ENTERPRISE_POLICY_PROVIDER_IDS,
-    }
+    config.mode
   );
 
   const setField = useCallback(
@@ -134,15 +99,12 @@ export default function InferenceConfigEditor({
   const handleModeSelect = useCallback(
     (mode: InferenceMode) => {
       if (!isModeAllowed(mode)) return;
-      if (mode === "openwhispr" && !isSignedIn) {
-        startOnboarding();
-        return;
-      }
+
       if (mode === effectiveMode) return;
 
       const patch: Parameters<typeof setResolvedLLMConfig>[1] = {
         mode,
-        cloudMode: mode === "openwhispr" ? "openwhispr" : "byok",
+        cloudMode: "byok",
       };
       if (!isProviderValidForMode(config.provider, mode)) {
         patch.provider = "";
@@ -150,21 +112,13 @@ export default function InferenceConfigEditor({
       }
       setResolvedLLMConfig(scope, patch);
 
-      if (mode === "openwhispr" || mode === "self-hosted" || mode === "enterprise") {
+      if (mode === "self-hosted") {
         window.electronAPI?.llamaServerStop?.();
       }
 
       onModeChange?.(mode);
     },
-    [
-      scope,
-      config.provider,
-      effectiveMode,
-      isSignedIn,
-      onModeChange,
-      isModeAllowed,
-      startOnboarding,
-    ]
+    [scope, config.provider, effectiveMode, onModeChange, isModeAllowed]
   );
 
   const setMode = setField("mode");
@@ -173,6 +127,8 @@ export default function InferenceConfigEditor({
 
   const renderModelSelector = (mode?: "cloud" | "local") => (
     <ReasoningModelSelector
+      requireImages={scope === "dictationAgentVision"}
+      credentialRef={`custom:${scope}`}
       reasoningModel={config.model}
       setReasoningModel={setModel}
       localReasoningProvider={config.provider}
@@ -194,92 +150,8 @@ export default function InferenceConfigEditor({
         !!getCloudModel(config.model)?.supportsThinking)) ||
     (effectiveMode === "local" && !!getLocalModel(config.model)?.supportsThinking);
 
-  if (managed.kind === "error") {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3" role="alert">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-          <div>
-            <p className="text-sm font-medium">
-              {t("settingsPage.aiModels.managedEnterprise.errorTitle")}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {managed.messageKey ? t(managed.messageKey) : managed.message}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (managed.kind === "managed") {
-    return (
-      <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
-        <div className="flex items-start gap-2.5">
-          <div className="rounded-md bg-primary/10 p-1.5 text-primary">
-            <ShieldCheck className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">
-              {t("settingsPage.aiModels.managedEnterprise.title")}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {enterpriseProviderName(managed.provider)} ·{" "}
-              <span className="font-mono">{managed.model}</span>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("settingsPage.aiModels.managedEnterprise.description")}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
-          <TestConnectionButton
-            provider={managed.provider}
-            getConfig={() => ({
-              ...getEnterpriseCallSettings(managed.provider, scope),
-              model: managed.model,
-            })}
-          />
-          {managed.mode !== "managed_required" && managed.allowManualSetup && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setEnterpriseSetupMode("manual")}
-            >
-              {t("settingsPage.aiModels.managedEnterprise.usePersonalSetup")}
-            </Button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
-      {enterpriseSetupMode === "manual" && managedAvailable.kind === "managed" && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">
-              {t("settingsPage.aiModels.managedEnterprise.availableTitle")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {t("settingsPage.aiModels.managedEnterprise.availableDescription", {
-                provider: enterpriseProviderName(managedAvailable.provider),
-              })}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => setEnterpriseSetupMode("managed")}
-          >
-            {t("settingsPage.aiModels.managedEnterprise.useManaged")}
-          </Button>
-        </div>
-      )}
       {modes.length > 1 && (
         <InferenceModeSelector
           modes={modes}
@@ -293,6 +165,7 @@ export default function InferenceConfigEditor({
 
       {effectiveMode === "self-hosted" && (
         <OpenAICompatiblePanel
+          credentialRef={`custom:${scope}`}
           baseUrl={config.remoteUrl ?? ""}
           setBaseUrl={setField("remoteUrl")}
           apiKey={config.customApiKey ?? ""}
@@ -308,6 +181,10 @@ export default function InferenceConfigEditor({
         />
       )}
 
+      {supportsProviderSearch(scope, config.provider, config.mode) && (
+        <ProviderSearchPreference key={scope} scope={scope} />
+      )}
+
       {showThinkingToggle && (
         <div className="flex items-start justify-between gap-3 pt-1">
           <div className="flex-1 min-w-0">
@@ -319,15 +196,19 @@ export default function InferenceConfigEditor({
           <Toggle checked={config.disableThinking} onChange={setField("disableThinking")} />
         </div>
       )}
-
-      {effectiveMode === "enterprise" && (
-        <EnterpriseSection
-          currentProvider={config.provider}
-          reasoningModel={config.model}
-          setReasoningModel={setModel}
-          setLocalReasoningProvider={setProvider}
-        />
-      )}
     </div>
+  );
+}
+
+function ProviderSearchPreference({ scope }: { scope: string }) {
+  const { t } = useTranslation();
+  const [enabled, setEnabled] = useLocalStorage(`personalWebSearch:${scope}`, false);
+  return (
+    <SettingsRow
+      label={t("personal.providerSearch")}
+      description={t("personal.providerSearchDescription")}
+    >
+      <Toggle checked={enabled} onChange={setEnabled} />
+    </SettingsRow>
   );
 }

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import ApiKeyInput from "./ui/ApiKeyInput";
-import ModelCardList from "./ui/ModelCardList";
-import SearchableModelList, { MODEL_SEARCH_THRESHOLD } from "./ui/SearchableModelList";
 import { buildApiUrl, getModelListBaseCandidates, normalizeBaseUrl } from "../config/constants";
 import { isSecureHttpEndpoint } from "../utils/urlUtils";
+import ApiKeyInput from "./ui/ApiKeyInput";
+import { Button } from "./ui/button";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
+import { Input } from "./ui/input";
+import ModelCardList from "./ui/ModelCardList";
+import SearchableModelList, { MODEL_SEARCH_THRESHOLD } from "./ui/SearchableModelList";
 
 interface ModelOption {
   value: string;
@@ -17,6 +17,7 @@ interface ModelOption {
 }
 
 interface OpenAICompatiblePanelProps {
+  credentialRef?: string;
   baseUrl: string;
   setBaseUrl: (value: string) => void;
   apiKey: string;
@@ -34,6 +35,7 @@ interface OpenAICompatiblePanelProps {
 }
 
 export default function OpenAICompatiblePanel({
+  credentialRef = "custom:dictationCleanup",
   baseUrl,
   setBaseUrl,
   apiKey,
@@ -130,28 +132,16 @@ export default function OpenAICompatiblePanel({
           return;
         }
 
-        const headers: Record<string, string> = {};
-        if (effectiveKey) {
-          headers.Authorization = `Bearer ${effectiveKey}`;
-        }
-
         const fetchModelOptions = async (base: string): Promise<ModelOption[]> => {
-          const response = await fetch(buildApiUrl(base, "/models"), { method: "GET", headers });
-
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => "");
-            const summary = errorText
-              ? `${response.status} ${errorText.slice(0, 200)}`
-              : `${response.status} ${response.statusText}`;
-            throw new Error(summary.trim());
-          }
-
-          const payload = await response.json().catch(() => ({}));
-          const rawModels = Array.isArray(payload?.data)
-            ? payload.data
-            : Array.isArray(payload?.models)
-              ? payload.models
-              : [];
+          const payload = await window.electronAPI.personalInference.models({
+            provider: credentialRef === "openrouter" ? "openrouter" : "custom",
+            baseUrl: base,
+            credentialRef,
+            inferenceScope: credentialRef.startsWith("custom:")
+              ? credentialRef.slice(7)
+              : undefined,
+          });
+          const rawModels = Array.isArray(payload?.data) ? payload.data : [];
 
           // Coerce fields defensively: non-conformant endpoints may return
           // numeric ids or object descriptions, which would crash the render.
@@ -229,7 +219,7 @@ export default function OpenAICompatiblePanel({
         }
       }
     },
-    [baseUrl, apiKey, lockedBaseUrl, setBaseUrl, t]
+    [baseUrl, apiKey, credentialRef, lockedBaseUrl, setBaseUrl, t]
   );
 
   useEffect(() => {

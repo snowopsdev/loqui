@@ -1,38 +1,35 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type {
-  LlamaServerStatus,
-  LlamaVulkanStatus,
-  VulkanGpuResult,
-  LlamaVulkanDownloadProgress,
-  InferenceMode,
-} from "../types/electron";
-import { Button } from "./ui/button";
-import { CircleAlert, Cloud, Lock, Zap } from "./icons";
-import ApiKeyInput from "./ui/ApiKeyInput";
-import ModelCardList from "./ui/ModelCardList";
-import LocalModelPicker, { type LocalProvider } from "./LocalModelPicker";
-import { ProviderTabs, type ProviderTabItem } from "./ui/ProviderTabs";
-import OpenAICompatiblePanel from "./OpenAICompatiblePanel";
 import { API_ENDPOINTS } from "../config/constants";
+import { useTinfoilModels } from "../hooks/useTinfoilModels";
 import {
+  isProviderValidForMode,
+  modelRegistry,
   REASONING_PROVIDERS,
   toReasoningModel,
-  modelRegistry,
-  isProviderValidForMode,
 } from "../models/ModelRegistry";
-import { useTinfoilModels } from "../hooks/useTinfoilModels";
-import { getRemoteProviderIcon } from "../utils/providerIcons";
-import { GetApiKeyLink } from "./ui/GetApiKeyLink";
-import { getCachedPlatform } from "../utils/platform";
+import { providerSupports } from "../services/ai/inferenceProviders";
 import { useSettingsStore } from "../stores/settingsStore";
-import {
-  filterByokProviderOptionsByPolicy,
-  isModeAllowedByPolicy,
-  isProviderAllowedByPolicy,
-  reconcileProviderSelection,
-} from "../stores/policyRules";
-import { usePolicySnapshot } from "../hooks/usePolicy";
+import type {
+  InferenceMode,
+  LlamaServerStatus,
+  LlamaVulkanDownloadProgress,
+  LlamaVulkanStatus,
+  VulkanGpuResult,
+} from "../types/electron";
+import { getCachedPlatform } from "../utils/platform";
+import { getRemoteProviderIcon } from "../utils/providerIcons";
+import { reconcileProviderSelection } from "../utils/providerSelection";
+import CodexConnection from "./CodexConnection";
+import EnterpriseProviderConfig from "./EnterpriseProviderConfig";
+import { CircleAlert, Cloud, Lock, Zap } from "./icons";
+import LocalModelPicker, { type LocalProvider } from "./LocalModelPicker";
+import OpenAICompatiblePanel from "./OpenAICompatiblePanel";
+import ApiKeyInput from "./ui/ApiKeyInput";
+import { Button } from "./ui/button";
+import { GetApiKeyLink } from "./ui/GetApiKeyLink";
+import ModelCardList from "./ui/ModelCardList";
+import { ProviderTabs, type ProviderTabItem } from "./ui/ProviderTabs";
 
 type CloudModelOption = {
   value: string;
@@ -48,6 +45,10 @@ const OPENROUTER_TAB = "openrouter";
 const OPENROUTER_KEYS_URL = "https://openrouter.ai/keys";
 
 const CLOUD_PROVIDER_IDS = [
+  "codex",
+  "bedrock",
+  "azure",
+  "vertex",
   "openai",
   "anthropic",
   "gemini",
@@ -69,6 +70,8 @@ interface ReasoningModelSelectorProps {
   setCustomReasoningApiKey?: (key: string) => void;
   setReasoningMode?: (mode: InferenceMode) => void;
   mode?: "cloud" | "local";
+  credentialRef?: string;
+  requireImages?: boolean;
 }
 
 function GpuStatusBadge() {
@@ -343,6 +346,8 @@ export default function ReasoningModelSelector({
   setCustomReasoningApiKey,
   setReasoningMode: setReasoningModeProp,
   mode,
+  credentialRef = "custom:dictationCleanup",
+  requireImages = false,
 }: ReasoningModelSelectorProps) {
   const { t } = useTranslation();
   const openaiApiKey = useSettingsStore((s) => s.openaiApiKey);
@@ -362,28 +367,29 @@ export default function ReasoningModelSelector({
   const [selectedMode, setSelectedMode] = useState<"cloud" | "local">(mode || "cloud");
   const [selectedCloudProvider, setSelectedCloudProvider] = useState("openai");
   const [selectedLocalProvider, setSelectedLocalProvider] = useState("qwen");
-  const policyState = usePolicySnapshot();
-  const providerAllowed = useCallback(
-    (providerId: string) => isProviderAllowedByPolicy(policyState, "llm", providerId),
-    [policyState]
-  );
 
   const cloudProviderTabs = useMemo(
     () =>
-      filterByokProviderOptionsByPolicy(
-        CLOUD_PROVIDER_IDS.map((id): ProviderTabItem => ({
-          id,
-          name:
-            id === "custom"
-              ? t("reasoning.custom.providerName")
-              : id === OPENROUTER_TAB
-                ? "OpenRouter"
-                : REASONING_PROVIDERS[id as keyof typeof REASONING_PROVIDERS]?.name || id,
-        })),
-        "llm",
-        policyState
-      ),
-    [policyState, t]
+      CLOUD_PROVIDER_IDS.filter((id) =>
+        providerSupports(id, requireImages ? "images" : "textGeneration")
+      ).map((id): ProviderTabItem => ({
+        id,
+        name:
+          id === "bedrock"
+            ? "Amazon Bedrock"
+            : id === "azure"
+              ? "Azure OpenAI"
+              : id === "vertex"
+                ? "Google Vertex AI"
+                : id === "codex"
+                  ? "Codex (ChatGPT)"
+                  : id === "custom"
+                    ? t("reasoning.custom.providerName")
+                    : id === OPENROUTER_TAB
+                      ? "OpenRouter"
+                      : REASONING_PROVIDERS[id as keyof typeof REASONING_PROVIDERS]?.name || id,
+      })),
+    [t, requireImages]
   );
   const cloudProviders = cloudProviderTabs;
   const cloudProviderFallback = reconcileProviderSelection(selectedCloudProvider, cloudProviders);
@@ -394,12 +400,8 @@ export default function ReasoningModelSelector({
     error: tinfoilModelsError,
   } = useTinfoilModels(displayedCloudProvider === "tinfoil");
   const modeTabs = [
-    ...(isModeAllowedByPolicy(policyState, "llm", "providers") && cloudProviders.length > 0
-      ? [{ id: "cloud", name: t("reasoning.mode.cloud") }]
-      : []),
-    ...(isModeAllowedByPolicy(policyState, "llm", "local")
-      ? [{ id: "local", name: t("reasoning.mode.local") }]
-      : []),
+    ...(cloudProviders.length > 0 ? [{ id: "cloud", name: t("reasoning.mode.cloud") }] : []),
+    ...[{ id: "local", name: t("reasoning.mode.local") }],
   ];
   const effectiveMode =
     mode ??
@@ -489,8 +491,6 @@ export default function ReasoningModelSelector({
   };
 
   const handleModeChange = (newMode: "cloud" | "local") => {
-    const policyMode = newMode === "local" ? "local" : "providers";
-    if (!isModeAllowedByPolicy(policyState, "llm", policyMode)) return;
     if (newMode === "cloud" && cloudProviders.length === 0) return;
     setSelectedMode(newMode);
     const inferenceMode: InferenceMode = newMode === "local" ? "local" : "providers";
@@ -506,7 +506,6 @@ export default function ReasoningModelSelector({
   };
 
   const handleCloudProviderChange = (provider: string) => {
-    if (!providerAllowed(provider)) return;
     setSelectedCloudProvider(provider);
   };
 
@@ -539,7 +538,9 @@ export default function ReasoningModelSelector({
               </p>
             </>
           ) : (
-            <p className="text-xs text-muted-foreground text-center">{t("common.managedByOrg")}</p>
+            <p className="text-xs text-muted-foreground text-center">
+              {t("personal.noCompatibleProvider")}
+            </p>
           )}
         </div>
       )}
@@ -556,13 +557,27 @@ export default function ReasoningModelSelector({
             />
           )}
 
-          {providerAllowed(displayedCloudProvider) && (
+          {
             <div>
               {/* A model renders as selected only under its committed provider —
                 free-form custom/OpenRouter ids can collide with registry ids. */}
-              {displayedCloudProvider === OPENROUTER_TAB ? (
+              {["bedrock", "azure", "vertex"].includes(displayedCloudProvider) ? (
+                <EnterpriseProviderConfig
+                  provider={displayedCloudProvider as "bedrock" | "azure" | "vertex"}
+                  reasoningModel={
+                    localReasoningProvider === displayedCloudProvider ? reasoningModel : ""
+                  }
+                  setReasoningModel={handleModelSelect}
+                />
+              ) : displayedCloudProvider === "codex" ? (
+                <CodexModelPicker
+                  selectedModel={localReasoningProvider === "codex" ? reasoningModel : ""}
+                  onSelect={handleModelSelect}
+                />
+              ) : displayedCloudProvider === OPENROUTER_TAB ? (
                 <OpenAICompatiblePanel
                   key={OPENROUTER_TAB}
+                  credentialRef="openrouter"
                   baseUrl={API_ENDPOINTS.OPENROUTER_BASE}
                   setBaseUrl={() => {}}
                   apiKey={openrouterApiKey}
@@ -579,6 +594,7 @@ export default function ReasoningModelSelector({
               ) : displayedCloudProvider === "custom" ? (
                 <OpenAICompatiblePanel
                   key="custom"
+                  credentialRef={credentialRef}
                   baseUrl={cloudReasoningBaseUrl}
                   setBaseUrl={setCloudReasoningBaseUrl}
                   apiKey={customReasoningApiKey}
@@ -656,7 +672,7 @@ export default function ReasoningModelSelector({
                     <div className="space-y-2">
                       <div className="flex items-baseline justify-between">
                         <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                        <GetApiKeyLink url="https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr" />
+                        <GetApiKeyLink url="https://tinfoil.sh/inference" />
                       </div>
                       <ApiKeyInput
                         apiKey={tinfoilApiKey}
@@ -672,7 +688,7 @@ export default function ReasoningModelSelector({
                       <p className="text-xs text-muted-foreground">{t("reasoning.corti.euOnly")}</p>
                       <div className="flex items-baseline justify-between">
                         <h4 className="font-medium text-foreground">{t("common.apiKey")}</h4>
-                        <GetApiKeyLink url="https://www.corti.ai/?utm_source=referral&utm_campaign=openwhispr" />
+                        <GetApiKeyLink url="https://www.corti.ai/" />
                       </div>
                       <ApiKeyInput
                         apiKey={cortiApiKey}
@@ -712,7 +728,7 @@ export default function ReasoningModelSelector({
                 </>
               )}
             </div>
-          )}
+          }
         </div>
       )}
 
@@ -730,6 +746,56 @@ export default function ReasoningModelSelector({
           <GpuStatusBadge />
         </>
       )}
+    </div>
+  );
+}
+
+function CodexModelPicker({
+  selectedModel,
+  onSelect,
+}: {
+  selectedModel: string;
+  onSelect: (model: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [models, setModels] = useState<Array<{ value: string; label: string }>>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await window.electronAPI.personalInference.codexModels();
+      setModels(
+        result.data.map((model) => ({
+          value: model.model,
+          label: model.displayName || model.model,
+        }))
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void refresh();
+    return window.electronAPI.personalInference.onTextEvent((event) => {
+      if (event.type === "account") void refresh();
+    });
+  }, [refresh]);
+  return (
+    <div className="space-y-3">
+      <CodexConnection />
+      <Button variant="outline" size="sm" disabled={loading} onClick={() => void refresh()}>
+        {t("personal.refreshModels")}
+      </Button>
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      <ModelCardList models={models} selectedModel={selectedModel} onModelSelect={onSelect} />
     </div>
   );
 }

@@ -25,21 +25,12 @@ async function loadAudioManager(t, opts) {
 }
 
 // Captures the prompt field each transcription request actually sent.
-function capturePrompts(t) {
-  const originalFetch = globalThis.fetch;
+function capturePrompts() {
   const prompts = [];
-  globalThis.fetch = async (endpoint, init) => {
-    prompts.push(init.body.get("prompt"));
-    return {
-      ok: true,
-      status: 200,
-      headers: { get: () => "application/json" },
-      text: async () => JSON.stringify({ text: "transcribed text" }),
-    };
+  globalThis.window.electronAPI.transcribeAudioFileByok = async (payload) => {
+    prompts.push(payload.prompt);
+    return { success: true, text: "transcribed text" };
   };
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
   return prompts;
 }
 

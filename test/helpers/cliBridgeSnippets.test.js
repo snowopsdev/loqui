@@ -58,6 +58,7 @@ function createBridge(t) {
   }
 
   broadcasts.length = 0;
+  t.after(() => db.db.close());
   const bridge = new CliBridge({ databaseManager: db });
   return { bridge, db, broadcasts };
 }

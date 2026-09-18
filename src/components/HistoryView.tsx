@@ -1,20 +1,18 @@
 import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { cn } from "./lib/utils";
 import { useUiLocale } from "../hooks/useUiLocale";
-import { Button } from "./ui/button";
-import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
-import { Loader2, Sparkles, X, Mic, Trash2, Archive } from "./icons";
-import TranscriptionItem from "./ui/TranscriptionItem";
-import EmptyStateCard from "./ui/EmptyStateCard";
-import type { TranscriptionItem as TranscriptionItemType } from "../types/electron";
-import { formatHotkeyLabel, parseHotkeyList } from "../utils/hotkeys";
-import { formatDateGroup } from "../utils/dateFormatting";
 import { useUpcomingEvents } from "../hooks/useUpcomingEvents";
-import UpcomingMeetings from "./UpcomingMeetings";
 import { useSettingsStore } from "../stores/settingsStore";
-import { effectiveLocalHistoryEnabled } from "../stores/policyRules";
-import { usePolicyStore } from "../stores/policyStore";
+import type { TranscriptionItem as TranscriptionItemType } from "../types/electron";
+import { formatDateGroup } from "../utils/dateFormatting";
+import { formatHotkeyLabel, parseHotkeyList } from "../utils/hotkeys";
+import { Archive, Loader2, Mic, Sparkles, Trash2, X } from "./icons";
+import { cn } from "./lib/utils";
+import { Button } from "./ui/button";
+import EmptyStateCard from "./ui/EmptyStateCard";
+import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
+import TranscriptionItem from "./ui/TranscriptionItem";
+import UpcomingMeetings from "./UpcomingMeetings";
 
 const EMPTY_PREVIEW_WIDTHS = ["w-full", "w-4/5", "w-3/5"];
 
@@ -56,9 +54,7 @@ export default function HistoryView({
   const { t } = useTranslation();
   const locale = useUiLocale();
   const personalDataRetentionEnabled = useSettingsStore((s) => s.dataRetentionEnabled);
-  const dataRetentionEnabled = usePolicyStore((policyState) =>
-    effectiveLocalHistoryEnabled(policyState, personalDataRetentionEnabled)
-  );
+  const dataRetentionEnabled = personalDataRetentionEnabled;
   const { events, isLoading: eventsLoading, isConnected } = useUpcomingEvents();
 
   const groupedHistory = useMemo(() => {

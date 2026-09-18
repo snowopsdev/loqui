@@ -1,4 +1,4 @@
-const { ipcMain, app, shell, BrowserWindow, systemPreferences, net, session } = require("electron");
+const { ipcMain, app, shell, BrowserWindow, systemPreferences, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -12,24 +12,8 @@ const { broadcastToWindows } = require("./windowBroadcast");
 const { openExternalUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
-const tokenStore = require("./tokenStore");
-const accountScopeBinding = require("./accountScopeBinding");
-const { createCloudApiRequestHandler } = require("./cloudApiRequest");
-const { decodeLeaderboardPngDataUrl, leaderboardImageFilename } = require("./leaderboardImage");
-const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
-const {
-  createWorkspacePolicyManager,
-  isScreenContextBlocked,
-} = require("./workspacePolicyManager");
-const { createEnterpriseIdentityManager } = require("./enterpriseIdentityManager");
-const { createCloudConfigRequestHandler } = require("./cloudConfigRequest");
 const { extractAnthropicText, describeMissingAnthropicText } = require("./anthropicResponse");
-const {
-  createPolicyResponseError,
-  readPolicyResponseError,
-  toPolicyFailure,
-} = require("./policyResponseError");
-const { classifyAndLog } = require("./networkErrors");
+const { toPolicyFailure } = require("./policyResponseError");
 const { resolveSystemDefaultMicrophone } = require("./systemDefaultMicrophone");
 // The renderer's ModelRegistry is not main-loadable; the raw registry data is
 // packaged, and the route resolver only needs {id, baseUrl} per provider.
@@ -47,27 +31,6 @@ const serializeIpcError =
       return { error: error.message, code: error.code, messageKey: error.messageKey };
     }
   };
-
-// Analytics uploads cross two asynchronous boundaries: renderer -> main and
-// main -> cloud. Pin every local queue operation to the same authenticated
-// account generation so a delayed pass cannot adopt a replacement session.
-function assertAnalyticsSyncContext(context) {
-  if (context == null) return null;
-  const state = tokenStore.getState();
-  if (
-    typeof context !== "object" ||
-    typeof context.accountId !== "string" ||
-    context.accountId.length === 0 ||
-    !Number.isInteger(context.authGeneration) ||
-    !state.token ||
-    state.generation !== context.authGeneration
-  ) {
-    throw Object.assign(new Error("Authentication context changed during analytics sync"), {
-      code: "AUTH_CONTEXT_CHANGED",
-    });
-  }
-  return context.accountId;
-}
 // Which diarization dialect a resolved endpoint speaks, for Custom endpoints
 // that front a known provider. Null when the host offers no known dialect.
 const diarizationHost = (endpoint) => {
@@ -81,7 +44,6 @@ const diarizationHost = (endpoint) => {
 const { resolveLocalServerNeeds } = require("./localServerPolicy");
 const autoStart = require("./autoStart");
 const { getRelaunchOptions, getRelaunchWaiter } = require("./autoStartPolicy");
-const HyprlandShortcutManager = require("./hyprlandShortcut");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
 const { i18nMain, changeLanguage } = require("./i18nMain");
 const DeepgramStreaming = require("./deepgramStreaming");
@@ -137,7 +99,6 @@ const {
 } = require("./speakerAssignmentPolicy");
 const { normalizeStoredSpeakerCount } = require("./speakerCount");
 const { downsample24kTo16k, pcm16ToWav } = require("../utils/audioUtils");
-const postMigrationDetector = require("./postMigrationDetector");
 const screenContextCapture = require("./screenContextCapture");
 const {
   DEFAULT_EXPECTED_SPEAKER_COUNT,
@@ -182,75 +143,9 @@ const AUTO_LEARN_DEBOUNCE_MS = 1500;
 const byokSizeCapError = (sizeCapBytes) =>
   `File too large. Maximum size for bring-your-own-key is ${Math.floor(sizeCapBytes / (1024 * 1024))} MB.`;
 
-const CLOUD_INLINE_LIMIT = 4 * 1024 * 1024;
-// The enterprise "Test Connection" probe only needs one word back, but the
-// Azure Responses API rejects max_output_tokens below 16.
 const CONNECTION_TEST_MAX_OUTPUT_TOKENS = 16;
-const CLOUD_CHUNK_SEGMENT_SECONDS = 240;
-
-const { createAbortError } = require("./abortError");
 const { testProviderConnection } = require("./providerConnectionTest");
 const { createUploadCancelRegistry } = require("./uploadCancelRegistry");
-const { applyOpenWhisprOriginHeader } = require("./sessionHeaders");
-const {
-  CLOUD_UPLOAD_TIMEOUT_MS,
-  CLOUD_CHUNK_MAX_ATTEMPTS,
-  CLOUD_CHUNK_GLOBAL_CONCURRENCY,
-  CLOUD_CHUNK_MAX_TEARDOWN_REFUNDS,
-  CLOUD_CHUNK_MAX_LOSS_RATIO,
-  SILENT_CHUNK,
-  FATAL_CHUNK_CODES,
-  isTransientChunkError,
-  isNetworkLevelFailure,
-  isConnectionPoisoningFailure,
-  isTeardownCollateral,
-  summarizeChunkResults,
-  assembleChunkTranscript,
-  chunkRetryDelayMs,
-  abortableSleep,
-  createTeardownGate,
-  createUploadSlots,
-  withoutChunkAnalytics,
-} = require("./cloudChunkPolicy");
-
-// Chunk retries need their own connection pool: recovering a wedged chunk pool
-// must not abort an unrelated inline upload that has no collateral retry path.
-const CLOUD_CHUNK_UPLOAD_SESSION_PARTITION = "ow-cloud-chunk-uploads";
-const CLOUD_INLINE_UPLOAD_SESSION_PARTITION = "ow-cloud-uploads";
-const cloudUploadSlots = createUploadSlots(CLOUD_CHUNK_GLOBAL_CONCURRENCY);
-const shouldDropUploadPool = createTeardownGate();
-const cloudUploadSessions = new Map();
-
-function getCloudUploadSession(partition) {
-  if (!cloudUploadSessions.has(partition)) {
-    const uploadSession = session.fromPartition(partition);
-    applyOpenWhisprOriginHeader(uploadSession);
-    cloudUploadSessions.set(partition, uploadSession);
-  }
-  return cloudUploadSessions.get(partition);
-}
-
-function getChunkCloudUploadSession() {
-  return getCloudUploadSession(CLOUD_CHUNK_UPLOAD_SESSION_PARTITION);
-}
-
-function getInlineCloudUploadSession() {
-  return getCloudUploadSession(CLOUD_INLINE_UPLOAD_SESSION_PARTITION);
-}
-
-// Counts initiated pool drops so a chunk can tell whether its failure was
-// collateral from a teardown that happened while its body was on the wire.
-let uploadPoolTeardowns = 0;
-
-async function dropUploadConnections(force = false) {
-  if (!shouldDropUploadPool(force)) return;
-  uploadPoolTeardowns++;
-  try {
-    await getChunkCloudUploadSession().closeAllConnections();
-  } catch {
-    // pool teardown is best-effort
-  }
-}
 
 const {
   formatTimestamp: formatDiarTime,
@@ -315,11 +210,12 @@ function buildMultipartBody(fileBuffer, fileName, contentType, fields = {}) {
   parts.push("\r\n");
 
   for (const [name, value] of Object.entries(fields)) {
-    if (value != null) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item == null) continue;
       parts.push(
         `--${boundary}\r\n` +
           `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
-          `${value}\r\n`
+          `${item}\r\n`
       );
     }
   }
@@ -359,230 +255,6 @@ async function postMultipart(
   }
 }
 
-function interpretTranscribeResponse(data) {
-  if (data.statusCode === 401) {
-    throw Object.assign(new Error("Session expired"), { code: "AUTH_EXPIRED" });
-  }
-  if (data.statusCode === 503) {
-    throw Object.assign(new Error("Request timed out"), { code: "SERVER_ERROR" });
-  }
-  if (data.statusCode === 429) {
-    throw Object.assign(new Error("Daily word limit reached"), {
-      code: "LIMIT_REACHED",
-      ...data.data,
-    });
-  }
-  if (data.statusCode === 422 && data.data?.code === "NO_SPEECH_DETECTED") {
-    throw Object.assign(new Error(data.data.error || "No speech detected in audio"), {
-      code: "NO_SPEECH_DETECTED",
-    });
-  }
-  if (data.statusCode !== 200) {
-    throw createPolicyResponseError(data.statusCode, data.data, `API error: ${data.statusCode}`);
-  }
-  return data.data;
-}
-
-async function chunkedCloudTranscribe({
-  buffer = null,
-  filePath = null,
-  apiUrl,
-  policyHeaders,
-  multipartFields = {},
-  onProgress,
-  signal,
-  segmentDuration = CLOUD_CHUNK_SEGMENT_SECONDS,
-}) {
-  const { splitAudioFile } = require("./ffmpegUtils");
-
-  // Aborted by the caller cancelling or by the first fatal chunk error, so a
-  // doomed job stops uploading its remaining chunks immediately.
-  const jobController = new AbortController();
-  const { signal: jobSignal } = jobController;
-  const abortJob = () => jobController.abort();
-  signal?.addEventListener("abort", abortJob, { once: true });
-  if (signal?.aborted) abortJob();
-
-  const jobId = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-  const chunkDir = path.join(os.tmpdir(), `ow-chunks-${jobId}`);
-  let tmpInputPath = null;
-
-  let inputPath = filePath;
-  if (!inputPath && buffer) {
-    tmpInputPath = path.join(os.tmpdir(), `ow-audio-${jobId}.webm`);
-    fs.writeFileSync(tmpInputPath, buffer);
-    inputPath = tmpInputPath;
-  }
-
-  fs.mkdirSync(chunkDir, { recursive: true });
-
-  try {
-    onProgress?.({ stage: "splitting", chunksTotal: 0, chunksCompleted: 0 });
-
-    const { chunkPaths, durationSeconds } = await splitAudioFile(inputPath, chunkDir, {
-      segmentDuration,
-      signal: jobSignal,
-    });
-    const totalChunks = chunkPaths.length;
-
-    onProgress?.({ stage: "transcribing", chunksTotal: totalChunks, chunksCompleted: 0 });
-
-    const url = new URL(`${apiUrl}/api/transcribe`);
-    const results = new Array(totalChunks).fill(null);
-    let fatalError = null;
-    let completedCount = 0;
-
-    const transcribeChunk = async (index) => {
-      let attempt = 1;
-      let teardownRefunds = CLOUD_CHUNK_MAX_TEARDOWN_REFUNDS;
-      while (true) {
-        if (jobSignal.aborted) throw createAbortError();
-
-        // Held only while a body is on the wire, so the backoff below never
-        // occupies a slot and queue time never eats the upload timeout.
-        const releaseSlot = await cloudUploadSlots.acquire(jobSignal);
-        const timeoutSignal = AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS);
-        const teardownsAtStart = uploadPoolTeardowns;
-        let failure = null;
-        let timedOut = false;
-        let collateral = false;
-        try {
-          try {
-            const { body, boundary } = buildMultipartBody(
-              fs.readFileSync(chunkPaths[index]),
-              path.basename(chunkPaths[index]),
-              "audio/mpeg",
-              withoutChunkAnalytics(multipartFields)
-            );
-            const data = await postMultipart(url, body, boundary, policyHeaders, {
-              signal: AbortSignal.any([jobSignal, timeoutSignal]),
-              session: getChunkCloudUploadSession(),
-            });
-            results[index] = interpretTranscribeResponse(data);
-          } catch (err) {
-            failure = err;
-            timedOut = timeoutSignal.aborted;
-            collateral = isTeardownCollateral(err, {
-              timedOut,
-              teardownsDuringAttempt: uploadPoolTeardowns - teardownsAtStart,
-            });
-            // Drop the pool while still holding the slot — released first, a
-            // queued sibling is admitted onto the pool microseconds before
-            // closeAllConnections() kills it and burns an attempt it never
-            // owned. A fatal TLS/protocol alert proves the pool is poisoned,
-            // so that drop is forced through the cooldown gate.
-            if (!jobSignal.aborted && !collateral) {
-              const poisoned = isConnectionPoisoningFailure(err);
-              if (poisoned || isNetworkLevelFailure(err, { timedOut })) {
-                await dropUploadConnections(poisoned);
-              }
-            }
-          }
-        } finally {
-          releaseSlot();
-        }
-        if (!failure) break;
-
-        if (failure.code === "NO_SPEECH_DETECTED") {
-          results[index] = SILENT_CHUNK;
-          break;
-        }
-
-        if (jobSignal.aborted) throw createAbortError();
-        if (collateral && teardownRefunds > 0) {
-          teardownRefunds--;
-          debugLogger.warn(`Chunk ${index} attempt ${attempt} killed by pool teardown, refunded`, {
-            error: failure.message,
-          });
-          await abortableSleep(chunkRetryDelayMs(1), jobSignal);
-          continue;
-        }
-        if (attempt >= CLOUD_CHUNK_MAX_ATTEMPTS || !(timedOut || isTransientChunkError(failure))) {
-          throw failure;
-        }
-        debugLogger.warn(`Chunk ${index} attempt ${attempt} failed, retrying`, {
-          error: failure.message,
-          timedOut,
-        });
-        await abortableSleep(chunkRetryDelayMs(attempt), jobSignal);
-        attempt++;
-      }
-
-      completedCount++;
-      onProgress?.({
-        stage: "transcribing",
-        chunksTotal: totalChunks,
-        chunksCompleted: completedCount,
-      });
-    };
-
-    await Promise.all(
-      chunkPaths.map((_, index) =>
-        transcribeChunk(index).catch((err) => {
-          // Only aborts the job itself caused, reported once below. A chunk's
-          // own upload timeout also aborts, and that is a real failure.
-          if (jobSignal.aborted && err.name === "AbortError") return;
-          if (FATAL_CHUNK_CODES.has(err.code)) {
-            fatalError ??= err;
-            abortJob();
-            return;
-          }
-          debugLogger.warn(`Chunk ${index} failed`, { error: err.message, code: err.code });
-        })
-      )
-    );
-
-    if (signal?.aborted) {
-      throw Object.assign(createAbortError("Upload cancelled"), { code: "UPLOAD_CANCELLED" });
-    }
-    if (fatalError) throw fatalError;
-
-    const { responses, failedChunks: failed, silentChunks } = summarizeChunkResults(results);
-    if (responses.length === 0) {
-      if (silentChunks === totalChunks) {
-        throw Object.assign(new Error("No speech detected in audio"), {
-          code: "NO_SPEECH_DETECTED",
-        });
-      }
-      throw new Error("All chunks failed to transcribe");
-    }
-
-    if (failed / totalChunks > CLOUD_CHUNK_MAX_LOSS_RATIO) {
-      throw Object.assign(new Error(`${failed} of ${totalChunks} audio segments were lost`), {
-        code: "CHUNK_LOSS_EXCEEDED",
-      });
-    }
-
-    const text = assembleChunkTranscript(results, segmentDuration, durationSeconds);
-    return {
-      text,
-      responses,
-      lastResponse: responses[responses.length - 1],
-      ...(failed > 0
-        ? {
-            warning: `${failed} of ${totalChunks} chunks failed`,
-            failedChunks: failed,
-            totalChunks,
-          }
-        : {}),
-    };
-  } finally {
-    signal?.removeEventListener("abort", abortJob);
-    if (tmpInputPath) {
-      try {
-        fs.unlinkSync(tmpInputPath);
-      } catch {
-        // ignore
-      }
-    }
-    try {
-      fs.rmSync(chunkDir, { recursive: true, force: true });
-    } catch (cleanupErr) {
-      debugLogger.warn("Failed to cleanup chunk dir", { error: cleanupErr.message });
-    }
-  }
-}
-
 // Cleanup toast wording for replies the main-process providers reject; mirror
 // TRUNCATED_/EMPTY_OUTPUT_MESSAGE_KEY in services/ai/chatRequestBody.ts (#2091).
 const CLEANUP_TRUNCATED_MESSAGE_KEY = "hooks.audioRecording.errorDescriptions.cleanupTruncated";
@@ -597,7 +269,6 @@ class IPCHandlers {
     this.parakeetManager = managers.parakeetManager;
     this.diarizationManager = managers.diarizationManager;
     this.windowManager = managers.windowManager;
-    this.updateManager = managers.updateManager;
     this.windowsKeyManager = managers.windowsKeyManager;
     this.linuxKeyManager = managers.linuxKeyManager;
     this.textEditMonitor = managers.textEditMonitor;
@@ -614,16 +285,13 @@ class IPCHandlers {
     this.windowsLoopbackAudioManager = managers.windowsLoopbackAudioManager;
     this.meetingAecManager = managers.meetingAecManager;
     this.getQdrantManager = managers.getQdrantManager;
-    this.oauthProtocolRegistered = managers.oauthProtocolRegistered === true;
-    this.oauthProtocol = managers.oauthProtocol || "openwhispr";
+    this.oauthProtocol = "loqui-snowopsdev";
     this.sessionId = crypto.randomUUID();
     // requestId -> AbortControllers for in-flight audio-upload work (cloud
     // upload, or local transcription + diarization sharing one id), so a
     // cancel can abort the exact job.
     this._uploadCancelRegistry = createUploadCancelRegistry();
     this._agentStreamRequests = new AgentStreamRequestRegistry();
-    this._cloudReasonRequests = new AgentStreamRequestRegistry();
-    this._cloudTranscriptionRequests = new AgentStreamRequestRegistry();
     this._enterpriseReasoningRequests = new AgentStreamRequestRegistry();
     // webContents id -> its release listener, for renderers holding the mic open.
     this._micHoldSenders = new Map();
@@ -667,20 +335,6 @@ class IPCHandlers {
     // Warm the OS default mic answer before the first hotkey press (~2s on Windows).
     resolveSystemDefaultMicrophone();
     this.setupHandlers();
-    // Lives for the app's lifetime; IPCHandlers has no teardown path.
-    tokenStore.subscribe(({ generation, token }) => {
-      this.enterpriseIdentityManager?.clear();
-      if (!token) {
-        this.databaseManager.setActiveAccountId(null);
-        accountScopeBinding.clear();
-        broadcastToWindows("active-account-scope-changed", null);
-      }
-      broadcastToWindows("auth-token-state-changed", {
-        generation,
-        hasToken: Boolean(token),
-      });
-    });
-
     if (this.whisperManager?.serverManager) {
       // Remember the failed backend so it isn't re-attempted (and its model
       // reload re-paid) on every launch; cleared by retry, re-download, delete.
@@ -714,7 +368,7 @@ class IPCHandlers {
 
   /** Whether a signed-in account is bound to this install. */
   _hasActiveAccountScope() {
-    return Boolean(accountScopeBinding.read());
+    return false;
   }
 
   // The switch alone is not enough to start: a managed workspace can force local
@@ -1424,6 +1078,29 @@ class IPCHandlers {
     });
 
     ipcMain.handle("test-provider-connection", async (_event, config) => {
+      config = { ...config };
+      const customSlots = {
+        dictationCleanup: "getCleanupCustomKey",
+        noteFormatting: "getNoteFormattingCustomKey",
+        dictationTranslation: "getTranslationCustomKey",
+        dictationAgent: "getDictationAgentCustomKey",
+        dictationAgentVision: "getDictationAgentVisionCustomKey",
+        chatIntelligence: "getChatAgentCustomKey",
+      };
+      const customScope = config.credentialRef?.startsWith("custom:")
+        ? config.credentialRef.slice(7)
+        : config.inferenceScope;
+      const getter =
+        config.provider === "custom"
+          ? config.scope === "transcription"
+            ? "getCustomTranscriptionKey"
+            : customSlots[customScope || "dictationCleanup"]
+          : BYOK_API_KEYS.find((k) => k.base === config.provider)?.get;
+      config.apiKey = getter ? this.environmentManager[getter]() : "";
+      if (config.clientId === "__stored__")
+        config.clientId = this.environmentManager.getCortiClientId();
+      if (config.clientSecret === "__stored__")
+        config.clientSecret = this.environmentManager.getCortiClientSecret();
       if (config?.provider === "corti" && config?.scope === "transcription") {
         try {
           const clientId = String(config.clientId || "").trim();
@@ -1564,8 +1241,12 @@ class IPCHandlers {
     });
 
     for (const k of BYOK_API_KEYS) {
-      ipcMain.handle(`get-${k.base}-key`, () => this.environmentManager[k.get]());
-      ipcMain.handle(`save-${k.base}-key`, (event, key) => this.environmentManager[k.save](key));
+      ipcMain.handle(`get-${k.base}-key`, () =>
+        this.environmentManager[k.get]() ? "__stored__" : ""
+      );
+      ipcMain.handle(`save-${k.base}-key`, (event, key) =>
+        key === "__stored__" ? true : this.environmentManager[k.save](key)
+      );
     }
 
     ipcMain.handle("db-save-transcription", async (event, text, rawText, options) => {
@@ -1601,68 +1282,6 @@ class IPCHandlers {
       await this._ensureAnalyticsHistoryBackfilled();
       return this.databaseManager.getAnalyticsSummary();
     });
-
-    ipcMain.handle("analytics-get-pending", async (_event, limit, context) => {
-      const accountId = assertAnalyticsSyncContext(context);
-      await this._ensureAnalyticsHistoryBackfilled();
-      return this.databaseManager.getPendingAnalyticsEvents(limit, accountId);
-    });
-
-    ipcMain.handle("analytics-mark-synced", async (_event, eventIds, context) => {
-      const accountId = assertAnalyticsSyncContext(context);
-      return this.databaseManager.markAnalyticsEventsSynced(eventIds, accountId);
-    });
-
-    ipcMain.handle("analytics-get-pending-deletes", async (_event, limit, context) => {
-      const accountId = assertAnalyticsSyncContext(context);
-      return this.databaseManager.getPendingAnalyticsDeletes(limit, accountId);
-    });
-
-    ipcMain.handle("analytics-hard-delete", async (_event, eventIds, context) => {
-      const accountId = assertAnalyticsSyncContext(context);
-      return this.databaseManager.hardDeleteAnalyticsEvents(eventIds, accountId);
-    });
-
-    ipcMain.handle("analytics-get-pending-clear", async (_event, context) => {
-      const accountId = assertAnalyticsSyncContext(context);
-      return this.databaseManager.getPendingAnalyticsClear(accountId);
-    });
-
-    ipcMain.handle("analytics-complete-clear", async (_event, clearedThrough, context) => {
-      const accountId = assertAnalyticsSyncContext(context);
-      return this.databaseManager.completeAnalyticsClear(clearedThrough, accountId);
-    });
-
-    ipcMain.handle("analytics-count-unclaimed", async (_event, context) => {
-      assertAnalyticsSyncContext(context);
-      await this._ensureAnalyticsHistoryBackfilled();
-      return this.databaseManager.countUnclaimedAnalyticsEvents();
-    });
-
-    ipcMain.handle("analytics-count-awaiting-upload", async (_event, context) => {
-      const accountId = assertAnalyticsSyncContext(context);
-      await this._ensureAnalyticsHistoryBackfilled();
-      return this.databaseManager.countAnalyticsEventsAwaitingUpload(accountId);
-    });
-
-    ipcMain.handle(
-      "analytics-claim-anonymous",
-      async (_event, accountId, expectedAuthGeneration) => {
-        const state = tokenStore.getState();
-        if (!state.token || state.generation !== expectedAuthGeneration) {
-          return { success: false, claimed: 0, code: "AUTH_CONTEXT_CHANGED" };
-        }
-        const result = this.databaseManager.claimAnonymousAnalyticsEvents(accountId);
-        // Claimed rows are only pushed by the Insights view's reload, and the
-        // claim itself changes nothing it renders, so tell it to reload.
-        if (result?.claimed > 0) {
-          setImmediate(() => {
-            broadcastToWindows("analytics-changed");
-          });
-        }
-        return result;
-      }
-    );
 
     ipcMain.handle("db-clear-transcriptions", async (event) => {
       this.audioStorageManager.deleteAllAudio();
@@ -1896,32 +1515,8 @@ class IPCHandlers {
       return this.databaseManager.applyDictionaryChanges({ add, remove });
     });
 
-    ipcMain.handle("db-get-pending-dictionary", async () => {
-      return this.databaseManager.getPendingDictionary();
-    });
-
-    ipcMain.handle("db-get-pending-dictionary-deletes", async () => {
-      return this.databaseManager.getPendingDictionaryDeletes();
-    });
-
     ipcMain.handle("db-get-dictionary-by-client-id", async (_event, clientDictId) => {
       return this.databaseManager.getDictionaryEntryByClientId(clientDictId);
-    });
-
-    ipcMain.handle("db-upsert-dictionary-from-cloud", async (_event, cloudEntry) => {
-      return this.databaseManager.upsertDictionaryFromCloud(cloudEntry);
-    });
-
-    ipcMain.handle("db-mark-dictionary-synced", async (_event, id, cloudId) => {
-      return this.databaseManager.markDictionaryEntrySynced(id, cloudId);
-    });
-
-    ipcMain.handle("db-hard-delete-dictionary", async (_event, id) => {
-      return this.databaseManager.hardDeleteDictionaryEntry(id);
-    });
-
-    ipcMain.handle("db-clear-dictionary-cloud-id", async (_event, id) => {
-      return this.databaseManager.clearDictionaryCloudId(id);
     });
 
     ipcMain.handle("db-broadcast-dictionary-updated", async () => {
@@ -1941,43 +1536,6 @@ class IPCHandlers {
         throw new Error("snippets must be an array");
       }
       return this.databaseManager.setSnippets(snippets);
-    });
-
-    ipcMain.handle("db-get-pending-snippets", async () => {
-      return this.databaseManager.getPendingSnippets();
-    });
-
-    ipcMain.handle("db-get-pending-snippet-deletes", async () => {
-      return this.databaseManager.getPendingSnippetDeletes();
-    });
-
-    ipcMain.handle("db-get-snippet-for-cloud-merge", async (_event, cloudEntry) => {
-      return this.databaseManager.getSnippetForCloudMerge(cloudEntry);
-    });
-
-    ipcMain.handle("db-upsert-snippet-from-cloud", async (_event, cloudEntry) => {
-      return this.databaseManager.upsertSnippetFromCloud(cloudEntry);
-    });
-
-    ipcMain.handle(
-      "db-mark-snippet-synced",
-      async (_event, id, cloudId, serverUpdatedAt, expectedTrigger, expectedReplacement) => {
-        return this.databaseManager.markSnippetSynced(
-          id,
-          cloudId,
-          serverUpdatedAt,
-          expectedTrigger,
-          expectedReplacement
-        );
-      }
-    );
-
-    ipcMain.handle("db-hard-delete-snippet", async (_event, id) => {
-      return this.databaseManager.hardDeleteSnippet(id);
-    });
-
-    ipcMain.handle("db-clear-snippet-cloud-id", async (_event, id) => {
-      return this.databaseManager.clearSnippetCloudId(id);
     });
 
     ipcMain.handle("db-broadcast-snippets-updated", async () => {
@@ -2147,18 +1705,6 @@ class IPCHandlers {
       return { success: failed === 0, indexed: done - failed };
     });
 
-    ipcMain.handle("db-update-note-cloud-id", async (event, id, cloudId) => {
-      return this.databaseManager.updateNoteCloudId(id, cloudId);
-    });
-
-    ipcMain.handle("db-update-note-share-state", async (event, id, state) => {
-      const note = this.databaseManager.updateNoteShareState(id, state);
-      if (note) {
-        setImmediate(() => broadcastToWindows("note-updated", note));
-      }
-      return note;
-    });
-
     ipcMain.handle("db-get-folders", async (event, spaceId) => {
       return this.databaseManager.getFolders(spaceId);
     });
@@ -2234,105 +1780,10 @@ class IPCHandlers {
       return this.databaseManager.getSpaces();
     });
 
-    ipcMain.handle("set-active-account-scope", async (_event, accountId, expectedGeneration) => {
-      const state = tokenStore.getState();
-      const verdict = accountScopeBinding.evaluateScopeRequest({
-        accountId,
-        expectedGeneration,
-        token: state.token,
-        generation: state.generation,
-      });
-      if (!verdict.ok) {
-        return {
-          success: false,
-          code: verdict.code,
-          error:
-            verdict.code === "INVALID_ACCOUNT"
-              ? "Invalid account scope"
-              : "Authentication context changed before account scoping",
-        };
-      }
-      this.databaseManager.setActiveAccountId(accountId);
-      if (accountId !== null) accountScopeBinding.persist(accountId, state.token);
-      else accountScopeBinding.clear();
-      broadcastToWindows(
-        "active-account-scope-changed",
-        accountId !== null ? { accountId, authGeneration: state.generation } : null
-      );
-      return { success: true };
-    });
-
-    ipcMain.handle("get-active-account-scope", () =>
-      accountScopeBinding.resolveActiveAccountScope({
-        ...tokenStore.getState(),
-        binding: accountScopeBinding.read(),
-      })
-    );
-
-    ipcMain.handle("delete-account-data", async (_event, accountId, expectedGeneration) => {
-      const state = tokenStore.getState();
-      if (
-        typeof accountId !== "string" ||
-        accountId.trim().length === 0 ||
-        !state.token ||
-        state.generation !== expectedGeneration
-      ) {
-        return {
-          success: false,
-          code: "AUTH_CONTEXT_CHANGED",
-          error: "Authentication context changed before local account cleanup",
-        };
-      }
-      try {
-        const result = this.databaseManager.deleteAccountData(accountId);
-        for (const noteId of result.deletedNoteIds) {
-          this._asyncVectorDelete(noteId);
-          this._asyncMirrorDelete(noteId);
-        }
-        return { success: true, ...result };
-      } catch (error) {
-        return { success: false, code: "LOCAL_ACCOUNT_CLEANUP_FAILED", error: error.message };
-      }
-    });
-
     ipcMain.handle("db-update-space", async (event, id, updates) => {
       const result = this.databaseManager.updateSpace(id, updates);
       if (result?.success && result.space) {
         setImmediate(() => broadcastToWindows("space-synced", result.space));
-      }
-      return result;
-    });
-
-    ipcMain.handle("db-purge-space", async (event, id, options) => {
-      if (options?.expectedAuthGeneration !== undefined) {
-        const state = tokenStore.getState();
-        if (!state.token || state.generation !== options.expectedAuthGeneration) {
-          return {
-            success: false,
-            error: "Authentication context changed before account cleanup",
-            code: "AUTH_CONTEXT_CHANGED",
-          };
-        }
-      }
-      const result = this.databaseManager.purgeSpace(id, options);
-      if (result?.success) {
-        if (!result.preservedForOtherAccounts) {
-          this.databaseManager.addPendingVectorPurge(result.spaceId);
-          this.drainPendingVectorPurges();
-          for (const note of result.relocatedNotes ?? []) {
-            this._asyncVectorUpsert(note);
-            this._asyncMirrorWrite(note);
-          }
-          for (const noteId of result.noteIds ?? []) {
-            this._asyncMirrorDelete(noteId);
-          }
-        }
-        setImmediate(() => {
-          broadcastToWindows("space-purged", { spaceId: result.spaceId });
-          for (const folderName of result.folderNames ?? []) {
-            this._mirrorDeleteFolderIfUnshared(folderName);
-          }
-        });
       }
       return result;
     });
@@ -2462,10 +1913,6 @@ class IPCHandlers {
       return this.databaseManager.unarchiveAgentConversation(id);
     });
 
-    ipcMain.handle("db-update-agent-conversation-cloud-id", async (event, id, cloudId) => {
-      return this.databaseManager.updateAgentConversationCloudId(id, cloudId);
-    });
-
     ipcMain.handle("db-semantic-search-conversations", async (event, query, limit) => {
       if (this.vectorIndex?.isReady?.()) {
         try {
@@ -2488,241 +1935,19 @@ class IPCHandlers {
       }
       return this.databaseManager.searchAgentConversations(query, limit);
     });
-
-    // Notes sync
-    ipcMain.handle("db-get-pending-notes", (_, spaceKind) =>
-      this.databaseManager.getPendingNotes(spaceKind)
-    );
-    ipcMain.handle("db-get-pending-note-deletes", () =>
-      this.databaseManager.getPendingNoteDeletes()
-    );
     ipcMain.handle("db-get-note-by-client-id", (_, clientNoteId) =>
       this.databaseManager.getNoteByClientId(clientNoteId)
-    );
-    ipcMain.handle("db-upsert-note-from-cloud", (_, cloudNote, localFolderId, localSpaceId) => {
-      const note = this.databaseManager.upsertNoteFromCloud(cloudNote, localFolderId, localSpaceId);
-      if (note) {
-        setImmediate(() => broadcastToWindows("note-synced", note));
-        this._asyncVectorUpsert(note);
-      }
-      return note;
-    });
-    ipcMain.handle(
-      "db-acknowledge-note-create",
-      (_, id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, settleIfUnchanged) =>
-        this.databaseManager.acknowledgeNoteCreate(
-          id,
-          snapshot,
-          cloudId,
-          cloudUpdatedAt,
-          ownerUserId,
-          settleIfUnchanged
-        )
-    );
-    ipcMain.handle(
-      "db-mark-note-synced-if-unchanged",
-      (_, id, snapshot, expectedCloudId, cloudUpdatedAt, ownerUserId) =>
-        this.databaseManager.markNoteSyncedIfUnchanged(
-          id,
-          snapshot,
-          expectedCloudId,
-          cloudUpdatedAt,
-          ownerUserId
-        )
-    );
-    ipcMain.handle("db-set-note-cloud-base", (_, id, cloudUpdatedAt) =>
-      this.databaseManager.setNoteCloudBase(id, cloudUpdatedAt)
-    );
-    ipcMain.handle("db-set-note-owner-from-cloud", (_, id, ownerUserId) =>
-      this.databaseManager.setNoteOwnerFromCloud(id, ownerUserId)
-    );
-    ipcMain.handle("db-count-team-notes-missing-owner", () =>
-      this.databaseManager.countTeamNotesMissingOwner()
-    );
-    ipcMain.handle("db-mark-note-sync-error", (_, id) =>
-      this.databaseManager.markNoteSyncError(id)
-    );
-    ipcMain.handle("db-restore-note-after-denied-delete", (_, id) =>
-      this.databaseManager.restoreNoteAfterDeniedDelete(id)
-    );
-    ipcMain.handle("db-hard-delete-note", (_, id) => {
-      const result = this.databaseManager.hardDeleteNote(id);
-      if (result?.success) {
-        this._asyncVectorDelete(id);
-        this._asyncMirrorDelete(id);
-        setImmediate(() => broadcastToWindows("note-deleted", { id }));
-      }
-      return result;
-    });
-
-    // Folders sync
-    ipcMain.handle("db-get-pending-folders", (_, spaceKind) =>
-      this.databaseManager.getPendingFolders(spaceKind)
     );
     ipcMain.handle("db-get-folder-by-client-id", (_, clientFolderId) =>
       this.databaseManager.getFolderByClientId(clientFolderId)
     );
-    ipcMain.handle("db-upsert-folder-from-cloud", (_, cloudFolder, localSpaceId) => {
-      const folder = this.databaseManager.upsertFolderFromCloud(cloudFolder, localSpaceId);
-      if (folder) setImmediate(() => broadcastToWindows("folder-synced", folder));
-      return folder;
-    });
-    ipcMain.handle(
-      "db-acknowledge-folder-create",
-      (_, id, snapshot, expectedCloudId, responseClientFolderId, cloudId, cloudUpdatedAt) =>
-        this.databaseManager.acknowledgeFolderCreate(
-          id,
-          snapshot,
-          expectedCloudId,
-          responseClientFolderId,
-          cloudId,
-          cloudUpdatedAt
-        )
-    );
-    ipcMain.handle("db-mark-folder-synced-if-unchanged", (_, id, snapshot, expectedCloudId) =>
-      this.databaseManager.markFolderSyncedIfUnchanged(id, snapshot, expectedCloudId)
-    );
     ipcMain.handle("db-get-folder-id-map", () => this.databaseManager.getFolderIdMap());
-    ipcMain.handle("db-get-pending-folder-deletes", () =>
-      this.databaseManager.getPendingFolderDeletes()
-    );
-    ipcMain.handle("db-restore-folder-after-denied-delete", (_, id) => {
-      const result = this.databaseManager.restoreFolderAfterDeniedDelete(id);
-      if (result?.success) {
-        for (const note of result.notes ?? []) {
-          this._asyncVectorUpsert(note);
-          this._asyncMirrorWrite(note);
-        }
-        setImmediate(() => {
-          if (result.folder) broadcastToWindows("folder-synced", result.folder);
-          for (const note of result.notes ?? []) {
-            broadcastToWindows("note-synced", note);
-          }
-        });
-      }
-      return result;
-    });
-    ipcMain.handle("db-hard-delete-folder", (_, id) => {
-      const result = this.databaseManager.hardDeleteFolder(id);
-      if (result?.success) {
-        for (const noteId of result.noteIds ?? []) {
-          this._asyncVectorDelete(noteId);
-        }
-        // Other accounts' notes were released to the space root; their mirror
-        // files leave with the folder directory, so rewrite the live ones.
-        for (const note of result.relocatedNotes ?? []) {
-          if (!note.deleted_at) this._asyncMirrorWrite(note);
-        }
-        setImmediate(() => {
-          broadcastToWindows("folder-deleted", { id });
-          if (result.name) this._mirrorDeleteFolderIfUnshared(result.name);
-        });
-      }
-      return result;
-    });
-    ipcMain.handle("db-relocate-revoked-folder", (_, id, privateSpaceId, preserveFolder) => {
-      const result = this.databaseManager.relocateRevokedFolder(id, privateSpaceId, preserveFolder);
-      if (result?.success) {
-        // Qdrant payloads carry space_id and the markdown mirror files by
-        // folder — refresh relocated notes, drop the server-owned ones.
-        for (const note of result.relocatedNotes ?? []) {
-          this._asyncVectorUpsert(note);
-          this._asyncMirrorWrite(note);
-        }
-        for (const noteId of result.deletedNoteIds ?? []) {
-          this._asyncVectorDelete(noteId);
-          this._asyncMirrorDelete(noteId);
-        }
-        setImmediate(() => {
-          if (result.folder) broadcastToWindows("folder-synced", result.folder);
-          else broadcastToWindows("folder-deleted", { id });
-          for (const note of result.relocatedNotes ?? []) {
-            broadcastToWindows("note-updated", note);
-          }
-          for (const noteId of result.deletedNoteIds ?? []) {
-            broadcastToWindows("note-deleted", { id: noteId });
-          }
-          const folderGone = !result.folder || result.folder.name !== result.folderName;
-          if (result.folderName && folderGone) {
-            this._mirrorDeleteFolderIfUnshared(result.folderName);
-          }
-        });
-      }
-      return result;
-    });
-
-    // Renderer-side sync events (conflicts, revocation toasts, …) happen in
-    // whichever window ran the pass — rebroadcast them to ALL windows.
-    ipcMain.handle("broadcast-sync-event", (_, name, payload) => {
-      broadcastToWindows("sync-event", { name, payload });
-      return { success: true };
-    });
-
-    // Spaces sync
-    ipcMain.handle("db-upsert-space-from-cloud", (_, cloudSpace) => {
-      const space = this.databaseManager.upsertSpaceFromCloud(cloudSpace);
-      if (space) setImmediate(() => broadcastToWindows("space-synced", space));
-      return space;
-    });
-    ipcMain.handle("db-set-space-sync-status", (_, id, status) => {
-      const result = this.databaseManager.setSpaceSyncStatus(id, status);
-      if (result?.success && result.space) {
-        // Live skeleton toggling: the tree keys pending/synced off this flag.
-        setImmediate(() => broadcastToWindows("space-synced", result.space));
-      }
-      return result;
-    });
-
-    // Conversations sync
-    ipcMain.handle("db-get-pending-conversations", () =>
-      this.databaseManager.getPendingConversations()
-    );
-    ipcMain.handle("db-get-pending-conversation-deletes", () =>
-      this.databaseManager.getPendingConversationDeletes()
-    );
     ipcMain.handle("db-get-conversation-by-client-id", (_, clientId) =>
       this.databaseManager.getConversationByClientId(clientId)
-    );
-    ipcMain.handle("db-upsert-conversation-from-cloud", (_, cloudConv, messages) =>
-      this.databaseManager.upsertConversationFromCloud(cloudConv, messages)
-    );
-    ipcMain.handle("db-acknowledge-conversation-create", (_, id, snapshot, cloudId) =>
-      this.databaseManager.acknowledgeConversationCreate(id, snapshot, cloudId)
-    );
-    ipcMain.handle("db-mark-conversation-synced", (_, id, cloudId) =>
-      this.databaseManager.markConversationSynced(id, cloudId)
-    );
-    ipcMain.handle("db-hard-delete-conversation", (_, id) => {
-      const result = this.databaseManager.hardDeleteConversation(id);
-      if (result?.success) {
-        setImmediate(() => broadcastToWindows("conversation-deleted", { id }));
-      }
-      return result;
-    });
-
-    // Transcriptions sync
-    ipcMain.handle("db-get-pending-transcriptions", () =>
-      this.databaseManager.getPendingTranscriptions()
     );
     ipcMain.handle("db-get-transcription-by-client-id", (_, clientId) =>
       this.databaseManager.getTranscriptionByClientId(clientId)
     );
-    ipcMain.handle("db-upsert-transcription-from-cloud", (_, cloudTranscription) => {
-      return this.databaseManager.upsertTranscriptionFromCloud(cloudTranscription);
-    });
-    ipcMain.handle("db-mark-transcription-synced", (_, id, cloudId) =>
-      this.databaseManager.markTranscriptionSynced(id, cloudId)
-    );
-    ipcMain.handle("db-get-pending-transcription-deletes", () =>
-      this.databaseManager.getPendingTranscriptionDeletes()
-    );
-    ipcMain.handle("db-hard-delete-transcription", (_, id) => {
-      const result = this.databaseManager.hardDeleteTranscription(id);
-      if (result?.success) {
-        setImmediate(() => broadcastToWindows("transcription-deleted", { id }));
-      }
-      return result;
-    });
 
     ipcMain.handle("export-note", async (event, noteId, format) => {
       try {
@@ -3113,47 +2338,6 @@ class IPCHandlers {
 
     ipcMain.handle("write-clipboard", async (event, text) => {
       return this.clipboardManager.writeClipboard(text, event.sender);
-    });
-
-    ipcMain.handle("leaderboard-copy-image", async (_event, dataUrl) => {
-      try {
-        const { clipboard, nativeImage } = require("electron");
-        const image = nativeImage.createFromBuffer(decodeLeaderboardPngDataUrl(dataUrl));
-        if (image.isEmpty()) throw new Error("Leaderboard image could not be decoded");
-        clipboard.writeImage(image);
-        return { success: true };
-      } catch (error) {
-        debugLogger.error(
-          "Failed to copy leaderboard image",
-          { error: error.message },
-          "analytics"
-        );
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("leaderboard-save-image", async (event, dataUrl, suggestedName) => {
-      try {
-        const { dialog } = require("electron");
-        const parentWindow = BrowserWindow.fromWebContents(event.sender);
-        const options = {
-          defaultPath: leaderboardImageFilename(suggestedName),
-          filters: [{ name: "PNG image", extensions: ["png"] }],
-        };
-        const result = parentWindow
-          ? await dialog.showSaveDialog(parentWindow, options)
-          : await dialog.showSaveDialog(options);
-        if (result.canceled || !result.filePath) return { success: true, canceled: true };
-        await fs.promises.writeFile(result.filePath, decodeLeaderboardPngDataUrl(dataUrl));
-        return { success: true, canceled: false };
-      } catch (error) {
-        debugLogger.error(
-          "Failed to save leaderboard image",
-          { error: error.message },
-          "analytics"
-        );
-        return { success: false, error: error.message };
-      }
     });
 
     ipcMain.handle("check-paste-tools", async () => {
@@ -3878,15 +3062,6 @@ class IPCHandlers {
     // instance would have no renderer: just quit there.
     ipcMain.handle("relaunch-app", async () => {
       if (process.env.NODE_ENV === "development") return app.quit();
-      // Once Squirrel.Mac holds a downloaded update it installs it on this quit regardless
-      // of any flag, so the updater owns that restart instead of racing app.relaunch().
-      if (this.updateManager.hasStagedUpdate()) {
-        const { success } = await this.updateManager
-          .installUpdate()
-          .catch(() => ({ success: false }));
-        if (success) return;
-      }
-      this.updateManager.deferInstallOnQuit();
       const { launcherPath, args } = getRelaunchOptions({
         argv: process.argv,
         protocol: this.oauthProtocol,
@@ -4012,7 +3187,7 @@ class IPCHandlers {
 
       // These caches are not owned by one account. Remove them only through
       // the explicit device-erasure path, never during normal account deletion.
-      const homeCacheRoot = path.join(os.homedir(), ".cache", "openwhispr");
+      const homeCacheRoot = path.join(os.homedir(), ".cache", "loqui-snowopsdev");
       for (const cacheName of ["embedding-models", "qdrant-data", "qdrant-data-dev", "yt-dlp"]) {
         try {
           fs.rmSync(path.join(homeCacheRoot, cacheName), { recursive: true, force: true });
@@ -4039,17 +3214,6 @@ class IPCHandlers {
         await this.environmentManager?.clearAllPersistedData();
       } catch (e) {
         errors.push(`Environment settings: ${e.message}`);
-      }
-      try {
-        const tokenCleanup = tokenStore.clear();
-        if (!tokenCleanup.success) throw new Error("Could not clear the stored bearer token");
-      } catch (e) {
-        errors.push(`Authentication token: ${e.message}`);
-      }
-      try {
-        this.enterpriseIdentityManager?.clear();
-      } catch (e) {
-        errors.push(`Enterprise settings: ${e.message}`);
       }
       try {
         for (const fileName of [
@@ -4615,19 +3779,19 @@ class IPCHandlers {
     );
 
     ipcMain.handle("get-corti-client-id", async () => {
-      return this.environmentManager.getCortiClientId();
+      return this.environmentManager.getCortiClientId() ? "__stored__" : "";
     });
 
     ipcMain.handle("save-corti-client-id", async (event, key) => {
-      return this.environmentManager.saveCortiClientId(key);
+      return key === "__stored__" ? true : this.environmentManager.saveCortiClientId(key);
     });
 
     ipcMain.handle("get-corti-client-secret", async () => {
-      return this.environmentManager.getCortiClientSecret();
+      return this.environmentManager.getCortiClientSecret() ? "__stored__" : "";
     });
 
     ipcMain.handle("save-corti-client-secret", async (event, key) => {
-      return this.environmentManager.saveCortiClientSecret(key);
+      return key === "__stored__" ? true : this.environmentManager.saveCortiClientSecret(key);
     });
 
     ipcMain.handle(
@@ -4687,19 +3851,19 @@ class IPCHandlers {
     );
 
     ipcMain.handle("get-custom-transcription-key", async () => {
-      return this.environmentManager.getCustomTranscriptionKey();
+      return this.environmentManager.getCustomTranscriptionKey() ? "__stored__" : "";
     });
 
     ipcMain.handle("save-custom-transcription-key", async (event, key) => {
-      return this.environmentManager.saveCustomTranscriptionKey(key);
+      return key === "__stored__" ? true : this.environmentManager.saveCustomTranscriptionKey(key);
     });
 
     ipcMain.handle("get-cleanup-custom-key", async () => {
-      return this.environmentManager.getCleanupCustomKey();
+      return this.environmentManager.getCleanupCustomKey() ? "__stored__" : "";
     });
 
     ipcMain.handle("save-cleanup-custom-key", async (event, key) => {
-      return this.environmentManager.saveCleanupCustomKey(key);
+      return key === "__stored__" ? true : this.environmentManager.saveCleanupCustomKey(key);
     });
 
     // Enterprise provider key handlers
@@ -4716,22 +3880,22 @@ class IPCHandlers {
       return this.environmentManager.saveBedrockProfile(value);
     });
     ipcMain.handle("get-bedrock-access-key-id", async () => {
-      return this.environmentManager.getBedrockAccessKeyId();
+      return this.environmentManager.getBedrockAccessKeyId() ? "__stored__" : "";
     });
     ipcMain.handle("save-bedrock-access-key-id", async (event, key) => {
-      return this.environmentManager.saveBedrockAccessKeyId(key);
+      return key === "__stored__" ? true : this.environmentManager.saveBedrockAccessKeyId(key);
     });
     ipcMain.handle("get-bedrock-secret-access-key", async () => {
-      return this.environmentManager.getBedrockSecretAccessKey();
+      return this.environmentManager.getBedrockSecretAccessKey() ? "__stored__" : "";
     });
     ipcMain.handle("save-bedrock-secret-access-key", async (event, key) => {
-      return this.environmentManager.saveBedrockSecretAccessKey(key);
+      return key === "__stored__" ? true : this.environmentManager.saveBedrockSecretAccessKey(key);
     });
     ipcMain.handle("get-bedrock-session-token", async () => {
-      return this.environmentManager.getBedrockSessionToken();
+      return this.environmentManager.getBedrockSessionToken() ? "__stored__" : "";
     });
     ipcMain.handle("save-bedrock-session-token", async (event, key) => {
-      return this.environmentManager.saveBedrockSessionToken(key);
+      return key === "__stored__" ? true : this.environmentManager.saveBedrockSessionToken(key);
     });
     ipcMain.handle("get-azure-endpoint", async () => {
       return this.environmentManager.getAzureEndpoint();
@@ -4740,10 +3904,10 @@ class IPCHandlers {
       return this.environmentManager.saveAzureEndpoint(value);
     });
     ipcMain.handle("get-azure-api-key", async () => {
-      return this.environmentManager.getAzureApiKey();
+      return this.environmentManager.getAzureApiKey() ? "__stored__" : "";
     });
     ipcMain.handle("save-azure-api-key", async (event, key) => {
-      return this.environmentManager.saveAzureApiKey(key);
+      return key === "__stored__" ? true : this.environmentManager.saveAzureApiKey(key);
     });
     ipcMain.handle("get-azure-deployment", async () => {
       return this.environmentManager.getAzureDeployment();
@@ -4770,10 +3934,10 @@ class IPCHandlers {
       return this.environmentManager.saveVertexLocation(value);
     });
     ipcMain.handle("get-vertex-api-key", async () => {
-      return this.environmentManager.getVertexApiKey();
+      return this.environmentManager.getVertexApiKey() ? "__stored__" : "";
     });
     ipcMain.handle("save-vertex-api-key", async (event, key) => {
-      return this.environmentManager.saveVertexApiKey(key);
+      return key === "__stored__" ? true : this.environmentManager.saveVertexApiKey(key);
     });
 
     // Enterprise provider test connection
@@ -5639,30 +4803,6 @@ class IPCHandlers {
       )
         .catch(() => null)
         .then((targetBounds) => screenContextCapture.captureActiveDisplay(targetBounds));
-      const authHeaders = await getAuthHeader(event);
-      if (authHeaders.Authorization || authHeaders.Cookie) {
-        // Bound the verdict wait: a lapsed policy TTL on a degraded network
-        // must not stall an allowed user's capture past the renderer's 3s
-        // consume race. The renderer gate already fails closed while policy
-        // is unresolved, so this defense-in-depth gate lets an unresolved
-        // verdict through while the refresh completes in flight — a resolved
-        // denial (cached or fresh) still blocks.
-        const snapshot = await Promise.race([
-          workspacePolicyManager.getPolicy({
-            expectedAuthGeneration: tokenStore.getState().generation,
-            authHeaders,
-          }),
-          new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
-        ]);
-        if (snapshot && isScreenContextBlocked(snapshot)) {
-          debugLogger.warn(
-            "Screen context capture blocked by org policy",
-            { code: snapshot.code ?? null },
-            "screenContext"
-          );
-          return null;
-        }
-      }
       return capturePromise;
     });
 
@@ -5923,403 +5063,12 @@ class IPCHandlers {
       });
     });
 
-    ipcMain.handle("auth-clear-session", async (event) => {
-      try {
-        const tokenState = tokenStore.clear();
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (win) {
-          await win.webContents.session.clearStorageData({ storages: ["cookies"] });
-        }
-        return {
-          success: tokenState.success,
-          tokenState,
-          ...(tokenState.success ? {} : { error: "Could not clear persisted bearer token" }),
-        };
-      } catch (error) {
-        debugLogger.error("Failed to clear auth session:", error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("auth-get-token", () => tokenStore.get());
-    ipcMain.handle("auth-get-token-state", () => tokenStore.getState());
-    ipcMain.handle("auth-set-token", (_event, token, expectedGeneration) => {
-      if (typeof token !== "string" || !token) {
-        // Surface silent rotation-to-empty so we can spot regressions where the
-        // renderer thinks it's persisting a token but the value never lands.
-        debugLogger.debug("auth-set-token ignored: empty or non-string token", {
-          type: typeof token,
-        });
-        return {
-          success: false,
-          code: "AUTH_CONTEXT_UNVALIDATED",
-          ...tokenStore.getState(),
-        };
-      }
-      return tokenStore.setIfGeneration(token, expectedGeneration);
-    });
-
-    // In production, VITE_* env vars aren't available in the main process because
-    // Vite only inlines them into the renderer bundle at build time. Load the
-    // runtime-env.json that the Vite build writes to src/dist/ as a fallback.
-    const runtimeEnv = (() => {
-      const fs = require("fs");
-      const envPath = path.join(__dirname, "..", "dist", "runtime-env.json");
-      try {
-        if (fs.existsSync(envPath)) return JSON.parse(fs.readFileSync(envPath, "utf8"));
-      } catch {}
-      return {};
-    })();
-
-    const getApiUrl = () =>
-      process.env.OPENWHISPR_API_URL ||
-      process.env.VITE_OPENWHISPR_API_URL ||
-      runtimeEnv.VITE_OPENWHISPR_API_URL ||
-      "";
-
-    const getAuthUrl = () =>
-      process.env.AUTH_URL ||
-      process.env.VITE_AUTH_URL ||
-      runtimeEnv.VITE_AUTH_URL ||
-      "https://auth.openwhispr.com";
-
-    const getSessionCookiesFromWindow = async (win) => {
-      const scopedUrls = [getAuthUrl(), getApiUrl()].filter(Boolean);
-      const cookiesByName = new Map();
-
-      for (const url of scopedUrls) {
-        try {
-          const scopedCookies = await win.webContents.session.cookies.get({ url });
-          for (const cookie of scopedCookies) {
-            if (!cookiesByName.has(cookie.name)) {
-              cookiesByName.set(cookie.name, cookie.value);
-            }
-          }
-        } catch (error) {
-          debugLogger.warn("Failed to read scoped auth cookies", {
-            url,
-            error: error.message,
-          });
-        }
-      }
-
-      // Fallback for older sessions where cookies are not URL-scoped as expected.
-      if (cookiesByName.size === 0) {
-        const allCookies = await win.webContents.session.cookies.get({});
-        for (const cookie of allCookies) {
-          if (!cookiesByName.has(cookie.name)) {
-            cookiesByName.set(cookie.name, cookie.value);
-          }
-        }
-      }
-
-      const cookieHeader = [...cookiesByName.entries()]
-        .map(([name, value]) => `${name}=${value}`)
-        .join("; ");
-
-      debugLogger.debug(
-        "Resolved auth cookies for cloud request",
-        {
-          cookieCount: cookiesByName.size,
-          scopedUrls,
-        },
-        "auth"
-      );
-
-      return cookieHeader;
-    };
-
-    const getSessionCookies = async (event) => {
-      const win = BrowserWindow.fromWebContents(event.sender);
-      if (!win) return "";
-      return getSessionCookiesFromWindow(win);
-    };
-
-    // Bearer auth is preferred. Cookie fallback covers the brief window before
-    // main.js's startup migration bridge runs (or if it failed for this user).
-    const getAuthHeaderFromWindow = async (win) => {
-      const token = tokenStore.get();
-      if (token) return { Authorization: `Bearer ${token}` };
-      const cookieHeader = win ? await getSessionCookiesFromWindow(win) : "";
-      return cookieHeader ? { Cookie: cookieHeader } : {};
-    };
-
-    const getAuthHeader = async (event) => {
-      const win = BrowserWindow.fromWebContents(event.sender);
-      return getAuthHeaderFromWindow(win);
-    };
-
-    // Honors system proxy via Electron's net stack. useSessionCookies:false so
-    // Electron doesn't auto-attach jar cookies on top of our explicit headers.
     const proxyFetch = (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false });
-    const withPolicyHeaders = (headers) => withPolicyRequestHeaders(headers, app.getVersion());
-    const handleCloudApiRequest = createCloudApiRequestHandler({
-      getApiUrl,
-      getAppVersion: () => app.getVersion(),
-      proxyFetch,
-      tokenStore,
-      logger: debugLogger,
-    });
-    const workspacePolicyManager = createWorkspacePolicyManager({
-      cachePath: path.join(app.getPath("userData"), "workspace-policy.json"),
-      getApiUrl,
-      getAppVersion: () => app.getVersion(),
-      proxyFetch,
-      tokenStore,
-      broadcast: (snapshot) => broadcastToWindows("workspace-policy-changed", snapshot),
-      logger: debugLogger,
-    });
-    this.enterpriseIdentityManager = createEnterpriseIdentityManager({
-      cachePath: path.join(app.getPath("userData"), "managed-enterprise-config.json"),
-      getApiUrl,
-      getAppVersion: () => app.getVersion(),
-      proxyFetch,
-      tokenStore,
-      broadcast: (snapshot) => broadcastToWindows("managed-enterprise-config-changed", snapshot),
-      logger: debugLogger,
-    });
-    const resolveEnterpriseRuntime = async (event, provider, model, config = {}) => {
-      const manual = {
-        provider,
-        model,
-        apiKey: config.apiKey || "",
-        enterprise: require("./enterpriseProviderErrors").pickEnterpriseConfig(config),
-      };
-      const context = config.managedContext;
-      if (!context) return manual;
-      const authHeaders = await getAuthHeader(event);
-      const resolved = await this.enterpriseIdentityManager.resolveProvider({
-        accountId: context.accountId,
-        workspaceId: context.workspaceId,
-        expectedAuthGeneration: context.authGeneration,
-        inferenceScope: context.inferenceScope,
-        setupMode: context.setupMode,
-        authHeaders,
-      });
-      if (!resolved.managed) {
-        throw Object.assign(
-          new Error("Managed enterprise configuration changed. Retry the request."),
-          { code: "MANAGED_CONFIG_CHANGED" }
-        );
-      }
-      if (
-        resolved.provider !== context.provider ||
-        resolved.generation !== context.generation ||
-        resolved.version !== context.providerVersion
-      ) {
-        throw Object.assign(
-          new Error("Managed enterprise configuration changed. Retry the request."),
-          { code: "MANAGED_CONFIG_CHANGED" }
-        );
-      }
-      if (resolved.provider === "bedrock") {
-        return {
-          provider: resolved.provider,
-          model: resolved.model,
-          apiKey: "",
-          enterprise: {
-            bedrockRegion: resolved.config.region,
-            managedCredentialProvider: resolved.credentialProvider,
-          },
-        };
-      }
-      return {
-        provider: resolved.provider,
-        model: resolved.model,
-        apiKey: "",
-        enterprise: {
-          azureEndpoint: resolved.config.endpoint,
-          azureApiVersion: resolved.config.apiVersion,
-          managedTokenProvider: resolved.tokenProvider,
-        },
-      };
-    };
-    const { createManagedTranscriptionExecutor } = require("./managedTranscriptionExecutor");
-    const executeManagedTranscription = createManagedTranscriptionExecutor({
-      resolveEnterpriseRuntime,
-      proxyFetch,
-      buildUrl: async (endpoint, deployment, apiVersion) => {
-        const { buildManagedAzureTranscriptionUrl } = await import("../utils/urlUtils.ts");
-        return buildManagedAzureTranscriptionUrl(endpoint, deployment, apiVersion);
-      },
-    });
-    this.executeManagedTranscription = executeManagedTranscription;
-
-    ipcMain.handle(
-      "managed-transcribe",
-      serializeIpcError(
-        async (event, { audioBuffer, fileName, mimeType, language, prompt, managed }) => {
-          const text = await executeManagedTranscription(
-            event,
-            { provider: managed.provider, context: managed.context, language },
-            {
-              audioBuffer: Buffer.from(audioBuffer),
-              fileName: fileName || "audio.webm",
-              contentType: mimeType || "audio/webm",
-              prompt,
-            }
-          );
-          return { text };
-        }
-      )
-    );
-    const handleSttConfigRequest = createCloudConfigRequestHandler({
-      getApiUrl,
-      getAuthHeader,
-      proxyFetch,
-      withPolicyHeaders,
-      logger: debugLogger,
-      configPath: "stt-config",
-    });
-    const handleNoteRecordingConfigRequest = createCloudConfigRequestHandler({
-      getApiUrl,
-      getAuthHeader,
-      proxyFetch,
-      withPolicyHeaders,
-      logger: debugLogger,
-      configPath: "note-recording-config",
-    });
-
-    ipcMain.handle("cloud-transcribe", async (event, audioBuffer, opts = {}) => {
-      const sender = event.sender;
-      const senderId = sender.id;
-      const requestId = crypto.randomUUID();
-      const controller = this._cloudTranscriptionRequests.begin(senderId, requestId);
-      const cancelSenderRequests = () => this._cloudTranscriptionRequests.cancelSender(senderId);
-      sender.once("destroyed", cancelSenderRequests);
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const audioData = Buffer.from(audioBuffer);
-        // Reused for the local SQLite row so SyncService upserts the existing
-        // cloud row (filling in text) instead of creating a duplicate.
-        const clientTranscriptionId = crypto.randomUUID();
-        const multipartFields = {
-          language: opts.language,
-          prompt: opts.prompt,
-          sendLogs: opts.sendLogs,
-          clientType: "desktop",
-          appVersion: app.getVersion(),
-          clientVersion: app.getVersion(),
-          sessionId: this.sessionId,
-          clientTranscriptionId,
-          localDate: opts.localDate,
-          analyticsOccurredAt: opts.analyticsOccurredAt,
-        };
-
-        debugLogger.debug("Cloud transcribe request", { audioSize: audioData.length }, "cloud-api");
-
-        if (audioData.length > CLOUD_INLINE_LIMIT) {
-          const { text, responses, lastResponse, warning } = await chunkedCloudTranscribe({
-            buffer: audioData,
-            apiUrl,
-            policyHeaders: withPolicyHeaders(authHeader),
-            multipartFields,
-            signal: controller.signal,
-          });
-          const sum = (field) => responses.reduce((s, r) => s + (r?.[field] || 0), 0);
-          return {
-            success: true,
-            text,
-            ...(warning ? { warning } : {}),
-            clientTranscriptionId,
-            wordsUsed: lastResponse?.wordsUsed,
-            wordsRemaining: lastResponse?.wordsRemaining,
-            plan: lastResponse?.plan,
-            limitReached: lastResponse?.limitReached || false,
-            sttProvider: lastResponse?.sttProvider,
-            sttModel: lastResponse?.sttModel,
-            sttProcessingMs: sum("sttProcessingMs"),
-            sttWordCount: sum("sttWordCount"),
-            sttLanguage: lastResponse?.sttLanguage,
-            audioDurationMs: sum("audioDurationMs"),
-          };
-        }
-
-        const { body, boundary } = buildMultipartBody(
-          audioData,
-          "audio.webm",
-          "audio/webm",
-          multipartFields
-        );
-        const url = new URL(`${apiUrl}/api/transcribe`);
-        const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
-          ]),
-          session: getInlineCloudUploadSession(),
-        });
-
-        debugLogger.debug(
-          "Cloud transcribe response",
-          { statusCode: data.statusCode },
-          "cloud-api"
-        );
-
-        const result = interpretTranscribeResponse(data);
-        return {
-          success: true,
-          text: result.text,
-          clientTranscriptionId,
-          wordsUsed: result.wordsUsed,
-          wordsRemaining: result.wordsRemaining,
-          plan: result.plan,
-          limitReached: result.limitReached || false,
-          sttProvider: result.sttProvider,
-          sttModel: result.sttModel,
-          sttProcessingMs: result.sttProcessingMs,
-          sttWordCount: result.sttWordCount,
-          sttLanguage: result.sttLanguage,
-          audioDurationMs: result.audioDurationMs,
-        };
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return { success: false, error: "Cancelled", code: "TRANSCRIPTION_CANCELLED" };
-        }
-        debugLogger.error("Cloud transcription error", { error: error.message }, "cloud-api");
-        return toPolicyFailure(error);
-      } finally {
-        sender.removeListener("destroyed", cancelSenderRequests);
-        this._cloudTranscriptionRequests.complete(senderId, requestId, controller);
-      }
-    });
-
-    ipcMain.on("cloud-transcribe-cancel", (event) => {
-      this._cloudTranscriptionRequests.cancelSender(event.sender.id);
-    });
-
-    ipcMain.handle("cloud-health-check", async () => {
-      const apiUrl = getApiUrl();
-      if (!apiUrl) {
-        return {
-          ok: false,
-          code: "NO_API_URL",
-          messageKey: "streaming.errors.cloudUnreachable.generic",
-        };
-      }
-      const url = `${apiUrl}/api/health`;
-      try {
-        const res = await proxyFetch(url, {
-          method: "GET",
-          signal: AbortSignal.timeout(3000),
-        });
-        return { ok: res.ok, status: res.status };
-      } catch (err) {
-        const classified = classifyAndLog(err, url);
-        if (classified.isNetworkError) {
-          return { ok: false, code: classified.code, messageKey: classified.messageKey };
-        }
-        return {
-          ok: false,
-          code: "UNKNOWN",
-          messageKey: "streaming.errors.cloudUnreachable.generic",
-        };
-      }
+    const resolveEnterpriseRuntime = async (_event, provider, model, config = {}) => ({
+      provider,
+      model,
+      apiKey: config.apiKey || "",
+      enterprise: require("./enterpriseProviderErrors").pickEnterpriseConfig(config),
     });
 
     ipcMain.handle("retry-transcription", async (event, id, settings) => {
@@ -6339,31 +5088,19 @@ class IPCHandlers {
         const route = resolveTranscriptionRoute({
           settings: settings || {},
           providers: transcriptionProviderBaseUrls(),
-          managed: settings?.managed,
           request: { effectiveLanguage: language },
         });
 
         // An error route is fatal unless OpenWhispr cloud is selected — a
         // leftover BYOK misconfiguration must not block the cloud pipeline.
-        if (
-          route.transport === "error" &&
-          (settings?.transcriptionMode === "self-hosted" ||
-            settings?.cloudTranscriptionMode !== "openwhispr")
-        ) {
+        if (route.transport === "error") {
           const err = new Error(route.message);
           if (route.code) err.code = route.code;
           if (route.messageKey) err.messageKey = route.messageKey;
           throw err;
         }
 
-        if (route.transport === "managed") {
-          const text = await this.executeManagedTranscription(event, route, {
-            audioBuffer: buffer,
-            fileName: "audio.webm",
-            contentType: "audio/webm",
-          });
-          result = { text, source: "azure-managed", model: route.deployment };
-        } else if (route.transport === "http-batch" && route.provider === "self-hosted") {
+        if (route.transport === "http-batch" && route.provider === "self-hosted") {
           const formData = new FormData();
           formData.append("file", new Blob([buffer], { type: "audio/webm" }), "audio.webm");
           if (route.model) {
@@ -6408,55 +5145,6 @@ class IPCHandlers {
               language,
               ...vadOptions,
             });
-          }
-        } else if (settings?.cloudTranscriptionMode === "openwhispr") {
-          const win = BrowserWindow.fromWebContents(event.sender);
-          if (win) {
-            const authHeader = await getAuthHeaderFromWindow(win);
-            if (Object.keys(authHeader).length) {
-              const apiUrl = getApiUrl();
-              if (apiUrl) {
-                const multipartFields = {
-                  language,
-                  clientType: "desktop",
-                  appVersion: app.getVersion(),
-                  sessionId: this.sessionId,
-                };
-                if (buffer.length > CLOUD_INLINE_LIMIT) {
-                  const { text } = await chunkedCloudTranscribe({
-                    buffer,
-                    apiUrl,
-                    policyHeaders: withPolicyHeaders(authHeader),
-                    multipartFields,
-                  });
-                  result = { text, source: "openwhispr", model: "cloud" };
-                } else {
-                  const { body, boundary } = buildMultipartBody(
-                    buffer,
-                    "audio.webm",
-                    "audio/webm",
-                    multipartFields
-                  );
-                  const url = new URL(`${apiUrl}/api/transcribe`);
-                  const data = await postMultipart(
-                    url,
-                    body,
-                    boundary,
-                    withPolicyHeaders(authHeader),
-                    {
-                      signal: AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
-                      session: getInlineCloudUploadSession(),
-                    }
-                  );
-                  const responseData = interpretTranscribeResponse(data);
-                  result = {
-                    text: responseData.text,
-                    source: "openwhispr",
-                    model: "cloud",
-                  };
-                }
-              }
-            }
           }
         } else if (route.transport === "proxied" && route.provider === "tinfoil") {
           // Attested transport, so this can't reuse the generic fetch below.
@@ -6583,8 +5271,13 @@ class IPCHandlers {
           }
         }
 
-        if (!result?.text) {
-          return { success: false, error: "No transcription engine available" };
+        if (typeof result?.text !== "string" || !result.text.trim()) {
+          return {
+            success: false,
+            code: "EMPTY_TRANSCRIPTION",
+            error:
+              "The transcription provider returned no text. Your audio is preserved; try again.",
+          };
         }
 
         this.databaseManager.updateTranscriptionText(id, result.text, result.text);
@@ -7236,46 +5929,11 @@ class IPCHandlers {
     };
 
     const fetchRealtimeToken = async (event, options, { streams } = {}) => {
-      const postServerToken = async (path, body = {}) => {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) {
-          const err = new Error("OpenWhispr API URL not configured");
-          err.code = "NO_API";
-          throw err;
-        }
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-        const url = `${apiUrl}${path}`;
-        let response;
-        try {
-          response = await proxyFetch(url, {
-            method: "POST",
-            headers: withPolicyHeaders({ "Content-Type": "application/json", ...authHeader }),
-            body: JSON.stringify(body),
-          });
-        } catch (err) {
-          const classified = classifyAndLog(err, url);
-          if (classified.isNetworkError) {
-            throw Object.assign(new Error(err.message || "Network request failed"), {
-              code: "NETWORK_ERROR",
-              networkCode: classified.code,
-              messageKey: classified.messageKey,
-            });
-          }
-          throw err;
-        }
-        if (!response.ok) {
-          throw await readPolicyResponseError(response, `Token request failed: ${response.status}`);
-        }
-        return response.json();
-      };
-
       return fetchRealtimeTokenForProvider(
         options.provider,
         {
           environmentManager: this.environmentManager,
           proxyFetch,
-          postServerToken,
           mintCortiToken: (tokenOptions) => this._mintStoredCortiToken(tokenOptions),
         },
         options,
@@ -9276,224 +7934,6 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("cloud-reason", async (event, text, opts = {}) => {
-      const sender = event.sender;
-      const senderId = sender.id;
-      const requestId = crypto.randomUUID();
-      const controller = this._cloudReasonRequests.begin(senderId, requestId);
-      const cancelSenderRequests = () => this._cloudReasonRequests.cancelSender(senderId);
-      sender.once("destroyed", cancelSenderRequests);
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        debugLogger.debug(
-          "Cloud reason request",
-          {
-            model: opts.model || "(default)",
-            agentName: opts.agentName || "(none)",
-            textLength: text?.length || 0,
-            hasScreenContext: !!opts.screenContext,
-          },
-          "cloud-api"
-        );
-
-        const response = await proxyFetch(`${apiUrl}/api/reason`, {
-          method: "POST",
-          signal: controller.signal,
-          headers: withPolicyHeaders({
-            "Content-Type": "application/json",
-            ...authHeader,
-          }),
-          body: JSON.stringify({
-            text,
-            model: opts.model,
-            agentName: opts.agentName,
-            customDictionary: opts.customDictionary,
-            customPrompt: opts.customPrompt,
-            systemPrompt: opts.systemPrompt,
-            requestPurpose: opts.requestPurpose,
-            promptMode: opts.promptMode,
-            purpose: opts.purpose,
-            screenContext: opts.screenContext,
-            language: opts.language,
-            locale: opts.locale,
-            sessionId: this.sessionId,
-            clientType: "desktop",
-            appVersion: app.getVersion(),
-            clientVersion: app.getVersion(),
-            sttProvider: opts.sttProvider,
-            sttModel: opts.sttModel,
-            sttProcessingMs: opts.sttProcessingMs,
-            sttWordCount: opts.sttWordCount,
-            sttLanguage: opts.sttLanguage,
-            audioDurationMs: opts.audioDurationMs,
-            audioSizeBytes: opts.audioSizeBytes,
-            audioFormat: opts.audioFormat,
-            clientTotalMs: opts.clientTotalMs,
-          }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          throw await readPolicyResponseError(response, `API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        debugLogger.debug(
-          "Cloud reason response",
-          {
-            model: data.model,
-            provider: data.provider,
-            resultLength: data.text?.length || 0,
-            promptMode: data.promptMode,
-            matchType: data.matchType,
-            screenContextApplied: data.screenContextApplied,
-          },
-          "cloud-api"
-        );
-        return {
-          success: true,
-          text: data.text,
-          model: data.model,
-          provider: data.provider,
-          promptMode: data.promptMode,
-          matchType: data.matchType,
-          screenContextApplied: data.screenContextApplied,
-        };
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return { success: false, error: "Cancelled", code: "REASON_CANCELLED" };
-        }
-        debugLogger.error("Cloud reasoning error:", error);
-        return toPolicyFailure(error);
-      } finally {
-        sender.removeListener("destroyed", cancelSenderRequests);
-        this._cloudReasonRequests.complete(senderId, requestId, controller);
-      }
-    });
-
-    ipcMain.on("cloud-reason-cancel", (event) => {
-      this._cloudReasonRequests.cancelSender(event.sender.id);
-    });
-
-    ipcMain.on("cloud-agent-stream-start", async (event, requestId, messages, opts = {}) => {
-      if (typeof requestId !== "string" || !requestId.trim()) return;
-
-      const sender = event.sender;
-      const senderId = sender.id;
-      const controller = this._agentStreamRequests.begin(senderId, requestId);
-      const cancelSenderRequests = () => this._agentStreamRequests.cancelSender(senderId);
-      const sendToRenderer = (channel, payload) => {
-        if (!sender.isDestroyed()) sender.send(channel, payload);
-      };
-      sender.once("destroyed", cancelSenderRequests);
-
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/agent/stream`, {
-          method: "POST",
-          headers: withPolicyHeaders({
-            "Content-Type": "application/json",
-            ...authHeader,
-          }),
-          body: JSON.stringify({
-            messages,
-            systemPrompt: opts.systemPrompt,
-            tools: opts.tools,
-            ...(opts.screenContext ? { screenContext: opts.screenContext } : {}),
-            sessionId: this.sessionId,
-            clientType: "desktop",
-            appVersion: app.getVersion(),
-          }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          const error = await readPolicyResponseError(response, `API error: ${response.status}`);
-          if (response.status === 401 && !error.code) error.code = "AUTH_EXPIRED";
-          if (response.status === 503 && !error.code) error.code = "SERVER_ERROR";
-          sendToRenderer("cloud-agent-stream-error", {
-            requestId,
-            ...toPolicyFailure(error),
-          });
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              try {
-                sendToRenderer("cloud-agent-stream-chunk", {
-                  requestId,
-                  chunk: JSON.parse(line),
-                });
-              } catch {
-                // skip malformed NDJSON line
-              }
-            }
-          }
-          if (buffer.trim()) {
-            try {
-              sendToRenderer("cloud-agent-stream-chunk", {
-                requestId,
-                chunk: JSON.parse(buffer),
-              });
-            } catch {
-              // skip malformed remainder
-            }
-          }
-        } finally {
-          reader.releaseLock();
-        }
-
-        sendToRenderer("cloud-agent-stream-end", { requestId });
-      } catch (error) {
-        if (controller.signal.aborted) {
-          sendToRenderer("cloud-agent-stream-end", { requestId });
-          return;
-        }
-        debugLogger.error("Cloud agent stream error:", error);
-        sendToRenderer("cloud-agent-stream-error", {
-          requestId,
-          ...toPolicyFailure(error),
-        });
-      } finally {
-        sender.removeListener("destroyed", cancelSenderRequests);
-        this._agentStreamRequests.complete(senderId, requestId, controller);
-      }
-    });
-
-    ipcMain.on("cloud-agent-stream-cancel", (event, requestId) => {
-      if (typeof requestId !== "string" || !requestId.trim()) return;
-      this._agentStreamRequests.cancel(event.sender.id, requestId);
-    });
-
     ipcMain.handle("agent-open-note", async (_event, noteId) => {
       try {
         const note = this.databaseManager.getNote(noteId);
@@ -9508,357 +7948,7 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("agent-web-search", async (event, query, numResults = 5) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        debugLogger.debug("Agent web search request", { query, numResults }, "cloud-api");
-
-        const response = await proxyFetch(`${apiUrl}/api/agent/web-search`, {
-          method: "POST",
-          headers: withPolicyHeaders({
-            "Content-Type": "application/json",
-            ...authHeader,
-          }),
-          body: JSON.stringify({ query, numResults }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          const error = await readPolicyResponseError(response, `API error: ${response.status}`);
-          return toPolicyFailure(error);
-        }
-
-        const data = await response.json();
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error("Agent web search error:", error);
-        return toPolicyFailure(error);
-      }
-    });
-
-    ipcMain.handle(
-      "cloud-streaming-usage",
-      async (event, text, audioDurationSeconds, opts = {}) => {
-        try {
-          const apiUrl = getApiUrl();
-          if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-          const authHeader = await getAuthHeader(event);
-          if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-          const response = await proxyFetch(`${apiUrl}/api/streaming-usage`, {
-            method: "POST",
-            headers: withPolicyHeaders({
-              "Content-Type": "application/json",
-              ...authHeader,
-            }),
-            body: JSON.stringify({
-              text,
-              audioDurationSeconds,
-              sessionId: this.sessionId,
-              clientType: "desktop",
-              appVersion: app.getVersion(),
-              clientVersion: app.getVersion(),
-              sttProvider: opts.sttProvider,
-              sttModel: opts.sttModel,
-              sttProcessingMs: opts.sttProcessingMs,
-              sttLanguage: opts.sttLanguage,
-              audioSizeBytes: opts.audioSizeBytes,
-              audioFormat: opts.audioFormat,
-              clientTotalMs: opts.clientTotalMs,
-              sendLogs: opts.sendLogs,
-              clientTranscriptionId: opts.clientTranscriptionId,
-              localDate: opts.localDate,
-              analyticsOccurredAt: opts.analyticsOccurredAt,
-              analyticsWordCount: opts.analyticsWordCount,
-              analyticsCounterVersion: opts.analyticsCounterVersion,
-            }),
-          });
-
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
-          }
-
-          const data = await response.json();
-          return { success: true, ...data };
-        } catch (error) {
-          debugLogger.error("Cloud streaming usage error", { error: error.message }, "cloud-api");
-          return { success: false, error: error.message };
-        }
-      }
-    );
-
-    ipcMain.handle("cloud-usage", async (event) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        // Never serve entitlement from Chromium's HTTP cache: a cached
-        // response can outlive the account that produced it.
-        const response = await proxyFetch(`${apiUrl}/api/usage`, {
-          headers: authHeader,
-          cache: "no-store",
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          const errorData = await response.json().catch(() => ({}));
-          const message = errorData.error || `API error: ${response.status}`;
-          debugLogger.error(`Cloud usage fetch error: ${message}`);
-          return { success: false, error: message, code: errorData.code };
-        }
-
-        const data = await response.json();
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error("Cloud usage fetch error:", error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    const fetchStripeUrl = async (event, endpoint, errorPrefix, body) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const headers = { ...authHeader };
-        const fetchOpts = { method: "POST", headers };
-        if (body) {
-          headers["Content-Type"] = "application/json";
-          fetchOpts.body = JSON.stringify(body);
-        }
-
-        const response = await proxyFetch(`${apiUrl}${endpoint}`, fetchOpts);
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          const errorData = await response.json().catch(() => ({}));
-          const message = errorData.error || `API error: ${response.status}`;
-          debugLogger.error(`${errorPrefix}: ${message}`);
-          return { success: false, error: message, code: errorData.code };
-        }
-
-        const data = await response.json();
-        return { success: true, url: data.url };
-      } catch (error) {
-        debugLogger.error(`${errorPrefix}: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    };
-
-    ipcMain.handle("cloud-checkout", (event, opts) =>
-      fetchStripeUrl(event, "/api/stripe/checkout", "Cloud checkout error", opts || undefined)
-    );
-
-    ipcMain.handle("cloud-billing-portal", (event) =>
-      fetchStripeUrl(event, "/api/stripe/portal", "Cloud billing portal error")
-    );
-
-    ipcMain.handle("cloud-switch-plan", async (event, opts) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/stripe/switch-plan`, {
-          method: "POST",
-          headers: { ...authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify(opts),
-        });
-
-        if (response.status === 401) {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        if (response.status === 503) {
-          return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-        }
-
-        const data = await response.json();
-        if (!response.ok) {
-          return { success: false, error: data.error || "Failed to switch plan" };
-        }
-        return data;
-      } catch (error) {
-        debugLogger.error(`Cloud switch plan error: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("cloud-preview-switch", async (event, opts) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/stripe/preview-switch`, {
-          method: "POST",
-          headers: { ...authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify(opts),
-        });
-
-        if (response.status === 401) {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        if (response.status === 503) {
-          return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-        }
-
-        const data = await response.json();
-        if (!response.ok) {
-          return { success: false, error: data.error || "Failed to preview plan change" };
-        }
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error(`Cloud preview switch error: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("cloud-api-request", (_event, opts) => handleCloudApiRequest(opts));
-
-    ipcMain.handle("get-stt-config", handleSttConfigRequest);
-
-    ipcMain.handle("get-workspace-policy", async (event, accountId, expectedAuthGeneration) => {
-      const authHeaders = await getAuthHeader(event);
-      return workspacePolicyManager.getPolicy({ accountId, expectedAuthGeneration, authHeaders });
-    });
-
-    ipcMain.handle(
-      "get-managed-enterprise-config",
-      async (event, accountId, workspaceId, expectedAuthGeneration, forceRefresh = false) => {
-        const authHeaders = await getAuthHeader(event);
-        return this.enterpriseIdentityManager.getConfig({
-          accountId,
-          workspaceId,
-          expectedAuthGeneration,
-          authHeaders,
-          forceRefresh,
-        });
-      }
-    );
-    ipcMain.handle("clear-managed-enterprise-identity", async () => {
-      this.enterpriseIdentityManager.clear();
-    });
-
-    ipcMain.handle("get-note-recording-config", handleNoteRecordingConfigRequest);
-
-    ipcMain.handle("transcribe-audio-file-cloud", async (event, filePath, opts = {}) => {
-      const requestId = typeof opts?.requestId === "string" ? opts.requestId : null;
-      const { signal, release } = this._uploadCancelRegistry.register(requestId);
-      let cleanupUpload = null;
-      try {
-        if (typeof filePath !== "string") {
-          return { success: false, error: "Invalid file path" };
-        }
-        const realCloud = resolveAllowedAudioPath(filePath);
-        if (!realCloud) return { success: false, error: "File path not allowed" };
-
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const multipartFields = {
-          source: "file_upload",
-          clientType: "desktop",
-          appVersion: app.getVersion(),
-          clientVersion: app.getVersion(),
-          sessionId: this.sessionId,
-        };
-
-        const fileSize = fs.statSync(realCloud).size;
-
-        if (fileSize > CLOUD_INLINE_LIMIT) {
-          debugLogger.debug("Large file detected, using client-side chunking", {
-            fileSize,
-            filePath: path.basename(realCloud),
-          });
-          const { text, warning, failedChunks, totalChunks } = await chunkedCloudTranscribe({
-            filePath: realCloud,
-            apiUrl,
-            policyHeaders: withPolicyHeaders(authHeader),
-            multipartFields,
-            onProgress: (payload) => event.sender.send("upload-transcription-progress", payload),
-            signal,
-          });
-          return {
-            success: true,
-            text,
-            ...(warning ? { warning, failedChunks, totalChunks } : {}),
-          };
-        }
-
-        const upload = await prepareProviderUpload(realCloud, { signal });
-        cleanupUpload = upload.cleanup;
-        const { body, boundary } = buildMultipartBody(
-          fs.readFileSync(upload.path),
-          path.basename(upload.path),
-          providerContentType(upload.path),
-          multipartFields
-        );
-        const url = new URL(`${apiUrl}/api/transcribe`);
-        const data = await postMultipart(url, body, boundary, withPolicyHeaders(authHeader), {
-          signal: AbortSignal.any([
-            ...(signal ? [signal] : []),
-            AbortSignal.timeout(CLOUD_UPLOAD_TIMEOUT_MS),
-          ]),
-          session: getInlineCloudUploadSession(),
-        });
-        const result = interpretTranscribeResponse(data);
-
-        return { success: true, text: result.text };
-      } catch (error) {
-        if (signal?.aborted) {
-          debugLogger.debug("Cloud audio file transcription cancelled", { requestId });
-          return { success: false, error: "Cancelled", code: "UPLOAD_CANCELLED" };
-        }
-        debugLogger.error("Cloud audio file transcription error", { error: error.message });
-        return toPolicyFailure(error);
-      } finally {
-        cleanupUpload?.();
-        release();
-      }
-    });
-
-    // Unknown ids are a no-op: BYOK providers don't register a controller,
-    // and the renderer fires this for every cancel.
+    // Unknown or completed request ids are a no-op.
     ipcMain.handle("cancel-upload-transcription", async (_event, requestId) => {
       return { success: this._uploadCancelRegistry.cancel(requestId) > 0 };
     });
@@ -9869,7 +7959,11 @@ class IPCHandlers {
         event,
         {
           filePath,
-          apiKey,
+          audioBuffer: capturedAudio,
+          mimeType,
+          requestId,
+          prompt,
+          keyterms,
           baseUrl,
           model,
           diarize,
@@ -9881,17 +7975,51 @@ class IPCHandlers {
           transcriptionMode,
           remoteTranscriptionUrl,
           remoteTranscriptionModel,
-          managed,
         }
       ) => {
         const fs = require("fs");
         let cleanupUpload = null;
-        try {
-          if (typeof filePath !== "string") {
-            return { success: false, error: "Invalid file path" };
+        let captureDir = null;
+        const job = this._uploadCancelRegistry.register(requestId);
+        const completedText = (text) => {
+          job.signal?.throwIfAborted();
+          if (typeof text !== "string" || !text.trim()) {
+            throw Object.assign(
+              new Error(
+                "The transcription provider returned no text. Your audio is preserved; try again."
+              ),
+              {
+                code: "EMPTY_TRANSCRIPTION",
+              }
+            );
           }
-          const sourcePath = resolveAllowedAudioPath(filePath);
-          if (!sourcePath) return { success: false, error: "File path not allowed" };
+          return text;
+        };
+        try {
+          let sourcePath;
+          if (capturedAudio !== undefined) {
+            if (!(capturedAudio instanceof ArrayBuffer || ArrayBuffer.isView(capturedAudio)))
+              throw new Error("Invalid captured audio");
+            const bytes = Buffer.from(
+              capturedAudio instanceof ArrayBuffer ? capturedAudio : capturedAudio.buffer,
+              capturedAudio.byteOffset || 0,
+              capturedAudio.byteLength
+            );
+            if (!bytes.length || bytes.length > 100 * 1024 * 1024)
+              throw new Error("Captured audio is empty or too large.");
+            captureDir = fs.mkdtempSync(
+              path.join(require("./safeTempDir").getSafeTempDir(), "personal-audio-")
+            );
+            sourcePath = path.join(
+              captureDir,
+              mimeType === "audio/wav" ? "capture.wav" : "capture.webm"
+            );
+            fs.writeFileSync(sourcePath, bytes, { mode: 0o600 });
+          } else {
+            sourcePath = resolveAllowedAudioPath(filePath);
+            if (!sourcePath) return { success: false, error: "File path not allowed" };
+          }
+          job.signal?.throwIfAborted();
 
           const { resolveTranscriptionRoute } = await import("./transcriptionRoute.ts");
           const route = resolveTranscriptionRoute({
@@ -9906,7 +8034,6 @@ class IPCHandlers {
               cortiTenant: tenant,
             },
             providers: transcriptionProviderBaseUrls(),
-            managed,
             request: { effectiveLanguage: language || undefined },
           });
 
@@ -9920,21 +8047,29 @@ class IPCHandlers {
             };
           }
 
-          const upload = await prepareProviderUpload(sourcePath);
-          cleanupUpload = upload.cleanup;
-          const realByok = upload.path;
-
-          if (route.transport === "managed") {
-            if (fs.statSync(realByok).size > route.sizeCapBytes) {
-              return { success: false, error: byokSizeCapError(route.sizeCapBytes) };
-            }
-            const text = await this.executeManagedTranscription(event, route, {
-              audioBuffer: fs.readFileSync(realByok),
-              fileName: path.basename(realByok),
-              contentType: providerContentType(realByok),
-            });
-            return { success: true, text };
+          if (prompt) {
+            const { dictionaryPromptLimit, trimDictionaryPrompt } =
+              await import("../utils/dictionaryPromptCap.js");
+            prompt = trimDictionaryPrompt(
+              prompt,
+              dictionaryPromptLimit({
+                provider: route.provider,
+                endpoint: route.endpoint || "",
+                model: route.model || "",
+              })
+            ).prompt;
           }
+          const getter =
+            route.provider === "corti"
+              ? null
+              : route.provider === "custom"
+                ? "getCustomTranscriptionKey"
+                : BYOK_API_KEYS.find((k) => k.base === route.provider)?.get;
+          const apiKey = getter ? this.environmentManager[getter]() : "";
+          const upload = await prepareProviderUpload(sourcePath, { signal: job.signal });
+          cleanupUpload = upload.cleanup;
+          job.signal?.throwIfAborted();
+          const realByok = upload.path;
 
           if (route.transport === "http-batch" && route.provider === "self-hosted") {
             // User's own server, so the 25 MB third-party cap does not apply.
@@ -9942,9 +8077,15 @@ class IPCHandlers {
               fs.readFileSync(realByok),
               path.basename(realByok),
               providerContentType(realByok),
-              { model: route.model, language: route.language }
+              { model: route.model, language: route.language, ...(prompt ? { prompt } : {}) }
             );
-            const data = await postMultipart(new URL(route.endpoint), body, boundary);
+            const data = await postMultipart(
+              new URL(route.endpoint),
+              body,
+              boundary,
+              {},
+              { signal: job.signal }
+            );
             if (data.statusCode !== 200) {
               throw new Error(
                 data.data?.error?.message ||
@@ -9952,7 +8093,7 @@ class IPCHandlers {
                   `Self-hosted API Error: ${data.statusCode}`
               );
             }
-            return { success: true, text: data.data.text };
+            return { success: true, text: completedText(data.data?.text) };
           }
 
           const fileSize = fs.statSync(realByok).size;
@@ -9972,10 +8113,11 @@ class IPCHandlers {
               tenant: route.cortiTenant,
               clientId,
               clientSecret,
+              signal: job.signal,
               audioBuffer: fs.readFileSync(realByok),
               language: route.language,
             });
-            return { success: true, text };
+            return { success: true, text: completedText(text) };
           }
 
           if (route.transport === "proxied" && route.provider === "tinfoil") {
@@ -9984,9 +8126,11 @@ class IPCHandlers {
               fileName: path.basename(realByok),
               contentType: providerContentType(realByok),
               language: route.language,
-              apiKey: this.environmentManager.getTinfoilKey(),
+              apiKey,
+              prompt,
+              signal: job.signal,
             });
-            return { success: true, text };
+            return { success: true, text: completedText(text) };
           }
 
           if (route.transport === "proxied" && route.provider === "gemini") {
@@ -9996,9 +8140,11 @@ class IPCHandlers {
               audioBuffer: fs.readFileSync(realByok),
               model: route.model,
               contentType: providerContentType(realByok),
-              apiKey: apiKey || this.environmentManager.getGeminiKey(),
+              apiKey,
+              keyterms,
+              signal: job.signal,
             });
-            return { success: true, text };
+            return { success: true, text: completedText(text) };
           }
 
           if (!apiKey && route.provider !== "custom") {
@@ -10013,6 +8159,19 @@ class IPCHandlers {
           // directly; everything else consumes the route endpoint as-is.
           let transcriptionUrl;
           const multipartFields = {};
+          if (typeof prompt === "string" && prompt.trim()) multipartFields.prompt = prompt;
+          const { usesTranscriptionKeywords, dictionaryKeywords } =
+            await import("../utils/dictionaryKeywords.js");
+          if (
+            route.provider === "openai" &&
+            usesTranscriptionKeywords(route.model) &&
+            Array.isArray(keyterms)
+          ) {
+            multipartFields["keywords[]"] = dictionaryKeywords(
+              keyterms.filter((term) => typeof term === "string").join(", ")
+            );
+          }
+          if (capturedAudio && route.language) multipartFields.language = route.language;
           if (route.provider === "xai") {
             transcriptionUrl = XAI_STT_URL;
             // xAI STT accepts no model field; the route pre-filters language
@@ -10072,7 +8231,7 @@ class IPCHandlers {
                 ? { "api-key": apiKey }
                 : { Authorization: `Bearer ${apiKey}` }
             : undefined;
-          const data = await postMultipart(url, body, boundary, headers);
+          const data = await postMultipart(url, body, boundary, headers, { signal: job.signal });
 
           if (data.statusCode === 401) {
             return { success: false, error: "Invalid API key. Check your key in Settings." };
@@ -10099,7 +8258,8 @@ class IPCHandlers {
                   `[${s.speaker}] ${formatDiarTime(s.start)} - ${formatDiarTime(s.end)}\n${s.text}`
               )
               .join("\n\n");
-            return { success: true, text: formatted, diarized: true, segments };
+            completedText(segments.map((segment) => segment.text).join(" "));
+            return { success: true, text: completedText(formatted), diarized: true, segments };
           }
 
           if (diarize && data.data?.segments) {
@@ -10115,14 +8275,19 @@ class IPCHandlers {
                   `[${s.speaker}] ${formatDiarTime(s.start)} - ${formatDiarTime(s.end)}\n${s.text}`
               )
               .join("\n\n");
-            return { success: true, text: formatted, diarized: true, segments };
+            completedText(segments.map((segment) => segment.text).join(" "));
+            return { success: true, text: completedText(formatted), diarized: true, segments };
           }
 
           if (diarize) {
             debugLogger.warn("BYOK diarization requested but provider returned no speaker data");
           }
           const segments = timestamps ? mapVerboseSegments(data.data) : null;
-          return { success: true, text: data.data.text, ...(segments ? { segments } : {}) };
+          return {
+            success: true,
+            text: completedText(data.data?.text),
+            ...(segments ? { segments } : {}),
+          };
         } catch (error) {
           debugLogger.error("BYOK audio file transcription error", { error: error.message });
           return {
@@ -10133,119 +8298,11 @@ class IPCHandlers {
           };
         } finally {
           cleanupUpload?.();
+          if (captureDir) fs.rmSync(captureDir, { recursive: true, force: true });
+          job.release();
         }
       }
     );
-
-    ipcMain.handle("get-referral-stats", async (event) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) {
-          throw new Error("OpenWhispr API URL not configured");
-        }
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) {
-          throw new Error("Not authenticated");
-        }
-
-        const response = await proxyFetch(`${apiUrl}/api/referrals/stats`, {
-          headers: {
-            ...authHeader,
-          },
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error("Unauthorized - please sign in");
-          }
-          if (response.status === 503) {
-            throw new Error("Service temporarily unavailable");
-          }
-          throw new Error(`Failed to fetch referral stats: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data;
-      } catch (error) {
-        debugLogger.error("Error fetching referral stats:", error);
-        throw error;
-      }
-    });
-
-    ipcMain.handle("send-referral-invite", async (event, email) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) {
-          throw new Error("OpenWhispr API URL not configured");
-        }
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) {
-          throw new Error("Not authenticated");
-        }
-
-        const response = await proxyFetch(`${apiUrl}/api/referrals/invite`, {
-          method: "POST",
-          headers: {
-            ...authHeader,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ email }),
-        });
-
-        if (!response.ok) {
-          let errorMessage = `Failed to send invite: ${response.status}`;
-          try {
-            const errorData = await response.json();
-            if (errorData.error) errorMessage = errorData.error;
-          } catch (_) {}
-          throw new Error(errorMessage);
-        }
-
-        const data = await response.json();
-        return data;
-      } catch (error) {
-        debugLogger.error("Error sending referral invite:", error);
-        throw error;
-      }
-    });
-
-    ipcMain.handle("get-referral-invites", async (event) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) {
-          throw new Error("OpenWhispr API URL not configured");
-        }
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) {
-          throw new Error("Not authenticated");
-        }
-
-        const response = await proxyFetch(`${apiUrl}/api/referrals/invites`, {
-          headers: {
-            ...authHeader,
-          },
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error("Unauthorized - please sign in");
-          }
-          if (response.status === 503) {
-            throw new Error("Service temporarily unavailable");
-          }
-          throw new Error(`Failed to fetch referral invites: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data;
-      } catch (error) {
-        debugLogger.error("Error fetching referral invites:", error);
-        throw error;
-      }
-    });
 
     ipcMain.handle("get-model-cache-root", () => {
       const { getCacheRoot } = require("./modelDirUtils");
@@ -10315,25 +8372,25 @@ class IPCHandlers {
         // Parse lines
         const lines = envContent.split("\n");
         const logLevelIndex = lines.findIndex((line) =>
-          line.trim().startsWith("OPENWHISPR_LOG_LEVEL=")
+          line.trim().startsWith("LOQUI_LOG_LEVEL=")
         );
 
         if (enabled) {
           // Set to debug
           if (logLevelIndex !== -1) {
-            lines[logLevelIndex] = "OPENWHISPR_LOG_LEVEL=debug";
+            lines[logLevelIndex] = "LOQUI_LOG_LEVEL=debug";
           } else {
             // Add new line
             if (lines.length > 0 && lines[lines.length - 1] !== "") {
               lines.push("");
             }
             lines.push("# Debug logging setting");
-            lines.push("OPENWHISPR_LOG_LEVEL=debug");
+            lines.push("LOQUI_LOG_LEVEL=debug");
           }
         } else {
           // Remove or set to info
           if (logLevelIndex !== -1) {
-            lines[logLevelIndex] = "OPENWHISPR_LOG_LEVEL=info";
+            lines[logLevelIndex] = "LOQUI_LOG_LEVEL=info";
           }
         }
 
@@ -10341,7 +8398,7 @@ class IPCHandlers {
         fs.writeFileSync(envPath, lines.join("\n"), "utf8");
 
         // Update environment variable
-        process.env.OPENWHISPR_LOG_LEVEL = enabled ? "debug" : "info";
+        process.env.LOQUI_LOG_LEVEL = enabled ? "debug" : "info";
 
         // Refresh logger state
         debugLogger.refreshLogLevel();
@@ -10368,105 +8425,16 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("check-for-updates", async () => {
-      return this.updateManager.checkForUpdates();
-    });
-
-    ipcMain.handle("download-update", async () => {
-      return this.updateManager.downloadUpdate();
-    });
-
-    ipcMain.handle("install-update", async () => {
-      return this.updateManager.installUpdate();
-    });
-
     ipcMain.handle("get-app-version", async () => {
-      return this.updateManager.getAppVersion();
+      return app.getVersion();
     });
 
-    ipcMain.handle("get-post-migration-state", () => ({
-      justMigrated: postMigrationDetector.isReturningFromOldBundle(),
-    }));
-
-    ipcMain.handle("get-oauth-protocol-registered", () => this.oauthProtocolRegistered);
-
-    ipcMain.handle("get-oauth-protocol", () => this.oauthProtocol);
-
-    ipcMain.handle("mark-bundle-migrated", () => {
-      postMigrationDetector.markBundleMigrated();
-    });
-
-    ipcMain.handle("mark-bundle-migration-dismissed", () => {
-      postMigrationDetector.markBundleMigrationDismissed();
-    });
-
-    ipcMain.handle("get-update-status", async () => {
-      return this.updateManager.getUpdateStatus();
-    });
-
-    ipcMain.handle("get-update-info", async () => {
-      return this.updateManager.getUpdateInfo();
-    });
-
-    ipcMain.handle("set-auto-updates-enabled", async (_event, enabled) => {
-      this.updateManager.setAutoUpdatesEnabled(enabled === true);
-      return { success: true };
-    });
-
-    const fetchStreamingToken = async (event) => {
-      const apiUrl = getApiUrl();
-      if (!apiUrl) {
-        throw new Error("OpenWhispr API URL not configured");
-      }
-
-      const authHeader = await getAuthHeader(event);
-      if (!Object.keys(authHeader).length) {
-        throw new Error("Not authenticated");
-      }
-
-      const tokenResponse = await proxyFetch(`${apiUrl}/api/streaming-token`, {
-        method: "POST",
-        headers: withPolicyHeaders({
-          ...authHeader,
-        }),
-      });
-
-      if (!tokenResponse.ok) {
-        if (tokenResponse.status === 401) {
-          const err = new Error("Session expired");
-          err.code = "AUTH_EXPIRED";
-          throw err;
-        }
-        throw await readPolicyResponseError(
-          tokenResponse,
-          `Failed to get streaming token: ${tokenResponse.status}`
-        );
-      }
-
-      const { token } = await tokenResponse.json();
-      if (!token) {
-        throw new Error("No token received from API");
-      }
-
-      return token;
-    };
-
-    // BYOK dictation mints through the shared realtime-token table instead of the
-    // account-scoped server endpoint, so it needs neither an API URL nor a
-    // session. The client's token cache is deliberately bypassed on that path:
-    // AssemblyAI's BYOK grant lives 60 seconds against a 5-minute cache window,
-    // and a cache shared across modes would replay a managed token as a BYOK one.
-    const fetchAssemblyAiToken = (event, byok) =>
-      byok
-        ? fetchRealtimeToken(event, { mode: "byok", provider: "assemblyai-realtime" })
-        : fetchStreamingToken(event);
+    const fetchAssemblyAiToken = (event) =>
+      fetchRealtimeToken(event, { mode: "byok", provider: "assemblyai-realtime" });
 
     ipcMain.handle("assemblyai-streaming-warmup", async (event, options = {}) => {
       try {
-        const byok = options.mode === "byok";
-        if (!byok && !getApiUrl()) {
-          return { success: false, error: "API not configured", code: "NO_API" };
-        }
+        const byok = true;
 
         if (!this.assemblyAiStreaming) {
           this.assemblyAiStreaming = new AssemblyAiStreaming();
@@ -10504,10 +8472,7 @@ class IPCHandlers {
 
       streamingStartInProgress = true;
       try {
-        const byok = options.mode === "byok";
-        if (!byok && !getApiUrl()) {
-          return { success: false, error: "API not configured", code: "NO_API" };
-        }
+        const byok = true;
 
         const win = BrowserWindow.fromWebContents(event.sender);
 
@@ -10624,98 +8589,17 @@ class IPCHandlers {
 
     let deepgramTokenWindowId = null;
 
-    const fetchDeepgramStreamingTokenFromWindow = async (windowId) => {
-      const apiUrl = getApiUrl();
-      if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-      const win = BrowserWindow.fromId(windowId);
-      if (!win || win.isDestroyed()) throw new Error("Window not available for token refresh");
-
-      const authHeader = await getAuthHeaderFromWindow(win);
-      if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-      const tokenResponse = await proxyFetch(`${apiUrl}/api/deepgram-streaming-token`, {
-        method: "POST",
-        headers: withPolicyHeaders(authHeader),
-      });
-
-      if (!tokenResponse.ok) {
-        if (tokenResponse.status === 401) {
-          const err = new Error("Session expired");
-          err.code = "AUTH_EXPIRED";
-          throw err;
-        }
-        throw await readPolicyResponseError(
-          tokenResponse,
-          `Failed to get Deepgram streaming token: ${tokenResponse.status}`
-        );
-      }
-
-      const { token } = await tokenResponse.json();
-      if (!token) throw new Error("No token received from API");
-      return token;
-    };
-
-    const fetchDeepgramStreamingToken = async (event) => {
-      const apiUrl = getApiUrl();
-      if (!apiUrl) {
-        throw new Error("OpenWhispr API URL not configured");
-      }
-
-      const authHeader = await getAuthHeader(event);
-      if (!Object.keys(authHeader).length) {
-        throw new Error("Not authenticated");
-      }
-
-      const tokenResponse = await proxyFetch(`${apiUrl}/api/deepgram-streaming-token`, {
-        method: "POST",
-        headers: withPolicyHeaders({
-          ...authHeader,
-        }),
-      });
-
-      if (!tokenResponse.ok) {
-        if (tokenResponse.status === 401) {
-          const err = new Error("Session expired");
-          err.code = "AUTH_EXPIRED";
-          throw err;
-        }
-        throw await readPolicyResponseError(
-          tokenResponse,
-          `Failed to get Deepgram streaming token: ${tokenResponse.status}`
-        );
-      }
-
-      const { token } = await tokenResponse.json();
-      if (!token) {
-        throw new Error("No token received from API");
-      }
-
-      return token;
-    };
-
-    // Same BYOK contract as AssemblyAI above, except the "token" is the raw
-    // long-lived Deepgram key. It still bypasses the client cache so a token
-    // minted in one mode can never be replayed in the other.
     const DEEPGRAM_BYOK_TOKEN_OPTIONS = { mode: "byok", provider: "deepgram-realtime" };
-    const fetchDeepgramToken = (event, byok) =>
-      byok
-        ? fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS)
-        : fetchDeepgramStreamingToken(event);
-    const setDeepgramTokenRefreshFn = (event, byok) => {
-      this.deepgramStreaming.setTokenRefreshFn(async () => {
-        if (byok) return fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS);
-        if (!deepgramTokenWindowId) throw new Error("No window reference");
-        return fetchDeepgramStreamingTokenFromWindow(deepgramTokenWindowId);
-      });
+    const fetchDeepgramToken = (event) => fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS);
+    const setDeepgramTokenRefreshFn = (event) => {
+      this.deepgramStreaming.setTokenRefreshFn(() =>
+        fetchRealtimeToken(event, DEEPGRAM_BYOK_TOKEN_OPTIONS)
+      );
     };
 
     ipcMain.handle("deepgram-streaming-warmup", async (event, options = {}) => {
       try {
-        const byok = options.mode === "byok";
-        if (!byok && !getApiUrl()) {
-          return { success: false, error: "API not configured", code: "NO_API" };
-        }
+        const byok = true;
 
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) {
@@ -10769,10 +8653,7 @@ class IPCHandlers {
 
       deepgramStreamingStartInProgress = true;
       try {
-        const byok = options.mode === "byok";
-        if (!byok && !getApiUrl()) {
-          return { success: false, error: "API not configured", code: "NO_API" };
-        }
+        const byok = true;
 
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win && !win.isDestroyed()) {

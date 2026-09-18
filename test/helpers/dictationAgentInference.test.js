@@ -49,10 +49,11 @@ test("self-hosted is reachable with no model and forwards the LAN url", async ()
 
   assert.equal(result.reachable, true);
   assert.equal(result.config.lanUrl, "http://127.0.0.1:8080/v1");
-  assert.equal(result.config.customApiKey, "test-key");
+  assert.equal(result.config.credentialRef, "custom:dictationAgent");
+  assert.equal(result.config.customApiKey, undefined);
 });
 
-test("cloud is reachable with no model", async () => {
+test("removed cloud mode is unavailable", async () => {
   const { resolveDictationAgentInference } = await load();
 
   const result = resolveDictationAgentInference(
@@ -65,9 +66,9 @@ test("cloud is reachable with no model", async () => {
     { isCloudAgent: true }
   );
 
-  assert.equal(result.reachable, true);
+  assert.equal(result.reachable, false);
   assert.equal(result.model, "");
-  assert.equal(result.config.provider, "openwhispr");
+  assert.equal(result.config.provider, undefined);
 });
 
 test("a custom provider forwards its base url and api key", async () => {
@@ -81,7 +82,8 @@ test("a custom provider forwards its base url and api key", async () => {
   });
 
   assert.equal(result.config.baseUrl, "https://example.test/v1");
-  assert.equal(result.config.customApiKey, "sk-test");
+  assert.equal(result.config.credentialRef, "custom:dictationAgent");
+  assert.equal(result.config.customApiKey, undefined);
 });
 
 test("a non-custom provider leaks neither base url nor api key", async () => {
@@ -210,7 +212,7 @@ test("managed mode never falls through to a stale provider when signed out", asy
   });
 
   assert.equal(result.reachable, false);
-  assert.equal(result.displayProvider, "openwhispr");
+  assert.equal(result.displayProvider, "none");
   assert.equal(result.config.provider, undefined);
 });
 
@@ -247,9 +249,9 @@ test("vision override runs as the dictation agent scope and inherits key with en
   assert.equal(result.config.inferenceScope, "dictationAgent");
   assert.equal(result.config.baseUrl, "https://agent.example.com/v1");
   assert.equal(
-    result.config.customApiKey,
-    "agent-key",
-    "an inherited endpoint must carry the agent's key with it"
+    result.config.credentialRef,
+    "custom:dictationAgent",
+    "an inherited endpoint must use the agent credential reference"
   );
 });
 
@@ -317,7 +319,7 @@ test("typed chat surfaces stay on the Chat scope even when the Voice Assistant s
   assert.equal(attachScreenContext, true, "Chat's own model can see images");
 });
 
-test("an unreachable Voice Assistant scope falls the panel back to the Chat scope", () => {
+test("an unreachable Voice Assistant scope keeps its scope instead of using another provider", () => {
   const { config, attachScreenContext } = panel(
     {
       ...panelSettings,
@@ -328,13 +330,13 @@ test("an unreachable Voice Assistant scope falls the panel back to the Chat scop
     { hasScreenContext: true }
   );
 
-  assert.equal(config.scope, "chatIntelligence");
-  assert.equal(config.provider, "anthropic");
-  assert.equal(config.model, "claude-sonnet-4-5");
-  assert.equal(attachScreenContext, true, "the fallback is gated on Chat's model, not the agent's");
+  assert.equal(config.scope, "dictationAgent");
+  assert.equal(config.provider, "");
+  assert.equal(config.model, "");
+  assert.equal(attachScreenContext, false, "the missing model does not use Chat's provider");
 });
 
-test("a signed-in cloud Voice Assistant scope is reachable without a model and takes screenshots", () => {
+test("removed hosted scope cannot bypass image capabilities", () => {
   const { config, attachScreenContext } = panel(
     {
       ...panelSettings,
@@ -349,10 +351,10 @@ test("a signed-in cloud Voice Assistant scope is reachable without a model and t
 
   assert.equal(config.scope, "dictationAgent");
   assert.equal(config.mode, "openwhispr");
-  assert.equal(attachScreenContext, true, "cloud vision-routes server-side");
+  assert.equal(attachScreenContext, false, "removed hosted mode has no image transport");
 });
 
-test("a signed-out cloud Voice Assistant scope is unreachable and falls back to Chat", () => {
+test("explicit voice requests retain their own scope: a signed-out cloud Voice Assistant scope is unreachable and falls back to Chat", () => {
   const { config } = panel({
     ...panelSettings,
     dictationAgentMode: "openwhispr",
@@ -360,13 +362,13 @@ test("a signed-out cloud Voice Assistant scope is unreachable and falls back to 
     dictationAgentModel: "",
   });
 
-  assert.equal(config.scope, "chatIntelligence");
+  assert.equal(config.scope, "dictationAgent");
 });
 
-test("the assistant toggled off keeps the panel on the Chat scope", () => {
+test("explicit voice requests retain their own scope: the assistant toggled off keeps the panel on the Chat scope", () => {
   const { config } = panel({ ...panelSettings, useDictationAgent: false });
 
-  assert.equal(config.scope, "chatIntelligence");
+  assert.equal(config.scope, "dictationAgent");
 });
 
 test("the assistant panel resolves the Voice Assistant scope, not the Chat scope", () => {

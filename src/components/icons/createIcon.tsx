@@ -7,12 +7,12 @@ export type IconProps = SVGProps<SVGSVGElement> & {
 
 export type IconComponent = FunctionComponent<IconProps>;
 
-// Adapts a vendored Nucleo component to the prop surface the app already uses
+// Adapts a vendored Lucide component to the prop surface the app already uses
 // (`size`, `strokeWidth`, `className`, …). `data-icon` carries the app-facing
 // name so markup stays identifiable in tests and dev tools.
-export function createIcon(name: string, Nucleo: ComponentType<IconProps>): IconComponent {
+export function createIcon(name: string, Lucide: ComponentType<IconProps>): IconComponent {
   const Icon: IconComponent = ({ size, ...props }) => (
-    <Nucleo
+    <Lucide
       {...(size !== undefined && { width: size, height: size })}
       data-icon={name}
       aria-hidden={props["aria-label"] ? undefined : true}

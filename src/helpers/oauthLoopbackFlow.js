@@ -3,16 +3,7 @@ const crypto = require("crypto");
 const { openExternalUrl } = require("./externalUrlOpener");
 
 const OAUTH_TIMEOUT_MS = 120000;
-const DEFAULT_DESKTOP_CALLBACK_URL = "https://openwhispr.com/auth/desktop-callback";
-
-const PROTOCOL_BY_CHANNEL = {
-  development: "openwhispr-dev",
-  staging: "openwhispr-staging",
-  production: "openwhispr",
-};
-
-// Thrown by handleCallback to control the error code shown on the hosted
-// desktop-callback page (defaults to "server_error").
+// OAuth completes locally; no hosted callback or custom URL scheme is required.
 class OAuthFlowError extends Error {
   constructor(redirectCode, message) {
     super(message);
@@ -20,27 +11,16 @@ class OAuthFlowError extends Error {
   }
 }
 
-function getDesktopCallbackUrl() {
-  return process.env.VITE_OPENWHISPR_OAUTH_CALLBACK_URL || DEFAULT_DESKTOP_CALLBACK_URL;
-}
-
-function getProtocol() {
-  const channel = process.env.OPENWHISPR_CHANNEL || "production";
-  return PROTOCOL_BY_CHANNEL[channel] || PROTOCOL_BY_CHANNEL.production;
-}
-
-function buildCallbackRedirect(params) {
-  const url = new URL(getDesktopCallbackUrl());
-  url.searchParams.set("protocol", getProtocol());
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
-  return url.toString();
-}
-
 function redirect(res, params) {
-  res.writeHead(302, { Location: buildCallbackRedirect(params) });
-  res.end();
+  const success = Object.keys(params).some((key) => key.endsWith("_connected"));
+  res.writeHead(success ? 200 : 400, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+  });
+  res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Loqui</title>
+    <body><h1>${success ? "Calendar connected" : "Connection unsuccessful"}</h1>
+    <p>You can close this tab and return to Loqui.</p></body></html>`);
 }
 
 // Runs a PKCE auth-code flow through an ephemeral 127.0.0.1 server:

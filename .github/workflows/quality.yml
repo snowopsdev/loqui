@@ -1,0 +1,86 @@
+name: Quality
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.paths.outputs.code }}
+      platform: ${{ steps.paths.outputs.platform }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git cat-file -e "$BASE" 2>/dev/null; then BASE=$(git rev-list --max-parents=0 HEAD); fi
+          git diff --name-only "$BASE" HEAD > /tmp/changed
+          if grep -qvE '(^docs/|\.md$|^LICENSE$)' /tmp/changed; then echo code=true >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^(native/|resources/|scripts/|src/assets/|package(-lock)?\.json|electron-builder\.json|runtime-assets\.json|\.github/)' /tmp/changed; then echo platform=true >> "$GITHUB_OUTPUT"; fi
+  quality:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run native:node
+      - run: npm test
+      - run: npm run lint && npm run typecheck && npm run i18n:check && npm run build:renderer
+  security:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+          GITLEAKS_ENABLE_SUMMARY: true
+      - name: Validate workflows
+        run: |
+          curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o /tmp/actionlint.tar.gz
+          echo '023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  /tmp/actionlint.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint -color
+  platforms:
+    needs: changes
+    if: needs.changes.outputs.platform == 'true'
+    uses: ./.github/workflows/platform.yml
+  gate:
+    name: CI
+    if: always()
+    needs: [changes, quality, security, platforms]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          jobs=json.loads(os.environ['RESULTS'])
+          assert all(v['result'] in ('success','skipped') for v in jobs.values()), jobs
+          assert jobs['changes']['result']=='success' and jobs['security']['result']=='success'
+          PYCODE

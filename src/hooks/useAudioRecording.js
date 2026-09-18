@@ -3,18 +3,11 @@ import { useTranslation } from "react-i18next";
 import AudioManager from "../helpers/audioManager";
 import logger from "../utils/logger";
 import { playStartCue, playStopCue } from "../utils/dictationCues";
-import { getSettings } from "../stores/settingsStore";
+import { getSettings, useSettingsStore } from "../stores/settingsStore";
 import { expandSnippets } from "../utils/snippets";
 import { getRecordingErrorTitle, getRecordingErrorDescription } from "../utils/recordingErrors";
 import { isAccessibilitySkipped } from "../utils/permissions";
-import { needsSttConfigBeforeStart } from "../helpers/sttConfigPolicy";
-import {
-  isAgentAllowed,
-  isScreenContextAllowed,
-  isTranscriptionContextAllowed,
-} from "../stores/policyRules";
-import { isManagedTranscriptionActive } from "../services/managedTranscription";
-import { usePolicyStore } from "../stores/policyStore";
+
 import { getOnboardingDemoKind } from "../utils/onboardingDemo";
 import {
   buildLiveTranscriptionPreview,
@@ -124,15 +117,6 @@ export const useAudioRecording = (toast, options = {}) => {
       let recordingStarted = false;
       try {
         if (!audioManagerRef.current) return false;
-        const policyState = usePolicyStore.getState();
-        if (
-          (!isManagedTranscriptionActive() &&
-            !isTranscriptionContextAllowed(policyState, getSettings(), "dictation")) ||
-          (voiceAgentRequested && !isAgentAllowed(policyState))
-        ) {
-          toast({ title: t("common.managedByOrg"), variant: "default" });
-          return false;
-        }
 
         if (!canStartDictation(audioManagerRef.current.getState())) return false;
 
@@ -182,11 +166,7 @@ export const useAudioRecording = (toast, options = {}) => {
         // getSettings() already reflects a managed policy that forces the
         // setting off; the predicate additionally fails closed while the
         // policy is still loading or errored.
-        if (
-          voiceAgentRequested &&
-          getSettings().voiceAgentScreenContext &&
-          isScreenContextAllowed(policyState)
-        ) {
+        if (voiceAgentRequested && getSettings().voiceAgentScreenContext) {
           audioManagerRef.current.beginScreenContextCapture();
         }
 
@@ -201,19 +181,6 @@ export const useAudioRecording = (toast, options = {}) => {
         // Await it only when it can change the start decision (signed-in
         // OpenWhispr-cloud streaming); for local STT or a signed-out session the
         // fetch stalls on auth resolution and would delay the mic open (#1673).
-        if (!audioManagerRef.current.sttConfig) {
-          const configFetch = (async () => {
-            const config = await window.electronAPI.getSttConfig?.();
-            if (config?.success) {
-              audioManagerRef.current.setSttConfig(config);
-            }
-          })().catch((error) => {
-            logger.warn("STT config fetch failed", { error: error?.message });
-          });
-          if (needsSttConfigBeforeStart(getSettings())) {
-            await configFetch;
-          }
-        }
 
         const didStart = audioManagerRef.current.shouldUseStreaming()
           ? await audioManagerRef.current.startStreamingRecording()
@@ -270,7 +237,7 @@ export const useAudioRecording = (toast, options = {}) => {
         }
       }
     },
-    [t, toast, dismissDictationError, reportLifecycle]
+    [dismissDictationError, reportLifecycle]
   );
 
   const performStopRecording = useCallback(async () => {
@@ -692,18 +659,6 @@ export const useAudioRecording = (toast, options = {}) => {
             });
           }
 
-          // Cloud usage: limit reached after this transcription
-          if (result.source === "openwhispr" && result.limitReached) {
-            // Notify control panel to show UpgradePrompt dialog
-            window.electronAPI?.notifyLimitReached?.({
-              wordsUsed: result.wordsUsed,
-              limit:
-                result.wordsRemaining !== undefined
-                  ? result.wordsUsed + result.wordsRemaining
-                  : 2000,
-            });
-          }
-
           if (audioManagerRef.current.shouldUseStreaming()) {
             audioManagerRef.current.warmupStreamingConnection();
           }
@@ -732,16 +687,8 @@ export const useAudioRecording = (toast, options = {}) => {
     window.electronAPI.setScreenContextEnabled?.(getSettings().voiceAgentScreenContext);
     // A policy refresh can flip the effective screen-context value mid-session;
     // re-sync overlay content protection when it does.
-    const unsubscribePolicy = usePolicyStore.subscribe(() => {
+    const unsubscribeSettings = useSettingsStore.subscribe(() => {
       window.electronAPI.setScreenContextEnabled?.(getSettings().voiceAgentScreenContext);
-    });
-    window.electronAPI.getSttConfig?.().then((config) => {
-      if (config?.success && audioManagerRef.current) {
-        audioManagerRef.current.setSttConfig(config);
-        if (audioManagerRef.current.shouldUseStreaming()) {
-          audioManagerRef.current.warmupStreamingConnection();
-        }
-      }
     });
 
     const handleToggle = async ({
@@ -826,7 +773,7 @@ export const useAudioRecording = (toast, options = {}) => {
     // Cleanup
     return () => {
       reportLifecycle("idle");
-      unsubscribePolicy();
+      unsubscribeSettings();
       disposeToggle?.();
       disposeVoiceAgentToggle?.();
       disposeTranslationToggle?.();

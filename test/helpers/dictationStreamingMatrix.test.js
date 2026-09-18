@@ -32,7 +32,7 @@ const SHARED_CHANNEL_PROVIDERS = ["openai-realtime", "tinfoil-realtime"];
 const SETTINGS_DEFAULTS = {
   cloudTranscriptionProvider: "openai",
   cloudTranscriptionModel: "gpt-4o-mini-transcribe",
-  cloudTranscriptionMode: "openwhispr",
+  cloudTranscriptionMode: "byok",
   cortiEnvironment: undefined,
   cortiTenant: undefined,
 };
@@ -41,34 +41,24 @@ const settingsWith = (overrides) => ({ ...SETTINGS_DEFAULTS, ...overrides });
 
 // [description, { settings, context, sttConfig }, expected provider name]
 const RESOLUTION_MATRIX = [
-  ["default config (the #1624 repro) resolves to openai-realtime", {}, "openai-realtime"],
+  ["selected OpenAI realtime model", {}, "openai-realtime"],
   [
-    "gpt-4o-transcribe also resolves to openai-realtime",
+    "OpenAI alternate realtime model",
     { settings: settingsWith({ cloudTranscriptionModel: "gpt-4o-transcribe" }) },
     "openai-realtime",
   ],
   [
-    "tinfoil provider wins regardless of model",
+    "Tinfoil selection",
     { settings: settingsWith({ cloudTranscriptionProvider: "tinfoil" }) },
     "tinfoil-realtime",
   ],
   [
-    "corti byok streams over corti's own channels",
-    {
-      settings: settingsWith({
-        cloudTranscriptionProvider: "corti",
-        cloudTranscriptionMode: "byok",
-      }),
-    },
+    "Corti selection cannot inherit a stale OpenAI model",
+    { settings: settingsWith({ cloudTranscriptionProvider: "corti" }) },
     "corti",
   ],
   [
-    "corti on openwhispr cloud is not corti streaming; realtime model still wins",
-    { settings: settingsWith({ cloudTranscriptionProvider: "corti" }) },
-    "openai-realtime",
-  ],
-  [
-    "gemini's live model routes to its own channels",
+    "Gemini live selection",
     {
       settings: settingsWith({
         cloudTranscriptionProvider: "gemini",
@@ -78,70 +68,55 @@ const RESOLUTION_MATRIX = [
     "gemini",
   ],
   [
-    "gemini's batch model keeps the dictation default (HTTP, not streaming)",
+    "Gemini batch cannot choose another provider",
     {
       settings: settingsWith({
         cloudTranscriptionProvider: "gemini",
         cloudTranscriptionModel: "gemini-3.5-transcribe",
       }),
     },
-    "openai-realtime",
+    "",
   ],
   [
-    "deepgram byok streams over deepgram's own channels",
+    "Deepgram selection",
     {
       settings: settingsWith({
         cloudTranscriptionProvider: "deepgram",
         cloudTranscriptionModel: "nova-3",
-        cloudTranscriptionMode: "byok",
       }),
     },
     "deepgram",
   ],
   [
-    "assemblyai byok streams over assemblyai's own channels",
+    "AssemblyAI selection",
     {
       settings: settingsWith({
         cloudTranscriptionProvider: "assemblyai",
         cloudTranscriptionModel: "universal-streaming-english",
-        cloudTranscriptionMode: "byok",
       }),
     },
     "assemblyai",
   ],
   [
-    "a stale OpenAI realtime model cannot hijack a byok streaming-only provider",
+    "stale OpenAI model cannot hijack Deepgram",
+    { settings: settingsWith({ cloudTranscriptionProvider: "deepgram" }) },
+    "deepgram",
+  ],
+  [
+    "custom server cannot fall back to OpenAI realtime",
+    { settings: settingsWith({ cloudTranscriptionProvider: "custom" }) },
+    "",
+  ],
+  [
+    "legacy hosted config cannot select a provider",
     {
       settings: settingsWith({
-        cloudTranscriptionProvider: "deepgram",
-        cloudTranscriptionModel: "gpt-4o-mini-transcribe",
-        cloudTranscriptionMode: "byok",
+        cloudTranscriptionProvider: "groq",
+        cloudTranscriptionModel: "whisper-large-v3",
       }),
-    },
-    "deepgram",
-  ],
-  [
-    "deepgram on openwhispr cloud stays on the managed path",
-    { settings: settingsWith({ cloudTranscriptionProvider: "deepgram" }) },
-    "openai-realtime",
-  ],
-  [
-    "batch model in notes context defaults to deepgram",
-    { settings: settingsWith({ cloudTranscriptionModel: "whisper-1" }), context: "notes" },
-    "deepgram",
-  ],
-  [
-    "batch model in dictation context defaults to openai-realtime",
-    { settings: settingsWith({ cloudTranscriptionModel: "whisper-1" }) },
-    "openai-realtime",
-  ],
-  [
-    "server sttConfig picks the streaming provider for batch models",
-    {
-      settings: settingsWith({ cloudTranscriptionModel: "whisper-1" }),
       sttConfig: { streamingProvider: "assemblyai" },
     },
-    "assemblyai",
+    "",
   ],
 ];
 
@@ -164,7 +139,7 @@ test("resolution: every matrix outcome is a renderer channel binding", async () 
   ] of RESOLUTION_MATRIX) {
     const name = resolveStreamingProviderName({ settings, context, sttConfig });
     assert.ok(
-      RENDERER_STREAMING_PROVIDERS.includes(name),
+      name === "" || RENDERER_STREAMING_PROVIDERS.includes(name),
       `resolver emitted "${name}", which has no STREAMING_PROVIDERS entry`
     );
   }
@@ -184,7 +159,7 @@ test("options: openai-realtime sends provider explicitly and no preview (#1624)"
     language: "en",
     keyterms: ["OpenWhispr"],
     model: "gpt-4o-mini-transcribe",
-    mode: "openwhispr",
+    mode: "byok",
     environment: undefined,
     tenant: undefined,
   });

@@ -39,7 +39,7 @@ const hashFile = path.join(outputDir, `.MediaRemoteAdapter.${targetArch}.hash`);
 
 const FRAMEWORK_NAME = "MediaRemoteAdapter";
 const FRAMEWORK_VERSION = "A";
-const BUNDLE_IDENTIFIER = "com.openwhispr.MediaRemoteAdapter";
+const BUNDLE_IDENTIFIER = "io.github.snowopsdev.loqui.MediaRemoteAdapter";
 const SHORT_VERSION = "0.7.6";
 
 const SOURCES = [

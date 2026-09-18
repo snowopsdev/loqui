@@ -1,0 +1,10 @@
+# Reviewed upstream false positives: example YOUR_KEY placeholders and a local permission key.
+ba9c1f17d2fed4582fd60bb0e6b480cab133f742:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:309
+ba9c1f17d2fed4582fd60bb0e6b480cab133f742:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:313
+ba9c1f17d2fed4582fd60bb0e6b480cab133f742:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:317
+a0a1f79ef5684b6881e10766f421353a9e48fc5b:src/utils/permissions.ts:generic-api-key:19
+d5972be45a37f86a47fc97e67b0ea9b95569a12d:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:249
+49eda0128ec3ceea8350e7d9c5e18d3045f8909d:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:183
+49eda0128ec3ceea8350e7d9c5e18d3045f8909d:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:191
+49eda0128ec3ceea8350e7d9c5e18d3045f8909d:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:200
+49eda0128ec3ceea8350e7d9c5e18d3045f8909d:agent-skills/openwhispr-api/SKILL.md:curl-auth-header:211

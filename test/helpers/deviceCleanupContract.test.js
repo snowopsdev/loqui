@@ -21,7 +21,6 @@ test("explicit device cleanup covers models, credentials, caches, and browser se
     "diarizationManager?.deleteModels",
     "modelManager.deleteAllModels",
     "environmentManager?.clearAllPersistedData",
-    "tokenStore.clear",
     "clearStorageData",
     "clearCache",
     "setAutoStartEnabled(false)",
@@ -33,8 +32,5 @@ test("explicit device cleanup covers models, credentials, caches, and browser se
     assert.ok(source.includes(`"${cacheName}"`), `device cleanup removes ${cacheName}`);
   }
 
-  assert.ok(
-    source.includes('"account-scope-binding.json"'),
-    "device cleanup removes the account scope binding"
-  );
+  assert.ok(!source.includes("tokenStore"), "no hosted account token store exists");
 });

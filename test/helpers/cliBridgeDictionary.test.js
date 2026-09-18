@@ -62,6 +62,7 @@ function createBridge(t) {
   }
 
   broadcasts.length = 0;
+  t.after(() => db.db.close());
   const bridge = new CliBridge({ databaseManager: db });
   return { bridge, db, broadcasts };
 }
@@ -96,11 +97,9 @@ test("POST /v1/dictionary/update bulk-adds words that survive a reload", (t) => 
   assert.equal(result.data.added, 3);
   assert.deepEqual(ctx.db.getDictionary(), ["OpenWhispr", ...contacts]);
 
-  // The point of the endpoint: rows arrive with the sync columns set, so they
-  // are uploadable rather than invisible to the cloud push (#1295).
-  const pending = ctx.db.getPendingDictionary().map((r) => r.word);
-  for (const name of contacts) assert.ok(pending.includes(name), `${name} should be pending`);
-  for (const row of ctx.db.getPendingDictionary()) assert.ok(row.client_dict_id);
+  const rows = ctx.db.db.prepare("SELECT word, client_dict_id FROM custom_dictionary").all();
+  for (const name of contacts)
+    assert.ok(rows.some((row) => row.word === name && row.client_dict_id));
 });
 
 test("POST /v1/dictionary/update removes only the named words", (t) => {

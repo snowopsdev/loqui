@@ -1,6 +1,6 @@
 // Single source of truth for batch speech-to-text routing across dictation,
 // retry, and upload. Callers resolve their scope's settings into the flat base
-// names and handle the OpenWhispr-cloud pipeline upstream; streaming provider
+// names; streaming provider
 // selection is a live-recorder concern and stays in audioManager.
 //
 // Loaded by the renderer and the main process alike (main uses dynamic import):
@@ -18,15 +18,10 @@ import {
   resolveSelfHostedTranscriptionModel,
 } from "./selfHostedTranscription.js";
 import {
-  isTranscriptionSelectionAllowed,
-  type PolicyDecisionSnapshot,
-} from "../stores/policyRules.ts";
-import {
   isTinfoilInferenceUrl,
   TINFOIL_PROXY_REQUIRED_ERROR,
   type TranscriptionProviderBaseUrl,
 } from "../services/transcriptionBaseUrl.ts";
-import type { ManagedEnterpriseRequestContext } from "../types/enterpriseIdentity.ts";
 
 const BYOK_FILE_SIZE_LIMIT = 25 * 1024 * 1024;
 
@@ -40,8 +35,6 @@ export function byokFileSizeLimit(provider: string): number {
 
 const CUSTOM_ENDPOINT_INVALID_MESSAGE_KEY =
   "hooks.audioRecording.errorDescriptions.customEndpointInvalid";
-const MANAGED_TRANSCRIPTION_UNAVAILABLE_MESSAGE_KEY =
-  "hooks.audioRecording.errorDescriptions.managedTranscriptionUnavailable";
 
 const STREAMING_ONLY_PROVIDER_MESSAGE_KEY =
   "hooks.audioRecording.errorDescriptions.streamingOnlyProvider";
@@ -72,29 +65,11 @@ export interface TranscriptionRouteSettings {
   preferredLanguage?: string;
 }
 
-/**
- * Outcome of managed enterprise STT resolution, computed by the caller
- * (renderer: enterpriseIdentityStore; main: enterpriseIdentityManager). The
- * context is identity metadata for main-process re-validation, never a secret.
- */
-export type ManagedTranscriptionResolution =
-  | {
-      kind: "managed";
-      provider: "azure";
-      deployment: string;
-      context: ManagedEnterpriseRequestContext;
-    }
-  | { kind: "error"; message: string; code: string; messageKey?: string };
-
 export interface TranscriptionRouteInput {
-  /** Policy-EFFECTIVE, scope-resolved snapshot — the resolver never re-maps selections. */
+  /** Scope-resolved personal settings. */
   settings: TranscriptionRouteSettings;
-  /** Optional fail-closed floor; renderer callers pass the policy store state, main-process callers omit it. */
-  policy?: PolicyDecisionSnapshot | null;
   /** Provider registry, for the Tinfoil-host guard. Renderer passes ModelRegistry, main the raw JSON. */
   providers?: readonly TranscriptionProviderBaseUrl[];
-  /** Managed enterprise STT outcome; when present it outranks every personal setting. */
-  managed?: ManagedTranscriptionResolution | null;
   /**
    * Whether the selected provider's BYOK key is present — a presence flag, never
    * the key. Consulted only for realtime-only providers: the recorder skips
@@ -129,16 +104,6 @@ export type TranscriptionRoute =
       model: string | null;
       auth: { scheme: "bearer" | "azure-api-key" | "none"; keyRef: string | null };
       sizeCapBytes: number | null;
-      language?: string;
-    }
-  | {
-      // Workspace-managed Azure STT. Executed only in the main process, which
-      // re-validates the context and holds the Entra token.
-      transport: "managed";
-      provider: "azure";
-      deployment: string;
-      context: ManagedEnterpriseRequestContext;
-      sizeCapBytes: number;
       language?: string;
     };
 
@@ -213,20 +178,21 @@ function error(message: string, code?: string, messageKey?: string): Transcripti
 // raw URL because normalization strips the suffix that marks a pinned deployment.
 // Shared by self-hosted and Custom — deriveTranscriptionMode files Azure
 // endpoints under either, depending on when the user configured them.
+function isHostedEndpoint(endpoint: string): boolean {
+  try {
+    return /(^|\.)openwhispr\.(com|app)$/i.test(new URL(endpoint).hostname);
+  } catch {
+    return true;
+  }
+}
+
 function buildBatchEndpoint(rawUrl: string, base: string, model: string | null): string {
   const fallback = buildApiUrl(base, "/audio/transcriptions");
   if (!isAzureOpenAIEndpoint(base)) return fallback;
   return buildAzureTranscriptionUrl(rawUrl, model || "") || fallback;
 }
 
-function customEndpointError(managed: boolean): TranscriptionRoute {
-  if (managed) {
-    return error(
-      "Transcription is restricted by your organization.",
-      "POLICY_RESTRICTED",
-      "common.policyTranscriptionRestricted"
-    );
-  }
+function customEndpointError(): TranscriptionRoute {
   return error(
     "Custom transcription endpoint is invalid or unsupported",
     "CUSTOM_ENDPOINT_INVALID",
@@ -236,61 +202,21 @@ function customEndpointError(managed: boolean): TranscriptionRoute {
 
 export function resolveTranscriptionRoute({
   settings,
-  policy,
   providers = [],
-  managed: managedResolution,
   hasProviderKey,
   request,
 }: TranscriptionRouteInput): TranscriptionRoute {
   const s = settings || {};
-  const managed = policy?.status === "managed";
   const language =
     request?.effectiveLanguage ??
     (!s.preferredLanguage || s.preferredLanguage === "auto"
       ? undefined
       : s.preferredLanguage.split("-")[0]);
 
-  // Managed enterprise STT outranks every personal setting; the resolution is
-  // already policy-checked where it was computed (enterpriseIdentityStore /
-  // enterpriseIdentityManager), so the selection floor below does not apply.
-  if (managedResolution) {
-    if (managedResolution.kind === "error") {
-      return error(managedResolution.message, managedResolution.code, managedResolution.messageKey);
-    }
-    return {
-      transport: "managed",
-      provider: managedResolution.provider,
-      deployment: managedResolution.deployment,
-      context: managedResolution.context,
-      sizeCapBytes: BYOK_FILE_SIZE_LIMIT,
-      language,
-    };
-  }
-
-  // A policy-effective "enterprise" selection with no managed resolution means
-  // the managed config has not resolved (loading, evicted, or absent). Never
-  // fall through to a personal lane in that state.
-  if (s.transcriptionMode === "enterprise") {
+  if (s.transcriptionMode && !["local", "providers", "self-hosted"].includes(s.transcriptionMode)) {
     return error(
-      "Managed transcription is not available right now. Try again in a moment.",
-      "MANAGED_CONFIG_UNAVAILABLE",
-      MANAGED_TRANSCRIPTION_UNAVAILABLE_MESSAGE_KEY
-    );
-  }
-
-  // Fail-closed floor only: callers pass policy-effective settings, so a
-  // disallowed selection here means the policy layer was bypassed upstream.
-  if (
-    managed &&
-    !isTranscriptionSelectionAllowed(policy!, {
-      mode: (s.transcriptionMode || (s.useLocalWhisper ? "local" : "providers")) as never,
-      provider: s.cloudTranscriptionProvider || "",
-    })
-  ) {
-    return error(
-      "Transcription is restricted by your organization.",
-      "POLICY_RESTRICTED",
-      "common.policyTranscriptionRestricted"
+      "Choose a local speech model or direct transcription provider.",
+      "UNSUPPORTED_TRANSCRIPTION_MODE"
     );
   }
 
@@ -303,7 +229,7 @@ export function resolveTranscriptionRoute({
     if (isSelfHostedTranscription(s)) {
       const rawUrl = (s.remoteTranscriptionUrl || "").trim();
       const base = normalizeBaseUrl(rawUrl);
-      if (!base || !isSecureHttpEndpoint(base)) {
+      if (!base || !isSecureHttpEndpoint(base) || isHostedEndpoint(base)) {
         return error("Self-hosted transcription URL is invalid or unsupported");
       }
       const selfHostedModel = resolveSelfHostedTranscriptionModel(s);
@@ -323,11 +249,29 @@ export function resolveTranscriptionRoute({
   }
 
   // Engine and model selection stay with the local managers.
-  if (s.useLocalWhisper) {
+  if (s.transcriptionMode === "local" || s.useLocalWhisper) {
     return { transport: "local" };
   }
 
-  const provider = s.cloudTranscriptionProvider || "openai";
+  const provider = s.cloudTranscriptionProvider || "";
+  if (
+    ![
+      "openai",
+      "groq",
+      "custom",
+      "tinfoil",
+      "mistral",
+      "xai",
+      "corti",
+      "gemini",
+      ...STREAMING_ONLY_PROVIDERS,
+    ].includes(provider)
+  ) {
+    return error(
+      "Choose a supported transcription provider.",
+      "UNSUPPORTED_TRANSCRIPTION_PROVIDER"
+    );
+  }
   const model = resolveByokModel(provider, request?.model ?? s.cloudTranscriptionModel);
 
   if (provider === "tinfoil" || provider === "mistral" || provider === "xai") {
@@ -372,9 +316,10 @@ export function resolveTranscriptionRoute({
       // passing it through would route the custom key + audio to OpenAI.
       rawUrl === API_ENDPOINTS.TRANSCRIPTION_BASE ||
       !base ||
-      !isSecureHttpEndpoint(base)
+      !isSecureHttpEndpoint(base) ||
+      isHostedEndpoint(base)
     ) {
-      return customEndpointError(managed);
+      return customEndpointError();
     }
     if (isTinfoilInferenceUrl(base, providers)) {
       return error(TINFOIL_PROXY_REQUIRED_ERROR);

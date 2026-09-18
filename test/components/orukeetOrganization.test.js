@@ -29,26 +29,6 @@ async function render(vite, element) {
   return renderToStaticMarkup(React.createElement(ToastProvider, null, element));
 }
 
-test("onboarding restores an Oruk draft without mixing NVIDIA models", async (t) => {
-  const vite = await renderer(t);
-  const { LocalModelSetupStep } = await vite.ssrLoadModule(
-    "/components/onboarding/ProviderSetupStep.tsx"
-  );
-  const markup = await render(
-    vite,
-    React.createElement(LocalModelSetupStep, {
-      stepId: "local-dictation",
-      resumeState: { provider: "oruk", modelId: "orukeet-v0.1.0" },
-      onReadinessChange: noop,
-      onProceed: noop,
-      onSkip: noop,
-    })
-  );
-  assert.match(markup, />Oruk</);
-  assert.match(markup, />Orukeet</);
-  assert.doesNotMatch(markup, />Parakeet TDT/);
-});
-
 test("all three model pickers restore the Oruk tab from the persisted Orukeet choice", async (t) => {
   const vite = await renderer(t);
   const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");
@@ -91,12 +71,9 @@ test("adding Orukeet preserves fresh-install transcription modes and existing ba
   const vite = await renderer(t);
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
   const state = useSettingsStore.getState();
-  for (const prefix of ["", "meeting", "upload"]) {
-    const key = (name) => (prefix ? prefix + name[0].toUpperCase() + name.slice(1) : name);
-    assert.equal(state[key("useLocalWhisper")], false);
-    assert.equal(state[key("localTranscriptionProvider")], "whisper");
-    assert.equal(state[key("parakeetModel")], "");
-  }
+  assert.equal(state.useLocalWhisper, true);
+  assert.equal(state.localTranscriptionProvider, "nvidia");
+  assert.equal(state.parakeetModel, "parakeet-unified-en-0.6b");
 });
 
 test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Parakeet", async (t) => {

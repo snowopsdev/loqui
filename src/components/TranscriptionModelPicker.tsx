@@ -1,39 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Download, Trash2, Cloud, Lock, X, Zap, Check, CircleAlert } from "./icons";
-import { ProviderIcon } from "./ui/ProviderIcon";
-import { ProviderTabs } from "./ui/ProviderTabs";
-import ModelCardList from "./ui/ModelCardList";
-import { DownloadProgressBar } from "./ui/DownloadProgressBar";
-import ApiKeyInput from "./ui/ApiKeyInput";
-import { ConfirmDialog } from "./ui/dialog";
-import { useDialogs } from "../hooks/useDialogs";
-import { useModelDownload, type DownloadProgress } from "../hooks/useModelDownload";
-import {
-  getTranscriptionProviders,
-  getMeetingStreamingTranscriptionProviders,
-  TranscriptionProviderData,
-  WHISPER_MODEL_INFO,
-  PARAKEET_MODEL_INFO,
-  isSherpaLocalProvider,
-} from "../models/ModelRegistry";
-import {
-  MODEL_PICKER_COLORS,
-  type ColorScheme,
-  type ModelPickerStyles,
-} from "../utils/modelPickerStyles";
-import { useSettingsStore } from "../stores/settingsStore";
-import {
-  filterByokProviderOptionsByPolicy,
-  isProviderAllowedByPolicy,
-  reconcileCloudProviderSelection,
-  shouldPersistProviderFallback,
-  type TranscriptionPolicyContext,
-} from "../stores/policyRules";
-import { usePolicySnapshot } from "../hooks/usePolicy";
+import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
 import {
   LOCAL_ASR_ORGANIZATIONS,
   getASRModelOrganization,
@@ -41,13 +8,42 @@ import {
   usesParakeetManager,
 } from "../helpers/localASROrganization";
 import { STREAMING_ONLY_PROVIDERS } from "../helpers/transcriptionRoute";
-import { getRemoteProviderIcon } from "../utils/providerIcons";
-import { createExternalLinkHandler } from "../utils/externalLinks";
-import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
-import { GetApiKeyLink } from "./ui/GetApiKeyLink";
-import { getCachedPlatform } from "../utils/platform";
-import logger from "../utils/logger";
+import { useDialogs } from "../hooks/useDialogs";
+import { useModelDownload, type DownloadProgress } from "../hooks/useModelDownload";
+import {
+  PARAKEET_MODEL_INFO,
+  TranscriptionProviderData,
+  WHISPER_MODEL_INFO,
+  getMeetingStreamingTranscriptionProviders,
+  getTranscriptionProviders,
+  isSherpaLocalProvider,
+} from "../models/ModelRegistry";
+import { useSettingsStore } from "../stores/settingsStore";
 import type { ParakeetCheckResult } from "../types/electron";
+import { createExternalLinkHandler } from "../utils/externalLinks";
+import logger from "../utils/logger";
+import {
+  MODEL_PICKER_COLORS,
+  type ColorScheme,
+  type ModelPickerStyles,
+} from "../utils/modelPickerStyles";
+import { getCachedPlatform } from "../utils/platform";
+import { getRemoteProviderIcon } from "../utils/providerIcons";
+import {
+  reconcileCloudProviderSelection,
+  type TranscriptionPolicyContext,
+} from "../utils/providerSelection";
+import { Check, CircleAlert, Cloud, Download, Lock, Trash2, X, Zap } from "./icons";
+import ApiKeyInput from "./ui/ApiKeyInput";
+import { Button } from "./ui/button";
+import { ConfirmDialog } from "./ui/dialog";
+import { DownloadProgressBar } from "./ui/DownloadProgressBar";
+import { GetApiKeyLink } from "./ui/GetApiKeyLink";
+import { Input } from "./ui/input";
+import ModelCardList from "./ui/ModelCardList";
+import { ProviderIcon } from "./ui/ProviderIcon";
+import { ProviderTabs } from "./ui/ProviderTabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 interface LocalModel {
   model: string;
@@ -298,7 +294,7 @@ const PROVIDER_CREDENTIALS: Record<
     fields: [{ key: "geminiApiKey", input: "secret" }],
   },
   corti: {
-    consoleUrl: "https://www.corti.ai/?utm_source=referral&utm_content=&utm_campaign=openwhispr",
+    consoleUrl: "https://www.corti.ai/",
     fields: [
       { key: "cortiClientId", input: "secret", labelKey: "transcription.corti.clientId" },
       { key: "cortiClientSecret", input: "secret", labelKey: "transcription.corti.clientSecret" },
@@ -320,7 +316,7 @@ const PROVIDER_CREDENTIALS: Record<
     ],
   },
   tinfoil: {
-    consoleUrl: "https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr",
+    consoleUrl: "https://tinfoil.sh/inference",
     fields: [{ key: "tinfoilApiKey", input: "secret" }],
   },
   deepgram: {
@@ -425,7 +421,7 @@ export default function TranscriptionModelPicker({
   const setAssemblyaiApiKey = useSettingsStore((s) => s.setAssemblyaiApiKey);
   const customTranscriptionApiKey = useSettingsStore((s) => s.customTranscriptionApiKey);
   const setCustomTranscriptionApiKey = useSettingsStore((s) => s.setCustomTranscriptionApiKey);
-  const isSignedIn = useSettingsStore((s) => s.isSignedIn);
+
   const effectiveLocal = mode === "local" ? true : mode === "cloud" ? false : useLocalWhisper;
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [parakeetModels, setParakeetModels] = useState<LocalModel[]>([]);
@@ -498,11 +494,7 @@ export default function TranscriptionModelPicker({
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
   const colorScheme: ColorScheme = variant === "settings" ? "purple" : "blue";
   const styles = useMemo(() => MODEL_PICKER_COLORS[colorScheme], [colorScheme]);
-  const policyState = usePolicySnapshot();
-  const providerAllowed = useCallback(
-    (providerId: string) => isProviderAllowedByPolicy(policyState, "transcription", providerId),
-    [policyState]
-  );
+
   // streamingOnly is Note Recording's picker, so it offers the streaming
   // providers note recording can actually run — not every streaming provider.
   // Upload is always http-batch, and the realtime-only providers have no batch
@@ -513,10 +505,7 @@ export default function TranscriptionModelPicker({
     if (transcriptionContext !== "upload") return providers;
     return providers.filter((provider) => !STREAMING_ONLY_PROVIDERS.has(provider.id));
   }, [streamingOnly, transcriptionContext]);
-  const cloudProviders = useMemo(
-    () => filterByokProviderOptionsByPolicy(availableCloudProviders, "transcription", policyState),
-    [availableCloudProviders, policyState]
-  );
+  const cloudProviders = useMemo(() => availableCloudProviders, [availableCloudProviders]);
   const cloudProviderTabs = useMemo(() => {
     const availableIds = new Set(availableCloudProviders.map((p) => p.id));
     if (!streamingOnly) availableIds.add("custom");
@@ -526,8 +515,8 @@ export default function TranscriptionModelPicker({
           ? { ...provider, name: t("transcription.customProvider") }
           : provider
     );
-    return filterByokProviderOptionsByPolicy(tabs, "transcription", policyState);
-  }, [availableCloudProviders, policyState, streamingOnly, t]);
+    return tabs;
+  }, [availableCloudProviders, streamingOnly, t]);
   const localProviderTabs = useMemo(
     () =>
       LOCAL_PROVIDER_TABS.map((provider) =>
@@ -626,7 +615,7 @@ export default function TranscriptionModelPicker({
         selectedProvider: browsedCloudProvider ?? selectedCloudProvider,
         selectedModel: selectedCloudModel,
         allowedProviders: cloudProviders,
-        customAllowed: !streamingOnly && providerAllowed("custom"),
+        customAllowed: !streamingOnly,
         hasCustomUrl,
       }) ?? {
         provider: browsedCloudProvider ?? selectedCloudProvider,
@@ -639,7 +628,6 @@ export default function TranscriptionModelPicker({
     browsedCloudProvider,
     selectedCloudProvider,
     selectedCloudModel,
-    providerAllowed,
     streamingOnly,
   ]);
   const displayedCloudProvider = effectiveCloudSelection.provider;
@@ -649,7 +637,6 @@ export default function TranscriptionModelPicker({
     if (
       effectiveLocal ||
       browsedCloudProvider ||
-      !shouldPersistProviderFallback(policyState, isSignedIn) ||
       (effectiveCloudSelection.provider === selectedCloudProvider &&
         effectiveCloudSelection.model === selectedCloudModel)
     ) {
@@ -665,10 +652,8 @@ export default function TranscriptionModelPicker({
     effectiveCloudSelection,
     effectiveLocal,
     browsedCloudProvider,
-    isSignedIn,
     onCloudModelSelect,
     onCloudProviderSelect,
-    policyState,
     selectedCloudModel,
     selectedCloudProvider,
   ]);
@@ -862,13 +847,9 @@ export default function TranscriptionModelPicker({
     [onModeChange]
   );
 
-  const handleCloudProviderChange = useCallback(
-    (providerId: string) => {
-      if (!providerAllowed(providerId)) return;
-      setBrowsedCloudProvider(providerId);
-    },
-    [providerAllowed]
-  );
+  const handleCloudProviderChange = useCallback((providerId: string) => {
+    setBrowsedCloudProvider(providerId);
+  }, []);
 
   const handleLocalProviderChange = useCallback(
     (providerId: string) => {
@@ -1198,7 +1179,7 @@ export default function TranscriptionModelPicker({
             />
           )}
 
-          {providerAllowed(displayedCloudProvider) && (
+          {
             <div>
               {displayedCloudProvider === "custom" ? (
                 <div className="space-y-2">
@@ -1321,7 +1302,7 @@ export default function TranscriptionModelPicker({
                 </div>
               )}
             </div>
-          )}
+          }
         </>
       ) : (
         <>

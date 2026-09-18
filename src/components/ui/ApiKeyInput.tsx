@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, X, KeyRound } from "../icons";
-import { Input } from "./input";
 import logger from "../../utils/logger";
+import { Check, KeyRound, X } from "../icons";
+import { Input } from "./input";
 
 interface ApiKeyInputProps {
   apiKey: string;
@@ -13,11 +13,6 @@ interface ApiKeyInputProps {
   ariaLabel?: string;
   helpText?: React.ReactNode;
   variant?: "default" | "purple";
-}
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return "••••••••";
-  return key.slice(0, 3) + "..." + key.slice(-4);
 }
 
 export default function ApiKeyInput({
@@ -35,6 +30,7 @@ export default function ApiKeyInput({
   const resolvedLabel = label ?? t("apiKeyInput.label");
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftTouched, setDraftTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasKey = apiKey.length > 0;
@@ -50,18 +46,19 @@ export default function ApiKeyInput({
   }, [isEditing]);
 
   const enterEdit = () => {
-    setDraft(apiKey);
+    setDraft("");
+    setDraftTouched(false);
     setIsEditing(true);
   };
 
   const save = useCallback(() => {
     try {
-      setApiKey(draft.trim());
+      if (draftTouched) setApiKey(draft.trim());
     } catch (err) {
       logger.warn("Failed to save API key", { error: (err as Error).message }, "settings");
     }
     setIsEditing(false);
-  }, [draft, setApiKey]);
+  }, [draft, draftTouched, setApiKey]);
 
   const cancel = () => {
     setDraft("");
@@ -103,10 +100,13 @@ export default function ApiKeyInput({
             <Input
               dir="ltr"
               ref={inputRef}
-              type="text"
+              type="password"
               placeholder={resolvedPlaceholder}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setDraftTouched(true);
+              }}
               onKeyDown={handleKeyDown}
               aria-label={ariaLabel || resolvedLabel || t("apiKeyInput.label")}
               className={`h-8 text-sm font-mono pr-16 ${variantClasses}`}
@@ -149,7 +149,7 @@ export default function ApiKeyInput({
                 className="flex items-center gap-1.5 text-foreground/70 font-mono text-xs tracking-wide"
               >
                 <KeyRound className="w-3 h-3 text-muted-foreground/70 shrink-0" />
-                {maskKey(apiKey)}
+                {t("personal.keyConfigured")}
               </span>
             ) : (
               <span className="text-muted-foreground/70 text-xs">{resolvedPlaceholder}</span>
@@ -161,6 +161,15 @@ export default function ApiKeyInput({
         )}
       </div>
 
+      {hasKey && !isEditing && (
+        <button
+          type="button"
+          className="mt-1 text-xs text-muted-foreground hover:text-destructive"
+          onClick={() => setApiKey("")}
+        >
+          {t("personal.removeKey")}
+        </button>
+      )}
       {helpText && <p className="text-xs text-muted-foreground/70 mt-1">{helpText}</p>}
     </div>
   );

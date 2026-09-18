@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, MessageSquare, NotebookPen, Plus, Users } from "../icons";
+import { ChevronDown, MessageSquare, NotebookPen, Plus } from "../icons";
+import { cn } from "../lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,9 +14,6 @@ import {
   SPLIT_BUTTON_GROUP_CLASS,
   SPLIT_BUTTON_SEGMENT_CLASS,
 } from "../ui/splitButton";
-import { cn } from "../lib/utils";
-import { useCanCreateTeamSpace } from "../../hooks/useCanCreateTeamSpace";
-import CreateSpaceDialog from "./CreateSpaceDialog";
 
 // Matched to the search bar it sits beside: the same translucent fill that
 // lifts on hover, under the same hairline. The note's Share control keeps its
@@ -35,8 +33,7 @@ interface NewNoteMenuProps {
 /** The topbar's split "New note" button; the chevron offers the other things to create. */
 export default function NewNoteMenu({ onNewNote, onNewChat }: NewNoteMenuProps) {
   const { t } = useTranslation();
-  const canCreateTeamSpace = useCanCreateTeamSpace();
-  const [createSpaceOpen, setCreateSpaceOpen] = useState(false);
+
   const itemChosenRef = useRef(false);
 
   // The chat input and the space dialog take focus themselves, so those closes
@@ -96,22 +93,9 @@ export default function NewNoteMenu({ onNewNote, onNewChat }: NewNoteMenuProps) 
                 </DropdownMenuItem>
               </>
             )}
-            {canCreateTeamSpace && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={keepFocus(() => setCreateSpaceOpen(true))}
-                  className="gap-2.5"
-                >
-                  <Users className="h-4 w-4" />
-                  {t("notes.createMenu.teamSpace")}
-                </DropdownMenuItem>
-              </>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <CreateSpaceDialog open={createSpaceOpen} onOpenChange={setCreateSpaceOpen} />
     </>
   );
 }

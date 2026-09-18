@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { ModelDefinition } from "../models/ModelRegistry";
+import { useCallback, useEffect, useState } from "react";
+import { applyImportedModels, ModelDefinition } from "../models/ModelRegistry";
 import "../types/electron";
+import { LOCAL_MODELS_CHANGED_EVENT } from "./useModelDownload";
 
 interface ModelWithStatus extends ModelDefinition {
   isDownloaded: boolean;
@@ -27,6 +28,7 @@ export function useLocalModels() {
       setError(null);
       const modelsData = await window.electronAPI.modelGetAll();
       setModels(modelsData);
+      applyImportedModels(modelsData);
     } catch (err) {
       setError("Failed to load models");
       console.error(err);
@@ -37,6 +39,10 @@ export function useLocalModels() {
 
   useEffect(() => {
     loadModels();
+    const reload = () => {
+      void loadModels();
+    };
+    window.addEventListener(LOCAL_MODELS_CHANGED_EVENT, reload);
 
     const handleProgress = (_event: any, data: LLMDownloadProgressEvent) => {
       setProgressMap((prev) => new Map(prev).set(data.modelId, data));
@@ -46,6 +52,7 @@ export function useLocalModels() {
 
     return () => {
       disposeProgress?.();
+      window.removeEventListener(LOCAL_MODELS_CHANGED_EVENT, reload);
     };
   }, [loadModels]);
 

@@ -47,6 +47,8 @@ function loadChain() {
     require("../../src/helpers/modelDirUtils.js");
     const bridge = require("../../src/services/localReasoningBridge.js").default;
     const modelManager = require("../../src/helpers/modelManagerBridge.js").default;
+    modelManager.getModelsDir = () =>
+      path.join(electronHome, ".cache", "loqui-snowopsdev", "models");
     return { bridge, modelManager };
   } finally {
     Module._load = originalLoad;

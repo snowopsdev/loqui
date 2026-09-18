@@ -1,3 +1,4 @@
+const { personalInferenceFixture } = require("../lib/personalInferenceFixture");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -69,7 +70,7 @@ async function renderChatStreaming(
     await unmount?.();
     t.mock.timers.reset();
   });
-  installBrowserGlobals(t, { window: { electronAPI } });
+  installBrowserGlobals(t, { window: { electronAPI: { personalInference: personalInferenceFixture(), ...electronAPI } } });
   const container = live ? installHookDom(t) : null;
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-chat-streaming-flush-test-",
@@ -90,8 +91,6 @@ async function renderChatStreaming(
   }
 
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
-  const { usePolicyStore } = await vite.ssrLoadModule("/stores/policyStore.ts");
-  usePolicyStore.setState({ status: "unmanaged", appVersion: "1.8.3", policy: null });
   // The 4B model enables tool handling for both the SSE and controlled streams.
   useSettingsStore.setState({
     chatAgentMode: "self-hosted",

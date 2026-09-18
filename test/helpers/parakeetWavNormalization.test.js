@@ -92,7 +92,13 @@ test("transcribes audible mono 16 kHz float32 WAV input", async () => {
   }
 
   try {
-    const modelDir = path.join(tempHome, ".cache", "openwhispr", "parakeet-models", MODEL_NAME);
+    const modelDir = path.join(
+      tempHome,
+      ".cache",
+      "loqui-snowopsdev",
+      "parakeet-models",
+      MODEL_NAME
+    );
     fs.mkdirSync(modelDir, { recursive: true });
     for (const file of getRequiredModelFiles(MODEL_NAME)) {
       fs.writeFileSync(path.join(modelDir, file), "");
@@ -100,6 +106,7 @@ test("transcribes audible mono 16 kHz float32 WAV input", async () => {
 
     let receivedSamples;
     const manager = new ParakeetServerManager();
+    manager.getModelsDir = () => path.dirname(modelDir);
     manager.wsServer = {
       start: async () => {},
       transcribe: async (samples) => {

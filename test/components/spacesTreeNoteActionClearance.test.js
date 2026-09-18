@@ -58,6 +58,7 @@ async function renderTree(t, direction) {
         export const getFoldersValue = () => folders;
         export const getSpacesValue = () => spaces;
         export const setActiveContext = () => {};
+        export const navigateToContainer = () => {};
         export const setActiveNoteId = () => {};
         export const setContainerExpanded = () => {};
         export const toggleContainerExpanded = () => {};
@@ -156,10 +157,10 @@ function openingTagForTitle(markup, title) {
 }
 
 for (const direction of ["ltr", "rtl"]) {
-  test(`private and team folder note titles clear their actions in ${direction}`, async (t) => {
+  test(`personal folder note titles clear their actions in ${direction}`, async (t) => {
     const markup = await renderTree(t, direction);
 
-    for (const title of [PRIVATE_NOTE_TITLE, TEAM_NOTE_TITLE]) {
+    for (const title of [PRIVATE_NOTE_TITLE]) {
       assert.match(
         openingTagForTitle(markup, title),
         /style="padding-inline-end:27px"/,

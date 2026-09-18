@@ -54,19 +54,31 @@ test("a real failure still reports an error and saves for retry", () => {
   assert.deepEqual(manager.calls.saved, [{ message: "Groq returned 500", code: null }]);
 });
 
-test("every remote dictionary-echo discard is tagged", async () => {
-  const fs = require("fs");
-  const source = fs.readFileSync("src/helpers/audioManager.js", "utf-8");
-
-  // Each isDictionaryEcho guard must throw the tagged error; a plain
-  // `new Error("No audio detected")` there would be swallowed again.
-  //
-  // Local Whisper now separates detection from the tagged failure so it can
-  // attempt recovery first; its failure behavior is covered end-to-end by the
-  // AudioManager dictionary-prompt recovery suite.
-  const guards = source.match(/isDictionaryEcho\([\s\S]{0,400}?throw [^;]+;/g) ?? [];
-  assert.ok(guards.length >= 3, `expected the known remote echo guards, found ${guards.length}`);
-  for (const guard of guards) {
-    assert.match(guard, /throw dictionaryEchoError\(\);/);
-  }
+test("a remote echo of the exact transmitted dictionary is preserved as a retryable failure", async (t) => {
+  const { loadAudioManager } = require("./harness/audioManager");
+  const dictionary = Array.from({ length: 100 }, (_, i) => `SpecializedTerm${i}`).join(", ");
+  const { window, createManager } = await loadAudioManager(t, {
+    cachePrefix: "personal-remote-echo-",
+    settingsKey: "__remoteEchoSettings",
+    settings: {
+      transcriptionMode: "providers",
+      cloudTranscriptionProvider: "groq",
+      cloudTranscriptionModel: "whisper-large-v3-turbo",
+    },
+  });
+  let actualPrompt;
+  window.electronAPI.transcribeAudioFileByok = async (payload) => {
+    actualPrompt = payload.prompt;
+    return { success: true, text: payload.prompt };
+  };
+  const manager = createManager({
+    getWhisperPrompt: () => dictionary,
+    getKeyterms: () => [],
+    getEffectiveSttLanguage: () => "auto",
+    processTranscription: () => assert.fail("dictionary echo must not reach cleanup"),
+  });
+  await assert.rejects(manager.processWithOpenAIAPI(new Blob(["voice"])), {
+    code: "DICTIONARY_ECHO",
+  });
+  assert.ok(actualPrompt.length < dictionary.length);
 });

@@ -72,31 +72,16 @@ test("a cached catalog does not displace the named Tinfoil default", async (t) =
   });
   // Loading the registry applies the cached list, exactly as app startup does.
   await vite.ssrLoadModule("/models/ModelRegistry.ts");
-  const { useSettingsStore, selectPolicyEffectiveSettings } = await vite.ssrLoadModule(
-    "/stores/settingsStore.ts"
-  );
-
-  const effective = selectPolicyEffectiveSettings(useSettingsStore.getState(), {
-    status: "managed",
-    appVersion: "1.9.2",
-    policy: {
-      version: 1,
-      transcription: { allowedModes: ["local"], allowedByokProviders: [] },
-      llm: {
-        allowedModes: ["providers"],
-        allowedByokProviders: ["tinfoil"],
-        allowedEnterpriseProviders: [],
-      },
-      features: { agentEnabled: true, webSearchEnabled: true },
-      sharing: { externalLinkSharing: "allowed" },
-      dataRetention: {
-        audioRetentionMaxDays: null,
-        localHistoryMode: "user_choice",
-        cloudBackupAllowed: true,
-      },
-      minAppVersion: null,
-    },
-  });
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { pickDefaultTinfoilModel } = await vite.ssrLoadModule("/models/tinfoilModels.ts");
+  useSettingsStore
+    .getState()
+    .switchReasoningProvider(
+      "dictationCleanup",
+      "tinfoil",
+      pickDefaultTinfoilModel(LIVE_CATALOG).id
+    );
+  const effective = useSettingsStore.getState();
 
   assert.equal(effective.cleanupProvider, "tinfoil");
   assert.equal(effective.cleanupModel, "glm-5-3");
@@ -213,7 +198,10 @@ test("a provider's named default beats its list position", async (t) => {
     // The seed leads with its own default, so only a list that doesn't can
     // tell the two rules apart.
     assert.equal(
-      pickDefaultModelId({ models: [{ id: "listed-first" }, { id: "named" }], defaultModel: "named" }),
+      pickDefaultModelId({
+        models: [{ id: "listed-first" }, { id: "named" }],
+        defaultModel: "named",
+      }),
       "named"
     );
     assert.equal(pickDefaultModelId(byId.tinfoil), "glm-5-3");

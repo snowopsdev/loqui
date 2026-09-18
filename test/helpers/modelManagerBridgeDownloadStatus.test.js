@@ -45,11 +45,12 @@ function loadModelManager({ downloadFile, checkDiskSpace } = {}) {
   try {
     // modelManagerBridge requires modelDirUtils lazily (inside getModelsDir),
     // after this mock is uninstalled. Load it with the Electron stub, then pin
-    // this manager to the test home so host XDG/OPENWHISPR cache overrides
+    // this manager to the test home so host XDG/WHISPR_PERSONAL cache overrides
     // cannot expose real downloaded models to the test.
     require("../../src/helpers/modelDirUtils.js");
     const modelManager = require("../../src/helpers/modelManagerBridge.js").default;
-    modelManager.getModelsDir = () => path.join(electronHome, ".cache", "openwhispr", "models");
+    modelManager.getModelsDir = () =>
+      path.join(electronHome, ".cache", "loqui-snowopsdev", "models");
     return modelManager;
   } finally {
     Module._load = originalLoad;

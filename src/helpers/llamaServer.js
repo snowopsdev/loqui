@@ -228,11 +228,13 @@ class LlamaServerManager {
   }
 
   async _doStart(modelPath, options = {}) {
+    options.signal?.throwIfAborted();
     const binaryPaths = this.getServerBinaryPaths();
     if (Object.keys(binaryPaths).length === 0) throw new Error("llama-server binary not found");
     if (!fs.existsSync(modelPath)) throw new Error(`Model file not found: ${modelPath}`);
 
     this.port = await this.findAvailablePort();
+    options.signal?.throwIfAborted();
     this.modelPath = modelPath;
     // Store the REQUESTED drafter so start() compares against a stable value across
     // identical requests; activeDraftModelPath tracks what actually loaded (see ctor).
@@ -262,7 +264,8 @@ class LlamaServerManager {
         binaryPaths.default,
         args,
         this._buildEnv(binaryPaths.default),
-        STARTUP_TIMEOUT_MS
+        STARTUP_TIMEOUT_MS,
+        options.signal
       );
       this.activeBackend = "metal";
       this.activeDraftModelPath = this.draftModelPath;
@@ -355,6 +358,7 @@ class LlamaServerManager {
 
     let lastError = null;
     for (let i = 0; i < ladder.length; i++) {
+      options.signal?.throwIfAborted();
       const rung = ladder[i];
       const next = ladder[i + 1];
       try {
@@ -363,7 +367,8 @@ class LlamaServerManager {
           rung.binary,
           rung.args,
           this._buildEnv(rung.binary),
-          rung.timeout
+          rung.timeout,
+          options.signal
         );
         this.activeBackend = rung.backend;
         this.activeDraftModelPath = rung.mtp ? this.draftModelPath : null;
@@ -373,6 +378,7 @@ class LlamaServerManager {
         this.contextSize = this.activeContextSize;
         return;
       } catch (err) {
+        options.signal?.throwIfAborted();
         lastError = err;
         if (next) {
           debugLogger.warn(`${rung.name} backend failed, falling back to ${next.name}`, {
@@ -412,8 +418,9 @@ class LlamaServerManager {
     return env;
   }
 
-  _startWithBinary(binaryPath, args, env, timeoutMs) {
+  _startWithBinary(binaryPath, args, env, timeoutMs, signal) {
     return new Promise((resolve, reject) => {
+      signal?.throwIfAborted();
       debugLogger.debug("Spawning llama-server", { binary: binaryPath, port: this.port, args });
 
       this.process = spawn(binaryPath, args, {
@@ -433,8 +440,18 @@ class LlamaServerManager {
       const settle = (fn) => {
         if (settled) return;
         settled = true;
+        signal?.removeEventListener("abort", onAbort);
         fn();
       };
+
+      const onAbort = () => {
+        settle(() =>
+          reject(
+            Object.assign(new Error("Model load test canceled."), { code: "MODEL_TEST_CANCELED" })
+          )
+        );
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
 
       this.process.stdout.on("data", (data) => {
         debugLogger.debug("llama-server stdout", { data: data.toString().trim() });

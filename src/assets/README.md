@@ -1,29 +1,7 @@
-# Assets Directory
+# Loqui artwork
 
-This directory contains app icons and other assets for OpenWhispr.
+Original voice-ribbon artwork created for Loqui in September 2026. The editable masters are `brand/mark.svg`, `mark-mono.svg`, `app-icon.svg`, light/dark logo SVGs, and `social.svg`. Teal (#38D7C5), coral (#FF796B), and dark ink (#101B25) form the palette.
 
-## Required Icons
+Run `npm run assets:generate` to render transparent PNGs, Linux icon sizes, the macOS ICNS, and monochrome template menu-bar icons at 1x/2x/3x. Exports are committed so release builds need no image service or paid asset downloads. Inspect small-size and light/dark rendering after editing the masters.
 
-For proper app packaging, you'll need the following icon files:
-
-- `icon.icns` - macOS icon (1024x1024 recommended)
-- `icon.ico` - Windows icon (256x256 recommended)
-- `icon.png` - Linux icon (512x512 recommended)
-
-## Icon Specifications
-
-- **macOS (.icns)**: 1024x1024 pixels, PNG format converted to ICNS
-- **Windows (.ico)**: 256x256 pixels, PNG format converted to ICO
-- **Linux (.png)**: 512x512 pixels, PNG format
-
-## Creating Icons
-
-You can create these icons using:
-
-- Online converters like https://convertio.co/
-- Design tools like Figma, Sketch, or Photoshop
-- Command line tools like ImageMagick
-
-## Placeholder
-
-Until you add your own icons, the app will use system default icons during development.
+Loqui artwork is MIT licensed under the repository LICENSE. It is original vector geometry, not traced from upstream or a paid icon library. Wordmark text uses an open-source font; Inter and Caveat are supplied by Fontsource under SIL OFL. Noto Sans files retain SIL OFL terms. Interface icons use Lucide (ISC); see THIRD_PARTY_NOTICES.md. No upstream artwork fallback is permitted in release builds.

@@ -16,7 +16,7 @@ class LocalEmbeddings {
     const cacheDir = path.join(
       os.homedir(),
       ".cache",
-      "openwhispr",
+      "loqui-snowopsdev",
       "embedding-models",
       MODEL_SUBDIR
     );

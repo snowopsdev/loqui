@@ -1,7 +1,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { useSettingsLayout } from "./useSettingsLayout";
 import type { InferenceMode } from "../../types/electron";
+import { SettingsControlLabel } from "./settingsControlLabel";
+import { useSettingsLayout } from "./useSettingsLayout";
 
 interface SettingsSectionProps {
   title: string;
@@ -70,21 +71,26 @@ export const SettingsRow: React.FC<SettingsRowProps> = ({
   className = "",
 }) => {
   const { isCompact } = useSettingsLayout();
+  const labelId = React.useId();
 
   return (
-    <div
-      className={`flex ${
-        isCompact ? "flex-col items-start gap-2" : "items-center justify-between gap-4"
-      } ${className}`}
-    >
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-foreground">{label}</p>
-        {description && (
-          <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{description}</p>
-        )}
+    <SettingsControlLabel.Provider value={labelId}>
+      <div
+        className={`flex ${
+          isCompact ? "flex-col items-start gap-2" : "items-center justify-between gap-4"
+        } ${className}`}
+      >
+        <div className="min-w-0 flex-1">
+          <p id={labelId} className="text-xs font-medium text-foreground">
+            {label}
+          </p>
+          {description && (
+            <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{description}</p>
+          )}
+        </div>
+        <div className={isCompact ? "" : "shrink-0"}>{children}</div>
       </div>
-      <div className={isCompact ? "" : "shrink-0"}>{children}</div>
-    </div>
+    </SettingsControlLabel.Provider>
   );
 };
 

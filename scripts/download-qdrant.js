@@ -28,7 +28,7 @@ const BINARIES = {
     outputName: "qdrant-darwin-x64",
   },
   "linux-x64": {
-    archiveName: "qdrant-x86_64-unknown-linux-gnu.tar.gz",
+    archiveName: "qdrant-x86_64-unknown-linux-musl.tar.gz",
     binaryName: "qdrant",
     outputName: "qdrant-linux-x64",
   },

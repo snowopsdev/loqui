@@ -1,5 +1,4 @@
-export function resolveModeReachability({ mode, provider, model, isCloud, isSelfHosted }) {
-  if (mode === "openwhispr") return isCloud;
+export function resolveModeReachability({ mode, provider, model, isSelfHosted }) {
   if (mode === "self-hosted") return isSelfHosted;
 
   const hasModel = (model?.trim()?.length ?? 0) > 0;
@@ -15,7 +14,6 @@ export function resolveDictationAgentReachability({
   dictationAgentMode,
   dictationAgentProvider,
   dictationAgentModel,
-  isCloudAgent,
   isSelfHostedAgent,
 }) {
   if (!useDictationAgent) return false;
@@ -23,7 +21,6 @@ export function resolveDictationAgentReachability({
     mode: dictationAgentMode,
     provider: dictationAgentProvider,
     model: dictationAgentModel,
-    isCloud: isCloudAgent,
     isSelfHosted: isSelfHostedAgent,
   });
 }
@@ -40,7 +37,6 @@ export function resolveAgentImageTarget({
   visionOverrideActive,
   visionProviderImageWired,
   baseProviderImageWired,
-  isCloudAgent,
   baseModelSupportsVision,
 }) {
   if (!hasScreenContext) {
@@ -53,8 +49,7 @@ export function resolveAgentImageTarget({
       ? { attach: true, useVisionOverride: true }
       : { attach: false, useVisionOverride: false };
   }
-  // Cloud defers the vision-model choice to the server's vision chain.
-  if (baseProviderImageWired && (isCloudAgent || baseModelSupportsVision)) {
+  if (baseProviderImageWired && baseModelSupportsVision) {
     return { attach: true, useVisionOverride: false };
   }
   return { attach: false, useVisionOverride: false };
@@ -69,7 +64,6 @@ export function resolveDictationTranslationReachability({
   translationMode,
   translationProvider,
   translationModel,
-  isCloudTranslation,
   isSelfHostedTranslation,
 }) {
   if (!useDictationTranslation) return false;
@@ -78,15 +72,12 @@ export function resolveDictationTranslationReachability({
     mode: translationMode,
     provider: translationProvider,
     model: translationModel,
-    isCloud: isCloudTranslation,
     isSelfHosted: isSelfHostedTranslation,
   });
 }
 
-export function resolveModeProvider({ isCloud, mode, provider }) {
+export function resolveModeProvider({ mode, provider }) {
   switch (mode) {
-    case "openwhispr":
-      return isCloud ? "openwhispr" : undefined;
     case "local":
       return "local";
     case "self-hosted":
@@ -99,20 +90,15 @@ export function resolveModeProvider({ isCloud, mode, provider }) {
   }
 }
 
-export function resolveDictationAgentProvider({
-  isCloudAgent,
-  dictationAgentMode,
-  dictationAgentProvider,
-}) {
+export function resolveDictationAgentProvider({ dictationAgentMode, dictationAgentProvider }) {
   return resolveModeProvider({
-    isCloud: isCloudAgent,
     mode: dictationAgentMode,
     provider: dictationAgentProvider,
   });
 }
 
 function resolveModeDisplayProvider(mode, provider) {
-  if (mode === "openwhispr") return "openwhispr";
+  if (!["local", "providers", "self-hosted", "enterprise"].includes(mode)) return "none";
   if (mode === "local") return "local";
   if (mode === "self-hosted") return "self-hosted";
   return provider?.trim() || "none";
@@ -125,13 +111,8 @@ export function resolveDictationAgentDisplayProvider({
   return resolveModeDisplayProvider(dictationAgentMode, dictationAgentProvider);
 }
 
-export function resolveTranslationProviderId({
-  isCloudTranslation,
-  translationMode,
-  translationProvider,
-}) {
+export function resolveTranslationProviderId({ translationMode, translationProvider }) {
   return resolveModeProvider({
-    isCloud: isCloudTranslation,
     mode: translationMode,
     provider: translationProvider,
   });

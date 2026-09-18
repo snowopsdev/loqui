@@ -37,7 +37,6 @@ test("restarting onboarding resets progress without arming a cloud switch", asyn
     cachePrefix: "openwhispr-use-start-onboarding-test-",
   });
   const { useStartOnboarding } = await vite.ssrLoadModule("/hooks/useStartOnboarding.ts");
-  const { LEGACY_ONBOARDING_STEP_KEY } = await vite.ssrLoadModule("/components/onboarding/flow.ts");
 
   let startOnboarding;
   function Harness() {
@@ -54,7 +53,7 @@ test("restarting onboarding resets progress without arming a cloud switch", asyn
   assert.equal(reloads, 1);
   assert.equal(storage.getItem("pendingCloudMigration"), null);
   assert.equal(storage.getItem("onboardingCompleted"), null);
-  assert.equal(storage.getItem(LEGACY_ONBOARDING_STEP_KEY), "0");
+
   assert.equal(storage.getItem("transcriptionMode"), "local");
   assert.equal(storage.getItem("useLocalWhisper"), "true");
 });

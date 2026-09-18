@@ -32,7 +32,7 @@ const RESTART_EXIT_WAIT_MS = 2000;
 const STORAGE_DIR = path.join(
   os.homedir(),
   ".cache",
-  "openwhispr",
+  "loqui-snowopsdev",
   process.env.NODE_ENV === "development" ? "qdrant-data-dev" : "qdrant-data"
 );
 

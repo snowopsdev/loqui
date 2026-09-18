@@ -1,0 +1,24 @@
+name: Security analysis
+on:
+  schedule:
+    - cron: '19 7 * * 1'
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  codeql:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@3ea06614dafe36dec890db3446326e0d40ce53d4
+        with:
+          languages: javascript-typescript,actions
+      - uses: github/codeql-action/analyze@3ea06614dafe36dec890db3446326e0d40ce53d4

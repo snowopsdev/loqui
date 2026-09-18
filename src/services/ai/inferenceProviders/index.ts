@@ -1,35 +1,38 @@
 import type { InferenceProvider } from "./types";
-import { anthropicProvider } from "./anthropic";
-import { geminiProvider } from "./gemini";
-import { groqProvider } from "./groq";
+import { mainProcessProvider, TEXT_CAPABILITIES } from "./mainProcess";
 import { localProvider } from "./local";
-import { enterpriseProvider } from "./enterprise";
-import { openwhisprProvider } from "./openwhispr";
-import { lanProvider } from "./lan";
-import { openaiProvider } from "./openai";
-import { tinfoilProvider } from "./tinfoil";
-import { cortiProvider } from "./corti";
 
 export const PROVIDER_REGISTRY: Readonly<Record<string, InferenceProvider>> = Object.freeze({
-  openai: openaiProvider,
-  custom: openaiProvider,
-  openrouter: openaiProvider,
-  anthropic: anthropicProvider,
-  gemini: geminiProvider,
-  groq: groqProvider,
-  tinfoil: tinfoilProvider,
-  corti: cortiProvider,
-  local: localProvider,
-  bedrock: enterpriseProvider,
-  azure: enterpriseProvider,
-  vertex: enterpriseProvider,
-  openwhispr: openwhisprProvider,
-  lan: lanProvider,
+  openai: mainProcessProvider("openai"),
+  custom: mainProcessProvider("custom"),
+  openrouter: mainProcessProvider("openrouter"),
+  anthropic: mainProcessProvider("anthropic"),
+  gemini: mainProcessProvider("gemini"),
+  groq: mainProcessProvider("groq"),
+  tinfoil: mainProcessProvider("tinfoil", "api-key", false),
+  corti: mainProcessProvider("corti", "api-key", false),
+  xai: mainProcessProvider("xai"),
+  bedrock: mainProcessProvider("bedrock"),
+  azure: mainProcessProvider("azure"),
+  vertex: mainProcessProvider("vertex"),
+  codex: mainProcessProvider("codex", "subscription", false),
+  local: {
+    ...localProvider,
+    connectionType: "local",
+    capabilities: { ...TEXT_CAPABILITIES, images: false },
+  },
+  lan: mainProcessProvider("lan", "api-key", false),
 });
 
-export type { InferenceProvider, ProviderContext, ProviderCallParams } from "./types";
-
-// Whether a provider's AI-SDK client is wired to send image parts. Shared by
-// the dictation route and the assistant panel so both gate screenshots alike.
+export type {
+  InferenceProvider,
+  ProviderContext,
+  ProviderCallParams,
+  ProviderCapabilities,
+} from "./types";
 export const providerSupportsImages = (providerId: string | undefined): boolean =>
   !!(providerId && PROVIDER_REGISTRY[providerId]?.supportsImages);
+export const providerSupports = (
+  providerId: string,
+  capability: keyof import("./types").ProviderCapabilities
+): boolean => !!PROVIDER_REGISTRY[providerId]?.capabilities?.[capability];

@@ -22,13 +22,13 @@ function fetchJson(url, redirectCount = 0) {
     }
 
     const headers = {
-      "User-Agent": "OpenWhispr-Downloader",
+      "User-Agent": "Loqui-Downloader",
       Accept: "application/vnd.github+json",
     };
 
     // Use GitHub token if available (increases rate limit from 60 to 5000/hour)
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-    if (token) {
+    if (token && new URL(url).hostname === "api.github.com") {
       headers.Authorization = `Bearer ${token}`;
     }
 
@@ -40,6 +40,8 @@ function fetchJson(url, redirectCount = 0) {
     https
       .get(url, options, (res) => {
         if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+          // Drain the redirect body so its socket cannot keep a build process alive.
+          res.resume();
           const location = res.headers.location;
           if (!location) {
             reject(new Error("Redirect without location header"));
@@ -53,6 +55,7 @@ function fetchJson(url, redirectCount = 0) {
         }
 
         if (res.statusCode !== 200) {
+          res.resume();
           reject(new Error(`HTTP ${res.statusCode}`));
           return;
         }
@@ -83,6 +86,10 @@ function fetchJson(url, redirectCount = 0) {
  * @returns {Promise<{tag: string, assets: Array<{name: string, url: string}>, url: string} | null>}
  */
 async function fetchLatestRelease(repo, options = {}) {
+  const locked = require("../../runtime-assets.json").releases[repo];
+  if (locked) return locked;
+  if (process.env.LOQUI_RELEASE_BUILD === "1")
+    throw new Error(`Unpinned runtime repository: ${repo}`);
   const { tag, tagPrefix, includePrerelease = false } = options;
 
   try {
@@ -141,7 +148,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function downloadFile(url, dest, retryCount = 0) {
+function downloadFileUnverified(url, dest, retryCount = 0) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
     let activeRequest = null;
@@ -163,6 +170,8 @@ function downloadFile(url, dest, retryCount = 0) {
 
       activeRequest = https.get(currentUrl, (response) => {
         if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+          // Every redirect owns a separate response; release it before following.
+          response.resume();
           const location = response.headers.location;
           if (!location) {
             cleanup();
@@ -233,10 +242,42 @@ function downloadFile(url, dest, retryCount = 0) {
       if (fs.existsSync(dest)) {
         fs.unlinkSync(dest);
       }
-      return downloadFile(url, dest, retryCount + 1);
+      return downloadFileUnverified(url, dest, retryCount + 1);
     }
     throw error;
   });
+}
+
+async function downloadFile(url, dest) {
+  const manifest = require("../../runtime-assets.json");
+  const asset = manifest.assets.find((entry) => entry.url === url);
+  if (!asset) {
+    if (process.env.LOQUI_RELEASE_BUILD === "1") throw new Error(`Unpinned runtime asset: ${url}`);
+    return downloadFileUnverified(url, dest);
+  }
+  const { assetDigest } = require("./asset-digest");
+  const cache = path.resolve(__dirname, "../../.cache/runtime-downloads", asset.sha256);
+  const verify = async (file) => {
+    try {
+      return (await assetDigest(file, asset.hashKind)) === asset.sha256;
+    } catch {
+      return false;
+    }
+  };
+  fs.mkdirSync(path.dirname(cache), { recursive: true });
+  if (fs.existsSync(cache) && !(await verify(cache))) fs.unlinkSync(cache);
+  if (!fs.existsSync(cache)) {
+    const temp = `${cache}.${process.pid}.tmp`;
+    try {
+      await downloadFileUnverified(url, temp);
+      if (!(await verify(temp))) throw new Error(`Runtime SHA-256 mismatch: ${url}`);
+      fs.renameSync(temp, cache);
+    } finally {
+      fs.rmSync(temp, { force: true });
+    }
+  }
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(cache, dest);
 }
 
 async function extractZip(zipPath, destDir) {

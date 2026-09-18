@@ -1,34 +1,17 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Cloud, CloudUpload, Flame, Gauge, Loader2, Mic2, Trophy } from "./icons";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAuth } from "../hooks/useAuth";
-import { useInsightsSyncOptIn } from "../hooks/useInsightsSyncOptIn";
+import { BarChart3, Flame, Gauge, Loader2, Mic2 } from "./icons";
+
 import { useSettings } from "../hooks/useSettings";
-import { hasValidatedAuthContext } from "../lib/authRequestContext";
-import {
-  getAccountAnalyticsSummary,
-  subscribeToAnalyticsRefresh,
-} from "../services/AnalyticsService";
-import { syncService } from "../services/SyncService";
+
 import { buildAnalyticsActivityDays } from "../helpers/analytics";
-import { canOfferAnalyticsClaim } from "../services/syncPassPolicy";
-import { effectiveLocalHistoryEnabled } from "../stores/policyRules";
-import { useLeaderboardParticipationStore } from "../stores/leaderboardParticipationStore";
-import { usePolicyStore } from "../stores/policyStore";
+
 import type { AnalyticsDailyBucket, AnalyticsSummary } from "../types/electron";
 import { cn } from "./lib/utils";
-import { Button } from "./ui/button";
 import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Tooltip } from "./ui/tooltip";
 
 type ActivityDay = { date: string; words: number };
-
-interface InsightsViewProps {
-  onSignIn: () => void;
-}
-
-const LeaderboardView = lazy(() => import("./LeaderboardView"));
 
 const ACTIVITY_INTENSITY_CLASSES = [
   "bg-foreground/6 dark:bg-white/6",
@@ -218,23 +201,11 @@ function MetricCard({
   );
 }
 
-function YourUsage({
-  accountId,
-  dataRetentionEnabled,
-  isLoaded,
-  onSyncErrorChange,
-  syncActive,
-}: {
-  accountId: string | null;
-  dataRetentionEnabled: boolean;
-  isLoaded: boolean;
-  onSyncErrorChange: (error: boolean) => void;
-  syncActive: boolean;
-}) {
+function YourUsage({ dataRetentionEnabled }: { dataRetentionEnabled: boolean }) {
   const { t, i18n } = useTranslation();
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [syncError, setSyncError] = useState(false);
+
   const [loadFailed, setLoadFailed] = useState(false);
   // Every dictation broadcasts analytics-changed, so loads overlap; only the
   // newest one may write state, or a slow reply overwrites a fresher summary.
@@ -245,7 +216,6 @@ function YourUsage({
   const load = useCallback(async () => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
-    setSyncError(false);
 
     // The device read stands on its own. Folding it into the same catch as the
     // cloud fetch meant a failed local read fell through to a summary of
@@ -264,32 +234,16 @@ function YourUsage({
     if (requestId !== requestIdRef.current) return;
     setLoadFailed(false);
 
-    try {
-      if (isLoaded && syncActive) {
-        if (!(await syncService.syncAnalyticsNow())) {
-          throw new Error("Insights uploads are not enabled for this account");
-        }
-        const account = await getAccountAnalyticsSummary(accountId);
-        if (requestId !== requestIdRef.current) return;
-        setSummary(account);
-      } else {
-        setSummary(local);
-      }
-    } catch {
-      if (requestId !== requestIdRef.current) return;
-      // Real device data, and the pill says the cloud is the part that failed.
-      setSummary(local);
-      setSyncError(true);
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
-    }
-  }, [accountId, isLoaded, syncActive]);
-
-  useEffect(() => subscribeToAnalyticsRefresh(load, syncActive), [load, syncActive]);
-
+    setSummary(local);
+    setLoading(false);
+  }, []);
   useEffect(() => {
-    onSyncErrorChange(syncError);
-  }, [onSyncErrorChange, syncError]);
+    void load();
+    const dispose = window.electronAPI.onAnalyticsChanged?.(() => void load());
+    return () => {
+      dispose?.();
+    };
+  }, [load]);
 
   // i18n.language, not the runtime default: the OS locale is not the language
   // the app is being read in, so a Japanese UI rendered 12.3K where 1.2万
@@ -392,122 +346,15 @@ function YourUsage({
   );
 }
 
-export default function InsightsView({ onSignIn }: InsightsViewProps) {
+export default function InsightsView() {
   const { t } = useTranslation();
-  const { isLoaded, isSignedIn, user } = useAuth();
-  const authValidated = hasValidatedAuthContext();
-  const { dataRetentionEnabled: personalDataRetentionEnabled, insightsSyncEnabled } = useSettings();
-  const dataRetentionEnabled = usePolicyStore((policyState) =>
-    effectiveLocalHistoryEnabled(policyState, personalDataRetentionEnabled)
-  );
-  const { canToggleSync, enableInsightsSync, optInDialog, syncAllowedByPolicy, unclaimedCount } =
-    useInsightsSyncOptIn();
-  const participationEnabled = useLeaderboardParticipationStore((state) => state.enabled);
-  const participationError = useLeaderboardParticipationStore((state) => state.error);
-  const participationReady = useLeaderboardParticipationStore((state) => state.ready);
-  const participationLeavePending = useLeaderboardParticipationStore((state) => state.leavePending);
-  const [activeTab, setActiveTab] = useState("usage");
-  const [syncError, setSyncError] = useState(false);
-  // A managed workspace that forbids cloud backup forbids these counters with
-  // it, so the page stays device-scoped even with the preference left on.
-  const syncActive =
-    isSignedIn &&
-    authValidated &&
-    insightsSyncEnabled &&
-    syncAllowedByPolicy &&
-    dataRetentionEnabled;
-  const claimAvailable = canOfferAnalyticsClaim({
-    signedIn: isSignedIn,
-    syncAllowedByPolicy,
-    dataRetentionEnabled,
-    insightsSyncEnabled,
-    unclaimedCount,
-  });
-  const showSyncAction =
-    activeTab === "usage" && isSignedIn && authValidated && (!syncActive || claimAvailable);
-  const syncActionDisabled = !canToggleSync || !dataRetentionEnabled || !syncAllowedByPolicy;
-  const syncStatusLabel = syncActive
-    ? syncError
-      ? t("insights.syncFallback")
-      : t("insights.synced")
-    : t("insights.onDevice");
-
+  const { dataRetentionEnabled } = useSettings();
   return (
-    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "flex min-h-full flex-col px-6 py-6")}>
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col">
-        <div className="flex min-h-8 items-center justify-between gap-4">
-          <TabsList className="h-7 p-0.5 rounded-[7px]">
-            <TabsTrigger value="usage" className="h-6 px-2.5 text-xs rounded-[5px]">
-              {t("insights.yourUsage")}
-            </TabsTrigger>
-            <TabsTrigger value="leaderboard" className="h-6 px-2.5 text-xs rounded-[5px]">
-              {t("insights.leaderboard.title")}
-            </TabsTrigger>
-          </TabsList>
-
-          {activeTab === "usage" ? (
-            <div className="flex shrink-0 items-center gap-3">
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <Cloud size={13} />
-                {syncStatusLabel}
-              </div>
-              {showSyncAction && (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  className="h-7 rounded-[7px] px-2.5 text-[11px]"
-                  disabled={syncActionDisabled}
-                  onClick={() => void enableInsightsSync()}
-                >
-                  <CloudUpload size={13} />
-                  {t(syncActive ? "insights.claimInclude" : "insights.enableSync")}
-                </Button>
-              )}
-            </div>
-          ) : (
-            isSignedIn &&
-            participationReady &&
-            participationError === null &&
-            !participationEnabled && (
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <Trophy size={13} />
-                {t(
-                  participationLeavePending
-                    ? "insights.leaderboard.leavePending"
-                    : "insights.leaderboard.disabled"
-                )}
-              </div>
-            )
-          )}
-        </div>
-
-        <TabsContent value="usage" className="mt-6 flex flex-1 flex-col">
-          <YourUsage
-            accountId={user?.id ?? null}
-            dataRetentionEnabled={dataRetentionEnabled}
-            isLoaded={isLoaded}
-            onSyncErrorChange={setSyncError}
-            syncActive={syncActive}
-          />
-          {isLoaded && !syncActive && (
-            <p className="mt-auto pt-8 text-center text-[11px] text-muted-foreground/70">
-              {t("insights.onDevicePrivacy")}
-            </p>
-          )}
-        </TabsContent>
-        <TabsContent value="leaderboard" className="mt-0">
-          <Suspense fallback={null}>
-            <LeaderboardView
-              enableInsightsSync={enableInsightsSync}
-              insightsSyncEnabled={insightsSyncEnabled}
-              onSignIn={onSignIn}
-              syncAllowedByPolicy={syncAllowedByPolicy}
-            />
-          </Suspense>
-        </TabsContent>
-      </Tabs>
-      {optInDialog}
+    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 py-6")}>
+      <YourUsage dataRetentionEnabled={dataRetentionEnabled} />
+      <p className="pt-8 text-center text-xs text-muted-foreground">
+        {t("insights.onDevicePrivacy")}
+      </p>
     </div>
   );
 }

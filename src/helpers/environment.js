@@ -501,7 +501,7 @@ class EnvironmentManager {
 
   // Removes a single key's line from .env, preserving every other line
   // verbatim. saveAllKeysToEnvFile() would instead regenerate the file from
-  // PERSISTED_KEYS, dropping hand-added lines (e.g. OPENWHISPR_LOG_LEVEL) and
+  // PERSISTED_KEYS, dropping hand-added lines (e.g. LOQUI_LOG_LEVEL) and
   // materializing session/shell env values into the file.
   removeKeyFromEnvFile(key) {
     const envPath = path.join(app.getPath("userData"), ".env");

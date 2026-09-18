@@ -17,7 +17,7 @@ function findRunButton(node) {
   return findRunButton(node.props?.children);
 }
 
-test("Prompt Studio labels dictation-agent runs for policy enforcement", async (t) => {
+test("Prompt Studio preserves the dictation-agent task scope", async (t) => {
   const calls = [];
   globalThis.__promptStudioReasoningCalls = calls;
 
@@ -176,7 +176,6 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
               };
               export function useSettingsStore(selector) { return selector(state); }
               useSettingsStore.getState = () => state;
-              export function selectPolicyEffectiveSettings(settings) { return settings; }
               export const selectIsCloudCleanupMode = () => true;
               export const selectIsCloudDictationAgentMode = () => true;
               export const selectIsCloudTranslationMode = () => true;

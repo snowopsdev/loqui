@@ -62,7 +62,7 @@ test("cleanup failure details ride the raw result instead of notifying before pa
   };
   const failure = Object.assign(
     new Error(
-      "AWS Bedrock is temporarily unavailable due to high demand. This is an AWS service issue, not an OpenWhispr outage. Please try again in a few minutes."
+      "AWS Bedrock is temporarily unavailable due to high demand. Please try again in a few minutes."
     ),
     {
       messageKey: "reasoning.enterprise.errors.bedrock.serviceUnavailable",

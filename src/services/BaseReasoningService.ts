@@ -12,9 +12,13 @@ export interface ReasoningConfig {
   systemPrompt?: string;
   lanUrl?: string;
   baseUrl?: string;
+  /** Legacy caller compatibility only; keys are never read or sent by reasoning. */
   customApiKey?: string;
+  credentialRef?: string;
   provider?: string;
   disableThinking?: boolean;
+  /** Explicit opt-in to the selected provider's own hosted search tool. */
+  webSearch?: boolean;
   /** Screenshot attached to voice-agent requests when screen context is on. */
   screenContext?: ScreenContextImage;
   /** Suffix-free prompt used when a screenshot-carrying request is retried text-only. */

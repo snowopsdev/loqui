@@ -10,7 +10,7 @@ const load = () => import("../../src/helpers/linuxAutostart.js");
 // would leak a bogus value into every later test in this file.
 const MANAGED_ENV = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_DATA_DIRS", "APPIMAGE", "NODE_ENV"];
 
-const ICON_THEME_SUBPATH = path.join("icons", "hicolor", "256x256", "apps", "open-whispr.png");
+const ICON_THEME_SUBPATH = path.join("icons", "hicolor", "256x256", "apps", "loqui-snowopsdev.png");
 
 function setEnv(name, value) {
   if (value === undefined) delete process.env[name];
@@ -78,9 +78,9 @@ test(
 
     const installDir = path.join(root, "opt");
     fs.mkdirSync(installDir, { recursive: true });
-    fs.writeFileSync(path.join(installDir, "open-whispr"), "#!/bin/bash\n");
-    withExecPath(path.join(installDir, "open-whispr-app"), () => {
-      assert.equal(resolveExecutablePath(), path.join(installDir, "open-whispr"));
+    fs.writeFileSync(path.join(installDir, "loqui-snowopsdev"), "#!/bin/bash\n");
+    withExecPath(path.join(installDir, "loqui-snowopsdev-app"), () => {
+      assert.equal(resolveExecutablePath(), path.join(installDir, "loqui-snowopsdev"));
     });
   })
 );
@@ -90,7 +90,7 @@ test(
   withTmpXdgDirs(async (root) => {
     const { resolveExecutablePath } = await load();
 
-    const orphan = path.join(root, "opt", "open-whispr-app");
+    const orphan = path.join(root, "opt", "loqui-snowopsdev-app");
     fs.mkdirSync(path.dirname(orphan), { recursive: true });
     withExecPath(orphan, () => {
       assert.equal(resolveExecutablePath(), orphan);
@@ -103,9 +103,9 @@ test(
   withTmpXdgDirs(async () => {
     const { buildDesktopFileContents } = await load();
 
-    const contents = buildDesktopFileContents("/a/b/OpenWhispr.AppImage", "open-whispr");
+    const contents = buildDesktopFileContents("/a/b/OpenWhispr.AppImage", "loqui-snowopsdev");
     assert.match(contents, /^Exec="\/a\/b\/OpenWhispr\.AppImage" --hidden$/m);
-    assert.match(contents, /^Icon=open-whispr$/m);
+    assert.match(contents, /^Icon=loqui-snowopsdev$/m);
     assert.match(contents, /^X-GNOME-Autostart-enabled=true$/m);
   })
 );
@@ -176,7 +176,7 @@ test(
     writeEntry(path.join(root, "system-data", ICON_THEME_SUBPATH), "pretend png");
 
     setAutostartEnabled(true);
-    assert.match(fs.readFileSync(getDesktopFilePath(), "utf8"), /^Icon=open-whispr$/m);
+    assert.match(fs.readFileSync(getDesktopFilePath(), "utf8"), /^Icon=loqui-snowopsdev$/m);
     assert.ok(!fs.existsSync(path.join(root, "data", ICON_THEME_SUBPATH)));
   })
 );
@@ -346,5 +346,20 @@ test(
 
     const contents = fs.readFileSync(getDesktopFilePath(), "utf8");
     assert.match(contents, /^Exec="\/installed\/OpenWhispr\.AppImage" --hidden$/m);
+  })
+);
+
+test(
+  "personal autostart never changes an upstream OpenWhispr entry",
+  withTmpXdgDirs(async () => {
+    const { setAutostartEnabled, getDesktopFilePath } = await load();
+    const upstream = path.join(process.env.XDG_CONFIG_HOME, "autostart", "open-whispr.desktop");
+    const original = "[Desktop Entry]\nName=OpenWhispr\nExec=/apps/OpenWhispr.AppImage\n";
+    writeEntry(upstream, original);
+    process.env.APPIMAGE = "/apps/io.github.snowopsdev.loqui.AppImage";
+    setAutostartEnabled(true);
+    assert.equal(path.basename(getDesktopFilePath()), "loqui-snowopsdev.desktop");
+    setAutostartEnabled(false);
+    assert.equal(fs.readFileSync(upstream, "utf8"), original);
   })
 );

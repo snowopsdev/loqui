@@ -15,11 +15,7 @@ import type { CalendarAccount } from "../types/calendar";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import { sweepRetiredPromptOverrides } from "../config/retiredPrompts";
 import { sweepRetiredCloudModelSelections } from "../config/retiredCloudModels";
-import {
-  deriveReasoningMode,
-  buildReasoningScopePatches,
-  inheritsFallbackEndpoint,
-} from "../helpers/reasoningRouting";
+import { deriveReasoningMode, buildReasoningScopePatches } from "../helpers/reasoningRouting";
 import { findStaleLocalModelKeys } from "../helpers/localModelSelections";
 import {
   INFERENCE_SCOPES,
@@ -28,23 +24,14 @@ import {
   type InferenceScopeStoreKeys,
 } from "../config/inferenceScopes";
 import { normalizeChineseScriptPreference } from "../utils/chineseScript";
-import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
 import modelRegistryData from "../models/modelRegistryData.json";
 import { pickDefaultModelId } from "../models/providerDefaultModel";
 // Both are leaves: tinfoilModelCache imports only a type from ModelRegistry and
 // the switch store only zustand, so neither reopens the ModelRegistry cycle.
 import { readCachedTinfoilModels } from "../models/tinfoilModelCache";
 import { recordTinfoilModelSwitch } from "./tinfoilModelSwitchStore";
-import { MEETING_STREAMING_PROVIDER_IDS } from "../helpers/meetingTranscriptionRouting";
 import { STREAMING_ONLY_PROVIDERS } from "../helpers/transcriptionRoute";
-import {
-  getTranscriptionSelection,
-  isScreenContextAllowed,
-  resolveEffectivePolicySelection,
-  type PolicyDecisionSnapshot,
-  type TranscriptionPolicyContext,
-} from "./policyRules";
-import { usePolicyStore } from "./policyStore";
+import type { TranscriptionPolicyContext } from "../utils/providerSelection";
 import type {
   TranscriptionSettings,
   CleanupSettings,
@@ -57,8 +44,6 @@ import type {
   ChatAgentSettings,
 } from "../hooks/useSettings";
 import type { Snippet } from "../utils/snippets";
-import type { EnterpriseSetupMode } from "../types/enterpriseIdentity";
-import { getManagedScopeResolution } from "./enterpriseIdentityStore";
 
 let _ReasoningService: typeof import("../services/ReasoningService").default | null = null;
 
@@ -69,46 +54,24 @@ const isBrowser = typeof window !== "undefined" && typeof localStorage !== "unde
 
 const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";
 
-export const TRANSCRIPTION_POLICY_PROVIDER_IDS = [
-  ...modelRegistryData.transcriptionProviders.map((provider) => provider.id),
-  "custom",
+// Independent task slots used only when the user changes a provider.
+const TRANSCRIPTION_CONTEXT_KEYS = [
+  {
+    context: "dictation",
+    provider: "cloudTranscriptionProvider",
+    model: "cloudTranscriptionModel",
+  },
+  {
+    context: "meeting",
+    provider: "meetingCloudTranscriptionProvider",
+    model: "meetingCloudTranscriptionModel",
+  },
+  {
+    context: "upload",
+    provider: "uploadCloudTranscriptionProvider",
+    model: "uploadCloudTranscriptionModel",
+  },
 ] as const;
-
-export const LLM_POLICY_PROVIDER_IDS = [
-  ...modelRegistryData.cloudProviders.map((provider) => provider.id),
-  "openrouter",
-  "custom",
-] as const;
-
-// Azure and Vertex remain intentionally unavailable in the desktop picker.
-export const LLM_ENTERPRISE_POLICY_PROVIDER_IDS = ["bedrock"] as const;
-
-// Managed transcription is Azure-only in this phase.
-export const TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS = ["azure"] as const;
-
-const TRANSCRIPTION_POLICY_CATALOG = {
-  modes: ["openwhispr", "providers", "local", "self-hosted", "enterprise"] as const,
-  byokProviders: TRANSCRIPTION_POLICY_PROVIDER_IDS,
-  enterpriseProviders: TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
-};
-
-const MEETING_TRANSCRIPTION_POLICY_CATALOG = {
-  // Self-hosted realtime is not implemented for Note Recording.
-  modes: ["openwhispr", "providers", "local"] as const,
-  byokProviders: modelRegistryData.transcriptionProviders
-    .filter(
-      (provider) =>
-        MEETING_STREAMING_PROVIDER_IDS.includes(provider.id) &&
-        provider.models.some((model) => model.streaming)
-    )
-    .map((provider) => provider.id),
-};
-
-const LLM_POLICY_CATALOG = {
-  modes: ["openwhispr", "providers", "local", "self-hosted", "enterprise"] as const,
-  byokProviders: LLM_POLICY_PROVIDER_IDS,
-  enterpriseProviders: LLM_ENTERPRISE_POLICY_PROVIDER_IDS,
-};
 
 const localLlmProviderIds = new Set(
   modelRegistryData.localProviders.map((provider) => provider.id)
@@ -140,13 +103,6 @@ function transcriptionModelBelongsToProvider(
   return transcriptionProviderModels(providerId, context).some((model) => model.id === modelId);
 }
 
-function canonicalTranscriptionBaseUrl(providerId: string): string | null {
-  return (
-    modelRegistryData.transcriptionProviders.find((provider) => provider.id === providerId)
-      ?.baseUrl ?? null
-  );
-}
-
 function reasoningModelBelongsToProvider(providerId: string, modelId: string): boolean {
   if (!modelId) return false;
   // Custom and OpenRouter ids are free-form; any remembered id is valid.
@@ -159,19 +115,6 @@ function reasoningModelBelongsToProvider(providerId: string, modelId: string): b
   );
 }
 
-function defaultLlmModel(mode: InferenceMode, providerId: string, bedrockRegion: string): string {
-  const providers =
-    mode === "local"
-      ? modelRegistryData.localProviders
-      : mode === "enterprise"
-        ? modelRegistryData.enterpriseProviders
-        : modelRegistryData.cloudProviders;
-  const defaultModel = pickDefaultModelId(providers.find(({ id }) => id === providerId));
-  return mode === "enterprise" && providerId === "bedrock"
-    ? adjustBedrockModelForRegion(defaultModel, bedrockRegion)
-    : defaultModel;
-}
-
 function readString(key: string, fallback: string): string {
   if (!isBrowser) return fallback;
   return localStorage.getItem(key) ?? fallback;
@@ -182,7 +125,7 @@ function readString(key: string, fallback: string): string {
 const DEFAULT_COHERE_MODEL = "cohere-transcribe-03-2026";
 
 function readLocalProvider(key: string): LocalTranscriptionProvider {
-  const stored = readString(key, "whisper");
+  const stored = readString(key, "nvidia");
   return stored === "nvidia" || stored === "cohere" ? stored : "whisper";
 }
 
@@ -249,17 +192,6 @@ function migrateMicrophoneSelectionMode() {
 
 migrateMicrophoneSelectionMode();
 
-// Automatic updates default on for new installs only. An install that already
-// finished onboarding keeps the manual download-and-install flow until the
-// user opts in.
-function initializeAutoUpdatesDefault() {
-  if (!isBrowser || localStorage.getItem("autoUpdatesEnabled") !== null) return;
-  const isExistingInstall = localStorage.getItem("onboardingCompleted") === "true";
-  localStorage.setItem("autoUpdatesEnabled", String(!isExistingInstall));
-}
-
-initializeAutoUpdatesDefault();
-
 const BOOLEAN_SETTINGS = new Set([
   "useLocalWhisper",
   "meetingUseLocalWhisper",
@@ -275,9 +207,6 @@ const BOOLEAN_SETTINGS = new Set([
   "useDictationTranslation",
   "translationDisableThinking",
   "preferBuiltInMic",
-  "cloudBackupEnabled",
-  "insightsSyncEnabled",
-  "telemetryEnabled",
   "audioCuesEnabled",
   "pauseMediaOnDictation",
   "floatingIconAutoHide",
@@ -287,7 +216,6 @@ const BOOLEAN_SETTINGS = new Set([
   "dictationSileroEnabled",
   "noteRecordingSileroEnabled",
   "meetingSileroEnabled",
-  "isSignedIn",
   "autoPasteEnabled",
   "keepTranscriptionInClipboard",
   "dataRetentionEnabled",
@@ -302,7 +230,6 @@ const BOOLEAN_SETTINGS = new Set([
   "notificationsEnabled",
   "notifyMeetingDetection",
   "notifyCalendarReminders",
-  "autoUpdatesEnabled",
   "gcalPrimaryOnly",
   "mcalPrimaryOnly",
   "appleCalendarConnected",
@@ -368,7 +295,7 @@ function deriveTranscriptionMode(
   if (cloudTranscriptionMode === "byok") {
     return cloudTranscriptionProvider === "custom" ? "self-hosted" : "providers";
   }
-  return "openwhispr";
+  return "local";
 }
 
 // Map the legacy `cloudReasoningMode` + provider pair to the InferenceMode the
@@ -380,7 +307,7 @@ function deriveLegacyReasoningMode(
   cloudMode: string | null,
   provider: string | null
 ): InferenceMode {
-  if (cloudMode !== "byok") return "openwhispr";
+  if (cloudMode !== "byok") return "local";
   if (provider === "custom") return "self-hosted";
   if (provider === "bedrock" || provider === "azure" || provider === "vertex") {
     return "enterprise";
@@ -856,7 +783,6 @@ export interface SettingsState
     PrivacySettings,
     ThemeSettings,
     ChatAgentSettings {
-  isSignedIn: boolean;
   audioCuesEnabled: boolean;
   pauseMediaOnDictation: boolean;
   floatingIconAutoHide: boolean;
@@ -869,7 +795,6 @@ export interface SettingsState
   notificationsEnabled: boolean;
   notifyMeetingDetection: boolean;
   notifyCalendarReminders: boolean;
-  autoUpdatesEnabled: boolean;
   gcalPrimaryOnly: boolean;
   mcalPrimaryOnly: boolean;
   appleCalendarConnected: boolean;
@@ -1112,8 +1037,6 @@ export interface SettingsState
   setCortiTenant: (value: string) => void;
 
   // Enterprise providers
-  enterpriseSetupMode: EnterpriseSetupMode;
-  enterpriseTranscriptionSetupMode: EnterpriseSetupMode;
   bedrockAuthMode: string;
   bedrockRegion: string;
   bedrockProfile: string;
@@ -1129,8 +1052,6 @@ export interface SettingsState
   vertexLocation: string;
   vertexApiKey: string;
   setBedrockAuthMode: (value: string) => void;
-  setEnterpriseSetupMode: (value: EnterpriseSetupMode) => void;
-  setEnterpriseTranscriptionSetupMode: (value: EnterpriseSetupMode) => void;
   setBedrockRegion: (value: string) => void;
   setBedrockProfile: (value: string) => void;
   setBedrockAccessKeyId: (key: string) => void;
@@ -1162,9 +1083,6 @@ export interface SettingsState
   setMicWarmHoldSeconds: (seconds: number) => void;
 
   setTheme: (value: "light" | "dark" | "auto") => void;
-  setCloudBackupEnabled: (value: boolean) => void;
-  setInsightsSyncEnabled: (value: boolean) => void;
-  setTelemetryEnabled: (value: boolean) => void;
   setAudioRetentionDays: (days: number) => void;
   setTranscriptRetentionDays: (days: number) => void;
   setDataRetentionEnabled: (value: boolean) => void;
@@ -1178,7 +1096,6 @@ export interface SettingsState
   setNotificationsEnabled: (value: boolean) => void;
   setNotifyMeetingDetection: (value: boolean) => void;
   setNotifyCalendarReminders: (value: boolean) => void;
-  setAutoUpdatesEnabled: (enabled: boolean) => void;
   setGcalPrimaryOnly: (value: boolean) => void;
   setMcalPrimaryOnly: (value: boolean) => void;
   setAppleCalendarConnected: (value: boolean) => void;
@@ -1199,7 +1116,6 @@ export interface SettingsState
   setKeepTranscriptionInClipboard: (value: boolean) => void;
   setNoteFilesEnabled: (value: boolean) => void;
   setNoteFilesPath: (value: string) => void;
-  setIsSignedIn: (value: boolean) => void;
 
   setChatAgentModel: (value: string) => void;
   setChatAgentProvider: (value: string) => void;
@@ -1453,21 +1369,14 @@ function createSecretSetter(
 
 export const MAX_TRANSLATION_TARGETS = 5;
 
-// Kick the matching cloud push once a local write has landed in SQLite.
-function syncAfterLocalWrite(method: "syncDictionaryNow" | "syncSnippetsNow"): void {
-  void import("../services/SyncService.js").then(({ syncService }) => {
-    if (syncService.canSync()) void syncService[method]();
-  });
-}
-
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
   uiLanguage: normalizeUiLanguage(
     isBrowser ? localStorage.getItem("uiLanguage") || i18n.language : null
   ),
-  useLocalWhisper: readBoolean("useLocalWhisper", false),
+  useLocalWhisper: readBoolean("useLocalWhisper", true),
   whisperModel: readString("whisperModel", "base"),
   localTranscriptionProvider: readLocalProvider("localTranscriptionProvider"),
-  parakeetModel: readString("parakeetModel", ""),
+  parakeetModel: readString("parakeetModel", "parakeet-unified-en-0.6b"),
   cohereModel: readString("cohereModel", DEFAULT_COHERE_MODEL),
   allowOpenAIFallback: readBoolean("allowOpenAIFallback", false),
   allowLocalFallback: readBoolean("allowLocalFallback", false),
@@ -1489,8 +1398,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   reasoningModelByProvider: readModelMemory("reasoningModelByProvider"),
   // Secrets aren't hydrated yet at construction; the BYOK default is set
   // post-hydration in initializeSettings.
-  cloudTranscriptionMode: readString("cloudTranscriptionMode", "openwhispr"),
-  cleanupCloudMode: readString("cleanupCloudMode", "openwhispr"),
+  cloudTranscriptionMode: readString("cloudTranscriptionMode", "byok"),
+  cleanupCloudMode: readString("cleanupCloudMode", "byok"),
   cleanupCloudBaseUrl: readString("cleanupCloudBaseUrl", API_ENDPOINTS.OPENAI_BASE),
   cortiEnvironment: readString("cortiEnvironment", "us"),
   cortiTenant: readString("cortiTenant", "base"),
@@ -1506,10 +1415,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   assemblyAiStreaming: readBoolean("assemblyAiStreaming", true),
 
   autoGenerateNoteTitle: readBoolean("autoGenerateNoteTitle", true),
-  useCleanupModel: readBoolean("useCleanupModel", true),
+  useCleanupModel: readBoolean("useCleanupModel", false),
   useDictationAgent: readBoolean("useDictationAgent", true),
-  cleanupModel: readString("cleanupModel", ""),
-  cleanupProvider: readString("cleanupProvider", "openai"),
+  cleanupModel: readString("cleanupModel", "qwen3.5-2b-q4_k_m"),
+  cleanupProvider: readString("cleanupProvider", "local"),
 
   // Secrets hydrate from main process in initializeSettings, never from localStorage.
   openaiApiKey: "",
@@ -1529,16 +1438,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   cleanupCustomApiKey: "",
 
   // Enterprise providers
-  enterpriseSetupMode: (() => {
-    const v = readString("enterpriseSetupMode", "auto");
-    if (v === "auto" || v === "managed" || v === "manual") return v;
-    return "auto" as EnterpriseSetupMode;
-  })(),
-  enterpriseTranscriptionSetupMode: (() => {
-    const v = readString("enterpriseTranscriptionSetupMode", "auto");
-    if (v === "auto" || v === "managed" || v === "manual") return v;
-    return "auto" as EnterpriseSetupMode;
-  })(),
   bedrockAuthMode: readString("bedrockAuthMode", "sso"),
   bedrockRegion: readString("bedrockRegion", "us-east-1"),
   bedrockProfile: readString("bedrockProfile", ""),
@@ -1584,9 +1483,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (v === "light" || v === "dark" || v === "auto") return v;
     return "auto" as const;
   })(),
-  cloudBackupEnabled: readBoolean("cloudBackupEnabled", false),
-  insightsSyncEnabled: readBoolean("insightsSyncEnabled", false),
-  telemetryEnabled: readBoolean("telemetryEnabled", false),
   audioRetentionDays: readNumber("audioRetentionDays", 30),
   transcriptRetentionDays: readNumber("transcriptRetentionDays", 0),
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
@@ -1598,7 +1494,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   notificationsEnabled: readBoolean("notificationsEnabled", true),
   notifyMeetingDetection: readBoolean("notifyMeetingDetection", true),
   notifyCalendarReminders: readBoolean("notifyCalendarReminders", true),
-  autoUpdatesEnabled: readBoolean("autoUpdatesEnabled", true),
   ...(() => {
     let accounts: CalendarAccount[] = [];
     try {
@@ -1664,12 +1559,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   keepTranscriptionInClipboard: readBoolean("keepTranscriptionInClipboard", false),
   noteFilesEnabled: readBoolean("noteFilesEnabled", false),
   noteFilesPath: readString("noteFilesPath", ""),
-  isSignedIn: readBoolean("isSignedIn", false),
 
   transcriptionMode: (() => {
-    const v = readString("transcriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("transcriptionMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted") return v;
+    return "local" as InferenceMode;
   })(),
   remoteTranscriptionType: (() => {
     const v = readString("remoteTranscriptionType", "lan");
@@ -1678,23 +1572,16 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   remoteTranscriptionUrl: readString("remoteTranscriptionUrl", ""),
   remoteTranscriptionModel: readString("remoteTranscriptionModel", ""),
   cleanupMode: (() => {
-    const v = readString("cleanupMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("cleanupMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted" || v === "enterprise") return v;
+    return "local" as InferenceMode;
   })(),
   cleanupRemoteUrl: readString("cleanupRemoteUrl", ""),
 
   meetingTranscriptionMode: (() => {
-    const v = readString("meetingTranscriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("meetingTranscriptionMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted") return v;
+    return "local" as InferenceMode;
   })(),
   meetingUseLocalWhisper: readBoolean("meetingUseLocalWhisper", false),
   meetingWhisperModel: readString("meetingWhisperModel", ""),
@@ -1712,9 +1599,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   meetingRemoteTranscriptionUrl: readString("meetingRemoteTranscriptionUrl", ""),
 
   uploadTranscriptionMode: (() => {
-    const v = readString("uploadTranscriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("uploadTranscriptionMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted") return v;
+    return "local" as InferenceMode;
   })(),
   uploadUseLocalWhisper: readBoolean("uploadUseLocalWhisper", false),
   uploadWhisperModel: readString("uploadWhisperModel", ""),
@@ -1727,39 +1614,25 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   uploadCloudTranscriptionMode: readString("uploadCloudTranscriptionMode", ""),
 
   noteFormattingMode: (() => {
-    const v = readString("noteFormattingMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("noteFormattingMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted" || v === "enterprise") return v;
+    return "local" as InferenceMode;
   })(),
-  noteFormattingProvider: readString("noteFormattingProvider", ""),
-  noteFormattingModel: readString("noteFormattingModel", ""),
+  noteFormattingProvider: readString("noteFormattingProvider", "local"),
+  noteFormattingModel: readString("noteFormattingModel", "qwen3.5-2b-q4_k_m"),
   noteFormattingCloudMode: readString("noteFormattingCloudMode", ""),
   noteFormattingCloudBaseUrl: readString("noteFormattingCloudBaseUrl", ""),
   noteFormattingRemoteUrl: readString("noteFormattingRemoteUrl", ""),
   noteFormattingCustomApiKey: readString("noteFormattingCustomApiKey", ""),
 
   translationMode: (() => {
-    const v = readString("translationMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("translationMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted" || v === "enterprise") return v;
+    return "local" as InferenceMode;
   })(),
   translationProvider: readString("translationProvider", ""),
   translationModel: readString("translationModel", ""),
-  translationCloudMode: readString("translationCloudMode", "openwhispr"),
+  translationCloudMode: readString("translationCloudMode", "byok"),
   translationCloudBaseUrl: readString("translationCloudBaseUrl", ""),
   translationRemoteUrl: readString("translationRemoteUrl", ""),
   translationCustomApiKey: readString("translationCustomApiKey", ""),
@@ -1857,38 +1730,24 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   chatAgentModel: readString("chatAgentModel", "openai/gpt-oss-120b"),
   chatAgentProvider: readString("chatAgentProvider", "groq"),
-  chatAgentCloudMode: readString("chatAgentCloudMode", "openwhispr"),
+  chatAgentCloudMode: readString("chatAgentCloudMode", "byok"),
   chatAgentMode: (() => {
-    const v = readString("chatAgentMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("chatAgentMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted" || v === "enterprise") return v;
+    return "local" as InferenceMode;
   })(),
   chatAgentRemoteUrl: readString("chatAgentRemoteUrl", ""),
   chatAgentCloudBaseUrl: readString("chatAgentCloudBaseUrl", ""),
   chatAgentCustomApiKey: readString("chatAgentCustomApiKey", ""),
 
   dictationAgentMode: (() => {
-    const v = readString("dictationAgentMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("dictationAgentMode", "local");
+    if (v === "providers" || v === "local" || v === "self-hosted" || v === "enterprise") return v;
+    return "local" as InferenceMode;
   })(),
   dictationAgentProvider: readString("dictationAgentProvider", ""),
-  dictationAgentModel: readString("dictationAgentModel", ""),
-  dictationAgentCloudMode: readString("dictationAgentCloudMode", "openwhispr"),
+  dictationAgentModel: readString("dictationAgentModel", "qwen3.5-2b-q4_k_m"),
+  dictationAgentCloudMode: readString("dictationAgentCloudMode", "byok"),
   dictationAgentCloudBaseUrl: readString("dictationAgentCloudBaseUrl", ""),
   dictationAgentRemoteUrl: readString("dictationAgentRemoteUrl", ""),
   dictationAgentCustomApiKey: readString("dictationAgentCustomApiKey", ""),
@@ -1899,7 +1758,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   dictationAgentVisionMode: "providers" as InferenceMode,
   dictationAgentVisionProvider: readString("dictationAgentVisionProvider", ""),
   dictationAgentVisionModel: readString("dictationAgentVisionModel", ""),
-  dictationAgentVisionCloudMode: readString("dictationAgentVisionCloudMode", "openwhispr"),
+  dictationAgentVisionCloudMode: readString("dictationAgentVisionCloudMode", "byok"),
   dictationAgentVisionCloudBaseUrl: readString("dictationAgentVisionCloudBaseUrl", ""),
   dictationAgentVisionCustomApiKey: readString("dictationAgentVisionCustomApiKey", ""),
 
@@ -2043,16 +1902,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setCustomDictionary: (words: string[]) => {
     if (isBrowser) localStorage.setItem("customDictionary", JSON.stringify(words));
     set({ customDictionary: words });
-    window.electronAPI
-      ?.setDictionary(words)
-      .then(() => syncAfterLocalWrite("syncDictionaryNow"))
-      .catch((err) => {
-        logger.warn(
-          "Failed to sync dictionary to SQLite",
-          { error: (err as Error).message },
-          "settings"
-        );
-      });
+    window.electronAPI?.setDictionary(words).catch((err) => {
+      logger.warn(
+        "Failed to sync dictionary to SQLite",
+        { error: (err as Error).message },
+        "settings"
+      );
+    });
   },
 
   updateCustomDictionary: ({ add = [], remove = [] }) => {
@@ -2084,7 +1940,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
           if (isBrowser) localStorage.setItem("customDictionary", JSON.stringify(stored));
           set({ customDictionary: stored });
         }
-        syncAfterLocalWrite("syncDictionaryNow");
       })
       .catch((err) => {
         logger.warn(
@@ -2104,16 +1959,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setSnippets: (snippets: Snippet[]) => {
     if (isBrowser) localStorage.setItem("snippets", JSON.stringify(snippets));
     set({ snippets });
-    window.electronAPI
-      ?.setSnippets?.(snippets)
-      .then(() => syncAfterLocalWrite("syncSnippetsNow"))
-      .catch((err) => {
-        logger.warn(
-          "Failed to sync snippets to SQLite",
-          { error: (err as Error).message },
-          "settings"
-        );
-      });
+    window.electronAPI?.setSnippets?.(snippets).catch((err) => {
+      logger.warn(
+        "Failed to sync snippets to SQLite",
+        { error: (err as Error).message },
+        "settings"
+      );
+    });
   },
 
   // For broadcasts from main process — DB is already authoritative, only update UI.
@@ -2174,12 +2026,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
 
   // Enterprise provider setters
-  setEnterpriseSetupMode: createStringSetter("enterpriseSetupMode") as (
-    value: EnterpriseSetupMode
-  ) => void,
-  setEnterpriseTranscriptionSetupMode: createStringSetter("enterpriseTranscriptionSetupMode") as (
-    value: EnterpriseSetupMode
-  ) => void,
   setBedrockAuthMode: (value: string) => {
     if (isBrowser) localStorage.setItem("bedrockAuthMode", value);
     set({ bedrockAuthMode: value });
@@ -2334,10 +2180,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (isBrowser) localStorage.setItem("theme", value);
     set({ theme: value });
   },
-
-  setCloudBackupEnabled: createBooleanSetter("cloudBackupEnabled"),
-  setInsightsSyncEnabled: createBooleanSetter("insightsSyncEnabled"),
-  setTelemetryEnabled: createBooleanSetter("telemetryEnabled"),
   setMicWarmHoldSeconds: (value: number) => {
     const snapped = snapMicWarmHold(value);
     if (isBrowser) localStorage.setItem("micWarmHoldSeconds", String(snapped));
@@ -2396,11 +2238,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setNotificationsEnabled: createBooleanSetter("notificationsEnabled"),
   setNotifyMeetingDetection: createBooleanSetter("notifyMeetingDetection"),
   setNotifyCalendarReminders: createBooleanSetter("notifyCalendarReminders"),
-  setAutoUpdatesEnabled: (enabled: boolean) => {
-    if (isBrowser) localStorage.setItem("autoUpdatesEnabled", String(enabled));
-    set({ autoUpdatesEnabled: enabled });
-    if (isBrowser) window.electronAPI?.setAutoUpdatesEnabled?.(enabled);
-  },
   setGcalPrimaryOnly: (value: boolean) => {
     if (isBrowser) localStorage.setItem("gcalPrimaryOnly", String(value));
     useSettingsStore.setState({ gcalPrimaryOnly: value });
@@ -2503,11 +2340,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setKeepTranscriptionInClipboard: createBooleanSetter("keepTranscriptionInClipboard"),
   setNoteFilesEnabled: createBooleanSetter("noteFilesEnabled"),
   setNoteFilesPath: createStringSetter("noteFilesPath"),
-
-  setIsSignedIn: (value: boolean) => {
-    if (isBrowser) localStorage.setItem("isSignedIn", String(value));
-    set({ isSignedIn: value });
-  },
 
   setChatAgentModel: createStringSetter("chatAgentModel"),
   setChatAgentProvider: createStringSetter("chatAgentProvider"),
@@ -2682,32 +2514,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
 // --- Selectors (derived state, not stored) ---
 
-export const selectIsCloudCleanupMode = (state: SettingsState) =>
-  state.isSignedIn && state.cleanupMode === "openwhispr" && state.cleanupCloudMode === "openwhispr";
-
-export const selectEffectiveCleanupProvider = (state: SettingsState) =>
-  selectIsCloudCleanupMode(state) ? "openwhispr" : state.cleanupProvider;
-
-export const selectIsCloudChatAgentMode = (state: SettingsState) =>
-  state.isSignedIn &&
-  state.chatAgentMode === "openwhispr" &&
-  state.chatAgentCloudMode === "openwhispr";
-
-export const selectIsCloudDictationAgentMode = (state: SettingsState) =>
-  state.isSignedIn &&
-  state.dictationAgentMode === "openwhispr" &&
-  state.dictationAgentCloudMode === "openwhispr";
-
-export const selectIsCloudTranslationMode = (state: SettingsState) =>
-  state.isSignedIn &&
-  state.translationMode === "openwhispr" &&
-  state.translationCloudMode === "openwhispr";
-
-export const selectIsCloudNoteFormattingMode = (state: SettingsState) => {
-  const cfg = selectResolvedNoteFormatting(state);
-  return state.isSignedIn && cfg.mode === "openwhispr" && cfg.cloudMode === "openwhispr";
-};
-
 export interface ResolvedMeetingTranscription {
   useLocalWhisper: boolean;
   whisperModel: string;
@@ -2797,17 +2603,6 @@ export interface ResolvedNoteFormatting {
 
 export const selectResolvedNoteFormatting = (state: SettingsState): ResolvedNoteFormatting => {
   const cfg = selectResolvedLLMConfig(state, "noteFormatting");
-  const cleanup = selectResolvedLLMConfig(state, "dictationCleanup");
-  // The endpoint falls back to dictation cleanup, so the key that opens it must too,
-  // or an inherited endpoint gets called with no credential.
-  const borrowsEndpoint = inheritsFallbackEndpoint(
-    {
-      mode: cfg.mode,
-      cloudBaseUrl: state.noteFormattingCloudBaseUrl,
-      remoteUrl: state.noteFormattingRemoteUrl,
-    },
-    cleanup.mode
-  );
   return {
     provider: cfg.provider,
     model: cfg.model,
@@ -2815,7 +2610,7 @@ export const selectResolvedNoteFormatting = (state: SettingsState): ResolvedNote
     cloudMode: cfg.cloudMode || "",
     cloudBaseUrl: cfg.cloudBaseUrl || "",
     remoteUrl: cfg.remoteUrl || "",
-    customApiKey: cfg.customApiKey || (borrowsEndpoint ? cleanup.customApiKey || "" : ""),
+    customApiKey: cfg.customApiKey || "",
   };
 };
 
@@ -2863,17 +2658,7 @@ export const selectResolvedLLMConfig = (
     customApiKey: read("customApiKey"),
     disableThinking,
   };
-  const managed = getManagedScopeResolution(scope, state.enterpriseSetupMode);
-  if (managed.kind === "error") {
-    return { ...localConfig, mode: "enterprise", provider: "", model: "" };
-  }
-  if (managed.kind !== "managed") return localConfig;
-  return {
-    ...localConfig,
-    mode: "enterprise",
-    provider: managed.provider,
-    model: managed.model,
-  };
+  return localConfig;
 };
 
 // Scope custom keys are secrets kept in the OS secure store, not localStorage
@@ -2915,186 +2700,10 @@ export function setResolvedLLMConfig(
   if (Object.keys(updates).length > 0) useSettingsStore.setState(updates);
 }
 
-export function isCloudChatAgentMode() {
-  return selectIsCloudChatAgentMode(getSettings());
-}
-
 // --- Convenience getters for non-React code ---
 
-interface TranscriptionContextKeys {
-  context: TranscriptionPolicyContext;
-  mode: keyof SettingsState;
-  useLocal: keyof SettingsState;
-  cloudMode: keyof SettingsState;
-  provider: keyof SettingsState;
-  model: keyof SettingsState;
-  baseUrl: keyof SettingsState;
-}
-
-const TRANSCRIPTION_CONTEXT_KEYS: readonly TranscriptionContextKeys[] = [
-  {
-    context: "dictation",
-    mode: "transcriptionMode",
-    useLocal: "useLocalWhisper",
-    cloudMode: "cloudTranscriptionMode",
-    provider: "cloudTranscriptionProvider",
-    model: "cloudTranscriptionModel",
-    baseUrl: "cloudTranscriptionBaseUrl",
-  },
-  {
-    context: "meeting",
-    mode: "meetingTranscriptionMode",
-    useLocal: "meetingUseLocalWhisper",
-    cloudMode: "meetingCloudTranscriptionMode",
-    provider: "meetingCloudTranscriptionProvider",
-    model: "meetingCloudTranscriptionModel",
-    baseUrl: "meetingCloudTranscriptionBaseUrl",
-  },
-  {
-    context: "upload",
-    mode: "uploadTranscriptionMode",
-    useLocal: "uploadUseLocalWhisper",
-    cloudMode: "uploadCloudTranscriptionMode",
-    provider: "uploadCloudTranscriptionProvider",
-    model: "uploadCloudTranscriptionModel",
-    baseUrl: "uploadCloudTranscriptionBaseUrl",
-  },
-];
-
-/**
- * Overlay managed policy choices for rendering and future requests while
- * leaving Zustand/localStorage preferences untouched for policy removal.
- */
-export function selectPolicyEffectiveSettings(
-  state: SettingsState,
-  policyState: PolicyDecisionSnapshot
-): SettingsState {
-  if (policyState.status === "idle" || policyState.status === "unmanaged") return state;
-  if (policyState.status !== "managed" || !policyState.policy) return state;
-
-  const effective = { ...state };
-  const writable = effective as unknown as Record<string, unknown>;
-
-  if (!isScreenContextAllowed(policyState)) writable.voiceAgentScreenContext = false;
-
-  for (const keys of TRANSCRIPTION_CONTEXT_KEYS) {
-    const rawSelection = getTranscriptionSelection(state, keys.context);
-    const selection = resolveEffectivePolicySelection(
-      policyState,
-      "transcription",
-      rawSelection,
-      keys.context === "meeting"
-        ? MEETING_TRANSCRIPTION_POLICY_CATALOG
-        : TRANSCRIPTION_POLICY_CATALOG
-    );
-    if (!selection) continue;
-
-    writable[keys.mode] = selection.mode;
-    writable[keys.useLocal] = selection.mode === "local";
-    writable[keys.cloudMode] = selection.mode === "openwhispr" ? "openwhispr" : "byok";
-    if (selection.mode === "providers") {
-      const providerChanged = selection.provider !== rawSelection.provider;
-      writable[keys.provider] = selection.provider;
-      if (
-        providerChanged ||
-        !transcriptionModelBelongsToProvider(
-          selection.provider,
-          state[keys.model] as string,
-          keys.context
-        )
-      ) {
-        writable[keys.model] = defaultTranscriptionModel(selection.provider, keys.context);
-      }
-
-      const canonicalBaseUrl = canonicalTranscriptionBaseUrl(selection.provider);
-      if (canonicalBaseUrl) {
-        writable[keys.baseUrl] = canonicalBaseUrl;
-      } else if (providerChanged) {
-        // A fallback to Custom must not reinterpret another provider's endpoint
-        // as user authorization to send content there.
-        writable[keys.baseUrl] = "";
-      }
-    } else if (selection.mode === "enterprise") {
-      // The managed deployment/endpoint is resolved separately by
-      // enterpriseIdentityStore; the provider id here only needs to satisfy
-      // the policy gate (isTranscriptionContextAllowed).
-      writable[keys.provider] = selection.provider;
-    }
-  }
-
-  const resolvedConfigs = Object.fromEntries(
-    (Object.keys(INFERENCE_SCOPES) as InferenceScope[]).map((scope) => [
-      scope,
-      selectResolvedLLMConfig(state, scope),
-    ])
-  ) as Record<InferenceScope, ResolvedLLMConfig>;
-
-  for (const scope of Object.keys(INFERENCE_SCOPES) as InferenceScope[]) {
-    const definition: InferenceScopeDefinition = INFERENCE_SCOPES[scope];
-    // An optional override with no model of its own is not a choice to clamp.
-    const rawModel = state[definition.storeKeys.model] as string | undefined;
-    if (definition.optional && !rawModel?.trim()) continue;
-    const config = resolvedConfigs[scope];
-    const selection = resolveEffectivePolicySelection(
-      policyState,
-      "llm",
-      { mode: config.mode, provider: config.provider },
-      LLM_POLICY_CATALOG
-    );
-    if (!selection) continue;
-
-    if (definition.optional && selection.mode !== config.mode) {
-      // A forbidden override goes inert; Cloud would count as chosen even without a model.
-      writable[definition.storeKeys.model] = "";
-      continue;
-    }
-
-    writable[definition.storeKeys.mode] = selection.mode;
-    if (definition.storeKeys.cloudMode) {
-      writable[definition.storeKeys.cloudMode] =
-        selection.mode === "openwhispr" ? "openwhispr" : "byok";
-    }
-
-    let provider = selection.provider;
-    if (selection.mode === "openwhispr") provider = "openwhispr";
-    if (selection.mode === "self-hosted") provider = "lan";
-    if (selection.mode === "local" && !localLlmProviderIds.has(provider)) {
-      provider = modelRegistryData.localProviders[0]?.id ?? "";
-    }
-    writable[definition.storeKeys.provider] = provider;
-
-    if (
-      definition.storeKeys.cloudBaseUrl &&
-      selection.mode === "providers" &&
-      provider === "custom" &&
-      config.provider !== "custom"
-    ) {
-      writable[definition.storeKeys.cloudBaseUrl] = "";
-    }
-
-    if (
-      selection.mode === "providers" ||
-      selection.mode === "enterprise" ||
-      selection.mode === "local"
-    ) {
-      const providerChanged = selection.mode !== config.mode || provider !== config.provider;
-      if (providerChanged && definition.optional) {
-        // A repointed override is no longer the user's choice: inert until they pick again.
-        writable[definition.storeKeys.model] = "";
-      } else {
-        writable[definition.storeKeys.model] =
-          !providerChanged && config.model
-            ? config.model
-            : defaultLlmModel(selection.mode, provider, state.bedrockRegion);
-      }
-    }
-  }
-
-  return effective;
-}
-
 export function getSettings(): SettingsState {
-  return selectPolicyEffectiveSettings(useSettingsStore.getState(), usePolicyStore.getState());
+  return useSettingsStore.getState();
 }
 
 /**
@@ -3151,22 +2760,7 @@ export function reconcileRetiredCloudModelSelections(): void {
 
 export function getEffectiveCleanupModel() {
   const state = getSettings();
-  if (selectIsCloudCleanupMode(state)) {
-    return "";
-  }
   return selectResolvedLLMConfig(state, "dictationCleanup").model;
-}
-
-export function isCloudCleanupMode() {
-  return selectIsCloudCleanupMode(getSettings());
-}
-
-export function isCloudDictationAgentMode() {
-  return selectIsCloudDictationAgentMode(getSettings());
-}
-
-export function isCloudTranslationMode() {
-  return selectIsCloudTranslationMode(getSettings());
 }
 
 // --- Initialization ---
@@ -3300,25 +2894,6 @@ export async function initializeSettings(): Promise<void> {
           useSettingsStore.getState();
         if (chatAgentCustomApiKey) setDictationAgentCustomApiKey(chatAgentCustomApiKey);
         localStorage.setItem("_dictationAgentSeeded", "1");
-      }
-
-      if (!localStorage.getItem("enterpriseSetupMode")) {
-        // One-time migration. "Managed by default" is meant to equip employees who never chose a
-        // provider — not to move someone who deliberately set up local, self-hosted, BYOK, or
-        // enterprise inference. Anyone with an existing choice starts on "manual" and opts in.
-        const hasChosenProvider =
-          Object.values(INFERENCE_SCOPES).some((scope) => {
-            const stored = localStorage.getItem(scope.storeKeys.mode as string);
-            return Boolean(stored) && stored !== "openwhispr";
-          }) ||
-          Boolean(
-            useSettingsStore.getState().bedrockProfile.trim() ||
-            (bedrockAccessKeyId && bedrockSecretAccessKey) ||
-            azureApiKey
-          );
-        const enterpriseSetupMode: EnterpriseSetupMode = hasChosenProvider ? "manual" : "auto";
-        localStorage.setItem("enterpriseSetupMode", enterpriseSetupMode);
-        useSettingsStore.setState({ enterpriseSetupMode });
       }
 
       for (const key of STALE_SECRET_LOCALSTORAGE_KEYS) {
@@ -3520,18 +3095,6 @@ export async function initializeSettings(): Promise<void> {
     } catch (err) {
       logger.warn(
         "Failed to sync notification preferences on startup",
-        { error: (err as Error).message },
-        "settings"
-      );
-    }
-
-    try {
-      await window.electronAPI.setAutoUpdatesEnabled?.(
-        useSettingsStore.getState().autoUpdatesEnabled
-      );
-    } catch (err) {
-      logger.warn(
-        "Failed to sync automatic updates preference on startup",
         { error: (err as Error).message },
         "settings"
       );

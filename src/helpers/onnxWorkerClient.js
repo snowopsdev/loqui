@@ -54,7 +54,7 @@ class OnnxWorkerClient {
     this.spawnPromise = (async () => {
       const env = { ...process.env };
       const logPath = this._logPath();
-      if (logPath) env.OPENWHISPR_ONNX_WORKER_LOG = logPath;
+      if (logPath) env.LOQUI_ONNX_WORKER_LOG = logPath;
 
       const child = utilityProcess.fork(WORKER_SCRIPT, [], {
         serviceName: "openwhispr-onnx",

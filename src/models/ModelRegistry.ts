@@ -1,5 +1,5 @@
 import modelDataRaw from "./modelRegistryData.json";
-import { isCloudCleanupMode, getSettings } from "../stores/settingsStore";
+import { getSettings } from "../stores/settingsStore";
 import { readCachedTinfoilModels } from "./tinfoilModelCache";
 import { filterMeetingStreamingProviders } from "../helpers/meetingTranscriptionRouting";
 import type { InferenceMode } from "../types/electron";
@@ -16,6 +16,10 @@ export interface ModelDefinition {
   contextLength: number;
   hfRepo: string;
   recommended?: boolean;
+  imported?: boolean;
+  architecture?: string;
+  loadStatus?: "untested" | "ready" | "failed";
+  loadError?: string;
   supportsThinking?: boolean;
   // Optional MTP speculative-decoding drafter downloaded alongside the main GGUF.
   draftHfRepo?: string;
@@ -151,6 +155,15 @@ class ModelRegistry {
 
   private constructor() {
     this.registerProvidersFromData();
+    this.registerProvider({
+      id: "imported",
+      name: "Imported GGUF",
+      baseUrl: "",
+      models: [],
+      getDownloadUrl: () => {
+        throw new Error("Imported models have no download URL");
+      },
+    });
   }
 
   static getInstance(): ModelRegistry {
@@ -260,6 +273,8 @@ export function isProviderValidForMode(provider: string, mode: InferenceMode): b
   switch (mode) {
     case "providers":
       return (
+        provider === "codex" ||
+        isEnterpriseProvider(provider) ||
         provider === "custom" ||
         provider === "openrouter" ||
         modelRegistry.getCloudProviders().some((p) => p.id === provider)
@@ -268,8 +283,10 @@ export function isProviderValidForMode(provider: string, mode: InferenceMode): b
       return modelRegistry.getAllProviders().some((p) => p.id === provider);
     case "enterprise":
       return isEnterpriseProvider(provider);
-    default:
+    case "self-hosted":
       return true;
+    default:
+      return false;
   }
 }
 
@@ -309,6 +326,17 @@ function buildReasoningProviders(): ReasoningProviders {
 }
 
 export const REASONING_PROVIDERS = buildReasoningProviders();
+
+export function applyImportedModels(models: ModelDefinition[]): void {
+  const provider = modelRegistry.getProvider("imported");
+  if (provider) provider.models = models.filter((model) => model.imported);
+  REASONING_PROVIDERS.local.models = modelRegistry.getAllModels().map((model) => ({
+    value: model.id,
+    label: model.name,
+    description: `${model.description} (${model.size})`,
+    descriptionKey: model.descriptionKey,
+  }));
+}
 
 export function getTinfoilModels(): CloudModelDefinition[] {
   return getTinfoilCloudProvider()?.models ?? [];
@@ -352,6 +380,7 @@ export function getReasoningModelLabel(modelId: string): string {
 const NON_REGISTRY_PROVIDER_NAMES: Record<string, string> = {
   openrouter: "OpenRouter",
   custom: "Custom",
+  codex: "Codex subscription",
 };
 
 export function getProviderDisplayName(provider: string): string {
@@ -363,14 +392,12 @@ export function getProviderDisplayName(provider: string): string {
 }
 
 export function getModelProvider(modelId: string): string {
-  if (isCloudCleanupMode()) {
-    return "openwhispr";
-  }
+  if (modelId.startsWith("imported-")) return "local";
 
   const storedProvider = getSettings().cleanupProvider;
 
-  if (storedProvider === "custom") {
-    return "custom";
+  if (storedProvider === "custom" || storedProvider === "codex") {
+    return storedProvider;
   }
 
   if (storedProvider === "openrouter") {

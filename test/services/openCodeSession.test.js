@@ -2,7 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const loadSession = () => import("../../src/services/ai/openCodeSession.ts");
-const loadProviders = () => import("../../src/services/ai/providers.ts");
+const loadProviders = async () => ({
+  getAIModel: require("../../src/helpers/personalInference").createModel,
+});
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

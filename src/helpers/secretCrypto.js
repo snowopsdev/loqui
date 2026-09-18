@@ -4,7 +4,9 @@ const path = require("path");
 const { app, safeStorage } = require("electron");
 const debugLogger = require("./debugLogger");
 
-const SERVICE = "OpenWhispr";
+const SERVICE =
+  require("../config/product.json").credentialService +
+  (app.isPackaged === false ? "-development" : "");
 const ACCOUNT = "secrets-master-key";
 const ALGO = "aes-256-gcm";
 const IV_LEN = 12;

@@ -1,20 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef } from "react";
-import { useSettingsStore, initializeSettings } from "../stores/settingsStore";
-import logger from "../utils/logger";
-import { useLocalStorage } from "./useLocalStorage";
+import { initializeSettings, useSettingsStore } from "../stores/settingsStore";
 import type {
   ChineseScriptPreference,
-  LocalTranscriptionProvider,
   InferenceMode,
+  LocalTranscriptionProvider,
   SelfHostedType,
 } from "../types/electron";
+import logger from "../utils/logger";
 import type { Snippet } from "../utils/snippets";
-import {
-  effectiveAudioRetentionDays,
-  effectiveLocalHistoryEnabled,
-  isLocalHistoryPolicyResolved,
-} from "../stores/policyRules";
-import { usePolicyStore } from "../stores/policyStore";
+import { useLocalStorage } from "./useLocalStorage";
 
 export interface TranscriptionSettings {
   uiLanguage: string;
@@ -99,9 +93,6 @@ export interface ApiKeySettings {
 }
 
 export interface PrivacySettings {
-  cloudBackupEnabled: boolean;
-  insightsSyncEnabled: boolean;
-  telemetryEnabled: boolean;
   audioRetentionDays: number;
   transcriptRetentionDays: number;
   dataRetentionEnabled: boolean;
@@ -190,30 +181,21 @@ function useSettingsInternal() {
 
   // Retention periods are enforced by the main process cleanup sweep
   const { audioRetentionDays, transcriptRetentionDays, dataRetentionEnabled } = store;
-  const enforcedAudioRetentionDays = usePolicyStore((policyState) =>
-    effectiveAudioRetentionDays(policyState, audioRetentionDays)
-  );
+  const enforcedAudioRetentionDays = audioRetentionDays;
   // Sent alongside the periods because the main process reconstructs Insights
   // history from stored transcripts, and that must answer to the same switch.
-  const enforcedDataRetentionEnabled = usePolicyStore((policyState) =>
-    effectiveLocalHistoryEnabled(policyState, dataRetentionEnabled)
-  );
+  const enforcedDataRetentionEnabled = dataRetentionEnabled;
   // Reported alongside the value because history reconstruction reads that
   // switch as consent, and until the policy settles it is only a default.
-  const localHistoryPolicyResolved = usePolicyStore(isLocalHistoryPolicyResolved);
+
   useEffect(() => {
     window.electronAPI?.syncRetentionSettings?.({
       audioRetentionDays: enforcedAudioRetentionDays,
       transcriptRetentionDays,
       dataRetentionEnabled: enforcedDataRetentionEnabled,
-      localHistoryPolicyResolved,
+      localHistoryPolicyResolved: true,
     });
-  }, [
-    enforcedAudioRetentionDays,
-    transcriptRetentionDays,
-    enforcedDataRetentionEnabled,
-    localHistoryPolicyResolved,
-  ]);
+  }, [enforcedAudioRetentionDays, transcriptRetentionDays, enforcedDataRetentionEnabled]);
 
   // Sync startup pre-warming preferences to main process
   const {
@@ -382,8 +364,6 @@ function useSettingsInternal() {
     setNotifyMeetingDetection: store.setNotifyMeetingDetection,
     notifyCalendarReminders: store.notifyCalendarReminders,
     setNotifyCalendarReminders: store.setNotifyCalendarReminders,
-    autoUpdatesEnabled: store.autoUpdatesEnabled,
-    setAutoUpdatesEnabled: store.setAutoUpdatesEnabled,
     audioCuesEnabled: store.audioCuesEnabled,
     setAudioCuesEnabled: store.setAudioCuesEnabled,
     pauseMediaOnDictation: store.pauseMediaOnDictation,
@@ -433,12 +413,6 @@ function useSettingsInternal() {
     setWhisperVadSpeechPadMs: store.setWhisperVadSpeechPadMs,
     whisperVadSamplesOverlap: store.whisperVadSamplesOverlap,
     setWhisperVadSamplesOverlap: store.setWhisperVadSamplesOverlap,
-    cloudBackupEnabled: store.cloudBackupEnabled,
-    setCloudBackupEnabled: store.setCloudBackupEnabled,
-    insightsSyncEnabled: store.insightsSyncEnabled,
-    setInsightsSyncEnabled: store.setInsightsSyncEnabled,
-    telemetryEnabled: store.telemetryEnabled,
-    setTelemetryEnabled: store.setTelemetryEnabled,
     audioRetentionDays: store.audioRetentionDays,
     setAudioRetentionDays: store.setAudioRetentionDays,
     transcriptRetentionDays: store.transcriptRetentionDays,

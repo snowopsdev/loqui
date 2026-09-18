@@ -36,7 +36,9 @@ function isNativeBindingUnavailable(error) {
 function createDb(t) {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-calendar-db-"));
   try {
-    return new DatabaseManager();
+    const db = new DatabaseManager();
+    t.after(() => db.db?.close());
+    return db;
   } catch (error) {
     if (isNativeBindingUnavailable(error)) {
       t.skip("better-sqlite3 native binding is not available for this Node runtime");
@@ -232,24 +234,6 @@ test("availability range query treats date-only all-day events as local dates", 
     ["all-day"]
   );
   db.db.close();
-});
-
-test("reopening a pre-v2 database clears microsoft sync tokens once", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  insertCalendar(db, "microsoft", "ms-calendar");
-  db.updateMicrosoftCalendarSyncToken("ms-calendar", "delta-link", Date.now() + 1000000);
-  db.db.pragma("user_version = 1");
-  db.db.close();
-
-  const reopened = new DatabaseManager();
-  const calendar = reopened.db
-    .prepare("SELECT * FROM microsoft_calendars WHERE id = 'ms-calendar'")
-    .get();
-  assert.equal(calendar.sync_token, null);
-  assert.equal(calendar.sync_token_expires_at, null);
-  assert.equal(reopened.db.pragma("user_version", { simple: true }), 2);
-  reopened.db.close();
 });
 
 test("google sync token persists alongside its expiry", (t) => {

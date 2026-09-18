@@ -39,7 +39,10 @@ function loadModelManager() {
   };
   try {
     require("../../src/helpers/modelDirUtils.js");
-    return require("../../src/helpers/modelManagerBridge.js").default;
+    const manager = require("../../src/helpers/modelManagerBridge.js").default;
+    // Ignore real XDG/cache overrides: synthetic GGUF fixtures must stay inside this test home.
+    manager.getModelsDir = () => path.join(electronHome, ".cache", "loqui-snowopsdev", "models");
+    return manager;
   } finally {
     Module._load = originalLoad;
   }

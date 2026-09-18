@@ -13,6 +13,7 @@ const modelRegistryData = require("../models/modelRegistryData.json");
 const LlamaServerManager = require("./llamaServer");
 const debugLogger = require("./debugLogger");
 const { readGgufMetadataFromFile } = require("./ggufMetadata");
+const { ImportedModelStore } = require("./importedModelStore");
 const {
   estimateTokens,
   kvBytesPerToken,
@@ -79,6 +80,9 @@ class ModelManager {
     this.serverManager = new LlamaServerManager();
     this.currentServerModelId = null;
     this._initialized = false;
+    this.importedModels = null;
+    this.loadTestController = null;
+    this.inferenceCount = 0;
 
     // IMPORTANT: Do NOT call app.getPath() here!
     // It can hang or fail before app.whenReady() in Electron 36+.
@@ -101,6 +105,7 @@ class ModelManager {
     }
 
     this.modelsDir = this.getModelsDir();
+    this.importedModels = new ImportedModelStore(this.modelsDir);
     this._initialized = true;
     // Don't await - let this run in background
     this.ensureModelsDirExists();
@@ -133,12 +138,96 @@ class ModelManager {
     return true;
   }
 
+  getLocalProviders() {
+    return [
+      ...getLocalProviders(),
+      ...(this.importedModels ? [this.importedModels.provider()] : []),
+    ];
+  }
+
+  async importGguf(sourcePath, options = {}) {
+    this.ensureInitialized();
+    return this.importedModels.importFile(sourcePath, options);
+  }
+
+  async testModelLoad(modelId) {
+    this.ensureInitialized();
+    if (this.loadTestController || this.inferenceCount || this.serverManager.startupPromise) {
+      throw new ModelError("Wait for the current local model request to finish.", "MODEL_BUSY");
+    }
+    const info = this.findModelById(modelId);
+    if (!info) throw new ModelNotFoundError(modelId);
+    const modelPath = path.join(this.modelsDir, info.model.fileName);
+    if (!(await this.checkModelValid(modelPath)))
+      throw new ModelError(
+        "The model file is missing. Import or download it again.",
+        "MODEL_NOT_DOWNLOADED"
+      );
+    await this.ensureLlamaCpp();
+    // Check again after filesystem awaits, before taking the runtime lease.
+    if (this.loadTestController || this.inferenceCount || this.serverManager.startupPromise) {
+      throw new ModelError("Wait for the current local model request to finish.", "MODEL_BUSY");
+    }
+    const controller = new AbortController();
+    this.loadTestController = controller;
+    try {
+      await this.serverManager.stop();
+      controller.signal.throwIfAborted();
+      await this.serverManager.start(modelPath, {
+        ...this.serverOptions(info),
+        contextSize: Math.min(2048, info.model.contextLength || 2048),
+        signal: controller.signal,
+      });
+      controller.signal.throwIfAborted();
+      this.currentServerModelId = modelId;
+      this.importedModels?.updateLoadStatus(modelId, "ready");
+      return { modelId, backend: this.serverManager.getStatus().backend };
+    } catch (error) {
+      const canceled = controller.signal.aborted;
+      const oom = /out of memory|insufficient memory|alloc.*fail|SIGKILL/i.test(error.message);
+      const unsupported =
+        /unknown model architecture|unsupported.*(architecture|model)|unknown.*architecture/i.test(
+          error.message
+        );
+      const code = canceled
+        ? "MODEL_TEST_CANCELED"
+        : oom
+          ? "INSUFFICIENT_MEMORY"
+          : unsupported
+            ? "UNSUPPORTED_ARCHITECTURE"
+            : "MODEL_LOAD_FAILED";
+      const message = canceled
+        ? "Model load test canceled."
+        : oom
+          ? "Not enough memory to load this model. Choose a smaller or more quantized GGUF model."
+          : unsupported
+            ? `The bundled llama.cpp runtime does not support this model's architecture (${info.model.architecture || "unknown"}).`
+            : `The local runtime could not load this model: ${error.message}`;
+      this.importedModels?.updateLoadStatus(
+        modelId,
+        canceled ? "untested" : "failed",
+        canceled ? undefined : message
+      );
+      await this.serverManager.stop();
+      this.currentServerModelId = null;
+      throw new ModelError(message, code);
+    } finally {
+      this.loadTestController = null;
+    }
+  }
+
+  cancelModelLoadTest() {
+    if (!this.loadTestController) return false;
+    this.loadTestController.abort();
+    return true;
+  }
+
   async getAllModels() {
     this.ensureInitialized();
     try {
       const modelEntries = [];
 
-      for (const provider of getLocalProviders()) {
+      for (const provider of this.getLocalProviders()) {
         for (const model of provider.models) {
           const modelPath = path.join(this.modelsDir, model.fileName);
           modelEntries.push({ model, provider, modelPath });
@@ -214,7 +303,7 @@ class ModelManager {
   }
 
   findModelById(modelId) {
-    for (const provider of getLocalProviders()) {
+    for (const provider of this.getLocalProviders()) {
       const model = provider.models.find((m) => m.id === modelId);
       if (model) {
         return { model, provider };
@@ -310,6 +399,11 @@ class ModelManager {
     }
 
     const { model, provider } = modelInfo;
+    if (model.imported)
+      throw new ModelError(
+        "Import the original GGUF file again; imported models have no download source.",
+        "MODEL_IMPORT_REQUIRED"
+      );
     const modelPath = path.join(this.modelsDir, model.fileName);
 
     if (await this.checkModelValid(modelPath)) {
@@ -485,11 +579,18 @@ class ModelManager {
 
   async deleteModel(modelId) {
     this.ensureInitialized();
+    if (this.loadTestController || this.inferenceCount)
+      throw new ModelError(
+        "Wait for the local model request to finish before deleting a model.",
+        "MODEL_BUSY"
+      );
     const modelInfo = this.findModelById(modelId);
     if (!modelInfo) {
       throw new ModelNotFoundError(modelId);
     }
 
+    if (this.currentServerModelId === modelId) await this.stopServer();
+    if (modelInfo.model.imported) return this.importedModels.deleteModel(modelId);
     const modelPath = path.join(this.modelsDir, modelInfo.model.fileName);
 
     if (await this.checkFileExists(modelPath)) {
@@ -505,6 +606,12 @@ class ModelManager {
 
   async deleteAllModels() {
     this.ensureInitialized();
+    if (this.loadTestController || this.inferenceCount)
+      throw new ModelError(
+        "Wait for the local model request to finish before deleting models.",
+        "MODEL_BUSY"
+      );
+    await this.stopServer();
     try {
       if (fsPromises.rm) {
         await fsPromises.rm(this.modelsDir, { recursive: true, force: true });
@@ -529,6 +636,7 @@ class ModelManager {
       );
     } finally {
       await this.ensureModelsDirExists();
+      this.importedModels = new ImportedModelStore(this.modelsDir);
     }
   }
 
@@ -633,6 +741,20 @@ class ModelManager {
   }
 
   async runInference(modelId, prompt, options = {}) {
+    if (this.loadTestController)
+      throw new ModelError(
+        "A model load test is running. Wait for it to finish or cancel it.",
+        "MODEL_BUSY"
+      );
+    this.inferenceCount += 1;
+    try {
+      return await this._runInference(modelId, prompt, options);
+    } finally {
+      this.inferenceCount -= 1;
+    }
+  }
+
+  async _runInference(modelId, prompt, options = {}) {
     this.ensureInitialized();
     const startTime = Date.now();
     debugLogger.logReasoning("INFERENCE_START", {
@@ -873,7 +995,7 @@ class ModelManager {
   }
 
   async prewarmServer(modelId) {
-    if (!modelId) return false;
+    if (!modelId || this.loadTestController) return false;
     this.ensureInitialized();
 
     const modelInfo = this.findModelById(modelId);
@@ -898,6 +1020,7 @@ class ModelManager {
 
 module.exports = {
   default: new ModelManager(),
+  ModelManager,
   ModelError,
   ModelNotFoundError,
 };

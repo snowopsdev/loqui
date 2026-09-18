@@ -23,11 +23,11 @@ const localIds = modelData.localProviders.map((p) => p.id);
 const cloudIds = modelData.cloudProviders.map((p) => p.id);
 const enterpriseIds = modelData.enterpriseProviders.map((p) => p.id);
 
-test("every selectable cloud and enterprise provider has an inference handler", () => {
+test("every selectable direct provider has an inference handler", () => {
   const handlers = inferenceProviderIds();
-  assert.ok(cloudIds.length > 0 && enterpriseIds.length > 0, "catalogs are non-empty");
+  assert.ok(cloudIds.length > 0, "direct provider catalog is non-empty");
 
-  for (const id of [...cloudIds, ...enterpriseIds]) {
+  for (const id of cloudIds) {
     assert.ok(handlers.includes(id), `provider "${id}" is selectable but has no inference handler`);
   }
 });

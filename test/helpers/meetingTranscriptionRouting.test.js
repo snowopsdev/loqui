@@ -4,7 +4,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const load = () => import("../../src/helpers/meetingTranscriptionRouting.js");
-const modelRegistryData = require("../../src/models/modelRegistryData.json");
 
 // Sentinels this module throws, paired with the MEETING_ERROR_KEYS entry that
 // MeetingRecordingMount looks up. A healed legacy profile can reach any of them,
@@ -124,41 +123,6 @@ test("local mode wins over stale cloud provider state", async () => {
   );
 });
 
-test("managed mode ignores stale BYOK state", async () => {
-  const { resolveMeetingTranscriptionOptions } = await load();
-
-  assert.deepEqual(
-    resolveMeetingTranscriptionOptions({
-      ...baseOptions,
-      transcriptionMode: "openwhispr",
-    }),
-    {
-      provider: "assemblyai-realtime",
-      model: "universal-streaming",
-      mode: "openwhispr",
-      language: "en",
-    }
-  );
-});
-
-test("managed mode keeps its established OpenAI default before the catalog loads", async () => {
-  const { resolveMeetingTranscriptionOptions } = await load();
-
-  assert.deepEqual(
-    resolveMeetingTranscriptionOptions({
-      ...baseOptions,
-      transcriptionMode: "openwhispr",
-      managedProviders: null,
-    }),
-    {
-      provider: "openai-realtime",
-      model: "gpt-4o-mini-transcribe",
-      mode: "openwhispr",
-      language: "en",
-    }
-  );
-});
-
 test("Corti keeps the meeting-specific connection settings", async () => {
   const { resolveMeetingTranscriptionOptions } = await load();
 
@@ -233,40 +197,10 @@ test("every thrown sentinel is translated and rendered by the mount", () => {
 // commits, which dictation does on stop and a long-running meeting stream never
 // does. Until that guard exists, the desktop must not be able to route a meeting
 // onto it: no registry entry, and a stale selection falls back to the default.
-test("gpt-live-transcribe is never offered for Note Recording", async () => {
+test("removed hosted meeting mode cannot select an implicit paid provider", async () => {
   const { resolveMeetingTranscriptionOptions } = await load();
-  // Mirrors getStreamingTranscriptionProviders(): the meeting BYOK picker.
-  const registryStreamingProviders = modelRegistryData.transcriptionProviders
-    .map((provider) => ({ ...provider, models: provider.models.filter((m) => m.streaming) }))
-    .filter((provider) => provider.models.length > 0);
-  for (const provider of registryStreamingProviders) {
-    for (const model of provider.models) {
-      assert.equal(model.id.startsWith("gpt-live-transcribe"), false, model.id);
-    }
-  }
-
-  assert.equal(
-    resolveMeetingTranscriptionOptions({
-      ...baseOptions,
-      selectedProvider: "openai",
-      selectedModel: "gpt-live-transcribe",
-      byokProviders: registryStreamingProviders,
-    }).model,
-    "gpt-4o-mini-transcribe"
+  assert.throws(
+    () => resolveMeetingTranscriptionOptions({ ...baseOptions, transcriptionMode: "openwhispr" }),
+    /Unsupported Note Recording/
   );
-  const managedCatalogs = [
-    null,
-    [{ id: "openai", models: [{ id: "gpt-4o-mini-transcribe", default: true }] }],
-  ];
-  for (const managedProviders of managedCatalogs) {
-    assert.equal(
-      resolveMeetingTranscriptionOptions({
-        ...baseOptions,
-        transcriptionMode: "openwhispr",
-        managedProviders,
-        selectedModel: "gpt-live-transcribe",
-      }).model,
-      "gpt-4o-mini-transcribe"
-    );
-  }
 });

@@ -1,0 +1,1 @@
+Protocol schemas generated from the installed official Codex CLI 0.155.1 using `codex app-server generate-json-schema --experimental`. These schemas cover the integration request and dynamic-tool shapes; they contain no account data. Source: https://learn.chatgpt.com/docs/app-server

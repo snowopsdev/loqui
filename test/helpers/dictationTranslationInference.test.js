@@ -71,7 +71,8 @@ test("self-hosted mode routes only through its configured endpoint", async () =>
   assert.equal(result.displayProvider, "self-hosted");
   assert.equal(result.config.provider, undefined);
   assert.equal(result.config.lanUrl, "http://127.0.0.1:8080/v1");
-  assert.equal(result.config.customApiKey, "lan-key");
+  assert.equal(result.config.credentialRef, "custom:dictationTranslation");
+  assert.equal(result.config.customApiKey, undefined);
 });
 
 test("self-hosted mode without an endpoint never falls through to cloud inference", async () => {
@@ -89,7 +90,7 @@ test("self-hosted mode without an endpoint never falls through to cloud inferenc
   assert.equal(result.config.lanUrl, undefined);
 });
 
-test("available managed mode resolves OpenWhispr without requiring a model", async () => {
+test("removed cloud mode is unavailable", async () => {
   const { resolveDictationTranslationInference } = await load();
 
   const result = resolveDictationTranslationInference(
@@ -101,9 +102,9 @@ test("available managed mode resolves OpenWhispr without requiring a model", asy
     { isCloudTranslation: true }
   );
 
-  assert.equal(result.reachable, true);
-  assert.equal(result.displayProvider, "openwhispr");
-  assert.equal(result.config.provider, "openwhispr");
+  assert.equal(result.reachable, false);
+  assert.equal(result.displayProvider, "none");
+  assert.equal(result.config.provider, undefined);
 });
 
 test("managed mode never falls through to a stale provider when signed out", async () => {
@@ -116,7 +117,7 @@ test("managed mode never falls through to a stale provider when signed out", asy
   });
 
   assert.equal(result.reachable, false);
-  assert.equal(result.displayProvider, "openwhispr");
+  assert.equal(result.displayProvider, "none");
   assert.equal(result.config.provider, undefined);
 });
 
@@ -150,7 +151,8 @@ test("custom provider credentials stay scoped to custom mode", async () => {
   });
 
   assert.equal(custom.config.baseUrl, "https://example.test/v1");
-  assert.equal(custom.config.customApiKey, "secret");
+  assert.equal(custom.config.credentialRef, "custom:dictationTranslation");
+  assert.equal(custom.config.customApiKey, undefined);
   assert.equal(openai.config.baseUrl, undefined);
   assert.equal(openai.config.customApiKey, undefined);
 });
@@ -167,66 +169,4 @@ test("enterprise mode without a provider fails closed", async () => {
 
   assert.equal(result.reachable, false);
   assert.equal(result.config.provider, undefined);
-});
-
-test("managed enterprise access supplies the provider and model, ignoring manual settings", async (t) => {
-  const { resolveDictationTranslationInference } = await load();
-  const { useEnterpriseIdentityStore } = await import(
-    "../../src/stores/enterpriseIdentityStore.ts"
-  );
-
-  const scopes = [
-    "dictationCleanup",
-    "dictationAgent",
-    "noteFormatting",
-    "chatIntelligence",
-    "dictationTranslation",
-  ];
-  useEnterpriseIdentityStore.setState({
-    status: "ready",
-    config: {
-      workspaceId: "workspace-a",
-      version: 1,
-      identity: {
-        issuer: "https://api.example.com/enterprise-identity",
-        jwksUri: "https://api.example.com/enterprise-identity/jwks.json",
-        subject: "workspace:workspace-a",
-        audiences: { bedrock: "sts.amazonaws.com", azure: "api://AzureADTokenExchange" },
-      },
-      providers: [
-        {
-          provider: "bedrock",
-          mode: "managed_required",
-          allowManualSetup: false,
-          config: {
-            roleArn: "arn:aws:iam::123456789012:role/OpenWhispr",
-            region: "us-east-1",
-            allowedModels: ["managed-model"],
-            scopeDefaults: Object.fromEntries(scopes.map((scope) => [scope, "managed-model"])),
-          },
-          version: 1,
-          updatedAt: "2026-08-10T00:00:00.000Z",
-        },
-      ],
-    },
-  });
-  t.after(() => useEnterpriseIdentityStore.setState({ status: "idle", config: null }));
-
-  // A stale self-hosted endpoint and key must not leak into a managed request.
-  const result = resolveDictationTranslationInference({
-    ...baseSettings,
-    enterpriseSetupMode: "auto",
-    translationMode: "self-hosted",
-    translationRemoteUrl: "http://192.0.2.1:8080",
-    translationCustomApiKey: "secret",
-  });
-
-  assert.equal(result.reachable, true);
-  assert.equal(result.model, "managed-model");
-  assert.equal(result.displayProvider, "bedrock");
-  assert.equal(result.config.provider, "bedrock");
-  assert.equal(result.config.inferenceScope, "dictationTranslation");
-  assert.equal(result.config.language, "es");
-  assert.equal(result.config.lanUrl, undefined);
-  assert.equal(result.config.customApiKey, undefined);
 });

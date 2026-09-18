@@ -1,58 +1,9 @@
-# Security Policy
+# Security policy
 
-## Supported Versions
+Loqui's current beta series receives security fixes. There is no stable support promise yet. Keep the application and supported Codex CLI version current.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.7.x   | :white_check_mark: |
-| < 1.7   | :x:                |
+Use GitHub's **Report a vulnerability** feature at https://github.com/snowopsdev/loqui/security/advisories/new when private vulnerability reporting is enabled. If unavailable, open an issue requesting a private contact without disclosing exploit details or private data. Never post provider keys, Codex session files, personal databases, recordings, signing certificates, or access tokens.
 
-## Reporting a Vulnerability
+Include the affected version/platform, a minimal reproduction, impact, and whether local or remote input is required. We will investigate and coordinate a fix; response times are not guaranteed.
 
-**Please do not open public issues for security vulnerabilities.**
-
-Use [GitHub's private vulnerability reporting](https://github.com/OpenWhispr/openwhispr/security/advisories/new)
-to submit a report. You can also email security@openwhispr.com.
-
-We will acknowledge your report within **48 hours** and aim to release a fix
-within **7 days** for critical issues.
-
-## Scope
-
-The following are in scope:
-
-- Remote code execution via crafted audio files or transcription output
-- Privilege escalation through native binaries (key listeners, paste helpers)
-- Credential exposure (API keys, OAuth tokens, database credentials)
-- Cross-site scripting (XSS) in the Electron renderer
-- Insecure IPC between main and renderer processes
-- Supply chain attacks via dependencies or native compilation
-
-Out of scope:
-
-- Issues requiring physical access to an already-unlocked machine
-- Denial of service against the local application
-- Social engineering
-
-## Security Model
-
-- **Local-first audio processing** — Audio is transcribed on-device using
-  whisper.cpp or nvidia parakeet. Recordings are not sent to external servers unless explicitly
-  configured by the user.
-- **Credential storage** — API keys provided by users (BYOK) and enterprise
-  cloud credentials (AWS, Azure, Vertex) are encrypted at rest using
-  Electron's `safeStorage` API, which delegates to the OS keychain (Keychain
-  on macOS, DPAPI on Windows, libsecret on Linux). Encrypted blobs are stored
-  under `userData/secure-keys/`. Non-secret preferences (regions, endpoints,
-  hotkeys, flags) continue to live in `.env`. On Linux systems without a
-  keyring, secrets fall back to plaintext to match Electron's default
-  behavior.
-- **Native binaries** — Platform-specific helpers (key listeners, paste
-  utilities) are compiled from source during the build process.
-- **Context isolation** — The Electron renderer runs with context isolation
-  enabled and a restricted preload bridge.
-
-## Disclosure Policy
-
-We follow coordinated disclosure. Once a fix is released, we will credit
-reporters in the changelog (unless they prefer to remain anonymous).
+Release credentials belong only in the protected GitHub `release` environment. Fork pull requests run without these credentials. Published versions are immutable; corrections require a new release version.

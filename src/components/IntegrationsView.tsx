@@ -1,39 +1,22 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CalendarDays, Code2, Info, Loader2, Mail, Plus, Unlink } from "./icons";
-import { Button } from "./ui/button";
-import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
+import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
+import { useSettingsStore } from "../stores/settingsStore";
+import type { CalendarAccount } from "../types/calendar";
+import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
+import { CalendarDays, Info, Loader2, Mail, Plus, Unlink } from "./icons";
 import { cn } from "./lib/utils";
-import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
 import { Badge } from "./ui/badge";
+import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
+import { Button } from "./ui/button";
+import { AlertDialog, ConfirmDialog } from "./ui/dialog";
+import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
 import { SettingsPanel, SettingsPanelRow, SettingsRow } from "./ui/SettingsSection";
 import { Toggle } from "./ui/toggle";
-import {
-  AlertDialog,
-  ConfirmDialog,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import { useSettingsStore } from "../stores/settingsStore";
-import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
-import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
-import type { CalendarAccount } from "../types/calendar";
-import ApiKeysSection from "./ApiKeysSection";
-import CliIntegrationCard from "./CliIntegrationCard";
-import McpIntegrationCard from "./McpIntegrationCard";
+
+import appleCalendarIcon from "../assets/icons/apple-calendar.svg";
 import googleCalendarIcon from "../assets/icons/google-calendar.svg";
 import microsoftCalendarIcon from "../assets/icons/microsoft-calendar.svg";
-import appleCalendarIcon from "../assets/icons/apple-calendar.svg";
-
-const API_DOCS_URL = "https://docs.openwhispr.com/api/overview";
-
-interface IntegrationsViewProps {
-  isPaid: boolean;
-  onUpgrade: () => void;
-}
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -163,7 +146,7 @@ function CalendarAccountRows({
   );
 }
 
-export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsViewProps) {
+export default function IntegrationsView() {
   const { t } = useTranslation();
   const {
     gcalAccounts,
@@ -190,7 +173,7 @@ export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsView
   const [appleConnectError, setAppleConnectError] = useState<"denied" | "failed" | null>(null);
   // i18n prefix of the provider whose OAuth flow failed, e.g. "integrations.googleCalendar"
   const [oauthErrorKey, setOauthErrorKey] = useState<string | null>(null);
-  const [apiKeysDialogOpen, setApiKeysDialogOpen] = useState(false);
+
   const systemAudio = useSystemAudioPermission();
   const { request: requestSystemAudioAccess } = systemAudio;
   const hasAccounts = gcalAccounts.length > 0;
@@ -431,51 +414,6 @@ export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsView
         </SettingsPanel>
       </div>
 
-      <div>
-        <SectionLabel>{t("integrations.sections.api")}</SectionLabel>
-        <SettingsPanel>
-          <SettingsPanelRow>
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-primary/5 dark:bg-primary/10 flex items-center justify-center shrink-0">
-                <Code2 className="h-4 w-4 text-primary/80" strokeWidth={2} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-foreground">
-                  {t("integrations.api.title")}
-                </p>
-                <p className="text-xs text-muted-foreground/70 mt-0.5 leading-relaxed">
-                  {isPaid ? t("integrations.api.description") : t("integrations.api.proRequired")}
-                </p>
-              </div>
-              {isPaid ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setApiKeysDialogOpen(true)}
-                  className="shrink-0"
-                >
-                  {t("integrations.api.manage")}
-                </Button>
-              ) : (
-                <Button size="sm" onClick={onUpgrade} className="shrink-0">
-                  {t("integrations.api.viewPlans")}
-                </Button>
-              )}
-            </div>
-          </SettingsPanelRow>
-        </SettingsPanel>
-      </div>
-
-      <div>
-        <SectionLabel>{t("integrations.sections.mcp")}</SectionLabel>
-        <McpIntegrationCard isPaid={isPaid} onUpgrade={onUpgrade} />
-      </div>
-
-      <div>
-        <SectionLabel>{t("integrations.sections.cli")}</SectionLabel>
-        <CliIntegrationCard isPaid={isPaid} onUpgrade={onUpgrade} />
-      </div>
-
       {!hasAccounts && (
         <div className="rounded-lg border border-border/70 dark:border-border-subtle/60 bg-muted/20 dark:bg-surface-2/30 p-4 flex items-start gap-3">
           <Info size={15} className="text-primary/60 shrink-0 mt-0.5" />
@@ -489,28 +427,6 @@ export default function IntegrationsView({ isPaid, onUpgrade }: IntegrationsView
           </div>
         </div>
       )}
-
-      <Dialog open={apiKeysDialogOpen} onOpenChange={setApiKeysDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{t("integrations.api.dialogTitle")}</DialogTitle>
-            <DialogDescription asChild>
-              <span className="text-xs text-muted-foreground/80 leading-relaxed">
-                {t("apiKeysSection.description")}
-                <span className="mx-1.5 text-muted-foreground/70">·</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-primary/80 hover:text-primary transition-colors"
-                  onClick={() => window.electronAPI?.openExternal?.(API_DOCS_URL)}
-                >
-                  {t("apiKeysSection.docsLink")}
-                </button>
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-          <ApiKeysSection />
-        </DialogContent>
-      </Dialog>
 
       <ConfirmDialog
         open={!!confirmDisconnectEmail}

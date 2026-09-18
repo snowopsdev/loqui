@@ -104,7 +104,7 @@ test("skips reasoning when nothing is reachable", async () => {
   );
 });
 
-test("agent is reachable in cloud mode without an explicit model", async () => {
+test("removed cloud agent mode is unreachable", async () => {
   const { resolveDictationAgentReachability } = await load();
 
   assert.equal(
@@ -116,7 +116,7 @@ test("agent is reachable in cloud mode without an explicit model", async () => {
       isCloudAgent: true,
       isSelfHostedAgent: false,
     }),
-    true
+    false
   );
 });
 
@@ -300,7 +300,7 @@ test("translation is unreachable without a target language", async () => {
   );
 });
 
-test("translation is reachable in cloud mode without an explicit model", async () => {
+test("removed cloud translation mode is unreachable", async () => {
   const { resolveDictationTranslationReachability } = await load();
 
   assert.equal(
@@ -313,7 +313,7 @@ test("translation is reachable in cloud mode without an explicit model", async (
       isCloudTranslation: true,
       isSelfHostedTranslation: false,
     }),
-    true
+    false
   );
 });
 
@@ -364,7 +364,7 @@ test("translation needs a model on model-required providers", async () => {
   );
 });
 
-test("available managed mode resolves the OpenWhispr provider", async () => {
+test("removed managed mode has no provider", async () => {
   const { resolveDictationAgentProvider } = await load();
 
   assert.equal(
@@ -373,7 +373,7 @@ test("available managed mode resolves the OpenWhispr provider", async () => {
       dictationAgentMode: "openwhispr",
       dictationAgentProvider: "anthropic",
     }),
-    "openwhispr"
+    undefined
   );
 });
 
@@ -508,7 +508,7 @@ test("display provider follows the active mode instead of stale state", async ()
   );
 });
 
-test("translation provider: available managed mode routes to openwhispr", async () => {
+test("translation provider: removed managed mode has no provider", async () => {
   const { resolveTranslationProviderId } = await load();
 
   assert.equal(
@@ -517,7 +517,7 @@ test("translation provider: available managed mode routes to openwhispr", async 
       translationMode: "openwhispr",
       translationProvider: "openai",
     }),
-    "openwhispr"
+    undefined
   );
 });
 
@@ -595,11 +595,11 @@ test("no captured screenshot never attaches", async () => {
   );
 });
 
-test("cloud agent attaches to the base model (server picks the vision model)", async () => {
+test("legacy cloud flag cannot bypass image capabilities", async () => {
   const { resolveAgentImageTarget } = await load();
 
   assert.deepEqual(resolveAgentImageTarget({ ...imageTarget, isCloudAgent: true }), {
-    attach: true,
+    attach: false,
     useVisionOverride: false,
   });
 });

@@ -38,7 +38,7 @@ async function withDbusMock(dbusModule, fn) {
 
 function withTempHyprConfig(fn) {
   return async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-hyprland-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-snowopsdev-hyprland-test-"));
     const saved = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
     for (const key of ENV_KEYS) delete process.env[key];
     process.env.XDG_CONFIG_HOME = path.join(root, "config");
@@ -70,7 +70,7 @@ function successfulHyprctl(provider) {
 }
 
 const DBUS_COMMAND =
-  "dbus-send --session --type=method_call --dest=com.openwhispr.App /com/openwhispr/App com.openwhispr.App.Toggle";
+  "dbus-send --session --type=method_call --dest=io.github.snowopsdev.loqui /io/github/snowopsdev/loqui io.github.snowopsdev.loqui.Toggle";
 
 test("exports every Hyprland D-Bus toggle", async () => {
   let exported;
@@ -176,10 +176,10 @@ test(
     assert.ok(
       fs
         .readFileSync(configPath, "utf8")
-        .includes(`source = ${path.join(configDir, "openwhispr-binds.conf")}\n`)
+        .includes(`source = ${path.join(configDir, "loqui-snowopsdev-binds.conf")}\n`)
     );
     assert.match(
-      fs.readFileSync(path.join(configDir, "openwhispr-binds.conf"), "utf8"),
+      fs.readFileSync(path.join(configDir, "loqui-snowopsdev-binds.conf"), "utf8"),
       /bind = CTRL SHIFT, Return, exec, dbus-send/
     );
     assert.equal(await manager.unregisterKeybinding(), true);
@@ -207,7 +207,7 @@ test(
     assert.equal(manager.persistencePending, true);
     assert.deepEqual(Object.keys(manager.desiredBinds).sort(), ["dictation", "meeting"]);
     assert.deepEqual(Object.keys(manager.bindings).sort(), ["dictation", "meeting"]);
-    assert.equal(fs.existsSync(path.join(configDir, "openwhispr-binds.conf")), false);
+    assert.equal(fs.existsSync(path.join(configDir, "loqui-snowopsdev-binds.conf")), false);
   })
 );
 
@@ -224,7 +224,7 @@ test(
     fs.writeFileSync(configPath, "# config\n");
     assert.equal(await manager.registerKeybinding("F8"), true);
 
-    assert.match(fs.readFileSync(configPath, "utf8"), /openwhispr-binds\.conf/);
+    assert.match(fs.readFileSync(configPath, "utf8"), /loqui-snowopsdev-binds\.conf/);
     assert.match(readBinds(configDir), /bind = , F8, exec/);
   })
 );
@@ -276,17 +276,17 @@ test(
     assert.equal(hyprctl.calls.filter(({ args }) => args[0] === "systeminfo").length, 1);
 
     assert.equal(HyprlandShortcutManager.getHyprlandConfigStatus().path, luaPath);
-    assert.match(fs.readFileSync(luaPath, "utf8"), /pcall\(require, .+openwhispr-binds\.lua/);
+    assert.match(fs.readFileSync(luaPath, "utf8"), /pcall\(require, .+loqui-snowopsdev-binds\.lua/);
     assert.equal(
-      (fs.readFileSync(luaPath, "utf8").match(/openwhispr-binds\.lua/g) || []).length,
+      (fs.readFileSync(luaPath, "utf8").match(/loqui-snowopsdev-binds\.lua/g) || []).length,
       1
     );
-    const binds = fs.readFileSync(path.join(configDir, "openwhispr-binds.lua"), "utf8");
-    assert.match(binds, /^-- OpenWhispr keybinds/m);
+    const binds = fs.readFileSync(path.join(configDir, "loqui-snowopsdev-binds.lua"), "utf8");
+    assert.match(binds, /^-- Loqui keybinds/m);
     assert.match(binds, /hl\.bind\("CTRL \+ SHIFT \+ RETURN", hl\.dsp\.exec_cmd\("dbus-send/);
     assert.doesNotMatch(
       fs.readFileSync(path.join(configDir, "hyprland.conf"), "utf8"),
-      /openwhispr/
+      /loqui-snowopsdev/
     );
     assert.equal(hyprctl.calls.filter(({ args }) => args[0] === "systeminfo").length, 1);
   })
@@ -415,7 +415,7 @@ test(
     assert.equal(await manager.registerKeybinding("Control+Shift+Enter"), false);
     assert.equal(manager.isRegistered, false);
     assert.equal(manager.bindings.dictation, undefined);
-    assert.equal(fs.existsSync(path.join(configDir, "openwhispr-binds.lua")), false);
+    assert.equal(fs.existsSync(path.join(configDir, "loqui-snowopsdev-binds.lua")), false);
   })
 );
 
@@ -483,7 +483,10 @@ test(
     assert.equal(HyprlandShortcutManager.getHyprlandConfigStatus().path, configPath);
     assert.equal(hyprctl.calls.filter(({ args }) => args[0] === "systeminfo").length, 0);
     assert.match(fs.readFileSync(configPath, "utf8"), /pcall\(require,/);
-    assert.equal(fs.existsSync(path.join(path.dirname(configPath), "openwhispr-binds.lua")), true);
+    assert.equal(
+      fs.existsSync(path.join(path.dirname(configPath), "loqui-snowopsdev-binds.lua")),
+      true
+    );
   })
 );
 
@@ -505,7 +508,7 @@ test(
     assert.equal(await manager.registerKeybinding("Control+Shift+Enter"), true);
     assert.equal(calls.filter(({ args }) => args[0] === "systeminfo").length, 1);
     assert.equal(calls.filter(({ args }) => args[0] === "eval").length, 2);
-    assert.equal(fs.existsSync(path.join(configDir, "openwhispr-binds.lua")), true);
+    assert.equal(fs.existsSync(path.join(configDir, "loqui-snowopsdev-binds.lua")), true);
   })
 );
 
@@ -534,7 +537,7 @@ test(
   "replaces an old dofile loader before a trailing top-level return",
   withTempHyprConfig(async (configDir) => {
     const luaPath = path.join(configDir, "hyprland.lua");
-    const bindsPath = path.join(configDir, "openwhispr-binds.lua");
+    const bindsPath = path.join(configDir, "loqui-snowopsdev-binds.lua");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(
       luaPath,
@@ -551,7 +554,7 @@ test(
     const content = fs.readFileSync(luaPath, "utf8");
     const protectedLoader = `pcall(require, "${bindsPath}")`;
     assert.doesNotMatch(content, /dofile\(/);
-    assert.equal((content.match(/openwhispr-binds\.lua/g) || []).length, 1);
+    assert.equal((content.match(/loqui-snowopsdev-binds\.lua/g) || []).length, 1);
     assert.ok(content.indexOf(protectedLoader) < content.indexOf("return {}"));
   })
 );
@@ -560,17 +563,17 @@ test(
   "preserves user-authored lines that merely mention the D-Bus service",
   withTempHyprConfig(async (configDir) => {
     const configPath = path.join(configDir, "hyprland.conf");
-    const bindsPath = path.join(configDir, "openwhispr-binds.conf");
+    const bindsPath = path.join(configDir, "loqui-snowopsdev-binds.conf");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(configPath, "# legacy config\n");
-    fs.writeFileSync(bindsPath, "exec-once = notify-send com.openwhispr.App\n");
+    fs.writeFileSync(bindsPath, "exec-once = notify-send io.github.snowopsdev.loqui\n");
     const hyprctl = successfulHyprctl("hyprlang");
     const HyprlandShortcutManager = loadManager(hyprctl.execFileSync);
 
     assert.equal(await new HyprlandShortcutManager().registerKeybinding("F8"), true);
 
     const content = fs.readFileSync(bindsPath, "utf8");
-    assert.match(content, /exec-once = notify-send com\.openwhispr\.App/);
+    assert.match(content, /exec-once = notify-send io\.github\.snowopsdev\.loqui/);
     assert.match(content, /bind = , F8, exec, dbus-send/);
   })
 );
@@ -580,7 +583,7 @@ test(
   withTempHyprConfig(async (configDir) => {
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, "hyprland.conf"), "# legacy config\n");
-    fs.mkdirSync(path.join(configDir, "openwhispr-binds.conf"));
+    fs.mkdirSync(path.join(configDir, "loqui-snowopsdev-binds.conf"));
     const HyprlandShortcutManager = loadManager(successfulHyprctl("hyprlang").execFileSync);
 
     assert.equal(HyprlandShortcutManager.getHyprlandConfigStatus().canWrite, false);
@@ -591,12 +594,12 @@ test(
   "removes the previous header wording when rewriting managed binds",
   withTempHyprConfig(async (configDir) => {
     const configPath = path.join(configDir, "hyprland.conf");
-    const bindsPath = path.join(configDir, "openwhispr-binds.conf");
+    const bindsPath = path.join(configDir, "loqui-snowopsdev-binds.conf");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(configPath, "# legacy config\n");
     fs.writeFileSync(
       bindsPath,
-      "# OpenWhispr keybinds (managed automatically)\n" +
+      "# Loqui keybinds (managed automatically)\n" +
         "# If you delete this file, also remove the matching source line from your Hyprland config.\n"
     );
     const hyprctl = successfulHyprctl("hyprlang");
@@ -609,7 +612,7 @@ test(
 
     const content = fs.readFileSync(bindsPath, "utf8");
     assert.doesNotMatch(content, /matching source line/);
-    assert.equal((content.match(/OpenWhispr keybinds/g) || []).length, 1);
+    assert.equal((content.match(/Loqui keybinds/g) || []).length, 1);
   })
 );
 
@@ -617,14 +620,14 @@ test(
   "preserves user content while removing stale managed legacy binds",
   withTempHyprConfig(async (configDir) => {
     const confPath = path.join(configDir, "hyprland.conf");
-    const legacyBindsPath = path.join(configDir, "openwhispr-binds.conf");
+    const legacyBindsPath = path.join(configDir, "loqui-snowopsdev-binds.conf");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, "hyprland.lua"), "-- lua config\n");
-    fs.writeFileSync(confPath, "source = ./openwhispr-binds.conf\n");
+    fs.writeFileSync(confPath, "source = ./loqui-snowopsdev-binds.conf\n");
     fs.writeFileSync(
       legacyBindsPath,
-      "# OpenWhispr keybinds (managed automatically)\n" +
-        "exec-once = notify-send com.openwhispr.App\n" +
+      "# Loqui keybinds (managed automatically)\n" +
+        "exec-once = notify-send io.github.snowopsdev.loqui\n" +
         `bind = CTRL SHIFT, Return, exec, ${DBUS_COMMAND}\n`
     );
     const HyprlandShortcutManager = loadManager(successfulHyprctl("lua").execFileSync);
@@ -633,9 +636,9 @@ test(
 
     assert.equal(
       fs.readFileSync(legacyBindsPath, "utf8"),
-      "exec-once = notify-send com.openwhispr.App\n"
+      "exec-once = notify-send io.github.snowopsdev.loqui\n"
     );
-    assert.equal(fs.readFileSync(confPath, "utf8"), "source = ./openwhispr-binds.conf\n");
+    assert.equal(fs.readFileSync(confPath, "utf8"), "source = ./loqui-snowopsdev-binds.conf\n");
   })
 );
 
@@ -643,10 +646,10 @@ test(
   "keeps the legacy source target intact until cleanup can be retried",
   withTempHyprConfig(async (configDir) => {
     const confPath = path.join(configDir, "hyprland.conf");
-    const legacyBindsPath = path.join(configDir, "openwhispr-binds.conf");
-    const legacyConfig = "# keep this comment\nsource = ./openwhispr-binds.conf\n";
+    const legacyBindsPath = path.join(configDir, "loqui-snowopsdev-binds.conf");
+    const legacyConfig = "# keep this comment\nsource = ./loqui-snowopsdev-binds.conf\n";
     const legacyBinds =
-      "# OpenWhispr keybinds (managed automatically)\n" +
+      "# Loqui keybinds (managed automatically)\n" +
       `bind = CTRL SHIFT, Return, exec, ${DBUS_COMMAND}\n`;
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, "hyprland.lua"), "-- lua config\n");
@@ -683,13 +686,13 @@ test(
   "removes stale managed legacy artifacts after migrating to Lua",
   withTempHyprConfig(async (configDir) => {
     const confPath = path.join(configDir, "hyprland.conf");
-    const legacyBindsPath = path.join(configDir, "openwhispr-binds.conf");
+    const legacyBindsPath = path.join(configDir, "loqui-snowopsdev-binds.conf");
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(path.join(configDir, "hyprland.lua"), "-- lua config\n");
-    fs.writeFileSync(confPath, "# keep this comment\nsource = ./openwhispr-binds.conf\n");
+    fs.writeFileSync(confPath, "# keep this comment\nsource = ./loqui-snowopsdev-binds.conf\n");
     fs.writeFileSync(
       legacyBindsPath,
-      "# OpenWhispr keybinds (managed automatically)\n" +
+      "# Loqui keybinds (managed automatically)\n" +
         `bind = CTRL SHIFT, Return, exec, ${DBUS_COMMAND}\n`
     );
     const hyprctl = successfulHyprctl("lua");
@@ -706,7 +709,7 @@ test(
 );
 
 function readBinds(configDir) {
-  return fs.readFileSync(path.join(configDir, "openwhispr-binds.conf"), "utf8");
+  return fs.readFileSync(path.join(configDir, "loqui-snowopsdev-binds.conf"), "utf8");
 }
 
 test(

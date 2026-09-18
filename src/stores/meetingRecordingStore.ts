@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { getSettings, selectResolvedMeetingTranscription } from "./settingsStore";
-import { useStreamingProvidersStore } from "./streamingProvidersStore";
 import { getMeetingStreamingTranscriptionProviders } from "../models/ModelRegistry";
 import { resolveMeetingTranscriptionOptions } from "../helpers/meetingTranscriptionRouting";
 import { followsSystemDefaultMic } from "../helpers/micSelectionRecovery";
@@ -29,8 +28,6 @@ import {
   MAX_SPEAKER_COUNT,
 } from "../constants/speakerDetection.json";
 import logger from "../utils/logger";
-import { isTranscriptionContextAllowed } from "./policyRules";
-import { usePolicyStore } from "./policyStore";
 import {
   lockTranscriptSpeaker,
   mergeTranscriptSegments,
@@ -168,7 +165,6 @@ const getMeetingTranscriptionOptions = () => {
     selectedProvider: resolved.cloudTranscriptionProvider,
     selectedModel: resolved.cloudTranscriptionModel,
     byokProviders: getMeetingStreamingTranscriptionProviders(),
-    managedProviders: useStreamingProvidersStore.getState().providers,
     cortiEnvironment: state.cortiEnvironment,
     cortiTenant: state.cortiTenant,
     keyterms: (state.customDictionary ?? []).filter(Boolean),
@@ -716,7 +712,6 @@ async function cleanup(): Promise<void> {
 
 export async function prepareTranscription(): Promise<void> {
   if (isPrepared || isRecordingFlag || isStartingFlag) return;
-  if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "meeting")) return;
   if (preparePromise) return preparePromise;
 
   logger.info("Meeting transcription preparing (pre-warming WebSockets)...", {}, "meeting");
@@ -763,17 +758,8 @@ export interface StartRecordingArgs {
   autoEndEligible: boolean;
 }
 
-// Resolves false only when workspace policy refuses the recording; every other
-// outcome (including setup failures, which are reported through the store) is
-// "accepted" so callers don't roll back UI they didn't own.
 export async function startRecording(args: StartRecordingArgs): Promise<boolean> {
   if (isRecordingFlag || isStartingFlag) return true;
-  if (!isTranscriptionContextAllowed(usePolicyStore.getState(), getSettings(), "meeting")) {
-    logger.warn("Meeting recording blocked by workspace policy", {}, "meeting");
-    reportMeetingError("policyRestricted");
-    return false;
-  }
-
   const sessionId = createMeetingRecordingSessionId();
   await meetingRecordingStartCoordinator.runStart(sessionId, async (startOperation) => {
     if (isRecordingFlag || isStartingFlag) return;

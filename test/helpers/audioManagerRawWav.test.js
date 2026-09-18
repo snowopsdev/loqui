@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { loadAudioManager } = require("./harness/audioManager");
 
 // The PCM tap's WAV is what the local engine decodes; the WebM keeps being the
-// recording of record for history and cloud fallbacks, so it must stay untouched.
+// recording of record for history and explicit retries, so it must stay untouched.
 
 async function loadManager(t) {
   const { window, setSettings, createManager } = await loadAudioManager(t, {
@@ -82,22 +82,16 @@ async function loadFallbackManager(t, transcribeKey) {
   return { manager, uploaded: () => uploaded };
 }
 
-test("a failed Parakeet decode falls back to the cloud with the WebM, never the WAV", async (t) => {
-  const { manager, uploaded } = await loadFallbackManager(t, "transcribeLocalParakeet");
-
-  const result = await manager.processWithLocalParakeet(webm(), "orukeet-v0.1.0", {
-    rawWav: wav(),
+for (const [engine, channel, model] of [
+  ["Parakeet", "transcribeLocalParakeet", "orukeet-v0.1.0"],
+  ["Whisper", "transcribeLocalWhisper", "base"],
+]) {
+  test(`a failed ${engine} decode keeps recorded audio local`, async (t) => {
+    const { manager, uploaded } = await loadFallbackManager(t, channel);
+    const original = webm();
+    await assert.rejects(manager[`processWithLocal${engine}`](original, model, { rawWav: wav() }));
+    assert.equal(uploaded(), null);
+    assert.equal(original.type, "audio/webm");
+    assert.deepEqual([...new Uint8Array(await original.arrayBuffer())], [1, 2, 3]);
   });
-
-  assert.equal(result.source, "openai-fallback");
-  assert.equal(uploaded().type, "audio/webm");
-});
-
-test("a failed whisper decode falls back to the cloud with the WebM, never the WAV", async (t) => {
-  const { manager, uploaded } = await loadFallbackManager(t, "transcribeLocalWhisper");
-
-  const result = await manager.processWithLocalWhisper(webm(), "base", { rawWav: wav() });
-
-  assert.equal(result.source, "openai-fallback");
-  assert.equal(uploaded().type, "audio/webm");
-});
+}

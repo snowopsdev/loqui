@@ -1,0 +1,24 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createRendererServer, installBrowserGlobals } = require('../lib/rendererTestHarness');
+test('a fresh personal profile is local and each text task retains its selection', async t => {
+ const {storage}=installBrowserGlobals(t); storage.clear();
+ const vite=await createRendererServer(t,{cachePrefix:'personal-settings-'});
+ const mod=await vite.ssrLoadModule('/stores/settingsStore.ts');
+ let state=mod.useSettingsStore.getState();
+ assert.equal(state.transcriptionMode,'local');
+ assert.equal(state.localTranscriptionProvider,'nvidia');
+ assert.equal(state.parakeetModel,'parakeet-unified-en-0.6b');
+ assert.equal(state.cleanupMode,'local');
+ assert.equal(state.cleanupModel,'qwen3.5-2b-q4_k_m');
+ assert.equal(state.useLocalWhisper,true);
+ assert.equal('isSignedIn' in state,false);
+ assert.equal('cloudBackupEnabled' in state,false);
+ mod.setResolvedLLMConfig('dictationCleanup',{mode:'providers',provider:'codex',model:'gpt-5.4'});
+ mod.setResolvedLLMConfig('dictationTranslation',{mode:'providers',provider:'anthropic',model:'claude-sonnet-4-6'});
+ state=mod.useSettingsStore.getState();
+ assert.equal(mod.selectResolvedLLMConfig(state,'dictationCleanup').provider,'codex');
+ assert.equal(mod.selectResolvedLLMConfig(state,'dictationTranslation').provider,'anthropic');
+ assert.equal(state.transcriptionMode,'local');
+ assert.notEqual(mod.selectResolvedLLMConfig(state,'chatIntelligence').provider,'anthropic');
+});

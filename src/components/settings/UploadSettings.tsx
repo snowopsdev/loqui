@@ -1,27 +1,19 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Cloud, Key, Cpu, Network, ShieldCheck } from "../icons";
-import {
-  TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
-  TRANSCRIPTION_POLICY_PROVIDER_IDS,
-  useSettingsStore,
-} from "../../stores/settingsStore";
-import { usePolicyModeOptions, usePolicySnapshot } from "../../hooks/usePolicy";
-import { isEnterpriseTranscriptionOfferable } from "../../stores/policyRules";
-import { InferenceModeSelector } from "../ui/SettingsSection";
-import type { InferenceModeOption } from "../ui/SettingsSection";
-import TranscriptionModelPicker from "../TranscriptionModelPicker";
-import SelfHostedPanel from "../SelfHostedPanel";
-import type { InferenceMode } from "../../types/electron";
+import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
+import { useSettingsStore } from "../../stores/settingsStore";
+import type { InferenceMode } from "../../types/electron";
+import { Cpu, Key, Network } from "../icons";
+import SelfHostedPanel from "../SelfHostedPanel";
+import TranscriptionModelPicker from "../TranscriptionModelPicker";
+import { InferenceModeSelector } from "../ui/SettingsSection";
 
 export function UploadTranscriptionPanel() {
   const { t } = useTranslation();
   const startOnboarding = useStartOnboarding();
-  const policySnapshot = usePolicySnapshot();
 
   const {
-    isSignedIn,
     uploadTranscriptionMode,
     setUploadTranscriptionMode,
     setUploadUseLocalWhisper,
@@ -40,7 +32,6 @@ export function UploadTranscriptionPanel() {
     uploadCloudTranscriptionBaseUrl,
     setUploadCloudTranscriptionBaseUrl,
     setUploadCloudTranscriptionMode,
-    setEnterpriseTranscriptionSetupMode,
     remoteTranscriptionUrl,
     setRemoteTranscriptionUrl,
     remoteTranscriptionModel,
@@ -50,16 +41,8 @@ export function UploadTranscriptionPanel() {
     modes: transcriptionModes,
     effectiveMode: effectiveTranscriptionMode,
     isModeAllowed,
-  } = usePolicyModeOptions<InferenceModeOption>(
+  } = useInferenceModeOptions(
     [
-      {
-        id: "openwhispr",
-        label: t("settingsPage.transcription.modes.openwhispr"),
-        description: t("settingsPage.transcription.modes.openwhisprDesc"),
-        icon: <Cloud className="w-4 h-4" />,
-        disabled: !isSignedIn,
-        badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
-      },
       {
         id: "providers",
         label: t("settingsPage.transcription.modes.providers"),
@@ -78,35 +61,17 @@ export function UploadTranscriptionPanel() {
         description: t("settingsPage.transcription.modes.selfHostedDesc"),
         icon: <Network className="w-4 h-4" />,
       },
-      ...(isEnterpriseTranscriptionOfferable(policySnapshot)
-        ? [
-            {
-              id: "enterprise" as const,
-              label: t("settingsPage.transcription.modes.enterprise"),
-              description: t("settingsPage.transcription.modes.enterpriseDesc"),
-              icon: <ShieldCheck className="w-4 h-4" />,
-            },
-          ]
-        : []),
+      ...[],
     ],
-    "transcription",
-    uploadTranscriptionMode,
-    {
-      byokProviders: TRANSCRIPTION_POLICY_PROVIDER_IDS,
-      enterpriseProviders: TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
-    }
+    uploadTranscriptionMode
   );
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
-    if (mode === "openwhispr" && !isSignedIn) {
-      startOnboarding();
-      return;
-    }
+
     if (mode === effectiveTranscriptionMode) return;
     setUploadTranscriptionMode(mode);
     setUploadUseLocalWhisper(mode === "local");
-    setUploadCloudTranscriptionMode(mode === "openwhispr" ? "openwhispr" : "byok");
-    if (mode === "enterprise") setEnterpriseTranscriptionSetupMode("managed");
+    setUploadCloudTranscriptionMode("byok");
   };
 
   const handleLocalTranscriptionModelSelect = useCallback(

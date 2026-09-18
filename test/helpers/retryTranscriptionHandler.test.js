@@ -1,6 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
+const fsNode = require("node:fs");
+const osNode = require("node:os");
+const pathNode = require("node:path");
+const testTempDir = fsNode.mkdtempSync(pathNode.join(osNode.tmpdir(), "personal-audio-tests-"));
+const { createUploadCancelRegistry } = require("../../src/helpers/uploadCancelRegistry");
 
 const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
 const originalLoad = Module._load;
@@ -73,11 +78,13 @@ let convertBehavior = async () => CONVERTED_WAV;
 const cortiCalls = [];
 const tinfoilCalls = [];
 let cortiBehavior = async () => ({ text: "corti text" });
+const transcriptionWrites = [];
 
 // Kept installed for the whole file: the corti client is require()d lazily at
 // handler invocation time, not at module load.
 Module._load = function loadWithMocks(request, parent, isMain) {
   if (request === "electron") return electronStub;
+  if (request === "./safeTempDir") return { getSafeTempDir: () => testTempDir };
   if (parent?.filename === handlersModulePath) {
     if (request === "./cortiTranscription") {
       return {
@@ -133,12 +140,13 @@ function buildFakeThis() {
   ]);
   const target = {
     sessionId: "test-session",
+    _uploadCancelRegistry: createUploadCancelRegistry(),
     audioStorageManager: {
       // 7 is a stored WebM recording, 8 one already in WAV.
       getAudioBuffer: (id) => (id === 7 ? Buffer.from([1, 2, 3]) : id === 8 ? WAV_BUFFER : null),
     },
     databaseManager: {
-      updateTranscriptionText: () => {},
+      updateTranscriptionText: (...args) => transcriptionWrites.push(args),
       updateTranscriptionStatus: () => {},
       updateTranscriptionAudio: () => {},
       getTranscriptionById: (id) => dbRows.get(id),
@@ -150,6 +158,7 @@ function buildFakeThis() {
       getXaiKey: () => "xk-xai",
       getTinfoilKey: () => "tk-tinfoil",
       getCustomTranscriptionKey: () => "ck-custom",
+      getGeminiKey: () => "gk-gemini",
       getCortiClientId: () => "corti-id",
       getCortiClientSecret: () => "corti-secret",
     },
@@ -171,6 +180,7 @@ test.before(() => {
 
 test.after(() => {
   Module._load = originalLoad;
+  fsNode.rmSync(testTempDir, { recursive: true, force: true });
 });
 
 const invoke = (settings, id = 7) => retryHandler({ sender: {} }, id, settings);
@@ -208,7 +218,7 @@ test("retry: custom misconfiguration fails closed with a coded error", async () 
   assert.equal(fetches.length, 0);
 });
 
-test("retry: openwhispr cloud masks a leftover BYOK misconfiguration", async () => {
+test("retry: obsolete hosted settings cannot mask an invalid direct provider", async () => {
   fetches.length = 0;
   const result = await invoke({
     cloudTranscriptionProvider: "custom",
@@ -216,11 +226,8 @@ test("retry: openwhispr cloud masks a leftover BYOK misconfiguration", async () 
     transcriptionMode: "providers",
     cloudTranscriptionBaseUrl: "",
   });
-  // BrowserWindow.fromWebContents is stubbed to null, so the cloud branch
-  // produces no result — but the route error must NOT surface.
   assert.equal(result.success, false);
-  assert.notEqual(result.code, "CUSTOM_ENDPOINT_INVALID");
-  assert.match(result.error, /No transcription engine available/);
+  assert.equal(result.code, "CUSTOM_ENDPOINT_INVALID");
   assert.equal(fetches.length, 0);
 });
 
@@ -409,11 +416,7 @@ test("proxy transcription handlers resolve to structured errors instead of rejec
   }
 });
 
-const fsNode = require("node:fs");
-const osNode = require("node:os");
-const pathNode = require("node:path");
-
-const uploadTempFile = pathNode.join(osNode.tmpdir(), "openwhispr-upload-handler-test.webm");
+const uploadTempFile = pathNode.join(testTempDir, "fixture.webm");
 
 const invokeUpload = (payload) => {
   const uploadHandler = handlers.get("transcribe-audio-file-byok");
@@ -601,4 +604,164 @@ test("upload: a self-hosted Azure endpoint keeps its deployment URL", async () =
     fetches[0].url,
     "https://myorg.openai.azure.com/openai/deployments/my-deployment/audio/transcriptions?api-version=2025-03-01-preview"
   );
+});
+
+const invokeCapture = (payload = {}) =>
+  handlers.get("transcribe-audio-file-byok")(
+    { sender: {} },
+    {
+      audioBuffer: WAV_BUFFER,
+      mimeType: "audio/wav",
+      requestId: "capture-test",
+      provider: "openai",
+      model: "whisper-1",
+      transcriptionMode: "providers",
+      ...payload,
+    }
+  );
+const capturedFiles = () =>
+  fsNode.readdirSync(testTempDir).filter((name) => name.startsWith("personal-audio-"));
+
+test("captured audio uses only the stored provider key, preserves byte offsets, and cleans temporary files", async () => {
+  fetches.length = 0;
+  const backing = Buffer.concat([
+    Buffer.from("private-prefix"),
+    WAV_BUFFER,
+    Buffer.from("private-suffix"),
+  ]);
+  const view = new Uint8Array(backing.buffer, backing.byteOffset + 14, WAV_BUFFER.length);
+  const result = await invokeCapture({
+    audioBuffer: view,
+    apiKey: "renderer-injected-key",
+    language: "de",
+  });
+  assert.equal(result.success, true);
+  assert.equal(fetches[0].init.headers.Authorization, "Bearer sk-openai");
+  const body = fetches[0].init.body;
+  assert.ok(body.includes(WAV_BUFFER));
+  assert.ok(!body.includes("private-prefix"));
+  assert.ok(!body.includes("private-suffix"));
+  assert.match(body.toString(), /name="language"[\s\S]*?de/);
+  assert.deepEqual(capturedFiles(), []);
+});
+
+test("captured gpt-transcribe sends sanitized dictionary terms in repeated keywords fields", async () => {
+  fetches.length = 0;
+  const result = await invokeCapture({
+    model: "gpt-transcribe",
+    keyterms: ["Whispr", "<Codex>\nLinux"],
+    prompt: "繁體中文。",
+  });
+  assert.equal(result.success, true);
+  const body = fetches[0].init.body.toString();
+  assert.equal((body.match(/name="keywords\[\]"/g) || []).length, 3);
+  for (const term of ["Whispr", "Codex", "Linux"]) assert.ok(body.includes(`\r\n${term}\r\n`));
+  assert.doesNotMatch(body, /<Codex>/);
+  assert.match(body, /name="prompt"[\s\S]*?繁體中文。/);
+  assert.deepEqual(capturedFiles(), []);
+});
+
+test(
+  "captured audio cancellation aborts the provider request and removes temporary audio",
+  { timeout: 2000 },
+  async () => {
+    const originalResponse = fetchResponse;
+    let started;
+    const ready = new Promise((resolve) => {
+      started = resolve;
+    });
+    fetchResponse = (_url, { signal }) =>
+      new Promise((_resolve, reject) => {
+        assert.ok(signal);
+        assert.equal(capturedFiles().length, 1);
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        started();
+      });
+    try {
+      const pending = invokeCapture({ requestId: "cancel-capture" });
+      await ready;
+      assert.deepEqual(await handlers.get("cancel-upload-transcription")({}, "cancel-capture"), {
+        success: true,
+      });
+      const result = await pending;
+      assert.equal(result.success, false);
+      assert.match(result.error, /aborted/i);
+      assert.deepEqual(capturedFiles(), []);
+      assert.deepEqual(await handlers.get("cancel-upload-transcription")({}, "cancel-capture"), {
+        success: false,
+      });
+    } finally {
+      fetchResponse = originalResponse;
+    }
+  }
+);
+
+test("empty provider replies cannot succeed or overwrite stored content", async () => {
+  const originalResponse = fetchResponse;
+  const originalCorti = cortiBehavior;
+  const writesBefore = transcriptionWrites.length;
+  try {
+    for (const data of [
+      {},
+      { text: "" },
+      { text: " \n " },
+      { segments: [] },
+      { speakers: [{ text: "" }] },
+    ]) {
+      fetchResponse = () => ({
+        ok: true,
+        status: 200,
+        json: async () => data,
+        text: async () => JSON.stringify(data),
+      });
+      const result = await invokeCapture({ diarize: true });
+      assert.equal(result.success, false, JSON.stringify(data));
+      assert.equal(result.code, "EMPTY_TRANSCRIPTION");
+      assert.deepEqual(capturedFiles(), []);
+    }
+    cortiBehavior = async () => ({ text: " " });
+    const result = await invokeCapture({
+      provider: "corti",
+      model: "corti-transcribe",
+      environment: "eu",
+      tenant: "fixture",
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.code, "EMPTY_TRANSCRIPTION");
+    assert.deepEqual(capturedFiles(), []);
+    fetchResponse = () => ({ ok: true, status: 200, json: async () => ({ text: " \n " }) });
+    const retry = await invoke(CUSTOM_SETTINGS);
+    assert.equal(retry.success, false);
+    assert.equal(retry.code, "EMPTY_TRANSCRIPTION");
+    assert.equal(transcriptionWrites.length, writesBefore);
+  } finally {
+    fetchResponse = originalResponse;
+    cortiBehavior = originalCorti;
+  }
+});
+
+test("invalid keys, invalid routes, and malformed captured audio fail without leaving files", async () => {
+  const originalResponse = fetchResponse;
+  try {
+    for (const status of [401, 429]) {
+      fetchResponse = () => ({ status, text: async () => "{}" });
+      const result = await invokeCapture();
+      assert.equal(result.success, false);
+      assert.match(result.error, status === 401 ? /Invalid API key/ : /Rate limit/);
+      assert.deepEqual(capturedFiles(), []);
+    }
+    fetches.length = 0;
+    for (const payload of [
+      { provider: "openwhispr" },
+      { audioBuffer: new ArrayBuffer(0) },
+      { audioBuffer: "not bytes" },
+    ]) {
+      const result = await invokeCapture(payload);
+      assert.equal(result.success, false);
+      assert.deepEqual(capturedFiles(), []);
+    }
+    assert.equal(fetches.length, 0);
+  } finally {
+    fetchResponse = originalResponse;
+  }
 });

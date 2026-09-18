@@ -1,25 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, UserPlus } from "../../icons";
 import { useTranslation } from "react-i18next";
-import InviteTeammateDialog from "../../InviteTeammateDialog";
-import { useWorkspaceStore } from "../../../stores/workspaceStore";
-import { canManageSpace } from "../../../lib/spacePermissions";
+import { Plus } from "../../icons";
+
+import { useContainerChat } from "../../../hooks/useContainerChat";
 import {
+  useFolderCounts,
+  useFolders,
   useNotes,
   useNotesByContainer,
-  useFolders,
-  useFolderCounts,
   useSpaceRootCounts,
 } from "../../../stores/noteStore";
-import { useContainerChat } from "../../../hooks/useContainerChat";
+import type { FolderItem, NoteItem, SpaceItem } from "../../../types/electron";
 import { cn } from "../../lib/utils";
 import { PAGE_CONTENT_WIDTH_CLASS } from "../../ui/pageWidth";
-import { ContainerIcon } from "./ContainerIcon";
-import { OverviewExplainerBanner } from "./OverviewExplainerBanner";
-import { OverviewAskSection } from "./OverviewAskSection";
-import { OverviewNoteList } from "./OverviewNoteList";
 import { defaultFolderDisplayName } from "../shared";
-import type { NoteItem, SpaceItem, FolderItem } from "../../../types/electron";
+import { ContainerIcon } from "./ContainerIcon";
+import { OverviewAskSection } from "./OverviewAskSection";
+import { OverviewExplainerBanner } from "./OverviewExplainerBanner";
+import { OverviewNoteList } from "./OverviewNoteList";
 
 const SPACE_NOTES_LIMIT = 50;
 
@@ -39,14 +37,13 @@ export function ContainerOverview({
   onAddExisting,
 }: ContainerOverviewProps) {
   const { t } = useTranslation();
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
+
   const folders = useFolders();
   const containerNotes = useNotes();
   const notesByContainer = useNotesByContainer();
   const folderCounts = useFolderCounts();
   const spaceRootCounts = useSpaceRootCounts();
   const [spaceNotes, setSpaceNotes] = useState<NoteItem[] | null>(null);
-  const [showInviteDialog, setShowInviteDialog] = useState(false);
 
   // Folder overviews mirror the store's active container; space overviews list
   // the whole space (foldered + root), which the store doesn't hold — fetched
@@ -71,15 +68,6 @@ export function ContainerOverview({
 
   const chat = useContainerChat({ space, folder, notes });
 
-  const workspace = space.workspace_id
-    ? workspaces.find((w) => w.id === space.workspace_id)
-    : undefined;
-  const canInvite =
-    space.kind === "team" &&
-    !!space.cloud_space_id &&
-    !!workspace &&
-    canManageSpace(space, workspace.role ?? null);
-
   const spaceFolders = useMemo(
     () => folders.filter((f) => f.space_id === space.id),
     [folders, space.id]
@@ -92,7 +80,7 @@ export function ContainerOverview({
       (spaceRootCounts[space.id] ?? 0);
 
   const metaParts: string[] = [];
-  if (space.kind === "team" && workspace) metaParts.push(workspace.name);
+
   if (!folder && spaceFolders.length > 0) {
     metaParts.push(t("notes.overview.meta.folders", { count: spaceFolders.length }));
   }
@@ -128,15 +116,6 @@ export function ContainerOverview({
                 {t("notes.list.newNote")}
               </button>
             )}
-            {canInvite && (
-              <button
-                onClick={() => setShowInviteDialog(true)}
-                className="inline-flex items-center gap-1.5 px-3 h-7 rounded-md border border-border/70 dark:border-white/10 text-xs font-medium text-foreground/60 hover:text-foreground/85 hover:border-border/70 hover:bg-foreground/3 dark:hover:bg-white/3 transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
-              >
-                <UserPlus size={12} />
-                {t("notes.overview.invite")}
-              </button>
-            )}
           </div>
         </div>
 
@@ -164,16 +143,6 @@ export function ContainerOverview({
           />
         </div>
       </div>
-
-      {canInvite && workspace && space.cloud_space_id && (
-        <InviteTeammateDialog
-          open={showInviteDialog}
-          onOpenChange={setShowInviteDialog}
-          workspaceId={workspace.id}
-          workspaceName={workspace.name}
-          spaceIds={[space.cloud_space_id]}
-        />
-      )}
     </div>
   );
 }

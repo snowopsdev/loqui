@@ -37,7 +37,9 @@ function isNativeBindingUnavailable(error) {
 function createDb(t) {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-granola-db-"));
   try {
-    return new DatabaseManager();
+    const db = new DatabaseManager();
+    t.after(() => db.db?.close());
+    return db;
   } catch (error) {
     if (isNativeBindingUnavailable(error)) {
       t.skip("better-sqlite3 native binding is not available for this Node runtime");
@@ -75,7 +77,6 @@ test("importNotes inserts backdated meeting notes into the Imported folder", (t)
   assert.equal(note.created_at, "2024-05-01 10:00:00");
   assert.equal(note.updated_at, "2024-05-01 10:00:00");
   assert.equal(note.note_type, "meeting");
-  assert.equal(note.sync_status, "pending");
   assert.equal(note.source_file, "granola:a");
   assert.equal(note.space_id, db.getPrivateSpaceId());
   assert.equal(note.folder_id, result.folderId);

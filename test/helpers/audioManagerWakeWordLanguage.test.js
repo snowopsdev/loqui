@@ -73,13 +73,19 @@ async function loadAudioManager(t) {
   return {
     window,
     setSettings: (settings) => {
-      globalThis.__wakeWordSettings = settings;
+      globalThis.__wakeWordSettings = {
+        transcriptionMode: "providers",
+        cloudTranscriptionProvider: "openai",
+        cloudTranscriptionModel: "whisper-1",
+        ...settings,
+      };
     },
     createManager: () =>
       Object.assign(Object.create(AudioManager.prototype), {
         voiceAgentRequested: false,
         translationRequested: false,
         isDictionaryEcho: () => false,
+        isReasoningAvailable: async () => true,
         getWhisperPrompt: () => null,
         assertAgentAllowedByPolicy: () => {},
         processAgentCommand: async () => "agent output",
@@ -96,6 +102,7 @@ async function loadAudioManager(t) {
         pendingCleanupFailure: null,
         selectionCapturePromise: null,
         isDictionaryEcho: () => false,
+        isReasoningAvailable: async () => true,
         getWhisperPrompt: () => null,
         assertAgentAllowedByPolicy: () => {},
         consumeAssistantSelectionContext: () => null,
@@ -149,6 +156,7 @@ async function loadAudioManager(t) {
           finalize() {},
           stop: async () => ({ success: true, model: "test-stream" }),
         }),
+        isReasoningAvailable: async () => true,
         getEffectiveSttLanguage: () => "auto",
         getStreamingProviderName: () => "test",
         shouldUseStreaming: () => false,
@@ -163,7 +171,7 @@ async function loadAudioManager(t) {
   };
 }
 
-test("cloud auto-language routing uses detected speech before the UI language", async (t) => {
+test("provider auto-language routing uses detected speech before the UI language", async (t) => {
   const { window, setSettings, createManager } = await loadAudioManager(t);
   const audioBlob = {
     type: "audio/webm",
@@ -180,58 +188,22 @@ test("cloud auto-language routing uses detected speech before the UI language", 
   };
 
   setSettings({ ...settings, uiLanguage: "it" });
-  window.electronAPI.cloudTranscribe = async () => ({
+  window.electronAPI.transcribeAudioFileByok = async () => ({
     success: true,
     text: "and then ehi Jarvis said something",
     sttLanguage: "en",
   });
-  const englishResult = await createManager().processWithOpenWhisprCloud(audioBlob);
+  const englishResult = await createManager().processWithOpenAIAPI(audioBlob);
   assert.equal(englishResult.text, "cleanup output");
 
   setSettings({ ...settings, uiLanguage: "en" });
-  window.electronAPI.cloudTranscribe = async () => ({
+  window.electronAPI.transcribeAudioFileByok = async () => ({
     success: true,
     text: "stavo pensando ehi Jarvis scrivi una mail",
     sttLanguage: "it",
   });
-  const italianResult = await createManager().processWithOpenWhisprCloud(audioBlob);
+  const italianResult = await createManager().processWithOpenAIAPI(audioBlob);
   assert.equal(italianResult.text, "agent output");
-});
-
-test("cloud transcription returns the occurrence time sent with analytics", async (t) => {
-  const { window, setSettings, createManager } = await loadAudioManager(t);
-  const analyticsOccurredAt = "2026-09-02T14:00:00.000Z";
-  const audioBlob = {
-    type: "audio/webm",
-    size: 1024,
-    arrayBuffer: async () => new ArrayBuffer(8),
-  };
-  let requestOptions;
-
-  setSettings({
-    preferredLanguage: "auto",
-    useCleanupModel: false,
-    customDictionary: [],
-    snippets: [],
-    isSignedIn: true,
-    insightsSyncEnabled: true,
-    dataRetentionEnabled: true,
-  });
-  window.electronAPI.cloudTranscribe = async (_audio, options) => {
-    requestOptions = options;
-    return {
-      success: true,
-      text: "same event",
-      clientTranscriptionId: "event-1",
-    };
-  };
-
-  const result = await createManager().processWithOpenWhisprCloud(audioBlob, {
-    analyticsOccurredAt,
-  });
-
-  assert.equal(requestOptions.analyticsOccurredAt, analyticsOccurredAt);
-  assert.equal(result.analyticsOccurredAt, analyticsOccurredAt);
 });
 
 test("local analytics save uses the propagated occurrence time", async (t) => {
@@ -258,7 +230,7 @@ test("local analytics save uses the propagated occurrence time", async (t) => {
   assert.equal(recordedEvent.occurredAt, analyticsOccurredAt);
 });
 
-test("cloud auto-language stripping uses the same detected Arabic as routing", async (t) => {
+test("provider auto-language stripping uses the same detected Arabic as routing", async (t) => {
   const { window, setSettings, createBankingManager } = await loadAudioManager(t);
   const audioBlob = {
     type: "audio/webm",
@@ -275,14 +247,14 @@ test("cloud auto-language stripping uses the same detected Arabic as routing", a
     snippets: [],
   });
   localStorage.setItem("agentName", "Max");
-  window.electronAPI.cloudTranscribe = async () => ({
+  window.electronAPI.transcribeAudioFileByok = async () => ({
     success: true,
     text: "يا Max، لخّص هذه الملاحظة",
     sttLanguage: "ar",
   });
 
   const manager = createBankingManager();
-  await manager.processWithOpenWhisprCloud(audioBlob);
+  await manager.processWithOpenAIAPI(audioBlob);
 
   assert.equal(manager.pendingAssistantConversation?.transcript, "لخّص هذه الملاحظة");
 });
@@ -318,14 +290,13 @@ test("streaming auto-language routing detects and strips Arabic with an English 
     customDictionary: [],
     snippets: [],
   });
-  localStorage.removeItem("agentName");
-  window.electronAPI.cloudStreamingUsage = async () => ({ success: true });
+  localStorage.setItem("agentName", "Jarvis");
   window.dispatchEvent = () => true;
   const completions = [];
 
   const manager = createStreamingManager(
     (result) => completions.push(result),
-    "يا OpenWhispr، لخّص هذه الملاحظة"
+    "يا Jarvis، لخّص هذه الملاحظة"
   );
   await manager.stopStreamingRecording();
 
@@ -356,13 +327,13 @@ test("a name inside a snippet trigger does not route to the agent", async (t) =>
   const { window, setSettings, createManager } = await loadAudioManager(t);
 
   setSettings(snippetSettings);
-  window.electronAPI.cloudTranscribe = async () => ({
+  window.electronAPI.transcribeAudioFileByok = async () => ({
     success: true,
     text: "jarvis review this PR",
     sttLanguage: "en",
   });
 
-  const result = await createManager().processWithOpenWhisprCloud(snippetAudioBlob);
+  const result = await createManager().processWithOpenAIAPI(snippetAudioBlob);
 
   assert.equal(result.text, "cleanup output");
 });
@@ -371,13 +342,13 @@ test("a real address still routes to the agent when a trigger is also spoken", a
   const { window, setSettings, createManager } = await loadAudioManager(t);
 
   setSettings(snippetSettings);
-  window.electronAPI.cloudTranscribe = async () => ({
+  window.electronAPI.transcribeAudioFileByok = async () => ({
     success: true,
     text: "Hey Jarvis, run jarvis review on PR 5",
     sttLanguage: "en",
   });
 
-  const result = await createManager().processWithOpenWhisprCloud(snippetAudioBlob);
+  const result = await createManager().processWithOpenAIAPI(snippetAudioBlob);
 
   assert.equal(result.text, "agent output");
 });
@@ -386,14 +357,14 @@ test("the banked agent command drops the address, not the snippet trigger", asyn
   const { window, setSettings, createBankingManager } = await loadAudioManager(t);
 
   setSettings(snippetSettings);
-  window.electronAPI.cloudTranscribe = async () => ({
+  window.electronAPI.transcribeAudioFileByok = async () => ({
     success: true,
     text: "jarvis review. Jarvis summarize it",
     sttLanguage: "en",
   });
 
   const manager = createBankingManager();
-  await manager.processWithOpenWhisprCloud(snippetAudioBlob);
+  await manager.processWithOpenAIAPI(snippetAudioBlob);
 
   assert.equal(manager.pendingAssistantConversation?.transcript, "jarvis review. summarize it");
 });
@@ -407,7 +378,7 @@ test("a snippets edit between routing and stripping cannot desync them", async (
   const { window, setSettings, createBankingManager } = await loadAudioManager(t);
 
   setSettings(snippetSettings);
-  window.electronAPI.cloudTranscribe = async () => ({
+  window.electronAPI.transcribeAudioFileByok = async () => ({
     success: true,
     text: "jarvis review. Jarvis summarize it",
     sttLanguage: "en",
@@ -418,7 +389,7 @@ test("a snippets edit between routing and stripping cannot desync them", async (
     setSettings({ ...snippetSettings, snippets: [] });
     return null;
   };
-  await manager.processWithOpenWhisprCloud(snippetAudioBlob);
+  await manager.processWithOpenAIAPI(snippetAudioBlob);
 
   assert.equal(manager.pendingAssistantConversation?.transcript, "jarvis review. summarize it");
 });

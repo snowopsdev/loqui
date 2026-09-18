@@ -1,5 +1,4 @@
 import type { SettingsState } from "../stores/settingsStore";
-import type { CloudReasonPurpose } from "../types/electron";
 
 export interface InferenceScopeStoreKeys {
   mode: keyof SettingsState;
@@ -15,22 +14,12 @@ export interface InferenceScopeStoreKeys {
 export interface InferenceScopeDefinition {
   storeKeys: InferenceScopeStoreKeys;
   fallbackScope?: string;
-  /** Server-side fallback chain OpenWhispr Cloud answers this scope on. */
-  cloudPurpose: CloudReasonPurpose;
-  /**
-   * Inert until the user picks its own model, inheriting the fallback scope
-   * meanwhile. Policy never invents that choice, and a policy that moves the
-   * chosen provider clears the model so the override asks to be picked again:
-   * an invented target would switch the override on and capture requests for
-   * a provider with no key. Only for scopes whose every offered mode needs a
-   * model, since a cloud mode counts as chosen with none.
-   */
+  /** Optional screen-context override; otherwise use the voice assistant selection. */
   optional?: true;
 }
 
 export const INFERENCE_SCOPES = {
   dictationCleanup: {
-    cloudPurpose: "cleanup",
     storeKeys: {
       mode: "cleanupMode",
       provider: "cleanupProvider",
@@ -43,7 +32,6 @@ export const INFERENCE_SCOPES = {
     },
   },
   dictationAgent: {
-    cloudPurpose: "assistant",
     storeKeys: {
       mode: "dictationAgentMode",
       provider: "dictationAgentProvider",
@@ -59,7 +47,6 @@ export const INFERENCE_SCOPES = {
   // context screenshot. Unset fields resolve to the dictationAgent scope, and
   // the UI offers only cloud/BYOK modes, so remoteUrl is deliberately absent.
   dictationAgentVision: {
-    cloudPurpose: "assistant",
     storeKeys: {
       mode: "dictationAgentVisionMode",
       provider: "dictationAgentVisionProvider",
@@ -73,7 +60,6 @@ export const INFERENCE_SCOPES = {
     optional: true,
   },
   noteFormatting: {
-    cloudPurpose: "noteFormatting",
     storeKeys: {
       mode: "noteFormattingMode",
       provider: "noteFormattingProvider",
@@ -84,13 +70,11 @@ export const INFERENCE_SCOPES = {
       customApiKey: "noteFormattingCustomApiKey",
       disableThinking: "noteFormattingDisableThinking",
     },
-    fallbackScope: "dictationCleanup",
   },
   // Runs typed chat conversations (Control Panel, note and container chat).
   // The voice assistant panel's spoken commands, like selection edits, run on
   // dictationAgent(Vision) — see resolveChatStreamingInference.
   chatIntelligence: {
-    cloudPurpose: "assistant",
     storeKeys: {
       mode: "chatAgentMode",
       provider: "chatAgentProvider",
@@ -103,7 +87,6 @@ export const INFERENCE_SCOPES = {
     },
   },
   dictationTranslation: {
-    cloudPurpose: "translation",
     storeKeys: {
       mode: "translationMode",
       provider: "translationProvider",

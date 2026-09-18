@@ -17,14 +17,11 @@ export function defaultStreamingProviderName(context) {
   return context === "notes" ? "deepgram" : "openai-realtime";
 }
 
-export function resolveStreamingProviderName({ settings, context, sttConfig }) {
+export function resolveStreamingProviderName({ settings }) {
   if (settings.cloudTranscriptionProvider === "tinfoil") {
     return "tinfoil-realtime";
   }
-  if (
-    settings.cloudTranscriptionProvider === "corti" &&
-    settings.cloudTranscriptionMode === "byok"
-  ) {
+  if (settings.cloudTranscriptionProvider === "corti") {
     return "corti";
   }
   if (
@@ -37,16 +34,16 @@ export function resolveStreamingProviderName({ settings, context, sttConfig }) {
   // routes them, and their renderer channel name is the bare provider id. Ahead
   // of the REALTIME_MODELS check so a stale OpenAI model id in settings can't
   // hijack the provider, matching the tinfoil/corti precedent above.
-  if (
-    settings.cloudTranscriptionMode === "byok" &&
-    STREAMING_ONLY_PROVIDERS.has(settings.cloudTranscriptionProvider)
-  ) {
+  if (STREAMING_ONLY_PROVIDERS.has(settings.cloudTranscriptionProvider)) {
     return settings.cloudTranscriptionProvider;
   }
-  if (REALTIME_MODELS.has(settings.cloudTranscriptionModel)) {
+  if (
+    settings.cloudTranscriptionProvider === "openai" &&
+    REALTIME_MODELS.has(settings.cloudTranscriptionModel)
+  ) {
     return "openai-realtime";
   }
-  return sttConfig?.streamingProvider || defaultStreamingProviderName(context);
+  return settings.cloudTranscriptionProvider === "openai" ? "openai-realtime" : "";
 }
 
 export function buildStreamingSessionOptions({
@@ -62,7 +59,7 @@ export function buildStreamingSessionOptions({
     language: language && language !== "auto" ? language : undefined,
     keyterms,
     model: settings.cloudTranscriptionModel,
-    mode: settings.cloudTranscriptionMode === "byok" ? "byok" : "openwhispr",
+    mode: "byok",
     environment: settings.cortiEnvironment,
     tenant: settings.cortiTenant,
   };

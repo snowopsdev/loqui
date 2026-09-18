@@ -1,0 +1,37 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+const mac = process.platform === "darwin";
+const root = mac ? "dist/mac-arm64/Loqui.app/Contents" : "dist/linux-unpacked";
+const resources = path.join(root, mac ? "Resources" : "resources");
+const binary = path.join(root, mac ? "MacOS/Loqui" : "loqui-app");
+const script = path.resolve(".cache/package-probe.cjs");
+fs.mkdirSync(path.dirname(script), { recursive: true });
+fs.writeFileSync(
+  script,
+  `const assert=require('node:assert/strict');const Sqlite=require(${JSON.stringify(path.resolve(resources, "app.asar/node_modules/better-sqlite3"))});const db=new Sqlite(':memory:');assert.equal(db.prepare('select 42 as n').get().n,42);db.close();console.log('Packaged SQLite OK',process.arch);`
+);
+execFileSync(binary, [script], {
+  stdio: "inherit",
+  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+});
+const icon = path.join(resources, "src/assets/icon.png");
+if (!fs.existsSync(icon)) throw Error("Missing Loqui icon");
+for (const name of fs.readdirSync(path.join(resources, "bin"))) {
+  if (/(whisper-server|llama-server|qdrant|meeting-aec-helper)-/.test(name)) {
+    const description = execFileSync("file", [path.join(resources, "bin", name)], {
+      encoding: "utf8",
+    });
+    if (!(mac ? /arm64/ : /x86-64/).test(description))
+      throw Error(`Unexpected native architecture: ${description}`);
+  }
+}
+
+for (const prefix of ["llama-server-", "qdrant-"]) {
+  const name = fs.readdirSync(path.join(resources, "bin")).find((n) => n.startsWith(prefix));
+  if (!name) throw Error(`Missing packaged runtime: ${prefix}`);
+  execFileSync(path.resolve(resources, "bin", name), ["--version"], {
+    stdio: "inherit",
+    timeout: 15000,
+  });
+}

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 
 function getInitial(displayName: string | null, email: string | null): string {
@@ -21,42 +20,13 @@ interface PersonAvatarProps {
   className?: string;
 }
 
-/** Gravatar avatar with a colored-initial fallback. Fetches its own MD5 hash. */
+/** Local initials only: rendering a contact never contacts an avatar service. */
 export default function PersonAvatar({
   email,
   displayName,
   size = 24,
   className,
 }: PersonAvatarProps) {
-  const [hash, setHash] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setHash(null);
-    setFailed(false);
-    if (!email) return;
-    let cancelled = false;
-    window.electronAPI?.getMD5Hash?.(email).then((result) => {
-      if (!cancelled) setHash(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [email]);
-
-  if (hash && !failed) {
-    return (
-      <img
-        src={`https://www.gravatar.com/avatar/${hash}?d=404&s=${Math.min(512, size * 2)}`}
-        alt=""
-        loading="lazy"
-        style={{ width: size, height: size }}
-        className={cn("shrink-0 rounded-full object-cover", className)}
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-
   return (
     <span
       style={{

@@ -7,16 +7,16 @@ const { downloadFile, parseArgs } = require("./lib/download-utils");
 const forBuild = process.argv.includes("--for-build");
 const MODEL_DIR = forBuild
   ? path.join(__dirname, "..", "resources", "bin", "all-MiniLM-L6-v2")
-  : path.join(os.homedir(), ".cache", "openwhispr", "embedding-models", "all-MiniLM-L6-v2");
+  : path.join(os.homedir(), ".cache", "loqui-snowopsdev", "embedding-models", "all-MiniLM-L6-v2");
 
 const FILES = [
   {
     name: "model.onnx",
-    url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",
+    url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/onnx/model.onnx",
   },
   {
     name: "tokenizer.json",
-    url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
+    url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/tokenizer.json",
   },
 ];
 

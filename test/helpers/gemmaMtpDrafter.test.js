@@ -37,7 +37,9 @@ function loadModelManager() {
     // the stub and modelsDir resolves inside the per-test temp home instead of
     // the real ~/.cache/openwhispr (where deleteModel would touch real files).
     require("../../src/helpers/modelDirUtils.js");
-    return require("../../src/helpers/modelManagerBridge.js").default;
+    const manager = require("../../src/helpers/modelManagerBridge.js").default;
+    manager.getModelsDir = () => path.join(electronHome, ".cache", "loqui-snowopsdev", "models");
+    return manager;
   } finally {
     Module._load = originalLoad;
   }

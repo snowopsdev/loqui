@@ -1,1 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#101e29"/><circle cx="1130" cy="-20" r="380" fill="#143c42"/><circle cx="1190" cy="0" r="320" fill="#164d4e"/><g transform="translate(70 100) scale(1.35)"><defs><linearGradient id="voice" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#65ead5"/><stop offset="1" stop-color="#13a899"/></linearGradient></defs><path d="M178 87C158 54 117 48 85 72C49 99 48 145 76 172C105 200 153 188 173 155C185 135 187 107 178 87Z" fill="none" stroke="url(#voice)" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/><path d="M151 145C173 154 169 178 189 190C202 199 215 197 226 186" fill="none" stroke="#ff846f" stroke-width="25" stroke-linecap="round"/><path d="M101 115V136M124 101V149M147 116V133" stroke="#65ead5" stroke-width="9" stroke-linecap="round"/></g><text x="430" y="310" font-family="Inter,Arial,sans-serif" font-size="150" font-weight="650" letter-spacing="-7" fill="#f1f7f5">Loqui</text><text x="104" y="480" font-family="Inter,Arial,sans-serif" font-size="33" fill="#65ead5">Your voice. Your models. Your words.</text><text x="106" y="536" font-family="Inter,Arial,sans-serif" font-size="22" fill="#adbec5">Local-first dictation, notes, meetings &amp; AI assistance.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#101E29"/>
+  <circle cx="1130" cy="-20" r="380" fill="#45152F"/>
+  <circle cx="1190" cy="0" r="320" fill="#5A1E15"/>
+  <g transform="translate(70 100) scale(1.35)">
+    <path d="M178 87C158 54 117 48 85 72C49 99 48 145 76 172C105 200 153 188 173 155C185 135 187 107 178 87Z" fill="none" stroke="#FF5A1F" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M151 145C173 154 169 178 189 190C202 199 215 197 226 186" fill="none" stroke="#D90078" stroke-width="25" stroke-linecap="round"/>
+    <path d="M101 115V136M124 101V149M147 116V133" stroke="#FF5A1F" stroke-width="9" stroke-linecap="round"/>
+  </g>
+  <text x="430" y="310" font-family="Inter,Arial,sans-serif" font-size="150" font-weight="650" letter-spacing="-7" fill="#F1F7F5">Loqui</text>
+  <text x="104" y="480" font-family="Inter,Arial,sans-serif" font-size="33" fill="#D90078">Your voice. Your models. Your words.</text>
+  <text x="106" y="536" font-family="Inter,Arial,sans-serif" font-size="22" fill="#ADBEC5">Local-first dictation, notes, meetings &amp; AI assistance.</text>
+</svg>

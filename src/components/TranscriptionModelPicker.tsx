@@ -114,7 +114,7 @@ function LocalModelCard({
             <div
               className={`w-1.5 h-1.5 rounded-full ${
                 isSelected
-                  ? "bg-primary shadow-[0_0_6px_oklch(0.62_0.22_260/0.6)] animate-[pulse-glow_2s_ease-in-out_infinite]"
+                  ? "bg-primary shadow-[0_0_6px_rgb(255_90_31_/_0.6)] animate-[pulse-glow_2s_ease-in-out_infinite]"
                   : "bg-success shadow-[0_0_4px_rgba(34,197,94,0.5)]"
               }`}
             />

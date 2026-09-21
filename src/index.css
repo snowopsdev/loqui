@@ -5,16 +5,15 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  /* OpenWhispr Theme — registers color tokens with Tailwind v4.
-     These are the light-mode defaults; .dark overrides them below. */
-  /* Midpoint of the brand glass gradient (#5588F0 → #3466E2) so tints, rings and links match it. */
-  --color-primary: #4577e9;
-  --color-primary-foreground: #ffffff;
+  /* Loqui Theme — registers color tokens with Tailwind v4.
+     Orange carries the primary action; fuchsia is the supporting accent. */
+  --color-primary: #ff5a1f;
+  --color-primary-foreground: #171717;
   --color-secondary: #f5f5f5;
   --color-secondary-foreground: #171717;
   --color-muted: #f5f5f5;
   --color-muted-foreground: #525252;
-  --color-accent: oklch(0.55 0.22 285);
+  --color-accent: #d90078;
   --color-accent-foreground: #ffffff;
   /* Agent Mode identity, sourced from the supplied sparkle/leaf mark. */
   --color-agent-brand: #8787ff;
@@ -22,19 +21,19 @@
   --color-destructive-foreground: #ffffff;
   --color-border: #e5e5e5;
   --color-input: #f9f6f1;
-  --color-ring: #4577e9;
+  --color-ring: #ff5a1f;
   --color-background: #ffffff;
   --color-foreground: #171717;
   --color-card: #ffffff;
   --color-card-foreground: #171717;
   --color-popover: #ffffff;
   --color-popover-foreground: #171717;
-  --color-link: #4577e9;
+  --color-link: #c43e13;
   --color-success: #16a34a;
   --color-success-foreground: #ffffff;
   --color-warning: #d97706;
   --color-warning-foreground: #ffffff;
-  --color-info: #4577e9;
+  --color-info: #c43e13;
   --color-info-foreground: #ffffff;
 
   /* Surface hierarchy — light mode equivalents */
@@ -49,7 +48,7 @@
   /* Border states — light mode equivalents */
   --color-border-subtle: #e5e5e5;
   --color-border-hover: #d4d4d4;
-  --color-border-active: #4577e9;
+  --color-border-active: #ff5a1f;
 }
 
 :root {
@@ -86,10 +85,10 @@
   --color-parchment-border: #ddd4c7;
   --color-parchment-text: #2b1f14;
   --color-parchment-accent: #c0a77d;
-  --color-brand-primary: #2b1f14;
-  --color-brand-accent: #4b2e2b;
-  --color-brand-highlight: #c0a77d;
-  --color-brand-link: #2e3659;
+  --color-brand-primary: #171717;
+  --color-brand-accent: #d90078;
+  --color-brand-highlight: #ff5a1f;
+  --color-brand-link: #c43e13;
   --color-pattern: #e7e5e4;
 
   /* Model picker premium effects (light mode) */
@@ -100,45 +99,44 @@
   --shadow-glass:
     inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.45),
     0 2px 10px rgba(15, 23, 42, 0.06);
-  /* Same rim on brand-blue surfaces (mic/send buttons, today header): the app
+  /* Same rim on orange brand surfaces (mic/send buttons, today header): the app
      icon's glass. Softer than --shadow-glass because it sits on colour. */
   --shadow-brand-glass:
     inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.16),
     inset 0 -1px 1px rgba(0, 0, 0, 0.12);
   /* The fill under that rim: Button default, mic/send circles, the onboarding brand tile. */
-  --gradient-brand-glass: linear-gradient(180deg, #5588f0 0%, #3466e2 100%);
+  --gradient-brand-glass: linear-gradient(180deg, #ff6a36 0%, #ff5a1f 100%);
   /* The brand tile floats over the onboarding hero, so it adds a soft coloured lift. */
-  --shadow-brand-tile: var(--shadow-brand-glass), 0 10px 24px -8px rgb(52 102 226 / 0.45);
+  --shadow-brand-tile: var(--shadow-brand-glass), 0 10px 24px -8px rgb(255 90 31 / 0.45);
 }
 
 .dark {
   /* Dark mode — charcoal surfaces with clear elevation hierarchy
-     Base L=0.22 (charcoal) with 0.05 steps between layers.
-     Hue 260 (neutral blue) with minimal chroma for sophistication. */
+     Base L=0.22 (charcoal) with 0.05 steps between layers. */
   --color-background: oklch(0.22 0.006 260);
   --color-foreground: oklch(0.93 0 0);
   --color-card: oklch(0.27 0.008 260);
   --color-card-foreground: oklch(0.93 0 0);
   --color-popover: oklch(0.29 0.009 260);
   --color-popover-foreground: oklch(0.93 0 0);
-  --color-primary: oklch(0.65 0.2 260);
-  --color-primary-foreground: oklch(0.99 0 0);
+  --color-primary: #ff5a1f;
+  --color-primary-foreground: #171717;
   --color-secondary: oklch(0.28 0.007 260);
   --color-secondary-foreground: oklch(0.9 0 0);
   --color-muted: oklch(0.24 0.006 260);
   --color-muted-foreground: oklch(0.65 0 0);
-  --color-accent: oklch(0.68 0.18 285);
+  --color-accent: #d90078;
   --color-accent-foreground: oklch(0.99 0 0);
   --color-destructive: oklch(0.62 0.22 25);
   --color-destructive-foreground: oklch(0.99 0 0);
   --color-border: oklch(0.35 0.007 260);
   --color-input: oklch(0.19 0.005 260);
-  --color-ring: oklch(0.65 0.2 260);
+  --color-ring: #ff5a1f;
   --color-success: oklch(0.7 0.18 145);
   --color-success-foreground: oklch(0.99 0 0);
   --color-warning: oklch(0.75 0.15 70);
   --color-warning-foreground: oklch(0.15 0 0);
-  --color-info: oklch(0.68 0.18 240);
+  --color-info: #ff8a68;
   --color-info-foreground: oklch(0.99 0 0);
 
   /* Surface hierarchy — charcoal depth system (0.22 → 0.33) */
@@ -152,8 +150,8 @@
   /* Border states */
   --color-border-subtle: oklch(0.33 0.006 260);
   --color-border-hover: oklch(0.42 0.01 260);
-  --color-border-active: oklch(0.5 0.15 260);
-  --color-link: oklch(0.67 0.1 250);
+  --color-border-active: #ff5a1f;
+  --color-link: #ff9a7a;
 
   /* Card depth shadows — softer for charcoal, with top highlight for premium depth */
   --shadow-card: 0 1px 3px oklch(0 0 0 / 0.2), inset 0 1px 0 oklch(1 0 0 / 0.03);
@@ -163,8 +161,7 @@
 
   /* Premium effects */
   --shadow-metallic-dark: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.2);
-  --shadow-selected-glow:
-    inset 0 0 0 1px oklch(0.65 0.2 260 / 0.2), 0 0 16px -4px oklch(0.65 0.2 260 / 0.2);
+  --shadow-selected-glow: inset 0 0 0 1px rgb(255 90 31 / 0.2), 0 0 16px -4px rgb(255 90 31 / 0.2);
   --shadow-card-hover-subtle: 0 2px 8px -2px rgba(0, 0, 0, 0.12);
 
   /* Liquid-glass edge — faint rim on charcoal, deeper lift */
@@ -299,9 +296,9 @@ body:has(.onboarding-canvas) {
   font-optical-sizing: auto;
 
   /* Onboarding design tokens from the Figma library, except the accent: that is
-     the app's one brand blue, so both themes resolve it through --color-primary. */
+     the app's orange brand color, so both themes resolve it through --color-primary. */
   --onboarding-accent: var(--color-primary);
-  --onboarding-accent-foreground: #ffffff;
+  --onboarding-accent-foreground: #171717;
   /* Hover on a filled accent means "darker" on light and "lighter" on dark, so the
      mix target is a token rather than a literal `black` in the utility class. */
   --onboarding-accent-hover: color-mix(in srgb, var(--onboarding-accent) 88%, black);
@@ -421,7 +418,7 @@ body.dark:has(.onboarding-canvas) {
   --color-ring: var(--onboarding-accent);
   background-color: var(--onboarding-surface);
   /* Supplied full-width artwork replaces the generated corner washes. Keeping
-     its natural aspect ratio preserves the authored violet-to-blue composition
+     its natural aspect ratio preserves the authored Loqui composition
      while the surface token fills the transparent lower portion of the panel. */
   background-image: var(--onboarding-background-light);
   background-position: top center;
@@ -717,7 +714,7 @@ body.dark:has(.onboarding-canvas) {
   background-image: none;
 }
 
-/* Compact-frame hero: a brand-blue band that dithers into the page surface.
+/* Compact-frame hero: an orange brand band that dithers into the page surface.
    Drawn from --color-primary so it follows the theme; the dot layer fades in
    as the solid fades out. */
 .onboarding-compact-hero {
@@ -1068,12 +1065,7 @@ a:hover {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    oklch(0.65 0.2 260 / 0.5),
-    oklch(0.7 0.18 280 / 0.3),
-    transparent 80%
-  );
+  background: linear-gradient(90deg, rgb(255 90 31 / 0.5), rgb(217 0 120 / 0.3), transparent 80%);
   pointer-events: none;
   z-index: 1;
 }
@@ -1148,11 +1140,11 @@ a:hover {
 @keyframes pulse-glow {
   0%,
   100% {
-    box-shadow: 0 0 6px oklch(0.65 0.2 260 / 0.4);
+    box-shadow: 0 0 6px rgb(255 90 31 / 0.4);
     opacity: 0.8;
   }
   50% {
-    box-shadow: 0 0 8px oklch(0.65 0.2 260 / 0.6);
+    box-shadow: 0 0 8px rgb(255 90 31 / 0.6);
     opacity: 1;
   }
 }
@@ -1339,7 +1331,7 @@ a:hover {
 .referral-mesh-bg::before {
   width: 300px;
   height: 300px;
-  background: oklch(0.65 0.2 260);
+  background: #ff5a1f;
   opacity: 0.04;
   top: -80px;
   right: -60px;
@@ -1348,7 +1340,7 @@ a:hover {
 .referral-mesh-bg::after {
   width: 250px;
   height: 250px;
-  background: oklch(0.6 0.18 180);
+  background: #d90078;
   opacity: 0.04;
   bottom: -60px;
   left: -40px;
@@ -1409,11 +1401,11 @@ a:hover {
   border-radius: inherit;
   background: conic-gradient(
     from 180deg at 50% 50%,
-    oklch(0.65 0.2 260 / 0.2),
-    oklch(0.55 0.2 320 / 0.1),
-    oklch(0.6 0.18 180 / 0.15),
-    oklch(0.55 0.2 100 / 0.1),
-    oklch(0.65 0.2 260 / 0.2)
+    rgb(255 90 31 / 0.2),
+    rgb(217 0 120 / 0.1),
+    rgb(217 0 120 / 0.15),
+    rgb(255 90 31 / 0.1),
+    rgb(255 90 31 / 0.2)
   );
   z-index: -1;
   opacity: 0;
@@ -1437,7 +1429,7 @@ a:hover {
   left: 0;
   right: 0;
   height: 2px;
-  background: oklch(0.65 0.2 260 / 0.4);
+  background: rgb(255 90 31 / 0.4);
   transform: scaleX(0);
   transform-origin: left;
   transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
@@ -1766,7 +1758,7 @@ a:hover {
 }
 
 .rich-text-editor-content ::selection {
-  background: oklch(0.62 0.22 260 / 0.15);
+  background: rgb(255 90 31 / 0.15);
 }
 
 /* Task list (checkboxes) */

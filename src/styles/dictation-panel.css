@@ -289,7 +289,7 @@
 }
 
 /* The Signal glow: a comet orbiting a breathing ambient halo around the
-   pill. Both identities light it for the thinking state only — brand blue
+   pill. Both identities light it for the thinking state only — brand orange
    for dictation processing, the agent's purple for agent thinking. */
 .voice-pill-glow-anchor {
   position: relative;

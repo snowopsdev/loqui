@@ -4,7 +4,7 @@
 
 First Loqui beta, based on OpenWhispr's MIT-licensed desktop application.
 
-- Fresh, isolated Loqui identity and original orange/fuchsia voice-ribbon artwork.
+- Fresh, isolated Loqui identity and original orange/fuchsia q-mark wordmark artwork.
 - Local dictation, notes, meetings, conversations, history, and search.
 - Independent speech and text providers, direct API keys, local GGUF models, and Codex subscription text generation.
 - Removed hosted OpenWhispr account, billing, sharing, synchronization, and analytics services.

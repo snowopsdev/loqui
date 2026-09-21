@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="650" height="256" viewBox="0 0 650 256">
-  <path d="M178 87C158 54 117 48 85 72C49 99 48 145 76 172C105 200 153 188 173 155C185 135 187 107 178 87Z" fill="none" stroke="#FF5A1F" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M151 145C173 154 169 178 189 190C202 199 215 197 226 186" fill="none" stroke="#D90078" stroke-width="25" stroke-linecap="round"/>
-  <path d="M101 115V136M124 101V149M147 116V133" stroke="#FF5A1F" stroke-width="9" stroke-linecap="round"/>
-  <text x="276" y="177" font-family="Inter,Arial,sans-serif" font-size="146" font-weight="650" letter-spacing="-8" fill="#F1F7F5">Loqui</text>
+  <g fill="none" stroke="#FF5A1F" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M48 55V160C48 176 57 184 73 184H90"/>
+    <circle cx="150" cy="137" r="45"/>
+    <circle cx="263" cy="137" r="45"/>
+    <path d="M355 105V157C355 175 365 184 383 184C401 184 411 175 411 157V105"/>
+    <path d="M470 105V184"/>
+  </g>
+  <path d="M292 160L326 202L304 219L273 177Z" fill="#FF5A1F"/>
+  <circle cx="470" cy="57" r="17" fill="#D90078"/>
 </svg>

@@ -3484,6 +3484,11 @@
     }
   },
   "sidebar": {
+    "sections": {
+      "workspace": "Workspace",
+      "library": "Library"
+    },
+    "navigation": "Main navigation",
     "insights": "Estadísticas",
     "home": "Inicio",
     "notes": "Notas",

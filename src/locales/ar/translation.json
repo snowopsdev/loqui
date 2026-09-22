@@ -3870,6 +3870,11 @@
     "title": "الإعدادات"
   },
   "sidebar": {
+    "sections": {
+      "workspace": "Workspace",
+      "library": "Library"
+    },
+    "navigation": "Main navigation",
     "home": "الرئيسية",
     "notes": "الملاحظات",
     "upload": "رفع",

@@ -3431,6 +3431,11 @@
     }
   },
   "sidebar": {
+    "sections": {
+      "workspace": "Workspace",
+      "library": "Library"
+    },
+    "navigation": "Main navigation",
     "insights": "統計",
     "home": "首頁",
     "notes": "筆記",

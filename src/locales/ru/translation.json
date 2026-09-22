@@ -3475,6 +3475,11 @@
     }
   },
   "sidebar": {
+    "sections": {
+      "workspace": "Workspace",
+      "library": "Library"
+    },
+    "navigation": "Main navigation",
     "insights": "Статистика",
     "home": "Главная",
     "notes": "Заметки",

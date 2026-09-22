@@ -3431,6 +3431,11 @@
     }
   },
   "sidebar": {
+    "sections": {
+      "workspace": "Workspace",
+      "library": "Library"
+    },
+    "navigation": "Main navigation",
     "insights": "Statistiche",
     "home": "Home",
     "notes": "Note",

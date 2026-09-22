@@ -2752,6 +2752,11 @@
     }
   },
   "sidebar": {
+    "sections": {
+      "workspace": "Workspace",
+      "library": "Library"
+    },
+    "navigation": "Main navigation",
     "home": "Home",
     "insights": "Insights",
     "notes": "Notes",

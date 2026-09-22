@@ -43,16 +43,15 @@ test("first setup reaches completion without account APIs or implicit downloads"
   let completed = 0;
   const h = await harness(t, "/components/OnboardingFlow.tsx", {
     mocks: { "/SettingsPage": "export default function SettingsPage() { return null; }" },
-    props: { onComplete: () => completed++ },
+    props: {
+      onComplete: () => completed++,
+      initialStep: "welcome",
+      previewConfig: { step: "welcome", scenario: "ready", platform: "linux" },
+    },
   });
-  for (const stage of ["privacyData", "speechToText", "llms", "hotkeys"]) {
-    assert.equal(find(h.tree(), (node) => node.props?.activeSection)?.props.activeSection, stage);
-    const next = find(
-      h.tree(),
-      (node) =>
-        node.props?.children === (stage === "hotkeys" ? "personal.finishSetup" : "common.continue")
-    );
-    await React.act(async () => next.props.onClick());
+  for (const step of ["welcome", "speech", "cleanup", "try", "shortcuts", "finish"]) {
+    assert.equal(h.tree().props.step, step);
+    await React.act(async () => h.tree().props.onContinue());
   }
   assert.equal(completed, 1);
   assert.deepEqual(globalThis.window.electronAPI, {});
@@ -64,8 +63,12 @@ test("saved credential presence is never revealed or erased by opening its edito
     props: { apiKey: "__stored__", setApiKey: (key) => saved.push(key) },
   });
   assert.ok(
-    find(h.tree(), (node) =>
-      React.Children.toArray(node.props?.children).includes("personal.keyConfigured")
+    find(
+      h.tree(),
+      (node) =>
+        node.type === "button" &&
+        node.props?.onClick &&
+        node.props?.className?.includes("cursor-pointer")
     )
   );
   assert.equal(
@@ -76,16 +79,28 @@ test("saved credential presence is never revealed or erased by opening its edito
     undefined
   );
   await React.act(async () =>
-    find(h.tree(), (node) => node.props?.["aria-label"] === "apiKeyInput.edit").props.onClick()
+    find(
+      h.tree(),
+      (node) =>
+        node.type === "button" &&
+        node.props?.onClick &&
+        node.props?.className?.includes("cursor-pointer")
+    ).props.onClick()
   );
   const input = find(h.tree(), (node) => node.props?.type === "password");
   assert.equal(input.props.value, "");
   await React.act(async () =>
-    find(h.tree(), (node) => node.props?.["aria-label"] === "apiKeyInput.save").props.onClick()
+    find(
+      h.tree(),
+      (node) => node.type === "button" && node.props?.className?.includes("text-success")
+    ).props.onClick()
   );
   assert.deepEqual(saved, []);
   await React.act(async () =>
-    find(h.tree(), (node) => node.props?.children === "personal.removeKey").props.onClick()
+    find(
+      h.tree(),
+      (node) => node.type === "button" && node.props?.className?.includes("hover:text-destructive")
+    ).props.onClick()
   );
   assert.deepEqual(saved, [""]);
 });

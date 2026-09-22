@@ -12,7 +12,6 @@ import {
   setResolvedLLMConfig,
 } from "../stores/settingsStore";
 import { usePermissions } from "../hooks/usePermissions";
-import { useSettings } from "../hooks/useSettings";
 import { useToast } from "./ui/useToast";
 import { Button } from "./ui/button";
 import { Toggle } from "./ui/toggle";
@@ -599,6 +598,7 @@ function CleanupStep({
       <label className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
         <input
           type="checkbox"
+          dir="ltr"
           checked={reuse}
           onChange={(event) => {
             setReuse(event.target.checked);
@@ -1062,7 +1062,12 @@ export default function OnboardingFlow({
   );
   const [trialResult, setTrialResult] = useState("");
   const [updatesEnabled, setUpdatesEnabled] = useState(true);
-  const settings = useSettings();
+  const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
+  const cleanupMode = useSettingsStore((s) => s.cleanupMode);
+  const cleanupProvider = useSettingsStore((s) => s.cleanupProvider);
+  const autoPasteEnabled = useSettingsStore((s) => s.autoPasteEnabled);
+  const dataRetentionEnabled = useSettingsStore((s) => s.dataRetentionEnabled);
+  const setDataRetentionEnabled = useSettingsStore((s) => s.setDataRetentionEnabled);
   const permissions = usePermissions(undefined, { macAccessibilityChecksEnabled: true });
   const platform =
     config?.platform === "macos"
@@ -1071,18 +1076,18 @@ export default function OnboardingFlow({
         ? "linux"
         : getCachedPlatform();
   const scenario = config?.scenario ?? "fresh";
-  const initialCleanupChoice: CleanupChoice = !settings.useCleanupModel
+  const initialCleanupChoice: CleanupChoice = !useCleanupModel
     ? "none"
-    : settings.cleanupMode === "local"
+    : cleanupMode === "local"
       ? "local"
-      : settings.cleanupProvider === "codex"
+      : cleanupProvider === "codex"
         ? "codex"
-        : settings.cleanupMode === "providers"
+        : cleanupMode === "providers"
           ? "provider"
           : "none";
   const [cleanupChoice, setCleanupChoice] = useState<CleanupChoice>(initialCleanupChoice);
   const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus>(
-    settings.useCleanupModel ? "ready" : "skipped"
+    useCleanupModel ? "ready" : "skipped"
   );
 
   useEffect(() => {
@@ -1304,7 +1309,7 @@ export default function OnboardingFlow({
               : cleanupStatus === "checking"
                 ? "checking"
                 : "pending",
-      shortcut: !settings.autoPasteEnabled
+      shortcut: !autoPasteEnabled
         ? "skipped"
         : platform === "darwin"
           ? permissions.accessibilityPermissionGranted
@@ -1317,7 +1322,7 @@ export default function OnboardingFlow({
     permissions.accessibilityPermissionGranted,
     platform,
     scenario,
-    settings.autoPasteEnabled,
+    autoPasteEnabled,
     cleanupChoice,
     cleanupStatus,
     speechModelReady,
@@ -1364,8 +1369,8 @@ export default function OnboardingFlow({
           setUpdatesEnabled(value);
           void window.electronAPI?.updates?.preferences?.({ enabled: value });
         }}
-        dataRetentionEnabled={settings.dataRetentionEnabled}
-        setDataRetentionEnabled={settings.setDataRetentionEnabled}
+        dataRetentionEnabled={dataRetentionEnabled}
+        setDataRetentionEnabled={setDataRetentionEnabled}
       />
     );
   if (step === "speech")

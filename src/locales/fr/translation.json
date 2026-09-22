@@ -2878,6 +2878,11 @@
     }
   },
   "sidebar": {
+    "sections": {
+      "workspace": "Workspace",
+      "library": "Library"
+    },
+    "navigation": "Main navigation",
     "insights": "Statistiques",
     "home": "Accueil",
     "notes": "Notes",

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -129,6 +130,12 @@ function StepShell({
   continueDisabled?: boolean;
 }) {
   const index = STEPS.findIndex((item) => item.id === step);
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    mainRef.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
+  }, [step]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <header className="shrink-0 border-b px-5 py-4 sm:px-10 sm:py-6">
@@ -144,10 +151,7 @@ function StepShell({
             <p className="text-xs text-muted-foreground">A local-first voice workspace</p>
           </div>
         </div>
-        <div
-          className="mx-auto mt-5 max-w-3xl"
-          aria-label={`Onboarding step ${index + 1} of ${STEPS.length}`}
-        >
+        <div role="status" className="mx-auto mt-5 max-w-3xl">
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span>
               Step {index + 1} of {STEPS.length}
@@ -164,7 +168,7 @@ function StepShell({
           </div>
         </div>
       </header>
-      <main className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-10 sm:py-8">
+      <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-10 sm:py-8">
         <div className="mx-auto max-w-3xl">{children}</div>
       </main>
       <footer className="shrink-0 border-t px-5 py-3 sm:px-10 sm:py-4">
@@ -240,7 +244,7 @@ function ChoiceCard({
 
 function StatusLine({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border/70 bg-muted/25 px-3 py-2.5">
+    <div className="flex items-start gap-3">
       {ok ? (
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
       ) : (
@@ -268,10 +272,10 @@ function WelcomeStep({
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-          Start with your voice
-        </p>
-        <h1 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
+        <h1
+          tabIndex={-1}
+          className="max-w-2xl text-3xl font-semibold tracking-tight focus:outline-none sm:text-4xl"
+        >
           A quieter way to get words out.
         </h1>
         <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
@@ -279,7 +283,7 @@ function WelcomeStep({
           choose if any text is sent to a provider.
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
         <StatusLine
           ok
           label="Local by default"
@@ -365,10 +369,7 @@ function SpeechStep({
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-          Speech recognition
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
           Choose the voice you use most.
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -495,10 +496,7 @@ function CleanupStep({
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-          Text intelligence
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
           Make the transcript easier to read.
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -871,10 +869,7 @@ function ShortcutsStep({
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-          Use anywhere
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
           Keep Loqui one shortcut away.
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -969,10 +964,7 @@ function FinishStep({
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-          You are in control
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
           Your workspace is ready when you are.
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -1403,10 +1395,9 @@ export default function OnboardingFlow({
     content = (
       <div className="space-y-5">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-            Try it here
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Make one short dictation.</h1>
+          <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
+            Make one short dictation.
+          </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Loqui will show the result inside this window. Trial audio and text are not saved to
             history and automatic paste stays off.
@@ -1429,7 +1420,7 @@ export default function OnboardingFlow({
       step={step}
       onBack={handleBack}
       onContinue={handleContinue}
-      onSkip={handleSkip}
+      onSkip={step === "finish" ? undefined : handleSkip}
       continueLabel={
         step === "welcome" ? "Set up dictation" : step === "finish" ? "Open workspace" : "Continue"
       }

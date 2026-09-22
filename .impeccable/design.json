@@ -1,0 +1,416 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-22T19:07:56Z",
+  "title": "Design System: Loqui",
+  "extensions": {
+    "colorMeta": {
+      "signal-orange": {
+        "role": "primary",
+        "displayName": "Signal Orange",
+        "tonalRamp": [
+          "oklch(15% 0.211 37.7)",
+          "oklch(25% 0.211 37.7)",
+          "oklch(35% 0.211 37.7)",
+          "oklch(45% 0.211 37.7)",
+          "oklch(55% 0.211 37.7)",
+          "oklch(65% 0.211 37.7)",
+          "oklch(75% 0.211 37.7)",
+          "oklch(95% 0.211 37.7)"
+        ]
+      },
+      "orange-highlight": {
+        "role": "primary",
+        "displayName": "Orange Highlight",
+        "tonalRamp": [
+          "oklch(15% 0.193 38.7)",
+          "oklch(25% 0.193 38.7)",
+          "oklch(35% 0.193 38.7)",
+          "oklch(45% 0.193 38.7)",
+          "oklch(55% 0.193 38.7)",
+          "oklch(65% 0.193 38.7)",
+          "oklch(75% 0.193 38.7)",
+          "oklch(95% 0.193 38.7)"
+        ]
+      },
+      "electric-fuchsia": {
+        "role": "secondary",
+        "displayName": "Electric Fuchsia",
+        "tonalRamp": [
+          "oklch(15% 0.234 358.1)",
+          "oklch(25% 0.234 358.1)",
+          "oklch(35% 0.234 358.1)",
+          "oklch(45% 0.234 358.1)",
+          "oklch(55% 0.234 358.1)",
+          "oklch(65% 0.234 358.1)",
+          "oklch(75% 0.234 358.1)",
+          "oklch(95% 0.234 358.1)"
+        ]
+      },
+      "agent-violet": {
+        "role": "tertiary",
+        "displayName": "Agent Violet",
+        "tonalRamp": [
+          "oklch(15% 0.173 280.7)",
+          "oklch(25% 0.173 280.7)",
+          "oklch(35% 0.173 280.7)",
+          "oklch(45% 0.173 280.7)",
+          "oklch(55% 0.173 280.7)",
+          "oklch(65% 0.173 280.7)",
+          "oklch(75% 0.173 280.7)",
+          "oklch(95% 0.173 280.7)"
+        ]
+      },
+      "brand-ink": {
+        "role": "neutral",
+        "displayName": "Brand Ink",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(45% 0.000 89.9)",
+          "oklch(55% 0.000 89.9)",
+          "oklch(65% 0.000 89.9)",
+          "oklch(75% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(45% 0.000 89.9)",
+          "oklch(55% 0.000 89.9)",
+          "oklch(65% 0.000 89.9)",
+          "oklch(75% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "workspace-gray": {
+        "role": "neutral",
+        "displayName": "Workspace Gray",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(45% 0.000 89.9)",
+          "oklch(55% 0.000 89.9)",
+          "oklch(65% 0.000 89.9)",
+          "oklch(75% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "surface-gray": {
+        "role": "neutral",
+        "displayName": "Surface Gray",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(45% 0.000 89.9)",
+          "oklch(55% 0.000 89.9)",
+          "oklch(65% 0.000 89.9)",
+          "oklch(75% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "divider-gray": {
+        "role": "neutral",
+        "displayName": "Divider Gray",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(45% 0.000 89.9)",
+          "oklch(55% 0.000 89.9)",
+          "oklch(65% 0.000 89.9)",
+          "oklch(75% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "secondary-text": {
+        "role": "neutral",
+        "displayName": "Secondary Text",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(45% 0.000 89.9)",
+          "oklch(55% 0.000 89.9)",
+          "oklch(65% 0.000 89.9)",
+          "oklch(75% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "link-orange": {
+        "role": "primary",
+        "displayName": "Orange Link",
+        "tonalRamp": [
+          "oklch(15% 0.178 36.4)",
+          "oklch(25% 0.178 36.4)",
+          "oklch(35% 0.178 36.4)",
+          "oklch(45% 0.178 36.4)",
+          "oklch(55% 0.178 36.4)",
+          "oklch(65% 0.178 36.4)",
+          "oklch(75% 0.178 36.4)",
+          "oklch(95% 0.178 36.4)"
+        ]
+      },
+      "night-charcoal": {
+        "role": "neutral",
+        "displayName": "Night Charcoal",
+        "tonalRamp": [
+          "oklch(15% 0.006 260.0)",
+          "oklch(25% 0.006 260.0)",
+          "oklch(35% 0.006 260.0)",
+          "oklch(45% 0.006 260.0)",
+          "oklch(55% 0.006 260.0)",
+          "oklch(65% 0.006 260.0)",
+          "oklch(75% 0.006 260.0)",
+          "oklch(95% 0.006 260.0)"
+        ]
+      },
+      "night-card": {
+        "role": "neutral",
+        "displayName": "Night Card",
+        "tonalRamp": [
+          "oklch(15% 0.008 260.0)",
+          "oklch(25% 0.008 260.0)",
+          "oklch(35% 0.008 260.0)",
+          "oklch(45% 0.008 260.0)",
+          "oklch(55% 0.008 260.0)",
+          "oklch(65% 0.008 260.0)",
+          "oklch(75% 0.008 260.0)",
+          "oklch(95% 0.008 260.0)"
+        ]
+      },
+      "night-raised": {
+        "role": "neutral",
+        "displayName": "Night Raised Surface",
+        "tonalRamp": [
+          "oklch(15% 0.010 260.0)",
+          "oklch(25% 0.010 260.0)",
+          "oklch(35% 0.010 260.0)",
+          "oklch(45% 0.010 260.0)",
+          "oklch(55% 0.010 260.0)",
+          "oklch(65% 0.010 260.0)",
+          "oklch(75% 0.010 260.0)",
+          "oklch(95% 0.010 260.0)"
+        ]
+      },
+      "night-border": {
+        "role": "neutral",
+        "displayName": "Night Border",
+        "tonalRamp": [
+          "oklch(15% 0.007 260.0)",
+          "oklch(25% 0.007 260.0)",
+          "oklch(35% 0.007 260.0)",
+          "oklch(45% 0.007 260.0)",
+          "oklch(55% 0.007 260.0)",
+          "oklch(65% 0.007 260.0)",
+          "oklch(75% 0.007 260.0)",
+          "oklch(95% 0.007 260.0)"
+        ]
+      },
+      "night-text": {
+        "role": "neutral",
+        "displayName": "Night Text",
+        "tonalRamp": [
+          "oklch(15% 0.000 0.0)",
+          "oklch(25% 0.000 0.0)",
+          "oklch(35% 0.000 0.0)",
+          "oklch(45% 0.000 0.0)",
+          "oklch(55% 0.000 0.0)",
+          "oklch(65% 0.000 0.0)",
+          "oklch(75% 0.000 0.0)",
+          "oklch(95% 0.000 0.0)"
+        ]
+      },
+      "night-secondary-text": {
+        "role": "neutral",
+        "displayName": "Night Secondary Text",
+        "tonalRamp": [
+          "oklch(15% 0.000 0.0)",
+          "oklch(25% 0.000 0.0)",
+          "oklch(35% 0.000 0.0)",
+          "oklch(45% 0.000 0.0)",
+          "oklch(55% 0.000 0.0)",
+          "oklch(65% 0.000 0.0)",
+          "oklch(75% 0.000 0.0)",
+          "oklch(95% 0.000 0.0)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page-level h1 headings at the 40px scale."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Shared Inter/Noto Sans family for workspace and onboarding copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Compact sidebar and control labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "brand-glass",
+        "value": "inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(0, 0, 0, 0.12)",
+        "purpose": "Fine highlights and edge depth on orange primary surfaces."
+      },
+      {
+        "name": "dark-card",
+        "value": "0 1px 3px oklch(0 0 0 / 0.2), inset 0 1px 0 oklch(1 0 0 / 0.03)",
+        "purpose": "Quiet separation for dark-theme cards."
+      },
+      {
+        "name": "dark-card-hover",
+        "value": "0 4px 12px oklch(0 0 0 / 0.25), inset 0 1px 0 oklch(1 0 0 / 0.04)",
+        "purpose": "Raised hover state on dark cards."
+      },
+      {
+        "name": "elevated",
+        "value": "0 8px 24px oklch(0 0 0 / 0.3)",
+        "purpose": "Elevated popovers and panels in dark mode."
+      },
+      {
+        "name": "modal",
+        "value": "0 24px 48px -12px oklch(0 0 0 / 0.4)",
+        "purpose": "High-priority dialogs."
+      }
+    ],
+    "motion": [
+      {
+        "name": "onboarding-ease-out",
+        "value": "cubic-bezier(0.23, 1, 0.32, 1)",
+        "purpose": "Short step and content entry transitions."
+      },
+      {
+        "name": "control-transition",
+        "value": "200ms ease-out",
+        "purpose": "Button and input state changes."
+      },
+      {
+        "name": "voice-pill-expand",
+        "value": "280ms cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Morph the persistent voice pill into the assistant or transcript surface."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "preview-compact",
+        "value": "520px"
+      },
+      {
+        "name": "preview-reflow",
+        "value": "1200px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The primary desktop action; orange carries the action signal.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Start dictation</button>",
+      "css": ".ds-btn-primary { min-height: 40px; padding: 8px 16px; border: 0; border-radius: 9999px; background: var(--gradient-brand-glass); color: #fff; box-shadow: var(--shadow-brand-glass); font-family: var(--font-family-sans); font-size: 14px; font-weight: 600; letter-spacing: .005em; cursor: pointer; transition: filter 200ms ease-out, transform 200ms ease-out; } .ds-btn-primary:hover { filter: brightness(1.1); } .ds-btn-primary:active { filter: brightness(.95); transform: scale(.985); } .ds-btn-primary:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-ring) 30%, transparent); outline-offset: 1px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "A secondary action with a muted fill, thin border, and light glass treatment.",
+      "html": "<button class=\"ds-btn-outline\" type=\"button\">Choose a model</button>",
+      "css": ".ds-btn-outline { min-height: 40px; padding: 8px 16px; border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent); border-radius: 9999px; background: color-mix(in srgb, var(--color-muted) 70%, transparent); color: var(--color-foreground); backdrop-filter: blur(4px); box-shadow: 0 1px 2px rgb(0 0 0 / .05); font-family: var(--font-family-sans); font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 200ms ease-out, border-color 200ms ease-out, transform 200ms ease-out; } .ds-btn-outline:hover { background: var(--color-muted); border-color: var(--color-border-hover); } .ds-btn-outline:active { transform: scale(.985); } .ds-btn-outline:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-ring) 30%, transparent); outline-offset: 1px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "description": "A tertiary action that stays quiet until hover or press.",
+      "html": "<button class=\"ds-btn-ghost\" type=\"button\">Continue later</button>",
+      "css": ".ds-btn-ghost { min-height: 40px; padding: 8px 16px; border: 0; border-radius: 9999px; background: transparent; color: var(--color-foreground); font-family: var(--font-family-sans); font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms ease-out, transform 150ms ease-out; } .ds-btn-ghost:hover { background: var(--color-muted); } .ds-btn-ghost:active { transform: scale(.98); } .ds-btn-ghost:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-ring) 30%, transparent); outline-offset: 1px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A compact field with a direct orange focus signal.",
+      "html": "<input class=\"ds-input\" type=\"text\" aria-label=\"Search notes and history\" placeholder=\"Search notes and history\">",
+      "css": ".ds-input { box-sizing: border-box; width: 100%; min-width: 0; height: 40px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent); border-radius: 6px; background: var(--color-input, var(--color-background)); color: var(--color-foreground); box-shadow: inset 0 1px 2px color-mix(in oklch, var(--color-foreground) 6%, transparent); font-family: var(--font-family-sans); font-size: 14px; outline: none; transition: border-color 200ms ease, box-shadow 200ms ease; } .ds-input::placeholder { color: color-mix(in srgb, var(--color-muted-foreground) 70%, transparent); } .ds-input:focus-visible { border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-ring) 15%, transparent); } .ds-input:disabled { opacity: .5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Sidebar Navigation Item",
+      "kind": "nav",
+      "description": "A 36px row with a quiet selected fill and a narrow orange active rail.",
+      "html": "<button class=\"ds-nav-item is-active\" type=\"button\" aria-current=\"page\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><rect x=\"9\" y=\"2\" width=\"6\" height=\"12\" rx=\"3\"></rect><path d=\"M5 10v2a7 7 0 0 0 14 0v-2\"></path><path d=\"M12 19v3M8 22h8\"></path></svg><span>Dictation</span></button>",
+      "css": ".ds-nav-item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: color-mix(in srgb, var(--color-foreground) 75%, transparent); text-align: left; font-family: var(--font-family-sans); font-size: 13px; font-weight: 400; cursor: pointer; transition: background-color 150ms ease, color 150ms ease; } .ds-nav-item svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; } .ds-nav-item:hover { background: color-mix(in srgb, var(--color-foreground) 5%, transparent); color: var(--color-foreground); } .ds-nav-item.is-active { background: color-mix(in srgb, var(--color-foreground) 7%, transparent); color: var(--color-foreground); font-weight: 500; } .ds-nav-item.is-active::before { position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 9999px; background: var(--color-primary); content: \"\"; } .ds-nav-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-primary) 30%, transparent); outline-offset: 1px; }"
+    },
+    {
+      "name": "Primary Badge",
+      "kind": "chip",
+      "refersTo": "badge-primary",
+      "description": "A small pill label for the primary category or state.",
+      "html": "<span class=\"ds-badge-primary\">Local model</span>",
+      "css": ".ds-badge-primary { display: inline-flex; align-items: center; padding: 2px 10px; border: 1px solid transparent; border-radius: 9999px; background: color-mix(in srgb, var(--color-primary) 15%, transparent); color: var(--color-primary); font-family: var(--font-family-sans); font-size: 12px; font-weight: 500; letter-spacing: .025em; } .ds-badge-primary:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A bordered container for grouped settings or model information.",
+      "html": "<article class=\"ds-card\"><h3>Speech model</h3><p>Choose a model for transcription.</p></article>",
+      "css": ".ds-card { padding: 24px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-card); color: var(--color-card-foreground); box-shadow: var(--shadow-card, 0 1px 3px color-mix(in oklch, var(--color-foreground) 8%, transparent)); transition: box-shadow 200ms ease, transform 200ms ease; } .ds-card h3 { margin: 0 0 8px; font-family: var(--font-family-sans); font-size: 16px; font-weight: 600; letter-spacing: -.015em; } .ds-card p { margin: 0; color: var(--color-muted-foreground); font-family: var(--font-family-sans); font-size: 14px; line-height: 1.5; } .ds-card:hover { box-shadow: var(--shadow-card-hover, 0 4px 12px color-mix(in oklch, var(--color-foreground) 10%, transparent)); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Personal Workbench",
+    "overview": "Loqui is a desktop work surface for voice and personal knowledge. Compact navigation and window chrome frame dictation, notes, history, meetings, search, and model controls. The interface is focused and direct; the vivid orange and fuchsia accents give the workbench a distinct signal while text and user content remain the main event.\n\nThe same React interface runs in the Electron shell on macOS and Linux, with platform-specific window controls and permissions. Light mode uses clean white and pale-gray surfaces. Dark mode shifts to low-chroma charcoal layers. Rounded controls, restrained elevation, and clear interaction states carry the system across both themes. The visual anti-reference is generic AI-dashboard styling.",
+    "keyCharacteristics": [
+      "Signal Orange leads primary actions; Electric Fuchsia supports secondary emphasis.",
+      "Inter Variable anchors a compact, high-clarity interface.",
+      "Light surfaces use subtle lift; dark surfaces use tonal separation and soft edge rims.",
+      "Capsules, small-radius controls, and inset work areas shape the desktop shell.",
+      "Interaction states stay explicit through focus rings, pressed feedback, and active navigation markers."
+    ],
+    "rules": [
+      {
+        "name": "The Two-Brand-Accent Rule",
+        "body": "Orange marks primary action and current state. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Family Rule",
+        "body": "Use the bundled Inter/Noto Sans system for interface text; create hierarchy through scale and weight.",
+        "section": "typography"
+      },
+      {
+        "name": "The Layered-Not-Floating Rule",
+        "body": "Separate adjacent work areas with tone and borders first. Reserve stronger lift for overlays and deliberate hover states.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use Signal Orange for primary actions and current navigation state.",
+      "Do use Electric Fuchsia as a supporting accent, keeping the two roles distinct.",
+      "Do preserve the charcoal surface steps and soft rims when adding dark-theme surfaces.",
+      "Do use compact controls, clear labels, and the existing visible focus treatment.",
+      "Do adapt window controls and traffic-light clearance to the host OS while keeping the shared React interface coherent."
+    ],
+    "donts": [
+      "Don't drift into generic AI-dashboard styling or decorative marketing-page chrome.",
+      "Don't swap orange and fuchsia roles or make both accents compete for primary-action status.",
+      "Don't rely on shadow alone to distinguish dark surfaces; use the existing tonal layers and borders.",
+      "Don't use movement as the only cue for recording, processing, selection, focus, or error states."
+    ]
+  }
+}

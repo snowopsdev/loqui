@@ -1,3 +1,149 @@
 .browser-preview-content > .h-screen {
   height: 100%;
 }
+
+.browser-preview-toolbar {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "brand actions";
+  align-items: center;
+  gap: 8px 20px;
+  flex: none;
+  min-width: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-1);
+  font-size: 12px;
+}
+
+.browser-preview-brand {
+  grid-area: brand;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
+
+.browser-preview-brand strong {
+  flex: none;
+  color: var(--color-foreground);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.browser-preview-brand strong span {
+  margin-left: 4px;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.browser-preview-note {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-preview-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-color: var(--color-border-hover) transparent;
+  scrollbar-width: thin;
+}
+
+.browser-preview-button,
+.browser-preview-select select {
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--color-foreground);
+  font: inherit;
+  white-space: nowrap;
+}
+
+.browser-preview-button {
+  flex: none;
+  padding: 0 9px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.browser-preview-button:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface-2);
+}
+
+.browser-preview-select {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding-left: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  color: var(--color-muted-foreground);
+  white-space: nowrap;
+}
+
+.browser-preview-select select {
+  max-width: 190px;
+  padding: 0 8px 0 2px;
+  border: 0;
+  background: var(--color-surface-1);
+  color: var(--color-foreground);
+  cursor: pointer;
+}
+
+.browser-preview-button:focus-visible,
+.browser-preview-select:focus-within {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1200px) {
+  .browser-preview-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "brand"
+      "actions";
+    gap: 7px;
+  }
+}
+
+@media (max-width: 520px) {
+  .browser-preview-toolbar {
+    padding: 8px 12px;
+  }
+
+  .browser-preview-brand {
+    display: grid;
+    gap: 2px;
+  }
+
+  .browser-preview-note {
+    max-width: 100%;
+  }
+
+  .browser-preview-actions {
+    margin-right: -12px;
+    padding: 2px 12px 2px 2px;
+  }
+
+  .browser-preview-select select {
+    max-width: 150px;
+  }
+}

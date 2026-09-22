@@ -57,82 +57,75 @@ export default function BrowserPreview() {
   };
   return (
     <div className="browser-preview flex h-dvh flex-col bg-background text-foreground">
-      <div
-        className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-2 text-xs"
-        role="region"
-        aria-label="Browser preview controls"
-      >
-        <strong>Loqui · UI preview</strong>
-        <span className="flex-1 text-muted-foreground">
-          Sample data. Recording, sign-in, and downloads require the desktop app.
-        </span>
-        <button
-          type="button"
-          className="rounded px-2 py-1 hover:bg-muted focus-visible:outline-2"
-          onClick={() => setSetup(!setup)}
-        >
-          {setup ? "Show workspace" : "Show setup"}
-        </button>
-        <button
-          type="button"
-          className="rounded px-2 py-1 hover:bg-muted focus-visible:outline-2"
-          onClick={restart}
-        >
-          Restart onboarding
-        </button>
-        <label className="flex items-center gap-1">
-          <span className="sr-only">Jump to onboarding step</span>
-          <select
-            aria-label="Jump to onboarding step"
-            value={config.step}
-            onChange={(event) => updateConfig({ step: event.target.value as OnboardingStep })}
-            className="rounded bg-muted px-2 py-1"
+      <div className="browser-preview-toolbar" role="region" aria-label="Browser preview controls">
+        <div className="browser-preview-brand">
+          <strong>
+            Loqui <span>Preview</span>
+          </strong>
+          <span className="browser-preview-note">
+            Sample content · Recording, sign-in, and downloads require the desktop app.
+          </span>
+        </div>
+        <div className="browser-preview-actions">
+          <button type="button" className="browser-preview-button" onClick={() => setSetup(!setup)}>
+            {setup ? "Show workspace" : "Show setup"}
+          </button>
+          <button type="button" className="browser-preview-button" onClick={restart}>
+            Restart onboarding
+          </button>
+          <label className="browser-preview-select">
+            <span>Step</span>
+            <select
+              aria-label="Jump to onboarding step"
+              value={config.step}
+              onChange={(event) => updateConfig({ step: event.target.value as OnboardingStep })}
+            >
+              {ONBOARDING_STEPS.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="browser-preview-select">
+            <span>Scenario</span>
+            <select
+              aria-label="Preview scenario"
+              value={config.scenario}
+              onChange={(event) =>
+                updateConfig({ scenario: event.target.value as OnboardingScenario })
+              }
+            >
+              {scenarios.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="browser-preview-select">
+            <span>Platform</span>
+            <select
+              aria-label="Simulated platform"
+              value={config.platform}
+              onChange={(event) =>
+                updateConfig({
+                  platform: event.target.value as OnboardingPreviewConfig["platform"],
+                })
+              }
+            >
+              <option value="macos">macOS</option>
+              <option value="linux">Linux</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="browser-preview-button"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           >
-            {ONBOARDING_STEPS.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1">
-          <span className="sr-only">Preview scenario</span>
-          <select
-            aria-label="Preview scenario"
-            value={config.scenario}
-            onChange={(event) =>
-              updateConfig({ scenario: event.target.value as OnboardingScenario })
-            }
-            className="rounded bg-muted px-2 py-1"
-          >
-            {scenarios.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1">
-          <span className="sr-only">Simulated platform</span>
-          <select
-            aria-label="Simulated platform"
-            value={config.platform}
-            onChange={(event) =>
-              updateConfig({ platform: event.target.value as OnboardingPreviewConfig["platform"] })
-            }
-            className="rounded bg-muted px-2 py-1"
-          >
-            <option value="macos">macOS</option>
-            <option value="linux">Linux</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          className="rounded px-2 py-1 hover:bg-muted focus-visible:outline-2"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          {theme === "dark" ? "Light theme" : "Dark theme"}
-        </button>
+            {theme === "dark" ? "Light theme" : "Dark theme"}
+          </button>
+        </div>
       </div>
       <div className="browser-preview-content min-h-0 flex-1">
         <Suspense fallback={<div className="p-6">Loading…</div>}>

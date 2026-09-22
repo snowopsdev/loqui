@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, PanelLeftClose, Search } from "./icons";
+import { ChevronLeft, PanelLeftClose, PanelLeftOpen, Search } from "./icons";
 import { Button } from "./ui/button";
 import WindowControls from "./WindowControls";
 import { cn } from "./lib/utils";
@@ -83,7 +83,11 @@ export default function ControlPanelTopBar({
               // underneath it and the button stays clickable while collapsed.
               className="group relative z-40 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors duration-150 hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-primary/30 dark:hover:bg-white/5"
             >
-              <PanelLeftClose size={16} className={toggleIconClass} />
+              {sidebarCollapsed ? (
+                <PanelLeftOpen size={16} className={toggleIconClass} />
+              ) : (
+                <PanelLeftClose size={16} className={toggleIconClass} />
+              )}
             </button>
             {/* Global h1 styles are display-sized; this is chrome, so pin it down. */}
             <h1 className="truncate text-sm! font-medium! leading-none! tracking-normal! text-foreground">

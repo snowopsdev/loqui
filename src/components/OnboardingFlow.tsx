@@ -1,4 +1,3 @@
-import loquiMark from "../assets/brand/mark.svg";
 import UpdateSettings from "./settings/UpdateSettings";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,6 +5,7 @@ import SettingsPage from "./SettingsPage";
 import CodexConnection from "./CodexConnection";
 import TitleBar from "./TitleBar";
 import { Button } from "./ui/button";
+import { Mic } from "./icons";
 interface Props {
   onComplete: (options?: { openSettings?: boolean }) => void;
 }
@@ -21,7 +21,12 @@ export default function OnboardingFlow({ onComplete }: Props) {
           className="font-semibold flex items-center gap-2"
           style={{ fontSize: 20, lineHeight: "28px" }}
         >
-          <img src={loquiMark} alt="" className="h-7 w-7" />
+          <span
+            aria-hidden="true"
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/8 text-foreground/70"
+          >
+            <Mic size={15} strokeWidth={2.2} />
+          </span>
           Loqui
         </h1>
         <p className="text-sm text-muted-foreground">{t("personal.onboarding")}</p>

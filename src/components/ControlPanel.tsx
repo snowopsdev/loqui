@@ -62,7 +62,7 @@ import BackgroundActionToastListener from "./notes/BackgroundActionToastListener
 
 const platform = getCachedPlatform();
 
-const SIDEBAR_WIDTH_PX = 192;
+const SIDEBAR_WIDTH_PX = 208;
 
 // Bump to force a one-time full semantic reindex on next launch (see the
 // reindex effect for the per-version history).

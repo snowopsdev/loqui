@@ -5,10 +5,13 @@ import { BarChart3, Blocks, BookOpen, Home, MessageSquare, NotebookPen, Upload }
 export type ControlPanelView =
   "home" | "insights" | "chat" | "personal-notes" | "dictionary" | "upload" | "integrations";
 
+export type ControlPanelNavSection = "workspace" | "library";
+
 export interface ControlPanelNavItem {
   id: ControlPanelView;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
+  section: ControlPanelNavSection;
 }
 
 /**
@@ -20,12 +23,22 @@ export function useControlPanelNavItems(): ControlPanelNavItem[] {
   const { t } = useTranslation();
 
   return [
-    { id: "home", label: t("sidebar.home"), icon: Home },
-    { id: "insights", label: t("sidebar.insights"), icon: BarChart3 },
-    ...[{ id: "chat" as const, label: t("sidebar.chat"), icon: MessageSquare }],
-    { id: "personal-notes", label: t("sidebar.notes"), icon: NotebookPen },
-    ...[{ id: "upload" as const, label: t("sidebar.upload"), icon: Upload }],
-    { id: "dictionary", label: t("sidebar.dictionary"), icon: BookOpen },
-    { id: "integrations", label: t("sidebar.integrations"), icon: Blocks },
+    { id: "home", label: t("sidebar.home"), icon: Home, section: "workspace" },
+    { id: "chat", label: t("sidebar.chat"), icon: MessageSquare, section: "workspace" },
+    {
+      id: "personal-notes",
+      label: t("sidebar.notes"),
+      icon: NotebookPen,
+      section: "workspace",
+    },
+    { id: "insights", label: t("sidebar.insights"), icon: BarChart3, section: "library" },
+    { id: "upload", label: t("sidebar.upload"), icon: Upload, section: "library" },
+    { id: "dictionary", label: t("sidebar.dictionary"), icon: BookOpen, section: "library" },
+    {
+      id: "integrations",
+      label: t("sidebar.integrations"),
+      icon: Blocks,
+      section: "library",
+    },
   ];
 }

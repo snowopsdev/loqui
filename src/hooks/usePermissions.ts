@@ -167,7 +167,11 @@ export const usePermissions = (
   );
 
   const requestMicPermission = useCallback(async () => {
-    if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+    if (
+      (import.meta.env.DEV && window.loquiBrowserPreview) ||
+      !navigator?.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== "function"
+    ) {
       const message = t("hooks.permissions.micUnavailable");
       setMicPermissionError(message);
       if (showAlertDialog) {

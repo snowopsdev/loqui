@@ -759,6 +759,12 @@ export interface StartRecordingArgs {
 }
 
 export async function startRecording(args: StartRecordingArgs): Promise<boolean> {
+  if (import.meta.env.DEV && window.loquiBrowserPreview) {
+    useMeetingRecordingStore.setState({
+      error: "Recording is available in the Loqui desktop app.",
+    });
+    return false;
+  }
   if (isRecordingFlag || isStartingFlag) return true;
   const sessionId = createMeetingRecordingSessionId();
   await meetingRecordingStartCoordinator.runStart(sessionId, async (startOperation) => {

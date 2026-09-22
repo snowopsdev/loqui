@@ -46,6 +46,10 @@ export const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({
     setError(null);
 
     try {
+      if ((import.meta.env.DEV && window.loquiBrowserPreview) || !navigator.mediaDevices) {
+        setError(t("microphoneSettings.errors.unableToAccess"));
+        return;
+      }
       // Acquiring the mic just to read labels interrupts other audio (pauses
       // music on macOS), so only do it when labels are missing (no permission yet).
       let allDevices = await navigator.mediaDevices.enumerateDevices();
@@ -90,11 +94,13 @@ export const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({
   useEffect(() => {
     loadDevices();
 
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices || (import.meta.env.DEV && window.loquiBrowserPreview)) return;
     const handleDeviceChange = () => loadDevices();
-    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    mediaDevices.addEventListener("devicechange", handleDeviceChange);
 
     return () => {
-      navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+      mediaDevices.removeEventListener("devicechange", handleDeviceChange);
     };
   }, [loadDevices]);
 

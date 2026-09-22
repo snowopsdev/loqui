@@ -10,6 +10,9 @@ import { useTheme } from "./hooks/useTheme";
 import { isControlPanelWindow } from "./utils/windowContext.ts";
 const ControlPanel = React.lazy(() => import("./components/ControlPanel.tsx"));
 const OnboardingFlow = React.lazy(() => import("./components/OnboardingFlow.tsx"));
+const BrowserPreview = import.meta.env.DEV
+  ? React.lazy(() => import("./preview/BrowserPreview"))
+  : null;
 export default function AppRouter() {
   useTheme();
   useEffect(
@@ -24,6 +27,13 @@ export default function AppRouter() {
       }),
     []
   );
+  if (import.meta.env.DEV && window.loquiBrowserPreview) {
+    return (
+      <Suspense fallback={<div>Loading Loqui preview…</div>}>
+        <BrowserPreview />
+      </Suspense>
+    );
+  }
   if (window.location.search.includes("meeting-notification=true"))
     return <MeetingNotificationOverlay />;
   if (window.location.search.includes("agent-dictation-pill=true"))

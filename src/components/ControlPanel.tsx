@@ -59,6 +59,7 @@ import { isAccessibilitySkipped } from "../utils/permissions";
 import { getCachedPlatform } from "../utils/platform";
 import HistoryView from "./HistoryView";
 import BackgroundActionToastListener from "./notes/BackgroundActionToastListener";
+import FinishDictationSetupCard from "./FinishDictationSetupCard";
 
 const platform = getCachedPlatform();
 
@@ -784,6 +785,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                     </div>
                   </div>
                 )}
+              {activeView === "home" && <FinishDictationSetupCard />}
               {activeView === "home" && (
                 <HistoryView
                   history={history}

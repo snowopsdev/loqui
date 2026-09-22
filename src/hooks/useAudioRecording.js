@@ -65,6 +65,7 @@ export const useAudioRecording = (toast, options = {}) => {
     onShowTranscript,
     onDemoEvent,
     assistantOpenRef,
+    trialMode = false,
   } = options;
 
   useEffect(() => {
@@ -520,46 +521,56 @@ export const useAudioRecording = (toast, options = {}) => {
           }
 
           const isStreaming = result.source?.includes("streaming");
-          const { autoPasteEnabled, keepTranscriptionInClipboard } = getSettings();
+          const {
+            autoPasteEnabled: configuredAutoPaste,
+            keepTranscriptionInClipboard: configuredKeepClipboard,
+          } = getSettings();
+          // Onboarding's first recording is a private capability check. It must
+          // remain inside Loqui and must not create history, write the clipboard,
+          // or paste into another application before the user has opted in.
+          const autoPasteEnabled = trialMode ? false : configuredAutoPaste;
+          const keepTranscriptionInClipboard = trialMode ? false : configuredKeepClipboard;
 
-          const persistencePromise = audioManagerRef.current
-            .saveTranscription(result.text, result.rawText ?? result.text, {
-              clientTranscriptionId: result.clientTranscriptionId,
-              // Spread rather than set: a result with no analytics timestamp
-              // must not gain the key as undefined, matching how audioManager
-              // carries this field and keeping the options object exactly what
-              // callers without Insights data expect.
-              ...(result.analyticsOccurredAt
-                ? { analyticsOccurredAt: result.analyticsOccurredAt }
-                : {}),
-            })
-            .then(
-              (persisted) => {
-                if (!persisted) {
-                  logger.error(
-                    "Failed to persist transcription",
-                    {
-                      clientTranscriptionId: result.clientTranscriptionId,
-                      source: result.source,
-                    },
-                    "audio"
-                  );
-                }
-                return persisted;
-              },
-              (error) => {
-                logger.error(
-                  "Failed to persist transcription",
-                  {
-                    clientTranscriptionId: result.clientTranscriptionId,
-                    error: error?.message,
-                    source: result.source,
+          const persistencePromise = trialMode
+            ? Promise.resolve(true)
+            : audioManagerRef.current
+                .saveTranscription(result.text, result.rawText ?? result.text, {
+                  clientTranscriptionId: result.clientTranscriptionId,
+                  // Spread rather than set: a result with no analytics timestamp
+                  // must not gain the key as undefined, matching how audioManager
+                  // carries this field and keeping the options object exactly what
+                  // callers without Insights data expect.
+                  ...(result.analyticsOccurredAt
+                    ? { analyticsOccurredAt: result.analyticsOccurredAt }
+                    : {}),
+                })
+                .then(
+                  (persisted) => {
+                    if (!persisted) {
+                      logger.error(
+                        "Failed to persist transcription",
+                        {
+                          clientTranscriptionId: result.clientTranscriptionId,
+                          source: result.source,
+                        },
+                        "audio"
+                      );
+                    }
+                    return persisted;
                   },
-                  "audio"
+                  (error) => {
+                    logger.error(
+                      "Failed to persist transcription",
+                      {
+                        clientTranscriptionId: result.clientTranscriptionId,
+                        error: error?.message,
+                        source: result.source,
+                      },
+                      "audio"
+                    );
+                    return false;
+                  }
                 );
-                return false;
-              }
-            );
 
           const keepInClipboard = async (delivery) => {
             try {
@@ -795,6 +806,7 @@ export const useAudioRecording = (toast, options = {}) => {
     onDictationError,
     reportLifecycle,
     t,
+    trialMode,
   ]);
 
   const cancelRecording = useCallback(async () => {

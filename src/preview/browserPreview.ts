@@ -3,6 +3,7 @@ import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes
 import type { UpdateStatus } from "../types/updates";
 import product from "../config/product.json";
 import { version } from "../../package.json";
+import { parseOnboardingPreviewConfig } from "../utils/onboardingState";
 
 declare global {
   interface Window {
@@ -248,6 +249,11 @@ export function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     checkWhisperInstallation: async () => ({ installed: false, working: false }),
     listWhisperModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
     listParakeetModels: async () => ({ success: true, models: [], cache_dir: "Desktop app only" }),
+    checkParakeetModelStatus: async (modelName) => ({
+      success: true,
+      model: modelName,
+      downloaded: window.loquiBrowserPreviewConfig?.scenario === "ready",
+    }),
     modelGetAll: async () => [],
     modelGetActiveDownloads: async () => [],
     modelCheckRuntime: async () => ({ available: false, error: desktopMessage }),
@@ -282,12 +288,27 @@ export function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     selectAudioFile: async () => ({ canceled: true, filePaths: [] }),
     downloadUrlAudio: async () => ({ success: false, error: desktopMessage }),
     getSpeakerMappings: async () => [],
+    checkMicrophoneAccess: async () => ({
+      granted: window.loquiBrowserPreviewConfig?.scenario !== "microphone-denied",
+      status: "preview",
+    }),
+    checkAccessibilityPermission: async () =>
+      window.loquiBrowserPreviewConfig?.platform !== "macos",
+    openAccessibilitySettings: async () => ({ success: true }),
+    checkPasteTools: async () => ({
+      platform: window.loquiBrowserPreviewConfig?.platform === "macos" ? "darwin" : "linux",
+      available: window.loquiBrowserPreviewConfig?.platform !== "macos",
+      method: "preview",
+      requiresPermission: window.loquiBrowserPreviewConfig?.platform === "macos",
+      tools: [],
+    }),
   };
 }
 
 export function installBrowserPreview() {
   if (!import.meta.env.DEV || window.electronAPI) return;
   window.loquiBrowserPreview = true;
+  window.loquiBrowserPreviewConfig = parseOnboardingPreviewConfig(window.location.search);
   // Only the explicit subset above is supplied. Optional desktop features remain
   // absent rather than pretending an unsupported operation succeeded.
   window.electronAPI = createBrowserPreviewAPI() as Window["electronAPI"];

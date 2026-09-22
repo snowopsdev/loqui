@@ -232,38 +232,33 @@ async function smoke() {
       "Run npm run build:renderer first"
     );
     let panel = await launch(false);
-    await panel.getByText(translation.personal.onboarding, { exact: true }).waitFor();
+    await panel.getByRole("heading", { name: "A quieter way to get words out.", exact: true }).waitFor();
     verify(
       "fresh launch offers device setup without an account",
-      (await panel.getByRole("heading", { name: "Loqui", exact: true }).count()) === 1
+      (await panel.getByText("Loqui setup", { exact: true }).count()) === 1
     );
     await panel.screenshot({ path: path.join(output, "first-launch.png") });
-    for (let stage = 0; stage < 3; stage++) {
-      if (stage === 2) {
-        const subscription = panel.getByRole("region", {
-          name: translation.personal.subscriptionSetupTitle,
-          exact: true,
-        });
-        await subscription.waitFor();
-        await subscription
-          .getByRole("button", { name: translation.codexConnection.connect, exact: true })
-          .scrollIntoViewIfNeeded();
-        verify(
-          "initial language-model setup exposes ChatGPT connection without choosing a provider",
-          await subscription
-            .getByRole("button", { name: translation.codexConnection.connect, exact: true })
-            .isVisible()
-        );
-        await panel.screenshot({ path: path.join(output, "onboarding-chatgpt.png") });
-      }
-      await panel
-        .locator("footer")
-        .getByRole("button", { name: translation.common.continue, exact: true })
-        .click();
-    }
     await panel
       .locator("footer")
-      .getByRole("button", { name: translation.personal.finishSetup, exact: true })
+      .getByRole("button", { name: "Set up dictation", exact: true })
+      .click();
+    await panel.getByRole("heading", { name: "Choose the voice you use most.", exact: true }).waitFor();
+    verify(
+      "speech setup keeps the local model download user initiated",
+      await panel.getByRole("button", { name: "Download model", exact: true }).isVisible()
+    );
+    await panel
+      .locator("footer")
+      .getByRole("button", { name: "Continue", exact: true })
+      .click();
+    await panel.getByRole("heading", { name: "Make the transcript easier to read.", exact: true }).waitFor();
+    verify(
+      "cleanup remains optional and exposes ChatGPT subscription access",
+      await panel.getByText("ChatGPT subscription", { exact: true }).isVisible()
+    );
+    await panel
+      .locator("footer")
+      .getByRole("button", { name: "Continue later", exact: true })
       .click();
     await panel
       .locator("nav")

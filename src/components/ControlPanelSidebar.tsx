@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
 import { Mic, Settings } from "./icons";
 import { cn } from "./lib/utils";
+import { getCachedPlatform } from "../utils/platform";
 export type { ControlPanelView };
 interface Props {
   activeView: ControlPanelView;
@@ -11,6 +12,7 @@ interface Props {
 export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSettings }: Props) {
   const { t } = useTranslation();
   const navItems = useControlPanelNavItems();
+  const isMac = getCachedPlatform() === "darwin";
   const sections = [
     { id: "workspace", label: t("sidebar.sections.workspace", { defaultValue: "Workspace" }) },
     { id: "library", label: t("sidebar.sections.library", { defaultValue: "Library" }) },
@@ -19,7 +21,11 @@ export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSe
   return (
     <div className="w-52 h-full flex flex-col bg-surface-window">
       <div
-        className="h-12 shrink-0 flex items-end gap-2 px-3 pb-2.5"
+        className={cn(
+          "shrink-0 flex items-end gap-2 px-3 pb-2.5",
+          // Native macOS controls occupy the first 34px, including during sidebar peek.
+          isMac ? "h-20" : "h-12"
+        )}
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       >
         <span

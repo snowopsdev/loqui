@@ -21,13 +21,13 @@ jobs:
       LOQUI_RELEASE_BUILD: '1'
       ELECTRON_BUILDER_COMPRESSION_LEVEL: '3'
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           # Build the caller's commit; do not allow an input to select code
           # under a different branch's cache scope.
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version-file: .node-version
           cache: npm
@@ -36,7 +36,7 @@ jobs:
       - name: Assert and record toolchain
         id: toolchain
         run: node scripts/assert-toolchain.cjs
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             ~/.cache/electron
@@ -46,7 +46,7 @@ jobs:
             .cache/runtime-downloads
           key: runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime-assets.json', 'package-lock.json') }}
       - name: Native compilation cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             native/meeting-aec-helper/build
@@ -69,7 +69,7 @@ jobs:
         run: npx --no-install electron-builder --config electron-builder.cjs --linux --x64 --prepackaged dist/linux-unpacked --publish never
       - if: runner.os == 'macOS'
         run: tar -czf dist/unsigned-mac-arm64.tar.gz -C dist mac-arm64
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: unsigned-${{ matrix.platform }}-${{ matrix.arch }}
           path: |

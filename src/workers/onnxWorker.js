@@ -57,6 +57,8 @@ function log(level, message, extra) {
 
 function loadOrt() {
   if (ort) return;
+  // Disable ORT telemetry before loading its native library, including standalone workers.
+  process.env.ORT_DISABLE_TELEMETRY = "1";
   ort = require("onnxruntime-node");
   log("info", "ort loaded");
 }

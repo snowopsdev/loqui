@@ -316,6 +316,29 @@ test("isAvailable() stays true when the binding loads", (t) => {
   assert.equal(Boolean(identifier.isAvailable()), true);
 });
 
+test("live speaker identification disables telemetry before loading the native binding", (t) => {
+  const previous = process.env.ORT_DISABLE_TELEMETRY;
+  process.env.ORT_DISABLE_TELEMETRY = "0";
+  t.after(() => {
+    if (previous === undefined) delete process.env.ORT_DISABLE_TELEMETRY;
+    else process.env.ORT_DISABLE_TELEMETRY = previous;
+  });
+  let loaded = false;
+  const { LiveSpeakerIdentifier, restore } = loadIdentifier({
+    ort: () => {
+      assert.equal(process.env.ORT_DISABLE_TELEMETRY, "1");
+      loaded = true;
+      return {};
+    },
+  });
+  t.after(restore);
+  const identifier = new LiveSpeakerIdentifier();
+  stubDownloadedModels(identifier);
+
+  assert.equal(Boolean(identifier.isAvailable()), true);
+  assert.equal(loaded, true);
+});
+
 // onnxruntime-node defaults intra-op threads to every core with spinning
 // workers — absurd for the tiny VAD graph running ~31x/sec, and a CPU
 // regression during every meeting recording.

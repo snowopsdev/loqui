@@ -68,12 +68,12 @@ class VectorIndex {
     if (!this.client) return [];
     try {
       const vector = await localEmbeddings.embedText(queryText);
-      const results = await this.client.search(this.collectionName, {
-        vector: Array.from(vector),
+      const results = await this.client.query(this.collectionName, {
+        query: Array.from(vector),
         limit,
         ...(filter ? { filter } : {}),
       });
-      return results.map((r) => ({ noteId: r.id, score: r.score }));
+      return results.points.map((r) => ({ noteId: r.id, score: r.score }));
     } catch (err) {
       debugLogger.debug("Vector search failed", { error: err.message });
       return [];
@@ -164,13 +164,14 @@ class VectorIndex {
     if (!this.client) return [];
     try {
       const vector = await localEmbeddings.embedText(queryText);
-      const results = await this.client.search(this.conversationChunksCollection, {
-        vector: Array.from(vector),
+      const results = await this.client.query(this.conversationChunksCollection, {
+        query: Array.from(vector),
         limit: limit * 3,
+        with_payload: true,
       });
 
       const bestByConversation = new Map();
-      for (const r of results) {
+      for (const r of results.points) {
         if (r.score < 0.3) continue;
         const convId = r.payload.conversation_id;
         if (!bestByConversation.has(convId) || r.score > bestByConversation.get(convId)) {

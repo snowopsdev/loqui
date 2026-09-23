@@ -3,11 +3,11 @@
  * Ensures the Linux text monitor binary is available.
  *
  * Strategy:
- * 1. If binary exists and is up-to-date, do nothing
- * 2. Try to download prebuilt binary from GitHub releases
- * 3. Fall back to local compilation if download fails
+ * 1. Compile the checked-in source in CI and release builds, failing on errors
+ * 2. Reuse a matching local build during development
+ * 3. Allow the existing Python fallback for development without AT-SPI2 headers
  *
- * This allows developers without AT-SPI2 dev headers to still build the app.
+ * Native helpers never come from upstream application release downloads.
  */
 
 const { spawnSync } = require("child_process");
@@ -19,6 +19,8 @@ const isLinux = process.platform === "linux";
 if (!isLinux) {
   process.exit(0);
 }
+const strictBuild =
+  process.env.LOQUI_RELEASE_BUILD === "1" || ["1", "true"].includes(process.env.CI);
 
 const projectRoot = path.resolve(__dirname, "..");
 const cSource = path.join(projectRoot, "resources", "linux-text-monitor.c");
@@ -42,7 +44,7 @@ function isBinaryUpToDate() {
   }
 
   if (!fs.existsSync(cSource)) {
-    return true;
+    return false;
   }
 
   try {
@@ -58,7 +60,8 @@ function isBinaryUpToDate() {
   // Check source + build flags hash
   try {
     const pkgFlags = getPkgConfigFlags();
-    const flagStr = pkgFlags ? pkgFlags.join(" ") : "";
+    if (!pkgFlags) return false;
+    const flagStr = pkgFlags.join(" ");
     const sourceContent = fs.readFileSync(cSource, "utf8");
     const currentHash = crypto
       .createHash("sha256")
@@ -72,7 +75,8 @@ function isBinaryUpToDate() {
         return false;
       }
     } else {
-      fs.writeFileSync(hashFile, currentHash);
+      // An existing binary without a build hash has unknown provenance.
+      return false;
     }
   } catch (err) {
     log(`Hash check failed: ${err.message}, forcing rebuild`);
@@ -80,29 +84,6 @@ function isBinaryUpToDate() {
   }
 
   return true;
-}
-
-async function tryDownload() {
-  log("Attempting to download prebuilt binary...");
-
-  const downloadScript = path.join(__dirname, "download-text-monitor.js");
-  if (!fs.existsSync(downloadScript)) {
-    log("Download script not found, skipping download");
-    return false;
-  }
-
-  const result = spawnSync(process.execPath, [downloadScript, "--force"], {
-    stdio: "inherit",
-    cwd: projectRoot,
-  });
-
-  if (result.status === 0 && fs.existsSync(outputBinary)) {
-    log("Successfully downloaded prebuilt binary");
-    return true;
-  }
-
-  log("Download failed or binary not found after download");
-  return false;
 }
 
 function getPkgConfigFlags() {
@@ -149,7 +130,9 @@ function tryCompile() {
 
   log("Attempting local compilation...");
 
-  const compileArgs = ["-O2", cSource, "-o", outputBinary, ...pkgFlags];
+  const compiledBinary = `${outputBinary}.building-${process.pid}`;
+  fs.rmSync(compiledBinary, { force: true });
+  const compileArgs = ["-O2", cSource, "-o", compiledBinary, ...pkgFlags];
 
   let result = attemptCompile("gcc", compileArgs);
   if (result.status !== 0) {
@@ -157,14 +140,23 @@ function tryCompile() {
   }
 
   if (result.status !== 0) {
+    fs.rmSync(compiledBinary, { force: true });
+    return false;
+  }
+
+  if (!fs.existsSync(compiledBinary) || fs.statSync(compiledBinary).size === 0) {
+    fs.rmSync(compiledBinary, { force: true });
+    log("Compiler did not produce a nonempty text monitor binary");
     return false;
   }
 
   try {
-    fs.chmodSync(outputBinary, 0o755);
+    fs.chmodSync(compiledBinary, 0o755);
   } catch (error) {
+    if (strictBuild) throw error;
     console.warn(`[linux-text-monitor] Unable to set executable permissions: ${error.message}`);
   }
+  fs.renameSync(compiledBinary, outputBinary);
 
   try {
     const sourceContent = fs.readFileSync(cSource, "utf8");
@@ -175,6 +167,7 @@ function tryCompile() {
       .digest("hex");
     fs.writeFileSync(hashFile, hash);
   } catch (err) {
+    if (strictBuild) throw err;
     log(`Warning: Could not save source hash: ${err.message}`);
   }
 
@@ -182,16 +175,11 @@ function tryCompile() {
   return true;
 }
 
-async function main() {
+function main() {
   ensureDir(outputDir);
 
-  if (isBinaryUpToDate()) {
+  if (!strictBuild && isBinaryUpToDate()) {
     log("Binary is up to date, skipping build");
-    return;
-  }
-
-  const downloaded = await tryDownload();
-  if (downloaded) {
     return;
   }
 
@@ -200,13 +188,20 @@ async function main() {
     return;
   }
 
-  console.warn("[linux-text-monitor] Could not obtain Linux text monitor binary.");
-  console.warn("[linux-text-monitor] Auto-learn correction monitoring will be disabled on Linux.");
+  if (strictBuild) {
+    throw Error(
+      "A source-built Linux text monitor is required in CI/release builds. Install pkg-config, libatspi2.0-dev and libglib2.0-dev, then fix any compiler errors."
+    );
+  }
+  console.warn("[linux-text-monitor] Could not compile the native text monitor.");
   console.warn(
-    "[linux-text-monitor] To compile locally, install libatspi2.0-dev and libglib2.0-dev. Falling back to Python script."
+    "[linux-text-monitor] Install libatspi2.0-dev and libglib2.0-dev for the native helper. Development can use the Python fallback when Python AT-SPI bindings are installed."
   );
 }
 
-main().catch((error) => {
+try {
+  main();
+} catch (error) {
   console.error("[linux-text-monitor] Unexpected error:", error);
-});
+  process.exitCode = 1;
+}

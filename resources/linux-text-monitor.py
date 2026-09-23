@@ -103,11 +103,12 @@ def main():
     if probe_editable:
         try:
             states = focused.get_state_set()
+            role = focused.get_role()
             editable = (
-                states.contains(Atspi.StateType.EDITABLE)
+                role not in (Atspi.Role.INVALID, Atspi.Role.UNKNOWN, Atspi.Role.PASSWORD_TEXT)
+                and states.contains(Atspi.StateType.EDITABLE)
                 and states.contains(Atspi.StateType.ENABLED)
                 and states.contains(Atspi.StateType.FOCUSABLE)
-                and not states.contains(Atspi.StateType.PROTECTED)
             )
         except Exception:
             editable = False

@@ -1,6 +1,6 @@
 # Loqui verification
 
-Version 0.1.0-beta.1: implementation/local verification in progress; not approved for release. Earlier personal-fork smoke results do not establish renamed-app or signed-update acceptance.
+Version 0.1.0-beta.1: implementation/local verification in progress; not approved for release. The dated evidence below is a historical record, not a fresh pass of the current checkout. Track remaining public-source and release gates in [PUBLICATION.md](PUBLICATION.md). Earlier personal-fork smoke results do not establish renamed-app or signed-update acceptance.
 
 Required evidence:
 
@@ -16,7 +16,7 @@ Required evidence:
 - Failed build/signing cannot assemble a complete draft; published retry cannot overwrite artifacts.
 - Publication secret/provenance audits, branch protection and private vulnerability reporting.
 
-Publication audit: inherited history contains 124 Nucleo icons; user approved a separate sanitized publication copy, retaining the original repository. Historical commit IDs will differ. Nine initial secret-scan findings were reviewed as YOUR_KEY documentation placeholders or a local permission constant; .gitleaksignore records exact fingerprints only.
+Publication audit: the inherited history contained 124 Nucleo icons. The approved publication process uses a separate sanitized copy, retaining the original repository. Historical commit IDs differ. The original September 18 audit reviewed nine documentation/fixture findings; the newer sanitized-history scan below passes without those suppressions.
 
 ## Local evidence (2026-09-18)
 
@@ -30,3 +30,26 @@ Publication audit: inherited history contains 124 Nucleo icons; user approved a 
 Local toolchains: Linux Node 24.21.0, Electron 41.10.5; Mac build shell Node 24.14.0, Electron 41.10.5, Apple Silicon, macOS SDK 26.5. Hosted CI is configured for Node 24.21.0 on both platforms and has not yet run.
 
 Release assembly dry-run with the actual development installers produced SBOM, notices, metadata and checksums; all SHA-256 checks pass. Missing-platform input is rejected. These unsigned/ad-hoc artifacts are local tests, not publishable signed releases.
+
+## Public-source review (2026-09-23)
+
+The scoped audit of `main` at `8bd2f5c0` reviewed 2,248 reachable commits and 15,717 unique blobs. Gitleaks 8.28.0 reported no findings across 1,921 patch-bearing commits, including a second scan using an empty ignore file and disabled inline allow markers. The pass did not depend on `.gitleaksignore`. See [PUBLICATION.md](PUBLICATION.md#source-audit-evidence-2026-09-23) for exact scope and the retained historical binary exception. Repeat the current-tree check after the publication changes are committed.
+
+Documentation now distinguishes planned release targets from released installers, records the actual retention/credential boundaries, and covers development, support, contribution, moderation, and public-source gates. This does not constitute fresh hardware, signing, or hosted-CI validation. Live GitHub access remains unverified.
+
+Local checks of the uncommitted public-preparation changes also pass:
+
+- Repository suite: 3,619 passed, 27 skipped, zero failures. The seven subsequently added GitHub-configuration fixture tests also pass; they verify offline preview, preflight rejection, partial-failure handling, and idempotent tag policies without changing GitHub.
+- Lint: zero errors and the two existing icon Fast Refresh warnings. Type checking, locale validation, renderer build, Actionlint, and whitespace checks pass. The renderer retains its existing large-chunk warning.
+- Publication hygiene passes. A temporary copy of 1,409 tracked/unignored working-tree files passed Gitleaks with suppressions disabled; the final configuration-helper changes were scanned separately. No private data or full audit reports are committed.
+- `npm audit --omit=dev` reports zero known production vulnerabilities. This is a dependency-advisory result, not a comprehensive security assessment.
+
+No remote settings, public push, signing operation, or new hardware acceptance check was performed during this preparation pass.
+
+## Checklist implementation (2026-09-23)
+
+The subsequent readiness pass ran the complete suite on the pinned Node **24.21.0**: **3,644 passed, 27 skipped, zero failures**. Lint, types, locales, renderer compilation, publication hygiene, and Actionlint passed. The existing two icon lint warnings and renderer chunk-size warning remain.
+
+Thirteen repository-configuration fixtures verify protection enforcement and read-only reporting. Twelve release fixtures cover incomplete artifacts, invalid checksums, unreleased versions, and unsafe retries. Assembly with existing development installers and an actual npm SBOM verified 25 assets in isolated staging; the original packages and metadata were unchanged. These checks do not establish signing or hardware acceptance.
+
+Maintainer authentication succeeded and the independent public `snowopsdev/loqui` repository was created. Current source-publication and remote-protection progress is recorded in [PUBLICATION.md](PUBLICATION.md).

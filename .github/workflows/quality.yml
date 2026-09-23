@@ -7,7 +7,7 @@ permissions:
   contents: read
 concurrency:
   group: quality-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   changes:
     runs-on: ubuntu-22.04
@@ -23,11 +23,7 @@ jobs:
       - id: paths
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if ! git cat-file -e "$BASE" 2>/dev/null; then BASE=$(git rev-list --max-parents=0 HEAD); fi
-          git diff --name-only "$BASE" HEAD > /tmp/changed
-          if grep -qvE '(^docs/|\.md$|^LICENSE$)' /tmp/changed; then echo code=true >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^(native/|resources/|scripts/|src/assets/|package(-lock)?\.json|electron-builder\.json|runtime-assets\.json|\.github/)' /tmp/changed; then echo platform=true >> "$GITHUB_OUTPUT"; fi
+        run: node scripts/ci-changes.cjs
   quality:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -53,11 +49,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: false
-          GITLEAKS_ENABLE_SUMMARY: true
+      - name: Scan Git history for secrets
+        run: |
+          curl -fsSL --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  /tmp/gitleaks.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git --redact --no-banner --log-opts=HEAD .
+      - name: Check publication hygiene
+        run: node scripts/check-publication.cjs
       - name: Validate workflows
         run: |
           curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o /tmp/actionlint.tar.gz

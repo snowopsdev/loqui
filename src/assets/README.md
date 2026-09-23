@@ -1,6 +1,6 @@
 # Loqui artwork
 
-Original q-mark and wordmark artwork created for Loqui in September 2026. The editable masters are `brand/mark.svg`, `mark-mono.svg`, `app-icon.svg`, light/dark logo SVGs, and `social.svg`. The bold palette is orange (#FF5A1F), fuchsia (#D90078), and dark ink (#101E29). Orange is the primary wordmark and app-tile color; fuchsia is reserved for the i-dot and supporting highlights.
+The current q-mark and wordmark are temporary Loqui artwork, pending a future branding pass. The editable masters are `brand/mark.svg`, `brand/mark-mono.svg`, `brand/app-icon.svg`, light/dark logo SVGs, and `brand/social.svg`. The palette is Signal Orange (#FF5A1F), Electric Fuchsia (#D90078), and dark ink (#101E29). These committed placeholders keep development and release builds independent of an image service or upstream artwork.
 
 Run `npm run assets:generate` to render transparent PNGs, Linux icon sizes, the macOS ICNS, and monochrome template menu-bar icons at 1x/2x/3x. Exports are committed so release builds need no image service or paid asset downloads. Inspect small-size and light/dark rendering after editing the masters.
 

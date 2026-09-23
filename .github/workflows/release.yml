@@ -1,7 +1,7 @@
 name: Release
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -36,13 +36,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           node scripts/validate-release.cjs
-          if gh release view "$RELEASE_TAG" --json isDraft > /tmp/release.json 2>/dev/null; then
-            node -e 'if(!require("/tmp/release.json").isDraft)throw Error("Published versions are immutable")'
-          fi
+          node scripts/release-draft.cjs check
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - run: npm ci --ignore-scripts && npm run native:node
-      - run: npm test && npm run lint && npm run typecheck && npm run i18n:check && npm run build:renderer
+      - run: npm test && npm run lint && npm run typecheck && npm run i18n:check && npm run publication:check && npm run build:renderer
   build:
     needs: validate
     uses: ./.github/workflows/platform.yml
@@ -124,14 +122,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
-        run: |
-          remote_commit=$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}" | tail -1 | cut -f1)
-          test "$remote_commit" = "$RELEASE_COMMIT"
-          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > /tmp/release.json 2>/dev/null; then
-            node -e 'const r=require("/tmp/release.json");if(!r.isDraft||r.targetCommitish!==process.env.RELEASE_COMMIT)throw Error("Retry requires an unpublished draft of the same commit")'
-            gh release upload "$RELEASE_TAG" release/* --clobber
-          else
-            args=(--draft --verify-tag --target "$RELEASE_COMMIT" --title "Loqui $RELEASE_TAG" --notes-file CHANGELOG.md)
-            [[ "$RELEASE_TAG" != *-beta.* ]] || args+=(--prerelease)
-            gh release create "$RELEASE_TAG" release/* "${args[@]}"
-          fi
+        run: node scripts/release-draft.cjs assemble

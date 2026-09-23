@@ -1,6 +1,6 @@
 # Third-party notices
 
-Loqui derives from OpenWhispr, copyright 2024 OpenWhispr Team, MIT licensed. LICENSE retains the full notice. Loqui changes and original q-mark wordmark artwork are copyright 2026 Loqui contributors, MIT licensed.
+Loqui derives from OpenWhispr, copyright 2024 OpenWhispr Team, MIT licensed. LICENSE retains the full notice. Loqui changes and the temporary q-mark and wordmark artwork are copyright 2026 Loqui contributors, MIT licensed. See src/assets/README.md for editable sources and generation instructions.
 
 UI icons: Lucide, ISC, https://github.com/lucide-icons/lucide/blob/main/LICENSE. Inter, Caveat, and Noto Sans: SIL Open Font License 1.1. Fontsource distributions and font source projects retain their notices. The Loqui mark is original vector geometry. Nucleo icons and paid Yowza assets must not appear in publication history or release artifacts.
 

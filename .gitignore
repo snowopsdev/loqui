@@ -318,14 +318,30 @@ Thumbs.db
 /.impeccable/review/
 
 # Private data and release credentials
+.env.*
+!.env.example
+!.env.template
 *.p12
+*.pfx
 *.p8
+*.pem
+*.key
+*.jks
 *.keychain-db
+auth.json
+credentials.json
 *.db
 *.sqlite
 *.sqlite3
 *.db-wal
 *.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
 .cache/
 release/
 core

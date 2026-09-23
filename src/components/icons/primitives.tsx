@@ -3,8 +3,8 @@ import { createIcon } from "./createIcon";
 
 type MarkProps = SVGProps<SVGSVGElement> & { strokeWidth?: number | string };
 
-// Plain geometric marks used as status dots and stop indicators. Nucleo has no
-// bare circle or square, and these are simpler drawn by hand than mapped.
+// Plain geometric marks used as status dots and stop indicators, kept behind
+// the same accessible icon interface as the Lucide components.
 function CircleMark({ strokeWidth = 2, ...props }: MarkProps) {
   return (
     <svg

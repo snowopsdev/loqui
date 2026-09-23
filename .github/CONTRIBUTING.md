@@ -1,17 +1,35 @@
 # Contributing to Loqui
 
-Open issues and pull requests at https://github.com/snowopsdev/loqui. Keep changes focused on local-first personal workflows, Linux x86_64, and Apple Silicon macOS. Preserve existing content on provider failures and avoid silent local-to-remote fallback.
+Loqui welcomes bug reports, documentation improvements, accessibility fixes, and focused pull requests. Its scope is a local-first personal voice workspace for Linux x86_64 and Apple Silicon macOS. Read the [code of conduct](../CODE_OF_CONDUCT.md) and use the [support guide](../SUPPORT.md) for questions and bug reports. Report vulnerabilities through the [security policy](../SECURITY.md), not public bug reports.
 
-Follow the development commands in README.md. Before submitting, run tests, lint, type checking, locale validation, and the renderer build. Native or packaging changes also need platform checks. Do not commit credentials, recordings, personal databases, downloaded models, generated installers, or copyrighted third-party artwork without redistribution rights.
+## Before a change
 
-## Browser UI preview
+Check existing issues and pull requests at [snowopsdev/loqui](https://github.com/snowopsdev/loqui). Describe larger changes in an issue before investing in implementation so scope and compatibility can be discussed. Documentation, small fixes, and reproducible bug reports do not need advance approval.
 
-After installing dependencies, run `npm run dev:renderer` and open `http://127.0.0.1:5183/`. Without Electron, the development server opens the main workspace with sample notes and history. Use **Show setup** to review onboarding and the theme button to compare appearances. Sample note edits are kept in memory until reload; browser settings use that browser's storage and do not affect a desktop profile.
+Keep the following behavior intact:
 
-For a preview on another computer over a trusted network, run `npm run dev:renderer -- --host 0.0.0.0` and open `http://<development-host-address>:5183/` on the client. The server must stay running. `127.0.0.1` on the client refers to the client itself unless you configure port forwarding. Keep the development server off the public internet.
+- Speech and text providers are independent choices. Never silently send local work to a remote or separately billed service.
+- Preserve user content when inference, authentication, permissions, or downloads fail.
+- Treat the local personal workspace as authoritative; no hosted account or service should be necessary for local use.
+- Keep provider execution and credential handling behind the existing main-process interfaces. Do not expose secrets through renderer APIs or logs.
+- Make microphone, permission, model download, and remote-provider actions explicit to the user.
 
-This preview is for UI review: recording, system permissions, Codex sign-in, provider requests, model downloads, updates, and filesystem operations require Electron. It does not connect a browser to the host's desktop APIs, data, or credentials. The browser adapter is excluded from production builds and never replaces an existing Electron preload bridge. Use `npm run dev` for desktop functionality.
+## Develop and verify
 
-New UI icons use the existing Lucide adapter. Edit branding SVG masters and regenerate exports with `npm run assets:generate`. Document new network destinations and dependency licenses. Report vulnerabilities privately as described in SECURITY.md.
+Follow [development and packaging](../docs/DEVELOPMENT.md) for Node, native dependencies, browser preview, and Electron setup. The [onboarding preview guide](../docs/ONBOARDING_PREVIEW.md) covers simulated states without credentials or downloads.
 
-Release PRs update package.json, package-lock.json, and CHANGELOG.md together. Public releases are reviewed drafts, never automatic publications.
+Before submitting code, run tests, lint, type checking, locale validation, the renderer build, and `npm run publication:check` for tracked-file hygiene. Rebuild SQLite for Node before tests and for Electron before desktop testing. Native or packaging changes also need the relevant platform checks. Record hardware testing separately from browser and automated tests, including checks you could not perform.
+
+Use existing components, accessibility labels, keyboard interactions, design tokens, and the Lucide icon adapter. Keep translatable text in the existing locale system. Update documentation for new settings, network destinations, storage behavior, or platform requirements.
+
+## Pull requests
+
+Keep each pull request focused. Explain the user-facing problem, the resulting behavior, and how it was verified. Include before/after screenshots for visual changes using sample data. Add meaningful regression tests for changed behavior and document unresolved limitations. Do not mark a hardware or signing check as passed based only on a browser simulation or an ad-hoc build.
+
+Follow the project's formatting rules. Retain the lockfile when changing dependencies. Do not commit credentials, session files, recordings, private databases, model weights, installers, local logs, or personal test artifacts. Only include assets with redistribution rights and preserve license/provenance notices.
+
+Contributions are provided under the repository's [MIT license](../LICENSE). Third-party dependencies and assets keep their own licenses. Do not remove upstream attribution or add artwork copied from paid libraries.
+
+## Releases
+
+Release PRs update `package.json`, `package-lock.json`, and `CHANGELOG.md` together. Only reviewed Loqui tags produce release drafts; maintainers publish them after validation. See the [release procedure](../docs/RELEASING.md) and [verification record](../docs/VERIFICATION.md). Do not publish upstream release tags or place signing material in a pull request.

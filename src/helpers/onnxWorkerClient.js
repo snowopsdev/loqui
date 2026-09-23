@@ -52,7 +52,7 @@ class OnnxWorkerClient {
     if (this.spawnPromise) return this.spawnPromise;
 
     this.spawnPromise = (async () => {
-      const env = { ...process.env };
+      const env = { ...process.env, ORT_DISABLE_TELEMETRY: "1" };
       const logPath = this._logPath();
       if (logPath) env.LOQUI_ONNX_WORKER_LOG = logPath;
 

@@ -19,6 +19,8 @@ let ortLoadFailed = false;
 function loadOnnxRuntime() {
   if (ortLoadFailed) return null;
   try {
+    // ORT 1.29+ can upload POSIX telemetry during native initialization.
+    process.env.ORT_DISABLE_TELEMETRY = "1";
     return require("onnxruntime-node");
   } catch (error) {
     ortLoadFailed = true;

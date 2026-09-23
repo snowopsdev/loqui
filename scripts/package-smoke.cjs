@@ -17,8 +17,16 @@ execFileSync(binary, [script], {
 });
 const icon = path.join(resources, "src/assets/icon.png");
 if (!fs.existsSync(icon)) throw Error("Missing Loqui icon");
+if (!mac) {
+  const textMonitor = path.join(resources, "bin", "linux-text-monitor");
+  if (!fs.existsSync(textMonitor) || fs.statSync(textMonitor).size === 0)
+    throw Error("Missing packaged Linux text monitor");
+}
 for (const name of fs.readdirSync(path.join(resources, "bin"))) {
-  if (/(whisper-server|llama-server|qdrant|meeting-aec-helper)-/.test(name)) {
+  if (
+    name === "linux-text-monitor" ||
+    /(whisper-server|llama-server|qdrant|meeting-aec-helper)-/.test(name)
+  ) {
     const description = execFileSync("file", [path.join(resources, "bin", name)], {
       encoding: "utf8",
     });

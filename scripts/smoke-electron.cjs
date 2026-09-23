@@ -232,7 +232,9 @@ async function smoke() {
       "Run npm run build:renderer first"
     );
     let panel = await launch(false);
-    await panel.getByRole("heading", { name: "A quieter way to get words out.", exact: true }).waitFor();
+    await panel
+      .getByRole("heading", { name: "A quieter way to get words out.", exact: true })
+      .waitFor();
     verify(
       "fresh launch offers device setup without an account",
       (await panel.getByText("Loqui setup", { exact: true }).count()) === 1
@@ -242,23 +244,24 @@ async function smoke() {
       .locator("footer")
       .getByRole("button", { name: "Set up dictation", exact: true })
       .click();
-    await panel.getByRole("heading", { name: "Choose the voice you use most.", exact: true }).waitFor();
+    await panel
+      .getByRole("heading", { name: "Choose the voice you use most.", exact: true })
+      .waitFor();
     verify(
       "speech setup keeps the local model download user initiated",
       await panel.getByRole("button", { name: "Download model", exact: true }).isVisible()
     );
+    await panel.locator("footer").getByRole("button", { name: "Continue", exact: true }).click();
     await panel
-      .locator("footer")
-      .getByRole("button", { name: "Continue", exact: true })
-      .click();
-    await panel.getByRole("heading", { name: "Make the transcript easier to read.", exact: true }).waitFor();
+      .getByRole("heading", { name: "Make the transcript easier to read.", exact: true })
+      .waitFor();
     verify(
       "cleanup remains optional and exposes ChatGPT subscription access",
       await panel.getByText("ChatGPT subscription", { exact: true }).isVisible()
     );
     await panel
       .locator("footer")
-      .getByRole("button", { name: "Continue later", exact: true })
+      .getByRole("button", { name: "Explore first", exact: true })
       .click();
     await panel
       .locator("nav")

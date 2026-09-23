@@ -32,7 +32,13 @@ export const TRANSCRIBE_PROMPT_CHARS = 8000;
 // whatever model name the user typed, and most of those servers are
 // Whisper-family under a name that never says "whisper".
 export function dictionaryPromptLimit({ provider = "", endpoint = "", model = "" } = {}) {
-  if (provider === "groq" || endpoint.includes("api.groq.com")) return GROQ_PROMPT_CHARS;
+  if (provider === "groq") return GROQ_PROMPT_CHARS;
+  try {
+    if (new URL(endpoint).hostname === "api.groq.com") return GROQ_PROMPT_CHARS;
+  } catch {
+    // Incomplete/custom endpoints retain the model's normal prompt budget.
+    // Endpoint validation and request routing happen at their existing boundary.
+  }
   if (model.toLowerCase().startsWith("gpt-4o")) return TRANSCRIBE_PROMPT_CHARS;
   return WHISPER_PROMPT_CHARS;
 }

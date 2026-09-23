@@ -7,13 +7,13 @@ Loqui uses one React renderer in an Electron application, with native helpers fo
 - Git and the exact Node version in [`.node-version`](../.node-version), with npm.
 - For native builds: Python 3, a C/C++ toolchain, CMake, Ninja, and network access for pinned runtime sources and archives.
 - On macOS: Xcode and its command-line tools, with the SDK expected by [`assert-toolchain.cjs`](../scripts/assert-toolchain.cjs). The release workflow records and checks the actual toolchain.
-- On Linux: compiler tools, `pkg-config`, X11/XTest, evdev, and PipeWire development headers. AppImage launch needs FUSE support or extraction support in your environment.
+- On Linux: compiler tools, `pkg-config`, X11/XTest, evdev, PipeWire, AT-SPI2, and GLib development headers. AppImage launch needs FUSE support or extraction support in your environment.
 
 On Ubuntu 22.04, the native dependencies used by CI can be installed with:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential python3 pkg-config libx11-dev libxtst-dev libevdev-dev libpipewire-0.3-dev libfuse2 clang cmake ninja-build
+sudo apt-get install -y build-essential python3 pkg-config libx11-dev libxtst-dev libevdev-dev libpipewire-0.3-dev libatspi2.0-dev libglib2.0-dev libfuse2 clang cmake ninja-build
 ```
 
 Use your distribution's equivalent packages elsewhere. A graphical session and a usable OS credential store are needed for desktop testing; never run Loqui as root.
@@ -44,15 +44,20 @@ npm run dev
 
 Platform preparation compiles native helpers and obtains the runtime binaries and support models needed for meetings and search. It may take several minutes and consume substantial disk space. It does not download the user-selected dictation or cleanup models.
 
+The Linux text monitor is compiled from the checked-in C source. CI and release builds fail if the source, headers, compiler, or output are missing. Development without native AT-SPI2 headers can use the existing Python fallback when Python AT-SPI bindings are installed; no upstream application helper is downloaded.
+
 `npm ci --ignore-scripts` intentionally separates dependency installation from Electron installation, native compilation, renderer compilation, and packaging. Follow the explicit steps above instead of relying on npm lifecycle scripts.
 
 Development profiles and model caches are isolated from packaged Loqui. Use `LOQUI_PROFILE_DIR` and `LOQUI_CACHE_ROOT` only when deliberately choosing test directories; the cache override selects a location without migrating existing data. See [privacy](PRIVACY.md).
 
 ## Checks
 
+After `npm ci --ignore-scripts`, install the pinned Electron binary before running tests. Some Node tests import desktop helpers that resolve the Electron package; its installer generates the executable path those imports require. This step downloads only Electron, using the checksums shipped with the pinned package, and does not download application models.
+
 SQLite bindings are specific to their runtime. Run the Node rebuild before Node tests, and rebuild for Electron again before desktop launch or packaging:
 
 ```sh
+node node_modules/electron/install.js
 npm run native:node
 npm test
 npm run lint

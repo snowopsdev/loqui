@@ -208,18 +208,22 @@ int main(int argc, char **argv) {
     }
 
     if (probe_editable) {
+        GError *role_error = NULL;
+        AtspiRole role = atspi_accessible_get_role(focused, &role_error);
         AtspiStateSet *states = atspi_accessible_get_state_set(focused);
-        int editable = states &&
+        /* Password fields are an AT-SPI role, not a PROTECTED state. Refuse
+         * unknown roles as well as password fields if the query fails. */
+        int editable = !role_error && role != ATSPI_ROLE_INVALID &&
+            role != ATSPI_ROLE_UNKNOWN && role != ATSPI_ROLE_PASSWORD_TEXT && states &&
             atspi_state_set_contains(states, ATSPI_STATE_EDITABLE) &&
             atspi_state_set_contains(states, ATSPI_STATE_ENABLED) &&
-            atspi_state_set_contains(states, ATSPI_STATE_FOCUSABLE) &&
-            !atspi_state_set_contains(states, ATSPI_STATE_PROTECTED);
+            atspi_state_set_contains(states, ATSPI_STATE_FOCUSABLE);
+        if (role_error) g_error_free(role_error);
         if (states) g_object_unref(states);
         /* A shell prompt must never read as a writable caret: pasted newlines
          * execute. VTE and Qt terminals expose ATSPI_ROLE_TERMINAL; the caller
          * separately refuses terminals by executable name. */
-        if (editable &&
-            atspi_accessible_get_role(focused, NULL) == ATSPI_ROLE_TERMINAL) {
+        if (editable && role == ATSPI_ROLE_TERMINAL) {
             editable = 0;
         }
         /* A live selection means an EDITABLE verdict would let generated text

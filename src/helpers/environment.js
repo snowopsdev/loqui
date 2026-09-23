@@ -74,7 +74,7 @@ class EnvironmentManager {
     const userDataEnv = path.join(app.getPath("userData"), ".env");
     try {
       if (fs.existsSync(userDataEnv)) {
-        require("dotenv").config({ path: userDataEnv, override: true });
+        require("dotenv").config({ path: userDataEnv, override: true, quiet: true });
       }
     } catch {}
 
@@ -88,7 +88,7 @@ class EnvironmentManager {
     for (const envPath of fallbackPaths) {
       try {
         if (fs.existsSync(envPath)) {
-          require("dotenv").config({ path: envPath });
+          require("dotenv").config({ path: envPath, quiet: true });
         }
       } catch {}
     }
@@ -482,7 +482,7 @@ class EnvironmentManager {
   async saveAllKeysToEnvFile() {
     const envPath = path.join(app.getPath("userData"), ".env");
     await this._writeEnvFileAtomic(envPath);
-    require("dotenv").config({ path: envPath });
+    require("dotenv").config({ path: envPath, quiet: true });
     return { success: true, path: envPath };
   }
 

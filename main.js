@@ -26,7 +26,7 @@ const {
 } = require("electron");
 const path = require("path");
 const tls = require("tls");
-require("dotenv").config({ path: path.join(__dirname, ".env") });
+require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
 
 // Extend Node's TLS trust with the OS store so ws and https.get see corporate
 // CAs that Chromium already trusts.
@@ -91,6 +91,7 @@ app.setPath(
 require("dotenv").config({
   path: path.join(app.getPath("userData"), ".env"),
   override: false,
+  quiet: true,
 });
 
 // Chromium's Windows-only occlusion tracker misclassifies the always-on-top

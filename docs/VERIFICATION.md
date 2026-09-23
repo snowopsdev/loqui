@@ -16,7 +16,7 @@ Required evidence:
 - Failed build/signing cannot assemble a complete draft; published retry cannot overwrite artifacts.
 - Publication secret/provenance audits, branch protection and private vulnerability reporting.
 
-Publication audit: the inherited history contained 124 Nucleo icons. The approved publication process uses a separate sanitized copy, retaining the original repository. Historical commit IDs differ. The original September 18 audit reviewed nine documentation/fixture findings; the newer sanitized-history scan below passes without those suppressions.
+Publication audit: the inherited history contained 124 Nucleo icons. The approved publication process uses a separate sanitized copy, retaining the original repository. Historical commit IDs differ. Nine exact historical documentation/permission-identifier false positives are reviewed and retained in `.gitleaksignore`.
 
 ## Local evidence (2026-09-18)
 
@@ -33,7 +33,7 @@ Release assembly dry-run with the actual development installers produced SBOM, n
 
 ## Public-source review (2026-09-23)
 
-The scoped audit of `main` at `8bd2f5c0` reviewed 2,248 reachable commits and 15,717 unique blobs. Gitleaks 8.28.0 reported no findings across 1,921 patch-bearing commits, including a second scan using an empty ignore file and disabled inline allow markers. The pass did not depend on `.gitleaksignore`. See [PUBLICATION.md](PUBLICATION.md#source-audit-evidence-2026-09-23) for exact scope and the retained historical binary exception. Repeat the current-tree check after the publication changes are committed.
+The scoped audit of `main` at `8bd2f5c0` reviewed 2,248 reachable commits and 15,717 unique blobs. Its initial zero-finding secret report was incorrectly described as unsuppressed. The final scan at `60d3f46f` with `.gitleaksignore` absent surfaced the same nine reviewed historical false positives; exact fingerprints have been restored. See [PUBLICATION.md](PUBLICATION.md#source-audit-evidence-2026-09-23) for the corrected scope and retained historical binary exception. Repeat scans after changing the intended publication refs.
 
 Documentation now distinguishes planned release targets from released installers, records the actual retention/credential boundaries, and covers development, support, contribution, moderation, and public-source gates. This does not constitute fresh hardware, signing, or hosted-CI validation. Live GitHub access remains unverified.
 

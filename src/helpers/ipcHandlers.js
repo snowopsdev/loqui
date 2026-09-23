@@ -4068,7 +4068,7 @@ class IPCHandlers {
             const generate = (model, abortSignal, disableNestedRetries = false) => {
               return generateText({
                 model,
-                system: config?.systemPrompt || "",
+                instructions: config?.systemPrompt || "",
                 prompt: text,
                 maxOutputTokens: config?.maxTokens || 4096,
                 ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),

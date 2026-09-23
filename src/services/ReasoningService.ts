@@ -11,7 +11,7 @@ import type {
   TextRequest,
   InferenceEvent,
 } from "./ai/personalInferenceTypes";
-import type { Tool } from "ai";
+import type { ApplicationTool } from "./tools/ToolRegistry";
 
 export type ToolMetadata = Record<string, unknown> | Array<Record<string, unknown>>;
 export type AgentStreamChunk =
@@ -155,7 +155,7 @@ class ReasoningService extends BaseReasoningService {
     model: string,
     provider: string,
     config: ReasoningConfig & { systemPrompt: string },
-    tools?: Record<string, Tool>
+    tools?: Record<string, ApplicationTool>
   ): AsyncGenerator<AgentStreamChunk, void, unknown> {
     const api = bridge();
     const controller = new AbortController();
@@ -241,6 +241,7 @@ class ReasoningService extends BaseReasoningService {
                 toolCallId: event.callId,
                 messages: [],
                 abortSignal: controller.signal,
+                context: undefined,
               });
               if (controller.signal.aborted) return;
               await api.textToolResult({

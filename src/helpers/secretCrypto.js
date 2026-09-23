@@ -60,11 +60,10 @@ function _initKeychain() {
 
   try {
     const entry = new Entry(SERVICE, ACCOUNT);
-    let stored = null;
-    try {
-      stored = entry.getPassword();
-    } catch {}
-    if (stored) {
+    // Only a missing entry permits key creation. A locked or inaccessible store
+    // must reach backup/fallback recovery without replacing its existing key.
+    const stored = entry.getPassword();
+    if (stored !== null && stored !== undefined) {
       const key = Buffer.from(stored, "base64");
       if (key.length !== KEY_LEN) throw new Error("stored key length invalid");
       masterKey = key;

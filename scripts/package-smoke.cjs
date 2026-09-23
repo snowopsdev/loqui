@@ -16,6 +16,11 @@ const db=new Sqlite(':memory:');
 assert.equal(db.prepare('select 42 as n').get().n,42);
 db.close();
 console.log('Packaged SQLite OK',process.arch);
+const {Entry}=require(${JSON.stringify(path.resolve(resources, "app.asar/node_modules/@napi-rs/keyring"))});
+assert.equal(typeof Entry,'function');
+assert.equal(typeof Entry.prototype.getPassword,'function');
+assert.equal(typeof Entry.prototype.setPassword,'function');
+console.log('Packaged keyring binding OK',process.arch);
 const {probeOnnxCpu}=require(${JSON.stringify(path.resolve(__dirname, "lib/onnx-cpu-probe.cjs"))});
 probeOnnxCpu(${JSON.stringify(path.resolve(resources, "app.asar/node_modules/onnxruntime-node"))})
   .then(version=>console.log('Packaged ONNX CPU inference OK',version,process.arch))

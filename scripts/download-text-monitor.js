@@ -9,6 +9,20 @@
 
 const fs = require("fs");
 const path = require("path");
+// Keep the old command usable without fetching an inherited application asset.
+if (process.platform === "linux") {
+  const { spawnSync } = require("node:child_process");
+  console.log("[linux-text-monitor] Building the checked-in native source (no prebuilt download)");
+  const result = spawnSync(
+    process.execPath,
+    [path.join(__dirname, "build-linux-text-monitor.js")],
+    {
+      stdio: "inherit",
+    }
+  );
+  if (result.error) console.error(result.error.message);
+  process.exit(result.status ?? 1);
+}
 const {
   downloadFile,
   extractArchive,
@@ -20,14 +34,6 @@ const REPO = "OpenWhispr/openwhispr";
 const BIN_DIR = path.join(__dirname, "..", "resources", "bin");
 
 const PLATFORM_CONFIG = {
-  linux: {
-    label: "linux-text-monitor",
-    tagPrefix: "linux-text-monitor-v",
-    archiveName: "linux-text-monitor-linux-x64.tar.gz",
-    binaryName: "linux-text-monitor",
-    versionEnv: "LINUX_TEXT_MONITOR_VERSION",
-    compileHint: "install libatspi2.0-dev and libglib2.0-dev",
-  },
   win32: {
     label: "windows-text-monitor",
     tagPrefix: "windows-text-monitor-v",

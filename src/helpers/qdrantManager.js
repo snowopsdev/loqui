@@ -128,7 +128,7 @@ class QdrantManager extends EventEmitter {
       storagePath,
     });
 
-    const child = spawn(binaryPath, ["--config-path", configPath], {
+    const child = spawn(binaryPath, ["--disable-telemetry", "--config-path", configPath], {
       cwd: STORAGE_DIR,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,

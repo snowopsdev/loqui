@@ -10,11 +10,22 @@ const script = path.resolve(".cache/package-probe.cjs");
 fs.mkdirSync(path.dirname(script), { recursive: true });
 fs.writeFileSync(
   script,
-  `const assert=require('node:assert/strict');const Sqlite=require(${JSON.stringify(path.resolve(resources, "app.asar/node_modules/better-sqlite3"))});const db=new Sqlite(':memory:');assert.equal(db.prepare('select 42 as n').get().n,42);db.close();console.log('Packaged SQLite OK',process.arch);`
+  `const assert=require('node:assert/strict');
+const Sqlite=require(${JSON.stringify(path.resolve(resources, "app.asar/node_modules/better-sqlite3"))});
+const db=new Sqlite(':memory:');
+assert.equal(db.prepare('select 42 as n').get().n,42);
+db.close();
+console.log('Packaged SQLite OK',process.arch);
+const {probeOnnxCpu}=require(${JSON.stringify(path.resolve(__dirname, "lib/onnx-cpu-probe.cjs"))});
+probeOnnxCpu(${JSON.stringify(path.resolve(resources, "app.asar/node_modules/onnxruntime-node"))})
+  .then(version=>console.log('Packaged ONNX CPU inference OK',version,process.arch))
+  .catch(error=>{console.error(error);process.exitCode=1;});`
 );
 execFileSync(binary, [script], {
   stdio: "inherit",
-  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", ORT_DISABLE_TELEMETRY: "1" },
+  timeout: 30000,
+  killSignal: "SIGKILL",
 });
 const icon = path.join(resources, "src/assets/icon.png");
 if (!fs.existsSync(icon)) throw Error("Missing Loqui icon");

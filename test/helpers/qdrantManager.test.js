@@ -35,6 +35,7 @@ function loadManager({ gracefulStop } = {}) {
   const state = {
     healthy: true,
     spawnCalls: [],
+    spawnArgs: [],
     pidFileOps: [],
     warns: [],
     errors: [],
@@ -60,9 +61,10 @@ function loadManager({ gracefulStop } = {}) {
     }
     if (request === "child_process") {
       return {
-        spawn: () => {
+        spawn: (_binary, args) => {
           const child = makeChild(state.nextPid++);
           state.spawnCalls.push(child);
+          state.spawnArgs.push(args);
           return child;
         },
       };
@@ -140,12 +142,14 @@ async function waitForReady(manager, timeoutMs = 3000) {
   return manager.isReady();
 }
 
-test("start spawns qdrant, writes the pid entry, and stop clears it", async () => {
+test("start disables qdrant telemetry, writes the pid entry, and stop clears it", async () => {
   const { manager, state } = loadManager();
 
   await manager.start();
 
   assert.equal(manager.isReady(), true);
+  assert.deepEqual(state.spawnArgs[0].slice(0, 2), ["--disable-telemetry", "--config-path"]);
+  assert.match(state.spawnArgs[0][2], /config\.yaml$/);
   assert.equal(manager.getPort(), 6333);
   assert.deepEqual(state.pidFileOps, [["write", "qdrant", 1001]]);
 

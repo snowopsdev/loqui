@@ -107,8 +107,9 @@ async function setup(t, opts = {}) {
 test("Codex version support is deliberately bounded to the tested experimental protocol", () => {
   assert.ok(supportedVersion("codex-cli 0.154.1"));
   assert.ok(supportedVersion("codex-cli 0.155.1"));
+  assert.ok(supportedVersion("codex-cli 0.156.0"));
   assert.ok(!supportedVersion("codex-cli 0.153.0"));
-  assert.ok(!supportedVersion("codex-cli 0.156.0"));
+  assert.ok(!supportedVersion("codex-cli 0.157.0"));
   assert.ok(!supportedVersion("unexpected"));
 });
 test("isolates auth/config, never forwards provider keys, and disables native tools", async (t) => {
@@ -151,7 +152,7 @@ test("refuses API-key accounts and unavailable CLI versions without starting a t
     sent.some((m) => m.method === "turn/start"),
     false
   );
-  const incompatible = await setup(t, { version: "codex-cli 0.156.0" });
+  const incompatible = await setup(t, { version: "codex-cli 0.157.0" });
   assert.equal((await incompatible.server.status()).code, "CODEX_VERSION");
 });
 test("bridges only registered dynamic tools using the 0.154 protocol", async (t) => {
@@ -257,12 +258,14 @@ test("exhausted subscription limits reject the turn without successful completio
   assert.equal(server.turns.size, 0);
 });
 
-test("discovers user-local npm launcher and its Node runtime from a GUI PATH", async (t) => {
+test("discovers user-local npm launcher and Hermes Node runtime from a GUI PATH", async (t) => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-discovery-"));
   t.after(() => fs.rm(homeDir, { recursive: true, force: true }));
   const bin = path.join(homeDir, ".local", "bin");
+  const nodeBin = path.join(homeDir, ".hermes", "node", "bin");
   await fs.mkdir(bin, { recursive: true });
-  await fs.symlink(process.execPath, path.join(bin, "node"));
+  await fs.mkdir(nodeBin, { recursive: true });
+  await fs.symlink(process.execPath, path.join(nodeBin, "node"));
   await fs.writeFile(
     path.join(bin, "codex"),
     '#!/usr/bin/env node\nprocess.stdout.write("codex-cli 0.155.1");\n',
@@ -272,6 +275,7 @@ test("discovers user-local npm launcher and its Node runtime from a GUI PATH", a
   server.runFile = require("node:util").promisify(require("node:child_process").execFile);
   assert.equal((await server.status()).version, "codex-cli 0.155.1");
   assert.ok(spawnOptions().env.PATH.split(path.delimiter).includes(bin));
+  assert.ok(spawnOptions().env.PATH.split(path.delimiter).includes(nodeBin));
 });
 
 test("an installed CLI that fails to execute is not reported as missing", async (t) => {
@@ -284,41 +288,42 @@ test("an installed CLI that fails to execute is not reported as missing", async 
   assert.match(status.error, /permissions/);
 });
 
-test("0.155.1 requests and dynamic tools conform to the installed CLI schemas", async (t) => {
-  const Ajv = require("ajv");
-  const ajv = new Ajv({ strict: false, allErrors: true });
-  const validate = (name, value) => {
-    const schema = require(`../fixtures/codex-app-server-0.155.1/${name}.json`);
-    assert.ok(ajv.validate(schema, value), JSON.stringify(ajv.errors));
-  };
-  const { server, sent } = await setup(t, { version: "codex-cli 0.155.1", tool: true });
-  await server.login();
-  assert.equal(
-    await server.generate({
-      model: "fixture-model",
-      messages: [{ role: "user", content: "hello" }],
-      tools: [
-        { name: "search_notes", description: "Search notes", parameters: { type: "object" } },
-      ],
-      executeTool: async () => ({ notes: [] }),
-    }),
-    "Hello world."
-  );
-  for (const [method, name] of [
-    ["account/login/start", "LoginAccountParams"],
-    ["thread/start", "ThreadStartParams"],
-    ["turn/start", "TurnStartParams"],
-  ])
-    validate(
-      name,
-      JSON.parse(JSON.stringify(sent.find((message) => message.method === method).params))
+for (const version of ["0.155.1", "0.156.0"])
+  test(`${version} requests and dynamic tools conform to the installed CLI schemas`, async (t) => {
+    const Ajv = require("ajv");
+    const ajv = new Ajv({ strict: false, allErrors: true });
+    const validate = (name, value) => {
+      const schema = require(`../fixtures/codex-app-server-${version}/${name}.json`);
+      assert.ok(ajv.validate(schema, value), JSON.stringify(ajv.errors));
+    };
+    const { server, sent } = await setup(t, { version: `codex-cli ${version}`, tool: true });
+    await server.login();
+    assert.equal(
+      await server.generate({
+        model: "fixture-model",
+        messages: [{ role: "user", content: "hello" }],
+        tools: [
+          { name: "search_notes", description: "Search notes", parameters: { type: "object" } },
+        ],
+        executeTool: async () => ({ notes: [] }),
+      }),
+      "Hello world."
     );
-  validate("DynamicToolCallParams", fixture.dynamicTool.params);
-  validate("DynamicToolCallResponse", sent.find((message) => message.id === 900).result);
-  validate("AgentMessageDeltaNotification", {
-    threadId: "thread-1",
-    turnId: "turn-1",
-    itemId: "item-1",
-    delta: "Hello ",
+    for (const [method, name] of [
+      ["account/login/start", "LoginAccountParams"],
+      ["thread/start", "ThreadStartParams"],
+      ["turn/start", "TurnStartParams"],
+    ])
+      validate(
+        name,
+        JSON.parse(JSON.stringify(sent.find((message) => message.method === method).params))
+      );
+    validate("DynamicToolCallParams", fixture.dynamicTool.params);
+    validate("DynamicToolCallResponse", sent.find((message) => message.id === 900).result);
+    validate("AgentMessageDeltaNotification", {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "item-1",
+      delta: "Hello ",
+    });
   });
-});

@@ -10,7 +10,7 @@ const MIN_CODEX_VERSION = "0.154.0";
 // shapes before expanding this range; fail closed rather than grant native tools.
 function supportedVersion(output) {
   const match = /\b(\d+)\.(\d+)\.(\d+)\b/.exec(output);
-  return match && Number(match[1]) === 0 && [154, 155].includes(Number(match[2]));
+  return match && Number(match[1]) === 0 && [154, 155, 156].includes(Number(match[2]));
 }
 
 // Finder launches do not inherit terminal PATH customizations. Keep this scoped
@@ -21,6 +21,7 @@ function codexEnvironment(env, homeDir, platform) {
     path.join(homeDir, ".npm-global", "bin"),
     path.join(homeDir, ".volta", "bin"),
     path.join(homeDir, ".local", "share", "mise", "shims"),
+    path.join(homeDir, ".hermes", "node", "bin"),
   ];
   if (platform === "darwin")
     extra.push(
@@ -124,7 +125,7 @@ class CodexAppServer extends EventEmitter {
     } catch (error) {
       if (error.code === "ENOENT")
         throw failure(
-          "Codex CLI was not found in PATH or common user installation folders. Install Codex CLI 0.154.x or 0.155.x, then click Refresh.",
+          "Codex CLI was not found in PATH or common user installation folders. Install Codex CLI 0.154.x, 0.155.x, or 0.156.x, then click Refresh.",
           "CODEX_MISSING"
         );
       throw failure(
@@ -135,7 +136,7 @@ class CodexAppServer extends EventEmitter {
     this.version = String(version.stdout).trim();
     if (!supportedVersion(this.version)) {
       throw failure(
-        `Found ${this.version}. This build supports Codex CLI 0.154.x and 0.155.x.`,
+        `Found ${this.version}. This build supports Codex CLI 0.154.x, 0.155.x, and 0.156.x.`,
         "CODEX_VERSION"
       );
     }

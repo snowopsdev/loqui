@@ -180,6 +180,24 @@ async function smoke() {
     });
     app.process().stderr.on("data", (chunk) => logs.push(String(chunk)));
     app.process().stdout.on("data", (chunk) => logs.push(String(chunk)));
+    // Loqui's save/restore path depends on these legacy clipboard methods.
+    // Check the runtime contract without reading or modifying the user's clipboard.
+    const missingClipboardMethods = await app.evaluate(({ clipboard }) =>
+      [
+        "availableFormats",
+        "readText",
+        "writeText",
+        "readHTML",
+        "readRTF",
+        "readImage",
+        "writeImage",
+        "write",
+      ].filter((method) => typeof clipboard[method] !== "function")
+    );
+    verify(
+      `clipboard save/restore APIs are available${missingClipboardMethods.length ? ` (missing: ${missingClipboardMethods.join(", ")})` : ""}`,
+      missingClipboardMethods.length === 0
+    );
     const seen = new WeakSet();
     function capture(page) {
       if (seen.has(page)) return;

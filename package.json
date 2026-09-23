@@ -94,7 +94,7 @@
     "autoprefixer": "^10.6.1",
     "concurrently": "^10.0.5",
     "cross-env": "^10.0.0",
-    "electron": "41.10.5",
+    "electron": "43.7.5",
     "electron-builder": "26.15.3",
     "emojibase-data": "^17.0.0",
     "eslint": "^10.11.0",

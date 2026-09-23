@@ -65,6 +65,8 @@ npm run native:electron
 
 Use the repository's Prettier configuration for changed files. `npm run format:check` checks formatting as well as lint. Add focused tests for changed behavior; browser simulations do not validate microphones, global shortcuts, automatic paste, or meeting capture.
 
+Maintainers can run the **Quality** workflow manually to check the full source and both platform packages, including after repository import. Pull requests skip compilation for documentation-only changes; manual runs always run the complete checks. Superseded pull-request runs are canceled, while an in-progress `main` validation is allowed to finish.
+
 ## Development packages
 
 After platform preparation, the Electron native rebuild, and the renderer build:

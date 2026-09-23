@@ -315,6 +315,7 @@ Thumbs.db
 
 # Local scratch output from the Superpowers Claude Code plugin (SDD fix reports etc.).
 .superpowers/
+/.impeccable/review/
 
 # Private data and release credentials
 *.p12

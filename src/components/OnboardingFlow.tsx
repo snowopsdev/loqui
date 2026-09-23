@@ -19,6 +19,9 @@ import { Toggle } from "./ui/toggle";
 import LanguageSelector from "./ui/LanguageSelector";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
 import CodexConnection from "./CodexConnection";
+import WelcomeScreen from "./onboarding/WelcomeScreen";
+import { ArrowRight, Check } from "lucide-react";
+import "../styles/onboarding-guided.css";
 import { getDefaultHotkey } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
 import { useAudioRecording } from "../hooks/useAudioRecording";
@@ -35,8 +38,6 @@ import {
   Cpu,
   Download,
   Keyboard,
-  Languages,
-  Lock,
   ShieldCheck,
   Sparkles,
   Wand2,
@@ -70,6 +71,53 @@ const STEPS: Array<{ id: OnboardingStep; label: string }> = [
   { id: "finish", label: "Ready" },
 ];
 
+const GUIDED_STEP_COPY: Record<
+  Exclude<OnboardingStep, "welcome">,
+  { title: string; description: string; cues: string[] }
+> = {
+  speech: {
+    title: "Choose the voice you use most.",
+    description:
+      "Pick a language and a local speech model. Download it only when you're ready to try dictation.",
+    cues: [
+      "Choose your spoken language",
+      "Pick a compatible local model",
+      "Download it when you decide",
+    ],
+  },
+  cleanup: {
+    title: "Make the transcript easier to read.",
+    description:
+      "Speech recognition writes your words. Cleanup can improve formatting, but your original transcript stays available.",
+    cues: [
+      "Cleanup is optional",
+      "Local and remote choices stay separate",
+      "The original words remain available",
+    ],
+  },
+  try: {
+    title: "Make one short dictation.",
+    description:
+      "Test recording inside Loqui first. This trial is not pasted into another app or saved to history.",
+    cues: ["Start when you are ready", "Speak one short sentence", "Review the words inside Loqui"],
+  },
+  shortcuts: {
+    title: "Keep Loqui one shortcut away.",
+    description:
+      "Shortcut and automatic paste are optional. You can always record inside the Loqui workspace.",
+    cues: [
+      "Keep or change the shortcut",
+      "Choose whether to paste automatically",
+      "Review platform permission needs",
+    ],
+  },
+  finish: {
+    title: "Your workspace is ready when you are.",
+    description: "Enter Loqui now. Unfinished setup stays available when you want to return.",
+    cues: ["Open the workspace", "Return to unfinished setup", "Add advanced features later"],
+  },
+};
+
 const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";
 type CleanupChoice = "none" | "local" | "codex" | "provider";
 type CleanupStatus = "checking" | "pending" | "ready" | "failed" | "skipped";
@@ -88,7 +136,7 @@ function StepShell({
   skipLabel = "Continue later",
   continueDisabled = false,
 }: {
-  step: OnboardingStep;
+  step: Exclude<OnboardingStep, "welcome">;
   children: ReactNode;
   onBack: () => void;
   onContinue: () => void;
@@ -99,61 +147,81 @@ function StepShell({
 }) {
   const index = STEPS.findIndex((item) => item.id === step);
   const mainRef = useRef<HTMLElement>(null);
+  const copy = GUIDED_STEP_COPY[step];
 
   useEffect(() => {
     mainRef.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
   }, [step]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      <header className="shrink-0 border-b px-5 py-4 sm:px-10 sm:py-6">
-        <div className="mx-auto flex max-w-3xl items-center gap-3">
-          <span
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/12 text-primary"
-            aria-hidden="true"
-          >
+    <div className="onboarding-welcome onboarding-guided">
+      <header className="onboarding-welcome-header">
+        <div className="onboarding-welcome-brand">
+          <span className="onboarding-welcome-brand-mark" aria-hidden="true">
             <Mic className="h-5 w-5" />
           </span>
-          <div>
-            <p className="text-sm font-semibold tracking-tight">Loqui setup</p>
-            <p className="text-xs text-muted-foreground">A local-first voice workspace</p>
-          </div>
+          <span className="onboarding-welcome-brand-copy">
+            <strong>Loqui setup</strong>
+            <small>A local-first voice workspace</small>
+          </span>
         </div>
-        <div role="status" className="mx-auto mt-5 max-w-3xl">
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <div
+          className="onboarding-welcome-progress"
+          role="status"
+          aria-label={`${STEPS[index].label}, step ${index + 1} of ${STEPS.length}`}
+        >
+          <div className="onboarding-welcome-progress-label">
             <span>
               Step {index + 1} of {STEPS.length}
             </span>
-            <span className="font-medium text-foreground">{STEPS[index]?.label}</span>
+            <strong>{STEPS[index].label}</strong>
           </div>
-          <div className="mt-2 grid grid-cols-6 gap-1" aria-hidden="true">
+          <div className="onboarding-welcome-progress-track" aria-hidden="true">
             {STEPS.map((item, itemIndex) => (
-              <div
-                key={item.id}
-                className={`h-1 rounded-full ${itemIndex <= index ? "bg-primary" : "bg-muted"}`}
-              />
+              <i key={item.id} className={itemIndex <= index ? "is-current" : ""} />
             ))}
           </div>
         </div>
       </header>
-      <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-10 sm:py-8">
-        <div className="mx-auto max-w-3xl">{children}</div>
-      </main>
-      <footer className="shrink-0 border-t px-5 py-3 sm:px-10 sm:py-4">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
-          <Button variant="outline" onClick={onBack} disabled={index === 0}>
-            Back
-          </Button>
-          <div className="flex items-center gap-3">
-            {onSkip && (
-              <Button variant="ghost" onClick={onSkip}>
-                {skipLabel ?? "Continue later"}
-              </Button>
-            )}
-            <Button onClick={onContinue} disabled={continueDisabled}>
-              {continueLabel}
-            </Button>
+      <main ref={mainRef} className="onboarding-welcome-split onboarding-guided-split">
+        <section className="onboarding-welcome-story onboarding-guided-story">
+          <div className="onboarding-welcome-intro">
+            <h1 tabIndex={-1}>{copy.title}</h1>
+            <p>{copy.description}</p>
           </div>
+          <div className="onboarding-guided-cues">
+            {copy.cues.map((cue) => (
+              <div key={cue}>
+                <span aria-hidden="true">
+                  <Check size={14} strokeWidth={2.6} />
+                </span>
+                {cue}
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="onboarding-guided-controls" aria-label={`${STEPS[index].label} setup`}>
+          {children}
+        </section>
+      </main>
+      <footer className="onboarding-welcome-actions">
+        <button className="onboarding-welcome-back" type="button" onClick={onBack}>
+          Back
+        </button>
+        <div>
+          {onSkip && (
+            <button className="onboarding-welcome-explore" type="button" onClick={onSkip}>
+              {skipLabel}
+            </button>
+          )}
+          <button
+            className="onboarding-welcome-primary"
+            type="button"
+            onClick={onContinue}
+            disabled={continueDisabled}
+          >
+            {continueLabel} <ArrowRight size={16} aria-hidden="true" />
+          </button>
         </div>
       </footer>
     </div>
@@ -166,6 +234,7 @@ function ChoiceCard({
   title,
   description,
   badge,
+  compact = false,
   disabled = false,
   onClick,
 }: {
@@ -174,6 +243,7 @@ function ChoiceCard({
   title: string;
   description: string;
   badge?: string;
+  compact?: boolean;
   disabled?: boolean;
   onClick: () => void;
 }) {
@@ -182,15 +252,18 @@ function ChoiceCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`w-full rounded-xl border p-4 text-start transition-colors ${disabled ? "cursor-not-allowed opacity-50" : selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
+      data-recommended={badge === "Recommended" || undefined}
+      className={`onboarding-guided-choice w-full rounded-xl border p-4 text-start transition-colors ${compact ? "onboarding-guided-choice-compact" : ""} ${disabled ? "cursor-not-allowed opacity-50" : selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
       aria-pressed={selected}
     >
       <div className="flex items-start gap-3">
-        <span
-          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
-        >
-          <Icon className="h-4 w-4" />
-        </span>
+        {!compact && (
+          <span
+            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+          >
+            <Icon className="h-4 w-4" />
+          </span>
+        )}
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2 text-sm font-semibold">
             {title}
@@ -224,87 +297,6 @@ function StatusLine({ ok, label, detail }: { ok: boolean; label: string; detail:
       <div>
         <p className="text-sm font-medium">{label}</p>
         <p className="text-xs text-muted-foreground">{detail}</p>
-      </div>
-    </div>
-  );
-}
-
-function WelcomeStep({
-  updatesEnabled,
-  setUpdatesEnabled,
-  dataRetentionEnabled,
-  setDataRetentionEnabled,
-}: {
-  updatesEnabled: boolean;
-  setUpdatesEnabled: (value: boolean) => void;
-  dataRetentionEnabled: boolean;
-  setDataRetentionEnabled: (value: boolean) => void;
-}) {
-  return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <h1
-          tabIndex={-1}
-          className="max-w-2xl text-3xl font-semibold tracking-tight focus:outline-none sm:text-4xl"
-        >
-          A quieter way to get words out.
-        </h1>
-        <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-          Loqui turns speech into notes and text. Your local workspace stays on this device, and you
-          choose if any text is sent to a provider.
-        </p>
-      </div>
-      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
-        <StatusLine
-          ok
-          label="Local by default"
-          detail="Speech can run on-device after the model is downloaded."
-        />
-        <StatusLine
-          ok
-          label="Your choice"
-          detail="Cleanup can use a local model, Codex, an API key, or nothing."
-        />
-        <StatusLine
-          ok
-          label="Easy to revisit"
-          detail="You can change providers and permissions later in Settings."
-        />
-      </div>
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="flex items-start gap-3">
-          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <div>
-            <p className="text-sm font-semibold">Before you begin</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Loqui keeps transcripts locally according to your retention settings. Direct providers
-              receive only requests you choose to send. Model downloads are always started by you.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">Keep local history</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Transcripts follow your retention settings on this device. You can change this later
-              in Privacy &amp; Data.
-            </p>
-          </div>
-          <Toggle checked={dataRetentionEnabled} onChange={setDataRetentionEnabled} />
-        </div>
-      </div>
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">Download updates automatically</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Loqui checks its signed GitHub releases about once a day. You choose when to restart.
-            </p>
-          </div>
-          <Toggle checked={updatesEnabled} onChange={setUpdatesEnabled} />
-        </div>
       </div>
     </div>
   );
@@ -347,21 +339,11 @@ function SpeechStep({
     if (compatible) onSelectModel(compatible);
   }, [downloadState, language, onSelectModel, selectedModel]);
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
-          Choose the voice you use most.
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Speech recognition and text intelligence are separate. Start with a local model so
-          dictation can work offline.
-        </p>
-      </div>
+    <div className="onboarding-guided-work">
       <section className="space-y-3" aria-labelledby="spoken-language-heading">
         <div className="flex items-center gap-2">
-          <Languages className="h-4 w-4 text-primary" />
           <h2 id="spoken-language-heading" className="text-sm font-semibold">
-            Spoken language
+            What language will you speak?
           </h2>
         </div>
         <LanguageSelector
@@ -383,9 +365,6 @@ function SpeechStep({
             <h2 id="speech-model-heading" className="text-sm font-semibold">
               Local speech model
             </h2>
-            <p className="text-xs text-muted-foreground">
-              Orukeet and NVIDIA models run locally. Download only the one you choose.
-            </p>
           </div>
           {previewConfig && (
             <span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">
@@ -393,43 +372,35 @@ function SpeechStep({
             </span>
           )}
         </div>
-        {(["oruk", "nvidia"] as const).map((organization) => (
-          <div key={organization} className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {organization === "oruk" ? "Oruk" : "NVIDIA"}
-            </h3>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {ONBOARDING_SPEECH_MODELS.filter((model) => model.organization === organization).map(
-                (model) => {
-                  const supported = supportsSpeechLanguage(model.id, language);
-                  const languageDescription =
-                    model.supportedLanguages.length === 1
-                      ? "English only"
-                      : `${model.supportedLanguages.length} languages`;
-                  return (
-                    <ChoiceCard
-                      key={model.id}
-                      selected={selectedModel === model.id}
-                      disabled={!supported || downloadState === "downloading"}
-                      icon={Cpu}
-                      title={model.name}
-                      description={`${model.organization === "oruk" ? "Multilingual speech recognition tuned for local dictation." : model.description} ${displayModelSize(model.size)} · ${languageDescription}${model.runtime === "online" ? " · Streaming" : ""}`}
-                      badge={supported && model.id === recommendedModel ? "Recommended" : undefined}
-                      onClick={() => onSelectModel(model.id)}
-                    />
-                  );
-                }
-              )}
-            </div>
-          </div>
-        ))}
+        <div className="onboarding-guided-model-list">
+          {ONBOARDING_SPEECH_MODELS.map((model) => {
+            const supported = supportsSpeechLanguage(model.id, language);
+            const languageDescription =
+              model.supportedLanguages.length === 1
+                ? "English"
+                : `${model.supportedLanguages.length} languages`;
+            return (
+              <ChoiceCard
+                key={model.id}
+                selected={selectedModel === model.id}
+                disabled={!supported || downloadState === "downloading"}
+                compact
+                icon={Cpu}
+                title={model.name}
+                description={`${model.organization === "oruk" ? "Oruk" : "NVIDIA"} · ${displayModelSize(model.size)} · ${languageDescription}${model.runtime === "online" ? " · Streaming" : ""}`}
+                badge={supported && model.id === recommendedModel ? "Recommended" : undefined}
+                onClick={() => onSelectModel(model.id)}
+              />
+            );
+          })}
+        </div>
       </section>
       {downloadState === "downloading" && (
         <p className="text-xs text-muted-foreground">
           Model choices are available when this download finishes.
         </p>
       )}
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold">
@@ -497,29 +468,24 @@ function CleanupStep({
     previewConfig?.scenario === "codex-missing" || previewConfig?.scenario === "codex-expired";
   const providerInvalid = previewConfig?.scenario === "invalid-provider-key";
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
-          Make the transcript easier to read.
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Speech recognition writes your words. Cleanup removes filler, fixes punctuation, and keeps
-          your meaning. It is optional and never replaces the original transcript.
-        </p>
+    <div className="onboarding-guided-work">
+      <div className="onboarding-guided-section-head">
+        <h2>How should Loqui handle cleanup?</h2>
+        <span>Optional</span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="onboarding-guided-cleanup-list">
         <ChoiceCard
           selected={selected === "none"}
           icon={Wand2}
           title="No cleanup"
-          description="Keep the local transcript exactly as recognized. Fastest and fully offline."
+          description="Keep the raw transcript. Fastest and fully offline."
           onClick={() => onChoice("none")}
         />
         <ChoiceCard
           selected={selected === "local"}
           icon={Cpu}
           title="Local model"
-          description="Use the Qwen3.5 2B model on this device. Download it later when you want cleanup."
+          description="Use Qwen3.5 2B on this device after you download it."
           badge="Recommended"
           onClick={() => onChoice("local")}
         />
@@ -527,37 +493,39 @@ function CleanupStep({
           selected={selected === "codex"}
           icon={Sparkles}
           title="ChatGPT subscription"
-          description="Use Codex through your managed ChatGPT sign-in. Speech stays on the selected speech provider."
+          description="Use Codex for text through your ChatGPT sign-in."
           onClick={() => onChoice("codex")}
         />
         <ChoiceCard
           selected={selected === "provider"}
           icon={Wand2}
           title="Provider API key"
-          description="Use a direct OpenAI-compatible provider key that you configure yourself."
+          description="Use a direct provider key configured in Language Models."
           onClick={() => onChoice("provider")}
         />
       </div>
       {cleanupStatus !== "skipped" && (
-        <StatusLine
-          ok={cleanupStatus === "ready"}
-          label={
-            cleanupStatus === "checking"
-              ? "Checking cleanup connection…"
-              : cleanupStatus === "ready"
-                ? "Cleanup is ready"
+        <div className="onboarding-guided-panel p-4">
+          <StatusLine
+            ok={cleanupStatus === "ready"}
+            label={
+              cleanupStatus === "checking"
+                ? "Checking cleanup connection…"
+                : cleanupStatus === "ready"
+                  ? "Cleanup is ready"
+                  : cleanupStatus === "failed"
+                    ? "Cleanup needs attention"
+                    : "Cleanup is still pending"
+            }
+            detail={
+              cleanupStatus === "ready"
+                ? "Loqui will use this choice only after the connection or model check succeeds."
                 : cleanupStatus === "failed"
-                  ? "Cleanup needs attention"
-                  : "Cleanup is still pending"
-          }
-          detail={
-            cleanupStatus === "ready"
-              ? "Loqui will use this choice only after the connection or model check succeeds."
-              : cleanupStatus === "failed"
-                ? "Retry the connection or choose No cleanup. Your raw transcript remains available."
-                : "You can continue setup. Loqui will not silently activate an unavailable cleanup provider."
-          }
-        />
+                  ? "Retry the connection or choose No cleanup. Your raw transcript remains available."
+                  : "You can continue setup. Loqui will not silently activate an unavailable cleanup provider."
+            }
+          />
+        </div>
       )}
       {selected === "codex" && (
         <div className="space-y-2">
@@ -662,14 +630,14 @@ function BrowserTrial({
   };
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-start gap-3">
+      <div className="onboarding-guided-record rounded-xl border border-border bg-card p-5">
+        <div className="onboarding-guided-record-intro flex items-start gap-3">
           <span
-            className={`flex h-10 w-10 items-center justify-center rounded-xl ${state === "recording" ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
+            className={`onboarding-guided-record-icon flex h-10 w-10 items-center justify-center rounded-xl ${state === "recording" ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
           >
             <Mic className="h-5 w-5" />
           </span>
-          <div className="flex-1">
+          <div className="onboarding-guided-record-copy flex-1">
             <p className="text-sm font-semibold">
               {state === "recording"
                 ? "Listening…"
@@ -723,7 +691,7 @@ function BrowserTrial({
             {error}
           </p>
         )}
-        <div className="mt-5 flex items-center gap-3">
+        <div className="onboarding-guided-record-actions mt-5 flex items-center gap-3">
           <Button
             onClick={start}
             disabled={!ready || state === "recording" || state === "processing"}
@@ -781,14 +749,14 @@ function DesktopTrial({
   };
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-start gap-3">
+      <div className="onboarding-guided-record rounded-xl border border-border bg-card p-5">
+        <div className="onboarding-guided-record-intro flex items-start gap-3">
           <span
-            className={`flex h-10 w-10 items-center justify-center rounded-xl ${recording.isRecording ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
+            className={`onboarding-guided-record-icon flex h-10 w-10 items-center justify-center rounded-xl ${recording.isRecording ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
           >
             <Mic className="h-5 w-5" />
           </span>
-          <div>
+          <div className="onboarding-guided-record-copy">
             <p className="text-sm font-semibold">
               {recording.isRecording
                 ? "Listening…"
@@ -833,7 +801,7 @@ function DesktopTrial({
             {error}
           </p>
         )}
-        <div className="mt-5 flex items-center gap-3">
+        <div className="onboarding-guided-record-actions mt-5 flex items-center gap-3">
           <Button
             onClick={start}
             disabled={!ready || recording.isRecording || recording.isProcessing}
@@ -870,17 +838,12 @@ function ShortcutsStep({
     ? false
     : permissions.accessibilityPermissionGranted || platform !== "darwin";
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
-          Keep Loqui one shortcut away.
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          This is optional. You can stay in the workspace and use the Record control while you
-          decide whether automatic paste fits your workflow.
-        </p>
+    <div className="onboarding-guided-work">
+      <div className="onboarding-guided-section-head">
+        <h2>Use Loqui outside this window</h2>
+        <span>Optional</span>
       </div>
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
         <div className="flex items-start gap-3">
           <Keyboard className="mt-0.5 h-5 w-5 text-primary" />
           <div className="flex-1">
@@ -902,7 +865,7 @@ function ShortcutsStep({
           </div>
         </div>
       </div>
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold">Automatic paste</p>
@@ -915,7 +878,7 @@ function ShortcutsStep({
         </div>
       </div>
       {platform === "darwin" && (
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="onboarding-guided-panel rounded-xl border border-border bg-card p-4">
           <div className="flex items-start gap-3">
             <ShieldCheck className="mt-0.5 h-5 w-5 text-primary" />
             <div className="flex-1">
@@ -959,32 +922,49 @@ function FinishStep({
   onResume: (step: OnboardingStep) => void;
 }) {
   const items: Array<[keyof OnboardingReadiness, string, string, OnboardingStep]> = [
-    ["microphone", "Microphone", "Start a trial recording to confirm access.", "try"],
     ["speech", "Speech model", "Choose and download a local speech model.", "speech"],
+    ["microphone", "Microphone", "Start a trial recording to confirm access.", "try"],
     ["cleanup", "Text cleanup", "Optional. Raw transcripts work without it.", "cleanup"],
     ["shortcut", "Shortcut and paste", "Optional for using Loqui in other apps.", "shortcuts"],
   ];
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
-          Your workspace is ready when you are.
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          You can leave setup now. Loqui will keep unfinished items visible and you can return here
-          from Settings.
-        </p>
+    <div className="onboarding-guided-work">
+      <div className="onboarding-guided-section-head">
+        <h2>Your setup at a glance</h2>
+        <span>Finish anytime</span>
       </div>
-      <div className="space-y-2">
+      <div className="onboarding-guided-readiness space-y-2">
         {items.map(([key, label, detail, step]) => {
           const state = readiness[key];
           const ok = state === "ready" || state === "skipped";
+          const status =
+            state === "ready"
+              ? "Ready"
+              : state === "skipped"
+                ? "Optional"
+                : state === "checking"
+                  ? "Checking"
+                  : state === "failed"
+                    ? "Needs attention"
+                    : "Pending";
+          const description =
+            state === "ready"
+              ? key === "speech"
+                ? "Local model ready."
+                : key === "microphone"
+                  ? "Trial dictation captured."
+                  : `${label} is ready.`
+              : state === "skipped"
+                ? key === "cleanup"
+                  ? "Raw transcripts work without cleanup."
+                  : "Record inside Loqui without automatic paste."
+                : detail;
           return (
             <button
               type="button"
               key={key}
               onClick={() => onResume(step)}
-              className="flex w-full items-start gap-3 rounded-xl border border-border bg-card p-4 text-start hover:bg-muted/40"
+              className="onboarding-guided-readiness-row flex w-full items-start gap-3 rounded-xl border border-border bg-card p-4 text-start hover:bg-muted/40"
             >
               <span className="mt-0.5">
                 {ok ? (
@@ -995,11 +975,9 @@ function FinishStep({
               </span>
               <span className="flex-1">
                 <span className="block text-sm font-semibold">{label}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {ok ? "Ready or intentionally skipped." : detail}
-                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">{description}</span>
               </span>
-              <span className="text-xs text-muted-foreground">Review</span>
+              <span className="text-xs text-muted-foreground">{status}</span>
             </button>
           );
         })}
@@ -1383,19 +1361,7 @@ export default function OnboardingFlow({
     <DesktopTrial ready={trialReady} onFinished={onTrialFinished} />
   );
 
-  let content: ReactNode;
-  if (step === "welcome")
-    content = (
-      <WelcomeStep
-        updatesEnabled={updatesEnabled}
-        setUpdatesEnabled={(value) => {
-          setUpdatesEnabled(value);
-          void window.electronAPI?.updates?.preferences?.({ enabled: value });
-        }}
-        dataRetentionEnabled={dataRetentionEnabled}
-        setDataRetentionEnabled={setDataRetentionEnabled}
-      />
-    );
+  let content: ReactNode = null;
   if (step === "speech")
     content = (
       <SpeechStep
@@ -1438,17 +1404,16 @@ export default function OnboardingFlow({
     );
   if (step === "try")
     content = (
-      <div className="space-y-5">
-        <div>
-          <h1 tabIndex={-1} className="text-3xl font-semibold tracking-tight focus:outline-none">
-            Make one short dictation.
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Loqui will show the result inside this window. Trial audio and text are not saved to
-            history and automatic paste stays off.
-          </p>
+      <div className="onboarding-guided-work">
+        <div className="onboarding-guided-section-head">
+          <h2>Record inside Loqui</h2>
+          <span>Practice</span>
         </div>
         {trial}
+        <div className="onboarding-guided-panel p-4 text-xs leading-relaxed text-muted-foreground">
+          No automatic paste. Trial audio and text are not saved to history. Microphone access is
+          requested only when you start.
+        </div>
         {cleanupChoice !== "none" && (
           <Button variant="ghost" onClick={disableCleanupForTrial}>
             Try without cleanup
@@ -1460,16 +1425,30 @@ export default function OnboardingFlow({
     content = <ShortcutsStep platform={platform} permissions={permissions} />;
   if (step === "finish") content = <FinishStep readiness={readiness} onResume={goTo} />;
 
+  if (step === "welcome") {
+    return (
+      <WelcomeScreen
+        updatesEnabled={updatesEnabled}
+        onUpdatesChange={(value) => {
+          setUpdatesEnabled(value);
+          void window.electronAPI?.updates?.preferences?.({ enabled: value });
+        }}
+        dataRetentionEnabled={dataRetentionEnabled}
+        onDataRetentionChange={setDataRetentionEnabled}
+        onContinue={handleContinue}
+        onExplore={handleSkip}
+      />
+    );
+  }
+
   return (
     <StepShell
       step={step}
       onBack={handleBack}
       onContinue={handleContinue}
       onSkip={step === "finish" ? undefined : handleSkip}
-      continueLabel={
-        step === "welcome" ? "Set up dictation" : step === "finish" ? "Open workspace" : "Continue"
-      }
-      skipLabel={step === "welcome" ? "Explore first" : "Continue later"}
+      continueLabel={step === "finish" ? "Open workspace" : "Continue"}
+      skipLabel="Explore first"
     >
       {content}
     </StepShell>

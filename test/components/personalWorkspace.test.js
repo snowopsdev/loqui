@@ -51,7 +51,14 @@ test("first setup reaches completion without account APIs or implicit downloads"
     },
   });
   for (const step of ["welcome", "speech", "cleanup", "try", "shortcuts", "finish"]) {
-    assert.equal(h.tree().props.step, step);
+    if (step === "welcome") {
+      const markup = renderToStaticMarkup(h.tree());
+      assert.match(markup, /A quieter way to get words out/);
+      assert.match(markup, /Keep local history/);
+      assert.match(markup, /Download updates automatically/);
+    } else {
+      assert.equal(h.tree().props.step, step);
+    }
     await React.act(async () => h.tree().props.onContinue());
   }
   assert.equal(completed, 1);

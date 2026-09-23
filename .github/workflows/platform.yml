@@ -1,10 +1,6 @@
 name: Platform checks
 on:
   workflow_call:
-    inputs:
-      ref:
-        type: string
-        default: ""
 permissions:
   contents: read
 jobs:
@@ -28,13 +24,15 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref }}
+          # Build the caller's commit; do not allow an input to select code
+          # under a different branch's cache scope.
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version-file: .node-version
           cache: npm
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libevdev-dev libpipewire-0.3-dev libfuse2 clang cmake ninja-build
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libx11-dev libxtst-dev libevdev-dev libpipewire-0.3-dev libatspi2.0-dev libglib2.0-dev libfuse2 clang cmake ninja-build
       - name: Assert and record toolchain
         id: toolchain
         run: node scripts/assert-toolchain.cjs

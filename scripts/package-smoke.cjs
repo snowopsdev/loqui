@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { probeRuntimeVersion } = require("./lib/package-runtime-probe.cjs");
 const mac = process.platform === "darwin";
 const root = mac ? "dist/mac-arm64/Loqui.app/Contents" : "dist/linux-unpacked";
 const resources = path.join(root, mac ? "Resources" : "resources");
@@ -17,8 +18,16 @@ execFileSync(binary, [script], {
 });
 const icon = path.join(resources, "src/assets/icon.png");
 if (!fs.existsSync(icon)) throw Error("Missing Loqui icon");
+if (!mac) {
+  const textMonitor = path.join(resources, "bin", "linux-text-monitor");
+  if (!fs.existsSync(textMonitor) || fs.statSync(textMonitor).size === 0)
+    throw Error("Missing packaged Linux text monitor");
+}
 for (const name of fs.readdirSync(path.join(resources, "bin"))) {
-  if (/(whisper-server|llama-server|qdrant|meeting-aec-helper)-/.test(name)) {
+  if (
+    name === "linux-text-monitor" ||
+    /(whisper-server|llama-server|qdrant|meeting-aec-helper)-/.test(name)
+  ) {
     const description = execFileSync("file", [path.join(resources, "bin", name)], {
       encoding: "utf8",
     });
@@ -30,8 +39,5 @@ for (const name of fs.readdirSync(path.join(resources, "bin"))) {
 for (const prefix of ["llama-server-", "qdrant-"]) {
   const name = fs.readdirSync(path.join(resources, "bin")).find((n) => n.startsWith(prefix));
   if (!name) throw Error(`Missing packaged runtime: ${prefix}`);
-  execFileSync(path.resolve(resources, "bin", name), ["--version"], {
-    stdio: "inherit",
-    timeout: 15000,
-  });
+  probeRuntimeVersion(path.resolve(resources, "bin", name));
 }

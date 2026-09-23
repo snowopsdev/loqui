@@ -11,11 +11,12 @@ Loqui is intended to be an independent public repository at `snowopsdev/loqui`. 
 - [x] Run `npm run publication:check`, then a secret scan of the current tree and intended history. Review exact suppressions; rotate any real exposed credentials before publishing.
 - [x] Confirm restricted artwork, personal data, generated installers, model weights, local profiles, and private diagnostic artifacts are absent from intended refs, apart from the documented historical helper exception below.
 - [x] Confirm MIT attribution, third-party notices, license/source references, and committed distributable assets are retained.
-- [ ] Push only the application branch and explicitly named Loqui version tags. Never push with `--mirror` or `--tags` from a checkout containing upstream refs.
-- [ ] Enable branch protection requiring the `CI` status, pull requests, and resolved conversations; block force pushes and branch deletion.
-- [ ] Enable dependency alerts, secret scanning and push protection where available, and private vulnerability reporting.
+- [x] Push only the application branch and explicitly named Loqui version tags. Never push with `--mirror` or `--tags` from a checkout containing upstream refs. Initial publication pushed only `main`; no release tags were published.
+- [x] Enable branch protection requiring the `CI` status, pull requests, and resolved conversations; block force pushes and branch deletion, including administrator bypass.
+- [x] Enable dependency alerts, secret scanning and push protection where available, and private vulnerability reporting.
 - [x] Provide issue and PR templates, contribution/support/security documentation, and a moderation reporting route; validate local documentation links.
-- [ ] Confirm those links and private vulnerability reporting work from the live public repository.
+- [x] Confirm those links and private vulnerability reporting work from the live public repository.
+- [x] Require hosted **CI** before merging subsequent changes, including both platform builds when relevant; retain the [verification record](VERIFICATION.md#clean-build-follow-up-2026-09-23) and live check results. This source gate does not approve signed releases.
 
 Historical restricted Nucleo/Yowza assets require the approved sanitized publication copy; do not publish the original unsanitized history. See [verification](VERIFICATION.md) for previously recorded audit evidence. Repeat checks after the final publication commit and any additional history changes.
 
@@ -26,7 +27,7 @@ The local preservation check confirmed that the original repository and removed 
 ## Release publication
 
 - [ ] Complete hosted Linux x86_64 and Apple Silicon macOS checks on the intended release commit.
-- [ ] Configure the protected `release` environment and reviewer before supplying signing secrets.
+- [x] Configure the protected `release` environment and reviewer before supplying signing secrets. Only `v*` tags are allowed and administrator bypass is disabled.
 - [ ] Add Apple certificate/notarization credentials through secure GitHub secret entry, never source control, chat, issues, or logs.
 - [ ] Verify Developer ID signing, notarization, stapling, Gatekeeper acceptance, package integrity, and packaged native modules.
 - [ ] Test real microphone, shortcuts, paste, and meeting capture on the supported platforms.
@@ -51,4 +52,6 @@ No source-publication blocker was identified by that scoped audit. Recheck the f
 
 ## Pending external checks
 
-On 2026-09-23, maintainer authentication was verified and `snowopsdev/loqui` was created as an independent public repository. The checked items above record completed work; unchecked remote and release checks still require verification. Historical local development-package results are not a substitute for signed release and hardware acceptance.
+On 2026-09-23, `main` was published to the independent public [snowopsdev/loqui repository](https://github.com/snowopsdev/loqui), without upstream or Loqui release tags. GitHub recognized the MIT license and community documents; the live issue chooser exposes bug, feature, and private-security reporting routes. `node scripts/configure-github.cjs --check` verified all repository protections, immutable releases, read-only Actions defaults, and the protected release environment. Signing-secret names were absent at that checkpoint; no secrets were read.
+
+Signed-release setup was explicitly deferred by the maintainer on 2026-09-23. Unchecked release items remain pending; no version tag, draft, or published app release was created. Historical local development-package results are not a substitute for signed release and hardware acceptance.

@@ -35,7 +35,7 @@ Use GitHub's secure secret entry or `gh secret set --env release` with file/stdi
 4. Only after both platforms and signing pass, a protected job assembles installers, update metadata/blockmaps, SHA256SUMS, notices, CycloneDX SBOM, runtime manifest, and GitHub build provenance into one draft.
 5. Review artifacts and test signed beta-to-beta Mac and installed AppImage updates with content preservation. Manually publish the draft. Publication does not rebuild it.
 
-Published versions are immutable. Corrections get new versions. Workflow dispatch retries an existing tag (use `gh workflow run release.yml --ref v0.1.0-beta.1 -f tag=v0.1.0-beta.1`) and rejects published releases; only unpublished draft artifacts can be replaced. Beta tags are prereleases with separate beta metadata. Never manually publish an incomplete draft.
+Published versions are immutable. Corrections get new versions. Workflow dispatch retries an existing tag (use `gh workflow run release.yml --repo snowopsdev/loqui --ref v0.1.0-beta.1 -f tag=v0.1.0-beta.1`) and rejects published releases; only unpublished draft artifacts can be replaced. Specify the repository explicitly because a checkout retaining an `upstream` remote can otherwise direct GitHub CLI commands there. The entered tag must match the workflow’s tag ref; validation and platform builds check out the event commit, never an arbitrary input ref. Beta tags are prereleases with separate beta metadata. Never manually publish an incomplete draft.
 
 ## Build stages
 

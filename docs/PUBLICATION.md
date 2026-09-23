@@ -16,6 +16,7 @@ Loqui is intended to be an independent public repository at `snowopsdev/loqui`. 
 - [x] Enable dependency alerts, secret scanning and push protection where available, and private vulnerability reporting.
 - [x] Provide issue and PR templates, contribution/support/security documentation, and a moderation reporting route; validate local documentation links.
 - [x] Confirm those links and private vulnerability reporting work from the live public repository.
+- [x] Require hosted **CI** before merging subsequent changes, including both platform builds when relevant; retain the [verification record](VERIFICATION.md#clean-build-follow-up-2026-09-23) and live check results. This source gate does not approve signed releases.
 
 Historical restricted Nucleo/Yowza assets require the approved sanitized publication copy; do not publish the original unsanitized history. See [verification](VERIFICATION.md) for previously recorded audit evidence. Repeat checks after the final publication commit and any additional history changes.
 

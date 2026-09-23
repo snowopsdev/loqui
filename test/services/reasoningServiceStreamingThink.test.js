@@ -154,12 +154,14 @@ test("assistant tools are described over IPC and executed only by their registry
       }),
   });
   let args;
+  let executionOptions;
   const tools = {
     search_notes: {
       description: "Find notes",
       inputSchema: { jsonSchema: { type: "object" } },
-      execute: async (input) => {
+      execute: async (input, options) => {
         args = input;
+        executionOptions = options;
         return { notes: [] };
       },
     },
@@ -168,6 +170,10 @@ test("assistant tools are described over IPC and executed only by their registry
     service.processTextStreamingAI(messages, "codex-model", "codex", config, tools)
   );
   assert.deepEqual(args, { query: "demo" });
+  assert.equal(executionOptions.toolCallId, "call-1");
+  assert.equal(executionOptions.context, undefined);
+  assert.ok(Object.hasOwn(executionOptions, "context"));
+  assert.ok(executionOptions.abortSignal instanceof AbortSignal);
   assert.deepEqual(results[0].result, { notes: [] });
   assert.equal(chunks[0].type, "tool_calls");
 });

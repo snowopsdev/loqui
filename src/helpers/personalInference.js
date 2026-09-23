@@ -181,8 +181,7 @@ async function createModel(provider, model, apiKey, baseURL, disableThinking, en
   if (provider === "openai") return createOpenAI({ apiKey })(model);
   if (provider === "anthropic")
     return require("@ai-sdk/anthropic").createAnthropic({ apiKey })(model);
-  if (provider === "gemini")
-    return require("@ai-sdk/google").createGoogleGenerativeAI({ apiKey })(model);
+  if (provider === "gemini") return require("@ai-sdk/google").createGoogle({ apiKey })(model);
   if (provider === "groq") return require("@ai-sdk/groq").createGroq({ apiKey })(model);
   if (provider === "tinfoil")
     return (await (await import("tinfoil")).createTinfoilAI(apiKey))(model);
@@ -414,7 +413,7 @@ function registerPersonalInferenceIPC({
           ? await getEnterpriseConfig()
           : undefined
       );
-      const { streamText, generateText, stepCountIs, jsonSchema } = require("ai");
+      const { streamText, generateText, isStepCount, jsonSchema } = require("ai");
       let tools = request.tools?.length
         ? Object.fromEntries(
             request.tools.map((tool) => [
@@ -446,10 +445,10 @@ function registerPersonalInferenceIPC({
       const options = {
         model,
         messages: request.messages,
-        system: request.systemPrompt || undefined,
+        instructions: request.systemPrompt || undefined,
         abortSignal: controller.signal,
         tools,
-        stopWhen: stepCountIs(tools ? 20 : 1),
+        stopWhen: isStepCount(tools ? 20 : 1),
         maxRetries: 0,
         providerOptions,
         onError: () => {},
@@ -466,7 +465,7 @@ function registerPersonalInferenceIPC({
         const result = streamText(options);
         const sources = [];
         let finishReason;
-        for await (const part of result.fullStream) {
+        for await (const part of result.stream) {
           if (part.type === "text-delta") emit({ type: "content", text: part.text });
           if (part.type === "error") throw part.error;
           if (part.type === "source") sources.push(part);

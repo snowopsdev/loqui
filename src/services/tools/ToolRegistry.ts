@@ -1,6 +1,10 @@
 import { jsonSchema } from "ai";
 import type { Tool } from "ai";
 
+// Application tool metadata crosses IPC as plain data; dynamic SDK descriptions
+// and provider-specific tool context are not part of this registry's contract.
+export type ApplicationTool = Tool & { description: string; contextSchema?: never };
+
 export interface ToolResult {
   success: boolean;
   data: unknown;
@@ -30,8 +34,8 @@ export class ToolRegistry {
     return Array.from(this.tools.values());
   }
 
-  toAISDKFormat(): Record<string, Tool> {
-    const result: Record<string, Tool> = {};
+  toAISDKFormat(): Record<string, ApplicationTool> {
+    const result: Record<string, ApplicationTool> = {};
     for (const def of this.getAll()) {
       result[def.name] = {
         description: def.description,
@@ -44,7 +48,7 @@ export class ToolRegistry {
             return { error: (error as Error).message || "Tool execution failed" };
           }
         },
-      } as Tool;
+      };
     }
     return result;
   }

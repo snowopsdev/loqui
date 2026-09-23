@@ -340,8 +340,6 @@ export function useChatStreaming({
         }));
       }
 
-      const llmMessages = [{ role: "system", content: systemPrompt }, ...history];
-
       const assistantId = crypto.randomUUID();
       setMessages((prev) => [
         ...prev,
@@ -376,7 +374,7 @@ export function useChatStreaming({
         {
           const aiTools = registry?.toAISDKFormat();
           stream = ReasoningService.processTextStreamingAI(
-            llmMessages,
+            history,
             llmConfig.model,
             llmConfig.provider,
             {

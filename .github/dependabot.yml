@@ -6,6 +6,8 @@ updates:
       interval: weekly
       day: monday
     groups:
+      ai-sdk:
+        patterns: ["ai", "@ai-sdk/*", "tinfoil"]
       development:
         dependency-type: development
         update-types: [minor, patch]

@@ -84,7 +84,7 @@ function harness(t, behavior = {}) {
     modelFactory: async (provider, id, key, baseUrl) => {
       assert.equal(key, "fixture-secret");
       modelCalls.push({ provider, id, baseUrl });
-      return model;
+      return behavior.model || model;
     },
   });
   t.after(() => service.dispose());
@@ -99,6 +99,7 @@ function harness(t, behavior = {}) {
     request,
     emitted,
     modelCalls,
+    model,
     secrets,
     sender,
     invoke: (name, payload, owner = sender) =>
@@ -265,4 +266,213 @@ test("Gemini and Groq thinking controls use supported low-reasoning settings", a
     disableThinking: true,
   });
   assert.deepEqual(modelCalls.at(-1).providerOptions.groq, { reasoningEffort: "low" });
+});
+
+test("SDK 7 keeps instructions separate from cleanup and assistant conversation history", async (t) => {
+  for (const specificationVersion of ["v3", "v4"]) {
+    const { invoke, request, model, modelCalls, emitted } = harness(t);
+    model.specificationVersion = specificationVersion;
+    const cleanup = { ...request, systemPrompt: "Format the transcript." };
+    assert.deepEqual(await invoke("text-generate", cleanup), { text: "Cleaned text." });
+    assert.deepEqual(modelCalls.at(-1).prompt[0], {
+      role: "system",
+      content: cleanup.systemPrompt,
+    });
+    const chat = {
+      ...request,
+      inferenceScope: "chatIntelligence",
+      systemPrompt: "Answer using my notes.",
+      messages: [
+        { role: "user", content: "Find my note" },
+        { role: "assistant", content: "Which note?" },
+        { role: "user", content: "The meeting" },
+      ],
+    };
+    await invoke("text-stream", chat);
+    const prompt = modelCalls.at(-1).prompt;
+    assert.deepEqual(
+      prompt.map(({ role }) => role),
+      ["system", "user", "assistant", "user"]
+    );
+    assert.equal(prompt[0].content, chat.systemPrompt);
+    assert.equal(emitted.at(-1).type, "end");
+    assert.equal(emitted.find((event) => event.chunk?.type === "done").chunk.finishReason, "stop");
+    assert.deepEqual(
+      chat.messages.map(({ role }) => role),
+      ["user", "assistant", "user"]
+    );
+  }
+});
+
+test("SDK 7 application tools complete their IPC round trip and resume the selected model", async (t) => {
+  for (const specificationVersion of ["v3", "v4"]) {
+    const { invoke, request, model, emitted, sender, modelCalls } = harness(t);
+    model.specificationVersion = specificationVersion;
+    const originalStream = model.doStream;
+    let firstStep = true;
+    model.doStream = async (options) => {
+      if (!firstStep) return originalStream(options);
+      firstStep = false;
+      modelCalls.push(options);
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] });
+            controller.enqueue({
+              type: "tool-call",
+              toolCallId: "sdk-call-1",
+              toolName: "search_notes",
+              input: JSON.stringify({ query: "meeting" }),
+            });
+            controller.enqueue({
+              type: "finish",
+              finishReason: { unified: "tool-calls", raw: "tool_calls" },
+              usage: { inputTokens: { total: 2 }, outputTokens: { total: 1 } },
+            });
+            controller.close();
+          },
+        }),
+      };
+    };
+    const originalSend = sender.send;
+    sender.send = (channel, payload) => {
+      originalSend(channel, payload);
+      if (payload.type === "tool")
+        void invoke("text-tool-result", {
+          requestId: payload.requestId,
+          callId: payload.callId,
+          result: { notes: [{ title: "Meeting" }] },
+        });
+    };
+    await invoke("text-stream", {
+      ...request,
+      inferenceScope: "chatIntelligence",
+      systemPrompt: "Search my notes.",
+      tools: [
+        {
+          name: "search_notes",
+          description: "Search local notes",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+      ],
+    });
+    const toolEvent = emitted.find((event) => event.type === "tool");
+    assert.equal(toolEvent.name, "search_notes");
+    assert.deepEqual(toolEvent.arguments, { query: "meeting" });
+    assert.equal(emitted.filter((event) => event.type === "tool").length, 1);
+    assert.equal(modelCalls.length, 3, "one provider selection and two model steps");
+    const toolResult = modelCalls.at(-1).prompt.find((message) => message.role === "tool");
+    assert.equal(toolResult.content[0].toolCallId, "sdk-call-1");
+    assert.deepEqual(toolResult.content[0].output, {
+      type: "json",
+      value: { notes: [{ title: "Meeting" }] },
+    });
+    assert.equal(emitted.at(-1).type, "end");
+    assert.equal(
+      emitted.some((event) => event.type === "error"),
+      false
+    );
+  }
+});
+
+test("upgraded Anthropic and Vertex providers generate and stream through SDK 7 without network", async (t) => {
+  const { createAnthropic } = require("@ai-sdk/anthropic");
+  const { createVertex } = require("@ai-sdk/google-vertex");
+  const anthropicResponse = {
+    id: "fixture-message",
+    type: "message",
+    role: "assistant",
+    model: "fixture-model",
+    content: [{ type: "text", text: "Cleaned text." }],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 2, output_tokens: 3 },
+  };
+  const vertexResponse = {
+    candidates: [
+      {
+        index: 0,
+        content: { role: "model", parts: [{ text: "Cleaned text." }] },
+        finishReason: "STOP",
+      },
+    ],
+    usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 },
+  };
+  for (const [provider, create, body, chunks] of [
+    [
+      "anthropic",
+      createAnthropic,
+      anthropicResponse,
+      [
+        {
+          type: "message_start",
+          message: {
+            ...anthropicResponse,
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: 2, output_tokens: 0 },
+          },
+        },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Cleaned text." },
+        },
+        { type: "content_block_stop", index: 0 },
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn", stop_sequence: null },
+          usage: { output_tokens: 3 },
+        },
+        { type: "message_stop" },
+      ],
+    ],
+    ["vertex", createVertex, vertexResponse, [vertexResponse]],
+  ]) {
+    const fetches = [];
+    const model = create({
+      apiKey: "fixture-key",
+      fetch: async (url, init) => {
+        const input = JSON.parse(init.body);
+        fetches.push({ url: String(url), input });
+        const streaming = input.stream || String(url).includes("streamGenerateContent");
+        return new Response(
+          streaming
+            ? chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")
+            : JSON.stringify(body),
+          {
+            headers: { "content-type": streaming ? "text/event-stream" : "application/json" },
+          }
+        );
+      },
+    })("fixture-model");
+    assert.equal(model.specificationVersion, "v4");
+    const { invoke, request, emitted, secrets } = harness(t, { model });
+    const input = { ...request, provider, systemPrompt: "Format the transcript." };
+    assert.deepEqual(await invoke("text-generate", input), { text: "Cleaned text." });
+    await invoke("text-stream", input);
+    assert.equal(
+      emitted
+        .filter((event) => event.chunk?.type === "content")
+        .map((event) => event.chunk.text)
+        .join(""),
+      "Cleaned text."
+    );
+    assert.equal(emitted.at(-1).type, "end");
+    assert.deepEqual(secrets, [provider, provider]);
+    assert.equal(fetches.length, 2);
+    assert.ok(
+      fetches.every(
+        ({ url }) =>
+          new URL(url).hostname ===
+          (provider === "anthropic" ? "api.anthropic.com" : "aiplatform.googleapis.com")
+      )
+    );
+  }
 });

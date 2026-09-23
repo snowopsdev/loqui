@@ -608,7 +608,7 @@ export const useAudioRecording = (toast, options = {}) => {
             });
           } else if (autoPasteEnabled && !result.assistantConversation) {
             const pasteStart = performance.now();
-            let pasteSucceeded = true;
+            let pasteSucceeded;
             if (result.selectionEdit?.sessionId) {
               const replacement = await window.electronAPI?.replaceSelectedText?.(
                 result.selectionEdit.sessionId,

@@ -48,11 +48,14 @@ export default function BrowserPreview() {
     setSetup(true);
   };
   const restart = () => {
-    clearOnboardingProgress(onboardingPreviewStorageKey(config));
-    localStorage.removeItem(`${onboardingPreviewStorageKey(config)}.speechReady`);
     const fresh = { ...config, step: "welcome" as const, scenario: "fresh" as const };
-    clearOnboardingProgress(onboardingPreviewStorageKey(fresh));
-    localStorage.removeItem(`${onboardingPreviewStorageKey(fresh)}.speechReady`);
+    for (const candidate of [config, fresh]) {
+      const key = onboardingPreviewStorageKey(candidate);
+      clearOnboardingProgress(key);
+      for (const suffix of ["speechReady", "speechReadyModel", "speechModel", "reuseCleanup"]) {
+        localStorage.removeItem(`${key}.${suffix}`);
+      }
+    }
     updateConfig(fresh);
   };
   return (

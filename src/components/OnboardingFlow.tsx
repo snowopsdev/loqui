@@ -23,6 +23,12 @@ import { getDefaultHotkey } from "../utils/hotkeys";
 import { getCachedPlatform } from "../utils/platform";
 import { useAudioRecording } from "../hooks/useAudioRecording";
 import {
+  DEFAULT_ONBOARDING_SPEECH_MODEL_ID,
+  ONBOARDING_SPEECH_MODELS,
+  firstCompatibleSpeechModel,
+  supportsSpeechLanguage,
+} from "../utils/onboardingSpeechModels";
+import {
   Mic,
   CheckCircle2,
   CircleAlert,
@@ -64,51 +70,13 @@ const STEPS: Array<{ id: OnboardingStep; label: string }> = [
   { id: "finish", label: "Ready" },
 ];
 
-const SPEECH_MODELS = [
-  {
-    id: "parakeet-unified-en-0.6b",
-    name: "Parakeet Unified EN 0.6B",
-    description: "Fast, accurate English speech recognition for CPU and supported GPU paths.",
-    size: "631 MB",
-    languages: ["en"],
-  },
-  {
-    id: "parakeet-tdt-0.6b-v3",
-    name: "Parakeet TDT 0.6B",
-    description: "Multilingual speech recognition with automatic language detection.",
-    size: "680 MB",
-    languages: [
-      "bg",
-      "cs",
-      "da",
-      "de",
-      "el",
-      "en",
-      "es",
-      "fi",
-      "fr",
-      "hr",
-      "hu",
-      "it",
-      "lt",
-      "lv",
-      "mt",
-      "nl",
-      "pl",
-      "pt",
-      "ro",
-      "ru",
-      "sk",
-      "sl",
-      "sv",
-      "uk",
-    ],
-  },
-] as const;
-
 const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";
 type CleanupChoice = "none" | "local" | "codex" | "provider";
 type CleanupStatus = "checking" | "pending" | "ready" | "failed" | "skipped";
+
+function displayModelSize(size: string): string {
+  return size.replace(/(\d)(MB|GB)$/, "$1 $2");
+}
 
 function StepShell({
   step,
@@ -198,6 +166,7 @@ function ChoiceCard({
   title,
   description,
   badge,
+  disabled = false,
   onClick,
 }: {
   selected: boolean;
@@ -205,13 +174,15 @@ function ChoiceCard({
   title: string;
   description: string;
   badge?: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-xl border p-4 text-start transition-colors ${selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
+      disabled={disabled}
+      className={`w-full rounded-xl border p-4 text-start transition-colors ${disabled ? "cursor-not-allowed opacity-50" : selected ? "border-primary bg-primary/8 ring-1 ring-primary/20" : "border-border bg-card hover:bg-muted/50"}`}
       aria-pressed={selected}
     >
       <div className="flex items-start gap-3">
@@ -351,7 +322,7 @@ function SpeechStep({
   speechModelReady: boolean;
   downloadState: "idle" | "downloading" | "ready" | "error";
   selectedModel: string;
-  onSelectModel: (model: (typeof SPEECH_MODELS)[number]["id"]) => void;
+  onSelectModel: (model: string) => void;
   onDownload: () => void;
 }) {
   const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
@@ -360,12 +331,21 @@ function SpeechStep({
   const setPreferredLanguage = useSettingsStore((s) => s.setPreferredLanguage);
   const language =
     spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
-  const selected = SPEECH_MODELS.find((model) => model.id === selectedModel) ?? SPEECH_MODELS[0];
+  const selected =
+    ONBOARDING_SPEECH_MODELS.find((model) => model.id === selectedModel) ??
+    ONBOARDING_SPEECH_MODELS[0];
+  const selectedSupportsLanguage = supportsSpeechLanguage(selected.id, language);
+  const compatibleModel = firstCompatibleSpeechModel(language);
+  const anyModelSupportsLanguage = Boolean(compatibleModel);
+  const recommendedModel = supportsSpeechLanguage(DEFAULT_ONBOARDING_SPEECH_MODEL_ID, language)
+    ? DEFAULT_ONBOARDING_SPEECH_MODEL_ID
+    : compatibleModel;
   useEffect(() => {
-    if (!language.startsWith("en") && selectedModel === SPEECH_MODELS[0].id) {
-      onSelectModel(SPEECH_MODELS[1].id);
-    }
-  }, [language, onSelectModel, selectedModel]);
+    if (downloadState === "downloading") return;
+    if (supportsSpeechLanguage(selectedModel, language)) return;
+    const compatible = firstCompatibleSpeechModel(language);
+    if (compatible) onSelectModel(compatible);
+  }, [downloadState, language, onSelectModel, selectedModel]);
   return (
     <div className="space-y-6">
       <div>
@@ -392,9 +372,9 @@ function SpeechStep({
           }}
         />
         <p className="text-xs text-muted-foreground">
-          {language.startsWith("en")
-            ? "English is the recommended default for the smaller Parakeet model."
-            : "Loqui will keep a multilingual model selected for this language."}
+          {anyModelSupportsLanguage
+            ? "Only models that support this language can be selected."
+            : "Orukeet and the NVIDIA models do not cover this language. You can choose multilingual Whisper in Speech-to-Text settings after setup."}
         </p>
       </section>
       <section className="space-y-3" aria-labelledby="speech-model-heading">
@@ -403,7 +383,9 @@ function SpeechStep({
             <h2 id="speech-model-heading" className="text-sm font-semibold">
               Local speech model
             </h2>
-            <p className="text-xs text-muted-foreground">Download only the model you choose.</p>
+            <p className="text-xs text-muted-foreground">
+              Orukeet and NVIDIA models run locally. Download only the one you choose.
+            </p>
           </div>
           {previewConfig && (
             <span className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">
@@ -411,48 +393,69 @@ function SpeechStep({
             </span>
           )}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {SPEECH_MODELS.map((model) => (
-            <ChoiceCard
-              key={model.id}
-              selected={selectedModel === model.id}
-              icon={Cpu}
-              title={model.name}
-              description={`${model.description} ${model.size}. ${model.languages.length > 1 ? "Multilingual." : "English only."}`}
-              badge={
-                model.languages.length > 1 && !language.startsWith("en")
-                  ? "Recommended"
-                  : model.languages.length === 1 && language.startsWith("en")
-                    ? "Recommended"
-                    : undefined
-              }
-              onClick={() => onSelectModel(model.id)}
-            />
-          ))}
-        </div>
+        {(["oruk", "nvidia"] as const).map((organization) => (
+          <div key={organization} className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {organization === "oruk" ? "Oruk" : "NVIDIA"}
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {ONBOARDING_SPEECH_MODELS.filter((model) => model.organization === organization).map(
+                (model) => {
+                  const supported = supportsSpeechLanguage(model.id, language);
+                  const languageDescription =
+                    model.supportedLanguages.length === 1
+                      ? "English only"
+                      : `${model.supportedLanguages.length} languages`;
+                  return (
+                    <ChoiceCard
+                      key={model.id}
+                      selected={selectedModel === model.id}
+                      disabled={!supported || downloadState === "downloading"}
+                      icon={Cpu}
+                      title={model.name}
+                      description={`${model.organization === "oruk" ? "Multilingual speech recognition tuned for local dictation." : model.description} ${displayModelSize(model.size)} · ${languageDescription}${model.runtime === "online" ? " · Streaming" : ""}`}
+                      badge={supported && model.id === recommendedModel ? "Recommended" : undefined}
+                      onClick={() => onSelectModel(model.id)}
+                    />
+                  );
+                }
+              )}
+            </div>
+          </div>
+        ))}
       </section>
+      {downloadState === "downloading" && (
+        <p className="text-xs text-muted-foreground">
+          Model choices are available when this download finishes.
+        </p>
+      )}
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold">
-              {speechModelReady
+              {speechModelReady && selectedSupportsLanguage
                 ? `${selected.name} is ready`
                 : downloadState === "downloading"
                   ? "Downloading speech model…"
                   : "Download the selected model"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {speechModelReady
+              {speechModelReady && selectedSupportsLanguage
                 ? "You can try a dictation next."
-                : downloadState === "error"
-                  ? "The download was interrupted. Retry when you are ready."
-                  : `${selected.size} download · CPU execution remains available.`}
+                : !selectedSupportsLanguage
+                  ? "Choose a supported model or language before downloading."
+                  : downloadState === "error"
+                    ? "The download was interrupted. Retry when you are ready."
+                    : `${displayModelSize(selected.size)} download · CPU execution remains available.`}
             </p>
           </div>
-          {speechModelReady ? (
+          {speechModelReady && selectedSupportsLanguage ? (
             <CheckCircle2 className="h-5 w-5 text-emerald-500" />
           ) : (
-            <Button onClick={onDownload} disabled={downloadState === "downloading"}>
+            <Button
+              onClick={onDownload}
+              disabled={downloadState === "downloading" || !selectedSupportsLanguage}
+            >
               <Download className="mr-2 h-4 w-4" />
               {downloadState === "downloading" ? "Downloading…" : "Download model"}
             </Button>
@@ -1029,15 +1032,22 @@ export default function OnboardingFlow({
   const [step, setStep] = useState<OnboardingStep>(
     initialStep ?? config?.step ?? storedProgress.step
   );
-  const [selectedModel, setSelectedModel] = useState(
-    () => useSettingsStore.getState().parakeetModel || SPEECH_MODELS[0].id
-  );
+  const [selectedModel, setSelectedModel] = useState(() => {
+    const saved = config
+      ? localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechModel`)
+      : useSettingsStore.getState().parakeetModel;
+    return ONBOARDING_SPEECH_MODELS.some((model) => model.id === saved)
+      ? saved!
+      : DEFAULT_ONBOARDING_SPEECH_MODEL_ID;
+  });
+  const selectedModelRef = useRef(selectedModel);
   const [speechModelReady, setSpeechModelReady] = useState(
     () =>
       config?.scenario === "ready" ||
       Boolean(
         config &&
-        localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReady`) === "true"
+        localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
+          selectedModel
       )
   );
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "ready" | "error">(
@@ -1047,7 +1057,8 @@ export default function OnboardingFlow({
         : config?.scenario === "ready" ||
             Boolean(
               config &&
-              localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReady`) === "true"
+              localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
+                selectedModel
             )
           ? "ready"
           : "idle"
@@ -1060,6 +1071,8 @@ export default function OnboardingFlow({
   const autoPasteEnabled = useSettingsStore((s) => s.autoPasteEnabled);
   const dataRetentionEnabled = useSettingsStore((s) => s.dataRetentionEnabled);
   const setDataRetentionEnabled = useSettingsStore((s) => s.setDataRetentionEnabled);
+  const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
+  const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
   const permissions = usePermissions(undefined, { macAccessibilityChecksEnabled: true });
   const platform =
     config?.platform === "macos"
@@ -1068,6 +1081,9 @@ export default function OnboardingFlow({
         ? "linux"
         : getCachedPlatform();
   const scenario = config?.scenario ?? "fresh";
+  const speechLanguage =
+    spokenLanguages[0] || (preferredLanguage === "auto" ? "en-US" : preferredLanguage) || "en-US";
+  const selectedSpeechSupported = supportsSpeechLanguage(selectedModel, speechLanguage);
   const initialCleanupChoice: CleanupChoice = !useCleanupModel
     ? "none"
     : cleanupMode === "local"
@@ -1144,14 +1160,20 @@ export default function OnboardingFlow({
   }, [onComplete, persist]);
 
   const downloadModel = useCallback(() => {
+    const requestedModel = selectedModel;
     setDownloadState("downloading");
     if (preview) {
       window.setTimeout(() => {
-        setDownloadState(scenario === "download-interrupted" ? "error" : "ready");
         const ready = scenario !== "download-interrupted";
-        setSpeechModelReady(ready);
+        if (selectedModelRef.current === requestedModel) {
+          setDownloadState(ready ? "ready" : "error");
+          setSpeechModelReady(ready);
+        }
         if (config && ready)
-          localStorage.setItem(`${onboardingPreviewStorageKey(config)}.speechReady`, "true");
+          localStorage.setItem(
+            `${onboardingPreviewStorageKey(config)}.speechReadyModel`,
+            requestedModel
+          );
       }, 500);
       return;
     }
@@ -1160,13 +1182,16 @@ export default function OnboardingFlow({
       setDownloadState("error");
       return;
     }
-    void download(selectedModel)
+    void download(requestedModel)
       .then((result) => {
+        if (selectedModelRef.current !== requestedModel) return;
         const ready = Boolean(result?.success && result?.downloaded);
         setSpeechModelReady(ready);
         setDownloadState(ready ? "ready" : "error");
       })
-      .catch(() => setDownloadState("error"));
+      .catch(() => {
+        if (selectedModelRef.current === requestedModel) setDownloadState("error");
+      });
   }, [config, preview, scenario, selectedModel]);
 
   const chooseCleanup = useCallback(
@@ -1290,7 +1315,12 @@ export default function OnboardingFlow({
       (cleanupChoice === "provider" && scenario === "invalid-provider-key");
     return {
       microphone: trialResult ? "ready" : scenario === "microphone-denied" ? "failed" : "pending",
-      speech: speechModelReady ? "ready" : downloadState === "error" ? "failed" : "pending",
+      speech:
+        speechModelReady && selectedSpeechSupported
+          ? "ready"
+          : downloadState === "error"
+            ? "failed"
+            : "pending",
       cleanup:
         cleanupChoice === "none"
           ? "skipped"
@@ -1318,6 +1348,7 @@ export default function OnboardingFlow({
     cleanupChoice,
     cleanupStatus,
     speechModelReady,
+    selectedSpeechSupported,
     trialResult,
   ]);
 
@@ -1345,7 +1376,7 @@ export default function OnboardingFlow({
 
   const simulatedTrialReady =
     preview && !["fresh", "downloading", "download-interrupted"].includes(scenario);
-  const trialReady = speechModelReady || simulatedTrialReady;
+  const trialReady = selectedSpeechSupported && (speechModelReady || simulatedTrialReady);
   const trial = preview ? (
     <BrowserTrial scenario={scenario} ready={trialReady} onFinished={onTrialFinished} />
   ) : (
@@ -1369,13 +1400,27 @@ export default function OnboardingFlow({
     content = (
       <SpeechStep
         previewConfig={config}
-        speechModelReady={speechModelReady}
+        speechModelReady={speechModelReady && selectedSpeechSupported}
         downloadState={downloadState}
         selectedModel={selectedModel}
         onSelectModel={(model) => {
+          selectedModelRef.current = model;
           setSelectedModel(model);
-          useSettingsStore.getState().setParakeetModel(model);
-          const ready = config?.scenario === "ready";
+          if (config) {
+            localStorage.setItem(`${onboardingPreviewStorageKey(config)}.speechModel`, model);
+          } else {
+            const store = useSettingsStore.getState();
+            store.setUseLocalWhisper(true);
+            store.setLocalTranscriptionProvider("nvidia");
+            store.setParakeetModel(model);
+          }
+          const ready =
+            config?.scenario === "ready" ||
+            Boolean(
+              config &&
+              localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechReadyModel`) ===
+                model
+            );
           setSpeechModelReady(ready);
           setDownloadState(ready ? "ready" : "idle");
         }}

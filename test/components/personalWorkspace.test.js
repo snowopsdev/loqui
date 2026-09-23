@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const path = require("node:path");
 const { createRoot } = require("react-dom/client");
+const { renderToStaticMarkup } = require("react-dom/server");
 const {
   createRendererServer,
   installBrowserGlobals,
@@ -55,6 +56,51 @@ test("first setup reaches completion without account APIs or implicit downloads"
   }
   assert.equal(completed, 1);
   assert.deepEqual(globalThis.window.electronAPI, {});
+});
+
+test("speech setup offers Orukeet and NVIDIA models and commits a local dictation choice", async (t) => {
+  const h = await harness(t, "/components/OnboardingFlow.tsx", {
+    api: { checkParakeetModelStatus: async () => ({ downloaded: false }) },
+    props: { onComplete() {}, initialStep: "speech" },
+  });
+  const markup = renderToStaticMarkup(h.tree());
+  for (const name of [
+    "Orukeet",
+    "Parakeet Unified EN 0.6B",
+    "Parakeet TDT 0.6B",
+    "Nemotron Speech Streaming EN 0.6B",
+    "Nemotron 3.5 ASR Streaming 0.6B",
+  ]) {
+    assert.ok(markup.includes(name), `${name} should be selectable during speech setup`);
+  }
+  const { useSettingsStore } = await h.vite.ssrLoadModule("/stores/settingsStore.ts");
+  useSettingsStore.getState().setUseLocalWhisper(false);
+  await React.act(async () => h.tree().props.children.props.onSelectModel("orukeet-v0.1.0"));
+  const state = useSettingsStore.getState();
+  assert.equal(state.useLocalWhisper, true);
+  assert.equal(state.localTranscriptionProvider, "nvidia");
+  assert.equal(state.parakeetModel, "orukeet-v0.1.0");
+
+  const { supportsSpeechLanguage, firstCompatibleSpeechModel } = await h.vite.ssrLoadModule(
+    "/utils/onboardingSpeechModels.ts"
+  );
+  assert.equal(supportsSpeechLanguage("orukeet-v0.1.0", "ja-JP"), false);
+  assert.equal(supportsSpeechLanguage("nemotron-3.5-asr-streaming-0.6b", "ja-JP"), true);
+  assert.equal(firstCompatibleSpeechModel("ja-JP"), "nemotron-3.5-asr-streaming-0.6b");
+});
+
+test("preview speech choices stay in preview storage", async (t) => {
+  const config = { step: "speech", scenario: "fresh", platform: "linux" };
+  const h = await harness(t, "/components/OnboardingFlow.tsx", {
+    props: { onComplete() {}, initialStep: "speech", previewConfig: config },
+  });
+  await React.act(async () => h.tree().props.children.props.onSelectModel("orukeet-v0.1.0"));
+  const { onboardingPreviewStorageKey } = await h.vite.ssrLoadModule("/utils/onboardingState.ts");
+  assert.equal(globalThis.localStorage.getItem("parakeetModel"), null);
+  assert.equal(
+    globalThis.localStorage.getItem(`${onboardingPreviewStorageKey(config)}.speechModel`),
+    "orukeet-v0.1.0"
+  );
 });
 
 test("saved credential presence is never revealed or erased by opening its editor", async (t) => {

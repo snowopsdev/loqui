@@ -54,6 +54,8 @@ Development profiles and model caches are isolated from packaged Loqui. Use `LOQ
 
 After `npm ci --ignore-scripts`, install the pinned Electron binary before running tests. Some Node tests import desktop helpers that resolve the Electron package; its installer generates the executable path those imports require. This step downloads only Electron, using the checksums shipped with the pinned package, and does not download application models.
 
+Quality CI also installs FFmpeg and Xvfb with X11/XTest/Xext development headers so media-conversion and isolated native-input tests execute. To run those checks on Ubuntu locally, install `ffmpeg xvfb libx11-dev libxtst-dev libxext-dev`. The native-input fixture starts its own virtual display and never injects input into your desktop.
+
 SQLite bindings are specific to their runtime. Run the Node rebuild before Node tests, and rebuild for Electron again before desktop launch or packaging:
 
 ```sh

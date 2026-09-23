@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { probeRuntimeVersion } = require("./lib/package-runtime-probe.cjs");
 const mac = process.platform === "darwin";
 const root = mac ? "dist/mac-arm64/Loqui.app/Contents" : "dist/linux-unpacked";
 const resources = path.join(root, mac ? "Resources" : "resources");
@@ -38,8 +39,5 @@ for (const name of fs.readdirSync(path.join(resources, "bin"))) {
 for (const prefix of ["llama-server-", "qdrant-"]) {
   const name = fs.readdirSync(path.join(resources, "bin")).find((n) => n.startsWith(prefix));
   if (!name) throw Error(`Missing packaged runtime: ${prefix}`);
-  execFileSync(path.resolve(resources, "bin", name), ["--version"], {
-    stdio: "inherit",
-    timeout: 15000,
-  });
+  probeRuntimeVersion(path.resolve(resources, "bin", name));
 }

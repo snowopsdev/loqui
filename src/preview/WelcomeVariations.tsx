@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowRight, Check, LockKeyhole, Mic, ShieldCheck } from "lucide-react";
 import { Toggle } from "../components/ui/toggle";
 import WelcomeScreen from "../components/onboarding/WelcomeScreen";
+import { LoquiBrand } from "../components/LoquiBrand";
 import "./welcome-variations.css";
 
 export type WelcomeVariation = "1" | "2" | "3";
@@ -25,7 +26,7 @@ function Brand() {
   return (
     <div className="wc-brand">
       <span className="wc-brand-mark" aria-hidden="true">
-        <Mic size={21} strokeWidth={2.1} />
+        <LoquiBrand decorative />
       </span>
       <span className="wc-brand-copy">
         <strong>Loqui setup</strong>

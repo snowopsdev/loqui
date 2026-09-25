@@ -4,14 +4,13 @@ const { EventEmitter } = require("node:events");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
-
-const MIN_CODEX_VERSION = "0.154.0";
-// Match the protocol fixtures shipped with this app. Recheck experimental tool
-// shapes before expanding this range; fail closed rather than grant native tools.
-function supportedVersion(output) {
-  const match = /\b(\d+)\.(\d+)\.(\d+)\b/.exec(output);
-  return match && Number(match[1]) === 0 && [154, 155, 156].includes(Number(match[2]));
-}
+const {
+  MIN_CODEX_VERSION,
+  parseVersion,
+  supportedVersion,
+  resolveCodexExecutable,
+  verifyOfficialCodex,
+} = require("./codexCli");
 
 // Finder launches do not inherit terminal PATH customizations. Keep this scoped
 // to Codex and include Node locations used by npm's Codex launcher as well.
@@ -89,6 +88,8 @@ class CodexAppServer extends EventEmitter {
     env = process.env,
     homeDir = os.homedir(),
     platform = process.platform,
+    resolveExecutable = resolveCodexExecutable,
+    verifyRelease = verifyOfficialCodex,
   } = {}) {
     super();
     this.home = path.join(userDataPath, "codex");
@@ -98,6 +99,10 @@ class CodexAppServer extends EventEmitter {
     this.runFile = runFile;
     this.timeoutMs = timeoutMs;
     this.env = codexEnvironment(env, homeDir, platform);
+    this.platform = platform;
+    this.resolveExecutable = resolveExecutable;
+    this.verifyRelease = verifyRelease;
+    this.verifiedReleases = new Map();
     this.pending = new Map();
     this.turns = new Map();
     this.nextId = 0;
@@ -116,43 +121,62 @@ class CodexAppServer extends EventEmitter {
   }
 
   async _start() {
-    let version;
-    try {
-      version = await this.runFile(this.executable, ["--version"], {
-        timeout: this.timeoutMs,
-        env: this.env,
-      });
-    } catch (error) {
-      if (error.code === "ENOENT")
-        throw failure(
-          "Codex CLI was not found in PATH or common user installation folders. Install Codex CLI 0.154.x, 0.155.x, or 0.156.x, then click Refresh.",
-          "CODEX_MISSING"
-        );
-      throw failure(
-        "Codex CLI could not run. Check its executable permissions and Node.js runtime, then click Refresh.",
-        "CODEX_PROCESS"
-      );
-    }
-    this.version = String(version.stdout).trim();
-    if (!supportedVersion(this.version)) {
-      throw failure(
-        `Found ${this.version}. This build supports Codex CLI 0.154.x, 0.155.x, and 0.156.x.`,
-        "CODEX_VERSION"
-      );
-    }
+    // The version probe and server both run with an isolated profile and no
+    // inherited provider credentials. Resolve shims before probing the binary.
     await fs.mkdir(this.home, { recursive: true, mode: 0o700 });
     await fs.mkdir(this.workspace, { recursive: true, mode: 0o700 });
-    // Deliberately avoid the user's Codex config, plugins, API keys, and cwd.
     const env = Object.fromEntries(
       Object.entries(this.env).filter(
         ([name]) => !/^(CODEX_|OPENAI_|AZURE_|AWS_|ANTHROPIC_|GEMINI_)/.test(name)
       )
     );
     env.CODEX_HOME = this.home;
+    let version;
+    let executable;
+    try {
+      executable = await this.resolveExecutable({
+        executable: this.executable,
+        env,
+        platform: this.platform,
+        runFile: this.runFile,
+      });
+      version = await this.runFile(executable, ["--version"], {
+        timeout: this.timeoutMs,
+        maxBuffer: 4096,
+        env,
+        cwd: this.workspace,
+        windowsHide: true,
+      });
+    } catch (error) {
+      if (error.code?.startsWith("CODEX_")) throw error;
+      if (error.code === "ENOENT")
+        throw failure(
+          `Codex CLI was not found in PATH or common user installation folders. Install an official stable Codex CLI release ${MIN_CODEX_VERSION} or newer, then click Refresh.`,
+          "CODEX_MISSING"
+        );
+      throw failure(
+        "Codex CLI could not run. Check its executable permissions or reinstall the official CLI, then click Refresh.",
+        "CODEX_PROCESS"
+      );
+    }
+    this.version = String(version.stdout).trim();
+    if (!supportedVersion(this.version)) {
+      throw failure(
+        `Found ${this.version}. Loqui requires an official stable Codex CLI release ${MIN_CODEX_VERSION} or newer.`,
+        "CODEX_VERSION"
+      );
+    }
+    await this.verifyRelease({
+      executable,
+      version: parseVersion(this.version),
+      verifiedReleases: this.verifiedReleases,
+      platform: this.platform,
+      timeoutMs: this.timeoutMs,
+    });
     const args = ["app-server", "--stdio"];
     for (const [key, value] of Object.entries(RESTRICTED_CONFIG))
       args.push("-c", `${key}=${JSON.stringify(value)}`);
-    const child = this.spawnProcess(this.executable, args, {
+    const child = this.spawnProcess(executable, args, {
       cwd: this.workspace,
       env,
       stdio: ["pipe", "pipe", "pipe"],

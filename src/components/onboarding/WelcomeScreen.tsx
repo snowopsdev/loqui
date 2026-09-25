@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { ArrowRight, Check, LockKeyhole, Mic } from "lucide-react";
+import { ArrowRight, Check, LockKeyhole } from "lucide-react";
+import { LoquiBrand } from "../LoquiBrand";
 import { Toggle } from "../ui/toggle";
 import "../../styles/onboarding-welcome.css";
 
@@ -46,7 +47,7 @@ export default function WelcomeScreen({
       <header className="onboarding-welcome-header">
         <div className="onboarding-welcome-brand">
           <span className="onboarding-welcome-brand-mark" aria-hidden="true">
-            <Mic size={21} strokeWidth={2.1} />
+            <LoquiBrand decorative />
           </span>
           <span className="onboarding-welcome-brand-copy">
             <strong>Loqui setup</strong>

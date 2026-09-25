@@ -16,6 +16,8 @@ async function setup(t, opts = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "whispr-codex-test-"));
   const sent = [];
   let spawnOptions;
+  let verification;
+  let probe;
   const child = new EventEmitter();
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
@@ -90,9 +92,17 @@ async function setup(t, opts = {}) {
       ...opts.env,
     },
     homeDir: opts.homeDir,
-    runFile: async () => ({ stdout: opts.version || fixture.version }),
-    spawnProcess: (_executable, args, options) => {
-      spawnOptions = { args, ...options };
+    resolveExecutable: async () => "/verified/codex",
+    verifyRelease: async (options) => {
+      verification = options;
+      if (opts.verificationError) throw opts.verificationError;
+    },
+    runFile: async (executable, args, options) => {
+      probe = { executable, args, ...options };
+      return { stdout: opts.version || fixture.version };
+    },
+    spawnProcess: (executable, args, options) => {
+      spawnOptions = { executable, args, ...options };
       return child;
     },
     timeoutMs: 1000,
@@ -101,20 +111,50 @@ async function setup(t, opts = {}) {
     server.stop();
     await fs.rm(dir, { recursive: true, force: true });
   });
-  return { server, sent, emit, child, spawnOptions: () => spawnOptions };
+  return {
+    server,
+    sent,
+    emit,
+    child,
+    spawnOptions: () => spawnOptions,
+    verification: () => verification,
+    probe: () => probe,
+  };
 }
 
-test("Codex version support is deliberately bounded to the tested experimental protocol", () => {
-  assert.ok(supportedVersion("codex-cli 0.154.1"));
-  assert.ok(supportedVersion("codex-cli 0.155.1"));
-  assert.ok(supportedVersion("codex-cli 0.156.0"));
-  assert.ok(!supportedVersion("codex-cli 0.153.0"));
-  assert.ok(!supportedVersion("codex-cli 0.157.0"));
-  assert.ok(!supportedVersion("unexpected"));
+test("Codex accepts stable versions at the minimum and beyond, including future major releases", () => {
+  for (const version of [
+    "0.154.0",
+    "0.154.1",
+    "0.155.1",
+    "0.156.0",
+    "0.157.0",
+    "0.200.0",
+    "1.0.0",
+    "10.1.2",
+  ])
+    assert.equal(supportedVersion(`codex-cli ${version}`), true, version);
+  for (const output of [
+    "codex-cli 0.153.99",
+    "codex-cli 0.15.4",
+    "codex-cli 0.157.0-alpha.1",
+    "codex-cli 0.157.0+custom",
+    "other-cli 0.157.0",
+    "0.157.0",
+    "codex-cli 00.157.0",
+    "codex-cli 0.157.0\ncustom build",
+    "unexpected",
+  ])
+    assert.equal(supportedVersion(output), false, output);
 });
 test("isolates auth/config, never forwards provider keys, and disables native tools", async (t) => {
-  const { server, spawnOptions, sent } = await setup(t);
+  const { server, spawnOptions, sent, verification, probe } = await setup(t);
   assert.equal((await server.status()).account.type, "chatgpt");
+  assert.equal(probe().env.OPENAI_API_KEY, undefined);
+  assert.equal(probe().env.CODEX_HOME, spawnOptions().env.CODEX_HOME);
+  assert.equal(probe().cwd, spawnOptions().cwd);
+  assert.equal(verification().executable, probe().executable);
+  assert.equal(verification().executable, spawnOptions().executable);
   assert.equal(spawnOptions().env.OPENAI_API_KEY, undefined);
   assert.ok(spawnOptions().env.CODEX_HOME.endsWith("/codex"));
   assert.equal(RESTRICTED_CONFIG["features.shell_tool"], false);
@@ -152,9 +192,32 @@ test("refuses API-key accounts and unavailable CLI versions without starting a t
     sent.some((m) => m.method === "turn/start"),
     false
   );
-  const incompatible = await setup(t, { version: "codex-cli 0.157.0" });
+  const incompatible = await setup(t, { version: "codex-cli 0.153.0" });
   assert.equal((await incompatible.server.status()).code, "CODEX_VERSION");
+  assert.equal(incompatible.spawnOptions(), undefined);
+  assert.equal(incompatible.verification(), undefined);
 });
+
+test("new official releases can list models and complete a text turn", async (t) => {
+  const { server, verification } = await setup(t, { version: "codex-cli 0.157.0" });
+  assert.equal((await server.models()).data[0].model, "fixture-model");
+  assert.equal(verification().version, "0.157.0");
+  assert.equal(await server.generate({ model: "fixture-model", messages: [] }), "Hello world.");
+});
+
+for (const code of ["CODEX_UNVERIFIED", "CODEX_VERIFICATION_UNAVAILABLE"])
+  test(`${code} blocks the app-server and account access, and Refresh can retry`, async (t) => {
+    const { server, sent, spawnOptions } = await setup(t, {
+      verificationError: Object.assign(new Error("Verification failed"), { code }),
+    });
+    assert.equal((await server.status()).code, code);
+    await assert.rejects(server.models(), { code });
+    await assert.rejects(server.login(), { code });
+    assert.equal(spawnOptions(), undefined);
+    assert.equal(sent.length, 0);
+    server.verifyRelease = async () => {};
+    assert.equal((await server.status()).available, true);
+  });
 test("bridges only registered dynamic tools using the 0.154 protocol", async (t) => {
   const { server, sent, emit } = await setup(t, { tool: true, hang: true });
   let called;
@@ -258,7 +321,7 @@ test("exhausted subscription limits reject the turn without successful completio
   assert.equal(server.turns.size, 0);
 });
 
-test("discovers user-local npm launcher and Hermes Node runtime from a GUI PATH", async (t) => {
+test("extends the GUI PATH for native CLI discovery", async (t) => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-discovery-"));
   t.after(() => fs.rm(homeDir, { recursive: true, force: true }));
   const bin = path.join(homeDir, ".local", "bin");
@@ -266,14 +329,15 @@ test("discovers user-local npm launcher and Hermes Node runtime from a GUI PATH"
   await fs.mkdir(bin, { recursive: true });
   await fs.mkdir(nodeBin, { recursive: true });
   await fs.symlink(process.execPath, path.join(nodeBin, "node"));
-  await fs.writeFile(
-    path.join(bin, "codex"),
-    '#!/usr/bin/env node\nprocess.stdout.write("codex-cli 0.155.1");\n',
-    { mode: 0o755 }
-  );
   const { server, spawnOptions } = await setup(t, { homeDir, env: { PATH: "/usr/bin:/bin" } });
-  server.runFile = require("node:util").promisify(require("node:child_process").execFile);
-  assert.equal((await server.status()).version, "codex-cli 0.155.1");
+  let discoveryEnv;
+  server.resolveExecutable = async ({ env }) => {
+    discoveryEnv = env;
+    return "/verified/codex";
+  };
+  assert.equal((await server.status()).available, true);
+  assert.ok(discoveryEnv.PATH.split(path.delimiter).includes(bin));
+  assert.equal(discoveryEnv.OPENAI_API_KEY, undefined);
   assert.ok(spawnOptions().env.PATH.split(path.delimiter).includes(bin));
   assert.ok(spawnOptions().env.PATH.split(path.delimiter).includes(nodeBin));
 });
@@ -288,7 +352,7 @@ test("an installed CLI that fails to execute is not reported as missing", async 
   assert.match(status.error, /permissions/);
 });
 
-for (const version of ["0.155.1", "0.156.0"])
+for (const version of ["0.155.1", "0.156.0", "0.157.0"])
   test(`${version} requests and dynamic tools conform to the installed CLI schemas`, async (t) => {
     const Ajv = require("ajv");
     const ajv = new Ajv({ strict: false, allErrors: true });

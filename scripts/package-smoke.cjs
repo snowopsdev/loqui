@@ -32,8 +32,21 @@ execFileSync(binary, [script], {
   timeout: 30000,
   killSignal: "SIGKILL",
 });
-const icon = path.join(resources, "src/assets/icon.png");
-if (!fs.existsSync(icon)) throw Error("Missing Loqui icon");
+for (const asset of [
+  "icon.png",
+  "iconTemplate.png",
+  "iconTemplate@2x.png",
+  "iconTemplate@3x.png",
+  "brand/mark.png",
+]) {
+  const file = path.join(resources, "src/assets", asset);
+  if (!fs.existsSync(file) || fs.statSync(file).size === 0)
+    throw Error(`Missing packaged Loqui artwork: ${asset}`);
+  if (!fs.readFileSync(file).equals(fs.readFileSync(path.join("src/assets", asset))))
+    throw Error(`Packaged Loqui artwork differs from the committed export: ${asset}`);
+}
+if (fs.existsSync(path.join(resources, "src/assets/brand/source")))
+  throw Error("Source artwork and presentation sheets should not be bundled");
 if (!mac) {
   const textMonitor = path.join(resources, "bin", "linux-text-monitor");
   if (!fs.existsSync(textMonitor) || fs.statSync(textMonitor).size === 0)

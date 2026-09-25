@@ -1,0 +1,31 @@
+{
+  "source": "Maintainer-supplied Loqui-Asset-Pack.zip",
+  "received": "2026-09-24",
+  "archiveSha256": "ab75a0e2f1562495a701f97e08c0a59c059824ba1492f980338d556dde18f75c",
+  "files": {
+    "loqui-app-icon.png": {
+      "sha256": "913190d480d375daedb10c64eb5a35d77dfaf5252ef9bade908227ed564ea34f",
+      "archivePath": "icons/loqui-app-icon.png"
+    },
+    "loqui-horizontal-wordmark.png": {
+      "sha256": "ecd6d9b35f825ef97058a215fd176854521b4a459198e81198c7a9cbc0ca520c",
+      "archivePath": "logos/loqui-horizontal-wordmark.png"
+    },
+    "loqui-stacked-lockup.png": {
+      "sha256": "75d30e3f542e96a0a2b080adc84f6ec0806db64da30458f5d24982029445857c",
+      "archivePath": "logos/loqui-stacked-lockup.png"
+    },
+    "loqui-symbol.png": {
+      "sha256": "b18ddafdb1551cede8986fc48f3d5683f9a7f146442913ca6f1cb091918e5a6d",
+      "archivePath": "logos/loqui-symbol.png"
+    },
+    "loqui-asset-overview.png": {
+      "sha256": "e1307a89c1aeef0b786937cab9465607bf09474b831146ce3b245fd80e0cdb5c",
+      "archivePath": "previews/loqui-asset-overview.png"
+    },
+    "loqui-brand-style-guide.png": {
+      "sha256": "c6546dd6a2877ea9d0a8443e6b83d92bcc46772858bcce1927534c9c4d5567c4",
+      "archivePath": "previews/loqui-brand-style-guide.png"
+    }
+  }
+}

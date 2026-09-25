@@ -20,6 +20,7 @@ import LanguageSelector from "./ui/LanguageSelector";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
 import CodexConnection from "./CodexConnection";
 import WelcomeScreen from "./onboarding/WelcomeScreen";
+import { LoquiBrand } from "./LoquiBrand";
 import { ArrowRight, Check } from "lucide-react";
 import "../styles/onboarding-guided.css";
 import { getDefaultHotkey } from "../utils/hotkeys";
@@ -158,7 +159,7 @@ function StepShell({
       <header className="onboarding-welcome-header">
         <div className="onboarding-welcome-brand">
           <span className="onboarding-welcome-brand-mark" aria-hidden="true">
-            <Mic className="h-5 w-5" />
+            <LoquiBrand decorative />
           </span>
           <span className="onboarding-welcome-brand-copy">
             <strong>Loqui setup</strong>

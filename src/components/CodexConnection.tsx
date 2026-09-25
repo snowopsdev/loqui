@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
 import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
+import codexPolicy from "../config/codex.json";
 
 type Status = Awaited<ReturnType<PersonalInferenceAPI["codexStatus"]>>;
 export default function CodexConnection() {
@@ -56,7 +57,9 @@ export default function CodexConnection() {
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="font-medium">{t("codexConnection.title")}</div>
-      <p className="text-sm text-muted-foreground">{t("codexConnection.description")}</p>
+      <p className="text-sm text-muted-foreground">
+        {t("codexConnection.description", { minimumVersion: codexPolicy.minimumVersion })}
+      </p>
       {status?.account?.type === "chatgpt" ? (
         <>
           <p className="text-sm">

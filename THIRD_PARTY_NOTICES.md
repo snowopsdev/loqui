@@ -1,8 +1,10 @@
 # Third-party notices
 
-Loqui derives from OpenWhispr, copyright 2024 OpenWhispr Team, MIT licensed. LICENSE retains the full notice. Loqui changes and the temporary q-mark and wordmark artwork are copyright 2026 Loqui contributors, MIT licensed. See src/assets/README.md for editable sources and generation instructions.
+Loqui derives from OpenWhispr, copyright 2024 OpenWhispr Team, MIT licensed. LICENSE retains the full notice. Loqui changes are copyright 2026 Loqui contributors, MIT licensed.
 
-UI icons: Lucide, ISC, https://github.com/lucide-icons/lucide/blob/main/LICENSE. Inter, Caveat, and Noto Sans: SIL Open Font License 1.1. Fontsource distributions and font source projects retain their notices. The Loqui mark is original vector geometry. Nucleo icons and paid Yowza assets must not appear in publication history or release artifacts.
+Loqui's current artwork was supplied by the maintainer as `Loqui-Asset-Pack.zip` on 2026-09-24 and is distributed under the project's MIT terms. The pack contains PNGs, with no editable vector masters or separate creator/license metadata. Unchanged originals and archive/file SHA-256 records are retained in `src/assets/brand/source/`; distributable assets derive from those originals. See [artwork provenance and generation instructions](src/assets/README.md). No external creator attribution or vector origin is asserted.
+
+UI icons: Lucide, ISC, https://github.com/lucide-icons/lucide/blob/main/LICENSE. Inter, Caveat, and Noto Sans: SIL Open Font License 1.1. Fontsource distributions and font source projects retain their notices; these interface-font notices do not identify the font used in the supplied raster wordmark. Nucleo icons and paid Yowza assets must not appear in publication history or release artifacts.
 
 Electron includes Chromium and other components under their own licenses; retain its shipped notices. better-sqlite3 is MIT; SQLite is public domain. The release CycloneDX SBOM records resolved npm dependencies. Each package's license is authoritative.
 

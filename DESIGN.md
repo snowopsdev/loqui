@@ -97,9 +97,19 @@ The same React interface runs in the Electron shell on macOS and Linux, with pla
 - Capsules, small-radius controls, and inset work areas shape the desktop shell.
 - Interaction states stay explicit through focus rings, pressed feedback, and active navigation markers.
 
+## Artwork
+
+The application icon, symbol, horizontal wordmark, and stacked lockup come from the maintainer-supplied PNG asset pack received on 2026-09-24. They replace the temporary q-mark and microphone branding placeholders. The untouched originals and the supplied style-guide/overview images live in `src/assets/brand/source/`, with SHA-256 records in `manifest.json`. No editable SVG masters were supplied.
+
+Use the committed exports generated from those originals; preserve aspect ratio and allow clear space around the symbol. Both `logo-light.png` and `logo-dark.png` retain the same supplied color logo. Check their legibility on the actual surface instead of applying an automatic color inversion. Monochrome marks and macOS template icons derive from the symbol's alpha mask, while color icons retain the supplied artwork.
+
+Brand marks identify Loqui; microphone controls still communicate recording actions. Keep the distinct Agent Mode identity, state feedback, and reduced-motion behavior when displaying the Loqui symbol in the voice pill. Preserve the sidebar's macOS traffic-light clearance when sizing the wordmark or icon.
+
+Regenerate with `npm run assets:generate` and verify with `npm run assets:check`. See [artwork provenance and output mapping](src/assets/README.md) for source files, distribution terms, and small-size/theme checks.
+
 ## Colors
 
-The palette pairs a vivid orange action color with fuchsia highlights over neutral light and charcoal dark themes.
+The interface palette pairs a vivid orange action color with fuchsia highlights over neutral light and charcoal dark themes. These functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor controls or semantic states.
 
 ### Primary
 - **Signal Orange** (#FF5A1F): Primary actions, active navigation markers, selection, and focus accents.

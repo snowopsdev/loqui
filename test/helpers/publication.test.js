@@ -27,7 +27,7 @@ test("publication rejects private files and downloaded artifacts but permits sou
     "runtime-assets.json",
     "licenses/noto-sans.txt",
     "src/assets/icon.icns",
-    "src/assets/brand/mark.svg",
+    "src/assets/brand/mark.png",
     "src/assets/fonts/NotoSans.woff2",
     "src/components/icons/index.ts",
     "src/components/icons/createIcon.tsx",

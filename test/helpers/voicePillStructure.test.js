@@ -47,7 +47,8 @@ test("thinking and recording keep the same persistent glow and pill roots", asyn
   const recording = await renderPill("recording", true);
 
   for (const markup of [thinking, recording]) {
-    assert.match(markup, /^<span class="voice-pill-glow-anchor"/);
+    // React may prepend an image preload for the supplied listening artwork.
+    assert.match(markup, /<span class="voice-pill-glow-anchor"/);
     assert.match(markup, /class="processing-signal-glow"/);
     assert.match(markup, /voice-pill-control/);
   }
@@ -239,7 +240,7 @@ test("Agent Mode uses the supplied mark, a purple perimeter glow, and a neutral 
     agentMode: true,
   });
   const normalRecording = await renderPill("recording", true);
-  const { AGENT_MODE_PATH } = await import("../../src/components/dictation/voiceIdentityMorph.ts");
+  const { AGENT_MODE_PATH } = await import("../../src/components/dictation/agentMark.ts");
   const styles = readDictationStyles();
 
   assert.match(AGENT_MODE_PATH, /^M6\.14226 /);
@@ -278,34 +279,32 @@ test("Agent thinking keeps the purple glow on the same persistent pill root", as
   assert.match(agentThinking, /data-agent-beam-active="true"/);
 });
 
-test("the stable identity box stages the sound-bars into the Agent mark", async () => {
+test("the stable identity box contains the supplied listening artwork and Agent leaf", async () => {
   const idle = await renderPill("idle", false);
   const agentThinking = await renderPill("thinking", false, "right", {
     agentMode: true,
   });
 
   assert.match(idle, /data-agent-mode="false"/);
-  assert.match(idle, /voice-identity-morph-shell/);
-  assert.match(idle, /voice-identity-morph-bar-left/);
-  assert.match(idle, /voice-identity-morph-bar-center/);
-  assert.match(idle, /voice-identity-morph-bar-right/);
+  assert.match(idle, /voice-identity-listening/);
+  assert.match(idle, /<img src="[^"]*\/brand\/mark\.png" alt="" draggable="false"/);
+  assert.doesNotMatch(idle, /voice-identity-morph/);
   assert.match(agentThinking, /data-agent-mode="true"/);
   assert.match(agentThinking, /voice-identity-final-agent/);
 });
 
-test("the voice identity performs an actual SVG geometry morph", async () => {
-  const { resolveVoiceIdentityMorphPaths } =
-    await import("../../src/components/dictation/voiceIdentityMorph.ts");
-  const listening = resolveVoiceIdentityMorphPaths(0);
-  const midpoint = resolveVoiceIdentityMorphPaths(0.5);
-  const agent = resolveVoiceIdentityMorphPaths(1);
-
-  assert.notEqual(listening.shell, midpoint.shell);
-  assert.notEqual(midpoint.shell, agent.shell);
-  assert.notEqual(listening.centerBar, midpoint.centerBar);
-  assert.notEqual(midpoint.centerBar, agent.centerBar);
-  assert.equal(listening.agentOpacity, 0);
-  assert.ok(midpoint.sparkOpacity > 0);
-  assert.equal(agent.agentOpacity, 1);
-  assert.equal(agent.constructionOpacity, 0);
+test("voice identities crossfade without changing geometry and respect reduced motion", () => {
+  const styles = readDictationStyles();
+  assert.match(
+    styles,
+    /\.voice-identity-icon\[data-agent-mode="true"\] \.voice-identity-listening\s*\{\s*opacity: 0;/
+  );
+  assert.match(
+    styles,
+    /\.voice-identity-icon\[data-agent-mode="true"\] \.voice-identity-agent\s*\{\s*opacity: 1;/
+  );
+  assert.match(
+    styles,
+    /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.voice-identity-listening,\s*\.voice-identity-agent\s*\{\s*transition: none;/
+  );
 });

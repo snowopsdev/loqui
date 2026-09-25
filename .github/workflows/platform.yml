@@ -1,0 +1,82 @@
+name: Platform checks
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - os: macos-26
+            platform: mac
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      LOQUI_RELEASE_BUILD: '1'
+      ELECTRON_BUILDER_COMPRESSION_LEVEL: '3'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          # Build the caller's commit; do not allow an input to select code
+          # under a different branch's cache scope.
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libx11-dev libxtst-dev libevdev-dev libpipewire-0.3-dev libatspi2.0-dev libglib2.0-dev libfuse2 clang cmake ninja-build
+      - name: Assert and record toolchain
+        id: toolchain
+        run: node scripts/assert-toolchain.cjs
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            .cache/runtime-downloads
+          key: runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime-assets.json', 'package-lock.json') }}
+      - name: Native compilation cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            native/meeting-aec-helper/build
+            native/meeting-aec-helper/third_party
+          key: native-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('native/**', 'scripts/build-*.js', 'scripts/lib/meeting-aec-build.js', 'runtime-assets.json', '.node-version') }}
+      - run: npm ci --ignore-scripts
+      - name: Install platform runtime dependencies
+        run: node scripts/install-platform-deps.cjs
+      - run: npm run prepare:platform
+      - run: npm run native:electron
+      - run: npm run build:renderer
+      - name: Package unsigned application
+        run: npx --no-install electron-builder --config electron-builder.cjs --dir --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: node scripts/package-smoke.cjs
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/smoke-electron.cjs
+      - if: runner.os == 'Linux'
+        run: npx --no-install electron-builder --config electron-builder.cjs --linux --x64 --prepackaged dist/linux-unpacked --publish never
+      - if: runner.os == 'macOS'
+        run: tar -czf dist/unsigned-mac-arm64.tar.gz -C dist mac-arm64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: unsigned-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/unsigned-mac-arm64.tar.gz
+            dist/Loqui-*.AppImage
+            dist/Loqui-*.AppImage.blockmap
+            dist/Loqui-*.tar.gz
+            dist/*linux*.yml
+          if-no-files-found: error
+          retention-days: 3

@@ -1,0 +1,16 @@
+{
+  "name": "Loqui",
+  "packageName": "loqui",
+  "appId": "io.github.snowopsdev.loqui",
+  "profileName": "io.github.snowopsdev.loqui",
+  "cacheName": "loqui-snowopsdev",
+  "credentialService": "io.github.snowopsdev.loqui",
+  "repository": "snowopsdev/loqui",
+  "repositoryUrl": "https://github.com/snowopsdev/loqui",
+  "releasesUrl": "https://github.com/snowopsdev/loqui/releases",
+  "env": {
+    "channel": "LOQUI_CHANNEL",
+    "profile": "LOQUI_PROFILE_DIR",
+    "cache": "LOQUI_CACHE_ROOT"
+  }
+}

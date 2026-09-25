@@ -1,0 +1,27 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const tar = require("tar");
+const { assetDigest } = require("../../scripts/lib/asset-digest");
+test("Gitiles digest tolerates timestamps but rejects changed contents and paths", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-source-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const source = path.join(root, "source");
+  fs.mkdirSync(source);
+  const file = path.join(source, "file");
+  fs.writeFileSync(file, "trusted");
+  const archive = path.join(root, "source.tar.gz");
+  await tar.c({ cwd: source, file: archive, gzip: true }, ["file"]);
+  const first = await assetDigest(archive, "tar-contents-v1");
+  fs.utimesSync(file, new Date(0), new Date(0));
+  await tar.c({ cwd: source, file: archive, gzip: true }, ["file"]);
+  assert.equal(await assetDigest(archive, "tar-contents-v1"), first);
+  fs.writeFileSync(file, "changed");
+  await tar.c({ cwd: source, file: archive, gzip: true }, ["file"]);
+  assert.notEqual(await assetDigest(archive, "tar-contents-v1"), first);
+  fs.renameSync(file, path.join(source, "different"));
+  await tar.c({ cwd: source, file: archive, gzip: true }, ["different"]);
+  assert.notEqual(await assetDigest(archive, "tar-contents-v1"), first);
+});

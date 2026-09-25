@@ -1,0 +1,421 @@
+.onboarding-welcome {
+  --ow-panel: #fff;
+  --ow-muted: #f1f1f1;
+  --ow-ink: #171717;
+  --ow-secondary: #525252;
+  --ow-border: #dfdfdf;
+  --ow-orange: #ff5a1f;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--ow-panel);
+  color: var(--ow-ink);
+  font-family: var(--font-family-sans);
+  font-size: 14px;
+}
+
+.dark .onboarding-welcome {
+  --ow-panel: #262628;
+  --ow-muted: #303033;
+  --ow-ink: #f4f4f4;
+  --ow-secondary: #b7b7ba;
+  --ow-border: #404043;
+}
+
+.onboarding-welcome *,
+.onboarding-welcome *::before {
+  box-sizing: border-box;
+}
+
+.onboarding-welcome button:focus-visible {
+  outline: 2px solid var(--ow-orange);
+  outline-offset: 3px;
+}
+
+.onboarding-welcome ::selection {
+  background: var(--ow-orange);
+  color: #171717;
+}
+
+.onboarding-welcome-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+  min-height: 102px;
+  padding: 17px max(40px, calc((100vw - 1320px) / 2));
+  border-bottom: 1px solid var(--ow-border);
+  background: var(--ow-panel);
+}
+
+.onboarding-welcome-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.onboarding-welcome-brand-mark {
+  display: grid;
+  width: 45px;
+  height: 45px;
+  flex: none;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ow-orange) 14%, var(--ow-panel));
+  color: var(--ow-orange);
+}
+
+.onboarding-welcome-brand-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.onboarding-welcome-brand-copy strong {
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.onboarding-welcome-brand-copy small {
+  color: var(--ow-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.onboarding-welcome-progress {
+  width: min(32vw, 320px);
+  min-width: 260px;
+}
+
+.onboarding-welcome-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--ow-secondary);
+  font-size: 12px;
+}
+
+.onboarding-welcome-progress-label strong {
+  color: var(--ow-ink);
+  font-weight: 600;
+}
+
+.onboarding-welcome-progress-track {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.onboarding-welcome-progress-track i {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--ow-muted);
+}
+
+.onboarding-welcome-progress-track i.is-current {
+  background: var(--ow-orange);
+}
+
+.onboarding-welcome-split {
+  display: grid;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  overflow-y: auto;
+  scrollbar-color: var(--ow-border) transparent;
+  scrollbar-width: thin;
+}
+
+.onboarding-welcome-story {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 50px;
+  padding: 50px max(46px, calc((100vw - 1320px) / 2));
+  background: var(--ow-orange);
+  color: #171717;
+}
+
+.onboarding-welcome-intro h1 {
+  max-width: 680px;
+  margin: 0;
+  font-size: 55px;
+  font-weight: 720;
+  line-height: 1.06;
+  letter-spacing: -0.037em;
+  text-wrap: balance;
+}
+
+.onboarding-welcome-intro h1:focus {
+  outline: none;
+}
+
+.onboarding-welcome-intro p {
+  max-width: 610px;
+  margin: 23px 0 0;
+  color: #3b211a;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.onboarding-welcome-benefits {
+  display: grid;
+  max-width: 570px;
+  gap: 23px;
+}
+
+.onboarding-welcome-benefit {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.onboarding-welcome-benefit-check {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: #171717;
+}
+
+.onboarding-welcome-benefit strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.onboarding-welcome-benefit p {
+  margin: 5px 0 0;
+  color: #3b211a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.onboarding-welcome-controls {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 32px;
+  padding: 44px clamp(38px, 5vw, 80px);
+  background: var(--ow-panel);
+}
+
+.onboarding-welcome-privacy-note {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 15px;
+  padding-bottom: 30px;
+  border-bottom: 1px solid var(--ow-border);
+}
+
+.onboarding-welcome-privacy-note > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ow-orange);
+}
+
+.onboarding-welcome-privacy-note strong,
+.onboarding-welcome-preference strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.onboarding-welcome-privacy-note p {
+  margin: 8px 0 0;
+  color: var(--ow-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.onboarding-welcome-preferences {
+  min-width: 0;
+}
+
+.onboarding-welcome-preference {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 25px 0;
+}
+
+.onboarding-welcome-preference + .onboarding-welcome-preference {
+  border-top: 1px solid var(--ow-border);
+}
+
+.onboarding-welcome-preference > div {
+  min-width: 0;
+}
+
+.onboarding-welcome-preference p {
+  margin: 6px 0 0;
+  color: var(--ow-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.onboarding-welcome-preference > button {
+  flex: none;
+}
+
+.onboarding-welcome-actions {
+  display: flex;
+  min-height: 82px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px max(40px, calc((100vw - 1320px) / 2));
+  border-top: 1px solid var(--ow-border);
+  background: var(--ow-panel);
+}
+
+.onboarding-welcome-actions > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.onboarding-welcome-actions button {
+  min-height: 40px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.onboarding-welcome-actions button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.onboarding-welcome-back {
+  padding: 0 18px;
+  border: 1px solid var(--ow-border);
+  background: var(--ow-muted);
+  color: var(--ow-secondary);
+  opacity: 0.65;
+}
+
+.onboarding-welcome-explore {
+  padding: 0 15px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ow-ink);
+  cursor: pointer;
+}
+
+.onboarding-welcome-explore:hover {
+  background: var(--ow-muted);
+}
+
+.onboarding-welcome-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 20px;
+  border: 1px solid #ff7748;
+  background: var(--ow-orange);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
+  color: #171717;
+  cursor: pointer;
+}
+
+.onboarding-welcome-primary:hover {
+  background: #ff713f;
+}
+
+@media (max-width: 1050px) {
+  .onboarding-welcome-intro h1 {
+    font-size: 44px;
+  }
+  .onboarding-welcome-story {
+    padding-right: 40px;
+    padding-left: 40px;
+  }
+  .onboarding-welcome-controls {
+    padding-right: 34px;
+    padding-left: 34px;
+  }
+}
+
+@media (max-width: 760px) {
+  .onboarding-welcome-header {
+    min-height: auto;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 18px;
+    padding: 18px 24px;
+  }
+  .onboarding-welcome-progress {
+    width: 100%;
+    min-width: 0;
+  }
+  .onboarding-welcome-split {
+    display: block;
+  }
+  .onboarding-welcome-story {
+    gap: 26px;
+    padding: 36px 24px;
+  }
+  .onboarding-welcome-intro h1 {
+    font-size: 39px;
+  }
+  .onboarding-welcome-intro p {
+    margin-top: 15px;
+    font-size: 14px;
+  }
+  .onboarding-welcome-benefits {
+    gap: 17px;
+  }
+  .onboarding-welcome-controls {
+    gap: 20px;
+    padding: 28px 24px;
+  }
+  .onboarding-welcome-actions {
+    min-height: 72px;
+    padding: 12px 24px;
+  }
+}
+
+@media (max-width: 470px) {
+  .onboarding-welcome-intro h1 {
+    font-size: 34px;
+  }
+  .onboarding-welcome-actions {
+    flex-wrap: wrap;
+  }
+  .onboarding-welcome-actions > div {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .onboarding-welcome-back {
+    display: none;
+  }
+  .onboarding-welcome-explore {
+    padding: 0 7px;
+  }
+  .onboarding-welcome-primary {
+    padding: 0 13px;
+  }
+}

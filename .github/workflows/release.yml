@@ -1,0 +1,135 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Loqui version tag to retry
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      commit: ${{ steps.tag.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # A retry must run from its tag. Validate the entered tag against
+          # this event commit before accepting it; never execute input refs.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - id: tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/validate-release.cjs
+          node scripts/release-draft.cjs check
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Install media and isolated X11 test dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg xvfb libx11-dev libxtst-dev libxext-dev
+      - run: npm ci --ignore-scripts
+      - name: Cache pinned Electron download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/electron
+          key: electron-tests-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+      - name: Install pinned Electron for Node test imports
+        run: node node_modules/electron/install.js
+      - run: npm run native:node
+      - run: npm test && npm run lint && npm run typecheck && npm run i18n:check && npm run publication:check && npm run build:renderer
+  build:
+    needs: validate
+    uses: ./.github/workflows/platform.yml
+  sign:
+    needs: [validate, build]
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: release
+    env:
+      ELECTRON_BUILDER_COMPRESSION_LEVEL: "3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: unsigned-mac-arm64
+          path: dist
+      - run: tar -xzf dist/unsigned-mac-arm64.tar.gz -C dist
+      - run: npm ci --ignore-scripts
+      - name: Sign, notarize, staple and verify
+        run: bash scripts/sign-mac.sh
+        env:
+          MAC_CERTIFICATE_BASE64: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: signed-mac-arm64
+          path: |
+            dist/Loqui-*.dmg
+            dist/Loqui-*.zip
+            dist/Loqui-*.blockmap
+            dist/*mac*.yml
+          if-no-files-found: error
+          retention-days: 7
+  draft:
+    needs: [validate, build, sign]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: unsigned-linux-x64
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: signed-mac-arm64
+          path: release
+      - run: npm ci --ignore-scripts && npm sbom --sbom-format cyclonedx --omit dev > release/SBOM.cdx.json
+      - run: node scripts/assemble-release.cjs
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: release/*
+      - name: Assemble one reviewed draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+        run: node scripts/release-draft.cjs assemble

@@ -1,0 +1,218 @@
+{
+  "appId": "io.github.snowopsdev.loqui",
+  "afterPack": "scripts/afterPack.js",
+  "productName": "Loqui",
+  "directories": {
+    "output": "dist"
+  },
+  "npmRebuild": false,
+  "buildDependenciesFromSource": false,
+  "files": [
+    "main.js",
+    "preload.js",
+    "package.json",
+    "node_modules/**/*",
+    "src/dist/**/*",
+    "src/helpers/**/*",
+    "src/workers/**/*",
+    "src/config/**/*",
+    "src/constants/**/*",
+    "src/locales/**/*",
+    "src/hooks/**/*",
+    "src/models/**/*",
+    "src/services/localReasoningBridge.js",
+    "src/services/transcriptionBaseUrl.ts",
+    "src/types/**/*",
+    "src/utils.js",
+    "src/utils/**/*",
+    "src/components.json",
+    "!node_modules/.cache/**/*",
+    "!src/node_modules/**/*",
+    "!**/node_modules/electron/**",
+    "!**/node_modules/electron-builder/**",
+    "!**/node_modules/app-builder-bin/**",
+    "!**/node_modules/app-builder-lib/**",
+    "!**/node_modules/builder-util/**",
+    "!**/node_modules/dmg-builder/**",
+    "!**/node_modules/7zip-bin/**",
+    "!**/node_modules/typescript/**",
+    "!**/node_modules/prettier/**",
+    "!**/node_modules/eslint/**",
+    "!**/node_modules/eslint-*/**",
+    "!**/node_modules/@eslint/**",
+    "!**/node_modules/@typescript-eslint/**",
+    "!**/node_modules/globals/**",
+    "!**/node_modules/vite/**",
+    "!**/node_modules/@vitejs/**",
+    "!**/node_modules/esbuild/**",
+    "!**/node_modules/@esbuild/**",
+    "!**/node_modules/rollup/**",
+    "!**/node_modules/@rollup/**",
+    "!**/node_modules/postcss/**",
+    "!**/node_modules/autoprefixer/**",
+    "!**/node_modules/tailwindcss/**",
+    "!**/node_modules/@tailwindcss/**",
+    "!**/node_modules/lightningcss*/**",
+    "!**/node_modules/react/**",
+    "!**/node_modules/react-dom/**",
+    "!**/node_modules/lucide-react/**",
+    "!**/node_modules/@radix-ui/**",
+    "!**/node_modules/class-variance-authority/**",
+    "!**/node_modules/clsx/**",
+    "!**/node_modules/tailwind-merge/**",
+    "!**/node_modules/tw-animate-css/**",
+    "!**/node_modules/react-markdown/**",
+    "!**/node_modules/shadcn-ui/**",
+    "!**/node_modules/@types/**",
+    "!**/node_modules/concurrently/**",
+    "!**/node_modules/cross-env/**",
+    "!**/node_modules/@electron/notarize/**",
+    "!**/node_modules/**/test/**",
+    "!**/node_modules/**/tests/**",
+    "!**/node_modules/**/*.ts",
+    "!**/node_modules/**/*.map",
+    "!**/node_modules/**/CHANGELOG*",
+    "!**/node_modules/**/.github/**",
+    "src/services/ai/**/*",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/**/*"
+  ],
+  "asarUnpack": [
+    "**/node_modules/ffmpeg-static/**/*",
+    "**/node_modules/ps-list/**/*",
+    "**/node_modules/better-sqlite3/**/*",
+    "**/node_modules/onnxruntime-node/**/*",
+    "**/node_modules/@napi-rs/keyring/**/*",
+    "src/workers/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "src/assets",
+      "to": "src/assets",
+      "filter": [
+        "**/*",
+        "!fonts/yowza/**"
+      ]
+    },
+    {
+      "from": "resources/bin/",
+      "to": "bin/",
+      "filter": [
+        "whisper-cpp-*",
+        "whisper-server-*",
+        "llama-server-*",
+        "sherpa-onnx-*",
+        "yt-dlp-*",
+        "qdrant-*",
+        "macos-audio-tap",
+        "macos-globe-listener",
+        "macos-fast-paste",
+        "macos-mic-listener",
+        "macos-calendar-listener",
+        "macos-text-monitor",
+        "macos-media-remote",
+        "MediaRemoteAdapter.framework/**",
+        "linux-fast-paste",
+        "linux-system-audio-helper",
+        "linux-text-monitor",
+        "linux-key-listener*",
+        "meeting-aec-helper-*",
+        "windows-key-listener*",
+        "windows-mic-listener*",
+        "windows-system-audio-helper*",
+        "windows-text-monitor*",
+        "windows-fast-paste*",
+        "all-MiniLM-L6-v2/**/*",
+        "diarization-models/**/*",
+        "whisper-vad/**/*",
+        "*.dylib",
+        "*.dll",
+        "*.so*"
+      ]
+    },
+    {
+      "from": "resources/mediaremote-adapter/bin/mediaremote-adapter.pl",
+      "to": "bin/mediaremote-adapter.pl"
+    },
+    {
+      "from": "resources/mediaremote-adapter/LICENSE",
+      "to": "bin/mediaremote-adapter.LICENSE"
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64"
+        ]
+      },
+      {
+        "target": "zip",
+        "arch": [
+          "arm64"
+        ]
+      }
+    ],
+    "icon": "src/assets/icon.icns",
+    "gatekeeperAssess": false,
+    "hardenedRuntime": true,
+    "entitlements": "resources/mac/entitlements.mac.plist",
+    "entitlementsInherit": "resources/mac/entitlements.mac.plist",
+    "notarize": false,
+    "extendInfo": {
+      "LSUIElement": false,
+      "NSMicrophoneUsageDescription": "Loqui uses the microphone to capture your voice for transcription.",
+      "NSAudioCaptureUsageDescription": "Loqui uses system audio to capture other participants' audio from calls and meetings.",
+      "NSAccessibilityUsageDescription": "Loqui needs accessibility permissions to paste transcribed text into other applications.",
+      "NSCalendarsUsageDescription": "Loqui reads your calendar to detect upcoming meetings and link meeting notes to events.",
+      "NSCalendarsFullAccessUsageDescription": "Loqui reads your calendar to detect upcoming meetings and link meeting notes to events."
+    },
+    "identity": "-",
+    "artifactName": "Loqui-${version}-mac-${arch}.${ext}",
+    "minimumSystemVersion": "14.2"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "tar.gz",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "src/assets/icon.png",
+    "category": "Utility",
+    "artifactName": "Loqui-${version}-linux-${arch}.${ext}",
+    "executableName": "loqui",
+    "syncDesktopName": true
+  },
+  "dmg": {
+    "title": "Loqui",
+    "icon": "src/assets/icon.icns",
+    "window": {
+      "width": 540,
+      "height": 380
+    }
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "snowopsdev",
+      "repo": "loqui",
+      "releaseType": "draft"
+    }
+  ],
+  "generateUpdatesFilesForAllChannels": false,
+  "appImage": {
+    "artifactName": "Loqui-${version}-linux-x64.${ext}"
+  }
+}

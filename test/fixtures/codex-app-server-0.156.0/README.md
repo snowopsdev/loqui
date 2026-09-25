@@ -1,0 +1,1 @@
+Protocol schemas generated from the installed official Codex CLI 0.156.0 on Apple Silicon macOS using `codex app-server generate-json-schema --experimental --out`. These cover Loqui's text requests and experimental dynamic-tool shapes; they contain no account data. Source: https://learn.chatgpt.com/docs/app-server

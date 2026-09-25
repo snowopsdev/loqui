@@ -43,24 +43,31 @@ function targetTriple(platform, arch) {
 }
 
 async function findExecutable(executable, env, platform = process.platform) {
+  const explicitPath = /[/\\]/.test(executable);
   const names =
     platform === "win32" && !path.extname(executable)
       ? [`${executable}.exe`, `${executable}.cmd`, executable]
       : [executable];
-  const candidates = /[/\\]/.test(executable)
+  const candidates = explicitPath
     ? names.map((name) => path.resolve(name))
     : (env.PATH || "")
         .split(path.delimiter)
         .filter(Boolean)
         .flatMap((dir) => names.map((name) => path.join(dir, name)));
+  let accessError;
   for (const candidate of candidates) {
     try {
       await fs.access(candidate, constants.X_OK);
       if ((await fs.stat(candidate)).isFile()) return candidate;
     } catch (error) {
+      if (error.code === "EACCES" && !explicitPath) {
+        accessError = error;
+        continue;
+      }
       if (!["ENOENT", "ENOTDIR"].includes(error.code)) throw error;
     }
   }
+  if (accessError) throw accessError;
   throw Object.assign(new Error("Codex executable not found"), { code: "ENOENT" });
 }
 
@@ -117,6 +124,18 @@ async function resolveCodexExecutable({
       continue;
     }
     if (isNative(header)) return real;
+
+    // pnpm global shims point into a versioned package store. Follow the literal
+    // package launcher path without evaluating the shell or running JavaScript.
+    // The next pass resolves package symlinks before locating native dependencies.
+    const shimTarget =
+      /"(?:\$(?:basedir|basedir_win)|%~dp0)[\\/]([^"$`%\r\n]*[\\/]@openai[\\/]codex[\\/]bin[\\/]codex\.js)"/.exec(
+        header.toString()
+      )?.[1];
+    if (shimTarget) {
+      selected = path.resolve(path.dirname(real), ...shimTarget.split(/[\\/]/));
+      continue;
+    }
 
     // npm/pnpm/bun launchers all point into @openai/codex. Package metadata is
     // only a discovery hint; the native binary still has to match the release.

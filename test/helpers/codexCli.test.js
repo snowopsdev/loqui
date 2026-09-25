@@ -203,6 +203,24 @@ test("finds a symlinked native binary without running it", async (t) => {
   assert.equal(await resolveCodexExecutable({ env: { PATH: bin } }), options.executable);
 });
 
+test("skips a non-executable PATH entry in favor of a later native CLI", async (t) => {
+  const { dir, options } = await fixture(t);
+  const stale = path.join(dir, "stale");
+  await fs.mkdir(stale);
+  await fs.writeFile(path.join(stale, "codex"), binary, { mode: 0o600 });
+  const env = { PATH: [stale, dir].join(path.delimiter) };
+  assert.equal(await resolveCodexExecutable({ env }), options.executable);
+  await assert.rejects(resolveCodexExecutable({ executable: path.join(stale, "codex"), env }), {
+    code: "EACCES",
+  });
+});
+
+test("reports permission denial when PATH contains no usable CLI", async (t) => {
+  const { dir, options } = await fixture(t);
+  await fs.chmod(options.executable, 0o600);
+  await assert.rejects(resolveCodexExecutable({ env: { PATH: dir } }), { code: "EACCES" });
+});
+
 test("resolves the native Windows executable from PATH", async (t) => {
   const { dir, options } = await fixture(t);
   await fs.rename(options.executable, `${options.executable}.exe`);
@@ -253,6 +271,66 @@ for (const layout of ["bin", "codex"])
       arch: "x64",
     });
     assert.equal(resolved, native);
+  });
+
+for (const [platform, layout, binDirectory] of [
+  ["linux", "global/5", ""],
+  ["darwin", "global/v11/fixture-install", "bin"],
+  ["win32", "global/5", ""],
+])
+  test(`resolves a ${platform} pnpm global shim without running it`, async (t) => {
+    const { dir } = await fixture(t);
+    const home = path.join(dir, "pnpm home");
+    const bin = path.join(home, binDirectory);
+    const modules = path.join(home, layout, "node_modules");
+    const packages = path.join(modules, ".pnpm", "codex-fixture", "node_modules", "@openai");
+    const root = path.join(packages, "codex");
+    const nativeRoot = path.join(packages, `codex-${platform}-x64`);
+    const target = {
+      linux: "x86_64-unknown-linux-musl",
+      darwin: "x86_64-apple-darwin",
+      win32: "x86_64-pc-windows-msvc",
+    }[platform];
+    const native = path.join(
+      nativeRoot,
+      "vendor",
+      target,
+      "bin",
+      platform === "win32" ? "codex.exe" : "codex"
+    );
+    await fs.mkdir(path.join(root, "bin"), { recursive: true });
+    await fs.mkdir(path.dirname(native), { recursive: true });
+    await fs.mkdir(path.join(modules, "@openai"), { recursive: true });
+    await fs.mkdir(bin, { recursive: true });
+    await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "@openai/codex" }));
+    await fs.writeFile(
+      path.join(nativeRoot, "package.json"),
+      JSON.stringify({ name: `@openai/codex-${platform}-x64` })
+    );
+    await fs.writeFile(
+      path.join(root, "bin", "codex.js"),
+      "#!/usr/bin/env node\nthrow Error('must not run launcher');"
+    );
+    await fs.writeFile(native, binary, { mode: 0o755 });
+    const linked = path.join(modules, "@openai", "codex");
+    await fs.symlink(root, linked, "dir");
+    const relative = path.relative(bin, path.join(linked, "bin", "codex.js"));
+    const shim =
+      platform === "win32"
+        ? `@SETLOCAL\r\n@node "%~dp0\\${relative.split(path.sep).join("\\")}" %*\r\n`
+        : `#!/bin/sh\nbasedir=$(dirname "$0")\nexec node "$basedir/${relative.split(path.sep).join("/")}" "$@"\n`;
+    await fs.writeFile(path.join(bin, platform === "win32" ? "codex.cmd" : "codex"), shim, {
+      mode: 0o755,
+    });
+    assert.equal(
+      await resolveCodexExecutable({
+        env: { PATH: bin },
+        platform,
+        arch: "x64",
+        runFile: () => assert.fail("Package shims must not be executed"),
+      }),
+      native
+    );
   });
 
 test("asks mise only for the selected path and bypasses its auto-update wrapper", async (t) => {

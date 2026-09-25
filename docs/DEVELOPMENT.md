@@ -95,4 +95,4 @@ npm run build:mac
 
 Outputs are written to `dist/`. Development macOS packages use ad-hoc signing; they do not satisfy Developer ID, notarization, or Gatekeeper acceptance. Public releases must use the protected [release workflow](RELEASING.md).
 
-Do not commit generated packages, native build outputs, downloaded models, test profiles, recordings, or credentials. Regenerate distributable artwork from the committed SVG masters with `npm run assets:generate`; retain its license and provenance information.
+Do not commit generated packages, native build outputs, downloaded models, test profiles, recordings, or credentials. Regenerate distributable artwork from the committed source PNGs with `npm run assets:generate`, then verify it with `npm run assets:check`; retain its license and provenance information.

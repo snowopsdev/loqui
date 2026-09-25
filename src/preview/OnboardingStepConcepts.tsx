@@ -23,6 +23,7 @@ import {
 } from "../utils/onboardingSpeechModels";
 import type { OnboardingPreviewPlatform, OnboardingScenario } from "../utils/onboardingState";
 import { CONCEPT_STEPS, type ConceptStep } from "./onboardingConceptSteps";
+import { LoquiBrand } from "../components/LoquiBrand";
 import "./onboarding-step-concepts.css";
 
 export type StepConcept = "1" | "2" | "3";
@@ -131,7 +132,7 @@ function SetupBrand() {
   return (
     <div className="osc-brand">
       <span className="osc-brand-mark" aria-hidden="true">
-        <Mic size={21} strokeWidth={2.1} />
+        <LoquiBrand decorative />
       </span>
       <span className="osc-brand-copy">
         <strong>Loqui setup</strong>

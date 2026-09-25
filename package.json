@@ -68,6 +68,7 @@
     "clean": "node cleanup.js",
     "native:electron": "electron-rebuild --force --only better-sqlite3",
     "assets:generate": "node scripts/generate-brand.cjs",
+    "assets:check": "node scripts/generate-brand.cjs --check",
     "prepare:platform": "node scripts/prepare-platform.cjs",
     "native:node": "npm rebuild better-sqlite3 --build-from-source"
   },

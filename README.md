@@ -1,4 +1,4 @@
-<p align="center"><img src="src/assets/brand/social.png" alt="Loqui — Your voice. Your models. Your words." width="900"></p>
+<p align="center"><img src="src/assets/brand/social.png" alt="Loqui symbol and wordmark" width="900"></p>
 
 # Loqui
 
@@ -36,7 +36,9 @@ Until a reviewed release is available, [build from source](docs/DEVELOPMENT.md).
 3. Record a short sample inside Loqui. Setup shows what is ready and lets you explore the workspace while unfinished items remain available later.
 4. Optionally configure the shortcut and automatic paste for other applications.
 
-For **ChatGPT subscription access**, install a Codex CLI version supported by this build: **0.154.x, 0.155.x, or 0.156.x**. Select **ChatGPT subscription (Codex)** during cleanup setup or **Codex (ChatGPT)** in Language Models, connect your account, and select an available model. Loqui uses the official `codex app-server` with a separate sign-in profile; an existing CLI login is not imported. Codex serves text tasks, including cleanup, translation, chat, note formatting, and meeting summaries. It does not provide audio transcription or embeddings. Account limits and model availability still apply.
+For **ChatGPT subscription access**, install an **official stable Codex CLI release 0.154.0 or newer**. There is no upper version limit. Select **ChatGPT subscription (Codex)** during cleanup setup or **Codex (ChatGPT)** in Language Models, connect your account, and select an available model. Loqui uses the official `codex app-server` with a separate sign-in profile; an existing CLI login is not imported. Codex serves text tasks, including cleanup, translation, chat, note formatting, and meeting summaries. It does not provide audio transcription or embeddings. Account limits and model availability still apply.
+
+Loqui resolves npm and supported version-manager launchers to the native executable and compares its SHA-256 with OpenAI’s GitHub release before starting the app-server. First verification in each app session needs a connection to GitHub; macOS also streams the official compressed binary to derive its digest. Verified digests are kept only in memory for that session, and the installed file is hashed again on later server starts. Prerelease, custom, and altered binaries are rejected; unavailable verification can be retried with **Refresh**. New releases still need to speak the app-server protocol; protocol failures do not relax the tool restrictions.
 
 API providers use your own credentials and billing. A failed cleanup request preserves the original transcript; Loqui does not silently switch to another provider. See [privacy and network behavior](docs/PRIVACY.md) before connecting remote services.
 
@@ -65,4 +67,4 @@ Bug reports and focused pull requests are welcome. Read the [support guide](SUPP
 
 Loqui is an independent fork of [OpenWhispr](https://github.com/OpenWhispr/openwhispr), originally based on upstream commit `6d56d75e7e13ec47009e573e9ff4cded0d0ccc61`. The public history is sanitized to remove restricted artwork; original historical commit IDs may therefore differ. Upstream authorship and MIT attribution are retained.
 
-Application source and original Loqui artwork are [MIT licensed](LICENSE). Dependencies, bundled runtimes, fonts, and model weights retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and the [runtime asset manifest](runtime-assets.json). Loqui is not affiliated with OpenWhispr, OpenAI, or the other providers it supports.
+Application source and Loqui artwork are [MIT licensed](LICENSE). See the [artwork provenance](src/assets/README.md) for the maintainer-supplied PNGs and generated exports. Dependencies, bundled runtimes, fonts, and model weights retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and the [runtime asset manifest](runtime-assets.json). Loqui is not affiliated with OpenWhispr, OpenAI, or the other providers it supports.

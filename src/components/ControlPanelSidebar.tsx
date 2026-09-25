@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
-import { Mic, Settings } from "./icons";
+import { Settings } from "./icons";
+import { LoquiBrand } from "./LoquiBrand";
 import { cn } from "./lib/utils";
 import { getCachedPlatform } from "../utils/platform";
 export type { ControlPanelView };
@@ -28,13 +29,7 @@ export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSe
         )}
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       >
-        <span
-          className="flex h-5 w-5 items-center justify-center rounded-md bg-foreground/8 text-foreground/65"
-          aria-hidden="true"
-        >
-          <Mic size={12} strokeWidth={2.2} />
-        </span>
-        <span className="text-[12px] font-medium tracking-tight text-foreground/70">Loqui</span>
+        <LoquiBrand variant="wordmark" />
       </div>
       <nav
         aria-label={t("sidebar.navigation", { defaultValue: "Main navigation" })}

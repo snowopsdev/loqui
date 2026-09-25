@@ -4140,7 +4140,7 @@
   },
   "codexConnection": {
     "title": "ChatGPT subscription (Codex)",
-    "description": "Connect your ChatGPT subscription for text processing. Audio transcription uses your selected speech provider. Supports installed Codex CLI 0.154.x, 0.155.x, and 0.156.x.",
+    "description": "Connect your ChatGPT subscription for text processing. Audio transcription uses your selected speech provider. Requires an official stable Codex CLI release {{minimumVersion}} or newer.",
     "connected": "已連接：{{account}}",
     "remaining": "使用最多的額度週期剩餘 {{percent}}%",
     "disconnect": "中斷連接",

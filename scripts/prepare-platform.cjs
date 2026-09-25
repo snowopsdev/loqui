@@ -50,5 +50,14 @@ for (const name of required) {
   if (!fs.existsSync(file) || fs.statSync(file).size === 0)
     throw Error(`Missing required runtime: ${file}`);
 }
-for (const file of ["src/assets/icon.png", "src/assets/icon.icns", "src/assets/brand/mark.svg"])
+for (const file of [
+  "src/assets/icon.png",
+  "src/assets/icon.icns",
+  "src/assets/iconTemplate.png",
+  "src/assets/iconTemplate@2x.png",
+  "src/assets/iconTemplate@3x.png",
+  "src/assets/brand/mark.png",
+  "src/assets/brand/logo-light.png",
+  "src/assets/brand/logo-dark.png",
+])
   if (!fs.existsSync(file)) throw Error(`Missing Loqui artwork: ${file}`);

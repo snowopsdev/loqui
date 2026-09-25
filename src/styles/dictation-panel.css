@@ -159,18 +159,31 @@
   box-shadow: none;
 }
 
-/* The SVG geometry itself moves between identities: the listening ring opens
-   into the leaf contour, while its bars bend into the leaf spine and spark. */
-.voice-identity-svg {
-  color: inherit;
+/* Crossfade the supplied listening artwork and Agent leaf without changing
+   the pill's native-window footprint or redrawing the raster brand mark. */
+.voice-identity-listening,
+.voice-identity-agent {
+  transition: opacity 240ms ease-in-out;
 }
 
-.voice-identity-icon[data-agent-mode="true"] .voice-identity-svg {
+.voice-identity-agent {
+  opacity: 0;
   color: var(--color-agent-brand);
 }
 
-.voice-identity-final-agent {
-  color: var(--color-agent-brand);
+.voice-identity-icon[data-agent-mode="true"] .voice-identity-listening {
+  opacity: 0;
+}
+
+.voice-identity-icon[data-agent-mode="true"] .voice-identity-agent {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-identity-listening,
+  .voice-identity-agent {
+    transition: none;
+  }
 }
 
 /* Agent response controls and the persistent pill share the footer anchor.

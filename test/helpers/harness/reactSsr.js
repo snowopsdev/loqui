@@ -6,6 +6,12 @@ const { renderToStaticMarkup } = require("react-dom/server");
 
 globalThis.React = React;
 
+// Match the URL value Vite supplies for imported artwork. Node's TSX loader
+// otherwise attempts to parse PNG bytes as JavaScript in structure tests.
+require.extensions[".png"] = (module, filename) => {
+  module.exports = filename;
+};
+
 const renderStatic = (type, props, ...children) =>
   renderToStaticMarkup(React.createElement(type, props, ...children));
 

@@ -35,7 +35,7 @@ Loqui runs as an Electron desktop application with one shared React interface. T
 
 ## Brand Commitments
 
-The name Loqui is retained and refers to the Latin verb “to speak.” Current artwork is placeholder branding; the user intends to revisit custom logos and icons later. Upstream OpenWhispr MIT attribution remains in the repository, and Loqui is not affiliated with OpenWhispr or OpenAI.
+The name Loqui is retained and refers to the Latin verb “to speak.” Loqui uses the maintainer-supplied voice-bubble symbol, orange/magenta wordmarks, and dark app icon from the asset pack received on 2026-09-24. Source PNGs and provenance are retained in `src/assets/brand/source/`; generated exports serve the interface and desktop packages. Upstream OpenWhispr MIT attribution remains in the repository, and Loqui is not affiliated with OpenWhispr or OpenAI.
 
 ## Evidence on Hand
 

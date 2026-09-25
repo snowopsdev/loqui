@@ -90,10 +90,7 @@
     {
       "from": "src/assets",
       "to": "src/assets",
-      "filter": [
-        "**/*",
-        "!fonts/yowza/**"
-      ]
+      "filter": ["**/*", "!fonts/yowza/**", "!brand/source/**"]
     },
     {
       "from": "resources/bin/",
@@ -145,15 +142,11 @@
     "target": [
       {
         "target": "dmg",
-        "arch": [
-          "arm64"
-        ]
+        "arch": ["arm64"]
       },
       {
         "target": "zip",
-        "arch": [
-          "arm64"
-        ]
+        "arch": ["arm64"]
       }
     ],
     "icon": "src/assets/icon.icns",
@@ -178,15 +171,11 @@
     "target": [
       {
         "target": "AppImage",
-        "arch": [
-          "x64"
-        ]
+        "arch": ["x64"]
       },
       {
         "target": "tar.gz",
-        "arch": [
-          "x64"
-        ]
+        "arch": ["x64"]
       }
     ],
     "icon": "src/assets/icon.png",

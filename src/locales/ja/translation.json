@@ -184,12 +184,9 @@
     "loading": "読み込み中...",
     "unknown": "不明",
     "availableModels": "利用可能なモデル",
-    "fast": "高速",
     "hold": "ホールド",
-    "private": "プライベート",
     "tap": "タップ",
     "close": "閉じる",
-    "dismiss": "閉じる",
     "save": "保存",
     "saving": "保存中…",
     "create": "作成",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "権限",
-      "microphoneTitle": "マイク",
-      "microphoneDescription": "あなたの声をテキストに変換します。ホットキーを押すまで何も録音されません。",
       "grant": "許可",
       "grantAccess": "アクセスを許可",
-      "accessibilityTitle": "アクセシビリティ",
-      "accessibilityDescription": "完成したテキストを、今使っているアプリ（ドキュメント、メール、チャット）に直接入力します。",
       "testAndGrant": "テストして許可",
       "requiredForApp": "Loqui の動作に必要です",
       "microphoneRequired": "マイクへのアクセスが必要です",
-      "openSystemSettings": "システム設定を開く",
-      "systemAudioTitle": "システムオーディオ",
-      "systemAudioDescription": "会議レコーダーが通話の相手側の音声（会議、講義、ポッドキャストなど）を聴けるようにします。後から設定で有効にできます。",
-      "optional": "任意",
-      "recommended": "推奨",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "システム設定を開く"
     },
     "transcription": {
       "title": "文字起こし設定",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "プロトコルを含む完全なベース URL を入力してください（例: https://server/v1）。",
       "httpsRequired": "HTTPS が必要です（ローカルネットワークのみ HTTP を許可）。",
-      "endpointInvalid": "カスタムエンドポイントが無効か未設定です。設定 → AIモデルでエンドポイントURLを確認してください。",
       "endpointUnauthorized": "エンドポイントがリクエストを拒否しました（401/403）。API キーを追加するか、サーバーの認証設定を調整してください。",
       "endpointTitle": "エンドポイント URL",
       "endpointExamples": "例:",
@@ -774,7 +761,6 @@
       "projectId": "プロジェクト ID",
       "location": "ロケーション",
       "customModelId": "カスタムモデル ID",
-      "customModelPlaceholder": "モデル ID またはデプロイメント名を入力",
       "suggestedModels": "推奨モデル",
       "browseModels": "すべてのモデルを表示",
       "loadingModels": "モデルを取得中...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "モデル",
       "parakeetModelDescription": "NVIDIA Parakeet モデル"
     },
-    "whisperModels": "Whisper モデル",
     "corti": {
       "clientId": "クライアントID",
       "clientSecret": "クライアントシークレット",
@@ -1245,50 +1230,6 @@
     "title": "パスワードをリセット"
   },
   "actionPrompt": "アクションプロンプト",
-  "hotkeyGuidance": {
-    "blockedDescription": "これらのショートカットはシステムでよく使われるためブロックされています。",
-    "blockedTitle": "ブロックされたショートカット",
-    "description": "以下のプラットフォームルールを参考に、システムと競合しないショートカットを選択してください。",
-    "examplesTitle": "有効な例",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "推奨ショートカット",
-    "rulesTitle": "ショートカットルール",
-    "showAll": "すべて表示",
-    "showFewer": "折りたたむ",
-    "title": "ショートカットガイド",
-    "validationRules": {
-      "0": "修飾キー（Ctrl、Alt、Shift など）を 1 つ以上使用してください",
-      "1": "システム予約済みのショートカットは使用できません",
-      "2": "単一キーのみの設定はできません",
-      "3": "一部の組み合わせは他のアプリと競合する可能性があります"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "キーの組み合わせを押してホットキーを設定",
     "clickToChange": "クリックして変更",
@@ -2659,16 +2600,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "フォルダ名を入力してください。",
-      "folderAlreadyExists": "同じ名前のフォルダが既に存在します。",
-      "folderNotFound": "そのフォルダが見つかりませんでした。",
-      "defaultFolderImmutable": "デフォルトフォルダは変更できません。",
-      "spaceNameRequired": "スペース名を入力してください。",
-      "spaceNotFound": "そのスペースが見つかりませんでした。",
-      "privateSpaceImmutable": "個人用スペースは変更できません。",
-      "generic": "変更を完了できませんでした。もう一度お試しください。"
-    },
     "sidebar": {
       "newNote": "新しいノート",
       "searchNotes": "ノートを検索",
@@ -2827,7 +2758,6 @@
       "untitled": "無題",
       "noteTitle": "ノートのタイトル",
       "stop": "停止",
-      "processing": "処理中...",
       "export": "エクスポート",
       "asMarkdown": "Markdown 形式",
       "asPlainText": "プレーンテキスト形式",
@@ -3085,10 +3015,6 @@
         "grant": "権限を許可",
         "enabled": "有効"
       }
-    },
-    "realtimeBanner": {
-      "message": "Pro でリアルタイム文字起こしが利用可能",
-      "upgrade": "アップグレード"
     },
     "enhance": {
       "title": "強化エラー"
@@ -3886,14 +3812,6 @@
         "resendThrottled": "招待を送信したばかりです。1分ほど待ってからお試しください。",
         "syncPrompt": "共有すると、このノートのコピーが Loqui クラウドに保存されます。共有相手を選ぶまでは、あなた以外は閲覧できません。",
         "syncAndShare": "ノートを同期",
-        "visibility": {
-          "label": "公開範囲",
-          "private": "非公開",
-          "privateOption": "非公開 — 自分のみ",
-          "link": "リンクを持つ全員",
-          "domain": "{{domain}} の全員（リンクを持つ人）",
-          "invited": "招待された人のみ"
-        },
         "error": {
           "invalidEmail": "有効なメールアドレスを入力してください",
           "alreadyInvited": "{{email}} はすでに招待されています",

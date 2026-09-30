@@ -4,7 +4,7 @@ import type { CalendarAvailabilityRequest, CalendarAvailabilityResult } from "./
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia" | "cohere";
 
-export interface MainWindowInputRegion {
+interface MainWindowInputRegion {
   viewportWidth: number;
   viewportHeight: number;
   x: number;
@@ -19,25 +19,13 @@ export type InferenceMode = "openwhispr" | "providers" | "local" | "self-hosted"
 
 export type SelfHostedType = "openai-compatible" | "lan";
 
-export type TranscriptionStatus = "completed" | "failed" | "pending" | "discarded";
+type TranscriptionStatus = "completed" | "failed" | "pending" | "discarded";
 
-export interface OperationFailureMetadata {
+interface OperationFailureMetadata {
   error?: string;
   code?: string;
   status?: number;
   details?: unknown;
-}
-
-export interface NoteRecordingProviderModel {
-  id: string;
-  name: string;
-  default?: boolean;
-}
-
-export interface NoteRecordingProvider {
-  id: string;
-  name: string;
-  models: NoteRecordingProviderModel[];
 }
 
 // Session options every dictation streaming channel takes — the shared
@@ -46,7 +34,7 @@ export interface NoteRecordingProvider {
 // it (built by dictationStreamingRouting.buildStreamingSessionOptions); the
 // main process defaults a missing value to "openai-realtime" for pre-1.8.4
 // renderers (#1624).
-export interface DictationRealtimeSessionOptions {
+interface DictationRealtimeSessionOptions {
   provider: string;
   model?: string;
   mode?: "byok" | "openwhispr";
@@ -57,11 +45,6 @@ export interface DictationRealtimeSessionOptions {
   tenant?: string;
   preview?: boolean;
 }
-
-export type NoteRecordingConfigFailure = { success: false } & OperationFailureMetadata;
-
-export type NoteRecordingConfigResult =
-  { success: true; providers: NoteRecordingProvider[] } | NoteRecordingConfigFailure;
 
 export type TranscriptionErrorCode =
   | "TIMEOUT"
@@ -78,7 +61,7 @@ export type TranscriptionErrorCode =
   | "CUSTOM_ENDPOINT_INVALID"
   | null;
 
-export type MeetingPromptVariant = "detected" | "starting" | "underway";
+type MeetingPromptVariant = "detected" | "starting" | "underway";
 
 export interface MeetingNotificationData {
   detectionId: string;
@@ -90,9 +73,9 @@ export interface MeetingNotificationData {
 }
 
 /** Why auto-end concluded the meeting is over. */
-export type MeetingAutoEndReason = "mic-released" | "silence" | "process-exit";
+type MeetingAutoEndReason = "mic-released" | "silence" | "process-exit";
 
-export interface MeetingAutoEndRequest {
+interface MeetingAutoEndRequest {
   sessionId: string;
   reason?: MeetingAutoEndReason;
 }
@@ -101,22 +84,12 @@ export interface MeetingAutoEndRequest {
  * Proxied-transcription IPC results. `ipcMain.handle` drops custom error props on
  * rejection, so these handlers resolve with a serialized error instead of throwing.
  */
-export type ProxyTranscriptionResult =
+type ProxyTranscriptionResult =
   | { text: string; model?: string; error?: undefined }
   | { error: string; code?: string; messageKey?: string; text?: undefined };
 
-export interface AuthTokenState {
-  token: string | null;
-  generation: number;
-}
-
-export interface AuthTokenMutationResult extends AuthTokenState {
-  success: boolean;
-  code?: string;
-}
-
 /** The validated account scope the main process holds, as seen by any window. */
-export interface ActiveAccountScope {
+interface ActiveAccountScope {
   accountId: string;
   authGeneration: number;
 }
@@ -141,9 +114,9 @@ export interface TranscriptionItem {
   deleted_at: string | null;
 }
 
-export type AnalyticsMode = "local" | "openwhispr_cloud" | "byok" | "self_hosted" | "unknown";
+type AnalyticsMode = "local" | "openwhispr_cloud" | "byok" | "self_hosted" | "unknown";
 
-export interface AnalyticsEventInput {
+interface AnalyticsEventInput {
   eventId: string;
   wordCount: number;
   occurredAt: string;
@@ -152,27 +125,6 @@ export interface AnalyticsEventInput {
   mode: AnalyticsMode;
   provider?: string | null;
   model?: string | null;
-}
-
-export interface PendingAnalyticsEvent {
-  event_id: string;
-  occurred_at: string;
-  local_date: string;
-  word_count: number;
-  spoken_duration_ms: number | null;
-  mode: AnalyticsMode;
-  provider: string | null;
-  model: string | null;
-  counter_version: number;
-}
-
-export interface PendingAnalyticsClear {
-  cleared_through: string;
-}
-
-export interface AnalyticsSyncContext {
-  accountId: string;
-  authGeneration: number;
 }
 
 export interface AnalyticsDailyBucket {
@@ -192,85 +144,6 @@ export interface AnalyticsSummary {
   wpmCoveragePercent: number;
   daily: AnalyticsDailyBucket[];
   historyBackfillRetryRequired?: boolean;
-}
-
-export type LeaderboardMetric =
-  "total_words" | "words_per_minute" | "current_daily_streak" | "desktop_words" | "mobile_words";
-
-export type LeaderboardRange = "week" | "all";
-
-export interface AnalyticsParticipation {
-  configured: boolean;
-  enabled: boolean;
-  updatedAt: string | null;
-}
-
-export interface LeaderboardMember {
-  userId: string;
-  name: string | null;
-  // Withheld (null) on a domain board, where a shared mail suffix is the only
-  // thing the listed people have in common.
-  email: string | null;
-  image: string | null;
-  totalWords: number;
-  desktopWords: number;
-  mobileWords: number;
-  averageWpm: number | null;
-  currentStreakDays: number;
-  rank: number;
-}
-
-export type LeaderboardAccessState =
-  "ready" | "invite" | "accept_invite" | "request_join" | "create";
-
-export interface LeaderboardAccessScope {
-  key: string;
-  kind: "workspace" | "domain";
-  id: string;
-  name: string;
-  memberCount: number;
-  state: "ready" | "invite";
-  role: WorkspaceRole | null;
-}
-
-export interface LeaderboardAccess {
-  state: LeaderboardAccessState;
-  scopes: LeaderboardAccessScope[];
-  domain: string | null;
-  colleagueCount: number;
-  invitation: {
-    workspaceId: string;
-    workspaceName: string;
-    inviterName: string | null;
-  } | null;
-  joinableWorkspace: {
-    id: string;
-    name: string;
-    memberCount: number;
-    requestState: "none" | "pending";
-  } | null;
-}
-
-export interface Leaderboard {
-  scope: {
-    key: string;
-    kind: "workspace" | "domain";
-    id: string;
-    name: string;
-  };
-  viewerUserId: string | null;
-  metric: LeaderboardMetric;
-  range: LeaderboardRange;
-  weekStart: string | null;
-  availableWeekStarts: string[];
-  leaders: LeaderboardMember[];
-  members: LeaderboardMember[];
-  totalMembers: number;
-  viewerRank: number | null;
-  page: number;
-  pageSize: number;
-  generatedAt: string;
-  refreshAfterSeconds: number;
 }
 
 export interface NoteItem {
@@ -317,101 +190,6 @@ export interface NoteItem {
   left_team?: number;
 }
 
-// Immutable view of every local field that affects a note push. The main
-// process compares this atomically when the cloud response returns, so an
-// in-flight create/PATCH cannot settle a newer edit or a purged identity.
-export type NotePushSnapshot = Pick<
-  NoteItem,
-  | "client_note_id"
-  | "title"
-  | "content"
-  | "enhanced_content"
-  | "enhancement_prompt"
-  | "enhanced_at_content_hash"
-  | "note_type"
-  | "source_file"
-  | "audio_duration_seconds"
-  | "folder_id"
-  | "space_id"
-  | "transcript"
-  | "calendar_event_id"
-  | "participants"
-  | "diarization_enabled"
-  | "expected_speaker_count"
-  | "created_at"
-  | "updated_at"
-  | "sync_status"
-  | "deleted_at"
-  | "cloud_updated_at"
-  | "left_team"
->;
-
-export type NoteCreateSnapshot = NotePushSnapshot;
-export type NoteUpdateSnapshot = NotePushSnapshot;
-
-export interface NoteCreateAckResult {
-  success: boolean;
-  outcome: "synced" | "pending" | "already-linked" | "orphaned" | "unresolved";
-}
-
-export interface NoteUpdateAckResult {
-  success: boolean;
-  outcome: "synced" | "pending" | "identity-changed";
-  changes: number;
-}
-
-export type ShareVisibility = "private" | "link" | "domain" | "invited";
-
-export type NotePermission = "owner" | "editor" | "viewer";
-
-export type NoteAccessPrincipalType = "user" | "email" | "team" | "folder" | "workspace";
-
-export interface NoteAccessPrincipal {
-  type: NoteAccessPrincipalType;
-  id: string | null;
-  email: string | null;
-  name: string | null;
-  image: string | null;
-  member_count: number | null;
-}
-
-export interface NoteAccessGrant {
-  id: string;
-  principal: NoteAccessPrincipal;
-  permission: Exclude<NotePermission, "owner">;
-  source: "direct" | "team" | "folder" | "workspace";
-  inherited: boolean;
-  pending: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface NoteAccessState {
-  owner: NoteAccessPrincipal;
-  grants: NoteAccessGrant[];
-  my_permission: NotePermission;
-  can_manage_access: boolean;
-  can_manage_inherited_access: boolean;
-}
-
-export interface ShareSettings {
-  visibility: ShareVisibility;
-  token_prefix: string | null;
-  domain_allowlist: string[];
-  updated_by_user_id: string | null;
-  updated_at: string | null;
-}
-
-export interface NoteShareInvitation {
-  id: string;
-  email: string;
-  invited_by_user_id: string;
-  accepted_at: string | null;
-  revoked_at: string | null;
-  last_emailed_at: string | null;
-  created_at: string;
-}
-
 export interface FolderItem {
   id: number;
   name: string;
@@ -429,28 +207,8 @@ export interface FolderItem {
   left_team?: number;
 }
 
-export type FolderPushSnapshot = Pick<
-  FolderItem,
-  | "client_folder_id"
-  | "name"
-  | "is_default"
-  | "sort_order"
-  | "space_id"
-  | "created_at"
-  | "updated_at"
-  | "sync_status"
-  | "deleted_at"
-  | "left_team"
->;
-
-export interface FolderAckResult {
-  success: boolean;
-  outcome: "synced" | "pending" | "already-linked" | "identity-changed" | "unresolved";
-  changes: number;
-}
-
 /** A team assigned to a space, as mirrored from GET /api/me/spaces. */
-export interface SpaceTeamRef {
+interface SpaceTeamRef {
   id: string;
   name: string;
   // Explicit team membership role, if any (workspace admins may have none).
@@ -487,7 +245,7 @@ export interface SpaceItem {
   updated_at: string;
 }
 
-export interface DictionaryEntryItem {
+interface DictionaryEntryItem {
   id: number;
   word: string;
   source: "manual" | "learned";
@@ -499,19 +257,7 @@ export interface DictionaryEntryItem {
   deleted_at: string | null;
 }
 
-export interface SnippetEntryItem {
-  id: number;
-  trigger: string;
-  replacement: string;
-  created_at: string;
-  updated_at: string;
-  client_snippet_id: string;
-  cloud_id: string | null;
-  sync_status: "synced" | "pending" | "error";
-  deleted_at: string | null;
-}
-
-export type WorkspaceRole = "owner" | "admin" | "member";
+type WorkspaceRole = "owner" | "admin" | "member";
 
 export interface Workspace {
   id: string;
@@ -535,17 +281,7 @@ export interface Workspace {
   billing_manager?: string | null;
 }
 
-export interface WorkspaceMember {
-  user_id: string;
-  role: WorkspaceRole;
-  is_billable?: boolean;
-  joined_at: string;
-  email: string;
-  name: string | null;
-  image: string | null;
-}
-
-export type TeamRole = "admin" | "member";
+type TeamRole = "admin" | "member";
 
 export interface Team {
   id: string;
@@ -557,94 +293,6 @@ export interface Team {
   created_at: string;
   updated_at: string;
   member_count?: number;
-}
-
-export interface TeamMember {
-  user_id: string;
-  role: TeamRole;
-  joined_at: string;
-  email: string;
-  name: string | null;
-  image: string | null;
-}
-
-export interface WorkspaceInvitation {
-  id: string;
-  email: string;
-  workspace_role: WorkspaceRole;
-  team_ids: string[];
-  invited_by_user_id: string;
-  expires_at: string;
-  created_at: string;
-  accepted_at: string | null;
-  revoked_at: string | null;
-}
-
-export interface JoinableMember {
-  name: string | null;
-  email: string;
-  image: string | null;
-}
-
-/**
- * A workspace the signed-in user can act on, from GET /api/me/joinable.
- * `source` is why they can see it, `mode` is what the button does: a direct
- * invitation joins, while a company-domain match only earns the right to ask
- * an admin. Enterprise SSO and SCIM provision through the SSO callback.
- */
-export interface JoinableWorkspace {
-  source: "invitation" | "domain";
-  mode: "join" | "request";
-  request_state: "none" | "pending";
-  invitation_id: string | null;
-  workspace_id: string;
-  workspace_name: string;
-  workspace_slug: string;
-  role: WorkspaceRole;
-  member_count: number;
-  members: JoinableMember[];
-  inviter_name: string | null;
-  inviter_email: string | null;
-}
-
-export interface WorkspaceJoinRequest {
-  id: string;
-  user_id: string;
-  name: string | null;
-  email: string;
-  image: string | null;
-  created_at: string;
-}
-
-export interface InvitationPreview {
-  id: string;
-  email: string;
-  workspace_role: WorkspaceRole;
-  team_ids: string[];
-  /** Live spaces the invite grants directly; absent from APIs that predate space grants. */
-  space_names?: string[];
-  expires_at: string;
-  workspace_id: string;
-  workspace_name: string;
-  workspace_slug: string;
-  inviter_name: string | null;
-  inviter_email: string | null;
-}
-
-export interface WorkspaceApiKey {
-  id: string;
-  name: string;
-  key_prefix: string;
-  scopes: string[];
-  last_used_at: string | null;
-  expires_at: string | null;
-  created_at: string;
-  created_by_user_id: string | null;
-  description: string | null;
-}
-
-export interface NewWorkspaceApiKey extends WorkspaceApiKey {
-  key: string;
 }
 
 export interface ActionItem {
@@ -667,7 +315,7 @@ export interface GpuDevice {
   vramMb: number;
 }
 
-export interface GpuInfo {
+interface GpuInfo {
   hasNvidiaGpu: boolean;
   gpuName?: string;
   driverVersion?: string;
@@ -677,7 +325,7 @@ export interface GpuInfo {
   cudaSupported?: boolean;
 }
 
-export interface CudaWhisperStatus {
+interface CudaWhisperStatus {
   downloaded: boolean;
   downloading: boolean;
   path: string | null;
@@ -686,7 +334,7 @@ export interface CudaWhisperStatus {
   gpuFailed?: boolean;
 }
 
-export interface VulkanWhisperStatus {
+interface VulkanWhisperStatus {
   downloaded: boolean;
   downloading: boolean;
   vulkan: VulkanGpuResult;
@@ -695,7 +343,7 @@ export interface VulkanWhisperStatus {
   gpuFailed?: boolean;
 }
 
-export interface WhisperServerStatus {
+interface WhisperServerStatus {
   available: boolean;
   running: boolean;
   port: number | null;
@@ -714,7 +362,7 @@ export interface WhisperCheckResult {
   error?: string;
 }
 
-export interface WhisperModelResult {
+interface WhisperModelResult {
   success: boolean;
   model: string;
   downloaded: boolean;
@@ -728,7 +376,7 @@ export interface WhisperModelResult {
   totalBytes?: number;
 }
 
-export interface WhisperModelDeleteResult {
+interface WhisperModelDeleteResult {
   success: boolean;
   model: string;
   deleted: boolean;
@@ -736,19 +384,19 @@ export interface WhisperModelDeleteResult {
   error?: string;
 }
 
-export interface WhisperModelsListResult {
+interface WhisperModelsListResult {
   success: boolean;
   models: WhisperModelResult[];
   cache_dir: string;
 }
 
-export interface FFmpegAvailabilityResult {
+interface FFmpegAvailabilityResult {
   available: boolean;
   path?: string;
   error?: string;
 }
 
-export interface AudioDiagnosticsResult {
+interface AudioDiagnosticsResult {
   platform: string;
   arch: string;
   resourcesPath: string | null;
@@ -760,7 +408,7 @@ export interface AudioDiagnosticsResult {
   models: string[];
 }
 
-export type SystemAudioMode = "native" | "loopback" | "portal" | "unsupported";
+type SystemAudioMode = "native" | "loopback" | "portal" | "unsupported";
 export type SystemAudioStrategy =
   "native" | "loopback" | "pipewire-loopback" | "wasapi-loopback" | "unsupported";
 
@@ -793,43 +441,13 @@ export interface ScreenRecordingAccessResult {
   needsRelaunch?: boolean;
 }
 
-export type CloudReasonPurpose = "cleanup" | "assistant" | "translation" | "noteFormatting";
-
 export interface ScreenContextImage {
   mediaType: string;
   /** Base64 image bytes, no data-URL prefix. */
   data: string;
 }
 
-export interface UpdateCheckResult {
-  updateAvailable: boolean;
-  version?: string;
-  releaseDate?: string;
-  files?: any[];
-  releaseNotes?: string;
-  message?: string;
-}
-
-export interface UpdateStatusResult {
-  updateAvailable: boolean;
-  updateDownloaded: boolean;
-  isDevelopment: boolean;
-  isSupported: boolean;
-}
-
-export interface UpdateInfoResult {
-  version?: string;
-  releaseDate?: string;
-  releaseNotes?: string | null;
-  files?: any[];
-}
-
-export interface UpdateResult {
-  success: boolean;
-  message: string;
-}
-
-export interface AppVersionResult {
+interface AppVersionResult {
   version: string;
 }
 
@@ -865,7 +483,7 @@ export interface ParakeetCheckResult {
   minimumMacOSVersion?: string;
 }
 
-export interface ParakeetModelResult {
+interface ParakeetModelResult {
   success: boolean;
   model: string;
   downloaded: boolean;
@@ -881,7 +499,7 @@ export interface ParakeetModelResult {
   totalBytes?: number;
 }
 
-export interface ParakeetModelDeleteResult {
+interface ParakeetModelDeleteResult {
   success: boolean;
   model: string;
   deleted: boolean;
@@ -890,13 +508,13 @@ export interface ParakeetModelDeleteResult {
   error?: string;
 }
 
-export interface ParakeetModelsListResult {
+interface ParakeetModelsListResult {
   success: boolean;
   models: ParakeetModelResult[];
   cache_dir: string;
 }
 
-export interface ParakeetDownloadProgressData {
+interface ParakeetDownloadProgressData {
   type: "progress" | "installing" | "complete" | "error";
   model: string;
   percentage?: number;
@@ -907,14 +525,14 @@ export interface ParakeetDownloadProgressData {
   sequence?: number;
 }
 
-export interface ParakeetTranscriptionResult {
+interface ParakeetTranscriptionResult {
   success: boolean;
   text?: string;
   message?: string;
   error?: string;
 }
 
-export interface ParakeetDiagnosticsResult {
+interface ParakeetDiagnosticsResult {
   platform: string;
   arch: string;
   resourcesPath: string | null;
@@ -940,7 +558,7 @@ export interface PasteToolsResult {
   recommendedInstall?: string;
 }
 
-export type GpuBackend = "vulkan" | "cpu" | "metal" | null;
+type GpuBackend = "vulkan" | "cpu" | "metal" | null;
 
 export interface LlamaServerStatus {
   available: boolean;
@@ -972,7 +590,7 @@ export interface LlamaVulkanDownloadProgress {
   percentage: number;
 }
 
-export interface LocalLLMModelStatus extends ModelDefinition {
+interface LocalLLMModelStatus extends ModelDefinition {
   imported?: boolean;
   architecture?: string;
   loadStatus?: "untested" | "ready" | "failed";
@@ -1013,7 +631,7 @@ export type LocalLLMDownloadProgressEvent =
       sequence?: number;
     };
 
-export interface ConversationPreview {
+interface ConversationPreview {
   id: number;
   title: string;
   created_at: string;
@@ -1030,26 +648,13 @@ export interface ConversationPreview {
   last_message_role?: "user" | "assistant" | "system" | null;
 }
 
-export interface ConversationCreateSnapshot {
-  client_conversation_id?: string | null;
-  title: string;
-  updated_at: string;
-  message_count: number;
-}
-
-export interface ConversationCreateAckResult {
-  success: boolean;
-  outcome: "synced" | "changed" | "already-linked" | "delete-pending" | "orphaned" | "unresolved";
-  cloud_id?: string | null;
-}
-
 export type OnboardingDemoKind = "dictation" | "assistant";
 /**
  * "partial" streams the transcript, "processing" carries the final transcript,
  * "replying" streams the assistant demo's reply, and "level" mirrors the
  * microphone level while listening.
  */
-export type OnboardingDemoStatus =
+type OnboardingDemoStatus =
   "listening" | "level" | "processing" | "partial" | "replying" | "success" | "error";
 export interface OnboardingDemoEvent {
   demoId: string;
@@ -1061,15 +666,6 @@ export interface OnboardingDemoEvent {
   tool?: string;
   /** Microphone input level, 0..1, on "level" events. */
   level?: number;
-}
-
-export interface ReferralItem {
-  id: string;
-  email: string;
-  name: string | null;
-  status: "pending" | "completed" | "rewarded";
-  created_at: string;
-  first_payment_at: string | null;
 }
 
 declare global {

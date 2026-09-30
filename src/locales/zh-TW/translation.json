@@ -184,12 +184,9 @@
     "loading": "載入中...",
     "unknown": "未知",
     "availableModels": "可用模型",
-    "fast": "快速",
     "hold": "按住",
-    "private": "私密",
     "tap": "點按",
     "close": "關閉",
-    "dismiss": "忽略",
     "save": "儲存",
     "saving": "儲存中…",
     "create": "建立",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "權限",
-      "microphoneTitle": "麥克風",
-      "microphoneDescription": "將你的語音轉為文字。按下快捷鍵之前不會錄製任何內容。",
       "grant": "授權",
       "grantAccess": "授予存取權限",
-      "accessibilityTitle": "輔助使用",
-      "accessibilityDescription": "將完成的文字直接輸入到你正在使用的應用程式 — 文件、郵件、聊天。",
       "testAndGrant": "測試並授權",
       "requiredForApp": "Loqui 運作所需",
       "microphoneRequired": "需要麥克風存取權限",
-      "openSystemSettings": "打開系統設定",
-      "systemAudioTitle": "系統音訊",
-      "systemAudioDescription": "讓會議錄音機聽到通話另一方的聲音 — 會議、講座、Podcast。你可以稍後在「設定」中開啟。",
-      "optional": "可選",
-      "recommended": "建議",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "打開系統設定"
     },
     "transcription": {
       "title": "轉錄設定",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "請輸入包含通訊協定的完整 URL（例如 https://server/v1）。",
       "httpsRequired": "需使用 HTTPS（僅限本機網路可使用 HTTP）。",
-      "endpointInvalid": "自訂端點無效或未設定。請在設定 → AI 模型中檢查端點 URL。",
       "endpointUnauthorized": "端點拒絕了請求（401/403）。請新增 API Key 或調整伺服器驗證設定。",
       "endpointTitle": "端點 URL",
       "endpointExamples": "範例：",
@@ -774,7 +761,6 @@
       "projectId": "專案 ID",
       "location": "位置",
       "customModelId": "自訂模型 ID",
-      "customModelPlaceholder": "輸入模型 ID 或部署名稱",
       "suggestedModels": "建議模型",
       "browseModels": "瀏覽全部模型",
       "loadingModels": "正在取得模型...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "模型",
       "parakeetModelDescription": "NVIDIA Parakeet 模型"
     },
-    "whisperModels": "Whisper 模型",
     "corti": {
       "clientId": "用戶端 ID",
       "clientSecret": "用戶端密鑰",
@@ -1245,50 +1230,6 @@
     "title": "重設你的密碼"
   },
   "actionPrompt": "動作提示詞",
-  "hotkeyGuidance": {
-    "blockedDescription": "這些快捷鍵已被封鎖，因為它們通常是系統保留的。",
-    "blockedTitle": "已封鎖的快捷鍵",
-    "description": "參考這些平台規則來選擇不會與系統衝突的快捷鍵。",
-    "examplesTitle": "有效範例",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "推薦的快捷鍵",
-    "rulesTitle": "快捷鍵規則",
-    "showAll": "顯示全部",
-    "showFewer": "顯示較少",
-    "title": "快捷鍵指南",
-    "validationRules": {
-      "0": "必須使用至少一個修飾鍵（Ctrl、Alt、Shift 等）",
-      "1": "不可使用系統保留的快捷鍵",
-      "2": "不允許單獨使用單一按鍵",
-      "3": "部分組合可能與其他應用程式衝突"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "按下按鍵組合以設定快捷鍵",
     "clickToChange": "點擊以變更",
@@ -2731,16 +2672,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "請輸入資料夾名稱。",
-      "folderAlreadyExists": "已存在同名資料夾。",
-      "folderNotFound": "找不到該資料夾。",
-      "defaultFolderImmutable": "無法變更預設資料夾。",
-      "spaceNameRequired": "請輸入空間名稱。",
-      "spaceNotFound": "找不到該空間。",
-      "privateSpaceImmutable": "無法變更你的個人空間。",
-      "generic": "無法完成變更，請再試一次。"
-    },
     "sidebar": {
       "newNote": "新增筆記",
       "searchNotes": "搜尋筆記",
@@ -2925,7 +2856,6 @@
       "noteTitle": "筆記標題",
       "stop": "停止",
       "transcribe": "轉錄",
-      "processing": "處理中...",
       "export": "匯出",
       "asMarkdown": "匯出為 Markdown",
       "asPlainText": "匯出為純文字",
@@ -3157,10 +3087,6 @@
         "grant": "授予權限",
         "enabled": "已啟用"
       }
-    },
-    "realtimeBanner": {
-      "message": "Pro 方案可使用即時轉錄",
-      "upgrade": "升級"
     },
     "enhance": {
       "title": "增強錯誤"
@@ -3886,14 +3812,6 @@
         "resendThrottled": "邀請剛剛已傳送，請一分鐘後再試。",
         "syncPrompt": "分享後，這則筆記會在你的 Loqui 雲端保留一份副本。在你選擇分享對象之前，只有你能看到它。",
         "syncAndShare": "同步筆記",
-        "visibility": {
-          "label": "可見性",
-          "private": "私人",
-          "privateOption": "私人 — 只有你",
-          "link": "任何擁有連結的人",
-          "domain": "{{domain}} 中擁有連結的所有人",
-          "invited": "僅限受邀者"
-        },
         "error": {
           "invalidEmail": "請輸入有效的電子郵件地址",
           "alreadyInvited": "{{email}} 已被邀請",

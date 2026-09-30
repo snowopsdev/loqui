@@ -184,12 +184,9 @@
     "loading": "加载中...",
     "unknown": "未知",
     "availableModels": "可用模型",
-    "fast": "快速",
     "hold": "按住",
-    "private": "隐私",
     "tap": "点按",
     "close": "关闭",
-    "dismiss": "忽略",
     "save": "保存",
     "saving": "保存中…",
     "create": "创建",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "权限",
-      "microphoneTitle": "麦克风",
-      "microphoneDescription": "将你的语音转为文字。按下快捷键之前不会录制任何内容。",
       "grant": "授权",
       "grantAccess": "授予访问权限",
-      "accessibilityTitle": "辅助功能",
-      "accessibilityDescription": "将完成的文字直接输入到你正在使用的应用中 — 文档、邮件、聊天。",
       "testAndGrant": "测试并授权",
       "requiredForApp": "Loqui 运行所必需的权限",
       "microphoneRequired": "需要麦克风访问权限",
-      "openSystemSettings": "打开系统设置",
-      "systemAudioTitle": "系统音频",
-      "systemAudioDescription": "让会议录音机听到通话另一方的声音 — 会议、讲座、播客。你可以稍后在“设置”中开启。",
-      "optional": "可选",
-      "recommended": "推荐",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "打开系统设置"
     },
     "transcription": {
       "title": "转录设置",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "请输入包含协议的完整 URL（例如 https://server/v1）。",
       "httpsRequired": "需要 HTTPS（仅本地网络允许 HTTP）。",
-      "endpointInvalid": "自定义端点无效或未配置。请在设置 → AI 模型中检查端点 URL。",
       "endpointUnauthorized": "端点拒绝了请求（401/403）。请添加 API Key 或调整服务器认证设置。",
       "endpointTitle": "端点 URL",
       "endpointExamples": "示例：",
@@ -774,7 +761,6 @@
       "projectId": "项目 ID",
       "location": "位置",
       "customModelId": "自定义模型 ID",
-      "customModelPlaceholder": "输入模型 ID 或部署名称",
       "suggestedModels": "推荐模型",
       "browseModels": "浏览全部模型",
       "loadingModels": "正在获取模型...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "模型",
       "parakeetModelDescription": "NVIDIA Parakeet 模型"
     },
-    "whisperModels": "Whisper 模型",
     "corti": {
       "clientId": "客户端 ID",
       "clientSecret": "客户端密钥",
@@ -1245,50 +1230,6 @@
     "title": "重置密码"
   },
   "actionPrompt": "动作提示词",
-  "hotkeyGuidance": {
-    "blockedDescription": "以下快捷方式已被屏蔽，因为它们是常用的系统快捷键。",
-    "blockedTitle": "被屏蔽的快捷方式",
-    "description": "使用以下平台规则来选择不会与系统冲突的快捷键。",
-    "examplesTitle": "有效示例",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "推荐快捷键",
-    "rulesTitle": "快捷键规则",
-    "showAll": "显示全部",
-    "showFewer": "收起",
-    "title": "快捷键指南",
-    "validationRules": {
-      "0": "必须使用至少一个修饰键（Ctrl、Alt、Shift 等）",
-      "1": "不能使用系统保留的快捷键",
-      "2": "不允许单独使用单个按键",
-      "3": "某些组合可能与其他应用冲突"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "按下组合键以设置快捷键",
     "clickToChange": "点击更改",
@@ -2731,16 +2672,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "请输入文件夹名称。",
-      "folderAlreadyExists": "已存在同名文件夹。",
-      "folderNotFound": "找不到该文件夹。",
-      "defaultFolderImmutable": "无法更改默认文件夹。",
-      "spaceNameRequired": "请输入空间名称。",
-      "spaceNotFound": "找不到该空间。",
-      "privateSpaceImmutable": "无法更改你的个人空间。",
-      "generic": "无法完成更改，请重试。"
-    },
     "sidebar": {
       "newNote": "新建笔记",
       "searchNotes": "搜索笔记",
@@ -2925,7 +2856,6 @@
       "noteTitle": "笔记标题",
       "stop": "停止",
       "transcribe": "转录",
-      "processing": "处理中...",
       "export": "导出",
       "asMarkdown": "导出为 Markdown",
       "asPlainText": "导出为纯文本",
@@ -3157,10 +3087,6 @@
         "grant": "授予权限",
         "enabled": "已启用"
       }
-    },
-    "realtimeBanner": {
-      "message": "Pro 版可使用实时转录",
-      "upgrade": "升级"
     },
     "enhance": {
       "title": "增强错误"
@@ -3886,14 +3812,6 @@
         "resendThrottled": "邀请刚刚发送过，请一分钟后再试。",
         "syncPrompt": "分享会在你的 Loqui 云端保留此笔记的副本。在你选择分享对象之前，只有你能看到它。",
         "syncAndShare": "同步笔记",
-        "visibility": {
-          "label": "可见性",
-          "private": "私密",
-          "privateOption": "私密 — 仅自己",
-          "link": "拥有链接的任何人",
-          "domain": "{{domain}} 内拥有链接的所有人",
-          "invited": "仅受邀者"
-        },
         "error": {
           "invalidEmail": "请输入有效的电子邮件地址",
           "alreadyInvited": "{{email}} 已经被邀请",

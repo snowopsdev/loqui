@@ -64,7 +64,7 @@ export interface TranscriptSegment {
   speakerLockSource?: TranscriptSpeakerLockSource;
 }
 
-export const SIDE_PANEL_BREAKPOINT_PX = 1024;
+const SIDE_PANEL_BREAKPOINT_PX = 1024;
 
 interface SpeakerIdentification {
   speakerId: string;
@@ -708,43 +708,6 @@ async function cleanup(): Promise<void> {
   isRecordingFlag = false;
   isStartingFlag = false;
   sessionSystemAudioActive = false;
-}
-
-export async function prepareTranscription(): Promise<void> {
-  if (isPrepared || isRecordingFlag || isStartingFlag) return;
-  if (preparePromise) return preparePromise;
-
-  logger.info("Meeting transcription preparing (pre-warming WebSockets)...", {}, "meeting");
-
-  const promise = (async () => {
-    try {
-      const result = await window.electronAPI?.meetingTranscriptionPrepare?.(
-        getMeetingTranscriptionOptions()
-      );
-
-      if (result?.success) {
-        isPrepared = true;
-        logger.info(
-          "Meeting transcription prepared",
-          { alreadyPrepared: result.alreadyPrepared },
-          "meeting"
-        );
-      } else {
-        logger.error("Meeting transcription prepare failed", { error: result?.error }, "meeting");
-      }
-    } catch (err) {
-      logger.error(
-        "Meeting transcription prepare error",
-        { error: (err as Error).message },
-        "meeting"
-      );
-    } finally {
-      preparePromise = null;
-    }
-  })();
-
-  preparePromise = promise;
-  await promise;
 }
 
 export interface StartRecordingArgs {
@@ -1676,10 +1639,6 @@ export function lockSpeaker(speakerId: string, displayName: string): void {
   if (systemPartialSpeakerIdValue === speakerId) {
     setSystemPartialSpeakerIdentity(speakerId, displayName);
   }
-}
-
-export function cancelPreparedTranscription(): void {
-  window.electronAPI?.meetingTranscriptionCancel?.();
 }
 
 // Persists delayed diarization results to the note that owns the recording

@@ -34,8 +34,6 @@ function resolveContextSileroEnabled(settings = {}, context = "dictation") {
 
 module.exports = {
   DEFAULT_WHISPER_VAD_CONFIG,
-  VAD_LIMITS,
-  clampVadField,
   sanitizeWhisperVadConfig,
   resolveContextSileroEnabled,
 };

@@ -184,12 +184,9 @@
     "loading": "Loading...",
     "unknown": "Unknown",
     "availableModels": "Available Models",
-    "fast": "Fast",
     "hold": "Hold",
-    "private": "Private",
     "tap": "Tap",
     "close": "Close",
-    "dismiss": "Dismiss",
     "save": "Save",
     "saving": "Saving…",
     "create": "Create",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "Permissions",
-      "microphoneTitle": "Microphone",
-      "microphoneDescription": "Turns your speech into text. Nothing is recorded until you press your hotkey.",
       "grant": "Grant",
       "grantAccess": "Grant Access",
-      "accessibilityTitle": "Accessibility",
-      "accessibilityDescription": "Types the finished text straight into whatever app you're in — docs, email, chat.",
       "testAndGrant": "Test & Grant",
       "requiredForApp": "Required for Loqui to work",
       "microphoneRequired": "Microphone access required",
-      "openSystemSettings": "Open System Settings",
-      "systemAudioTitle": "System Audio",
-      "systemAudioDescription": "Lets the meeting recorder hear the other side of your calls — meetings, lectures, podcasts. You can turn this on later in Settings.",
-      "optional": "Optional",
-      "recommended": "Recommended",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "Open System Settings"
     },
     "transcription": {
       "title": "Transcription Setup",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "Enter a full base URL including protocol (for example, https://server/v1).",
       "httpsRequired": "HTTPS required (HTTP allowed for local network only).",
-      "endpointInvalid": "Custom endpoint is invalid or not configured. Check the endpoint URL in Settings → AI Models.",
       "endpointUnauthorized": "Endpoint rejected the request (401/403). Add an API key or adjust server auth settings.",
       "endpointTitle": "Endpoint URL",
       "endpointExamples": "Examples:",
@@ -774,7 +761,6 @@
       "projectId": "Project ID",
       "location": "Location",
       "customModelId": "Custom Model ID",
-      "customModelPlaceholder": "Enter model ID or deployment name",
       "suggestedModels": "Suggested Models",
       "browseModels": "Browse all models",
       "loadingModels": "Fetching models...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "Model",
       "parakeetModelDescription": "NVIDIA Parakeet Model"
     },
-    "whisperModels": "Whisper Models",
     "corti": {
       "clientId": "Client ID",
       "clientSecret": "Client Secret",
@@ -1338,50 +1323,6 @@
     "title": "Reset your password"
   },
   "actionPrompt": "Action Prompt",
-  "hotkeyGuidance": {
-    "blockedDescription": "These shortcuts are blocked because they are commonly used by the system.",
-    "blockedTitle": "Blocked shortcuts",
-    "description": "Use these platform rules to choose a shortcut that won't conflict with your system.",
-    "examplesTitle": "Valid examples",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "Recommended shortcuts",
-    "rulesTitle": "Shortcut rules",
-    "showAll": "Show all",
-    "showFewer": "Show fewer",
-    "title": "Shortcut Guide",
-    "validationRules": {
-      "0": "Must use at least one modifier (Ctrl, Alt, Shift, etc.)",
-      "1": "Cannot use reserved system shortcuts",
-      "2": "Single keys alone are not allowed",
-      "3": "Some combinations may conflict with other apps"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "Press a key combination to set hotkey",
     "clickToChange": "Click to change",
@@ -3079,16 +3020,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "Enter a folder name.",
-      "folderAlreadyExists": "A folder with that name already exists.",
-      "folderNotFound": "That folder could not be found.",
-      "defaultFolderImmutable": "Default folders cannot be changed.",
-      "spaceNameRequired": "Enter a space name.",
-      "spaceNotFound": "That space could not be found.",
-      "privateSpaceImmutable": "Your Personal space cannot be changed.",
-      "generic": "The change could not be completed. Please try again."
-    },
     "sidebar": {
       "newNote": "New note",
       "searchNotes": "Search notes",
@@ -3273,7 +3204,6 @@
       "noteTitle": "Note title",
       "stop": "Stop",
       "transcribe": "Transcribe",
-      "processing": "Processing...",
       "export": "Export",
       "asMarkdown": "As Markdown",
       "asPlainText": "As Plain Text",
@@ -3505,10 +3435,6 @@
         "grant": "Grant Permission",
         "enabled": "Enabled"
       }
-    },
-    "realtimeBanner": {
-      "message": "Real-time transcription available on Pro",
-      "upgrade": "Upgrade"
     },
     "enhance": {
       "title": "Enhancement error"
@@ -4015,14 +3941,6 @@
         "resendThrottled": "Invitation sent recently. Try again in a minute.",
         "syncPrompt": "Sharing keeps a copy of this note in your Loqui cloud. Only you can see it until you choose who to share it with.",
         "syncAndShare": "Sync note",
-        "visibility": {
-          "label": "Visibility",
-          "private": "Private",
-          "privateOption": "Private — only you",
-          "link": "Anyone with the link",
-          "domain": "Everyone at {{domain}} with the link",
-          "invited": "Only people invited"
-        },
         "error": {
           "invalidEmail": "Enter a valid email address",
           "alreadyInvited": "{{email}} is already invited",

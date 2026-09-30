@@ -175,4 +175,4 @@ class ImportedModelStore {
   }
 }
 
-module.exports = { ImportedModelStore, IMPORTED_PROVIDER };
+module.exports = { ImportedModelStore };

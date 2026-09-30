@@ -73,7 +73,7 @@ const NOTE_EXPORT_LABEL_KEYS = {
   txt: "notes.editor.asPlainText",
 } as const;
 
-export interface Enhancement {
+interface Enhancement {
   content: string;
   isStale: boolean;
   onChange: (sourceNoteId: number, content: string) => void;

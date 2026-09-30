@@ -184,12 +184,9 @@
     "loading": "Загрузка...",
     "unknown": "Неизвестно",
     "availableModels": "Доступные модели",
-    "fast": "Быстрый",
     "hold": "Удержание",
-    "private": "Приватный",
     "tap": "Нажатие",
     "close": "Закрыть",
-    "dismiss": "Скрыть",
     "save": "Сохранить",
     "saving": "Сохранение…",
     "create": "Создать",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "Разрешения",
-      "microphoneTitle": "Микрофон",
-      "microphoneDescription": "Превращает вашу речь в текст. Ничего не записывается, пока вы не нажмёте горячую клавишу.",
       "grant": "Предоставить",
       "grantAccess": "Предоставить доступ",
-      "accessibilityTitle": "Универсальный доступ",
-      "accessibilityDescription": "Вводит готовый текст прямо в приложение, где вы находитесь, — документы, почта, чат.",
       "testAndGrant": "Проверить и предоставить",
       "requiredForApp": "Необходимо для работы Loqui",
       "microphoneRequired": "Требуется доступ к микрофону",
-      "openSystemSettings": "Открыть Системные настройки",
-      "systemAudioTitle": "Системное аудио",
-      "systemAudioDescription": "Позволяет рекордеру встреч слышать собеседников в ваших звонках — встречи, лекции, подкасты. Можно включить позже в Настройках.",
-      "optional": "Необязательно",
-      "recommended": "Рекомендуется",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "Открыть Системные настройки"
     },
     "transcription": {
       "title": "Настройка транскрипции",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "Введите полный базовый URL, включая протокол (например, https://server/v1).",
       "httpsRequired": "Требуется HTTPS (HTTP допускается только для локальной сети).",
-      "endpointInvalid": "Пользовательская конечная точка недействительна или не настроена. Проверьте URL конечной точки в Настройках → Модели ИИ.",
       "endpointUnauthorized": "Конечная точка отклонила запрос (401/403). Добавьте API-ключ или измените настройки авторизации сервера.",
       "endpointTitle": "URL конечной точки",
       "endpointExamples": "Примеры:",
@@ -774,7 +761,6 @@
       "projectId": "ID проекта",
       "location": "Расположение",
       "customModelId": "Пользовательский ID модели",
-      "customModelPlaceholder": "Введите ID модели или имя развёртывания",
       "suggestedModels": "Рекомендуемые модели",
       "browseModels": "Просмотреть все модели",
       "loadingModels": "Загрузка моделей...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "Модель",
       "parakeetModelDescription": "Модель NVIDIA Parakeet"
     },
-    "whisperModels": "Модели Whisper",
     "corti": {
       "clientId": "ID клиента",
       "clientSecret": "Секрет клиента",
@@ -1245,50 +1230,6 @@
     "title": "Сброс пароля"
   },
   "actionPrompt": "Промпт действия",
-  "hotkeyGuidance": {
-    "blockedDescription": "Эти сочетания заблокированы, так как часто используются системой.",
-    "blockedTitle": "Заблокированные сочетания",
-    "description": "Используйте эти правила для выбора сочетания клавиш, которое не будет конфликтовать с системой.",
-    "examplesTitle": "Допустимые примеры",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "Рекомендуемые сочетания",
-    "rulesTitle": "Правила сочетаний",
-    "showAll": "Показать все",
-    "showFewer": "Показать меньше",
-    "title": "Справка по сочетаниям клавиш",
-    "validationRules": {
-      "0": "Необходимо использовать хотя бы один модификатор (Ctrl, Alt, Shift и т.д.)",
-      "1": "Нельзя использовать зарезервированные системные сочетания",
-      "2": "Одиночные клавиши без модификаторов не допускаются",
-      "3": "Некоторые сочетания могут конфликтовать с другими приложениями"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "Нажмите комбинацию клавиш для назначения горячей клавиши",
     "clickToChange": "Нажмите для изменения",
@@ -2747,16 +2688,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "Введите название папки.",
-      "folderAlreadyExists": "Папка с таким названием уже существует.",
-      "folderNotFound": "Эта папка не найдена.",
-      "defaultFolderImmutable": "Папки по умолчанию нельзя изменять.",
-      "spaceNameRequired": "Введите название пространства.",
-      "spaceNotFound": "Это пространство не найдено.",
-      "privateSpaceImmutable": "Личное пространство нельзя изменять.",
-      "generic": "Не удалось выполнить изменение. Попробуйте снова."
-    },
     "sidebar": {
       "newNote": "Новая заметка",
       "searchNotes": "Поиск заметок",
@@ -2945,7 +2876,6 @@
       "noteTitle": "Название заметки",
       "stop": "Стоп",
       "transcribe": "Транскрибировать",
-      "processing": "Обработка...",
       "export": "Экспорт",
       "asMarkdown": "Как Markdown",
       "asPlainText": "Как обычный текст",
@@ -3177,10 +3107,6 @@
         "grant": "Предоставить разрешение",
         "enabled": "Включено"
       }
-    },
-    "realtimeBanner": {
-      "message": "Транскрипция в реальном времени доступна в Pro",
-      "upgrade": "Перейти"
     },
     "enhance": {
       "title": "Ошибка улучшения"
@@ -3930,14 +3856,6 @@
         "resendThrottled": "Приглашение недавно отправлено. Попробуйте через минуту.",
         "syncPrompt": "При публикации копия этой заметки сохраняется в вашем облаке Loqui. Только вы видите её, пока не выберете, с кем поделиться.",
         "syncAndShare": "Синхронизировать заметку",
-        "visibility": {
-          "label": "Видимость",
-          "private": "Приватная",
-          "privateOption": "Приватная — только вы",
-          "link": "Любой со ссылкой",
-          "domain": "Все в {{domain}} со ссылкой",
-          "invited": "Только приглашённые"
-        },
         "error": {
           "invalidEmail": "Введите корректный адрес эл. почты",
           "alreadyInvited": "{{email}} уже приглашён",

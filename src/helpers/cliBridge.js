@@ -577,4 +577,3 @@ class CliBridge {
 }
 
 module.exports = CliBridge;
-module.exports.getBridgeFilePath = getBridgeFilePath;

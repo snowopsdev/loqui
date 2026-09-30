@@ -65,7 +65,7 @@ async function buildRAGContext(userText: string, scope?: ContainerScope): Promis
  * the model picked under Settings > Voice Assistant is the one that answers
  * (see resolveChatStreamingInference for its Chat fallback).
  */
-export type ChatStreamingScope = "chatIntelligence" | "dictationAgent";
+type ChatStreamingScope = "chatIntelligence" | "dictationAgent";
 
 interface UseChatStreamingOptions {
   messages: Message[];

@@ -19,11 +19,6 @@ export function getCleanupSystemPrompt(
   return resolvePrompt("cleanup", { agentName, language, customDictionary, uiLanguage });
 }
 
-export function getWordBoost(customDictionary?: string[]): string[] {
-  if (!customDictionary || customDictionary.length === 0) return [];
-  return customDictionary.filter((w) => w.trim());
-}
-
 const TOOL_INSTRUCTIONS: Record<string, string> = {
   search_notes:
     "Use search_notes to find information from the user's past meetings, discussions, or personal notes before answering from memory.",

@@ -1,4 +1,4 @@
-export const ONBOARDING_VERSION = 2 as const;
+const ONBOARDING_VERSION = 2 as const;
 
 export type OnboardingStep = "welcome" | "speech" | "cleanup" | "try" | "shortcuts" | "finish";
 
@@ -66,29 +66,29 @@ const SCENARIO_VALUES = new Set<string>([
 ]);
 
 const STORAGE_KEY = "loqui.onboarding.progress";
-export const PREVIEW_STORAGE_PREFIX = "loqui.onboarding.preview.";
+const PREVIEW_STORAGE_PREFIX = "loqui.onboarding.preview.";
 
-export function isOnboardingStep(value: unknown): value is OnboardingStep {
+function isOnboardingStep(value: unknown): value is OnboardingStep {
   return typeof value === "string" && STEP_VALUES.has(value);
 }
 
-export function isOnboardingScenario(value: unknown): value is OnboardingScenario {
+function isOnboardingScenario(value: unknown): value is OnboardingScenario {
   return typeof value === "string" && SCENARIO_VALUES.has(value);
 }
 
-export function normalizeOnboardingStep(value: unknown): OnboardingStep {
+function normalizeOnboardingStep(value: unknown): OnboardingStep {
   return isOnboardingStep(value) ? value : "welcome";
 }
 
-export function normalizeOnboardingScenario(value: unknown): OnboardingScenario {
+function normalizeOnboardingScenario(value: unknown): OnboardingScenario {
   return isOnboardingScenario(value) ? value : "fresh";
 }
 
-export function normalizeOnboardingPlatform(value: unknown): OnboardingPreviewPlatform {
+function normalizeOnboardingPlatform(value: unknown): OnboardingPreviewPlatform {
   return value === "linux" ? "linux" : "macos";
 }
 
-export function defaultOnboardingProgress(): OnboardingProgress {
+function defaultOnboardingProgress(): OnboardingProgress {
   return { version: ONBOARDING_VERSION, step: "welcome", explored: false, completed: false };
 }
 

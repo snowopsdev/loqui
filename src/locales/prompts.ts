@@ -27,8 +27,8 @@ export const pt: PromptBundle = ptPrompts;
 export const it: PromptBundle = itPrompts;
 export const ru: PromptBundle = ruPrompts;
 export const ja: PromptBundle = jaPrompts;
-export const zhCN: PromptBundle = zhCNPrompts;
-export const zhTW: PromptBundle = zhTWPrompts;
+const zhCN: PromptBundle = zhCNPrompts;
+const zhTW: PromptBundle = zhTWPrompts;
 
 export const PROMPTS_BY_LOCALE = {
   en,

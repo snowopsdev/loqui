@@ -156,5 +156,4 @@ class SpeakerEmbeddings {
 
 const instance = new SpeakerEmbeddings();
 module.exports = instance;
-module.exports.SpeakerEmbeddings = SpeakerEmbeddings;
 module.exports.MAX_EMBEDDING_SECONDS = MAX_EMBEDDING_SECONDS;

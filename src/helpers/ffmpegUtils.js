@@ -547,7 +547,6 @@ module.exports = {
   convertToWav,
   convertBufferToWav,
   convertToMp3,
-  splitAudioFile,
   parseFfmpegDuration,
   wavToFloat32Samples,
   computeFloat32RMS,

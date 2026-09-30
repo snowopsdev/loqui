@@ -612,12 +612,12 @@ function ContainerRow({
     >
       {target.folderId != null ? (
         <Folder size={13} className={iconClass} />
-      ) : space?.kind === "private" ? (
-        <Lock size={13} className={iconClass} />
       ) : space?.emoji ? (
-        <span className="text-[13px] leading-none shrink-0" aria-hidden="true">
+        <span className="font-emoji text-[13px] leading-none shrink-0" aria-hidden="true">
           {space.emoji}
         </span>
+      ) : space?.kind === "private" ? (
+        <Lock size={13} className={iconClass} />
       ) : (
         <Users size={13} className={iconClass} />
       )}

@@ -11,15 +11,19 @@ export function ContainerIcon({ space, folder, size = 14 }: ContainerIconProps) 
   if (folder) {
     return <Folder size={size} className="text-muted-foreground/70 shrink-0" />;
   }
-  if (space.kind === "private") {
-    return <Lock size={size} className="text-muted-foreground/70 shrink-0" />;
-  }
   if (space.emoji) {
     return (
-      <span className="leading-none shrink-0" style={{ fontSize: size }} aria-hidden="true">
+      <span
+        className="font-emoji leading-none shrink-0"
+        style={{ fontSize: size }}
+        aria-hidden="true"
+      >
         {space.emoji}
       </span>
     );
+  }
+  if (space.kind === "private") {
+    return <Lock size={size} className="text-muted-foreground/70 shrink-0" />;
   }
   return <Users size={size} className="text-muted-foreground/70 shrink-0" />;
 }

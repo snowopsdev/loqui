@@ -227,19 +227,10 @@ function resolveContextSize({ needed = 0, floor = 0, ceiling = BASELINE_CONTEXT_
 }
 
 module.exports = {
-  LATIN_CHARS_PER_TOKEN,
-  KV_ELEMENT_BYTES,
   estimateTokens,
   kvBytesPerToken,
   resolveContextCeiling,
   resolveContextSize,
-  CONTEXT_STEPS,
   BASELINE_CONTEXT_SIZE,
-  USABLE_MEMORY_FRACTION,
-  FIXED_OS_RESERVE_BYTES,
   COMPUTE_FIXED_BYTES,
-  COMPUTE_BYTES_PER_TOKEN,
-  RECURRENT_STATE_BYTES,
-  UNVERIFIED_GPU_CEILING,
-  CONTEXT_ALIGNMENT,
 };

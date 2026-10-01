@@ -243,6 +243,3 @@ class OnnxWorkerClient {
 
 const instance = new OnnxWorkerClient();
 module.exports = instance;
-module.exports.OnnxWorkerClient = OnnxWorkerClient;
-module.exports.WorkerCrashedError = WorkerCrashedError;
-module.exports.WorkerOverloadedError = WorkerOverloadedError;

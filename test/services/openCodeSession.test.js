@@ -1,33 +1,33 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const loadSession = () => import("../../src/services/ai/openCodeSession.ts");
+const loadSession = () => require("../../src/helpers/openCodeSession");
 const loadProviders = async () => ({
   getAIModel: require("../../src/helpers/personalInference").createModel,
 });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-test("isOpenCodeBase recognises OpenCode hosts and nothing else", async () => {
-  const { isOpenCodeBase } = await loadSession();
+test("openCodeSessionHeaders recognises OpenCode hosts and nothing else", () => {
+  const { openCodeSessionHeaders } = loadSession();
+  const hasSession = (baseUrl) => "x-opencode-session" in openCodeSessionHeaders(baseUrl);
 
-  assert.equal(isOpenCodeBase("https://opencode.ai/zen/go/v1"), true);
-  assert.equal(isOpenCodeBase("https://api.opencode.ai/zen/go/v1"), true);
-  assert.equal(isOpenCodeBase("HTTPS://OpenCode.AI/zen/go/v1"), true);
-  assert.equal(isOpenCodeBase("opencode.ai/zen/go/v1"), true);
+  assert.equal(hasSession("https://opencode.ai/zen/go/v1"), true);
+  assert.equal(hasSession("https://api.opencode.ai/zen/go/v1"), true);
+  assert.equal(hasSession("HTTPS://OpenCode.AI/zen/go/v1"), true);
 
   // A lookalike host must not borrow the header (and the session id with it).
-  assert.equal(isOpenCodeBase("https://opencode.ai.evil.com/v1"), false);
-  assert.equal(isOpenCodeBase("https://notopencode.ai/v1"), false);
-  assert.equal(isOpenCodeBase("https://api.openai.com/v1"), false);
-  assert.equal(isOpenCodeBase("not a url"), false);
-  assert.equal(isOpenCodeBase(""), false);
-  assert.equal(isOpenCodeBase(null), false);
-  assert.equal(isOpenCodeBase(undefined), false);
+  assert.equal(hasSession("https://opencode.ai.evil.com/v1"), false);
+  assert.equal(hasSession("https://notopencode.ai/v1"), false);
+  assert.equal(hasSession("https://api.openai.com/v1"), false);
+  assert.equal(hasSession("not a url"), false);
+  assert.equal(hasSession(""), false);
+  assert.equal(hasSession(null), false);
+  assert.equal(hasSession(undefined), false);
 });
 
-test("openCodeSessionHeaders mints one id per call and stays empty elsewhere", async () => {
-  const { openCodeSessionHeaders } = await loadSession();
+test("openCodeSessionHeaders mints one id per call and stays empty elsewhere", () => {
+  const { openCodeSessionHeaders } = loadSession();
 
   assert.deepEqual(openCodeSessionHeaders("https://api.openai.com/v1"), {});
   assert.deepEqual(openCodeSessionHeaders(undefined), {});

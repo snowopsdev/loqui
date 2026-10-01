@@ -1,4 +1,4 @@
-export const NATIVE_SEARCH_PROVIDERS = new Set(["openai", "anthropic", "gemini"]);
+const NATIVE_SEARCH_PROVIDERS = new Set(["openai", "anthropic", "gemini"]);
 export function supportsProviderSearch(scope: string, provider: string, mode: string): boolean {
   return (
     ["chatIntelligence", "dictationAgent"].includes(scope) &&

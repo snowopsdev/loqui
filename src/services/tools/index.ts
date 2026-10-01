@@ -13,7 +13,6 @@ import { createUpdateDictionaryTool, type DictionaryActions } from "./dictionary
 import { createSnippetTool, createUpdateSnippetsTool, type SnippetActions } from "./snippetTool";
 
 export { ToolRegistry } from "./ToolRegistry";
-export type { ToolDefinition, ToolResult } from "./ToolRegistry";
 
 interface ToolRegistrySettings {
   calendarConnected: boolean;

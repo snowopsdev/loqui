@@ -11,7 +11,7 @@ import { isControlPanelWindow } from "./utils/windowContext.ts";
 const ControlPanel = React.lazy(() => import("./components/ControlPanel.tsx"));
 const OnboardingFlow = React.lazy(() => import("./components/OnboardingFlow.tsx"));
 const BrowserPreview = import.meta.env.DEV
-  ? React.lazy(() => import("./preview/BrowserPreview"))
+  ? React.lazy(() => import("./preview/BrowserPreview.tsx"))
   : null;
 export default function AppRouter() {
   useTheme();

@@ -1421,7 +1421,7 @@ class DatabaseManager {
         values.push(emoji);
       }
       if (fields.length === 0) return { success: false };
-      fields.push("", "updated_at = datetime('now')");
+      fields.push("updated_at = datetime('now')");
       values.push(id);
       this.db.prepare(`UPDATE spaces SET ${fields.join(", ")} WHERE id = ?`).run(...values);
       const updated = this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(id);

@@ -68,7 +68,6 @@ const EXPECTED_SHARED_FIELD_DIRECTIONS = {
   "src/components/notes/UploadAudioView.tsx": ["auto"],
   "src/components/settings/DictationAgentSettings.tsx": ["auto"],
   "src/components/ui/ApiKeyInput.tsx": ["ltr"],
-  "src/components/ui/CustomModelInput.tsx": ["ltr"],
   "src/components/ui/PromptStudio.tsx": ["auto", "auto"],
   "src/components/ui/SearchableModelList.tsx": ["ltr"],
 };
@@ -84,7 +83,6 @@ const EXPECTED_NATIVE_FIELD_DIRECTIONS = {
   "src/components/notes/NoteEditor.tsx": ["auto", "auto"],
   "src/components/notes/NoteParticipants.tsx": ["auto"],
   "src/components/notes/NotesOnboarding.tsx": ["auto", "auto", "auto"],
-  "src/components/notes/SpaceNameField.tsx": ["auto"],
   "src/components/notes/UploadAudioView.tsx": ["ltr", "ltr", "inherit"],
   "src/components/settings/ChatAgentSettings.tsx": ["auto"],
   "src/components/ui/EmojiPicker.tsx": ["auto"],

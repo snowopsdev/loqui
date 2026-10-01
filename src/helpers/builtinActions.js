@@ -4,7 +4,7 @@
 // system-prompt wrapper; the newer built-ins are complete
 // instructions and are sent standalone (see STANDALONE_PROMPT_KEYS).
 
-export const GENERATE_NOTES_KEY = "notes.actions.builtin.generateNotes";
+const GENERATE_NOTES_KEY = "notes.actions.builtin.generateNotes";
 export const DETAILED_NOTES_KEY = "notes.actions.builtin.detailedNotes";
 export const FOLLOW_UP_EMAIL_KEY = "notes.actions.builtin.followUpEmail";
 

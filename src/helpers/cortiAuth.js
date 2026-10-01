@@ -75,4 +75,4 @@ async function getCortiToken({ environment, tenant, clientId, clientSecret }, fe
   }
 }
 
-module.exports = { assertValidTarget, getCortiToken };
+module.exports = { getCortiToken };

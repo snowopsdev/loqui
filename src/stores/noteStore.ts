@@ -77,7 +77,7 @@ export function spaceContainerKey(spaceId: number): string {
   return `s:${spaceId}`;
 }
 
-export function contextContainerKey(context: ActiveContext): string {
+function contextContainerKey(context: ActiveContext): string {
   return context.folderId != null
     ? folderContainerKey(context.folderId)
     : spaceContainerKey(context.spaceId);
@@ -190,7 +190,7 @@ function ensureIpcListeners() {
   });
 }
 
-export async function loadSpaces(): Promise<SpaceItem[]> {
+async function loadSpaces(): Promise<SpaceItem[]> {
   const gen = ++spacesLoadGeneration;
   const items = (await window.electronAPI.getSpaces?.()) ?? [];
   // A newer load may have resolved first.
@@ -219,7 +219,7 @@ export async function loadFolders(): Promise<FolderItem[]> {
 const containerLoadGenerations = new Map<string, number>();
 const containerLoadsInFlight = new Map<string, Promise<NoteItem[]>>();
 
-export async function loadContainerNotes(
+async function loadContainerNotes(
   key: string,
   noteType: string | null = null,
   limit = DEFAULT_LIMIT
@@ -247,7 +247,7 @@ export async function loadContainerNotes(
   }
 }
 
-export async function ensureContainerLoaded(key: string): Promise<NoteItem[]> {
+async function ensureContainerLoaded(key: string): Promise<NoteItem[]> {
   const cached = useNoteStore.getState().notesByContainer[key];
   if (cached) return cached;
   return containerLoadsInFlight.get(key) ?? loadContainerNotes(key);
@@ -365,7 +365,7 @@ export async function initializeNotes(
   return items;
 }
 
-export function addNote(note: NoteItem): void {
+function addNote(note: NoteItem): void {
   if (!note) return;
   const state = useNoteStore.getState();
   const key = noteContainerKey(note);
@@ -379,7 +379,7 @@ export function addNote(note: NoteItem): void {
   applyContainers({ ...state.notesByContainer, [key]: next });
 }
 
-export function updateNoteInStore(note: NoteItem): void {
+function updateNoteInStore(note: NoteItem): void {
   if (!note) return;
   const state = useNoteStore.getState();
   const targetKey = noteContainerKey(note);
@@ -406,7 +406,7 @@ export function updateNoteInStore(note: NoteItem): void {
   if (changed) applyContainers(notesByContainer);
 }
 
-export function removeNote(id: number): void {
+function removeNote(id: number): void {
   if (id == null) return;
   const state = useNoteStore.getState();
   const result = removeNoteFromLists(state, id);

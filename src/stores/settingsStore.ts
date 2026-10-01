@@ -2724,7 +2724,7 @@ export function clearMissingLocalModelSelections(isInstalled: (modelId: string) 
 }
 
 /** Reconciles every scope against the models actually on disk. */
-export async function reconcileLocalModelSelections(): Promise<void> {
+async function reconcileLocalModelSelections(): Promise<void> {
   if (!isBrowser || !window.electronAPI?.modelGetAll) return;
 
   const models = await window.electronAPI.modelGetAll();

@@ -12,15 +12,6 @@ export const LOCAL_ASR_ORGANIZATIONS = [
   { id: "cohere", name: "Cohere" },
 ];
 
-// What the local route opens on before the user has ever chosen a local model.
-export const DEFAULT_LOCAL_ASR_SELECTION = {
-  provider: "oruk",
-  modelId:
-    Object.keys(catalog).find(
-      (id) => catalog[id]?.organization?.id === "oruk" && catalog[id]?.recommended
-    ) ?? "",
-};
-
 export function getASRModelOrganization(modelId: string): string {
   return (
     catalog[modelId]?.organization?.id ||

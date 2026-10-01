@@ -14,7 +14,7 @@ const MEETING_BYOK_PROVIDER_IDS = getMeetingStreamingTranscriptionProviders().ma
   (provider) => provider.id
 );
 
-export function MeetingSpeakerDetectionRow() {
+function MeetingSpeakerDetectionRow() {
   const { t } = useTranslation();
   const speakerDiarizationEnabled = useSettingsStore((s) => s.speakerDiarizationEnabled);
   const setSpeakerDiarizationEnabled = useSettingsStore((s) => s.setSpeakerDiarizationEnabled);

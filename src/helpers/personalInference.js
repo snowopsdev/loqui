@@ -524,6 +524,4 @@ module.exports = {
   validateCredentialRef,
   APP_TOOLS,
   createModel,
-  providerSearchTools,
-  searchSourcesText,
 };

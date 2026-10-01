@@ -143,3 +143,20 @@ test("folder and workspace conversations stay scoped while global chats remain s
   assert.deepEqual(db.getNoteIdsInScope(spaceId, folder.id, [note.id, 999]), [note.id]);
   assert.equal(db.createAgentConversation("stale", 999), null);
 });
+
+test("the Personal space takes a custom emoji but keeps its name", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const id = db.getPrivateSpaceId();
+  const name = db.getSpace(id).name;
+
+  const set = db.updateSpace(id, { emoji: "🚀" });
+  assert.equal(set.success, true);
+  assert.equal(set.space.emoji, "🚀");
+  assert.equal(db.getSpaces()[0].emoji, "🚀");
+  assert.equal(db.getSpaces()[0].name, name);
+
+  assert.equal(db.updateSpace(id, { emoji: null }).space.emoji, null);
+  assert.equal(db.updateSpace(id, { name: "Renamed" }).success, false);
+  assert.equal(db.getSpace(id).name, name);
+});

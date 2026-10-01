@@ -54,7 +54,7 @@ function makeNote(
 
 // An explicit, in-memory bridge for UI review. No IPC, network proxy, filesystem,
 // provider credentials or model downloads are exposed by this adapter.
-export function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
+function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
   let notes = [
     makeNote(
       1,
@@ -185,6 +185,10 @@ export function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
       return { success: true, cleared };
     },
     getSpaces: async () => [{ ...space }],
+    updateSpace: async (_id, updates) => {
+      if (updates.emoji !== undefined) space.emoji = updates.emoji;
+      return { success: true, space: { ...space } };
+    },
     getFolders: async () => [],
     getFolderNoteCounts: async () => [{ space_id: 1, folder_id: null, count: notes.length }],
     getNotes: async (type) =>

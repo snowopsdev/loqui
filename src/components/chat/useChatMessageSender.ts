@@ -19,7 +19,7 @@ interface UseChatMessageSenderOptions {
   onSendingChange?: (sending: boolean) => void;
 }
 
-export interface MessageSubmissionLock {
+interface MessageSubmissionLock {
   run: (operation: () => Promise<void>) => Promise<boolean>;
 }
 

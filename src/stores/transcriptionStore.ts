@@ -80,7 +80,7 @@ export async function initializeTranscriptions(
   return items;
 }
 
-export function addTranscription(item: TranscriptionItem) {
+function addTranscription(item: TranscriptionItem) {
   if (!item) return;
   if (item.status === "discarded" && !useTranscriptionStore.getState().includeDiscarded) return;
   const { transcriptions } = useTranscriptionStore.getState();

@@ -1,4 +1,4 @@
-const { clipboard, systemPreferences } = require("electron");
+const { clipboard, ClipboardItem, systemPreferences } = require("electron");
 const { spawn, spawnSync } = require("child_process");
 const { killProcess } = require("../utils/process");
 const path = require("path");
@@ -113,7 +113,7 @@ class ClipboardManager {
     return isWayland;
   }
 
-  _writeClipboardWayland(text, webContents) {
+  async _writeClipboardWayland(text, webContents) {
     const { isKde } = getLinuxSessionInfo();
 
     // On KDE with XWayland, write to X11 clipboard directly because
@@ -126,7 +126,7 @@ class ClipboardManager {
             timeout: 200,
           });
           if (result.status === 0) {
-            clipboard.writeText(text);
+            await clipboard.writeText(text);
             return;
           }
         } catch {}
@@ -138,13 +138,13 @@ class ClipboardManager {
             timeout: 200,
           });
           if (result.status === 0) {
-            clipboard.writeText(text);
+            await clipboard.writeText(text);
             return;
           }
         } catch {}
       }
       // Last resort: Electron's clipboard.writeText should work on XWayland
-      clipboard.writeText(text);
+      await clipboard.writeText(text);
       return;
     }
 
@@ -152,17 +152,17 @@ class ClipboardManager {
       try {
         const result = spawnSync("wl-copy", ["--", text], { timeout: 50 });
         if (result.status === 0) {
-          clipboard.writeText(text);
+          await clipboard.writeText(text);
           return;
         }
       } catch {}
     }
 
     if (webContents && !webContents.isDestroyed()) {
-      writeClipboardInRenderer(webContents, text).catch(() => {});
+      await writeClipboardInRenderer(webContents, text).catch(() => {});
     }
 
-    clipboard.writeText(text);
+    await clipboard.writeText(text);
   }
 
   // PRIMARY selection (X11's "highlight to copy") is what terminals like alacritty,
@@ -170,7 +170,7 @@ class ClipboardManager {
   // there so Shift+Insert pastes reliably regardless of which selection the
   // terminal uses. Falls through wl-copy → xclip → xsel → Electron's selection
   // target so we cover Wayland, X11, and XWayland setups.
-  _writePrimarySelection(text) {
+  async _writePrimarySelection(text) {
     if (process.platform !== "linux") return;
 
     const { isWayland } = getLinuxSessionInfo();
@@ -203,11 +203,11 @@ class ClipboardManager {
     }
 
     try {
-      clipboard.writeText(text, "selection");
+      await clipboard.selection.writeText(text);
     } catch {}
   }
 
-  _readPrimarySelection() {
+  async _readPrimarySelection() {
     if (process.platform !== "linux") return null;
 
     const { isWayland } = getLinuxSessionInfo();
@@ -234,7 +234,7 @@ class ClipboardManager {
     }
 
     try {
-      return clipboard.readText("selection") || "";
+      return (await clipboard.selection.readText()) || "";
     } catch {}
     return null;
   }
@@ -254,7 +254,7 @@ class ClipboardManager {
   // synthetic copy replaces it. On Wayland — KDE especially — the X11 and
   // Wayland clipboards can be desynced, so write and read BOTH sides; a value
   // appearing on either side counts.
-  _writeClipboardTextAll(text) {
+  async _writeClipboardTextAll(text) {
     if (this._isWayland() && this.commandExists("wl-copy")) {
       try {
         spawnSync("wl-copy", ["--", text], { timeout: 200 });
@@ -270,10 +270,10 @@ class ClipboardManager {
         spawnSync("xsel", ["--clipboard", "--input"], { input: text, timeout: 200 });
       } catch {}
     }
-    clipboard.writeText(text);
+    await clipboard.writeText(text);
   }
 
-  _readClipboardTextAll() {
+  async _readClipboardTextAll() {
     const texts = [];
     if (this._isWayland() && this.commandExists("wl-paste")) {
       try {
@@ -294,7 +294,7 @@ class ClipboardManager {
       } catch {}
     }
     try {
-      texts.push(clipboard.readText());
+      texts.push(await clipboard.readText());
     } catch {}
     return [...new Set(texts.filter((text) => typeof text === "string"))];
   }
@@ -727,48 +727,36 @@ class ClipboardManager {
     });
   }
 
-  _saveClipboard() {
-    const formats = clipboard.availableFormats();
-    const data = {};
-
-    const text = clipboard.readText();
-    if (text) data.text = text;
-
-    if (formats.includes("text/html")) {
-      const html = clipboard.readHTML();
-      if (html) data.html = html;
+  async _saveClipboard() {
+    // Materialize every representation before a write invalidates lazy native
+    // readers. Retain custom/native formats as well as HTML, RTF and images.
+    const items = await clipboard.read();
+    const snapshots = [];
+    for (const item of items) {
+      if (item.types.length === 0) continue;
+      const data = {};
+      for (const type of item.types) data[type] = await item.getType(type);
+      snapshots.push(new ClipboardItem(data));
     }
-
-    if (formats.includes("text/rtf") || formats.includes("public.rtf")) {
-      const rtf = clipboard.readRTF();
-      if (rtf) data.rtf = rtf;
+    if (
+      snapshots.length === 1 &&
+      snapshots[0].types.length === 1 &&
+      snapshots[0].types[0] === "text/plain"
+    ) {
+      const payload = await snapshots[0].getType("text/plain");
+      return { type: "text", data: typeof payload === "string" ? payload : await payload.text() };
     }
-
-    if (formats.some((f) => f.startsWith("image/"))) {
-      const image = clipboard.readImage();
-      if (image && !image.isEmpty()) data.image = image;
-    }
-
-    const keys = Object.keys(data);
-    if (keys.length === 1 && keys[0] === "image") {
-      return { type: "image", data: data.image };
-    }
-    if (keys.length === 1 && keys[0] === "text") {
-      return { type: "text", data: data.text };
-    }
-    if (keys.length > 0) return { type: "formats", data };
-
-    return { type: "text", data: text };
+    return { type: "items", data: snapshots };
   }
 
-  _restoreClipboard(original) {
+  async _restoreClipboard(original) {
     if (!original) return;
-    if (original.type === "formats") {
-      clipboard.write(original.data);
-    } else if (original.type === "image") {
-      clipboard.writeImage(original.data);
+    if (original.type === "text") {
+      await clipboard.writeText(original.data);
+    } else if (original.data.length === 0) {
+      clipboard.clear();
     } else {
-      clipboard.writeText(original.data);
+      await clipboard.write(original.data);
     }
     this.safeLog("🔄 Clipboard restored");
   }
@@ -780,7 +768,7 @@ class ClipboardManager {
     if (typeof expectedText === "string") {
       let currentText = null;
       try {
-        currentText = clipboard.readText();
+        currentText = await clipboard.readText();
       } catch {}
 
       if (currentText !== expectedText) {
@@ -797,11 +785,11 @@ class ClipboardManager {
     }
 
     if (restore) {
-      restore();
+      await restore();
       return;
     }
 
-    this._restoreClipboard(original);
+    await this._restoreClipboard(original);
   }
 
   safeLog(...args) {
@@ -883,22 +871,22 @@ class ClipboardManager {
 
     try {
       const shouldRestore = options.restoreClipboard !== false;
-      const originalClipboard = shouldRestore ? this._saveClipboard() : null;
+      const originalClipboard = shouldRestore ? await this._saveClipboard() : null;
       const originalPrimary =
-        platform === "linux" && shouldRestore ? this._readPrimarySelection() : null;
+        platform === "linux" && shouldRestore ? await this._readPrimarySelection() : null;
       if (shouldRestore) {
         this.safeLog("💾 Saved original clipboard:", originalClipboard.type);
       }
 
       if (platform === "linux") {
         if (this._isWayland()) {
-          this._writeClipboardWayland(text, webContents);
+          await this._writeClipboardWayland(text, webContents);
         } else {
-          clipboard.writeText(text);
+          await clipboard.writeText(text);
         }
-        this._writePrimarySelection(text);
+        await this._writePrimarySelection(text);
       } else {
-        clipboard.writeText(text);
+        await clipboard.writeText(text);
       }
       this.safeLog("📋 Text copied to clipboard:", text.substring(0, 50) + "...");
 
@@ -928,7 +916,7 @@ class ClipboardManager {
           });
         } catch (firstError) {
           this.safeLog("⚠️ First paste attempt failed, retrying...", firstError?.message);
-          clipboard.writeText(text);
+          await clipboard.writeText(text);
           await new Promise((r) => setTimeout(r, 200));
           pasteResult = await this.pasteMacOS(originalClipboard, {
             ...options,
@@ -1437,14 +1425,14 @@ class ClipboardManager {
         return this._restoreClipboardAfterDelay(originalClipboard, {
           delayMs: delay,
           expectedText,
-          restore: () => {
+          restore: async () => {
             if (isWayland && originalClipboard.type === "text") {
-              this._writeClipboardWayland(originalClipboard.data, webContents);
+              await this._writeClipboardWayland(originalClipboard.data, webContents);
             } else {
-              this._restoreClipboard(originalClipboard);
+              await this._restoreClipboard(originalClipboard);
             }
             if (originalPrimary != null) {
-              this._writePrimarySelection(originalPrimary);
+              await this._writePrimarySelection(originalPrimary);
             }
           },
         });
@@ -2015,13 +2003,13 @@ class ClipboardManager {
       debugLogger.debug(
         "Trying xdotool type fallback for terminal",
         {
-          textLength: clipboard.readText().length,
+          textLength: (await clipboard.readText()).length,
           targetWindowId,
         },
         "clipboard"
       );
       this.safeLog("🔄 Trying xdotool type fallback for terminal...");
-      const textToType = clipboard.readText();
+      const textToType = await clipboard.readText();
       const typeArgs = targetWindowId
         ? ["windowactivate", "--sync", targetWindowId, "type", "--clearmodifiers", "--", textToType]
         : ["type", "--clearmodifiers", "--", textToType];
@@ -2235,9 +2223,9 @@ Would you like to open System Settings now?`;
 
   async writeClipboard(text, webContents = null) {
     if (process.platform === "linux" && this._isWayland()) {
-      this._writeClipboardWayland(text, webContents);
+      await this._writeClipboardWayland(text, webContents);
     } else {
-      clipboard.writeText(text);
+      await clipboard.writeText(text);
     }
     return { success: true };
   }

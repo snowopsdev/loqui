@@ -286,10 +286,13 @@ function makeCaptureHarness({ readClipboard }) {
   const writes = [];
   const clipboardManager = {
     runClipboardOperation: (operation) => operation(),
-    _saveClipboard: () => ({ type: "text", data: "user clipboard" }),
-    _restoreClipboard: () => {},
-    _writeClipboardTextAll: (text) => writes.push(text),
-    _readClipboardTextAll: () => readClipboard(writes),
+    _saveClipboard: async () => ({ type: "text", data: "user clipboard" }),
+    _restoreClipboard: async () => {},
+    _writeClipboardTextAll: async (text) => {
+      await Promise.resolve();
+      writes.push(text);
+    },
+    _readClipboardTextAll: async () => readClipboard(writes),
   };
   const manager = new SelectionManager({
     clipboardManager,
@@ -585,9 +588,12 @@ function makeMacClipboardHarness({ copyOutput = "COPY_OK 42 Dia", copied = null 
     runClipboardOperation: (operation) => operation(),
     resolveFastPasteBinary: () => "/bin/macos-fast-paste",
     isTerminalSignature: (signature) => /ghostty|iterm|terminal/i.test(signature || ""),
-    _saveClipboard: () => ({ type: "text", data: "user clipboard" }),
-    _restoreClipboard: () => {},
-    _writeClipboardTextAll: (text) => writes.push(text),
+    _saveClipboard: async () => ({ type: "text", data: "user clipboard" }),
+    _restoreClipboard: async () => {},
+    _writeClipboardTextAll: async (text) => {
+      await Promise.resolve();
+      writes.push(text);
+    },
     _readClipboardTextAll: () => {
       if (writes.length === 0) return ["user clipboard"];
       return copySent && copied !== null ? [copied, writes[0]] : [writes[0]];
@@ -700,4 +706,56 @@ test("empty replacement output is rejected without consuming a paste", async () 
     code: "invalid_replacement",
   });
   assert.equal(pastes.length, 0);
+});
+
+test("an async sentinel write completes before synthetic copy and restores after a thrown copy", async () => {
+  const { manager, writes } = makeCaptureHarness({
+    readClipboard: (written) => [written.at(-1) || "user clipboard"],
+  });
+  await assert.rejects(
+    manager._captureViaClipboard(async () => {
+      assert.match(writes[0], /^__LOQUI_SELECTION_/);
+      throw new Error("copy denied");
+    }),
+    /copy denied/
+  );
+  assert.equal(writes.at(-1), "user clipboard");
+});
+
+test("a new image clipboard survives a stale sentinel on another selection side", async () => {
+  const { manager, writes } = makeCaptureHarness({ readClipboard: () => ["sentinel", ""] });
+  manager.clipboardManager._saveClipboard = async () => ({
+    type: "items",
+    data: [{ types: ["image/png"] }],
+  });
+  await manager._restoreClipboardIfOurs({ type: "text", data: "old" }, ["sentinel"]);
+  assert.deepEqual(writes, []);
+});
+
+test("mirroring a new rich user copy preserves its native formats", async () => {
+  const { manager, writes } = makeCaptureHarness({ readClipboard: () => ["sentinel", "new copy"] });
+  const snapshot = {
+    type: "items",
+    data: [{ types: ["text/plain", "text/html"], getType: async () => new Blob(["new copy"]) }],
+  };
+  let restored = null;
+  manager.clipboardManager._saveClipboard = async () => snapshot;
+  manager.clipboardManager._restoreClipboard = async (value) => {
+    restored = value;
+  };
+  await manager._restoreClipboardIfOurs({ type: "text", data: "old" }, ["sentinel"]);
+  assert.equal(writes.at(-1), "new copy");
+  assert.equal(restored, snapshot);
+});
+
+test("a stale native sentinel is never restored over a new copy from another side", async () => {
+  const { manager, writes } = makeCaptureHarness({ readClipboard: () => ["sentinel", "new copy"] });
+  let restored = false;
+  manager.clipboardManager._saveClipboard = async () => ({ type: "text", data: "sentinel" });
+  manager.clipboardManager._restoreClipboard = async () => {
+    restored = true;
+  };
+  await manager._restoreClipboardIfOurs({ type: "text", data: "old" }, ["sentinel"]);
+  assert.equal(writes.at(-1), "new copy");
+  assert.equal(restored, false);
 });

@@ -622,10 +622,10 @@ class SelectionManager {
   }
 
   async _captureViaClipboard(sendCopy, expectedTarget) {
-    const original = this.clipboardManager._saveClipboard();
-    const beforeWrite = this.clipboardManager._readClipboardTextAll();
+    const original = await this.clipboardManager._saveClipboard();
+    const beforeWrite = await this.clipboardManager._readClipboardTextAll();
     const sentinel = `__LOQUI_SELECTION_${crypto.randomUUID()}__`;
-    this.clipboardManager._writeClipboardTextAll(sentinel);
+    await this.clipboardManager._writeClipboardTextAll(sentinel);
     // A clipboard side the sentinel write didn't reach (KDE desyncs X11 from
     // Wayland) still holds pre-copy content; snapshot it so stale text can't
     // be mistaken for the copied selection. Known limitation: a clipboard that
@@ -633,15 +633,24 @@ class SelectionManager {
     // command then falls back to the Assistant panel — never to a caret paste,
     // because the editable probe reads the focused element's own selection
     // state and refuses a field with a live selection.
-    const baseline = new Set([...beforeWrite, ...this.clipboardManager._readClipboardTextAll()]);
+    const baseline = new Set([
+      ...beforeWrite,
+      ...(await this.clipboardManager._readClipboardTextAll()),
+    ]);
 
-    const copyResult = await sendCopy();
+    let copyResult;
+    try {
+      copyResult = await sendCopy();
+    } catch (error) {
+      await this._restoreClipboardIfOurs(original, [sentinel], baseline);
+      throw error;
+    }
     if (!copyResult?.success || !copyResult.target) {
-      this._restoreClipboardIfOurs(original, [sentinel], baseline);
+      await this._restoreClipboardIfOurs(original, [sentinel], baseline);
       return { status: "unavailable", code: "copy_failed" };
     }
     if (expectedTarget && !this._sameTarget(copyResult.target, expectedTarget)) {
-      this._restoreClipboardIfOurs(original, [sentinel], baseline);
+      await this._restoreClipboardIfOurs(original, [sentinel], baseline);
       return { status: "target_changed" };
     }
 
@@ -649,14 +658,14 @@ class SelectionManager {
     let copiedText = null;
     while (Date.now() < deadline) {
       copiedText =
-        this.clipboardManager
-          ._readClipboardTextAll()
-          .find((text) => text.length > 0 && text !== sentinel && !baseline.has(text)) ?? null;
+        (await this.clipboardManager._readClipboardTextAll()).find(
+          (text) => text.length > 0 && text !== sentinel && !baseline.has(text)
+        ) ?? null;
       if (copiedText !== null) break;
       await new Promise((resolve) => setTimeout(resolve, CLIPBOARD_POLL_MS));
     }
 
-    this._restoreClipboardIfOurs(original, [sentinel, copiedText], baseline);
+    await this._restoreClipboardIfOurs(original, [sentinel, copiedText], baseline);
     if (copiedText === null) {
       return { status: "none", target: copyResult.target };
     }
@@ -688,10 +697,20 @@ class SelectionManager {
     return LINE_COPY_EDITOR_SIGNATURES.some((editor) => signature.includes(editor));
   }
 
-  _restoreClipboardIfOurs(original, writtenTexts, baseline = new Set()) {
+  async _restoreClipboardIfOurs(original, writtenTexts, baseline = new Set()) {
     const written = writtenTexts.filter((text) => typeof text === "string" && text.length > 0);
     try {
-      const current = this.clipboardManager._readClipboardTextAll();
+      const current = await this.clipboardManager._readClipboardTextAll();
+      const currentSnapshot = await this.clipboardManager._saveClipboard();
+      // An image/file copied by the user has no text. A stale sentinel on
+      // another clipboard side must not cause that new rich content to be lost.
+      if (
+        currentSnapshot?.type === "items" &&
+        currentSnapshot.data.some(
+          (item) => item.types.length > 0 && !item.types.includes("text/plain")
+        )
+      )
+        return;
       const userClipboardText = current.find(
         (text) => text.length > 0 && !written.includes(text) && !baseline.has(text)
       );
@@ -699,16 +718,28 @@ class SelectionManager {
         // The user copied something while capture was in flight. Prefer their
         // new clipboard over restoring our snapshot, and clear our sentinel
         // from any desynchronised X11/Wayland side.
-        this.clipboardManager._writeClipboardTextAll(userClipboardText);
+        let userSnapshot = null;
+        if (currentSnapshot?.type === "items") {
+          for (const item of currentSnapshot.data) {
+            if (!item.types.includes("text/plain")) continue;
+            const payload = await item.getType("text/plain");
+            const text = typeof payload === "string" ? payload : await payload.text();
+            if (text === userClipboardText) userSnapshot = currentSnapshot;
+          }
+        }
+        await this.clipboardManager._writeClipboardTextAll(userClipboardText);
+        // Preserve rich content only when it belongs to the new user copy.
+        // The native side may still contain our sentinel on desynced Wayland.
+        if (userSnapshot) await this.clipboardManager._restoreClipboard(userSnapshot);
         return;
       }
       if (!current.some((text) => written.includes(text))) return;
       if (original?.type === "text") {
         // Text restores go through the all-sides writer so a desynced side
         // isn't left holding the sentinel or the copied selection.
-        this.clipboardManager._writeClipboardTextAll(original.data);
+        await this.clipboardManager._writeClipboardTextAll(original.data);
       } else {
-        this.clipboardManager._restoreClipboard(original);
+        await this.clipboardManager._restoreClipboard(original);
       }
     } catch {}
   }

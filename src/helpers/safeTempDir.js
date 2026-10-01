@@ -28,7 +28,11 @@ function getSafeTempDir() {
     cachedSafeTempDir = fallback;
     return fallback;
   } catch {
-    const rootFallback = path.join(process.env.SystemDrive || "C:", "io.github.snowopsdev.loqui", "temp");
+    const rootFallback = path.join(
+      process.env.SystemDrive || "C:",
+      "io.github.snowopsdev.loqui",
+      "temp"
+    );
     try {
       fs.mkdirSync(rootFallback, { recursive: true });
       cachedSafeTempDir = rootFallback;

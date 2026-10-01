@@ -64,7 +64,7 @@ async function transcribeAudio({
       `${base}/interactions/${interactionId}/recordings/`,
       {
         method: "POST",
-    signal,
+        signal,
         headers: { "Content-Type": "application/octet-stream" },
         body: Buffer.from(audioBuffer),
       }
@@ -76,7 +76,7 @@ async function transcribeAudio({
       `${base}/interactions/${interactionId}/transcripts/`,
       {
         method: "POST",
-    signal,
+        signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recordingId, primaryLanguage: language, isDictation: true }),
       }

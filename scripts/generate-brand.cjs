@@ -96,11 +96,40 @@ async function generate() {
   ])
     outputs.set(name, await square(mono, size, size / 16));
 
-  const socialWordmark = await sharp(wordmark).resize({ width: 960 }).png().toBuffer();
+  // Use integer sRGB alpha compositing for this opaque social background.
+  // Native floating-point compositing differs by one channel level between
+  // platforms; integer division keeps the strict artifact check reproducible.
+  const { data: foreground, info } = await sharp(wordmark)
+    .resize({ width: 960 })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const background = [15, 23, 42];
+  const pixels = Buffer.alloc(1200 * 630 * 4);
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 15;
+    pixels[i + 1] = 23;
+    pixels[i + 2] = 42;
+    pixels[i + 3] = 255;
+  }
+  const left = Math.floor((1200 - info.width) / 2);
+  const top = Math.floor((630 - info.height) / 2);
+  for (let y = 0; y < info.height; y++)
+    for (let x = 0; x < info.width; x++) {
+      const sourceOffset = (y * info.width + x) * 4;
+      const targetOffset = ((top + y) * 1200 + left + x) * 4;
+      const alpha = foreground[sourceOffset + 3];
+      for (let channel = 0; channel < 3; channel++) {
+        pixels[targetOffset + channel] = Math.floor(
+          (foreground[sourceOffset + channel] * alpha + background[channel] * (255 - alpha)) / 255
+        );
+      }
+    }
   outputs.set(
     "brand/social.png",
-    await sharp({ create: { width: 1200, height: 630, channels: 4, background: "#0F172A" } })
-      .composite([{ input: socialWordmark, gravity: "centre" }])
+    await sharp(pixels, {
+      raw: { width: 1200, height: 630, channels: 4 },
+    })
       .png()
       .toBuffer()
   );

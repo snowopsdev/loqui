@@ -98,6 +98,7 @@ function bootstrapElectron() {
 
 async function smoke() {
   const { _electron } = require("playwright");
+  const { readElectronMain } = require("./lib/electron-read-retry.cjs");
   const translation = require("../src/locales/en/translation.json");
   const args = process.argv.slice(2);
   if (args.includes("--help")) {
@@ -221,7 +222,7 @@ async function smoke() {
       );
       window?.setBounds({ width: 1000, height: 760 });
     });
-    const actualProfile = await app.evaluate(({ app }) => app.getPath("userData"));
+    const actualProfile = await readElectronMain(app, ({ app }) => app.getPath("userData"));
     verify("temporary profile is active", actualProfile === profile);
     return panel;
   }
@@ -232,7 +233,7 @@ async function smoke() {
     try {
       report.network.push(
         ...(await bounded(
-          closingApp.evaluate(() => globalThis.__whisprSmoke.requests),
+          readElectronMain(closingApp, () => globalThis.__whisprSmoke.requests),
           5000,
           "Timed out collecting network audit"
         ))

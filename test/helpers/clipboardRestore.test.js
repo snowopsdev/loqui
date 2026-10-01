@@ -4,6 +4,16 @@ const Module = require("node:module");
 const { EventEmitter } = require("node:events");
 const childProcess = require("node:child_process");
 
+class FakeClipboardItem {
+  constructor(data) {
+    this.data = data;
+    this.types = Object.keys(data);
+  }
+  async getType(type) {
+    return this.data[type];
+  }
+}
+const nonEmptyImage = new Blob([Buffer.from([137, 80, 78, 71])], { type: "image/png" });
 const fakeClipboard = {
   text: "",
   html: "",
@@ -11,13 +21,19 @@ const fakeClipboard = {
   image: null,
   formats: ["text/plain"],
   writes: [],
-  availableFormats() {
-    return this.formats;
+  clear() {
+    this.text = "";
+    this.html = "";
+    this.rtf = "";
+    this.image = null;
+    this.formats = [];
   },
-  readText() {
+  async readText() {
     return this.text;
   },
-  writeText(text) {
+  async writeText(text) {
+    // Yield before committing so missing awaits cause observable test failures.
+    await Promise.resolve();
     this.text = text;
     this.html = "";
     this.rtf = "";
@@ -25,39 +41,42 @@ const fakeClipboard = {
     this.formats = ["text/plain"];
     this.writes.push(["writeText", text]);
   },
-  readHTML() {
-    return this.html;
+  async read() {
+    const data = {};
+    const fields = {
+      "text/plain": "text",
+      "text/html": "html",
+      "text/rtf": "rtf",
+      "image/png": "image",
+    };
+    for (const type of this.formats) {
+      const value = this[fields[type]];
+      data[type] = value instanceof Blob ? value : new Blob([value || ""], { type });
+    }
+    return [new FakeClipboardItem(data)];
   },
-  readRTF() {
-    return this.rtf;
-  },
-  write(payload) {
-    this.text = payload.text || "";
-    this.html = payload.html || "";
-    this.rtf = payload.rtf || "";
-    this.image = payload.image || null;
-    this.formats = [];
-    if (Object.hasOwn(payload, "text")) this.formats.push("text/plain");
-    if (Object.hasOwn(payload, "html")) this.formats.push("text/html");
-    if (Object.hasOwn(payload, "rtf")) this.formats.push("text/rtf");
-    if (Object.hasOwn(payload, "image")) this.formats.push("image/png");
-    this.writes.push(["write", payload]);
-  },
-  readImage() {
-    return this.image || emptyImage;
-  },
-  writeImage(image) {
+  async write(items) {
+    assert.ok(Array.isArray(items));
     this.text = "";
     this.html = "";
     this.rtf = "";
-    this.image = image;
-    this.formats = image && !image.isEmpty() ? ["image/png"] : [];
-    this.writes.push(["writeImage", image]);
+    this.image = null;
+    this.formats = [];
+    const fields = {
+      "text/plain": "text",
+      "text/html": "html",
+      "text/rtf": "rtf",
+      "image/png": "image",
+    };
+    for (const item of items)
+      for (const type of item.types) {
+        const payload = await item.getType(type);
+        this.formats.push(type);
+        this[fields[type]] = type.startsWith("image/") ? payload : await payload.text();
+      }
+    this.writes.push(["write", items]);
   },
 };
-
-const emptyImage = { isEmpty: () => true };
-const nonEmptyImage = { isEmpty: () => false };
 
 const clipboardModulePath = require.resolve("../../src/helpers/clipboard");
 
@@ -70,6 +89,7 @@ function loadClipboardManager({ spawn } = {}) {
     if (request === "electron") {
       return {
         clipboard: fakeClipboard,
+        ClipboardItem: FakeClipboardItem,
         systemPreferences: {
           isTrustedAccessibilityClient: () => true,
         },
@@ -165,7 +185,7 @@ function resetClipboard({
   fakeClipboard.writes = [];
 }
 
-test("restore preserves rich clipboard formats atomically", () => {
+test("restore preserves rich clipboard formats atomically", async () => {
   resetClipboard({
     formats: ["text/html", "text/rtf", "text/plain", "image/png"],
     text: "plain before",
@@ -175,11 +195,11 @@ test("restore preserves rich clipboard formats atomically", () => {
   });
   const manager = new ClipboardManager();
 
-  const snapshot = manager._saveClipboard();
-  fakeClipboard.writeText("dictated text");
-  manager._restoreClipboard(snapshot);
+  const snapshot = await manager._saveClipboard();
+  await fakeClipboard.writeText("dictated text");
+  await manager._restoreClipboard(snapshot);
 
-  assert.deepEqual([...fakeClipboard.availableFormats()].sort(), [
+  assert.deepEqual([...fakeClipboard.formats].sort(), [
     "image/png",
     "text/html",
     "text/plain",
@@ -841,4 +861,79 @@ test("terminal detection matches window classes and macOS app names alike", () =
   assert.equal(manager.isLinuxTerminalWindowClass("konsole"), true);
   assert.equal(manager.isLinuxTerminalWindowClass("org.mozilla.firefox"), false);
   assert.equal(manager.isLinuxTerminalWindowClass(null), false);
+});
+
+test("a rejected clipboard write fails delivery and releases the queue", async () => {
+  resetClipboard({ text: "before" });
+  const manager = new ClipboardManager();
+  const write = fakeClipboard.writeText;
+  fakeClipboard.writeText = async () => {
+    throw new Error("write denied");
+  };
+  try {
+    await assert.rejects(manager.writeClipboard("first"), /write denied/);
+    await assert.rejects(manager.pasteText("first"), /write denied/);
+  } finally {
+    fakeClipboard.writeText = write;
+  }
+  await manager.runClipboardOperation(() => manager.writeClipboard("second"));
+  assert.equal(fakeClipboard.text, "second");
+});
+
+test("a rejected restore rejects completion and releases queued operations", async () => {
+  resetClipboard({ text: "before" });
+  const manager = new ClipboardManager();
+  const write = fakeClipboard.writeText;
+  fakeClipboard.writeText = async () => {
+    throw new Error("restore denied");
+  };
+  try {
+    const completion = manager._restoreClipboardAfterDelay(
+      { type: "text", data: "before" },
+      { delayMs: 0 }
+    );
+    await manager._runClipboardOperation(
+      () => ({ completion }),
+      (result) => result.completion
+    );
+    await assert.rejects(completion, /restore denied/);
+    await manager.runClipboardOperation(async () => "queue available");
+  } finally {
+    fakeClipboard.writeText = write;
+  }
+});
+
+test("an empty native clipboard item restores by clearing the clipboard", async () => {
+  resetClipboard({ formats: [] });
+  const manager = new ClipboardManager();
+  const snapshot = await manager._saveClipboard();
+  assert.deepEqual(snapshot, { type: "items", data: [] });
+  await manager.writeClipboard("temporary");
+  await manager._restoreClipboard(snapshot);
+  assert.deepEqual(fakeClipboard.formats, []);
+});
+
+test("Linux PRIMARY fallback awaits the new selection namespace", async () => {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  const manager = new ClipboardManager();
+  manager.commandExists = () => false;
+  let primary = "before";
+  fakeClipboard.selection = {
+    async writeText(text) {
+      await Promise.resolve();
+      primary = text;
+    },
+    async readText() {
+      await Promise.resolve();
+      return primary;
+    },
+  };
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  try {
+    await manager._writePrimarySelection("after");
+    assert.equal(await manager._readPrimarySelection(), "after");
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    delete fakeClipboard.selection;
+  }
 });

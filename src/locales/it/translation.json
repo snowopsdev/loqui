@@ -184,12 +184,9 @@
     "loading": "Caricamento...",
     "unknown": "Sconosciuto",
     "availableModels": "Modelli disponibili",
-    "fast": "Veloce",
     "hold": "Tieni premuto",
-    "private": "Privato",
     "tap": "Tocca",
     "close": "Chiudi",
-    "dismiss": "Ignora",
     "save": "Salva",
     "saving": "Salvataggio…",
     "create": "Crea",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "Permessi",
-      "microphoneTitle": "Microfono",
-      "microphoneDescription": "Trasforma la tua voce in testo. Non viene registrato nulla finché non premi la scorciatoia.",
       "grant": "Concedi",
       "grantAccess": "Concedi accesso",
-      "accessibilityTitle": "Accessibilità",
-      "accessibilityDescription": "Digita il testo finale direttamente nell'app in cui ti trovi — documenti, email, chat.",
       "testAndGrant": "Testa e concedi",
       "requiredForApp": "Necessario per usare Loqui",
       "microphoneRequired": "Accesso al microfono richiesto",
-      "openSystemSettings": "Apri Impostazioni di Sistema",
-      "systemAudioTitle": "Audio di Sistema",
-      "systemAudioDescription": "Permette al registratore delle riunioni di sentire l'altro lato delle tue chiamate — riunioni, lezioni, podcast. Puoi attivarlo più tardi nelle Impostazioni.",
-      "optional": "Facoltativo",
-      "recommended": "Consigliato",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "Apri Impostazioni di Sistema"
     },
     "transcription": {
       "title": "Configurazione trascrizione",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "Inserisci un URL base completo di protocollo (ad esempio, https://server/v1).",
       "httpsRequired": "HTTPS richiesto (HTTP consentito solo in rete locale).",
-      "endpointInvalid": "L'endpoint personalizzato non è valido o non è configurato. Controlla l'URL dell'endpoint in Impostazioni → Modelli IA.",
       "endpointUnauthorized": "L'endpoint ha rifiutato la richiesta (401/403). Aggiungi una chiave API o modifica le impostazioni di autenticazione del server.",
       "endpointTitle": "URL endpoint",
       "endpointExamples": "Esempi:",
@@ -774,7 +761,6 @@
       "projectId": "ID progetto",
       "location": "Posizione",
       "customModelId": "ID modello personalizzato",
-      "customModelPlaceholder": "Inserisci un ID modello o nome di deployment",
       "suggestedModels": "Modelli suggeriti",
       "browseModels": "Sfoglia tutti i modelli",
       "loadingModels": "Recupero dei modelli...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "Modello",
       "parakeetModelDescription": "Modello NVIDIA Parakeet"
     },
-    "whisperModels": "Modelli Whisper",
     "corti": {
       "clientId": "ID client",
       "clientSecret": "Client secret",
@@ -1245,50 +1230,6 @@
     "title": "Reimposta la password"
   },
   "actionPrompt": "Prompt di azione",
-  "hotkeyGuidance": {
-    "blockedDescription": "Queste scorciatoie sono bloccate perché comunemente usate dal sistema.",
-    "blockedTitle": "Scorciatoie bloccate",
-    "description": "Usa queste regole per scegliere una scorciatoia che non entri in conflitto con il sistema.",
-    "examplesTitle": "Esempi validi",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "Scorciatoie consigliate",
-    "rulesTitle": "Regole per le scorciatoie",
-    "showAll": "Mostra tutto",
-    "showFewer": "Mostra meno",
-    "title": "Guida alle scorciatoie",
-    "validationRules": {
-      "0": "È necessario almeno un tasto modificatore (Ctrl, Alt, Shift, ecc.)",
-      "1": "Non è possibile usare scorciatoie riservate dal sistema",
-      "2": "I tasti singoli non sono consentiti",
-      "3": "Alcune combinazioni potrebbero entrare in conflitto con altre app"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "Premi una combinazione di tasti per impostare la scorciatoia",
     "clickToChange": "Fai clic per cambiare",
@@ -2731,16 +2672,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "Inserisci un nome per la cartella.",
-      "folderAlreadyExists": "Esiste già una cartella con questo nome.",
-      "folderNotFound": "Impossibile trovare questa cartella.",
-      "defaultFolderImmutable": "Le cartelle predefinite non possono essere modificate.",
-      "spaceNameRequired": "Inserisci un nome per lo spazio.",
-      "spaceNotFound": "Impossibile trovare questo spazio.",
-      "privateSpaceImmutable": "Il tuo spazio Personale non può essere modificato.",
-      "generic": "Impossibile completare la modifica. Riprova."
-    },
     "sidebar": {
       "newNote": "Nuova nota",
       "searchNotes": "Cerca note",
@@ -2925,7 +2856,6 @@
       "noteTitle": "Titolo della nota",
       "stop": "Ferma",
       "transcribe": "Trascrivi",
-      "processing": "Elaborazione...",
       "export": "Esporta",
       "asMarkdown": "Come Markdown",
       "asPlainText": "Come testo semplice",
@@ -3157,10 +3087,6 @@
         "grant": "Concedi permesso",
         "enabled": "Attivato"
       }
-    },
-    "realtimeBanner": {
-      "message": "Trascrizione in tempo reale disponibile con Pro",
-      "upgrade": "Passa a Pro"
     },
     "enhance": {
       "title": "Errore di miglioramento"
@@ -3886,14 +3812,6 @@
         "resendThrottled": "Invito inviato di recente. Riprova tra un minuto.",
         "syncPrompt": "La condivisione mantiene una copia di questa nota nel tuo cloud Loqui. Solo tu puoi vederla finché non scegli con chi condividerla.",
         "syncAndShare": "Sincronizza nota",
-        "visibility": {
-          "label": "Visibilità",
-          "private": "Privata",
-          "privateOption": "Privata — solo tu",
-          "link": "Chiunque con il link",
-          "domain": "Tutti in {{domain}} con il link",
-          "invited": "Solo le persone invitate"
-        },
         "error": {
           "invalidEmail": "Inserisci un indirizzo email valido",
           "alreadyInvited": "{{email}} è già stato invitato",

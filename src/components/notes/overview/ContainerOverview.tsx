@@ -18,6 +18,7 @@ import { ContainerIcon } from "./ContainerIcon";
 import { OverviewAskSection } from "./OverviewAskSection";
 import { OverviewExplainerBanner } from "./OverviewExplainerBanner";
 import { OverviewNoteList } from "./OverviewNoteList";
+import { SpaceIconButton } from "./SpaceIconButton";
 
 const SPACE_NOTES_LIMIT = 50;
 
@@ -94,7 +95,11 @@ export function ContainerOverview({
       <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 py-8 flex flex-col gap-5")}>
         <div className="flex flex-col items-center text-center gap-2 pt-4">
           <div className="h-12 w-12 rounded-xl bg-foreground/4 dark:bg-white/5 border border-border/70 dark:border-white/10 flex items-center justify-center mb-1">
-            <ContainerIcon space={space} folder={folder} size={20} />
+            {folder ? (
+              <ContainerIcon space={space} folder={folder} size={20} />
+            ) : (
+              <SpaceIconButton space={space} size={20} />
+            )}
           </div>
           <h1 className="text-xl font-semibold text-foreground tracking-tight">
             {folder ? defaultFolderDisplayName(folder, t) : space.name}

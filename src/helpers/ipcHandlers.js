@@ -5210,11 +5210,10 @@ class IPCHandlers {
             throw new Error(`${provider} API key not configured`);
           }
 
-          // The renderer re-encodes WebM before uploading to a Custom endpoint
-          // (src/utils/audioContainer.ts); retries re-upload stored audio from
-          // the main process, so without the same step here every retry of a
-          // dictation that failed for that reason fails again -- which is the
-          // exact recovery a user reaches for after hitting it.
+          // Custom endpoints can reject WebM, and retries re-upload stored audio
+          // from the main process, so without a re-encode step here every retry
+          // of a dictation that failed for that reason fails again -- which is
+          // the exact recovery a user reaches for after hitting it.
           let uploadBuffer = buffer;
           let uploadType = "audio/webm";
           let uploadName = "audio.webm";
@@ -5229,8 +5228,7 @@ class IPCHandlers {
                 uploadName = "audio.wav";
               }
             } catch (conversionError) {
-              // Fail open, matching the renderer: an unconverted retry is no
-              // worse than today's behaviour.
+              // Fail open: an unconverted retry is no worse than today's behaviour.
               debugLogger.warn("WAV re-encode failed on retry; uploading stored container", {
                 error: conversionError?.message,
               });

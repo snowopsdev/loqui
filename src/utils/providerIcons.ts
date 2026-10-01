@@ -24,7 +24,7 @@ import tinfoilIcon from "@/assets/icons/providers/tinfoil.svg";
 import deepgramIcon from "@/assets/icons/providers/deepgram.svg";
 import assemblyaiIcon from "@/assets/icons/providers/assemblyai.svg";
 
-export const PROVIDER_ICONS: Record<string, string> = {
+const PROVIDER_ICONS: Record<string, string> = {
   oruk: orukIcon,
   openai: openaiIcon,
   whisper: openaiIcon,
@@ -54,7 +54,7 @@ export function getProviderIcon(provider: string): string | undefined {
   return PROVIDER_ICONS[provider];
 }
 
-export const MONOCHROME_PROVIDERS = [
+const MONOCHROME_PROVIDERS = [
   "openai",
   "whisper",
   "anthropic",

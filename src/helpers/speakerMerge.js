@@ -105,6 +105,5 @@ function formatSpeakerTranscript(mergedSegments) {
 module.exports = {
   mergeSpeakersWithText,
   formatSpeakerTranscript,
-  splitIntoSentences,
   formatTimestamp,
 };

@@ -4,7 +4,6 @@ import { Settings } from "./icons";
 import { LoquiBrand } from "./LoquiBrand";
 import { cn } from "./lib/utils";
 import { getCachedPlatform } from "../utils/platform";
-export type { ControlPanelView };
 interface Props {
   activeView: ControlPanelView;
   onViewChange: (view: ControlPanelView) => void;

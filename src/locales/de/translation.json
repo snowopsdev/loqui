@@ -184,12 +184,9 @@
     "loading": "Laden...",
     "unknown": "Unbekannt",
     "availableModels": "Verfügbare Modelle",
-    "fast": "Schnell",
     "hold": "Halten",
-    "private": "Privat",
     "tap": "Tippen",
     "close": "Schließen",
-    "dismiss": "Verwerfen",
     "save": "Speichern",
     "saving": "Speichern…",
     "create": "Erstellen",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "Berechtigungen",
-      "microphoneTitle": "Mikrofon",
-      "microphoneDescription": "Wandelt deine Sprache in Text um. Es wird nichts aufgenommen, bis du deinen Hotkey drückst.",
       "grant": "Erteilen",
       "grantAccess": "Zugriff gewähren",
-      "accessibilityTitle": "Bedienungshilfen",
-      "accessibilityDescription": "Fügt den fertigen Text direkt in die App ein, in der du gerade bist — Dokumente, E-Mail, Chat.",
       "testAndGrant": "Testen & erteilen",
       "requiredForApp": "Erforderlich, damit Loqui funktioniert",
       "microphoneRequired": "Mikrofonzugriff erforderlich",
-      "openSystemSettings": "Systemeinstellungen öffnen",
-      "systemAudioTitle": "Systemaudio",
-      "systemAudioDescription": "Lässt den Meeting-Rekorder die Gegenseite deiner Anrufe hören — Meetings, Vorlesungen, Podcasts. Kann später in den Einstellungen aktiviert werden.",
-      "optional": "Optional",
-      "recommended": "Empfohlen",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "Systemeinstellungen öffnen"
     },
     "transcription": {
       "title": "Transkriptions-Einrichtung",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "Geben Sie eine vollständige Basis-URL mit Protokoll ein (z. B. https://server/v1).",
       "httpsRequired": "HTTPS erforderlich (HTTP nur im lokalen Netzwerk erlaubt).",
-      "endpointInvalid": "Der benutzerdefinierte Endpunkt ist ungültig oder nicht konfiguriert. Prüfe die Endpunkt-URL unter Einstellungen → KI-Modelle.",
       "endpointUnauthorized": "Der Endpoint hat die Anfrage abgelehnt (401/403). Fügen Sie einen API-Schlüssel hinzu oder passen Sie die Server-Authentifizierung an.",
       "endpointTitle": "Endpoint-URL",
       "endpointExamples": "Beispiele:",
@@ -774,7 +761,6 @@
       "projectId": "Projekt-ID",
       "location": "Standort",
       "customModelId": "Eigene Modell-ID",
-      "customModelPlaceholder": "Modell-ID oder Deployment-Name eingeben",
       "suggestedModels": "Empfohlene Modelle",
       "browseModels": "Alle Modelle durchsuchen",
       "loadingModels": "Modelle werden geladen...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "Modell",
       "parakeetModelDescription": "NVIDIA-Parakeet-Modell"
     },
-    "whisperModels": "Whisper-Modelle",
     "corti": {
       "clientId": "Client-ID",
       "clientSecret": "Client-Secret",
@@ -1338,50 +1323,6 @@
     "title": "Passwort zurücksetzen"
   },
   "actionPrompt": "Aktions-Prompt",
-  "hotkeyGuidance": {
-    "blockedDescription": "Diese Tastenkombinationen sind blockiert, da sie häufig vom System verwendet werden.",
-    "blockedTitle": "Blockierte Tastenkombinationen",
-    "description": "Nutzen Sie diese plattformspezifischen Regeln, um eine Tastenkombination zu wählen, die nicht mit Ihrem System kollidiert.",
-    "examplesTitle": "Gültige Beispiele",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "Empfohlene Tastenkombinationen",
-    "rulesTitle": "Regeln für Tastenkombinationen",
-    "showAll": "Alle anzeigen",
-    "showFewer": "Weniger anzeigen",
-    "title": "Tastenkombinations-Ratgeber",
-    "validationRules": {
-      "0": "Mindestens ein Modifikator (Ctrl, Alt, Shift usw.) erforderlich",
-      "1": "Reservierte Systemkürzel können nicht verwendet werden",
-      "2": "Einzelne Tasten allein sind nicht erlaubt",
-      "3": "Einige Kombinationen können mit anderen Apps kollidieren"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "Drücken Sie eine Tastenkombination, um den Hotkey festzulegen",
     "clickToChange": "Klicken zum Ändern",
@@ -3079,16 +3020,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "Gib einen Ordnernamen ein.",
-      "folderAlreadyExists": "Ein Ordner mit diesem Namen existiert bereits.",
-      "folderNotFound": "Dieser Ordner wurde nicht gefunden.",
-      "defaultFolderImmutable": "Standardordner können nicht geändert werden.",
-      "spaceNameRequired": "Gib einen Bereichsnamen ein.",
-      "spaceNotFound": "Dieser Bereich wurde nicht gefunden.",
-      "privateSpaceImmutable": "Dein persönlicher Bereich kann nicht geändert werden.",
-      "generic": "Die Änderung konnte nicht abgeschlossen werden. Bitte versuche es erneut."
-    },
     "sidebar": {
       "newNote": "Neue Notiz",
       "searchNotes": "Notizen suchen",
@@ -3273,7 +3204,6 @@
       "noteTitle": "Notiztitel",
       "stop": "Stopp",
       "transcribe": "Transkribieren",
-      "processing": "Verarbeitung...",
       "export": "Exportieren",
       "asMarkdown": "Als Markdown",
       "asPlainText": "Als Klartext",
@@ -3505,10 +3435,6 @@
         "grant": "Berechtigung erteilen",
         "enabled": "Aktiviert"
       }
-    },
-    "realtimeBanner": {
-      "message": "Echtzeit-Transkription mit Pro verfügbar",
-      "upgrade": "Upgraden"
     },
     "enhance": {
       "title": "Verbesserungsfehler"
@@ -4015,14 +3941,6 @@
         "resendThrottled": "Einladung wurde kürzlich gesendet. Versuche es in einer Minute erneut.",
         "syncPrompt": "Beim Teilen wird eine Kopie dieser Notiz in deiner Loqui-Cloud gespeichert. Nur du kannst sie sehen, bis du auswählst, mit wem du sie teilst.",
         "syncAndShare": "Notiz synchronisieren",
-        "visibility": {
-          "label": "Sichtbarkeit",
-          "private": "Privat",
-          "privateOption": "Privat — nur du",
-          "link": "Jeder mit dem Link",
-          "domain": "Alle bei {{domain}} mit dem Link",
-          "invited": "Nur eingeladene Personen"
-        },
         "error": {
           "invalidEmail": "Gib eine gültige E-Mail-Adresse ein",
           "alreadyInvited": "{{email}} ist bereits eingeladen",

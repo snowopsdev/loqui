@@ -184,12 +184,9 @@
     "loading": "Cargando...",
     "unknown": "Desconocido",
     "availableModels": "Modelos disponibles",
-    "fast": "Rápido",
     "hold": "Mantener",
-    "private": "Privado",
     "tap": "Pulsar",
     "close": "Cerrar",
-    "dismiss": "Descartar",
     "save": "Guardar",
     "saving": "Guardando…",
     "create": "Crear",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "Permisos",
-      "microphoneTitle": "Micrófono",
-      "microphoneDescription": "Convierte tu voz en texto. No se graba nada hasta que pulsas tu atajo.",
       "grant": "Conceder",
       "grantAccess": "Conceder acceso",
-      "accessibilityTitle": "Accesibilidad",
-      "accessibilityDescription": "Escribe el texto final directamente en la aplicación que estés usando: documentos, correo, chat.",
       "testAndGrant": "Probar y conceder",
       "requiredForApp": "Necesario para que Loqui funcione",
       "microphoneRequired": "Se requiere acceso al micrófono",
-      "openSystemSettings": "Abrir Ajustes del Sistema",
-      "systemAudioTitle": "Audio del Sistema",
-      "systemAudioDescription": "Permite que el grabador de reuniones escuche al resto de participantes de tus llamadas: reuniones, clases, pódcasts. Puedes activarlo más tarde en Ajustes.",
-      "optional": "Opcional",
-      "recommended": "Recomendado",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "Abrir Ajustes del Sistema"
     },
     "transcription": {
       "title": "Configuración de transcripción",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "Introduce una URL base completa con protocolo (por ejemplo, https://server/v1).",
       "httpsRequired": "Se requiere HTTPS (HTTP solo para red local).",
-      "endpointInvalid": "El endpoint personalizado no es válido o no está configurado. Revisa la URL del endpoint en Ajustes → Modelos de IA.",
       "endpointUnauthorized": "El endpoint rechazó la solicitud (401/403). Agrega una clave API o ajusta la autenticación del servidor.",
       "endpointTitle": "URL del endpoint",
       "endpointExamples": "Ejemplos:",
@@ -774,7 +761,6 @@
       "projectId": "ID del proyecto",
       "location": "Ubicación",
       "customModelId": "ID de modelo personalizado",
-      "customModelPlaceholder": "Introduce un ID de modelo o nombre de deployment",
       "suggestedModels": "Modelos sugeridos",
       "browseModels": "Explorar todos los modelos",
       "loadingModels": "Obteniendo modelos...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "Modelo",
       "parakeetModelDescription": "Modelo NVIDIA Parakeet"
     },
-    "whisperModels": "Modelos Whisper",
     "corti": {
       "clientId": "ID de cliente",
       "clientSecret": "Secreto de cliente",
@@ -1298,50 +1283,6 @@
     "title": "Restablece tu contraseña"
   },
   "actionPrompt": "Prompt de acción",
-  "hotkeyGuidance": {
-    "blockedDescription": "Estos atajos están bloqueados porque son de uso común del sistema.",
-    "blockedTitle": "Atajos bloqueados",
-    "description": "Usa estas reglas de plataforma para elegir un atajo que no entre en conflicto con tu sistema.",
-    "examplesTitle": "Ejemplos válidos",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "Atajos recomendados",
-    "rulesTitle": "Reglas de atajos",
-    "showAll": "Mostrar todo",
-    "showFewer": "Mostrar menos",
-    "title": "Guía de atajos",
-    "validationRules": {
-      "0": "Debe usar al menos un modificador (Ctrl, Alt, Shift, etc.)",
-      "1": "No se pueden usar atajos reservados del sistema",
-      "2": "No se permiten teclas individuales sin modificador",
-      "3": "Algunas combinaciones pueden entrar en conflicto con otras apps"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "Pulsa una combinación de teclas para configurar el atajo",
     "clickToChange": "Clic para cambiar",
@@ -2784,16 +2725,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "Introduce un nombre para la carpeta.",
-      "folderAlreadyExists": "Ya existe una carpeta con ese nombre.",
-      "folderNotFound": "No se pudo encontrar esa carpeta.",
-      "defaultFolderImmutable": "Las carpetas predeterminadas no se pueden modificar.",
-      "spaceNameRequired": "Introduce un nombre para el espacio.",
-      "spaceNotFound": "No se pudo encontrar ese espacio.",
-      "privateSpaceImmutable": "Tu espacio Personal no se puede modificar.",
-      "generic": "No se pudo completar el cambio. Inténtalo de nuevo."
-    },
     "sidebar": {
       "newNote": "Nueva nota",
       "searchNotes": "Buscar notas",
@@ -2978,7 +2909,6 @@
       "noteTitle": "Título de la nota",
       "stop": "Detener",
       "transcribe": "Transcribir",
-      "processing": "Procesando...",
       "export": "Exportar",
       "asMarkdown": "Como Markdown",
       "asPlainText": "Como texto plano",
@@ -3210,10 +3140,6 @@
         "grant": "Conceder permiso",
         "enabled": "Activado"
       }
-    },
-    "realtimeBanner": {
-      "message": "Transcripción en tiempo real disponible con Pro",
-      "upgrade": "Mejorar"
     },
     "enhance": {
       "title": "Error de mejora"
@@ -3939,14 +3865,6 @@
         "resendThrottled": "Invitación enviada hace poco. Inténtalo de nuevo en un minuto.",
         "syncPrompt": "Al compartir se guarda una copia de esta nota en tu nube de Loqui. Solo tú puedes verla hasta que elijas con quién compartirla.",
         "syncAndShare": "Sincronizar nota",
-        "visibility": {
-          "label": "Visibilidad",
-          "private": "Privada",
-          "privateOption": "Privada — solo tú",
-          "link": "Cualquiera con el enlace",
-          "domain": "Todos en {{domain}} con el enlace",
-          "invited": "Solo personas invitadas"
-        },
         "error": {
           "invalidEmail": "Introduce un correo válido",
           "alreadyInvited": "{{email}} ya está invitado",

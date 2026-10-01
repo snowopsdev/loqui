@@ -30,7 +30,7 @@ export interface FusionOptions {
   smooth?: number;
 }
 
-export const CANCEL_FUSION_DEFAULTS: Required<FusionOptions> = {
+const CANCEL_FUSION_DEFAULTS: Required<FusionOptions> = {
   k: 24,
   cell: 2,
   smooth: 3,

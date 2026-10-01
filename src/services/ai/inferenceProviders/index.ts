@@ -24,12 +24,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, InferenceProvider>> = Ob
   lan: mainProcessProvider("lan", "api-key", false),
 });
 
-export type {
-  InferenceProvider,
-  ProviderContext,
-  ProviderCallParams,
-  ProviderCapabilities,
-} from "./types";
+export type { InferenceProvider } from "./types";
 export const providerSupportsImages = (providerId: string | undefined): boolean =>
   !!(providerId && PROVIDER_REGISTRY[providerId]?.supportsImages);
 export const providerSupports = (

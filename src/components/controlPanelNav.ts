@@ -5,7 +5,7 @@ import { BarChart3, Blocks, BookOpen, Home, MessageSquare, NotebookPen, Upload }
 export type ControlPanelView =
   "home" | "insights" | "chat" | "personal-notes" | "dictionary" | "upload" | "integrations";
 
-export type ControlPanelNavSection = "workspace" | "library";
+type ControlPanelNavSection = "workspace" | "library";
 
 export interface ControlPanelNavItem {
   id: ControlPanelView;

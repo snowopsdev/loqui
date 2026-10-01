@@ -49,5 +49,4 @@ function classifyAndLog(err, url) {
 
 module.exports = {
   classifyNetworkError,
-  classifyAndLog,
 };

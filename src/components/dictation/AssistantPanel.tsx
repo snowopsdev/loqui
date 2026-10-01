@@ -43,7 +43,7 @@ import {
   type AssistantResponseDelivery,
 } from "../../helpers/assistantResponseDelivery";
 
-export interface AssistantCommand {
+interface AssistantCommand {
   id: number;
   text: string;
   attachment: ChatImageAttachment | null;

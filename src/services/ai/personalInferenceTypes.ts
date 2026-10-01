@@ -1,4 +1,4 @@
-export interface TextTool {
+interface TextTool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -20,12 +20,12 @@ export interface TextRequest {
   requireCompleteOutput?: boolean;
   timeoutMs?: number;
 }
-export interface CodexAccount {
+interface CodexAccount {
   type: string;
   email?: string | null;
   planType?: string;
 }
-export interface CodexModel {
+interface CodexModel {
   id: string;
   model: string;
   displayName: string;

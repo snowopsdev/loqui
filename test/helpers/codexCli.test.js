@@ -14,7 +14,9 @@ const api = `https://api.github.com/repos/openai/codex/releases/tags/rust-v${ver
 const base = `https://github.com/openai/codex/releases/download/rust-v${version}`;
 
 async function fixture(t, platform = "linux") {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loqui-codex-release-"));
+  // resolveCodexExecutable returns real paths, and macOS tmpdir is a /var -> /private/var symlink.
+  const tmp = await fs.realpath(os.tmpdir());
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(tmp, "loqui-codex-release-")));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const executable = path.join(dir, "codex");
   await fs.writeFile(executable, binary, { mode: 0o755 });

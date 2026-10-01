@@ -30,33 +30,6 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
   );
 };
 
-interface SettingsGroupProps {
-  title?: string;
-  children: React.ReactNode;
-  variant?: "default" | "highlighted";
-  className?: string;
-}
-
-export const SettingsGroup: React.FC<SettingsGroupProps> = ({
-  title,
-  children,
-  variant = "default",
-  className = "",
-}) => {
-  const baseClasses = "space-y-3 p-3 rounded-lg border";
-  const variantClasses = {
-    default: "bg-card/50 dark:bg-surface-2/50 border-border/70 dark:border-border-subtle",
-    highlighted: "bg-primary/5 dark:bg-primary/10 border-primary/20 dark:border-primary/30",
-  };
-
-  return (
-    <div className={`${baseClasses} ${variantClasses[variant]} ${className}`}>
-      {title && <h4 className="text-xs font-medium text-foreground">{title}</h4>}
-      {children}
-    </div>
-  );
-};
-
 interface SettingsRowProps {
   label: string;
   description?: React.ReactNode;

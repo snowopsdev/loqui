@@ -5,7 +5,7 @@ import type { FileTranscriptionConfig, DiarizationSettings } from "../services/f
 import { DOWNLOAD_ERROR_KEYS, transcriptionErrorKey } from "../components/notes/shared";
 import { saveUploadNote, uploadTitleFallback } from "../services/uploadNotes";
 
-export type QueueItemStatus = "queued" | "downloading" | "transcribing" | "done" | "error";
+type QueueItemStatus = "queued" | "downloading" | "transcribing" | "done" | "error";
 
 export interface QueueItem {
   id: string;
@@ -85,11 +85,11 @@ export function addUrls(urls: string[]) {
   return items;
 }
 
-export function removeQueueItem(id: string) {
+function removeQueueItem(id: string) {
   updateQueue((prev) => prev.filter((item) => item.id !== id));
 }
 
-export function cancelBatch() {
+function cancelBatch() {
   runId++;
   if (activeUploadRequestId) {
     window.electronAPI.cancelUploadTranscription?.(activeUploadRequestId);
@@ -106,7 +106,7 @@ export function cancelBatch() {
   }));
 }
 
-export function clearBatchQueue() {
+function clearBatchQueue() {
   runId++;
   useBatchQueueStore.setState({ queue: [], isProcessing: false });
 }

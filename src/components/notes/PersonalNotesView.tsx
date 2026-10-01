@@ -199,14 +199,32 @@ export default function PersonalNotesView({
     [persistPendingWrites, takePendingSnapshots]
   );
 
-  useEffect(() => registerUpdateFlush(async () => {
-    const pending = { document: pendingDocumentRef.current, enhanced: pendingEnhancedRef.current };
-    await Promise.all(collectPendingNoteWrites(pending.document, pending.enhanced).map(write => window.electronAPI.updateNote(write.noteId, write.updates)));
-    // Only clear snapshots still current; edits made while saving must be preserved.
-    if (pendingDocumentRef.current === pending.document && pending.document) { clearTimeout(pending.document.timer); pendingDocumentRef.current = null; }
-    if (pendingEnhancedRef.current === pending.enhanced && pending.enhanced) { clearTimeout(pending.enhanced.timer); pendingEnhancedRef.current = null; }
-    if (pendingDocumentRef.current || pendingEnhancedRef.current) throw new Error("Edits changed during update preparation");
-  }), []);
+  useEffect(
+    () =>
+      registerUpdateFlush(async () => {
+        const pending = {
+          document: pendingDocumentRef.current,
+          enhanced: pendingEnhancedRef.current,
+        };
+        await Promise.all(
+          collectPendingNoteWrites(pending.document, pending.enhanced).map((write) =>
+            window.electronAPI.updateNote(write.noteId, write.updates)
+          )
+        );
+        // Only clear snapshots still current; edits made while saving must be preserved.
+        if (pendingDocumentRef.current === pending.document && pending.document) {
+          clearTimeout(pending.document.timer);
+          pendingDocumentRef.current = null;
+        }
+        if (pendingEnhancedRef.current === pending.enhanced && pending.enhanced) {
+          clearTimeout(pending.enhanced.timer);
+          pendingEnhancedRef.current = null;
+        }
+        if (pendingDocumentRef.current || pendingEnhancedRef.current)
+          throw new Error("Edits changed during update preparation");
+      }),
+    []
+  );
 
   const transitionToNote = useCallback(
     (nextNote: NoteItem | null, reason: Extract<PendingSaveReason, "switch" | "overview">) => {

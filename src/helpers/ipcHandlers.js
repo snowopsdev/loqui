@@ -8369,9 +8369,7 @@ class IPCHandlers {
 
         // Parse lines
         const lines = envContent.split("\n");
-        const logLevelIndex = lines.findIndex((line) =>
-          line.trim().startsWith("LOQUI_LOG_LEVEL=")
-        );
+        const logLevelIndex = lines.findIndex((line) => line.trim().startsWith("LOQUI_LOG_LEVEL="));
 
         if (enabled) {
           // Set to debug

@@ -1,6 +1,6 @@
 import type { ReasoningConfig } from "../../BaseReasoningService";
 
-export interface ProviderContext {
+interface ProviderContext {
   getApiKey(provider: string): Promise<string>;
   getSystemPrompt(agentName: string | null): string;
   getCustomDictionary(): string[];
@@ -23,7 +23,7 @@ export interface ProviderContext {
   ): number;
 }
 
-export interface ProviderCallParams {
+interface ProviderCallParams {
   text: string;
   model: string;
   agentName: string | null;

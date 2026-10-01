@@ -184,12 +184,9 @@
     "loading": "Chargement...",
     "unknown": "Inconnu",
     "availableModels": "Modèles disponibles",
-    "fast": "Rapide",
     "hold": "Maintenir",
-    "private": "Privé",
     "tap": "Appui",
     "close": "Fermer",
-    "dismiss": "Ignorer",
     "save": "Enregistrer",
     "saving": "Enregistrement…",
     "create": "Créer",
@@ -464,21 +461,12 @@
     },
     "permissions": {
       "title": "Permissions",
-      "microphoneTitle": "Microphone",
-      "microphoneDescription": "Transforme votre voix en texte. Rien n'est enregistré tant que vous n'appuyez pas sur votre raccourci.",
       "grant": "Autoriser",
       "grantAccess": "Accorder l'accès",
-      "accessibilityTitle": "Accessibilité",
-      "accessibilityDescription": "Saisit le texte final directement dans l'application où vous êtes : documents, e-mail, chat.",
       "testAndGrant": "Tester et autoriser",
       "requiredForApp": "Nécessaire pour le bon fonctionnement d'Loqui",
       "microphoneRequired": "Accès microphone requis",
-      "openSystemSettings": "Ouvrir les Réglages Système",
-      "systemAudioTitle": "Audio Système",
-      "systemAudioDescription": "Permet à l'enregistreur de réunion d'entendre vos interlocuteurs : réunions, cours, podcasts. Activable plus tard dans les Réglages.",
-      "optional": "Facultatif",
-      "recommended": "Recommandé",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "Ouvrir les Réglages Système"
     },
     "transcription": {
       "title": "Configuration de la transcription",
@@ -716,7 +704,6 @@
     "custom": {
       "endpointWithProtocol": "Saisissez une URL de base complète avec protocole (ex : https://server/v1).",
       "httpsRequired": "HTTPS requis (HTTP autorisé seulement en réseau local).",
-      "endpointInvalid": "Le point de terminaison personnalisé est invalide ou non configuré. Vérifiez l'URL du point de terminaison dans Réglages → Modèles d'IA.",
       "endpointUnauthorized": "Le endpoint a rejeté la requête (401/403). Ajoutez une clé API ou ajustez l'authentification du serveur.",
       "endpointTitle": "URL du endpoint",
       "endpointExamples": "Exemples :",
@@ -774,7 +761,6 @@
       "projectId": "ID du projet",
       "location": "Emplacement",
       "customModelId": "ID de modèle personnalisé",
-      "customModelPlaceholder": "Saisissez un ID de modèle ou un nom de déploiement",
       "suggestedModels": "Modèles suggérés",
       "browseModels": "Parcourir tous les modèles",
       "loadingModels": "Récupération des modèles...",
@@ -852,7 +838,6 @@
       "whisperModelDescription": "Modèle",
       "parakeetModelDescription": "Modèle NVIDIA Parakeet"
     },
-    "whisperModels": "Modèles Whisper",
     "corti": {
       "clientId": "ID client",
       "clientSecret": "Secret client",
@@ -1338,50 +1323,6 @@
     "title": "Réinitialiser votre mot de passe"
   },
   "actionPrompt": "Prompt d'action",
-  "hotkeyGuidance": {
-    "blockedDescription": "Ces raccourcis sont bloqués car ils sont couramment utilisés par le système.",
-    "blockedTitle": "Raccourcis bloqués",
-    "description": "Utilisez ces règles selon votre plateforme pour choisir un raccourci qui ne soit pas en conflit avec votre système.",
-    "examplesTitle": "Exemples valides",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "Raccourcis recommandés",
-    "rulesTitle": "Règles de raccourcis",
-    "showAll": "Tout afficher",
-    "showFewer": "Afficher moins",
-    "title": "Guide des raccourcis",
-    "validationRules": {
-      "0": "Doit utiliser au moins un modificateur (Ctrl, Alt, Shift, etc.)",
-      "1": "Les raccourcis système réservés ne peuvent pas être utilisés",
-      "2": "Les touches seules ne sont pas autorisées",
-      "3": "Certaines combinaisons peuvent entrer en conflit avec d'autres applications"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "Appuyez sur une combinaison de touches pour définir le raccourci",
     "clickToChange": "Cliquez pour modifier",
@@ -3079,16 +3020,6 @@
     }
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "Saisissez un nom de dossier.",
-      "folderAlreadyExists": "Un dossier portant ce nom existe déjà.",
-      "folderNotFound": "Ce dossier est introuvable.",
-      "defaultFolderImmutable": "Les dossiers par défaut ne peuvent pas être modifiés.",
-      "spaceNameRequired": "Saisissez un nom d’espace.",
-      "spaceNotFound": "Cet espace est introuvable.",
-      "privateSpaceImmutable": "Votre espace Personnel ne peut pas être modifié.",
-      "generic": "La modification n’a pas pu être effectuée. Réessayez."
-    },
     "sidebar": {
       "newNote": "Nouvelle note",
       "searchNotes": "Rechercher des notes",
@@ -3273,7 +3204,6 @@
       "noteTitle": "Titre de la note",
       "stop": "Arrêter",
       "transcribe": "Transcrire",
-      "processing": "Traitement...",
       "export": "Exporter",
       "asMarkdown": "En Markdown",
       "asPlainText": "En texte brut",
@@ -3505,10 +3435,6 @@
         "grant": "Accorder l'autorisation",
         "enabled": "Activé"
       }
-    },
-    "realtimeBanner": {
-      "message": "Transcription en temps réel disponible avec Pro",
-      "upgrade": "Passer à Pro"
     },
     "enhance": {
       "title": "Erreur d'amélioration"
@@ -4015,14 +3941,6 @@
         "resendThrottled": "Invitation envoyée récemment. Réessayez dans une minute.",
         "syncPrompt": "Le partage conserve une copie de cette note dans votre cloud Loqui. Vous seul pouvez la voir tant que vous n'avez pas choisi avec qui la partager.",
         "syncAndShare": "Synchroniser la note",
-        "visibility": {
-          "label": "Visibilité",
-          "private": "Privée",
-          "privateOption": "Privée — vous uniquement",
-          "link": "Toute personne ayant le lien",
-          "domain": "Tout le monde chez {{domain}} avec le lien",
-          "invited": "Uniquement les personnes invitées"
-        },
         "error": {
           "invalidEmail": "Entrez une adresse e-mail valide",
           "alreadyInvited": "{{email}} est déjà invité(e)",

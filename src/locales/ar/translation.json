@@ -351,7 +351,6 @@
     "custom": {
       "endpointWithProtocol": "أدخل عنوان URL أساسي كامل يتضمن البروتوكول (على سبيل المثال، https://server/v1).",
       "httpsRequired": "يتطلب HTTPS (يُسمح بـ HTTP للشبكة المحلية فقط).",
-      "endpointInvalid": "نقطة النهاية المخصصة غير صالحة أو غير مهيأة. تحقق من عنوان URL لنقطة النهاية في الإعدادات ← نماذج الذكاء الاصطناعي (AI Models).",
       "endpointUnauthorized": "رفضت نقطة النهاية الطلب (401/403). أضف مفتاح API أو اضبط إعدادات مصادقة الخادم.",
       "endpointTitle": "عنوان URL لنقطة النهاية",
       "endpointExamples": "أمثلة:",
@@ -409,7 +408,6 @@
       "projectId": "معرف المشروع (Project ID)",
       "location": "الموقع (Location)",
       "customModelId": "معرف النموذج المخصص",
-      "customModelPlaceholder": "أدخل معرف النموذج أو اسم النشر",
       "suggestedModels": "النماذج المقترحة",
       "browseModels": "تصفح جميع النماذج",
       "loadingModels": "جاري جلب النماذج...",
@@ -1289,14 +1287,6 @@
         "resendThrottled": "تم إرسال الدعوة مؤخرًا. حاول مرة أخرى بعد دقيقة.",
         "syncPrompt": "تحتفظ المشاركة بنسخة من هذه الملاحظة في سحابة Loqui الخاصة بك. لا يراها أحد سواك حتى تختار من تشاركها معه.",
         "syncAndShare": "مزامنة الملاحظة",
-        "visibility": {
-          "label": "من يمكنه الاطلاع",
-          "private": "خاص",
-          "privateOption": "خاص — أنت فقط",
-          "link": "أي شخص لديه الرابط",
-          "domain": "الجميع في {{domain}} ممن لديهم الرابط",
-          "invited": "فقط الأشخاص المدعوون"
-        },
         "error": {
           "invalidEmail": "أدخل عنوان بريد إلكتروني صالح",
           "alreadyInvited": "{{email}} مدعو بالفعل",
@@ -1403,16 +1393,6 @@
     "connectCalendarButton": "ربط التقويم"
   },
   "notes": {
-    "mutationErrors": {
-      "folderNameRequired": "أدخل اسم مجلد.",
-      "folderAlreadyExists": "يوجد مجلد بهذا الاسم بالفعل.",
-      "folderNotFound": "تعذر العثور على ذلك المجلد.",
-      "defaultFolderImmutable": "لا يمكن تغيير المجلدات الافتراضية.",
-      "spaceNameRequired": "أدخل اسم مساحة.",
-      "spaceNotFound": "تعذر العثور على تلك المساحة.",
-      "privateSpaceImmutable": "لا يمكن تغيير مساحتك الشخصية.",
-      "generic": "تعذر إكمال التغيير. يرجى المحاولة مرة أخرى."
-    },
     "sidebar": {
       "newNote": "ملاحظة جديدة",
       "searchNotes": "البحث في الملاحظات",
@@ -1605,7 +1585,6 @@
       "noteTitle": "عنوان الملاحظة",
       "stop": "إيقاف",
       "transcribe": "تفريغ",
-      "processing": "جاري المعالجة...",
       "export": "تصدير",
       "asMarkdown": "بصيغة Markdown",
       "asPlainText": "كنص عادي",
@@ -1843,10 +1822,6 @@
         "grant": "منح الإذن",
         "enabled": "مُمكّن"
       }
-    },
-    "realtimeBanner": {
-      "message": "التفريغ في الوقت الفعلي متاح في خطة Pro",
-      "upgrade": "ترقية"
     },
     "enhance": {
       "title": "خطأ في التحسين"
@@ -2197,21 +2172,12 @@
     },
     "permissions": {
       "title": "الأذونات",
-      "microphoneTitle": "الميكروفون",
-      "microphoneDescription": "يحول كلامك إلى نص. لا يتم تسجيل أي شيء حتى تضغط على اختصار لوحة المفاتيح الخاص بك.",
       "grant": "منح",
       "grantAccess": "منح الوصول",
-      "accessibilityTitle": "تسهيلات الاستخدام",
-      "accessibilityDescription": "يكتب النص النهائي مباشرة في أي تطبيق تستخدمه — المستندات، البريد الإلكتروني، الدردشة.",
       "testAndGrant": "اختبار ومنح",
       "requiredForApp": "مطلوب لعمل Loqui",
       "microphoneRequired": "الوصول إلى الميكروفون مطلوب",
-      "openSystemSettings": "فتح إعدادات النظام",
-      "systemAudioTitle": "صوت النظام",
-      "systemAudioDescription": "يتيح لمسجل الاجتماع سماع الجانب الآخر من مكالماتك — الاجتماعات، المحاضرات، البودكاست. يمكنك تشغيل هذا لاحقًا في الإعدادات.",
-      "optional": "اختياري",
-      "recommended": "موصى به",
-      "accessibilityTroubleshooting": "In System Settings → Accessibility, switch Loqui off and back on. If it is missing, click + and add Loqui from your Applications folder."
+      "openSystemSettings": "فتح إعدادات النظام"
     },
     "transcription": {
       "title": "إعداد التفريغ",
@@ -3585,12 +3551,9 @@
     "loading": "جاري التحميل...",
     "unknown": "غير معروف",
     "availableModels": "النماذج المتاحة",
-    "fast": "سريع",
     "hold": "استمرار الضغط",
-    "private": "خاص",
     "tap": "نقر",
     "close": "إغلاق",
-    "dismiss": "تجاهل",
     "save": "حفظ",
     "saving": "جاري الحفظ...",
     "create": "إنشاء",
@@ -3645,7 +3608,6 @@
       "whisperModelDescription": "النموذج",
       "parakeetModelDescription": "نموذج NVIDIA Parakeet"
     },
-    "whisperModels": "نماذج Whisper",
     "corti": {
       "clientId": "معرف العميل (Client ID)",
       "clientSecret": "سر العميل (Client Secret)",
@@ -3697,50 +3659,6 @@
     "title": "إعادة تعيين كلمة المرور الخاصة بك"
   },
   "actionPrompt": "موجه الإجراء",
-  "hotkeyGuidance": {
-    "blockedDescription": "تم حظر هذه الاختصارات لأنها تُستخدم عادةً بواسطة النظام.",
-    "blockedTitle": "الاختصارات المحظورة",
-    "description": "استخدم قواعد المنصة هذه لاختيار اختصار لا يتعارض مع نظامك.",
-    "examplesTitle": "أمثلة صالحة",
-    "platforms": {
-      "linux": "Linux",
-      "macos": "macOS",
-      "windows": "Windows"
-    },
-    "recommended": {
-      "linux": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Super+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Ctrl+Shift+J",
-        "4": "Alt+Space"
-      },
-      "macos": {
-        "0": "⌥Space",
-        "1": "⌃⌥S",
-        "2": "⌃⌥D",
-        "3": "Fn",
-        "4": "⌘⇧J"
-      },
-      "windows": {
-        "0": "Ctrl+Alt+Space",
-        "1": "Ctrl+Shift+S",
-        "2": "Ctrl+Alt+D",
-        "3": "Win+Alt+K"
-      }
-    },
-    "recommendedTitle": "الاختصارات الموصى بها",
-    "rulesTitle": "قواعد الاختصارات",
-    "showAll": "إظهار الكل",
-    "showFewer": "إظهار أقل",
-    "title": "دليل الاختصارات",
-    "validationRules": {
-      "0": "يجب استخدام مفتاح معدّل واحد على الأقل (Ctrl أو Alt أو Shift، وما إلى ذلك)",
-      "1": "لا يمكن استخدام اختصارات النظام المحجوزة",
-      "2": "المفاتيح الفردية وحدها غير مسموح بها",
-      "3": "قد تتعارض بعض التركيبات مع تطبيقات أخرى"
-    }
-  },
   "hotkeyInput": {
     "ariaLabel": "اضغط على مجموعة مفاتيح لتعيين اختصار",
     "clickToChange": "انقر للتغيير",

@@ -1,4 +1,4 @@
-export function openExternalLink(url: string): void {
+function openExternalLink(url: string): void {
   if (window.electronAPI?.openExternal) {
     window.electronAPI.openExternal(url);
   } else {

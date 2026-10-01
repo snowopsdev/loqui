@@ -5,7 +5,7 @@ import {
 } from "../../helpers/voicePillPresentation";
 import { ExpandingPanelShell } from "./ExpandingPanelShell";
 
-export type VoiceModePanel = "assistant" | "live-transcript";
+type VoiceModePanel = "assistant" | "live-transcript";
 export type VoiceModePanelStage = "encapsulated" | "footer" | "content";
 
 interface VoiceModePanelCoreProps {

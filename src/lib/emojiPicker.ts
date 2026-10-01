@@ -25,8 +25,8 @@ export interface GridPosition {
 
 export type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 
-export const EMOJI_COLUMNS = 9;
-export const RECENT_EMOJI_LIMIT = EMOJI_COLUMNS;
+const EMOJI_COLUMNS = 9;
+const RECENT_EMOJI_LIMIT = EMOJI_COLUMNS;
 export const FLAGS_GROUP = 9;
 
 // Translation keys under emojiPicker.groups, by emojibase group id. Group 2

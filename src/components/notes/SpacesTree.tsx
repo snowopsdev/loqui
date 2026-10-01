@@ -196,13 +196,18 @@ export default function SpacesTree({
           />
         </button>
         <button
-          className="flex-1 text-start py-2"
+          className="flex flex-1 items-center gap-2 text-start py-2"
           onKeyDown={(e) => containerKeys(e, rootKey)}
           onClick={() => {
             navigateToContainer(space.id, null);
             setContainerExpanded(rootKey, true);
           }}
         >
+          {space.emoji && (
+            <span className="font-emoji leading-none" aria-hidden="true">
+              {space.emoji}
+            </span>
+          )}
           {t("notes.spaces.personal")}
         </button>
         <Button

@@ -34,8 +34,4 @@ function setUserDataDir(dir) {
   userDataDir = dir;
 }
 
-function getUserDataDir() {
-  return userDataDir;
-}
-
-module.exports = { installElectronStub, setUserDataDir, getUserDataDir };
+module.exports = { installElectronStub, setUserDataDir };

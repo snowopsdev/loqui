@@ -25,6 +25,13 @@ const MAX_SNIPPET_TRIGGER_LENGTH = 100;
 
 const FOLDER_NAME_TAKEN_FILTER = "deleted_at IS NULL";
 
+// A "contains" pattern for `LIKE ? ESCAPE '\'`: the query is a literal
+// substring, so LIKE's own metacharacters must not act as wildcards (a search
+// for "100%" or "_" would otherwise match nearly everything).
+function likeContainsPattern(query) {
+  return `%${String(query ?? "").replace(/[\\%_]/g, "\\$&")}%`;
+}
+
 // A meeting synced by both a REST provider (Google/Microsoft) and Apple
 // (Calendar.app mirrors the same accounts) would double-fire reminders and
 // duplicate UI rows; suppress the Apple copy when a REST row occupies the same
@@ -2190,10 +2197,10 @@ class DatabaseManager {
   searchContacts(query) {
     try {
       if (!this.db) throw new Error("Database not initialized");
-      const pattern = `%${query || ""}%`;
+      const pattern = likeContainsPattern(query);
       return this.db
         .prepare(
-          "SELECT * FROM contacts WHERE email LIKE ? OR display_name LIKE ? ORDER BY display_name ASC, email ASC LIMIT 20"
+          "SELECT * FROM contacts WHERE email LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\' ORDER BY display_name ASC, email ASC LIMIT 20"
         )
         .all(pattern, pattern);
     } catch (error) {
@@ -2637,7 +2644,7 @@ class DatabaseManager {
   searchAgentConversations(query, limit = 20) {
     try {
       if (!this.db) throw new Error("Database not initialized");
-      const pattern = `%${query}%`;
+      const pattern = likeContainsPattern(query);
       // Message hits are matched with EXISTS rather than a second join: joining
       // the messages twice multiplies each conversation's rows, which inflated
       // message_count to the square of the real count.
@@ -2652,10 +2659,10 @@ class DatabaseManager {
           WHERE c.archived_at IS NULL AND c.deleted_at IS NULL
             AND c.space_id IS NULL AND c.folder_id IS NULL
             AND (
-              c.title LIKE ?
+              c.title LIKE ? ESCAPE '\\'
               OR EXISTS (
                 SELECT 1 FROM agent_messages ms
-                WHERE ms.conversation_id = c.id AND ms.content LIKE ?
+                WHERE ms.conversation_id = c.id AND ms.content LIKE ? ESCAPE '\\'
               )
             )
           GROUP BY c.id

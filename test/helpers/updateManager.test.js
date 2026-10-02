@@ -195,3 +195,18 @@ test("a downloaded update is not re-checked and the off switch also blocks manua
   await off.manager.check(true);
   assert.equal(off.counts().checks, 0);
 });
+test("an unwritable profile does not stop setup completion from starting the checks or block preferences", async (t) => {
+  const s = setup(t);
+  s.manager.prefs.onboarded = false;
+  const blocker = path.join(path.dirname(s.manager.file), "not-a-directory");
+  fs.writeFileSync(blocker, "");
+  s.manager.file = path.join(blocker, "updates.json");
+  s.manager.completeSetup();
+  assert.equal(s.manager.prefs.onboarded, true);
+  assert.ok(s.manager.timer, "the hourly check was not started");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(s.counts().checks, 1);
+  const status = s.manager.preferences({ enabled: false, channel: "stable" });
+  assert.equal(status.enabled, false);
+  assert.equal(status.channel, "stable");
+});

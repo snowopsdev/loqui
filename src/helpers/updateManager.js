@@ -76,10 +76,18 @@ class UpdateManager extends EventEmitter {
     this.state = { ...this.state, error: undefined, ...patch };
     this.emit("status", this.status());
   }
+  // Best effort: an unwritable profile (full disk, read-only folder) must not
+  // wedge a check with running stuck true, reject the timer's promise, skip
+  // start() after setup, or fail a preference change. The in-memory values stay
+  // authoritative for this session (lastCheck still spaces out retries).
   save() {
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(this.file + ".tmp", JSON.stringify(this.prefs), { mode: 0o600 });
-    fs.renameSync(this.file + ".tmp", this.file);
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      fs.writeFileSync(this.file + ".tmp", JSON.stringify(this.prefs), { mode: 0o600 });
+      fs.renameSync(this.file + ".tmp", this.file);
+    } catch {
+      // See above.
+    }
   }
   preferences(patch) {
     if (this.restarting) throw Error("An update restart is already being prepared.");
@@ -129,13 +137,7 @@ class UpdateManager extends EventEmitter {
     this.running = true;
     const channel = this.prefs.channel;
     this.prefs.lastCheck = this.now();
-    try {
-      this.save();
-    } catch {
-      // An unwritable profile (full disk, read-only folder) must neither wedge
-      // the updater with running stuck true nor reject the timer's check; the
-      // in-memory lastCheck still spaces out retries.
-    }
+    this.save();
     this.publish({ phase: "checking" });
     try {
       const result = await this.updater.checkForUpdates();

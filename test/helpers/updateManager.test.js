@@ -144,3 +144,13 @@ test("disabling during download cancels and ignores completion", async (t) => {
   await s.manager.check();
   assert.equal(s.manager.status().phase, "idle");
 });
+test("a profile that cannot be written does not wedge the updater", async (t) => {
+  const s = setup(t);
+  const blocker = path.join(path.dirname(s.manager.file), "not-a-directory");
+  fs.writeFileSync(blocker, "");
+  s.manager.file = path.join(blocker, "updates.json");
+  await s.manager.check(false);
+  assert.equal(s.manager.running, false, "a failed preference write left the check marked running");
+  assert.equal(s.manager.status().phase, "ready", "the update check still ran");
+  assert.equal(s.counts().checks, 1);
+});

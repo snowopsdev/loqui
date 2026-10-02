@@ -129,7 +129,13 @@ class UpdateManager extends EventEmitter {
     this.running = true;
     const channel = this.prefs.channel;
     this.prefs.lastCheck = this.now();
-    this.save();
+    try {
+      this.save();
+    } catch {
+      // An unwritable profile (full disk, read-only folder) must neither wedge
+      // the updater with running stuck true nor reject the timer's check; the
+      // in-memory lastCheck still spaces out retries.
+    }
     this.publish({ phase: "checking" });
     try {
       const result = await this.updater.checkForUpdates();

@@ -20,6 +20,16 @@ function getBridgeFilePath() {
   return path.join(os.homedir(), ".loqui-snowopsdev", "cli-bridge.json");
 }
 
+// The bridge file is how the external CLI finds a running app, so the packaged
+// app keeps its fixed home location. An instance that was pointed at its own
+// profile (LOQUI_PROFILE_DIR) must not publish its port and token there: it
+// would overwrite, and on exit delete, the file of the real running app.
+function resolveBridgeFilePath({ isolatedProfile, userDataPath }) {
+  return isolatedProfile && userDataPath
+    ? path.join(userDataPath, "cli-bridge.json")
+    : getBridgeFilePath();
+}
+
 async function findAvailablePort() {
   for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
     if (await isPortAvailable(port)) return port;
@@ -104,12 +114,12 @@ function unwrapMutationResult(result, label) {
 }
 
 class CliBridge {
-  constructor(ipcHandlers) {
+  constructor(ipcHandlers, { bridgeFilePath } = {}) {
     this.ipcHandlers = ipcHandlers;
     this.server = null;
     this.port = null;
     this.token = null;
-    this.bridgeFilePath = getBridgeFilePath();
+    this.bridgeFilePath = bridgeFilePath || getBridgeFilePath();
     this.routes = this._buildRouteTable();
   }
 
@@ -575,5 +585,7 @@ class CliBridge {
     ];
   }
 }
+
+CliBridge.resolveBridgeFilePath = resolveBridgeFilePath;
 
 module.exports = CliBridge;

@@ -6,10 +6,10 @@ const { isIP } = require("net");
 const childProcess = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const debugLogger = require("./debugLogger");
 const { getSafeTempDir } = require("./safeTempDir");
+const { getSupportCacheDir } = require("./supportCacheDir");
 const { getFFmpegPath } = require("./ffmpegUtils");
 
 const YOUTUBE_HOSTS = new Set([
@@ -31,9 +31,7 @@ const USER_AGENT = "io.github.snowopsdev.loqui/0.1";
 // Writable yt-dlp cache, seeded from the read-only bundle so the binary can
 // self-update (the bundled copy is read-only / inside the signed bundle).
 // LOQUI_YTDLP_CACHE_DIR overrides the location (relocate it, or isolate it in tests).
-const YT_DLP_CACHE_DIR =
-  process.env.LOQUI_YTDLP_CACHE_DIR ||
-  path.join(os.homedir(), ".cache", "loqui-snowopsdev", "yt-dlp");
+const YT_DLP_CACHE_DIR = process.env.LOQUI_YTDLP_CACHE_DIR || getSupportCacheDir("yt-dlp");
 const YT_DLP_UPDATE_THROTTLE_MS = 24 * 60 * 60 * 1000;
 // Bound the self-update so a stalled GitHub request can never hang a download
 // or wedge the single-flight flag. Overridable via options.timeoutMs for tests.

@@ -139,3 +139,67 @@ test("a live recording with no note id still blocks a second manual meeting", as
 
   assert.deepEqual(noteNavigations, []);
 });
+
+// Calendar providers copy the organizer's join link verbatim, so the invite's
+// author, not the user, chooses the scheme Join hands to the OS.
+test("the notification Join action does not open non-web calendar links", async () => {
+  const opened = [];
+  const MeetingDetectionEngine = (() => {
+    delete require.cache[enginePath];
+    delete require.cache[require.resolve("../../src/helpers/externalUrlOpener")];
+    Module._load = function loadWithMocks(request, parent, isMain) {
+      if (request === "electron") {
+        return { shell: { openExternal: async (url) => opened.push(url) } };
+      }
+      if (request === "./debugLogger") return { info() {}, warn() {}, debug() {}, error() {} };
+      if (request === "./windowBroadcast") return { broadcastToWindows() {} };
+      if (request === "./meetingJoinUrl") {
+        return { getMeetingJoinUrl: (event) => event?.hangout_link ?? null };
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    };
+    try {
+      return require(enginePath);
+    } finally {
+      Module._load = originalLoad;
+      delete require.cache[require.resolve("../../src/helpers/externalUrlOpener")];
+    }
+  })();
+  const idle = Object.assign(new EventEmitter(), {
+    start() {},
+    stop() {},
+    resetPrompt() {},
+  });
+  const engine = new MeetingDetectionEngine(
+    { getActiveMeetingState: () => ({}) },
+    idle,
+    idle,
+    {
+      notificationPrefs: {},
+      dismissMeetingNotification() {},
+      queueMeetingNoteNavigation: async () => {},
+    },
+    {
+      saveNote: () => ({ note: { id: 1 } }),
+      getMeetingsFolder: () => ({ id: 1 }),
+      updateNote: () => ({}),
+    }
+  );
+
+  for (const link of [
+    "file:///etc/passwd",
+    "smb://attacker.example/share/payload.exe",
+    "https://meet.google.com/abc-defg-hij",
+  ]) {
+    engine.activeDetections.set("d1", {
+      source: "calendar",
+      key: "k",
+      data: {},
+      event: { hangout_link: link, calendar_id: "c", summary: "Standup" },
+    });
+    await engine.handleNotificationResponse("d1", "join");
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(opened, ["https://meet.google.com/abc-defg-hij"]);
+});

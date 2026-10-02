@@ -581,7 +581,13 @@ async function startApp() {
   resetWhisperGpuFailureOnUpgrade(environmentManager);
   registerSidecars();
 
-  cliBridge = new CliBridge(ipcHandlers);
+  cliBridge = new CliBridge(ipcHandlers, {
+    bridgeFilePath: CliBridge.resolveBridgeFilePath({
+      // Same condition that made userData the LOQUI_PROFILE_DIR override above.
+      isolatedProfile: !app.isPackaged && !!process.env.LOQUI_PROFILE_DIR,
+      userDataPath: app.getPath("userData"),
+    }),
+  });
   cliBridge.start().catch((err) => {
     debugLogger.error("CLI bridge failed to start", { error: err.message });
     cliBridge = null;

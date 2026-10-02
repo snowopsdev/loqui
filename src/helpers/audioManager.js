@@ -2609,6 +2609,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       logger.logReasoning("REASONING_SKIPPED", {
         reason: "No cleanup or dictation-agent model available",
       });
+      // The raw transcript is still pasted, but a translation recording that
+      // cannot translate must say so, as it does when a cleanup model exists.
+      if (this.translationRequested) this.notifyTranslationFallback("unreachable");
       return normalizedText;
     }
 

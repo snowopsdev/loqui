@@ -463,6 +463,11 @@ class GeminiLiveStreaming {
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
     this.stopKeepAlive();
+    // The socket is gone, so no turn end can arrive; release a disconnect() that
+    // is still waiting (the closing socket's own close event is ignored once
+    // this.ws has been replaced).
+    this._turnEndResolve?.();
+    this._turnEndResolve = null;
 
     if (this.ws) {
       try {

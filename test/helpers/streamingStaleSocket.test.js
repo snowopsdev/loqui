@@ -160,3 +160,31 @@ test("a Deepgram liveness reconnect survives the unresponsive warm socket's clos
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("a Gemini Live disconnect does not wait out the turn-end budget when the socket errors", async () => {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise((resolve) => server.once("listening", resolve));
+  server.on("connection", (socket) => {
+    socket.send(JSON.stringify({ setupComplete: {} }));
+    socket.on("message", (data) => {
+      if (!String(data).includes("audioStreamEnd")) return;
+      // A reserved opcode makes the client socket emit "error", then close.
+      socket._socket.write(Buffer.from([0x83, 0x00]));
+    });
+  });
+  const streaming = new GeminiLiveStreaming();
+  streaming.buildWebSocketUrl = () => `ws://127.0.0.1:${server.address().port}`;
+  try {
+    await streaming.connect({ token: "key", mode: "byok" });
+    streaming.sendAudio(Buffer.alloc(3200));
+    streaming.finalize();
+    const started = Date.now();
+    await streaming.disconnect();
+    assert.ok(Date.now() - started < 1500, `disconnect waited ${Date.now() - started} ms`);
+    assert.equal(streaming._turnEndResolve, null);
+  } finally {
+    streaming.cleanup();
+    for (const client of server.clients) client.terminate();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -55,6 +55,11 @@ import {
   readOnboardingProgress,
   writeOnboardingProgress,
 } from "../utils/onboardingState";
+import {
+  applyCleanupChoice,
+  type CleanupChoice,
+  type CleanupStatus,
+} from "../utils/onboardingCleanup";
 
 interface Props {
   onComplete: (options?: { openSettings?: boolean }) => void;
@@ -120,8 +125,6 @@ const GUIDED_STEP_COPY: Record<
 };
 
 const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";
-type CleanupChoice = "none" | "local" | "codex" | "provider";
-type CleanupStatus = "checking" | "pending" | "ready" | "failed" | "skipped";
 
 function displayModelSize(size: string): string {
   return size.replace(/(\d)(MB|GB)$/, "$1 $2");
@@ -1173,74 +1176,22 @@ export default function OnboardingFlow({
       });
   }, [config, preview, scenario, selectedModel]);
 
+  const cleanupRequestRef = useRef(0);
   const chooseCleanup = useCallback(
     async (choice: CleanupChoice) => {
+      // Each pick supersedes the one before it: a check still in flight for an
+      // earlier option must not activate cleanup after the user moved on.
+      const request = ++cleanupRequestRef.current;
       setCleanupChoice(choice);
-      const store = useSettingsStore.getState();
-      if (choice === "none") {
-        store.setUseCleanupModel(false);
-        setCleanupStatus("skipped");
-        return;
-      }
-      // Keep the choice visible while the connection/model check runs, but do not
-      // activate cleanup until that check succeeds.
-      store.setUseCleanupModel(false);
-      setCleanupStatus("checking");
-      if (choice === "local") {
-        store.setCleanupMode("local");
-        store.setCleanupProvider("local");
-        store.setCleanupModel("qwen3.5-2b-q4_k_m");
-        if (preview) {
-          setCleanupStatus(scenario === "ready" ? "ready" : "pending");
-          if (scenario === "ready") store.setUseCleanupModel(true);
-          return;
-        }
-        try {
-          const result = await window.electronAPI?.modelTestLoad?.("qwen3.5-2b-q4_k_m");
-          if (result?.success) {
-            store.setUseCleanupModel(true);
-            setCleanupStatus("ready");
-          } else setCleanupStatus("pending");
-        } catch {
-          setCleanupStatus("pending");
-        }
-      } else if (choice === "codex") {
-        store.setCleanupMode("providers");
-        store.setCleanupProvider("codex");
-        if (!store.cleanupModel) store.setCleanupModel("gpt-5.4");
-        if (preview) {
-          const ready = scenario === "ready";
-          setCleanupStatus(ready ? "ready" : "failed");
-          if (ready) store.setUseCleanupModel(true);
-          return;
-        }
-        try {
-          const status = await window.electronAPI?.personalInference?.codexStatus();
-          const ready = Boolean(status?.available && status.account?.type === "chatgpt");
-          setCleanupStatus(ready ? "ready" : "failed");
-          if (ready) store.setUseCleanupModel(true);
-        } catch {
-          setCleanupStatus("failed");
-        }
-      } else {
-        store.setCleanupMode("providers");
-        store.setCleanupProvider("openai");
-        if (!store.cleanupModel) store.setCleanupModel("gpt-4o-mini");
-        if (preview) {
-          const ready = scenario === "ready";
-          setCleanupStatus(ready ? "ready" : "failed");
-          if (ready) store.setUseCleanupModel(true);
-          return;
-        }
-        try {
-          const status = await window.electronAPI?.personalInference?.credentialStatus("openai");
-          const ready = Boolean(status?.configured);
-          setCleanupStatus(ready ? "ready" : "failed");
-          if (ready) store.setUseCleanupModel(true);
-        } catch {
-          setCleanupStatus("failed");
-        }
-      }
+      await applyCleanupChoice({
+        choice,
+        settings: useSettingsStore.getState(),
+        bridge: window.electronAPI,
+        preview,
+        scenario,
+        setStatus: setCleanupStatus,
+        isCurrent: () => cleanupRequestRef.current === request,
+      });
     },
     [preview, scenario]
   );
@@ -1281,10 +1232,8 @@ export default function OnboardingFlow({
   }, []);
 
   const disableCleanupForTrial = useCallback(() => {
-    useSettingsStore.getState().setUseCleanupModel(false);
-    setCleanupChoice("none");
-    setCleanupStatus("skipped");
-  }, []);
+    void chooseCleanup("none");
+  }, [chooseCleanup]);
 
   const readiness = useMemo<OnboardingReadiness>(() => {
     const cleanupFailed =

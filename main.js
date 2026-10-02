@@ -418,6 +418,7 @@ function initializeCoreManagers() {
     meetingAecManager,
     getQdrantManager: () => qdrantManager,
     getTrayManager: () => trayManager,
+    getPersonalInference: () => inference,
   });
   ipcMain.handle("get-search-model-status", () => ({
     downloaded: require("./src/helpers/localEmbeddings").isAvailable(),

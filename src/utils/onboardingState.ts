@@ -134,6 +134,24 @@ export function clearOnboardingProgress(storageKey = STORAGE_KEY): void {
   if (typeof localStorage !== "undefined") localStorage.removeItem(storageKey);
 }
 
+/**
+ * Forgets everything the preview stored for one platform and scenario: the
+ * progress record plus every `<key>.<suffix>` entry written beside it (selected
+ * model, download readiness, cleanup reuse, dismissed checklist). Matching on the
+ * prefix keeps a restart complete when a new suffix is introduced, and never
+ * touches keys outside the preview namespace.
+ */
+export function clearOnboardingPreviewState(config: OnboardingPreviewConfig): void {
+  if (typeof localStorage === "undefined") return;
+  const key = onboardingPreviewStorageKey(config);
+  const owned: string[] = [];
+  for (let index = 0; index < localStorage.length; index++) {
+    const name = localStorage.key(index);
+    if (name === key || name?.startsWith(`${key}.`)) owned.push(name);
+  }
+  for (const name of owned) localStorage.removeItem(name);
+}
+
 export function parseOnboardingPreviewConfig(search = ""): OnboardingPreviewConfig {
   const params = new URLSearchParams(search);
   return {

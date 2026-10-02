@@ -3,7 +3,6 @@ const EventEmitter = require("events");
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const os = require("os");
 const debugLogger = require("./debugLogger");
 const {
   findAvailablePort,
@@ -11,6 +10,7 @@ const {
   gracefulStopProcess,
 } = require("../utils/serverUtils");
 const sidecarPidFile = require("./sidecarPidFile");
+const { getSupportCacheDir } = require("./supportCacheDir");
 const { waitForExit } = require("./sidecarReaper");
 
 const PORT_RANGE_START = 6333;
@@ -29,10 +29,7 @@ const MAX_RESTARTS_PER_SESSION = 3;
 // verifies the old process is really gone before spawning its replacement.
 const RESTART_EXIT_WAIT_MS = 2000;
 
-const STORAGE_DIR = path.join(
-  os.homedir(),
-  ".cache",
-  "loqui-snowopsdev",
+const STORAGE_DIR = getSupportCacheDir(
   process.env.NODE_ENV === "development" ? "qdrant-data-dev" : "qdrant-data"
 );
 

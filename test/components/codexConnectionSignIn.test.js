@@ -14,18 +14,20 @@ const signedIn = {
   account: { type: "chatgpt", email: "fixture@example.invalid" },
 };
 
-async function mount(t, onSignedInChange) {
+async function mount(t, onSignedInChange, readStatus) {
   let root = null;
-  t.after(async () => {
+  const unmount = async () => {
     if (root) await React.act(async () => root.unmount());
-  });
+    root = null;
+  };
+  t.after(unmount);
   let status = signedOut;
   const listeners = [];
   installBrowserGlobals(t, {
     window: {
       electronAPI: {
         personalInference: {
-          codexStatus: async () => status,
+          codexStatus: () => (readStatus ? readStatus() : Promise.resolve(status)),
           codexRateLimits: async () => ({}),
           onTextEvent: (listener) => {
             listeners.push(listener);
@@ -67,6 +69,8 @@ async function mount(t, onSignedInChange) {
     root.render(React.createElement(CodexConnection, { onSignedInChange }));
   });
   return {
+    unmount,
+    listeners,
     async account(next) {
       status = next;
       await React.act(async () => {
@@ -94,4 +98,62 @@ test("signing in or out after the first status read is reported to the owner", a
 test("the connection component works without an owner callback", async (t) => {
   const connection = await mount(t, undefined);
   await assert.doesNotReject(connection.account(signedIn));
+});
+
+function deferredReads() {
+  const reads = [];
+  return {
+    read: () => new Promise((resolve) => reads.push(resolve)),
+    reads,
+  };
+}
+
+test("a status read that settles after unmount never reports an account change", async (t) => {
+  const changes = [];
+  const pending = deferredReads();
+  let first = true;
+  const connection = await mount(
+    t,
+    (value) => changes.push(value),
+    () => {
+      if (first) {
+        first = false;
+        return Promise.resolve(signedOut);
+      }
+      return pending.read();
+    }
+  );
+  // A sign-in event starts a second read; the user then leaves the step.
+  await React.act(async () => {
+    for (const listener of connection.listeners) listener({ type: "account" });
+  });
+  assert.equal(pending.reads.length, 1);
+  await connection.unmount();
+  await React.act(async () => pending.reads[0](signedIn));
+  assert.deepEqual(changes, []);
+});
+
+test("only the newest status read can report an account change", async (t) => {
+  const changes = [];
+  const pending = deferredReads();
+  let first = true;
+  const connection = await mount(
+    t,
+    (value) => changes.push(value),
+    () => {
+      if (first) {
+        first = false;
+        return Promise.resolve(signedOut);
+      }
+      return pending.read();
+    }
+  );
+  await React.act(async () => {
+    for (const listener of connection.listeners) listener({ type: "account" });
+    for (const listener of connection.listeners) listener({ type: "account" });
+  });
+  assert.equal(pending.reads.length, 2);
+  await React.act(async () => pending.reads[1](signedOut));
+  await React.act(async () => pending.reads[0](signedIn));
+  assert.deepEqual(changes, [], "the older read finished last but is superseded");
 });

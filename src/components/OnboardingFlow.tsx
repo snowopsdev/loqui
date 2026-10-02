@@ -1187,8 +1187,18 @@ export default function OnboardingFlow({
   }, [config, preview, scenario, selectedModel]);
 
   const cleanupRequestRef = useRef(0);
+  const closedRef = useRef(false);
+  useEffect(() => {
+    closedRef.current = false;
+    return () => {
+      // Finishing or leaving setup supersedes any check still in flight.
+      closedRef.current = true;
+      cleanupRequestRef.current += 1;
+    };
+  }, []);
   const chooseCleanup = useCallback(
     async (choice: CleanupChoice) => {
+      if (closedRef.current) return;
       // Each pick supersedes the one before it: a check still in flight for an
       // earlier option must not activate cleanup after the user moved on.
       const request = ++cleanupRequestRef.current;

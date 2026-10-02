@@ -21,9 +21,21 @@ export default function CodexConnection({
   const signedInRef = useRef<boolean | null>(null);
   const onSignedInChangeRef = useRef(onSignedInChange);
   onSignedInChangeRef.current = onSignedInChange;
+  const mountedRef = useRef(false);
+  const refreshSeqRef = useRef(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const refresh = useCallback(async () => {
     if (!api) return;
+    const seq = ++refreshSeqRef.current;
     const next = await api.codexStatus();
+    // A read that finishes after unmount, or after a newer read began, is stale:
+    // it must not update state or tell the owner about an account change.
+    if (!mountedRef.current || seq !== refreshSeqRef.current) return;
     setStatus(next);
     const signedIn = next.account?.type === "chatgpt";
     // The first read only establishes the baseline; later changes are reported.
@@ -34,13 +46,14 @@ export default function CodexConnection({
       setLoginId(null);
       try {
         const limits = await api.codexRateLimits();
+        if (!mountedRef.current || seq !== refreshSeqRef.current) return;
         const percentages = [
           limits.rateLimits?.primary?.usedPercent,
           limits.rateLimits?.secondary?.usedPercent,
         ].filter((value) => typeof value === "number") as number[];
         setRemaining(percentages.length ? Math.max(0, 100 - Math.max(...percentages)) : null);
       } catch {
-        setRemaining(null);
+        if (mountedRef.current && seq === refreshSeqRef.current) setRemaining(null);
       }
     } else setRemaining(null);
   }, [api]);

@@ -543,7 +543,7 @@ function CleanupStep({
       )}
       {selected === "codex" && (
         <div className="space-y-2">
-          <CodexConnection />
+          <CodexConnection onSignedInChange={() => onChoice("codex")} />
           {codexUnavailable && (
             <p role="alert" className="text-xs text-destructive">
               Codex is unavailable in this scenario. Retry sign-in or choose another cleanup option.

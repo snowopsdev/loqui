@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
 import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
 import codexPolicy from "../config/codex.json";
 
 type Status = Awaited<ReturnType<PersonalInferenceAPI["codexStatus"]>>;
-export default function CodexConnection() {
+export default function CodexConnection({
+  onSignedInChange,
+}: {
+  /** Called when a later status refresh finds the ChatGPT account signed in or out. */
+  onSignedInChange?: (signedIn: boolean) => void;
+} = {}) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<Status | null>(null);
   const [loginId, setLoginId] = useState<string | null>(null);
@@ -13,11 +18,19 @@ export default function CodexConnection() {
   const [error, setError] = useState("");
   const [remaining, setRemaining] = useState<number | null>(null);
   const api = window.electronAPI?.personalInference;
+  const signedInRef = useRef<boolean | null>(null);
+  const onSignedInChangeRef = useRef(onSignedInChange);
+  onSignedInChangeRef.current = onSignedInChange;
   const refresh = useCallback(async () => {
     if (!api) return;
     const next = await api.codexStatus();
     setStatus(next);
-    if (next.account?.type === "chatgpt") {
+    const signedIn = next.account?.type === "chatgpt";
+    // The first read only establishes the baseline; later changes are reported.
+    if (signedInRef.current !== null && signedInRef.current !== signedIn)
+      onSignedInChangeRef.current?.(signedIn);
+    signedInRef.current = signedIn;
+    if (signedIn) {
       setLoginId(null);
       try {
         const limits = await api.codexRateLimits();

@@ -22,14 +22,22 @@ export interface CleanupBridge {
   modelTestLoad?: (model: string) => Promise<{ success?: boolean } | undefined>;
   personalInference?: {
     codexStatus: () => Promise<{ available?: boolean; account?: { type?: string } | null }>;
+    codexModels: () => Promise<{ data: Array<{ model: string; isDefault?: boolean }> }>;
     credentialStatus: (ref: string) => Promise<{ configured?: boolean }>;
   };
+}
+
+/** Which model ids a cloud provider accepts, and the one it should start with. */
+export interface CleanupModelCatalog {
+  owns(provider: string, model: string): boolean;
+  defaultModel(provider: string): string;
 }
 
 export interface ApplyCleanupChoiceOptions {
   choice: CleanupChoice;
   settings: CleanupSettings;
   bridge?: CleanupBridge;
+  catalog: CleanupModelCatalog;
   preview: boolean;
   scenario: string;
   setStatus: (status: CleanupStatus) => void;
@@ -41,6 +49,7 @@ export async function applyCleanupChoice({
   choice,
   settings,
   bridge,
+  catalog,
   preview,
   scenario,
   setStatus,
@@ -74,22 +83,39 @@ export async function applyCleanupChoice({
   } else if (choice === "codex") {
     settings.setCleanupMode("providers");
     settings.setCleanupProvider("codex");
-    if (!settings.cleanupModel) settings.setCleanupModel("gpt-5.4");
     if (preview) return settle(scenario === "ready", "failed");
     try {
-      const status = await bridge?.personalInference?.codexStatus();
-      settle(Boolean(status?.available && status.account?.type === "chatgpt"), "failed");
+      const inference = bridge?.personalInference;
+      const status = await inference?.codexStatus();
+      if (!(status?.available && status.account?.type === "chatgpt"))
+        return settle(false, "failed");
+      // The stored cleanup model may still be the local default. Codex lists its
+      // own models, so confirm one it serves instead of sending a foreign id.
+      const { data } = (await inference?.codexModels()) ?? { data: [] };
+      const model = data.some((item) => item.model === settings.cleanupModel)
+        ? settings.cleanupModel
+        : (data.find((item) => item.isDefault) ?? data[0])?.model;
+      if (!model || !isCurrent()) return settle(false, "failed");
+      settings.setCleanupModel(model);
+      settle(true, "failed");
     } catch {
       settle(false, "failed");
     }
   } else {
     settings.setCleanupMode("providers");
     settings.setCleanupProvider("openai");
-    if (!settings.cleanupModel) settings.setCleanupModel("gpt-4o-mini");
-    if (preview) return settle(scenario === "ready", "failed");
+    // A model id left over from another provider would 404 on every request.
+    const model = catalog.owns("openai", settings.cleanupModel)
+      ? settings.cleanupModel
+      : catalog.defaultModel("openai");
+    if (preview) {
+      if (model) settings.setCleanupModel(model);
+      return settle(scenario === "ready", "failed");
+    }
     try {
       const status = await bridge?.personalInference?.credentialStatus("openai");
-      settle(Boolean(status?.configured), "failed");
+      if (isCurrent() && status?.configured && model) settings.setCleanupModel(model);
+      settle(Boolean(status?.configured && model), "failed");
     } catch {
       settle(false, "failed");
     }

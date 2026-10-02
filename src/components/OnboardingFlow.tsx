@@ -11,6 +11,7 @@ import {
   useSettingsStore,
   selectResolvedLLMConfig,
   setResolvedLLMConfig,
+  reasoningModelBelongsToProvider,
 } from "../stores/settingsStore";
 import { usePermissions } from "../hooks/usePermissions";
 import { useToast } from "./ui/useToast";
@@ -58,8 +59,11 @@ import {
 import {
   applyCleanupChoice,
   type CleanupChoice,
+  type CleanupModelCatalog,
   type CleanupStatus,
 } from "../utils/onboardingCleanup";
+import modelRegistryData from "../models/modelRegistryData.json";
+import { pickDefaultModelId } from "../models/providerDefaultModel";
 
 interface Props {
   onComplete: (options?: { openSettings?: boolean }) => void;
@@ -122,6 +126,12 @@ const GUIDED_STEP_COPY: Record<
     description: "Enter Loqui now. Unfinished setup stays available when you want to return.",
     cues: ["Open the workspace", "Return to unfinished setup", "Add advanced features later"],
   },
+};
+
+const cleanupModelCatalog: CleanupModelCatalog = {
+  owns: reasoningModelBelongsToProvider,
+  defaultModel: (provider) =>
+    pickDefaultModelId(modelRegistryData.cloudProviders.find((entry) => entry.id === provider)),
 };
 
 const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";
@@ -1187,6 +1197,7 @@ export default function OnboardingFlow({
         choice,
         settings: useSettingsStore.getState(),
         bridge: window.electronAPI,
+        catalog: cleanupModelCatalog,
         preview,
         scenario,
         setStatus: setCleanupStatus,

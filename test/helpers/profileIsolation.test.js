@@ -51,13 +51,39 @@ test("the embedding model cache honors LOQUI_CACHE_ROOT", () => {
   }
 });
 
-test("no helper hardcodes the shared home cache directory", () => {
+// Cache locations must come from getSupportCacheDir / modelDirUtils so that
+// LOQUI_CACHE_ROOT applies. Anything that builds one from XDG_CACHE_HOME or a
+// literal ".cache" (or the product cache name next to a home directory) bypasses it.
+test("no source file builds a loqui cache path outside the isolation-aware helpers", () => {
+  const allowed = new Set([
+    "src/helpers/supportCacheDir.js",
+    "src/helpers/modelDirUtils.js",
+    // Not a cache: the CLI bridge file's fixed home location (isolated runs are
+    // redirected by resolveBridgeFilePath, covered below).
+    "src/helpers/cliBridge.js",
+  ]);
   const offenders = [];
-  for (const file of fs.readdirSync(path.join(root, "src/helpers"))) {
-    if (!/\.(js|ts)$/.test(file)) continue;
-    const source = fs.readFileSync(path.join(root, "src/helpers", file), "utf8");
-    if (/["']\.cache["']\s*,\s*["']loqui-snowopsdev["']/.test(source)) offenders.push(file);
-  }
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (!["locales", "node_modules"].includes(entry.name)) walk(rel);
+      } else if (/\.(js|cjs|mjs|ts|tsx|jsx)$/.test(entry.name) && !allowed.has(rel)) {
+        const source = fs.readFileSync(path.join(root, rel), "utf8");
+        if (
+          /XDG_CACHE_HOME/.test(source) ||
+          /["']\.cache["']/.test(source) ||
+          /["']\.cache[\\/]/.test(source) ||
+          /(homedir\(\)|getPath\(["']home["']\))[\s\S]{0,120}loqui-snowopsdev/.test(source)
+        ) {
+          offenders.push(rel);
+        }
+      }
+    }
+  };
+  walk("src");
+  const mainSource = fs.readFileSync(path.join(root, "main.js"), "utf8");
+  if (/XDG_CACHE_HOME|["']\.cache["']/.test(mainSource)) offenders.push("main.js");
   assert.deepEqual(offenders, []);
 });
 

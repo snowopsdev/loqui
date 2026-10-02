@@ -7,10 +7,15 @@ const product = require("../config/product.json");
 // cache, but an explicit LOQUI_CACHE_ROOT must redirect every one of them:
 // that override is how tests and isolated runs avoid reading, writing or
 // erasing the real profile's data. Without the override the legacy location is
-// kept unchanged so existing installs are never silently relocated.
-function getSupportCacheDir(name, { env = process.env, homeDir = os.homedir() } = {}) {
+// kept unchanged. Callers that historically honored XDG_CACHE_HOME pass
+// xdgCacheHome: true so that default is preserved too.
+function getSupportCacheDir(
+  name,
+  { env = process.env, homeDir = os.homedir(), xdgCacheHome = false } = {}
+) {
   const override = env[product.env.cache];
-  const root = override || path.join(homeDir, ".cache", product.cacheName);
+  const base = (xdgCacheHome && env.XDG_CACHE_HOME) || path.join(homeDir, ".cache");
+  const root = override || path.join(base, product.cacheName);
   return path.join(root, name);
 }
 

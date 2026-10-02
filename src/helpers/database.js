@@ -2638,18 +2638,26 @@ class DatabaseManager {
     try {
       if (!this.db) throw new Error("Database not initialized");
       const pattern = `%${query}%`;
+      // Message hits are matched with EXISTS rather than a second join: joining
+      // the messages twice multiplies each conversation's rows, which inflated
+      // message_count to the square of the real count.
       return this.db
         .prepare(
-          `SELECT DISTINCT c.id, c.title, c.created_at, c.updated_at, c.archived_at,
+          `SELECT c.id, c.title, c.created_at, c.updated_at, c.archived_at,
             COUNT(m.id) AS message_count,
             (SELECT content FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message,
             (SELECT role FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message_role
           FROM agent_conversations c
           LEFT JOIN agent_messages m ON m.conversation_id = c.id
-          LEFT JOIN agent_messages ms ON ms.conversation_id = c.id
           WHERE c.archived_at IS NULL AND c.deleted_at IS NULL
             AND c.space_id IS NULL AND c.folder_id IS NULL
-            AND (c.title LIKE ? OR ms.content LIKE ?)
+            AND (
+              c.title LIKE ?
+              OR EXISTS (
+                SELECT 1 FROM agent_messages ms
+                WHERE ms.conversation_id = c.id AND ms.content LIKE ?
+              )
+            )
           GROUP BY c.id
           ORDER BY c.updated_at DESC, c.id DESC
           LIMIT ?`

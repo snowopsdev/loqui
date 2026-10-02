@@ -497,5 +497,14 @@ class CodexAppServer extends EventEmitter {
     this._disconnect(failure("Codex stopped.", "CODEX_DISCONNECTED"));
     child?.kill();
   }
+  // Device erasure: the ChatGPT sign-in lives in this private CODEX_HOME, so
+  // stop the process that holds it and remove the profile and its workspace.
+  async erase() {
+    await this.starting?.catch(() => {});
+    this.stop();
+    await Promise.all(
+      [this.home, this.workspace].map((dir) => fs.rm(dir, { recursive: true, force: true }))
+    );
+  }
 }
 module.exports = { CodexAppServer, MIN_CODEX_VERSION, RESTRICTED_CONFIG, supportedVersion };

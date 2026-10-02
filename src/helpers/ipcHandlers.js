@@ -285,6 +285,7 @@ class IPCHandlers {
     this.windowsLoopbackAudioManager = managers.windowsLoopbackAudioManager;
     this.meetingAecManager = managers.meetingAecManager;
     this.getQdrantManager = managers.getQdrantManager;
+    this.getPersonalInference = managers.getPersonalInference;
     this.oauthProtocol = "loqui-snowopsdev";
     this.sessionId = crypto.randomUUID();
     // requestId -> AbortControllers for in-flight audio-upload work (cloud
@@ -3137,6 +3138,13 @@ class IPCHandlers {
         await onnxWorkerClient.stop();
       } catch (e) {
         errors.push(`Embedding worker stop: ${e.message}`);
+      }
+
+      // The ChatGPT sign-in is kept in the app's private Codex profile.
+      try {
+        await this.getPersonalInference?.()?.eraseCodexProfile();
+      } catch (e) {
+        errors.push(`Codex profile: ${e.message}`);
       }
 
       // Revoke Google OAuth tokens before DB is closed

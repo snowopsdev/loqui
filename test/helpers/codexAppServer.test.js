@@ -391,3 +391,26 @@ for (const version of ["0.155.1", "0.156.0", "0.157.0"])
       delta: "Hello ",
     });
   });
+
+test("erasing the device removes the Codex sign-in profile and stops the server", async (t) => {
+  const { server, child } = await setup(t);
+  assert.equal((await server.status()).account.type, "chatgpt");
+  let killed = false;
+  child.kill = () => {
+    killed = true;
+    child.emit("exit", 0);
+  };
+  await fs.writeFile(path.join(server.home, "auth.json"), '{"fixture":"not-a-real-token"}');
+  await fs.writeFile(path.join(server.workspace, "scratch.txt"), "fixture");
+  await server.erase();
+  assert.equal(killed, true);
+  await assert.rejects(fs.stat(server.home), { code: "ENOENT" });
+  await assert.rejects(fs.stat(server.workspace), { code: "ENOENT" });
+  assert.equal((await server.status()).account.type, "chatgpt", "a later request starts cleanly");
+});
+
+test("erasing a device that never used Codex is a no-op", async (t) => {
+  const { server } = await setup(t);
+  await server.erase();
+  await server.erase();
+});

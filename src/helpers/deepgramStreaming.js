@@ -300,18 +300,23 @@ class DeepgramStreaming {
         reject(new Error("Deepgram warmup connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      this.warmConnection = new WebSocket(url, {
+      const socket = new WebSocket(url, {
         headers: { Authorization: authorizationHeader(this.mode, token) },
       });
+      this.warmConnection = socket;
+      // A replaced warm socket's late events must not touch its successor.
+      const isCurrent = () => this.warmConnection === socket;
 
-      this.warmConnection.on("open", () => {
+      socket.on("open", () => {
+        if (!isCurrent()) return;
         debugLogger.debug("Deepgram warm connection socket opened");
         // Consider the socket warm as soon as it's open. Deepgram may not emit
         // Metadata until audio starts, which would make startup warmup appear broken.
         resolveWarmup({ via: "open" });
       });
 
-      this.warmConnection.on("message", (data) => {
+      socket.on("message", (data) => {
+        if (!isCurrent()) return;
         try {
           const message = JSON.parse(data.toString());
           if (message.type === "Metadata") {
@@ -323,7 +328,7 @@ class DeepgramStreaming {
         }
       });
 
-      this.warmConnection.on("error", (error) => {
+      socket.on("error", (error) => {
         clearTimeout(warmupTimeout);
         debugLogger.error("Deepgram warmup connection error", { error: error.message });
         // Invalidate cached token on auth failure so next attempt fetches fresh
@@ -331,15 +336,22 @@ class DeepgramStreaming {
           this.cachedToken = null;
           this.tokenFetchedAt = null;
         }
-        this.cleanupWarmConnection();
+        if (isCurrent()) this.cleanupWarmConnection();
         if (!settled) {
           settled = true;
           reject(error);
         }
       });
 
-      this.warmConnection.on("close", (code, reason) => {
+      socket.on("close", (code, reason) => {
         clearTimeout(warmupTimeout);
+        if (!isCurrent()) {
+          if (!settled) {
+            settled = true;
+            reject(new Error(`Deepgram warmup connection closed (code: ${code})`));
+          }
+          return;
+        }
         this.stopKeepAlive();
         const wasReady = this.warmConnectionReady;
         const savedOptions = this.warmConnectionOptions ? { ...this.warmConnectionOptions } : null;
@@ -472,21 +484,27 @@ class DeepgramStreaming {
     this.warmConnectionReady = false;
     this.warmSessionId = null;
 
-    this.ws.removeAllListeners("message");
-    this.ws.on("message", (data) => {
+    // Events from a socket that cleanup() already replaced must not act on the
+    // session that superseded it.
+    const ws = this.ws;
+    ws.removeAllListeners("message");
+    ws.on("message", (data) => {
+      if (this.ws !== ws) return;
       this.handleMessage(data);
     });
 
-    this.ws.removeAllListeners("error");
-    this.ws.on("error", (error) => {
+    ws.removeAllListeners("error");
+    ws.on("error", (error) => {
+      if (this.ws !== ws) return;
       const wasActive = this.isConnected;
       debugLogger.error("Deepgram WebSocket error", { error: error.message });
       this.cleanup();
       if (wasActive && !this.isDisconnecting) this.notifyConnectionLost(error);
     });
 
-    this.ws.removeAllListeners("close");
-    this.ws.on("close", (code, reason) => {
+    ws.removeAllListeners("close");
+    ws.on("close", (code, reason) => {
+      if (this.ws !== ws) return;
       const wasActive = this.isConnected;
       debugLogger.debug("Deepgram WebSocket closed", {
         code,
@@ -661,19 +679,24 @@ class DeepgramStreaming {
         reject(new Error("Deepgram WebSocket connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      this.ws = new WebSocket(url, {
+      const ws = new WebSocket(url, {
         headers: { Authorization: authorizationHeader(this.mode, token) },
       });
+      this.ws = ws;
 
-      this.ws.on("open", () => {
+      ws.on("open", () => {
         debugLogger.debug("Deepgram WebSocket connected");
       });
 
-      this.ws.on("message", (data) => {
+      ws.on("message", (data) => {
+        if (this.ws !== ws) return;
         this.handleMessage(data);
       });
 
-      this.ws.on("error", (error) => {
+      ws.on("error", (error) => {
+        // A replaced socket's late failure must not reject or tear down the
+        // session that superseded it (e.g. the liveness reconnect).
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         debugLogger.error("Deepgram WebSocket error", { error: error.message });
         // Invalidate cached token on auth failure so next attempt fetches fresh
@@ -694,7 +717,8 @@ class DeepgramStreaming {
         }
       });
 
-      this.ws.on("close", (code, reason) => {
+      ws.on("close", (code, reason) => {
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         debugLogger.debug("Deepgram WebSocket closed", {
           code,

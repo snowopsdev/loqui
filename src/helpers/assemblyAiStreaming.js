@@ -173,13 +173,17 @@ class AssemblyAiStreaming {
         reject(new Error("AssemblyAI warmup connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      this.warmConnection = new WebSocket(url);
+      const socket = new WebSocket(url);
+      this.warmConnection = socket;
+      // A replaced warm socket's late events must not touch its successor.
+      const isCurrent = () => this.warmConnection === socket;
 
-      this.warmConnection.on("open", () => {
+      socket.on("open", () => {
         debugLogger.debug("AssemblyAI warm connection socket opened");
       });
 
-      this.warmConnection.on("message", (data) => {
+      socket.on("message", (data) => {
+        if (!isCurrent()) return;
         try {
           const message = JSON.parse(data.toString());
           if (message.type === "Begin" && !settled) {
@@ -196,18 +200,25 @@ class AssemblyAiStreaming {
         }
       });
 
-      this.warmConnection.on("error", (error) => {
+      socket.on("error", (error) => {
         clearTimeout(warmupTimeout);
         debugLogger.error("AssemblyAI warmup connection error", { error: error.message });
-        this.cleanupWarmConnection();
+        if (isCurrent()) this.cleanupWarmConnection();
         if (!settled) {
           settled = true;
           reject(error);
         }
       });
 
-      this.warmConnection.on("close", (code, reason) => {
+      socket.on("close", (code, reason) => {
         clearTimeout(warmupTimeout);
+        if (!isCurrent()) {
+          if (!settled) {
+            settled = true;
+            reject(new Error(`AssemblyAI warmup connection closed before ready (code: ${code})`));
+          }
+          return;
+        }
         this.stopKeepAlive();
         const wasReady = this.warmConnectionReady;
         const savedOptions = this.warmConnectionOptions ? { ...this.warmConnectionOptions } : null;
@@ -284,21 +295,27 @@ class AssemblyAiStreaming {
     this.warmConnectionReady = false;
     this.warmSessionId = null;
 
-    this.ws.removeAllListeners("message");
-    this.ws.on("message", (data) => {
+    // Events from a socket that cleanup() already replaced must not act on the
+    // session that superseded it.
+    const ws = this.ws;
+    ws.removeAllListeners("message");
+    ws.on("message", (data) => {
+      if (this.ws !== ws) return;
       this.handleMessage(data);
     });
 
-    this.ws.removeAllListeners("error");
-    this.ws.on("error", (error) => {
+    ws.removeAllListeners("error");
+    ws.on("error", (error) => {
+      if (this.ws !== ws) return;
       const wasActive = this.isConnected;
       debugLogger.error("AssemblyAI WebSocket error", { error: error.message });
       this.cleanup();
       if (wasActive && !this.isDisconnecting) this.notifyConnectionLost(error);
     });
 
-    this.ws.removeAllListeners("close");
-    this.ws.on("close", (code, reason) => {
+    ws.removeAllListeners("close");
+    ws.on("close", (code, reason) => {
+      if (this.ws !== ws) return;
       const wasActive = this.isConnected;
       debugLogger.debug("AssemblyAI WebSocket closed", {
         code,
@@ -394,17 +411,22 @@ class AssemblyAiStreaming {
         reject(new Error("AssemblyAI WebSocket connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      this.ws = new WebSocket(url);
+      const ws = new WebSocket(url);
+      this.ws = ws;
 
-      this.ws.on("open", () => {
+      ws.on("open", () => {
         debugLogger.debug("AssemblyAI WebSocket connected");
       });
 
-      this.ws.on("message", (data) => {
+      ws.on("message", (data) => {
+        if (this.ws !== ws) return;
         this.handleMessage(data);
       });
 
-      this.ws.on("error", (error) => {
+      ws.on("error", (error) => {
+        // A replaced socket's late failure must not reject or tear down the
+        // session that superseded it.
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         debugLogger.error("AssemblyAI WebSocket error", { error: error.message });
         this.cleanup();
@@ -420,7 +442,8 @@ class AssemblyAiStreaming {
         }
       });
 
-      this.ws.on("close", (code, reason) => {
+      ws.on("close", (code, reason) => {
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         debugLogger.debug("AssemblyAI WebSocket closed", {
           code,

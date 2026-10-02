@@ -173,19 +173,24 @@ class GeminiLiveStreaming {
         reject(new Error("Gemini Live connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      this.ws = new WebSocket(url);
+      const ws = new WebSocket(url);
+      this.ws = ws;
 
-      this.ws.on("open", () => {
+      ws.on("open", () => {
         // Audio sent before setupComplete is discarded by the server, so the
         // setup message is the only thing that goes out on open.
-        this.ws.send(JSON.stringify(this.buildSetupMessage(options)));
+        ws.send(JSON.stringify(this.buildSetupMessage(options)));
       });
 
-      this.ws.on("message", (data) => {
+      // A replaced socket's late events must not reject or tear down the
+      // session that superseded it.
+      ws.on("message", (data) => {
+        if (this.ws !== ws) return;
         this.handleMessage(data);
       });
 
-      this.ws.on("error", (error) => {
+      ws.on("error", (error) => {
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         debugLogger.error("Gemini Live WebSocket error", { error: error.message });
         this.cleanup();
@@ -197,7 +202,8 @@ class GeminiLiveStreaming {
         }
       });
 
-      this.ws.on("close", (code, reason) => {
+      ws.on("close", (code, reason) => {
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         debugLogger.debug("Gemini Live WebSocket closed", {
           code,
@@ -457,6 +463,11 @@ class GeminiLiveStreaming {
     clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
     this.stopKeepAlive();
+    // The socket is gone, so no turn end can arrive; release a disconnect() that
+    // is still waiting (the closing socket's own close event is ignored once
+    // this.ws has been replaced).
+    this._turnEndResolve?.();
+    this._turnEndResolve = null;
 
     if (this.ws) {
       try {

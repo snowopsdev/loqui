@@ -221,6 +221,92 @@ test("cancellation is scoped to the requesting window", async (t) => {
   await assert.rejects(pending, /abort/i);
 });
 
+test("a streaming request that times out before the first byte ends in a timeout error, not an empty success", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const hung = {
+    specificationVersion: "v3",
+    provider: "fixture",
+    modelId: "fixture",
+    supportedUrls: {},
+    // Like fetch: an aborted request rejects with the AbortSignal's reason.
+    doStream: (options) =>
+      new Promise((_resolve, reject) =>
+        options.abortSignal.addEventListener(
+          "abort",
+          () => reject(new DOMException("This operation was aborted", "AbortError")),
+          { once: true }
+        )
+      ),
+  };
+  const { invoke, request, emitted, modelCalls } = harness(t, { model: hung });
+  const pending = invoke("text-stream", { ...request, timeoutMs: 1000 });
+  while (modelCalls.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(1001);
+  await pending;
+  assert.equal(emitted.at(-1).type, "error");
+  assert.match(emitted.at(-1).error, /timed out/);
+  assert.equal(
+    emitted.some((event) => event.chunk?.type === "done" || event.type === "end"),
+    false,
+    "a timed-out stream must not look like a completed one"
+  );
+});
+
+test("a timeout after a stream has started reports the timeout rather than a transport error", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const stalled = {
+    specificationVersion: "v3",
+    provider: "fixture",
+    modelId: "fixture",
+    supportedUrls: {},
+    doStream: async (options) => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] });
+          controller.enqueue({ type: "text-start", id: "text-1" });
+          controller.enqueue({ type: "text-delta", id: "text-1", delta: "Partial " });
+          // The body read fails with a generic wrapper, as fetch bodies do.
+          options.abortSignal.addEventListener(
+            "abort",
+            () => controller.error(new Error("Failed to process successful response")),
+            { once: true }
+          );
+        },
+      }),
+    }),
+  };
+  const { invoke, request, emitted, modelCalls } = harness(t, { model: stalled });
+  const pending = invoke("text-stream", { ...request, timeoutMs: 1000 });
+  while (modelCalls.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(1001);
+  await pending;
+  assert.equal(emitted.at(-1).type, "error");
+  assert.match(emitted.at(-1).error, /timed out/);
+});
+
+test("cancelling a started stream ends it without reporting a failure", async (t) => {
+  const stalled = {
+    specificationVersion: "v3",
+    provider: "fixture",
+    modelId: "fixture",
+    supportedUrls: {},
+    doStream: (options) =>
+      new Promise((_resolve, reject) =>
+        options.abortSignal.addEventListener("abort", () => reject(options.abortSignal.reason), {
+          once: true,
+        })
+      ),
+  };
+  const { invoke, request, emitted, modelCalls } = harness(t, { model: stalled });
+  const pending = invoke("text-stream", request);
+  while (modelCalls.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  await invoke("text-cancel", request.requestId);
+  await pending;
+  assert.deepEqual(emitted, [{ type: "end", requestId: request.requestId }]);
+});
+
 test("note formatting survives the dictation deadline and times out once without a retry", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { invoke, request, modelCalls } = harness(t, { wait: true });

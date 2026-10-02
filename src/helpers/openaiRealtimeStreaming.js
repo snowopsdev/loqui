@@ -175,11 +175,15 @@ class OpenAIRealtimeStreaming {
         debugLogger.debug(`${this.providerLabel} WebSocket opened`, this._logContext());
       });
 
+      // A replaced socket's late events must not reject or tear down the
+      // session that superseded it.
       this.ws.on("message", (data) => {
+        if (this.ws !== ws) return;
         this.handleMessage(data);
       });
 
       this.ws.on("error", (error) => {
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         debugLogger.error(
           `${this.providerLabel} WebSocket error`,
@@ -200,6 +204,7 @@ class OpenAIRealtimeStreaming {
       });
 
       this.ws.on("close", (code, reason) => {
+        if (this.ws !== ws) return;
         const wasActive = this.isConnected;
         this.isConnecting = false;
         debugLogger.debug(

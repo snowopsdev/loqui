@@ -180,3 +180,49 @@ test("legacy Safe Storage secrets remain readable with an existing keychain key"
   assert.equal(result.needsReencrypt, true);
   assert.equal(keyWrites.length, 0);
 });
+
+test("a missing keychain entry restores the master key from its backup instead of replacing it", () => {
+  const { secretCrypto, keyWrites, fileWrites, files, backupPath } = setup({
+    stored: null,
+    backup: fixtureMasterKey.toString("base64"),
+    safeStorageAvailable: true,
+  });
+  const previousBackup = Buffer.from(files.get(backupPath));
+  assert.equal(
+    secretCrypto.decrypt(encryptExisting("saved-provider-key")).value,
+    "saved-provider-key"
+  );
+  assert.deepEqual(
+    keyWrites,
+    [fixtureMasterKey.toString("base64")],
+    "only the recovered key may be written back to the keychain"
+  );
+  assert.equal(fileWrites.length, 0, "the existing backup must not be overwritten");
+  assert.deepEqual(files.get(backupPath), previousBackup);
+});
+
+test("a missing keychain entry with an unreadable backup still creates a key and replaces the backup", () => {
+  const { secretCrypto, keyWrites, fileWrites } = setup({
+    stored: null,
+    backup: "invalid-key",
+    safeStorageAvailable: true,
+  });
+  secretCrypto.encrypt("first-value");
+  assert.equal(keyWrites.length, 1);
+  assert.equal(Buffer.from(keyWrites[0], "base64").length, 32);
+  assert.equal(fileWrites.length, 1);
+});
+
+test("a recovered master key stays usable when the keychain refuses the write-back", () => {
+  const { secretCrypto, fileWrites } = setup({
+    stored: null,
+    backup: fixtureMasterKey.toString("base64"),
+    writeError: new Error("fixture keychain read-only"),
+    safeStorageAvailable: true,
+  });
+  assert.equal(
+    secretCrypto.decrypt(encryptExisting("saved-provider-key")).value,
+    "saved-provider-key"
+  );
+  assert.equal(fileWrites.length, 0);
+});

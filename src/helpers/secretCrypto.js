@@ -67,6 +67,12 @@ function _initKeychain() {
       const key = Buffer.from(stored, "base64");
       if (key.length !== KEY_LEN) throw new Error("stored key length invalid");
       masterKey = key;
+    } else if (_loadMasterKeyBackup()) {
+      // The entry is gone (reset keychain, deleted item) but the encrypted backup
+      // still holds the key that existing secrets were sealed with. Restore it;
+      // generating a new key would orphan every saved credential and overwrite
+      // the only remaining copy of the old one.
+      entry.setPassword(masterKey.toString("base64"));
     } else {
       masterKey = crypto.randomBytes(KEY_LEN);
       entry.setPassword(masterKey.toString("base64"));

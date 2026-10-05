@@ -20,6 +20,16 @@ function getBridgeFilePath() {
   return path.join(os.homedir(), ".loqui-snowopsdev", "cli-bridge.json");
 }
 
+// The bridge file is how the external CLI finds a running app, so the packaged
+// app keeps its fixed home location. An instance that was pointed at its own
+// profile (LOQUI_PROFILE_DIR) must not publish its port and token there: it
+// would overwrite, and on exit delete, the file of the real running app.
+function resolveBridgeFilePath({ isolatedProfile, userDataPath }) {
+  return isolatedProfile && userDataPath
+    ? path.join(userDataPath, "cli-bridge.json")
+    : getBridgeFilePath();
+}
+
 async function findAvailablePort() {
   for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
     if (await isPortAvailable(port)) return port;
@@ -40,8 +50,10 @@ function readJsonBody(req) {
       receivedBytes += buffer.length;
       if (receivedBytes > MAX_REQUEST_BODY_BYTES) {
         rejected = true;
-        reject(new Error("Request body too large"));
-        req.destroy();
+        // The caller answers, then drops the connection (closeAfterResponse):
+        // destroying the socket here would reset it before the client could
+        // read the error.
+        reject(Object.assign(new Error("Request body too large"), { dropConnection: true }));
         return;
       }
       chunks.push(buffer);
@@ -50,23 +62,51 @@ function readJsonBody(req) {
       if (rejected) return;
       const raw = Buffer.concat(chunks, receivedBytes).toString("utf8");
       if (!raw) return resolve({});
+      let parsed;
       try {
-        resolve(JSON.parse(raw));
+        parsed = JSON.parse(raw);
       } catch {
         reject(new Error("Invalid JSON payload"));
+        return;
       }
+      // Every route reads named fields from the body; null, arrays and scalars
+      // would otherwise crash a handler (500) or silently fall back to defaults.
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        reject(new Error("Request body must be a JSON object"));
+        return;
+      }
+      resolve(parsed);
     });
     req.on("error", reject);
   });
 }
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, headers = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
+    ...headers,
   });
   res.end(body);
+}
+
+const REFUSED_UPLOAD_DRAIN_MS = 2000;
+
+// Drop an over-long upload only after the error response has been flushed and
+// the client has had a moment to stop sending, so it can still read why it was
+// refused instead of seeing a reset connection.
+function closeAfterResponse(req, res) {
+  if (typeof res.once !== "function") {
+    req.destroy();
+    return;
+  }
+  res.once("finish", () => {
+    const timer = setTimeout(() => req.destroy(), REFUSED_UPLOAD_DRAIN_MS);
+    timer.unref?.();
+    req.once("close", () => clearTimeout(timer));
+    req.resume();
+  });
 }
 
 function sendNoContent(res) {
@@ -104,12 +144,12 @@ function unwrapMutationResult(result, label) {
 }
 
 class CliBridge {
-  constructor(ipcHandlers) {
+  constructor(ipcHandlers, { bridgeFilePath } = {}) {
     this.ipcHandlers = ipcHandlers;
     this.server = null;
     this.port = null;
     this.token = null;
-    this.bridgeFilePath = getBridgeFilePath();
+    this.bridgeFilePath = bridgeFilePath || getBridgeFilePath();
     this.routes = this._buildRouteTable();
   }
 
@@ -212,7 +252,17 @@ class CliBridge {
       try {
         body = await readJsonBody(req);
       } catch (err) {
-        sendV1Error(res, 400, "validation_error", err.message);
+        if (err.dropConnection) {
+          sendJson(
+            res,
+            400,
+            { error: { code: "validation_error", message: err.message } },
+            { Connection: "close" }
+          );
+          closeAfterResponse(req, res);
+        } else {
+          sendV1Error(res, 400, "validation_error", err.message);
+        }
         return;
       }
     }
@@ -575,5 +625,7 @@ class CliBridge {
     ];
   }
 }
+
+CliBridge.resolveBridgeFilePath = resolveBridgeFilePath;
 
 module.exports = CliBridge;

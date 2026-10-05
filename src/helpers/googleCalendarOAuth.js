@@ -20,6 +20,11 @@ class GoogleCalendarOAuth {
   }
 
   startOAuthFlow() {
+    if (!this.getClientId()) {
+      // Fail fast instead of opening the browser on a client_id=undefined URL
+      // and hanging until the loopback flow times out.
+      throw new Error("GOOGLE_CALENDAR_CLIENT_ID is not configured");
+    }
     return runOAuthLoopbackFlow({
       errorParam: "gcal_error",
       buildAuthUrl: (redirectUri, state, codeChallenge) => {
@@ -76,11 +81,18 @@ class GoogleCalendarOAuth {
     });
   }
 
+  // Never send an unset value: URLSearchParams would stringify it as "undefined".
+  _clientParams() {
+    const params = { client_id: this.getClientId() };
+    const secret = this.getClientSecret();
+    if (secret) params.client_secret = secret;
+    return params;
+  }
+
   async exchangeCodeForTokens(code, redirectUri, codeVerifier) {
     const body = new URLSearchParams({
       code,
-      client_id: this.getClientId(),
-      client_secret: this.getClientSecret(),
+      ...this._clientParams(),
       redirect_uri: redirectUri,
       grant_type: "authorization_code",
       code_verifier: codeVerifier,
@@ -91,8 +103,7 @@ class GoogleCalendarOAuth {
 
   async refreshAccessToken(refreshToken) {
     const body = new URLSearchParams({
-      client_id: this.getClientId(),
-      client_secret: this.getClientSecret(),
+      ...this._clientParams(),
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }).toString();

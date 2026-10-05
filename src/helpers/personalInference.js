@@ -1,4 +1,5 @@
 const { randomUUID } = require("node:crypto");
+const { createAbortError } = require("./abortError");
 const { CodexAppServer } = require("./codexAppServer");
 const { isSecureHttpEndpoint } = require("../utils/urlUtils.ts");
 
@@ -356,6 +357,11 @@ function registerPersonalInferenceIPC({
       Math.min(Math.max(request.timeoutMs || 180000, 1000), 600000)
     );
     const emit = (chunk) => send(sender, { type: "chunk", requestId: request.requestId, chunk });
+    // The abort reason carries why the request ended (timeout vs. cancel).
+    const abortFailure = () =>
+      controller.signal.reason instanceof Error
+        ? controller.signal.reason
+        : createAbortError("Request canceled.");
     const executeTool = (name, args, suppliedCallId) =>
       new Promise((resolve, reject) => {
         if (controller.signal.aborted) {
@@ -468,6 +474,10 @@ function registerPersonalInferenceIPC({
         for await (const part of result.stream) {
           if (part.type === "text-delta") emit({ type: "content", text: part.text });
           if (part.type === "error") throw part.error;
+          // The SDK reports an aborted request as a clean "abort" part and
+          // closes the stream. Surface it so a timeout is not mistaken for a
+          // (possibly empty or truncated) completed answer.
+          if (part.type === "abort") throw abortFailure();
           if (part.type === "source") sources.push(part);
           if (part.type === "finish") finishReason = part.finishReason;
         }
@@ -484,6 +494,12 @@ function registerPersonalInferenceIPC({
       if (!result.text.trim())
         throw new Error("The selected model returned no text. Your original content is preserved.");
       return { text: result.text + (request.webSearch ? searchSourcesText(result.sources) : "") };
+    } catch (error) {
+      // A request that ended because it was aborted (timeout or cancel) can
+      // surface as a transport error such as "Failed to process successful
+      // response"; report the abort reason so a timeout is recognizable.
+      if (controller.signal.aborted && error !== controller.signal.reason) throw abortFailure();
+      throw error;
     } finally {
       clearTimeout(timeout);
       active.delete(key);
@@ -500,6 +516,11 @@ function registerPersonalInferenceIPC({
       await execute(event, request, true);
       send(event.sender, { type: "end", requestId: request.requestId });
     } catch (error) {
+      // An explicit cancel is the requester's own outcome, not a failure.
+      if (error?.name === "AbortError") {
+        send(event.sender, { type: "end", requestId: request.requestId });
+        return;
+      }
       send(event.sender, {
         type: "error",
         requestId: request.requestId,

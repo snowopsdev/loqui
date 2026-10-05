@@ -220,3 +220,37 @@ test("an unspawnable explorer.exe still opens the link, in-process", async () =>
   assert.equal(spawnCalls.length, 1);
   assert.deepEqual(openExternalCalls, ["https://example.com/join"]);
 });
+
+test("refuses schemes that could launch programs or reach shares on every platform", async () => {
+  for (const platform of ["win32", "darwin", "linux"]) {
+    const { openExternalUrl, spawnCalls, openExternalCalls } = loadOpener();
+    setPlatform(platform);
+
+    for (const url of [
+      "file:///etc/passwd",
+      "file://attacker.example/share/payload.exe",
+      "smb://attacker.example/share/payload.exe",
+      "javascript:alert(1)",
+      "ms-msdt:/id PCWDiagnostic",
+      "zoommtg://zoom.us/join?confno=1",
+      "data:text/html,<script>1</script>",
+    ]) {
+      await assert.rejects(openExternalUrl(url), /Blocked URL scheme/, `${platform}: ${url}`);
+    }
+
+    assert.equal(spawnCalls.length, 0);
+    assert.equal(openExternalCalls.length, 0);
+  }
+});
+
+test("web and mail links keep opening on every platform", async () => {
+  for (const platform of ["win32", "darwin", "linux"]) {
+    const { openExternalUrl, spawnCalls, openExternalCalls } = loadOpener();
+    setPlatform(platform);
+
+    await openExternalUrl("mailto:someone@example.com");
+    await openExternalUrl("https://user:pass@example.com/path?q=1#f");
+
+    assert.equal(spawnCalls.length + openExternalCalls.length, 2);
+  }
+});

@@ -110,12 +110,16 @@ class CortiStreaming {
   }
 
   // Live-socket wiring shared by the cold connect and a promoted warm connection.
+  // Events from a socket that cleanup() already replaced must not act on the
+  // session that superseded it.
   attachSocketHandlers(ws) {
     ws.on("message", (data) => {
+      if (this.ws !== ws) return;
       this.handleMessage(data);
     });
 
     ws.on("error", (error) => {
+      if (this.ws !== ws) return;
       const wasActive = this.isConnected;
       debugLogger.error("Corti WebSocket error", { error: error.message });
       this.cleanup();
@@ -132,6 +136,7 @@ class CortiStreaming {
     });
 
     ws.on("close", (code, reason) => {
+      if (this.ws !== ws) return;
       const wasActive = this.isConnected;
       debugLogger.debug("Corti WebSocket closed", {
         code,
@@ -194,14 +199,18 @@ class CortiStreaming {
         reject(new Error("Corti warmup connection timeout"));
       }, WEBSOCKET_TIMEOUT_MS);
 
-      this.warmConnection = new WebSocket(url);
+      const socket = new WebSocket(url);
+      this.warmConnection = socket;
+      // A replaced warm socket's late events must not touch its successor.
+      const isCurrent = () => this.warmConnection === socket;
 
-      this.warmConnection.on("open", () => {
+      socket.on("open", () => {
         debugLogger.debug("Corti warm connection opened, sending config");
-        this.warmConnection.send(JSON.stringify({ type: "config", configuration }));
+        socket.send(JSON.stringify({ type: "config", configuration }));
       });
 
-      this.warmConnection.on("message", (data) => {
+      socket.on("message", (data) => {
+        if (!isCurrent()) return;
         let message;
         try {
           message = JSON.parse(data.toString());
@@ -220,9 +229,9 @@ class CortiStreaming {
         }
       });
 
-      this.warmConnection.on("error", (error) => {
+      socket.on("error", (error) => {
         debugLogger.error("Corti warmup connection error", { error: error.message });
-        this.cleanupWarmConnection();
+        if (isCurrent()) this.cleanupWarmConnection();
         if (!settled) {
           settled = true;
           clearTimeout(warmupTimeout);
@@ -230,15 +239,15 @@ class CortiStreaming {
         }
       });
 
-      this.warmConnection.on("close", (code, reason) => {
+      socket.on("close", (code, reason) => {
         clearTimeout(warmupTimeout);
-        const wasReady = this.warmConnectionReady;
+        const wasReady = isCurrent() && this.warmConnectionReady;
         debugLogger.debug("Corti warm connection closed", {
           code,
           reason: reason?.toString(),
           wasReady,
         });
-        this.cleanupWarmConnection();
+        if (isCurrent()) this.cleanupWarmConnection();
         if (!settled) {
           settled = true;
           reject(new Error(`Corti warmup connection closed (code: ${code})`));

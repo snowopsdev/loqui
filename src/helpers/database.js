@@ -25,6 +25,13 @@ const MAX_SNIPPET_TRIGGER_LENGTH = 100;
 
 const FOLDER_NAME_TAKEN_FILTER = "deleted_at IS NULL";
 
+// A "contains" pattern for `LIKE ? ESCAPE '\'`: the query is a literal
+// substring, so LIKE's own metacharacters must not act as wildcards (a search
+// for "100%" or "_" would otherwise match nearly everything).
+function likeContainsPattern(query) {
+  return `%${String(query ?? "").replace(/[\\%_]/g, "\\$&")}%`;
+}
+
 // A meeting synced by both a REST provider (Google/Microsoft) and Apple
 // (Calendar.app mirrors the same accounts) would double-fire reminders and
 // duplicate UI rows; suppress the Apple copy when a REST row occupies the same
@@ -531,7 +538,7 @@ class DatabaseManager {
       }
       const statusFilter = includeDiscarded ? "" : " AND status != 'discarded'";
       const stmt = this.db.prepare(
-        `SELECT * FROM transcriptions WHERE deleted_at IS NULL${statusFilter} ORDER BY timestamp DESC LIMIT ?`
+        `SELECT * FROM transcriptions WHERE deleted_at IS NULL${statusFilter} ORDER BY timestamp DESC, id DESC LIMIT ?`
       );
       const transcriptions = stmt.all(limit);
       return transcriptions;
@@ -1113,7 +1120,9 @@ class DatabaseManager {
         params.push(spaceId);
       }
       const where = `WHERE ${conditions.join(" AND ")}`;
-      const stmt = this.db.prepare(`SELECT * FROM notes ${where} ORDER BY updated_at DESC LIMIT ?`);
+      const stmt = this.db.prepare(
+        `SELECT * FROM notes ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`
+      );
       params.push(limit);
       return stmt.all(...params);
     } catch (error) {
@@ -1132,7 +1141,7 @@ class DatabaseManager {
         .prepare(
           `SELECT * FROM notes
            WHERE space_id = ? AND deleted_at IS NULL AND ${personalScope.sql}
-           ORDER BY updated_at DESC LIMIT ?`
+           ORDER BY updated_at DESC, id DESC LIMIT ?`
         )
         .all(spaceId, ...personalScope.params, limit);
     } catch (error) {
@@ -1632,7 +1641,7 @@ class DatabaseManager {
           LEFT JOIN agent_messages m ON m.conversation_id = c.id
           WHERE c.note_id = ? AND c.deleted_at IS NULL
           GROUP BY c.id
-          ORDER BY c.updated_at DESC
+          ORDER BY c.updated_at DESC, c.id DESC
           LIMIT ?`
         )
         .all(noteId, limit);
@@ -1668,7 +1677,7 @@ class DatabaseManager {
           LEFT JOIN agent_messages m ON m.conversation_id = c.id
           WHERE ${scopeFilter} AND c.deleted_at IS NULL
           GROUP BY c.id
-          ORDER BY c.updated_at DESC
+          ORDER BY c.updated_at DESC, c.id DESC
           LIMIT ?`
         )
         .all(...params);
@@ -1687,7 +1696,7 @@ class DatabaseManager {
       if (!this.db) throw new Error("Database not initialized");
       return this.db
         .prepare(
-          "SELECT * FROM agent_conversations WHERE deleted_at IS NULL AND space_id IS NULL AND folder_id IS NULL ORDER BY updated_at DESC LIMIT ?"
+          "SELECT * FROM agent_conversations WHERE deleted_at IS NULL AND space_id IS NULL AND folder_id IS NULL ORDER BY updated_at DESC, id DESC LIMIT ?"
         )
         .all(limit);
     } catch (error) {
@@ -1704,7 +1713,9 @@ class DatabaseManager {
         .get(id);
       if (!conversation) return null;
       const messages = this.db
-        .prepare("SELECT * FROM agent_messages WHERE conversation_id = ? ORDER BY created_at ASC")
+        .prepare(
+          "SELECT * FROM agent_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC"
+        )
         .all(id);
       return { ...conversation, messages };
     } catch (error) {
@@ -1956,7 +1967,9 @@ class DatabaseManager {
     try {
       if (!this.db) throw new Error("Database not initialized");
       return this.db
-        .prepare("SELECT * FROM agent_messages WHERE conversation_id = ? ORDER BY created_at ASC")
+        .prepare(
+          "SELECT * FROM agent_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC"
+        )
         .all(conversationId);
     } catch (error) {
       debugLogger.error("Error getting agent messages", { error: error.message }, "database");
@@ -2184,10 +2197,10 @@ class DatabaseManager {
   searchContacts(query) {
     try {
       if (!this.db) throw new Error("Database not initialized");
-      const pattern = `%${query || ""}%`;
+      const pattern = likeContainsPattern(query);
       return this.db
         .prepare(
-          "SELECT * FROM contacts WHERE email LIKE ? OR display_name LIKE ? ORDER BY display_name ASC, email ASC LIMIT 20"
+          "SELECT * FROM contacts WHERE email LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\' ORDER BY display_name ASC, email ASC LIMIT 20"
         )
         .all(pattern, pattern);
     } catch (error) {
@@ -2608,13 +2621,13 @@ class DatabaseManager {
         .prepare(
           `SELECT c.id, c.title, c.created_at, c.updated_at, c.archived_at,
             COUNT(m.id) AS message_count,
-            (SELECT content FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
-            (SELECT role FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_role
+            (SELECT content FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message,
+            (SELECT role FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message_role
           FROM agent_conversations c
           LEFT JOIN agent_messages m ON m.conversation_id = c.id
           ${archiveFilter}
           GROUP BY c.id
-          ORDER BY c.updated_at DESC
+          ORDER BY c.updated_at DESC, c.id DESC
           LIMIT ? OFFSET ?`
         )
         .all(limit, offset);
@@ -2631,21 +2644,29 @@ class DatabaseManager {
   searchAgentConversations(query, limit = 20) {
     try {
       if (!this.db) throw new Error("Database not initialized");
-      const pattern = `%${query}%`;
+      const pattern = likeContainsPattern(query);
+      // Message hits are matched with EXISTS rather than a second join: joining
+      // the messages twice multiplies each conversation's rows, which inflated
+      // message_count to the square of the real count.
       return this.db
         .prepare(
-          `SELECT DISTINCT c.id, c.title, c.created_at, c.updated_at, c.archived_at,
+          `SELECT c.id, c.title, c.created_at, c.updated_at, c.archived_at,
             COUNT(m.id) AS message_count,
-            (SELECT content FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
-            (SELECT role FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_role
+            (SELECT content FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message,
+            (SELECT role FROM agent_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message_role
           FROM agent_conversations c
           LEFT JOIN agent_messages m ON m.conversation_id = c.id
-          LEFT JOIN agent_messages ms ON ms.conversation_id = c.id
           WHERE c.archived_at IS NULL AND c.deleted_at IS NULL
             AND c.space_id IS NULL AND c.folder_id IS NULL
-            AND (c.title LIKE ? OR ms.content LIKE ?)
+            AND (
+              c.title LIKE ? ESCAPE '\\'
+              OR EXISTS (
+                SELECT 1 FROM agent_messages ms
+                WHERE ms.conversation_id = c.id AND ms.content LIKE ? ESCAPE '\\'
+              )
+            )
           GROUP BY c.id
-          ORDER BY c.updated_at DESC
+          ORDER BY c.updated_at DESC, c.id DESC
           LIMIT ?`
         )
         .all(pattern, pattern, limit);

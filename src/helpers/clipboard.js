@@ -6,6 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const debugLogger = require("./debugLogger");
 const { getLinuxSessionInfo } = require("./linuxSession");
+const { getSupportCacheDir } = require("./supportCacheDir");
 
 const CACHE_TTL_MS = 30000;
 
@@ -472,11 +473,9 @@ class ClipboardManager {
   }
 
   _getPortalTokenPath() {
-    const cacheDir = path.join(
-      process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"),
-      "loqui-snowopsdev"
-    );
-    return path.join(cacheDir, "portal-paste-token");
+    // Honors LOQUI_CACHE_ROOT so an isolated run never reads or overwrites the
+    // real profile's token; otherwise the same default cache directory as before.
+    return path.join(getSupportCacheDir("", { xdgCacheHome: true }), "portal-paste-token");
   }
 
   _readPortalToken() {

@@ -85,6 +85,7 @@ class CodexAppServer extends EventEmitter {
     spawnProcess = spawn,
     runFile = promisify(execFile),
     timeoutMs = 30000,
+    stopTimeoutMs = 5000,
     env = process.env,
     homeDir = os.homedir(),
     platform = process.platform,
@@ -98,6 +99,7 @@ class CodexAppServer extends EventEmitter {
     this.spawnProcess = spawnProcess;
     this.runFile = runFile;
     this.timeoutMs = timeoutMs;
+    this.stopTimeoutMs = stopTimeoutMs;
     this.env = codexEnvironment(env, homeDir, platform);
     this.platform = platform;
     this.resolveExecutable = resolveExecutable;
@@ -499,12 +501,34 @@ class CodexAppServer extends EventEmitter {
   }
   // Device erasure: the ChatGPT sign-in lives in this private CODEX_HOME, so
   // stop the process that holds it and remove the profile and its workspace.
+  // kill() only signals the process; on Windows it still holds its working
+  // directory and profile files until it exits, and removal fails with EPERM.
   async erase() {
     await this.starting?.catch(() => {});
+    const exited = this._waitForExit(this.child);
     this.stop();
+    await exited;
     await Promise.all(
-      [this.home, this.workspace].map((dir) => fs.rm(dir, { recursive: true, force: true }))
+      [this.home, this.workspace].map((dir) =>
+        fs.rm(dir, { recursive: true, force: true, maxRetries: 3 })
+      )
     );
+  }
+  // Bounded so a process that ignores the signal cannot hang device reset;
+  // the removal that follows then reports the failure instead.
+  _waitForExit(child) {
+    if (!child) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        child.off("exit", done);
+        child.off("error", done);
+        resolve();
+      };
+      const timer = setTimeout(done, this.stopTimeoutMs);
+      child.once("exit", done);
+      child.once("error", done);
+    });
   }
 }
 module.exports = { CodexAppServer, MIN_CODEX_VERSION, RESTRICTED_CONFIG, supportedVersion };

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { PassThrough, Writable } = require("node:stream");
 const fs = require("node:fs/promises");
+const { existsSync } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
@@ -106,6 +107,7 @@ async function setup(t, opts = {}) {
       return child;
     },
     timeoutMs: 1000,
+    stopTimeoutMs: opts.stopTimeoutMs,
   });
   t.after(async () => {
     server.stop();
@@ -413,4 +415,28 @@ test("erasing a device that never used Codex is a no-op", async (t) => {
   const { server } = await setup(t);
   await server.erase();
   await server.erase();
+});
+
+test("erasing the device waits for Codex to exit before removing its profile", async (t) => {
+  const { server, child } = await setup(t);
+  await server.status();
+  await fs.writeFile(path.join(server.home, "auth.json"), '{"fixture":"not-a-real-token"}');
+  let profileAtExit;
+  child.kill = () =>
+    setTimeout(() => {
+      profileAtExit = existsSync(path.join(server.home, "auth.json"));
+      child.emit("exit", 0);
+    }, 20);
+  await server.erase();
+  assert.equal(profileAtExit, true, "the profile is still in place while Codex is running");
+  await assert.rejects(fs.stat(server.home), { code: "ENOENT" });
+  await assert.rejects(fs.stat(server.workspace), { code: "ENOENT" });
+});
+
+test("a Codex process that never exits does not hang device erasure", async (t) => {
+  const { server, child } = await setup(t, { stopTimeoutMs: 20 });
+  await server.status();
+  child.kill = () => {};
+  await server.erase();
+  await assert.rejects(fs.stat(server.home), { code: "ENOENT" });
 });

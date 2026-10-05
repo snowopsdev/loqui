@@ -515,19 +515,19 @@ class CodexAppServer extends EventEmitter {
     );
   }
   // Bounded so a process that ignores the signal cannot hang device reset;
-  // the removal that follows then reports the failure instead.
+  // the removal that follows then reports the failure instead. An "error"
+  // here means the kill failed and the process is still running, so only
+  // "exit" ends the wait early.
   _waitForExit(child) {
     if (!child) return Promise.resolve();
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer);
         child.off("exit", done);
-        child.off("error", done);
         resolve();
       };
       const timer = setTimeout(done, this.stopTimeoutMs);
       child.once("exit", done);
-      child.once("error", done);
     });
   }
 }

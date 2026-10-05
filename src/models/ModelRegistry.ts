@@ -52,6 +52,8 @@ export interface CloudModelDefinition {
   supportsVision?: boolean;
   tokenParam?: "max_tokens" | "max_completion_tokens";
   supportsTemperature?: boolean;
+  /** Reasoning effort sent when this model runs dictation cleanup (OpenAI only). */
+  cleanupReasoningEffort?: "low" | "medium" | "high";
 }
 
 export interface CloudProviderData {
@@ -59,6 +61,8 @@ export interface CloudProviderData {
   name: string;
   /** Named default for providers whose list order isn't ours — see pickProviderDefaultModel. */
   defaultModel?: string;
+  /** Cleanup's starting model when it differs from the provider default. */
+  cleanupDefaultModel?: string;
   models: CloudModelDefinition[];
 }
 

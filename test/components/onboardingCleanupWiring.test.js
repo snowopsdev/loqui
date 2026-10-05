@@ -143,6 +143,10 @@ async function mountCleanupStep(t, personalInference) {
     unmount,
     storage,
     cleanupEnabled: () => settings.useSettingsStore.getState().useCleanupModel,
+    cleanupSettings: () => {
+      const state = settings.useSettingsStore.getState();
+      return { provider: state.cleanupProvider, model: state.cleanupModel };
+    },
   };
 }
 
@@ -206,4 +210,14 @@ test("OnboardingFlow: a late sign-in read cannot re-enable cleanup after No clea
   assert.ok(lateRead, "the sign-in refresh is still pending");
   await React.act(async () => lateRead(signedIn));
   assert.equal(flow.cleanupEnabled(), false);
+});
+
+test("OnboardingFlow: an OpenAI key starts cleanup on GPT-6.1 Sol", async (t) => {
+  const flow = await mountCleanupStep(t, {
+    credentialStatus: async () => ({ configured: true }),
+  });
+  await flow.click("Provider API key");
+  await React.act(async () => {});
+  assert.deepEqual(flow.cleanupSettings(), { provider: "openai", model: "gpt-6.1-sol" });
+  assert.equal(flow.cleanupEnabled(), true);
 });

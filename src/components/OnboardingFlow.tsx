@@ -130,8 +130,10 @@ const GUIDED_STEP_COPY: Record<
 
 const cleanupModelCatalog: CleanupModelCatalog = {
   owns: reasoningModelBelongsToProvider,
-  defaultModel: (provider) =>
-    pickDefaultModelId(modelRegistryData.cloudProviders.find((entry) => entry.id === provider)),
+  defaultModel: (provider) => {
+    const entry = modelRegistryData.cloudProviders.find((item) => item.id === provider);
+    return entry?.cleanupDefaultModel ?? pickDefaultModelId(entry);
+  },
 };
 
 const SAMPLE_TRANSCRIPT = "Let's make the next step obvious and keep the work moving.";

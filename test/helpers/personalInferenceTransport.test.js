@@ -354,6 +354,24 @@ test("Gemini and Groq thinking controls use supported low-reasoning settings", a
   assert.deepEqual(modelCalls.at(-1).providerOptions.groq, { reasoningEffort: "low" });
 });
 
+test("OpenAI cleanup runs at the reasoning effort its registry model names", async (t) => {
+  const { invoke, request, modelCalls } = harness(t);
+  const cleanup = { ...request, model: "gpt-6.1-sol", inferenceScope: "dictationCleanup" };
+  await invoke("text-generate", cleanup);
+  assert.deepEqual(modelCalls.at(-1).providerOptions.openai, { reasoningEffort: "high" });
+  // Thinking suppression is a Gemini/Groq control; it does not drop the OpenAI effort.
+  await invoke("text-generate", { ...cleanup, disableThinking: true });
+  assert.deepEqual(modelCalls.at(-1).providerOptions.openai, { reasoningEffort: "high" });
+  await invoke("text-generate", { ...cleanup, model: "gpt-6-astra" });
+  assert.equal(
+    modelCalls.at(-1).providerOptions.openai,
+    undefined,
+    "other models keep the default"
+  );
+  await invoke("text-generate", { ...cleanup, inferenceScope: "chatIntelligence" });
+  assert.equal(modelCalls.at(-1).providerOptions.openai, undefined, "only cleanup is pinned");
+});
+
 test("SDK 7 keeps instructions separate from cleanup and assistant conversation history", async (t) => {
   for (const specificationVersion of ["v3", "v4"]) {
     const { invoke, request, model, modelCalls, emitted } = harness(t);

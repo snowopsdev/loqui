@@ -170,6 +170,15 @@ function validateRequest(input) {
   return { ...input, baseUrl, inferenceScope: scope, credentialRef: expectedRef };
 }
 
+// A registry model can name the reasoning effort it runs cleanup at; the
+// OpenAI default otherwise applies.
+function cleanupReasoningEffort(model) {
+  const openai = require("../models/modelRegistryData.json").cloudProviders.find(
+    (provider) => provider.id === "openai"
+  );
+  return openai?.models.find((entry) => entry.id === model)?.cleanupReasoningEffort;
+}
+
 async function createModel(provider, model, apiKey, baseURL, disableThinking, enterprise) {
   if (["bedrock", "azure", "vertex"].includes(provider))
     return require("./enterpriseAiProviders").getEnterpriseAIModel(
@@ -448,6 +457,11 @@ function registerPersonalInferenceIPC({
         providerOptions.groq = {
           reasoningEffort: request.model.includes("gpt-oss") ? "low" : "none",
         };
+      const cleanupEffort =
+        request.provider === "openai" && request.inferenceScope === "dictationCleanup"
+          ? cleanupReasoningEffort(request.model)
+          : undefined;
+      if (cleanupEffort) providerOptions.openai = { reasoningEffort: cleanupEffort };
       const options = {
         model,
         messages: request.messages,

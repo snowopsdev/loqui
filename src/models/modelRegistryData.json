@@ -425,6 +425,7 @@
     {
       "id": "openai",
       "name": "OpenAI",
+      "cleanupDefaultModel": "gpt-6.1-sol",
       "models": [
         {
           "id": "gpt-6-astra",
@@ -434,6 +435,16 @@
           "tokenParam": "max_completion_tokens",
           "supportsTemperature": false,
           "supportsVision": true
+        },
+        {
+          "id": "gpt-6.1-sol",
+          "name": "GPT-6.1 Sol",
+          "description": "Latest GPT-6.1 model for writing, coding, and research",
+          "descriptionKey": "models.descriptions.cloud.openai_gpt_6_1_sol",
+          "tokenParam": "max_completion_tokens",
+          "supportsTemperature": false,
+          "supportsVision": true,
+          "cleanupReasoningEffort": "high"
         },
         {
           "id": "gpt-5.6-sol",

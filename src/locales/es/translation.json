@@ -2575,6 +2575,7 @@
         "groq_compound": "Sistema compound de Groq, 450 T/seg",
         "groq_compound_mini": "Sistema compound rápido, 3x menor latencia",
         "openai_gpt_6_astra": "El modelo más capaz de OpenAI para programación e investigación",
+        "openai_gpt_6_1_sol": "El modelo GPT-6.1 más reciente para escritura, programación e investigación",
         "openai_gpt_5_6_sol": "GPT-5.6 insignia para programación e investigación complejas",
         "openai_gpt_5_6_terra": "GPT-5.6 equilibrado para el trabajo diario",
         "openai_gpt_5_6_luna": "El GPT-5.6 más rápido y económico",

@@ -1,8 +1,7 @@
 import { Suspense, lazy, useMemo, useState } from "react";
 import { useTheme } from "../hooks/useTheme";
 import {
-  clearOnboardingProgress,
-  onboardingPreviewStorageKey,
+  clearOnboardingPreviewState,
   ONBOARDING_STEPS,
   parseOnboardingPreviewConfig,
   type OnboardingPreviewConfig,
@@ -67,13 +66,7 @@ export default function BrowserPreview() {
   };
   const restart = () => {
     const fresh = { ...config, step: "welcome" as const, scenario: "fresh" as const };
-    for (const candidate of [config, fresh]) {
-      const key = onboardingPreviewStorageKey(candidate);
-      clearOnboardingProgress(key);
-      for (const suffix of ["speechReady", "speechReadyModel", "speechModel", "reuseCleanup"]) {
-        localStorage.removeItem(`${key}.${suffix}`);
-      }
-    }
+    for (const candidate of [config, fresh]) clearOnboardingPreviewState(candidate);
     updateConfig(fresh);
   };
   const selectDesign = (value: WelcomeVariation) => {

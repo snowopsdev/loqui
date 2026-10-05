@@ -531,6 +531,7 @@ function registerPersonalInferenceIPC({
   });
   return {
     isBusy: () => active.size > 0,
+    eraseCodexProfile: () => codex.erase(),
     dispose() {
       for (const { controller } of active.values()) controller.abort();
       for (const channel of channels) ipcMain.removeHandler(channel);

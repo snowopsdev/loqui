@@ -21,6 +21,7 @@ test("explicit device cleanup covers models, credentials, caches, and browser se
     "diarizationManager?.deleteModels",
     "modelManager.deleteAllModels",
     "environmentManager?.clearAllPersistedData",
+    "eraseCodexProfile",
     "clearStorageData",
     "clearCache",
     "setAutoStartEnabled(false)",

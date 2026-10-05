@@ -2609,11 +2609,19 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       logger.logReasoning("REASONING_SKIPPED", {
         reason: "No cleanup or dictation-agent model available",
       });
+      // The raw transcript is still pasted, but a translation recording that
+      // cannot translate must say so, as it does when a cleanup model exists.
+      if (this.translationRequested) this.notifyTranslationFallback("unreachable");
       return normalizedText;
     }
 
     const useReasoning = this.voiceAgentRequested || (await this.isReasoningAvailable());
     if (wasCancelled()) return normalizedText;
+    // A translation recording that ends up returning untranslated text must say
+    // so exactly once. The translation chain reports its own failures, and the
+    // routed paths below report when the route is not translation; this flag
+    // keeps the final fallback from adding a second toast to either.
+    let translationOutcomeReported = false;
 
     logger.logReasoning("REASONING_CHECK", {
       useReasoning,
@@ -2636,11 +2644,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           detectedLanguage
         );
         if (this.translationRequested && route.kind !== "translation") {
+          translationOutcomeReported = true;
           this.notifyTranslationFallback("unreachable");
         }
         if (route.kind === "skip") return normalizedText;
 
         if (route.kind === "translation") {
+          translationOutcomeReported = true;
           const { text: translatedText } = await this.runTranslationChain({
             text: normalizedText,
             settings,
@@ -2713,6 +2723,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         if (route?.kind === "cleanup") this.pendingCleanupFailure = cleanupFailureFromError(error);
         if (route?.kind === "agent") this._notifyAgentReasoningFailed();
       }
+    }
+
+    if (this.translationRequested && !translationOutcomeReported) {
+      // Reasoning was unavailable, or failed before a route was chosen.
+      this.notifyTranslationFallback(useReasoning ? "failed" : "unreachable");
     }
 
     logger.logReasoning("USING_STANDARD_CLEANUP", {

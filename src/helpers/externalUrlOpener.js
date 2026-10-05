@@ -26,8 +26,17 @@ const debugLogger = require("./debugLogger");
 // eligible because this shell-less spawn never expands %VAR%-style sequences.
 const EXPLORER_BREAKING_CHARS = /[?#=,]/;
 
+// shell.openExternal hands the URL to the OS protocol handler, so file:, smb:,
+// custom app schemes and the like can launch programs or reach network shares.
+// Callers pass values that originate outside the app (calendar invites,
+// renderer window.open), so the scheme gate lives here and covers every path.
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
 async function openExternalUrl(url) {
   const { protocol, href } = new URL(url);
+  if (!ALLOWED_EXTERNAL_PROTOCOLS.has(protocol)) {
+    throw new Error(`Blocked URL scheme: ${protocol}`);
+  }
   if (
     process.platform === "win32" &&
     (protocol === "http:" || protocol === "https:") &&

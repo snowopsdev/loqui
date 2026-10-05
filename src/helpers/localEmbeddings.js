@@ -1,8 +1,8 @@
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const debugLogger = require("./debugLogger");
 const onnxWorkerClient = require("./onnxWorkerClient");
+const { getSupportCacheDir } = require("./supportCacheDir");
 
 const MODEL_SUBDIR = "all-MiniLM-L6-v2";
 
@@ -13,13 +13,7 @@ class LocalEmbeddings {
   }
 
   _resolveModelDir() {
-    const cacheDir = path.join(
-      os.homedir(),
-      ".cache",
-      "loqui-snowopsdev",
-      "embedding-models",
-      MODEL_SUBDIR
-    );
+    const cacheDir = path.join(getSupportCacheDir("embedding-models"), MODEL_SUBDIR);
 
     if (process.resourcesPath) {
       const bundled = path.join(process.resourcesPath, "bin", MODEL_SUBDIR);

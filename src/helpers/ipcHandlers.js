@@ -3092,7 +3092,6 @@ class IPCHandlers {
 
     ipcMain.handle("cleanup-app", async (event) => {
       const fs = require("fs");
-      const os = require("os");
       const errors = [];
       const mainWindow = this.windowManager.mainWindow;
 
@@ -3187,10 +3186,12 @@ class IPCHandlers {
 
       // These caches are not owned by one account. Remove them only through
       // the explicit device-erasure path, never during normal account deletion.
-      const homeCacheRoot = path.join(os.homedir(), ".cache", "loqui-snowopsdev");
+      // getSupportCacheDir honors LOQUI_CACHE_ROOT, so an isolated run erases
+      // its own cache root and never the real profile's shared home cache.
+      const { getSupportCacheDir } = require("./supportCacheDir");
       for (const cacheName of ["embedding-models", "qdrant-data", "qdrant-data-dev", "yt-dlp"]) {
         try {
-          fs.rmSync(path.join(homeCacheRoot, cacheName), { recursive: true, force: true });
+          fs.rmSync(getSupportCacheDir(cacheName), { recursive: true, force: true });
         } catch (e) {
           errors.push(`${cacheName} cache: ${e.message}`);
         }

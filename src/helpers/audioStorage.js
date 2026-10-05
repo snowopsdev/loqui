@@ -22,6 +22,14 @@ class AudioStorageManager {
     }
   }
 
+  // Transcription ids are SQLite rowids. They arrive over IPC and are spliced
+  // into a file name, so anything but plain digits (path separators, "..") must
+  // never reach path.join, which would resolve it outside the audio directory.
+  _normalizeId(transcriptionId) {
+    const id = String(transcriptionId);
+    return /^\d{1,15}$/.test(id) ? id : null;
+  }
+
   _buildFilename(transcriptionId, timestamp) {
     if (timestamp) {
       // Named in the user's own wall clock, so the stored instant has to be
@@ -39,6 +47,12 @@ class AudioStorageManager {
 
   saveAudio(transcriptionId, audioBuffer, timestamp) {
     try {
+      const id = this._normalizeId(transcriptionId);
+      if (id === null) {
+        debugLogger.warn("Rejected audio save for invalid id", {}, "audio-storage");
+        return { success: false };
+      }
+      transcriptionId = id;
       const filename = this._buildFilename(transcriptionId, timestamp);
       const filePath = path.join(this.audioDir, filename);
       fs.writeFileSync(filePath, audioBuffer);
@@ -60,6 +74,8 @@ class AudioStorageManager {
 
   getAudioPath(transcriptionId) {
     try {
+      transcriptionId = this._normalizeId(transcriptionId);
+      if (transcriptionId === null) return null;
       const files = fs.readdirSync(this.audioDir);
       const match = files.find(
         (f) => f.endsWith(`-${transcriptionId}.webm`) || f === `${transcriptionId}.webm`

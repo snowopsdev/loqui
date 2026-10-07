@@ -28,10 +28,10 @@ The local preservation check confirmed that the original repository and removed 
 
 - [ ] Complete hosted Linux x86_64 and Apple Silicon macOS checks on the intended release commit.
 - [x] Configure the protected `release` environment and reviewer before supplying signing secrets. Only `v*` tags are allowed and administrator bypass is disabled.
-- [ ] Add Apple certificate/notarization credentials through secure GitHub secret entry, never source control, chat, issues, or logs.
+- [x] Add Apple certificate/notarization credentials through secure GitHub secret entry, never source control, chat, issues, or logs.
 - [ ] Verify Developer ID signing, notarization, stapling, Gatekeeper acceptance, package integrity, and packaged native modules.
 - [ ] Test real microphone, shortcuts, paste, and meeting capture on the supported platforms.
-- [ ] Test a signed beta-to-beta Mac update and installed AppImage update, including content and settings preservation.
+- [ ] Test a signed beta-to-beta Mac update and installed AppImage update, including content and settings preservation. The first beta is exempt; this applies from `0.1.0-beta.2` ([release procedure](RELEASING.md#version-and-reviewed-draft)).
 - [ ] Confirm a failed platform/signing job cannot assemble a complete draft, and published versions cannot be overwritten.
 - [x] Verify local failure fixtures reject unreleased versions, missing platform/update artifacts, changed checksums, GitHub errors, and published/different-commit draft retries. Validate assembly with existing development artifacts without treating them as signed releases.
 - [ ] Review the complete draft and publish manually. Do not rebuild at publication time.

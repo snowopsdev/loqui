@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.1.0-beta.1 (unreleased)
+## 0.1.0-beta.1 - 2026-10-07
 
-Planned first Loqui beta, based on OpenWhispr's MIT-licensed desktop application.
+First Loqui beta, based on OpenWhispr's MIT-licensed desktop application.
 
 - Fresh, isolated Loqui identity and provisional orange/fuchsia branding.
 - Local dictation, notes, meetings, conversations, history, and search.
@@ -12,4 +12,4 @@ Planned first Loqui beta, based on OpenWhispr's MIT-licensed desktop application
 - Lucide interface icons, pinned runtime downloads, hosted platform checks, and reviewed signed release drafts.
 - Optional automatic updates with explicit restart and active-work protection.
 
-This beta still requires the platform and signed-update acceptance checks documented in docs/VERIFICATION.md before release approval.
+Linux hardware checks gate publication of this beta. As the first beta, it is exempt from beta-to-beta update tests, which start with 0.1.0-beta.2. See docs/RELEASING.md and docs/VERIFICATION.md.

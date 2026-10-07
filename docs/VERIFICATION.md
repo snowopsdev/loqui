@@ -1,6 +1,6 @@
 # Loqui verification
 
-Version 0.1.0-beta.1: implementation/local verification in progress; not approved for release. The dated evidence below is a historical record, not a fresh pass of the current checkout. Track remaining public-source and release gates in [PUBLICATION.md](PUBLICATION.md). Earlier personal-fork smoke results do not establish renamed-app or signed-update acceptance.
+Version 0.1.0-beta.1: Apple Silicon signed-build and hardware acceptance recorded (2026-10-07); Linux hardware checks gate publication; signed-update tests start with 0.1.0-beta.2. The dated evidence below is a historical record, not a fresh pass of the current checkout. Track remaining public-source and release gates in [PUBLICATION.md](PUBLICATION.md). Earlier personal-fork smoke results do not establish renamed-app or signed-update acceptance.
 
 Required evidence:
 
@@ -54,7 +54,6 @@ Thirteen repository-configuration fixtures verify protection enforcement and rea
 
 Maintainer authentication succeeded and the independent public `snowopsdev/loqui` repository was created. Source publication at `d4ef6c86` preserved sanitized history and published no release tags. GitHub API readbacks passed all repository protection checks, including administrator-enforced branch protection, private reporting, secret protection, immutable releases, and tag-only reviewed release access with administrator bypass disabled. Six signing-secret names remained absent; no signing operation was attempted. Current hosted-CI and release progress is recorded in [PUBLICATION.md](PUBLICATION.md).
 
-
 ## Clean-build follow-up (2026-09-23)
 
 The first hosted run passed Apple Silicon native compilation, unsigned packaging, architecture checks, and actual packaged SQLite execution. Its Linux and Node-test failures exposed setup assumptions that local cached builds had hidden. The follow-up in [PR #3](https://github.com/snowopsdev/loqui/pull/3) installs pinned Electron explicitly for tests, compiles the Linux text monitor from checked-in source with required AT-SPI headers, corrects the password-role probe, and updates the onboarding smoke locator. The required **CI** check on that PR records the hosted result for the final revision; a failed platform cannot satisfy the merge gate.
@@ -64,3 +63,11 @@ Local verification of the follow-up on Node **24.21.0**: **3,742 tests passed (8
 The first hosted CodeQL analysis completed and produced 15 alerts, rather than a clean security report. Six workflow alerts prompted removal of the arbitrary checkout-ref input; one endpoint-classification alert prompted exact Groq hostname matching. Review found three test-only heuristics and two reports whose stated shell/escaping condition was absent. Three legacy Windows compiler-command alerts remain outside the supported Linux/macOS release paths and need review before maintaining Windows builds. Alert states and subsequent analysis are available in [GitHub code scanning](https://github.com/snowopsdev/loqui/security/code-scanning). No broad scanner exclusions or alert dismissals were added, and this bounded review is not a comprehensive security audit.
 
 Signed releases remain deferred by maintainer choice. No release tags, drafts, signing credentials, or hardware-acceptance claims were added by this follow-up.
+
+## Apple Silicon signed build and hardware (2026-10-07)
+
+A local Apple Silicon build of `main` with [PR #32](https://github.com/snowopsdev/loqui/pull/32) (macOS 27.0.1, Node **24.21.0**, Electron 44.4.5, macOS SDK 27.0) was signed with the maintainer's Developer ID Application identity using `scripts/sign-mac-local.sh`. Apple notarization accepted the app and the DMG, both tickets were stapled, and Gatekeeper accepted the DMG and the app extracted from the ZIP as "Notarized Developer ID" with hardened runtime. Package smoke checks passed: packaged SQLite, keyring and ONNX inference load, and the bundled `llama-server` and `qdrant` binaries run. The full Node suite passed on the same code: **3,737 passed, 18 skipped, zero failures**. The earlier intermittent `cliBridgeHttp` failure was a real connection-reset bug, fixed in PR #32.
+
+The maintainer installed that DMG on an Apple Silicon Mac and reported microphone dictation, global shortcut, paste into another application, and meeting capture working.
+
+This local build is acceptance evidence, not the release artifact: published installers come from the protected release workflow, whose signing secrets were added on 2026-10-07 and verified by name with `node scripts/configure-github.cjs --check`. Under the release procedure, this completes tag acceptance for `0.1.0-beta.1`. Linux hardware checks remain pending and gate publication of the draft; the signed beta-to-beta Mac and installed AppImage update tests do not apply to the first beta and start with `0.1.0-beta.2`.

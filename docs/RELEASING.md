@@ -29,11 +29,13 @@ Use GitHub's secure secret entry or `gh secret set --env release` with file/stdi
 
 ## Version and reviewed draft
 
-1. Release PR: update package.json, package-lock.json, and CHANGELOG.md together, removing the changelog’s unreleased marker only when acceptance is complete. Run checks and review acceptance evidence.
+1. Release PR: update package.json, package-lock.json, and CHANGELOG.md together, removing the changelog’s unreleased marker only when tag acceptance is complete: checks pass, and a Developer ID-signed Apple Silicon build has passed Gatekeeper and real microphone, shortcut, paste, and meeting-capture checks. Run checks and review acceptance evidence.
 2. Merge to main, create the matching version tag on that commit, and push that tag explicitly.
 3. Release CI verifies version agreement, main ancestry, and repository. Both platforms build without signing credentials. A protected Mac job signs, notarizes, staples, packages, and verifies the app.
 4. Only after both platforms and signing pass, a protected job assembles installers, update metadata/blockmaps, SHA256SUMS, notices, CycloneDX SBOM, runtime manifest, and GitHub build provenance into one draft.
-5. Review artifacts and test signed beta-to-beta Mac and installed AppImage updates with content preservation. Manually publish the draft. Publication does not rebuild it.
+5. Review artifacts and complete publication acceptance on the draft's own installers: real microphone, shortcut, paste, and meeting-capture checks with the Linux AppImage, and signed beta-to-beta Mac and installed AppImage updates with content preservation. Manually publish the draft only after they pass. Publication does not rebuild it.
+
+**First beta.** `0.1.0-beta.1` has no earlier published version to update from, so it is exempt from the update tests in step 5; its Linux hardware checks still gate publication. The update tests first apply to `0.1.0-beta.2`, from an installed `0.1.0-beta.1`. The app's updater reads only published GitHub releases, so decide before that release whether those tests run against a test feed or immediately after publication.
 
 Published versions are immutable. Corrections get new versions. Workflow dispatch retries an existing tag (use `gh workflow run release.yml --repo snowopsdev/loqui --ref v0.1.0-beta.1 -f tag=v0.1.0-beta.1`) and rejects published releases; only unpublished draft artifacts can be replaced. Specify the repository explicitly because a checkout retaining an `upstream` remote can otherwise direct GitHub CLI commands there. The entered tag must match the workflow’s tag ref; validation and platform builds check out the event commit, never an arbitrary input ref. Beta tags are prereleases with separate beta metadata. Never manually publish an incomplete draft.
 

@@ -16,16 +16,17 @@ Protect main, including administrators: require the **CI** status, pull requests
 
 Add these secrets in GitHub Settings → Environments → **release**:
 
-| Secret                     | Value                                                         |
-| -------------------------- | ------------------------------------------------------------- |
-| `MAC_CERTIFICATE_BASE64`   | Base64 of Developer ID Application .p12 including private key |
-| `MAC_CERTIFICATE_PASSWORD` | .p12 password                                                 |
-| `MAC_SIGNING_IDENTITY`     | Exact `Developer ID Application: … (TEAMID)` identity         |
-| `APPLE_API_KEY_BASE64`     | Base64 of App Store Connect notarization .p8 API key          |
-| `APPLE_API_KEY_ID`         | API key ID                                                    |
-| `APPLE_API_ISSUER`         | API issuer ID                                                 |
+| Secret                     | Value                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| `MAC_CERTIFICATE_BASE64`   | Base64 of Developer ID Application .p12 including private key                   |
+| `MAC_CERTIFICATE_PASSWORD` | .p12 password                                                                   |
+| `MAC_SIGNING_IDENTITY`     | Exact `Developer ID Application: … (TEAMID)` identity                           |
+| `APPLE_API_KEY_BASE64`     | Base64 of App Store Connect notarization .p8 API key                            |
+| `APPLE_API_KEY_ID`         | API key ID                                                                      |
+| `APPLE_API_ISSUER`         | API issuer ID                                                                   |
+| `RELEASE_SETTINGS_TOKEN`   | Fine-grained token for this repository only, with only **Administration: read** |
 
-Use GitHub's secure secret entry or `gh secret set --env release` with file/stdin input. Never paste secrets into chat, issues, source, command arguments, or logs. Signing uses a temporary keychain removed at job completion. Missing credentials fail the job.
+Use GitHub's secure secret entry or `gh secret set --env release` with file/stdin input. Never paste secrets into chat, issues, source, command arguments, or logs. Signing uses a temporary keychain removed at job completion. Missing credentials fail the job. `RELEASE_SETTINGS_TOKEN` lets the draft job confirm that immutable releases are enabled on every release; the workflow's own token cannot read that admin-only setting. Renew it before it expires, or draft assembly fails.
 
 ## Version and reviewed draft
 

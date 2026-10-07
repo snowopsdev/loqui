@@ -97,8 +97,18 @@ async function run(
 
   // GitHub's immutable-release setting protects the interval between checking a
   // draft and uploading an asset if a maintainer publishes it concurrently. Reading
-  // that setting needs admin access, which the workflow token can never have, so
-  // `node scripts/configure-github.cjs --check` verifies it before releasing.
+  // it needs admin read access, which the workflow token can never have, so a
+  // separate read-only token (Administration: read) verifies it on every release.
+  if (!env.RELEASE_SETTINGS_TOKEN)
+    throw Error("RELEASE_SETTINGS_TOKEN is required to verify immutable releases");
+  const immutable = await readGitHub("/immutable-releases", {
+    token: env.RELEASE_SETTINGS_TOKEN,
+    fetchImpl,
+  }).catch((error) => {
+    throw Error(`Immutable-release verification failed: ${error.message}`);
+  });
+  if (immutable.enabled !== true)
+    throw Error("Enable immutable releases before assembling a draft");
   const refs = command("git", [
     "ls-remote",
     "--exit-code",

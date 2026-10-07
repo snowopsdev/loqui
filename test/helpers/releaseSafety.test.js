@@ -18,6 +18,7 @@ const env = {
   GITHUB_REF: `refs/tags/${tag}`,
   GITHUB_REPOSITORY: "snowopsdev/loqui",
   GH_TOKEN: "fixture-token",
+  RELEASE_SETTINGS_TOKEN: "fixture-settings-token",
 };
 const hash = (bytes) => crypto.createHash("sha512").update(bytes).digest("base64");
 function fixture(t) {
@@ -228,7 +229,15 @@ test("complete assembly refreshes only post-stapling DMG metadata and checksums 
 
 function draftFixture(
   f,
-  { release = null, releaseStatus, repositoryStatus = 200, remoteCommit = commit, sequence } = {}
+  {
+    release = null,
+    releaseStatus,
+    repositoryStatus = 200,
+    immutable = true,
+    settingsToken = env.RELEASE_SETTINGS_TOKEN,
+    remoteCommit = commit,
+    sequence,
+  } = {}
 ) {
   const writes = [],
     requests = [];
@@ -247,17 +256,19 @@ function draftFixture(
     active,
     options: {
       cwd: f?.cwd,
-      env,
-      fetchImpl: async (url) => {
+      env: { ...env, RELEASE_SETTINGS_TOKEN: settingsToken },
+      fetchImpl: async (url, init = {}) => {
         requests.push(url);
         let status, data;
         if (url.endsWith(`/repos/${env.GITHUB_REPOSITORY}`)) {
           status = repositoryStatus;
           data = { full_name: env.GITHUB_REPOSITORY, fork: false, archived: false };
         } else if (url.endsWith("/immutable-releases")) {
-          // Admin-only endpoint: the workflow's GITHUB_TOKEN can never read it.
-          status = 403;
-          data = { message: "Resource not accessible by integration" };
+          // Admin-only endpoint: only the read-only settings token may read it; the
+          // workflow's GITHUB_TOKEN always gets 403.
+          const settings = init.headers?.Authorization === `Bearer ${env.RELEASE_SETTINGS_TOKEN}`;
+          status = settings ? 200 : 403;
+          data = settings ? { enabled: immutable } : { message: "Resource not accessible" };
         } else {
           const state = sequence ? sequence[reads++] : release;
           data =
@@ -324,18 +335,22 @@ test("published releases and different-commit drafts are rejected before asset m
   }
 });
 
-test("new releases are always drafts, with tag identity required", async (t) => {
+test("new releases are always drafts, with immutable protection and tag identity required", async (t) => {
   const source = fixture(t);
   source.assemble();
-  const moved = draftFixture(source, { remoteCommit: "b".repeat(40) });
-  await assert.rejects(draftRelease("assemble", moved.options), /tag no longer matches/);
-  assert.equal(moved.writes.length, 0);
+  for (const [settings, error] of [
+    [{ immutable: false }, /Enable immutable releases/],
+    [{ settingsToken: null }, /RELEASE_SETTINGS_TOKEN is required/],
+    [{ settingsToken: "expired-or-unscoped" }, /Immutable-release verification failed.*HTTP 403/],
+    [{ remoteCommit: "b".repeat(40) }, /tag no longer matches/],
+  ]) {
+    const f = draftFixture(source, settings);
+    await assert.rejects(draftRelease("assemble", f.options), error);
+    assert.equal(f.writes.length, 0);
+  }
   const f = draftFixture(source);
   await draftRelease("assemble", f.options);
-  assert.ok(
-    !f.requests.some((url) => url.endsWith("/immutable-releases")),
-    "the workflow token cannot read admin-only repository settings"
-  );
+  assert.ok(f.requests.some((url) => url.endsWith("/immutable-releases")));
   assert.equal(f.writes.length, 1);
   assert.deepEqual(f.writes[0].args.slice(0, 3), ["release", "create", tag]);
   assert.ok(f.writes[0].args.includes("--draft"));

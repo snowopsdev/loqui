@@ -130,6 +130,7 @@ jobs:
       - name: Assemble one reviewed draft
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SETTINGS_TOKEN: ${{ secrets.RELEASE_SETTINGS_TOKEN }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
         run: node scripts/release-draft.cjs assemble

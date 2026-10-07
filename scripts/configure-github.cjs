@@ -10,6 +10,7 @@ const RELEASE_SECRET_NAMES = [
   "APPLE_API_KEY_BASE64",
   "APPLE_API_KEY_ID",
   "APPLE_API_ISSUER",
+  "RELEASE_SETTINGS_TOKEN",
 ];
 
 function githubApi(endpoint, method = "GET", body) {

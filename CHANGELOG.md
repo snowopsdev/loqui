@@ -12,4 +12,4 @@ First Loqui beta, based on OpenWhispr's MIT-licensed desktop application.
 - Lucide interface icons, pinned runtime downloads, hosted platform checks, and reviewed signed release drafts.
 - Optional automatic updates with explicit restart and active-work protection.
 
-Linux hardware checks and signed beta-to-beta updates are verified with the next beta; see docs/VERIFICATION.md.
+Linux hardware checks gate publication of this beta. As the first beta, it is exempt from beta-to-beta update tests, which start with 0.1.0-beta.2. See docs/RELEASING.md and docs/VERIFICATION.md.

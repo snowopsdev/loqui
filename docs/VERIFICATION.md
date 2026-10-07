@@ -1,6 +1,6 @@
 # Loqui verification
 
-Version 0.1.0-beta.1: Apple Silicon signed-build and hardware acceptance recorded (2026-10-07); Linux hardware and signed-update acceptance pending. The dated evidence below is a historical record, not a fresh pass of the current checkout. Track remaining public-source and release gates in [PUBLICATION.md](PUBLICATION.md). Earlier personal-fork smoke results do not establish renamed-app or signed-update acceptance.
+Version 0.1.0-beta.1: Apple Silicon signed-build and hardware acceptance recorded (2026-10-07); Linux hardware checks gate publication; signed-update tests start with 0.1.0-beta.2. The dated evidence below is a historical record, not a fresh pass of the current checkout. Track remaining public-source and release gates in [PUBLICATION.md](PUBLICATION.md). Earlier personal-fork smoke results do not establish renamed-app or signed-update acceptance.
 
 Required evidence:
 
@@ -70,4 +70,4 @@ A local Apple Silicon build of `main` with [PR #32](https://github.com/snowopsde
 
 The maintainer installed that DMG on an Apple Silicon Mac and reported microphone dictation, global shortcut, paste into another application, and meeting capture working.
 
-This local build is acceptance evidence, not the release artifact: published installers come from the protected release workflow, whose signing secrets were added on 2026-10-07 and verified by name with `node scripts/configure-github.cjs --check`. Linux hardware checks, the signed beta-to-beta Mac update, and the installed AppImage update remain pending and need a second beta.
+This local build is acceptance evidence, not the release artifact: published installers come from the protected release workflow, whose signing secrets were added on 2026-10-07 and verified by name with `node scripts/configure-github.cjs --check`. Under the release procedure, this completes tag acceptance for `0.1.0-beta.1`. Linux hardware checks remain pending and gate publication of the draft; the signed beta-to-beta Mac and installed AppImage update tests do not apply to the first beta and start with `0.1.0-beta.2`.

@@ -67,16 +67,20 @@ function call(port, method, path, raw) {
 
 test("an over-long request body is refused with a readable error, not a reset connection", async () => {
   await withBridge(async (port, saved) => {
-    const { status, body } = await call(
-      port,
-      "POST",
-      "/v1/notes/create",
-      JSON.stringify({ content: "x".repeat(3 * 1024 * 1024) })
-    );
-    assert.equal(status, 400);
-    assert.deepEqual(JSON.parse(body), {
-      error: { code: "validation_error", message: "Request body too large" },
-    });
+    // A reset depends on whether upload bytes are still unread when the socket
+    // closes, so a single attempt only fails some of the time; repeat it.
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const { status, body } = await call(
+        port,
+        "POST",
+        "/v1/notes/create",
+        JSON.stringify({ content: "x".repeat(3 * 1024 * 1024) })
+      );
+      assert.equal(status, 400);
+      assert.deepEqual(JSON.parse(body), {
+        error: { code: "validation_error", message: "Request body too large" },
+      });
+    }
     assert.equal(saved.length, 0);
   });
 });

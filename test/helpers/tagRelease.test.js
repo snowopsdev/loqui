@@ -10,6 +10,7 @@ const version = "0.1.0-beta.2";
 const tag = `v${version}`;
 const sha = "c".repeat(40);
 const api = "https://api.github.com/repos/snowopsdev/loqui";
+const before = "b".repeat(40);
 const env = {
   GITHUB_REPOSITORY: "snowopsdev/loqui",
   GITHUB_REF: "refs/heads/main",
@@ -53,12 +54,12 @@ function github({
     messages,
     writes: () => events.filter((event) => event.method !== "GET"),
     options: {
-      env: { ...env, GITHUB_EVENT_NAME: eventName },
-      log: (message) => messages.push(message),
-      git: (args) => {
-        assert.deepEqual(args, ["show", "HEAD^1:package.json"]);
-        return JSON.stringify({ version: previousVersion });
+      env: {
+        ...env,
+        GITHUB_EVENT_NAME: eventName,
+        ...(eventName === "push" ? { BEFORE_SHA: before } : {}),
       },
+      log: (message) => messages.push(message),
       fetchImpl: async (url, init = {}) => {
         const method = init.method || "GET";
         events.push({
@@ -69,6 +70,13 @@ function github({
         });
         if (method === "GET" && url === api)
           return respond(200, { full_name: "snowopsdev/loqui", fork: false, archived: false });
+        // package.json as main stood before the push: catches a version bump in any
+        // pushed commit, not only the last one (rebase merges push several).
+        if (method === "GET" && url === `${api}/contents/package.json?ref=${before}`)
+          return respond(200, {
+            encoding: "base64",
+            content: Buffer.from(JSON.stringify({ version: previousVersion })).toString("base64"),
+          });
         if (method === "GET" && url === `${api}/git/ref/tags/${tag}`) {
           if (tagStatus) return respond(tagStatus, { message: "fixture failure" });
           if (!tagExists) return respond(404, { message: "Not Found" });
@@ -226,7 +234,8 @@ test("a push that did not change the version never tags, even when the tag is mi
   const f = github({ previousVersion: version });
   const result = await run({ ...f.options, cwd });
   assert.equal(result.state, "skipped");
-  assert.equal(f.events.length, 0);
+  assert.deepEqual(f.writes(), []);
+  assert.ok(f.events.some((event) => event.url.endsWith(`ref=${before}`)));
   assert.match(f.messages.join("\n"), /did not change the version/);
 });
 
@@ -267,4 +276,13 @@ test("a manual run refuses a tag that points at a different commit", async (t) =
   const g = github({ tagExists: true, eventName: "workflow_dispatch" });
   await assert.rejects(run({ ...g.options, cwd: fixture(t) }), /points at .* not main's commit/);
   assert.deepEqual(g.writes(), []);
+});
+
+test("a push without a valid pre-push commit fails instead of guessing whether the version changed", async (t) => {
+  for (const BEFORE_SHA of [undefined, "0".repeat(40), "not-a-sha"]) {
+    const g = github();
+    const options = { ...g.options, env: { ...g.options.env, BEFORE_SHA } };
+    await assert.rejects(run({ ...options, cwd: fixture(t) }), /pre-push commit/);
+    assert.deepEqual(g.writes(), []);
+  }
 });

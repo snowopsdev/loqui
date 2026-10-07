@@ -41,7 +41,6 @@ async function run({
   log = console.log,
   command = (file, args) =>
     execFileSync(file, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }),
-  git = (args) => command("git", args),
 } = {}) {
   if (env.GITHUB_REPOSITORY !== REPOSITORY)
     throw Error(`Release tags are created only in ${REPOSITORY}`);
@@ -65,22 +64,31 @@ async function run({
     log(`No release tag for ${pkg.version}: ${problem}`);
     return { state: "skipped", tag, commit };
   }
-  // Only the push that merges the version change is released automatically, so a
-  // failed or skipped run never releases a later commit nobody accepted. A manual
-  // run of this workflow is the explicit way to tag main's current commit instead.
-  if (env.GITHUB_EVENT_NAME !== "workflow_dispatch") {
-    const previous = JSON.parse(git(["show", "HEAD^1:package.json"])).version;
-    if (previous === pkg.version) {
-      log(`No release tag for ${pkg.version}: this push did not change the version`);
-      return { state: "skipped", tag, commit };
-    }
-  }
+  const push = env.GITHUB_EVENT_NAME !== "workflow_dispatch";
+  const before = env.BEFORE_SHA || "";
+  if (push && (!/^[a-f0-9]{40}$/.test(before) || /^0+$/.test(before)))
+    throw Error("A push must provide the pre-push commit of main (BEFORE_SHA)");
 
   const options = { token: env.GH_TOKEN, fetchImpl };
   // Prove repository access first so a permission-masked 404 is never read as a missing tag.
   const repository = await githubRequest("", options);
   if (repository.full_name !== REPOSITORY || repository.fork || repository.archived)
     throw Error("Release repository identity or availability mismatch");
+  // Only the push that merges the version change is released automatically, so a
+  // failed or skipped run never releases a later commit nobody accepted. Comparing
+  // with main before the whole push, not HEAD^1, also catches a version bump in an
+  // earlier commit of a rebase merge. A manual run is the explicit way to tag main's
+  // current commit instead.
+  if (push) {
+    const file = await githubRequest(`/contents/package.json?ref=${before}`, options);
+    if (file.encoding !== "base64" || typeof file.content !== "string")
+      throw Error("GitHub returned an unreadable package.json for the pre-push commit");
+    const previous = JSON.parse(Buffer.from(file.content, "base64").toString("utf8")).version;
+    if (previous === pkg.version) {
+      log(`No release tag for ${pkg.version}: this push did not change the version`);
+      return { state: "skipped", tag, commit };
+    }
+  }
   // Tags created with GITHUB_TOKEN do not trigger push workflows; workflow_dispatch is
   // GitHub's documented exception, and release.yml validates the tag as its ref.
   const dispatch = ["workflow", "run", "release.yml", "--ref", tag, "-f", `tag=${tag}`];

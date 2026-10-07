@@ -96,10 +96,9 @@ async function run(
   if (mode === "check") return { state: release ? "draft" : "missing", tag, commit };
 
   // GitHub's immutable-release setting protects the interval between checking a
-  // draft and uploading an asset if a maintainer publishes it concurrently.
-  const immutable = await readGitHub("/immutable-releases", options);
-  if (immutable.enabled !== true)
-    throw Error("Enable immutable releases before assembling a draft");
+  // draft and uploading an asset if a maintainer publishes it concurrently. Reading
+  // that setting needs admin access, which the workflow token can never have, so
+  // `node scripts/configure-github.cjs --check` verifies it before releasing.
   const refs = command("git", [
     "ls-remote",
     "--exit-code",

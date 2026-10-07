@@ -228,14 +228,7 @@ test("complete assembly refreshes only post-stapling DMG metadata and checksums 
 
 function draftFixture(
   f,
-  {
-    release = null,
-    releaseStatus,
-    repositoryStatus = 200,
-    immutable = true,
-    remoteCommit = commit,
-    sequence,
-  } = {}
+  { release = null, releaseStatus, repositoryStatus = 200, remoteCommit = commit, sequence } = {}
 ) {
   const writes = [],
     requests = [];
@@ -257,13 +250,15 @@ function draftFixture(
       env,
       fetchImpl: async (url) => {
         requests.push(url);
-        let status = 200,
-          data;
+        let status, data;
         if (url.endsWith(`/repos/${env.GITHUB_REPOSITORY}`)) {
           status = repositoryStatus;
           data = { full_name: env.GITHUB_REPOSITORY, fork: false, archived: false };
-        } else if (url.endsWith("/immutable-releases")) data = { enabled: immutable };
-        else {
+        } else if (url.endsWith("/immutable-releases")) {
+          // Admin-only endpoint: the workflow's GITHUB_TOKEN can never read it.
+          status = 403;
+          data = { message: "Resource not accessible by integration" };
+        } else {
           const state = sequence ? sequence[reads++] : release;
           data =
             state === "draft"
@@ -329,19 +324,18 @@ test("published releases and different-commit drafts are rejected before asset m
   }
 });
 
-test("new releases are always drafts, with immutable protection and tag identity required", async (t) => {
+test("new releases are always drafts, with tag identity required", async (t) => {
   const source = fixture(t);
   source.assemble();
-  for (const settings of [{ immutable: false }, { remoteCommit: "b".repeat(40) }]) {
-    const f = draftFixture(source, settings);
-    await assert.rejects(
-      draftRelease("assemble", f.options),
-      /immutable releases|tag no longer matches/
-    );
-    assert.equal(f.writes.length, 0);
-  }
+  const moved = draftFixture(source, { remoteCommit: "b".repeat(40) });
+  await assert.rejects(draftRelease("assemble", moved.options), /tag no longer matches/);
+  assert.equal(moved.writes.length, 0);
   const f = draftFixture(source);
   await draftRelease("assemble", f.options);
+  assert.ok(
+    !f.requests.some((url) => url.endsWith("/immutable-releases")),
+    "the workflow token cannot read admin-only repository settings"
+  );
   assert.equal(f.writes.length, 1);
   assert.deepEqual(f.writes[0].args.slice(0, 3), ["release", "create", tag]);
   assert.ok(f.writes[0].args.includes("--draft"));

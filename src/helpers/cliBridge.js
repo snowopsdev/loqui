@@ -12,6 +12,7 @@ const PORT_RANGE_END = 8219;
 const HOST = "127.0.0.1";
 const BRIDGE_FILE_VERSION = 1;
 const MAX_REQUEST_BODY_BYTES = 1 * 1024 * 1024;
+const REFUSED_UPLOAD_DRAIN_MS = 2000;
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
 const NO_CONTENT = Symbol("CliBridge.NoContent");
@@ -44,22 +45,33 @@ function readJsonBody(req) {
     const chunks = [];
     let receivedBytes = 0;
     let rejected = false;
+    let drainTimer = null;
+    const refuse = () => {
+      clearTimeout(drainTimer);
+      reject(Object.assign(new Error("Request body too large"), { dropConnection: true }));
+    };
     req.on("data", (chunk) => {
       if (rejected) return;
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       receivedBytes += buffer.length;
       if (receivedBytes > MAX_REQUEST_BODY_BYTES) {
         rejected = true;
-        // The caller answers, then drops the connection (closeAfterResponse):
-        // destroying the socket here would reset it before the client could
-        // read the error.
-        reject(Object.assign(new Error("Request body too large"), { dropConnection: true }));
+        chunks.length = 0;
+        // Discard the rest of the upload before refusing it: closing a socket
+        // that still holds unread bytes makes the OS reset the connection, and
+        // the client loses the error. A client still sending when the drain
+        // window ends is refused and cut off anyway (closeAfterResponse).
+        drainTimer = setTimeout(refuse, REFUSED_UPLOAD_DRAIN_MS);
+        drainTimer.unref?.();
         return;
       }
       chunks.push(buffer);
     });
     req.on("end", () => {
-      if (rejected) return;
+      if (rejected) {
+        refuse();
+        return;
+      }
       const raw = Buffer.concat(chunks, receivedBytes).toString("utf8");
       if (!raw) return resolve({});
       let parsed;
@@ -77,7 +89,10 @@ function readJsonBody(req) {
       }
       resolve(parsed);
     });
-    req.on("error", reject);
+    req.on("error", (err) => {
+      clearTimeout(drainTimer);
+      reject(err);
+    });
   });
 }
 
@@ -91,22 +106,15 @@ function sendJson(res, statusCode, payload, headers = {}) {
   res.end(body);
 }
 
-const REFUSED_UPLOAD_DRAIN_MS = 2000;
-
-// Drop an over-long upload only after the error response has been flushed and
-// the client has had a moment to stop sending, so it can still read why it was
-// refused instead of seeing a reset connection.
+// Drop an over-long upload once its error response has been flushed. The body
+// has normally been drained by then (readJsonBody), so this only cuts off a
+// client that was still sending when the drain window ended.
 function closeAfterResponse(req, res) {
   if (typeof res.once !== "function") {
     req.destroy();
     return;
   }
-  res.once("finish", () => {
-    const timer = setTimeout(() => req.destroy(), REFUSED_UPLOAD_DRAIN_MS);
-    timer.unref?.();
-    req.once("close", () => clearTimeout(timer));
-    req.resume();
-  });
+  res.once("finish", () => req.destroy());
 }
 
 function sendNoContent(res) {

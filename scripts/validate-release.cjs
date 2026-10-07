@@ -2,6 +2,20 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
+// Returns why CHANGELOG.md does not mark this version released, or null when it does.
+// Shared with tag-release.cjs so a commit is tagged only if release validation accepts it.
+function changelogReleaseProblem(changelog, version) {
+  const heading = changelog
+    .split(/\r?\n/)
+    .find((line) => line === `## ${version}` || line.startsWith(`## ${version} `));
+  if (!heading) return "Missing exact changelog entry";
+  if (/unreleased/i.test(heading)) return "Changelog entry is still marked unreleased";
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!new RegExp(`^## ${escaped}(?: - \\d{4}-\\d{2}-\\d{2})?$`).test(heading))
+    return "Changelog release heading must name the exact version, optionally with a date";
+  return null;
+}
+
 function validateRelease({
   cwd = path.resolve(__dirname, ".."),
   env = process.env,
@@ -21,15 +35,11 @@ function validateRelease({
     lock.packages?.[""]?.version !== pkg.version
   )
     throw Error("Tag, package and lockfile versions must match");
-  const heading = fs
-    .readFileSync(path.join(cwd, "CHANGELOG.md"), "utf8")
-    .split(/\r?\n/)
-    .find((line) => line === `## ${pkg.version}` || line.startsWith(`## ${pkg.version} `));
-  if (!heading) throw Error("Missing exact changelog entry");
-  if (/unreleased/i.test(heading)) throw Error("Changelog entry is still marked unreleased");
-  const escaped = pkg.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (!new RegExp(`^## ${escaped}(?: - \\d{4}-\\d{2}-\\d{2})?$`).test(heading))
-    throw Error("Changelog release heading must name the exact version, optionally with a date");
+  const problem = changelogReleaseProblem(
+    fs.readFileSync(path.join(cwd, "CHANGELOG.md"), "utf8"),
+    pkg.version
+  );
+  if (problem) throw Error(problem);
   git(["fetch", "origin", "main", "--no-tags"], { stdio: "inherit" });
   git(["merge-base", "--is-ancestor", "HEAD", "origin/main"]);
   const commit = git(["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -39,4 +49,4 @@ function validateRelease({
 }
 
 if (require.main === module) validateRelease();
-module.exports = { validateRelease };
+module.exports = { validateRelease, changelogReleaseProblem };

@@ -27,7 +27,7 @@ The local preservation check confirmed that the original repository and removed 
 ## Release publication
 
 - [ ] Complete hosted Linux x86_64 and Apple Silicon macOS checks on the intended release commit.
-- [x] Configure the protected `release` environment and reviewer before supplying signing secrets. Only `v*` tags are allowed and administrator bypass is disabled.
+- [x] Configure the protected `release` environment before supplying signing secrets. Only `v*` tags are allowed, administrator bypass is disabled, and no reviewer is required (zero-click releases; drafts are still published manually).
 - [x] Add Apple certificate/notarization credentials through secure GitHub secret entry, never source control, chat, issues, or logs.
 - [ ] Verify Developer ID signing, notarization, stapling, Gatekeeper acceptance, package integrity, and packaged native modules.
 - [ ] Test real microphone, shortcuts, paste, and meeting capture on the supported platforms.

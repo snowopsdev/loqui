@@ -61,9 +61,7 @@ function fixture({
       return {
         can_admins_bypass: false,
         deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-        protection_rules: [
-          { type: "required_reviewers", reviewers: [{ type: "User", reviewer: { id: 42 } }] },
-        ],
+        protection_rules: [{ id: 1, type: "branch_policy" }],
       };
     if (endpoint === `${root}/environments/release/secrets?per_page=100&page=1`)
       return { secrets: RELEASE_SECRET_NAMES.map((name) => ({ name })) };
@@ -165,6 +163,8 @@ test("apply checks the target first and writes the reviewed Actions permission p
     (call) => call.method === "PUT" && call.endpoint.endsWith("environments/release")
   );
   assert.equal(environment.body.can_admins_bypass, undefined);
+  // An explicit empty list clears a previously configured reviewer.
+  assert.deepEqual(environment.body.reviewers, []);
   assert.equal(f.calls.filter((call) => call.method === "POST").length, 1);
   assert.match(f.messages.at(-1), /configuration completed/);
 });
@@ -236,6 +236,27 @@ test("check reports missing secrets and protection drift together without mutati
   const output = f.messages.join("\n");
   assert.match(output, /MAC_CERTIFICATE_BASE64/);
   assert.doesNotMatch(output, /fixture-sensitive-do-not-print|UNRELATED/);
+});
+
+test("check rejects a release environment that still requires manual approval", () => {
+  const f = fixture({
+    existingTag: true,
+    responses: {
+      [`${root}/environments/release`]: {
+        can_admins_bypass: false,
+        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+        protection_rules: [
+          { type: "required_reviewers", reviewers: [{ type: "User", reviewer: { id: 42 } }] },
+        ],
+      },
+    },
+  });
+  assert.throws(() => run(["--check"], f.options), /Repository verification failed \(1 checks\)/);
+  assert.match(
+    f.messages.join("\n"),
+    /FAIL Release environment without manual approval or administrator bypass: .*reviewers/
+  );
+  assert.ok(f.calls.every((call) => call.method === "GET"));
 });
 
 test("check rejects extra deployment policies even when the allowed tag policy is present", () => {

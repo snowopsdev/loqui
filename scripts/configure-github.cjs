@@ -44,7 +44,7 @@ function parseMode(args) {
   return args[0].slice(2);
 }
 
-function configurationPlan(reviewerId = "<authenticated snowopsdev user ID>") {
+function configurationPlan() {
   const root = `repos/${EXPECTED_REPOSITORY}`;
   return [
     {
@@ -102,8 +102,9 @@ function configurationPlan(reviewerId = "<authenticated snowopsdev user ID>") {
       manualRequirement:
         "Disable administrator bypass in GitHub Settings > Environments > release; the REST write schema does not expose this setting",
       body: {
-        reviewers: [{ type: "User", id: reviewerId }],
-        prevent_self_review: false,
+        // Zero-click releases: version tags start signing without approval. An explicit
+        // empty list clears a reviewer left by earlier settings; publication stays manual.
+        reviewers: [],
         deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
       },
     },
@@ -176,7 +177,7 @@ function reconcileVersionTagPolicies(api, endpoint, log) {
   );
 }
 
-function checkConfiguration(api, account, log) {
+function checkConfiguration(api, log) {
   const root = `repos/${EXPECTED_REPOSITORY}`;
   const read = (endpoint) => api(endpoint, "GET");
   const failures = [];
@@ -262,7 +263,7 @@ function checkConfiguration(api, account, log) {
       "Pull request bypass actors are configured"
     );
   });
-  check("Release environment approval and administrator bypass", () => {
+  check("Release environment without manual approval or administrator bypass", () => {
     const environment = read(`${root}/environments/release`);
     requireState(
       environment.can_admins_bypass === false,
@@ -273,12 +274,9 @@ function checkConfiguration(api, account, log) {
         environment.deployment_branch_policy?.custom_branch_policies === true,
       "Release environment is not limited to selected tags"
     );
-    const review = environment.protection_rules?.find((rule) => rule.type === "required_reviewers");
     requireState(
-      review?.reviewers?.length === 1 &&
-        review.reviewers[0].type === "User" &&
-        review.reviewers[0].reviewer?.id === account.id,
-      "Release approval must require the repository owner"
+      !environment.protection_rules?.some((rule) => rule.type === "required_reviewers"),
+      "Release environment must not require reviewers; zero-click release is the documented policy"
     );
   });
   check("Release environment allows only version tags", () => {
@@ -345,17 +343,16 @@ function run(
     log(JSON.stringify(configurationPlan(), null, 2));
     return;
   }
-  let account;
   try {
-    account = preflight(api, configuredRepository);
+    preflight(api, configuredRepository);
   } catch (error) {
     throw new Error(`Preflight failed; no settings changed: ${error.message}`, { cause: error });
   }
   if (mode === "check") {
-    return checkConfiguration(api, account, log);
+    return checkConfiguration(api, log);
   }
   const completed = [];
-  for (const step of configurationPlan(account.id)) {
+  for (const step of configurationPlan()) {
     try {
       if (step.removeOtherPolicies) {
         reconcileVersionTagPolicies(api, step.endpoint, log);

@@ -1,0 +1,34 @@
+name: Tag release
+on:
+  push:
+    branches: [main]
+  # Tags main's current commit for its released version, e.g. after a transient
+  # GitHub failure; pushes only tag the commit that changed the version.
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+jobs:
+  tag:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      # Create the version tag ref, then dispatch release.yml for it.
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+      - name: Tag a released version and start its release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # main before this push; empty for manual runs, which skip the version check.
+          BEFORE_SHA: ${{ github.event.before }}
+        run: node scripts/tag-release.cjs

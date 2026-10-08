@@ -32,4 +32,4 @@ Contributions are provided under the repository's [MIT license](../LICENSE). Thi
 
 ## Releases
 
-Release PRs update `package.json`, `package-lock.json`, and `CHANGELOG.md` together. Only reviewed Loqui tags produce release drafts; maintainers publish them after validation. See the [release procedure](../docs/RELEASING.md) and [verification record](../docs/VERIFICATION.md). Do not publish upstream release tags or place signing material in a pull request.
+Release PRs update `package.json`, `package-lock.json`, and `CHANGELOG.md` together. Merging a release PR that changes the version tags its commit and produces a release draft; maintainers publish them after validation. See the [release procedure](../docs/RELEASING.md) and [verification record](../docs/VERIFICATION.md). Do not publish upstream release tags or place signing material in a pull request.

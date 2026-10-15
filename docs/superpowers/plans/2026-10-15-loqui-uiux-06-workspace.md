@@ -2229,7 +2229,7 @@ git commit -m "feat(workspace): add global shortcuts and chat requests"
 This covers CR-06-3 and the data source for WS-R3 C live states. Today only the dictation window and the Agent pill know the dictation lifecycle (`ipcHandlers.js:1444-1479`, `windowManager.js:954-1003`).
 
 **Files:**
-- Modify: `src/helpers/windowManager.js`. Change `setDictationLifecycleState` (`:954-967`) and `setDictationAudioLevel` (`:990-1003`), add two methods, and add a constant near the top.
+- Modify: `src/helpers/windowManager.js`. Change the constructor (`:97`), `setDictationLifecycleState` (`:954-967`) and `setDictationAudioLevel` (`:990-1003`), add two methods, and add two constants and a helper near the top.
 - Modify: `src/helpers/ipcHandlers.js`. Add two handlers after the `dictation-audio-level-changed` handler (`:1469-1479`).
 - Modify: `preload.js`. Add four bindings next to `getAgentDictationPillState` (`:153`).
 - Modify: `src/types/electron.ts`. Add four declarations next to `getAgentDictationPillState` (`:794-798`).
@@ -2238,6 +2238,7 @@ This covers CR-06-3 and the data source for WS-R3 C live states. Today only the 
 
 **Interfaces:**
 - Produces the main-process methods `windowManager.getControlPanelDictationState(): { state, inputKind }` and `_sendControlPanelDictationState()`.
+- **Future states pass through (§5.7, review N02).** `setDictationLifecycleState` normalizes to the four known states for the pill, the hotkey gate, the tray and the level gate, exactly as today. The bridge keeps the raw state separately (`_controlPanelDictationState`), so a state main does not know yet, such as Plan 04's `cancelled` before Plan 04 adds it to `DICTATION_LIFECYCLE`, reaches the control panel unchanged on both push and pull. Only a short identifier passes (`/^[a-z][A-Za-z]{0,31}$/`); anything else reads `idle`. The equality early return no longer swallows a raw-only change. Task 6 then maps any unknown state to Ready.
 - Produces the channels:
   - `dictation-lifecycle-changed`, main to control panel, payload `{ state, inputKind }`;
   - `dictation-level-changed`, main to control panel, a number at ≤15 Hz, only while `recording`;
@@ -2284,6 +2285,32 @@ test("the control panel mirrors every dictation lifecycle change", () => {
     ]
   );
   assert.deepEqual(manager.getControlPanelDictationState(), { state: "idle", inputKind: "dictation" });
+});
+
+test("a future lifecycle state reaches the control panel unchanged, from idle and from recording (§5.7, N02)", () => {
+  const manager = new WindowManager();
+  const panel = makeControlPanelWindow();
+  manager.controlPanelWindow = panel.window;
+  const pushed = () => panel.sent.filter((m) => m.channel === "dictation-lifecycle-changed").map((m) => m.payload);
+
+  // From idle: the normalized state stays idle, so the old early return would swallow it.
+  manager.setDictationLifecycleState("futureState", "dictation");
+  assert.deepEqual(pushed().at(-1), { state: "futureState", inputKind: "dictation" }, "pushed");
+  assert.deepEqual(manager.getControlPanelDictationState(), { state: "futureState", inputKind: "dictation" }, "and pulled");
+  assert.equal(manager.getAgentDictationPillState().lifecycle, "idle", "the pill still sees a known state");
+  assert.equal(manager.isDictationProcessing(), false, "and so does the hotkey gate");
+
+  // From recording, with an input kind that must survive.
+  manager.setDictationLifecycleState("recording", "assistant");
+  manager.setDictationLifecycleState("cancelled", "assistant"); // a future state until Plan 04 adds it
+  assert.deepEqual(pushed().at(-1), { state: "cancelled", inputKind: "assistant" });
+  assert.equal(manager.isDictating(), false, "main's recording gate reads it as not recording");
+
+  const count = pushed().length;
+  manager.setDictationLifecycleState("cancelled", "assistant");
+  assert.equal(pushed().length, count, "an unchanged state is not re-sent");
+  manager.setDictationLifecycleState({ not: "a state" }, "assistant");
+  assert.deepEqual(pushed().at(-1), { state: "idle", inputKind: "assistant" }, "only short identifiers pass through");
 });
 
 test("control panel levels flow only while recording, at most ~15 Hz", (t) => {
@@ -2386,20 +2413,51 @@ Expected: FAIL.
    // Control panel capture status (Plan 06, CR-06-3): ~15 Hz is enough for a
    // level-reactive rail and keeps IPC negligible.
    const CONTROL_PANEL_LEVEL_INTERVAL_MS = 66;
+
+   // The lifecycle state as the control panel sees it (§5.7): future states
+   // pass through unchanged, as long as they are short identifiers.
+   const BRIDGE_STATE_PATTERN = /^[a-z][A-Za-z]{0,31}$/;
+   function toBridgeLifecycleState(state) {
+     return typeof state === "string" && BRIDGE_STATE_PATTERN.test(state) ? state : DICTATION_LIFECYCLE.IDLE;
+   }
    ```
 
-   In `setDictationLifecycleState`, directly after `this._sendAgentDictationPillState();`, add:
+   In the constructor, next to `this._dictationLifecycleState = DICTATION_LIFECYCLE.IDLE;` (`:97`), add `this._controlPanelDictationState = DICTATION_LIFECYCLE.IDLE;`.
+
+   Replace `setDictationLifecycleState` (`:954-967`) with:
 
    ```js
+     setDictationLifecycleState(state, inputKind = DICTATION_INPUT_KIND.DICTATION) {
+       const nextState = normalizeDictationLifecycle(state);
+       const nextInputKind = normalizeDictationInputKind(inputKind);
+       // The pill, hotkey gate and tray keep the finite state; the control
+       // panel bridge keeps the raw one (§5.7, review N02).
+       const bridgeState = toBridgeLifecycleState(state);
+       if (nextState === this._dictationLifecycleState && nextInputKind === this._dictationInputKind) {
+         if (bridgeState !== this._controlPanelDictationState) {
+           this._controlPanelDictationState = bridgeState;
+           this._sendControlPanelDictationState();
+         }
+         return;
+       }
+
+       this._dictationLifecycleState = nextState;
+       this._dictationInputKind = nextInputKind;
+       this._controlPanelDictationState = bridgeState;
+       this._isDictatingToggle = isDictationRecording(nextState);
+       this.meetingDetectionEngine?.setUserRecording(this._isDictatingToggle);
+       this._sendAgentDictationPillState();
        this._controlPanelLevelSentAt = 0;
        this._sendControlPanelDictationState();
+       this.onDictationStateChanged?.();
+     }
    ```
 
    Add these methods after `getAgentDictationPillState()`:
 
    ```js
      getControlPanelDictationState() {
-       return { state: this._dictationLifecycleState, inputKind: this._dictationInputKind };
+       return { state: this._controlPanelDictationState, inputKind: this._dictationInputKind };
      }
 
      _sendControlPanelDictationState() {
@@ -2646,6 +2704,8 @@ test("preparing and unknown future states read as Ready", async () => {
   for (const dictationState of ["preparing", "cancelled", "somethingNew", null]) {
     assert.equal(resolveCaptureStatus(facts({ dictationState })).kind, "ready", String(dictationState));
   }
+  // Task 5 passes future states through with their input kind (§5.7); they still read Ready.
+  assert.equal(resolveCaptureStatus(facts({ dictationState: "somethingNew", dictationInputKind: "assistant" })).kind, "ready");
 });
 
 test("the dictation clock starts on entering recording and clears after", async () => {

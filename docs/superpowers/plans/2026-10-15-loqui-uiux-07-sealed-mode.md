@@ -48,8 +48,8 @@ Turning Sealed mode off and clearing the ledger are also confirmed in native dia
 **Prerequisites (execution order, not facts about this checkout).** This branch was planned against `0639eaf`. The plans below must be merged into it before the task that names them starts. If one is missing, stop and report; do not recreate its files.
 - **Plan 01**, before Task 7. Provides `src/utils/contrast.ts`, `test/helpers/harness/cssTokens.js`, `src/lib/locality.ts` (`isLoopbackUrl`, `resolveLocality`) and the `--motion-*` tokens.
 - **Plan 03** (v2, PR #50), before Task 11a. Provides `src/lib/routes.ts` (`buildRouteSnapshot(settings, facts, copy, sealed)`, `currentRouteCopy`, `routeSnapshotFromSettings`, `resolveRoute`, `isSealedLocality`), `src/stores/sealedStore.ts` (which Task 13 migrates), `src/stores/routeFactsStore.ts`, `src/helpers/selfHostedProbe.js`, `test/lib/routeStateFixture.js`, and the optional `privacy?` declaration that Task 7 replaces.
-- **Execution order** (spec §3, 091d198): 01 → 02 → 03 → {04, 05, 06, 07}. This plan is rebased onto 03 before it starts.
-- **Plan 04** may merge before or after Plan 07. Its `DictationSession` owns the opaque, main-authoritative enterprise recipient tag; Plan 07 carries that captured session unchanged through `SessionContext`, recovery, and replay. Never recreate the tag from current provider configuration. Until Plan 04's notice API merges, Plan 07 uses the existing toast fallback (spec §5.3).
+- **Execution order** (spec §3, c356904): 01 → 02 → 03 → {04, 05, 06}; Plan 07's recovery integration and merge follow Plan 04. This branch is rebased onto 03 before independent planning begins. Task 0 and native-isolation planning may run earlier; Task 13 cannot start until Plan 04 Tasks 6–8 and their session/ownership APIs have merged.
+- **Plan 04 is a prerequisite for Task 13 and for the Plan 07 merge** (spec §3, c356904). Tasks 6–8 provide the immutable `DictationSession`, owner-guarded audio snapshots, `_detachSessionOperation()` and session-context transfer that recovery needs. The sealed recovery entry carries the original session—including its opaque, main-authoritative enterprise recipient tags—and its original context unchanged. Never recreate those tags from current provider configuration. Task 0 and independent isolation planning may run before Plan 04; Plan 07 has no Plan-04-absent recovery lifecycle or notice fallback.
 - **Task 0 runs first.** Its macOS gate is currently failed by the measured Seatbelt/LAN result. Documentation repair may proceed, but implementation tasks remain blocked until D16's native-model-in-isolation gate has independently reviewed evidence.
 
 **Merge gate (D14–D16).** Plan 07 does not merge until native models work inside independently verified strict loopback isolation on macOS arm64, and the full network plus IPC/descriptor boundary is verified on Linux x64 through the `.deb` and `.rpm` packages. Linux D15 pause is permitted only after acknowledged refusal or confirmed whole-tree stop. There is no macOS pause fallback. Task 18's sign-off must include real evidence; the current Seatbelt/watcher design fails this gate.
@@ -77,7 +77,7 @@ This revision records the independent round-2 review of snapshot `18c0b4c…` (`
 | **I3** host-wide attribution, one-row settlement | Closed, this revision | Task 4 stores a host trail (`hosts`, up to 8), start and end times, and an opaque flag; the `summary` separates `observed` requests from `opaqueSessions`. Task 5 attributes by async context and Electron request tag, never by "some ticket has this host" (`a same-host connection outside the ticket's context is still unexplained`). Task 6 tracks Chromium per request id, extends trails on every redirect hop (ticketed or not), and records unexplained Chromium requests at completion, with their status and full trail (`…recorded at completion with its status and redirect trail`). A redirect hop refused while sealed records the whole trail, including the allowed earlier hops (`chromium: a redirect into a refused host records the whole trail as blocked`). |
 | **I4** CCR-3 vs the sent notice and Plan 04's receipt | Closed. The "started" wording was fixed at `0bbb0e5`; marking granularity and the contract were fixed in this revision. | Main emits `dispatched` (handed to the transport: "may have received"), `delivered` (a response arrived: "received") and `undelivered` (failed before connecting), with `ticketId`, `targetId` (Plan 04's target encoding), `payload` and `correlationId` (Tasks 5, 8, 9, 9a). Realtime marks only the instance that forwarded audio (`markRealtimeDispatched`), from the first frame. CCR-3 now states one shape that maps onto Plan 04's `RemoteDisclosure`. |
 | **I5** UI ignores phase, time and attestation contracts | Closed: mostly at `0bbb0e5`, completed in this revision | At `0bbb0e5`: phase-aware matching (`[SEALED_MODE:interrupted]`), interrupted copy, an `onAttestation` subscription with version ordering, and the verified line dated from `effectiveSince`. In this revision: attestations older than 30 s drop to unknown and are re-fetched (13). Every unverified reason, and every note resolved before verification, is named (14). The recorder shows "Loading…" instead of 0 and "No recorded requests for this period" when empty, and never says that nothing left (15). |
-| **I6** content preservation depends on Plan 04, fails mid-recording | Closed, this revision | Task 13 adds `src/lib/sealedRecovery.ts`. A dictation refused or interrupted while retention would discard it is held in renderer memory only (bounded, with a time limit), never on disk. The error toast and the unseal notice offer "Transcribe". Behaviour tests cover the retention combinations, the replay and the cleanup-after-local-STT fallback through the real `AudioManager`. An executed test shows that `startRecording` refuses before touching the microphone, and proceeds when the state is unknown. The pre-flight remains UX protection. CCR-4 asks Plan 04 to keep both. |
+| **I6** content preservation depends on Plan 04, fails mid-recording | Fixed in the plan; runtime proof remains required | Task 13 follows Plan 04 Tasks 6–8 and transfers the exact session/context before ordinary settlement can release press-time reads. A refused or interrupted operation stays in renderer memory until acknowledged History persistence succeeds or the bounded recovery entry reaches a terminal outcome. A failed/refused audio write re-holds the same immutable operation. The error alert and unseal notice offer "Transcribe". Tests use the real Plan 04 session/context factories, actual pipeline settlement and saver acknowledgement; they cover private/history-on, failed persistence, replay, terminal cleanup and cleanup-after-local-STT through the real `AudioManager`. The pre-flight remains UX protection. |
 | **I7** last-resort reset cuts local routes | Closed, this revision | The reset is gone (C3). An un-ticketed remote request keeps the seal unverified, and is named, instead of cutting local work. Task 12: `a local request in flight survives sealing, while the remote one beside it is interrupted`. Task 9: `an in-flight loopback transcription survives sealing`. Task 12: `a loopback WebSocket (the Parakeet and sidecar path) stays open through sealing`. Task 16 checks loopback in Electron after the seal. Task 17 seals mid-workflow with real whisper-server, Parakeet, llama-server and Qdrant. |
 | **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision; retargeted to spec §5.4 (091d198) | There is one renderer authority, Plan 03's `src/stores/sealedStore.ts`. Task 13 replaces its internals with the attestation store and keeps Plan 03's API, so the route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring all move with it. A ratchet test fails if any other renderer module reads sealed state from the privacy bridge. One cross-plan test sends one event from main and checks the store, the route snapshot, the resolver and the pre-flight together. Plan 03's own Apply-bar and Keyring tests pin those consumers to the store. `isSealedLocality` is the only rule; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
 | **I9** re-enabling persistence writes history-off rows | Closed, this revision | Task 4 distinguishes `pending` (consent not loaded yet) from `memory` (history explicitly off). Only pending rows flush, inside a transaction, and they are kept in memory if the write fails (`persistError`). Tests: `history off from the first sync…`, `pending rows flush on the first sync; memory-only rows never become durable`, `a failed flush keeps the pending rows…`, `restart: saved rows survive; rows kept in memory while history was off do not`. The row cap is checked on insert. |
@@ -94,14 +94,14 @@ This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-cod
 | Finding | Status | What changed, and the test that proves it |
 |---|---|---|
 | **C2-R2** DNS gaps; native and renderer boundary | Fixed; the CCR-6 narrowing is withdrawn by D14 | **DNS (Task 6):** every entry point in `node:dns`, `node:dns/promises` and both `Resolver` prototypes goes through one wrapper. That includes `lookupService` and `dns.promises.lookupService`, which was never wrapped. Sealed: refused before the native resolver, with localhost names and loopback literals answered locally. Open: counted from call to settle exactly once, including a synchronous throw. Tests: `every resolver query issued before the seal is counted until it ends (callback, promise, Resolver)` (a silent loopback DNS server, no packet leaves), `sealed: lookupService (callback and promise) never reaches the native resolver for a remote address`, and `every DNS entry point … is wrapped`, checked against the live module. **Children (Task 6a):** the `local` default is gone. While sealed, only allowlisted programs start: known sidecars by name with launch rules (llama-server download flags, non-loopback `--host`, Qdrant without `--disable-telemetry`); named OS tools with argument rules (`open -a` only, `sh -c "command -v x"` only, no `powershell`); and Loqui itself. Anything unclassified is refused (`sealed: only allowlisted programs start, and only with allowed arguments`). **ONNX worker:** a runtime lock, not a ratchet. It installs the Node backstop with the seal forced on, proved in a separate Node runtime (`the lock refuses the network inside a separate Node runtime, and keeps loopback`). **Renderer frames (Task 7a):** the preload runs in every frame and removes WebRTC in each, and only the main frame gets `electronAPI`; a CSP adds `frame-src 'none'` and `object-src 'none'`. Unit-tested for main frame and subframe; Task 16 checks `about:blank` and `srcdoc` in Electron. **No longer narrowed (D14):** the owner rejected the round-2 narrowing (CCR-6). Every native child now runs inside OS network isolation while sealed, and counts only when main has checked its own probe report (Tasks 0 and 6b–6f). |
-| **I6-R2** (Critical) streaming loses audio; replay drops the only copy | Fixed | **Streaming (Task 13):** a seal that arrives during a stream is recorded, from the sealed store or a sealed provider error. With no text, the real finalizer goes through `_preserveSealedStream`: a hold with history off, a failed History entry with history on, and a sealed notice, never an empty success. Test: `streaming sealed mid-dictation with no text (…)` drives the real `_finalizeStreamingRecording`, in both retention modes. **Replay:** claim and release instead of take. `transcribeRecovered` runs only when idle with no other replay (`busy` otherwise), keeps the hold on failure, cancellation or an empty result, never duplicates it on a sealed re-failure, and keeps the metadata (session and `private`). Tests drive the real `processAudio`, faking only the transcription transport: `replay: a transcript removes the hold`, `replay: a non-sealed failure keeps the only copy…`, `replay: refused while busy, and only one replay at a time`. |
+| **I6-R2** (Critical) streaming loses audio; replay drops the only copy | Fixed in the plan; runtime proof remains required | **Streaming (Task 13):** preserve both the provider stop result and its typed error. The finalizer materializes and stamps fallback audio for the captured session before taking its owner snapshot, then collects streaming, partial and stop-result text before deciding whether an empty sealed interruption needs recovery. It awaits `saveFailedTranscription` acknowledgement before choosing History or RAM copy and before showing copy. A refused/failed audio write holds the same immutable owner/session/context; it never reports an empty success. Tests include successful stop-result text/model, unseeded fallback audio, sealed stop rejection, and both acknowledgement outcomes. **Replay:** the claimed entry remains the owner while restored; failure/cancellation detaches that same session/context before settlement and returns it to the entry. The entry is removed only after successful replay; discard, expiry and eviction close its context. Tests exercise actual normal settlement and replay with Plan 04's session/context factories. |
 | **N1** (Critical) free text in recorder rows | Fixed | **Recorder (Task 4):** `model` is stored only if it is an identifier (no `//`, no `user:secret@`, no key-shaped token, no query or whitespace); otherwise `null`. `errorClass` is one of `ERROR_CLASSES`, and the gate maps codes onto those categories. Test: `model ids and error classes are identifiers or nothing…` writes hostile values through SQLite and the CSV and asserts they are absent. The value sent to the provider is unchanged. |
 | **I1-R2** suite not executable; drills not isolating | Fixed | **Task 12:** the Whisper manager is constructed lazily, after the Electron stub exists. No model factory is injected: the real AI SDK runs, and only global `fetch` is counted. The ratchet allows the preload's marked WebRTC-removal block and the acceptance script, and nothing else. The Codex rows assert `codexCalls === 0`, so deleting the handler gate fails its row even though a later guard still refuses. Each drill states what it proves. **Task 16:** the leak probes run right after the seal barrier, before any attestation wait, so the leak-injection drill reaches the independent observer. **Updater test:** see the dispute row below. |
 | **I3-R2** operations counted as requests | Fixed | **Gate (Task 5):** the ticket is the operation, and each metered request is its own attempt and row, with its own host, bytes, status and notices (`attemptId`). A request delivered earlier is never withdrawn by a failed retry. Rows have a `kind`: request, stream, connection, session or operation. Pre-transport failures are `operation` rows, which are kept but never counted as having left. Unexplained Node sockets and SDK operations without a metered fetch are `connection` rows, labelled "requests not visible; listed when it closes". Chromium requests that carry a whole operation's tag (electron-updater) get one row each. Tests: `two requests in one operation are two rows; a failed retry never withdraws earlier delivery`, `an operation that fails before any transport is kept, but never counted…`, `an SDK operation that took no metered fetch is recorded as a connection…`, and Task 15's view test for connections and operations. |
-| **I4-R2** session and target lost on speech paths | Fixed | `egress.withContext({ correlationId, provider })` (Task 5) wraps the whole BYOK provider dispatch (Task 9). So the Corti, Gemini and Tinfoil helpers announce the session id and the canonical target without new parameters, and both multipart calls pass `provider` explicitly. Tests: `withContext gives nested tickets the session id and canonical target…`. Task 12 runs, through the real handler, `unsealed: <provider> notices carry the session id and target …` for OpenAI, a custom server, Gemini and Corti; `concurrent sessions never borrow each other's id`; and, once Plan 04 has merged, its real `createDisclosureTracker` fed by main's notices (metadata never counts). Realtime marking per instance was already exact (Task 9a). |
+| **I4-R2** session and target lost on speech paths | Fixed | `egress.withContext({ correlationId, provider })` (Task 5) wraps the whole BYOK provider dispatch (Task 9). So the Corti, Gemini and Tinfoil helpers announce the session id and the canonical target without new parameters, and both multipart calls pass `provider` explicitly. Tests: `withContext gives nested tickets the session id and canonical target…`. Task 12 runs, through the real handler, `unsealed: <provider> notices carry the session id and target …` for OpenAI, a custom server, Gemini and Corti; `concurrent sessions never borrow each other's id`; and Plan 04's real `createDisclosureTracker` fed by main's notices (metadata never counts). Task 13 and this integration test require Plan 04 Tasks 6–8; there is no conditional skip or alternate lifecycle. Realtime marking per instance was already exact (Task 9a). |
 | **I5-R2** a delayed attestation outlives 30 s | Fixed | **Store (Task 13):** expiry happens at main's `at + 30 s`, with the timer given only the remaining lifetime. Freshness is rechecked on focus and on visibility change, and the panel checks `isAttestationFresh` on every render. A version watermark survives invalidation, and a failed refresh never erases a push that arrived after it started. Tests: `a claim delivered late lives only until main's at + 30 s…`, `after a claim expires, a late older reply is never adopted`, `a failed refresh while a newer push arrives keeps the newer push`, and the panel's stale-claim assertion. |
 | **N2** async yt-dlp spawn failure leaves an immortal ticket | Fixed | `childRegistry.onChildEnd` (Task 6a) ends a session exactly once: on `exit`, on an `error` before any pid, or on `close` without `exit`. An error after a successful start is not an end. Both yt-dlp spawns (Task 10) and `codexSession` (Task 8) use it. Tests: `an asynchronous spawn failure settles the session; an error after start does not`, the Codex case in Task 8, and the timeout and spawn-failure cases. |
-| **N3** retired toasts when Plan 04 merges first | Fixed | Task 13, Step 6 has both branches. With Plan 04 merged: `notify(buildSealedRecoveryNotice(…))`, and `showDictationError({ …, recoveryHeld }, [Transcribe])`, which is Plan 04's persistent alert. Without it: the toast fallback uses `duration: 0`, which `Toast.tsx:97` never auto-dismisses, so it is persistent and not "the longest duration". Plan 04 removes the fallback when it merges second (P04 Task 5, Step 3, item 7). Test: `sealedRecoveryNotice.test.js` checks whichever API the branch has, and the integrated branch runs Plan 04's `noToastLeft` and `voiceNotices` suites. |
+| **N3** retired toasts when Plan 04 merges first | Fixed | Plan 04 is required before Task 13 and Plan 07 merge. Task 13 uses `notify(buildSealedRecoveryNotice(…))` and Plan 04's persistent dictation alert with the Transcribe action. The test asserts the required notice API and runs with Plan 04's `noToastLeft` and `voiceNotices` suites; there is no toast fallback or merge-order branch. |
 | **P03 review R2-7** (handed to Plan 07) main's Keyring never learns the seal | Fixed | Task 11a, Step 5a: `main.js` passes `isSealed: () => egressGate.isSealed()` into the `IPCHandlers` → `createKeyring` seam that Plan 03 adds. The predicate fails closed, and the default is never left `false` in production. Plan 03's Keyring `verify` now returns `outcome: "sealed"` for a sealed refusal: one already in effect, one thrown mid-check (`isSealedModeError`), or a failed check that ended while sealed. It writes no health row, so the key is never marked `unreachable`, and Verify all stops at the first sealed result. Test (Task 12, through the real constructor and the registered `keyring-verify` handler): `keyring-verify through the constructed IPCHandlers: sealed is 'sealed', never a health verdict`. It covers sealed before the check, sealed during it (no health write), and an unsealed control that does record a verdict. |
 | **I1-R2 (updater test), partly disputed** | Test changed; one claim disputed | The review says D13 requires every manual check to stop at "available". **Evidence:** D13 (spec `4980c81`, §2) covers "manual update checks … when automatic updates are off". Plan 02's implementation downloads on a manual check when automatic updates are on (P02 Task 17: `if (!this.prefs.enabled) publish available else downloadUpdate`). The test's harness has `enabled: true`, so it matches D13. To remove any doubt, the test now starts the download through the automatic check (`check(false)`), which downloads before and after Plan 02. |
 
@@ -9778,9 +9778,9 @@ test("concurrent sessions never borrow each other's id", async () => {
   assert.deepEqual(seen.sort(), ["session-a", "session-b"]);
 });
 
-test("Plan 04's disclosure tracker reads these notices correctly (when Plan 04 has merged)", async (t) => {
+test("Plan 04's disclosure tracker reads these notices correctly", async () => {
   const trackerPath = path.join(__dirname, "../../src/helpers/dictationDisclosure.js");
-  if (!fs.existsSync(trackerPath)) return t.skip("Plan 04 has not merged; the notice shape is pinned above and in Task 5");
+  assert.ok(fs.existsSync(trackerPath), "Plan 04 Tasks 6–8 are a prerequisite for Plan 07 Task 13 and its integration tests");
   const { createDisclosureTracker } = await import(trackerPath);
   flags.sealed = false;
   const bus = new EventEmitter();
@@ -10010,16 +10010,16 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   export type HeldRecoveryOperation = Readonly<{
     owned: Readonly<{ blob: Blob; sessionId: string; private: boolean; metadata: Readonly<Record<string, unknown>> }>;
     session: Readonly<DictationSession>; // includes Plan 04's opaque recipient tag, preserved unchanged
-    context: Readonly<SessionContext>;
+    context: SessionContext; // the live Plan 04 handle; recovery owns it until terminal close
   }>;
   export const RECOVERY_TTL_MS: number;   // 30 minutes
   export const RECOVERY_MAX = 3;
-  export function shouldHoldInMemory(error: unknown, retention: { dataRetentionEnabled: boolean; audioRetentionDays: number }): boolean;
-  export function holdForRecovery(operation: HeldRecoveryOperation, now?: number): number;  // immutable owner/session/context snapshot
+  export function shouldHoldInMemory(error: unknown, retention: { dataRetentionEnabled: boolean; audioRetentionDays: number }, o?: { privateTake?: boolean }): boolean;
+  export function holdForRecovery(operation: HeldRecoveryOperation, now?: number): number;  // takes the detached owner/session/context lifetime
   export function recoveryCount(now?: number): number;
-  export function claimRecovery(now?: number): { id: number; operation: HeldRecoveryOperation; heldAt: number } | null; // oldest unclaimed; stays held
-  export function releaseRecovery(id: number, o: { done: boolean }): void;  // done: remove; otherwise unclaim, so it can be tried again
-  export function discardRecovery(): void;                                   // drops unclaimed holds only
+  export function claimRecovery(now?: number): { id: number; operation: HeldRecoveryOperation; heldAt: number } | null; // oldest; remains the lifetime owner while attached for replay
+  export function releaseRecovery(id: number, o: { done: boolean }): void;  // done: terminally close once; otherwise owner must be detached back before unclaim
+  export function discardRecovery(): void;                                   // terminally closes unclaimed contexts; claimed entries remain
   export function subscribeRecovery(listener: () => void): () => void;
 
   // src/utils/sealedModeError.ts
@@ -10035,15 +10035,14 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 - **Copy rule.** "Nothing was sent" copy (`sealedMode.blocked.*`) is used only for phase `"refused"`. A request cut off mid-flight uses `sealedMode.interrupted.*`, which says the provider may have received part of it.
 - **One sealed source (I8; spec §5.4, 091d198).** `src/stores/sealedStore.ts` is the only renderer module that reads `privacy.getSealed`, `onSealedChange`, `getAttestation` or `onAttestation`. Plan 03's route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring already read `useSealedStore`/`getSealed()`. Replacing the store's internals therefore moves all of them at once, and nothing else is migrated. Unknown (`known: false`) is `sealed: null` in `getSealedSnapshot()`, and `false` in route snapshots, because main enforces the seal either way. `isSealedLocality(locality)` (P03 Task 1) stays the only rule for which routes Sealed mode pauses. This task adds no second one.
 - **Pre-flight (owner decision 3, 2026-10-15).** While sealed, a dictation whose speech route is not on this device does not start, so nothing is recorded that main would refuse afterwards. The pre-flight is UX protection, not the recovery mechanism: it cannot help when the state is still unknown, or when the seal happens mid-recording.
-- **Recovery (I6, I6-R2).** When main refuses or interrupts a dictation and persistence would discard or refuse the audio (history off, audio retention 0, or a private take that Plan 04 must keep in memory), hold it in renderer memory, bounded by `RECOVERY_MAX` and `RECOVERY_TTL_MS`. Never persist a private take to make recovery work. Each hold is one immutable operation snapshot: Plan 04's `_ownedAudioSnapshot({sessionId})` blob/owner/session/private/metadata, the immutable `DictationSession`, and its captured `SessionContext`. The session's opaque, main-authoritative enterprise recipient tag travels unchanged with this snapshot into every `RequestContext` and replay; do not reconstruct it from current provider configuration. Later manager state never overwrites those facts. The error notice offers "Transcribe"; unseal offers it again. Quitting/reloading drops it. If persistence actually kept a non-private take, History is the recovery and no hold is needed.
+- **Recovery (I6, I6-R2; Plan 04 Tasks 6–8 are required first).** A sealed failure first takes `_ownedAudioSnapshot` from that pipeline's captured session, then transfers the exact active session and `SessionContext` with `_detachSessionOperation()` before ordinary settlement can release the press-time reads. Call it only when `this._activeSession === pipeline.session`; a stale callback must never detach or release a newer owner. The transfer uses Plan 04's existing session lifecycle; Plan 07 adds no parallel session or recipient-registration lifecycle. Each recovery entry owns the immutable audio/session snapshot and the same live context handle. Its session's opaque, main-authoritative enterprise recipient tags travel unchanged into every `RequestContext` and replay; do not reconstruct them from current provider configuration. For public audio, keep the detached operation pending while `saveFailedTranscription` runs and choose the user-facing copy only after its `{ audioKept }` acknowledgement: successful audio persistence releases the detached context and promises History; any refused or failed write moves the exact operation into the bounded renderer-memory hold. Private audio is never persisted and is held in RAM even when global history is enabled. A hold is bounded by `RECOVERY_MAX` and `RECOVERY_TTL_MS`, never written to disk, and disappears on quit/reload. The error notice offers "Transcribe" only after the copy is accurate; unseal offers it again.
   - **Both paths.**
-    - **Batch:** the pipeline `catch` calls `_noteSealedFailure`.
-    - **Streaming:** keep the seal subscription through finalization. When no text arrived, snapshot the owning recording before removing listeners or allowing a later recording to replace current manager state. Then preserve that session's fallback audio/context through the same path; never report an empty success.
+    - **Batch:** in the pipeline `catch`, detach only that pipeline's current session/context, then await the same immutable audio snapshot's saver acknowledgement. History is a recovery only when `audioKept === true`; otherwise hold the operation before settlement.
+    - **Streaming:** keep the seal subscription through finalization. Materialize and owner-stamp fallback audio first; then snapshot that exact recording before any later session can replace manager state. Collect normal, partial and stop-result text before deciding whether an empty sealed interruption needs recovery. Await the saver acknowledgement before selecting History or RAM copy and before showing notice; never report an empty success or lose the fallback Blob.
   - **Replay is atomic.**
     - `transcribeRecovered()` runs only when the audio manager is idle and no other replay is running. Otherwise it returns `busy` and leaves the hold alone.
-    - It claims the immutable operation snapshot, rather than taking a bare blob.
-    - It restores that operation with `applySessionIntents(held.session, { context: held.context })`, then `_setOwnedAudio(held.owned.blob, { sessionId: held.owned.sessionId, private: held.owned.private })` before provider dispatch or persistence. It preserves the session's opaque recipient tag in `RequestContext` and never reads newer settings, recipient configuration, session or privacy flags from the manager.
-    - It removes the hold only when the replay produced a transcript. Any failure, cancellation or empty result releases it for another try. A sealed failure during a replay does not create a second hold.
+    - The claimed entry remains the lifetime owner while `applySessionIntents(held.session, { context: held.context })` temporarily attaches that same operation to the active pipeline. Then `_setOwnedAudio(held.owned.blob, { sessionId: held.owned.sessionId, private: held.owned.private })` restores its exact audio owner before provider dispatch or persistence. It preserves the session's opaque recipient tag in `RequestContext` and never reads newer settings, tags, session or privacy flags from the manager.
+    - Mark the processing pipeline with the claimed recovery id. On every replay outcome—including a non-sealed failure, cancellation or empty result—return the exact session/context to that same claimed entry with `_detachSessionOperation()` before normal settlement can release it. Never detach when `this._activeSession !== pipeline.session`; if a newer owner exists, use Plan 04's owner guard and leave that owner untouched. The hold is removed only after successful transcript settlement; explicit discard, expiry and eviction close its context exactly once. Failure/cancellation unclaims the same entry for retry, and a sealed re-failure never creates a duplicate hold.
 - **Cleanup after local speech-to-text.** A refused cleanup step already falls back to the local transcript (`processWithReasoningModel`'s `catch`, `audioManager.js:2714-2738`, returns `normalizedText`). `test/helpers/audioManagerSealed.test.js` pins that for a `SEALED_MODE` error.
 - **Remote images.** Markdown from a provider or a pasted note can name remote images. While sealed, or while the state is unknown, they render as a placeholder, so the page does not ask Chromium for them. Layer B would refuse the request anyway; the placeholder keeps the flight recorder free of unattributed noise and makes the reason visible. Links stay links: opening one goes through main's confirmation (Task 11).
 - **Stale attestations (I5, I5-R2).** An attestation is shown for at most `ATTESTATION_MAX_AGE_MS` after main's `at`, never 30 s after it arrived:
@@ -10140,10 +10139,26 @@ test("held in memory only when Sealed mode blocked it and retention would discar
 
 const operation = (n, { privateTake = false, sessionId = `s-${n}` } = {}) => {
   const audio = blob(n);
+  let selection = "captured";
+  let screen = "captured";
+  let releaseCount = 0;
+  const context = Object.freeze({
+    sessionId,
+    selection: () => selection,
+    screen: () => screen,
+    get released() { return releaseCount > 0; },
+    get releaseCount() { return releaseCount; },
+    release() {
+      if (releaseCount > 0) return;
+      releaseCount++;
+      selection = null;
+      screen = null;
+    },
+  });
   return Object.freeze({
     owned: Object.freeze({ blob: audio, sessionId, private: privateTake, metadata: Object.freeze({ n }) }),
     session: Object.freeze({ id: sessionId, private: privateTake, route: "dictation" }),
-    context: Object.freeze({ sessionId, selection: "captured", screen: "captured" }),
+    context,
   });
 };
 
@@ -10153,15 +10168,20 @@ test("oldest first, bounded, and expired recordings are dropped", async (t) => {
   t.after(() => r.discardRecovery());
   let notified = 0;
   const off = r.subscribeRecovery(() => notified++);
-  r.holdForRecovery(operation(1), 0);
-  r.holdForRecovery(operation(2), 10);
-  r.holdForRecovery(operation(3), 20);
-  r.holdForRecovery(operation(4), 30);
+  const ops = [1, 2, 3, 4].map((n) => operation(n));
+  ops.forEach((op, index) => r.holdForRecovery(op, index * 10));
   assert.equal(r.recoveryCount(30), r.RECOVERY_MAX, "bounded");
+  assert.equal(ops[0].context.releaseCount, 1, "bound eviction closes the dropped context");
   const claimed = r.claimRecovery(30);
-  assert.equal(claimed.operation.owned.metadata.n, 2, "the oldest beyond the bound was dropped; then oldest first");
+  assert.equal(claimed.operation.owned.metadata.n, 2, "the oldest remaining entry is first");
+  assert.equal(r.claimRecovery(30), null, "one claim at a time");
   r.releaseRecovery(claimed.id, { done: true });
+  assert.equal(ops[1].context.releaseCount, 1, "successful terminal close releases once");
   assert.equal(r.recoveryCount(20 + r.RECOVERY_TTL_MS + 1), 1, "expired entries go");
+  assert.equal(ops[2].context.releaseCount, 1, "expiry closes its context");
+  assert.equal(ops[3].context.releaseCount, 0, "the newer entry is still live");
+  r.discardRecovery();
+  assert.equal(ops[3].context.releaseCount, 1, "discard closes its context");
   off();
   assert.ok(notified >= 5);
 });
@@ -10179,11 +10199,15 @@ test("a claim keeps the hold until the replay succeeds; a failed replay releases
   r.discardRecovery();
   assert.equal(r.recoveryCount(0), 1, "discard never drops a hold that is being replayed");
   r.releaseRecovery(id, { done: false });
+  assert.equal(original.context.released, false, "a failed replay retains the same live press-time reads");
   const again = r.claimRecovery(0);
   assert.deepEqual([again.id, again.operation.owned.sessionId, again.operation.owned.private, again.operation.context.selection],
     [id, "private-old", true, "captured"], "same owner and context, still held");
   r.releaseRecovery(id, { done: true });
   assert.equal(r.recoveryCount(0), 0);
+  assert.equal(original.context.releaseCount, 1, "terminal success releases the context once");
+  assert.equal(original.context.selection(), null);
+  assert.equal(original.context.screen(), null);
 });
 
 test("recovery never touches disk or IPC", () => {
@@ -10225,6 +10249,7 @@ test("dictation copy: History is promised only when retention kept the audio; in
   assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: true, audioRetentionDays: 30 }), "sealedMode.interrupted.dictationKept");
   assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: false, audioRetentionDays: 0 }), "sealedMode.interrupted.dictationNotKept");
   assert.equal(sealedDictationMessageKey(refused, { dataRetentionEnabled: false, audioRetentionDays: 0 }, { held: true }), "sealedMode.blocked.dictationHeld");
+  assert.equal(sealedDictationMessageKey(refused, { dataRetentionEnabled: true, audioRetentionDays: 30 }, { held: true }), "sealedMode.blocked.dictationHeld", "a private/history-on operation held only in RAM never promises History");
   // D15: a paused native program never started, so nothing was sent; only the message crosses IPC.
   const paused = { message: "[SEALED_MODE:paused] Sealed mode is on, and whisper-server can't run isolated on this computer, so it was paused before it started." };
   assert.equal(sealedDictationMessageKey(paused, { dataRetentionEnabled: true, audioRetentionDays: 30 }), "sealedMode.blocked.dictationKept");
@@ -10563,42 +10588,122 @@ async function setup(t, settings) {
     settings: { preferredLanguage: "en", ...settings },
   });
   const recovery = await loaded.vite.ssrLoadModule("/lib/sealedRecovery.ts");
+  const dictationSession = await loaded.vite.ssrLoadModule("/helpers/dictationSession.js");
   recovery.discardRecovery();
-  return { ...loaded, recovery };
+  return { ...loaded, recovery, ...dictationSession };
 }
 
-for (const [label, retention, privateTake, held] of [
-  ["history off", { dataRetentionEnabled: false, audioRetentionDays: 30 }, false, true],
-  ["audio retention 0", { dataRetentionEnabled: true, audioRetentionDays: 0 }, false, true],
-  ["public history copy", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false, false],
-  ["private take with history enabled", { dataRetentionEnabled: true, audioRetentionDays: 30 }, true, true],
+const sessionSettings = {
+  useLocalWhisper: false, localTranscriptionProvider: "nvidia", parakeetModel: "parakeet-tdt-0.6b-v3",
+  cloudTranscriptionProvider: "openai", cloudTranscriptionModel: "whisper-1", transcriptionMode: "providers",
+  cloudTranscriptionMode: "byok", useCleanupModel: false, openaiApiKey: "test-key",
+};
+const capturedSession = (captureDictationSession, { privateTake = false, id } = {}) => captureDictationSession({
+  settings: sessionSettings,
+  intents: { voiceAgentRequested: false, translationRequested: false, streaming: false, streamingProviderName: null, assistantSelectionContext: null },
+  agentName: "Loqui", private: privateTake, id,
+});
+function trackContext(context) {
+  const release = context.release.bind(context);
+  let releaseCount = 0;
+  context.release = () => {
+    if (context.released) return;
+    releaseCount++;
+    release();
+  };
+  Object.defineProperty(context, "releaseCount", { get: () => releaseCount });
+  return context;
+}
+function heldSession({ captureDictationSession, createSessionContext }, { privateTake = false, id } = {}) {
+  const session = capturedSession(captureDictationSession, { privateTake, id });
+  const context = trackContext(createSessionContext({
+    sessionId: session.id,
+    selection: Promise.resolve({ status: "selected", sessionId: session.id, text: "press-time selection" }),
+    screen: Promise.resolve({ data: `screen-${session.id}`, mediaType: "image/png" }),
+  }));
+  return { session, context };
+}
+
+for (const [label, retention, privateTake, held, persistence] of [
+  ["history off", { dataRetentionEnabled: false, audioRetentionDays: 30 }, false, true, "disabled"],
+  ["audio retention 0", { dataRetentionEnabled: true, audioRetentionDays: 0 }, false, true, "disabled"],
+  ["public history copy", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false, false, "kept"],
+  ["public audio write refused", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false, true, "audio-refused"],
+  ["public row write rejected", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false, true, "row-rejected"],
+  ["private take with history enabled", { dataRetentionEnabled: true, audioRetentionDays: 30 }, true, true, "private"],
 ]) {
   test(`a sealed failure with ${label}: held in memory = ${held}`, async (t) => {
-    const { createManager, recovery } = await setup(t, retention);
+    const { createManager, recovery, captureDictationSession, window } = await setup(t, retention);
+    let rowWrites = 0;
+    let audioWrites = 0;
+    window.electronAPI.saveTranscription = async () => {
+      rowWrites++;
+      if (persistence === "row-rejected") throw new Error("fixture row write rejected");
+      return { id: "failed-row" };
+    };
+    window.electronAPI.saveTranscriptionAudio = async () => {
+      audioWrites++;
+      return { success: persistence === "kept" };
+    };
     const audio = new Blob(["pcm"]);
     const manager = createManager();
-    const session = manager.beginDictationSession({ streaming: false });
+    const selection = Promise.resolve({ status: "selected", sessionId: "press", text: "original selection" });
+    const screen = Promise.resolve({ data: "original screen", mediaType: "image/png" });
+    manager.selectionCapturePromise = selection;
+    manager.screenContextPromise = screen;
+    const candidate = capturedSession(captureDictationSession, { privateTake });
+    const session = manager.beginDictationSession(candidate.intents, candidate);
+    const context = trackContext(manager._sessionContext);
     manager._setOwnedAudio(audio, { sessionId: session.id, private: privateTake });
+    const pipeline = manager._startProcessingPipeline();
     const operation = Object.freeze({
-      owned: manager._ownedAudioSnapshot({ sessionId: session.id, private: session.private }),
-      session,
-      context: manager._sessionContext,
+      owned: manager._ownedAudioSnapshot({ sessionId: pipeline.session.id, private: pipeline.session.private }),
+      session: pipeline.session,
+      context: pipeline.context,
     });
     const error = sealedError();
-    manager._noteSealedFailure(error, operation);
+    await manager._finishSealedFailure(error, operation);
+    manager._settleProcessingPipeline(pipeline); // real P04 settlement must not release a transferred hold
     assert.equal(recovery.recoveryCount(), held ? 1 : 0);
     assert.equal(error.recoveryHeld === true, held);
     assert.match(error.messageKey, held ? /\.dictationHeld$/ : /\.dictationKept$/);
+    assert.equal(context.releaseCount, held ? 0 : 1);
+    assert.equal(rowWrites, persistence === "disabled" || persistence === "private" ? 0 : 1);
+    assert.equal(audioWrites, persistence === "kept" || persistence === "audio-refused" ? 1 : 0);
     if (held) {
       const claim = recovery.claimRecovery();
       assert.equal(claim.operation.owned.blob, audio, "the same bytes, not a copy on disk");
       assert.equal(claim.operation.owned.sessionId, session.id);
       assert.equal(claim.operation.owned.private, privateTake);
       assert.equal(claim.operation.session, session);
-      assert.equal(claim.operation.context, manager._sessionContext);
+      assert.equal(claim.operation.context, context);
+      assert.equal(claim.operation.context.selection(), selection, "normal pipeline settlement kept the press-time selection live");
+      assert.equal(claim.operation.context.screen(), screen, "normal pipeline settlement kept the press-time screenshot live");
+      recovery.releaseRecovery(claim.id, { done: false });
+      recovery.discardRecovery();
     }
   });
 }
+
+test("a stale sealed callback never detaches or releases a newer session", async (t) => {
+  const { createManager, captureDictationSession, createSessionContext } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0 });
+  const manager = createManager();
+  const oldSession = capturedSession(captureDictationSession, { id: "old" });
+  const oldContext = trackContext(createSessionContext({ sessionId: oldSession.id }));
+  const newerSession = capturedSession(captureDictationSession, { id: "new" });
+  const newerContext = trackContext(createSessionContext({ sessionId: newerSession.id }));
+  manager.applySessionIntents(newerSession, { context: newerContext });
+  const operation = Object.freeze({
+    owned: Object.freeze({ blob: new Blob(["old"]), sessionId: oldSession.id, private: false, metadata: Object.freeze({}) }),
+    session: oldSession,
+    context: oldContext,
+  });
+  assert.equal(manager._noteSealedFailure(sealedError(), operation), null);
+  assert.equal(manager._activeSession, newerSession);
+  assert.equal(manager._sessionContext, newerContext);
+  assert.equal(newerContext.released, false);
+  assert.equal(newerContext.releaseCount, 0);
+});
 
 // The real processAudio runs; only the transcription transport is faked.
 function replayManager(createManager, transcribe) {
@@ -10618,10 +10723,10 @@ function replayManager(createManager, transcribe) {
 }
 
 test("replay: a transcript removes the hold; the real pipeline ran", async (t) => {
-  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
+  const fixtures = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
+  const { createManager, recovery } = fixtures;
   const audio = new Blob(["pcm"]);
-  const session = Object.freeze({ id: "s-9", private: false, settings: Object.freeze({ useLocalWhisper: false }) });
-  const context = Object.freeze({ sessionId: "s-9", selection: () => null, screen: () => null, markRestored() {}, release() {} });
+  const { session, context } = heldSession(fixtures, { id: "s-9" });
   recovery.holdForRecovery(Object.freeze({
     owned: Object.freeze({ blob: audio, sessionId: "s-9", private: false, metadata: Object.freeze({ durationSeconds: 2 }) }),
     session, context,
@@ -10637,14 +10742,16 @@ test("replay: a transcript removes the hold; the real pipeline ran", async (t) =
   assert.equal(manager.lastAudioBlobPrivate, false);
   assert.equal(completions.at(-1)?.text, "hello");
   assert.equal(recovery.recoveryCount(), 0);
+  assert.equal(context.releaseCount, 1, "successful replay closes the transferred context once");
+  assert.equal(context.selection(), null);
 });
 
 test("a private replay restores its original owner and privacy after a newer public take", async (t) => {
-  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: true, audioRetentionDays: 30, useLocalWhisper: false });
+  const fixtures = await setup(t, { dataRetentionEnabled: true, audioRetentionDays: 30, useLocalWhisper: false });
+  const { createManager, recovery, captureDictationSession } = fixtures;
   const privateAudio = new Blob(["private-old"]);
   const newerAudio = new Blob(["public-new"]);
-  const oldSession = Object.freeze({ id: "private-old", private: true, settings: Object.freeze({ useLocalWhisper: false }) });
-  const oldContext = Object.freeze({ sessionId: "private-old", selection: () => null, screen: () => null, markRestored() {}, release() {} });
+  const { session: oldSession, context: oldContext } = heldSession(fixtures, { id: "private-old", privateTake: true });
   recovery.holdForRecovery(Object.freeze({
     owned: Object.freeze({ blob: privateAudio, sessionId: "private-old", private: true, metadata: Object.freeze({ sessionId: "private-old" }) }),
     session: oldSession, context: oldContext,
@@ -10658,36 +10765,112 @@ test("a private replay restores its original owner and privacy after a newer pub
     assert.equal(manager.lastAudioBlobPrivate, true);
     return { success: true, text: "private transcript" };
   });
-  const newer = manager.beginDictationSession({ streaming: false });
+  const newer = captureDictationSession({ settings: sessionSettings, intents: { streaming: false }, agentName: "Loqui", private: false, id: "public-new" });
+  manager.beginDictationSession(newer.intents, newer);
   manager._setOwnedAudio(newerAudio, { sessionId: newer.id, private: false });
   assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: true });
   assert.equal(recovery.recoveryCount(), 0);
-  assert.equal(manager._activeSession.private, true, "the newer public session flags were not borrowed");
+  assert.equal(oldContext.releaseCount, 1, "terminal replay closes only the old context");
 });
 
-// Add a Plan 04 integration regression using its real DictationSession fixture
-// and field name for the opaque enterprise recipient tag: capture a session
-// and RequestContext, hold it for recovery, then change live provider config
-// before replay. Assert the original tag reaches the replay request unchanged;
-// Plan 07 does not derive a new tag or add a duplicate public field.
+Extend Plan 04's existing `test/helpers/enterpriseRecipientPinning.test.js` using its
+real settings store, route-fact fixture, session factory, and main request handler.
+Capture a ready enterprise session and its existing opaque `enterpriseRecipientTags`
+through `captureDictationSession`; put that exact session and its `createSessionContext`
+handle in the recovery hold. Change live provider configuration before replay, then
+run the existing real RequestContext/main-handler path. Assert the request still
+carries the captured tag and the main handler accepts only the exact captured factory
+projection after credential resolution. Never hand-write a ready tag or add a new
+published field for Plan 07.
 
-test("replay: a non-sealed failure keeps the only copy; a sealed failure keeps it without a duplicate", async (t) => {
-  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
-  const session = Object.freeze({ id: "busy", private: false, settings: Object.freeze({}) });
-  recovery.holdForRecovery(Object.freeze({ owned: Object.freeze({ blob: new Blob(["pcm"]), sessionId: "busy", private: false, metadata: Object.freeze({}) }), session, context: Object.freeze({ sessionId: "busy", selection: () => null, screen: () => null, markRestored() {}, release() {} }) }));
-  const failing = replayManager(createManager, async () => { throw new Error("network down"); });
-  assert.deepEqual(await failing.manager.transcribeRecovered(), { started: true, succeeded: false });
-  assert.equal(recovery.recoveryCount(), 1, "kept for another try");
-  const sealed = replayManager(createManager, async () => { throw sealedError(); });
-  await sealed.manager.transcribeRecovered();
-  assert.equal(recovery.recoveryCount(), 1, "still one hold, not two");
-  assert.equal(sealed.errors.at(-1).recoveryHeld, true);
+test("the press-time context survives initial settlement, failed/cancelled replay, retry and terminal close", async (t) => {
+  const fixtures = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
+  const { createManager, recovery, captureDictationSession, window } = fixtures;
+  window.electronAPI.saveTranscription = async () => ({ id: "failed-row" });
+  window.electronAPI.saveTranscriptionAudio = async () => ({ success: false });
+  const audio = new Blob(["pcm"]);
+  const selection = Promise.resolve({ status: "selected", sessionId: "press", text: "press-time selection" });
+  const screen = Promise.resolve({ data: "press-time screenshot", mediaType: "image/png" });
+  let transcribe = async () => { throw new Error("network down"); };
+  const errors = [];
+  const manager = createManager({
+    processWithOpenAIAPI: (...args) => transcribe(...args),
+    onError: (error) => errors.push(error),
+    onStateChange() {},
+  });
+  manager.selectionCapturePromise = selection;
+  manager.screenContextPromise = screen;
+  const candidate = capturedSession(captureDictationSession, { id: "busy" });
+  const session = manager.beginDictationSession(candidate.intents, candidate);
+  const context = trackContext(manager._sessionContext);
+  manager._setOwnedAudio(audio, { sessionId: session.id, private: false });
+  const initial = manager._startProcessingPipeline();
+  const operation = Object.freeze({
+    owned: manager._ownedAudioSnapshot({ sessionId: initial.session.id, private: initial.session.private }),
+    session: initial.session,
+    context: initial.context,
+  });
+  await manager._finishSealedFailure(sealedError(), operation);
+  manager._settleProcessingPipeline(initial); // ordinary Plan 04 settlement follows the real failure path
+  assert.equal(recovery.recoveryCount(), 1);
+  assert.equal(context.releaseCount, 0, "the detached hold owns the same live context");
+  assert.equal((await context.selection()).text, "press-time selection");
+  assert.equal((await context.screen()).data, "press-time screenshot");
+  const initialHold = recovery.claimRecovery();
+  assert.equal(initialHold.operation.session, session);
+  assert.equal(initialHold.operation.context, context);
+  recovery.releaseRecovery(initialHold.id, { done: false });
+
+  assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: false });
+  assert.equal(recovery.recoveryCount(), 1, "a non-sealed replay failure unclaims the same hold");
+  assert.equal(context.releaseCount, 0);
+  assert.equal((await context.selection()).text, "press-time selection");
+  assert.equal((await context.screen()).data, "press-time screenshot");
+
+  transcribe = async () => { throw sealedError(); };
+  await manager.transcribeRecovered();
+  assert.equal(recovery.recoveryCount(), 1, "a sealed re-failure does not create a duplicate hold");
+  assert.equal(errors.at(-1).recoveryHeld, true);
+  assert.equal(context.releaseCount, 0);
+  assert.equal((await context.selection()).text, "press-time selection");
+  assert.equal((await context.screen()).data, "press-time screenshot");
+
+  let requestStarted;
+  const started = new Promise((resolve) => { requestStarted = resolve; });
+  let rejectRequest;
+  transcribe = () => {
+    requestStarted();
+    return new Promise((_resolve, reject) => { rejectRequest = reject; });
+  };
+  const cancelledReplay = manager.transcribeRecovered();
+  await started;
+  assert.equal(manager.cancelProcessing(), true);
+  assert.equal(manager._undo?.peek?.() ?? null, null, "replay cancellation does not create an ordinary Undo hold");
+  rejectRequest(Object.assign(new Error("cancelled"), { code: "TRANSCRIPTION_CANCELLED" }));
+  await cancelledReplay;
+  assert.equal(recovery.recoveryCount(), 1, "the claimed entry returns to retry after cancellation");
+  assert.equal(context.releaseCount, 0);
+  assert.equal((await context.selection()).text, "press-time selection");
+  assert.equal((await context.screen()).data, "press-time screenshot");
+
+  transcribe = async () => {
+    assert.equal(manager._sessionContext, context, "retry attaches the original context");
+    assert.equal((await context.selection()).text, "press-time selection");
+    assert.equal((await context.screen()).data, "press-time screenshot");
+    return { success: true, text: "recovered" };
+  };
+  assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: true });
+  assert.equal(recovery.recoveryCount(), 0);
+  assert.equal(context.releaseCount, 1, "terminal successful replay releases it exactly once");
+  assert.equal(context.selection(), null);
+  assert.equal(context.screen(), null);
 });
 
 test("replay: refused while busy, and only one replay at a time", async (t) => {
-  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
-  const session = Object.freeze({ id: "failure", private: false, settings: Object.freeze({}) });
-  recovery.holdForRecovery(Object.freeze({ owned: Object.freeze({ blob: new Blob(["pcm"]), sessionId: "failure", private: false, metadata: Object.freeze({}) }), session, context: Object.freeze({ sessionId: "failure", selection: () => null, screen: () => null, markRestored() {}, release() {} }) }));
+  const fixtures = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
+  const { createManager, recovery } = fixtures;
+  const { session, context } = heldSession(fixtures, { id: "failure" });
+  recovery.holdForRecovery(Object.freeze({ owned: Object.freeze({ blob: new Blob(["pcm"]), sessionId: session.id, private: false, metadata: Object.freeze({}) }), session, context }));
   let release;
   const { manager } = replayManager(createManager, () => new Promise((r) => { release = () => r({ success: true, text: "x" }); }));
   manager.isRecording = true;
@@ -10700,16 +10883,20 @@ test("replay: refused while busy, and only one replay at a time", async (t) => {
   assert.equal(recovery.recoveryCount(), 0);
 });
 
-for (const [label, retention, held] of [
-  ["history off", { dataRetentionEnabled: false, audioRetentionDays: 30 }, true],
-  ["history and audio kept", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false],
+for (const [label, retention, held, persistence] of [
+  ["history off", { dataRetentionEnabled: false, audioRetentionDays: 30 }, true, "disabled"],
+  ["history and audio kept", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false, "kept"],
+  ["history row saved but audio write refused", { dataRetentionEnabled: true, audioRetentionDays: 30 }, true, "audio-refused"],
 ]) {
   test(`streaming sealed mid-dictation with no text (${label}): the audio is preserved, not reported as an empty success`, async (t) => {
-    const { createManager, recovery } = await setup(t, retention);
+    const { createManager, recovery, captureDictationSession, window } = await setup(t, retention);
     const audio = new Blob(["fallback-pcm"]);
     const completions = [];
     const errors = [];
-    const saved = [];
+    let rowWrites = 0;
+    let audioWrites = 0;
+    window.electronAPI.saveTranscription = async () => (rowWrites++, { id: "failed-row" });
+    window.electronAPI.saveTranscriptionAudio = async () => (audioWrites++, { success: persistence === "kept" });
     // The real finalizer runs; its audio, provider and timer collaborators are stubbed.
     const manager = createManager({
       _activeStreamingSessionId: null, _streamingCancellationGeneration: 0, recordingStartTime: Date.now() - 3000,
@@ -10719,24 +10906,66 @@ for (const [label, retention, held] of [
       getStreamingProvider: () => ({ finalize() {}, awaitsFinalTranscript: false, stop: async () => { throw sealedError(); } }),
       cleanupStreamingListeners() {},
       onStateChange() {}, onError: (e) => errors.push(e), onTranscriptionComplete: (r) => completions.push(r),
-      saveFailedTranscription: async (...args) => saved.push(args),
     });
-    const session = manager.beginDictationSession({ streaming: true });
-    manager._setOwnedAudio(audio, { sessionId: session.id, private: false });
+    const selection = Promise.resolve({ status: "selected", sessionId: "stream", text: "stream selection" });
+    const screen = Promise.resolve({ data: "stream screen", mediaType: "image/png" });
+    manager.selectionCapturePromise = selection;
+    manager.screenContextPromise = screen;
+    const candidate = captureDictationSession({ settings: sessionSettings, intents: { streaming: true }, agentName: "Loqui", private: false, id: "stream" });
+    const session = manager.beginDictationSession(candidate.intents, candidate);
+    const context = trackContext(manager._sessionContext);
+    const pipeline = manager._startProcessingPipeline();
+    manager._activeStreamingPipeline = pipeline; // the immutable start-time session/context used by the finalizer
+    const setOwnedAudio = manager._setOwnedAudio.bind(manager);
+    const ownershipWrites = [];
+    manager._setOwnedAudio = (blob, options) => {
+      ownershipWrites.push([blob, options]);
+      return setOwnedAudio(blob, options);
+    };
     assert.equal(await manager._finalizeStreamingRecording(null), true);
+    assert.ok(ownershipWrites.some(([blob, options]) => blob === audio && options?.sessionId === session.id && options?.private === false), "fallback audio is stamped to its captured owner before snapshot");
     assert.deepEqual(completions, [], "no empty success");
     assert.equal(errors[0].code, "SEALED_MODE");
     assert.equal(errors[0].recoveryHeld, held);
+    assert.match(errors[0].messageKey, held ? /\.dictationHeld$/ : /\.dictationKept$/);
     assert.equal(recovery.recoveryCount(), held ? 1 : 0);
     if (held) {
       const claim = recovery.claimRecovery();
       assert.equal(claim.operation.owned.blob, audio);
       assert.equal(claim.operation.session.id, session.id);
-      assert.equal(claim.operation.context.sessionId, session.id);
+      assert.equal(claim.operation.context, context);
+      assert.equal((await claim.operation.context.selection()).text, "stream selection");
+      assert.equal((await claim.operation.context.screen()).data, "stream screen");
+      recovery.releaseRecovery(claim.id, { done: false });
+      recovery.discardRecovery();
+      assert.equal(context.releaseCount, 1);
+    } else {
+      assert.equal(context.releaseCount, 1, "acknowledged History closes the detached context once");
     }
-    assert.equal(saved.length, 1, "History gets its failed entry whenever retention keeps audio");
+    assert.equal(rowWrites, persistence === "disabled" ? 0 : 1);
+    assert.equal(audioWrites, persistence === "kept" || persistence === "audio-refused" ? 1 : 0);
   });
 }
+
+test("successful streaming stop retains stop-result text and model", async (t) => {
+  const { createManager, captureDictationSession } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0 });
+  const completed = [];
+  const audio = new Blob(["fallback-pcm"]);
+  const manager = createManager({
+    _activeStreamingSessionId: null, _streamingCancellationGeneration: 0, recordingStartTime: Date.now() - 3000,
+    micRecovery: { stop() {} }, _streamingMicSwapPromise: null, streamingProcessor: null, streamingSource: null,
+    finishStreamingFallbackSegment: async () => {}, mergeRecordedSegments: async () => audio, _streamingFallbackSegments: [audio],
+    streamingFallbackRecorder: null, streamingStream: null, streamingFinalText: "", streamingPartialText: "",
+    getStreamingProvider: () => ({ finalize() {}, awaitsFinalTranscript: false, stop: async () => ({ success: true, text: "text only in stop result", model: "fixture-stop-model" }) }),
+    getStreamingProviderName: () => "fixture", shouldUseStreaming: () => false, processTranscription: async (text) => text,
+    cleanupStreamingListeners() {}, onStateChange() {}, onTranscriptionComplete: (result) => completed.push(result),
+  });
+  const candidate = captureDictationSession({ settings: sessionSettings, intents: { streaming: true }, agentName: "Loqui", private: false, id: "stream-success" });
+  manager.beginDictationSession(candidate.intents, candidate);
+  assert.equal(await manager._finalizeStreamingRecording(null), true);
+  assert.equal(completed.at(-1).text, "text only in stop result");
+  assert.equal(manager.lastAudioMetadata.model, "fixture-stop-model");
+});
 
 test("startRecording refuses before the microphone opens when the pre-flight says sealed", async (t) => {
   globalThis.__preflightSealed = true;
@@ -10881,7 +11110,7 @@ import type { DictationSession, SessionContext } from "../helpers/dictationSessi
 export type HeldRecoveryOperation = Readonly<{
   owned: Readonly<{ blob: Blob; sessionId: string; private: boolean; metadata: Readonly<Record<string, unknown>> }>;
   session: Readonly<DictationSession>;
-  context: Readonly<SessionContext>;
+  context: SessionContext;
 }>;
 
 // Dictations that Sealed mode refused or interrupted while retention would have
@@ -10891,7 +11120,7 @@ export type HeldRecoveryOperation = Readonly<{
 export const RECOVERY_TTL_MS = 30 * 60 * 1000;
 export const RECOVERY_MAX = 3;
 
-type Held = { id: number; operation: HeldRecoveryOperation; heldAt: number; claimed: boolean };
+type Held = { id: number; operation: HeldRecoveryOperation; heldAt: number; claimed: boolean; closed: boolean };
 let held: Held[] = [];
 let nextId = 1;
 const listeners = new Set<() => void>();
@@ -10899,10 +11128,19 @@ const notify = () => {
   for (const listener of listeners) listener();
 };
 
+function close(entry: Held) {
+  if (entry.closed) return;
+  entry.closed = true;
+  entry.operation.context.release();
+}
+
 function expire(now: number) {
-  // A hold that is being replayed never expires under the replay.
-  const kept = held.filter((h) => h.claimed || now - h.heldAt <= RECOVERY_TTL_MS);
+  // A claimed operation remains owned during replay. Every terminal expiry closes
+  // its press-time reads once, before dropping the only owner reference.
+  const expired = held.filter((h) => !h.claimed && now - h.heldAt > RECOVERY_TTL_MS);
+  const kept = held.filter((h) => !expired.includes(h));
   if (kept.length !== held.length) {
+    for (const entry of expired) close(entry);
     held = kept;
     notify();
   }
@@ -10919,11 +11157,11 @@ export function shouldHoldInMemory(
 export function holdForRecovery(operation: HeldRecoveryOperation, now = Date.now()): number {
   const id = nextId++;
   // Over the bound, the oldest unclaimed hold goes; a claimed one is never dropped.
-  held = [...held, { id, operation, heldAt: now, claimed: false }];
+  held = [...held, { id, operation, heldAt: now, claimed: false, closed: false }];
   while (held.length > RECOVERY_MAX) {
     const victim = held.findIndex((h) => !h.claimed);
     if (victim === -1) break;
-    held.splice(victim, 1);
+    close(held.splice(victim, 1)[0]);
   }
   notify();
   return id;
@@ -10949,7 +11187,10 @@ export function claimRecovery(now = Date.now()): { id: number; operation: HeldRe
 export function releaseRecovery(id: number, { done }: { done: boolean }): void {
   const entry = held.find((h) => h.id === id);
   if (!entry) return;
-  if (done) held = held.filter((h) => h.id !== id);
+  if (done) {
+    close(entry);
+    held = held.filter((h) => h.id !== id);
+  }
   else entry.claimed = false;
   notify();
 }
@@ -10957,6 +11198,7 @@ export function releaseRecovery(id: number, { done }: { done: boolean }): void {
 export function discardRecovery(): void {
   const kept = held.filter((h) => h.claimed);
   if (kept.length === held.length) return;
+  for (const entry of held) if (!entry.claimed) close(entry);
   held = kept;
   notify();
 }
@@ -10998,9 +11240,10 @@ export function sealedPhase(error: unknown, depth = 0): "refused" | "interrupted
   return sealedPhase(e.cause, depth + 1);
 }
 
-// saveFailedTranscription keeps the audio only when local history is on and
-// audio retention is above 0, so the copy promises History only then. An
-// interrupted request may have reached the provider, so it never says "nothing was sent".
+// A held operation's actual owner is recovery memory, regardless of global
+// retention. Otherwise History is promised only after saveFailedTranscription
+// acknowledges that it kept the audio. An interrupted request may have reached
+// the provider, so it never says "nothing was sent".
 export function sealedDictationMessageKey(
   error: unknown,
   settings: { dataRetentionEnabled: boolean; audioRetentionDays: number },
@@ -11008,8 +11251,8 @@ export function sealedDictationMessageKey(
 ): string {
   const kept = settings.dataRetentionEnabled && settings.audioRetentionDays > 0;
   const family = sealedPhase(error) === "interrupted" ? "sealedMode.interrupted" : "sealedMode.blocked";
-  // held: kept in memory for "Transcribe" (sealedRecovery.ts), not on disk.
-  return `${family}.${kept ? "dictationKept" : held ? "dictationHeld" : "dictationNotKept"}`;
+  if (held) return `${family}.dictationHeld`;
+  return `${family}.${kept ? "dictationKept" : "dictationNotKept"}`;
 }
 ```
 
@@ -11276,24 +11519,76 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
      // Sealed mode (Plan 07). `operation` belongs to the pipeline that failed;
      // never read a newer manager session, Blob or privacy flag here.
      _noteSealedFailure(error, operation) {
-       if (!isSealedModeError(error)) return;
+       if (!isSealedModeError(error)) return null;
        const retention = getEffectiveRetentionPreferences();
-       if (this._recoveryReplay) {
-         // A replay that failed again: its claimed hold is kept, not duplicated.
+       if (operation?.pipelineRecoveryId != null && this._recoveryReplay === operation.pipelineRecoveryId) {
+         // The claimed entry remains the owner. The processAudio finalizer or
+         // replay-aware cancelProcessing returns this exact session/context.
          error.recoveryHeld = true;
-       } else if (operation?.owned?.blob && shouldHoldInMemory(error, retention, { privateTake: operation.owned.private })) {
-         holdForRecovery(operation);
+         error.code = "SEALED_MODE";
+         error.messageKey = sealedDictationMessageKey(error, retention, { held: true });
+         return null;
+       }
+
+       // P04's helper transfers only the currently active session/context. Never
+       // call it for a stale callback: it could detach a newer owner's context.
+       if (!operation?.session || this._activeSession !== operation.session) return null;
+       const detached = this._detachSessionOperation();
+       if (detached.session !== operation.session || detached.context !== operation.context) {
+         throw new Error("Sealed recovery detached a different dictation owner");
+       }
+       const { pipelineRecoveryId: _pipelineRecoveryId, ...heldOperation } = operation;
+       const recoveryOperation = Object.freeze({ ...heldOperation, session: detached.session, context: detached.context });
+       if (recoveryOperation.owned?.blob && shouldHoldInMemory(error, retention, { privateTake: recoveryOperation.owned.private })) {
+         holdForRecovery(recoveryOperation);
          error.recoveryHeld = true;
        }
        error.code = "SEALED_MODE";
        error.messageKey = sealedDictationMessageKey(error, retention, { held: error.recoveryHeld === true });
+       return recoveryOperation;
+     }
+
+     // History is a recovery only after Plan 04 confirms the audio write. Until
+     // then this detached operation keeps its exact bytes and context alive.
+     async _finishSealedFailure(error, operation) {
+       const replayAlreadyOwns = operation?.pipelineRecoveryId != null &&
+         this._recoveryReplay === operation.pipelineRecoveryId;
+       const recoveryOperation = this._noteSealedFailure(error, operation);
+       let saved = { audioKept: false };
+       // A replay already has this immutable operation in its claimed hold.
+       // Do not persist it again or create another hold on a sealed re-failure.
+       if (!replayAlreadyOwns && operation?.owned?.blob) {
+         try {
+           saved = await this.saveFailedTranscription(error.message, "SEALED_MODE", operation.owned.metadata, operation.owned);
+         } catch (persistenceError) {
+           // A failed row/audio write is not an acknowledgement. Keep the only
+           // bytes in the recovery entry and show RAM-held copy below.
+           logger.warn("Failed to persist sealed recovery audio", { error: persistenceError?.message }, "audio");
+         }
+       }
+       if (recoveryOperation) {
+         if (saved?.audioKept === true) {
+           if (!error.recoveryHeld) recoveryOperation.context.release();
+         } else if (!error.recoveryHeld && recoveryOperation.owned.blob) {
+           holdForRecovery(recoveryOperation);
+           error.recoveryHeld = true;
+         } else if (!recoveryOperation.owned.blob) {
+           recoveryOperation.context.release();
+         }
+       }
+       const retention = getEffectiveRetentionPreferences();
+       error.code = "SEALED_MODE";
+       error.messageKey = sealedDictationMessageKey(error, retention, { held: error.recoveryHeld === true });
+       return { saved, recoveryHeld: error.recoveryHeld === true };
      }
 
      // A stream can fail because provider.stop() rejects with SEALED_MODE even
      // if the broadcast arrives after finalization began. Preserve the exact
      // recording's operation before any listener cleanup or next-session work.
      async _preserveSealedStream(error, operation) {
-       this._noteSealedFailure(error, operation);
+       // Wait for the real saver acknowledgement before choosing History vs RAM
+       // copy or rendering its notice. A failed write must not drop the only Blob.
+       await this._finishSealedFailure(error, operation);
        this.isProcessing = false;
        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
        this.onError?.({
@@ -11303,11 +11598,6 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
          messageKey: error.messageKey,
          recoveryHeld: error.recoveryHeld === true,
        });
-       // Plan 04's saver takes the same immutable owner snapshot. Private takes
-       // are refused by it and remain only in the recovery hold above.
-       if (operation?.owned?.blob) {
-         await this.saveFailedTranscription(error.message, "SEALED_MODE", operation.owned.metadata, operation.owned);
-       }
        return true;
      }
 
@@ -11326,12 +11616,15 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
        this._setOwnedAudio(owned.blob, { sessionId: owned.sessionId, private: owned.private });
        // Plan 04's pipeline captures the just-restored active session here.
        const pipeline = this._startProcessingPipeline();
+       pipeline.recoveryId = held.id;
        this.isProcessing = true;
        this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
        try {
          await this.processAudio(owned.blob, owned.metadata, pipeline);
        } finally {
          this._recoveryReplay = null;
+         // processAudio detaches this same context before ordinary settlement on
+         // every outcome. The claimed entry remains the owner until this result.
          releaseRecovery(held.id, { done: pipeline.outcome === "success" });
        }
        return { started: true, succeeded: pipeline.outcome === "success" };
@@ -11342,49 +11635,84 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
 
    ```js
    const owned = this._ownedAudioSnapshot({ sessionId: pipeline.session?.id, private: pipeline.session?.private });
-   const operation = Object.freeze({ owned, session: pipeline.session, context: pipeline.context });
+   const operation = Object.freeze({ owned, session: pipeline.session, context: pipeline.context, pipelineRecoveryId: pipeline.recoveryId ?? null });
    // `pipeline.session` carries Plan 04's opaque recipient tag. Pass it and
    // the captured context forward unchanged; do not rebuild a recipient from
    // current settings when constructing RequestContext.
-   this._noteSealedFailure(error, operation);
+   if (isSealedModeError(error)) {
+     // This transfers the exact active session/context before any save await or
+     // ordinary settlement. It saves once and reports History only on audioKept.
+     await this._finishSealedFailure(error, operation);
+   }
    ```
 
-   This operation is never rebuilt from current manager fields in a delayed callback. Add `recoveryHeld: error.recoveryHeld === true` to the error notice. Pass the same `owned` snapshot as the final argument to `saveFailedTranscription(...)`, so Plan 04's persistence guard checks the owner/privacy of the failed operation. Private operations are held in RAM because the saver refuses them even when global history is enabled; no private bytes or transcript enter persistence.
+   This operation is never rebuilt from current manager fields in a delayed callback. For a sealed error, `_finishSealedFailure` owns the save and must run before the error notice; do not call the saver a second time. Add `recoveryHeld: error.recoveryHeld === true` to the notice after the acknowledgement has selected accurate History or RAM copy. Pass the same `owned` snapshot as the final argument to `saveFailedTranscription(...)`, so Plan 04's persistence guard checks the failed operation's owner/privacy. A private take is held in RAM even when global history is enabled; no private bytes or transcript enter persistence.
 
    Mark each pipeline's outcome, so a replay knows whether it succeeded:
    - directly before `this.onTranscriptionComplete?.(result);` (`:1860`), add `pipeline.outcome = result?.success && result.text ? "success" : "empty";`;
    - as the first statement of the `catch (error)` at `:1884`, add `pipeline.outcome = "failed";`.
+   - At the start of Plan 04's `cancelProcessing`, before its ordinary batch/stream `_bufferForSession` or `_holdStreamingSession` branches, recognize a replay by the current pipeline id. Keep Plan 04's normal cancellation signal, provider cancellation and lifecycle settlement, but skip ordinary Undo-buffer branches for this recovery pipeline. Detach only when the current session and context are the exact pipeline owners:
+
+     ```js
+     const replayPipeline = this._activeProcessingPipeline;
+     const replayOwnsPipeline = replayPipeline?.recoveryId != null &&
+       this._recoveryReplay === replayPipeline.recoveryId;
+     if (replayOwnsPipeline && this._activeSession === replayPipeline.session) {
+       const returned = this._detachSessionOperation();
+       if (returned.session !== replayPipeline.session || returned.context !== replayPipeline.context) {
+         throw new Error("Replay cancellation returned a different dictation owner");
+       }
+       replayPipeline.recoveryDetached = true;
+     }
+     // Keep Plan 04's ordinary _bufferForSession/_holdStreamingSession branches
+     // only when !replayOwnsPipeline. A newer owner is never detached.
+     ```
+
+     The recovery entry remains claimed until `transcribeRecovered()` observes pipeline completion; it then unclaims the same entry for retry. If the identity guard fails, leave the current/newer owner untouched and do not create a second hold.
+   - in the `finally`, before `_settleProcessingPipeline(pipeline)`, return a replay's attached context to its already-claimed entry for every outcome not already detached by cancellation:
+
+     ```js
+     if (pipeline.recoveryId && !pipeline.recoveryDetached && this._activeSession === pipeline.session) {
+       const returned = this._detachSessionOperation();
+       if (returned.session !== pipeline.session || returned.context !== pipeline.context) {
+         throw new Error("Replay returned a different dictation owner");
+       }
+     }
+     this._settleProcessingPipeline(pipeline);
+     ```
+
+     Do this for success, empty result, sealed failure and ordinary failure. A cancellation branch performs the same transfer before Plan 04 can move it to the ordinary Undo buffer. The claimed recovery entry stays the lifetime owner during replay; normal settlement must not release its context. If the active session is newer, do not detach it. A replay never creates a second cancel hold.
 
    **The streaming path (I6-R2).**
    - Capture the streaming pipeline's immutable `session`, `context` and recording id at start. Subscribe to main's sealed store for the full provider-stop/finalization interval. Do not unregister this listener when the UI flips `isStreaming` false; unregister it only in the finalizer's `finally` after the provider stop settles.
    - In `provider.onError`, preserve the typed error object (including `code`, `details.phase` and `cause`); do not reduce it to `String(error)`. Record a seal when either the provider stop rejects with a typed `SEALED_MODE` interruption or the main-owned sealed snapshot changes during the session. A late broadcast does not erase a typed stop error, and a pending provider stop does not allow the session listener to be removed.
-   - At finalizer entry, before awaiting provider shutdown, snapshot the original recording owner with `_ownedAudioSnapshot({ sessionId: pipeline.session.id, private: pipeline.session.private })` and assemble `{ owned, session: pipeline.session, context: pipeline.context }`. Replace any `provider.stop().catch(() => {})` that erases the error with an awaited outcome value:
+   - After `finishStreamingFallbackSegment()` and `mergeRecordedSegments(...)` have produced the fallback Blob, stamp it with `_setOwnedAudio(fallbackBlob, { sessionId: pipeline.session.id, private: pipeline.session.private })`. Before any later session can replace it, take `_ownedAudioSnapshot({ sessionId: pipeline.session.id, private: pipeline.session.private })` and assemble `{ owned, session: pipeline.session, context: pipeline.context }`. At the existing provider-stop site, retain both the successful stop result and any typed rejection:
 
      ```js
         const operation = Object.freeze({
           owned: this._ownedAudioSnapshot({ sessionId: pipeline.session.id, private: pipeline.session.private }),
           session: pipeline.session,
           context: pipeline.context,
+          pipelineRecoveryId: pipeline.recoveryId ?? null,
         });
-        const providerStopError = await Promise.resolve(provider.stop()).then(() => null, (error) => error);
+        let stopResult;
+        let providerStopError = null;
+        try {
+          stopResult = await provider.stop();
+        } catch (error) {
+          providerStopError = error; // preserve code/details/cause for the sealed path
+          stopResult = { success: false };
+          logger.debug("Streaming disconnect error", { error: error.message }, "streaming");
+        }
         if (wasCancelled()) return true;
         const sealedInterruption = isSealedModeError(providerStopError) || this._streamingSealed;
-        if (!finalText && sealedInterruption) {
-          const error = providerStopError ?? Object.assign(
-            new Error("[SEALED_MODE:interrupted] Sealed mode was turned on during the dictation"),
-            { code: "SEALED_MODE", details: { phase: "interrupted" } },
-          );
-          return this._preserveSealedStream(error, operation);
-         }
      ```
 
-     A typed `provider.stop()` rejection must reach this branch even if no broadcast arrived before finalization began. Never classify the empty result as success. If partial text exists, keep its captured session and operation, report that the provider may have received part of the audio, and allow only cleanup that main approves. Do not read `lastAudioBlob`, current manager settings, or current privacy flags to reconstruct the operation.
+     Continue the real finalizer with `stopResult` intact: after `streamingFinalText` and `streamingPartialText`, keep its existing `if (!finalText && stopResult?.text)` fallback, and keep `stopResult?.model` for the STT model. Only after all three text sources have been collected, if `!finalText && sealedInterruption`, construct/use the typed interrupted error and call `_preserveSealedStream(error, operation)`. This keeps the typed rejection available even without a broadcast and avoids a successful-stop `ReferenceError`. If partial text exists while a seal interrupted the stream, retain its captured session/operation and use interrupted copy that says the provider may have received part; subsequent cleanup still goes through main's egress gate. Never classify an empty result as success or read current manager fields to rebuild the operation.
 
    Imports: `isSealedModeError` and `sealedDictationMessageKey` from `../utils/sealedModeError`; `HeldRecoveryOperation`, `shouldHoldInMemory`, `holdForRecovery`, `claimRecovery` and `releaseRecovery` from `../lib/sealedRecovery`; `getSealedSnapshot` and `subscribeSealed` from `../stores/sealedStore`. `getEffectiveRetentionPreferences()` is defined at `audioManager.js:130-136`.
 
-6. `src/hooks/useAudioRecording.js`: the two recovery surfaces (§5.3). Plan 04 and Plan 07 can merge in either order (spec §3), and the code differs. Check which API exists: `test -f src/components/ui/notices.ts`.
-
-   **Plan 04 has merged** (`notices.ts` exists; the toast system is gone). Use Plan 04's builders (P04 Task 4, `src/components/voiceNotices`):
+6. `src/hooks/useAudioRecording.js`: the two recovery surfaces (§5.3). Plan 04 Tasks 6–8 are an execution prerequisite for Task 13; stop if their session or notice APIs are absent. Use Plan 04's builders (P04 Task 4, `src/components/voiceNotices`):
    - In `onError` (`:383`), call `showDictationError({ title, description, recoveryHeld: error?.recoveryHeld === true }, extraActions)`. When `recoveryHeld` is true, pass `extraActions = [{ label: t("sealedMode.recovery.transcribe"), onClick: () => audioManagerRef.current?.transcribeRecovered() }]`. Plan 04's `buildDictationErrorNotice` makes a held-audio refusal a persistent `alert`.
    - The unseal prompt:
 
@@ -11406,14 +11734,9 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
 
      This is §5.3's `notify({ kind: "notice", persistent: true, actions: [Transcribe, Discard] })`. Import `notify` from `../components/ui/notices` and `buildSealedRecoveryNotice` from `../components/voiceNotices`.
 
-   **Plan 04 has not merged** (the toast system still exists):
-   - Give `showDictationError` (`:300`) an `extraActions = []` parameter, and append it to `actions` before the `toast(...)` call. In `onError` (`:383`), pass the same Transcribe action when `error?.recoveryHeld` is true, and `duration: 0` so the held-audio refusal stays until acknowledged.
-   - The unseal prompt is the block above, with `notify(buildSealedRecoveryNotice(...))` replaced by `toast({ title: t("sealedMode.recovery.availableTitle"), description: t("sealedMode.recovery.availableDetail", { count: recoveryCount() }), variant: "default", duration: 0, actions: [Transcribe, Discard] })`. In the existing toast, `duration: 0` never auto-dismisses (`Toast.tsx:97` sets a timer only when `duration > 0`), so this is the persistent notice §5.3 requires.
-   - Plan 04 removes this fallback when it merges second (P04 Task 5, Step 3, item 7). Its `noToastLeft` guard fails if a toast survives.
+   Call `offSealed()` in the effect's cleanup. Import `getSealedSnapshot` and `subscribeSealed` from `../stores/sealedStore`, and `recoveryCount` and `discardRecovery` from `../lib/sealedRecovery`.
 
-   In both orders, call `offSealed()` in the effect's cleanup. Import `getSealedSnapshot` and `subscribeSealed` from `../stores/sealedStore`, and `recoveryCount` and `discardRecovery` from `../lib/sealedRecovery`.
-
-   Create `test/hooks/sealedRecoveryNotice.test.js`. It checks whichever API this branch has:
+   Create `test/hooks/sealedRecoveryNotice.test.js`. It asserts Plan 04's required API and fails if the toast fallback is restored:
 
    ```js
    const assert = require("node:assert/strict");
@@ -11423,18 +11746,14 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
 
    const root = path.join(__dirname, "../..");
    const hook = fs.readFileSync(path.join(root, "src/hooks/useAudioRecording.js"), "utf8");
-   const plan04 = fs.existsSync(path.join(root, "src/components/ui/notices.ts"));
+const plan04 = fs.existsSync(path.join(root, "src/components/ui/notices.ts"));
 
-   test("the recovery prompt is persistent and offers Transcribe and Discard, in either merge order", () => {
+test("Plan 04 is present and the persistent recovery prompt offers Transcribe and Discard", () => {
+  assert.equal(plan04, true, "Plan 04 Tasks 6–8 must merge before Plan 07 Task 13");
      const block = hook.slice(hook.indexOf("const offSealed = subscribeSealed("), hook.indexOf("wasSealed = sealed;"));
      assert.ok(block.length > 0, "the unseal prompt exists");
-     if (plan04) {
-       assert.match(block, /notify\(buildSealedRecoveryNotice\(t, \{\s*transcribe:/);
-       assert.doesNotMatch(hook, /(^|[^.\w])toast\(\{/m, "no toast survives once Plan 04 has merged");
-     } else {
-       assert.match(block, /toast\(\{[\s\S]*duration: 0[\s\S]*sealedMode\.recovery\.transcribe[\s\S]*sealedMode\.recovery\.discard/);
-       assert.doesNotMatch(block, /Infinity|duration: [1-9]/, "persistent, never a long timeout");
-     }
+  assert.match(block, /notify\(buildSealedRecoveryNotice\(t, \{\s*transcribe:/);
+  assert.doesNotMatch(hook, /(^|[^.\w])toast\(\{/m, "Plan 07 has no Plan-04-absent toast fallback");
    });
 
    test("a held-audio refusal carries the Transcribe action", () => {

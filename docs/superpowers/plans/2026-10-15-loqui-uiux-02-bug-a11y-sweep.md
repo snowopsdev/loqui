@@ -9,13 +9,13 @@
 - SET-Q1, Q2, Q5, Q6, Q7, Q11, Q12, Q13, Q16, Q20, Q25;
 - Plan 01 review: full-opacity focus rings, 3:1 form-control edges, and light status-fill text.
 
-**Base:** execute on a branch cut from `snowopsdev/feat/uiux-foundations` at `172f9df` (Plan 01, finished), or from `main` once Plan 01 merges.
-- Line numbers were checked against that commit when this revision was written. If an anchor has moved, find the quoted code; do not trust the number over the code.
-- Plan 01 shifted `src/components/OnboardingFlow.tsx` by one line after line 820. It also rewrote `src/index.css`, `src/components/ui/button.tsx` and `src/components/ControlPanelSidebar.tsx`.
+**Base:** execute on this branch rebased onto `snowopsdev/feat/uiux-foundations` (PR #43, at `677057d` or later), or onto `main` once Plan 01 merges.
+- Line numbers for Tasks 1–3 and 5 were checked against `677057d`; all other anchors are unchanged since `172f9df`. If an anchor has moved, find the quoted code; do not trust the number over the code.
+- Plan 01 shifted `src/components/OnboardingFlow.tsx` by one line after line 820. It also rewrote `src/index.css`, `src/components/ui/button.tsx` and `src/components/ControlPanelSidebar.tsx`, and at `4b0b51f` it already shipped the light `#e84e16` ring and the full-opacity Button and sidebar rings.
 
 **Order:** Plan 02 merges before Plans 03, 04, 05 and 06 (CCR 4). Each of those plans rewrites surfaces this plan fixes, and must keep the fixes and their tests.
 
-**Architecture:** Tasks 1–3 adjust Plan 01's colour tokens and the global field rules that consume them. Every later fix stays inside the component, hook or main-process module that owns the bug. Where the logic is non-trivial, the task extracts a small pure helper next to its caller so `node:test` can pin it without a DOM:
+**Architecture:** Tasks 1–2 add to Plan 01's colour tokens and fix the global field rules that consume them, and Task 3 guards the focus rings Plan 01 shipped. Every later fix stays inside the component, hook or main-process module that owns the bug. Where the logic is non-trivial, the task extracts a small pure helper next to its caller so `node:test` can pin it without a DOM:
 - `chatInputKeys.ts`, `chatRouteKey.ts`, `providerTabsKeys.ts`, `upcomingEventGroups.ts`, `audioDeletion.ts`, `noteActionsReadiness.ts`;
 - the main-process `systemNotification.js` and `audioFlagReconcile.js`.
 
@@ -42,18 +42,18 @@ Item text: `.omc/research/ui-review/approved-todo.md` in the research worktree. 
 
 ## Review response
 
-This revision answers the independent Codex review in `.omc/research/ui-review/reviews/plan-02-codex.md` (0 Critical, 8 Important, 5 Minor). Every finding is closed in the plan; none is disputed.
+The owner's decisions on the contract change requests are recorded under "Contract change requests". This revision answers the independent Codex review in `.omc/research/ui-review/reviews/plan-02-codex.md` (0 Critical, 8 Important, 5 Minor). Every finding is closed in the plan; none is disputed.
 
 | Finding | Disposition | Where |
 |---|---|---|
 | I1 A queued message can move to another conversation | **Closed.** `ChatInput` takes a `queueKey`: conversation or context, plus a route fingerprint from `chatRouteKey`, which never includes the API key. A draft is sent on idle only if the key is unchanged. If the conversation, context or route changes, the draft is unqueued, its words stay in the box, and a notice asks for a deliberate Enter. All four callers pass a key. Tests mount the composer, queue in A, then switch to B, open New Chat, or change the route. | Task 13 |
 | I2 Failure recovery discards the original words | **Closed.** A failed send refills an empty box. If a newer draft exists, the failed text is held in an "unsent" slot beside it, with Put it back (which keeps both) and Discard. Tests cover a deferred `false` and a deferred rejection while a newer draft exists. | Task 13 |
-| I3 Global CSS overrides the input rings | **Closed.** `@layer base` closes at `index.css:376`, so the native-field rules (1089–1115) are unlayered. Under CSS Cascade 5 an unlayered normal declaration beats any `@layer utilities` declaration, whatever its specificity. Task 2 therefore puts the full-opacity ring in those unlayered rules as `:focus-visible`, and removes the dead ring utilities from `Input` and `Textarea`. A test parses the stylesheet and asserts that the rule is unlayered, that no translucent ring remains, and that no plain `:focus` rule competes. Task 3 records why `Button`'s ring is safe: no unlayered rule touches `button` focus. Task 21 adds a computed-style check in DevTools. | Tasks 2, 3, 21 |
+| I3 Global CSS overrides the input rings | **Closed.** `@layer base` closes at `index.css:387` (at `677057d`), so the native-field rules (1086–1126) are unlayered. Under CSS Cascade 5 an unlayered normal declaration beats any `@layer utilities` declaration, whatever its specificity. Task 2 therefore puts the full-opacity ring in those unlayered rules as `:focus-visible`, and removes the dead ring utilities from `Input` and `Textarea`. A test parses the stylesheet and asserts that the rule is unlayered, that no translucent ring remains, and that no plain `:focus` rule competes. Task 3 records why `Button`'s ring is safe: no unlayered rule touches `button` focus. Task 21 adds a computed-style check in DevTools. | Tasks 2, 3, 21 |
 | I4 The held-start Esc test deadlocks | **Closed.** `beginHeldStart` returns `{ pending }`, so the async helper no longer adopts the held promise. The test asserts the stop is deferred before release and applied after, and has a 10 s timeout. | Task 9 |
 | I5 Audio usage treats unreadable storage as empty, and does not typecheck | **Closed.** A new `useAudioStorageUsage` hook models `loading`, `known` and `unavailable`, with its type inferred from `electron.ts`; the hand-written annotation at `SettingsPage.tsx:1125` is deleted with the old state. `AudioStorageRow` shows "couldn't read" with Retry, never "no audio". Clear All re-reads first and opens no confirmation on a failed read, so a stale count is never shown as current. Mounted hook tests cover an unreadable first read, a rejected read, and a failed refresh after a good count. Step 4 runs typecheck. | Task 19 |
 | I6 The failed-send test assumes a contract the sender lacks | **Closed.** The sender's `true` now means "the message reached the conversation", which is where restoring would start to duplicate. A failure before the save resolves `false` and removes the optimistic message; after the save it resolves `true`; it never rejects. Provider errors are rendered in the thread and resolve normally, as before. The factual claim is corrected. Integration tests run the real sender behind the real composer, failing both before and after persistence. | Task 13 |
 | I7 A partial delete clears every row's audio flag | **Closed.** A new `clearFlagsForDeletedAudio` unflags only the rows whose file is gone, using `remainingAudioIds()`, and unflags nothing when the folder is unreadable. The IPC handler calls it. It is tested with the real `AudioStorageManager`. | Task 19 |
-| I8 Plan 03 would overwrite the storage failure contract | **Closed on this side, pending Plan 03's owner.** The contract is in the interface table and in CCR 5 (02 before 03). Plan 03's storage task must keep `readable` and `failed`, `resolveClearAudioOutcome`, the flag reconciliation and their tests while adding `directory`. This thread cannot edit Plan 03. | CCR 4, CCR 5 |
+| I8 Plan 03 would overwrite the storage failure contract | **Closed.** The contract is in the interface table and in CCR 5, which was accepted along with CCR 4 (02 before 03), and the owner has told Plan 03 to keep `readable` and `failed`. Plan 03's storage task must keep `readable` and `failed`, `resolveClearAudioOutcome`, the flag reconciliation and their tests while adding `directory`. This thread cannot edit Plan 03. | CCR 4, CCR 5 |
 | M1 `useNow` test does not prove time advances | **Closed.** An injectable `readClock`. The test moves the clock exactly 30 s across local midnight and asserts the exact timestamps and the date change, as well as the cleanup. | Task 11 |
 | M2 Un-tokenized progress animation | **Closed.** The indeterminate loop becomes `calc(var(--motion-slow)*4) var(--motion-ease-std)`; the spinner becomes `motion-safe:animate-spin`. `animate-pulse` stays: it is an opacity loop, which the reduced-motion policy keeps, and it runs only in its active state. No new token is needed. | Task 4 |
 | M3 Literal English download labels | **Closed.** `onboarding.download.start` and `inProgress` in all 11 locales; the test selectors use the keys. | Task 6 |
@@ -67,7 +67,13 @@ One disagreement from the first review round still stands. Provider tabs keep th
 
 ## Contract change requests
 
-These need the spec owner's sign-off. Each has a recorded disposition. Task 21 updates the spec only for approved CCRs, so none of them becomes a contract just because implementation began.
+**Owner decisions (2026-10-15):**
+- **CCR 3:** approved, and recorded as **D13** in the spec on `snowopsdev/feat/uiux-foundations`.
+- **CCR 4:** approved. The owner applies it to §3 in the consolidated spec update.
+- **CCR 2:** the ring part already shipped in Plan 01. `--color-input-border` and the light warning and success foregrounds stay in Plan 02 as its own additions.
+- **CCRs 1, 5 and 6:** accepted. The owner publishes them in the consolidated spec update, as §5.5 plus the stored-audio contract, and Plan 03 has been told to keep the `readable` and `failed` fields.
+
+This PR therefore does not edit the spec (Task 21).
 
 1. **Add §5.5 Interruption notifications (owner: Plan 02; consumer: Plan 04).** Task 10 adds:
    ```ts
@@ -79,40 +85,40 @@ These need the spec owner's sign-off. Each has a recorded disposition. Task 21 u
    - Clicking it focuses the sending window.
    - **It is interruption-only and carries no actions.** D2's Linux recorder notice needs a Stop action. Plan 04 keeps its own Linux (freedesktop/gdbus) action path for that, because Electron's action support differs on Linux. This contract does not claim to cover it.
 
-   *Disposition: pending owner approval. If rejected, Task 10 still ships, and the method is documented as internal to `MeetingRecordingMount`.*
+   *Disposition: accepted. The owner publishes it as §5.5 in the consolidated spec update.*
 2. **Extend Plan 01's colour-token contract (§5, "Motion and colour tokens"),** from Plan 01's final review.
    - **New token:** `--color-input-border` (light `#858585`, Plum Night `#8c6b7b`; Task 2).
    - **Changed light values:**
      - `--color-ring` `#ff5a1f` becomes `#e84e16` (Task 3). Plum Night keeps `#ff5a1f`.
      - `--color-warning-foreground` and `--color-success-foreground` change from `#ffffff` to `#171717` (Task 1).
 
-   *Disposition: requested by the owner's review; pending Plan 01 owner sign-off. If rejected, Tasks 1–3 move to a Plan 01 follow-up, and Task 4 uses `ring-foreground/40` for the track.*
-3. **FYI, `UpdateStatus.phase` gains `"available"`** (Task 17). It means a manual check found a newer version while automatic updates are off. Plan 03 moves `UpdateSettings` and must keep rendering it. This reverses a deliberate rule pinned at `test/helpers/updateManager.test.js:187` ("the off switch also blocks manual checks"); SET-Q16 is the owner's pick. *Disposition: needs the owner to confirm the reversal.*
+   *Disposition: the light `--color-ring` value already shipped in Plan 01 (PR #43), so Task 3 no longer changes it. `--color-input-border` (Task 2) and the light warning and success foregrounds (Task 1) stay as Plan 02's own additions.*
+3. **FYI, `UpdateStatus.phase` gains `"available"`** (Task 17). It means a manual check found a newer version while automatic updates are off. Plan 03 moves `UpdateSettings` and must keep rendering it. This reverses a deliberate rule pinned at `test/helpers/updateManager.test.js:187` ("the off switch also blocks manual checks"); SET-Q16 is the owner's pick. *Disposition: approved, recorded as D13 in the spec. Manual checks stay available with automatic updates off, nothing downloads without an explicit click, and Task 17 replaces the rule pinned at `updateManager.test.js:187`.*
 4. **Record the execution order in §3:** 01 → 02 → {03, 04, 05, 06}. The spec's graph shows 02 in parallel with 01 and nothing downstream of it. In fact Plans 03, 04, 05 and 06 all rewrite surfaces Plan 02 fixes:
    - Plan 03: settings storage, model cards, navigation and the setup card;
    - Plan 04: toasts and Esc;
    - Plan 05: the onboarding shell and download;
    - Plan 06: the clock, the composer and Notes.
 
-   Each needs Plan 02's tests in place. *Disposition: pending owner approval.*
+   Each needs Plan 02's tests in place. *Disposition: approved. The owner applies it to §3 in the consolidated spec update.*
 5. **Stored-audio contract (owner: Plan 02; consumer: Plan 03).**
    - `getStorageUsage()` returns `{ fileCount, totalBytes, readable }`.
    - `deleteAllAudio()` returns `{ deleted, failed, readable }`.
    - `remainingAudioIds()` and `clearFlagsForDeletedAudio()` exist.
    - The renderer gets `resolveClearAudioOutcome` and `useAudioStorageUsage`.
-   - Plan 03 Task 11 replaces this UI. Its current text drops `readable`/`failed` and treats an unreadable zero as cleared, so it must keep the fields, the unavailable state and the tests. *Disposition: pending; Plan 03's owner updates their task.*
+   - Plan 03 Task 11 replaces this UI. Its current text drops `readable`/`failed` and treats an unreadable zero as cleared, so it must keep the fields, the unavailable state and the tests. *Disposition: accepted. The owner publishes the contract in the consolidated spec update, and Plan 03 has been told to keep `readable` and `failed`.*
 6. **Notes readiness handoff (owner of the consumer task: Plan 03).** Plan 03 adds a task that replaces `useNoteActionsReady` with `useResolvedRoute("noteFormatting")`.
    - It maps `ready` to no hint, and `needsModel`, `needsKey`, `needsUrl` and `unreachable` to the hint with the right action. `off` means Actions are disabled.
    - It keeps the dismissal key `notesActionsModelHintDismissed`.
    - It tests a remote provider with no saved key.
 
-   Until then, WS-Q7's hint covers local and self-hosted routes only. *Disposition: pending.*
+   Until then, WS-Q7's hint covers local and self-hosted routes only. *Disposition: accepted.*
 
 ## Interfaces this plan produces for later plans
 
 | Item | Where | Consumer |
 |---|---|---|
-| `--color-input-border`, light `--color-ring` `#e84e16` (CCR 2) | `src/index.css` | every plan's form controls and focus rings |
+| `--color-input-border`, light ink warning and success foregrounds (Plan 02 additions; light `--color-ring` `#e84e16` already shipped in Plan 01) | `src/index.css` | every plan's form controls and status fills |
 | Native-field focus is drawn by the unlayered `:focus-visible` rules; components must not rely on ring utilities for `<input>`/`<textarea>` | `src/index.css` | every plan with form fields |
 | `showSystemNotification` (CCR 1, interruption-only) | `preload.js`, `src/types/electron.ts`, `src/helpers/systemNotification.js` | Plan 04 |
 | `useNow(intervalMs?, readClock?)`; rollover within one tick (≤30 s) | `src/hooks/useNow.ts` | Plan 06 |
@@ -171,9 +177,9 @@ These need the spec owner's sign-off. Each has a recorded disposition. Task 21 u
 - Motion uses Plan 01's `--motion-*` tokens only. Every loop is gated to its active state. Reduced motion keeps opacity and colour feedback and drops transforms (the existing policy in `src/index.css`; do not weaken it).
 - Every visible string goes through i18n with keys in all 11 locales: `ar de en es fr it ja pt ru zh-CN zh-TW`. Interpolation placeholders must match across locales. `npm run i18n:check` passes, and `test/locales/translationCoverage.test.js` passes.
 - RTL: use logical properties (`ms-`, `me-`, `ps-`, `pe-`, `start`, `end`). The one deliberate exception is the macOS traffic-light clearance in Task 5, which is physical because the traffic lights are.
-- `src/index.css` is edited only by Tasks 1–3, the token and form-control changes. Onboarding CSS goes in `src/styles/onboarding-welcome.css`.
+- `src/index.css` is edited only by Tasks 1–2, the token and form-control changes. Task 3 adds tests only. Onboarding CSS goes in `src/styles/onboarding-welcome.css`.
 - New locale keys go inside existing namespaces, never as new top-level keys. `updates` is the last top-level object before Plan 01's `locality`, so Task 17 inserts its key mid-object.
-- `DESIGN.md` is the source of truth (D10). Every task that changes a documented surface updates its section in the same commit: Tasks 1–5, 8, 15 and 16.
+- `DESIGN.md` is the source of truth (D10). Every task that changes a documented surface updates its section in the same commit: Tasks 1, 2, 4, 5, 8, 15 and 16.
 - Tests run with Node `node:test`.
   - Setup: `npm run native:node` once, then `npm test -- <files>`.
     - `scripts/run-tests.js` takes files or quoted globs, not directories.
@@ -214,9 +220,9 @@ Plan 01 review, item 3. Plan 01 fixed the Plum Night status tokens by putting da
 
 **Files:**
 - Modify: `src/index.css`:
-  - `@theme`, line 33: `--color-success-foreground: #ffffff;`
-  - `@theme`, line 35: `--color-warning-foreground: #ffffff;`
-- Modify: `DESIGN.md`, `### Roles` (after line 156)
+  - `@theme`, line 34: `--color-success-foreground: #ffffff;`
+  - `@theme`, line 36: `--color-warning-foreground: #ffffff;`
+- Modify: `DESIGN.md`, `### Roles` (after the Nav marker bullet, line 157)
 - Test: `test/components/statusTokens.test.js`
 
 **Interfaces:**
@@ -321,9 +327,9 @@ Plan 01 review, item 2. Plum Night `--color-border` `#3d2733` on `#1c1218` is 1.
 **Files:**
 - Modify: `src/index.css`:
   - in `@theme`, add `--color-input-border` after `--color-input` (line 23);
-  - in `.dark`, add it after `--color-input` (line 240);
-  - in the native-field resting rules, `:root input:not(.input-inline), :root textarea:not(.input-inline)` (lines 1089–1094) and `.dark input:not(.input-inline), .dark textarea:not(.input-inline)` (lines 1104–1110);
-  - in the native-field focus rules (lines 1096–1101 and 1112–1115).
+  - in `.dark`, add it after `--color-input` (line 248);
+  - in the native-field resting rules, `:root input:not(.input-inline), :root textarea:not(.input-inline)` (lines 1099–1104) and `.dark input:not(.input-inline), .dark textarea:not(.input-inline)` (lines 1114–1120);
+  - in the native-field focus rules (lines 1106–1111 and 1122–1126).
 - Create: `test/helpers/harness/cssRules.js`
 - Modify: `src/components/ui/input.tsx:11-19`
 - Modify: `src/components/ui/textarea.tsx:12-15`
@@ -345,11 +351,11 @@ Plan 01 review, item 2. Plum Night `--color-border` `#3d2733` on `#1c1218` is 1.
 
 Hover no longer lightens the edge. `hover:border-border-hover` (`#d4d4d4`) would drop below 3:1 while the pointer is over the field.
 
-**Which rule paints a focused field: the cascade.** `src/index.css` starts with `@import "tailwindcss";` (line 1). Tailwind 4 emits every utility, `focus-visible:ring-*` included, inside `@layer utilities`. The native-field rules at lines 1089–1115 sit at the top level of the file: `@layer base` (line 290) closes at line 376, and nothing else wraps them.
+**Which rule paints a focused field: the cascade.** `src/index.css` starts with `@import "tailwindcss";` (line 1). Tailwind 4 emits every utility, `focus-visible:ring-*` included, inside `@layer utilities`. The native-field rules at lines 1086–1126 sit at the top level of the file: `@layer base` (line 301) closes at line 387, and nothing else wraps them.
 
 Under CSS Cascade Level 5, a normal (non-`!important`) declaration outside any layer beats a normal declaration in any layer. Specificity is not consulted. So for any `<input>` or `<textarea>` without `.input-inline`, the global focus rules decide `box-shadow` and `border-color`. A ring utility on the component can never show.
 
-Today those rules paint `box-shadow: 0 0 0 2px oklch(from var(--color-ring) l c h / 0.15)`, a 15% ring, plus an orange border. Changing only the component classes would leave that 15% ring on screen. This task therefore:
+Today those rules paint `box-shadow: 0 0 0 2px oklch(from var(--color-ring) l c h / 0.15)`, a 15% ring, plus a `--color-border-active` border. Foundations' full-opacity ring work covered buttons, not these field rules. Changing only the component classes would leave that 15% ring on screen. This task therefore:
 - moves the full-opacity ring into the unlayered rules;
 - switches them to `:focus-visible`;
 - removes the ring utilities from `Input` and `Textarea`, so no class pretends to control something the cascade overrides.
@@ -513,7 +519,7 @@ Expected: FAIL. `light["--color-input-border"]` is `undefined`, no `:focus-visib
 
 2. In the light native-field rule (`:root input:not(.input-inline), :root textarea:not(.input-inline) { … }`), change `border: 1px solid var(--color-border);` to `border: 1px solid var(--color-input-border);`. Make the same change in the `.dark input:not(.input-inline), .dark textarea:not(.input-inline) { … }` rule. Leave every other `var(--color-border)` alone, because cards and dividers keep the quiet border.
 
-   Then replace the two focus rules. The light one (lines 1096–1101):
+   Then replace the two focus rules. The light one (lines 1106–1111):
 
    ```css
    :root input:not(.input-inline):focus,
@@ -538,7 +544,7 @@ Expected: FAIL. `light["--color-input-border"]` is `undefined`, no `:focus-visib
    }
    ```
 
-   The dark one (lines 1112–1115):
+   The dark one (lines 1122–1126):
 
    ```css
    .dark input:not(.input-inline):focus,
@@ -601,7 +607,7 @@ Expected: FAIL. `light["--color-input-border"]` is `undefined`, no `:focus-visib
 
    Also change `disabled:bg-neutral-50` on the next line to `disabled:bg-muted`.
 
-5. In `DESIGN.md` `### Inputs / Fields`, replace the `**Style:**` and `**Focus:**` bullets (lines 244–245) with:
+5. In `DESIGN.md` `### Inputs / Fields`, replace the `**Style:**` and `**Focus:**` bullets (lines 245–246) with:
 
    ```markdown
    - **Style:** Full-width 40px fields with 6px corners, compact sans text, and a one-pixel `--color-input-border` edge (#858585 light, #8C6B7B Plum Night) that clears 3:1 on every surface a field sits on. Hover does not lighten the edge.
@@ -622,35 +628,37 @@ git commit -m "fix(a11y): form-control edges and focus rings clear 3:1 in light 
 
 ---
 
-### Task 3: Focus rings at full opacity
+### Task 3: Focus-ring guards: cascade, and the colour-role class check
 
-Plan 01 review, item 1. Plan 01 fixed `HotkeyInput` with `focus-visible:ring-2 focus-visible:ring-ring`. Two pre-existing rings are still translucent:
-- `button.tsx` base: `focus-visible:ring-ring/30`, on every `Button`;
-- `ControlPanelSidebar.tsx`, lines 57 and 89: `focus-visible:ring-primary/30`. Both nav buttons use it.
+Plan 01 review, item 1, and a non-blocking gap left by Plan 01's Codex review.
 
-Full opacity alone is not enough in light. `#ff5a1f` clears 3:1 only on pure white (3.12:1), and the sidebar's `surface-window` (`#f7f7f7`) gives 2.91:1. Plan 01 met the same problem with the light nav marker and chose `#e84e16`. Using that value for the light `--color-ring` clears 3:1 on every light surface, from 3.33:1 on `surface-raised` to 3.80:1 on white. The ring stays orange, as D1 requires. Plum Night keeps `#ff5a1f`, at 4.87–6.12:1.
+Foundations (PR #43) already shipped the focus-ring changes this task once carried:
+- light `--color-ring` is `#e84e16`;
+- the `Button` base ring and both `ControlPanelSidebar` rings are full-opacity `focus-visible:ring-ring`;
+- `DESIGN.md`'s Roles section documents the ring.
+
+What remains is making those rings hard to break.
+- **Cascade.** No unlayered rule may restyle a button's focus. A utility loses to any unlayered rule (Task 2), so a future global `button:focus` rule would silently override every ring.
+- **The colour-role guard has a gap.** The test `no Button variant changes filter or opacity on hover, press or focus` (`test/components/colorRoles.test.js:164`) splits each class on every colon, including colons inside arbitrary-property brackets. `hover:[opacity:0.5]` splits into `hover`, `[opacity` and `0.5]`, so the utility `0.5]` never matches, and `hover:[filter:brightness(1.1)]` slips through the same way. Both would recolour the ring on hover.
 
 **Files:**
-- Modify: `src/index.css`, `@theme` line 24: `--color-ring: #ff5a1f;`
-- Modify: `src/components/ui/button.tsx:13`
-- Modify: `src/components/ControlPanelSidebar.tsx:57` and `:89`
-- Modify: `DESIGN.md`, `### Roles`
+- Modify: `test/components/colorRoles.test.js:161-181`. Add a bracket-aware split, extract the check, and add mutations.
 - Test: `test/components/focusRings.test.js`
 
-**Why these rings actually render.** `Button`'s ring is a Tailwind utility in `@layer utilities`, and so are the sidebar's. A utility loses to any unlayered rule (Task 2), so this task must show that none touches them.
-- At `172f9df`, the only unlayered `:focus` / `:focus-visible` rules in `src/index.css` are:
+**Interfaces:**
+- Consumes `parseRules` and `isLayered` (Task 2).
+- Produces nothing at runtime. This task changes tests only.
+
+**Why these rings render today.** `Button`'s ring and the sidebar's rings are Tailwind utilities in `@layer utilities`.
+- At `677057d`, the only unlayered `:focus` / `:focus-visible` rules in `src/index.css` are:
   - the native-field rules (Task 2 rewrites them);
-  - the onboarding-canvas input rules (lines 986–1020), which match `input` elements only.
+  - the onboarding-canvas input rules, which match `input` elements only.
 - No unlayered rule sets `box-shadow` or `outline` on `button`.
 - Plan 01's `:where(button, …)` rule lives in `@layer base` and sets only `transition`.
 
-The test pins that with `parseRules`, so a later global rule cannot silently weaken these rings.
+The new test pins all of that.
 
-**Interfaces:**
-- Consumes `resolveTokens` and `contrastRatio` (Plan 01), plus `parseRules` and `isLayered` (Task 2).
-- Produces light `--color-ring` `#e84e16`. Every later task that adds a focus style uses `focus-visible:ring-2 focus-visible:ring-ring`, never an opacity suffix.
-
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 Create `test/components/focusRings.test.js`:
 
@@ -659,55 +667,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { resolveTokens } = require("../helpers/harness/cssTokens");
 const { parseRules, isLayered } = require("../helpers/harness/cssRules");
 
-const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");
-const css = read("src/index.css");
-const load = () => import("../../src/utils/contrast.ts");
-
-const SURFACES = [
-  "--color-background",
-  "--color-card",
-  "--color-popover",
-  "--color-muted",
-  "--color-surface-1",
-  "--color-surface-raised",
-  "--color-surface-window",
-];
-
-test("the focus ring clears 3:1 on every surface, in light and Plum Night", async () => {
-  const { contrastRatio } = await load();
-  const { light, dark } = resolveTokens(css);
-  assert.equal(light["--color-ring"], "#e84e16");
-  assert.equal(dark["--color-ring"], "#ff5a1f");
-  for (const [theme, tokens] of [
-    ["light", light],
-    ["Plum Night", dark],
-  ])
-    for (const surface of SURFACES) {
-      const ratio = contrastRatio(tokens["--color-ring"], tokens[surface]);
-      assert.ok(ratio >= 3, `${theme}: ring on ${surface} is ${ratio}:1`);
-    }
-});
-
-test("every Button draws a full-opacity ring", () => {
-  const button = read("src/components/ui/button.tsx");
-  assert.match(
-    button,
-    /outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background/
-  );
-  assert.doesNotMatch(button, /ring-ring\/\d+/);
-});
-
-test("the workspace sidebar draws a full-opacity ring on both nav buttons", () => {
-  const sidebar = read("src/components/ControlPanelSidebar.tsx");
-  assert.doesNotMatch(sidebar, /ring-primary\/\d+|ring-ring\/\d+/);
-  assert.equal(
-    sidebar.match(/focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface-window/g)?.length,
-    2
-  );
-});
+const css = fs.readFileSync(path.join(__dirname, "../..", "src/index.css"), "utf8");
 
 test("no unlayered rule can override a button's focus ring", () => {
   const offenders = parseRules(css).filter(
@@ -719,46 +681,105 @@ test("no unlayered rule can override a button's focus ring", () => {
   );
   assert.deepEqual(offenders.map((rule) => rule.selector), []);
 });
+```
 
-test("HotkeyInput keeps Plan 01's full-opacity ring", () => {
-  assert.match(read("src/components/ui/HotkeyInput.tsx"), /focus-visible:ring-2 focus-visible:ring-ring"/);
+In `test/components/colorRoles.test.js`, replace the body of `no Button variant changes filter or opacity on hover, press or focus` (lines 164–181) and add a mutation test after it:
+
+```js
+const FILTER_LIKE =
+  /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|blur|opacity|filter|drop-shadow)(-|$)|^\[(filter|opacity):/;
+const INTERACTIVE = /^(hover|active|focus|focus-visible|focus-within|group-hover|peer-.*)$/;
+
+// Classes that change filter or opacity on hover, press or focus.
+function ringRecolouringClasses(classes) {
+  return classes.filter((cls) => {
+    const parts = cls.split(":"); // the old split; Step 3 replaces it
+    const utility = parts[parts.length - 1];
+    return FILTER_LIKE.test(utility) && parts.slice(0, -1).some((p) => INTERACTIVE.test(p));
+  });
+}
+
+test("no Button variant changes filter or opacity on hover, press or focus", async () => {
+  for (const variant of BUTTON_VARIANTS) {
+    const classes = await buttonClasses(variant);
+    assert.ok(classes.includes("focus-visible:ring-ring"), `${variant} has an opaque focus ring`);
+    assert.deepEqual(
+      ringRecolouringClasses(classes),
+      [],
+      `${variant} recolours the focus ring on hover, press or focus`
+    );
+  }
+});
+
+test("the filter/opacity guard catches arbitrary-property mutations", () => {
+  const mutated = [
+    "hover:[opacity:0.5]",
+    "hover:[filter:brightness(1.1)]",
+    "active:brightness-95",
+    // Not offenders: no interactive prefix, or not a filter/opacity utility.
+    "[opacity:0.5]",
+    "hover:bg-cta-hover",
+    "[&_svg]:size-4",
+    "focus-visible:ring-ring",
+  ];
+  assert.deepEqual(ringRecolouringClasses(mutated), [
+    "hover:[opacity:0.5]",
+    "hover:[filter:brightness(1.1)]",
+    "active:brightness-95",
+  ]);
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/components/focusRings.test.js`
-Expected: FAIL. The first test's `assert.equal` fails (`#ff5a1f`), and the Button and sidebar tests find `/30`.
+Run: `npm test -- test/components/focusRings.test.js test/components/colorRoles.test.js`
+Expected: FAIL. The mutation test reports only `["active:brightness-95"]`: the old colon split misses `hover:[opacity:0.5]` and `hover:[filter:brightness(1.1)]`.
+
+The `focusRings` test passes at once against Foundations. It guards against later global CSS, so its first run is green.
+
+To see the guard fail, temporarily add this to `src/index.css`, run the test, and confirm it names the selector. Then remove the rule.
+
+```css
+button:focus-visible { box-shadow: none; }
+```
 
 - [ ] **Step 3: Implement**
 
-1. `src/index.css` `@theme` line 24 becomes:
+In `test/components/colorRoles.test.js`, add `splitVariants` above `FILTER_LIKE`, and change the line `const parts = cls.split(":"); // the old split; Step 3 replaces it` to `const parts = splitVariants(cls);`. There is no product change.
 
-   ```css
-     /* Deeper orange so a full-opacity ring clears 3:1 on every light surface
-        (3.33:1 on surface-raised); #ff5a1f only cleared pure white. Same value
-        as the light nav marker. Plum Night keeps #ff5a1f. */
-     --color-ring: #e84e16;
-   ```
+```js
+// Splits a class into its variant prefixes and utility on colons that are
+// outside brackets, so "hover:[opacity:0.5]" is ["hover", "[opacity:0.5]"]
+// rather than three meaningless parts.
+function splitVariants(cls) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of cls) {
+    if (ch === "[" || ch === "(") depth++;
+    else if (ch === "]" || ch === ")") depth--;
+    if (ch === ":" && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+```
 
-2. `src/components/ui/button.tsx:13`: replace `focus-visible:ring-ring/30` with `focus-visible:ring-ring`.
-3. `src/components/ControlPanelSidebar.tsx`, lines 57 and 89: replace `focus-visible:ring-primary/30` with `focus-visible:ring-ring`, in both places.
-4. In `DESIGN.md` `### Roles`, append:
-
-   ```markdown
-   - **Focus ring** (`--color-ring`): #E84E16 in light (3:1 on every light surface), #FF5A1F in Plum Night. Always 2px and full opacity; never an alpha-reduced ring.
-   ```
+`splitVariants` treats both `[…]` and `(…)` as nesting, so `[filter:brightness(1.1)]` stays one part.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/focusRings.test.js test/components/colorRoles.test.js test/components/brandGlow.test.js test/components/plumNight.test.js`
+Run: `npm test -- test/components/focusRings.test.js test/components/colorRoles.test.js test/components/brandGlow.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/index.css src/components/ui/button.tsx src/components/ControlPanelSidebar.tsx DESIGN.md test/components/focusRings.test.js
-git commit -m "fix(a11y): full-opacity focus rings that clear 3:1 in light"
+git add test/components/focusRings.test.js test/components/colorRoles.test.js
+git commit -m "test(a11y): guard focus rings against unlayered CSS and arbitrary-property filters"
 ```
 
 ---
@@ -1149,7 +1170,7 @@ Covers ONB-Q1.
 - Produces a `data-platform` attribute (`"darwin" | "win32" | "linux"`) on every `.onboarding-welcome` root. The value comes from the existing `platform` const in `OnboardingFlow` (lines 1070–1075), which already honours the preview config.
 
 Why this works:
-- `src/index.css:330-338` (inside `@layer base` at `172f9df`) sets only `min-height: 100vh` on `html`, `body` and `#root`. `.onboarding-welcome { height: 100% }` therefore resolves to `auto`, and the footer scrolls away with the content.
+- `src/index.css:342-349` (inside `@layer base` at `677057d`) sets only `min-height: 100vh` on `html`, `body` and `#root`. `.onboarding-welcome { height: 100% }` therefore resolves to `auto`, and the footer scrolls away with the content.
 - `.onboarding-welcome-split` already scrolls (`overflow-y: auto`, `min-height: 0`, `flex: 1`). Once the shell is pinned, only the middle scrolls.
 - On macOS the control panel is frameless with `trafficLightPosition: { x: 20, y: 20 }` (`src/helpers/windowConfig.js:241-245`). The lights cover about 20–72px from the window's left edge.
 
@@ -4997,6 +5018,8 @@ git commit -m "fix(a11y): keyboard-selectable model cards with a named delete"
 
 Covers SET-Q16, plus the `ml-2` RTL leak in the same file (part of SET-Q6).
 
+The owner approved this behaviour as **D13** (CCR 3): manual checks stay available when automatic updates are off, nothing downloads without an explicit click, and the rule pinned at `test/helpers/updateManager.test.js:187` is replaced.
+
 **Files:**
 - Modify: `src/helpers/updateManager.js`. Change `preferences()` (lines 92–111) and `check()` (lines 124–171).
 - Modify: `src/types/updates.ts:2`. Add `"available"` to `phase`.
@@ -6500,21 +6523,19 @@ Check each of these, and screenshot the starred ones for the PR:
   - System → updates: with automatic off, Check for Updates works and shows "available" plus the GitHub link.
   - Custom endpoint: with an empty URL, there is no "We'll query" line.
 
-- [ ] **Step 3: Record contract dispositions, and update the spec only for approved CCRs**
+- [ ] **Step 3: Confirm the spec is untouched**
 
-For each Contract change request (1–6), record the owner's decision (approved, rejected, or deferred) in `pr-body.md`. Then, only for the approved ones, edit `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` in this PR, as §5 requires:
-- **CCR 1:** add "§5.5 Interruption notifications (owner: Plan 02; consumer: Plan 04)" with the signature, and note that it is action-less.
-- **CCR 2:** add `--color-input-border` to the "Motion and colour tokens" row, and note the light ring and status-foreground values.
-- **CCR 4:** replace the §3 graph with `01 → 02 → {03, 04, 05, 06}`, and change "Plans 01 and 02 can run in parallel worktrees" to say that 02 follows 01's merge.
-- **CCR 5:** add "§5.6 Stored audio (owner: Plan 02; consumer: Plan 03)" with the four signatures.
+The owner decided every CCR (see "Contract change requests"). D13 is already in the spec, and CCRs 1, 4, 5 and 6 arrive in the owner's consolidated spec update. This PR must not edit the spec, so this command must print nothing:
 
-Rejected or deferred CCRs leave the spec untouched; the PR description says so. Verify with `git diff --stat docs/superpowers/specs`, which should list only the spec file, and only when at least one CCR is approved.
+```bash
+git diff --stat origin/snowopsdev/feat/uiux-foundations...HEAD -- docs/superpowers/specs
+```
 
 - [ ] **Step 4: Commit any fixes, then prepare the PR (owner approval first)**
 
 `pr-body.md`:
 - lists one line per Tasks 1–20 commit;
-- records each CCR's disposition (Step 3);
+- links the CCR dispositions in the plan;
 - links the spec and this plan;
 - carries the Contract change requests section verbatim;
 - embeds the Step 2 screenshots;

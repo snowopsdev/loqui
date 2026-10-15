@@ -1,25 +1,36 @@
 // Reads custom-property declarations from a named top-level CSS block so
 // contrast tests score the tokens the app actually ships, not copies.
-function blockBody(cssText, selector) {
-  const lines = cssText.split("\n");
-  const start = lines.findIndex((line) => line.trim() === `${selector} {`);
-  if (start === -1) throw new Error(`No block for selector ${selector}`);
+// Comments are stripped first; only blocks at brace depth 0 match, so a
+// selector nested in @media or another rule is ignored.
+function topLevelBlockBody(cssText, selector) {
+  const css = cssText.replace(/\/\*[\s\S]*?\*\//g, "");
   let depth = 0;
-  const body = [];
-  for (let i = start; i < lines.length; i++) {
-    for (const ch of lines[i]) {
-      if (ch === "{") depth++;
-      if (ch === "}") depth--;
+  let prelude = "";
+  let bodyStart = -1;
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i];
+    if (ch === "{") {
+      if (depth === 0) {
+        if (prelude.trim() === selector) bodyStart = i + 1;
+        prelude = "";
+      }
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        if (bodyStart !== -1) return css.slice(bodyStart, i);
+        prelude = "";
+      }
+    } else if (depth === 0) {
+      prelude = ch === ";" ? "" : prelude + ch;
     }
-    if (i > start) body.push(lines[i]);
-    if (depth === 0) break;
   }
-  return body.join("\n");
+  throw new Error(`No block for selector ${selector}`);
 }
 
 function readTokens(cssText, selector) {
   const out = {};
-  for (const m of blockBody(cssText, selector).matchAll(/(--[\w-]+):\s*([^;]+);/g)) {
+  for (const m of topLevelBlockBody(cssText, selector).matchAll(/(--[\w-]+)\s*:\s*([^;}]+)/g)) {
     out[m[1]] = m[2].trim();
   }
   return out;

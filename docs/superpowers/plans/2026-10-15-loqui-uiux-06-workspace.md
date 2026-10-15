@@ -20,17 +20,19 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`:
 - the Plan 06 row in §3;
-- decisions D1, D4 and D10 in §2;
+- decisions D1, D4, D10 and D11 in §2;
 - the global constraints in §4;
-- the contracts in §5.1 and §5.3.
+- the contracts in §5 (the Plan 01 table), §5.1, §5.3, §5.4 and §5.7–§5.10, as consolidated in spec commit 091d198.
 
 The visual acceptance reference is `design-explorations/loqui-uiux-review.html#ch-workspace`, using the picked variant card for each rec. Where a mock and its card's spec list disagree, this plan follows the spec list. The evidence base is `.omc/research/ui-review/audit-workspace.md` and `screens/ws-*.png`. Both live in the `t3-5038e8e6` worktree and are untracked.
 
 **Builds on:**
 - Plan 01, the tokens contract: `--motion-*`, `--color-cta*`, `--color-live*`, `--color-nav-marker`, `--color-locality-*`, `Button variant="live"`, `src/lib/locality.ts`, `LocalityRing`, `LevelBars`, `src/utils/contrast.ts`, `test/helpers/harness/cssTokens.js`.
-- Plan 02, which owns WS-Q1 (ticking "now"), WS-Q5 (the textarea composer) and WS-Q7 (removing the Notes gate).
-- Plan 03, which owns §5.1 `useResolvedRoute`.
+- Plan 02, which owns WS-Q1 (ticking "now"), WS-Q5 (the textarea composer) and WS-Q7 (removing the Notes gate). Plan 06 owns WS-Q7's Notes readiness handoff (§5.1, Task 26).
+- Plan 03, which owns §5.1: `useResolvedRoute`, `routeSnapshotFromSettings` and the route chips.
 - Plan 04, which owns §5.3 `notify`.
+
+**Execution order** (spec §3): 01 → 02 → 03, then 04, 05, 06 and 07 in parallel, each rebased onto 03 before it starts; 08 runs after 06. Where Plan 06 meets 04 or 05 (the capture status bridge, §5.7), whichever merges second wires the real contract and deletes its fallback. Plan 06's fallback is Task 6's mapping of unknown lifecycle states to Ready.
 
 ---
 
@@ -69,17 +71,17 @@ Every Important finding is closed. Minor findings M01–M03 are closed, and so i
 
 ## Contract change requests
 
-The spec owner should apply these to §3 and §5. Until then, this plan codes against the names below. Plan 03 has already accepted CR-06-2 and CR-06-5 (P03:51-73).
+**All eight requests are applied in spec commit 091d198.** The spec's §5 now holds the binding shapes; this section keeps the rationale. Where this plan and the spec disagree, the spec wins.
 
-**Proposed §5 numbering, once for all plans.** Spec §5 stops at §5.4 today, and Plans 02, 06 and 08 each proposed overlapping §5.5/§5.6 names. This plan proposes: §5.5 System notifications (Plan 02), §5.6 Capture status bridge (CR-06-3), §5.7 Workspace token guard (CR-06-6), §5.8 Space surface (CR-06-7), §5.9 Entity mention links (CR-06-8), §5.10 Labs flags (Plan 08 CCR-3). The final numbers are the spec owner's call; the CR ids below stay stable whatever numbers they get.
+**Numbering.** The proposal this section used to carry is superseded by the spec owner's numbering: §5.5 System notifications (Plan 02), §5.6 Stored audio (Plan 02), §5.7 Capture status bridge (CR-06-3), §5.8 Workspace token guard (CR-06-6), §5.9 Space surface (CR-06-7), §5.10 Entity mention links (CR-06-8), §5.11 Labs flags (Plan 08). Every § reference in this plan uses these numbers.
 
-1. **CR-06-1. Add a Plan 02 → Plan 06 edge to §3 (owner: Plan 02; consumer: 06).** Plan 06 builds on WS-Q1, WS-Q5 and WS-Q7, but the §3 graph only gates 06 on 01 and 03. Plan 06 consumes these names from Plan 02:
+1. **CR-06-1. Add a Plan 02 → Plan 06 edge to §3 (owner: Plan 02; consumer: 06). Applied in spec §3 (091d198)**, which records 01 → 02 → 03 → {04, 05, 06, 07} and names Plan 02's harness. Plan 06 builds on WS-Q1, WS-Q5 and WS-Q7, but the §3 graph only gates 06 on 01 and 03. Plan 06 consumes these names from Plan 02:
    - `src/hooks/useNow.ts`: `export function useNow(intervalMs?: number): Date`. Tasks 11 and 12 read "now" from it.
    - `ChatInput.tsx` after WS-Q5 (Plan 02 Task 12): the `inputText`/`setInputText` and `queued`/`setQueued` state pairs, `inputRef`, `handleKeyDown` (with its `isComposing` check), the async `handleSubmit` that restores the draft on refusal, and the props `agentState`, `onTextSubmit`, `onCancel`, `autoFocus`, `placeholder`, `className` and `voiceDraft`. Tasks 4 and 22 add props on top of them.
    - The focus rule `focus-visible:ring-2 focus-visible:ring-ring` (Plan 02 Task 3).
    - The test harness files `test/helpers/harness/rendererMocks.js` (`rendererOptions`, `TOAST_MOCK`) and `test/helpers/harness/fakeDomTree.js` (`installTree`). Tasks 4 and 22 mount the composer with them.
-2. **CR-06-2. Extend §5.1 (owner: Plan 03). Accepted by Plan 03.** Any `ResolvedRoute.settingsPath` value is a valid `SettingsModal` `initialSection`. Plan 06 opens Settings from the chat model chip, the mic card and the slash menu's `setupAi` item with `onOpenSettings(route.settingsPath)`. The spec text still needs the line.
-3. **CR-06-3. §5.6 "Capture status bridge" (owner: Plan 06; consumers: 04, 05).** Plan 06 adds these preload methods (Task 5):
+2. **CR-06-2. Extend §5.1 (owner: Plan 03). Applied in spec §5.1 (091d198):** `settingsPath` is "always a valid SettingsModal initialSection". Plan 06 opens Settings from the chat model chip, the mic card, the slash menu's `setupAi` item and the Notes Actions hint with `onOpenSettings(route.settingsPath)`.
+3. **CR-06-3. "Capture status bridge" (owner: Plan 06; consumers: 04, 05). Applied in spec §5.7 (091d198).** Plan 06 adds these preload methods (Task 5):
 
    ```ts
    type DictationLifecycleSnapshot = {
@@ -93,9 +95,9 @@ The spec owner should apply these to §3 and §5. Until then, this plan codes ag
    ```
 
    Plan 04 adds `cancelled` (§5.2), which reaches the control panel through the same channel. Plan 06 maps any state it does not know to "ready". Plans 04 and 05 should reuse this channel rather than add a second relay. `inputKind` is what lets the mic card name the right route (I13).
-4. **CR-06-4. Add to the §5 Plan 01 token table, marked "added by Plan 06".** The new tokens are `--color-ai`, `--color-ai-text`, `--color-agent`, `--color-agent-text`, and the UI type ramp `--text-display|title|heading|body|ui|caption|micro`, which carries line-height, weight and tracking. They are additive: the ramp never redefines Tailwind's `--text-xs…--text-9xl` (Task 25 tests this). This request creates **no dependency** of Plans 04 or 05 on Plan 06. They may adopt the aliases after Plan 06 merges, and the existing `--color-agent-brand` stays valid until an agreed migration.
-5. **CR-06-5. Extend §5.1 (owner: Plan 03): `providerId: string | null` on `ResolvedRoute`. Accepted by Plan 03.** UI names providers with `providerDisplayLabel(route.providerId, t)` (Plan 01), which localises "Custom endpoint" and "Unknown provider". `provider` stays for logs. Plans 04, 05 and 08 should do the same.
-6. **CR-06-6. §5.7 "Workspace token guard" (owner: Plan 06; consumers: every plan that edits a workspace file, Plan 08 first).** This settles the Plan 08 Task 10 collision on `TranscriptionItem.tsx`.
+4. **CR-06-4. Add to the §5 Plan 01 token table, marked "added by Plan 06". Applied in spec §5, Plan 01 contracts, "Motion and colour tokens" row (091d198).** The new tokens are `--color-ai`, `--color-ai-text`, `--color-agent`, `--color-agent-text`, and the UI type ramp `--text-display|title|heading|body|ui|caption|micro`, which carries line-height, weight and tracking. They are additive: the ramp never redefines Tailwind's `--text-xs…--text-9xl` (Task 25 tests this). This request creates **no dependency** of Plans 04 or 05 on Plan 06. They may adopt the aliases after Plan 06 merges, and the existing `--color-agent-brand` stays valid until an agreed migration.
+5. **CR-06-5. Extend §5.1 (owner: Plan 03): `providerId: string | null` on `ResolvedRoute`. Applied in spec §5.1 (091d198).** UI names providers with `providerDisplayLabel(route.providerId, t)` (Plan 01), which localises "Custom endpoint" and "Unknown provider". `provider` stays for logs. Plans 04, 05 and 08 should do the same.
+6. **CR-06-6. "Workspace token guard" (owner: Plan 06; consumers: every plan that edits a workspace file, Plan 08 first). Applied in spec §5.8 (091d198).** This settles the Plan 08 Task 10 collision on `TranscriptionItem.tsx`.
    - **Module:** `test/helpers/workspaceTokenGuard.js` (Task 25) exports `LINE_RULES`, `LIVE_GLASS_ALLOWED`, `WORKSPACE_GUARDED_FILES`, `scanText(file, text)` and `scanFiles(files)`. `test/components/workspaceTokenAdoption.test.js` asserts `scanFiles(WORKSPACE_GUARDED_FILES)` is `[]`.
    - **What it rejects**, by rule id:
 
@@ -119,11 +121,11 @@ The spec owner should apply these to §3 and §5. Until then, this plan codes ag
    - **How Plan 08 complies** (its Task 10 already says it codes against this guard):
      - `TranscriptionItem.tsx` raw paragraph: Plan 06 Task 12 sets it to exactly `mt-1 text-caption leading-relaxed text-muted-foreground`. Plan 08's `RAW_TEXT_CLASS` uses that string.
      - `TranscriptionItem.tsx` list paragraph: Plan 06 Task 12 sets `text-body line-clamp-4 wrap-break-word whitespace-pre-wrap text-foreground` with `onClick={copyUnlessSelecting}`. Plan 08's `ConfidenceText` branch and its plain `<p>` branch use that className and keep the `onClick`, instead of the pre-Plan 06 `text-base leading-normal …` it quotes.
-     - Confidence styling that genuinely needs faded text (low-confidence words) uses a reasoned opt-out, for example `token-guard: allow faded-foreground — low-confidence word (Labs, Plan 08)`. `ConfidenceText.tsx` is not in scope unless Plan 08 adds it.
+     - Confidence typography (WS-M4) is on hold (spec D11), so Plan 08 ships no `ConfidenceText` branch for now. If WS-M4 returns, faded low-confidence words use a reasoned opt-out, for example `token-guard: allow faded-foreground — low-confidence word (Labs, Plan 08)`.
      - Plan 08's new files (`src/components/table/*`, `ConfidenceText.tsx`, `ConfidenceWordPopover.tsx`, `TranscriptDiff.tsx`) may opt in by calling `scanFiles([...])` in their own test; Plan 06 does not add them to its list. If opted in, `TableViewSwitch`'s `text-foreground/60` (P08 Task 17) fails `faded-foreground` and should become `text-muted-foreground`.
      - `HistoryMenu.tsx` (Plan 06 Task 12) is in scope through `home/`. Plan 08's added checkbox row passes as long as it reuses the existing row classes.
-7. **CR-06-7. §5.8 "Space surface" (owner: Plan 06; consumer: Plan 08). Accepts Plan 08 CCR-1's second option.** Plan 06 keeps `ContainerOverview` (`src/components/notes/overview/ContainerOverview.tsx`) with its props unchanged, `{ space, folder, onOpenNote, onNewNote, onAddExisting }`. `PersonalNotesView` renders it as the Space root whenever no note is open. Task 9 removes the second column and the duplicate tree, not the overview. Plan 08 mounts its view switch in the overview's header.
-8. **CR-06-8. §5.9 "Entity mention links" (owner: Plan 06; consumers: Plan 08, any later plan that links entities).** Accepts Plan 08 CCR-2. Published from `src/utils/mentionMarkdown.ts` (Task 17):
+7. **CR-06-7. "Space surface" (owner: Plan 06; consumer: Plan 08). Applied in spec §5.9 (091d198).** Accepts Plan 08 CCR-1's second option. Plan 06 keeps `ContainerOverview` (`src/components/notes/overview/ContainerOverview.tsx`) with its props unchanged, `{ space, folder, onOpenNote, onNewNote, onAddExisting }`. `PersonalNotesView` renders it as the Space root whenever no note is open. Task 9 removes the second column and the duplicate tree, not the overview. Plan 08 mounts its view switch in the overview's header.
+8. **CR-06-8. "Entity mention links" (owner: Plan 06; consumers: Plan 08, any later plan that links entities). Applied in spec §5.10 (091d198).** Accepts Plan 08 CCR-2. Published from `src/utils/mentionMarkdown.ts` (Task 17):
    - the href scheme `<kind>:<positiveInt>`, with `kind` one of `note | meeting | dictation | folder`, stored in Markdown as `[@Label](note:17)` with the label escaped by `markdownLabel`;
    - `export type MentionKind = "person" | "note" | "meeting" | "dictation" | "folder";` and `export const ENTITY_MENTION_KINDS`;
    - `export function parseMentionHref(href: string | null | undefined): Omit<MentionEntity, "label"> | null`, which returns `null` for anything that is not an entity or a person mention;
@@ -146,6 +148,9 @@ These are copied from spec §4 and Plan 01, plus the rules this plan adds.
   - Strings are added with Plan 03's merge helper in `--strict` mode (Task 1): `node scripts/merge-locale-keys.js --strict <fragment.json>`.
 - RTL: use logical properties (`ms-`/`me-`, `ps-`/`pe-`, `start`/`end`, `inset-inline-*`).
 - Focus: every new or changed interactive element uses Plan 02's `focus-visible:ring-2 focus-visible:ring-ring`, never a translucent ring (`ring-ring/50`). The Task 25 guard enforces it.
+- **Route disclosure (§5.1).** Wherever Plan 06 shows where a route goes (the chat model chip, the per-answer stamp, the mic card), it uses Plan 03's `RouteDestinationChip` and, when the route is not ready, `RouteStateChip`. It builds no chip of its own. Stored history rows (Task 12) show a recorded locality, not a route, so they keep `LocalityRing`.
+- **Unknown is not ready (§5.1 rule 1).** A route in `unknown` renders as Plan 03's neutral "Checking…" chip, or as nothing (the Notes hint), and never as ready or as a fix to make.
+- **Sealed (§5.4).** Sealed mode blocks both `network` and `remote`. Plan 06 learns about it only through route states (`unreachable`/`sealed`, §5.1 rule 7). It never calls `privacy.getSealed` or `onSealedChange`, never passes `sealed` to `buildRouteSnapshot`, and if it ever needs the flag directly it reads `src/stores/sealedStore.ts` and nothing else.
 - Provider names shown in the UI always come from `providerDisplayLabel(providerId, t)` (`src/lib/locality.ts`, Plan 01). `providerDisplayName` is for logs and other non-UI uses only. The Task 25 guard enforces this in workspace files.
 - Never use personal profiles in tests.
 - Tests: run `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the desktop app. Node is `~/.nvm/versions/node/v24.21.0/bin` (`.node-version` 24.21.0).
@@ -167,10 +172,13 @@ test -f src/hooks/useNow.ts && grep -q "export function useNow" src/hooks/useNow
 grep -q "<textarea" src/components/chat/ChatInput.tsx && grep -q "const \[queued, setQueued\]" src/components/chat/ChatInput.tsx && echo "plan02 composer ok"
 test -f test/helpers/harness/rendererMocks.js && test -f test/helpers/harness/fakeDomTree.js && echo "plan02 harness ok"
 test -f scripts/merge-locale-keys.js && test -f test/scripts/mergeLocaleKeys.test.js && echo "plan03 locale helper ok"
+grep -q "export function RouteDestinationChip" src/components/settings/routing/RouteChips.tsx && grep -q "export function routeSnapshotFromSettings" src/lib/routes.ts && test -f test/lib/routeFixtures.js && echo "plan03 chips and snapshot ok"
+test -f src/hooks/useNoteActionsReady.ts && echo "plan02 notes readiness ok (Task 26 replaces it)"
+test -f src/utils/afterSetupIntent.ts && echo "plan05 merged: carry its after-setup effect (Task 7)" || echo "plan05 not merged: nothing to carry"
 test -f src/components/ui/notices.ts && echo "plan04 notices merged" || echo "plan04 not merged: keep useToast"
 ```
 
-All nine "ok" lines must print. If one is missing, stop and report which plan is not merged, or that CR-06-5 has not been applied. Do not stub its interface, and do not add `providerId` to Plan 03's module from this plan.
+All eleven "ok" lines must print. If one is missing, stop and report which plan is not merged, or that CR-06-5 has not been applied. Do not stub its interface, and do not add `providerId` to Plan 03's module from this plan.
 
 If `src/components/ui/notices.ts` exists, use `notify({ kind: "receipt", title })` wherever this plan writes `toast({ title, ... })`, `notify({ kind: "alert", ... })` for destructive toasts, and `notify({ kind: "notice", ... })` otherwise.
 
@@ -221,6 +229,7 @@ These resolve conflicts between picks, or gaps between a mock and the code. Each
 17. **R2 A's "actions at 40% opacity" is overridden** (review I14). It composites to about 1.95:1, under the 3:1 floor, so row actions rest at full `text-muted-foreground`. They stay visible at rest, which was the intent.
 18. **Ask AI goes to the note's embedded chat**, opened as the floating panel so the seeded composer is on screen (review I05). The bottom ask bar is not seeded.
 19. **The mic card names the routes of the capture in progress** (review I13): the meeting route while a meeting records, the dictation route while dictating, and the assistant or translation route as the text route when that input kind is live.
+20. **The Notes Actions hint sits at the top of the Notes column.** Task 9 removes the second column that held Plan 02's Actions button and hint. The hint moves to the top of the editor column (Task 9), and Task 26 drives it from the route. The Actions manager stays reachable from the `ActionPicker` and the slash menu.
 
 ## Review Focus
 
@@ -235,7 +244,8 @@ These are the input classes most likely to bite a real user that no recommendati
 4. **Stale persisted state at launch.** The cases are a saved view id that no longer exists (`upload` still exists; a future rename must not crash), a saved note id that was deleted, and corrupt `localStorage`. Each falls back to Home or the notes overview. Pinned in Task 3 (`workspaceView.test.js`).
 5. **Async work that outlives the user's intent.** Stop or unmount while pinned context loads, a newer send, a route changed in Settings mid-request, a refused send landing after a seed, a launch restore racing the tree. Each has a deferred-promise test on the real hook or store (Tasks 3, 4, 21, 22).
 6. **Pointer and keyboard paths into editor chrome.** Bubble-toolbar clicks, the URL field and the mention hover card must keep focus where the user put it, across the gap and with Tab and Escape (Tasks 16, 18).
-7. **Shortcuts while a dialog or a text composition is active.** `⌘1`–`⌘3`, `⌘\`, `⌘N` and `⌘⇧N` must not switch views behind an open Settings dialog or palette, or while an IME composition is in progress. Pinned in Task 4 (`workspaceShortcuts.test.js`).
+7. **A route main has not confirmed yet (`unknown`).** Right after launch every route can be `unknown`. The chat chip and the mic card must show "Checking…", the slash menu must disable AI items without a "Set up" item, and the Notes hint must show nothing. Pinned in Tasks 8, 15, 21 and 26.
+8. **Shortcuts while a dialog or a text composition is active.** `⌘1`–`⌘3`, `⌘\`, `⌘N` and `⌘⇧N` must not switch views behind an open Settings dialog or palette, or while an IME composition is in progress. Pinned in Task 4 (`workspaceShortcuts.test.js`).
 
 ---
 
@@ -285,7 +295,7 @@ Regenerated from every task's **Files** block (review M04).
 | `src/components/chat/ragContext.ts` | RAG prompt block plus the notes it used, with escaped titles (Task 19) |
 | `src/components/chat/remarkCitations.ts` | remark plugin turning `[note:ID]` into citation nodes (Task 20) |
 | `src/components/chat/SourcesRow.tsx` | Source chips with hover quote (Task 20) |
-| `src/components/chat/ChatModelChip.tsx` | Resolved chat model with `LocalityRing` (Task 21) |
+| `src/components/chat/ChatModelChip.tsx` | Resolved chat route through Plan 03's `RouteDestinationChip`/`RouteStateChip`, and the per-answer `RouteTag` (Task 21) |
 | `src/components/chat/messageRoute.ts` | `toMessageRoute`, shared by the chip and the stream's route stamp (Task 21) |
 | `src/components/chat/contextRail.ts` | Rail model: pinned, found, activity (Task 22) |
 | `src/components/chat/ChatContextRail.tsx` | Collapsible right rail (Task 22) |
@@ -293,10 +303,12 @@ Regenerated from every task's **Files** block (review M04).
 | `src/components/insights/MetricCard.tsx` | Stat tile, optionally a button to filtered History (Task 23) |
 | `src/components/notes/UploadDropZone.tsx` | Drop zone with a disabled state and inline fix (Task 24) |
 | `src/components/ui/DataRetentionNotice.tsx` | Shared retention banner with tokens (Task 25) |
+| `src/components/notes/notesActionsHint.ts` | Route state → Notes Actions hint copy; `off` disables Actions (Task 26) |
+| `src/components/notes/NotesActionsHint.tsx` | The Notes Actions hint row (Task 26) |
 
 **Created (test helpers):** `test/helpers/harness/mountComposer.js` (mounted `ChatInput` on Plan 02's harness; Tasks 4 and 22) and `test/helpers/workspaceTokenGuard.js` (the CR-06-6 guard; Task 25).
 
-**Deleted:** `src/components/notes/NewNoteMenu.tsx` and `test/components/newNoteMenu.test.js` (replaced by `CaptureMenu`, Task 7).
+**Deleted:** `src/components/notes/NewNoteMenu.tsx` and `test/components/newNoteMenu.test.js` (replaced by `CaptureMenu`, Task 7); Plan 02's temporary `src/hooks/useNoteActionsReady.ts` and `src/utils/noteActionsReadiness.ts` (replaced by the route, Task 26).
 
 **Modified, by area:**
 - **Build and docs:** `scripts/merge-locale-keys.js` (Plan 03's file, `--strict` added, Task 1), `package.json` and `package-lock.json` (Task 16), `DESIGN.md` (Tasks 2, 14, 25), `src/index.css` (Tasks 2, 8, 12, 14, 16, 20), `src/components/lib/utils.ts` (`cn` learns the ramp, Task 2), `docs/PRIVACY.md` (chat stores source titles and excerpts locally, Task 19), `src/locales/*/translation.json`.
@@ -304,10 +316,10 @@ Regenerated from every task's **Files** block (review M04).
 - **Stores and hooks:** `src/stores/noteStore.ts` (`openNoteById`, `restoreLaunchNote`, Task 3), `src/stores/transcriptionStore.ts` (`revealTranscription`, Task 12), `src/hooks/useCollapsibleSidebar.ts` (Task 9), `src/hooks/useCreateNote.ts` (Task 7).
 - **Shell:** `src/components/ControlPanel.tsx` (Tasks 3, 4, 7, 9, 11), `ControlPanelSidebar.tsx`, `ControlPanelTopBar.tsx`, `controlPanelNav.ts`, and `icons` if it lacks `CalendarDays` (Task 9).
 - **Home, palette, Insights, Upload:** `HistoryView.tsx` (Tasks 11, 12, 25), `UpcomingMeetings.tsx` (Task 11), `ui/TranscriptionItem.tsx` (Task 12), `CommandSearch.tsx` (Task 13), `InsightsView.tsx` (Tasks 23, 25), `notes/UploadAudioView.tsx` (Task 24).
-- **Notes and editor:** `notes/PersonalNotesView.tsx` (Tasks 9, 15), `notes/SpacesTree.tsx` (Task 9), `notes/NoteEditor.tsx` (Tasks 14, 15, 16), `notes/EmbeddedChat.tsx` (Task 16), `ui/RichTextEditor.tsx` (Tasks 15, 16, 18, 22), `ui/RichTextEditorMention.tsx` (Tasks 15, 17, 18), `ui/MentionSuggestions.tsx`, `ui/MentionChip.tsx` (Task 18), `utils/mentionMarkdown.ts` (Task 17).
+- **Notes and editor:** `notes/PersonalNotesView.tsx` (Tasks 9, 15, 26), `notes/shared.ts` (Task 26), `notes/SpacesTree.tsx` (Task 9), `notes/NoteEditor.tsx` (Tasks 14, 15, 16), `notes/EmbeddedChat.tsx` (Task 16), `ui/RichTextEditor.tsx` (Tasks 15, 16, 18, 22), `ui/RichTextEditorMention.tsx` (Tasks 15, 17, 18), `ui/MentionSuggestions.tsx`, `ui/MentionChip.tsx` (Task 18), `utils/mentionMarkdown.ts` (Task 17).
 - **Chat:** `ui/MarkdownRenderer.tsx` (Task 20), `chat/ChatView.tsx` (Tasks 4, 19, 20, 21, 22), `chat/ChatMessages.tsx` (Task 20), `chat/ChatMessage.tsx` (Tasks 20, 21, 22), `chat/ChatInput.tsx` (Tasks 4, 22), `chat/types.ts`, `chat/useChatPersistence.ts` (Task 19), `chat/useChatStreaming.ts` (Tasks 19, 21, 22), `services/ReasoningService.ts`, `config/prompts/index.ts`, `config/prompts.ts` (Task 19).
 - **Token adoption only (Task 25):** whatever else the guard reports, including `IntegrationsView.tsx`, `DictionaryView.tsx` and `SnippetsView.tsx`.
-- **Existing tests extended:** `test/helpers/useChatStreamingCancellation.test.js` (Tasks 21, 22), `test/utils/mentionMarkdown.test.js` (Task 17), `test/helpers/windowManagerAssistantPanel.test.js`, `test/helpers/agentDictationPillIpc.test.js`, `test/helpers/preloadAuthBridge.test.js` (Task 5).
+- **Existing tests extended or trimmed:** `test/helpers/useChatStreamingCancellation.test.js` (Tasks 21, 22), Plan 02's `test/components/notesActionsGate.test.js` (Task 26), `test/utils/mentionMarkdown.test.js` (Task 17), `test/helpers/windowManagerAssistantPanel.test.js`, `test/helpers/agentDictationPillIpc.test.js`, `test/helpers/preloadAuthBridge.test.js` (Task 5).
 
 ---
 
@@ -6066,7 +6078,7 @@ This covers WS-R5 A, WS-Q3 (palette side: deep-link plus match highlight), WS-10
 - Produces `src/components/commandSearch/commands.ts`:
 
   ```ts
-  export interface CommandDeps { toggleDictation(): void; toggleTheme(): void }
+  export interface CommandDeps { toggleDictation(): void; toggleTheme(): void; speechSettingsPath(): string }
   export interface WorkspaceCommand {
     id: "newNote" | "startDictation" | "askAssistant" | "goNotes" | "goHome" | "goChat" | "recordMeeting"
       | "uploadAudio" | "newChat" | "openSettings" | "switchSpeechModel" | "toggleTheme";
@@ -6195,8 +6207,13 @@ test("commands only navigate or toggle; none sends content anywhere", async () =
   const { WORKSPACE_COMMANDS } = await loadCommands();
   const calls = [];
   const nav = new Proxy({}, { get: (_, name) => (...args) => calls.push([name, ...args]) });
-  const deps = { toggleDictation: () => calls.push(["toggleDictation"]), toggleTheme: () => calls.push(["toggleTheme"]) };
+  const deps = {
+    toggleDictation: () => calls.push(["toggleDictation"]),
+    toggleTheme: () => calls.push(["toggleTheme"]),
+    speechSettingsPath: () => "stt/dictation",
+  };
   for (const command of WORKSPACE_COMMANDS) command.run(nav, deps);
+  assert.ok(calls.some(([name, arg]) => name === "openSettings" && arg === "stt/dictation"), "Switch speech model opens the dictation route's settingsPath (§5.1)");
   const allowed = new Set([
     "newNote", "toggleDictation", "focusAssistant", "openView", "recordMeeting", "openUpload", "startChat", "openSettings", "toggleTheme",
   ]);
@@ -6365,6 +6382,8 @@ Expected: FAIL with `Cannot find module` for all three.
    export interface CommandDeps {
      toggleDictation(): void;
      toggleTheme(): void;
+     /** The dictationStt route's settingsPath, read at click time (§5.1). */
+     speechSettingsPath(): string;
    }
 
    export interface WorkspaceCommand {
@@ -6393,14 +6412,14 @@ Expected: FAIL with `Cannot find module` for all three.
      { id: "uploadAudio", labelKey: k("uploadAudio"), keywords: ["file", "import", "audio"], shortcut: "uploadAudio", icon: Upload, run: (nav) => nav.openUpload() },
      { id: "newChat", labelKey: k("newChat"), keywords: ["conversation", "assistant"], shortcut: "newChat", icon: MessageSquarePlus, run: (nav) => nav.startChat() },
      { id: "openSettings", labelKey: k("openSettings"), keywords: ["preferences", "options"], shortcut: "openSettings", icon: Settings, run: (nav) => nav.openSettings() },
-     { id: "switchSpeechModel", labelKey: k("switchSpeechModel"), keywords: ["model", "transcription", "whisper", "parakeet"], icon: Cpu, run: (nav) => nav.openSettings("transcription") },
+     { id: "switchSpeechModel", labelKey: k("switchSpeechModel"), keywords: ["model", "transcription", "whisper", "parakeet"], icon: Cpu, run: (nav, deps) => nav.openSettings(deps.speechSettingsPath()) },
      { id: "toggleTheme", labelKey: k("toggleTheme"), keywords: ["dark", "light", "appearance", "theme"], icon: SunMoon, run: (_nav, deps) => deps.toggleTheme() },
    ];
 
    export const SUGGESTED_COMMAND_IDS: readonly WorkspaceCommand["id"][] = ["newNote", "startDictation", "askAssistant", "goNotes"];
    ```
 
-   `"transcription"` is a legacy section alias that `SettingsModal` already accepts (`SECTION_ALIASES`). If CR-06-2 lands, `nav.openSettings(resolveRoute(snapshot, "dictationStt").settingsPath)` is equivalent. Keep the alias here, because it needs no settings snapshot.
+   Spec §5.1 guarantees that a route's `settingsPath` is a valid `SettingsModal` section, so the command opens the dictation route's own page instead of the legacy `"transcription"` alias, which Plan 03's restructured Settings need not keep.
 
 3. Create `src/components/commandSearch/paletteSections.ts`:
 
@@ -6580,6 +6599,9 @@ Expected: FAIL with `Cannot find module` for all three.
      const deps: CommandDeps = {
        toggleDictation: () => void window.electronAPI?.toggleDictationFromControlPanel?.(),
        toggleTheme: () => setTheme(document.documentElement.classList.contains("dark") ? "light" : "dark"),
+       // Click-time read (§5.1): no subscription, no IPC. Import resolveRoute and
+       // routeSnapshotFromSettings from ../lib/routes.
+       speechSettingsPath: () => resolveRoute(routeSnapshotFromSettings(useSettingsStore.getState()), "dictationStt").settingsPath,
      };
      const sections: PaletteSection[] = useMemo(
        () =>

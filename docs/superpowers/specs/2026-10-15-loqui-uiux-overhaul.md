@@ -62,6 +62,10 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
 - **D2, VO-R12 A "Recorder capsule" is a state of the existing pill window, not a second always-on-top window.** *(Confirmed.)*
   - The pill shows a red-orange dot, mm:ss and Stop while a meeting records, and dictation still works from it.
   - Linux fallbacks: the tray icon shows a recording state, and a persistent notification has a Stop action.
+    - *Spec-owner clarification, 2026-10-15:* the Stop action appears where the notification server advertises `actions` (freedesktop `GetCapabilities`).
+    - Where it does not, or where publishing fails, the persistent notification still shows without actions, and clicking it brings up the pill with Stop visible.
+    - The tray's Stop is always there.
+    - The Stop transport is session-bound and separate from `showSystemNotification` (§5.5).
   - Interruption alerts go out as native notifications regardless of focus (VO-Q16).
   - There is a setting "Show meeting recorder on screen", on by default.
 - **D3, cancel flow (VO-R6 B + VO-Q8).** *(Confirmed.)*

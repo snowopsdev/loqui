@@ -172,6 +172,30 @@ Depth is layered: light mode uses a subtle card shadow and restrained hover lift
 ### Named Rules
 **The Layered-Not-Floating Rule.** Separate adjacent work areas with tone and borders first. Reserve stronger lift for overlays and deliberate hover states.
 
+## Motion
+
+One language for every surface. **Hue is mode, shape is locality, motion is progress.**
+
+| Token | Value | Use |
+|---|---|---|
+| `--motion-instant` | 90ms | press, colour change |
+| `--motion-fast` | 150ms | hover, label swaps, tooltips |
+| `--motion-base` | 240ms | surface enter, toast, chip |
+| `--motion-slow` | 360ms | morphs, panel growth |
+| `--motion-hero` | 520ms | spring settle (visual length) |
+| `--motion-ease-std` | cubic-bezier(0.2, 0, 0, 1) | movement and morphs |
+| `--motion-ease-enter` | cubic-bezier(0.16, 1, 0.3, 1) | things arriving |
+| `--motion-ease-exit` | cubic-bezier(0.2, 0, 0.4, 1) | things leaving, at ~70% of enter |
+| `--motion-spring-snap` / `-settle` / `-bounce` | CSS `linear()` | press release and morphs / panels / success only |
+
+Rules:
+- First feedback within 50 ms.
+- At most two focal motions at once.
+- Animate only `transform`, `opacity`, `clip-path`, `filter` and registered properties.
+- Loops run only while their state is active and the window is visible.
+- Every motion has a non-motion twin (shape, label or colour).
+- Never ease-in.
+
 ## Shapes
 
 The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px larger cards, and 12px for the inset workspace shell. Primary actions, search, and badges use full capsules. Borders are thin and neutral at rest; active and focus borders take the orange accent. Large 24px corners belong to the animated voice and assistant panels, not ordinary cards.

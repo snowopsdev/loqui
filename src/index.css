@@ -61,6 +61,23 @@
      name and silently retimes every `ease-out` utility app-wide. */
   --onboarding-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
+  /* Loqui Motion (DESIGN.md "Motion"). Prefixed --motion- so Tailwind's own
+     --ease-* theme variables stay untouched. Exits run at ~70% of the enter
+     duration with --motion-ease-exit; never ease-in. Springs are CSS
+     linear() curves: snap at 380ms (+6.6%), settle at 520ms (+8.6%),
+     bounce at 640ms (+19%, success confirmations only). */
+  --motion-instant: 90ms;
+  --motion-fast: 150ms;
+  --motion-base: 240ms;
+  --motion-slow: 360ms;
+  --motion-hero: 520ms;
+  --motion-ease-std: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-exit: cubic-bezier(0.2, 0, 0.4, 1);
+  --motion-spring-snap: linear(0, 0.075, 0.245, 0.446, 0.637, 0.796, 0.915, 0.995, 1.042, 1.063, 1.066, 1.059, 1.047, 1.033, 1.021, 1.011, 1.004, 0.999, 0.997, 0.996, 0.996, 0.996, 0.997, 1);
+  --motion-spring-settle: linear(0, 0.076, 0.251, 0.46, 0.659, 0.824, 0.947, 1.026, 1.07, 1.086, 1.083, 1.07, 1.052, 1.034, 1.019, 1.007, 0.999, 0.995, 0.993, 0.993, 0.994, 0.995, 0.997, 1);
+  --motion-spring-bounce: linear(0, 0.119, 0.386, 0.683, 0.933, 1.1, 1.18, 1.188, 1.152, 1.097, 1.042, 0.999, 0.973, 0.964, 0.966, 0.974, 0.985, 0.995, 1.002, 1.006, 1.007, 1.006, 1.004, 1);
+
   /* Bundled open-source fonts work without network access. */
   --font-family-sans:
     "Inter Variable", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -174,10 +191,17 @@
 @layer base {
   * {
     border-color: var(--color-border);
+  }
+
+  /* Colour feedback belongs to things you can operate. A transition on every
+     element smeared theme switches and re-fired on every per-frame style
+     write (meters, glows). :where() keeps specificity at zero so Tailwind
+     transition utilities still override it. */
+  :where(button, a, input, select, textarea, summary, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"]) {
     transition:
-      background-color 150ms ease,
-      border-color 150ms ease,
-      color 150ms ease;
+      background-color var(--motion-fast) var(--motion-ease-std),
+      border-color var(--motion-fast) var(--motion-ease-std),
+      color var(--motion-fast) var(--motion-ease-std);
   }
 
   body {

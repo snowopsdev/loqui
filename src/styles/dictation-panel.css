@@ -211,7 +211,7 @@
 .assistant-response-actions[data-assistant-footer-phase="actions-exiting"] {
   pointer-events: none;
   animation: assistant-footer-retreat var(--assistant-actions-retreat-duration, 220ms)
-    cubic-bezier(0.4, 0, 1, 1) both;
+    var(--motion-ease-exit) both;
 }
 
 .assistant-pill-presence[data-assistant-footer-phase="pill-entering"] {
@@ -222,7 +222,7 @@
 .assistant-pill-presence[data-assistant-footer-phase="pill-exiting"] {
   pointer-events: none;
   animation: assistant-footer-retreat var(--assistant-pill-retreat-duration, 180ms)
-    cubic-bezier(0.4, 0, 1, 1) both;
+    var(--motion-ease-exit) both;
 }
 
 @keyframes assistant-footer-enter {

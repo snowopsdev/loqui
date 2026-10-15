@@ -392,13 +392,16 @@ onEgress(cb: (notice: EgressNotice) => void): () => void;
 onEgressCleared(cb: () => void): () => void;
 ```
 
-**`Attestation`.** It carries `{ sealed, sealedSince, effectiveSince, phase: "open" | "sealing" | "sealed", failures, notes, loadError, saveError, guards, networkChildren, activeRemote, blockedSinceSealed, recordFailures, version, at, nothingLeaves }`.
+**`Attestation`.** It carries `{ sealed, sealedSince, effectiveSince, phase: "open" | "sealing" | "sealed", failures, notes, loadError, saveError, guards, networkChildren, children, isolation, paused, activeRemote, blockedSinceSealed, recordFailures, version, at, nothingLeaves }`.
+- `children` lists every live native process tree, including descendants whose root has exited, with `{ kind, pid, lifecycle: "starting" | "running" | "draining", isolation: "isolated" | "networkFree" | "pending" | "launchControlled" | "failed" }`. Main owns these facts. An unresolved legacy tree remains represented until its whole exit is proven.
+- `paused` lists `{ kind, reason: "isolation" | "sessionBus", action: "refused" | "stopped" }` only after main refuses admission before launch or confirms whole-tree exit. A draining process is waiting to pause; it is not already paused. The panel names every affected helper and model from these facts, rather than inferring a pause from a failed self-test.
 - `nothingLeaves` is true only when all of these hold:
   - the phase is `"sealed"`;
   - `failures` is empty;
   - every guard is up;
   - no environment proxy is set;
   - nothing remote is left: no ticket, socket, Chromium request, DNS lookup or network child.
+  - every live native tree has verified `isolated` or `networkFree` coverage, including inherited descriptors and host-service IPC. Missing lifecycle/isolation facts, uncontained descendants and unconfined draining trees prevent verification. D16's macOS functionality gate still applies even when no process happens to be running.
 - A claim about past egress is dated from `effectiveSince`, never from `sealedSince`.
 - An attestation older than 30 s (by `at`) is unknown.
 - The UI never claims "0 bytes sent" unless `nothingLeaves` is true.

@@ -7085,17 +7085,23 @@ This task is the dedicated enforcement matrix. It drives the **real registered h
 2. no transport was touched: Electron `net.fetch`/`net.request`, Node `fetch`, an allowed off-host socket, or a spawn;
 3. the ledger holds a `blocked` row with `bytesOut: 0` and the right task.
 
-There are four kinds of extra row:
-- **Prevented rows:** background work that is simply not started.
-- **Loopback rows:** local routes still work.
+There are five kinds of extra row:
+- **Prevented rows:** background work that is simply not started. These execute the production code main runs (the calendar guard, the Codex server factory), never a pattern in a source file.
+- **Loopback rows:** local routes still work, including a local request that is in flight while the seal happens.
 - **Interruption rows:** sealing mid-flight reports `"interrupted"`.
 - **The Layer B row:** a request site nobody gated is still refused.
+- **The confirmed row (N21):** a browser link while sealed reaches the OS only after the main-owned dialog says yes.
 
-A ratchet ties the matrix to the threat model, and to every realtime and proxy channel that `ipcHandlers.js` registers.
+Two checks keep the matrix honest:
+- **Bypass sensitivity.** Every refused row runs a second time with Layer A bypassed (`gate._setBypassForTests(true)`, which authorises as if unsealed). That run must reach a transport, or be refused by Layer B at the socket. A row that does neither never reached its egress point. It was failing on a missing fake, so its "refused" result proved nothing.
+- **Ratchets.** The matrix is tied to the threat model's blocked rows, to every realtime and proxy channel that `ipcHandlers.js` registers, and to every download channel.
+
+**What this task does not prove.** Electron's real Chromium session, ws upgrades, redirects and electron-updater run only in an Electron process. Task 16 covers them with an independent observer.
 
 **Files:**
 - Create: `test/helpers/harness/ipcHandlersHarness.js`. It loads `IPCHandlers.prototype.setupHandlers` with an Electron stub, generalised from `test/helpers/granolaImportIpc.test.js:1-98`.
 - Test: `test/helpers/sealedModeEnforcement.test.js`
+- Modify: `docs/security/sealed-mode-threat-model.md` (Task 1): add the test name to each row's "Test" column.
 
 **Interfaces:**
 - Produces `loadIpcHandlers({ electron, managers }) → { invoke(channel, ...args), send(channel, ...args), channels(): string[], restore() }`. It is a test helper only.
@@ -7214,6 +7220,9 @@ const ipc = loadIpcHandlers({
   managers: {
     environmentManager: new Proxy({}, { get: (_t, p) => (typeof p === "string" && p.startsWith("get") ? () => "sk-test" : anything()) }),
     audioStorageManager: { getAudioBuffer: () => wav, deleteAudio() {}, cleanupExpiredAudio() {} },
+    // Real managers where they construct without native binaries, so their
+    // download code is the code under test.
+    whisperManager: new WhisperManager(),
   },
 });
 test.after(() => {
@@ -7226,25 +7235,33 @@ const gate = require("../../src/helpers/privacy/egressGate");
 const backstop = require("../../src/helpers/privacy/egressBackstop");
 const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
 const { isSealedModeError, sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
-const { gatedNetFetch } = require("../../src/helpers/privacy/gatedFetch");
 const stt = require("../../src/helpers/sttTransport");
 const { downloadFile, fetchJson } = require("../../src/helpers/downloadUtils");
 const urlAudio = require("../../src/helpers/urlAudioDownloader");
 const { REALTIME_TOKEN_PROVIDERS } = require("../../src/helpers/realtimeTokenProviders");
-const { registerPersonalInferenceIPC, gatedVerifyRelease } = require("../../src/helpers/personalInference");
-const { CodexAppServer } = require("../../src/helpers/codexAppServer");
+const { registerPersonalInferenceIPC, createCodexServer } = require("../../src/helpers/personalInference");
 const { UpdateManager } = require("../../src/helpers/updateManager");
+const { createCalendarGuard } = require("../../src/helpers/privacy/calendarGuard");
+const { setExternalOpenGuard } = require("../../src/helpers/externalUrlOpener");
+const { createConfirmations } = require("../../src/helpers/privacy/privacyBoot");
+const WhisperManager = require("../../src/helpers/whisper");
 const GoogleCalendarOAuth = require("../../src/helpers/googleCalendarOAuth");
 const MicrosoftCalendarManager = require("../../src/helpers/microsoftCalendarManager");
 
 backstop.installNodeBackstop();
-backstop.addObserver((event) => { if (event.allowed) transport.socket++; });
+let layerBRefusals = 0;
+backstop.addObserver((event) => {
+  if (event.allowed) transport.socket++;
+  else layerBRefusals++;
+});
 
 const flags = { sealed: true };
 let recorder;
 test.beforeEach(() => {
   flags.sealed = true;
   for (const key of Object.keys(transport)) transport[key] = 0;
+  layerBRefusals = 0;
+  gate._setBypassForTests(false);
   netFetchImpl = async () => { throw new Error("Electron net.fetch reached"); };
   recorder = new FlightRecorder({ now: () => 1 });
   gate._resetForTests();
@@ -7263,21 +7280,28 @@ const refused = (o) =>
     ? isSealedModeError(o.thrown)
     : !!o.value && (o.value.code === "SEALED_MODE" || isSealedModeError({ message: String(o.value.error ?? "") }));
 
+// No Codex object is injected: registerPersonalInferenceIPC builds the
+// production server with createCodexServer (Task 8), hooks included.
 function inference() {
   const handlers = new Map();
-  const codex = Object.assign(new EventEmitter(), {
-    status: async () => ({}), login: async () => ({}), cancelLogin: async () => {}, logout: async () => {},
-    models: async () => [], rateLimits: async () => ({}), stop() {}, erase: async () => {}, generate: async () => "x",
-    alive: () => false, stopAndWait: async () => {},
-  });
   registerPersonalInferenceIPC({
     ipcMain: { handle: (c, fn) => handlers.set(c, fn), removeHandler() {} },
     userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-matrix-")),
     getCredential: async () => "sk-test", saveCredential: async () => {}, openExternal: async () => {},
-    codex, modelFactory: async () => { throw new Error("reached the model factory"); },
+    modelFactory: async () => { throw new Error("reached the model factory"); },
   });
   const sender = Object.assign(new EventEmitter(), { id: 1, isDestroyed: () => false, send() {} });
   return (name, ...args) => handlers.get(`personal-inference:${name}`)({ sender }, ...args);
+}
+// Process seams only. createCodexServer drops anything else, so the gate hooks
+// are the shipped ones.
+function codexSeams() {
+  return {
+    userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-matrix-codex-")),
+    resolveExecutable: async () => "/verified/codex",
+    runFile: async () => ({ stdout: require("../fixtures/codex-app-server-0.154.json").version }),
+    spawnProcess: () => { transport.spawn++; throw new Error("spawn reached"); },
+  };
 }
 const ask = (overrides) => ({ requestId: `m-${Math.random()}`, model: "m", messages: [{ role: "user", content: "x" }], ...overrides });
 const audioRequest = (overrides = {}) => ({
@@ -7304,7 +7328,14 @@ const BLOCKED = {
     ["bedrock-list-models", "providerCheck", () => ipc.invoke("bedrock-list-models", {})],
   ],
   N3: [["personal-inference:models", "providerCheck", () => inference()("models", { provider: "openrouter", credentialRef: "openrouter" })]],
-  N4: [["test-provider-connection", "providerCheck", () => ipc.invoke("test-provider-connection", { provider: "groq", apiKey: "sk-test" })]],
+  N4: [
+    ["test-provider-connection", "providerCheck", () => ipc.invoke("test-provider-connection", { provider: "groq", apiKey: "sk-test" })],
+    // Task 11a. A LAN server is another machine.
+    ["probe-self-hosted (LAN)", "providerCheck", async () => {
+      const result = await ipc.invoke("probe-self-hosted", "http://192.168.1.20:11434/v1");
+      return result.code === "sealed" ? { code: "SEALED_MODE" } : result;
+    }],
+  ],
   N5: [["transcribe-audio-file-byok (captured audio)", "dictationStt", () => ipc.invoke("transcribe-audio-file-byok", audioRequest())]],
   N6: [
     ["proxy-gemini-transcription", "dictationStt", () => ipc.invoke("proxy-gemini-transcription", audioRequest({ provider: "gemini" }))],
@@ -7317,17 +7348,31 @@ const BLOCKED = {
     ["proxy-mistral-transcription", "dictationStt", () => ipc.invoke("proxy-mistral-transcription", audioRequest({ provider: "mistral" }))],
     ["process-anthropic-reasoning", "dictationCleanup", () => ipc.invoke("process-anthropic-reasoning", "text", "claude", "", {})],
   ],
-  N10: [["AssemblyAI token request", "dictationStt", () =>
-    gate.withTask("dictationStt", () =>
-      REALTIME_TOKEN_PROVIDERS["assemblyai-realtime"]({ environmentManager: { getAssemblyAIKey: () => "k" }, proxyFetch: gatedNetFetch }, {}, 1)
-    )]],
+  // Token acquisition runs inside connectRealtime's ticket (Task 9a), so the
+  // production start handler is what must refuse before the token request.
+  N10: Object.keys(REALTIME_TOKEN_PROVIDERS).map((provider) => [
+    `dictation-realtime-start (${provider} token)`,
+    "dictationStt",
+    () => ipc.invoke("dictation-realtime-start", { mode: "byok", provider }),
+  ]),
   N11: [["get-tinfoil-chat-models", "providerCheck", () => ipc.invoke("get-tinfoil-chat-models")]],
-  N12: [["downloadFile (all model managers)", "modelDownload", () => downloadFile("https://huggingface.co/x/model.bin", path.join(os.tmpdir(), `m-${Date.now()}.bin`))]],
-  N13: [["fetchJson (runtime release lookup)", "runtimeDownload", () => fetchJson("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest", { egressTask: "runtimeDownload" })]],
+  N12: [
+    ["model-download (local LLM, modelManagerBridge)", "modelDownload", () => ipc.invoke("model-download", "qwen3.5-2b-q4_k_m")],
+    ["download-whisper-model (WhisperManager)", "modelDownload", () => ipc.invoke("download-whisper-model", "base")],
+    ["downloadFile (shared by every manager)", "modelDownload", () => downloadFile("https://huggingface.co/x/model.bin", path.join(os.tmpdir(), `m-${Date.now()}.bin`))],
+  ],
+  N13: [
+    ["llama-cpp-install", "runtimeDownload", () => ipc.invoke("llama-cpp-install")],
+    ["fetchJson (runtime release lookup)", "runtimeDownload", () => fetchJson("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest", { egressTask: "runtimeDownload" })],
+  ],
   N14: [["download-url-audio", "urlImport", () => ipc.invoke("download-url-audio", "https://example.com/a.mp3")]],
   N16: [["manual update check", "appUpdate", () => updateManager().check(true)]],
-  N17: [["Codex release verification", "codex", () => gatedVerifyRelease(async () => { transport.nodeFetch++; })({})]],
-  N18: [["personal-inference:codex-status", "codex", () => inference()("codex-status")]],
+  // The production factory: release verification and the spawn guard are the shipped hooks.
+  N17: [["Codex start (release verification)", "codex", () => createCodexServer(codexSeams()).start()]],
+  N18: [
+    ["personal-inference:codex-status", "codex", () => inference()("codex-status")],
+    ["personal-inference:codex-login", "codex", () => inference()("codex-login")],
+  ],
   N19: [
     ["gcal-start-oauth", "calendar", () => ipc.invoke("gcal-start-oauth")],
     ["mcal-start-oauth", "calendar", () => ipc.invoke("mcal-start-oauth")],
@@ -7351,22 +7396,25 @@ const PREVENTED = {
     assert.equal(urlAudio.ytDlpControl.alive(), false);
   },
   N18: async () => {
-    const server = new CodexAppServer({
-      userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-matrix-codex-")),
-      resolveExecutable: async () => "/verified/codex",
-      runFile: async () => ({ stdout: require("../fixtures/codex-app-server-0.154.json").version }),
-      verifyRelease: async () => {},
-      beforeSpawn: () => gate.assertAllowed({ task: "codex", target: "https://chatgpt.com" }),
-    });
-    await assert.rejects(server.start(), isSealedModeError);
+    // A test cannot pass beforeSpawn: createCodexServer ignores it, so this is the shipped guard.
+    await assert.rejects(createCodexServer({ ...codexSeams(), beforeSpawn: () => {} }).start(), isSealedModeError);
     assert.equal(transport.spawn, 0);
   },
   N20: async () => {
-    const main = fs.readFileSync(path.join(__dirname, "../../main.js"), "utf8");
-    assert.match(main, /if \(!privacy\.state\.isSealed\(\)\) \{\s*googleCalendarManager\.start\(\);/);
+    // The guard main.js routes start, focus and wake through (Task 11), executed.
+    const calls = [];
     const manager = new MicrosoftCalendarManager({}, { scheduleNextMeeting() {} });
+    manager.start = () => calls.push("start");
+    manager.syncOnFocus = () => calls.push("focus");
+    manager.onWakeFromSleep = () => calls.push("wake");
+    const guard = createCalendarGuard({ isSealed: () => gate.isSealed() });
+    guard.start([manager]);
+    guard.onFocus([manager]);
+    guard.onWake([manager]);
+    assert.deepEqual(calls, []);
+    // An in-flight sync that slipped past the guard is still refused at the fetch.
     manager.oauth = { getValidAccessToken: async () => "token" };
-    await assert.rejects(manager._apiGet("/me/events", "user@example.com"), isSealedModeError);
+    await assert.rejects(MicrosoftCalendarManager.prototype._apiGet.call(manager, "/me/events", "user@example.com"), isSealedModeError);
   },
 };
 
@@ -7385,11 +7433,94 @@ for (const [id, variants] of Object.entries(BLOCKED)) {
 }
 for (const [id, check] of Object.entries(PREVENTED)) test(`${id}: prevented while sealed`, check);
 
+// Regression sensitivity: with Layer A bypassed, the same call must reach its
+// egress point. If it does not, its refusal above came from something else
+// (a missing fake, an early validation error) and proves nothing.
+for (const [id, variants] of Object.entries(BLOCKED)) {
+  for (const [label, , action] of variants) {
+    test(`${id} ${label}: with Layer A bypassed, reaches a transport or a Layer B refusal`, async () => {
+      gate._setBypassForTests(true);
+      try {
+        await outcomeOf(action);
+      } finally {
+        gate._setBypassForTests(false);
+      }
+      const touched = transport.netFetch + transport.netRequest + transport.nodeFetch + transport.spawn + transport.socket;
+      assert.ok(touched > 0 || layerBRefusals > 0, `${id} ${label} never reached its egress point`);
+    });
+  }
+}
+
 test("N9 discovers the realtime channels it must cover", () => {
   assert.ok(REALTIME.includes("dictation-realtime-start"));
   assert.ok(REALTIME.includes("dictation-realtime-warmup"));
   assert.ok(REALTIME.includes("assemblyai-streaming-warmup"));
   assert.ok(REALTIME.length >= 6);
+});
+
+test("main.js reaches remote calendars only through the calendar guard", () => {
+  const main = fs.readFileSync(path.join(__dirname, "../../main.js"), "utf8");
+  assert.doesNotMatch(main, /\b(googleCalendarManager|microsoftCalendarManager)\.(start|syncOnFocus|onWakeFromSleep)\(/);
+  assert.match(main, /calendarGuard\.start\(/);
+  assert.match(main, /calendarGuard\.onFocus\(/);
+  assert.match(main, /calendarGuard\.onWake\(/);
+});
+
+test("every download channel is in the matrix, or named as covered by downloadFile", () => {
+  const listed = new Set(Object.values(BLOCKED).flat().map(([label]) => label.split(" ")[0]));
+  // These construct native-binary managers; they reach the network only through
+  // downloadUtils (the ratchet below) and are exercised in Task 16.
+  const viaDownloadUtils = new Set([
+    "download-parakeet-model", "download-diarization-models", "download-cuda-whisper-binary",
+    "download-vulkan-whisper-binary", "download-llama-vulkan-binary", "download-search-model",
+  ]);
+  for (const channel of ipc.channels().filter((c) => /^(download-|model-download$|llama-cpp-install$)/.test(c) && c !== "download-url-audio")) {
+    assert.ok(listed.has(channel) || viaDownloadUtils.has(channel), channel);
+  }
+});
+
+test("N21: while sealed, a browser link reaches the OS only after the main-owned dialog says yes", async () => {
+  const opened = [];
+  const answers = [0, 1]; // "Don't open", then "Open link"
+  const confirmations = createConfirmations({
+    dialog: { showMessageBox: async () => ({ response: answers.shift() }) },
+    BrowserWindow: { fromWebContents: () => undefined },
+    t: (key) => key,
+  });
+  // The same guard main.js installs (Task 11).
+  setExternalOpenGuard(async (url) => !gate.isSealed() || confirmations.openLink(url));
+  const originalOpen = require("electron").shell.openExternal;
+  require("electron").shell.openExternal = async (url) => { opened.push(url); };
+  try {
+    assert.deepEqual(await ipc.invoke("open-external", "https://example.com/"), { success: false, declined: true });
+    assert.deepEqual(opened, []);
+    assert.deepEqual(await ipc.invoke("open-external", "https://example.com/"), { success: true });
+    assert.deepEqual(opened, ["https://example.com/"]);
+  } finally {
+    setExternalOpenGuard(null);
+    require("electron").shell.openExternal = originalOpen;
+  }
+});
+
+test("a local request in flight survives sealing, while the remote one beside it is interrupted", async () => {
+  flags.sealed = false;
+  let release;
+  const server = http.createServer((_req, res) => { release = () => res.end(JSON.stringify({ data: [{ id: "local" }] })); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    netFetchImpl = (_url, init) => new Promise((_r, reject) => init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+    const local = ipc.invoke("probe-self-hosted", `http://127.0.0.1:${server.address().port}/v1`);
+    const remote = outcomeOf(() => ipc.invoke("transcribe-audio-file-byok", audioRequest()));
+    while (!release) await new Promise((r) => setTimeout(r, 5));
+    flags.sealed = true;
+    gate.abortAllRemote();
+    backstop.severAll();
+    release();
+    assert.deepEqual(await local, { ok: true, count: 1 });
+    assert.equal(sealedPhaseOf((await remote).thrown ?? { message: (await remote).value?.error }), "interrupted");
+  } finally {
+    server.close();
+  }
 });
 
 test("every proxy-*-transcription channel is in the matrix", () => {
@@ -7457,6 +7588,7 @@ test("all model managers download only through downloadUtils", () => {
 ```
 
 Rules for fixing a failing row:
+- **A bypass-sensitivity test fails.** The refused row never reached its egress point. Supply the missing manager method or request field until the bypassed run reaches the transport. Never delete the row.
 - **A handler fails before reaching its egress point** because a fake manager lacks a method or a request field is missing. Add the method to `managers`, or the field to that row's arguments, with a minimal value. Never stub the gate, `gatedNetFetch`, `postMultipart`, `connectRealtime` or `downloadFile`: those are what the row proves.
 - **A row reaches a transport.** The gate is missing on that path. Fix the owning task's code (Tasks 8–11), never the assertions.
 - **A discovered N9 channel takes different arguments.** Give it its own options object in the `BLOCKED.N9` mapping; keep it in the matrix.
@@ -7464,7 +7596,9 @@ Rules for fixing a failing row:
 - [ ] **Step 3: Run the matrix**
 
 Run: `npm test -- test/helpers/sealedModeEnforcement.test.js`
-Expected: PASS. The count is one test per variant (about 30, depending on how many realtime channels are discovered), plus 3 prevented rows and 6 other checks. Any failure names the inventory row and the channel whose enforcement is missing.
+Expected: PASS. There are two tests per variant (the refusal and its bypass-sensitivity run; about 80 in total, depending on how many realtime channels and token providers are discovered), plus 3 prevented rows and 10 other checks. Any failure names the inventory row and the channel whose enforcement is missing.
+
+Then prove the matrix catches a regression. Temporarily delete the `egress.assertAllowed(...)` line from the `codex-status` handler, and the `gatedNodeFetch(...)` argument from `probe-self-hosted`. Rerun. Both rows must fail. Restore both lines, and record the two failing test names in the PR description.
 
 - [ ] **Step 4: Commit**
 
@@ -7475,32 +7609,43 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 
 ---
 
-### Task 13: Renderer integration: sealed store, route graph, dictation pre-flight and honest failure copy
+### Task 13: Renderer integration: one sealed source, dictation pre-flight and recovery, inert remote images, honest failure copy
+
+**Prerequisites.** Plan 03 has merged: `src/lib/routes.ts` and `src/stores/routeFactsStore.ts` exist. This task migrates them; it does not create them.
 
 **Files:**
 - Create:
   - `src/hooks/useSealedMode.ts`
   - `src/lib/sealedMode.ts`
+  - `src/lib/sealedRecovery.ts`
   - `src/utils/sealedModeError.ts`
   - `src/components/chat/chatErrorContent.ts`
+  - `test/hooks/fakePrivacy.js` (a test helper)
 - Modify:
-  - `src/lib/routes.ts` (Plan 03; CCR-2).
+  - `src/stores/routeFactsStore.ts` (Plan 03): `facts.sealed` comes from the sealed store; the store no longer calls `privacy` itself.
+  - `src/lib/routes.ts` (Plan 03): the comment on `isSealedLocality` only. Its rule stays the single rule.
+  - `test/stores/routeFactsStore.test.js` (Plan 03): its sealed fakes now drive the sealed store.
+  - `src/components/ui/MarkdownRenderer.tsx`: remote images render as an inert placeholder unless main says the app is unsealed.
   - `src/components/chat/useChatStreaming.ts:536-546`.
   - `src/utils/localInferenceError.ts:53-63`.
   - `src/utils/recordingErrors.ts:12-31`.
-  - `src/helpers/audioManager.js` (renderer code): the pre-flight in `startRecording` (`:1139-1153`), and the failure copy in the pipeline `catch` (`:1903-1928`).
+  - `src/helpers/audioManager.js` (renderer code): the pre-flight in `startRecording` (`:1139-1153`); `_noteSealedFailure` and `transcribeRecovered`; and the pipeline `catch` (`:1903-1928`).
+  - `src/hooks/useAudioRecording.js`: the "Transcribe" action and the notice on unseal.
 - Test:
   - `test/lib/sealedMode.test.js`
+  - `test/lib/sealedRecovery.test.js`
   - `test/utils/sealedModeError.test.js`
   - `test/hooks/useSealedMode.test.js`
   - `test/lib/routesSealed.test.js`
   - `test/helpers/dictationPreflight.test.js`
+  - `test/helpers/audioManagerSealed.test.js`
+  - `test/components/markdownSealed.test.js`
 
 **Interfaces:**
 - Consumes:
   - `window.electronAPI.privacy`, including `onAttestation` (Task 7);
-  - `ResolvedRoute`, `RouteSettingsSnapshot`, `resolveRoute`, `resolveRoutes`, `useResolvedRoutes` and `routeSnapshotFromSettings` from `src/lib/routes.ts` (§5.1, CCR-2);
-  - `Locality` from `src/lib/locality.ts` (Plan 01).
+  - `buildRouteSnapshot`, `resolveRoute`, `routeSendsCopy` and `isSealedLocality` from `src/lib/routes.ts`, and `useRouteFactsStore`, `refreshRouteFacts` and `ensureRouteFactsSubscribed` from `src/stores/routeFactsStore.ts` (Plan 03, §5.1);
+  - `isLoopbackUrl` from `src/lib/locality.ts` (Plan 01, made to match main in Task 11a).
 - Produces:
 
   ```ts
@@ -7510,25 +7655,39 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   export function setSealedMode(sealed: boolean): Promise<Attestation & { declined?: boolean }>;
   export function subscribeSealed(listener: () => void): () => void;
   export function getSealedSnapshot(): SealedSnapshot;
+  export const ATTESTATION_MAX_AGE_MS = 30_000;
   export function _resetSealedStoreForTests(): void;
 
-  // src/lib/sealedMode.ts
-  export function isRouteSealed(route: { locality: Locality }, sealed: boolean | null): boolean;
-  export function applySealToRoute<R extends ResolvedRoute>(route: R, sealed: boolean | null): R;
+  // src/lib/sealedMode.ts. The route rule itself is Plan 03's isSealedLocality.
   export function isDictationSealed(settings: SettingsState, sealed: boolean | null): boolean;  // the pre-flight
+
+  // src/lib/sealedRecovery.ts. Renderer memory only; never written to disk.
+  export const RECOVERY_TTL_MS: number;   // 30 minutes
+  export const RECOVERY_MAX = 3;
+  export function shouldHoldInMemory(error: unknown, retention: { dataRetentionEnabled: boolean; audioRetentionDays: number }): boolean;
+  export function holdForRecovery(blob: Blob, metadata?: Record<string, unknown>, now?: number): void;
+  export function recoveryCount(now?: number): number;
+  export function takeRecovery(now?: number): { blob: Blob; metadata: Record<string, unknown>; heldAt: number } | null;  // oldest first
+  export function discardRecovery(): void;
+  export function subscribeRecovery(listener: () => void): () => void;
 
   // src/utils/sealedModeError.ts
   export const SEALED_MODE = "SEALED_MODE";
   export function isSealedModeError(error: unknown): boolean;
   export function sealedPhase(error: unknown): "refused" | "interrupted" | null;
-  export function sealedDictationMessageKey(error: unknown, s: { dataRetentionEnabled: boolean; audioRetentionDays: number }): string;
+  export function sealedDictationMessageKey(error: unknown, s: { dataRetentionEnabled: boolean; audioRetentionDays: number }, o?: { held?: boolean }): string;
 
   // src/components/chat/chatErrorContent.ts
   export function chatErrorContent(error: unknown, t: (key: string) => string): string;
   ```
 
 - **Copy rule.** "Nothing was sent" copy (`sealedMode.blocked.*`) is used only for phase `"refused"`. A request cut off mid-flight uses `sealedMode.interrupted.*`, which says the provider may have received part of it.
-- **Pre-flight (owner decision 3, 2026-10-15).** While sealed, a dictation whose speech route is not on this device does not start, so nothing is recorded that main would refuse afterwards.
+- **One sealed source (I8).** Main's answer reaches the renderer once, through `useSealedMode`'s store. Plan 03's `routeFactsStore` copies it into `facts.sealed` in the same tick, so the route chips, the staged-Apply blocker (P03 Task 5) and the keyring's verify gate (P03 Task 8), which all read `facts`, change together. `isSealedLocality(locality)` (P03 Task 1) stays the only rule for which routes Sealed mode pauses. This task adds no second one.
+- **Pre-flight (owner decision 3, 2026-10-15).** While sealed, a dictation whose speech route is not on this device does not start, so nothing is recorded that main would refuse afterwards. The pre-flight is UX protection, not the recovery mechanism: it cannot help when the state is still unknown, or when the seal happens mid-recording.
+- **Recovery (I6).** When main refuses or interrupts a dictation and retention would discard the audio (history off, or audio retention 0), the recording is held in renderer memory, at most `RECOVERY_MAX` recordings for `RECOVERY_TTL_MS`. It is never written to disk. The error toast offers "Transcribe". When Sealed mode turns off, a notice offers it again. Quitting or reloading the window drops it, and the copy says so. When retention keeps the audio, the existing History retry is the recovery and nothing is held.
+- **Cleanup after local speech-to-text.** A refused cleanup step already falls back to the local transcript (`processWithReasoningModel`'s `catch`, `audioManager.js:2714-2738`, returns `normalizedText`). `test/helpers/audioManagerSealed.test.js` pins that for a `SEALED_MODE` error.
+- **Remote images.** Markdown from a provider or a pasted note can name remote images. While sealed, or while the state is unknown, they render as a placeholder, so the page does not ask Chromium for them. Layer B would refuse the request anyway; the placeholder keeps the flight recorder free of unattributed noise and makes the reason visible. Links stay links: opening one goes through main's confirmation (Task 11).
+- **Stale attestations.** An attestation older than `ATTESTATION_MAX_AGE_MS` (by main's `at`) is dropped to unknown and re-fetched. The panel then shows "Checking…", never an old "verified".
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7537,31 +7696,67 @@ Create `test/lib/sealedMode.test.js`:
 ```js
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const load = () => import("../../src/lib/sealedMode.ts");
 
-const route = (locality, state = { status: "ready" }) => ({
-  id: "chat", kind: "text", locality, provider: "Groq", model: "m", state, sends: "messages", settingsPath: "chat",
+// Plan 03's fixture module (see the note under routesSealed.test.js).
+const { settingsWithRemoteRoutes, settingsWithLocalDictation, settingsWithSelfHostedDictation } = require("./routesFixture");
+
+test("isDictationSealed: only a dictation route that leaves this computer, and only when sealed", async () => {
+  const { isDictationSealed } = await import("../../src/lib/sealedMode.ts");
+  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), true), true);
+  assert.equal(isDictationSealed(settingsWithLocalDictation(), true), false);
+  assert.equal(isDictationSealed(settingsWithSelfHostedDictation("http://192.168.1.20:8178"), true), true, "a LAN server is another machine");
+  assert.equal(isDictationSealed(settingsWithSelfHostedDictation("http://127.0.0.2:8178"), true), false, "loopback per Task 11a");
+  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), false), false);
+  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), null), false, "unknown claims nothing either way");
 });
 
-test("only non-device routes are sealed, and only when sealed is true", async () => {
-  const { isRouteSealed } = await load();
-  assert.equal(isRouteSealed(route("remote"), true), true);
-  assert.equal(isRouteSealed(route("network"), true), true, "LAN leaves this computer (CCR-1)");
-  assert.equal(isRouteSealed(route("device"), true), false);
-  assert.equal(isRouteSealed(route("remote"), false), false);
-  assert.equal(isRouteSealed(route("remote"), null), false, "unknown claims nothing either way");
+test("there is one sealed-route rule: sealedMode.ts defines none of its own", async () => {
+  const mod = await import("../../src/lib/sealedMode.ts");
+  assert.deepEqual(Object.keys(mod).sort(), ["isDictationSealed"]);
+});
+```
+
+Create `test/lib/sealedRecovery.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const load = () => import("../../src/lib/sealedRecovery.ts");
+
+const sealed = { code: "SEALED_MODE", message: "[SEALED_MODE] Sealed mode is on" };
+const blob = (n) => new Blob([`audio-${n}`]);
+
+test("held in memory only when Sealed mode blocked it and retention would discard the audio", async () => {
+  const { shouldHoldInMemory } = await load();
+  assert.equal(shouldHoldInMemory(sealed, { dataRetentionEnabled: false, audioRetentionDays: 30 }), true);
+  assert.equal(shouldHoldInMemory(sealed, { dataRetentionEnabled: true, audioRetentionDays: 0 }), true);
+  assert.equal(shouldHoldInMemory(sealed, { dataRetentionEnabled: false, audioRetentionDays: 0 }), true);
+  assert.equal(shouldHoldInMemory(sealed, { dataRetentionEnabled: true, audioRetentionDays: 30 }), false, "History keeps it");
+  assert.equal(shouldHoldInMemory(new Error("timeout"), { dataRetentionEnabled: false, audioRetentionDays: 0 }), false);
 });
 
-test("applySealToRoute reports unreachable/sealed and leaves everything else alone", async () => {
-  const { applySealToRoute } = await load();
-  const remote = route("remote");
-  assert.deepEqual(applySealToRoute(remote, true).state, { status: "unreachable", detail: "sealed" });
-  assert.equal(applySealToRoute(remote, true).provider, "Groq");
-  assert.equal(applySealToRoute(remote, false), remote);
-  const device = route("device", { status: "needsModel", sizeBytes: 5 });
-  assert.equal(applySealToRoute(device, true), device);
-  const off = route("remote", { status: "off" });
-  assert.equal(applySealToRoute(off, true), off, "a task the user turned off stays off");
+test("oldest first, bounded, and expired recordings are dropped", async (t) => {
+  const r = await load();
+  r.discardRecovery();
+  t.after(() => r.discardRecovery());
+  let notified = 0;
+  const off = r.subscribeRecovery(() => notified++);
+  r.holdForRecovery(blob(1), { n: 1 }, 0);
+  r.holdForRecovery(blob(2), { n: 2 }, 10);
+  r.holdForRecovery(blob(3), { n: 3 }, 20);
+  r.holdForRecovery(blob(4), { n: 4 }, 30);
+  assert.equal(r.recoveryCount(30), r.RECOVERY_MAX, "bounded");
+  assert.equal(r.takeRecovery(30).metadata.n, 2, "the oldest beyond the bound was dropped; then oldest first");
+  assert.equal(r.recoveryCount(20 + r.RECOVERY_TTL_MS + 1), 1, "expired entries go");
+  off();
+  assert.ok(notified >= 5);
+});
+
+test("recovery never touches disk or IPC", () => {
+  const src = fs.readFileSync(path.join(__dirname, "../../src/lib/sealedRecovery.ts"), "utf8");
+  assert.doesNotMatch(src, /electronAPI|localStorage|sessionStorage|indexedDB|saveTranscription|caches\./);
 });
 ```
 
@@ -7597,6 +7792,8 @@ test("dictation copy: History is promised only when retention kept the audio; in
   assert.equal(sealedDictationMessageKey(refused, { dataRetentionEnabled: false, audioRetentionDays: 30 }), "sealedMode.blocked.dictationNotKept");
   assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: true, audioRetentionDays: 30 }), "sealedMode.interrupted.dictationKept");
   assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: false, audioRetentionDays: 0 }), "sealedMode.interrupted.dictationNotKept");
+  assert.equal(sealedDictationMessageKey(refused, { dataRetentionEnabled: false, audioRetentionDays: 0 }, { held: true }), "sealedMode.blocked.dictationHeld");
+  assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: true, audioRetentionDays: 0 }, { held: true }), "sealedMode.interrupted.dictationHeld");
 });
 
 test("chat keeps the message and says why, by phase", async () => {
@@ -7621,22 +7818,7 @@ Create `test/hooks/useSealedMode.test.js`:
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const load = () => import("../../src/hooks/useSealedMode.ts");
-
-function fakePrivacy({ sealed = true, failAttestation = false } = {}) {
-  const listeners = {};
-  const attestation = { sealed, nothingLeaves: sealed, effectiveSince: 1, blockedSinceSealed: 0, version: 1 };
-  return {
-    listeners,
-    api: {
-      getSealed: async () => sealed,
-      getAttestation: async () => { if (failAttestation) throw new Error("ipc"); return attestation; },
-      setSealed: async (next) => ({ ...attestation, sealed: next, nothingLeaves: next, version: 2 }),
-      onSealedChange: (cb) => { listeners.sealed = cb; return () => {}; },
-      onAttestation: (cb) => { listeners.attestation = cb; return () => {}; },
-    },
-  };
-}
-const tick = () => new Promise((r) => setImmediate(r));
+const { fakePrivacy, tick } = require("./fakePrivacy");
 
 test("unknown until main answers; then follows main's broadcasts", async (t) => {
   const store = await load();
@@ -7692,6 +7874,24 @@ test("setSealedMode adopts main's answer, including a declined unseal", async (t
   assert.equal(store.getSealedSnapshot().sealed, true);
 });
 
+test("an attestation older than 30 s is dropped to unknown and re-fetched", async (t) => {
+  const store = await load();
+  store._resetSealedStoreForTests();
+  const fake = fakePrivacy();
+  let fetches = 0;
+  fake.api.getAttestation = async () => { fetches++; return { sealed: true, nothingLeaves: true, version: 10 + fetches, at: Date.now() }; };
+  globalThis.window = { electronAPI: { privacy: fake.api } };
+  t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
+  store.subscribeSealed(() => {});
+  await tick();
+  assert.equal(store.getSealedSnapshot().attestation.version, 11);
+  fake.listeners.attestation({ sealed: true, nothingLeaves: true, version: 50, at: Date.now() - store.ATTESTATION_MAX_AGE_MS - 1 });
+  assert.equal(store.getSealedSnapshot().attestation, null, "a stale claim is not shown, even with a higher version");
+  await tick();
+  assert.equal(fetches, 2, "a fresh one was requested");
+  assert.equal(store.getSealedSnapshot().attestation.version, 12);
+});
+
 test("without the privacy bridge the state stays unknown", async (t) => {
   const store = await load();
   store._resetSealedStoreForTests();
@@ -7703,27 +7903,82 @@ test("without the privacy bridge the state stays unknown", async (t) => {
 });
 ```
 
-Create `test/lib/routesSealed.test.js`. This is CCR-2 against Plan 03's resolver.
+Create `test/hooks/fakePrivacy.js`, the shared fake of main's privacy bridge:
+
+```js
+// A fake window.electronAPI.privacy that a test drives by calling the
+// registered listeners, the way main's broadcasts would.
+function fakePrivacy({ sealed = true, failAttestation = false } = {}) {
+  const listeners = {};
+  const attestation = { sealed, nothingLeaves: sealed, effectiveSince: 1, blockedSinceSealed: 0, version: 1, at: Date.now() };
+  return {
+    listeners,
+    api: {
+      getSealed: async () => sealed,
+      getAttestation: async () => { if (failAttestation) throw new Error("ipc"); return { ...attestation, at: Date.now() }; },
+      setSealed: async (next) => ({ ...attestation, sealed: next, nothingLeaves: next, version: 2, at: Date.now() }),
+      onSealedChange: (cb) => { listeners.sealed = cb; return () => {}; },
+      onAttestation: (cb) => { listeners.attestation = cb; return () => {}; },
+    },
+  };
+}
+const tick = () => new Promise((r) => setImmediate(r));
+
+module.exports = { fakePrivacy, tick };
+```
+
+Create `test/lib/routesSealed.test.js`. This is the cross-plan check (I8): one toggle from main reaches every Plan 03 consumer together.
 
 ```js
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
+const { fakePrivacy, tick } = require("../hooks/fakePrivacy");
+const { settingsWithRemoteRoutes } = require("./routesFixture"); // ← Plan 03's fixture (see note below)
 
-test("resolveRoutes applies the seal last, to every non-device route", async () => {
+test("one sealed toggle reaches the facts store and the resolver in the same tick", async (t) => {
+  const sealedStore = await import("../../src/hooks/useSealedMode.ts");
+  const facts = await import("../../src/stores/routeFactsStore.ts");
   const routes = await import("../../src/lib/routes.ts");
-  const { applySealToRoute } = await import("../../src/lib/sealedMode.ts");
-  const { settingsWithRemoteRoutes } = require("./routesFixture"); // ← Plan 03's fixture (see note below)
-  const snapshot = routes.routeSnapshotFromSettings(settingsWithRemoteRoutes());
-  const open = routes.resolveRoutes({ ...snapshot, sealed: false });
-  const sealed = routes.resolveRoutes({ ...snapshot, sealed: true });
-  assert.equal(sealed.length, 11);
-  assert.deepEqual(sealed, open.map((route) => applySealToRoute(route, true)));
-  assert.ok(sealed.some((r) => r.locality !== "device" && r.state.status === "unreachable" && r.state.detail === "sealed"),
-    "the fixture has at least one remote route; otherwise this test proves nothing");
+  sealedStore._resetSealedStoreForTests();
+  const fake = fakePrivacy({ sealed: false });
+  globalThis.window = { electronAPI: { privacy: fake.api }, addEventListener() {} };
+  t.after(() => { delete globalThis.window; sealedStore._resetSealedStoreForTests(); });
+
+  facts.ensureRouteFactsSubscribed();
+  await tick();
+  const dictation = () =>
+    routes.resolveRoute(
+      routes.buildRouteSnapshot(settingsWithRemoteRoutes(), facts.useRouteFactsStore.getState().facts, routes.routeSendsCopy((k) => k)),
+      "dictationStt"
+    );
+  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, false);
+  assert.notDeepEqual(dictation().state, { status: "unreachable", detail: "sealed" });
+
+  fake.listeners.sealed(true);
+  // Staged Apply (P03 Task 5) and keyring verify (P03 Task 8) read these same facts.
+  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, true);
+  assert.deepEqual(dictation().state, { status: "unreachable", detail: "sealed" });
+
+  await facts.refreshRouteFacts();
+  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, true, "a facts refresh keeps main's answer");
+
+  fake.listeners.sealed(false);
+  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, false);
+});
+
+test("routeFactsStore no longer reads the privacy bridge itself", () => {
+  const src = fs.readFileSync(path.join(__dirname, "../../src/stores/routeFactsStore.ts"), "utf8");
+  assert.doesNotMatch(src, /privacy/);
+  assert.match(src, /subscribeSealed/);
 });
 ```
 
-Point the `require` at the settings fixture Plan 03's route tests use; find it with `grep -rln "RouteSettingsSnapshot\|resolveRoutes" test/`. If Plan 03 has no such fixture, create `test/lib/routesFixture.js` that exports `settingsWithRemoteRoutes()`: a settings object (the fields `routeSnapshotFromSettings` reads) with cloud speech-to-text and a cloud chat provider.
+Point the `require` at the settings fixture Plan 03's route tests use; find it with `grep -rln "buildRouteSnapshot\|resolveRoutes" test/`. If Plan 03 has no such module, create `test/lib/routesFixture.js`. It exports three builders of a `SettingsState`-shaped object (the fields `buildRouteSnapshot` reads):
+- `settingsWithRemoteRoutes()`: cloud speech-to-text and a cloud chat provider;
+- `settingsWithLocalDictation()`: the same, with the local engine selected (`useLocalWhisper: true`);
+- `settingsWithSelfHostedDictation(url)`: the same, with self-hosted transcription at `url`.
 
 Create `test/helpers/dictationPreflight.test.js`:
 
@@ -7733,15 +7988,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-test("isDictationSealed blocks only non-device dictation routes, and only when sealed", async () => {
-  const { isDictationSealed } = await import("../../src/lib/sealedMode.ts");
-  const { settingsWithRemoteRoutes, settingsWithLocalDictation } = require("../lib/routesFixture");
-  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), true), true);
-  assert.equal(isDictationSealed(settingsWithLocalDictation(), true), false);
-  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), false), false);
-  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), null), false);
-});
-
 test("startRecording checks the pre-flight before opening the microphone", () => {
   const src = fs.readFileSync(path.join(__dirname, "../../src/helpers/audioManager.js"), "utf8");
   const start = src.indexOf("async startRecording(");
@@ -7750,38 +7996,197 @@ test("startRecording checks the pre-flight before opening the microphone", () =>
 });
 ```
 
-`settingsWithLocalDictation()` is the same fixture with the local engine selected (`useLocalWhisper: true`). Add it to the fixture module if Plan 03's fixture lacks it.
+Create `test/helpers/audioManagerSealed.test.js`. It drives the real `AudioManager` through the shared Vite SSR harness (`test/helpers/harness/audioManager.js`):
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { loadAudioManager } = require("./harness/audioManager");
+
+const sealedError = () => Object.assign(new Error("[SEALED_MODE] Sealed mode is on"), { code: "SEALED_MODE" });
+
+async function setup(t, settings) {
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-audio-sealed-",
+    settingsKey: "__audioSealedSettings",
+    settings: { preferredLanguage: "en", ...settings },
+  });
+  const recovery = await loaded.vite.ssrLoadModule("/lib/sealedRecovery.ts");
+  recovery.discardRecovery();
+  return { ...loaded, recovery };
+}
+
+for (const [label, retention, held] of [
+  ["history off", { dataRetentionEnabled: false, audioRetentionDays: 30 }, true],
+  ["audio retention 0", { dataRetentionEnabled: true, audioRetentionDays: 0 }, true],
+  ["history and audio kept", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false],
+]) {
+  test(`a sealed failure with ${label}: held in memory = ${held}`, async (t) => {
+    const { createManager, recovery } = await setup(t, retention);
+    const audio = new Blob(["pcm"]);
+    const manager = createManager({ lastAudioBlob: audio, lastAudioMetadata: { durationSeconds: 2 } });
+    const error = sealedError();
+    manager._noteSealedFailure(error);
+    assert.equal(recovery.recoveryCount(), held ? 1 : 0);
+    assert.equal(error.recoveryHeld === true, held);
+    assert.match(error.messageKey, held ? /\.dictationHeld$/ : /\.dictationKept$/);
+    if (held) assert.equal(recovery.takeRecovery().blob, audio, "the same bytes, not a copy on disk");
+  });
+}
+
+test("transcribeRecovered replays the held recording through the normal pipeline", async (t) => {
+  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0 });
+  const audio = new Blob(["pcm"]);
+  recovery.holdForRecovery(audio, { durationSeconds: 2 });
+  const processed = [];
+  const manager = createManager({ processAudio: async (blob, metadata) => processed.push([blob, metadata]) });
+  assert.equal(await manager.transcribeRecovered(), true);
+  assert.deepEqual(processed, [[audio, { durationSeconds: 2 }]]);
+  assert.equal(recovery.recoveryCount(), 0);
+  assert.equal(await manager.transcribeRecovered(), false, "nothing left");
+});
+
+test("a refused cleanup after local speech-to-text keeps the local transcript", async (t) => {
+  const { createManager } = await setup(t, { useCleanupModel: true, useDictationAgent: false, useDictationTranslation: false });
+  const manager = createManager({
+    voiceAgentRequested: false, translationRequested: false, pendingCleanupFailure: null,
+    pendingAssistantConversation: null, pendingSelectionEdit: null,
+    isReasoningAvailable: async () => true,
+    processWithReasoningModel: async () => { throw sealedError(); },
+  });
+  assert.equal(await manager.processTranscriptionCore("original dictation", "local"), "original dictation");
+});
+```
+
+If the shared harness needs more store stubs for these settings, pass them through `mockModules`, as `test/helpers/audioManagerCleanupFallback.test.js` does. Do not stub `/lib/sealedRecovery.ts` or `/utils/sealedModeError.ts`: they are under test.
+
+Create `test/components/markdownSealed.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { renderStatic } = require("../helpers/harness/reactSsr");
+const { fakePrivacy, tick } = require("../hooks/fakePrivacy");
+
+const content = "![chart](https://images.example/c.png) ![local](http://127.0.0.1:8080/a.png) [docs](https://docs.example/x)";
+
+async function render(t, sealed) {
+  const store = await import("../../src/hooks/useSealedMode.ts");
+  store._resetSealedStoreForTests();
+  globalThis.window = { electronAPI: sealed === null ? {} : { privacy: fakePrivacy({ sealed }).api } };
+  t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
+  store.subscribeSealed(() => {});
+  await tick();
+  const { MarkdownRenderer } = await import("../../src/components/ui/MarkdownRenderer.tsx");
+  return renderStatic(MarkdownRenderer, { content });
+}
+
+test("sealed: remote images are inert placeholders; loopback images and links stay", async (t) => {
+  const html = await render(t, true);
+  assert.doesNotMatch(html, /<img[^>]+images\.example/);
+  assert.match(html, /sealedMode\.markdown\.imageBlocked/);
+  assert.match(html, /<img[^>]+127\.0\.0\.1/);
+  assert.match(html, /<a[^>]+href="https:\/\/docs\.example\/x"/, "opening a link goes through main's confirmation (Task 11)");
+});
+
+test("unknown state: remote images stay inert", async (t) => {
+  assert.doesNotMatch(await render(t, null), /<img[^>]+images\.example/);
+});
+
+test("unsealed: remote images render", async (t) => {
+  assert.match(await render(t, false), /<img[^>]+images\.example/);
+});
+```
+
+`renderToStaticMarkup` does not run effects, and `useSyncExternalStore` reads `getServerSnapshot` during SSR. So `useSealedMode` must pass `getSealedSnapshot` (not a constant `UNKNOWN`) as the third argument; Step 3 does. If the `react-i18next` import needs a stub under the tsx loader, use Plan 03's `test/lib/i18nTestMock.js`. The placeholder renders the translation key, which the assertion expects.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/lib/sealedMode.test.js test/utils/sealedModeError.test.js test/hooks/useSealedMode.test.js test/lib/routesSealed.test.js test/helpers/dictationPreflight.test.js`
-Expected: FAIL. Modules are missing, `sealed` is ignored by `resolveRoutes`, and `startRecording` has no pre-flight.
+Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/hooks/useSealedMode.test.js test/lib/routesSealed.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js`
+Expected: FAIL. The modules are missing, `routeFactsStore` still reads `privacy` itself, `startRecording` has no pre-flight, nothing is held for recovery, and remote images render.
 
 - [ ] **Step 3: Implement the pure modules**
 
 Create `src/lib/sealedMode.ts`:
 
 ```ts
-import type { Locality } from "./locality";
-import type { ResolvedRoute } from "./routes";
-import { resolveRoute, routeSnapshotFromSettings } from "./routes";
-
-// Sealed mode keeps only on-device (loopback) routes. A LAN server is another
-// machine, so `network` routes pause too (CCR-1). Unknown (null) never claims.
-export function isRouteSealed(route: { locality: Locality }, sealed: boolean | null): boolean {
-  return sealed === true && route.locality !== "device";
-}
-
-export function applySealToRoute<R extends ResolvedRoute>(route: R, sealed: boolean | null): R {
-  if (!isRouteSealed(route, sealed) || route.state.status === "off") return route;
-  return { ...route, state: { status: "unreachable", detail: "sealed" } };
-}
+import { buildRouteSnapshot, isSealedLocality, resolveRoute, routeSendsCopy } from "./routes";
+import { useRouteFactsStore } from "../stores/routeFactsStore";
 
 // The dictation pre-flight: while sealed, a dictation whose speech route would
-// leave this computer is not started, so there is no recording for main to refuse.
-export function isDictationSealed(settings: Parameters<typeof routeSnapshotFromSettings>[0], sealed: boolean | null): boolean {
+// leave this computer is not started, so there is no recording for main to
+// refuse. The rule is Plan 03's isSealedLocality; this file adds none. Unknown
+// (null) never blocks.
+export function isDictationSealed(settings: Parameters<typeof buildRouteSnapshot>[0], sealed: boolean | null): boolean {
   if (sealed !== true) return false;
-  return isRouteSealed(resolveRoute(routeSnapshotFromSettings(settings), "dictationStt"), true);
+  const facts = { ...useRouteFactsStore.getState().facts, sealed: true };
+  const route = resolveRoute(buildRouteSnapshot(settings, facts, routeSendsCopy((key) => key)), "dictationStt");
+  return route.state.status !== "off" && isSealedLocality(route.locality);
+}
+```
+
+Create `src/lib/sealedRecovery.ts`:
+
+```ts
+import { isSealedModeError } from "../utils/sealedModeError";
+
+// Dictations that Sealed mode refused or interrupted while retention would have
+// discarded the audio. Renderer memory only: never written to disk, gone on
+// quit or reload, and dropped after RECOVERY_TTL_MS. Bounded so a long sealed
+// session cannot grow without limit.
+export const RECOVERY_TTL_MS = 30 * 60 * 1000;
+export const RECOVERY_MAX = 3;
+
+type Held = { blob: Blob; metadata: Record<string, unknown>; heldAt: number };
+let held: Held[] = [];
+const listeners = new Set<() => void>();
+const notify = () => {
+  for (const listener of listeners) listener();
+};
+
+function expire(now: number) {
+  const kept = held.filter((h) => now - h.heldAt <= RECOVERY_TTL_MS);
+  if (kept.length !== held.length) {
+    held = kept;
+    notify();
+  }
+}
+
+export function shouldHoldInMemory(
+  error: unknown,
+  retention: { dataRetentionEnabled: boolean; audioRetentionDays: number }
+): boolean {
+  return isSealedModeError(error) && !(retention.dataRetentionEnabled && retention.audioRetentionDays > 0);
+}
+
+export function holdForRecovery(blob: Blob, metadata: Record<string, unknown> = {}, now = Date.now()): void {
+  held = [...held, { blob, metadata, heldAt: now }].slice(-RECOVERY_MAX);
+  notify();
+}
+
+export function recoveryCount(now = Date.now()): number {
+  expire(now);
+  return held.length;
+}
+
+export function takeRecovery(now = Date.now()): Held | null {
+  expire(now);
+  const [first, ...rest] = held;
+  if (!first) return null;
+  held = rest;
+  notify();
+  return first;
+}
+
+export function discardRecovery(): void {
+  if (held.length === 0) return;
+  held = [];
+  notify();
+}
+
+export function subscribeRecovery(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 ```
 
@@ -7819,11 +8224,13 @@ export function sealedPhase(error: unknown, depth = 0): "refused" | "interrupted
 // interrupted request may have reached the provider, so it never says "nothing was sent".
 export function sealedDictationMessageKey(
   error: unknown,
-  settings: { dataRetentionEnabled: boolean; audioRetentionDays: number }
+  settings: { dataRetentionEnabled: boolean; audioRetentionDays: number },
+  { held = false }: { held?: boolean } = {}
 ): string {
   const kept = settings.dataRetentionEnabled && settings.audioRetentionDays > 0;
   const family = sealedPhase(error) === "interrupted" ? "sealedMode.interrupted" : "sealedMode.blocked";
-  return `${family}.${kept ? "dictationKept" : "dictationNotKept"}`;
+  // held: kept in memory for "Transcribe" (sealedRecovery.ts), not on disk.
+  return `${family}.${kept ? "dictationKept" : held ? "dictationHeld" : "dictationNotKept"}`;
 }
 ```
 
@@ -7854,15 +8261,39 @@ let snapshot: SealedSnapshot = UNKNOWN;
 const listeners = new Set<() => void>();
 let started = false;
 
+// Main re-broadcasts whenever the attestation changes; this bounds how old a
+// claim on screen can be if a broadcast is lost.
+export const ATTESTATION_MAX_AGE_MS = 30_000;
+let staleTimer: ReturnType<typeof setTimeout> | null = null;
+
 function publish(patch: Partial<SealedSnapshot>) {
   snapshot = { ...snapshot, ...patch };
   for (const listener of listeners) listener();
 }
 
+function refetch() {
+  privacyApi()?.getAttestation().then(adopt, () => publish({ attestation: null }));
+}
+
 // Main versions every attestation; an older one (a late IPC reply) never wins.
+// One older than ATTESTATION_MAX_AGE_MS is not shown: the UI drops to
+// unknown ("Checking…") and asks again.
 function adopt(attestation: Attestation | null) {
   if (attestation && snapshot.attestation && attestation.version < snapshot.attestation.version) return;
+  if (attestation && Date.now() - attestation.at > ATTESTATION_MAX_AGE_MS) {
+    publish({ attestation: null });
+    refetch();
+    return;
+  }
   publish({ attestation });
+  if (staleTimer) clearTimeout(staleTimer);
+  staleTimer = attestation
+    ? setTimeout(() => {
+        publish({ attestation: null });
+        refetch();
+      }, ATTESTATION_MAX_AGE_MS)
+    : null;
+  (staleTimer as { unref?: () => void } | null)?.unref?.();
 }
 
 const privacyApi = () => (typeof window === "undefined" ? undefined : window.electronAPI?.privacy);
@@ -7875,7 +8306,7 @@ function start() {
   const api = privacyApi();
   if (!api) return;
   api.getSealed().then((sealed) => publish({ sealed }), () => {});
-  api.getAttestation().then(adopt, () => publish({ attestation: null }));
+  refetch();
   api.onSealedChange((sealed) => publish({ sealed }));
   api.onAttestation(adopt);
 }
@@ -7889,7 +8320,8 @@ export function subscribeSealed(listener: () => void): () => void {
 export const getSealedSnapshot = (): SealedSnapshot => snapshot;
 
 export function useSealedMode(): SealedSnapshot {
-  return useSyncExternalStore(subscribeSealed, getSealedSnapshot, () => UNKNOWN);
+  // getSealedSnapshot doubles as the server snapshot so SSR tests see the store.
+  return useSyncExternalStore(subscribeSealed, getSealedSnapshot, getSealedSnapshot);
 }
 
 export async function setSealedMode(sealed: boolean): Promise<Attestation & { declined?: boolean }> {
@@ -7903,18 +8335,39 @@ export function _resetSealedStoreForTests() {
   snapshot = UNKNOWN;
   started = false;
   listeners.clear();
+  if (staleTimer) clearTimeout(staleTimer);
+  staleTimer = null;
 }
 ```
 
-- [ ] **Step 4: Wire the route graph (CCR-2)**
+- [ ] **Step 4: Make the sealed store the only sealed source for the route graph (CCR-2)**
 
-In `src/lib/routes.ts`:
-1. Add `sealed?: boolean` to `RouteSettingsSnapshot`, with the doc comment `/** Sealed mode (Plan 07). Non-device routes report unreachable/sealed. */`.
-2. In `resolveRoute`, make `applySealToRoute(route, snapshot.sealed ?? false)` the final transformation before returning. Import it from `./sealedMode`.
-3. In `useResolvedRoutes` and `useResolvedRoute`, read `const { sealed } = useSealedMode();` (from `../hooks/useSealedMode`) and pass `sealed: sealed === true` into the snapshot.
-4. If Plan 03 did not export one, export `routeSnapshotFromSettings(settings: SettingsState): RouteSettingsSnapshot`. It is the non-React builder the hooks already use internally, which non-React code (the dictation pre-flight) needs.
+In `src/stores/routeFactsStore.ts` (Plan 03, Task 2):
+1. Add `import { getSealedSnapshot, subscribeSealed } from "../hooks/useSealedMode";`.
+2. Delete the `privacy?: { … }` member of `RouteFactsApi`.
+3. In `loadRouteFacts`, delete the `settle(api.privacy?.getSealed && …)` entry from the `Promise.all` array, and `sealed` from the destructuring list in front of it. Return `sealed: getSealedSnapshot().sealed === true`. It is read when the facts are assembled, so a refresh that started before a toggle still returns main's latest answer.
+4. In `ensureRouteFactsSubscribed`, replace the `currentApi()?.privacy?.onSealedChange?.(…)` block with:
 
-`sealedMode.ts` and `routes.ts` import each other. The cycle is safe because neither uses the other at module-evaluation time. If the bundler warns, move `isDictationSealed` into `src/lib/dictationPreflight.ts`.
+   ```ts
+     // Plan 07: main's sealed state reaches the renderer once, through the
+     // sealed store; the route graph mirrors it in the same tick.
+     subscribeSealed(() => {
+       const sealed = getSealedSnapshot().sealed === true;
+       if (useRouteFactsStore.getState().facts.sealed !== sealed) {
+         useRouteFactsStore.setState((s) => ({ facts: { ...s.facts, sealed } }));
+       }
+     });
+   ```
+
+   Unknown (`null`) maps to `false`: the route graph claims no seal it has not been told about. The pre-flight treats unknown the same way, and Recovery covers the gap.
+
+In `src/lib/routes.ts`, change the comment above `isSealedLocality` to: `// Spec §5.4 + Plan 07 CCR-1/CCR-2: the one rule for which routes Sealed mode pauses. LAN servers are another machine.` Do not change the function.
+
+In Plan 03's `test/stores/routeFactsStore.test.js`:
+- Its `fullApi()` fake's `privacy` member becomes `fakePrivacy({ sealed: true }).api` (from `test/hooks/fakePrivacy.js`). Call `_resetSealedStoreForTests()` from `src/hooks/useSealedMode.ts` before each case.
+- The "slow `getSealed`" generation case tests ordering between overlapping refreshes. Drive it with a slow `listWhisperModels` instead; `getSealed` is no longer called by this store.
+
+Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/electron.ts` with the required `privacy` namespace. Confirm that there is exactly one: `grep -c "privacy" src/types/electron.ts` shows a single member.
 
 - [ ] **Step 5: Pre-flight, and keep content with honest copy**
 
@@ -7948,27 +8401,108 @@ In `src/lib/routes.ts`:
 
    Import `sealedPhase` from `./sealedModeError`.
 4. `src/utils/recordingErrors.ts`. As the first line of `getRecordingErrorTitle`, add `if (error.code === "SEALED_MODE") return t("sealedMode.blocked.dictationTitle");`.
-5. `src/helpers/audioManager.js`, the dictation pipeline `catch` (`:1903-1928`). Directly before the error toast (`:1915`), add:
+5. `src/helpers/audioManager.js`. Add two methods to the class, next to `saveFailedTranscription` (`:3109`):
 
    ```js
-         if (error?.code === "SEALED_MODE") {
-           // The same values saveFailedTranscription() decides with (:3111).
-           error.messageKey = sealedDictationMessageKey(error, getEffectiveRetentionPreferences());
-         }
+     // Sealed mode (Plan 07). Called before saveFailedTranscription(), which
+     // drops the blob when retention is off (:3111-3116). If retention would
+     // discard it, keep it in memory for "Transcribe"; never on disk.
+     _noteSealedFailure(error) {
+       if (!isSealedModeError(error)) return;
+       const retention = getEffectiveRetentionPreferences();
+       if (this.lastAudioBlob && shouldHoldInMemory(error, retention)) {
+         holdForRecovery(this.lastAudioBlob, { ...(this.lastAudioMetadata || {}) });
+         error.recoveryHeld = true;
+       }
+       error.code = "SEALED_MODE";
+       error.messageKey = sealedDictationMessageKey(error, retention, { held: error.recoveryHeld === true });
+     }
+
+     // "Transcribe" on the error toast or the unseal notice. Replays the oldest
+     // held recording through the normal pipeline. If it is refused again, the
+     // catch holds it again.
+     async transcribeRecovered() {
+       const held = takeRecovery();
+       if (!held) return false;
+       this.lastAudioBlob = held.blob;
+       this.lastAudioMetadata = held.metadata;
+       await this.processAudio(held.blob, held.metadata);
+       return true;
+     }
    ```
 
-   `getEffectiveRetentionPreferences()` is defined at `audioManager.js:130-136`. Import `sealedDictationMessageKey` from `../utils/sealedModeError`. The existing `saveFailedTranscription(...)` call that follows stays: it keeps the recording for retry whenever retention allows.
+   In the dictation pipeline `catch` (`:1903-1928`), as the first statement of the final `else` branch (before `this.onError?.({`, `:1915`), add `this._noteSealedFailure(error);`. In that `onError` call, add `recoveryHeld: error.recoveryHeld === true,` after `messageKey: error.messageKey,`. The existing `saveFailedTranscription(...)` call that follows stays: it keeps the recording for retry in History whenever retention allows.
+
+   Imports: `isSealedModeError` and `sealedDictationMessageKey` from `../utils/sealedModeError`; `shouldHoldInMemory`, `holdForRecovery` and `takeRecovery` from `../lib/sealedRecovery`. `getEffectiveRetentionPreferences()` is defined at `audioManager.js:130-136`.
+
+6. `src/hooks/useAudioRecording.js`.
+   - Give `showDictationError` (`:300`) an `extraActions = []` parameter, and append it to `actions` before the `toast(...)` call.
+   - In `onError` (`:383`), pass `extraActions` when `error?.recoveryHeld` is true:
+
+     ```js
+             extraActions: error?.recoveryHeld
+               ? [{ label: t("sealedMode.recovery.transcribe"), icon: "retry", onClick: () => audioManagerRef.current?.transcribeRecovered() }]
+               : [],
+     ```
+
+   - In the same `useEffect`, after `setCallbacks(...)`, add the notice on unseal:
+
+     ```js
+         // Plan 07: a dictation held in memory while sealed is offered again
+         // once Sealed mode is off. Nothing is sent until the user clicks.
+         let wasSealed = getSealedSnapshot().sealed;
+         const offSealed = subscribeSealed(() => {
+           const { sealed } = getSealedSnapshot();
+           if (wasSealed === true && sealed === false && recoveryCount() > 0) {
+             toast({
+               title: t("sealedMode.recovery.availableTitle"),
+               description: t("sealedMode.recovery.availableDetail", { count: recoveryCount() }),
+               variant: "default",
+               duration: Infinity,
+               actions: [
+                 { label: t("sealedMode.recovery.transcribe"), icon: "retry", onClick: () => audioManagerRef.current?.transcribeRecovered() },
+                 { label: t("sealedMode.recovery.discard"), onClick: () => discardRecovery() },
+               ],
+             });
+           }
+           wasSealed = sealed;
+         });
+     ```
+
+     Call `offSealed()` in the effect's cleanup. Import `getSealedSnapshot` and `subscribeSealed` from `./useSealedMode`, and `recoveryCount` and `discardRecovery` from `../lib/sealedRecovery`. `useToast` already supports `actions` and `duration`. If `duration: Infinity` is not accepted, use the longest duration `useToast.ts` supports and keep the action. Plan 04 restyles this as a pill notice and must keep the action (CCR-4).
+
+7. `src/components/ui/MarkdownRenderer.tsx`. Add an `img` entry to `markdownComponents`:
+
+   ```tsx
+     img: function MarkdownImage({ node: _node, src, alt }): ReactElement {
+       const { sealed } = useSealedMode();
+       const { t } = useTranslation();
+       const remote = typeof src === "string" && /^https?:/i.test(src) && !isLoopbackUrl(src);
+       // Sealed or unknown: do not ask Chromium for a remote image (Layer B
+       // would refuse it). Say why instead.
+       if (remote && sealed !== false) {
+         return (
+           <span className="inline-block rounded border border-dashed border-border px-1.5 py-0.5 text-xs text-muted-foreground">
+             {t("sealedMode.markdown.imageBlocked", { alt: alt || "" })}
+           </span>
+         );
+       }
+       return <img src={src} alt={alt ?? ""} className="max-w-full" />;
+     },
+   ```
+
+   Import `useSealedMode` from `../../hooks/useSealedMode`, `useTranslation` from `react-i18next` and `isLoopbackUrl` from `../../lib/locality`. Leave `MarkdownLink` (`:41-55`) as it is: a remote link already opens through `setWindowOpenHandler` and `openExternalUrl`, which asks first while sealed (Task 11).
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/sealedMode.test.js test/utils/sealedModeError.test.js test/hooks/useSealedMode.test.js test/lib/routesSealed.test.js test/helpers/dictationPreflight.test.js test/helpers/useChatStreamingCancellation.test.js test/helpers/useChatStreamingFlush.test.js && npm run typecheck`
-Expected: PASS, and typecheck is clean.
+Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/hooks/useSealedMode.test.js test/lib/routesSealed.test.js test/stores/routeFactsStore.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js test/helpers/useChatStreamingCancellation.test.js test/helpers/useChatStreamingFlush.test.js && npm run typecheck`
+Expected: PASS, and typecheck is clean. The new copy keys (`sealedMode.blocked.dictationHeld`, `sealedMode.interrupted.dictationHeld`, `sealedMode.recovery.*`, `sealedMode.markdown.imageBlocked`) are added in Task 14, Step 6; `npm run i18n:check` runs there.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/hooks/useSealedMode.ts src/lib/sealedMode.ts src/utils/sealedModeError.ts src/components/chat/chatErrorContent.ts src/lib/routes.ts src/components/chat/useChatStreaming.ts src/utils/localInferenceError.ts src/utils/recordingErrors.ts src/helpers/audioManager.js test/lib test/utils/sealedModeError.test.js test/hooks/useSealedMode.test.js test/helpers/dictationPreflight.test.js
-git commit -m "feat(privacy): pre-flight sealed dictation, reflect Sealed mode in routes, and keep content with honest copy"
+git add src/hooks/useSealedMode.ts src/lib/sealedMode.ts src/lib/sealedRecovery.ts src/utils/sealedModeError.ts src/components/chat/chatErrorContent.ts src/stores/routeFactsStore.ts src/lib/routes.ts src/components/ui/MarkdownRenderer.tsx src/components/chat/useChatStreaming.ts src/utils/localInferenceError.ts src/utils/recordingErrors.ts src/helpers/audioManager.js src/hooks/useAudioRecording.js test/lib test/utils/sealedModeError.test.js test/hooks test/stores/routeFactsStore.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js
+git commit -m "feat(privacy): one sealed source for routes, dictation pre-flight and in-memory recovery, inert remote images"
 ```
 
 ---

@@ -62,7 +62,7 @@ Plan 04 owns §5.2 and §5.3. Every change below is **additive**: no consumer wr
 
 Each question has a default that the plan implements. A different answer changes only the task named.
 
-1. **Undo for streaming dictation (Task 6).** A streaming provider has already received the audio, and the code keeps no local copy after a cancel (`cancelStreamingRecording` clears the fallback chunks). The default is no Undo: the pill says "Cancelled", with the caption "OpenAI already received the audio." The alternative keeps the fallback recorder's chunks in RAM and re-transcribes through the **same** provider's batch endpoint. That fails for streaming-only providers.
+1. **Undo for streaming dictation (Task 6). This deviates from D3 ("⌥Z or a click restores it") and needs your sign-off.** A streaming provider has already received the audio, and the code keeps no local copy after a cancel (`cancelStreamingRecording` clears the fallback chunks). The default is no Undo: the pill says "Cancelled", with the caption "OpenAI already received the audio." The alternative keeps the fallback recorder's chunks in RAM and re-transcribes through the **same** provider's batch endpoint. That fails for streaming-only providers.
 2. **The Condensation word row and "Show transcription preview" (Task 10).** The default shows live words above the pill whenever streaming partials exist, even with the preview setting off, because that is the picked design. Words on screen matter during screen sharing. Should the row honour that setting (off by default), or get its own?
 3. **R11 B mini pill width (Task 16).** The card's tradeoff text says 168 px, but the mock CSS uses 224 px. "Meeting? Start notes ⌥⌘M" does not fit in 168 px at 12.5 px, so the plan uses 224 px.
 4. **Global shortcuts beyond ⌥Z.** The plan adds ⌥↵ "Paste again" while a words card is up (Task 2), and ⌥⌘M (Ctrl+Alt+M) "Start notes" while a meeting prompt is up (Task 16). Each is held only while its surface shows; the pill and prompt windows cannot take focus. Are those combinations acceptable?
@@ -116,23 +116,28 @@ Plan 02's VO-Q16 native interruption notifications stay as Plan 02 built them. T
   - The undo window is 5 s, or 10 s when the recording is over 30 s. Hover pauses it, and ⌥Z or a click restores.
   - Audio is held in RAM only and zeroed when the window expires. It is never persisted unless the retention settings already save discarded audio (`shouldSaveDiscardedRecording`).
   - Esc stays armed until the pipeline is idle.
-  - If a remote request was already sent, the copy says so: "Cancelled · OpenAI already received the audio." (D3)
+  - If a remote request was already sent, the copy says so (D3). The pill reads "Discarded · Undo", or "Cancelled" when there is nothing to restore, and the caption above it reads "OpenAI already received the audio." Together they render D3's "Cancelled · OpenAI already received the audio." The provider name comes from `providerDisplayLabel`.
 - The meeting recorder is a state of the existing pill window, never a second always-on-top window (D2). Linux adds a tray recording state and a persistent notification with Stop. The setting "Show meeting recorder on screen" defaults to on.
 - Condensation words render on their own layer above the bars. The bars are never clipped by words (D9). Agent Mode ships without the frame glyph (D9, VO-R8 owner note).
 - Orange (`variant="live"`, `--color-live`) is only for record, stop, mic, send-by-voice, the pill and meters (D1). Notice and card primaries use the default ink `Button`.
 - The pill window stays 208×120 (`PILL_WINDOW_SIZE`) for every pill-only state. No pill footprint may exceed 184 px wide, which is the window minus the 12 px dock insets. Recording edges never call `setBounds`.
 - Provider names shown in the pill or in notices come from `providerDisplayLabel(providerId, t)` (`src/lib/locality.ts`). `providerDisplayName` is for logs only.
 - Text contrast is at least 4.5:1 and non-text UI at least 3:1, in light and Plum Night. Never put white text on `#FF5A1F`.
-- Motion uses the Plan 01 tokens only (`--motion-*`, springs as `linear()`). Every loop is gated to its active state. Reduced motion keeps opacity and colour and drops transforms. No `cubic-bezier(0.4, 0, 1, 1)`.
+- Motion uses the Plan 01 tokens (`--motion-*`, springs as `linear()`) for every transition and every enter or exit. The exceptions are literal values the picked specs fix:
+  - loop periods: the 1.6 s comet, 2.4 s and 1.2 s orbit, 1.2 s dot and 2 s shimmer;
+  - choreography beats: 140/220 ms word landing, the 600 ms underline, 640 ms with `--motion-spring-bounce`, and the 260 ms nudge.
+
+  Ambient loops (breathe, dot pulse) may use `ease-in-out`, per the audit §4.1 mapping. Every loop is gated to its active state. Reduced motion keeps opacity and colour and drops transforms. No `cubic-bezier(0.4, 0, 1, 1)`.
 - Every visible string goes through i18n, with keys in all 12 locales (`ar de en es fr it ja pt ru zh-CN zh-TW`). `npm run i18n:check` passes. Non-English locales get an English placeholder that the existing translation workflow fills. Do not leave keys missing.
-- Use logical properties (`ms-`/`me-`, `start`/`end`, `inset-inline-*`) for RTL.
+- Use logical properties (`ms-`/`me-`, `start`/`end`, `inset-inline-*`) for RTL. The exception is anchors that track the pill's physical screen dock (`data-direction` / `horizontalDirection`): the pill notice stack, the pill caption and the pill tooltip stay physical.
 - Tests: `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the app. Never use personal profiles in tests.
 - Before the PR: `npm run lint`, `npm run typecheck`, `npm test`, `npm run i18n:check`, `npm run format:check`.
+- `--shadow-card` and `--shadow-elevated` exist only under `.dark`. Every `box-shadow` that uses them carries a light fallback (`var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14))`), because an undefined `var()` with no fallback invalidates the whole declaration.
 - DESIGN.md is the source of truth (D10). Each task that changes a documented surface updates DESIGN.md in the same commit.
 
 ## Review Focus
 
-1. **Cancel after a batch upload has started.** Cancel lands while `transcribeAudioFileByok` is in flight. A person expects "Cancelled · OpenAI already received the audio." with Undo still offered, and Undo re-sending to the same provider. Cancelling **before** the upload must say nothing about a provider. Pinned in Task 5 (`remoteDispatch.test.js`, "batch dispatch is marked only once the upload is invoked") and Task 6 (`audioManagerCancelHold.test.js`, "cancel during an in-flight upload holds the blob and names the provider").
+1. **Cancel after a batch upload has started.** Cancel lands while `transcribeAudioFileByok` is in flight. A person expects the pill to read "Discarded · Undo" with the caption "OpenAI already received the audio.", and Undo to re-send to the same provider. Cancelling **before** the upload must say nothing about a provider. Pinned in Task 5 (`remoteDispatch.test.js`, "batch dispatch is marked only once the upload is invoked") and Task 6 (`audioManagerCancelHold.test.js`, "cancel during an in-flight upload holds the blob and names the provider").
 2. **Save-discarded with Undo, or a quit inside the window.** With "Save discarded" on, the cancelled audio is saved exactly once when the window expires, and never when Undo restores it. If the app quits inside the window, it is flushed once. With retention off, nothing is ever written. Pinned in Task 6 ("expiry persists once when retention allows", "undo never persists a discarded copy", "flush on unload persists once").
 3. **⌥Z leaking after the window.** The ⌥Z slot must be unregistered when the window expires, when Undo runs, and when a new recording starts. Otherwise Loqui steals ⌥Z (Ω) from every app. Pinned in Task 7 (`useAudioRecordingCancelUndo.test.js`, "undo hotkey is released at expiry, on undo and on a new start").
 4. **Long translations in fixed pill footprints.** German and Russian stage labels ("Wird bereinigt", "Вставлено · 19 слов") must truncate with an ellipsis inside the footprint, never widen the pill past 184 px or wrap. Pinned in Task 9 (`voicePillStructure.test.js`, "stage labels truncate inside the footprint").
@@ -152,7 +157,11 @@ Plan 02's VO-Q16 native interruption notifications stay as Plan 02 built them. T
 | `src/helpers/cancelHold.js` (new) + `audioManager.js` | RAM undo buffer (D3) | 6 |
 | `src/hooks/useAudioRecording.js` | §5.2 lifecycle: `cancelled`, `undoCancel`, `processingStage`, `outcome`, `meetingRecording` | 7 |
 | `src/helpers/voicePillPresentation.js` | Stage model, footprints, VO-Q5, VO-Q12, VO-Q18 | 8 |
-| `src/components/dictation/VoicePill.tsx`, `PillStageLabel.tsx` (new), `usePillLocality.ts` (new) | LevelBars, LocalityRing, stage labels, cancelled capsule | 9 |
+| `src/components/dictation/VoicePill.tsx`, `pillLocality.ts` (new), `PillCaption.tsx` (new), `src/hooks/useRecentOutcome.ts` (new) | LevelBars, LocalityRing, stage labels, cancelled capsule, caption layer | 9 |
+| `src/hooks/useUndoCancelHotkey.ts` (new) | ⌥Z while an undo window is open | 7 |
+| `src/hooks/useAgentAnswering.ts` (new), `agentOrbitMath.ts` (new) | Agent first-token beat, tick maths | 11 |
+| `src/helpers/trayRecordingIcon.js` (new), `src/hooks/useMeetingRecordingPresence.ts` (new) | Linux tray dot, presence hook | 14, 15 |
+| `src/utils/meetingMicLevel.ts`, `src/utils/meetingQuiet.ts` (new) | Shared meeting level reader, quiet detection | 17 |
 | `src/components/dictation/condensation.ts`, `CondensationWords.tsx` (new) | R1 C words layer (D9) | 10 |
 | `src/components/dictation/AgentOrbit.tsx` (new) | R8 B violet orbit | 11 |
 | `PillTooltip.tsx`, `dictation-panel.css` | VO-Q14, VO-Q19, VO-Q20 | 12 |
@@ -585,16 +594,17 @@ Covers VO-R14 B and VO-R6 B (the card), and carries Plan 02's VO-Q9 rules forwar
 - Modify: `src/locales/*/translation.json`. Add a top-level `"notices"` object.
 - Modify: `DESIGN.md`. Add a `### Notices` section after `### Voice Pill`.
 - Test: `test/components/noticeStack.test.js`
-- Test: `test/helpers/windowSizeLadder.test.js` (create it if absent; update it if present)
+- Test: `test/helpers/windowSizeLadder.test.js`. This file already exists; update it in Step 1.
 
 **Interfaces:**
 - Consumes everything from Task 1.
 - Produces:
 
   ```tsx
-  export function NoticeStack(props: { placement: "pill" | "panel"; horizontalDirection?: "left" | "right" }): JSX.Element | null;
+  export function NoticeStack(props: { placement: "pill" | "panel"; horizontalDirection?: "left" | "right"; primaryHotkeyLabel?: string | null }): JSX.Element | null;
   export function NoticeChip(props: { notice: Notice; stagger: number }): JSX.Element;
-  export function WordsFirstCard(props: { notice: Notice; onHeight?: (px: number) => void }): JSX.Element;
+  export function WordsFirstCard(props: { notice: Notice; onHeight?: (px: number) => void; hotkeyLabel?: string | null }): JSX.Element;
+  export function useTimedFlag(on: boolean, ms: number): boolean; // in usePillHotkey.ts
   export function useNoticeWindowState(): { noticeCount: number; wordsCardVisible: boolean };
   ```
 
@@ -712,7 +722,12 @@ test("pill hotkeys are wired through preload with a main-side slot", () => {
 });
 ```
 
-Create or extend `test/helpers/windowSizeLadder.test.js`:
+Update the existing `test/helpers/windowSizeLadder.test.js`:
+- In every `resolveMainWindowSizeKey({...})` call, and in the ladder-domain loop, rename `toastCount` to `noticeCount` and `dictationErrorActionCount` (a count) to `wordsCardVisible` (a boolean: `> 0` becomes `true`).
+- Retitle "a toast outranks the listening pill so both fit" to "notices outrank the listening pill so both fit", and expect `"WITH_NOTICES"` wherever it expected `"WITH_TOAST"`.
+- Leave the `DICTATION_ERROR` geometry tests alone until Task 4.
+
+Then append:
 
 ```js
 const assert = require("node:assert/strict");
@@ -753,6 +768,7 @@ Expected: FAIL. `NoticeChip.tsx` is not found, and `resolveMainWindowSizeKey({ n
 `src/components/ui/NoticeChip.tsx`:
 
 ```tsx
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Check, Info, X } from "../icons";
 import { dismissNotice, pauseNotice, resumeNotice, runNoticeAction, type Notice } from "./notices";
@@ -770,7 +786,7 @@ export function NoticeChip({ notice, stagger }: { notice: Notice; stagger: numbe
       data-kind={notice.kind}
       role={notice.kind === "alert" ? "alert" : "status"}
       aria-live={notice.kind === "alert" ? "assertive" : "polite"}
-      style={{ "--notice-stagger": stagger } as React.CSSProperties}
+      style={{ "--notice-stagger": stagger } as CSSProperties}
       onMouseEnter={() => pauseNotice(notice.id)}
       onMouseLeave={() => resumeNotice(notice.id)}
     >
@@ -816,7 +832,15 @@ import { dismissNotice, runNoticeAction, type Notice } from "./notices";
  * the target field. Primary actions use the ink Button (D1: orange is for
  * voice controls only).
  */
-export function WordsFirstCard({ notice, onHeight }: { notice: Notice; onHeight?: (px: number) => void }) {
+export function WordsFirstCard({
+  notice,
+  onHeight,
+  hotkeyLabel = null,
+}: {
+  notice: Notice;
+  onHeight?: (px: number) => void;
+  hotkeyLabel?: string | null;
+}) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLElement>(null);
   const [copied, setCopied] = useState(false);
@@ -860,7 +884,7 @@ export function WordsFirstCard({ notice, onHeight }: { notice: Notice; onHeight?
             onClick={() => void runNoticeAction(notice.id, action)}
           >
             {action.label}
-            {action.primary ? <kbd className="words-card__kbd">⌥↵</kbd> : null}
+            {action.primary && hotkeyLabel ? <kbd className="words-card__kbd">{hotkeyLabel}</kbd> : null}
           </Button>
         ))}
         <Button size="sm" variant="outline" data-copy="" onClick={() => void copy()}>
@@ -905,9 +929,12 @@ export function useNoticeWindowState(): { noticeCount: number; wordsCardVisible:
 export function NoticeStack({
   placement,
   horizontalDirection = "right",
+  primaryHotkeyLabel = null,
 }: {
   placement: "pill" | "panel";
   horizontalDirection?: "left" | "right";
+  /** Shown on the card's primary only while the global hotkey is actually held. */
+  primaryHotkeyLabel?: string | null;
 }) {
   const list = useNotices();
   const card = list.find((n) => n.kind === "alert" && !!n.words) ?? null;
@@ -924,7 +951,7 @@ export function NoticeStack({
   if (!card && chips.length === 0) return null;
   return (
     <div className="notice-stack" data-placement={placement} data-direction={horizontalDirection}>
-      {card ? <WordsFirstCard notice={card} onHeight={reportHeight} /> : null}
+      {card ? <WordsFirstCard notice={card} onHeight={reportHeight} hotkeyLabel={primaryHotkeyLabel} /> : null}
       {chips
         .slice()
         .reverse()
@@ -952,15 +979,18 @@ export function NoticeStack({
 .notice-stack > * {
   pointer-events: auto;
 }
-/* Beside the 40px pill on its inner side: pill inset 12 + 40 + 10 gap. */
+/* Beside the 40px pill on its inner side: pill inset 12 + 40 + 10 gap. The
+   pill docks to a physical screen edge (data-direction mirrors the dock, not
+   the text direction), so these anchors are physical on purpose; the panel
+   stack below is logical. */
 .notice-stack[data-placement="pill"] {
   bottom: 12px;
-  inset-inline-start: 62px;
-  inset-inline-end: 10px;
+  left: 62px;
+  right: 10px;
 }
 .notice-stack[data-placement="pill"][data-direction="left"] {
-  inset-inline-start: 10px;
-  inset-inline-end: 62px;
+  left: 10px;
+  right: 62px;
   align-items: flex-end;
 }
 .notice-stack[data-placement="panel"] {
@@ -980,7 +1010,7 @@ export function NoticeStack({
   background: var(--color-popover);
   color: var(--color-popover-foreground);
   border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
   font: 500 12px/1 var(--font-family-sans);
   white-space: nowrap;
   animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
@@ -1053,7 +1083,7 @@ export function NoticeStack({
   background: var(--color-popover);
   color: var(--color-popover-foreground);
   border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
   animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
 }
 .words-card__chip {
@@ -1068,7 +1098,8 @@ export function NoticeStack({
 }
 .words-card__words {
   margin: 8px 0 9px;
-  padding: 8px 24px 8px 9px;
+  padding-block: 8px;
+  padding-inline: 9px 24px;
   border-radius: 11px;
   background: color-mix(in oklch, var(--color-foreground) 7%, transparent);
   font: 400 13px/1.4 var(--font-family-sans);
@@ -1080,7 +1111,7 @@ export function NoticeStack({
 }
 .words-card__words.is-drag {
   transform: scale(1.03);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
 }
 .words-card__actions {
   display: flex;
@@ -1173,7 +1204,7 @@ In `src/types/electron.ts`, next to `registerCancelHotkey`:
 Create `src/hooks/usePillHotkey.ts`:
 
 ```ts
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type PillHotkeySlot = "undoCancel" | "noticePrimary";
 
@@ -1205,7 +1236,7 @@ In `src/preview/browserPreview.ts`, add `registerPillHotkey: async () => true`, 
 
 - [ ] **Step 5: Ladder, window size and mounting**
 
-1. `src/helpers/windowConfig.js`: add `WITH_NOTICES: { width: 400, height: 168 },` after `WITH_MENU` in `WINDOW_SIZES` (line 154). Leave `WITH_TOAST` in place until Task 4.
+1. `src/helpers/windowConfig.js`: add `WITH_NOTICES: { width: 400, height: 168 },` after `WITH_MENU` in `WINDOW_SIZES` (line 154). Leave `WITH_TOAST` in place until Task 4. Also add `"WITH_NOTICES"` to the `resizeMainWindow` size-key union in `src/types/electron.ts` (lines 1409–1416).
 2. `src/utils/windowSizeLadder.js`: replace the whole file with:
 
 ```js
@@ -1252,10 +1283,37 @@ Rename each hit in `useMainWindowSizeOwner.js`, `App.jsx` and `test/hooks/dictat
    - Import `NoticeStack` and `useNoticeWindowState`.
    - Under the existing `useToast()` line, add `const { noticeCount, wordsCardVisible } = useNoticeWindowState();`.
    - In the props to `useMainWindowSizeOwner` (lines 312–325), pass `noticeCount: noticeCount + toastCount` and `wordsCardVisible: wordsCardVisible || dictationErrorActionCount > 0`. The `+ toastCount` and `|| dictationErrorActionCount` terms disappear in Task 4.
-   - Use `noticeCount + toastCount > 0` everywhere `toastCount > 0` gates interactivity (line 329), auto-hide (line 411) and `useLinuxPillInteractivity` (line 621).
+   - Define `const noticesOnScreen = noticeCount + toastCount > 0 || wordsCardVisible;` and use it everywhere `toastCount > 0` gates interactivity (line 329), auto-hide (line 411) and `useLinuxPillInteractivity` (line 621). `noticeCount` deliberately excludes the words card, so without `wordsCardVisible` the card would sit in a click-through window, and auto-hide would hide the recovered words.
    - Render `<NoticeStack placement="pill" horizontalDirection={voiceHorizontalDirection} />` as the last child of `div.dictation-window` (line 626).
-   - R6 B keeps the pill visible next to the card. Change `dictationErrorSuppressesPill` (around line 593) to `const dictationErrorSuppressesPill = false;`, then delete that constant and its use in `resolvePillVisualSuppression` (pass `dictationErrorSuppressed: false`). Remove the parameter from `resolvePillVisualSuppression` in `voicePillPresentation.js:388` only if no other caller passes it (`grep -rn dictationErrorSuppressed src test`).
-   - Add `usePillHotkey("noticePrimary", wordsCardVisible, () => { const card = getNotices().find((n) => n.kind === "alert" && n.words); const primary = card?.actions?.find((a) => a.primary); if (card && primary) void runNoticeAction(card.id, primary); });`.
+   - R6 B keeps the pill visible next to the card. Change `dictationErrorSuppressesPill` (around line 593) to `const dictationErrorSuppressesPill = false;`, then delete that constant, the `data-dictation-error-suppressed` attribute (line 635), and its use in `resolvePillVisualSuppression` (pass `dictationErrorSuppressed: false`). Remove the parameter from `resolvePillVisualSuppression` in `voicePillPresentation.js:388` only if no other caller passes it (`grep -rn dictationErrorSuppressed src test`).
+   - Hold ⌥↵ for at most 60 s after the card appears. The card never auto-dismisses, and a global Alt+Enter must not be stolen indefinitely (same leak class as Review Focus #3). Add this to `usePillHotkey.ts`:
+
+     ```ts
+     /** True while `on`, but for at most `ms` after it turned on. */
+     export function useTimedFlag(on: boolean, ms: number): boolean {
+       const [live, setLive] = useState(false);
+       useEffect(() => {
+         if (!on) return setLive(false);
+         setLive(true);
+         const id = setTimeout(() => setLive(false), ms);
+         return () => clearTimeout(id);
+       }, [on, ms]);
+       return live;
+     }
+     ```
+
+     Then in App:
+
+     ```js
+       const noticeHotkeyLive = useTimedFlag(wordsCardVisible, 60_000);
+       usePillHotkey("noticePrimary", noticeHotkeyLive, () => {
+         const card = getNotices().find((n) => n.kind === "alert" && n.words);
+         const primary = card?.actions?.find((a) => a.primary);
+         if (card && primary) void runNoticeAction(card.id, primary);
+       });
+     ```
+
+     Pass `primaryHotkeyLabel={noticeHotkeyLive ? (getCachedPlatform() === "darwin" ? "⌥↵" : "Alt+Enter") : null}` to `<NoticeStack placement="pill" …>`. `getCachedPlatform` comes from `src/utils/platform.ts`.
 5. `src/AppRouter.jsx`: in the `isControlPanel` branch (lines 64–78), wrap the existing ternary in a fragment and render `<NoticeStack placement="panel" />` after it. The panel stack then shows in onboarding (Plan 05's trial raises notices there) as well as in `ControlPanel`.
 
 - [ ] **Step 6: Locale strings and DESIGN.md**
@@ -1346,7 +1404,7 @@ Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3
 
   ```js
   // src/helpers/retryDictationCleanup.js
-  export async function retryDictationCleanup(rawText, deps = defaultDeps): Promise<"cleaned" | "unchanged" | "failed">;
+  export async function retryDictationCleanup(rawText, deps?): Promise<"cleaned" | "unchanged" | "failed">; // deps default loads lazily
   ```
 
   ```ts
@@ -1554,35 +1612,41 @@ export function buildDictationErrorNotice(
 `src/helpers/retryDictationCleanup.js`. It mirrors the cleanup call in `ControlPanel.tsx:532-551`:
 
 ```js
-import { notify as defaultNotify } from "../components/ui/notices";
 import { getAgentName } from "../utils/agentName";
-import i18n from "../i18n";
+
+// Defaults load lazily so unit tests that pass `deps` never pull in i18n
+// (and every locale) or the notice store.
+async function loadDefaultDeps() {
+  const [{ default: i18n }, { notify }] = await Promise.all([
+    import("../i18n"),
+    import("../components/ui/notices"),
+  ]);
+  return {
+    processText: defaultProcessText,
+    writeClipboard: (text) => window.electronAPI?.writeClipboard?.(text),
+    notify,
+    t: (key, options) => i18n.t(key, options),
+  };
+}
 
 async function defaultProcessText(rawText) {
   const [{ default: ReasoningService }, { getEffectiveCleanupModel, getSettings }] =
     await Promise.all([import("../services/ReasoningService"), import("../stores/settingsStore")]);
   const model = getEffectiveCleanupModel();
-  if (!model) throw new Error(i18n.t("notices.cleanupFailed.noModel"));
+  if (!model) throw Object.assign(new Error("No cleanup model"), { messageKey: "notices.cleanupFailed.noModel" });
   return ReasoningService.processText(rawText, model, getAgentName(), {
     disableThinking: getSettings().cleanupDisableThinking,
     requireCompleteOutput: true,
   });
 }
 
-const defaultDeps = {
-  processText: defaultProcessText,
-  writeClipboard: (text) => window.electronAPI?.writeClipboard?.(text),
-  notify: defaultNotify,
-  t: (key, options) => i18n.t(key, options),
-};
-
 /**
  * Re-run cleanup on words that were already pasted raw. The pasted text cannot
  * be replaced in another app, so the cleaned text goes to the clipboard and a
  * receipt says so. The raw words are never touched on failure.
  */
-export async function retryDictationCleanup(rawText, deps = defaultDeps) {
-  const { processText, writeClipboard, notify, t } = deps;
+export async function retryDictationCleanup(rawText, deps) {
+  const { processText, writeClipboard, notify, t } = deps ?? (await loadDefaultDeps());
   try {
     const cleaned = await processText(rawText);
     if (typeof cleaned !== "string" || !cleaned.trim() || cleaned.trim() === rawText.trim()) {
@@ -1699,6 +1763,7 @@ In `src/helpers/ipcHandlers.js`, near the other control-panel handlers:
    - Line 682, translation fallback (destructive today): `notify({ kind: "alert", title, body })`.
    - Line 659: `if (result.cleanupFailure) recordCleanupFailure({ ...result.cleanupFailure, rawText: result.text });`.
    - Add the imports `import { notify, dismissNotice } from "../components/ui/notices";` and `import { buildDictationErrorNotice } from "../components/voiceNotices";`.
+   - Remove `toast` from every hook dependency array (`grep -n "\btoast\b" src/hooks/useAudioRecording.js`, around line 801). ESLint's `react-hooks/exhaustive-deps` flags the stale entry.
 4. **`src/hooks/useMainProcessNotifications.tsx`.** Change the signature to `({ t })`, then migrate each call:
 
    | Line | New call | Extra changes |
@@ -1725,6 +1790,7 @@ In `src/helpers/ipcHandlers.js`, near the other control-panel handlers:
    - Line 209 becomes `useAudioRecording({`.
    - `refuse()` (lines 383–389) uses `notify({ kind: "notice", title: t(messageKey) })`.
    - Lines 343–347 call `dismissNotice("dictation-error")` instead of `dismissByPresentation("dictation-error")`.
+   - Lines 88–91: `dismissDictationError` becomes `React.useCallback(() => dismissNotice("dictation-error"), [])`.
    - The `useMainProcessNotifications` call becomes `useMainProcessNotifications({ t })`.
 7. **`src/components/OnboardingFlow.tsx:747`.** Change it to `const recording = useAudioRecording({ trialMode: true, onDemoEvent });`. Remove the `toast` destructure only if nothing else in the file uses it (`grep -n "toast" src/components/OnboardingFlow.tsx`).
 8. **Hook tests.** Change each call to the new single-argument form:
@@ -1812,6 +1878,7 @@ Covers the rest of §5.3: "Plan 04 migrates those call sites."
 - Modify: `src/renderApp.jsx`. Remove `ToastProvider`.
 - Modify: `src/App.jsx`. Remove `useToast()` and the `+ toastCount` / `|| dictationErrorActionCount` bridges from Task 2.
 - Modify: `src/helpers/windowConfig.js`. Remove `WITH_TOAST` and `DICTATION_ERROR`, keep `DICTATION_ERROR_WITH_TRANSCRIPT`, and rename nothing else.
+- Modify: `test/helpers/windowSizeLadder.test.js`. Delete the tests that read `WINDOW_SIZES.DICTATION_ERROR` ("dictation error windows share the assistant width…"), and keep a check that `DICTATION_ERROR_WITH_TRANSCRIPT.width === ASSISTANT.width`.
 - Modify the tests that import the toast system (`grep -rln "useToast\|ui/Toast\|toastPresentation\|DictationErrorCard" test`):
   - `rtlMotion.test.js`
   - `spaceEmoji.test.js`
@@ -1874,7 +1941,7 @@ test("the toast files are gone and notices own the surface", () => {
     assert.equal(fs.existsSync(path.join(repoRoot, gone)), false, gone);
   }
   const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
-  assert.doesNotMatch(css, /@keyframes toast-enter/);
+  assert.doesNotMatch(css, /\.toast-|@keyframes toast-/);
 });
 ```
 
@@ -1898,11 +1965,14 @@ Expected: FAIL. The first test lists about ten files, including `ControlPanel.ts
 2. Delete the four files and `test/helpers/toastPresentation.test.js`. Remove `ToastProvider` from `src/renderApp.jsx` (lines 10, 32 and 37). Its children move up one level inside `SettingsProvider`.
 3. In `src/App.jsx`:
    - Delete the `useToast()` line (64–65).
-   - Change `noticeCount + toastCount` back to `noticeCount`.
+   - Line 173: `useAssistantPanel({ dictationErrorActionCount, … })`. Rename that option to `wordsCardVisible: boolean` in `src/hooks/useAssistantPanel.js` (`grep -n dictationErrorActionCount src/hooks/useAssistantPanel.js`). Turn its `> 0` checks into the boolean, and pass `wordsCardVisible`.
+   - Lines 256–258: keep the effect and its ordering comment (it must run before the size owner), but key it on the card: `useEffect(() => { if (wordsCardVisible) handleDictationError(); }, [wordsCardVisible, handleDictationError]);`.
+   - Change `noticeCount + toastCount > 0 || wordsCardVisible` to `noticeCount > 0 || wordsCardVisible`.
    - Change `wordsCardVisible || dictationErrorActionCount > 0` to `wordsCardVisible`.
-4. In `src/helpers/windowConfig.js`, delete `WITH_TOAST` and `DICTATION_ERROR` from `WINDOW_SIZES`. Then run `grep -rn "WITH_TOAST\|\"DICTATION_ERROR\"" src test` and fix every hit: `windowManager.js` size checks and `voiceSurfaceGeometry.test.js`.
-5. Delete the `.toast-surface`, `.toast-enter`, `@keyframes toast-enter`, `@keyframes toast-progress` and reduced-motion toast rules (`src/index.css:1083-1130`).
-6. For each listed test that imported toast modules: if it mounted `ToastProvider` only to satisfy `useToast`, delete the provider wrapper. If it asserted a toast, load `notices.ts` through the same module system and assert on `getNotices()`. Use `await import("../../src/components/ui/notices.ts")` for SSR tests and `vite.ssrLoadModule("/components/ui/notices.ts")` for Vite-harness tests.
+4. In `src/helpers/windowConfig.js`, delete `WITH_TOAST` and `DICTATION_ERROR` from `WINDOW_SIZES`, and remove both from the `resizeMainWindow` union in `src/types/electron.ts`. Then run `grep -rn "WITH_TOAST\|\"DICTATION_ERROR\"" src test` and fix every hit: `windowManager.js` size checks and `voiceSurfaceGeometry.test.js`.
+5. Delete every toast rule and keyframe in `src/index.css`, starting around line 1083: `.toast-surface`, `.toast-enter`, `@keyframes toast-enter`, `toast-progress`, `toast-border-progress`, and the reduced-motion toast rules. Use `grep -n "toast" src/index.css` to find them all; do not stop at line 1130.
+6. `test/components/rtlMotion.test.js` reads the `Toast.tsx` source and the toast CSS. Rewrite those assertions against the notice equivalents: `.notice-stack[data-placement="panel"]` uses `inset-inline-end`, and `@keyframes notice-in` rises on the Y axis only. Do not just delete them.
+7. For each listed test that imported toast modules: if it mounted `ToastProvider` only to satisfy `useToast`, delete the provider wrapper. If it asserted a toast, load `notices.ts` through the same module system and assert on `getNotices()`. Use `await import("../../src/components/ui/notices.ts")` for SSR tests and `vite.ssrLoadModule("/components/ui/notices.ts")` for Vite-harness tests.
 
 - [ ] **Step 4: Run the full suite**
 
@@ -1979,6 +2049,7 @@ test("targets are ids, not display text; a LAN server is a host; unknown fails t
   assert.equal(describeDispatchTarget({ mode: undefined, provider: "mystery" }), "mystery");
   assert.equal(describeDispatchTarget({ mode: "providers", provider: "" }), "");
   assert.equal(describeDispatchTarget({ mode: "self-hosted", remoteUrl: "" }), null);
+  assert.equal(describeDispatchTarget({}), null);
 });
 
 test("labels come from providerDisplayLabel, with localised fallbacks", async () => {
@@ -2080,7 +2151,11 @@ export function describeDispatchTarget({ mode, provider, remoteUrl } = {}) {
       return null;
     }
   }
-  return String(provider ?? "").trim();
+  const id = String(provider ?? "").trim();
+  // No mode and no provider means nothing was configured to leave the device.
+  // A known remote mode with an empty provider still discloses ("").
+  if (!mode && !id) return null;
+  return id;
 }
 
 export function dispatchTargetLabel(target, t) {
@@ -2212,7 +2287,8 @@ git commit -m "feat(voice): record who actually received dictation audio or text
   export const LONG_RECORDING_SECONDS = 30;
   export function undoWindowMs(durationSeconds: number | null): number;
   export function zeroBytes(bytes: Uint8Array | null): void;
-  export function createCancelHold(opts: { now?, setTimer?, clearTimer?, onExpire?: (entry) => Promise<void> | void }): {
+  export const HOLD_BYTES_WAIT_MS = 10000;
+  export function createCancelHold(opts: { now?, setTimer?, clearTimer?, onExpire?: (entry) => Promise<void> | void; onClose?: () => void }): {
     hold(entry: { bytes: Promise<Uint8Array | null>; mimeType: string; durationSeconds: number | null; analyticsOccurredAt: string }): number; // expiresAt
     pause(): number | null; resume(): number | null; take(): HeldEntry | null; expireNow(): Promise<void>; isHolding(): boolean;
   };
@@ -2330,6 +2406,23 @@ test("a newer hold finalizes the older one first", async () => {
   assert.deepEqual(seen, [1]);
 });
 
+test("the window always closes, even when no audio was captured", async () => {
+  const { createCancelHold } = await load();
+  const clock = timers();
+  let closed = 0;
+  let expired = 0;
+  const hold = createCancelHold({ ...clock, onClose: () => closed++, onExpire: () => expired++ });
+  hold.hold({ bytes: Promise.resolve(null), mimeType: "audio/webm", durationSeconds: 0.2, analyticsOccurredAt: "x" });
+  await clock.advance(5000);
+  assert.equal(closed, 1);
+  assert.equal(expired, 0);
+  // Bytes that never arrive (recorder onstop never fired) cannot keep the window open either.
+  hold.hold({ bytes: new Promise(() => {}), mimeType: "audio/webm", durationSeconds: 1, analyticsOccurredAt: "x" });
+  await clock.advance(5000);
+  assert.equal(closed, 2);
+  assert.equal(hold.isHolding(), false);
+});
+
 test("expireNow is idempotent (unload flush)", async () => {
   const { createCancelHold } = await load();
   const clock = timers();
@@ -2443,6 +2536,25 @@ test("expiry persists once when retention allows, never when it does not", async
   assert.equal(off.calls.saved, 0);
 });
 
+test("a cancel with no captured audio still ends the window and releases the state", async (t) => {
+  const { manager, calls, advance } = await setup(t, RETENTION_ON);
+  manager._holdForUndo({ bytes: Promise.resolve(null), mimeType: "audio/webm", durationSeconds: 0.3, analyticsOccurredAt: "x" });
+  await advance(0);
+  assert.ok(calls.cancelled.at(-1).undoUntil > 0);
+  await advance(5000);
+  assert.equal(calls.cancelled.at(-1), null);
+  assert.equal(calls.saved, 0);
+});
+
+test("a new recording finalizes an open hold first", async (t) => {
+  const { manager, calls, advance } = await setup(t, RETENTION_ON);
+  manager.cancelProcessing();
+  await advance(0);
+  await manager._hold.expireNow(); // what startRecording()/startStreamingRecording() call first (Step 4.8)
+  assert.equal(calls.cancelled.at(-1), null);
+  assert.equal(calls.saved, 1);
+});
+
 test("flush on unload persists once", async (t) => {
   const { manager, calls, advance } = await setup(t, RETENTION_ON);
   manager.cancelProcessing();
@@ -2486,16 +2598,23 @@ export function zeroBytes(bytes) {
   if (bytes && typeof bytes.fill === "function") bytes.fill(0);
 }
 
+// A recorder whose final chunk never lands must not hold persistence forever.
+export const HOLD_BYTES_WAIT_MS = 10000;
+
 export function createCancelHold({
   now = () => Date.now(),
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = (id) => clearTimeout(id),
   onExpire,
+  onClose,
 } = {}) {
   let held = null;
 
   const finalize = async (entry) => {
-    const bytes = await entry.bytes.catch(() => null);
+    const bytes = await Promise.race([
+      entry.bytes.catch(() => null),
+      new Promise((resolve) => setTimer(() => resolve(null), HOLD_BYTES_WAIT_MS)),
+    ]);
     try {
       if (bytes && bytes.length > 0) await onExpire?.({ ...entry, bytes });
     } finally {
@@ -2503,11 +2622,14 @@ export function createCancelHold({
     }
   };
 
+  // The undo window closes on time no matter what the bytes do: the UI and
+  // the ⌥Z slot are released here, persistence (if allowed) follows.
   const expire = () => {
     if (!held) return Promise.resolve();
     const entry = held;
     held = null;
     clearTimer(entry.timer);
+    onClose?.();
     return finalize(entry);
   };
 
@@ -2565,12 +2687,12 @@ In `src/helpers/audioManager.js`:
     const create = this._createCancelHold ?? createCancelHold;
     return (this._hold ??= create({
       ...(this._holdTimers ?? {}),
+      onClose: () => this.onCancelledChange?.(null),
       onExpire: (entry) => this._persistExpiredHold(entry),
     }));
   }
 
   async _persistExpiredHold(entry) {
-    this.onCancelledChange?.(null);
     if (!shouldSaveDiscardedRecording(getSettings(), entry.durationSeconds)) return;
     try {
       const blob = new Blob([entry.bytes], { type: entry.mimeType || "audio/webm" });
@@ -2686,7 +2808,8 @@ In `src/helpers/audioManager.js`:
        this._processingAudio = {
          blob: audioBlob,
          durationSeconds: metadata.durationSeconds ?? null,
-         analyticsOccurredAt: new Date().toISOString(),
+         // The recording's own start time, as takeDiscardedBatchSnapshot records it.
+         analyticsOccurredAt: metadata.analyticsOccurredAt ?? new Date().toISOString(),
        };
    ```
 
@@ -2715,6 +2838,8 @@ In `src/helpers/audioManager.js`:
 
    This replaces the existing `if (this._streamingStopPromise) return true;` line. The rest of the method (state flip and `dismissDictationPreview`) is unchanged.
 
+   Known gap: `finalizeBatchRecording` sets `isProcessing` before it merges segments and calls `processAudio`. A cancel inside that merge (typically tens of ms) has no `_processingAudio` yet, so it behaves as today: no Undo and no caption. If `finalizeBatchRecording` already passes `analyticsOccurredAt` in `metadata`, nothing else is needed. If it does not, add it there from `this.recordingStartTime`.
+
 7. **`cancelStreamingRecording` (line 3781).** At its start, after the guard that confirms a streaming session exists, add `this._emitCancelled({ hold: null });`. Streaming keeps no local audio after cancel; see Open question 1.
 
 8. **New recording finalizes any open hold.** At the very start of `startRecording()` and `startStreamingRecording()`, add:
@@ -2723,13 +2848,15 @@ In `src/helpers/audioManager.js`:
        if (this._hold?.isHolding()) void this._hold.expireNow();
    ```
 
-   `expireNow` runs `_persistExpiredHold`, which emits `onCancelledChange(null)`.
+   `expireNow` closes the window (`onClose` emits `onCancelledChange(null)`, which releases ⌥Z) and then persists if retention allows.
 
-9. **`docs/PRIVACY.md`.** After line 14 ("Discarded transcriptions are not saved by default."), add:
+9. **`docs/PRIVACY.md`.** Add this as its own paragraph after the paragraph at line 16 ("Change retention in **Privacy & Data**…"), not inside the defaults list:
 
    ```markdown
-   - When you cancel a dictation, Loqui keeps that audio in memory for 5 seconds (10 seconds for recordings over 30 seconds) so you can undo the cancel. It is never written to disk unless you have turned on saving discarded transcriptions; when the window ends it is erased from memory. If a cloud provider had already received the audio or text before you cancelled, Loqui says so, and undoing sends the same audio to that same provider again.
+   When you cancel a dictation, Loqui keeps that audio in memory for 5 seconds (10 seconds for recordings over 30 seconds) so you can undo the cancel. It is never written to disk unless you have turned on saving discarded transcriptions. When the window ends, Loqui overwrites its undo copy and releases the recording. If a cloud provider had already received the audio or text before you cancelled, Loqui says so, and undoing sends the same audio to that same provider again.
    ```
+
+   The wording is "overwrites its undo copy and releases", not "erased from memory": the `Uint8Array` undo copy is zeroed, but the source `Blob`s are only dereferenced. Dereference them promptly. `cancelProcessing` nulls `_processingAudio`, and the batch snapshot is dropped once `_assembleDiscardedBytes` resolves.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -2964,7 +3091,7 @@ Expected: FAIL. `useUndoCancelHotkey.ts` is not found. After you create it, `ref
      ```
 
      If Plan 02 already moved this unregister to the idle edge, keep its version and add only the `setProcessingStage(null)`.
-   - **`performStopRecording` (line 259).** Delete the `unregisterCancelHotkey` call there, because processing follows the stop.
+   - **`performStopRecording` (line 259) and the stop-during-start path (line 196).** Delete the `unregisterCancelHotkey` calls in both, because processing follows the stop in both cases. Release now happens only at idle, and in `cancelRecording` (line 818).
    - **Paste success (lines 657–660).** Add `setOutcome({ kind: "pasted", words: countWords(result.text), at: Date.now() });` inside `if (pasteSucceeded) {`. Add the helper at module scope:
 
      ```js
@@ -3048,7 +3175,7 @@ Covers the VO-R1 C state model, VO-Q5, VO-Q12 (timing) and VO-Q18.
   ```js
   export const VOICE_PILL_FOOTPRINT: {
     idle: {40,40}; recording: {98,36}; transcribing: {144,36}; cleaning: {144,36};
-    pasted: {142,36}; cancelled: {150,36}; meeting: {124,36}; meetingInterrupted: {184,36};
+    pasted: {164,36}; cancelled: {160,36}; meeting: {124,36}; meetingInterrupted: {184,36};
   };
   export const VOICE_PILL_MAX_WIDTH = 184;
   export const PILL_OUTCOME_BEAT_MS = 700;
@@ -3152,8 +3279,9 @@ Expected: FAIL in five places:
      recording: Object.freeze({ width: 98, height: 36 }),
      transcribing: Object.freeze({ width: 144, height: 36 }),
      cleaning: Object.freeze({ width: 144, height: 36 }),
-     pasted: Object.freeze({ width: 142, height: 36 }),
-     cancelled: Object.freeze({ width: 150, height: 36 }),
+     // Label room = width − 54px (30 ring, 4+12 padding, 6 gap, 2 border).
+     pasted: Object.freeze({ width: 164, height: 36 }),
+     cancelled: Object.freeze({ width: 160, height: 36 }),
      meeting: Object.freeze({ width: 124, height: 36 }),
      meetingInterrupted: Object.freeze({ width: 184, height: 36 }),
    });
@@ -3548,7 +3676,7 @@ export function PillCaption({
 Replace the whole file with the version below. It keeps every existing prop, data attribute, the glow anchor, the hover sheen, the chevron and the unavailable ring.
 
 ```tsx
-import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Check, ChevronUp } from "../icons";
 import { cn } from "../lib/utils";
 import { LevelBars } from "../ui/LevelBars";
@@ -3794,7 +3922,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
       {countdown ? (
         <span
           className="pill-countdown"
-          style={{ animationDuration: `${countdown.durationMs}ms` }}
+          style={{ animationDuration: `${countdown.durationMs}ms`, "--undo-ms": `${countdown.durationMs}ms` } as CSSProperties}
           data-paused={countdown.paused ? "true" : undefined}
           aria-hidden="true"
         />
@@ -3909,20 +4037,20 @@ Append to `src/styles/dictation-panel.css`, before the `@media (prefers-reduced-
 .pill-caption {
   position: absolute;
   bottom: calc(100% + 8px);
-  inset-inline-start: 0;
+  left: 0; /* physical: follows the pill's screen dock, like .notice-stack[data-placement="pill"] */
   max-width: 184px;
   padding: 5px 9px;
   border-radius: 10px;
   background: var(--color-popover);
   color: var(--color-popover-foreground);
   border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14));
   font: 500 12px/1.35 var(--font-family-sans);
   animation: notice-in var(--motion-base) var(--motion-ease-enter) both;
 }
 .pill-caption[data-direction="left"] {
-  inset-inline-start: auto;
-  inset-inline-end: 0;
+  left: auto;
+  right: 0;
 }
 
 .locality-ring--blocked {
@@ -3951,8 +4079,13 @@ Inside the existing reduced-motion block (lines 658–707), add:
   .pill-caption {
     animation: none;
   }
+  /* index.css forces animation-duration: 0.01ms !important on everything under
+     reduced motion; the countdown is information, not decoration, so it keeps
+     its real length and steps in fifths instead of sliding. */
   .pill-countdown {
-    animation-timing-function: steps(5, end);
+    animation-duration: var(--undo-ms) !important;
+    animation-iteration-count: 1 !important;
+    animation-timing-function: steps(5, end) !important;
   }
 ```
 
@@ -4001,7 +4134,7 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
        : pillStage === "cancelled" ? (cancelled.undoUntil > 0 ? t("pill.stage.discardedUndo") : t("pill.stage.cancelled"))
        : undefined;
      const pillCaption =
-       pillStage === "cancelled" && cancelled.remoteAlreadySent
+       pillStage === "cancelled" && cancelled.remoteAlreadySent !== null
          ? t(cancelled.remotePayload === "text" ? "pill.caption.remoteText" : "pill.caption.remoteAudio", {
              provider: dispatchTargetLabel(cancelled.remoteAlreadySent, t),
            })
@@ -4049,7 +4182,15 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
      ) : null}
    ```
 
-8. While the pill shows `cancelled`, it must stay interactive so the click reaches Undo. In the `resolveVoicePillInteraction` call (lines 519–525), pass `isRecording: isRecording || Boolean(cancelled?.undoUntil)`. That makes `pillInteractive` true for the undo window without touching the helper.
+8. The fused cancel skin must match the pill it fuses with. `cancelPillFootprint` (about line 537) today picks `VOICE_PILL_FOOTPRINT.recording` or `.idle`. Make it follow the stage:
+
+   ```js
+     const cancelPillFootprint =
+       VOICE_PILL_FOOTPRINT[pillStage] ?? (isCompactPill ? VOICE_PILL_FOOTPRINT.recording : VOICE_PILL_FOOTPRINT.idle);
+   ```
+
+   This keeps the 144 px "Transcribing…" capsule from being fused to a 98 px skin on hover.
+9. While the pill shows `cancelled`, it must stay interactive so the click reaches Undo. In the `resolveVoicePillInteraction` call (lines 519–525), pass `isRecording: isRecording || Boolean(cancelled?.undoUntil)`. That makes `pillInteractive` true for the undo window without touching the helper.
 
 - [ ] **Step 7: Locale strings and DESIGN.md**
 
@@ -4078,6 +4219,18 @@ Add this to `en/translation.json` and mirror it to all 12 locales. For `ar`, `ru
   }
 }
 ```
+
+`npm run i18n:check` requires every CLDR plural category that a locale uses (`scripts/check-i18n.js`, `pluralProbe`).
+
+| Locales | Keys for `pill.stage.pasted` |
+|---|---|
+| `ja`, `zh-CN`, `zh-TW` | `pasted_other` only |
+| `de`, `en` | `_one`, `_other` |
+| `es`, `fr`, `it`, `pt` | `_one`, `_many`, `_other` |
+| `ru` | `_one`, `_few`, `_many`, `_other` |
+| `ar` | `_zero`, `_one`, `_two`, `_few`, `_many`, `_other` |
+
+Each value interpolates `{{count}}`. Use the English text as a placeholder until translated. If the checker lists a different set for a locale, follow the checker.
 
 In `DESIGN.md` `### Voice Pill`, replace the state description with:
 - the stage table from Task 8: footprints, label, ring and timing;
@@ -4180,6 +4333,9 @@ test("the row renders partial and changed words with their classes", async () =>
   });
   assert.match(html, /class="condense-word is-changed"[^>]*>Thursday</);
   assert.match(html, /class="condense-word is-partial"[^>]*>at</);
+  // One spark, for the newest committed unchanged word ("hey"), outside the track.
+  assert.equal((html.match(/class="condense-spark"/g) || []).length, 1);
+  assert.match(html, /<\/span><span class="condense-spark"/);
   assert.equal(renderStatic(CondensationWords, { words: [] }), "");
 });
 
@@ -4276,20 +4432,26 @@ import type { CondensedWord } from "./condensation";
  */
 export function CondensationWords({ words }: { words: CondensedWord[] }) {
   if (words.length === 0) return null;
+  // The spark lives outside the clipped, masked track. It is keyed by the
+  // newest committed word, so it replays once per commit, rising from the
+  // pill's top edge into the row. It never crosses into the bars (D9).
+  const newest = [...words].reverse().find((w) => w.committed && !w.changed);
   return (
-    <span className="condense-track" aria-hidden="true">
-      {words.map((word) => (
-        <span
-          key={word.key}
-          className={["condense-word", word.changed && "is-changed", !word.committed && "is-partial"]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          {word.text}
-          {word.committed && !word.changed ? <span className="condense-spark" /> : null}
-        </span>
-      ))}
-    </span>
+    <>
+      <span className="condense-track" aria-hidden="true">
+        {words.map((word) => (
+          <span
+            key={word.key}
+            className={["condense-word", word.changed && "is-changed", !word.committed && "is-partial"]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {word.text}
+          </span>
+        ))}
+      </span>
+      {newest ? <span key={`spark-${newest.key}`} className="condense-spark" aria-hidden="true" /> : null}
+    </>
   );
 }
 ```
@@ -4343,14 +4505,16 @@ CSS (append to `src/styles/dictation-panel.css`, before the reduced-motion block
     opacity: 0;
   }
 }
-/* The spark: a 2px bar that rises from the pill's bar row into the word's
-   slot over 140ms, then fades. */
+/* The spark: a 2px bar that rises from the pill's top edge (the caption sits
+   8px above the pill) to the newest word at the row's trailing end over
+   140ms, then fades. It is positioned on .pill-caption, outside the masked
+   track, and never overlaps the pill's bars (D9). */
 .condense-spark {
   position: absolute;
-  inset-inline-start: 50%;
-  bottom: -28px;
+  right: 18px;
+  bottom: -8px;
   width: 2px;
-  height: 14px;
+  height: 10px;
   border-radius: 2px;
   background: var(--color-live);
   animation: condense-spark 320ms var(--motion-ease-std) both;
@@ -4362,11 +4526,11 @@ CSS (append to `src/styles/dictation-panel.css`, before the reduced-motion block
     opacity: 1;
   }
   44% {
-    transform: translateY(-24px) scaleY(0.2);
+    transform: translateY(-14px) scaleY(0.3);
     opacity: 1;
   }
   100% {
-    transform: translateY(-24px) scaleY(0.2);
+    transform: translateY(-14px) scaleY(0.3);
     opacity: 0;
   }
 }
@@ -4814,6 +4978,8 @@ Inside the reduced-motion block, add:
   }
 ```
 
+Imports: `VoicePill.tsx` imports `AgentOrbit` from `./AgentOrbit`. `App.jsx` imports `useAgentAnswering` from `./hooks/useAgentAnswering`, `routeProviderLabel` from `./components/dictation/pillLocality`, and `useResolvedRoute` from `./lib/routes`.
+
 `App.jsx`:
 - Add `const agentAnswering = useAgentAnswering(assistant.thinking, assistant.busy);` and pass `agentPhase={agentAnswering ? "answering" : undefined}` to `VoicePill`.
 - Add the Agent caption. It shows in the caption layer while the pill is in Agent listening or thinking, unless the D3 caption is active:
@@ -5001,7 +5167,7 @@ In `PillTooltip.tsx`:
 - In the bubble class (line 39), change `text-[10px]` to `text-xs` and `rounded-full` to `rounded-lg`.
 - Change `px-1.5 py-1` to `px-2 py-1.5`.
 - Wrap the content in `<span className="flex flex-col gap-0.5">`. Leave `whitespace-nowrap`, since each line stays a single line.
-- Replace the physical `left-3`/`right-3` in `arrowClass` with `start-3`/`end-3`, and the physical `left-0`/`right-0` in `alignClass` with `start-0`/`end-0` (RTL).
+- Keep the physical `left-*`/`right-*` in `alignClass` and `arrowClass`. `align` follows the pill's physical screen dock, not the text direction, so mirroring it in RTL would point the tooltip away from the pill.
 
 In `App.jsx`, replace `getMicTooltip` (lines 483–494):
 
@@ -5037,7 +5203,9 @@ CSS (append before the reduced-motion block):
   --pill-hairline: rgb(0 0 0 / 0.4);
 }
 .voice-pill-control[data-pill-state="idle"]:not([data-liquid-fused]) {
-  box-shadow: 0 0 0 1px var(--pill-hairline), var(--shadow-card);
+  /* --shadow-card is defined only under .dark; without the fallback the whole
+     declaration would be invalid in light theme and the hairline would vanish. */
+  box-shadow: 0 0 0 1px var(--pill-hairline), var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.12));
 }
 
 /* VO-Q20: while the cancel skin is fused, the 5px-blurred halo bled through
@@ -5419,7 +5587,7 @@ export const playMicBackCue = () => playCue("back");
 2. **`useSettings.ts`.** Pass both values and their setters through, next to `audioCuesEnabled` (lines 367–368).
 3. **`SettingsPage.tsx`, Sound Effects section (lines 1689–1705).** Under the existing "Dictation sounds" toggle, add two `SettingsRow`s: "Sound style" (Soft / Classic) and "Volume" (Low / Medium / High). Use the same enumerated-choice control the page already uses for other options (`grep -n "<Select\|SegmentedControl\|RadioGroup" src/components/SettingsPage.tsx | head -5`). Disable both when `!audioCuesEnabled`.
 4. **`useAudioRecording.js`:**
-   - Move `void playStartCue();` from line 215 to directly after `setIsPreparing(true)` in `performStartRecording` (around line 129), so the cue sounds at press time. Delete the old call at 215.
+   - Move `void playStartCue();` from line 215 to directly after `setIsPreparing(true)` in `performStartRecording` (around line 130), so the cue sounds at press time. Delete the old call at 215. If the start then fails, the error cue follows the start cue. That is intended: the press was heard, and then it failed.
    - Paste success: next to `setOutcome({ kind: "pasted", … })` (Task 7), add `void playSuccessCue();`.
    - Cancel: in `cancelRecording` and `cancelProcessing` (lines 812–838), add `void playCancelCue();` when the manager reports it cancelled something (the return value is truthy).
    - Error: as the first line of `showDictationError`, add `void playErrorCue();`.
@@ -5584,7 +5752,8 @@ test("Notify is called with a stop action and a resident hint", () => {
     "call", "--session", "--dest", "org.freedesktop.Notifications",
     "--object-path", "/org/freedesktop/Notifications", "--method", "org.freedesktop.Notifications.Notify",
   ]);
-  assert.ok(args.includes("['stop', 'Stop']"));
+  // "default" makes a click on the body open Loqui; "stop" is the button.
+  assert.ok(args.includes("['default', '', 'stop', 'Stop']"));
   assert.ok(args.some((a) => a.includes("'resident': <true>")));
   assert.equal(args.at(-1), "0");
 });
@@ -5608,6 +5777,7 @@ test("Stop in the notification calls onStop; close() closes it and stops monitor
   const n = new LinuxRecordingNotification({
     onStop: () => stopped++,
     onOpen: () => {},
+    ElectronNotification: class {}, // never require("electron") in plain Node
     execFile: (cmd, args, cb) => {
       calls.push(args.includes("org.freedesktop.Notifications.Notify") ? "notify" : "close");
       cb(null, "(uint32 42,)\n", "");
@@ -5739,7 +5909,7 @@ function buildNotifyArgs({ title, body, stopLabel }) {
   return [
     "call", "--session", ...DEST, "--method", "org.freedesktop.Notifications.Notify",
     gvariantString("Loqui"), "0", gvariantString("media-record"), gvariantString(title), gvariantString(body),
-    `['stop', ${gvariantString(stopLabel)}]`,
+    `['default', '', 'stop', ${gvariantString(stopLabel)}]`,
     "{'resident': <true>, 'urgency': <byte 1>, 'category': <'device'>}",
     "0",
   ];
@@ -5904,8 +6074,10 @@ module.exports = { gvariantString, buildNotifyArgs, parseNotifyReply, parseSigna
            const clear = () => this.windowManager.meetingPresence.clearIfOwner(owner);
            event.sender.once("destroyed", clear);
            event.sender.on("render-process-gone", clear);
-           event.sender.on("did-start-navigation", (_e, _url, isInPlace, isMainFrame) => {
-             if (isMainFrame && !isInPlace) clear();
+           // Electron passes a details event; the positional (url, isInPlace,
+           // isMainFrame) arguments are deprecated.
+           event.sender.on("did-start-navigation", (details) => {
+             if (details.isMainFrame && !details.isSameDocument) clear();
            });
          }
        });
@@ -5971,7 +6143,7 @@ module.exports = { gvariantString, buildNotifyArgs, parseNotifyReply, parseSigna
      onMeetingRecordingStopRequested: registerListener("meeting-recording-stop-requested", (cb) => () => cb()),
    ```
 
-   Add matching optional types to `electron.ts`, near the meeting APIs (lines 2278–2289). Add `export type MeetingPresence = { startedAt: number; interruption: "systemAudio" | "mic" | null; quiet: boolean };`.
+   Add matching optional method types to `electron.ts` inside the `electronAPI` interface, near the meeting APIs (lines 2278–2289). Put `export type MeetingPresence = { startedAt: number; interruption: "systemAudio" | "mic" | null; quiet: boolean };` at top level, next to `MeetingNotificationData` (line 66), not inside the interface.
 7. `MeetingRecordingMount.tsx` (control panel):
 
    ```tsx
@@ -5991,7 +6163,7 @@ module.exports = { gvariantString, buildNotifyArgs, parseNotifyReply, parseSigna
      );
    ```
 
-   `stopRecording` is exported from `src/stores/meetingRecordingStore.ts`. Confirm its call signature (`grep -n "export.*stopRecording" src/stores/meetingRecordingStore.ts`).
+   `stopRecording(expectedSessionId?: string)` is exported from `src/stores/meetingRecordingStore.ts:1503`. Calling it with no id stops whichever session is active, which is what the pill and tray Stop mean.
 
 Locale keys (`en`, mirrored to all 12; the main process reads them through `i18nMain`):
 
@@ -6195,6 +6367,7 @@ Check that `formatMmSs` takes seconds (`src/utils/formatDuration`; `NoteRecordCo
 
 In `VoicePill.tsx`:
 - Add `"meeting"` to `LABELLED`.
+- Hide the identity slot and drop the label padding for `meeting`. The capsule has its own dot, and 124 px must hold dot, time and Stop (about 91 px). Wrap the identity `<span className="voice-pill-identity-slot …">` in `{state !== "meeting" ? (…) : null}`, and change `hasLabel && "ps-1 pe-3"` to `hasLabel && state !== "meeting" && "ps-1 pe-3"`.
 - Add the prop `meetingInterrupted?: boolean`.
 - When resolving the footprint, use `state === "meeting" ? VOICE_PILL_FOOTPRINT[meetingInterrupted ? "meetingInterrupted" : "meeting"] : …`.
 - For `meeting`, render `label` without the `pill-stage-label` truncation wrapper (`{state === "meeting" ? label : <span className="pill-stage-label ms-1.5">{label}</span>}`), because the capsule handles its own layout.
@@ -6289,7 +6462,7 @@ CSS (append before the reduced-motion block):
 }
 .voice-pill-control[data-pill-state="meeting"]:has(.meeting-capsule[data-rs="lost"]) {
   border-color: var(--color-warning);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-warning) 55%, transparent), var(--shadow-card);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-warning) 55%, transparent), var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.12));
 }
 .meeting-capsule__note {
   min-width: 0;
@@ -6414,25 +6587,28 @@ test("the accept hotkey is labelled per platform", async () => {
 });
 
 test("mini phase folds to a one-line pill with the hotkey; close is always visible", async () => {
-  const { default: MeetingNotificationCard } = await import("../../src/components/MeetingNotificationCard.tsx");
+  const { MeetingNotificationCard } = await import("../../src/components/MeetingNotificationCard.tsx");
   const mini = renderStatic(MeetingNotificationCard, {
-    title: "Meeting detected", body: "Zoom call detected on this Mac.", startLabel: "Take notes",
+    title: "Meeting detected", body: "Meeting in Zoom detected.", startLabel: "Take notes",
     phase: "mini", hotkeyLabel: "⌥⌘M", miniLabel: "Meeting? Start notes",
   });
   assert.match(mini, /data-phase="mini"/);
   assert.match(mini, /Meeting\? Start notes/);
   assert.match(mini, /<kbd[^>]*>⌥⌘M<\/kbd>/);
-  const card = renderStatic(MeetingNotificationCard, { title: "Meeting detected", body: "b", startLabel: "Take notes", privacyLine: "Detected locally. Nothing recorded yet." });
-  assert.match(card, /Detected locally\. Nothing recorded yet\./);
+  const card = renderStatic(MeetingNotificationCard, { title: "Meeting detected", body: "b", startLabel: "Take notes", privacyLine: "Detected on this device. Nothing recorded yet." });
+  assert.match(card, /Detected on this device\. Nothing recorded yet\./);
   // Plan 01 review item 3: no tinted tile doubling the orange mark.
   assert.doesNotMatch(card, /bg-primary\/10/);
-  assert.match(card, /aria-label="[^"]+"[^>]*class="meeting-card__close/);
+  // Always rendered, even without onDismiss (drop the existing `onDismiss &&` guard).
+  const close = card.match(/<button[^>]*meeting-card__close[^>]*>/);
+  assert.ok(close, "close button rendered");
+  assert.match(close[0], /aria-label="[^"]+"/);
   assert.doesNotMatch(card, /pointer-events-none/);
 });
 
 test("the card drops from the top with the settle spring; the legacy blue mark is gone", () => {
   const css = fs.readFileSync(path.join(repoRoot, "src/styles/notices.css"), "utf8");
-  assert.match(css, /\.meeting-drop\s*\{[^}]*animation:\s*meeting-drop 520ms var\(--motion-spring-settle\)/);
+  assert.match(css, /\.meeting-drop\s*\{[^}]*animation:\s*meeting-drop var\(--motion-hero\) var\(--motion-spring-settle\)/);
   const card = fs.readFileSync(path.join(repoRoot, "src/components/MeetingNotificationCard.tsx"), "utf8");
   assert.doesNotMatch(card, /#2056DF/i);
   // Starting a recording is a live-voice control (D1); it uses the shared variant, not a copy of its surface.
@@ -6472,7 +6648,7 @@ Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `
 
    If `NOTIFICATION_WINDOW_CONFIG` is declared after `WindowPositionUtil`, it is still defined by the time the method runs. Leave the order as it is.
 2. **`windowManager.js`, `showMeetingNotification` (line 2030).**
-   - Make it `async`.
+   - It is already `async`.
    - Replace lines 2046–2047 with:
 
      ```js
@@ -6500,7 +6676,15 @@ Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `
      `promptData` is a parameter. Rebind it with `let` or use a new `const data` and send `data` at line 2114.
    - In `dismissMeetingNotification` (line 2144), add `this.hotkeyManager?.unregisterSlot("meetingAccept");`.
    - Callers of `showMeetingNotification` (`meetingDetectionEngine.js:421`) can stay fire-and-forget.
-3. **`meetingDetectionEngine.js:421-428`.** Add `appName: data?.appName ?? null,` to the object passed to `showMeetingNotification`.
+3. **`meetingDetectionEngine.js:421-428`.** Audio-activity detections carry no app name (`audioActivityDetector.js` emits `{ durationMs, detectedAt, attributed }`). Take it from the process detector, which already tracks running meeting apps:
+
+   ```js
+       const runningApp = this.meetingProcessDetector?.getDetectedProcesses?.()?.find?.((p) => p?.appName)?.appName ?? null;
+       // …in the showMeetingNotification payload:
+       appName: data?.appName ?? runningApp,
+   ```
+
+   Read `getDetectedProcesses()` first (`grep -n "getDetectedProcesses" src/helpers/meetingProcessDetector.js`). If it returns keys rather than objects, map each key to its `appName` the way the `meeting-process-detected` event payload does (`{ processKey, appName }`).
 4. **`meetingNotificationModel.ts`:**
 
    ```ts
@@ -6549,7 +6733,7 @@ Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `
       a one-line pill after 8s so it never blocks content. */
    .meeting-drop {
      transform-origin: top center;
-     animation: meeting-drop 520ms var(--motion-spring-settle) both;
+     animation: meeting-drop var(--motion-hero) var(--motion-spring-settle) both;
    }
    @keyframes meeting-drop {
      from {
@@ -6592,8 +6776,8 @@ Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `
 8. **Locale keys** (`meetingNotification`):
 
    ```json
-   "bodyApp": "{{app}} call detected on this Mac.",
-   "privacy": "Detected locally. Nothing recorded yet.",
+   "bodyApp": "Meeting in {{app}} detected.",
+   "privacy": "Detected on this device. Nothing recorded yet.",
    "mini": "Meeting? Start notes",
    "accepted": "Taking notes",
    "dismiss": "Dismiss"
@@ -6695,7 +6879,7 @@ test("speaker colours avoid brand hues and pass 4.5:1 in both themes (VO-Q15)", 
     for (const [theme, map] of [["light", light], ["dark", dark]]) {
       const fg = map[`--color-speaker-${i}`];
       assert.ok(fg, `${theme} speaker ${i}`);
-      for (const bg of ["--color-background", "--color-surface-1"]) {
+      for (const bg of ["--color-background", "--color-surface-1", "--color-surface-2", "--color-card", "--color-popover"]) {
         assert.ok(contrastRatio(fg, map[bg]) >= 4.5, `${theme} speaker ${i} on ${bg}: ${contrastRatio(fg, map[bg])}`);
       }
     }
@@ -6775,7 +6959,7 @@ Expected: FAIL with `Cannot find module '…/meetingQuiet.ts'`.
      ```
 
    - While you are here, replace the inline `grow-to-bar 0.45s cubic-bezier(0.22, 1, 0.36, 1)` (line 71) with `grow-to-bar var(--motion-slow) var(--motion-ease-enter)`.
-5. **`MeetingRecordingMount.tsx`.** Replace the effect at lines 195–229:
+5. **`MeetingRecordingMount.tsx`.** Add `import { createQuietDetector, MEETING_LEVEL_SAMPLE_MS } from "../utils/meetingQuiet";`, then replace the effect at lines 195–229:
 
    ```tsx
      useEffect(() => {
@@ -6822,10 +7006,12 @@ Expected: FAIL with `Cannot find module '…/meetingQuiet.ts'`.
    grep -rn "LiveWaveform\|liveWaveformMath" src test --include=*.ts --include=*.tsx --include=*.js --include=*.jsx
    ```
 
-   If anything else still imports them (for example, a Plan 05 branch merged first), leave the files and the test in place, and note it in the PR description.
+   No file imports them today: only `ChatInput.tsx` and `NoteRecordControl.tsx` do, and this task migrates both. If the grep finds another importer (for example, a Plan 05 branch merged first), migrate it to `LevelBars` in this task too. The `meetingMeters` test asserts the file is gone.
 8. **`index.css`.**
    - Delete `@keyframes ow-wave` and its comment (lines 1515–1524).
-   - Add the speaker tokens. These are Tailwind-registered in `@theme`, so `text-speaker-N` and `border-s-speaker-N` work. Hue angles 65–260 in OKLCH avoid the orange, magenta, red and violet bands. Each value is the lightest (light theme) or darkest (Plum Night) hex at 4.6:1 or better on its background.
+   - Add the speaker tokens. These are Tailwind-registered in `@theme`, so `text-speaker-N` and `border-s-speaker-N` work. Hue angles 65–260 in OKLCH avoid the orange, magenta, red and violet bands.
+     - Light values are the lightest hex at 4.6:1 or better on `#fafafa`; they are also 4.8:1 or better on white.
+     - Plum Night values are the darkest hex at 4.6:1 or better on the lightest dark surface, `--color-popover` `#2b1b24`; they are about 5.15:1 on `#1c1218`.
 
    In `@theme`:
 
@@ -6843,14 +7029,14 @@ Expected: FAIL with `Cannot find module '…/meetingQuiet.ts'`.
    In `.dark`:
 
    ```css
-     --color-speaker-1: #a97847;
-     --color-speaker-2: #9c7f3f;
-     --color-speaker-3: #748a4c;
-     --color-speaker-4: #568f62;
-     --color-speaker-5: #3e9177;
-     --color-speaker-6: #2a9090;
-     --color-speaker-7: #458aaf;
-     --color-speaker-8: #6383b9;
+     --color-speaker-1: #af7e4c;
+     --color-speaker-2: #a28444;
+     --color-speaker-3: #7a9052;
+     --color-speaker-4: #5c9568;
+     --color-speaker-5: #45967d;
+     --color-speaker-6: #329696;
+     --color-speaker-7: #4b90b6;
+     --color-speaker-8: #6889bf;
    ```
 
 9. **`MeetingTranscriptChat.tsx:31-51`.** Tailwind only sees class names written out literally (it does not scan generated strings), so list all 16:
@@ -6944,7 +7130,7 @@ Check each item, screenshot each one, and attach them to the PR.
    - ⌥↵ pastes again.
    - The card does not time out.
 6. **Notices.**
-   - Disconnect the mic mid-dictation: an amber "Microphone disconnected" chip appears. Reconnect: "Microphone back" and the mic-back cue.
+   - Disconnect the mic mid-dictation: an amber chip with the existing `hooks.audioRecording.micDisconnected.title` text appears. Reconnect: the `micRestored` receipt and the mic-back cue.
    - Break cleanup (a bad key): "Pasted without cleanup" with Retry cleanup and Settings.
    - Retry cleanup copies the cleaned text and leaves a receipt.
 7. **Agent Mode.**
@@ -6960,7 +7146,7 @@ Check each item, screenshot each one, and attach them to the PR.
    - Stop from the pill: "Meeting saved · mm:ss".
 9. **Meeting prompt.**
    - With two displays, open Zoom on the secondary. The prompt drops from the top centre of **that** display.
-   - It reads "Zoom call detected on this Mac. Detected locally. Nothing recorded yet."
+   - It reads "Meeting in Zoom detected. Detected on this device. Nothing recorded yet."
    - After 8 s it folds to "Meeting? Start notes ⌥⌘M", and ⌥⌘M accepts.
 10. **Linux (desktop-omarchy, see `~/.agents/ssh-access.md`).**
     - During a meeting, the tray icon shows the orange dot, and the menu leads with "Recording meeting · m:ss" and "Stop meeting recording".
@@ -6971,7 +7157,11 @@ Check each item, screenshot each one, and attach them to the PR.
     - the meters still update;
     - the countdown steps in fifths;
     - every state is still readable from its label and ring shape.
-12. **RTL** (Arabic): chips and captions sit on the inline side, the countdown shrinks toward the start, and the tooltip arrow mirrors.
+12. **RTL** (Arabic):
+    - Pill chips, captions and the tooltip stay beside the pill's physical dock.
+    - Text inside them reads right to left.
+    - The countdown shrinks toward the inline start.
+    - Panel chips sit at the inline end.
 
 - [ ] **Step 3: Commit any fixes**
 
@@ -6990,12 +7180,14 @@ git commit -m "fix(voice): verification fixes for the voice overlay plan"
 - [ ] **Step 1: Apply the approved CCRs to the spec**
 
 Plan 04 owns §5.2 and §5.3. For each approved CCR, update the spec text to the shape this plan shipped:
-- `cancelled` with `remotePayload` and the `undoUntil: 0` sentinel;
+- `cancelled` with `remotePayload`, the `undoUntil: 0` sentinel, and `remoteAlreadySent` as a target id (a provider id or `"host:<host>"`, rendered with `dispatchTargetLabel`);
 - `meetingRecording` with `interruption` and `quiet`;
 - `processingStage` and `outcome`;
 - the `notify()` additions and `dismissNotice`/`useNotices`.
 
 If a CCR was rejected, change the code to the spec's shape before this step.
+
+CCR-5 (`ResolvedRoute.providerId`) belongs to §5.1, which Plan 03 owns. Do not edit §5.1 here. Raise it with the owner or Plan 03, and keep `routeProviderLabel`'s fallback until it lands.
 
 - [ ] **Step 2: Prepare the PR body (do not push yet)**
 

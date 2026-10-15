@@ -104,3 +104,101 @@ test("peak decay depends on elapsed time, not on the sampling rate", async () =>
   assert.ok(Math.abs(run(25) - run(100)) < 1e-3, `${run(25)} vs ${run(100)}`);
   assert.ok(run(25) < 0.8);
 });
+
+const loadSampler = () => import("../../src/components/ui/levelBarsSampler.ts");
+
+// A hand-driven environment: timers and the reduced-motion query are fakes so
+// the sampler's lifecycle can be exercised without a DOM.
+function fakeEnv(initialReduce) {
+  const timers = new Map();
+  let nextId = 1;
+  let now = 1000;
+  const listeners = new Set();
+  const mql = {
+    matches: initialReduce,
+    addEventListener: (type, fn) => type === "change" && listeners.add(fn),
+    removeEventListener: (type, fn) => type === "change" && listeners.delete(fn),
+  };
+  const env = {
+    matchMedia: () => mql,
+    now: () => now,
+    setInterval: (fn, ms) => {
+      const id = nextId++;
+      timers.set(id, { fn, ms });
+      return id;
+    },
+    clearInterval: (id) => timers.delete(id),
+  };
+  return {
+    env,
+    listeners,
+    timers,
+    intervals: () => [...timers.values()].map((t) => t.ms),
+    advance(ms) {
+      now += ms;
+      for (const t of [...timers.values()]) t.fn();
+    },
+    setReduce(value) {
+      mql.matches = value;
+      for (const fn of [...listeners]) fn({ matches: value });
+    },
+  };
+}
+
+test("sampler follows reduced-motion changes while mounted and cleans up", async () => {
+  const { startLevelBarsSampler } = await loadSampler();
+  const { levelBarScale, LOGO_BAR_SHAPE } = await loadMath();
+  const sim = fakeEnv(false);
+  const frameRef = { current: restFrame(LOGO_BAR_SHAPE, levelBarScale) };
+  const frames = [];
+  const stop = startLevelBarsSampler({
+    frameRef,
+    readLevel: () => 0.5,
+    onFrame: (f) => frames.push(f),
+    env: sim.env,
+  });
+  assert.deepEqual(sim.intervals(), [33]);
+  assert.equal(sim.listeners.size, 1);
+
+  sim.setReduce(true);
+  assert.deepEqual(sim.intervals(), [100], "old timer replaced by the slow one");
+  sim.advance(100);
+  const flatA = frameRef.current.scales;
+  sim.advance(100);
+  assert.deepEqual(frameRef.current.scales, flatA, "reduced frames hold a stable phase");
+
+  sim.setReduce(false);
+  assert.deepEqual(sim.intervals(), [33], "back to full motion rate");
+  assert.equal(frames.length, 2);
+
+  stop();
+  assert.equal(sim.timers.size, 0, "timer cleared");
+  assert.equal(sim.listeners.size, 0, "listener removed");
+});
+
+test("sampler starts in the reduced rate and survives a missing matchMedia", async () => {
+  const { startLevelBarsSampler } = await loadSampler();
+  const { levelBarScale, LOGO_BAR_SHAPE } = await loadMath();
+  const reduced = fakeEnv(true);
+  startLevelBarsSampler({
+    frameRef: { current: restFrame(LOGO_BAR_SHAPE, levelBarScale) },
+    readLevel: () => 0,
+    onFrame() {},
+    env: reduced.env,
+  });
+  assert.deepEqual(reduced.intervals(), [100]);
+
+  const bare = fakeEnv(false);
+  const stop = startLevelBarsSampler({
+    frameRef: { current: restFrame(LOGO_BAR_SHAPE, levelBarScale) },
+    readLevel: () => {
+      throw new Error("dead analyser");
+    },
+    onFrame() {},
+    env: { ...bare.env, matchMedia: undefined },
+  });
+  assert.deepEqual(bare.intervals(), [33]);
+  assert.doesNotThrow(() => bare.advance(33), "a throwing reader reads as silence");
+  stop();
+  assert.equal(bare.timers.size, 0);
+});

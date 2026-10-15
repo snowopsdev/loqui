@@ -3,38 +3,71 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship two things:
-- **Sealed mode** (SET-R6 C), a master switch that Electron main enforces. While it is on, nothing Loqui does leaves this computer, and local routes keep working.
-- **Data flight recorder** (SET-M3), a metadata-only ledger of every request that did leave: when, which task, which host, how many bytes, and the outcome.
+- **Sealed mode** (SET-R6 C), a master switch that Electron main enforces. While it is on, nothing that Loqui's main process, its windows or the programs it starts send leaves this computer, and local routes keep working.
+- **Data flight recorder** (SET-M3), a metadata-only ledger of every request that did leave: when, which task, which hosts, how many bytes, and the outcome.
 
-**Architecture:** Enforcement lives in main and has two layers.
+**Architecture:** Enforcement lives in main and has two layers, plus a guard on every process Loqui starts.
 
-- **Layer A, the egress gate** (`src/helpers/privacy/egressGate.js`). Every known request site asks it for a *ticket* before sending. While sealed, a non-loopback ticket is refused with a typed `SealedModeError`. The refusal is recorded with 0 bytes sent, and the caller keeps the user's content. Tickets carry the task, so the ledger knows why each request happened.
+- **Layer A, the egress gate** (`src/helpers/privacy/egressGate.js`). Every known request site asks it for a *ticket* before sending. While sealed, a non-loopback ticket is refused with a typed `SealedModeError`. The refusal is recorded with 0 bytes sent, and the caller keeps the user's content. Tickets carry the task, so the ledger knows why each request happened. They emit `dispatched`, `delivered` and `undelivered` notices, which say whether a provider may have, or did, receive content.
 - **Layer B, the transport backstop** (`src/helpers/privacy/egressBackstop.js`). It catches anything Layer A missed:
-  - On the Node side it hooks `net.Socket.prototype.connect`, with `localhost` pinned to loopback. That covers `http`, `https`, undici `fetch`, `ws` and the provider SDKs.
+  - On the Node side it hooks `net.Socket.prototype.connect`, with `localhost` and `*.localhost` pinned to loopback. That covers `http`, `https`, undici `fetch`, `ws` and the provider SDKs.
   - It also hooks every DNS API, UDP, and loopback-proxy forwarding.
-  - On the Chromium side it owns `webRequest` on every Electron session, which covers `net.fetch`, `net.request`, `electron-updater` and renderer loads, and it tracks Chromium requests still in flight. It also sets every `webContents` to a WebRTC policy with no UDP.
+  - On the Chromium side it owns `webRequest` on every Electron session. That covers `net.fetch`, `net.request`, `electron-updater` and renderer loads. It tracks each Chromium request until it ends, and checks every redirect hop.
   - While sealed, Layer B denies every non-loopback connection. While unsealed, it reports connections that no ticket explains, which surface as "unexplained" in the ledger.
+- **The spawn guard and child registry** (`src/helpers/privacy/childRegistry.js`).
+  - Every `child_process` spawn and `utilityProcess.fork` is classified. While sealed, network programs (Codex, yt-dlp, `curl`, …) and spawns from third-party code are refused.
+  - FFmpeg always runs with local inputs only.
+  - A child counts as stopped only when the OS reports its exit. Codex and yt-dlp runs are recorded as *opaque sessions*, because main cannot see their individual requests (owner decision, 2026-10-15).
 
-Child processes that make their own connections (the Codex app-server and yt-dlp) are handled separately:
-- They are refused just before spawn, killed on seal, and waited on until they actually exit.
-- Each run is one *opaque session* in the ledger, because main cannot see their individual requests (owner decision, 2026-10-15).
+Sealing passes through a main-owned barrier. The phase is `"sealing"` until every remote ticket, socket, in-flight Chromium request, pending DNS lookup and network-capable child has stopped. Only then is it `"sealed"`, with a verified `effectiveSince`. A failure to stop anything stays unresolved and keeps the seal unverified. Evidence is never cleared to make a check pass. Main *attests* this with a versioned `Attestation`, and the UI shows its verified line only when `attestation.nothingLeaves === true` and the attestation is fresh.
 
-Sealing passes through a main-owned barrier. The phase is `"sealing"` until every remote ticket, socket, in-flight Chromium request and child has stopped. Only then is it `"sealed"`, with a verified `effectiveSince`. Main *attests* this with an `Attestation` object, and the UI shows its verified line only when `attestation.nothingLeaves === true`.
+The renderers sit inside the boundary:
+- The control panel is sandboxed, with web security on (owner decision, 2026-10-15).
+- WebRTC is removed from every page.
+- Remote images render as placeholders while sealed.
 
-Turning Sealed mode off, and clearing the ledger, are confirmed in native dialogs owned by main, which a compromised renderer cannot answer. The control panel is sandboxed, with web security on (owner decision, 2026-10-15).
+What is outside the boundary is disabled or disclosed:
+- Opening a link in the browser asks first, in a main-owned dialog.
+- A calendar sign-in still waiting in the browser is cancelled.
+
+Turning Sealed mode off and clearing the ledger are also confirmed in native dialogs owned by main, which a compromised renderer cannot answer.
 
 **Tech Stack:**
 - Electron 44 main process (CommonJS) with Node 24 `node:async_hooks` (`AsyncLocalStorage`), `node:net`, `node:dns` and the Electron `session.webRequest` API.
 - better-sqlite3 13 for the ledger table.
 - React 19 and TypeScript for the settings panels.
 - Node `node:test`, with `tsx` for TypeScript and `react-dom/server` via `test/helpers/harness/reactSsr.js`.
+- Playwright's Electron driver for the sealed acceptance run (Task 16).
 
-**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`: decision D6, the Plan 07 row in §3, the global constraints in §4, and contracts §5.1, §5.2 and §5.4. Visual reference: `design-explorations/loqui-uiux-review.html#set-r6` (variant C) and `#set-m3`. Research: `.omc/research/ui-review/audit-settings.md` §R6, §M3, SET-08, SET-09, SET-21 and SET-25.
+**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`: decision D6, the Plan 07 row in §3, the global constraints in §4, and contracts §5.1–§5.4. Visual reference: `design-explorations/loqui-uiux-review.html#set-r6` (variant C) and `#set-m3`. Research: `.omc/research/ui-review/audit-settings.md` §R6, §M3, SET-08, SET-09, SET-21 and SET-25.
 
-**Depends on:**
-- Plan 01, merged. This plan uses `src/utils/contrast.ts`, `test/helpers/harness/cssTokens.js`, `src/lib/locality.ts` and the `--motion-*` tokens.
-- Plan 03, merged. Task 13 uses `src/lib/routes.ts`, which provides `resolveRoute`, `useResolvedRoutes` and `RouteSettingsSnapshot`.
-- Plan 04 is **not** required. CCR-3 and CCR-4 below are requests to it.
+**Prerequisites (execution order, not facts about this checkout).** This branch was planned against `0639eaf`. The plans below must be merged into it before the task that names them starts. If one is missing, stop and report; do not recreate its files.
+- **Plan 01**, before Task 7. Provides `src/utils/contrast.ts`, `test/helpers/harness/cssTokens.js`, `src/lib/locality.ts` (`isLoopbackUrl`, `resolveLocality`) and the `--motion-*` tokens.
+- **Plan 03**, before Task 11a. Provides `src/lib/routes.ts` (`buildRouteSnapshot`, `resolveRoute`, `routeSendsCopy`, `isSealedLocality`), `src/stores/routeFactsStore.ts`, `src/helpers/selfHostedProbe.js` and the optional `privacy?` declaration that Task 7 replaces.
+- **Plan 04** is **not** required. CCR-3 and CCR-4 are its side of the contract. Until it merges, Plan 07 uses the existing toast API (spec §5.3).
+
+---
+
+## Review response
+
+This revision answers the independent security review of snapshot `18c0b4c…` (`.omc/research/ui-review/reviews/plan-07-codex.md`: 3 Critical, 10 Important, 1 Minor). Every finding is resolved. None is disputed. "At `0bbb0e5`" means the commit that followed the review handoff already closed it. "This revision" means commits `84ddab1` to the present. The review numbers Important findings I1 and I3–I11; there is no I2.
+
+| Finding | Status | Where it is closed, and how |
+|---|---|---|
+| **C1** yt-dlp self-update reported stopped before exit | Closed, this revision | Task 6a: `childRegistry` marks a child alive until the OS reports `exit`, and a detached group until the group is gone. `stopAll` sends SIGTERM, then SIGKILL, then rejects with `CHILD_STOP_FAILED` if anything survives. Task 10 registers the self-update and download children, and settles their opaque sessions on `exit` only. `ytDlpControl` reads the registry, not a flag. Task 7 records `childStop`, which blocks attestation until the child is really gone. Tests: `stopAll rejects when a child survives SIGKILL, and it stays alive` (6a), `a child that will not exit keeps the seal unverified until it really exits` (7), and the yt-dlp test in Task 10, which asserts the process is still alive after SIGKILL and that the row appears only after exit. |
+| **C2** universal egress claim exceeds the boundary | Closed, this revision. The guarantee is bounded and enforced; the exceptions are disabled or disclosed. | Task 1 states the promise as covering Loqui's main process, Chromium sessions and renderers, and the children Loqui starts. A **Boundary** section lists each outside path and how it is treated. FFmpeg is contained with a protocol whitelist and adversarial fixtures (6a, N24). Every spawn site is inventoried and ratcheted (`spawn-sites`), and the guard refuses network and third-party spawns while sealed (6a). The ratchet now matches imports, so aliases such as `mod.request`, renderer roots and `.tsx`/`.jsx`/`.mjs` files are caught. WebRTC is removed from every renderer (7a). Remote images are inert (13). Pending DNS is counted (6, 7). Preconnect and dns-prefetch are probed in Electron against a connection-logging fixture (16). Browser links need main's confirmation (11). Pending OAuth flows are cancelled (11). Loopback forwarders are a named trust boundary (Task 1). |
+| **C3** attestation after failed Chromium shutdown | Closed, this revision | Task 6 removes the last-resort `closeAllConnections` reset entirely (`there is no API that resets every Chromium connection`). A Chromium request is tracked until `onCompleted`/`onErrorOccurred` or its `webContents` is destroyed, and is never cleared to pass a check. Task 7: failures (`codexStop`, `childStop`, `timeout:<what>`) are unresolved until the thing named has stopped, and `nothingLeaves` requires an empty `failures` list. Tests: `an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared`, `mid-transition attestations are never verified`, `a quick seal, unseal, seal ends sealed and verified, in order`. |
+| **I1** tests bypass production wiring | Closed, this revision | Task 12 drives the real `ipcHandlers.js` and `personal-inference:*` handlers. N18 uses the production `createCodexServer` factory, which ignores test-supplied hooks. N20 executes the calendar guard that `main.js` uses, plus a routing ratchet. N10 goes through the realtime start handler. It adds download-manager IPC rows (`model-download`, `download-whisper-model`, `llama-cpp-install`), and discovers the realtime, proxy and download channels instead of listing them. A **bypass-sensitivity** pass reruns every row with Layer A bypassed: the row must reach a transport or a Layer B refusal. A regression drill deletes two production gates and requires their rows to fail. Task 16 runs the real Electron app against an independent fixture that logs requests and raw connections, with a control run proving each probe is seen. It has no offline blockers of its own, and its leak-injection drill must fail. The smoke-script `every(...)` check, which passed on an empty list, is dropped (17). |
+| **I3** host-wide attribution, one-row settlement | Closed, this revision | Task 4 stores a host trail (`hosts`, up to 8), start and end times, and an opaque flag; the `summary` separates `observed` requests from `opaqueSessions`. Task 5 attributes by async context and Electron request tag, never by "some ticket has this host" (`a same-host connection outside the ticket's context is still unexplained`). Task 6 tracks Chromium per request id, extends trails on redirect, and records unexplained Chromium requests at completion, with their status. |
+| **I4** CCR-3 vs the sent notice and Plan 04's receipt | Closed. The "started" wording was fixed at `0bbb0e5`; marking granularity and the contract were fixed in this revision. | Main emits `dispatched` (handed to the transport: "may have received"), `delivered` (a response arrived: "received") and `undelivered` (failed before connecting), with `ticketId`, `targetId` (Plan 04's target encoding), `payload` and `correlationId` (Tasks 5, 8, 9, 9a). Realtime marks only the instance that forwarded audio (`markRealtimeDispatched`), from the first frame. CCR-3 now states one shape that maps onto Plan 04's `RemoteDisclosure`. |
+| **I5** UI ignores phase, time and attestation contracts | Closed: mostly at `0bbb0e5`, completed in this revision | At `0bbb0e5`: phase-aware matching (`[SEALED_MODE:interrupted]`), interrupted copy, an `onAttestation` subscription with version ordering, and the verified line dated from `effectiveSince`. In this revision: attestations older than 30 s drop to unknown and are re-fetched (13). Every unverified reason, and every note resolved before verification, is named (14). The recorder shows "Loading…" instead of 0 and "No recorded requests for this period" when empty, and never says that nothing left (15). |
+| **I6** content preservation depends on Plan 04, fails mid-recording | Closed, this revision | Task 13 adds `src/lib/sealedRecovery.ts`. A dictation refused or interrupted while retention would discard it is held in renderer memory only (bounded, with a time limit), never on disk. The error toast and the unseal notice offer "Transcribe". Behaviour tests cover the retention combinations, the replay and the cleanup-after-local-STT fallback through the real `AudioManager`. The pre-flight remains UX protection. CCR-4 asks Plan 04 to keep both. |
+| **I7** last-resort reset cuts local routes | Closed, this revision | The reset is gone (C3). An un-ticketed remote request keeps the seal unverified, and is named, instead of cutting local work. Task 12: `a local request in flight survives sealing, while the remote one beside it is interrupted`. Task 9: `an in-flight loopback transcription survives sealing`. Task 16 checks loopback in Electron after the seal. |
+| **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision | Task 13 migrates Plan 03's `routeFactsStore`, so `facts.sealed` mirrors the sealed store in the same tick. The route chips, staged Apply and keyring verify all read it, and a cross-plan test toggles once and checks all of it. `isSealedLocality` is the only rule; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
+| **I9** re-enabling persistence writes history-off rows | Closed, this revision | Task 4 distinguishes `pending` (consent not loaded yet) from `memory` (history explicitly off). Only pending rows flush, inside a transaction, and they are kept in memory if the write fails (`persistError`). Tests: `history off from the first sync…`, `pending rows flush on the first sync; memory-only rows never become durable`, `a failed flush keeps the pending rows…`. The row cap is checked on insert. |
+| **I10** opaque sessions shown as observed requests | Closed, this revision | Task 15 counts observed requests and helper sessions separately, labels an opaque row's host as "Usually …", and says its traffic is not visible. It adds a producer → IPC → view test with a normal and an interrupted session. The typed fixtures include `observed`. |
+| **I11** trusted-sender URL throws in development | Closed, this revision | Task 7 branches on the dev server before touching the packaged path, and tests both real `DevServerManager` contracts (`appUrlPrefixes follows the real DevServerManager contracts in both modes`), plus main-frame vs subframe and navigated URLs. |
+| **M1** source ranges and stale instructions | Closed, this revision | Prerequisites are stated as execution-order requirements (above). Task 7a anchors on the comment text (`:227-234`), and keeps `preload`/`nodeIntegration`/`contextIsolation`. `idx_analytics_date` is at `localDatabaseSchema.js:318`. The generic failure is at `providerConnectionTest.js:316-327`. `openExternalUrl` is at `:35` and `shell.openExternal` at `:69`. The answered open questions are removed. The metadata assessment's adversarial cases (URL-like model ids, provider error codes) are covered in Task 4 (`model ids and error classes are stripped of control characters and truncated`, `record rejects non-host values…`). |
 
 ---
 
@@ -45,11 +78,12 @@ This plan owns §5.4 and must not edit the spec. The owner applies these to §5 
 **CCR-1 (§5.4, owner Plan 07; additive plus one clarification).**
 - **Clarification.** While sealed, *both* `remote` and `network` locality routes are blocked. Only `device` (loopback) keeps working.
   - A LAN self-hosted server is another machine, so audio sent to it leaves this computer. The pill copy "Sealed · nothing leaves" would otherwise be false.
-  - The resolver therefore reports every non-`device` route as `{ status: "unreachable", detail: "sealed" }`, not only `remote` ones.
+  - The resolver therefore reports every non-`device` route as `{ status: "unreachable", detail: "sealed" }`. Plan 03's `isSealedLocality` already encodes this (CCR-2).
+  - "Loopback" means `localhost`, `*.localhost`, `127.0.0.0/8`, `::1` and IPv4-mapped `127.x`, in main and in the renderer alike (CCR-5).
 - **Additions to `window.electronAPI.privacy`.** `getSealed()` and `onSealedChange(cb)` keep their §5.4 signatures, and `onSealedChange` returns an unsubscribe function. The new methods are:
 
   ```ts
-  setSealed(sealed: boolean): Promise<Attestation & { declined?: boolean }>;  // resolves after the sealing barrier; an unseal is confirmed by main first
+  setSealed(sealed: boolean): Promise<Attestation & { declined?: boolean }>;  // resolves after the sealing barrier; an unseal is confirmed by main first, and declined: true means the user said no
   getAttestation(): Promise<Attestation>;
   onAttestation(cb: (attestation: Attestation) => void): () => void;           // versioned pushes from main
   listEgress(options?: { since?: number; limit?: number }): Promise<EgressEvent[]>;
@@ -60,85 +94,107 @@ This plan owns §5.4 and must not edit the spec. The owner applies these to §5 
   onEgressCleared(cb: () => void): () => void;
   ```
 
-  The types are declared in `src/types/privacy.ts` (Task 7).
+  `Attestation` is `{ sealed, sealedSince, effectiveSince, phase: "open" | "sealing" | "sealed", failures: string[], notes: string[], loadError, saveError, guards, networkChildren, activeRemote, blockedSinceSealed, recordFailures, version, at, nothingLeaves }`. The types are declared in `src/types/privacy.ts` (Task 7).
 - **Semantics.**
   - `getSealed()` resolves `true` when the persisted setting is unreadable. Sealed mode fails closed.
-  - `onSealedChange` fires only after main has applied the change and run the sealing barrier: in-flight remote work is aborted, open remote sockets are destroyed, and Codex and yt-dlp are stopped.
-  - `Attestation` separates `sealedSince` (switch flipped) from `effectiveSince` (main verified that everything stopped). Any claim about past egress is dated from `effectiveSince`.
+  - `onSealedChange` fires only after main has applied the change and run the sealing barrier. By then, in-flight remote work is aborted, open remote sockets are destroyed, and network children have been told to stop.
+  - `nothingLeaves` is true only when the phase is `"sealed"`, `failures` is empty, every guard is up, no environment proxy is set, and nothing remote is left: no ticket, socket, Chromium request, DNS lookup or network child.
+  - `failures` are unresolved and block `nothingLeaves`. `notes` are delays that resolved before `effectiveSince`; the panel shows them for honesty.
+  - Any claim about past egress is dated from `effectiveSince`, never from `sealedSince`. A consumer must treat an attestation older than 30 s (by `at`) as unknown.
 
-**CCR-2 (§5.1, owner Plan 03).**
-- `RouteSettingsSnapshot` gains `sealed: boolean`, defaulting to `false`.
-- `resolveRoute` applies `applySealToRoute(route, snapshot.sealed)` from `src/lib/sealedMode.ts` (Plan 07) as its last step.
-- `useResolvedRoutes` / `useResolvedRoute` read `useSealedMode()` from `src/hooks/useSealedMode.ts` (Plan 07).
-- `routes.ts` exports a non-React `routeSnapshotFromSettings(settings)`. The dictation pre-flight in `audioManager.js` (Plan 07, Task 13) is not a React component, and needs to resolve the `dictationStt` route.
-- If Plan 03 merged without these, Plan 07 Task 13 adds them. Keep the module boundaries as stated so both plans agree.
+**CCR-2 (§5.1, owner Plan 03). Replaces the earlier CCR-2.**
+- **One sealed source.** `routeFactsStore` stops calling `privacy.getSealed`/`onSealedChange` itself. `facts.sealed` mirrors Plan 07's sealed store (`src/hooks/useSealedMode.ts`: `subscribeSealed`, `getSealedSnapshot`), with unknown mapped to `false`. Plan 07 Task 13 makes this change and updates Plan 03's store test.
+- **One rule.** `isSealedLocality(locality)` stays the only rule for which routes Sealed mode pauses. The earlier request for `applySealToRoute`, `isRouteSealed` and `routeSnapshotFromSettings` is withdrawn. Plan 07's pre-flight uses `buildRouteSnapshot` + `resolveRoute` + `isSealedLocality`.
+- **One declaration.** Plan 07 Task 7 replaces Plan 03's optional `privacy?` member in `src/types/electron.ts` with the required `privacy: PrivacyAPI`.
+- **The self-hosted probe.** `probe-self-hosted` is gated in main as `providerCheck`. While sealed it is allowed only for loopback, and it returns `{ ok: false, code: "sealed" }` otherwise. Add `"sealed"` to `probeSelfHosted`'s result codes, and show `routes.state.sealed` for it. P03 Task 14's note about adding the probe to a "sealed-mode allowlist" is superseded (Plan 07 Task 11a).
 
-**CCR-3 (§5.2, owner Plan 04).**
-- **Pass a correlation id.** Plan 04 gives each recording an id, and passes it as `correlationId` on every request of that recording's pipeline:
-  - the BYOK transcription request (or its existing `requestId`);
-  - `dictation-realtime-start`/`-warmup` options;
-  - the cleanup, agent, vision and translation `textGenerate`/`textStream` requests.
-- **Derive `remoteAlreadySent` from main's evidence.** Set it to the provider display name only when `privacy.onEgress` delivered a `{ phase: "sent" }` notice with that `correlationId` and a payload of `"audio"`, `"text"` or `"image"`. Do not derive it from route locality, from authorisation, or from timing.
-- **What "sent" means.** Main emits `sent` when the payload is handed to the transport, not when a request is authorised (Tasks 5, 8, 9 and 9a). Token and connection requests carry payload `"metadata"`, and must not count. A realtime session is marked sent at its first audio frame, which correctly covers audio streamed *before* the recording stopped, and prewarmed sockets.
-- **Rationale.** The cancel copy "OpenAI already received the audio" is a claim about egress, so main must attest it (D6). This also keeps the cancel copy and the flight recorder in agreement: a request cancelled in flight is recorded by main with outcome `cancelled`.
+**CCR-3 (§5.2 and §5.3, owner Plan 04). The receipt and disclosure shape, matching Plan 04's CCR-6.**
+- **Main's evidence.** `privacy.onEgress` delivers `EgressNotice`:
+
+  ```ts
+  { phase: "dispatched" | "delivered" | "undelivered"; ticketId: number; task: EgressTask;
+    targetId: string;   // provider id ("openai", "custom"), or "host:<hostname>" — Plan 04's RemoteDisclosure.target encoding
+    host: string; payload: "audio" | "text" | "image" | "metadata"; correlationId: string | null; ts: number }
+  | { phase: "recorded"; event: EgressEvent }   // the flight recorder's row, not disclosure evidence
+  ```
+
+- **Mapping onto `RemoteDisclosure`.** Plan 04's `{ target, payload, evidence: "attested" | "dispatched" }` maps as follows:
+  - `delivered` for this session's `correlationId`, with payload `audio`, `text` or `image`, sets `target = targetId` and `evidence: "attested"`. The copy is "already received".
+  - `dispatched` alone sets `evidence: "dispatched"`. The copy is "may have received".
+  - `undelivered` for a ticket withdraws that ticket's `dispatched` evidence, unless another ticket of the session has dispatched or delivered.
+  - `metadata` (token fetches, model lists) never counts.
+  - Plan 04's CCR-6 text names `{ phase: "sent" }`. Read that as `delivered` for "attested" and `dispatched` for "may have received". There is no `sent` phase.
+- **Correlation.** The `correlationId` is the dictation session id (Plan 04 CCR-6). It is carried on the BYOK transcription payload, the realtime and streaming start options, and every cleanup, Agent, vision and translation request of the recording. Main marks a realtime session `dispatched` at the first frame that instance forwards, so audio streamed before the stop counts, and a warm or idle socket does not.
+- **Prefer main.** When `privacy.onEgress` exists, `remoteAlreadySent` comes only from these notices. Plan 04's renderer-side dispatch tracker is the fallback when Plan 07 is absent.
+- **Notices (§5.3).** Plan 07's sealed copy and the recovery prompt must survive Plan 04's toast migration:
+  - the recovery prompt is `notify({ kind: "notice", persistent: true, actions: [Transcribe, Discard] })`;
+  - a sealed dictation refusal that holds audio in memory is an `alert`, because user content is at stake.
 
 **CCR-4 (§5.4 consumer, owner Plan 04).**
-- **What Plan 07 ships.** Plan 07 ships the dictation pre-flight itself (owner decision 3, 2026-10-15). `audioManager.startRecording` refuses to start when `isDictationSealed(settings, sealed)` is true, and reports `sealedMode.blocked.dictationPreflight` through the existing error path (Task 13).
-- **Plan 04 keeps the check.** When it restructures the recording lifecycle it must keep this check. It renders the refusal as a pill state, a blocked remote ring with "Dictation paused: Sealed mode is on", instead of a toast.
-- **Rationale.** Main's block happens *after* recording. With local history off, a blocked recording cannot be kept, so preventing the recording is the content-preserving path.
+- **What Plan 07 ships.** Plan 07 ships the dictation pre-flight itself (owner decision 3, 2026-10-15). `audioManager.startRecording` refuses to start when `isDictationSealed(settings, getSealedSnapshot().sealed)` is true; `sealed` is `boolean | null`, and only `true` blocks. It reports `sealedMode.blocked.dictationPreflight` through the existing error path (Task 13). Plan 07 also ships in-memory recovery (`sealedRecovery.ts`, `AudioManager.transcribeRecovered`).
+- **Plan 04 keeps both.** When it restructures the recording lifecycle, it must keep the pre-flight check, and the `_noteSealedFailure` call before `saveFailedTranscription`. It renders the refusal as a pill state, a blocked remote ring with "Dictation paused: Sealed mode is on". It keeps the "Transcribe" action reachable from the pill and from the unseal notice.
+- **Rationale.** Main's block happens *after* recording. With local history off, a blocked recording could not otherwise be kept.
+
+**CCR-5 (owner Plan 01): one loopback rule.**
+- `isLoopbackUrl` in `src/lib/locality.ts` accepts exactly what main's `isLoopbackHost` accepts: `127.0.0.0/8`, `::1` in any spelling, IPv4-mapped `127.x`, and a trailing dot on `localhost`.
+- Both are tested against `test/fixtures/loopbackCases.json`. Plan 07 Task 11a makes the change and keeps Plan 01's existing cases passing.
 
 ---
 
 ## Global Constraints
 
 - **Ownership.** Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md). Sealed mode is enforced in main; a renderer check is UX only and never the guarantee (D6).
-- **No silent provider switches.** Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure, and a sealed block is a failure that keeps the user's message, recording or draft.
-- **What sealed blocks.** Main blocks every outbound provider and model-download request while sealed, and local routes keep working. The UI never claims "0 bytes" unless main attests it (D6).
-- **"Local" means loopback only.** That is `localhost`, `127.0.0.0/8`, `::1` and IPv4-mapped `127.x`. A LAN address, a public IP, an unparseable target or a hostname that merely *resolves* to loopback is **not** local (CCR-1; D4 makes loopback self-hosted URLs `device`).
+- **The boundary.** The guarantee covers Loqui's main process, its Chromium sessions and renderers, and the processes Loqui starts (Task 1). Anything outside it is either disabled while sealed or disclosed in the UI. No copy claims more.
+- **No silent provider switches.** Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure, and a sealed block is a failure that keeps the user's message, recording or draft: in History when retention allows, otherwise in memory with a "Transcribe" action.
+- **What sealed blocks.** Main blocks every outbound provider, model-download, update, calendar and URL-import request while sealed, and local routes keep working. The UI never claims "0 bytes" or "verified" unless main attests it (D6).
+- **"Local" means loopback only.** That is `localhost`, `*.localhost`, `127.0.0.0/8`, `::1` and IPv4-mapped `127.x`, in main and in the renderer (CCR-5). A LAN address, a public IP, an unparseable target or a hostname that merely *resolves* to loopback is **not** local (CCR-1; D4 makes loopback self-hosted URLs `device`).
+- **A stop is an exit.** A child process, a Chromium request or a DNS lookup counts as stopped only when it has actually ended. A signal, a timeout or a reset is never evidence. Failures stay unresolved until the thing they name has stopped.
 - **The flight recorder stores metadata only:**
-  - time, task id, bare hostname, bytes sent, bytes received, outcome, HTTP status, error class (an error `code` or `name`, never a message) and model id;
+  - start and end times, task id, the bare hostnames contacted (up to 8), bytes sent, bytes received, outcome, HTTP status, error class (an error `code` or `name`, never a message) and model id;
   - **never** content, prompts, keys, URLs with paths or query strings, or error messages.
 - **Unknown byte counts are `null`, not `0`.** The UI renders them as "—". Only a blocked request records `bytesOut: 0`, because main refused it before any socket opened.
   - Bytes are request and response *bodies*, except realtime sessions, which count wire bytes on their own socket.
   - A bodyless request is `null`, not 0, because its headers still went out.
-  - Opaque child sessions (Codex, yt-dlp) never carry byte counts.
+  - Opaque child sessions (Codex, yt-dlp) never carry byte counts, and are counted apart from observed requests.
 - **"Nothing was sent" is only for refusals.** A request that sealing cut off mid-flight is reported as *interrupted*, meaning the provider may have received part of it, never as "nothing was sent".
 - **Recorder retention follows the existing privacy settings:**
-  - Rows older than `transcriptRetentionDays` are pruned when that value is above 0. When it is 0 ("forever"), the table is capped at `MAX_ROWS = 100000` rows, oldest first.
-  - When `dataRetentionEnabled` is `false`, events are kept in memory only (the last 500) and nothing is written to disk.
-  - Pruning runs in the existing six-hour retention sweep (`ipcHandlers.js` `_runRetentionCleanup`).
+  - Rows older than `transcriptRetentionDays` are pruned when that value is above 0. When it is 0 ("forever"), the table is capped at `MAX_ROWS = 100000` rows, checked on insert.
+  - When `dataRetentionEnabled` is `false`, events are kept in memory only (the last 500), and nothing recorded in that state is ever written to disk, even if history is turned on later.
+  - Pruning also runs in the existing six-hour retention sweep (`ipcHandlers.js` `_runRetentionCleanup`).
 - **Tests.** Tests use Node `node:test` through `npm test` (`scripts/run-tests.js`). Run `npm run native:node` before tests and `npm run native:electron` before launching the desktop app. Never use personal profiles in tests.
-- **No network in tests.** Tests never touch the network. Sealed denials happen before DNS. Unsealed tests use loopback servers or a `lookup` stub that fails offline.
+- **Tests exercise production wiring.** Enforcement tests drive the real registered handlers and factories, never a test-supplied gate or hook. Source-text checks are allowed only as ratchets beside an executed test, never in place of one.
+- **No network in tests.** Tests never touch the network. Sealed denials happen before DNS. Unsealed tests use loopback servers, or a `lookup` that points at a local fixture.
 - **DB tests.** A test that opens SQLite must live in `test/helpers/` and contain the literal `require("./harness/db")`. `scripts/run-tests.js` uses that string to run it without the tsx loader.
 - **i18n.** Every visible string goes through i18n, with keys in all 11 locales (`ar de en es fr it ja pt ru zh-CN zh-TW`) under `src/locales/*/translation.json`. `npm run i18n:check` passes.
 - **Contrast.** Text contrast is at least 4.5:1 and non-text UI at least 3:1, in light and Plum Night.
 - **Motion and RTL.** Motion uses the shared `--motion-*` tokens. Reduced motion keeps opacity and colour feedback and drops transforms. Use logical properties (`ms-`, `me-`, `start`, `end`). Hostnames render `dir="ltr"`.
 - **Docs.** `DESIGN.md` is the source of truth for UI (D10). `docs/PRIVACY.md` and `docs/network-allowlist.md` must be updated by any change that adds a destination or a content category (the allowlist doc says so).
 - **Node.** Use `~/.nvm/versions/node/v24.21.0/bin` (`.nvmrc` 24.21.0).
-- **Before a PR:** `npm run lint`, `npm run typecheck`, `npm test` and `npm run i18n:check`.
+- **Before a PR:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run i18n:check` and `npm run test:sealed-electron`.
 
 ## Review Focus
 
-Each of these five failure modes is the kind a reviewer should try by hand. Each is pinned by a named test in the owning task.
+Each of these failure modes is the kind a reviewer should try by hand. Each is pinned by a named test in the owning task.
 
-1. **Turning Sealed mode on while something is mid-flight:** a streaming chat reply, an open realtime STT socket, a model download, or an update download.
+1. **Turning Sealed mode on while something is mid-flight:** a streaming chat reply, an open realtime STT socket, a model download, an update download, or a yt-dlp process that ignores signals.
    - Expected: the transfer stops within a second, and the user's message, draft or partial download stays.
    - The ledger shows the request as `cancelled` with error class `SEALED_MODE`, and the copy says *interrupted*, not "nothing was sent".
-   - The attestation reports `nothingLeaves: true` only after the sealing barrier has confirmed that everything stopped. A Codex process that ignores `SIGTERM` keeps it unverified until it exits.
+   - The attestation reports `nothingLeaves: true` only after every stop has been confirmed. A child that survives SIGKILL keeps it unverified for as long as it runs.
    - Pinned in:
-     - Task 5 (`abortAllRemote interrupts in-flight remote tickets; loopback keeps running`, `guardResponse: sealing after headers with a stalled body interrupts it`);
-     - Task 6 (`severAll destroys open remote Node sockets and leaves loopback ones alone`);
-     - Task 7 (`sealing stops everything, waits for children, then becomes effective`, `a child that will not exit keeps the seal unverified`);
+     - Task 5 (`abortAllRemote interrupts in-flight remote tickets; loopback keeps running`, `guardResponse: sealing after headers with a stalled body interrupts it`, `aborting an opaque session does not settle it: only the child's exit does`);
+     - Task 6 (`severAll destroys open remote Node sockets and leaves loopback ones alone`, `pending DNS lookups are counted until they answer`);
+     - Task 6a (`a child is alive until it exits, not until it is signalled`, `stopAll rejects when a child survives SIGKILL, and it stays alive`);
+     - Task 7 (`sealing stops everything, waits for children, then becomes effective`, `a child that will not exit keeps the seal unverified until it really exits`, `an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared`);
      - Task 8 (`sealing mid-request rejects as 'interrupted'…`, `sealing during a pending start cancels it before anything is spawned`);
-     - Task 9 (`an in-flight loopback transcription survives sealing`);
      - Task 9a (`sealing closes an open realtime session as interrupted`);
-     - Task 10 (`sealing keeps the partial file; the next run resumes and counts only new bytes`, `sealing kills an in-flight yt-dlp self-update…`).
+     - Task 10 (`sealing keeps the partial file; the next run resumes and counts only new bytes`, `sealing kills an in-flight yt-dlp self-update and records an opaque session`);
+     - Task 12 (`a local request in flight survives sealing, while the remote one beside it is interrupted`).
 2. **A damaged or unwritable `privacy.json`.** A truncated file, a non-boolean `sealed`, or a read-only profile must never silently unseal.
    - An unreadable or corrupt file loads as sealed, with `loadError` set.
    - A failed save while sealing keeps the app sealed for this session and surfaces `saveError`, so the UI can warn that it will be off after restart.
-   - Pinned in Task 3.
-3. **Self-hosted endpoints spelled in unusual ways.** These stay allowed while sealed:
-   - `http://localhost:11434/v1`, `http://LOCALHOST.:8080`, `http://[::1]:8080`, `http://127.0.0.2:9000` and `http://[::ffff:127.0.0.1]/`.
+   - Pinned in Task 3 (`a corrupt file fails closed`, `an unreadable file fails closed`, `a failed save keeps the in-memory value and reports saveError`).
+3. **Self-hosted endpoints spelled in unusual ways**, in main and in the route graph alike. These stay allowed while sealed:
+   - `http://localhost:11434/v1`, `http://LOCALHOST.:8080`, `http://[::1]:8080`, `http://127.0.0.2:9000`, `http://[::ffff:127.0.0.1]/` and `http://app.localhost:5173/`.
 
    These are blocked:
    - `http://192.168.1.5:8080`, `http://localhost.evil.example`, `http://127.0.0.1.nip.io` and `http://0.0.0.0:8080`;
@@ -146,18 +202,26 @@ Each of these five failure modes is the kind a reviewer should try by hand. Each
 
    A `localhost` connection whose own `lookup` claims a public address must still connect to loopback.
 
-   Pinned in Task 2 (`loopback classification`) and Task 6 (`'localhost' is pinned to loopback even when a lookup says otherwise`, `sealed: a loopback proxy is not allowed to tunnel or forward to a remote host`).
-4. **Hostile values reaching the ledger.** A model id with a comma, newline or leading `=` must not break or inject into the CSV export. A target containing userinfo, a path or a query must be stored as a bare host. Error messages from providers, which may echo content, are never stored. Pinned in Task 4 (`CSV export neutralises formulas and quotes`, `record rejects non-host values`) and Task 5 (`settle stores an error class, never a message`).
+   Pinned in:
+   - Task 2 (`loopback classification`, reading `test/fixtures/loopbackCases.json`);
+   - Task 6 (`localhost and *.localhost are pinned to loopback even when a lookup says otherwise`, `sealed: a loopback proxy is not allowed to tunnel or forward to a remote host`);
+   - Task 11a (`main and the route graph agree on every loopback case`).
+4. **Hostile values reaching the ledger.** A model id with a comma, newline or leading `=` must not break or inject into the CSV export. A target containing userinfo, a path or a query must be stored as a bare host. Error messages from providers, which may echo content, are never stored. Pinned in Task 4 (`CSV export neutralises formulas and quotes`, `record rejects non-host values, in host and in the trail, and unknown enums`) and Task 5 (`settle stores an error class, never a message`).
 5. **Sealed at launch, with a calendar connected and an update check due.**
    - Expected: no non-loopback connection from boot. Calendar sync does not start, and the automatic update check is skipped without advancing `lastCheck`.
    - Turning sealed off starts calendar sync and lets the next hourly tick check for updates.
    - Pinned in:
      - Task 7 (`sealed at boot is effective from boot, with everything verified`, `unsealing restarts calendars and republishes update status`, `main boots the egress guards before any helper is required`);
      - Task 10 (`automatic check is skipped while sealed and lastCheck is unchanged`, `seal and unseal always publish status, even when idle`);
-     - Task 11 (`main does not start calendar sync while sealed`);
-     - Task 16, which runs the Electron smoke test sealed.
-
-**Documented residual (not a defect to pin):** turning Sealed mode on *while* a cloud-route dictation is already recording. The pre-flight cannot help, because the recording started before the seal. When the recording stops, main refuses (or interrupts) its transcription. The audio is kept in History only if local history and audio retention are on; otherwise the copy says plainly that it was not kept. Holding such a recording in memory for a later retry needs Plan 04's notice actions; see Open question 4.
+     - Task 11 (`the calendar guard main uses starts, focus-syncs and wake-syncs nothing while sealed`);
+     - Task 16 (`boot: the remote fixture saw no request and no connection during the whole sealed run`).
+6. **A recording that Sealed mode blocks while local history is off.** It must survive in memory, never on disk, and be offered for "Transcribe" on the error and again on unseal. Pinned in Task 13 (`a sealed failure with history off: held in memory = true`, `transcribeRecovered replays the held recording through the normal pipeline`, `recovery never touches disk or IPC`).
+7. **Ways out of the boundary:** a crafted playlist given to FFmpeg, a link or meeting join link clicked while sealed, a calendar sign-in completed in the browser after sealing, a remote image in a chat answer, a `<link rel="preconnect">`, a WebRTC peer connection. Pinned in:
+   - Task 6a (`a local playlist that points at a server makes FFmpeg fetch nothing`);
+   - Task 7a (`every window loads the preload, and the preload removes WebRTC from the page`);
+   - Task 11 (`a declined link never reaches the OS, and is not an error`, `sealing cancels a pending OAuth flow…`);
+   - Task 13 (`sealed: remote images are inert placeholders; loopback images and links stay`);
+   - Task 16 (`toggle: the remote fixture saw no request and no connection after sealing`).
 
 ---
 
@@ -166,34 +230,57 @@ Each of these five failure modes is the kind a reviewer should try by hand. Each
 **Create (main process, CommonJS):**
 - `src/helpers/privacy/egressPolicy.js`: pure. Task ids, host classification, the allow/deny decision and `SealedModeError`.
 - `src/helpers/privacy/sealedState.js`: the persisted switch in `<userData>/privacy.json`, which fails closed.
-- `src/helpers/privacy/flightRecorder.js`: the ledger store (SQLite or memory), summary, prune and CSV.
-- `src/helpers/privacy/egressGate.js`: Layer A. Tickets, task context (`AsyncLocalStorage`), metering, abort-on-seal and counters.
-- `src/helpers/privacy/egressBackstop.js`: Layer B. Node socket (with `localhost` pinning), DNS, UDP and proxy hooks; the Chromium session watcher with in-flight tracking; the WebRTC policy; sever-all and observers.
-- `src/helpers/privacy/privacyBoot.js`: boot order, the sealing barrier (transition), the attestor and main's confirmation dialogs.
+- `src/helpers/privacy/flightRecorder.js`: the ledger store (pending, SQLite or memory-only), summary, prune and CSV.
+- `src/helpers/privacy/egressGate.js`: Layer A. Tickets, task context (`AsyncLocalStorage`), metering, notices, abort-on-seal and counters.
+- `src/helpers/privacy/egressBackstop.js`: Layer B. Node socket (with `localhost` pinning), DNS, UDP and proxy hooks; the Chromium session watcher with per-request tracking; the WebRTC policy; sever-all and observers.
+- `src/helpers/privacy/childRegistry.js`: the child registry (alive until exit) and the spawn guard (Task 6a).
+- `src/helpers/privacy/privacyBoot.js`: boot order, the sealing barrier (transition), the attestor and main's confirmation dialogs (unseal, clear, open link).
 - `src/helpers/privacy/privacyIPC.js`: the `privacy:*` IPC channels and broadcasts.
 - `src/helpers/privacy/trustedSender.js`: the main-frame, app-URL and known-window check for privacy-changing IPC.
 - `src/helpers/privacy/providerEndpoints.js`: the destination of each named provider.
 - `src/helpers/privacy/gatedFetch.js`: `gatedNetFetch` (Electron `net`) and `gatedNodeFetch` (Node `fetch`), both gated and metered.
-- `src/helpers/sttTransport.js`: `buildMultipartBody` and `postMultipart` (moved out of `ipcHandlers.js` and gated), plus `realtimeEndpoint` and `connectRealtime`.
+- `src/helpers/privacy/calendarGuard.js`: the start, focus and wake gate that `main.js` routes remote calendars through (Task 11).
+- `src/helpers/sttTransport.js`: `buildMultipartBody` and `postMultipart` (moved out of `ipcHandlers.js` and gated), plus `realtimeEndpoint`, `connectRealtime` and `markRealtimeDispatched`.
 
 **Create (renderer, TypeScript):**
 - `src/types/privacy.ts`: `PrivacyAPI`, `Attestation`, `EgressEvent`, `EgressSummary`, `EgressNotice` and `EgressTask`.
-- `src/hooks/useSealedMode.ts`: the sealed flag and attestation as an external store.
-- `src/lib/sealedMode.ts`: `applySealToRoute`, `isRouteSealed` and `isDictationSealed` (the pre-flight).
+- `src/hooks/useSealedMode.ts`: the sealed flag and attestation as an external store, with staleness.
+- `src/lib/sealedMode.ts`: `isDictationSealed` (the pre-flight), over Plan 03's resolver.
+- `src/lib/sealedRecovery.ts`: in-memory recovery of blocked dictations.
 - `src/utils/sealedModeError.ts`: `isSealedModeError`, `sealedPhase` and `sealedDictationMessageKey`.
 - `src/components/chat/chatErrorContent.ts`: the assistant bubble's failure text, including the sealed copy.
 - `src/components/settings/SealedModePanel.tsx` and `src/components/settings/sealedModeCopy.ts`: the master switch, and the only place that decides what the panel may claim.
 - `src/components/settings/FlightRecorderPanel.tsx` and `src/components/settings/flightRecorderView.ts`: the ledger view and its pure view model.
 
-**Create (docs):** `docs/security/sealed-mode-threat-model.md` (Task 1) and `docs/security/sealed-mode-review-2026-10.md` (Task 17).
+**Create (docs):** `docs/security/sealed-mode-threat-model.md` (Task 1) and `docs/security/sealed-mode-review-2026-10.md` (Task 18).
 
-**Create (test helpers):** `test/helpers/harness/ipcHandlersHarness.js` (Task 12), which registers the real `ipcHandlers.js` channels against fakes.
+**Create (scripts and test helpers):**
+- `scripts/sealed-acceptance.cjs` and `scripts/lib/egressFixture.cjs` (Task 16).
+- `test/helpers/harness/ipcHandlersHarness.js` (Task 12), which registers the real `ipcHandlers.js` channels against fakes.
+- `test/fixtures/loopbackCases.json` (Task 11a).
+- `test/hooks/fakePrivacy.js` (Task 13).
 
 **Modify:**
-- Main process: `main.js`, `preload.js`, `src/helpers/windowConfig.js` (Task 7a), `src/helpers/codexAppServer.js`, `src/helpers/localDatabaseSchema.js`, `src/helpers/ipcHandlers.js`, `src/helpers/personalInference.js`, `src/helpers/providerConnectionTest.js` (rethrows sealed errors; gated at its IPC call site), `src/helpers/tinfoilCatalog.js`, `src/helpers/geminiTranscription.js`, `src/helpers/cortiAuth.js`, `src/helpers/cortiTranscription.js`, `src/helpers/tinfoilTranscription.js`, `src/helpers/downloadUtils.js`, `src/helpers/gpuBinaryManager.js`, `src/helpers/urlAudioDownloader.js`, `src/helpers/updateManager.js`, `src/helpers/updateIPC.js`, `src/helpers/googleCalendarOAuth.js`, `src/helpers/googleCalendarManager.js`, `src/helpers/microsoftCalendarOAuth.js` and `src/helpers/microsoftCalendarManager.js`.
-- Renderer: `src/index.html` (Task 7a), `src/types/electron.ts`, `src/types/updates.ts`, `src/lib/routes.ts` (CCR-2), `src/components/SettingsPage.tsx`, `src/components/settings/UpdateSettings.tsx`, `src/components/chat/useChatStreaming.ts`, `src/utils/localInferenceError.ts`, `src/utils/recordingErrors.ts`, `src/helpers/audioManager.js` (renderer code) and `src/index.css`.
+- Main process:
+  - `main.js` and `preload.js`;
+  - `src/helpers/windowConfig.js` (Task 7a);
+  - `src/helpers/codexAppServer.js`, `src/helpers/personalInference.js`, `src/helpers/providerConnectionTest.js` (rethrows sealed errors; gated at its IPC call site);
+  - `src/helpers/localDatabaseSchema.js`, `src/helpers/ipcHandlers.js`;
+  - `src/helpers/tinfoilCatalog.js`, `src/helpers/geminiTranscription.js`, `src/helpers/cortiAuth.js`, `src/helpers/cortiTranscription.js`, `src/helpers/tinfoilTranscription.js`;
+  - `src/helpers/downloadUtils.js`, `src/helpers/gpuBinaryManager.js`, `src/helpers/urlAudioDownloader.js`, `src/helpers/ffmpegUtils.js` (Task 6a);
+  - `src/helpers/updateManager.js`, `src/helpers/updateIPC.js`;
+  - `src/helpers/googleCalendarOAuth.js`, `src/helpers/googleCalendarManager.js`, `src/helpers/microsoftCalendarOAuth.js`, `src/helpers/microsoftCalendarManager.js`;
+  - `src/helpers/oauthLoopbackFlow.js` and `src/helpers/externalUrlOpener.js` (Task 11);
+  - `src/helpers/selfHostedProbe.js` (Plan 03; Task 11a).
+- Renderer:
+  - `src/index.html` (Task 7a), `src/types/electron.ts`, `src/types/updates.ts`;
+  - `src/lib/locality.ts` (Plan 01; Task 11a), `src/lib/routes.ts` (a comment) and `src/stores/routeFactsStore.ts` (Plan 03; Task 13);
+  - `src/components/SettingsPage.tsx`, `src/components/settings/UpdateSettings.tsx`, `src/components/SelfHostedPanel.tsx` (Task 11a);
+  - `src/components/ui/MarkdownRenderer.tsx`, `src/components/chat/useChatStreaming.ts`;
+  - `src/utils/localInferenceError.ts`, `src/utils/recordingErrors.ts`;
+  - `src/helpers/audioManager.js` (renderer code), `src/hooks/useAudioRecording.js` and `src/index.css`.
 - Locales and docs: `src/locales/*/translation.json`, `DESIGN.md`, `docs/PRIVACY.md` and `docs/network-allowlist.md`.
-- Scripts: `scripts/smoke-electron.cjs`.
+- Scripts: `scripts/smoke-electron.cjs` (the Task 6 observer hook only) and `package.json` (`test:sealed-electron`).
 
 ---
 
@@ -5700,16 +5787,15 @@ async function postMultipart(url, body, boundary, headers = {}, { signal, sessio
     let response;
     try {
       response = await (fetchSession ?? net).fetch(url.toString(), {
-      method: "POST",
-      // The tag lets the session backstop attribute this request; it strips it before sending.
-      headers: egress.tagHeaders(ticket, {
-        "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        ...headers,
-      },
-      }),
-      body,
-      signal: signal ? AbortSignal.any([signal, ticket.signal]) : ticket.signal,
-      /* …any other options from the original call, unchanged… */
+        method: "POST",
+        // The tag lets the session backstop attribute this request; it strips it before sending.
+        headers: egress.tagHeaders(ticket, {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          ...headers,
+        }),
+        body,
+        signal: signal ? AbortSignal.any([signal, ticket.signal]) : ticket.signal,
+        /* …any other options from the original call, unchanged… */
       });
     } catch (error) {
       if (/ERR_(NAME_NOT_RESOLVED|CONNECTION_REFUSED|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED)/.test(String(error?.message))) ticket.markUndelivered();
@@ -6124,7 +6210,7 @@ git commit -m "feat(privacy): gate realtime speech and account for warm connecti
 - Produces:
   - `downloadFile(url, destPath, { …existing, egressTask?: "modelDownload" | "runtimeDownload" })`. `bytesIn` counts only the bytes received in this run, so a resumed download does not count the earlier part. A sealed interruption keeps `<dest>.tmp`, so the next attempt resumes with `Range`.
   - `fetchJson(url, { …existing, egressTask? })`.
-  - `ytDlpControl = { alive(): boolean, stop({ timeoutMs? }?): Promise<void> }`. `alive()` is true while a self-update or any yt-dlp download child is running. `stop()` waits for them to exit and rejects with `YTDLP_STOP_FAILED` if they will not. Sealing kills them through their tickets' abort signals, and `stop()` confirms it.
+  - `ytDlpControl = { alive(): boolean, stop(options?): Promise<void> }`, a view over the child registry (Task 6a). `alive()` is true until the OS has reported the exit of every yt-dlp child (a self-update, or a download and its process group). `stop()` is `childRegistry.stopAll({ kinds: ["yt-dlp"] })`: SIGTERM, then SIGKILL, then a rejection with `CHILD_STOP_FAILED` if any is still alive. Sealing aborts their tickets, and the barrier stops them through the registry.
   - The `UpdateManager` constructor accepts `sealed?: () => boolean` and `authorize?: (meta) => Ticket`. It gains `pauseForSeal(): void` and `resumeAfterSeal(): void`, both of which always publish status. `status()` adds `sealed: boolean`.
   - `attachUpdateIPC({ …, sealed })`.
 - yt-dlp in the ledger (owner decision 2, 2026-10-15). A yt-dlp process does its own networking.
@@ -7276,7 +7362,7 @@ git commit -m "feat(privacy): one loopback rule for main and routes; gate the se
 
 ### Task 12: Prove that a sealed main process rejects every blocked request type
 
-This task is the dedicated enforcement matrix. It drives the **real registered handlers**, the same `ipcMain.handle` callbacks the renderer reaches through preload, with Sealed mode on. For every `blocked` row of the inventory (N1–N20), and every transport variant inside a row, it must show three things:
+This task is the dedicated enforcement matrix. It drives the **real registered handlers**, the same `ipcMain.handle` callbacks the renderer reaches through preload, with Sealed mode on. For every `blocked` row of the inventory (Task 1; N25 is Chromium-only and proved in Task 16), and every transport variant inside a row, it must show three things:
 1. the caller receives a sealed refusal (thrown, or `{ success: false, code: "SEALED_MODE" }`);
 2. no transport was touched: Electron `net.fetch`/`net.request`, Node `fetch`, an allowed off-host socket, or a spawn;
 3. the ledger holds a `blocked` row with `bytesOut: 0` and the right task.
@@ -7665,7 +7751,7 @@ test("main.js reaches remote calendars only through the calendar guard", () => {
 test("every download channel is in the matrix, or named as covered by downloadFile", () => {
   const listed = new Set(Object.values(BLOCKED).flat().map(([label]) => label.split(" ")[0]));
   // These construct native-binary managers; they reach the network only through
-  // downloadUtils (the ratchet below) and are exercised in Task 16.
+  // downloadUtils (the ratchet below), whose shared downloadFile row is in this matrix.
   const viaDownloadUtils = new Set([
     "download-parakeet-model", "download-diarization-models", "download-cuda-whisper-binary",
     "download-vulkan-whisper-binary", "download-llama-vulkan-binary", "download-search-model",

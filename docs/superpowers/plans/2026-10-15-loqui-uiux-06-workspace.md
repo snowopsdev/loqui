@@ -3173,6 +3173,7 @@ Expected: FAIL. `ssrLoadModule` cannot resolve `/components/CaptureMenu.tsx`, an
      );
      ```
 
+   - **Plan 05's after-setup intent effect stays directly after `handleNewNote`** (Plan 05 Task 18; Plan 05's `test/components/onboardingNoPreviewBranches.test.js` pins it with a source test). If Plan 05 has merged, `src/utils/afterSetupIntent.ts` exists and `ControlPanel.tsx` has `const intent = takeAfterSetupIntent();` in an effect that calls `handleNewNote()` or `setSettingsSection(intent.path); setShowSettings(true);`. Leave that effect, its position and its `[handleNewNote]` deps unchanged. `handleNewNote()` with no argument still records (`record` defaults to `true`, Task 7's `useCreateNote`), which is what the `dictate-note` intent needs. If Plan 05 has not merged, there is nothing to carry; Plan 05 adds the effect next to the new `handleNewNote` when it rebases.
    - In the `navigation` memo, use:
 
      ```ts
@@ -3256,7 +3257,7 @@ This covers the WS-R3 C live states in the sidebar (the R1 B footer "mic chip" a
 - Test: `test/components/micStatusCard.test.js`, `test/components/captureRailCss.test.js`
 
 **Interfaces:**
-- Consumes `CaptureStatus`, `formatElapsed` and `railLevelStep` (Task 6); `LocalityRing` and `LevelBars` (Plan 01); and the `ResolvedRoute` type from `src/lib/routes.ts` (Plan 03).
+- Consumes `CaptureStatus`, `formatElapsed` and `railLevelStep` (Task 6); `LevelBars` (Plan 01); the `ResolvedRoute` type from `src/lib/routes.ts`; and `RouteDestinationChip` and `RouteStateChip` from `src/components/settings/routing/RouteChips.tsx` (§5.1, Plan 03). §5.1 says any surface that discloses a route uses these chips, so the card does not build its own ring-and-label line.
 - Produces:
 
   ```ts
@@ -3290,7 +3291,7 @@ const i18next = require("i18next");
 const { initReactI18next } = require("react-i18next");
 const { renderStatic } = require("../helpers/harness/reactSsr");
 
-// Real English strings, so interpolated copy ("Local · Parakeet v3") is asserted
+// Real English strings, so interpolated copy ("On this device · Parakeet v3") is asserted
 // as people read it. Same set-up as meetingTranscriptChat.test.js.
 async function load() {
   if (!i18next.isInitialized) {
@@ -3321,7 +3322,8 @@ test("Ready shows the hotkey and where speech is processed", async () => {
   assert.match(html, /role="status"[^>]*>Ready</);
   assert.match(html, />Fn</);
   assert.match(html, /data-locality="device"/);
-  assert.match(html, /Local · Parakeet v3/);
+  assert.match(html, /On this device · Parakeet v3/);
+  assert.doesNotMatch(html, /data-state="(?:unknown|needs\w+|off|unreachable)"/, "a ready route adds no state chip");
 });
 
 test("Listening shows a live dot and a running clock", async () => {
@@ -3352,15 +3354,26 @@ test("compact rail form keeps the state readable to assistive tech", async () =>
   assert.match(html, /class="sr-only"[^>]*>Cleaning up…/);
 });
 
-test("a route that is not ready says so instead of naming a model", async () => {
+test("a route that is not ready keeps its destination and adds Plan 03's state chip", async () => {
   const { MicStatusCard } = await load();
   const html = renderStatic(MicStatusCard, {
     ...base,
     route: { locality: "remote", providerId: "openai", model: "gpt-4o-mini-transcribe", state: { status: "needsKey", provider: "openai" } },
     status: st("ready"),
   });
-  assert.match(html, /Speech model needs setup/);
-  assert.doesNotMatch(html, /gpt-4o-mini-transcribe/);
+  assert.match(html, /OpenAI · gpt-4o-mini-transcribe/, "where speech would go is still disclosed");
+  assert.match(html, /data-state="needsKey"/);
+});
+
+test("a route main has not confirmed yet is neutral, never ready (§5.1 unknown)", async () => {
+  const { MicStatusCard } = await load();
+  const html = renderStatic(MicStatusCard, {
+    ...base,
+    route: { locality: "device", providerId: null, model: "Parakeet v3", state: { status: "unknown" } },
+    status: st("ready"),
+  });
+  assert.match(html, /data-state="unknown"/);
+  assert.doesNotMatch(html, /text-destructive/, "checking is not a failure");
 });
 
 test("remote providers are named through providerDisplayLabel, localised for custom endpoints", async () => {
@@ -3368,7 +3381,8 @@ test("remote providers are named through providerDisplayLabel, localised for cus
   const remote = (providerId, model) => ({ locality: "remote", providerId, model, state: { status: "ready" } });
   assert.match(renderStatic(MicStatusCard, { ...base, route: remote("openai", "gpt-4o-mini-transcribe"), status: st("ready") }), /OpenAI · gpt-4o-mini-transcribe/);
   assert.match(renderStatic(MicStatusCard, { ...base, route: remote("custom", "whisper-large"), status: st("ready") }), /Custom endpoint · whisper-large/);
-  assert.match(renderStatic(MicStatusCard, { ...base, route: remote(null, "x"), status: st("ready") }), /Unknown provider · x/);
+  assert.match(renderStatic(MicStatusCard, { ...base, route: remote("acme", "x"), status: st("ready") }), /Unknown provider · x/);
+  assert.doesNotMatch(renderStatic(MicStatusCard, { ...base, route: remote("acme", "x"), status: st("ready") }), /acme/);
 });
 
 test("a meeting shows the meeting route, not the dictation route (I13)", async () => {
@@ -3379,7 +3393,8 @@ test("a meeting shows the meeting route, not the dictation route (I13)", async (
     route: { locality: "remote", providerId: "openai", model: "gpt-4o-transcribe", state: { status: "ready" } },
     status: st("listening", { source: "meeting", startedAt: 3_000 }),
   });
-  assert.match(html, /Meeting<\/span> · OpenAI · gpt-4o-transcribe/);
+  assert.match(html, /Meeting<\/span>/);
+  assert.match(html, /OpenAI · gpt-4o-transcribe/);
   assert.doesNotMatch(html, /Parakeet/);
 });
 
@@ -3391,8 +3406,8 @@ test("an assistant capture also shows where its text goes", async () => {
     textRoute: { locality: "remote", providerId: "anthropic", model: "Claude", state: { status: "ready" } },
     status: st("listening", { source: "dictation", inputKind: "assistant", startedAt: 3_000 }),
   });
-  assert.match(html, /Dictation<\/span> · Local · Parakeet v3/);
-  assert.match(html, /Assistant<\/span> · Anthropic · Claude/);
+  assert.match(html, /Dictation<\/span>[\s\S]*On this device · Parakeet v3/);
+  assert.match(html, /Assistant<\/span>[\s\S]*Anthropic · Claude/);
 });
 
 test("the rail is decorative and carries its state for CSS", async () => {
@@ -3464,9 +3479,8 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
    import { useEffect, useRef } from "react";
    import { useTranslation } from "react-i18next";
    import { AlertTriangle, Loader2 } from "lucide-react";
-   import { LocalityRing } from "./ui/LocalityRing";
+   import { RouteDestinationChip, RouteStateChip } from "./settings/routing/RouteChips";
    import { formatElapsed, railLevelStep, type CaptureRole, type CaptureStatus } from "../lib/captureStatus";
-   import { providerDisplayLabel } from "../lib/locality";
    import type { ResolvedRoute } from "../lib/routes";
 
    export interface MicStatusCardProps {
@@ -3482,27 +3496,16 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
 
    type RouteLike = NonNullable<MicStatusCardProps["route"]>;
 
-   // One line per route: ring shape first, then role, place and model in words.
-   function RouteLine({ role, route, t }: { role: string; route: RouteLike; t: (k: string, o?: Record<string, unknown>) => string }) {
-     // UI names come from providerDisplayLabel (localised custom/unknown); never providerDisplayName.
-     const providerLabel = route.locality === "remote" ? providerDisplayLabel(route.providerId, t) : null;
+   // One line per route: the role in words, then Plan 03's destination chip
+   // (ring, provider through providerDisplayLabel, model). A route that is not
+   // ready adds Plan 03's state chip; `unknown` reads "Checking…" and is never
+   // shown as ready (§5.1 rule 1).
+   function RouteLine({ role, route, t }: { role: string; route: RouteLike; t: (k: string) => string }) {
      return (
-       <span className="flex items-center gap-1.5 text-caption text-muted-foreground">
-         <LocalityRing
-           size={14}
-           locality={route.locality}
-           provider={providerLabel}
-           label={t(`locality.${route.locality}`, { provider: providerLabel ?? "" })}
-         />
-         <span className="truncate">
-           <span className="text-foreground">{t(`micCard.role.${role}`)}</span>
-           {/* One text node, so screen readers and SSR read it as one phrase. */}
-           {` · ${
-             route.state.status === "ready"
-               ? t(`micCard.route.${route.locality}`, { model: route.model ?? "", provider: providerLabel ?? "" })
-               : t("micCard.routeNeedsSetup")
-           }`}
-         </span>
+       <span className="flex min-w-0 items-center gap-1.5 text-caption text-muted-foreground">
+         <span className="shrink-0 text-foreground">{t(`micCard.role.${role}`)}</span>
+         <RouteDestinationChip route={route} className="h-5 min-w-0 text-caption" />
+         {route.state.status !== "ready" && <RouteStateChip state={route.state} className="h-5 px-0 text-caption" />}
        </span>
      );
    }
@@ -3663,18 +3666,12 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
        "offline": "Mic offline",
        "offlinePermission": "Microphone access is off",
        "offlineDevice": "Microphone disconnected",
-       "routeNeedsSetup": "Speech model needs setup",
-       "role": { "dictation": "Dictation", "meeting": "Meeting", "assistant": "Assistant", "translation": "Translation" },
-       "route": {
-         "device": "Local · {{model}}",
-         "network": "Your server · {{model}}",
-         "remote": "{{provider}} · {{model}}"
-       }
+       "role": { "dictation": "Dictation", "meeting": "Meeting", "assistant": "Assistant", "translation": "Translation" }
      }
    }
    ```
 
-   For locales that put the model first, keep both placeholders.
+   Place, model and state words come from Plan 03's chips (`locality.*`, `routes.state.*`), so the card adds no route copy of its own.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -4455,7 +4452,8 @@ Expected: FAIL.
       ```
 
     - Replace the outer layout (`:688-717`, from `<div className="flex h-full">` through the closing `</div>` of the tree column) so the editor column is the only child: `<div className="flex h-full"><div className="flex-1 flex flex-col min-w-0 min-h-0">…`.
-    - The **Actions** button goes with the column. The Action manager is still reachable from the `ActionPicker`'s manage entry and from the slash menu (Task 15).
+    - The **Actions** button goes with the column. The Action manager is still reachable from the `ActionPicker`'s manage entry and from the slash menu (Task 15); both call Plan 02's `openActions`, so the Actions first run still shows once. Keep `openActions`, `finishActionsIntro`, the hoisted `<ActionManagerDialog>` and the intro `<Dialog>` exactly as Plan 02 Task 14 left them.
+    - **Plan 02's Actions hint row moves, it is not deleted.** Move the `{shouldShowActionsModelHint(noteActionsReady, modelHintDismissed) && (…)}` block, unchanged, to the top of the editor column: the first child of `<div className="flex-1 flex flex-col min-w-0 min-h-0">`, wrapped in `<div className="px-3 pt-2">`. Plan 02's `notesActionsGate.test.js` keeps passing. Task 26 replaces its readiness source with the route (§5.1).
     - Remove the imports that are now unused (`SpacesTree`, `Sparkles` if unused). Keep `initializeNotesTree()` at `:283`; a second call is harmless.
 
 13. In `DESIGN.md` `### Navigation` (around lines 203-206), replace the three bullets with the following (D10):
@@ -6922,9 +6920,10 @@ This covers WS-R6 B (`/` opens blocks, AI actions and inserts) and interpretatio
     onDictateHere(): void;
     formatTimestamp(date: Date): string;
   }
-  export function noteAiReadiness(state: RouteState): { available: boolean; reasonKey: string | null };
-  export function buildSlashItems(input: { actions: ActionItem[]; aiAvailable: boolean; aiUnavailableReason?: string; t: (key: string) => string }): SlashItem[];
-  // Not available: AI items are disabled with the reason, and "Set up notes AI…" leads the group.
+  export function noteAiReadiness(state: RouteState): { available: boolean; reasonKey: string | null; needsSetup: boolean };
+  // unknown (§5.1): not available, reason "Checking…", needsSetup false. Never treated as ready.
+  export function buildSlashItems(input: { actions: ActionItem[]; aiAvailable: boolean; aiUnavailableReason?: string; aiNeedsSetup?: boolean; t: (key: string) => string }): SlashItem[];
+  // Not available: AI items are disabled with the reason, and "Set up notes AI…" leads the group when aiNeedsSetup (default: !aiAvailable).
   export function filterSlashItems(items: SlashItem[], query: string): SlashItem[];
   export function groupSlashItems(items: SlashItem[]): Array<{ group: SlashGroup; items: SlashItem[] }>;
   export function applySlashItem(item: SlashItem, chain: SlashChain, ctx: SlashContext): boolean; // false when disabled
@@ -6970,16 +6969,23 @@ test("without an AI model, AI items stay visible but disabled with the reason", 
   for (const item of ai) assert.equal(item.disabledReason, "Add an API key in Settings");
   assert.equal(items.filter((i) => i.group === "ai")[0].id, "setupAi", "the fix leads the group");
   assert.equal(buildSlashItems({ actions, aiAvailable: true, t }).some((i) => i.id === "setupAi"), false);
+  assert.equal(
+    buildSlashItems({ actions, aiAvailable: false, aiUnavailableReason: "Checking…", aiNeedsSetup: false, t }).some((i) => i.id === "setupAi"),
+    false,
+    "while the route is unknown there is nothing to set up yet"
+  );
 });
 
 test("AI readiness follows the resolved note-formatting route, not the cleanup-model selection (I09)", async () => {
   const { noteAiReadiness } = await load();
   // A fresh install: local route, model chosen by default but not downloaded.
-  assert.deepEqual(noteAiReadiness({ status: "needsModel", sizeBytes: 1_300_000_000 }), { available: false, reasonKey: "notes.slash.ai.needsModel" });
+  assert.deepEqual(noteAiReadiness({ status: "needsModel", sizeBytes: 1_300_000_000 }), { available: false, reasonKey: "notes.slash.ai.needsModel", needsSetup: true });
   // A remote route with no saved key.
-  assert.deepEqual(noteAiReadiness({ status: "needsKey", provider: "openai" }), { available: false, reasonKey: "notes.slash.ai.needsKey" });
+  assert.deepEqual(noteAiReadiness({ status: "needsKey", provider: "openai" }), { available: false, reasonKey: "notes.slash.ai.needsKey", needsSetup: true });
   // Ready, local or remote alike.
-  assert.deepEqual(noteAiReadiness({ status: "ready" }), { available: true, reasonKey: null });
+  assert.deepEqual(noteAiReadiness({ status: "ready" }), { available: true, reasonKey: null, needsSetup: false });
+  // Main has not confirmed yet (§5.1 rule 1): not ready, but nothing to set up either.
+  assert.deepEqual(noteAiReadiness({ status: "unknown" }), { available: false, reasonKey: "notes.slash.ai.unknown", needsSetup: false });
   assert.equal(noteAiReadiness({ status: "unreachable", detail: "sealed" }).reasonKey, "notes.slash.ai.unreachable");
   assert.equal(noteAiReadiness({ status: "off" }).reasonKey, "notes.slash.ai.off");
   assert.equal(noteAiReadiness({ status: "needsUrl" }).reasonKey, "notes.slash.ai.needsUrl");
@@ -7271,6 +7277,7 @@ Expected: FAIL with `Cannot find module` for all three.
      actions: ActionItem[];
      aiAvailable: boolean;
      aiUnavailableReason?: string;
+     aiNeedsSetup?: boolean;
      t: (key: string) => string;
    }): SlashItem[] {
      const { t } = input;
@@ -7285,7 +7292,7 @@ Expected: FAIL with `Cannot find module` for all three.
          actionId: action.id,
          disabledReason: reason,
        }));
-     if (!input.aiAvailable) {
+     if (input.aiNeedsSetup ?? !input.aiAvailable) {
        ai.unshift({ id: "setupAi", group: "ai", label: t("notes.slash.setupAi"), keywords: ["setup", "model", "key", "ai"] });
      }
      ai.push({ id: "manageActions", group: "ai", label: t("notes.slash.manageActions"), keywords: ["actions", "edit"] });
@@ -7314,9 +7321,11 @@ Expected: FAIL with `Cannot find module` for all three.
 
    // Readiness comes from the resolved noteFormatting route (§5.1), never from
    // which cleanup model is selected (review I09).
-   export function noteAiReadiness(state: RouteState): { available: boolean; reasonKey: string | null } {
-     if (state.status === "ready") return { available: true, reasonKey: null };
-     return { available: false, reasonKey: `notes.slash.ai.${state.status}` };
+   export function noteAiReadiness(state: RouteState): { available: boolean; reasonKey: string | null; needsSetup: boolean } {
+     if (state.status === "ready") return { available: true, reasonKey: null, needsSetup: false };
+     // unknown: main has not confirmed yet (§5.1 rule 1). Disabled, never ready, and no "Set up" nag.
+     if (state.status === "unknown") return { available: false, reasonKey: "notes.slash.ai.unknown", needsSetup: false };
+     return { available: false, reasonKey: `notes.slash.ai.${state.status}`, needsSetup: true };
    }
 
    export function applySlashItem(item: SlashItem, chain: SlashChain, ctx: Pick<SlashContext, "onRunAction" | "onManageActions" | "onSetupAi" | "onDictateHere" | "formatTimestamp">): boolean {
@@ -7530,7 +7539,7 @@ Expected: FAIL with `Cannot find module` for all three.
    - Reuse the existing `const actions = useActions();` (`:265`).
    - Add `const noteRoute = useResolvedRoute("noteFormatting");` and `const aiReady = noteAiReadiness(noteRoute.state);`. Import them from `../../lib/routes` and `../ui/editor/slashItems`.
      - Do not read `isLLMConfigured`; it reports a selection, not readiness (I09).
-     - Plan 02's actual-readiness behaviour for the Actions row (WS-Q7) is untouched.
+     - Plan 02's Actions hint (WS-Q7) moves onto this same `noteRoute` in Task 26 (§5.1 Notes readiness handoff).
    - After `runNoteAction` (`:618`), add:
 
    ```ts
@@ -7539,16 +7548,18 @@ Expected: FAIL with `Cannot find module` for all three.
        actions,
        aiAvailable: aiReady.available,
        aiUnavailableReason: aiReady.reasonKey ? t(aiReady.reasonKey) : undefined,
+       aiNeedsSetup: aiReady.needsSetup,
        onSetupAi: () => onOpenSettings?.(noteRoute.settingsPath),
        onRunAction: (actionId: number) => {
          const action = actions.find((candidate) => candidate.id === actionId);
          if (action) void runNoteAction(action);
        },
-       onManageActions: () => setShowActionManager(true),
+       // Plan 02's openActions: the Actions first run shows once, then the manager.
+       onManageActions: openActions,
        // Loqui's window is focused with the caret in the note, so dictation pastes here.
        onDictateHere: () => void window.electronAPI?.toggleDictationFromControlPanel?.(),
      }),
-     [actions, aiReady.available, aiReady.reasonKey, noteRoute.settingsPath, onOpenSettings, runNoteAction, t]
+     [actions, aiReady.available, aiReady.reasonKey, aiReady.needsSetup, noteRoute.settingsPath, onOpenSettings, openActions, runNoteAction, t]
    );
    ```
 
@@ -7569,7 +7580,8 @@ Expected: FAIL with `Cannot find module` for all three.
            "needsKey": "Add an API key in Settings",
            "needsUrl": "Add a server address in Settings",
            "off": "Notes AI is turned off in Settings",
-           "unreachable": "The notes model can't be reached"
+           "unreachable": "The notes model can't be reached",
+           "unknown": "Checking the notes model…"
          },
          "manageActions": "Manage actions…",
          "groups": { "text": "Text", "ai": "AI", "insert": "Insert" },
@@ -9896,7 +9908,7 @@ This covers WS-Q6, WS-R8 B ("the chat shows the resolved model with `LocalityRin
 - Test: `test/components/chatModelChip.test.js`, `test/helpers/useChatStreamingCancellation.test.js`
 
 **Interfaces:**
-- Consumes `useResolvedRoute("chat")` and `ResolvedRoute` (§5.1), `LocalityRing` (Plan 01), `MessageRoute` (Task 19), and the `onOpenSettings` prop on `ChatView` (Task 4), which receives `route.settingsPath` (CR-06-2).
+- Consumes `useResolvedRoute("chat")`, `routeSnapshotFromSettings`, `resolveRoute` and `ResolvedRoute` (§5.1); `RouteDestinationChip` and `RouteStateChip` (§5.1, Plan 03's published chips: a surface that discloses a route uses them and builds no chip of its own); `MessageRoute` (Task 19); and the `onOpenSettings` prop on `ChatView` (Task 4), which receives `route.settingsPath` (§5.1).
 - Produces:
 
   ```ts
@@ -9905,11 +9917,11 @@ This covers WS-Q6, WS-R8 B ("the chat shows the resolved model with `LocalityRin
     onOpenSettings: (settingsPath: string) => void;
   }
   export function ChatModelChip(props: ChatModelChipProps): JSX.Element;
-  export function RouteTag(props: { route: MessageRoute }): JSX.Element; // "Local · Qwen3.5 2B" on an answer
+  export function RouteTag(props: { route: MessageRoute }): JSX.Element; // "On this device · Qwen3.5 2B" on an answer
   export function toMessageRoute(route: Pick<ResolvedRoute, "locality" | "providerId" | "model">): MessageRoute;
   ```
 
-- Every new assistant message records `context.route`. It is computed inside `sendToAI` from the `settings` object that `resolveChatStreamingInference` also reads (`:233-238`), via Plan 03's pure `resolveRoute(buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, routeSendsCopy(t)), "chat")`.
+- Every new assistant message records `context.route`. It is computed inside `sendToAI` from the `settings` object that `resolveChatStreamingInference` also reads (`:233-238`), via `resolveRoute(routeSnapshotFromSettings(settings), "chat")` (§5.1). `routeSnapshotFromSettings` reads the current facts, the sealed store and i18n, and subscribes to nothing and calls no IPC, so it is safe inside `sendToAI`. Plan 06 never passes `sealed` itself.
   - The stamp and the dispatched request can never disagree, even when Settings change while context is loading.
   - A later settings change never rewrites history.
   - There is no `getRoute` option. Sampling the UI hook after the asynchronous lookups was the I11 bug.
@@ -9936,31 +9948,36 @@ async function load() {
 }
 const route = (over = {}) => ({ locality: "device", providerId: null, model: "Qwen3.5 2B", state: { status: "ready" }, settingsPath: "llms/chat", ...over });
 
-test("local, your-server and remote are said in words next to the ring", async () => {
+test("the chip discloses the route with Plan 03's destination chip", async () => {
   const { ChatModelChip } = await load();
   const local = renderStatic(ChatModelChip, { route: route(), onOpenSettings: () => {} });
   assert.match(local, /data-locality="device"/);
-  assert.match(local, /Qwen3\.5 2B · Local/);
+  assert.match(local, /On this device · Qwen3\.5 2B/);
+  assert.doesNotMatch(local, /data-state=/, "a ready route adds no state chip");
   const lan = renderStatic(ChatModelChip, { route: route({ locality: "network", model: "Llama 3.1 8B" }), onOpenSettings: () => {} });
-  assert.match(lan, /Llama 3\.1 8B · Your server/);
+  assert.match(lan, /On your server · Llama 3\.1 8B/);
   const remote = renderStatic(ChatModelChip, { route: route({ locality: "remote", providerId: "openai", model: "GPT-5.6" }), onOpenSettings: () => {} });
-  assert.match(remote, /GPT-5\.6 · OpenAI/);
-  assert.match(remote, /aria-label="Chat model: GPT-5\.6, sent to OpenAI\. Change in Settings"/);
+  assert.match(remote, /data-locality="remote"/);
+  assert.match(remote, /OpenAI · GPT-5\.6/);
+  assert.match(remote, /class="sr-only">Change in Settings</);
 });
 
 test("custom and unknown providers get localised names (providerDisplayLabel), never raw ids", async () => {
   const { ChatModelChip } = await load();
   const custom = renderStatic(ChatModelChip, { route: route({ locality: "remote", providerId: "custom", model: "llama-3" }), onOpenSettings: () => {} });
-  assert.match(custom, /llama-3 · Custom endpoint/);
-  const unknown = renderStatic(ChatModelChip, { route: route({ locality: "remote", providerId: null, model: "m" }), onOpenSettings: () => {} });
-  assert.match(unknown, /m · Unknown provider/);
+  assert.match(custom, /Custom endpoint · llama-3/);
+  const unknown = renderStatic(ChatModelChip, { route: route({ locality: "remote", providerId: "acme", model: "m" }), onOpenSettings: () => {} });
+  assert.match(unknown, /Unknown provider · m/);
+  assert.doesNotMatch(unknown, /acme/);
 });
 
-test("a route that cannot answer says what it needs", async () => {
+test("a route that cannot answer adds Plan 03's state chip; unknown is neutral, never ready", async () => {
   const { ChatModelChip } = await load();
-  const html = renderStatic(ChatModelChip, { route: route({ state: { status: "needsKey", provider: "openai" }, locality: "remote", providerId: "openai" }), onOpenSettings: () => {} });
-  assert.match(html, /Needs an API key/);
-  assert.match(html, /text-warning/);
+  const needsKey = renderStatic(ChatModelChip, { route: route({ state: { status: "needsKey", provider: "openai" }, locality: "remote", providerId: "openai" }), onOpenSettings: () => {} });
+  assert.match(needsKey, /data-state="needsKey"/);
+  const unknown = renderStatic(ChatModelChip, { route: route({ state: { status: "unknown" } }), onOpenSettings: () => {} });
+  assert.match(unknown, /data-state="unknown"/);
+  assert.doesNotMatch(unknown, /data-state="ready"|text-destructive/);
 });
 
 test("the chip opens Settings at the route's own path", async () => {
@@ -9971,7 +9988,8 @@ test("the chip opens Settings at the route's own path", async () => {
 test("an answer is tagged with where it was produced", async () => {
   const { RouteTag } = await load();
   const html = renderStatic(RouteTag, { route: { model: "Qwen3.5 2B", providerId: null, locality: "device" } });
-  assert.match(html, /Local · Qwen3\.5 2B/);
+  assert.match(html, /data-locality="device"/);
+  assert.match(html, /On this device · Qwen3\.5 2B/);
 });
 ```
 
@@ -10029,9 +10047,7 @@ Expected: FAIL. The module is missing, and the regex does not match because Task
 
    ```tsx
    import { useTranslation } from "react-i18next";
-   import { AlertTriangle } from "lucide-react";
-   import { LocalityRing } from "../ui/LocalityRing";
-   import { providerDisplayLabel } from "../../lib/locality";
+   import { RouteDestinationChip, RouteStateChip } from "../settings/routing/RouteChips";
    import type { ResolvedRoute } from "../../lib/routes";
    import type { MessageRoute } from "./types";
 
@@ -10040,66 +10056,34 @@ Expected: FAIL. The module is missing, and the regex does not match because Task
      onOpenSettings: (settingsPath: string) => void;
    }
 
-   export const toMessageRoute = (route: Pick<ResolvedRoute, "locality" | "providerId" | "model">): MessageRoute => ({
-     model: route.model,
-     providerId: route.providerId,
-     locality: route.locality,
-   });
+   export { toMessageRoute } from "./messageRoute";
 
-   // UI names come from providerDisplayLabel (Plan 01): custom endpoints and
-   // unknown ids are localised. providerDisplayName is for logs only.
-   const providerLabelFor = (locality: MessageRoute["locality"], providerId: string | null, t: (key: string) => string) =>
-     locality === "remote" ? providerDisplayLabel(providerId, t) : null;
-
-   const STATE_KEY: Record<string, string> = {
-     off: "chat.model.off",
-     needsModel: "chat.model.needsModel",
-     needsKey: "chat.model.needsKey",
-     needsUrl: "chat.model.needsUrl",
-     unreachable: "chat.model.unreachable",
-   };
-
-   // WS-Q6 + R8 B: read-only. Where the next message goes, said in words and by
-   // ring shape; changing it happens in Settings, never silently here.
+   // WS-Q6 + R8 B: read-only. Where the next message goes, disclosed with Plan
+   // 03's chips (§5.1); changing it happens in Settings, never silently here.
+   // A route that is not ready adds the state chip. `unknown` reads "Checking…"
+   // and is never shown as ready.
    export function ChatModelChip({ route, onOpenSettings }: ChatModelChipProps) {
      const { t } = useTranslation();
-     const model = route.model ?? t("chat.model.unknown");
-     const provider = providerLabelFor(route.locality, route.providerId, t) ?? "";
-     const where = t(`chat.model.where.${route.locality}`, { provider });
-     const ready = route.state.status === "ready";
      return (
        <button
          type="button"
          data-settings-path={route.settingsPath}
          onClick={() => onOpenSettings(route.settingsPath)}
-         aria-label={t("chat.model.aria", { model, where: t(`chat.model.whereLong.${route.locality}`, { provider }) })}
-         className="inline-flex h-7 max-w-72 items-center gap-1.5 rounded-full border border-border px-2.5 text-caption text-foreground hover:bg-foreground/5 dark:border-white/10"
+         className="inline-flex h-7 max-w-80 items-center gap-1.5 rounded-full border border-border px-2.5 hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10"
        >
-         <LocalityRing size={14} locality={route.locality} provider={provider || null} label={t(`locality.${route.locality}`, { provider })} />
-         <span className="truncate">{`${model} · ${where}`}</span>
-         {!ready && (
-           <span className="flex items-center gap-1 text-foreground">
-             <AlertTriangle size={12} aria-hidden className="text-warning" />
-             {t(STATE_KEY[route.state.status] ?? "chat.model.unreachable")}
-           </span>
-         )}
+         <RouteDestinationChip route={route} className="h-auto min-w-0 text-caption" />
+         {route.state.status !== "ready" && <RouteStateChip state={route.state} className="h-auto px-0 text-caption" />}
+         <span className="sr-only">{t("chat.model.changeHint")}</span>
        </button>
      );
    }
 
    export function RouteTag({ route }: { route: MessageRoute }) {
-     const { t } = useTranslation();
-     const provider = providerLabelFor(route.locality, route.providerId, t) ?? "";
-     return (
-       <span className="inline-flex items-center gap-1 text-caption text-muted-foreground">
-         <LocalityRing size={12} locality={route.locality} provider={provider || null} label={t(`locality.${route.locality}`, { provider })} />
-         {`${t(`chat.model.where.${route.locality}`, { provider })} · ${route.model ?? t("chat.model.unknown")}`}
-       </span>
-     );
+     return <RouteDestinationChip route={route} className="h-5 text-caption text-muted-foreground" />;
    }
    ```
 
-   The `needsKey` test asserts `text-warning` on the icon. The state words stay `text-foreground`, because `--color-warning` (#d97706) is 3.19:1, which is icon-safe but not text-safe.
+   `MessageRoute` is `{ model, providerId, locality }`, which is exactly the destination chip's `Pick`, so a stored stamp renders through the same chip as the live route.
 
 2. Create `src/components/chat/messageRoute.ts`, and move `toMessageRoute` there from `ChatModelChip.tsx`. `ChatModelChip.tsx` re-exports it:
 
@@ -10119,12 +10103,10 @@ Expected: FAIL. The module is missing, and the regex does not match because Task
    ```ts
    // The stamp comes from the same settings snapshot as the request, so an
    // answer can never say Local for a request that went to OpenAI (I11).
-   const sentRoute = toMessageRoute(
-     resolveRoute(buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, routeSendsCopy(t)), "chat")
-   );
+   const sentRoute = toMessageRoute(resolveRoute(routeSnapshotFromSettings(settings), "chat"));
    ```
 
-   Import `resolveRoute`, `buildRouteSnapshot` and `routeSendsCopy` from `../../lib/routes`, and `useRouteFactsStore` from `../../stores/routeFactsStore` (all Plan 03 exports). Then change the assistant message creation (`:346`) from Task 19's `context: { ragNotes: rag.notes, route: null }` to `context: { ragNotes: rag.notes, route: sentRoute }`.
+   Import `resolveRoute` and `routeSnapshotFromSettings` from `../../lib/routes` (§5.1). Do not call `buildRouteSnapshot` here: its fourth argument is `sealed`, which only `routeSnapshotFromSettings` reads, from `src/stores/sealedStore.ts` (§5.4). Then change the assistant message creation (`:346`) from Task 19's `context: { ragNotes: rag.notes, route: null }` to `context: { ragNotes: rag.notes, route: sentRoute }`.
 
 3. In `src/components/chat/ChatView.tsx`:
 
@@ -10146,22 +10128,10 @@ Expected: FAIL. The module is missing, and the regex does not match because Task
 5. Add strings (Task 1 helper). English block:
 
    ```json
-   {
-     "chat": {
-       "model": {
-         "unknown": "No model",
-         "where": { "device": "Local", "network": "Your server", "remote": "{{provider}}" },
-         "whereLong": { "device": "on this device", "network": "on your server", "remote": "sent to {{provider}}" },
-         "aria": "Chat model: {{model}}, {{where}}. Change in Settings",
-         "off": "Turned off",
-         "needsModel": "Needs a model download",
-         "needsKey": "Needs an API key",
-         "needsUrl": "Needs a server address",
-         "unreachable": "Can't reach it"
-       }
-     }
-   }
+   { "chat": { "model": { "changeHint": "Change in Settings" } } }
    ```
+
+   Place, model and state words come from Plan 03's chips (`locality.*`, `routes.place.*`, `routes.state.*`).
 
 - [ ] **Step 4: Run the tests to verify they pass**
 

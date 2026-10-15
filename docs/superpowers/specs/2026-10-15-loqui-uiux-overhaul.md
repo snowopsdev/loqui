@@ -96,6 +96,13 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
 - **D11, WS-M4 (confidence typography) is on hold** (owner decision, 2026-10-15). No engine Loqui runs exposes per-word alternatives: the pinned whisper.cpp fork and sherpa-onnx 1.13.8 don't, and Deepgram's are unconfirmed for streaming. The owner chose to hold the feature until alternatives exist rather than ship it without them. Plan 08 delivers WS-M5 only. Restoring WS-M4 needs decoder top-k work in the whisper.cpp fork, which is a separate engine project.
 - **D12, The Table never deletes content** (owner decision, 2026-10-15). Its selection action is "Remove from table": the card returns to the Inbox tray and nothing is deleted. Summarise and Ask reuse the Space's existing chat, so Sealed mode covers them without changes.
 - **D13, manual update checks stay available when automatic updates are off** (owner decision, 2026-10-15, SET-Q16). A manual check that finds a newer version reports it as `available`. Nothing downloads without an explicit click. This replaces the rule pinned at `test/helpers/updateManager.test.js:187`.
+- **D14, Sealed mode keeps its full promise for the local model servers** (owner decision, 2026-10-15, Plan 07 CCR-6). Once llama-server, whisper-server, Qdrant and sherpa-onnx are running, JavaScript can't see their network traffic. The owner rejected disclosing that gap, and rejected stopping the servers while sealed. Plan 07 instead builds OS-level network isolation for every native child Loqui starts while sealed, so that only loopback traffic gets out:
+  - macOS: a sandbox profile.
+  - Linux: a network namespace, or an equivalent.
+  - Windows: a per-program block.
+  - **Spike first.** A spike establishes what each platform can do without admin rights, entitlements or a signing change. If any platform can't meet the promise, Plan 07 stops and reports to the owner before falling back.
+  - **No silent fallback.** A child that can't be isolated is never counted toward `nothingLeaves`.
+  - **Merge gate.** Plan 07 doesn't merge until this ships.
 
 ## 3. Plans and dependencies
 
@@ -343,6 +350,7 @@ export function useNotices(): readonly Notice[];   // Notice adds id, revision, 
 **Scope (Plan 07 CCR-1).** While sealed, nothing that Loqui's main process, its Chromium sessions and renderers, or the child processes Loqui starts send reaches a host other than this computer's loopback (§5, Locality row).
 - Both the `remote` and `network` localities are blocked. A self-hosted server on the LAN is another machine, so "Sealed · nothing leaves" would otherwise be false.
 - Only `device` routes keep working.
+- **Native children (D14).** Every native child Loqui starts while sealed runs inside OS-level network isolation that allows loopback only. `nothingLeaves` requires every running child to be isolated, or to be one that starts no network listener or client. "Launch-controlled but not inspected" doesn't count.
 - It is enforced in Electron main, and the renderer only reflects it.
 - *(Spec-owner clarification of D6, 2026-10-15. Raise it with the owner if a LAN exception is wanted.)*
 

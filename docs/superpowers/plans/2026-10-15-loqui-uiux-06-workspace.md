@@ -51,7 +51,7 @@ Every Important finding is closed. Minor findings M01–M03 are closed, and so i
 | I09 | Slash AI readiness reads the cleanup model | `noteAiReadiness(useResolvedRoute("noteFormatting").state)`; not-ready shows a `setupAi` item that opens the route's `settingsPath`. | Task 15, `slashItems.test.js` "(I09)" and "PersonalNotesView takes readiness from the route" |
 | I10 | Mention interception precedes Plan 02's IME check | `handleKeyDown` returns on `nativeEvent.isComposing \|\| keyCode === 229` before calling `interceptKeyDown`. | Task 22, `chatComposerMention.test.js`: "an IME candidate commit never reaches the mention picker or submits (I10)" |
 | I11 | Answer stamped Local after a remote request | `getRoute()` removed. The stream resolves `sentRoute` from the same `settings` snapshot that builds the request, and stamps that. | Task 21, `useChatStreamingCancellation.test.js`: "the route stamp is the route the request used, even if Settings change while context loads (I11)" |
-| I12 | Pinned-only sources are never citable | `Message.context.pinnedNotes` is recorded, saved and loaded; `collectSources` merges `ragNotes` and `pinnedNotes`. | Task 22: "a pinned-only note is cited even with empty RAG and tool results…", "a completed answer records the pinned notes it was given (I12)" |
+| I12 | Pinned-only sources are never citable | `Message.context.pinnedNotes` is recorded, saved and loaded; ChatMessage's `collectSources` call (Task 20) passes `ragNotes` and `pinnedNotes` together. | Task 22: "a pinned-only note is cited even with empty RAG and tool results…", "a completed answer records the pinned notes it was given (I12)" |
 | I13 | Meeting capture shows the dictation route | `CaptureStatus.inputKind` plus `captureRouteIds(status)` select `noteRecordingStt` for meetings and `voiceAssistant`/`translation` for the text route. The mic card and sidebar render those routes. | Task 6, `captureStatus.test.js`; Task 8, `micStatusCard.test.js` "a meeting shows the meeting route… (I13)" |
 | I14 | Low-contrast focus and action indicators | Row actions rest at full `text-muted-foreground` (7.9:1); every new control keeps `focus-visible:ring-2 focus-visible:ring-ring`; the guard's `faded-ring` rule rejects `ring-*/NN`. | Task 9 "(I14)"; Task 12 "actions are visible at rest… (I14)"; Task 25 guard |
 | I15 | Guard omits workspace screens | The guard is a shared module (`test/helpers/workspaceTokenGuard.js`, CR-06-6). It adds Integrations, Dictionary, Snippets, UploadAudioView and CaptureControl, plus `faded-foreground` and `faded-ring` rules. It reports about 390 violations on today's tree, including every file the review named. | Task 25, `workspaceTokenAdoption.test.js` (scan, rule self-test, standard-size invariant) |
@@ -241,47 +241,52 @@ These are the input classes most likely to bite a real user that no recommendati
 
 ## File map
 
-**Created:**
+Regenerated from every task's **Files** block (review M04).
+
+**Created (source):**
 
 | File | Responsibility |
 |---|---|
-| `scripts/merge-locale-keys.js` | Deep-merge a multi-locale string patch into every `translation.json` (Task 1) |
 | `src/lib/workspaceView.ts` | Persisted view and last note: read, validate, write (Task 3) |
-| `src/stores/homeViewStore.ts` | Home filter, in-view query, transcript focus requests (Task 3) |
+| `src/stores/homeViewStore.ts` | Home filter, in-view query, transcript focus requests with a ring nonce (Task 3) |
 | `src/components/workspaceNavigation.tsx` | `WorkspaceNavigationProvider` and `useWorkspaceNavigation()` (Task 3) |
+| `src/components/chat/chatRequest.ts` | `ChatViewRequest` and `ComposerSeed` types (Task 3) |
 | `src/lib/workspaceShortcuts.ts` | Key event to workspace action; hint labels (Task 4) |
-| `src/lib/captureStatus.ts` | Dictation, meeting and mic facts to Ready/Listening/Cleaning up/Offline (Task 6) |
+| `src/lib/captureStatus.ts` | Dictation, meeting and mic facts to Ready/Listening/Cleaning up/Offline; `captureRouteIds` (Task 6) |
 | `src/hooks/useCaptureStatus.ts` | Subscribes IPC, the meeting store and mic permission (Task 6) |
 | `src/components/CaptureMenu.tsx` | Capture split button with live states (Task 7) |
 | `src/components/CaptureControl.tsx` | Capture container: last action, live clock, routing to navigation (Task 7) |
-| `src/components/MicStatusCard.tsx` | Sidebar footer mic card, expanded and rail forms (Task 8) |
+| `src/components/MicStatusCard.tsx` | Sidebar footer mic card, expanded and rail forms, with the capture's routes (Task 8) |
 | `src/lib/sidebarMode.ts` | expanded, rail or hidden, from preference, width and layout (Task 9) |
 | `src/lib/workspaceBreadcrumb.ts` | Top-bar breadcrumb segments (Task 9) |
 | `src/stores/noteDeleteGuard.ts` | Lets the open editor cancel pending saves before a tree delete (Task 9) |
 | `src/hooks/useNoteTreeActions.ts` | Delete, move and create-folder-and-move for the sidebar tree (Task 9) |
+| `src/hooks/useRecentNotes.ts` | Recent notes for the sidebar, Home and mentions (Task 9) |
 | `src/lib/homeFeed.ts` | Cross-type feed: filter, search, day groups, sessions, counts (Task 10) |
 | `src/lib/upcomingEvents.ts` | Next event and "in 12 min" (Task 11) |
 | `src/components/home/ReadyStrip.tsx` | 44px status strip (Task 11) |
-| `src/hooks/useRecentNotes.ts` | Recent notes for the sidebar, Home and mentions (Task 9) |
 | `src/components/home/HistoryToolbar.tsx` | Filter field and chips (Task 12) |
 | `src/components/home/HistoryMenu.tsx` | History `…` menu: Show discarded, Clear all (Task 12) |
 | `src/components/home/FeedRows.tsx` | Session, note and meeting rows (Task 12) |
 | `src/lib/fuzzyMatch.ts` | Subsequence fuzzy score with match ranges, and highlight segments (Task 13) |
 | `src/components/commandSearch/commands.ts` | Workspace command catalogue (Task 13) |
 | `src/components/commandSearch/paletteSections.ts` | Ordered, capped palette sections (Task 13) |
-| `src/components/ui/editor/suggestionPopup.ts` | Shared fixed-position popup for Tiptap suggestions (Task 15) |
-| `src/components/ui/editor/slashItems.ts` | Slash catalogue, filtering and grouping (Task 15) |
+| `src/components/ui/editor/suggestionPopup.ts` | Shared fixed-position popup for Tiptap suggestions, typechecked for both callers (Task 15) |
+| `src/components/ui/editor/slashItems.ts` | Slash catalogue, filtering, grouping and `noteAiReadiness` (Task 15) |
 | `src/components/ui/editor/SlashCommand.ts` | Tiptap extension on `@tiptap/suggestion` with char `/` (Task 15) |
 | `src/components/ui/editor/SlashMenu.tsx` | Slash popup UI (Task 15) |
 | `src/lib/linkHref.ts` | Allow-list for user-entered links (Task 16) |
-| `src/components/ui/editor/BubbleToolbar.tsx` | Selection toolbar (Task 16) |
+| `src/components/ui/editor/BubbleToolbar.tsx` | Selection toolbar, with `askAiTransition` (Task 16) |
+| `src/components/ui/editor/editorChrome.ts` | `isEditorChromeTarget`: which clicks may refocus the document (Task 16) |
 | `src/lib/mentionSearch.ts` | Grouped entity search for `@` (Task 18) |
 | `src/components/ui/MentionHoverCard.tsx` | 240px mention preview (Task 18) |
-| `src/components/chat/citations.ts` | Sources from tool metadata and RAG; marker numbering (Task 19) |
+| `src/components/ui/useHoverCard.ts` | Hover-card open/close reducer, shared boundary, Escape-to-trigger (Task 18) |
+| `src/components/chat/citations.ts` | Sources from tool metadata and note refs; marker numbering (Task 19) |
 | `src/components/chat/ragContext.ts` | RAG prompt block plus the notes it used, with escaped titles (Task 19) |
 | `src/components/chat/remarkCitations.ts` | remark plugin turning `[note:ID]` into citation nodes (Task 20) |
 | `src/components/chat/SourcesRow.tsx` | Source chips with hover quote (Task 20) |
 | `src/components/chat/ChatModelChip.tsx` | Resolved chat model with `LocalityRing` (Task 21) |
+| `src/components/chat/messageRoute.ts` | `toMessageRoute`, shared by the chip and the stream's route stamp (Task 21) |
 | `src/components/chat/contextRail.ts` | Rail model: pinned, found, activity (Task 22) |
 | `src/components/chat/ChatContextRail.tsx` | Collapsible right rail (Task 22) |
 | `src/hooks/useMentionSources.ts` | One mention-source builder for the editor and the chat composer (Task 22) |
@@ -289,9 +294,20 @@ These are the input classes most likely to bite a real user that no recommendati
 | `src/components/notes/UploadDropZone.tsx` | Drop zone with a disabled state and inline fix (Task 24) |
 | `src/components/ui/DataRetentionNotice.tsx` | Shared retention banner with tokens (Task 25) |
 
+**Created (test helpers):** `test/helpers/harness/mountComposer.js` (mounted `ChatInput` on Plan 02's harness; Tasks 4 and 22) and `test/helpers/workspaceTokenGuard.js` (the CR-06-6 guard; Task 25).
+
 **Deleted:** `src/components/notes/NewNoteMenu.tsx` and `test/components/newNoteMenu.test.js` (replaced by `CaptureMenu`, Task 7).
 
-**Modified:** `src/index.css`, `DESIGN.md`, `src/components/ControlPanel.tsx`, `ControlPanelSidebar.tsx`, `ControlPanelTopBar.tsx`, `controlPanelNav.ts`, `HistoryView.tsx`, `ui/TranscriptionItem.tsx`, `UpcomingMeetings.tsx`, `CommandSearch.tsx`, `InsightsView.tsx`, `notes/PersonalNotesView.tsx`, `notes/NoteEditor.tsx`, `notes/NoteBottomBar.tsx`, `notes/UploadAudioView.tsx`, `ui/RichTextEditor.tsx`, `ui/RichTextEditorMention.tsx`, `ui/MentionSuggestions.tsx`, `ui/MentionChip.tsx`, `ui/MarkdownRenderer.tsx`, `utils/mentionMarkdown.ts`, `chat/ChatView.tsx`, `chat/ChatMessages.tsx`, `chat/ChatMessage.tsx`, `chat/ChatInput.tsx`, `chat/types.ts`, `chat/useChatStreaming.ts`, `chat/useChatPersistence.ts`, `services/ReasoningService.ts`, `config/prompts/index.ts`, `config/prompts.ts`, `hooks/useCollapsibleSidebar.ts`, `hooks/useCreateNote.ts`, `hooks/useAudioRecording.js` (one condition, Task 5), `notes/SpacesTree.tsx`, `helpers/windowManager.js`, `helpers/ipcHandlers.js`, `preload.js`, `types/electron.ts`, `package.json`, `package-lock.json`, and `src/locales/*/translation.json`.
+**Modified, by area:**
+- **Build and docs:** `scripts/merge-locale-keys.js` (Plan 03's file, `--strict` added, Task 1), `package.json` and `package-lock.json` (Task 16), `DESIGN.md` (Tasks 2, 14, 25), `src/index.css` (Tasks 2, 8, 12, 14, 16, 20), `src/components/lib/utils.ts` (`cn` learns the ramp, Task 2), `docs/PRIVACY.md` (chat stores source titles and excerpts locally, Task 19), `src/locales/*/translation.json`.
+- **Main and preload (Task 5):** `src/helpers/windowManager.js`, `src/helpers/ipcHandlers.js`, `preload.js`, `src/types/electron.ts`, and one condition in `src/hooks/useAudioRecording.js` (Plan 04's file).
+- **Stores and hooks:** `src/stores/noteStore.ts` (`openNoteById`, `restoreLaunchNote`, Task 3), `src/stores/transcriptionStore.ts` (`revealTranscription`, Task 12), `src/hooks/useCollapsibleSidebar.ts` (Task 9), `src/hooks/useCreateNote.ts` (Task 7).
+- **Shell:** `src/components/ControlPanel.tsx` (Tasks 3, 4, 7, 9, 11), `ControlPanelSidebar.tsx`, `ControlPanelTopBar.tsx`, `controlPanelNav.ts`, and `icons` if it lacks `CalendarDays` (Task 9).
+- **Home, palette, Insights, Upload:** `HistoryView.tsx` (Tasks 11, 12, 25), `UpcomingMeetings.tsx` (Task 11), `ui/TranscriptionItem.tsx` (Task 12), `CommandSearch.tsx` (Task 13), `InsightsView.tsx` (Tasks 23, 25), `notes/UploadAudioView.tsx` (Task 24).
+- **Notes and editor:** `notes/PersonalNotesView.tsx` (Tasks 9, 15), `notes/SpacesTree.tsx` (Task 9), `notes/NoteEditor.tsx` (Tasks 14, 15, 16), `notes/EmbeddedChat.tsx` (Task 16), `ui/RichTextEditor.tsx` (Tasks 15, 16, 18, 22), `ui/RichTextEditorMention.tsx` (Tasks 15, 17, 18), `ui/MentionSuggestions.tsx`, `ui/MentionChip.tsx` (Task 18), `utils/mentionMarkdown.ts` (Task 17).
+- **Chat:** `ui/MarkdownRenderer.tsx` (Task 20), `chat/ChatView.tsx` (Tasks 4, 19, 20, 21, 22), `chat/ChatMessages.tsx` (Task 20), `chat/ChatMessage.tsx` (Tasks 20, 21, 22), `chat/ChatInput.tsx` (Tasks 4, 22), `chat/types.ts`, `chat/useChatPersistence.ts` (Task 19), `chat/useChatStreaming.ts` (Tasks 19, 21, 22), `services/ReasoningService.ts`, `config/prompts/index.ts`, `config/prompts.ts` (Task 19).
+- **Token adoption only (Task 25):** whatever else the guard reports, including `IntegrationsView.tsx`, `DictionaryView.tsx` and `SnippetsView.tsx`.
+- **Existing tests extended:** `test/helpers/useChatStreamingCancellation.test.js` (Tasks 21, 22), `test/utils/mentionMarkdown.test.js` (Task 17), `test/helpers/windowManagerAssistantPanel.test.js`, `test/helpers/agentDictationPillIpc.test.js`, `test/helpers/preloadAuthBridge.test.js` (Task 5).
 
 ---
 
@@ -10166,7 +10182,7 @@ git commit -m "feat(chat): show the resolved model and where each answer was pro
 This covers the WS-R8 B context rail (`⌘.`), WS-R7 B ("in chat, `@` adds the entity to the context chips") and interpretation 8.
 
 **Files:**
-- Create: `src/components/chat/contextRail.ts`, `src/components/chat/ChatContextRail.tsx`
+- Create: `src/components/chat/contextRail.ts`, `src/components/chat/ChatContextRail.tsx`, `src/hooks/useMentionSources.ts` (Task 18's source builder, extracted from `RichTextEditor.tsx` so the composer shares it)
 - Modify: `src/components/chat/ChatView.tsx`. Add pinned state, the rail as a third flex child after `:187`, the `⌘.` key, context chips in the chip row, and the `@` popover.
 - Modify: `src/components/chat/ChatInput.tsx`. Add the props `onDraftChange` and `interceptKeyDown`.
 - Modify: `src/components/chat/useChatStreaming.ts`:
@@ -11515,6 +11531,12 @@ Check each item, and screenshot it for the PR:
   - The Coming up "Today" strip is neutral and says "Today", in both themes.
   - "Generate Summary" is a secondary button, with no brand dot beside its icon.
   - A chat model on a custom endpoint shows "Custom endpoint" (translated in `de`), never `custom`.
+- **Review fixes that need a real window** (no harness can prove these):
+  - **URL field typing.** Select text, open Link in the bubble, click into the URL field and type a long URL: every character lands in the field, the selection stays highlighted and the document never takes focus. Click a bubble button: the selection survives.
+  - **Hover card.** Hover a mention chip, move slowly across the gap into the card: it stays open. Tab from the chip into Open and Insert quote, then Tab out: it closes. Escape returns focus to the chip. Repeat in `ar` (RTL): the card opens on the correct side and the gap still holds.
+  - **Ask AI.** With the floating chat closed and a draft queued in it earlier, select text and Ask AI: the floating chat opens, the quote is in a visible composer, nothing is sent, and the queue is not armed.
+  - **Meeting route on the mic card.** Configure dictation local and meeting transcription remote (or the reverse). Start a meeting recording: the mic card and the rail name the meeting route and its locality, not the dictation route. Start a dictation: the card switches to the dictation route.
+  - **Stop during pinned context.** Pin a large note, send, and press Stop at once: no request reaches the provider (watch the network log or the provider's dashboard), and the draft is not lost.
 - **Theme toggle mid-session.** No smear (Plan 01), and every changed surface reads at contrast in Plum Night.
 - **RTL** (`ar`): the sidebar rail, the edge rail, breadcrumb separators and the kbd hints mirror correctly.
 
@@ -11529,7 +11551,9 @@ gh pr create --title "feat(workspace): Loqui workspace — one sidebar, Capture,
 - one line per Task 1–25 commit;
 - links to `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` and this plan;
 - the Step 2 screenshots;
-- the contract change requests (CR-06-1…4) and whether the spec owner has applied them;
+- the contract change requests CR-06-1…8 and, for each, whether the spec owner has applied it and under which §5 number (CR-06-2 and CR-06-5 are already accepted by Plan 03);
+- the Review response table, with any review finding whose fix changed during execution;
+- every `token-guard: allow` opt-out, with its reason;
 - the interpretations this plan committed to;
 - the one-condition change in Plan 04's `useAudioRecording.js` (Task 5);
 - the Plan 01 review hand-backs not done here:

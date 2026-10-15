@@ -20,6 +20,7 @@
     - The launcher, `loqui-isolate`, probes the sandbox from inside, then `exec`s the program in the same process. If the probe fails, the program never starts.
     - Main checks each probe report itself. A child counts toward `nothingLeaves` only when it is `isolated` or `networkFree`; a child that is only `launchControlled` never counts.
     - Children that were running before the seal are restarted inside isolation once idle.
+    - **Linux (D15).** The `.deb` and `.rpm` install an AppArmor profile so the launcher can create its namespaces on Ubuntu 24.04. Where isolation still fails (AppImage, tar.gz, locked-down systems, a failed self-test), native children pause while sealed, and the panel names the reason and the fix. Windows is outside this release series.
   - FFmpeg always runs with local inputs only.
   - A child counts as stopped only when the OS reports its exit. Codex and yt-dlp runs are recorded as *opaque sessions*, because main cannot see their individual requests (owner decision, 2026-10-15).
 
@@ -52,13 +53,13 @@ Turning Sealed mode off and clearing the ledger are also confirmed in native dia
 - **Plan 04** is **not** required. CCR-3 and CCR-4 are its side of the contract. Until it merges, Plan 07 uses the existing toast API (spec §5.3).
 - **Task 0 runs first, before Task 1.** It is a spike with an owner gate (D14). Nothing after it starts until its gate passes or the owner decides.
 
-**Merge gate (D14).** Plan 07 does not merge until OS-level isolation of native children ships on every release platform (macOS arm64 and Linux x64), or until the owner has decided otherwise at the Task 0 gate. Task 18's sign-off includes it.
+**Merge gate (D14, D15).** Plan 07 does not merge until OS-level isolation of native children ships on every release platform: macOS arm64, and Linux x64 through the `.deb` and `.rpm` packages. It also needs D15's pause wherever Linux isolation fails. Task 18's sign-off includes it.
 
-**Size, and a proposed split.** D14 takes the plan from 22 to 28 tasks. The proposal:
+**Size, and the approved split.** D14 and D15 take the plan from 22 to 31 tasks. The split below was approved in round 3:
 - This document stays the single plan of record (PR #49).
 - Implementation goes into two stacked PRs that merge together:
   - **07a:** Tasks 1–6a and 7–18, without the isolation edits;
-  - **07b:** Tasks 0 and 6b–6f, plus the isolation edits in Tasks 7, 14, 15, 16 and 18, stacked on 07a.
+  - **07b:** Tasks 0 and 6b–6i, plus the isolation edits in Tasks 7, 13, 14, 15, 16 and 18, stacked on 07a.
 - Task 0 still runs first.
 - 07a may be reviewed on its own, but it merges only with 07b, which keeps the merge gate intact.
 
@@ -117,7 +118,7 @@ What this revision changes:
 | Spike first (Task 0) | Measures each platform under the three constraints (no admin rights, no new entitlements, no signing change). It covers the mechanism, loopback servers, verification, delegated egress and cost. It carries the owner's stop-and-report gate verbatim. Measurements taken on this machine while writing the plan are included. |
 | Per-child states (Task 6b) | `isolated`, `networkFree`, `pending`, `launchControlled`, and a transient `failed`, never merged. Only `isolated` and `networkFree` count, and only once main has checked the stub's report itself. |
 | The launcher (Tasks 6c and 6d) | `loqui-isolate` is one C file. It probes from inside, writes its report on fd 3, closes fd 3, then `exec`s the program. macOS: `sandbox-exec` profiles. Linux: its own user, network and mount namespaces, with a Unix socket bridge. It was compiled and run on macOS 27.0.1 and in a Linux container while writing this plan, and the plan's own macOS and Linux tests pass against it there. One exception is expected: the macOS pasteboard test fails until Task 0 settles profiles per kind of child. |
-| The self-test (Tasks 6b and 7) | At boot, the stub runs under both profiles, plus a control run with no sandbox, which must *not* show the platform's signature. If the self-test fails, a sealed native spawn is refused (`ISOLATION_UNAVAILABLE`), and the panel says so. |
+| The self-test (Tasks 6b and 7) | At boot, the stub runs under both profiles, plus a control run with no sandbox, which must *not* show the platform's signature. If the self-test fails, native children pause while sealed, and the panel names the reason and the fix (D15, Task 6i). |
 | Children already running (Task 6e) | Restarted inside isolation once idle, measured by Layer B's count of local requests in flight. A busy child keeps the seal unverified, by name, and work in progress is never cut. One-job programs are waited for. |
 | The ONNX worker (Task 6f) | Moves from `utilityProcess` to Loqui in Node mode under the launcher. |
 | Attestation (Task 7) | `children: [{ kind, pid, isolation }]` and `isolation: { platform, mechanism, selfTest, checkedAt, reason }` replace `uninspectedChildren`. `nothingLeaves` requires every running native child to be `isolated` or `networkFree`. |
@@ -132,6 +133,32 @@ What this revision changes:
 4. **Linux: restricted user namespaces.** Ubuntu 23.10 and later restrict them through AppArmor, by default on 24.04. There the namespaces cannot be created without root, and the AppImage and tar.gz have no install step that could add an AppArmor profile. Loqui's own launcher already falls back to `--no-sandbox` for Chromium in that case. Isolation is then unavailable, and the gate decides what ships.
 5. **Linux: children that need the session bus** (playerctl, the portal audio helper) could ask a portal to open a URL. Their profile needs a filtered bus, or a decision.
 6. **Windows** is not a release target, and no candidate meets the constraints without admin. Sealed native spawns are refused there until the owner decides.
+
+**All six are now decided.** See "D15 and the round-3 rulings" below.
+
+---
+
+## D15 and the round-3 rulings
+
+The owner decided the Linux gate as **D15** (spec PR #51, `3e34bdc`). D14 now also says that Windows is outside this release series, so Plan 07 ships no Windows isolation. The reviewer ruled on the remaining Task 0 risks. This revision applies both, and they are recorded at the Task 0 gate (Step 8).
+
+| Item | Decision | Where it is built and tested |
+|---|---|---|
+| Linux, restricted user namespaces | **D15.** The `.deb` and `.rpm` install an AppArmor profile that grants `userns` to the root-owned launcher only. | Task 6h. The profile and installer were tested in an Ubuntu 24.04 container: the profile parses, and the installer refuses a symlink, a writable directory, a hostile path, and a system without AppArmor 4.0. A CI job installs the `.deb` on a real `ubuntu-24.04` runner, checks `aa-status`, runs the self-test as an ordinary user, then removes the package. |
+| Linux, anywhere isolation still fails | **D15.** Native children pause while sealed. The panel names the reason (`notPackaged`, `profileNotLoaded`, `userNamespacesDisabled` or `selfTestFailed`) and the fix. | Task 6i (main), Task 7 (attestation), Task 13 (dictation pre-flight), Task 14 (panel copy in 11 locales). |
+| A weaker fallback | **D15.** None. seccomp and Landlock are not built, and partial coverage never counts. | Global Constraints. Task 18 checks it. |
+| Windows | **D14 (amended).** Not shipped. A Windows dev build pauses native children while sealed (`selfTestFailed`). | Task 6i. |
+| macOS risk 2: per-kind profiles | **Ruling.** The paste helpers get `pasteboard`. Every other child blocks all of LaunchServices. A test proves a sandboxed child cannot open a URL. | Task 6c: `pasteboard` was measured to keep `pbcopy` working. Apple Events are denied everywhere, and checked with `sandbox_check`. The URL-open test registers a probe app in CI and requires a control that opens. |
+| macOS risk 3: wildcard binds | **Ruling.** Every sealed server binds loopback explicitly. The launcher refuses `0.0.0.0` and `::`. The second-machine check stays in Task 16. | Task 6c: the stub refuses wildcard arguments, and its watcher kills wildcard listeners, both measured. Task 6g: main's side, plus a loopback-patched sherpa-onnx, because upstream binds `0.0.0.0` with no host option. |
+| macOS risk 4: `sandbox-exec` deprecation | **Ruling.** Keep `sandbox-exec`, with a sandbox-API fallback inside the launcher, behind the same probe. | Tasks 6c and 6g. Measured: the API path enforces on macOS 27.0.1, and the boot self-test would catch it if it ever did not. |
+| Linux risk 5: session-bus helpers | **Ruling:** filter the bus, or pause. This plan pauses `playerctl` and the portal audio helper while sealed on Linux, and says so. | Task 6i. |
+| The 07a/07b split | **Approved.** | Header. 07b now holds Tasks 0 and 6b–6i. |
+
+**One reading the owner can narrow.** D15 says "native model servers pause". This plan pauses *every* native child where isolation is unavailable. A helper left running unconfined would keep `nothingLeaves` false forever. Pausing them all means nothing native runs, the seal can still be verified honestly, and the panel shows the pause and its fix beside it (Task 6i).
+
+**Two corrections to earlier evidence:**
+- **The sandbox API works.** I had reported that `sandbox_init` enforced nothing from an ordinary binary. The test profile was wrong: `(allow network* (local ip "localhost:*"))` admits every socket bound to a local address, outbound included. With this plan's profiles, the API path enforces.
+- **The Parakeet server listens on every IPv4 interface today, sealed or not.** That is upstream sherpa-onnx behaviour. Task 6g's patch fixes it for all users, not only sealed ones.
 
 ---
 
@@ -213,6 +240,11 @@ This plan owns §5.4 and must not edit the spec. The spec owner consolidated eve
   - In the attestation, `children` and `isolation` replace `uninspectedChildren` (Task 7).
   - The panel and PRIVACY.md describe the isolation, not a gap (Tasks 14 and 15).
 
+**CCR-7 (§5.1, owner Plan 03): a self-hosted loopback route keeps its `host`.** *Status: requested. Raised by D15.*
+- **The need.** Where Linux isolation is unavailable, the dictation pre-flight (Task 13) must tell Loqui's own on-device engine apart from a server the user runs on loopback. Loqui's engine needs a native child, and pauses while sealed. A user's loopback server is not Loqui's child, and keeps working (D15: "Device routes that need no native child keep working").
+- **The rule this plan relies on.** On a `device`-locality route, `ResolvedRoute.host` is `null` only for Loqui's on-device engine. For a self-hosted endpoint on loopback it is the endpoint's `host[:port]`. Spec §5.1 says `host` is "null when nothing leaves the device or the endpoint is invalid". That wording is ambiguous for loopback.
+- **Requested §5.1 wording.** "`host`: the normalized effective endpoint `host[:port]` whenever the route has an endpoint, loopback included; `null` for Loqui's on-device engines and for an invalid endpoint."
+
 
 ---
 
@@ -224,9 +256,10 @@ This plan owns §5.4 and must not edit the spec. The spec owner consolidated eve
   - Anything outside the boundary is either disabled while sealed or disclosed in the UI. No copy claims more.
 - **No silent fallback (D14).**
   - No code path marks a child `isolated` or `networkFree` without a probe report that main has checked.
-  - No code path runs a native child unconfined while sealed. If isolation is unavailable, a sealed spawn of a native child is refused (`ISOLATION_UNAVAILABLE`), and the panel says so.
+  - No code path runs a native child unconfined while sealed. If isolation is unavailable, native children pause while sealed (D15). A sealed spawn is a paused refusal, running children stop once idle, and the panel names the reason and the fix.
+  - No seccomp, Landlock or other partial mechanism counts as isolation (D15).
   - Any other behaviour on a platform needs the owner's decision at the Task 0 gate.
-- **Merge gate (D14).** Plan 07 does not merge until isolation ships on macOS arm64 and Linux x64, or until the owner has decided otherwise at the Task 0 gate (header, Task 18).
+- **Merge gate (D14, D15).** Plan 07 does not merge until isolation ships on macOS arm64, and on Linux x64 through the packages, with D15's pause everywhere else (header, Task 18).
 - **No silent provider switches.** Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure, and a sealed block is a failure that keeps the user's message, recording or draft: in History when retention allows, otherwise in memory with a "Transcribe" action.
 - **What sealed blocks.** Main blocks every outbound provider, model-download, update, calendar and URL-import request while sealed, and local routes keep working. The UI never claims "0 bytes" or "verified" unless main attests it (D6).
 - **"Local" means loopback only.** That is `localhost`, `*.localhost`, `127.0.0.0/8`, `::1` and IPv4-mapped `127.x`, in main and in the renderer (CCR-5). A LAN address, a public IP, an unparseable target or a hostname that merely *resolves* to loopback is **not** local (CCR-1; D4 makes loopback self-hosted URLs `device`).
@@ -336,6 +369,25 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
     - Task 7 (`nothingLeaves needs every running native child isolated or network-free…`);
     - Task 14 (`the panel never shows verified for a child main did not prove…`);
     - Task 16, Step 5a, for the inbound and delegation checks that need a packaged build or a second machine.
+11. **Where isolation is unavailable, and the round-3 rulings (D15).** Try each of these:
+    - the AppImage or tar.gz on Ubuntu 24.04;
+    - the `.deb` with its profile unloaded;
+    - `user.max_user_namespaces=0`;
+    - a failed self-test on macOS;
+    - a busy server or a running FFmpeg job at seal time;
+    - `playerctl` while sealed;
+    - a sandboxed child that opens a URL;
+    - a server that binds `0.0.0.0`;
+    - an AppArmor profile pointed at a writable path.
+
+    Expected:
+    - nothing native runs unconfined;
+    - busy work finishes before its server pauses, and a one-job program is never stopped mid-job;
+    - the panel names the right reason and fix, and still verifies when nothing native runs;
+    - the URL never opens, and the wildcard server is killed;
+    - the installer refuses the writable path.
+
+    Pinned in Tasks 6c, 6g, 6h and 6i, Task 7 (`D15: isolation unavailable, nothing native running…`), Task 13 (`isDictationPausedNative…`) and Task 14 (`where isolation is unavailable, the sealed panel names the reason and its fix…`).
 
 ---
 
@@ -368,7 +420,10 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
 - `src/components/settings/SealedModePanel.tsx` and `src/components/settings/sealedModeCopy.ts`: the master switch, and the only place that decides what the panel may claim.
 - `src/components/settings/FlightRecorderPanel.tsx` and `src/components/settings/flightRecorderView.ts`: the ledger view and its pure view model.
 
-**Create (native, D14):** `resources/loqui-isolate.c`, `resources/loqui-isolate-loopback.sb`, `resources/loqui-isolate-none.sb` and `scripts/build-loqui-isolate.js` (Task 6c).
+**Create (native, D14 and D15):**
+- `resources/loqui-isolate.c`, `resources/loqui-isolate-{loopback,none,pasteboard}.sb` and `scripts/build-loqui-isolate.js` (Task 6c);
+- `resources/patches/sherpa-onnx-loopback.patch` and `scripts/build-sherpa-websocket.js` (Task 6g);
+- `resources/linux/loqui-isolate.apparmor`, `resources/linux/install-apparmor-profile.sh` and `resources/linux/remove-apparmor-profile.sh` (Task 6h).
 
 **Create (docs):** `docs/security/native-isolation-spike.md` (Task 0), `docs/security/sealed-mode-threat-model.md` (Task 1) and `docs/security/sealed-mode-review-2026-10.md` (Task 18).
 
@@ -377,7 +432,7 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
 - `test/helpers/harness/ipcHandlersHarness.js` (Task 12), which registers the real `ipcHandlers.js` channels against fakes.
 - `test/fixtures/loopbackCases.json` (Task 11a).
 - `test/hooks/fakePrivacy.js` (Task 13).
-- `scripts/spike/isolation/` (Task 0); `test/fixtures/fakeIsolate.js` (Task 6b) and `test/fixtures/isolationProbe.js` (Task 6c); `test/native/isolation.darwin.test.js` and `test/native/isolation.linux.test.js` (Tasks 6c and 6d).
+- `scripts/spike/isolation/` (Task 0); `test/fixtures/fakeIsolate.js` (Task 6b) and `test/fixtures/isolationProbe.js` (Task 6c); `test/native/isolation.darwin.test.js`, `test/native/isolation.linux.test.js` and `test/native/sherpaLoopback.test.js` (Tasks 6c, 6d and 6g); `test/helpers/isolationWatch.test.js`, `test/helpers/apparmorProfileInstall.test.js` and `test/helpers/isolationPause.test.js` (Tasks 6g, 6h and 6i).
 
 **Modify:**
 - Main process:
@@ -400,7 +455,8 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
   - `src/utils/localInferenceError.ts`, `src/utils/recordingErrors.ts`;
   - `src/helpers/audioManager.js` (renderer code), `src/hooks/useAudioRecording.js` and `src/index.css`.
 - Locales and docs: `src/locales/*/translation.json`, `DESIGN.md`, `docs/PRIVACY.md` and `docs/network-allowlist.md`.
-- Scripts and CI: `scripts/smoke-electron.cjs` (the Task 6 observer hook only), `package.json` (`test:sealed-electron`), `scripts/prepare-platform.cjs`, `electron-builder.json` and `.github/workflows/platform.yml` (Tasks 6c and 6d).
+- Scripts and CI: `scripts/smoke-electron.cjs` (the Task 6 observer hook only), `package.json` (`test:sealed-electron`), `scripts/prepare-platform.cjs`, `electron-builder.json`, `.github/workflows/platform.yml` and `.github/workflows/release.yml` (Tasks 6c, 6d, 6g and 6h).
+- Linux packaging and docs: `resources/linux/after-install.sh`, `resources/linux/after-remove.sh` and `README.md` (Task 6h); `src/helpers/mediaPlayer.js`, `src/helpers/linuxPortalAudioManager.js` and `src/helpers/clipboard.js` (Tasks 6c and 6i).
 
 ---
 
@@ -587,6 +643,17 @@ Write `docs/security/native-isolation-spike.md` with one table per platform. Eac
   - (b) an elevated install step that adds a WFP or firewall block per program;
   - (c) an AppContainer, plus an admin loopback exemption.
 
+**Decided at the gate (2026-10-15), recorded here so that the spike report confirms it, not reopens it:**
+- **Linux:** D15. Packages with an AppArmor profile (Task 6h); everywhere else, native children pause while sealed, with the reason and the fix (Task 6i). No seccomp or Landlock fallback.
+- **Windows:** outside this release series (D14, amended). Native children pause while sealed there.
+- **macOS:**
+  - profiles per kind of child, with Apple Events denied everywhere (Task 6c);
+  - explicit loopback binds, the launcher's wildcard refusal and watcher, and a patched sherpa-onnx (Tasks 6c and 6g);
+  - `sandbox-exec`, with the API fallback behind the same probe (Tasks 6c and 6g).
+- **Linux session-bus helpers:** paused while sealed (Task 6i).
+
+The report still records every measurement. If the spike contradicts one of these decisions, for example a profile that cannot block a URL open, stop and report again.
+
 ```bash
 git add docs/security/native-isolation-spike.md scripts/spike/isolation
 git commit -m "docs(security): native child isolation spike: per-platform measurements and verdict (D14)"
@@ -767,7 +834,9 @@ The panel says "verified" only when main attests all of this at that moment (Tas
 | A calendar sign-in already waiting in the browser | Cancelled on seal; its loopback callback closes (Task 11). |
 | A proxy or port-forwarder the user runs on loopback | Trusted as loopback. A loopback `CONNECT` or absolute-form request naming a remote host is refused, and an environment proxy makes the seal unverified. A user-run forwarder that relays plain loopback traffic off the machine is the user's own configuration, and is documented in `docs/PRIVACY.md`. |
 | OS services (system DNS-over-HTTPS, iCloud for Apple Calendar, OS updates) and other apps | Not Loqui's traffic. Not claimed. |
-| A platform gap that Task 0 finds (for example Linux with restricted user namespaces, or a macOS listener reachable from another machine) | Decided by the owner at the Task 0 gate, and recorded here with the decision. Until then, a sealed spawn of a native child is refused where isolation is unavailable, and the panel says so. |
+| Native children where isolation is unavailable: Linux without the `.deb`/`.rpm`, user namespaces turned off, a failed self-test, or Windows | **Paused while sealed (D15).** No native child starts, and running ones stop once idle. The panel names the reason and the fix. Nothing runs unconfined, and no partial mechanism counts. |
+| Linux helpers that need the session bus (`playerctl`, the portal audio helper) | **Paused while sealed (round-3 ruling).** Through the bus they could ask a portal to open a URL. The panel names them. |
+| A wildcard listener before the watcher sees it (at most one 20 ms poll) | Residual. Sealed servers bind loopback explicitly, and Parakeet's patched build does too (Task 6g). The launcher refuses wildcard arguments, and the watcher kills any wildcard listener. Task 16 checks inbound connections from a second machine. |
 | A helper that a Windows yt-dlp process starts and orphans within one 250 ms refresh | Residual, Windows only: it is not waited for. yt-dlp waits for its post-processors, so this needs a misbehaving binary. POSIX uses process groups, which have no such window (Task 6a). |
 | Build and packaging scripts (`scripts/`, `cleanup.js`) | Not part of the shipped app; they run only on a developer or CI machine, so the ratchet does not scan them. |
 | A malicious local process that reads the Loqui profile | Out of scope. |
@@ -4900,7 +4969,7 @@ A child counts only when main's own check of its report passes. The stub's own `
 
 A fifth value, **`failed`**, is transient. The child's report failed main's check, or never arrived, and main has killed it. It never counts, and it disappears from the registry once the OS reports the exit.
 
-**Isolation unavailable means refused (no silent fallback).** While sealed, a native child is spawned only when the boot self-test passed. Otherwise the spawn throws `ISOLATION_UNAVAILABLE` before anything runs, and the ledger records a `blocked` row whose host is the program's kind. Any other policy for a platform needs the owner's decision at the Task 0 gate.
+**Isolation unavailable means refused (no silent fallback).** Task 6i turns this refusal into D15's pause, with a reason the panel shows. While sealed, a native child is spawned only when the boot self-test passed. Otherwise the spawn throws `ISOLATION_UNAVAILABLE` before anything runs, and the ledger records a `blocked` row whose host is the program's kind. Any other policy for a platform needs the owner's decision at the Task 0 gate.
 
 **Files:**
 - Create: `src/helpers/privacy/nativeIsolation.js`
@@ -4936,7 +5005,7 @@ A fifth value, **`failed`**, is transient. The child's report failed main's chec
   onIsolationChange(fn): () => void                       // fires when a child's state changes or it fails
   ```
 
-- **Spawn options.** A spawn site may pass `loquiIsolation: { profile: "loopback" | "none", ports: number[] }` in its options. The guard removes it before calling Node. A site without it gets `{ profile: "none", ports: [] }`, so a server that forgets to declare its ports cannot listen while sealed. It fails visibly, not open. Task 6e adds the option to the four servers.
+- **Spawn options.** A spawn site may pass `loquiIsolation: { profile: "loopback" | "none" | "pasteboard", ports: number[] }` in its options. `pasteboard` is for the paste helpers. It has no network, like `none`, but on macOS it may reach the pasteboard (Task 6c); on Linux it behaves as `none`. The guard removes it before calling Node. A site without it gets `{ profile: "none", ports: [] }`, so a server that forgets to declare its ports cannot listen while sealed. It fails visibly, not open. Task 6e adds the option to the four servers.
 - **fd 3 is reserved.** While sealed, the guard moves the caller's `stdio` to `[0, 1, 2, "pipe" (the report), …rest]`. Anything after fd 2 may only be `"ipc"`, which moves up one place; Node then sets `NODE_CHANNEL_FD` from the final array. Anything else throws `ISOLATION_STDIO_CONFLICT`.
 - **Classes that are native children:** `bundled`, `osTool` and `ffmpeg`. So is `self` when `options.env.ELECTRON_RUN_AS_NODE === "1"` and the script is under `src/workers/` (Task 6f). `network`, `thirdParty` and `unclassified` are still refused while sealed (Task 6a).
 
@@ -4994,7 +5063,7 @@ const FAKE = path.join(__dirname, "..", "fixtures", "fakeIsolate.js");
 const HOST_NETNS = "net:[4026531840]";
 const LINUX_OK = "LOQUI-ISOLATE/1 profile=loopback status=ok udp4=ENETUNREACH udp6=EADDRNOTAVAIL tcp4=ENETUNREACH dnsSocket=ENOENT loop4=ok loop6=ok netns=net:[4026532999] ifaces=lo";
 const LINUX_NONE_OK = "LOQUI-ISOLATE/1 profile=none status=ok udp4=ENETUNREACH udp6=EADDRNOTAVAIL tcp4=ENETUNREACH dnsSocket=ENOENT loop4=ENETUNREACH loop6=EADDRNOTAVAIL netns=net:[4026532999] ifaces=lo:down";
-const DARWIN_OK = "LOQUI-ISOLATE/1 profile=loopback status=ok udp4=EPERM udp6=EPERM tcp4=EPERM dnsSocket=EPERM nsurlsessiond=denied launchservices=denied loop4=ok loop6=ok";
+const DARWIN_OK = "LOQUI-ISOLATE/1 profile=loopback status=ok udp4=EPERM udp6=EPERM tcp4=EPERM dnsSocket=EPERM nsurlsessiond=denied launchservices=denied lsdMap=denied appleEvents=denied sandboxed=yes loop4=ok loop6=ok";
 
 const flags = { sealed: false };
 test.beforeEach(() => {
@@ -5065,6 +5134,10 @@ test("verifyReport: on macOS only EPERM counts; an offline machine's ENETUNREACH
   assert.deepEqual(verifyReport(DARWIN_OK.replace("udp4=EPERM", "udp4=ENETUNREACH"), darwin).problems, ["udp4"]);
   assert.deepEqual(verifyReport(DARWIN_OK.replace("tcp4=EPERM", "tcp4=ETIMEDOUT"), darwin).problems, ["tcp4"]);
   assert.deepEqual(verifyReport(DARWIN_OK.replace("nsurlsessiond=denied", "nsurlsessiond=reachable"), darwin).problems, ["nsurlsessiond"]);
+  assert.deepEqual(verifyReport(DARWIN_OK.replace("appleEvents=denied", "appleEvents=allowed"), darwin).problems, ["appleEvents"]);
+  assert.deepEqual(verifyReport(DARWIN_OK.replace("lsdMap=denied", "lsdMap=reachable"), darwin).problems, ["lsdMap"], "only the paste helpers' profile may reach it");
+  const paste = DARWIN_OK.replace("profile=loopback", "profile=pasteboard").replace("lsdMap=denied", "lsdMap=reachable").replace("loop4=ok loop6=ok", "loop4=EPERM loop6=EPERM");
+  assert.deepEqual(verifyReport(paste, { platform: "darwin", profile: "pasteboard" }), { state: "networkFree", problems: [] });
 });
 
 test("verifyReport: malformed, duplicated, unknown-version and unknown-platform reports are refused", () => {
@@ -5230,14 +5303,20 @@ const ISOLATION_STATES = Object.freeze(["isolated", "networkFree", "pending", "l
 // EPERM counts, because an offline Mac answers ENETUNREACH with no sandbox.
 const EXPECTED = {
   darwin: {
-    outbound: { udp4: ["EPERM"], udp6: ["EPERM"], tcp4: ["EPERM"], dnsSocket: ["EPERM"], nsurlsessiond: ["denied"], launchservices: ["denied"] },
+    // appleEvents and sandboxed come from sandbox_check(): checked, never sent.
+    outbound: { udp4: ["EPERM"], udp6: ["EPERM"], tcp4: ["EPERM"], dnsSocket: ["EPERM"], nsurlsessiond: ["denied"], launchservices: ["denied"], appleEvents: ["denied"], sandboxed: ["yes"] },
+    // Only the paste helpers' profile may reach the pasteboard's type database
+    // (com.apple.lsd.*); pbcopy needs it (round-3 ruling, measured).
+    byProfile: { loopback: { lsdMap: ["denied"] }, none: { lsdMap: ["denied"] }, pasteboard: {} },
     loopbackClosed: ["EPERM"],
   },
   linux: {
     outbound: { udp4: ["ENETUNREACH"], udp6: ["ENETUNREACH", "EADDRNOTAVAIL"], tcp4: ["ENETUNREACH"], dnsSocket: ["ENOENT", "EACCES"] },
+    byProfile: { loopback: {}, none: {}, pasteboard: {} },
     loopbackClosed: ["ENETUNREACH", "EADDRNOTAVAIL"],
   },
 };
+const PROFILES = ["loopback", "none", "pasteboard"];
 const LOOPBACK_CHECKS = ["loop4", "loop6"];
 
 function parseReport(line) {
@@ -5261,6 +5340,9 @@ function verifyReport(line, { platform, profile, hostNetns = null }) {
   if (f.status !== "ok") problems.push("status");
   if (f.profile !== profile) problems.push("profile");
   for (const [check, allowed] of Object.entries(expected.outbound)) if (!allowed.includes(f[check])) problems.push(check);
+  const perProfile = expected.byProfile[profile];
+  if (!perProfile) problems.push("profile");
+  else for (const [check, allowed] of Object.entries(perProfile)) if (!allowed.includes(f[check])) problems.push(check);
   for (const check of LOOPBACK_CHECKS) {
     const good = profile === "loopback" ? f[check] === "ok" : expected.loopbackClosed.includes(f[check]);
     if (!good) problems.push(check);
@@ -5323,8 +5405,8 @@ function createIsolation({
   }
 
   function wrap({ command, args = [], options = {}, profile = "none", ports = [] }) {
-    if (profile !== "loopback" && profile !== "none") throw new TypeError(`Unknown isolation profile: ${profile}`);
-    if (profile === "none" && ports.length > 0) throw new TypeError("A network-free child has no ports");
+    if (!PROFILES.includes(profile)) throw new TypeError(`Unknown isolation profile: ${profile}`);
+    if (profile !== "loopback" && ports.length > 0) throw new TypeError("Only a loopback child has ports");
     const launchId = `${process.pid}-${++launches}`;
     const bridges =
       platform === "linux"
@@ -5613,10 +5695,23 @@ Either way, it probes from inside and writes one report line. It closes the repo
   - Under Docker's default seccomp profile, the stub reports `status=fail namespace=EPERM` and exits 78.
 - **`verifyReport` (Task 6b) on those real lines:** `isolated` and `networkFree` where expected, and `null` for the control and the unsandboxed runs.
 
-**A finding the spike must settle (Task 0, Step 3).** The profiles below deny `com.apple.coreservices.*` and `com.apple.lsd.*`, so LaunchServices cannot open a URL for the child. With only `launchservicesd` denied, an unregistered URL scheme got the same answer inside the sandbox as outside (`-10814`): LaunchServices was still reachable. But the wider denial silently breaks `pbcopy`: it exits 0 and writes nothing. So profiles must be chosen per kind of child. Task 0 names the services each kind needs. The pasteboard test below fails until the profile for the paste helpers is right.
+**Profiles per kind of child (round-3 ruling, measured 2026-10-15 on macOS 27.0.1).**
+- **The paste helpers get `pasteboard`.** Denying `com.apple.lsd.*` silently breaks `pbcopy`: it exits 0 and copies nothing. So `pasteboard` allows `com.apple.lsd.*`, and `pbcopy` works under it. It still denies `com.apple.coreservices.*`, the network and Apple Events.
+- **Every other child blocks all of LaunchServices.** The `loopback` and `none` profiles deny both `com.apple.coreservices.*` and `com.apple.lsd.*`.
+- **Apple Events are denied in every profile (`(deny appleevent-send)`).** Any app can be asked to open a URL through them. The probe checks this with `sandbox_check()` and never sends an event: `appleEvents=denied` under every profile, and `allowed` without one.
+
+  As a result, the `osascript` paste fallback (`clipboard.js:973`, `:1059`) and the `osascript` text monitoring (`textEditMonitor.js`) do not work while sealed. The CGEvent paste helper and the native text monitor keep working. In `clipboard.js`, the `macos-fast-paste` spawn passes `loquiIsolation: { profile: "pasteboard" }`.
+- **What this machine could not show is a real URL open, blocked end to end.** LaunchServices does not register apps from `/tmp`, and a probe app was not registered in the user's `~/Applications`. The test below therefore runs in CI: it registers a probe app on the `macos-26` runner, requires an unsandboxed control to open it, then requires each profile to block it.
+
+**Also new in this stub (round-3 rulings):**
+- It refuses a wildcard bind in the program's arguments (`bind=wildcard`, exit 78).
+- For the `loopback` profile, it leaves a watcher that kills a program listening on anything but loopback.
+- On macOS, `--seatbelt-api` applies the profile without `sandbox-exec`.
+
+Each was measured: refused and never run; killed (exit 137) with `violation listen=0.0.0.0:46611`, while a loopback listener was left alone; and `sandboxed=yes` with `EPERM` through the API. Task 6g wires main's side.
 
 **Files:**
-- Create: `resources/loqui-isolate.c`, `resources/loqui-isolate-loopback.sb`, `resources/loqui-isolate-none.sb` and `scripts/build-loqui-isolate.js`
+- Create: `resources/loqui-isolate.c`, `resources/loqui-isolate-loopback.sb`, `resources/loqui-isolate-none.sb`, `resources/loqui-isolate-pasteboard.sb` and `scripts/build-loqui-isolate.js`
 - Modify:
   - `scripts/prepare-platform.cjs`: build the stub on both platforms;
   - `electron-builder.json`: ship it;
@@ -5765,25 +5860,95 @@ test("a probe that finds no sandbox never runs the program", { skip }, (t) => {
   assert.equal(fs.existsSync(marker), false);
 });
 
-test("a delegated URL open is refused inside: LaunchServices does not bind the scheme", { skip }, () => {
-  // An unregistered scheme opens nothing either way. Outside, LaunchServices
-  // answers -10814 (no application); that answer inside means it is reachable.
-  const outside = spawnSync("/usr/bin/open", ["-g", "loquiprobeunregistered://x"], { encoding: "utf8" });
-  assert.match(outside.stderr, /-10814/);
-  const r = boxed("loopback", ["--", "/usr/bin/open", "-g", "loquiprobeunregistered://x"]);
-  assert.doesNotMatch(r.stderr, /-10814/);
+test("every profile denies Apple Events and LaunchServices; only pasteboard may reach the type database", { skip }, () => {
+  for (const name of ["loopback", "none", "pasteboard"]) {
+    const r = boxed(name, ["--self-test"]);
+    assert.equal(r.status, 0, `${name}: ${r.report}`);
+    assert.match(r.report, /appleEvents=denied/, name);
+    assert.match(r.report, /launchservices=denied/, name);
+    assert.match(r.report, name === "pasteboard" ? /lsdMap=reachable/ : /lsdMap=denied/, name);
+  }
 });
 
-test("the paste helpers still work under their profile", { skip }, () => {
-  // Task 0 found that denying com.apple.coreservices.* makes pbcopy exit 0 and
-  // write nothing. This stays red until each kind has the profile it needs.
+test("a sandboxed child cannot open a URL, under any profile", { skip: skip || (process.env.LOQUI_ISOLATION_TESTS !== "required" && "needs a registered probe app (CI)") }, (t) => {
+  // A real app that claims loquiisolationprobe:// and only touches a marker.
+  const apps = path.join(os.homedir(), "Applications");
+  const app = path.join(apps, "LoquiIsolationProbe.app");
+  const marker = path.join(os.tmpdir(), `loqui-url-opened-${process.pid}`);
+  fs.mkdirSync(path.join(app, "Contents", "MacOS"), { recursive: true });
+  fs.writeFileSync(path.join(app, "Contents", "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.loqui.isolationprobe</string><key>CFBundleExecutable</key><string>probe</string><key>CFBundlePackageType</key><string>APPL</string><key>LSBackgroundOnly</key><true/><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>probe</string><key>CFBundleURLSchemes</key><array><string>loquiisolationprobe</string></array></dict></array></dict></plist>`);
+  const src = path.join(os.tmpdir(), `loqui-probe-${process.pid}.c`);
+  fs.writeFileSync(src, `#include <stdio.h>\nint main(void){FILE*f=fopen("${marker}","w");if(f)fclose(f);return 0;}\n`);
+  spawnSync("cc", ["-o", path.join(app, "Contents", "MacOS", "probe"), src]);
+  spawnSync("codesign", ["-s", "-", "-f", app]);
+  const lsregister = "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister";
+  spawnSync(lsregister, ["-f", "-R", app]);
+  t.after(() => {
+    spawnSync(lsregister, ["-u", app]);
+    fs.rmSync(app, { recursive: true, force: true });
+  });
+  const opened = () => {
+    for (let i = 0; i < 50 && !fs.existsSync(marker); i++) spawnSync("/bin/sleep", ["0.1"]);
+    const seen = fs.existsSync(marker);
+    fs.rmSync(marker, { force: true });
+    return seen;
+  };
+  spawnSync("/usr/bin/open", ["-g", "loquiisolationprobe://x"]);
+  assert.equal(opened(), true, "control: without a sandbox the URL opens, so the test can see a leak");
+  for (const name of ["loopback", "none", "pasteboard"]) {
+    boxed(name, ["--", "/usr/bin/open", "-g", "loquiisolationprobe://x"]);
+    assert.equal(opened(), false, `${name}: the URL must not open`);
+  }
+});
+
+test("the paste helpers' profile keeps the pasteboard; the others do not reach it", { skip }, () => {
   const before = spawnSync("/usr/bin/pbpaste", { encoding: "utf8" }).stdout;
   try {
     const marker = `loqui-isolation-${process.pid}`;
-    boxed("none", ["--", "/usr/bin/pbcopy"], { input: marker });
+    boxed("pasteboard", ["--", "/usr/bin/pbcopy"], { input: marker });
     assert.equal(spawnSync("/usr/bin/pbpaste", { encoding: "utf8" }).stdout, marker);
+    boxed("none", ["--", "/usr/bin/pbcopy"], { input: "should-not-land" });
+    assert.notEqual(spawnSync("/usr/bin/pbpaste", { encoding: "utf8" }).stdout, "should-not-land");
   } finally {
     spawnSync("/usr/bin/pbcopy", { input: before });
+  }
+});
+
+test("a wildcard bind in the arguments is refused before anything runs", { skip }, (t) => {
+  const marker = path.join(os.tmpdir(), `loqui-wild-${process.pid}`);
+  t.after(() => fs.rmSync(marker, { force: true }));
+  for (const arg of [["--host", "0.0.0.0"], ["--host=::"], ["--host", "[::]"]]) {
+    const r = boxed("loopback", ["--", "/usr/bin/touch", marker, ...arg]);
+    assert.equal(r.status, EXIT_PROBE_FAILED, arg.join(" "));
+    assert.match(r.report, /status=fail bind=wildcard/);
+    assert.equal(fs.existsSync(marker), false);
+  }
+});
+
+test("the watcher kills a program that listens on 0.0.0.0 or ::, and leaves loopback alone", { skip }, () => {
+  const listen = (host) => `require("net").createServer().listen(0, "${host}", () => setTimeout(() => process.exit(0), 1000))`;
+  for (const host of ["0.0.0.0", "::"]) {
+    const r = spawnSync("/usr/bin/sandbox-exec", ["-f", profile("loopback"), STUB, "--profile", "loopback", "--report-fd", "3", "--watch-fd", "4", "--", process.execPath, "-e", listen(host)], { stdio: ["ignore", "pipe", "pipe", "pipe", "pipe"], encoding: "utf8", timeout: 10000 });
+    assert.equal(r.signal, "SIGKILL", host);
+    assert.match(r.output[4], /^LOQUI-ISOLATE\/1 violation listen=/, host);
+  }
+  const ok = spawnSync("/usr/bin/sandbox-exec", ["-f", profile("loopback"), STUB, "--profile", "loopback", "--report-fd", "3", "--watch-fd", "4", "--", process.execPath, "-e", listen("127.0.0.1")], { stdio: ["ignore", "pipe", "pipe", "pipe", "pipe"], encoding: "utf8", timeout: 10000 });
+  assert.equal(ok.status, 0);
+  assert.equal(ok.output[4], "");
+});
+
+test("the sandbox-API path is held to the same probe: the report and the program agree", { skip }, () => {
+  // No sandbox-exec in front: the stub applies the profile itself. Whatever
+  // the API does on this macOS, the program runs only if the probe passed,
+  // and then it is inside.
+  const r = spawnSync(STUB, ["--seatbelt-api", profile("loopback"), "--profile", "loopback", "--report-fd", "3", "--", process.execPath, PROBE], { stdio: ["ignore", "pipe", "pipe", "pipe"], encoding: "utf8", timeout: 30000 });
+  const report = (r.output[3] ?? "").trim();
+  if (/status=ok/.test(report)) {
+    assert.match(report, /sandboxed=yes/);
+    assert.equal(JSON.parse(r.stdout).udp4, "EPERM");
+  } else {
+    assert.equal(r.status, EXIT_PROBE_FAILED);
+    assert.equal(r.stdout, "", "the program never ran");
   }
 });
 
@@ -5825,18 +5990,29 @@ Create `resources/loqui-isolate.c`:
  * Sealed mode, Plan 07 (D14). Main reads the report and checks it again
  * (src/helpers/privacy/nativeIsolation.js); this file never decides alone.
  *
- *   loqui-isolate --profile loopback|none --report-fd N [--bridge PORT:SOCKET]... -- PROGRAM [ARGS...]
- *   loqui-isolate --profile loopback|none --report-fd N --self-test
+ *   loqui-isolate --profile loopback|none|pasteboard --report-fd N [--watch-fd N]
+ *                 [--bridge PORT:SOCKET]... [--seatbelt-api PROFILE] -- PROGRAM [ARGS...]
+ *   loqui-isolate --profile loopback|none|pasteboard --report-fd N --self-test
  *   loqui-isolate --control --report-fd N
  *
+ * Profiles: loopback (servers: loopback only), none (no network), pasteboard
+ * (no network; on macOS the paste helpers may reach the pasteboard's type
+ * database). Every profile closes Apple Events and LaunchServices URL opening.
+ *
  * macOS: main runs this under /usr/bin/sandbox-exec with the matching profile,
- * so the sandbox is already in force when main() starts, and execv() keeps it.
+ * so the sandbox is already in force when main() starts, and execv() keeps it. If
+ * sandbox-exec is ever gone, main passes --seatbelt-api and this applies the
+ * same profile itself; the probe below decides either way, so an API that
+ * returns success without enforcing anything is caught, not trusted.
  * Linux: this program creates its own user, network and mount namespaces
  * (Task 6d).
  *
  * It writes exactly one report line to the report fd and closes it before
  * exec, so the program can never write to it. If any check fails it reports
- * status=fail and exits 78 without running the program.
+ * status=fail and exits 78 without running the program. It also refuses a
+ * program whose arguments ask for a wildcard bind (0.0.0.0, ::), and for the
+ * loopback profile it leaves a watcher that kills the program if it ever
+ * listens on anything but loopback, and says so on the watch fd.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -5861,8 +6037,16 @@ Create `resources/loqui-isolate.c`:
 #include <sys/stat.h>
 #endif
 #ifdef __APPLE__
+#include <libproc.h>
 #include <mach/mach.h>
 #include <servers/bootstrap.h>
+#include <signal.h>
+#include <stdint.h>
+#include <sys/proc_info.h>
+extern int sandbox_check(pid_t pid, const char *operation, int type, ...);
+extern int sandbox_init_with_parameters(const char *profile, uint64_t flags, const char *const parameters[], char **errorbuf);
+#define SANDBOX_CHECK_NONE 0
+#define SANDBOX_CHECK_APPLEEVENT_DESTINATION 7
 #endif
 
 #define EXIT_PROBE_FAILED 78
@@ -6134,6 +6318,109 @@ static int start_bridge(const char *spec, int report_fd) {
 }
 #endif
 
+/* A wildcard bind in the program's own arguments: refused before exec. */
+static int wildcard_arg(char **args) {
+  static const char *wild[] = {"0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0", NULL};
+  for (char **a = args; *a; a++) {
+    const char *v = strchr(*a, '=') ? strchr(*a, '=') + 1 : *a;
+    for (int i = 0; wild[i]; i++)
+      if (!strcmp(v, wild[i])) return 1;
+  }
+  return 0;
+}
+
+/* 1 when the process has a TCP listener on anything but loopback; the
+ * address goes into desc. Linux reads this namespace's own tables, which only
+ * this launch's processes can use. */
+static int foreign_listener(pid_t pid, char *desc, size_t dn) {
+#ifdef __APPLE__
+  int size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
+  if (size <= 0) return 0;
+  struct proc_fdinfo *fds = malloc((size_t)size);
+  if (!fds) return 0;
+  size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, fds, size);
+  int found = 0;
+  for (int i = 0; i < size / (int)sizeof *fds && !found; i++) {
+    struct socket_fdinfo si;
+    if (fds[i].proc_fdtype != PROX_FDTYPE_SOCKET) continue;
+    if (proc_pidfdinfo(pid, fds[i].proc_fd, PROC_PIDFDSOCKETINFO, &si, sizeof si) != sizeof si) continue;
+    if (si.psi.soi_kind != SOCKINFO_TCP || si.psi.soi_proto.pri_tcp.tcpsi_state != TSI_S_LISTEN) continue;
+    struct in_sockinfo *in = &si.psi.soi_proto.pri_tcp.tcpsi_ini;
+    int port = ntohs((unsigned short)in->insi_lport);
+    char text[INET6_ADDRSTRLEN] = "";
+    if (in->insi_vflag & INI_IPV4) {
+      struct in_addr a = in->insi_laddr.ina_46.i46a_addr4;
+      if ((ntohl(a.s_addr) >> 24) == 127) continue;
+      inet_ntop(AF_INET, &a, text, sizeof text);
+    } else {
+      struct in6_addr a = in->insi_laddr.ina_6;
+      if (IN6_IS_ADDR_LOOPBACK(&a)) continue;
+      inet_ntop(AF_INET6, &a, text, sizeof text);
+    }
+    snprintf(desc, dn, "%s:%d", text, port);
+    found = 1;
+  }
+  free(fds);
+  return found;
+#else
+  (void)pid;
+  static const char *tables[] = {"/proc/self/net/tcp", "/proc/self/net/tcp6"};
+  for (int t = 0; t < 2; t++) {
+    FILE *f = fopen(tables[t], "r");
+    if (!f) continue;
+    char line[512], local[64];
+    unsigned state;
+    if (!fgets(line, sizeof line, f)) { fclose(f); continue; } /* header */
+    while (fgets(line, sizeof line, f)) {
+      if (sscanf(line, "%*d: %63s %*s %x", local, &state) != 2 || state != 0x0A) continue; /* 0A: LISTEN */
+      char *colon = strrchr(local, ':');
+      if (!colon) continue;
+      *colon = 0;
+      int loop = t == 0 ? !strcmp(local + 6, "7F") : !strcmp(local, "00000000000000000000000001000000");
+      if (loop) continue;
+      snprintf(desc, dn, "%s:%d", t == 0 && !strcmp(local, "00000000") ? "0.0.0.0" : t == 1 && !strcmp(local, "00000000000000000000000000000000") ? "::" : local, (int)strtol(colon + 1, NULL, 16));
+      fclose(f);
+      return 1;
+    }
+    fclose(f);
+  }
+  return 0;
+#endif
+}
+
+/* Forked before exec, for the loopback profile. Polls every 20 ms; on a
+ * listener that is not loopback, it kills the program, reports on the watch
+ * fd, and exits. It exits with the program, and holds none of its fds. */
+static void start_watcher(int report_fd, int watch_fd) {
+  pid_t parent = getpid();
+  pid_t pid = fork();
+  if (pid != 0) {
+    if (watch_fd >= 0) close(watch_fd);
+    return;
+  }
+#ifdef __linux__
+  prctl(PR_SET_PDEATHSIG, SIGKILL);
+#endif
+  close(report_fd);
+  int devnull = open("/dev/null", O_RDWR);
+  if (devnull >= 0) {
+    dup2(devnull, 0);
+    dup2(devnull, 1);
+    dup2(devnull, 2);
+    if (devnull > 2) close(devnull);
+  }
+  char desc[96];
+  while (getppid() == parent) {
+    if (foreign_listener(parent, desc, sizeof desc)) {
+      kill(parent, SIGKILL);
+      if (watch_fd >= 0) dprintf(watch_fd, "LOQUI-ISOLATE/1 violation listen=%s\n", desc);
+      _exit(0);
+    }
+    usleep(20000);
+  }
+  _exit(0);
+}
+
 /* Every check, in a fixed order. Returns 0 when the expected-failure checks
  * look right from here; main re-checks every value either way. */
 static int probe(int loopback_profile) {
@@ -6145,6 +6432,10 @@ static int probe(int loopback_profile) {
   add(" dnsSocket=%s", unix_connect("/var/run/mDNSResponder"));
   add(" nsurlsessiond=%s", service("com.apple.nsurlsessiond"));
   add(" launchservices=%s", service("com.apple.coreservices.launchservicesd"));
+  add(" lsdMap=%s", service("com.apple.lsd.mapdb"));
+  /* Apple Events can ask any app to open a URL. Checked, never sent. */
+  add(" appleEvents=%s", sandbox_check(getpid(), "appleevent-send", SANDBOX_CHECK_NONE) ? "denied" : "allowed");
+  add(" sandboxed=%s", sandbox_check(getpid(), NULL, SANDBOX_CHECK_NONE) ? "yes" : "no");
 #else
   add(" dnsSocket=%s", unix_connect("/run/systemd/resolve/io.systemd.Resolve"));
 #endif
@@ -6169,11 +6460,14 @@ static void send_report(int fd) {
 
 int main(int argc, char **argv) {
   const char *profile = NULL;
-  int report_fd = -1, self_test = 0, control = 0, program = -1, bridges = 0;
+  int report_fd = -1, watch_fd = -1, self_test = 0, control = 0, program = -1, bridges = 0;
+  const char *seatbelt_api = NULL;
   const char *bridge[16];
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--profile") && i + 1 < argc) profile = argv[++i];
     else if (!strcmp(argv[i], "--report-fd") && i + 1 < argc) report_fd = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--watch-fd") && i + 1 < argc) watch_fd = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--seatbelt-api") && i + 1 < argc) seatbelt_api = argv[++i];
     else if (!strcmp(argv[i], "--self-test")) self_test = 1;
     else if (!strcmp(argv[i], "--control")) control = 1;
     else if (!strcmp(argv[i], "--bridge") && i + 1 < argc && bridges < 16) bridge[bridges++] = argv[++i];
@@ -6183,16 +6477,40 @@ int main(int argc, char **argv) {
   if (report_fd < 3) return EXIT_USAGE;
   /* The report fd must never reach the program. */
   fcntl(report_fd, F_SETFD, FD_CLOEXEC);
+  if (watch_fd >= 0) fcntl(watch_fd, F_SETFD, FD_CLOEXEC);
   if (control) {
     add(" profile=control status=ok");
     probe(1);
     send_report(report_fd);
     return 0;
   }
-  if (!profile || (strcmp(profile, "loopback") && strcmp(profile, "none"))) return EXIT_USAGE;
+  if (!profile || (strcmp(profile, "loopback") && strcmp(profile, "none") && strcmp(profile, "pasteboard"))) return EXIT_USAGE;
   if (!self_test && (program < 0 || program >= argc)) return EXIT_USAGE;
   int loopback_profile = !strcmp(profile, "loopback");
   if (bridges > 0 && !loopback_profile) return EXIT_USAGE;
+  if (!self_test && wildcard_arg(argv + program)) {
+    add(" profile=%s status=fail bind=wildcard", profile);
+    send_report(report_fd);
+    return EXIT_PROBE_FAILED;
+  }
+#ifdef __APPLE__
+  if (seatbelt_api) {
+    FILE *f = fopen(seatbelt_api, "r");
+    static char text[65536];
+    size_t n = f ? fread(text, 1, sizeof text - 1, f) : 0;
+    if (f) fclose(f);
+    text[n] = 0;
+    char *error = NULL;
+    const char *none[] = {NULL};
+    if (n == 0 || sandbox_init_with_parameters(text, 0, none, &error) != 0) {
+      add(" profile=%s status=fail seatbeltApi=error", profile);
+      send_report(report_fd);
+      return EXIT_PROBE_FAILED;
+    }
+  }
+#else
+  (void)seatbelt_api;
+#endif
 #ifdef __linux__
   if (enter_namespaces(loopback_profile) != 0) {
     add(" profile=%s status=fail namespace=%s", profile, errname(errno));
@@ -6220,8 +6538,13 @@ int main(int argc, char **argv) {
   report[0] = 0;
   add(" profile=%s status=%s%s", profile, ok ? "ok" : "fail", probe_part);
   if (bridge_errno) add(" bridge=%s", errname(bridge_errno));
+  if (!ok) {
+    send_report(report_fd);
+    return EXIT_PROBE_FAILED;
+  }
+  if (loopback_profile && !self_test) start_watcher(report_fd, watch_fd);
+  else if (watch_fd >= 0) close(watch_fd);
   send_report(report_fd);
-  if (!ok) return EXIT_PROBE_FAILED;
   if (self_test) return 0;
   execvp(argv[program], argv + program); /* a bare name (osascript) is looked up in PATH */
   return 127; /* exec failed: nothing ran */
@@ -6230,42 +6553,77 @@ int main(int argc, char **argv) {
 
 - [ ] **Step 5: Write the macOS profiles**
 
-Create `resources/loqui-isolate-loopback.sb`:
+Create `resources/loqui-isolate-loopback.sb` (model servers):
 
 ```scheme
-;; Sealed mode (Plan 07, D14): loopback-only networking for native children.
+;; Sealed mode (Plan 07, D14): loopback-only networking, for model servers.
 ;; docs/security/native-isolation-spike.md (Task 0) is the source for every
-;; rule here; change both together. "localhost" in this language means every
-;; address of this computer, not just loopback (Task 0, question 1).
+;; rule here; change all three profiles together. "localhost" in this language
+;; means every address of this computer, so loqui-isolate also refuses and
+;; watches for wildcard binds.
 (version 1)
 (allow default)
 (deny network*)
+;; Apple Events can ask any app to open a URL; never sent from a sealed child.
+(deny appleevent-send)
 (allow network-bind (local ip "localhost:*"))
 (allow network-inbound (local ip "localhost:*"))
 (allow network-outbound (remote ip "localhost:*"))
-;; Services that would reach the network on the child's behalf: DNS,
-;; background downloads, and LaunchServices (opening a URL in the browser).
 (deny mach-lookup
+  ;; DNS and background downloads: services that reach the network for a child.
   (global-name "com.apple.dnssd.service")
   (global-name "com.apple.nsurlsessiond")
+  ;; LaunchServices: opening a URL in the browser.
   (global-name-regex #"^com\.apple\.coreservices\.")
   (global-name-regex #"^com\.apple\.lsd\."))
 ```
 
-Create `resources/loqui-isolate-none.sb`:
+Create `resources/loqui-isolate-none.sb` (every other native child):
 
 ```scheme
 ;; Sealed mode (Plan 07, D14): no networking at all, loopback included.
-;; docs/security/native-isolation-spike.md (Task 0) is the source for every rule.
+;; docs/security/native-isolation-spike.md (Task 0) is the source for every
+;; rule here; change all three profiles together. "localhost" in this language
+;; means every address of this computer, so loqui-isolate also refuses and
+;; watches for wildcard binds.
 (version 1)
 (allow default)
 (deny network*)
+;; Apple Events can ask any app to open a URL; never sent from a sealed child.
+(deny appleevent-send)
 (deny mach-lookup
+  ;; DNS and background downloads: services that reach the network for a child.
   (global-name "com.apple.dnssd.service")
   (global-name "com.apple.nsurlsessiond")
+  ;; LaunchServices: opening a URL in the browser.
   (global-name-regex #"^com\.apple\.coreservices\.")
   (global-name-regex #"^com\.apple\.lsd\."))
 ```
+
+Create `resources/loqui-isolate-pasteboard.sb` (the paste helpers only):
+
+```scheme
+;; Sealed mode (Plan 07, D14): no networking, for the paste helpers. They may
+;; reach com.apple.lsd.* (pbcopy needs it); URL opening stays closed because
+;; com.apple.coreservices.* and Apple Events are denied.
+;; docs/security/native-isolation-spike.md (Task 0) is the source for every
+;; rule here; change all three profiles together. "localhost" in this language
+;; means every address of this computer, so loqui-isolate also refuses and
+;; watches for wildcard binds.
+(version 1)
+(allow default)
+(deny network*)
+;; Apple Events can ask any app to open a URL; never sent from a sealed child.
+(deny appleevent-send)
+(deny mach-lookup
+  ;; DNS and background downloads: services that reach the network for a child.
+  (global-name "com.apple.dnssd.service")
+  (global-name "com.apple.nsurlsessiond")
+  ;; LaunchServices: opening a URL in the browser.
+  (global-name-regex #"^com\.apple\.coreservices\."))
+```
+
+The profiles allow only network-bind and network-inbound on local addresses, and network-outbound to remote local addresses. Never use `(allow network* (local ip "localhost:*"))`: it admits every socket bound to a local address, outbound included. That mistake made an early test wrongly look as if the sandbox API enforced nothing.
 
 - [ ] **Step 6: Build and ship the stub**
 
@@ -6298,7 +6656,7 @@ if (stale) {
   console.log("[loqui-isolate] built", output);
 }
 if (process.platform === "darwin")
-  for (const name of ["loopback", "none"])
+  for (const name of ["loopback", "none", "pasteboard"])
     fs.copyFileSync(path.join(root, "resources", `loqui-isolate-${name}.sb`), path.join(outDir, `loqui-isolate-${name}.sb`));
 ```
 
@@ -6318,7 +6676,7 @@ Then:
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `node scripts/build-loqui-isolate.js && LOQUI_ISOLATION_TESTS=required node --test test/native/isolation.darwin.test.js`
-Expected: PASS, except "the paste helpers still work under their profile" until Task 0's per-kind profiles land. If Task 0 has not settled them, stop. That is a gate item.
+Expected: PASS. "A sandboxed child cannot open a URL" needs the probe app registered with LaunchServices, so it runs where `LOQUI_ISOLATION_TESTS=required` (CI on `macos-26`), and is skipped elsewhere.
 
 - [ ] **Step 8: Commit**
 
@@ -6483,7 +6841,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const { createIsolation, verifyReport, EXIT_PROBE_FAILED } = require("../../src/helpers/privacy/nativeIsolation");
 const { openBridge } = require("../../src/helpers/privacy/loopbackBridge");
 
-const STUB = path.join(__dirname, "..", "..", "resources", "bin", "loqui-isolate");
+const STUB = process.env.LOQUI_ISOLATION_STUB ?? path.join(__dirname, "..", "..", "resources", "bin", "loqui-isolate");
 const PROBE = path.join(__dirname, "..", "fixtures", "isolationProbe.js");
 const required = process.env.LOQUI_ISOLATION_TESTS === "required";
 // "allowed" (default) or "restricted": what this machine's user namespaces allow.
@@ -6509,7 +6867,7 @@ test("restricted user namespaces: the stub reports why and runs nothing", { skip
 const allowed = skip || (userns !== "allowed" && "user namespaces restricted here");
 
 test("self-test: both profiles prove isolation from a namespace of their own", { skip: allowed }, () => {
-  for (const [profile, state] of [["loopback", "isolated"], ["none", "networkFree"]]) {
+  for (const [profile, state] of [["loopback", "isolated"], ["none", "networkFree"], ["pasteboard", "networkFree"]]) {
     const r = stub(["--profile", profile, "--self-test"]);
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(verifyReport(r.report, { platform: "linux", profile, hostNetns: hostNetns() }), { state, problems: [] });
@@ -6538,6 +6896,18 @@ test("the program cannot write a report: fd 3 is closed before exec", { skip: al
   const r = stub(["--profile", "loopback", "--", process.execPath, "-e", forge]);
   assert.notEqual(r.stdout.trim(), "wrote");
   assert.doesNotMatch(r.report, /forged/);
+});
+
+test("a wildcard bind in the arguments is refused, and a wildcard listener is killed", { skip: allowed }, () => {
+  const refused = stub(["--profile", "loopback", "--", "/bin/true", "--host=0.0.0.0"]);
+  assert.equal(refused.status, EXIT_PROBE_FAILED);
+  assert.match(refused.report, /status=fail bind=wildcard/);
+  for (const host of ["0.0.0.0", "::"]) {
+    const listen = `require("net").createServer().listen(0, "${host}", () => setTimeout(() => process.exit(0), 1000))`;
+    const r = spawnSync(STUB, ["--profile", "loopback", "--report-fd", "3", "--watch-fd", "4", "--", process.execPath, "-e", listen], { stdio: ["ignore", "pipe", "pipe", "pipe", "pipe"], encoding: "utf8", timeout: 10000 });
+    assert.equal(r.signal, "SIGKILL", host);
+    assert.match(r.output[4], /^LOQUI-ISOLATE\/1 violation listen=/, host);
+  }
 });
 
 test("the system and session buses are hidden inside, so resolved and portals cannot act for the child", { skip: allowed }, () => {
@@ -7049,6 +7419,809 @@ git commit -m "feat(privacy): run the ONNX worker as a native child under the la
 
 ---
 
+### Task 6g: Loopback-only binds: main's side of the watcher, the sandbox-API fallback, and a loopback-patched sherpa-onnx (round-3 rulings)
+
+**Rulings (2026-10-15), and what this task does with them:**
+- **Every sealed server binds 127.0.0.1 or ::1 explicitly.** llama-server and whisper-server already pass `--host 127.0.0.1` (`llamaServer.js:209`, `whisperServer.js:161`), and Task 6a refuses any other `--host` while sealed. Qdrant's config says `host: 127.0.0.1` (`qdrantManager.js:112`).
+
+  The Parakeet server cannot: sherpa-onnx's WebSocket servers call `server_.listen(asio::ip::tcp::v4(), port)`. That is `0.0.0.0`, with no host option, in v1.13.8 (`online-websocket-server-impl.cc:254`, `offline-websocket-server-impl.cc:288`) and on upstream `master`. Today, sealed or not, the Parakeet server listens on every IPv4 interface. This task builds the two servers from the pinned source, with a two-line patch that binds `127.0.0.1`.
+- **The launcher refuses a `0.0.0.0` or `::` bind while sealed.** The stub (Task 6c) does this two ways:
+  - It refuses a program whose arguments ask for a wildcard address. It reports `bind=wildcard`, and the program never runs.
+  - For the `loopback` profile, it leaves a watcher behind. Every 20 ms the watcher checks the program's listening sockets: on macOS through `proc_pidinfo`, and on Linux through the namespace's own `/proc/self/net/tcp{,6}`. It kills the program the moment one of them is not loopback, and reports the address on the watch fd (fd 4).
+
+  This task makes main act on that report: the child becomes `failed`, and the refusal is recorded.
+
+  Measured while writing this plan: a Node server on `0.0.0.0` or `::` inside the sandbox was killed (exit 137), with `violation listen=0.0.0.0:46611`. A loopback server was left alone. This held on macOS 27.0.1 and inside a Linux namespace.
+
+  **Residual:** a wildcard listener can exist for up to one poll interval before it is killed. No Loqui server binds a wildcard once the patched sherpa-onnx ships, and Task 16 still checks for inbound connections from a second machine.
+- **The sandbox-API fallback.** `/usr/bin/sandbox-exec` stays the mechanism. If it is ever missing, main runs the stub with `--seatbelt-api <profile>`, and the stub applies the same profile itself through `sandbox_init_with_parameters`. The same probe decides, so if the API returned success but enforced nothing, the boot self-test would fail and native children would pause. Users would never run them unconfined.
+
+  Measured on macOS 27.0.1: through the API, the stub's report shows `sandboxed=yes` with `EPERM` on every outbound check. A program `exec`ed afterwards still gets `EPERM`. An earlier attempt seemed to show the API enforcing nothing. That was the test profile's fault: `(allow network* (local ip "localhost:*"))` admits every socket bound to a local address, outbound included. This plan's profiles never use that form.
+
+**Files:**
+- Modify: `src/helpers/privacy/nativeIsolation.js` and `src/helpers/privacy/childRegistry.js` (Tasks 6b and 6e)
+- Create:
+  - `resources/patches/sherpa-onnx-loopback.patch`;
+  - `scripts/build-sherpa-websocket.js`;
+  - `test/helpers/isolationWatch.test.js`;
+  - `test/native/sherpaLoopback.test.js`.
+- Modify: `scripts/prepare-platform.cjs` and `.github/workflows/platform.yml`
+
+**Interfaces:**
+- `wrap()` reserves fd 4 for the watch pipe, as well as fd 3. `stdio` becomes `[0, 1, 2, "pipe", "pipe", …rest]`, and `"ipc"` moves to fd 5. For the `loopback` profile it passes `--watch-fd 4`.
+- `createIsolation({ …, sandboxExecExists = () => fs.existsSync(sandboxExec) })`. On macOS, when `sandbox-exec` is missing, the stub line is `[stub, "--seatbelt-api", profilePath, …]`, with no `sandbox-exec` in front. `status().mechanism` is then `"seatbelt-api"`.
+- `settle()` keeps reading the watch pipe while the child runs. A `violation` line calls `onViolation({ address })`, and the registry sets the child to `failed` with the problem `wildcardListen:<address>`. It also records a `blocked` ledger row whose host is the kind.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/helpers/isolationWatch.test.js`. It uses the fake stub, extended in Step 2 to write a `violation` line on fd 4 when `FAKE_ISOLATE_VIOLATION` is set:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const realChildProcess = require("node:child_process");
+const gate = require("../../src/helpers/privacy/egressGate");
+const registry = require("../../src/helpers/privacy/childRegistry");
+const { createIsolation } = require("../../src/helpers/privacy/nativeIsolation");
+
+const skip = process.platform === "win32" && "POSIX shell fixture";
+const FAKE = path.join(__dirname, "..", "fixtures", "fakeIsolate.js");
+const OK = "LOQUI-ISOLATE/1 profile=loopback status=ok udp4=ENETUNREACH udp6=ENETUNREACH tcp4=ENETUNREACH dnsSocket=ENOENT loop4=ok loop6=ok netns=net:[4026532999] ifaces=lo";
+
+function isolation(platform, extra = {}) {
+  return createIsolation({ platform, stubCommand: [process.execPath, FAKE], profileDir: "/profiles", runtimeDir: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-iso-")), hostNetns: () => "net:[1]", spawnRaw: realChildProcess.spawn, ...extra });
+}
+
+test("wrap reserves fd 3 for the report and fd 4 for the watch; ipc moves to fd 5", () => {
+  const w = isolation("linux").wrap({ command: "/x", options: { stdio: ["ignore", "pipe", "pipe", "ipc"] }, profile: "none", ports: [] });
+  assert.deepEqual(w.options.stdio, ["ignore", "pipe", "pipe", "pipe", "pipe", "ipc"]);
+});
+
+test("the loopback profile asks the stub to watch for wildcard listeners; the others do not", () => {
+  const iso = isolation("linux");
+  assert.ok(iso.wrap({ command: "/x", profile: "loopback", ports: [1] }).args.join(" ").includes("--watch-fd 4"));
+  assert.ok(!iso.wrap({ command: "/x", profile: "none", ports: [] }).args.includes("--watch-fd"));
+});
+
+test("macOS without sandbox-exec: the stub applies the profile itself, behind the same probe", () => {
+  const iso = isolation("darwin", { sandboxExecExists: () => false });
+  const w = iso.wrap({ command: "/x", profile: "pasteboard", ports: [] });
+  assert.equal(w.command, process.execPath, "no sandbox-exec in front");
+  assert.deepEqual(w.args.slice(1, 3), ["--seatbelt-api", path.join("/profiles", "loqui-isolate-pasteboard.sb")]);
+  assert.equal(iso.status().mechanism, "seatbelt-api");
+  const usual = isolation("darwin", { sandboxExecExists: () => true }).wrap({ command: "/x", profile: "none", ports: [] });
+  assert.equal(usual.command, "/usr/bin/sandbox-exec");
+});
+
+test("a watch violation fails the child, names the address, and records a refusal", { skip }, async (t) => {
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => true });
+  registry._resetForTests();
+  const childProcess = { ...realChildProcess };
+  const iso = isolation("linux");
+  iso._setSelfTestForTests("passed");
+  registry.installSpawnGuard({ childProcess, isolation: iso });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-bin-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  registry.registerLocalBinaryDir(dir);
+  const file = path.join(dir, "fake-server");
+  fs.writeFileSync(file, "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
+  const changes = [];
+  registry.onIsolationChange((e) => changes.push(e));
+  const child = childProcess.spawn(file, [], { env: { ...process.env, FAKE_ISOLATE_REPORT: OK, FAKE_ISOLATE_VIOLATION: "0.0.0.0:46611" }, loquiIsolation: { profile: "loopback", ports: [46611] } });
+  t.after(() => child.kill("SIGKILL"));
+  for (let i = 0; i < 200 && !changes.some((c) => c.isolation === "failed"); i++) await new Promise((r) => setTimeout(r, 10));
+  const failed = changes.find((c) => c.isolation === "failed");
+  assert.deepEqual(failed.problems, ["wildcardListen:0.0.0.0:46611"]);
+  assert.ok(gate.counters().blockedSinceSealed >= 1);
+});
+```
+
+Create `test/native/sherpaLoopback.test.js`. It runs in `platform.yml` after `prepare:platform` has built the patched servers:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const net = require("node:net");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { spawn, execFileSync } = require("node:child_process");
+
+const BIN = path.join(__dirname, "..", "..", "resources", "bin");
+const required = process.env.LOQUI_ISOLATION_TESTS === "required";
+const server = path.join(BIN, `sherpa-onnx-offline-websocket-server-${process.platform}-${process.arch}`);
+const skip = process.platform === "win32" ? "not a release platform" : !fs.existsSync(server) && !required ? "patched server not built" : false;
+
+function listeners(pid) {
+  return process.platform === "darwin"
+    ? execFileSync("lsof", ["-nP", "-a", "-p", String(pid), "-iTCP", "-sTCP:LISTEN", "-Fn"], { encoding: "utf8" }).split("\n").filter((l) => l.startsWith("n")).map((l) => l.slice(1))
+    : execFileSync("ss", ["-ltnpH"], { encoding: "utf8" }).split("\n").filter((l) => l.includes(`pid=${pid},`)).map((l) => l.trim().split(/\s+/)[3]);
+}
+
+test("the patched Parakeet server listens on 127.0.0.1 only", { skip }, async (t) => {
+  // listen() runs only after the model loads, so this needs a real model.
+  const model = process.env.LOQUI_SHERPA_TEST_MODEL_DIR;
+  if (!model) return required ? assert.fail("LOQUI_SHERPA_TEST_MODEL_DIR not set in CI") : t.skip("no test model");
+  const port = 46700;
+  const child = spawn(server, [`--tokens=${path.join(model, "tokens.txt")}`, `--encoder=${path.join(model, "encoder.int8.onnx")}`, `--decoder=${path.join(model, "decoder.int8.onnx")}`, `--joiner=${path.join(model, "joiner.int8.onnx")}`, `--port=${port}`], { stdio: "ignore" });
+  t.after(() => child.kill("SIGKILL"));
+  let bound = [];
+  for (let i = 0; i < 300 && bound.length === 0; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    try {
+      bound = listeners(child.pid);
+    } catch {
+      bound = [];
+    }
+  }
+  assert.deepEqual(bound, [`127.0.0.1:${port}`]);
+  const ok = await new Promise((resolve) => net.connect(port, "127.0.0.1").on("connect", function () { this.destroy(); resolve(true); }).on("error", () => resolve(false)));
+  assert.equal(ok, true);
+});
+```
+
+`platform.yml` downloads a small sherpa-onnx transducer model into `.cache/runtime-downloads` (cached, like the other runtime assets), and sets `LOQUI_SHERPA_TEST_MODEL_DIR` for this step.
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npm test -- test/helpers/isolationWatch.test.js`
+Expected: FAIL. `stdio` has no fd 4, there is no `--watch-fd`, no `--seatbelt-api` and no `onViolation`.
+
+- [ ] **Step 3: Implement main's side**
+
+In `test/fixtures/fakeIsolate.js`, after the report is written: if `FAKE_ISOLATE_VIOLATION` is set, `fs.writeSync(4, "LOQUI-ISOLATE/1 violation listen=" + process.env.FAKE_ISOLATE_VIOLATION + "\n")`, then `process.exit(137)`. This stands in for the real watcher killing the program.
+
+In `src/helpers/privacy/nativeIsolation.js`:
+1. Add `const WATCH_FD = 4;`. `normalizeStdio` returns `[...base.slice(0, 3), "pipe", "pipe", ...rest]`.
+2. `stubLine(profile, extra)` takes the macOS path into account:
+
+   ```js
+     const useApi = platform === "darwin" && !sandboxExecExists();
+     function stubLine(profile, extra) {
+       const profilePath = path.join(profileDir, `loqui-isolate-${profile}.sb`);
+       const stub = [...stubCommand, ...(useApi ? ["--seatbelt-api", profilePath] : []), "--profile", profile, "--report-fd", String(REPORT_FD), ...extra];
+       return platform === "darwin" && !useApi ? [sandboxExec, "-f", profilePath, ...stub] : stub;
+     }
+   ```
+
+   In `wrap`, put `--watch-fd 4` in `extra` when `profile === "loopback"`. Set `mechanism` to `"seatbelt-api"` when `useApi`. Because the first `--profile` argument now comes after `--seatbelt-api` on that path, the test above reads `args.slice(1, 3)`.
+3. Add `settle(child, wrapped, { onViolation } = {})`: after the report has settled as `isolated`, read `child.stdio[WATCH_FD]` line by line. For each line that matches `^LOQUI-ISOLATE/1 violation listen=(\S+)$`, call `onViolation({ address })` once, then `child.kill("SIGKILL")`. The watcher has normally killed it already. Ignore any other line.
+
+In `src/helpers/privacy/childRegistry.js`, pass `onViolation` from `guarded`:
+
+```js
+isolation
+  .settle(result, wrapped, {
+    onViolation: ({ address }) => {
+      gate.recordBackstopBlock({ host: entry.kind.replace(/[^a-z0-9._-]/g, "") || "unknown" });
+      setIsolation(entry, "failed", [`wildcardListen:${address}`]);
+    },
+  })
+  .then(({ state, problems }) => {
+    if (entry.isolation !== "failed") setIsolation(entry, state ?? "failed", problems);
+  });
+```
+
+- [ ] **Step 4: Build the Parakeet servers with a loopback bind**
+
+Create `resources/patches/sherpa-onnx-loopback.patch`:
+
+```diff
+--- a/sherpa-onnx/csrc/online-websocket-server-impl.cc
++++ b/sherpa-onnx/csrc/online-websocket-server-impl.cc
+@@ -251,7 +251,9 @@
+-  server_.listen(asio::ip::tcp::v4(), port);
++  // Loqui (Plan 07): listen on loopback only. Upstream binds every interface.
++  server_.listen(asio::ip::tcp::endpoint(asio::ip::make_address("127.0.0.1"),
++                                         static_cast<uint16_t>(port)));
+--- a/sherpa-onnx/csrc/offline-websocket-server-impl.cc
++++ b/sherpa-onnx/csrc/offline-websocket-server-impl.cc
+@@ -285,7 +285,9 @@
+-  server_.listen(asio::ip::tcp::v4(), port);
++  // Loqui (Plan 07): listen on loopback only. Upstream binds every interface.
++  server_.listen(asio::ip::tcp::endpoint(asio::ip::make_address("127.0.0.1"),
++                                         static_cast<uint16_t>(port)));
+```
+
+Generate the hunk headers with `git diff` against the `v1.13.8` tag; do not edit them by hand. `git apply --check` in Step 5 rejects a wrong context.
+
+Create `scripts/build-sherpa-websocket.js`, modelled on `scripts/build-meeting-aec-helper.js`, with the same hash file so that it rebuilds only when inputs change:
+1. Read the sherpa-onnx tag from `runtime-assets.json` (`v1.13.8`).
+2. Fetch that tag's source archive into `.cache/runtime-downloads/`, and verify its SHA-256, which is pinned in the script.
+3. `git apply resources/patches/sherpa-onnx-loopback.patch`.
+4. Configure with `cmake -DSHERPA_ONNX_ENABLE_WEBSOCKET=ON -DBUILD_SHARED_LIBS=ON -DSHERPA_ONNX_ENABLE_PYTHON=OFF -DSHERPA_ONNX_ENABLE_TESTS=OFF -DCMAKE_BUILD_TYPE=Release`, then build only the `sherpa-onnx-online-websocket-server` and `sherpa-onnx-offline-websocket-server` targets.
+5. Copy them over the downloaded executables in `resources/bin`, under the names `parakeetWsServer.js` already resolves. Keep the downloaded shared libraries, after checking that the built executables link against the same `libsherpa-onnx-*` and `libonnxruntime` versions (`otool -L` or `ldd`). On a mismatch, fail the build; never ship mixed versions.
+
+In `scripts/prepare-platform.cjs`, run `build-sherpa-websocket` after `download-sherpa-onnx`. Cache its build directory in `platform.yml` beside the meeting-aec cache, keyed on the patch, the script and `runtime-assets.json`.
+
+**Until this ships, Parakeet cannot run sealed.** The watcher kills the stock server the moment it binds `0.0.0.0`, and the dictation fails as a sealed refusal, which keeps the recording (Task 13). That is the intended fail-closed behaviour, and Task 16 checks it.
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run:
+
+```bash
+npm test -- test/helpers/isolationWatch.test.js test/helpers/nativeIsolation.test.js
+git -C .cache/runtime-downloads/sherpa-onnx-1.13.8 apply --check ../../../resources/patches/sherpa-onnx-loopback.patch
+node scripts/build-sherpa-websocket.js
+LOQUI_ISOLATION_TESTS=required LOQUI_SHERPA_TEST_MODEL_DIR=<model dir> node --test "test/native/*.test.js"
+```
+
+Expected: PASS, and `sherpaLoopback.test.js` reports a single listener, `127.0.0.1:46700`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/helpers/privacy/nativeIsolation.js src/helpers/privacy/childRegistry.js test/fixtures/fakeIsolate.js test/helpers/isolationWatch.test.js test/native/sherpaLoopback.test.js resources/patches/sherpa-onnx-loopback.patch scripts/build-sherpa-websocket.js scripts/prepare-platform.cjs .github/workflows/platform.yml
+git commit -m "feat(privacy): refuse wildcard binds while sealed, and build Parakeet with a loopback bind"
+```
+
+---
+
+### Task 6h: Linux packages that install an AppArmor profile for the launcher (D15)
+
+D15 (spec PR #51, `3e34bdc`): Ubuntu 24.04 restricts unprivileged user namespaces by default. So the `.deb` and `.rpm` packages install an AppArmor profile that lets `loqui-isolate` create its namespaces. Everywhere else, native model servers pause while sealed (Task 6i).
+
+The profile grants one permission, `userns`, to one path: the root-owned launcher in the package. It does not confine anything else. This follows the pattern Ubuntu documents for applications that need user namespaces under the restriction.
+
+**This was measured on 2026-10-15, in an Ubuntu 24.04 container with the distribution's `apparmor` package:**
+- the installed profile parses with `apparmor_parser -Q -K -T`;
+- the installer refuses each of these:
+  - a path with spaces or braces;
+  - a symlinked launcher;
+  - a launcher in a directory any user can write;
+  - a system without AppArmor 4.0;
+- the remover deletes the profile;
+- what this container could not test is loading the profile into a kernel and creating namespaces under it, because the kernel has no AppArmor. That is the CI job in Step 5, on a real `ubuntu-24.04` runner.
+
+**Packaging today.** `electron-builder.json` builds only AppImage and tar.gz (`linux.target`). `resources/linux/after-install.sh` and `after-remove.sh` exist for deb packaging, but nothing references them now. Turning the deb and rpm targets back on also re-enables those scripts' existing steps: chrome-sandbox permissions, the uinput udev rule and the ydotoold user service. Read both scripts before Step 3.
+
+**Files:**
+- Create:
+  - `resources/linux/loqui-isolate.apparmor`;
+  - `resources/linux/install-apparmor-profile.sh`;
+  - `resources/linux/remove-apparmor-profile.sh`;
+  - `test/helpers/apparmorProfileInstall.test.js`.
+- Modify:
+  - `electron-builder.json`: the `deb` and `rpm` targets with their scripts, and the extra resources;
+  - `resources/linux/after-install.sh` and `resources/linux/after-remove.sh`;
+  - `.github/workflows/platform.yml`: build both packages, then install the `.deb` on `ubuntu-24.04` and prove isolation there;
+  - `.github/workflows/release.yml`: publish both packages;
+  - `README.md`: list the Linux packages.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/helpers/apparmorProfileInstall.test.js`. These tests run as an ordinary user, so they prove the refusals. The root-only success path runs in Step 5's CI job:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { spawnSync } = require("node:child_process");
+
+const LINUX = path.join(__dirname, "..", "..", "resources", "linux");
+const INSTALL = path.join(LINUX, "install-apparmor-profile.sh");
+const REMOVE = path.join(LINUX, "remove-apparmor-profile.sh");
+const TEMPLATE = path.join(LINUX, "loqui-isolate.apparmor");
+const skip = process.platform !== "linux" && "GNU stat and find";
+
+function sandbox(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-aa-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dest = path.join(root, "apparmor.d");
+  fs.mkdirSync(path.join(dest, "abi"), { recursive: true });
+  fs.writeFileSync(path.join(dest, "abi", "4.0"), "");
+  const bin = path.join(root, "opt", "Loqui", "resources", "bin");
+  fs.mkdirSync(bin, { recursive: true });
+  const isolate = path.join(bin, "loqui-isolate");
+  fs.writeFileSync(isolate, "", { mode: 0o755 });
+  return { root, dest, isolate };
+}
+const run = (script, args, env = {}) => spawnSync("bash", [script, ...args], { env: { ...process.env, LOQUI_APPARMOR_NO_LOAD: "1", ...env }, encoding: "utf8" });
+
+test("the template grants userns to the launcher's exact path and nothing else", () => {
+  const text = fs.readFileSync(TEMPLATE, "utf8").split("\n").filter((l) => !l.startsWith("#")).join("\n");
+  assert.match(text, /^abi <abi\/4\.0>,$/m);
+  assert.match(text, /^profile loqui-isolate @ISOLATE_PATH@ flags=\(unconfined\) \{$/m);
+  const rules = text.slice(text.indexOf("{") + 1, text.lastIndexOf("}")).split("\n").map((l) => l.trim()).filter(Boolean);
+  assert.deepEqual(rules, ["userns,", "include if exists <local/loqui-isolate>"]);
+});
+
+test("the installer never installs for a launcher an ordinary user could replace", { skip }, (t) => {
+  // Every directory here belongs to the test user, not root: refused.
+  const { dest, isolate } = sandbox(t);
+  const r = run(INSTALL, [isolate, TEMPLATE, dest]);
+  assert.equal(r.status, 0, "best-effort: never fails the package install");
+  assert.equal(fs.existsSync(path.join(dest, "loqui-isolate")), false);
+});
+
+test("the installer refuses a symlinked launcher and a path it cannot paste safely", { skip }, (t) => {
+  const { dest, isolate } = sandbox(t);
+  const link = path.join(path.dirname(isolate), "link");
+  fs.symlinkSync(isolate, link);
+  for (const bad of [link, "/opt/Lo qui/loqui-isolate", "/opt/x{,}/loqui-isolate", "relative/loqui-isolate"]) {
+    assert.equal(run(INSTALL, [bad, TEMPLATE, dest]).status, 0);
+    assert.equal(fs.existsSync(path.join(dest, "loqui-isolate")), false, bad);
+  }
+});
+
+test("without AppArmor 4.0 the installer does nothing", { skip }, (t) => {
+  const { dest, isolate } = sandbox(t);
+  run(INSTALL, [isolate, TEMPLATE, dest], { LOQUI_APPARMOR_ABI: path.join(dest, "abi", "missing") });
+  assert.equal(fs.existsSync(path.join(dest, "loqui-isolate")), false);
+});
+
+test("the remover deletes the profile and never fails", { skip }, (t) => {
+  const { dest } = sandbox(t);
+  fs.writeFileSync(path.join(dest, "loqui-isolate"), "profile x {}\n");
+  assert.equal(run(REMOVE, [dest]).status, 0);
+  assert.equal(fs.existsSync(path.join(dest, "loqui-isolate")), false);
+  assert.equal(run(REMOVE, [dest]).status, 0, "removing twice is fine");
+});
+```
+
+- [ ] **Step 2: Write the profile and the scripts**
+
+Create `resources/linux/loqui-isolate.apparmor`:
+
+```
+# Sealed mode (Plan 07, D15). Lets loqui-isolate create the user, network and
+# mount namespaces it isolates native children in, on systems that restrict
+# unprivileged user namespaces (Ubuntu 23.10 and later). It grants that one
+# permission to this one root-owned path, and nothing else changes: the
+# program is otherwise unconfined, as it would be without AppArmor.
+# Installed by the .deb and .rpm packages; @ISOLATE_PATH@ is filled in then.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile loqui-isolate @ISOLATE_PATH@ flags=(unconfined) {
+  userns,
+
+  include if exists <local/loqui-isolate>
+}
+```
+
+Create `resources/linux/install-apparmor-profile.sh`, mode `0755`:
+
+```bash
+#!/bin/bash
+# Sealed mode (Plan 07, D15): install the AppArmor profile for loqui-isolate.
+# Called by after-install.sh as root. Best-effort: it never fails the install;
+# if it can't install the profile, Loqui's boot self-test fails and native
+# model servers pause while sealed, with the reason in the panel.
+#   install-apparmor-profile.sh ISOLATE_PATH TEMPLATE [DEST_DIR]
+set -uo pipefail
+ISOLATE="${1:-}"
+TEMPLATE="${2:-}"
+DEST_DIR="${3:-/etc/apparmor.d}"
+ABI_FILE="${LOQUI_APPARMOR_ABI:-$DEST_DIR/abi/4.0}"
+
+# Only a plain absolute path: it is pasted into the profile.
+[[ "$ISOLATE" =~ ^/[A-Za-z0-9/._-]+$ ]] || exit 0
+[ -f "$ISOLATE" ] && [ -f "$TEMPLATE" ] || exit 0
+# No AppArmor (Fedora uses SELinux and does not restrict user namespaces), or
+# AppArmor older than 4.0 (no userns rule and no restriction): nothing to do.
+[ -d "$DEST_DIR" ] && [ -f "$ABI_FILE" ] || exit 0
+
+# The profile is attached by path, so the binary must be one only root can
+# replace: a regular file, not a symlink, in directories no one else can write.
+[ -L "$ISOLATE" ] && exit 0
+dir=$(dirname "$ISOLATE")
+while [ "$dir" != "/" ]; do
+  [ -L "$dir" ] && exit 0
+  [ "$(stat -c %u "$dir" 2>/dev/null)" = "0" ] || exit 0
+  [ -z "$(find "$dir" -maxdepth 0 -perm /022 2>/dev/null)" ] || exit 0
+  dir=$(dirname "$dir")
+done
+chown root:root "$ISOLATE" 2>/dev/null || exit 0
+chmod 0755 "$ISOLATE" 2>/dev/null || exit 0
+
+sed "s#@ISOLATE_PATH@#${ISOLATE}#" "$TEMPLATE" > "$DEST_DIR/.loqui-isolate.tmp" &&
+  mv -f "$DEST_DIR/.loqui-isolate.tmp" "$DEST_DIR/loqui-isolate" || exit 0
+if [ -z "${LOQUI_APPARMOR_NO_LOAD:-}" ] && command -v apparmor_parser >/dev/null 2>&1; then
+  apparmor_parser -r -T -W "$DEST_DIR/loqui-isolate" 2>/dev/null || true
+fi
+exit 0
+```
+
+Create `resources/linux/remove-apparmor-profile.sh`, mode `0755`:
+
+```bash
+#!/bin/bash
+# Sealed mode (Plan 07, D15): unload and remove loqui-isolate's AppArmor
+# profile when the package is removed. Best-effort.
+set -uo pipefail
+DEST_DIR="${1:-/etc/apparmor.d}"
+PROFILE="$DEST_DIR/loqui-isolate"
+[ -f "$PROFILE" ] || exit 0
+if [ -z "${LOQUI_APPARMOR_NO_LOAD:-}" ] && command -v apparmor_parser >/dev/null 2>&1; then
+  apparmor_parser -R "$PROFILE" 2>/dev/null || true
+fi
+rm -f "$PROFILE"
+exit 0
+```
+
+- [ ] **Step 3: Build the packages, and call the scripts from them**
+
+1. In `electron-builder.json`, add these to `linux.target`:
+
+   ```json
+         { "target": "deb", "arch": ["x64"] },
+         { "target": "rpm", "arch": ["x64"] }
+   ```
+
+   Then add these top-level keys:
+
+   ```json
+     "deb": { "afterInstall": "resources/linux/after-install.sh", "afterRemove": "resources/linux/after-remove.sh" },
+     "rpm": { "afterInstall": "resources/linux/after-install.sh", "afterRemove": "resources/linux/after-remove.sh" },
+   ```
+
+   Add an `extraResources` entry for `{ "from": "resources/linux/", "to": "linux/", "filter": ["loqui-isolate.apparmor", "*-apparmor-profile.sh"] }`. These files are inside the AppImage and tar.gz too, where nothing runs them.
+2. In `resources/linux/after-install.sh`, before the final `exit 0`, add:
+
+   ```bash
+   # 5. Sealed mode (Plan 07, D15): an AppArmor profile that lets loqui-isolate
+   #    create its namespaces where unprivileged user namespaces are restricted
+   #    (Ubuntu 23.10 and later). Best-effort, like every step above.
+   APP_DIR='/opt/${sanitizedProductName}'
+   bash "$APP_DIR/resources/linux/install-apparmor-profile.sh" \
+     "$APP_DIR/resources/bin/loqui-isolate" "$APP_DIR/resources/linux/loqui-isolate.apparmor" || true
+   ```
+
+   electron-builder renders `${sanitizedProductName}` when it writes the package scripts. Step 5 checks the rendered script inside each built package. If the rendered path is wrong, the profile never matches and the self-test fails. That is fail-closed, but it is still a bug, and CI catches it.
+3. In `resources/linux/after-remove.sh`, the guard `case "${1:-remove}" in remove|purge) ;;` must also accept rpm's argument: `0` on erase, `1` on upgrade. Make it `remove|purge|0) ;;`. Then, before the user-cache cleanup, add:
+
+   ```bash
+   # Sealed mode (Plan 07, D15): unload and delete loqui-isolate's AppArmor profile.
+   bash '/opt/${sanitizedProductName}/resources/linux/remove-apparmor-profile.sh' 2>/dev/null ||
+     { apparmor_parser -R /etc/apparmor.d/loqui-isolate 2>/dev/null; rm -f /etc/apparmor.d/loqui-isolate; } || true
+   ```
+
+   The fallback matters: dpkg runs `postrm` after the package files are gone, so the script itself may already be missing.
+4. In `README.md`, under the Linux targets, list the `.deb` and `.rpm`, and say that Sealed mode keeps local models running only with those packages (D15).
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/apparmorProfileInstall.test.js`
+Expected: PASS on Linux. On macOS the template test passes and the rest are skipped.
+
+- [ ] **Step 5: Prove it on Ubuntu 24.04 in CI**
+
+In `.github/workflows/platform.yml`, Linux build job:
+- add `rpm` to the `apt-get install` list, which electron-builder's rpm target needs;
+- the existing prepackaged build (`--linux --x64 --prepackaged dist/linux-unpacked`) now also produces the `.deb` and `.rpm`, because it takes its targets from `linux.target`;
+- add `dist/Loqui-*.deb` and `dist/Loqui-*.rpm` to the uploaded artifact paths.
+
+Then add a job `apparmor-ubuntu-24` (`runs-on: ubuntu-24.04`, `needs: build`):
+
+```yaml
+  apparmor-ubuntu-24:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: { persist-credentials: false, ref: ${{ github.sha }} }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: { name: unsigned-linux-x64, path: dist }
+      - name: The rendered package scripts name the installed launcher
+        run: |
+          dpkg-deb -e dist/Loqui-*.deb /tmp/deb-ctrl
+          grep -F "/opt/Loqui/resources/bin/loqui-isolate" /tmp/deb-ctrl/postinst
+          rpm -qp --scripts dist/Loqui-*.rpm | grep -F "/opt/Loqui/resources/bin/loqui-isolate"
+      - name: Install, then isolate as an ordinary user under the restriction
+        run: |
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1
+          sudo apt-get install -y ./dist/Loqui-*.deb
+          sudo aa-status | grep -F loqui-isolate
+          /opt/Loqui/resources/bin/loqui-isolate --profile loopback --report-fd 3 --self-test 3>&1 >/dev/null | tee /tmp/report
+          grep -F "status=ok" /tmp/report
+      - name: The Linux native tests, against the installed launcher
+        run: LOQUI_ISOLATION_STUB=/opt/Loqui/resources/bin/loqui-isolate LOQUI_ISOLATION_TESTS=required node --test test/native/isolation.linux.test.js
+      - name: Removing the package removes the profile
+        run: |
+          sudo apt-get remove -y "$(dpkg-deb -f dist/Loqui-*.deb Package)"
+          ! sudo aa-status | grep -F loqui-isolate
+          test ! -e /etc/apparmor.d/loqui-isolate
+```
+
+`test/native/isolation.linux.test.js` (Task 6d) reads `process.env.LOQUI_ISOLATION_STUB ?? path.join(…, "resources", "bin", "loqui-isolate")`. Make that one-line change there. The `download-artifact` pin is the one `release.yml:75` already uses.
+
+`.github/workflows/release.yml`: add the `.deb` and `.rpm` to the files it publishes, beside the AppImage and tar.gz.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add resources/linux electron-builder.json README.md .github/workflows/platform.yml .github/workflows/release.yml test/helpers/apparmorProfileInstall.test.js test/native/isolation.linux.test.js
+git commit -m "feat(linux): deb and rpm packages install an AppArmor profile for loqui-isolate (D15)"
+```
+
+---
+
+### Task 6i: Pause native children where isolation is unavailable, and say why (D15)
+
+D15: "Where isolation still can't be set up (AppImage, tar.gz, locked-down systems, or a failed boot self-test), native model servers **pause while sealed**. The Sealed panel names the reason and the fix: install the package, or unseal. Device routes that need no native child keep working." And: "No seccomp or Landlock fallback is claimed as isolation, and partial coverage never counts toward `nothingLeaves`."
+
+**How this plan reads it.** While sealed and unable to isolate, *every* native child pauses, not only the model servers. A child running unconfined would keep `nothingLeaves` false forever. Pausing them all keeps "verified" reachable and honest:
+- nothing native runs, so nothing native can leave;
+- the panel shows the verified line, and beside it, the pause and its fix.
+
+Children that are paused while sealed:
+- the four servers;
+- the ONNX worker and the diarization CLI;
+- FFmpeg;
+- the key, paste, audio and media helpers.
+
+What keeps working:
+- a self-hosted server the user runs on loopback, because it is not Loqui's child;
+- every route that is not on the device, which Sealed mode already pauses for its own reason.
+
+The owner can narrow this. Nothing else in the plan depends on the wider reading.
+
+**Linux session-bus helpers pause on every Linux system (ruling).** `playerctl` (`mediaPlayer.js:27`) and the portal audio helper (`linuxPortalAudioManager.js:112`, `:294`) need the D-Bus session bus. Through it they could reach a portal's URL-opening methods. The ruling allowed two options: filter the bus with `xdg-dbus-proxy`, or pause. This plan pauses:
+- `xdg-dbus-proxy` is not bundled;
+- a filter would be one more thing to prove.
+
+So while sealed on Linux, those spawns are refused even when isolation is available, and the panel names them.
+
+**Reasons, and what each one tells the user.** Main works the reason out; the panel only maps it to copy (Task 14).
+
+| Reason | When | The fix the panel gives |
+|---|---|---|
+| `notPackaged` | Linux, the namespace step failed, and the launcher is not a root-owned file in a package (AppImage mount, tar.gz) | Install the `.deb` or `.rpm`, or turn Sealed mode off |
+| `profileNotLoaded` | Linux, packaged, and `kernel.apparmor_restrict_unprivileged_userns` is 1 | Reinstall the package, or turn Sealed mode off |
+| `userNamespacesDisabled` | Linux, and `user.max_user_namespaces` is 0, or `kernel.unprivileged_userns_clone` is 0 | Ask an administrator, or turn Sealed mode off |
+| `selfTestFailed` | Anything else, on any platform, including a missing launcher | Reinstall Loqui, or turn Sealed mode off |
+
+**Files:**
+- Modify:
+  - `src/helpers/privacy/egressPolicy.js` (Task 2): a `paused` refusal;
+  - `src/helpers/privacy/egressGate.js` (Task 5): `recordBackstopBlock` passes a reason through;
+  - `src/helpers/privacy/nativeIsolation.js`: `pauseReasonOf`, and the reason in `status()`;
+  - `src/helpers/privacy/childRegistry.js`: pause instead of restart, session-bus kinds, and the paused list;
+  - `src/helpers/mediaPlayer.js` and `src/helpers/linuxPortalAudioManager.js`: `needsSessionBus`;
+  - the four server managers and `onnxWorkerClient.js`: a `pause` hook next to `reisolate`.
+- Test: `test/helpers/isolationPause.test.js`, plus new cases in `test/helpers/egressPolicy.test.js`
+
+**Interfaces:**
+- `new SealedModeError({ task, host, phase = "refused", reason = null })`. With `reason: "paused"`, the message starts `[SEALED_MODE:paused]`, `details.reason` is `"paused"`, and `sealedPhaseOf` returns `"refused"`. Nothing was sent, because the program never started.
+- `gate.recordBackstopBlock({ host, ticket?, reason? })`
+- `pauseReasonOf({ platform, selfTest, problems, read, env, stubPath, stat }): "notPackaged" | "profileNotLoaded" | "userNamespacesDisabled" | "selfTestFailed" | null`
+- `isolation.status()` adds `pauseReason`, which is `null` when `selfTest` is `"passed"` or `"pending"`.
+- `verifyReport` adds `namespace:<errno>` to `problems` when the stub reports `namespace=`.
+- `childRegistry.pausedKinds(): Array<{ kind: string; reason: "isolation" | "sessionBus" }>` lists the kinds refused or stopped since the seal began. `clearPaused()` is called on unseal.
+- `loquiIsolation` gains `pause: () => Promise<void>` and `needsSessionBus: boolean`.
+- `reisolateAll()` pauses instead of restarting when `isolation.available()` is false. It stops each long-lived `launchControlled` child (one with a `pause` or `reisolate` hook) once idle, through its `pause` hook or the registry's own TERM-then-KILL, and starts nothing. One-job programs are waited for until they exit, as in Task 6e.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `test/helpers/egressPolicy.test.js`:
+
+```js
+test("a paused refusal is a refusal: nothing was sent, and the marker survives IPC", () => {
+  const error = new policy.SealedModeError({ task: "dictationStt", host: "whisper-server", reason: "paused" });
+  assert.match(error.message, /^\[SEALED_MODE:paused\]/);
+  assert.equal(error.details.reason, "paused");
+  assert.equal(policy.isSealedModeError(error), true);
+  assert.equal(policy.sealedPhaseOf(error), "refused");
+  assert.equal(policy.sealedPhaseOf({ message: error.message }), "refused", "only the message crosses ipcMain.handle");
+});
+```
+
+Create `test/helpers/isolationPause.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const realChildProcess = require("node:child_process");
+const gate = require("../../src/helpers/privacy/egressGate");
+const registry = require("../../src/helpers/privacy/childRegistry");
+const { createIsolation, pauseReasonOf } = require("../../src/helpers/privacy/nativeIsolation");
+const { isSealedModeError, sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+
+const skip = process.platform === "win32" && "POSIX shell fixture";
+const FAKE = path.join(__dirname, "..", "fixtures", "fakeIsolate.js");
+const sysctl = (values) => (name) => values[name] ?? null;
+const rootOwned = () => ({ uid: 0 });
+const userOwned = () => ({ uid: 1000 });
+const failed = ["loopback:namespace:EPERM,status"];
+
+test("pauseReasonOf: each reason, and the fix it implies", () => {
+  const base = { platform: "linux", selfTest: "failed", problems: failed, env: {}, stubPath: "/opt/Loqui/resources/bin/loqui-isolate" };
+  assert.equal(pauseReasonOf({ ...base, read: sysctl({ "user/max_user_namespaces": "0" }), stat: rootOwned }), "userNamespacesDisabled");
+  assert.equal(pauseReasonOf({ ...base, read: sysctl({ "kernel/unprivileged_userns_clone": "0" }), stat: rootOwned }), "userNamespacesDisabled");
+  assert.equal(pauseReasonOf({ ...base, env: { APPIMAGE: "/home/u/Loqui.AppImage" }, read: sysctl({ "kernel/apparmor_restrict_unprivileged_userns": "1" }), stat: rootOwned }), "notPackaged");
+  assert.equal(pauseReasonOf({ ...base, stubPath: "/home/u/Loqui/resources/bin/loqui-isolate", read: sysctl({ "kernel/apparmor_restrict_unprivileged_userns": "1" }), stat: userOwned }), "notPackaged", "tar.gz");
+  assert.equal(pauseReasonOf({ ...base, read: sysctl({ "kernel/apparmor_restrict_unprivileged_userns": "1" }), stat: rootOwned }), "profileNotLoaded");
+  assert.equal(pauseReasonOf({ ...base, read: sysctl({}), stat: rootOwned }), "selfTestFailed", "namespaces fail for some other reason");
+  assert.equal(pauseReasonOf({ ...base, problems: ["loopback:udp4"], read: sysctl({}), stat: rootOwned }), "selfTestFailed", "not a namespace failure");
+  assert.equal(pauseReasonOf({ ...base, platform: "darwin", read: sysctl({}), stat: rootOwned }), "selfTestFailed");
+  assert.equal(pauseReasonOf({ ...base, selfTest: "passed", read: sysctl({}), stat: rootOwned }), null);
+  assert.equal(pauseReasonOf({ ...base, selfTest: "pending", read: sysctl({}), stat: rootOwned }), null);
+});
+
+function setup(t, { available, platform = "linux" }) {
+  gate._resetForTests();
+  const flags = { sealed: false };
+  gate.configureEgress({ isSealed: () => flags.sealed });
+  registry._resetForTests();
+  const childProcess = { ...realChildProcess };
+  const iso = createIsolation({ platform, stubCommand: [process.execPath, FAKE], profileDir: os.tmpdir(), runtimeDir: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-iso-")), hostNetns: () => "net:[1]", spawnRaw: realChildProcess.spawn });
+  iso._setSelfTestForTests(available ? "passed" : "failed");
+  registry.installSpawnGuard({ childProcess, isolation: iso });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-bin-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  registry.registerLocalBinaryDir(dir);
+  const file = path.join(dir, "fake-server");
+  fs.writeFileSync(file, "#!/bin/sh\nsleep 30\n", { mode: 0o755 });
+  return { flags, childProcess, file };
+}
+const until = async (fn) => {
+  for (let i = 0; i < 200 && !fn(); i++) await new Promise((r) => setTimeout(r, 10));
+  return fn();
+};
+
+test("sealed without isolation: a native spawn is a paused refusal, nothing runs, and the kind is listed", { skip }, (t) => {
+  const { flags, childProcess, file } = setup(t, { available: false });
+  flags.sealed = true;
+  assert.throws(() => childProcess.spawn(file, []), (e) => isSealedModeError(e) && e.details.reason === "paused" && sealedPhaseOf(e) === "refused");
+  assert.deepEqual(registry.alive(), []);
+  assert.deepEqual(registry.pausedKinds(), [{ kind: "fake-server", reason: "isolation" }]);
+});
+
+test("sealing without isolation pauses a running server once idle, and never restarts it", { skip }, async (t) => {
+  const { flags, childProcess, file } = setup(t, { available: false });
+  const calls = [];
+  let child = null;
+  const manager = {
+    start() {
+      child = childProcess.spawn(file, [], { loquiIsolation: { profile: "loopback", ports: [18080], reisolate: async () => calls.push("reisolate"), pause: async () => { calls.push("pause"); child.kill("SIGTERM"); await new Promise((r) => child.once("exit", r)); } } });
+      t.after(() => child.kill("SIGKILL"));
+    },
+  };
+  manager.start();
+  flags.sealed = true;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 0, idle: () => true }), []);
+  assert.deepEqual(calls, ["pause"], "paused, not restarted");
+  assert.ok(await until(() => registry.alive().length === 0));
+  assert.deepEqual(registry.pausedKinds(), [{ kind: "fake-server", reason: "isolation" }]);
+});
+
+test("a busy server is paused only once idle; work in progress is never cut", { skip }, async (t) => {
+  const { flags, childProcess, file } = setup(t, { available: false });
+  // Long-lived (it has a restart hook) but no pause hook: the registry stops it.
+  const child = childProcess.spawn(file, [], { loquiIsolation: { profile: "loopback", ports: [18080], reisolate: async () => {} } });
+  t.after(() => child.kill("SIGKILL"));
+  flags.sealed = true;
+  let busy = true;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 20, idle: () => !busy }), ["busy:fake-server"]);
+  assert.equal(child.exitCode, null, "still running");
+  busy = false;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 0, idle: () => !busy }), []);
+  assert.ok(await until(() => child.exitCode !== null || child.signalCode !== null), "stopped by the registry's own TERM, since it has no pause hook");
+});
+
+test("Linux: session-bus helpers pause while sealed even where isolation works", { skip }, (t) => {
+  const { flags, childProcess, file } = setup(t, { available: true });
+  flags.sealed = true;
+  assert.throws(() => childProcess.spawn(file, [], { loquiIsolation: { profile: "none", needsSessionBus: true } }), (e) => e.details?.reason === "paused");
+  assert.deepEqual(registry.pausedKinds(), [{ kind: "fake-server", reason: "sessionBus" }]);
+});
+
+test("macOS: needsSessionBus means nothing; the helper runs isolated as usual", { skip }, (t) => {
+  const { flags, childProcess, file } = setup(t, { available: true, platform: "darwin" });
+  flags.sealed = true;
+  const child = childProcess.spawn(file, [], { env: { ...process.env, FAKE_ISOLATE_REPORT: "x" }, loquiIsolation: { profile: "none", needsSessionBus: true } });
+  t.after(() => child.kill("SIGKILL"));
+  assert.deepEqual(registry.pausedKinds(), []);
+});
+
+test("pausing never cuts a one-job program: it has no hook, so it is waited for", { skip }, async (t) => {
+  const { flags, childProcess, file } = setup(t, { available: false });
+  const job = childProcess.spawn(file, []);
+  t.after(() => job.kill("SIGKILL"));
+  flags.sealed = true;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 0, idle: () => true }), []);
+  assert.equal(job.exitCode, null);
+  assert.equal(registry.alive()[0].isolation, "launchControlled", "still counted against the seal until it exits");
+});
+
+test("unsealing clears the paused list; the next start runs normally", { skip }, (t) => {
+  const { flags, childProcess, file } = setup(t, { available: false });
+  flags.sealed = true;
+  assert.throws(() => childProcess.spawn(file, []));
+  flags.sealed = false;
+  registry.clearPaused();
+  assert.deepEqual(registry.pausedKinds(), []);
+  const child = childProcess.spawn(file, []);
+  t.after(() => child.kill("SIGKILL"));
+  assert.equal(registry.alive()[0].isolation, "launchControlled");
+});
+```
+
+The session-bus tests choose the platform through `createIsolation({ platform })`. The registry asks `isolation.status().platform`, never `process.platform`, so both run on any POSIX machine.
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npm test -- test/helpers/isolationPause.test.js test/helpers/egressPolicy.test.js`
+Expected: FAIL. `pauseReasonOf`, `pausedKinds` and the `paused` reason do not exist yet.
+
+- [ ] **Step 3: Implement**
+
+1. **`egressPolicy.js`.** The constructor takes `reason = null`. When `reason === "paused"`, the message is:
+
+   ```js
+   `[${SEALED_MODE}:paused] Sealed mode is on, and ${host} can't run isolated on this computer, so it was paused before it started.`
+   ```
+
+   Then set `this.details = { task, host, phase: "refused", reason }`. In `sealedPhaseOf`, add `if (error.message.includes(`[${SEALED_MODE}:paused]`)) return "refused";` before the plain marker check, because the plain `[SEALED_MODE]` test does not match the `:paused` form.
+2. **`egressGate.recordBackstopBlock`.** Pass `reason` into `new SealedModeError({ …, reason })`.
+3. **`nativeIsolation.js`.**
+   - In `verifyReport`, `if (f.namespace) problems.unshift(`namespace:${f.namespace}`);`. `judge()` already prefixes the profile, so the self-test reason becomes `loopback:namespace:EPERM,…`.
+   - Add the reason function:
+
+     ```js
+     // D15: why isolation is unavailable, for the panel. Reads are injected so
+     // the rules are tested apart from this machine's settings.
+     const readSysctl = (name) => {
+       try {
+         return fs.readFileSync(`/proc/sys/${name}`, "utf8").trim();
+       } catch {
+         return null;
+       }
+     };
+     function pauseReasonOf({ platform, selfTest, problems = [], read = readSysctl, env = process.env, stubPath = null, stat = fs.statSync }) {
+       if (selfTest === "passed" || selfTest === "pending") return null;
+       if (platform !== "linux" || !problems.some((p) => p.includes("namespace:"))) return "selfTestFailed";
+       if (read("user/max_user_namespaces") === "0" || read("kernel/unprivileged_userns_clone") === "0") return "userNamespacesDisabled";
+       let rootOwned = false;
+       try {
+         rootOwned = Boolean(stubPath) && stat(stubPath).uid === 0;
+       } catch {
+         rootOwned = false;
+       }
+       if (env.APPIMAGE || !rootOwned) return "notPackaged";
+       if (read("kernel/apparmor_restrict_unprivileged_userns") === "1") return "profileNotLoaded";
+       return "selfTestFailed";
+     }
+     ```
+
+   - `judge()` keeps the list of problems. `status()` returns `{ …, pauseReason: pauseReasonOf({ platform, selfTest, problems, stubPath: stubCommand?.[0] ?? null }) }`.
+4. **`childRegistry.js`.**
+   - Keep `const paused = new Map()` (kind → reason) and export `pausedKinds()` and `clearPaused()`.
+   - In `guarded`, before the isolation branch: when sealed, native, `request.needsSessionBus` is true and `isolation?.status().platform === "linux"`, record the kind with `"sessionBus"` and `throw gate.recordBackstopBlock({ host, reason: "paused" })`.
+   - Replace Task 6b's `ISOLATION_UNAVAILABLE` throw with the same paused refusal, recorded with `"isolation"`.
+   - Copy `request.pause` onto the entry beside `reisolate`.
+   - In `reisolateAll`, `const pausing = !isolation?.available();`. Targets are the `local`, `launchControlled`, alive entries with a hook: `pause` or `reisolate` when `pausing`, and `reisolate` otherwise. An entry with no hook is a one-job program: it is never stopped mid-job, and the seal stays unverified until it exits. After the drain, a pausing run calls `await (entry.pause ? entry.pause() : stopEntry(entry))` and records the kind with `"isolation"`. `stopEntry` is `stopAll`'s TERM, wait, KILL, wait sequence, for one entry. A session-bus child that was already running at seal is paused the same way, recorded with `"sessionBus"`.
+5. **Hooks.**
+   - The four managers add `pause: () => this.stop()` to the `loquiIsolation` object that Task 6e gave them.
+   - `onnxWorkerClient` adds `pause: () => this.reisolate()`: it stops the worker and spawns nothing, so the next request is refused while paused.
+   - `mediaPlayer.js:27` (the Linux branch only) and both `linuxPortalAudioManager.js` spawns add `loquiIsolation: { profile: "none", needsSessionBus: true }`.
+6. **Unseal.** The transition (Task 7) calls `children.clearPaused?.()` in `apply(false)`.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/isolationPause.test.js test/helpers/egressPolicy.test.js test/helpers/nativeIsolation.test.js test/helpers/reisolate.test.js`
+Expected: PASS. In Task 6b's test `sealed with isolation unavailable: a native child is refused before anything runs`, the expectation becomes `(e) => isSealedModeError(e) && e.details.reason === "paused"`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/helpers/privacy src/helpers/mediaPlayer.js src/helpers/linuxPortalAudioManager.js src/helpers/llamaServer.js src/helpers/whisperServer.js src/helpers/qdrantManager.js src/helpers/parakeetWsServer.js src/helpers/onnxWorkerClient.js test/helpers/isolationPause.test.js test/helpers/egressPolicy.test.js test/helpers/nativeIsolation.test.js
+git commit -m "feat(privacy): pause native children while sealed where isolation is unavailable, with the reason (D15)"
+```
+
+---
+
 ### Task 7: Boot order, the sealing barrier, attestation, trusted IPC, preload and types
 
 **Files:**
@@ -7131,8 +8304,10 @@ git commit -m "feat(privacy): run the ONNX worker as a native child under the la
     networkChildren: string[]; activeRemote: number;
     children: Array<{ kind: string; pid: number;         // every native child alive now (D14)
                       isolation: "isolated" | "networkFree" | "pending" | "launchControlled" | "failed" }>;
-    isolation: { platform: string; mechanism: "seatbelt" | "netns" | "none";
-                 selfTest: "pending" | "passed" | "failed" | "unavailable"; checkedAt: number | null; reason: string | null };
+    isolation: { platform: string; mechanism: "seatbelt" | "seatbelt-api" | "netns" | "none";
+                 selfTest: "pending" | "passed" | "failed" | "unavailable"; checkedAt: number | null; reason: string | null;
+                 pauseReason: "notPackaged" | "profileNotLoaded" | "userNamespacesDisabled" | "selfTestFailed" | null };  // D15
+    paused: Array<{ kind: string; reason: "isolation" | "sessionBus" }>;  // native kinds refused or stopped since the seal (D15)
     blockedSinceSealed: number; recordFailures: number;
     version: number; at: number;
     nothingLeaves: boolean;
@@ -7198,7 +8373,11 @@ function harness(t, { sealedAtBoot = false } = {}) {
   const children = {
     list: [],
     alive() { return this.list.filter((c) => !c.exited).map((c) => ({ kind: c.kind, local: c.local, isolation: c.isolation })); },
-    isolationStatus: () => ({ platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null }),
+    status: { platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null, pauseReason: null },
+    isolationStatus() { return this.status; },
+    paused: [],
+    pausedKinds() { return this.paused; },
+    clearPaused() { log.push("children.clearPaused"); this.paused = []; },
     // Task 6e's restart: only children marked restartable (idle, with a hook) come back isolated.
     async reisolateAll() { log.push("children.reisolate"); for (const c of this.list) if (c.local && c.isolation === "launchControlled" && c.restartable) c.isolation = "isolated"; return []; },
     async stopAll() { log.push("children.stop"); for (const c of this.list) if (!c.stubborn) c.exited = true; if (this.list.some((c) => !c.exited)) throw Object.assign(new Error("x"), { code: "CHILD_STOP_FAILED" }); },
@@ -7309,7 +8488,23 @@ test("a native child that is not isolated yet keeps the seal sealing, by name, u
 
 test("the attestation carries the isolation self-test status", (t) => {
   const h = harness(t, { sealedAtBoot: true });
-  assert.deepEqual(h.attest().isolation, { platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null });
+  assert.deepEqual(h.attest().isolation, { platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null, pauseReason: null });
+});
+
+test("D15: isolation unavailable, nothing native running: the seal verifies, and the attestation says what is paused and why", async (t) => {
+  const h = harness(t);
+  h.children.status = { platform: "linux", mechanism: "netns", selfTest: "failed", checkedAt: 1, reason: "loopback:namespace:EPERM", pauseReason: "notPackaged" };
+  h.children.paused = [{ kind: "whisper-server", reason: "isolation" }, { kind: "playerctl", reason: "sessionBus" }];
+  h.state.set(true);
+  await h.transition.apply(true);
+  const a = h.attest();
+  assert.equal(a.nothingLeaves, true, "nothing native runs, so nothing native can leave");
+  assert.equal(a.isolation.pauseReason, "notPackaged");
+  assert.deepEqual(a.paused, h.children.paused);
+  h.state.set(false);
+  await h.transition.apply(false);
+  assert.ok(h.log.includes("children.clearPaused"));
+  assert.deepEqual(h.attest().paused, [], "nothing is paused while unsealed");
 });
 
 test("an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared", async (t) => {
@@ -7707,6 +8902,7 @@ function createSealTransition({ state, bootedAt, getUpdateManager, getInference,
     gate.onSealChanged(sealed);
     if (!sealed) {
       set({ phase: "open", effectiveSince: null, failures: [], notes: [] });
+      children.clearPaused?.(); // D15: paused children start again on next use
       for (const calendar of getCalendars()) calendar?.start?.();
       getUpdateManager()?.resumeAfterSeal?.();
       return;
@@ -7764,7 +8960,10 @@ function createAttestor({ state, transition, getInference, children }) {
       .alive()
       .filter((c) => c.local)
       .map((c) => ({ kind: c.kind, pid: c.pid, isolation: c.isolation ?? "launchControlled" }));
-    const isolation = children.isolationStatus?.() ?? { platform: process.platform, mechanism: "none", selfTest: "unavailable", checkedAt: null, reason: "not installed" };
+    const isolation = children.isolationStatus?.() ?? { platform: process.platform, mechanism: "none", selfTest: "unavailable", checkedAt: null, reason: "not installed", pauseReason: "selfTestFailed" };
+    // D15: what is paused while sealed, and why. Paused children are not
+    // running, so they never hold nothingLeaves back.
+    const paused = saved.sealed ? (children.pausedKinds?.() ?? []) : [];
     const activeRemote = gate.activeRemoteCount();
     const guardsUp = guards.node && guards.dns && guards.dgram && guards.http && guards.webContents && guards.sessions > 0;
     return {
@@ -7777,6 +8976,7 @@ function createAttestor({ state, transition, getInference, children }) {
       networkChildren,
       children: nativeChildren,
       isolation,
+      paused,
       activeRemote,
       blockedSinceSealed: tally.blockedSinceSealed,
       recordFailures: tally.recordFailures,
@@ -11655,6 +12855,7 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 
   // src/lib/sealedMode.ts. It asks Plan 03's resolver; the rule is isSealedLocality inside it.
   export function isDictationSealed(settings: SettingsState, sealed: boolean | null): boolean;  // the pre-flight
+  export function isDictationPausedNative(settings: SettingsState, snapshot: SealedSnapshot): boolean;  // D15: on-device engine paused while sealed
 
   // src/lib/sealedRecovery.ts. Renderer memory only; never written to disk.
   export const RECOVERY_TTL_MS: number;   // 30 minutes
@@ -11727,6 +12928,17 @@ async function load(t) {
   return vite.ssrLoadModule("/lib/sealedMode.ts");
 }
 
+test("isDictationPausedNative: Loqui's own on-device engine pauses where isolation is unavailable; a loopback server you run does not (D15)", async (t) => {
+  const { isDictationPausedNative } = await load(t);
+  const paused = { sealed: true, attestation: { isolation: { selfTest: "failed", pauseReason: "notPackaged" } } };
+  assert.equal(isDictationPausedNative(localDictation(), paused), true);
+  assert.equal(isDictationPausedNative(selfHostedDictation("http://127.0.0.2:8178"), paused), false, "a server the user runs is not Loqui's child (CCR-7)");
+  assert.equal(isDictationPausedNative(remoteDictation(), paused), false, "a remote route is isDictationSealed's case, not this one");
+  assert.equal(isDictationPausedNative(localDictation(), { ...paused, sealed: false }), false);
+  assert.equal(isDictationPausedNative(localDictation(), { sealed: true, attestation: { isolation: { selfTest: "passed" } } }), false);
+  assert.equal(isDictationPausedNative(localDictation(), { sealed: true, attestation: null }), false, "unknown never blocks; main still refuses");
+});
+
 test("isDictationSealed: only a dictation route that leaves this computer, and only when sealed", async (t) => {
   const { isDictationSealed } = await load(t);
   assert.equal(isDictationSealed(remoteDictation(), true), true);
@@ -11744,7 +12956,7 @@ test("isDictationSealed: only a dictation route that leaves this computer, and o
 
 test("there is one sealed-route rule: sealedMode.ts defines none of its own", async (t) => {
   const mod = await load(t);
-  assert.deepEqual(Object.keys(mod).sort(), ["isDictationSealed"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["isDictationPausedNative", "isDictationSealed"]);
 });
 ```
 
@@ -11844,6 +13056,9 @@ test("dictation copy: History is promised only when retention kept the audio; in
   assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: true, audioRetentionDays: 30 }), "sealedMode.interrupted.dictationKept");
   assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: false, audioRetentionDays: 0 }), "sealedMode.interrupted.dictationNotKept");
   assert.equal(sealedDictationMessageKey(refused, { dataRetentionEnabled: false, audioRetentionDays: 0 }, { held: true }), "sealedMode.blocked.dictationHeld");
+  // D15: a paused native program never started, so nothing was sent; only the message crosses IPC.
+  const paused = { message: "[SEALED_MODE:paused] Sealed mode is on, and whisper-server can't run isolated on this computer, so it was paused before it started." };
+  assert.equal(sealedDictationMessageKey(paused, { dataRetentionEnabled: true, audioRetentionDays: 30 }), "sealedMode.blocked.dictationKept");
   assert.equal(sealedDictationMessageKey(interrupted, { dataRetentionEnabled: true, audioRetentionDays: 0 }, { held: true }), "sealedMode.interrupted.dictationHeld");
 });
 
@@ -12290,7 +13505,7 @@ test("startRecording refuses before the microphone opens when the pre-flight say
       // The real store and resolver are covered by sealedMode.test.js and
       // routesSealed.test.js; this test pins where startRecording asks.
       "/stores/sealedStore": "export const getSealedSnapshot = () => ({ sealed: globalThis.__preflightSealed, attestation: null });",
-      "/lib/sealedMode": "export const isDictationSealed = (_settings, sealed) => sealed === true;",
+      "/lib/sealedMode": "export const isDictationSealed = (_settings, sealed) => sealed === true; export const isDictationPausedNative = () => false;",
     },
   });
   const opened = [];
@@ -12379,6 +13594,7 @@ Create `src/lib/sealedMode.ts`:
 ```ts
 import { buildRouteSnapshot, currentRouteCopy, resolveRoute } from "./routes";
 import { useRouteFactsStore } from "../stores/routeFactsStore";
+import type { Attestation } from "../types/privacy";
 
 // The dictation pre-flight: while sealed, a dictation whose speech route would
 // leave this computer is not started, so there is no recording for main to
@@ -12392,6 +13608,22 @@ export function isDictationSealed(settings: Parameters<typeof buildRouteSnapshot
   const snapshot = buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, currentRouteCopy(), true);
   const { state } = resolveRoute(snapshot, "dictationStt");
   return state.status === "unreachable" && state.detail === "sealed";
+}
+
+// D15: where Loqui can't isolate native programs, its own on-device engines
+// pause while sealed. A device route with an endpoint host is a server the
+// user runs on loopback, not Loqui's child, and keeps working (CCR-7). An
+// unknown or stale attestation never blocks: main still refuses the spawn,
+// and the recording is kept by the sealed failure path.
+export function isDictationPausedNative(
+  settings: Parameters<typeof buildRouteSnapshot>[0],
+  snapshot: { sealed: boolean | null; attestation: Attestation | null }
+): boolean {
+  if (snapshot.sealed !== true || !snapshot.attestation) return false;
+  const selfTest = snapshot.attestation.isolation?.selfTest;
+  if (selfTest !== "failed" && selfTest !== "unavailable") return false;
+  const route = resolveRoute(buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, currentRouteCopy(), true), "dictationStt");
+  return route.locality === "device" && route.host === null;
 }
 ```
 
@@ -12505,6 +13737,8 @@ export function sealedPhase(error: unknown, depth = 0): "refused" | "interrupted
   if (e.details?.phase === "refused" || e.details?.phase === "interrupted") return e.details.phase;
   if (typeof e.message === "string") {
     if (e.message.includes(`[${SEALED_MODE}:interrupted]`)) return "interrupted";
+    // D15: a native program paused before it started; nothing was sent.
+    if (e.message.includes(`[${SEALED_MODE}:paused]`)) return "refused";
     if (e.message.includes(`[${SEALED_MODE}]`)) return "refused";
   }
   if (e.code === SEALED_MODE) return "refused";
@@ -12756,9 +13990,21 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
            });
            return false;
          }
+         // D15: Loqui's on-device engine is paused while sealed where it
+         // can't be isolated; the panel says why and how to fix it.
+         if (isDictationPausedNative(getSettings(), getSealedSnapshot())) {
+           this.onError?.({
+             title: "sealedMode.blocked.dictationPreflight",
+             description: "sealedMode.paused.dictationPreflightDetail",
+             messageKey: "sealedMode.paused.dictationPreflightDetail",
+             code: "SEALED_MODE",
+             variant: "default",
+           });
+           return false;
+         }
    ```
 
-   Report it through the same error callback the transcription-failure path uses at `:1915-1922`, using whatever name that path calls. Import `isDictationSealed` from `../lib/sealedMode` and `getSealedSnapshot` from `../stores/sealedStore`. Calling `getSealedSnapshot()` starts the store on first use, and before main answers it returns `sealed: null`, which never blocks. Plan 04 restyles this as a pill state (CCR-4) but keeps the check.
+   Report it through the same error callback the transcription-failure path uses at `:1915-1922`, using whatever name that path calls. Import `isDictationSealed` and `isDictationPausedNative` from `../lib/sealedMode`, and `getSealedSnapshot` from `../stores/sealedStore`. Calling `getSealedSnapshot()` starts the store on first use, and before main answers it returns `sealed: null`, which never blocks. Plan 04 restyles this as a pill state (CCR-4) but keeps the check.
 2. `src/components/chat/useChatStreaming.ts:536-546`. Replace the `content:` line in the error branch with `content: chatErrorContent(error, t),` and add `import { chatErrorContent } from "./chatErrorContent";`. The user's message entry is not modified.
 3. `src/utils/localInferenceError.ts`. After the `OUTPUT_TRUNCATED` branch, add:
 
@@ -13005,7 +14251,8 @@ const t = (key, params) => (params ? `${key}${JSON.stringify(params)}` : key);
 const time = (ms) => `T${ms}`;
 const attested = { sealed: true, sealedSince: 5, effectiveSince: 7, phase: "sealed", failures: [], notes: [], loadError: null, saveError: null,
   guards: { node: true, dns: true, dgram: true, http: true, webContents: true, sessions: 2, envProxy: false, openRemoteSockets: 0, chromiumInFlightRemote: 0, pendingDns: 0 },
-  networkChildren: [], activeRemote: 0, children: [], isolation: { platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null },
+  networkChildren: [], activeRemote: 0, children: [], paused: [],
+  isolation: { platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null, pauseReason: null },
   blockedSinceSealed: 3, recordFailures: 0, version: 1, at: Date.now(), nothingLeaves: true };
 
 test("the verified claim appears only when main attests it", async () => {
@@ -13071,10 +14318,17 @@ test("the panel never shows verified for a child main did not prove, even if not
   assert.ok(!lines.some((l) => l.key === "settingsPage.privacy.sealed.attested"));
 });
 
-test("where isolation is unavailable, the sealed panel says so", async () => {
+test("where isolation is unavailable, the sealed panel names the reason and its fix, and can still verify (D15)", async () => {
   const { sealedStatusLines } = await copy();
-  const lines = sealedStatusLines(true, { ...attested, isolation: { ...attested.isolation, selfTest: "failed", reason: "loopback:namespace" } }, time);
-  assert.ok(lines.some((l) => l.key === "settingsPage.privacy.sealed.isolationUnavailable" && l.tone === "warn"));
+  for (const reason of ["notPackaged", "profileNotLoaded", "userNamespacesDisabled", "selfTestFailed"]) {
+    const lines = sealedStatusLines(true, { ...attested, isolation: { ...attested.isolation, selfTest: "failed", pauseReason: reason } }, time);
+    assert.ok(lines.some((l) => l.key === `settingsPage.privacy.sealed.paused.${reason}` && l.tone === "warn"), reason);
+    assert.ok(lines.some((l) => l.key === "settingsPage.privacy.sealed.attested"), "nothing native runs, so the seal can still be verified");
+  }
+  const bus = sealedStatusLines(true, { ...attested, paused: [{ kind: "playerctl", reason: "sessionBus" }, { kind: "whisper-server", reason: "isolation" }] }, time);
+  assert.deepEqual(bus.find((l) => l.key === "settingsPage.privacy.sealed.paused.sessionBus").params, { names: "playerctl" });
+  const open = sealedStatusLines(false, { ...attested, sealed: false, isolation: { ...attested.isolation, selfTest: "failed", pauseReason: "notPackaged" } }, time);
+  assert.ok(!open.some((l) => l.key.startsWith("settingsPage.privacy.sealed.paused.")), "nothing is paused while unsealed");
 });
 
 test("a delay that resolved before verification is disclosed beside the verified line", async () => {
@@ -13207,9 +14461,12 @@ export function sealedStatusLines(
       });
       for (const note of attestation.notes) if (NOTE_KEYS.has(note)) lines.push({ key: `${P}.note.${note}`, tone: "neutral" });
     } else lines.push(unverified(attestation));
-    // D14: where isolation is unavailable, local model servers cannot start while sealed.
-    if (attestation?.isolation && ["failed", "unavailable"].includes(attestation.isolation.selfTest))
-      lines.push({ key: `${P}.isolationUnavailable`, tone: "warn" });
+    // D15: where isolation is unavailable, native children are paused while
+    // sealed; name the reason and the fix. Main decides the reason.
+    const reason = attestation?.isolation?.pauseReason;
+    if (reason) lines.push({ key: `${P}.paused.${reason}`, tone: "warn" });
+    const bus = [...new Set((attestation?.paused ?? []).filter((p) => p.reason === "sessionBus").map((p) => p.kind))];
+    if (bus.length > 0) lines.push({ key: `${P}.paused.sessionBus`, params: { names: bus.join(", ") }, tone: "neutral" });
     // Always shown while sealed: what the guarantee covers, and its limits.
     lines.push({ key: `${P}.scope`, tone: "neutral" });
   }
@@ -13346,6 +14603,7 @@ These are the English source strings. Every other locale gets a faithful transla
   "sealedMode.blocked.dictationNotKept": "Nothing was sent. The recording was not kept, because local history is off.",
   "sealedMode.blocked.dictationPreflight": "Dictation paused: Sealed mode is on",
   "sealedMode.blocked.dictationPreflightDetail": "Your speech-to-text route sends audio off this computer. Choose an on-device model, or turn Sealed mode off.",
+  "sealedMode.paused.dictationPreflightDetail": "Your on-device model can't run while Sealed mode is on, because Loqui can't isolate it on this computer. Privacy & Data shows how to fix this, or turn Sealed mode off.",
   "sealedMode.interrupted.generic": "Stopped: Sealed mode was turned on while this was in progress. The provider may have received part of it.",
   "sealedMode.interrupted.chat": "Chat stopped: Sealed mode was turned on mid-reply. Your message is kept; the provider may have received it.",
   "sealedMode.interrupted.dictationKept": "Stopped when Sealed mode was turned on; the provider may have received part of the audio. The recording is in History for retry.",
@@ -13363,7 +14621,11 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.on": "Cloud routes are paused. Local routes keep working. Turn this off to resume them.",
   "settingsPage.privacy.sealed.attested": "Sealed and verified since {{time}}: nothing Loqui, its windows or the programs it runs can reach another computer. Blocked: {{count}}.",
   "settingsPage.privacy.sealed.unverified.notIsolated": "Sealed mode is on, but {{names}} started before network isolation was in place. Loqui restarts it inside isolation as soon as it's idle, then verifies the seal.",
-  "settingsPage.privacy.sealed.isolationUnavailable": "Loqui can't isolate local model servers on this computer, so they won't start while Sealed mode is on.",
+  "settingsPage.privacy.sealed.paused.notPackaged": "On-device models are paused while Sealed mode is on: this copy of Loqui (AppImage or tar.gz) can't isolate them on this computer. To use them sealed, install Loqui's .deb or .rpm package, or turn Sealed mode off.",
+  "settingsPage.privacy.sealed.paused.profileNotLoaded": "On-device models are paused while Sealed mode is on: Loqui's AppArmor profile isn't active, so it can't isolate them. Reinstall the Loqui package, or turn Sealed mode off.",
+  "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "On-device models are paused while Sealed mode is on: this computer turns off the user namespaces Loqui needs to isolate them. Ask your administrator to allow them, or turn Sealed mode off.",
+  "settingsPage.privacy.sealed.paused.selfTestFailed": "On-device models are paused while Sealed mode is on: Loqui couldn't confirm their network isolation on this computer. Reinstall Loqui, or turn Sealed mode off.",
+  "settingsPage.privacy.sealed.paused.sessionBus": "Also paused while Sealed mode is on: {{names}}. They use a desktop service that can open web pages.",
   "settingsPage.privacy.sealed.note.reisolate": "Verified after a delay: a local model server was restarted inside network isolation.",
   "settingsPage.privacy.sealed.unverified.pending": "Checking that nothing can leave this computer…",
   "settingsPage.privacy.sealed.unverified.guards": "Sealed mode is on, but Loqui can't confirm its network guards are active. Restart Loqui.",
@@ -13383,6 +14645,101 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.scope": "Covers Loqui, its windows and every program it starts. Local model servers run inside network isolation that only reaches this computer. Links open in your browser only after you confirm.",
   "settingsPage.privacy.sealed.toggleError": "Couldn't change Sealed mode: {{message}}",
   "updates.sealed": "Paused while Sealed mode is on."
+}
+```
+
+**The D15 strings, already translated.** These are reviewed translations of the six D15 keys for all 11 locales. Merge them into `/tmp/loqui-sealed-i18n.json` before running the merge script below. Before merging, replace each locale's term for "Sealed mode" with the term that locale's other `sealedMode.*` strings use, and keep each `{{names}}` byte-identical. Product and file names (Loqui, AppImage, tar.gz, .deb, .rpm, AppArmor) stay untranslated.
+
+```json
+{
+  "en": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "On-device models are paused while Sealed mode is on: this copy of Loqui (AppImage or tar.gz) can't isolate them on this computer. To use them sealed, install Loqui's .deb or .rpm package, or turn Sealed mode off.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "On-device models are paused while Sealed mode is on: Loqui's AppArmor profile isn't active, so it can't isolate them. Reinstall the Loqui package, or turn Sealed mode off.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "On-device models are paused while Sealed mode is on: this computer turns off the user namespaces Loqui needs to isolate them. Ask your administrator to allow them, or turn Sealed mode off.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "On-device models are paused while Sealed mode is on: Loqui couldn't confirm their network isolation on this computer. Reinstall Loqui, or turn Sealed mode off.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "Also paused while Sealed mode is on: {{names}}. They use a desktop service that can open web pages.",
+    "sealedMode.paused.dictationPreflightDetail": "Your on-device model can't run while Sealed mode is on, because Loqui can't isolate it on this computer. Privacy & Data shows how to fix this, or turn Sealed mode off."
+  },
+  "de": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "On-Device-Modelle sind pausiert, solange der versiegelte Modus aktiv ist: Diese Loqui-Version (AppImage oder tar.gz) kann sie auf diesem Computer nicht isolieren. Installiere das .deb- oder .rpm-Paket von Loqui, um sie versiegelt zu nutzen, oder schalte den versiegelten Modus aus.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "On-Device-Modelle sind pausiert, solange der versiegelte Modus aktiv ist: Das AppArmor-Profil von Loqui ist nicht aktiv, daher kann Loqui sie nicht isolieren. Installiere das Loqui-Paket neu oder schalte den versiegelten Modus aus.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "On-Device-Modelle sind pausiert, solange der versiegelte Modus aktiv ist: Auf diesem Computer sind die User-Namespaces deaktiviert, die Loqui zum Isolieren braucht. Bitte deine Administration, sie zu erlauben, oder schalte den versiegelten Modus aus.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "On-Device-Modelle sind pausiert, solange der versiegelte Modus aktiv ist: Loqui konnte ihre Netzwerkisolation auf diesem Computer nicht bestätigen. Installiere Loqui neu oder schalte den versiegelten Modus aus.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "Ebenfalls pausiert, solange der versiegelte Modus aktiv ist: {{names}}. Sie nutzen einen Desktop-Dienst, der Webseiten öffnen kann.",
+    "sealedMode.paused.dictationPreflightDetail": "Dein On-Device-Modell kann nicht laufen, solange der versiegelte Modus aktiv ist, weil Loqui es auf diesem Computer nicht isolieren kann. Unter „Datenschutz und Daten“ steht, wie du das behebst, oder schalte den versiegelten Modus aus."
+  },
+  "es": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "Los modelos en el dispositivo están en pausa mientras el modo sellado está activado: esta copia de Loqui (AppImage o tar.gz) no puede aislarlos en este equipo. Para usarlos con el modo sellado, instala el paquete .deb o .rpm de Loqui, o desactiva el modo sellado.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "Los modelos en el dispositivo están en pausa mientras el modo sellado está activado: el perfil de AppArmor de Loqui no está activo, así que no puede aislarlos. Reinstala el paquete de Loqui o desactiva el modo sellado.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "Los modelos en el dispositivo están en pausa mientras el modo sellado está activado: este equipo tiene desactivados los espacios de nombres de usuario que Loqui necesita para aislarlos. Pide a tu administrador que los permita o desactiva el modo sellado.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "Los modelos en el dispositivo están en pausa mientras el modo sellado está activado: Loqui no pudo confirmar su aislamiento de red en este equipo. Reinstala Loqui o desactiva el modo sellado.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "También en pausa mientras el modo sellado está activado: {{names}}. Usan un servicio del escritorio que puede abrir páginas web.",
+    "sealedMode.paused.dictationPreflightDetail": "Tu modelo en el dispositivo no puede funcionar mientras el modo sellado está activado, porque Loqui no puede aislarlo en este equipo. En Privacidad y datos se explica cómo solucionarlo; también puedes desactivar el modo sellado."
+  },
+  "fr": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "Les modèles sur l'appareil sont en pause tant que le mode scellé est activé : cette copie de Loqui (AppImage ou tar.gz) ne peut pas les isoler sur cet ordinateur. Pour les utiliser en mode scellé, installez le paquet .deb ou .rpm de Loqui, ou désactivez le mode scellé.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "Les modèles sur l'appareil sont en pause tant que le mode scellé est activé : le profil AppArmor de Loqui n'est pas actif, Loqui ne peut donc pas les isoler. Réinstallez le paquet Loqui ou désactivez le mode scellé.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "Les modèles sur l'appareil sont en pause tant que le mode scellé est activé : cet ordinateur désactive les espaces de noms utilisateur dont Loqui a besoin pour les isoler. Demandez à votre administrateur de les autoriser, ou désactivez le mode scellé.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "Les modèles sur l'appareil sont en pause tant que le mode scellé est activé : Loqui n'a pas pu confirmer leur isolement réseau sur cet ordinateur. Réinstallez Loqui ou désactivez le mode scellé.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "Également en pause tant que le mode scellé est activé : {{names}}. Ils utilisent un service du bureau qui peut ouvrir des pages web.",
+    "sealedMode.paused.dictationPreflightDetail": "Votre modèle sur l'appareil ne peut pas fonctionner tant que le mode scellé est activé, car Loqui ne peut pas l'isoler sur cet ordinateur. Confidentialité et données explique comment corriger cela ; vous pouvez aussi désactiver le mode scellé."
+  },
+  "it": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "I modelli sul dispositivo sono in pausa mentre la modalità sigillata è attiva: questa copia di Loqui (AppImage o tar.gz) non può isolarli su questo computer. Per usarli in modalità sigillata, installa il pacchetto .deb o .rpm di Loqui, oppure disattiva la modalità sigillata.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "I modelli sul dispositivo sono in pausa mentre la modalità sigillata è attiva: il profilo AppArmor di Loqui non è attivo, quindi Loqui non può isolarli. Reinstalla il pacchetto di Loqui oppure disattiva la modalità sigillata.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "I modelli sul dispositivo sono in pausa mentre la modalità sigillata è attiva: questo computer disattiva gli spazi dei nomi utente di cui Loqui ha bisogno per isolarli. Chiedi all'amministratore di consentirli oppure disattiva la modalità sigillata.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "I modelli sul dispositivo sono in pausa mentre la modalità sigillata è attiva: Loqui non è riuscito a confermarne l'isolamento di rete su questo computer. Reinstalla Loqui oppure disattiva la modalità sigillata.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "In pausa anche mentre la modalità sigillata è attiva: {{names}}. Usano un servizio del desktop che può aprire pagine web.",
+    "sealedMode.paused.dictationPreflightDetail": "Il modello sul dispositivo non può funzionare mentre la modalità sigillata è attiva, perché Loqui non può isolarlo su questo computer. In Privacy e dati trovi come risolvere, oppure disattiva la modalità sigillata."
+  },
+  "ja": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "封印モードがオンの間、オンデバイスモデルは一時停止しています。このLoqui（AppImageまたはtar.gz）では、このコンピューター上でモデルを分離できません。封印モードで使うには、Loquiの.debまたは.rpmパッケージをインストールするか、封印モードをオフにしてください。",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "封印モードがオンの間、オンデバイスモデルは一時停止しています。LoquiのAppArmorプロファイルが有効になっていないため、モデルを分離できません。Loquiのパッケージを再インストールするか、封印モードをオフにしてください。",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "封印モードがオンの間、オンデバイスモデルは一時停止しています。このコンピューターでは、Loquiが分離に必要とするユーザー名前空間が無効になっています。管理者に許可を依頼するか、封印モードをオフにしてください。",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "封印モードがオンの間、オンデバイスモデルは一時停止しています。このコンピューターでは、モデルのネットワーク分離を確認できませんでした。Loquiを再インストールするか、封印モードをオフにしてください。",
+    "settingsPage.privacy.sealed.paused.sessionBus": "封印モードがオンの間、次も一時停止しています：{{names}}。これらはWebページを開けるデスクトップサービスを使用します。",
+    "sealedMode.paused.dictationPreflightDetail": "封印モードがオンの間、オンデバイスモデルは実行できません。このコンピューターではLoquiがモデルを分離できないためです。修正方法は「プライバシーとデータ」を確認するか、封印モードをオフにしてください。"
+  },
+  "pt": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "Os modelos no dispositivo estão pausados enquanto o modo selado está ativado: esta cópia do Loqui (AppImage ou tar.gz) não consegue isolá-los neste computador. Para usá-los com o modo selado, instale o pacote .deb ou .rpm do Loqui ou desative o modo selado.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "Os modelos no dispositivo estão pausados enquanto o modo selado está ativado: o perfil do AppArmor do Loqui não está ativo, então ele não consegue isolá-los. Reinstale o pacote do Loqui ou desative o modo selado.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "Os modelos no dispositivo estão pausados enquanto o modo selado está ativado: este computador desativa os namespaces de usuário de que o Loqui precisa para isolá-los. Peça ao administrador para permiti-los ou desative o modo selado.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "Os modelos no dispositivo estão pausados enquanto o modo selado está ativado: o Loqui não conseguiu confirmar o isolamento de rede deles neste computador. Reinstale o Loqui ou desative o modo selado.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "Também pausados enquanto o modo selado está ativado: {{names}}. Eles usam um serviço da área de trabalho que pode abrir páginas da web.",
+    "sealedMode.paused.dictationPreflightDetail": "Seu modelo no dispositivo não pode ser executado enquanto o modo selado está ativado, porque o Loqui não consegue isolá-lo neste computador. Privacidade e dados explica como corrigir isso; você também pode desativar o modo selado."
+  },
+  "ru": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "Модели на устройстве приостановлены, пока включён запечатанный режим: эта копия Loqui (AppImage или tar.gz) не может изолировать их на этом компьютере. Чтобы пользоваться ими в запечатанном режиме, установите пакет Loqui .deb или .rpm либо выключите запечатанный режим.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "Модели на устройстве приостановлены, пока включён запечатанный режим: профиль AppArmor для Loqui не активен, поэтому Loqui не может их изолировать. Переустановите пакет Loqui или выключите запечатанный режим.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "Модели на устройстве приостановлены, пока включён запечатанный режим: на этом компьютере отключены пользовательские пространства имён, которые нужны Loqui для изоляции. Попросите администратора разрешить их или выключите запечатанный режим.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "Модели на устройстве приостановлены, пока включён запечатанный режим: Loqui не удалось подтвердить их сетевую изоляцию на этом компьютере. Переустановите Loqui или выключите запечатанный режим.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "Также приостановлено, пока включён запечатанный режим: {{names}}. Они используют службу рабочего стола, которая может открывать веб-страницы.",
+    "sealedMode.paused.dictationPreflightDetail": "Модель на устройстве не может работать, пока включён запечатанный режим, потому что Loqui не может изолировать её на этом компьютере. В разделе «Конфиденциальность и данные» описано, как это исправить; также можно выключить запечатанный режим."
+  },
+  "zh-CN": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "密封模式开启期间，设备端模型已暂停：此版本的 Loqui（AppImage 或 tar.gz）无法在这台电脑上隔离它们。若要在密封模式下使用，请安装 Loqui 的 .deb 或 .rpm 软件包，或关闭密封模式。",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "密封模式开启期间，设备端模型已暂停：Loqui 的 AppArmor 配置文件未生效，因此无法隔离它们。请重新安装 Loqui 软件包，或关闭密封模式。",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "密封模式开启期间，设备端模型已暂停：这台电脑关闭了 Loqui 隔离所需的用户命名空间。请让管理员允许使用，或关闭密封模式。",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "密封模式开启期间，设备端模型已暂停：Loqui 无法在这台电脑上确认它们的网络隔离。请重新安装 Loqui，或关闭密封模式。",
+    "settingsPage.privacy.sealed.paused.sessionBus": "密封模式开启期间同样暂停：{{names}}。它们使用一个可以打开网页的桌面服务。",
+    "sealedMode.paused.dictationPreflightDetail": "密封模式开启期间，你的设备端模型无法运行，因为 Loqui 无法在这台电脑上隔离它。可在“隐私与数据”中查看解决方法，或关闭密封模式。"
+  },
+  "zh-TW": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "密封模式開啟期間，裝置端模型已暫停：這個版本的 Loqui（AppImage 或 tar.gz）無法在這台電腦上隔離它們。若要在密封模式下使用，請安裝 Loqui 的 .deb 或 .rpm 套件，或關閉密封模式。",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "密封模式開啟期間，裝置端模型已暫停：Loqui 的 AppArmor 設定檔未啟用，因此無法隔離它們。請重新安裝 Loqui 套件，或關閉密封模式。",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "密封模式開啟期間，裝置端模型已暫停：這台電腦停用了 Loqui 隔離所需的使用者命名空間。請洽詢管理員允許使用，或關閉密封模式。",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "密封模式開啟期間，裝置端模型已暫停：Loqui 無法在這台電腦上確認它們的網路隔離。請重新安裝 Loqui，或關閉密封模式。",
+    "settingsPage.privacy.sealed.paused.sessionBus": "密封模式開啟期間同樣暫停：{{names}}。它們使用可以開啟網頁的桌面服務。",
+    "sealedMode.paused.dictationPreflightDetail": "密封模式開啟期間，你的裝置端模型無法執行，因為 Loqui 無法在這台電腦上隔離它。可在「隱私權與資料」中查看解決方法，或關閉密封模式。"
+  },
+  "ar": {
+    "settingsPage.privacy.sealed.paused.notPackaged": "النماذج على الجهاز متوقفة مؤقتًا أثناء تشغيل الوضع المختوم: لا تستطيع هذه النسخة من Loqui (AppImage أو tar.gz) عزلها على هذا الكمبيوتر. لاستخدامها في الوضع المختوم، ثبّت حزمة Loqui بصيغة .deb أو .rpm، أو أوقف الوضع المختوم.",
+    "settingsPage.privacy.sealed.paused.profileNotLoaded": "النماذج على الجهاز متوقفة مؤقتًا أثناء تشغيل الوضع المختوم: ملف AppArmor الخاص بـ Loqui غير مفعّل، لذا لا يستطيع عزلها. أعد تثبيت حزمة Loqui، أو أوقف الوضع المختوم.",
+    "settingsPage.privacy.sealed.paused.userNamespacesDisabled": "النماذج على الجهاز متوقفة مؤقتًا أثناء تشغيل الوضع المختوم: يعطّل هذا الكمبيوتر مساحات أسماء المستخدم التي يحتاجها Loqui لعزلها. اطلب من المسؤول السماح بها، أو أوقف الوضع المختوم.",
+    "settingsPage.privacy.sealed.paused.selfTestFailed": "النماذج على الجهاز متوقفة مؤقتًا أثناء تشغيل الوضع المختوم: تعذّر على Loqui تأكيد عزلها عن الشبكة على هذا الكمبيوتر. أعد تثبيت Loqui، أو أوقف الوضع المختوم.",
+    "settingsPage.privacy.sealed.paused.sessionBus": "متوقفة مؤقتًا أيضًا أثناء تشغيل الوضع المختوم: {{names}}. فهي تستخدم خدمة سطح مكتب يمكنها فتح صفحات الويب.",
+    "sealedMode.paused.dictationPreflightDetail": "لا يمكن تشغيل نموذجك على الجهاز أثناء تشغيل الوضع المختوم، لأن Loqui لا يستطيع عزله على هذا الكمبيوتر. يشرح قسم «الخصوصية والبيانات» كيفية إصلاح ذلك، أو أوقف الوضع المختوم."
+  }
 }
 ```
 
@@ -14005,7 +15362,7 @@ Add this section to `docs/PRIVACY.md`, after "When network requests occur" and b
 ```markdown
 ## Sealed mode and the flight recorder
 
-**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, nothing that Loqui, its windows or the programs it starts send leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. Local model servers that Loqui starts (llama-server, whisper-server, Parakeet, Qdrant) keep running so on-device routes work. While Sealed mode is on, they and every other program Loqui starts run inside the operating system's network isolation, which only reaches this computer's loopback: a sandbox profile on macOS, and a separate network namespace on Linux. Before each program starts, a check inside that isolation confirms that a connection to another computer fails; if it doesn't, the program doesn't start. A program that was already running when you turned Sealed mode on is restarted inside isolation once it's idle. Where the operating system can't provide this isolation, those programs don't start while Sealed mode is on, and the panel says so. A proxy or port-forwarder you run on this computer is treated as local. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, every program it started is running inside network isolation, and no environment proxy is in use. It dates the claim from that moment.
+**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, nothing that Loqui, its windows or the programs it starts send leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. Local model servers that Loqui starts (llama-server, whisper-server, Parakeet, Qdrant) keep running so on-device routes work. While Sealed mode is on, they and every other program Loqui starts run inside the operating system's network isolation, which only reaches this computer's loopback: a sandbox profile on macOS, and a separate network namespace on Linux. Before each program starts, a check inside that isolation confirms that a connection to another computer fails; if it doesn't, the program doesn't start. A program that was already running when you turned Sealed mode on is restarted inside isolation once it's idle. On Linux, this isolation needs Loqui's `.deb` or `.rpm` package, which installs an AppArmor profile for it. With the AppImage or tar.gz, or where the system turns the needed feature off, on-device models and Loqui's other helper programs pause while Sealed mode is on, and the panel says why and how to fix it. On Linux, media keys and portal audio capture also pause while Sealed mode is on, because they use a desktop service that can open web pages. A proxy or port-forwarder you run on this computer is treated as local. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, every program it started is running inside network isolation, and no environment proxy is in use. It dates the claim from that moment.
 
 When Sealed mode blocks a request, your content is kept: a chat message stays in the conversation, and a dictation recording is kept in History for retry when local history and audio retention allow it. While sealed, a dictation that would use a cloud speech-to-text route does not start at all. A request that was already under way when you turned Sealed mode on is stopped, and Loqui says the provider may have received part of it.
 
@@ -14429,10 +15786,11 @@ Use a disposable profile (`LOQUI_PROFILE_DIR=$(mktemp -d)`) and the packaged app
 
    The observer logs nothing. As a control, run the same `curl` without the launcher: the observer logs one connection.
 3. **Inbound (macOS, needs a second computer).** While sealed, list each sidecar's listeners with `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid>`: each one is on `127.0.0.1` or `::1`. From the second computer, connect to each of those ports on the Mac's LAN address: each is refused. Then try the adversarial case. Run the shipped stub with the `loopback` profile around `node -e 'require("net").createServer((c) => c.end("leak")).listen(46555, "0.0.0.0")'`, and connect to `<mac-lan-ip>:46555` from the second computer. Record the result. If it connects, Task 0's question 1 is confirmed, and the gate's macOS options apply.
-4. **Linux with restricted user namespaces.** On a default Ubuntu 24.04, or after `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1`, start the AppImage sealed. Expect:
-   - `isolation.selfTest` is `failed`, with a reason;
-   - the local sidecars do not start, and the panel shows the isolation line. If the owner chose different behaviour at the Task 0 gate, expect that instead;
-   - `ps -ef` shows no sidecar running outside the launcher.
+4. **Linux with restricted user namespaces (D15).** On a default Ubuntu 24.04:
+   - **The `.deb`.** `isolation.selfTest` is `passed`. Every child is `isolated` or `networkFree`. Local dictation works sealed.
+   - **The AppImage, then the tar.gz.** `isolation.selfTest` is `failed` with `pauseReason: "notPackaged"`. The panel shows the "install the .deb or .rpm, or turn Sealed mode off" line. A local dictation is refused by the pre-flight with that fix. `ps -ef` shows no Loqui sidecar running. The panel still reaches verified, because nothing native runs.
+   - **User namespaces turned off** (`sudo sysctl -w user.max_user_namespaces=0`, with the `.deb`): `pauseReason: "userNamespacesDisabled"`. Restore the setting afterwards.
+   - **Session-bus helpers.** Press a media key while sealed. Nothing happens, and the panel names `playerctl` as paused.
 5. **Restart at seal.**
    - Unsealed, run a local dictation so whisper-server is running, then seal. The panel names whisper-server until it restarts, then verifies. `ps -o pid,lstart -p <pid>` shows a new process.
    - Seal during a long Parakeet stream. The stream finishes, then the server restarts and the seal verifies.
@@ -14567,6 +15925,19 @@ Review Loqui's Sealed mode for ways data can still leave the computer while seal
     - delegated egress (the DNS resolver, nsurlsessiond, LaunchServices, D-Bus and portals) is closed, as Task 0's report says;
     - on macOS, whether a sandboxed listener can be reached from another machine.
 
+    - D15 (Linux):
+      - the AppArmor profile grants only `userns`, only to the packaged launcher's exact path, and the installer refuses symlinks and writable directories;
+      - removal unloads and deletes the profile;
+      - where isolation fails, every native child pauses, the reason is right, and nothing runs unconfined;
+      - no seccomp or Landlock path counts.
+    - The round-3 rulings:
+      - per-kind macOS profiles, with Apple Events denied everywhere;
+      - the CI test that a sandboxed child cannot open a URL;
+      - the wildcard-bind refusal and the watcher;
+      - the patched sherpa-onnx binds `127.0.0.1`;
+      - the sandbox-API fallback is held to the same probe;
+      - the Linux session-bus helpers are paused.
+
     Read Task 0's report and Task 16 Step 5a's evidence, and confirm that every platform risk was decided by the owner, not by a silent fallback.
 
 Report: a table of findings with severity (critical/high/medium/low), evidence, and a concrete fix. Mark each checklist item PASS/FAIL/NOT VERIFIED.
@@ -14581,7 +15952,7 @@ Write the reviewer's report to `docs/security/sealed-mode-review-2026-10.md`. Ad
 
 - [ ] All critical and high findings fixed and re-verified (link commits)
 - [ ] Medium/low findings fixed or accepted by the owner with a reason
-- [ ] Merge gate (D14): native child isolation ships on macOS arm64 and Linux x64, or the owner's Task 0 decision for each gap is recorded here
+- [ ] Merge gate (D14, D15): native child isolation ships on macOS arm64, and on Linux x64 through the `.deb` and `.rpm`, with D15's pause everywhere else
 - [ ] Owner approval to merge: ____________ (name, date)
 ```
 
@@ -14623,11 +15994,5 @@ Do not merge until the owner has filled in the sign-off.
 
    This plan gates them and tests them through their real handlers (Task 12). Codex recommends removing the unused preload bridges and handlers together, in a follow-up. Should we?
 5. **A quick toggle.** Should Sealed mode also be available from the tray menu or the pill? This plan ships it in Settings only.
-6. **The Task 0 gate (D14).** The preliminary evidence (Task 0) already shows gaps that need the owner's decision:
-   - Linux with restricted user namespaces, the default on Ubuntu 24.04;
-   - a macOS listener on `0.0.0.0`, if another computer can reach it;
-   - per-kind macOS profiles (the pasteboard against LaunchServices);
-   - Windows.
-
-   Task 0, Step 8 lists the options for each. Until the owner decides, sealed native spawns are refused where isolation is unavailable.
+6. **Decided: the Task 0 gate.** D15 and the round-3 rulings settle it (see "D15 and the round-3 rulings"). One reading remains for the owner to confirm or narrow: where isolation is unavailable, *every* native child pauses while sealed, not only the model servers (Task 6i).
 7. **Isolate always, not only while sealed?** This plan isolates native children only while sealed, per D14's wording, so sealing restarts the ones already running (Task 6e). None of them needs the network in normal use. Isolating them always would make sealing instant, and would exercise the sandbox every day. The cost is that an isolation bug would also affect users who never seal. Recommended after one release of Sealed mode.

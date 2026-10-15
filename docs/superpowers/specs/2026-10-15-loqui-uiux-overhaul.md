@@ -309,6 +309,13 @@ export interface RemoteDisclosure {
 - **Which channel.** The onboarding trial reads the cancelled state *only* from `onboarding-demo-event`, which carries the sessionId, the `CancelledState` and `cancelClosed`. The §5.7 capture bridge carries the lifecycle `state` string, which may be `"cancelled"`, for the workspace mic card. Onboarding does not read cancel details from it, so the two never compete.
 - **`alsoSentTo` survives the bridge.** `sanitizeCancelledDemoFields` keeps every `RemoteDisclosure` field, including `alsoSentTo`.
 - **Private holds (Plan 04 implements this).** The hold keeps the snapshot's `private` flag, through `_closeCancelled`, `restoreCancelled` and `flushCancelHold`. An expired or flushed private hold is never persisted, and a restore re-applies `private` before processing.
+- **Audio ownership.** `AudioManager._setOwnedAudio(blob: Blob | null, options?: { sessionId?: string | null; private?: boolean })` is the only writer of `lastAudioBlob`, its owner session and `lastAudioBlobPrivate`, and it keeps `_recordingPrivate` in step.
+  - **Defaults.** `sessionId` is the active session's id, and `private` is `_recordingPrivate === true`.
+  - **Callers.** Original finalization, the fallback and every restore go through it before any provider or save work. So does every release, as `_setOwnedAudio(null)`.
+  - **Test.** It fails on any bare assignment outside the setter.
+  - **Plan 05.** Its privacy stamps and releases use it, in whichever task merges second.
+- **Cancel stops further egress.** A cancel discards any audio a streaming adapter buffered while connecting (Gemini, Corti and any other provider that buffers before connecting), so nothing more is uploaded after the cancel. The Undo hold keeps the audio in RAM, and a restore re-sends it from there.
+  - **What the copy says.** `remoteAlreadySent` reports only frames that actually left before the cancel.
 
 **Disclosure copy.** `src/helpers/dictationDisclosure.js` exports:
 - `dispatchTargetLabel(target, t)`: `providerDisplayLabel` for providers, and the host for `host:…`;

@@ -100,10 +100,14 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
 - **D14, Sealed mode keeps its full promise for the local model servers** (owner decision, 2026-10-15, Plan 07 CCR-6). Once llama-server, whisper-server, Qdrant and sherpa-onnx are running, JavaScript can't see their network traffic. The owner rejected disclosing that gap, and rejected stopping the servers while sealed. Plan 07 instead builds OS-level network isolation for every native child Loqui starts while sealed, so that only loopback traffic gets out:
   - macOS: a sandbox profile.
   - Linux: a network namespace, or an equivalent.
-  - Windows: a per-program block.
+  - Windows: a per-program block, once Windows is a release target. README: Windows is outside this release series, so Plan 07 doesn't ship Windows isolation.
   - **Spike first.** A spike establishes what each platform can do without admin rights, entitlements or a signing change. If any platform can't meet the promise, Plan 07 stops and reports to the owner before falling back.
   - **No silent fallback.** A child that can't be isolated is never counted toward `nothingLeaves`.
   - **Merge gate.** Plan 07 doesn't merge until this ships.
+- **D15, Linux isolation: a packaged AppArmor profile, otherwise pause** (owner decision, 2026-10-15). Ubuntu 24.04 restricts unprivileged user namespaces by default.
+  - **Packages.** The `.deb` and `.rpm` packages install an AppArmor profile that lets `loqui-isolate` create its namespaces.
+  - **Fallback.** Where isolation still can't be set up (AppImage, tar.gz, locked-down systems, or a failed boot self-test), native model servers **pause while sealed**. The Sealed panel names the reason and the fix: install the package, or unseal. Device routes that need no native child keep working.
+  - **No weaker fallback.** No seccomp or Landlock fallback is claimed as isolation, and partial coverage never counts toward `nothingLeaves`.
 
 ## 3. Plans and dependencies
 

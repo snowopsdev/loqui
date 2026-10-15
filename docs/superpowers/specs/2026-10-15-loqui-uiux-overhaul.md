@@ -113,20 +113,19 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
 ## 3. Plans and dependencies
 
 ```
-01 Foundations ─> 02 Bug & a11y sweep ─> 03 Routes & Settings ─┬─> 04 Voice overlay
+01 Foundations ─> 02 Bug & a11y sweep ─> 03 Routes & Settings ─┬─> 04 Voice overlay ─> 07 Sealed mode & flight recorder
                                                               ├─> 05 Onboarding
-                                                              ├─> 06 Workspace ─> 08 Prototypes (WS-M5)
-                                                              └─> 07 Sealed mode & flight recorder
+                                                              └─> 06 Workspace ─> 08 Prototypes (WS-M5)
 ```
 
 **Execution order** (consolidated 2026-10-15 from Plan 02 CCR 4, Plan 05 CCR 3 and Plan 06 CR-06-1):
 - **01 → 02 → 03.** Plans 03, 04, 05 and 06 all rewrite surfaces Plan 02 fixes, and each one extends Plan 02's tests and harness (`test/helpers/harness/rendererMocks.js`, `fakeDomTree.js`). Plan 03 needs Plan 02's SET-Q1/Q2/Q20 semantics.
-- **04, 05, 06 and 07 run in parallel once 03 has merged.** Each is rebased onto 03 before it starts.
+- **04, 05 and 06 run in parallel once 03 has merged.** Each is rebased onto 03 before it starts.
   - Where two of them meet, each side ships a fallback, and **whichever merges second wires the real contract and deletes its fallback**. The meeting points are:
     - 04 ↔ 05: the Undo bridge (§5.2);
-    - 04 ↔ 07: the disclosure, the pre-flight and the notices (§5.2–§5.4);
     - 04/05 ↔ 06: the capture status bridge (§5.7).
   - The fallbacks are named in each plan's Contract change requests.
+- **07's recovery integration and merge follow 04.** Task 13 uses Plan 04 Tasks 6–8's immutable sessions, owned audio and transferable context. The native-isolation spike and independent planning may run earlier, but D16 still blocks implementation. Plan 07 preserves the established disclosure and notice contracts; it does not ship an incomplete second session lifecycle as a merge-order fallback.
 - **08 runs after 06** and uses 03's route chips (§5.1).
 
 | Plan | Recommendations | Quick wins |
@@ -427,7 +426,7 @@ onEgressCleared(cb: () => void): () => void;
 - `audioManager.startRecording` refuses to start when `isDictationSealed(settings, getSealedSnapshot().sealed)` is true. Only `true` blocks.
 - It reports `sealedMode.blocked.dictationPreflight` through the existing error path.
 - Plan 07 also ships in-memory recovery (`sealedRecovery.ts`, `AudioManager.transcribeRecovered`).
-- **Plan 04 keeps the pre-flight** and the `_noteSealedFailure` call before `saveFailedTranscription` when it restructures the lifecycle. It renders the refusal as a pill state: a blocked remote ring with "Dictation paused: Sealed mode is on". Transcribe stays reachable from the pill and from the unseal notice.
+- **Plan 07 builds on Plan 04's lifecycle.** Its `_noteSealedFailure` transfers session, context and recipient-binding ownership into the recovery hold before ordinary pipeline settlement. Successful replay, discard and expiry close that owner; failure and re-hold keep it. The pre-flight renders as a pill state: a blocked remote ring with "Dictation paused: Sealed mode is on". Transcribe stays reachable from the pill and from the unseal notice.
 
 **Egress evidence → `RemoteDisclosure`** (Plan 07 CCR-3, reconciled with Plan 04 CCR-6). `privacy.onEgress` delivers:
 

@@ -79,7 +79,7 @@ This revision records the independent round-2 review of snapshot `18c0b4c…` (`
 | **I5** UI ignores phase, time and attestation contracts | Closed: mostly at `0bbb0e5`, completed in this revision | At `0bbb0e5`: phase-aware matching (`[SEALED_MODE:interrupted]`), interrupted copy, an `onAttestation` subscription with version ordering, and the verified line dated from `effectiveSince`. In this revision: attestations older than 30 s drop to unknown and are re-fetched (13). Every unverified reason, and every note resolved before verification, is named (14). The recorder shows "Loading…" instead of 0 and "No recorded requests for this period" when empty, and never says that nothing left (15). |
 | **I6** content preservation depends on Plan 04, fails mid-recording | Fixed in the plan; runtime proof remains required | Task 13 follows Plan 04 Tasks 6–8 and transfers the exact session/context before ordinary settlement can release press-time reads. A refused or interrupted operation stays in renderer memory until acknowledged History persistence succeeds or the bounded recovery entry reaches a terminal outcome. A failed/refused audio write re-holds the same immutable operation. The error alert and unseal notice offer "Transcribe". Tests use the real Plan 04 session/context factories, actual pipeline settlement and saver acknowledgement; they cover private/history-on, failed persistence, replay, terminal cleanup and cleanup-after-local-STT through the real `AudioManager`. The pre-flight remains UX protection. |
 | **I7** last-resort reset cuts local routes | Closed, this revision | The reset is gone (C3). An un-ticketed remote request keeps the seal unverified, and is named, instead of cutting local work. Task 12: `a local request in flight survives sealing, while the remote one beside it is interrupted`. Task 9: `an in-flight loopback transcription survives sealing`. Task 12: `a loopback WebSocket (the Parakeet and sidecar path) stays open through sealing`. Task 16 checks loopback in Electron after the seal. Task 17 seals mid-workflow with real whisper-server, Parakeet, llama-server and Qdrant. |
-| **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision; retargeted to spec §5.4 (091d198) | There is one renderer authority, Plan 03's `src/stores/sealedStore.ts`. Task 13 replaces its internals with the attestation store and keeps Plan 03's API, so the route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring all move with it. A ratchet test fails if any other renderer module reads sealed state from the privacy bridge. One cross-plan test sends one event from main and checks the store, the route snapshot, the resolver and the pre-flight together. Plan 03's own Apply-bar and Keyring tests pin those consumers to the store. `isSealedLocality` is the only rule; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
+| **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision; retargeted to spec §5.4 (091d198) | There is one renderer authority, Plan 03's `src/stores/sealedStore.ts`. Task 13 replaces its internals with the attestation store and keeps Plan 03's API, so the route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring all move with it. A ratchet test fails if any other renderer module reads sealed state from the privacy bridge. One cross-plan test sends one event from main and checks the store, the route snapshot, the resolver and the pre-flight together. Plan 03's own Apply-bar and Keyring tests pin those consumers to the store. `isSealedLocality` is the locality-based network rule; native availability is a separate readiness overlay; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
 | **I9** re-enabling persistence writes history-off rows | Closed, this revision | Task 4 distinguishes `pending` (consent not loaded yet) from `memory` (history explicitly off). Only pending rows flush, inside a transaction, and they are kept in memory if the write fails (`persistError`). Tests: `history off from the first sync…`, `pending rows flush on the first sync; memory-only rows never become durable`, `a failed flush keeps the pending rows…`, `restart: saved rows survive; rows kept in memory while history was off do not`. The row cap is checked on insert. |
 | **I10** opaque sessions shown as observed requests | Closed, this revision | Task 15 counts observed requests and helper sessions separately, labels an opaque row's host as "Usually …", and says its traffic is not visible. It adds a producer → IPC → view test with a normal and an interrupted session. The typed fixtures include `observed`. |
 | **I11** trusted-sender URL throws in development | Closed, this revision | Task 7 branches on the dev server before touching the packaged path, and tests both real `DevServerManager` contracts (`appUrlPrefixes follows the real DevServerManager contracts in both modes`), plus main-frame vs subframe and navigated URLs. |
@@ -159,7 +159,7 @@ This plan owns §5.4 and must not edit the spec. The spec owner consolidated eve
 
 **CCR-2 (§5.1 and §5.4, owner Plan 03).** *Status: superseded by spec §5.4's "One renderer authority: `src/stores/sealedStore.ts`" (091d198), and Plan 03 v2 (PR #50). The parts that remain are applied in §5.1 and §5.4.*
 - **One sealed source.** *Superseded by §5.4.* The earlier request (that `routeFactsStore` mirror a Plan 07 store) is withdrawn. Plan 03 created `src/stores/sealedStore.ts` as the single renderer authority, with `useSealedStore` (`{ sealed, known }`), `getSealed()` and `ensureSealedSubscribed()`. `routeFactsStore` does not read `privacy`. Plan 07 Task 13 replaces that store's internals (attestation, staleness, versioned reads), and adds `getSealedSnapshot()`, `subscribeSealed()` and `setSealedMode()` to the same module. `src/hooks/useSealedMode.ts` is only the React hook over it. `known: false` is `sealed: null` in `getSealedSnapshot()`; `getSealed()` and route snapshots read it as `false`.
-- **One rule.** *Applied in §5.1 (`isSealedLocality`, rule 7).* `isSealedLocality(locality)` is the only rule for which routes Sealed mode pauses. The earlier `applySealToRoute`/`isRouteSealed` request is withdrawn. Plan 07's pre-flight builds `buildRouteSnapshot(settings, facts, copy, true)` and asks `resolveRoute` for the dictation route's own sealed verdict, so it inherits Plan 03's precedence (§5.1 rule 10: an invalid endpoint is `needsUrl`, never sealed).
+- **One rule.** *Applied in §5.1 (`isSealedLocality`, rule 7).* `isSealedLocality(locality)` is the locality-based network rule. The D15 native availability overlay below separately reflects whether the required built-in engine can run. The earlier `applySealToRoute`/`isRouteSealed` request is withdrawn. Plan 07's pre-flight builds `buildRouteSnapshot(settings, facts, copy, true)` and asks `resolveRoute` for the dictation route's own sealed verdict, so it inherits Plan 03's precedence (§5.1 rule 10: an invalid endpoint is `needsUrl`, never sealed).
 - **One declaration.** *Applied in §5.4.* Plan 07 Task 7 replaces Plan 03's optional `privacy?` member in `src/types/electron.ts` with the required `privacy: PrivacyAPI`.
 - **The self-hosted probe.** *Applied in §5.4.* `probe-self-hosted` is gated in main as `providerCheck`. While sealed it is allowed only for loopback, and it returns `{ ok: false, code: "sealed" }` otherwise; the UI shows `routes.state.sealed`.
 
@@ -6946,7 +6946,7 @@ git commit -m "fix(security): sandbox the control panel, keep web security on, r
     - the constructor options `beforeSpawn?: () => void`, which throws to refuse, and `onSpawn?: (child) => void`;
     - `alive(): boolean`;
     - `stopAndWait(): Promise<void>`. It cancels a pending start, stops the child, waits for its exit, escalates to `SIGKILL`, and rejects with code `CODEX_STOP_FAILED` if the child still has not exited.
-  - `createModel(provider, model, apiKey, baseURL, disableThinking, enterprise, fetchImpl?)`.
+  - `createModel(provider, model, apiKey, baseURL, disableThinking, executor, enterpriseCredentialMaterial, fetchImpl?)`.
   - Text requests may carry an optional `correlationId` (a string, truncated to 128 characters). It is echoed in `sent` notices for CCR-3.
 
 **Codex in the ledger (owner decision 2, 2026-10-15).** The app-server makes its own connections inside a child process, which main cannot see. Each app-server process is therefore one **opaque session** row: task `codex`, host `chatgpt.com`, no byte counts, labelled "session; traffic not visible to Loqui". The row opens at spawn and settles at exit. The handlers for status, login, models and rate limits only check permission (`assertAllowed`); the session row covers their traffic. GitHub release verification is ordinary main-process traffic and gets its own metered row.
@@ -7421,7 +7421,7 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
    const CODEX_HOST = "https://chatgpt.com";
    ```
 
-2. Give `createModel` (`:173`) a seventh parameter `fetchImpl`. After its existing enterprise-provider branches, use this block for the remaining SDK factories:
+2. Preserve Plan 04’s seventh parameter `enterpriseCredentialMaterial` and give `createModel` (`:173`) an eighth parameter `fetchImpl`. The complete order is `(provider, model, apiKey, baseURL, disableThinking, executor, enterpriseCredentialMaterial, fetchImpl?)`; forward both final arguments through the default factory wrapper. Preserve the already compared executor projection and separate credential material unchanged. After its existing enterprise-provider branches, use this block for the remaining SDK factories:
 
    ```js
    const withFetch = fetchImpl ? { fetch: fetchImpl } : {};
@@ -7539,7 +7539,7 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
      ```
 
    - Directly before `const text = await codex.generate({` (`:392`), and directly before `const result = streamText(options);` (`:471`) and `const result = await generateText(options);` (`:489`), add `ticket.markDispatched();`. This covers providers that do not take a fetch (Codex, Tinfoil, enterprise). `meteredFetch` marks dispatched, delivered or undelivered precisely for the others, and marking is idempotent.
-   - Pass the metered fetch as the seventh `modelFactory` argument (`:412-421`). After the existing six arguments, add `egress.meteredFetch(ticket),`.
+   - Pass the metered fetch as the eighth `modelFactory` argument (`:412-421`), after Plan 04’s captured executor and separate `enterpriseCredentialMaterial` arguments. Preserve that material even when absent (`undefined`); never shift fetch into its slot. Add `egress.meteredFetch(ticket),` last, without another config read or await between Plan 04’s recipient comparison and factory construction. Add a combined factory-spy regression asserting argument 6 is the exact captured executor, argument 7 is the credential material, and argument 8 is the metered fetch (one-based positions).
    - In the `catch` (`:497`), before `if (controller.signal.aborted && error !== controller.signal.reason) throw abortFailure();` (`:501`), add:
 
      ```js
@@ -9951,13 +9951,14 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 - Create:
   - `src/hooks/useSealedMode.ts`, the React hook over the sealed store (nothing else)
   - `src/lib/sealedMode.ts`
+  - `src/lib/nativeRouteAvailability.ts` (main-attestation projection and selected-engine dependencies)
   - `src/lib/sealedRecovery.ts`
   - `src/utils/sealedModeError.ts`
   - `src/components/chat/chatErrorContent.ts`
   - `test/hooks/fakePrivacy.js` (a test helper)
 - Modify:
   - `src/stores/sealedStore.ts` (Plan 03, Task 3): replace its internals with main's attestation, staleness and versioned reads. Keep `useSealedStore`, `getSealed()` and `ensureSealedSubscribed()` behaving as Plan 03's `test/stores/sealedStore.test.js` pins them, and add `getSealedSnapshot()`, `subscribeSealed()`, `setSealedMode()` and `ATTESTATION_MAX_AGE_MS`.
-  - `src/lib/routes.ts` (Plan 03): the comment on `isSealedLocality` only. Its rule stays the single rule.
+  - `src/lib/routes.ts` and `src/lib/routeGraph.ts` (Plan 03): native availability in the snapshot, graph and facade; `isSealedLocality` itself stays unchanged.
   - `src/components/ui/MarkdownRenderer.tsx`: remote images render as an inert placeholder unless main says the app is unsealed.
   - `src/components/chat/useChatStreaming.ts:536-546`.
   - `src/utils/localInferenceError.ts:53-63`.
@@ -9971,6 +9972,7 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   - `test/stores/sealedStoreAttestation.test.js`
   - `test/stores/sealedStore.test.js` (Plan 03's, unchanged: it must still pass)
   - `test/lib/routesSealed.test.js`
+  - `test/lib/nativeRouteAvailability.test.js` (all eleven routes and the actual builder → graph → preflight path)
   - `test/helpers/dictationPreflight.test.js`
   - `test/helpers/audioManagerSealed.test.js`
   - `test/components/markdownSealed.test.js`
@@ -10002,7 +10004,8 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 
   // src/lib/sealedMode.ts. It asks Plan 03's resolver; the rule is isSealedLocality inside it.
   export function isDictationSealed(settings: SettingsState, sealed: boolean | null): boolean;  // the pre-flight
-  export function isDictationPausedNative(settings: SettingsState, snapshot: SealedSnapshot): boolean;  // D15: only a main-acknowledged Linux child pause
+  export function isDictationPausedNative(settings: SettingsState, snapshot: SealedSnapshot): boolean;  // acknowledged pause only
+  export function isDictationNativeUnavailable(settings: SettingsState, snapshot: SealedSnapshot): boolean; // pause, pending boundary or unknown required availability
 
   // src/lib/sealedRecovery.ts. Renderer memory only; never written to disk.
   export type HeldRecoveryOperation = Readonly<{
@@ -10031,7 +10034,7 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   ```
 
 - **Copy rule.** "Nothing was sent" copy (`sealedMode.blocked.*`) is used only for phase `"refused"`. A request cut off mid-flight uses `sealedMode.interrupted.*`, which says the provider may have received part of it.
-- **One sealed source (I8; spec §5.4, 091d198).** `src/stores/sealedStore.ts` is the only renderer module that reads `privacy.getSealed`, `onSealedChange`, `getAttestation` or `onAttestation`. Plan 03's route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring already read `useSealedStore`/`getSealed()`. Replacing the store's internals therefore moves all of them at once, and nothing else is migrated. Unknown (`known: false`) is `sealed: null` in `getSealedSnapshot()`, and `false` in route snapshots, because main enforces the seal either way. `isSealedLocality(locality)` (P03 Task 1) stays the only rule for which routes Sealed mode pauses. This task adds no second one.
+- **One sealed source (I8; spec §5.4, 091d198).** `src/stores/sealedStore.ts` is the only renderer module that reads `privacy.getSealed`, `onSealedChange`, `getAttestation` or `onAttestation`. Plan 03's route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring already read `useSealedStore`/`getSealed()`. Replacing the store's internals therefore moves all of them at once, and nothing else is migrated. Unknown (`known: false`) is `sealed: null` in `getSealedSnapshot()`, and `false` in route snapshots, because main enforces the seal either way. `isSealedLocality(locality)` (P03 Task 1) stays the locality-based network rule. This task also projects main-owned native availability into readiness, without changing locality or adding another privacy subscription.
 - **Pre-flight (owner decision 3, 2026-10-15).** While sealed, a dictation whose speech route is not on this device does not start, so nothing is recorded that main would refuse afterwards. The pre-flight is UX protection, not the recovery mechanism: it cannot help when the state is still unknown, or when the seal happens mid-recording.
 - **Recovery (I6, I6-R2; Plan 04 Tasks 6–8 are required first).** A sealed failure first takes `_ownedAudioSnapshot` from that pipeline's captured session, then transfers the exact active session and `SessionContext` with `_detachSessionOperation()` before ordinary settlement can release the press-time reads. Call it only when `this._activeSession === pipeline.session`; a stale callback must never detach or release a newer owner. The transfer uses Plan 04's existing session lifecycle; Plan 07 adds no parallel session or recipient-registration lifecycle. Each recovery entry owns the immutable audio/session snapshot and the same live context handle. Its session's opaque, main-authoritative enterprise recipient tags travel unchanged into every `RequestContext` and replay; do not reconstruct them from current provider configuration. For public audio, keep the detached operation pending while `saveFailedTranscription` runs and choose the user-facing copy only after its `{ audioKept }` acknowledgement: successful audio persistence releases the detached context and promises History; any refused or failed write moves the exact operation into the bounded renderer-memory hold. Private audio is never persisted and is held in RAM even when global history is enabled. A hold is bounded by `RECOVERY_MAX` and `RECOVERY_TTL_MS`, never written to disk, and disappears on quit/reload. The error notice offers "Transcribe" only after the copy is accurate; unseal offers it again.
   - **Both paths.**
@@ -10089,7 +10092,20 @@ test("isDictationPausedNative uses acknowledged Linux pause facts and preserves 
   assert.equal(isDictationPausedNative(localDictation(), { ...paused, sealed: false }), false);
   assert.equal(isDictationPausedNative(localDictation(), { sealed: true, attestation: { children: [{ kind: "whisper-server", pid: 8, lifecycle: "draining", isolation: "failed" }], paused: [] } }), false, "a draining tree is still waiting, not paused");
   assert.equal(isDictationPausedNative(localDictation(), { sealed: true, attestation: { children: [], paused: [{ kind: "whisper-server", reason: "isolation", action: "unknown" }] } }), false, "unknown action is not acknowledgement");
-  assert.equal(isDictationPausedNative(localDictation(), { sealed: true, attestation: null }), false, "unknown never blocks; main still refuses");
+  assert.equal(isDictationPausedNative(localDictation(), { sealed: true, attestation: null }), false, "unknown is not an acknowledged pause; unavailable preflight handles it");
+});
+
+test("native preflight uses selected-engine graph readiness, including pending and unknown", async (t) => {
+  const { isDictationPausedNative, isDictationNativeUnavailable } = await load(t);
+  const local = { ...localDictation(), localTranscriptionProvider: "whisper" };
+  const unrelated = { sealed: true, attestation: { children: [], paused: [{ kind: "parakeet", reason: "isolation", action: "refused" }] } };
+  assert.equal(isDictationPausedNative(local, unrelated), false, "unrelated pause is not the selected Whisper dependency");
+  const draining = { sealed: true, attestation: { children: [{ kind: "whisper-server", pid: 8, lifecycle: "draining", isolation: "failed" }], paused: [] } };
+  assert.equal(isDictationPausedNative(local, draining), false);
+  assert.equal(isDictationNativeUnavailable(local, draining), true, "pending is unavailable but not paused");
+  assert.equal(isDictationNativeUnavailable(local, { sealed: true, attestation: null }), true, "missing required coverage is unknown");
+  assert.equal(isDictationNativeUnavailable(selfHostedDictation("http://127.0.0.2:8178"), draining), false);
+  assert.equal(isDictationNativeUnavailable(local, { sealed: null, attestation: null }), false, "unknown seal remains main-enforced per existing contract");
 });
 
 test("isDictationSealed: only a dictation route that leaves this computer, and only when sealed", async (t) => {
@@ -10109,7 +10125,7 @@ test("isDictationSealed: only a dictation route that leaves this computer, and o
 
 test("there is one sealed-route rule: sealedMode.ts defines none of its own", async (t) => {
   const mod = await load(t);
-  assert.deepEqual(Object.keys(mod).sort(), ["isDictationPausedNative", "isDictationSealed"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["isDictationNativeUnavailable", "isDictationPausedNative", "isDictationSealed"]);
 });
 ```
 
@@ -10976,7 +10992,7 @@ test("startRecording refuses before the microphone opens when the pre-flight say
       // The real store and resolver are covered by sealedMode.test.js and
       // routesSealed.test.js; this test pins where startRecording asks.
       "/stores/sealedStore": "export const getSealedSnapshot = () => ({ sealed: globalThis.__preflightSealed, attestation: null });",
-      "/lib/sealedMode": "export const isDictationSealed = (_settings, sealed) => sealed === true; export const isDictationPausedNative = () => false;",
+      "/lib/sealedMode": "export const isDictationSealed = (_settings, sealed) => sealed === true; export const isDictationPausedNative = () => false; export const isDictationNativeUnavailable = () => false;",
     },
   });
   const opened = [];
@@ -11055,7 +11071,7 @@ test("unsealed: remote images render", async (t) => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/stores/sealedStoreAttestation.test.js test/lib/routesSealed.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js`
+Run: `npm test -- test/lib/sealedMode.test.js test/lib/nativeRouteAvailability.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/stores/sealedStoreAttestation.test.js test/lib/routesSealed.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js`
 Expected: FAIL. The modules are missing, `sealedStore.ts` has no attestation or snapshot, `startRecording` has no pre-flight, nothing is held for recovery, and remote images render.
 
 - [ ] **Step 3: Implement the pure modules**
@@ -11066,6 +11082,7 @@ Create `src/lib/sealedMode.ts`:
 import { buildRouteSnapshot, currentRouteCopy, resolveRoute } from "./routes";
 import { useRouteFactsStore } from "../stores/routeFactsStore";
 import type { Attestation } from "../types/privacy";
+import { withNativeRouteAvailability } from "./nativeRouteAvailability";
 
 // The dictation pre-flight: while sealed, a dictation whose speech route would
 // leave this computer is not started, so there is no recording for main to
@@ -11081,22 +11098,37 @@ export function isDictationSealed(settings: Parameters<typeof buildRouteSnapshot
   return state.status === "unreachable" && state.detail === "sealed";
 }
 
-// D15 is Linux-specific. Pause only from a main-owned acknowledgement; never
-// infer it from isolation.selfTest or pauseReason. Plan 03's endpointDestination
-// preserves user endpoints, and ResolvedRoute.host is the canonical projection:
-// a built-in engine has host:null, while a configured loopback server has a host.
+// Use the same availability projection and graph overlay as Ready and route cards.
+// Main acknowledgements determine paused; pending and unknown are not called paused.
+function nativeDictationRoute(
+  settings: Parameters<typeof buildRouteSnapshot>[0],
+  snapshot: { sealed: boolean | null; attestation: Attestation | null }
+) {
+  if (snapshot.sealed !== true) return null;
+  const facts = withNativeRouteAvailability(settings, useRouteFactsStore.getState().facts, snapshot.attestation);
+  const route = resolveRoute(buildRouteSnapshot(settings, facts, currentRouteCopy(), true), "dictationStt");
+  return { route, availability: facts.nativeAvailability.dictationStt };
+}
+
 export function isDictationPausedNative(
   settings: Parameters<typeof buildRouteSnapshot>[0],
   snapshot: { sealed: boolean | null; attestation: Attestation | null }
 ): boolean {
-  if (snapshot.sealed !== true || !snapshot.attestation) return false;
-  const route = resolveRoute(buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, currentRouteCopy(), true), "dictationStt");
-  if (route.locality !== "device" || route.host !== null || route.state.status !== "ready") return false;
-  const acked = new Set(["refused", "stopped"]);
-  return (snapshot.attestation.paused ?? []).some(
-    (p) => p.reason === "isolation" && acked.has(p.action) && ["whisper-server", "parakeet", "onnx-worker"].includes(p.kind)
-  );
+  const resolved = nativeDictationRoute(settings, snapshot);
+  return resolved?.route.state.status === "unreachable" && resolved.route.state.detail === "nativePaused";
 }
+
+export function isDictationNativeUnavailable(
+  settings: Parameters<typeof buildRouteSnapshot>[0],
+  snapshot: { sealed: boolean | null; attestation: Attestation | null }
+): boolean {
+  const resolved = nativeDictationRoute(settings, snapshot);
+  if (!resolved) return false;
+  const { route, availability } = resolved;
+  return (route.state.status === "unreachable" && ["nativePaused", "nativePending"].includes(route.state.detail ?? "")) ||
+    (availability.status === "unknown" && route.state.status === "unknown");
+}
+
 ```
 
 Create `src/lib/sealedRecovery.ts`:
@@ -11463,7 +11495,17 @@ export function _resetSealedStoreForTests(): void {
 
 Plan 03's `test/stores/sealedStore.test.js` loads a fresh module per test through its renderer harness, so it needs no reset. Its fakes have no `getAttestation`/`onAttestation`; the optional calls above leave them untouched. If Plan 03's `test/lib/routesHooks.test.js` gains an attestation fake, add `"privacy.getAttestation"` to its `ALLOWED` list: the call is local IPC and network-free.
 
-In `src/lib/routes.ts`, change the comment above `isSealedLocality` (or its re-export from `routeGraph.ts`) to: `// Spec §5.4 + Plan 07 CCR-1: the one rule for which routes Sealed mode pauses. LAN servers are another machine.` Do not change the function.
+### Step 4a: Project native availability into the shared route graph (spec §5.1, D15)
+
+Replace the earlier comment-only route change. Add `NativeRouteAvailability = { status: "notRequired" | "available" | "pending" | "paused" | "unknown"; reason?: "isolation" | "sessionBus" }` and a complete `Record<RouteId, NativeRouteAvailability>` on the snapshot facts. `src/lib/nativeRouteAvailability.ts` exports `withNativeRouteAvailability(settings, facts, attestation)`, returning a new facts object without mutating the store. Derive each route's required **selected** built-in engine from the same settings/resolved destination as Plan 03, then project main's attestation. Use a table covering all eleven routes and every supported engine: Whisper/Parakeet speech paths, local llama text/vision stages, Qdrant search, and helpers or worker-only stages as actually required by their executors. Inspect each executor and manager registration before writing the table; do not infer dependencies from locality alone. A configured loopback endpoint is `notRequired` with respect to Loqui's child processes.
+
+Only an acknowledged `refused` or confirmed whole-tree `stopped` entry for that route's selected required kind yields `paused`. A selected live draining tree or pending boundary yields `pending`; absent, invalid or unverified required coverage yields `unknown`, never `available`. An unrelated Parakeet pause cannot block selected Whisper. `available` requires main's verified launch policy/required-tree coverage; a route with no required native child is `notRequired`.
+
+Extend the pure graph while the seal is known active: retain `locality: "device"`, but map `paused` to `unreachable/nativePaused`, `pending` to `unreachable/nativePending`, and `unknown` to state `unknown`. Add these detail literals to `RouteState` and translated copy. Normal readiness remains for `available` and `notRequired`. The facade's synchronous `routeSnapshotFromSettings` and subscribed `useResolvedRoutes` must call this same projection using the sole sealedStore attestation; `routeFactsStore` never subscribes to privacy. `isSealedLocality` remains unchanged and only decides the network-locality restriction. Ready, route cards and preflight therefore receive the same resolved state.
+
+Use `isDictationNativeUnavailable` before microphone preparation in both prepared and direct batch/streaming starts. Keep `isDictationPausedNative` only for actual paused copy. Pending/unknown copy says the engine is unavailable or waiting; it never claims a pause before acknowledgement. Wire the matching translated keys in all eleven locales. This replaces the old ready-only preflight condition and its raw `paused.some(...)` heuristic.
+
+Required implementation-time integration tests use the **real** settings builder, dependency table, attestation projection, graph and preflight together: acknowledged selected Whisper pause; unrelated Parakeet pause; selected draining tree; unknown action/missing coverage; available verified selected engine; worker/no-child stage; user-configured `127.0.0.2` endpoint; all eleven route dependencies. Push one event through sealedStore and assert Ready/card/preflight agreement without any second privacy listener. These producer/integration checks are required before Task 13 is complete; no native proof is claimed by adding this plan step. D16 remains the independent merge blocker.
 
 Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/electron.ts` with the required `privacy` namespace. Confirm that there is exactly one: `grep -c "privacy" src/types/electron.ts` shows a single member.
 
@@ -11484,13 +11526,16 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
            });
            return false;
          }
-         // D15 (Linux only): show this only after main confirms refusal before
-         // launch or complete tree exit. macOS has no pause fallback (D16).
-         if (isDictationPausedNative(getSettings(), getSealedSnapshot())) {
+         const nativeSnapshot = getSealedSnapshot();
+         if (isDictationNativeUnavailable(getSettings(), nativeSnapshot)) {
+           const paused = isDictationPausedNative(getSettings(), nativeSnapshot);
+           const messageKey = paused
+             ? "sealedMode.paused.dictationPreflightDetail"
+             : "sealedMode.blocked.nativeUnavailableDetail";
            this.onError?.({
-             title: "sealedMode.blocked.dictationPreflight",
-             description: "sealedMode.paused.dictationPreflightDetail",
-             messageKey: "sealedMode.paused.dictationPreflightDetail",
+             title: paused ? "sealedMode.blocked.dictationPreflight" : "sealedMode.blocked.nativeUnavailableTitle",
+             description: messageKey,
+             messageKey,
              code: "SEALED_MODE",
              variant: "default",
            });
@@ -11498,7 +11543,7 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
          }
    ```
 
-   Report it through the same error callback the transcription-failure path uses at `:1915-1922`, using whatever name that path calls. Import `isDictationSealed` and `isDictationPausedNative` from `../lib/sealedMode`, and `getSealedSnapshot` from `../stores/sealedStore`. Calling `getSealedSnapshot()` starts the store on first use, and before main answers it returns `sealed: null`, which never blocks. Plan 04 restyles this as a pill state (CCR-4) but keeps the check.
+   Report it through the same error callback the transcription-failure path uses at `:1915-1922`, using whatever name that path calls. Import `isDictationSealed`, `isDictationPausedNative` and `isDictationNativeUnavailable` from `../lib/sealedMode`, and `getSealedSnapshot` from `../stores/sealedStore`. Calling `getSealedSnapshot()` starts the store on first use, and before main answers it returns `sealed: null`, which never blocks. Plan 04 restyles this as a pill state (CCR-4) but keeps the check.
 2. `src/components/chat/useChatStreaming.ts:536-546`. Replace the `content:` line in the error branch with `content: chatErrorContent(error, t),` and add `import { chatErrorContent } from "./chatErrorContent";`. The user's message entry is not modified.
 3. `src/utils/localInferenceError.ts`. After the `OUTPUT_TRUNCATED` branch, add:
 
@@ -11786,13 +11831,13 @@ test("Plan 04 is present and the persistent recovery prompt offers Transcribe an
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/stores/sealedStoreAttestation.test.js test/stores/sealedStore.test.js test/lib/routesSealed.test.js test/lib/routesHooks.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js test/helpers/useChatStreamingCancellation.test.js test/helpers/useChatStreamingFlush.test.js && npm run typecheck`
+Run: `npm test -- test/lib/sealedMode.test.js test/lib/nativeRouteAvailability.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/stores/sealedStoreAttestation.test.js test/stores/sealedStore.test.js test/lib/routesSealed.test.js test/lib/routesHooks.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js test/helpers/useChatStreamingCancellation.test.js test/helpers/useChatStreamingFlush.test.js && npm run typecheck`
 Expected: PASS, and typecheck is clean. The new copy keys (`sealedMode.blocked.dictationHeld`, `sealedMode.interrupted.dictationHeld`, `sealedMode.recovery.*`, `sealedMode.markdown.imageBlocked`) are added in Task 14, Step 6; `npm run i18n:check` runs there.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/stores/sealedStore.ts src/hooks/useSealedMode.ts src/lib/sealedMode.ts src/lib/sealedRecovery.ts src/utils/sealedModeError.ts src/components/chat/chatErrorContent.ts src/lib/routes.ts src/components/ui/MarkdownRenderer.tsx src/components/chat/useChatStreaming.ts src/utils/localInferenceError.ts src/utils/recordingErrors.ts src/helpers/audioManager.js src/hooks/useAudioRecording.js test/lib test/utils/sealedModeError.test.js test/hooks test/stores/sealedStoreAttestation.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js
+git add src/stores/sealedStore.ts src/hooks/useSealedMode.ts src/lib/sealedMode.ts src/lib/nativeRouteAvailability.ts src/lib/routeGraph.ts src/lib/sealedRecovery.ts src/utils/sealedModeError.ts src/components/chat/chatErrorContent.ts src/lib/routes.ts src/components/ui/MarkdownRenderer.tsx src/components/chat/useChatStreaming.ts src/utils/localInferenceError.ts src/utils/recordingErrors.ts src/helpers/audioManager.js src/hooks/useAudioRecording.js test/lib test/utils/sealedModeError.test.js test/hooks test/stores/sealedStoreAttestation.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js
 git commit -m "feat(privacy): one sealed source for routes, dictation pre-flight and in-memory recovery, inert remote images"
 ```
 
@@ -12236,6 +12281,8 @@ These are the English source strings. Every other locale gets a faithful transla
   "sealedMode.blocked.dictationNotKept": "Nothing was sent. The recording was not kept because audio retention is off.",
   "sealedMode.blocked.dictationPreflight": "Dictation paused: Sealed mode is on",
   "sealedMode.blocked.dictationPreflightDetail": "Your speech-to-text route sends audio off this computer. Choose a route permitted by this platform's verified isolation, or turn Sealed mode off.",
+  "sealedMode.blocked.nativeUnavailableTitle": "Dictation unavailable: local engine not verified",
+  "sealedMode.blocked.nativeUnavailableDetail": "The selected local speech engine is waiting or its isolation is not verified. Privacy & Data shows its current status.",
   "sealedMode.paused.dictationPreflightDetail": "Main confirmed that your on-device model was refused before launch or stopped after its complete process tree exited. Privacy & Data shows which program was paused.",
   "sealedMode.interrupted.generic": "Stopped: Sealed mode was turned on while this was in progress. The provider may have received part of it.",
   "sealedMode.interrupted.chat": "Chat stopped: Sealed mode was turned on mid-reply. Your message is kept; the provider may have received it.",
@@ -12282,7 +12329,7 @@ These are the English source strings. Every other locale gets a faithful transla
 
 **Translation acceptance.** The prior D15 table is withdrawn because it described `selfTest`/`pauseReason` as if they meant that models were already paused. Update every changed or added key in all 11 locales (`en`, `de`, `es`, `fr`, `it`, `ja`, `pt`, `ru`, `zh-CN`, `zh-TW`, `ar`) with copy that follows the acknowledged state. Keep placeholders byte-identical and use each locale's existing translation for “Sealed mode.”
 
-The localization pass must include `settingsPage.privacy.sealed.on`, `.description`, `.scope`, `.unverified.child`, `.unverified.native`, `.unverified.draining`, `.unverified.pending`, `.unverified.stopFailed`, `.unverified.stopFailedUnnamed`, `.paused.refused`, `.paused.stopped`, `.paused.sessionBus`, and `sealedMode.paused.dictationPreflightDetail`. Remove the obsolete `.paused.notPackaged`, `.paused.profileNotLoaded`, `.paused.userNamespacesDisabled`, `.paused.selfTestFailed` and any copy that says local models keep working, started before isolation, will restart when idle, or are paused based on a failed self-test. Add locale parity tests for this complete key set and snapshot the draining, refused, stopped, unverified and verified-with-paused-helper states in every locale.
+The localization pass must include `settingsPage.privacy.sealed.on`, `.description`, `.scope`, `.unverified.child`, `.unverified.native`, `.unverified.draining`, `.unverified.pending`, `.unverified.stopFailed`, `.unverified.stopFailedUnnamed`, `.paused.refused`, `.paused.stopped`, `.paused.sessionBus`, `sealedMode.blocked.nativeUnavailableTitle`, `sealedMode.blocked.nativeUnavailableDetail`, and `sealedMode.paused.dictationPreflightDetail`. Remove the obsolete `.paused.notPackaged`, `.paused.profileNotLoaded`, `.paused.userNamespacesDisabled`, `.paused.selfTestFailed` and any copy that says local models keep working, started before isolation, will restart when idle, or are paused based on a failed self-test. Add locale parity tests for this complete key set and snapshot the draining, refused, stopped, unverified and verified-with-paused-helper states in every locale.
 
 Write `/tmp/loqui-sealed-i18n.json` as `{ "<locale>": { "<dotted.key>": "<string>", … }, … }` for all 11 locales, then merge it:
 

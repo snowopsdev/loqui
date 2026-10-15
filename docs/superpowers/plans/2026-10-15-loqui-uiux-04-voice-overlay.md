@@ -4909,7 +4909,7 @@ git commit -m "feat(voice): lifecycle-owned Esc, cross-window Undo bridge and a 
 
 ### Task 10: Pill stage model, footprints and faster entrances
 
-Covers the VO-R1 C state model, VO-Q5, VO-Q12 (timing) and VO-Q18.
+Covers the VO-R1 C state model, VO-Q5, VO-Q12 (timing) and VO-Q18. It also closes review finding I4: one ownership policy decides, for every pill stage, whether the stage holds the native window, takes input, and outranks Assistant footer suppression. Auto-hide, footer suppression, click-through and the Linux input region all read that one policy.
 
 **Files:**
 - Modify: `src/helpers/voicePillPresentation.js`:
@@ -4919,6 +4919,8 @@ Covers the VO-R1 C state model, VO-Q5, VO-Q12 (timing) and VO-Q18.
   - `getLiveTranscriptEntranceTimeline` (109–123)
   - `resolveVoiceActivityPresentation` (241–260)
   - new `resolvePillStage`, `PILL_OUTCOME_BEAT_MS` and `VOICE_PILL_MAX_WIDTH`
+  - new `resolvePillOwnership` and `shouldAutoHidePill`
+  - `resolveVoicePillInteraction` (328–346) and `shouldSuppressPillForAssistantActions` (368–376) take the ownership into account
 - Modify: `test/helpers/voicePillPresentation.test.js`. Update the ordering test at line 320 and add new tests.
 
 **Interfaces:**
@@ -4939,6 +4941,24 @@ Covers the VO-R1 C state model, VO-Q5, VO-Q12 (timing) and VO-Q18.
     meetingRecording: object | null; showMeetingRecorder: boolean;
   }): PillStage | null;
   ```
+
+  ```js
+  export function resolvePillOwnership(stage: PillStage | null): { holdsWindow: boolean; interactive: boolean; outranksFooter: boolean };
+  export function shouldAutoHidePill(input: {
+    floatingIconAutoHide: boolean; isRecording: boolean; isVisuallyProcessing: boolean; noticesOnScreen: boolean;
+    wordsCardHandoffActive: boolean; assistantMounted: boolean; liveTranscriptMounted: boolean; ownership: { holdsWindow: boolean };
+  }): boolean;
+  // resolveVoicePillInteraction gains `ownership`; shouldSuppressPillForAssistantActions gains `ownership`.
+  ```
+
+  The ownership policy:
+
+  | Stage | holdsWindow | interactive | outranksFooter | Why |
+  |---|---|---|---|---|
+  | `cancelled` | yes | yes | yes | Undo must stay reachable for the whole 5–10 s window (D3) |
+  | `pasted`, `failed` | yes | no | no | The 700 ms beat must not be cut by the 500 ms auto-hide |
+  | `meeting` | yes | yes | yes | Stop must be visible and clickable while a meeting records (D2) |
+  | everything else | no | no | no | Existing rules apply unchanged |
 
   `resolveVoiceActivityPresentation` now returns `activeState: "transcribing"` (not `"thinking"`) for non-agent processing.
 
@@ -5006,6 +5026,49 @@ test("regular dictation processing is a transcribing capsule, Agent keeps thinki
 Also update these existing tests:
 - Line 320, "listening entrance timers preserve the visual order". Replace `assert.ok(timeline.expandAtMs > 0);` with `assert.ok(timeline.expandAtMs >= 0);`. Replace `assert.ok(timeline.waveformAtMs > timeline.settleAtMs);` with `assert.ok(timeline.waveformAtMs >= timeline.settleAtMs);`.
 - Line 512, "regular dictation transcription contracts to the rotating thinking circle". Rename it to "regular dictation transcription is a labelled capsule" and change its expected `activeState` to `"transcribing"` and `compactPill` to `true`.
+
+Add the ownership tests:
+
+```js
+test("one ownership policy for the long-lived stages (I4)", async () => {
+  const { resolvePillOwnership } = await load();
+  assert.deepEqual(resolvePillOwnership("cancelled"), { holdsWindow: true, interactive: true, outranksFooter: true });
+  assert.deepEqual(resolvePillOwnership("meeting"), { holdsWindow: true, interactive: true, outranksFooter: true });
+  assert.deepEqual(resolvePillOwnership("pasted"), { holdsWindow: true, interactive: false, outranksFooter: false });
+  assert.deepEqual(resolvePillOwnership(null), { holdsWindow: false, interactive: false, outranksFooter: false });
+});
+
+test("auto-hide never hides an undo window, a success beat or the meeting recorder", async () => {
+  const { shouldAutoHidePill, resolvePillOwnership } = await load();
+  const idle = {
+    floatingIconAutoHide: true, isRecording: false, isVisuallyProcessing: false, noticesOnScreen: false,
+    wordsCardHandoffActive: false, assistantMounted: false, liveTranscriptMounted: false,
+  };
+  assert.equal(shouldAutoHidePill({ ...idle, ownership: resolvePillOwnership(null) }), true);
+  for (const stage of ["cancelled", "pasted", "failed", "meeting"]) {
+    assert.equal(shouldAutoHidePill({ ...idle, ownership: resolvePillOwnership(stage) }), false, stage);
+  }
+  assert.equal(shouldAutoHidePill({ ...idle, floatingIconAutoHide: false, ownership: resolvePillOwnership(null) }), false);
+});
+
+test("Assistant final actions cannot suppress Undo or the meeting recorder", async () => {
+  const { shouldSuppressPillForAssistantActions, resolvePillOwnership } = await load();
+  const actions = { assistantOpen: true, footerPillVisible: false, assistantClosing: false, hasLiveActivity: false };
+  assert.equal(shouldSuppressPillForAssistantActions({ ...actions, ownership: resolvePillOwnership(null) }), true);
+  assert.equal(shouldSuppressPillForAssistantActions({ ...actions, ownership: resolvePillOwnership("meeting") }), false);
+  assert.equal(shouldSuppressPillForAssistantActions({ ...actions, ownership: resolvePillOwnership("cancelled") }), false);
+});
+
+test("Undo and Stop stay interactive with a panel mounted (Linux input region follows this flag)", async () => {
+  const { resolveVoicePillInteraction, resolvePillOwnership } = await load();
+  const base = { isRecording: false, isProcessing: false, isHovered: false };
+  for (const panel of [{ assistantMounted: true, liveTranscriptMounted: false }, { assistantMounted: false, liveTranscriptMounted: true }]) {
+    assert.equal(resolveVoicePillInteraction({ ...base, ...panel, ownership: resolvePillOwnership(null) }).pillInteractive, false);
+    assert.equal(resolveVoicePillInteraction({ ...base, ...panel, ownership: resolvePillOwnership("meeting") }).pillInteractive, true);
+    assert.equal(resolveVoicePillInteraction({ ...base, ...panel, ownership: resolvePillOwnership("cancelled") }).pillInteractive, true);
+  }
+});
+```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -5109,11 +5172,38 @@ Expected: FAIL in five places:
      if (meetingRecording && showMeetingRecorder) return "meeting";
      return null;
    }
+
+   const OWNERSHIP = {
+     cancelled: { holdsWindow: true, interactive: true, outranksFooter: true },
+     meeting: { holdsWindow: true, interactive: true, outranksFooter: true },
+     pasted: { holdsWindow: true, interactive: false, outranksFooter: false },
+     failed: { holdsWindow: true, interactive: false, outranksFooter: false },
+   };
+   const NO_OWNERSHIP = { holdsWindow: false, interactive: false, outranksFooter: false };
+
+   /** One policy for stages that outlive the dictation (I4). */
+   export function resolvePillOwnership(stage) {
+     return OWNERSHIP[stage] ?? NO_OWNERSHIP;
+   }
+
+   /** App's auto-hide condition (App.jsx:407-414), with stage ownership. */
+   export function shouldAutoHidePill({
+     floatingIconAutoHide, isRecording, isVisuallyProcessing, noticesOnScreen,
+     wordsCardHandoffActive, assistantMounted, liveTranscriptMounted, ownership,
+   }) {
+     return Boolean(
+       floatingIconAutoHide && !isRecording && !isVisuallyProcessing && !noticesOnScreen &&
+       !wordsCardHandoffActive && !assistantMounted && !liveTranscriptMounted && !ownership?.holdsWindow
+     );
+   }
    ```
+
+6. `resolveVoicePillInteraction` (328–346): add an `ownership = NO_OWNERSHIP` parameter. Return early with `{ pillInteractive: true, cancelVisible: false }` when `ownership.interactive` is true, before the `assistantMounted` branch. The pill window stays non-focusable; this only lets the pointer reach Undo or Stop.
+7. `shouldSuppressPillForAssistantActions` (368–376): add an `ownership = NO_OWNERSHIP` parameter, with `if (ownership.outranksFooter) return false;` as the first line.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/voicePillPresentation.test.js test/helpers/pillVisibilityHandoff.test.js`
+Run: `npm test -- test/helpers/voicePillPresentation.test.js test/helpers/pillVisibilityHandoff.test.js test/hooks/linuxPillInteractivity.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -5132,7 +5222,7 @@ Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and ca
 **Files:**
 - Modify (rewrite): `src/components/dictation/VoicePill.tsx`
 - Create: `src/components/dictation/pillLocality.ts`. A pure combiner plus a `usePillLocality` hook.
-- Create: `src/components/dictation/PillCaption.tsx`. The layer above the pill; Task 10 renders words into it.
+- Create: `src/components/dictation/PillCaption.tsx`. The layer above the pill; Task 12 renders words into it.
 - Create: `src/hooks/useRecentOutcome.ts`
 - Delete: `src/components/dictation/PillWaveform.tsx`, `src/components/dictation/waveformMath.ts`
 - Modify: `src/App.jsx`:
@@ -5149,8 +5239,9 @@ Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and ca
 
 **Interfaces:**
 - Consumes:
-  - `VOICE_PILL_FOOTPRINT`, `resolvePillStage` and `PILL_OUTCOME_BEAT_MS` (Task 8);
-  - `cancelled`, `undoCancel`, `pauseUndo`, `resumeUndo`, `processingStage` and `outcome` (Task 7);
+  - `VOICE_PILL_FOOTPRINT`, `resolvePillStage`, `PILL_OUTCOME_BEAT_MS`, `resolvePillOwnership` and `shouldAutoHidePill` (Task 10);
+  - `cancelled` (`CancelledState`), `undoCancel`, `pauseUndo`, `resumeUndo`, `processingStage` and `outcome` (Task 9);
+  - `disclosureCopy` (Task 7);
   - `LevelBars` and `LOGO_BAR_SHAPE` (Plan 01 Task 8);
   - `LocalityRing` and `Locality` (Plan 01 Tasks 6–7);
   - `useResolvedRoute` and `ResolvedRoute` (§5.1).
@@ -5290,7 +5381,11 @@ test("pasted swaps the logo for a drawn check on a green edge (VO-Q12)", async (
 test("cancelled shows a countdown that pauses on hover", async () => {
   const running = await renderPill("cancelled", false, "right", { label: "Discarded · Undo", countdown: { durationMs: 10000, paused: false } });
   const paused = await renderPill("cancelled", false, "right", { label: "Discarded · Undo", countdown: { durationMs: 10000, paused: true } });
-  assert.match(running, /class="pill-countdown" style="animation-duration:10000ms"/);
+  // Assert each declaration, not the serialised attribute (M1): React emits
+  // "animation-duration:10000ms;--undo-ms:10000ms" and the order is not part of the contract.
+  const style = running.match(/class="pill-countdown" style="([^"]*)"/)[1].split(";");
+  assert.ok(style.includes("animation-duration:10000ms"), style.join(";"));
+  assert.ok(style.includes("--undo-ms:10000ms"), "the reduced-motion duration rides along");
   assert.match(paused, /data-paused="true"/);
 });
 
@@ -5403,7 +5498,7 @@ export function useRecentOutcome(outcome: Outcome | null, windowMs = PILL_OUTCOM
 }
 ```
 
-`src/components/dictation/PillCaption.tsx`. This is the layer above the pill that holds the D3 copy (and Task 10's words). It lives outside the pill box, so it never clips the bars (D9).
+`src/components/dictation/PillCaption.tsx`. This is the layer above the pill that holds the D3 copy (and Task 12's words). It lives outside the pill box, so it never clips the bars (D9).
 
 ```tsx
 import type { ReactNode } from "react";
@@ -5848,9 +5943,10 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
 1. Add these imports:
    - `resolvePillStage` (same `../helpers/voicePillPresentation` path App already uses);
    - `usePillLocality`, `PillCaption` and `useRecentOutcome`;
-   - `dispatchTargetLabel` from `./helpers/remoteDispatch`.
+   - `resolvePillOwnership` and `shouldAutoHidePill` (same module as `resolvePillStage`);
+   - `disclosureCopy` from `./helpers/dictationDisclosure`.
 
-   `useSettingsStore` is already imported. `dispatchTargetLabel` turns the provider id in `cancelled.remoteAlreadySent` into a localised name through `providerDisplayLabel` (Plan 01 review item 1).
+   `useSettingsStore` is already imported. `disclosureCopy` renders the `RemoteDisclosure` in `cancelled.remoteAlreadySent`. It names the receiver through `providerDisplayLabel` (Plan 01 review item 1), and says "may have received" when only the renderer saw the dispatch (Task 7).
 2. After `micState` (line 481):
 
    ```js
@@ -5864,32 +5960,27 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
        agentMode: agentModeActive,
        cancelled,
        recentOutcome,
-       meetingRecording: null, // Task 15
-       showMeetingRecorder: true, // Task 15
+       meetingRecording: null, // Task 17
+       showMeetingRecorder: true, // Task 17
      });
-     // Sampled once per cancel episode (null → cancelled), so pause/resume
-     // updates never restart the CSS underline; hover pauses it in CSS.
-     const undoWindowRef = useRef(null);
-     if (!cancelled) undoWindowRef.current = null;
-     else if (
-       undoWindowRef.current === null &&
-       cancelled.undoUntil > 0 &&
-       cancelled.undoUntil < Number.MAX_SAFE_INTEGER
-     ) {
-       undoWindowRef.current = Math.max(0, cancelled.undoUntil - Date.now());
+     const pillOwnership = resolvePillOwnership(pillStage);
+     // The underline's length is sampled once per cancel session, so pause and
+     // resume updates never restart it; `paused` freezes it in CSS.
+     const undoWindowRef = useRef({ sessionId: null, ms: null });
+     if (!cancelled) undoWindowRef.current = { sessionId: null, ms: null };
+     else if (undoWindowRef.current.sessionId !== cancelled.sessionId) {
+       undoWindowRef.current = { sessionId: cancelled.sessionId, ms: cancelled.remainingMs };
      }
-     const undoMs = undoWindowRef.current;
+     const undoMs = undoWindowRef.current.ms;
      const stageLabel =
        pillStage === "transcribing" ? t("pill.stage.transcribing")
        : pillStage === "cleaning" ? t("pill.stage.cleaning")
        : pillStage === "pasted" && recentOutcome?.kind === "pasted" ? t("pill.stage.pasted", { count: recentOutcome.words })
-       : pillStage === "cancelled" ? (cancelled.undoUntil > 0 ? t("pill.stage.discardedUndo") : t("pill.stage.cancelled"))
+       : pillStage === "cancelled" ? t("pill.stage.discardedUndo")
        : undefined;
      const pillCaption =
-       pillStage === "cancelled" && cancelled.remoteAlreadySent !== null
-         ? t(cancelled.remotePayload === "text" ? "pill.caption.remoteText" : "pill.caption.remoteAudio", {
-             provider: dispatchTargetLabel(cancelled.remoteAlreadySent, t),
-           })
+       pillStage === "cancelled" && cancelled.remoteAlreadySent
+         ? disclosureCopy(cancelled.remoteAlreadySent, t)
          : null;
    ```
 
@@ -5910,19 +6001,19 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
 4. In `activateVoicePill` (lines 540–557), add as its first statement:
 
    ```js
-       if (cancelled && cancelled.undoUntil > 0) {
+       if (cancelled) {
          void undoCancel();
          return;
        }
    ```
 
-5. In the pill `onMouseEnter`/`onMouseLeave` (lines 648–659), add `if (cancelled?.undoUntil > 0) pauseUndo();` and `resumeUndo();` respectively. The existing `isHovered` state drives the countdown's `paused` flag.
+5. In the pill `onMouseEnter`/`onMouseLeave` (lines 648–659), add `if (cancelled) pauseUndo();` and `if (cancelled) resumeUndo();` respectively. The window pauses in AudioManager (Task 8), and the emitted `cancelled.paused` drives the underline.
 6. On `<VoicePill …>` (lines 666–739), add these props:
 
    ```jsx
      label={stageLabel}
      locality={pillLocality}
-     countdown={pillStage === "cancelled" && undoMs !== null ? { durationMs: undoMs, paused: isHovered } : null}
+     countdown={pillStage === "cancelled" && undoMs !== null ? { durationMs: undoMs, paused: cancelled.paused } : null}
    ```
 
    Change `aria-label` to read the stage when one is active: `aria-label={stageLabel ?? <the existing label>}`.
@@ -5942,7 +6033,15 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
    ```
 
    This keeps the 144 px "Transcribing…" capsule from being fused to a 98 px skin on hover.
-9. While the pill shows `cancelled`, it must stay interactive so the click reaches Undo. In the `resolveVoicePillInteraction` call (lines 519–525), pass `isRecording: isRecording || Boolean(cancelled?.undoUntil)`. That makes `pillInteractive` true for the undo window without touching the helper.
+9. **Stage ownership (I4).** Every owner of visibility and input reads `pillOwnership`:
+   - **Auto-hide** (lines 403–434). Replace the inline condition with `shouldAutoHidePill({ floatingIconAutoHide, isRecording, isVisuallyProcessing, noticesOnScreen, wordsCardHandoffActive, assistantMounted: assistant.mounted, liveTranscriptMounted: liveTranscript.mounted, ownership: pillOwnership })`, and add `pillOwnership.holdsWindow` to the dependency list. Add a branch so a stage that holds the window brings back an auto-hidden pill: `else if (floatingIconAutoHide && pillOwnership.holdsWindow) window.electronAPI?.showDictationPanel?.();`.
+   - **Footer suppression** (lines 599–604). Pass `ownership: pillOwnership` to `shouldSuppressPillForAssistantActions`.
+   - **Input** (lines 519–525). Pass `ownership: pillOwnership` to `resolveVoicePillInteraction`. `pillIsInteractive` then feeds:
+     - the hover handlers (mac/Windows click-through, `setWindowInteractivity`);
+     - `useLinuxPillInteractivity`'s `pillInteractive` (line 622).
+
+     The Linux input region measures `pillPresenceRef` (`useLinuxPillInteractivity.ts:51`). Undo is the pill itself, and Stop is an in-flow child of the pill (Task 17), so both lie inside the measured rect.
+   - **Size.** No new size key. The cancelled (160 px) and meeting (124–184 px) footprints fit `PILL_WINDOW_SIZE`.
 
 - [ ] **Step 7: Locale strings and DESIGN.md**
 
@@ -5955,12 +6054,15 @@ Add this to `en/translation.json` and mirror it to all 12 locales. For `ar`, `ru
     "cleaning": "Cleaning up",
     "pasted_one": "Pasted · {{count}} word",
     "pasted_other": "Pasted · {{count}} words",
-    "discardedUndo": "Discarded · Undo",
-    "cancelled": "Cancelled"
+    "discardedUndo": "Discarded · Undo"
   },
   "caption": {
     "remoteAudio": "{{provider}} already received the audio.",
-    "remoteText": "{{provider}} already received the text."
+    "remoteText": "{{provider}} already received the text.",
+    "remoteImage": "{{provider}} already received the screenshot.",
+    "mayHaveAudio": "{{provider}} may have received the audio.",
+    "mayHaveText": "{{provider}} may have received the text.",
+    "mayHaveImage": "{{provider}} may have received the screenshot."
   },
   "locality": { "sealed": "Blocked by Sealed mode" },
   "route": {
@@ -5985,7 +6087,7 @@ Add this to `en/translation.json` and mirror it to all 12 locales. For `ar`, `ru
 Each value interpolates `{{count}}`. Use the English text as a placeholder until translated. If the checker lists a different set for a locale, follow the checker.
 
 In `DESIGN.md` `### Voice Pill`, replace the state description with:
-- the stage table from Task 8: footprints, label, ring and timing;
+- the stage table from Task 10: footprints, label, ring, timing and the ownership column;
 - one line per rule:
   - "words and honest copy sit on a caption layer above the pill, never inside it (D9)";
   - "the identity sits in the locality ring (solid device, dotted network, dashed + badge remote; struck through when Sealed mode blocks it)";
@@ -6018,7 +6120,7 @@ Live words condense into a row **above** the pill, in the `PillCaption` layer. T
 - Test: `test/components/condensation.test.js`
 
 **Interfaces:**
-- Consumes `PillCaption` (Task 9) and `pillStage` (Task 9, in App).
+- Consumes `PillCaption` (Task 11) and `pillStage` (Task 11, in App).
 - Produces:
 
   ```ts
@@ -6323,7 +6425,7 @@ Inside the reduced-motion block, add:
     }, [liveTranscript.mounted, pillStage, liveText]);
   ```
 
-- Render the words in the caption slot from Task 9, which now accepts either the D3 copy or the words:
+- Render the words in the caption slot from Task 11, which now accepts either the D3 copy or the words:
 
   ```jsx
     {pillCaption ? (
@@ -6366,7 +6468,7 @@ git commit -m "feat(voice): condensation word row above the pill with cleanup di
 - Test: `test/helpers/voicePillStructure.test.js`. Update the Agent tests at lines 238–310.
 
 **Interfaces:**
-- Consumes `nextLevelBarsFrame`, `LEVEL_BARS_SILENCE_FLOOR`, `LOGO_BAR_SHAPE` and `levelBarScale` (Plan 01, `levelBarsMath.ts`), `routeProviderLabel` (Task 9), `useResolvedRoute("voiceAssistant" | "assistantVision")` (§5.1), the `voiceAgentScreenContext` setting (`settingsStore.ts:1755`), `assistant.thinking` / `assistant.busy` (`useAssistantPanel.js:32-33`), and `PillCaption` (Task 9).
+- Consumes `nextLevelBarsFrame`, `LEVEL_BARS_SILENCE_FLOOR`, `LOGO_BAR_SHAPE` and `levelBarScale` (Plan 01, `levelBarsMath.ts`), `routeProviderLabel` (Task 11), `useResolvedRoute("voiceAssistant" | "assistantVision")` (§5.1), the `voiceAgentScreenContext` setting (`settingsStore.ts:1755`), `assistant.thinking` / `assistant.busy` (`useAssistantPanel.js:32-33`), and `PillCaption` (Task 11).
 - Produces:
 
   ```ts
@@ -6801,7 +6903,7 @@ Covers VO-Q14, VO-Q19 and VO-Q20, plus Plan 01 review item 2: one exit curve and
 - Test: `test/components/pillTooltip.test.js`
 
 **Interfaces:**
-- Consumes `PillLocality.routeLine` (Task 9) and the `activationMode` setting (`"tap" | "push"`, `settingsStore.ts:1467`).
+- Consumes `PillLocality.routeLine` (Task 11) and the `activationMode` setting (`"tap" | "push"`, `settingsStore.ts:1467`).
 - Produces:
 
   ```ts
@@ -6942,7 +7044,7 @@ In `App.jsx`, replace `getMicTooltip` (lines 483–494):
   );
 ```
 
-`pillLocality` is computed in Task 9. Move that line above this block if needed.
+`pillLocality` is computed in Task 11. Move that line above this block if needed.
 
 CSS (append before the reduced-motion block):
 
@@ -7156,7 +7258,7 @@ test("low volume halves the envelope peak", async (t) => {
 });
 ```
 
-Create `test/helpers/useAudioRecordingCues.test.js`. It reuses the Task 7 harness pattern, with cues mocked into a log:
+Create `test/helpers/useAudioRecordingCues.test.js`. It reuses the Task 9 harness pattern, with cues mocked into a log:
 
 ```js
 const test = require("node:test");
@@ -7340,7 +7442,7 @@ export const playMicBackCue = () => playCue("back");
 3. **`SettingsPage.tsx`, Sound Effects section (lines 1689–1705).** Under the existing "Dictation sounds" toggle, add two `SettingsRow`s: "Sound style" (Soft / Classic) and "Volume" (Low / Medium / High). Use the same enumerated-choice control the page already uses for other options (`grep -n "<Select\|SegmentedControl\|RadioGroup" src/components/SettingsPage.tsx | head -5`). Disable both when `!audioCuesEnabled`.
 4. **`useAudioRecording.js`:**
    - Move `void playStartCue();` from line 215 to directly after `setIsPreparing(true)` in `performStartRecording` (around line 130), so the cue sounds at press time. Delete the old call at 215. If the start then fails, the error cue follows the start cue. That is intended: the press was heard, and then it failed.
-   - Paste success: next to `setOutcome({ kind: "pasted", … })` (Task 7), add `void playSuccessCue();`.
+   - Paste success: next to `setOutcome({ kind: "pasted", … })` (Task 9), add `void playSuccessCue();`.
    - Cancel: in `cancelRecording` and `cancelProcessing` (lines 812–838), add `void playCancelCue();` when the manager reports it cancelled something (the return value is truthy).
    - Error: as the first line of `showDictationError`, add `void playErrorCue();`.
    - Mic back: next to the mic-restored notice (line 370), add `void playMicBackCue();`.

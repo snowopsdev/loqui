@@ -5,6 +5,13 @@ const test = require("node:test");
 
 const repoRoot = path.join(__dirname, "../..");
 const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
+// Prettier wraps long linear() and :where() lists across lines; collapse that
+// layout so the assertions check values, not line breaks.
+const readFlat = (p) =>
+  read(p)
+    .replace(/\s+/g, " ")
+    .replace(/\( /g, "(")
+    .replace(/ \)/g, ")");
 
 function walk(dir, exts, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -16,7 +23,7 @@ function walk(dir, exts, out = []) {
 }
 
 test("motion tokens are defined once on :root with the approved values", () => {
-  const css = read("src/index.css");
+  const css = readFlat("src/index.css");
   const expected = {
     "--motion-instant": "90ms",
     "--motion-fast": "150ms",
@@ -51,7 +58,7 @@ test("the universal selector no longer transitions every element", () => {
 });
 
 test("interactive elements keep colour transitions after the global rule is removed", () => {
-  const css = read("src/index.css");
+  const css = readFlat("src/index.css");
   const rule = css.match(/:where\(button, a, input, select, textarea, summary, \[role="button"\], \[role="tab"\], \[role="menuitem"\], \[role="option"\], \[role="switch"\]\)\s*\{([^}]*)\}/);
   assert.ok(rule, "scoped interactive transition rule exists");
   assert.match(rule[1], /background-color var\(--motion-fast\) var\(--motion-ease-std\)/);

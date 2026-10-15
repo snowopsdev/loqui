@@ -75,7 +75,7 @@ This revision answers the independent security review of snapshot `18c0b4c…` (
 
 ## Round-2 review response
 
-This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-codex-r2.md`, pinned at `e473639`): 3 Critical and 6 Important findings, with 8 round-1 findings confirmed closed. Every finding below is fixed in task steps *and* test code. One point is partly disputed, with evidence. One promise is narrowed and disclosed (CCR-6). Code anchors were rechecked against this worktree, and the spec is now `4980c81`.
+This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-codex-r2.md`, pinned at `e473639`): 3 Critical and 6 Important findings, with 8 round-1 findings confirmed closed. It also takes the Keyring handoff from Plan 03's second review (R2-7, `.omc/research/ui-review/reviews/plan-03-codex-r2.md`). Every finding below is fixed in task steps *and* test code. One point is partly disputed, with evidence. One promise is narrowed and disclosed (CCR-6). Code anchors were rechecked against this worktree, and the spec is now `4980c81`.
 
 | Finding | Status | What changed, and the test that proves it |
 |---|---|---|
@@ -88,6 +88,7 @@ This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-cod
 | **I5-R2** a delayed attestation outlives 30 s | Fixed | **Store (Task 13):** expiry happens at main's `at + 30 s`, with the timer given only the remaining lifetime. Freshness is rechecked on focus and on visibility change, and the panel checks `isAttestationFresh` on every render. A version watermark survives invalidation, and a failed refresh never erases a push that arrived after it started. Tests: `a claim delivered late lives only until main's at + 30 s…`, `after a claim expires, a late older reply is never adopted`, `a failed refresh while a newer push arrives keeps the newer push`, and the panel's stale-claim assertion. |
 | **N2** async yt-dlp spawn failure leaves an immortal ticket | Fixed | `childRegistry.onChildEnd` (Task 6a) ends a session exactly once: on `exit`, on an `error` before any pid, or on `close` without `exit`. An error after a successful start is not an end. Both yt-dlp spawns (Task 10) and `codexSession` (Task 8) use it. Tests: `an asynchronous spawn failure settles the session; an error after start does not`, the Codex case in Task 8, and the timeout and spawn-failure cases. |
 | **N3** retired toasts when Plan 04 merges first | Fixed | Task 13, Step 6 has both branches. With Plan 04 merged: `notify(buildSealedRecoveryNotice(…))`, and `showDictationError({ …, recoveryHeld }, [Transcribe])`, which is Plan 04's persistent alert. Without it: the toast fallback uses `duration: 0`, which `Toast.tsx:97` never auto-dismisses, so it is persistent and not "the longest duration". Plan 04 removes the fallback when it merges second (P04 Task 5, Step 3, item 7). Test: `sealedRecoveryNotice.test.js` checks whichever API the branch has, and the integrated branch runs Plan 04's `noToastLeft` and `voiceNotices` suites. |
+| **P03 review R2-7** (handed to Plan 07) main's Keyring never learns the seal | Fixed | Task 11a, Step 5a: `main.js` passes `isSealed: () => egressGate.isSealed()` into the `IPCHandlers` → `createKeyring` seam that Plan 03 adds. The predicate fails closed, and the default is never left `false` in production. Plan 03's Keyring `verify` now returns `outcome: "sealed"` for a sealed refusal: one already in effect, one thrown mid-check (`isSealedModeError`), or a failed check that ended while sealed. It writes no health row, so the key is never marked `unreachable`, and Verify all stops at the first sealed result. Test (Task 12, through the real constructor and the registered `keyring-verify` handler): `keyring-verify through the constructed IPCHandlers: sealed is 'sealed', never a health verdict`. It covers sealed before the check, sealed during it (no health write), and an unsealed control that does record a verdict. |
 | **I1-R2 (updater test), partly disputed** | Test changed; one claim disputed | The review says D13 requires every manual check to stop at "available". **Evidence:** D13 (spec `4980c81`, §2) covers "manual update checks … when automatic updates are off". Plan 02's implementation downloads on a manual check when automatic updates are on (P02 Task 17: `if (!this.prefs.enabled) publish available else downloadUpdate`). The test's harness has `enabled: true`, so it matches D13. To remove any doubt, the test now starts the download through the automatic check (`check(false)`), which downloads before and after Plan 02. |
 
 ## Contract change requests
@@ -8145,6 +8146,7 @@ git commit -m "feat(privacy): gate calendars, cancel pending OAuth on seal, conf
   - `src/helpers/ipcHandlers.js`: the `probe-self-hosted` handler (Plan 03).
   - `src/types/electron.ts`: add `"sealed"` to the `probeSelfHosted` result codes.
   - `test/helpers/egressPolicy.test.js` (Task 2): read its loopback cases from the fixture.
+  - `main.js` (the `new IPCHandlers({ … })` call, `:397`) and `src/helpers/keyring.js` (Plan 03, Task 11): main's seal reaches the Keyring (P03 review R2-7).
 - Test: `test/helpers/loopbackParity.test.js`, `test/helpers/selfHostedProbeSealed.test.js`
 
 **Interfaces:**
@@ -8318,6 +8320,38 @@ Expected: FAIL. The first case returns `{ ok: false, code: "network" }`: the pro
 4. In `src/components/SelfHostedPanel.tsx` (Plan 03), when `result.code === "sealed"` set the failure text to `t("routes.state.sealed")` instead of "Couldn't list models at {{host}}". That key exists (Plan 03 Task 4).
 5. Add `src/helpers/selfHostedProbe.js` to inventory row N4 and to the `egress-sites` block in `docs/security/sealed-mode-threat-model.md` (Task 1). Its decision is "blocked unless loopback". Plan 03's note about a "sealed-mode allowlist" (P03 Task 14) is superseded by this rule (CCR-2).
 
+- [ ] **Step 5a: Give Plan 03's Keyring main's seal (P03 review R2-7)**
+
+Plan 03's main-side Keyring (`src/helpers/keyring.js`, P03 Task 11) takes an `isSealed` predicate, and Plan 03 threads it through the production `IPCHandlers` constructor to `createKeyring`, defaulting to `() => false`. Plan 07 supplies the real predicate. It also makes sure a sealed refusal is never recorded as a verdict on the key. Since Task 8, the extracted `_runProviderConnectionTest` uses `gatedNodeFetch("providerCheck")`, and `providerConnectionTest.js` rethrows sealed errors. Without this step, Verify's `catch` would turn that refusal into `errorCode: "network"`, mark the key `unreachable`, return `outcome: "recorded"`, and Verify all would carry on.
+
+1. In `main.js`, add to the `new IPCHandlers({ … })` object (`:397`):
+
+   ```js
+       // Plan 07: main's authoritative seal (fails closed: a throwing state reads as sealed).
+       isSealed: () => require("./src/helpers/privacy/egressGate").isSealed(),
+   ```
+
+   Use the option name Plan 03's seam reads (P03 R2-7 revision: `managers.isSealed` → `createKeyring({ isSealed })`). If Plan 03 named it differently, pass the same predicate under that name. Never default it to `false` in production.
+2. In `src/helpers/keyring.js`, in `verify`'s `run`, replace the `try`/`catch` around `runTest(config)` with:
+
+   ```js
+         try {
+           result = await runTest(config);
+         } catch (error) {
+           // Sealed mode (Plan 07): a refusal, before or during the check, says
+           // nothing about the key. Report it as sealed and leave health alone.
+           if (isSealedModeError(error) || isSealed()) return { outcome: "sealed", entry: entryFor(identity) };
+           result = { success: false, errorCode: "network" };
+         }
+         // Sealed while the check was out, and it did not succeed: the failure
+         // may be the seal (a transport that swallowed the typed error).
+         if (isSealed() && !result?.success) return { outcome: "sealed", entry: entryFor(identity) };
+   ```
+
+   Add `const { isSealedModeError } = require("./privacy/egressPolicy");` at the top. The existing `isSealed()` check before `runTest` stays; it covers a seal that was already on, and anything after a save wait. Plan 03's renderer Verify all already stops on `outcome: "sealed"`, so the sequence stops at the first sealed result instead of trying every key.
+
+The production test is in Task 12 (`keyring-verify through the constructed IPCHandlers…`), because it needs Task 12's harness in constructor mode.
+
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `npm test -- test/helpers/loopbackParity.test.js test/helpers/selfHostedProbeSealed.test.js test/helpers/selfHostedProbe.test.js test/helpers/egressInventory.test.js && npm run typecheck`
@@ -8326,7 +8360,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/locality.ts src/helpers/selfHostedProbe.js src/helpers/ipcHandlers.js src/types/electron.ts src/components/SelfHostedPanel.tsx docs/security/sealed-mode-threat-model.md test/fixtures/loopbackCases.json test/helpers/loopbackParity.test.js test/helpers/selfHostedProbeSealed.test.js test/helpers/egressPolicy.test.js
+git add main.js src/helpers/keyring.js src/lib/locality.ts src/helpers/selfHostedProbe.js src/helpers/ipcHandlers.js src/types/electron.ts src/components/SelfHostedPanel.tsx docs/security/sealed-mode-threat-model.md test/fixtures/loopbackCases.json test/helpers/loopbackParity.test.js test/helpers/selfHostedProbeSealed.test.js test/helpers/egressPolicy.test.js
 git commit -m "feat(privacy): one loopback rule for main and routes; gate the self-hosted probe"
 ```
 
@@ -8358,7 +8392,7 @@ Two checks keep the matrix honest:
 - Modify: `docs/security/sealed-mode-threat-model.md` (Task 1): add the test name to each row's "Test" column.
 
 **Interfaces:**
-- Produces `loadIpcHandlers({ electron, managers }) → { invoke(channel, ...args), send(channel, ...args), channels(): string[], restore() }`. It is a test helper only.
+- Produces `loadIpcHandlers({ electron, managers, construct? }) → { invoke(channel, ...args), send(channel, ...args), channels(): string[], instance, restore() }`. It is a test helper only. With `construct: true` it runs the real `IPCHandlers` constructor, which is how main builds it (`main.js:397`).
 - Consumes every chokepoint from Tasks 6–11.
 
 - [ ] **Step 1: Write the harness**
@@ -8391,7 +8425,10 @@ function fakeEvent() {
   return { sender, senderFrame: mainFrame };
 }
 
-function loadIpcHandlers({ electron, managers = {} }) {
+// construct: true builds the real IPCHandlers (its constructor registers the
+// handlers and builds constructor-owned services such as Plan 03's Keyring);
+// otherwise setupHandlers runs on a proxy, as before.
+function loadIpcHandlers({ electron, managers = {}, construct = false }) {
   const handlers = new Map();
   const listeners = new Map();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-ipc-harness-"));
@@ -8417,7 +8454,9 @@ function loadIpcHandlers({ electron, managers = {} }) {
   delete require.cache[modulePath];
   const IPCHandlers = require(modulePath);
   const Ctor = IPCHandlers.default || IPCHandlers;
-  Ctor.prototype.setupHandlers.call(new Proxy({ ...managers }, { get: (v, p) => (p in v ? v[p] : anything()) }));
+  const supplied = new Proxy({ ...managers }, { get: (v, p) => (p in v ? v[p] : anything()) });
+  const instance = construct ? new Ctor(supplied) : null;
+  if (!construct) Ctor.prototype.setupHandlers.call(supplied);
   return {
     invoke(channel, ...args) {
       const handler = handlers.get(channel);
@@ -8428,7 +8467,9 @@ function loadIpcHandlers({ electron, managers = {} }) {
       return listeners.get(channel)?.(fakeEvent(), ...args);
     },
     channels: () => [...handlers.keys()],
+    instance,
     restore() {
+      instance?._stopKeyReminders?.();
       Module._load = originalLoad;
       fs.rmSync(dir, { recursive: true, force: true });
     },
@@ -8870,6 +8911,58 @@ test("Plan 04's disclosure tracker reads these notices correctly (when Plan 04 h
   tracker.dispose();
 });
 
+// P03 review R2-7: through the real constructor and the registered handler, the
+// Keyring gets main's seal. A sealed refusal is outcome "sealed" and never
+// touches the key's health row.
+test("keyring-verify through the constructed IPCHandlers: sealed is 'sealed', never a health verdict", async () => {
+  const healthWrites = [];
+  const constructed = loadIpcHandlers({
+    electron,
+    construct: true,
+    managers: {
+      environmentManager: new Proxy({}, { get: (_t, p) => (typeof p === "string" && p.startsWith("get") ? () => "sk-test" : anything()) }),
+      databaseManager: new Proxy(
+        { getKeyHealth: () => [], saveKeyHealth: (row) => healthWrites.push(row), deleteKeyHealth: () => {} },
+        { get: (v, p) => (p in v ? v[p] : anything()) }
+      ),
+      isSealed: () => gate.isSealed(), // what main.js passes (Task 11a, Step 5a)
+    },
+  });
+  try {
+    // 1. Already sealed: refused before any request.
+    flags.sealed = true;
+    const before = await constructed.invoke("keyring-verify", "groq");
+    assert.equal(before.outcome, "sealed");
+    assert.deepEqual(transport, { netFetch: 0, netRequest: 0, nodeFetch: 0, socket: 0, spawn: 0 });
+    assert.equal(healthWrites.length, 0);
+
+    // 2. Sealed while the check is out: the interrupted request is not a verdict.
+    flags.sealed = false;
+    let started;
+    const hung = new Promise((r) => { started = r; });
+    globalThis.fetch = async (_url, init) => {
+      transport.nodeFetch++;
+      started();
+      return new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal.reason)));
+    };
+    const during = constructed.invoke("keyring-verify", "groq");
+    await hung;
+    flags.sealed = true;
+    gate.abortAllRemote();
+    assert.equal((await during).outcome, "sealed");
+    assert.equal(healthWrites.length, 0, "the key's health is unchanged");
+
+    // 3. Control: unsealed, a real verdict is recorded, so the path is live.
+    flags.sealed = false;
+    globalThis.fetch = async () => { transport.nodeFetch++; return new Response(JSON.stringify({ data: [] }), { status: 401 }); };
+    assert.equal((await constructed.invoke("keyring-verify", "groq")).outcome, "recorded");
+    assert.equal(healthWrites.at(-1).status, "rejected");
+  } finally {
+    globalThis.fetch = async (...args) => { transport.nodeFetch++; return originalFetch(...args); };
+    constructed.restore();
+  }
+});
+
 test("every proxy-*-transcription channel is in the matrix", () => {
   const listed = new Set(Object.values(BLOCKED).flat().map(([label]) => label));
   for (const channel of ipc.channels().filter((c) => /^proxy-.*-transcription$/.test(c))) assert.ok(listed.has(channel), channel);
@@ -8935,6 +9028,8 @@ test("all model managers download only through downloadUtils", () => {
   }
 });
 ```
+
+For the constructed-Keyring test, supply only the managers the real `IPCHandlers` constructor reads before `setupHandlers` (the harness proxies the rest), and the credential authority's source of a present `groq` key (Plan 03 Task 2). If its status mapping for a 401 is not `rejected`, assert whatever `classifyResult` returns for 401: the point is that a verdict was written in the control case and not in the sealed ones.
 
 For the identity tests, give each request the fields the handler's route resolver reads for that provider: the custom endpoint URL key, and Corti's `cortiEnvironment` and `cortiTenant`. Find them with `grep -n "route\." src/helpers/ipcHandlers.js` around `:7967-8160`. Adjust the faked response bodies to whatever each helper parses. Never stub the helper itself, only `net.fetch`.
 

@@ -9,3 +9,4 @@
 7. Codex "List models" host: name chatgpt.com (codex app-server talks to ChatGPT) — verify string in T09.
 8. T10 must call routeCopy as T03 ships it (useRouteCopy() in components; currentRouteCopy() imperatively).
 9. T12: verify returns { outcome, entry } (T11) — check outcome === "superseded"; pass Corti options; handle undoRemove reason "persistFailed".
+10. Ring token already shipped by Plan 01 commit f7d53e4 → header CCR becomes 'already satisfied; Task 5 verifies'.

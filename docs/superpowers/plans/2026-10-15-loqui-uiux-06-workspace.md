@@ -79,13 +79,13 @@ All seven findings are fixed in the task steps and test code, and none is disput
 | I08-R2 | Escape refocused the chip and reopened the card | `hoverCardReducer` gains `dismissed` (dismissed-until-leave): the focus Escape returns to the chip stays closed; leaving by focus or pointer clears it. New reducer case plus a hook case that drives the production `useHoverCard` handlers in browser order, including the `chip.focus()` Escape causes. | The plan's hook and tests extracted and run against the repo harness: 5/5 pass; with the old reducer the two new cases fail. `tsc --strict` clean. |
 | I09-R2 | `aiNeedsSetup` was dropped between Notes and the slash extension | `slashReadiness(state, t)` builds all three readiness fields on the Notes side; `slashItemsFromProp(slash, t)` is the editor's only path to `buildSlashItems`. `RichTextEditor`'s `slash` type gains `aiNeedsSetup`. New test walks `unknown → needsKey → ready` through both halves and runs the setup item; source tests pin the spread in `PersonalNotesView` and the call in `RichTextEditor`. | The plan's `slashItems.ts` and tests extracted and run: every pure case passes (the two source-only assertions need the implemented files); `tsc` clean. |
 | N01 | `openedNotes` survived deleting the note's folder | `teardownNoteContainers` (`noteListOps.ts`), which both the `onFolderDeleted` handler and `deleteFolder` already use, now evicts opened notes in removed containers; both callers store `teardown.openedNotes`; `createClearedAccountNoteState` resets it. Two store tests: broadcast and local deletion of a non-default folder holding an uncached older note, then a reopen reports `missing`. | Task 3's store edits and the N01 edits applied to a copy of the real `noteStore.ts`/`noteListOps.ts`: all 11 `noteOpenRestore` tests pass, the two N01 tests fail without the eviction, the existing `noteListOps.test.js` passes 9/9, and `tsc -p src/tsconfig.json` is clean. |
-| N02 | Main normalized away future lifecycle states | `setDictationLifecycleState` keeps a raw bridge state (`toBridgeLifecycleState`, short identifiers only) beside the normalized one; the equality early return publishes a raw-only change; `getControlPanelDictationState` returns the raw state. The pill, hotkey gate, tray and level gate are unchanged. New main test covers idle and recording origins, `inputKind` survival, no duplicate push and non-string input; Task 6 adds a future-state-with-`inputKind` case. | Task 5's main-process edits applied to a copy of the real `windowManager.js`: `windowManagerAssistantPanel.test.js` passes 35/35 (existing cases included); the N02 case fails when the bridge state is normalized. `dictationLifecycle` and `agentDictationPillIpc` suites pass 19/19. |
+| N02 | Main normalized away future lifecycle states | `setDictationLifecycleState` keeps a raw bridge state (`toBridgeLifecycleState`: any 1–64-character string, per §5.7 in a3b1023, round 3) beside the normalized one; the equality early return publishes a raw-only change; `getControlPanelDictationState` returns the raw state. The pill, hotkey gate, tray and level gate are unchanged. New main test covers idle and recording origins, `inputKind` survival, no duplicate push and non-string input; Task 6 adds a future-state-with-`inputKind` case. | Task 5's main-process edits applied to a copy of the real `windowManager.js`: `windowManagerAssistantPanel.test.js` passes 35/35 (existing cases included); the N02 case fails when the bridge state is normalized. `dictationLifecycle` and `agentDictationPillIpc` suites pass 19/19. |
 | M04-R2 | One acceptance step checked the retired Ask AI destination | Task 27 now checks the floating or docked embedded chat's visible composer with zero sends, and adds a ⌘K-while-queued check for I01-R2. | Text check: no "ask bar" acceptance remains. |
 | N03 | New motion durations were literals, and tests required them | Task 2 adds `--motion-loop-travel`, `--motion-loop-pulse`, `--motion-loop-blink`, `--motion-stagger` and `--motion-dwell-ring` beside Plan 01's durations (CR-06-4 amendment). The capture rail, history ring, thinking dots, streaming cursor and upload drop zone (`duration-(--motion-base)`) use tokens, and their tests assert the token references and the absence of literal durations. The history ring's JS timer stays a named behavioural constant, as the review allows. | The Task 2 token test and the capture-rail test, run against the plan's CSS: 2/2 pass. |
 
 ## Contract change requests
 
-**All eight requests are applied in spec commit 091d198.** The spec's §5 now holds the binding shapes; this section keeps the rationale. Where this plan and the spec disagree, the spec wins. **Rechecked at 4980c81:** the § numbers and every shape Plan 06 uses are unchanged. Since 091d198 the spec (ff8c9cd, 4980c81) only reworded §5.1 rule 10, §5.2 and §5.6, and its new §5.2 line ("the §5.7 capture bridge carries the lifecycle `state` string, which may be `"cancelled"`") is what Task 5's pass-through now guarantees. One round-2 addition to CR-06-4 is pending (below).
+**All eight requests are applied in spec commit 091d198.** The spec's §5 now holds the binding shapes; this section keeps the rationale. Where this plan and the spec disagree, the spec wins. **Rechecked at 4980c81:** the § numbers and every shape Plan 06 uses are unchanged. Since 091d198 the spec (ff8c9cd, 4980c81) only reworded §5.1 rule 10, §5.2 and §5.6, and its new §5.2 line ("the §5.7 capture bridge carries the lifecycle `state` string, which may be `"cancelled"`") is what Task 5's pass-through now guarantees. The round-2 addition to CR-06-4 (cadence tokens) is applied in ebb1fce, and §5.7's pass-through rule is defined in a3b1023; both are reflected below and in Task 5.
 
 **Numbering.** The proposal this section used to carry is superseded by the spec owner's numbering: §5.5 System notifications (Plan 02), §5.6 Stored audio (Plan 02), §5.7 Capture status bridge (CR-06-3), §5.8 Workspace token guard (CR-06-6), §5.9 Space surface (CR-06-7), §5.10 Entity mention links (CR-06-8), §5.11 Labs flags (Plan 08). Every § reference in this plan uses these numbers.
 
@@ -110,7 +110,7 @@ All seven findings are fixed in the task steps and test code, and none is disput
 
    Plan 04 adds `cancelled` (§5.2), which reaches the control panel through the same channel. Plan 06 maps any state it does not know to "ready". Plans 04 and 05 should reuse this channel rather than add a second relay. `inputKind` is what lets the mic card name the right route (I13).
 4. **CR-06-4. Add to the §5 Plan 01 token table, marked "added by Plan 06". Applied in spec §5, Plan 01 contracts, "Motion and colour tokens" row (091d198).** The new tokens are `--color-ai`, `--color-ai-text`, `--color-agent`, `--color-agent-text`, and the UI type ramp `--text-display|title|heading|body|ui|caption|micro`, which carries line-height, weight and tracking. They are additive: the ramp never redefines Tailwind's `--text-xs…--text-9xl` (Task 25 tests this). This request creates **no dependency** of Plans 04 or 05 on Plan 06. They may adopt the aliases after Plan 06 merges, and the existing `--color-agent-brand` stays valid until an agreed migration.
-   - **Round-2 addition, pending in the spec (review N03).** Task 2 also adds five loop and dwell cadences to Plan 01's motion block: `--motion-loop-travel` (1400ms), `--motion-loop-pulse` (1200ms), `--motion-loop-blink` (1000ms), `--motion-stagger` (150ms) and `--motion-dwell-ring` (1200ms). Spec §4 allows shared motion tokens only, and Plan 06's capture rail, history ring, thinking dots and streaming cursor needed cadences the five Plan 01 durations do not cover. They are additive. The spec owner should list them in the same "Motion and colour tokens" row.
+   - **Round-2 addition, applied in spec ebb1fce (review N03).** Task 2 also adds five loop and dwell cadences to Plan 01's motion block: `--motion-loop-travel` (1400ms), `--motion-loop-pulse` (1200ms), `--motion-loop-blink` (1000ms), `--motion-stagger` (150ms) and `--motion-dwell-ring` (1200ms). Spec §4 allows shared motion tokens only, and Plan 06's capture rail, history ring, thinking dots and streaming cursor needed cadences the five Plan 01 durations do not cover. They are additive. The spec's "Motion and colour tokens" row now lists them.
 5. **CR-06-5. Extend §5.1 (owner: Plan 03): `providerId: string | null` on `ResolvedRoute`. Applied in spec §5.1 (091d198).** UI names providers with `providerDisplayLabel(route.providerId, t)` (Plan 01), which localises "Custom endpoint" and "Unknown provider". `provider` stays for logs. Plans 04, 05 and 08 should do the same.
 6. **CR-06-6. "Workspace token guard" (owner: Plan 06; consumers: every plan that edits a workspace file, Plan 08 first). Applied in spec §5.8 (091d198).** This settles the Plan 08 Task 10 collision on `TranscriptionItem.tsx`.
    - **Module:** `test/helpers/workspaceTokenGuard.js` (Task 25) exports `LINE_RULES`, `LIVE_GLASS_ALLOWED`, `WORKSPACE_GUARDED_FILES`, `scanText(file, text)` and `scanFiles(files)`. `test/components/workspaceTokenAdoption.test.js` asserts `scanFiles(WORKSPACE_GUARDED_FILES)` is `[]`.
@@ -2279,7 +2279,7 @@ This covers CR-06-3 and the data source for WS-R3 C live states. Today only the 
 
 **Interfaces:**
 - Produces the main-process methods `windowManager.getControlPanelDictationState(): { state, inputKind }` and `_sendControlPanelDictationState()`.
-- **Future states pass through (§5.7, review N02).** `setDictationLifecycleState` normalizes to the four known states for the pill, the hotkey gate, the tray and the level gate, exactly as today. The bridge keeps the raw state separately (`_controlPanelDictationState`), so a state main does not know yet, such as Plan 04's `cancelled` before Plan 04 adds it to `DICTATION_LIFECYCLE`, reaches the control panel unchanged on both push and pull. Only a short identifier passes (`/^[a-z][A-Za-z]{0,31}$/`); anything else reads `idle`. The equality early return no longer swallows a raw-only change. Task 6 then maps any unknown state to Ready.
+- **Future states pass through (§5.7, review N02).** `setDictationLifecycleState` normalizes to the four known states for the pill, the hotkey gate, the tray and the level gate, exactly as today. The bridge keeps the raw state separately (`_controlPanelDictationState`), so a state main does not know yet, such as Plan 04's `cancelled` before Plan 04 adds it to `DICTATION_LIFECYCLE`, reaches the control panel unchanged on both push and pull. Per §5.7 (spec a3b1023), any string of 1–64 characters passes unchanged, with no character-set restriction (`future-state`, `future_state`, `state2` all pass); a non-string, an empty string or a longer string reads `idle`. The equality early return no longer swallows a raw-only change. Task 6 then maps any unknown state to Ready.
 - Produces the channels:
   - `dictation-lifecycle-changed`, main to control panel, payload `{ state, inputKind }`;
   - `dictation-level-changed`, main to control panel, a number at ≤15 Hz, only while `recording`;
@@ -2335,23 +2335,40 @@ test("a future lifecycle state reaches the control panel unchanged, from idle an
   const pushed = () => panel.sent.filter((m) => m.channel === "dictation-lifecycle-changed").map((m) => m.payload);
 
   // From idle: the normalized state stays idle, so the old early return would swallow it.
-  manager.setDictationLifecycleState("futureState", "dictation");
-  assert.deepEqual(pushed().at(-1), { state: "futureState", inputKind: "dictation" }, "pushed");
-  assert.deepEqual(manager.getControlPanelDictationState(), { state: "futureState", inputKind: "dictation" }, "and pulled");
+  manager.setDictationLifecycleState("future-state", "dictation");
+  assert.deepEqual(pushed().at(-1), { state: "future-state", inputKind: "dictation" }, "pushed");
+  assert.deepEqual(manager.getControlPanelDictationState(), { state: "future-state", inputKind: "dictation" }, "and pulled");
   assert.equal(manager.getAgentDictationPillState().lifecycle, "idle", "the pill still sees a known state");
   assert.equal(manager.isDictationProcessing(), false, "and so does the hotkey gate");
+  const count = pushed().length;
+  manager.setDictationLifecycleState("future-state", "dictation");
+  assert.equal(pushed().length, count, "an unchanged state is not re-sent");
 
   // From recording, with an input kind that must survive.
   manager.setDictationLifecycleState("recording", "assistant");
-  manager.setDictationLifecycleState("cancelled", "assistant"); // a future state until Plan 04 adds it
-  assert.deepEqual(pushed().at(-1), { state: "cancelled", inputKind: "assistant" });
+  manager.setDictationLifecycleState("future-state", "assistant");
+  assert.deepEqual(pushed().at(-1), { state: "future-state", inputKind: "assistant" }, "pushed");
+  assert.deepEqual(manager.getControlPanelDictationState(), { state: "future-state", inputKind: "assistant" }, "and pulled");
   assert.equal(manager.isDictating(), false, "main's recording gate reads it as not recording");
+  const again = pushed().length;
+  manager.setDictationLifecycleState("future-state", "assistant");
+  assert.equal(pushed().length, again, "still not re-sent");
 
-  const count = pushed().length;
-  manager.setDictationLifecycleState("cancelled", "assistant");
-  assert.equal(pushed().length, count, "an unchanged state is not re-sent");
-  manager.setDictationLifecycleState({ not: "a state" }, "assistant");
-  assert.deepEqual(pushed().at(-1), { state: "idle", inputKind: "assistant" }, "only short identifiers pass through");
+  // No character-set restriction (§5.7): underscores and digits pass too.
+  for (const state of ["future_state", "state2", "cancelled"]) {
+    manager.setDictationLifecycleState(state, "assistant");
+    assert.deepEqual(manager.getControlPanelDictationState(), { state, inputKind: "assistant" }, state);
+  }
+
+  // 64 characters pass; 65, empty and non-strings read idle.
+  manager.setDictationLifecycleState("a".repeat(64), "assistant");
+  assert.equal(manager.getControlPanelDictationState().state, "a".repeat(64));
+  for (const bad of ["a".repeat(65), "", { not: "a state" }, 7]) {
+    manager.setDictationLifecycleState("recording", "assistant");
+    manager.setDictationLifecycleState(bad, "assistant");
+    assert.deepEqual(pushed().at(-1), { state: "idle", inputKind: "assistant" }, `${String(bad).length} chars or non-string`);
+    assert.deepEqual(manager.getControlPanelDictationState(), { state: "idle", inputKind: "assistant" });
+  }
 });
 
 test("control panel levels flow only while recording, at most ~15 Hz", (t) => {
@@ -2455,11 +2472,14 @@ Expected: FAIL.
    // level-reactive rail and keeps IPC negligible.
    const CONTROL_PANEL_LEVEL_INTERVAL_MS = 66;
 
-   // The lifecycle state as the control panel sees it (§5.7): future states
-   // pass through unchanged, as long as they are short identifiers.
-   const BRIDGE_STATE_PATTERN = /^[a-z][A-Za-z]{0,31}$/;
+   // The lifecycle state as the control panel sees it (§5.7): any string of
+   // 1–64 characters passes unchanged, whatever its characters; anything else
+   // is idle. Main's own normalization (pill, tray, hotkey gate) is separate.
+   const BRIDGE_STATE_MAX_LENGTH = 64;
    function toBridgeLifecycleState(state) {
-     return typeof state === "string" && BRIDGE_STATE_PATTERN.test(state) ? state : DICTATION_LIFECYCLE.IDLE;
+     return typeof state === "string" && state.length >= 1 && state.length <= BRIDGE_STATE_MAX_LENGTH
+       ? state
+       : DICTATION_LIFECYCLE.IDLE;
    }
    ```
 

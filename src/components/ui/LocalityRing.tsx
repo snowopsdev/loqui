@@ -37,9 +37,9 @@ export function LocalityRing({
         <circle cx="12" cy="12" r="10.75" pathLength="100" />
       </svg>
       {children ? <span className="locality-ring__content">{children}</span> : null}
-      {locality === "remote" && provider ? (
+      {locality === "remote" ? (
         <span className="locality-ring__badge" aria-hidden="true">
-          {providerMonogram(provider)}
+          {providerMonogram(provider ?? "")}
         </span>
       ) : null}
     </span>

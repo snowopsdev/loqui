@@ -85,3 +85,21 @@ test("providerDisplayLabel localises unknown and custom providers", async () => 
   assert.equal(providerDisplayLabel("custom", t), "T:locality.customEndpoint");
   assert.equal(providerDisplayLabel("openai", t), "OpenAI");
 });
+
+test("inherited object keys are treated as unknown provider ids, never returned raw", async () => {
+  const { providerDisplayName, providerDisplayLabel, resolveLocality, providerMonogram } =
+    await load();
+  const t = (k) => "T:" + k;
+  const expected = { constructor: "Constructor", __proto__: "Proto", toString: "Tostring" };
+  for (const id of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) {
+    assert.equal(typeof providerDisplayName(id), "string", id);
+    assert.equal(typeof providerDisplayLabel(id, t), "string", id);
+    const route = resolveLocality({ mode: "providers", provider: id });
+    assert.equal(typeof route.provider, "string", id);
+    assert.equal(typeof providerMonogram(route.provider), "string", id);
+  }
+  for (const [id, name] of Object.entries(expected)) {
+    assert.equal(providerDisplayName(id), name, id);
+  }
+  assert.equal(providerDisplayName("OpenAI"), "OpenAI");
+});

@@ -10,30 +10,34 @@ export interface RouteLocality {
   provider: string | null;
 }
 
-const PROVIDER_NAMES: Record<string, string> = {
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  gemini: "Google Gemini",
-  vertex: "Google Vertex AI",
-  groq: "Groq",
-  mistral: "Mistral",
-  xai: "xAI",
-  openrouter: "OpenRouter",
-  bedrock: "AWS Bedrock",
-  azure: "Azure OpenAI",
-  codex: "ChatGPT (Codex)",
-  tinfoil: "Tinfoil",
-  deepgram: "Deepgram",
-  assemblyai: "AssemblyAI",
-  custom: "Custom endpoint",
-};
+// A Map, not an object: ids come from persisted settings, and an inherited key
+// such as "constructor" or "__proto__" must never resolve to a non-string.
+const PROVIDER_NAMES = new Map<string, string>(
+  Object.entries({
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    gemini: "Google Gemini",
+    vertex: "Google Vertex AI",
+    groq: "Groq",
+    mistral: "Mistral",
+    xai: "xAI",
+    openrouter: "OpenRouter",
+    bedrock: "AWS Bedrock",
+    azure: "Azure OpenAI",
+    codex: "ChatGPT (Codex)",
+    tinfoil: "Tinfoil",
+    deepgram: "Deepgram",
+    assemblyai: "AssemblyAI",
+    custom: "Custom endpoint",
+  })
+);
 
 // English display name for logs and other non-UI uses. UI must call
 // providerDisplayLabel so the unknown/custom fallbacks are localised.
 export function providerDisplayName(providerId: string | null | undefined): string {
   const id = (providerId ?? "").trim();
   if (!id) return "Unknown provider";
-  const known = PROVIDER_NAMES[id.toLowerCase()];
+  const known = PROVIDER_NAMES.get(id.toLowerCase());
   if (known) return known;
   const titled = id
     .split(/[^a-z0-9]+/i)

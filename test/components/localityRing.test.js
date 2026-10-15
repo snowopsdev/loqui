@@ -32,6 +32,30 @@ test("device and network rings never show a provider badge", async () => {
   }
 });
 
+test("a remote ring without a provider still shows a placeholder badge", async () => {
+  const { LocalityRing } = await load();
+  for (const provider of [undefined, null, ""]) {
+    const html = renderStatic(LocalityRing, {
+      locality: "remote",
+      label: "Sent to a provider",
+      provider,
+    });
+    assert.match(html, /class="locality-ring__badge"[^>]*>\?</, String(provider));
+  }
+});
+
+test("a ring given an inherited-key provider id renders instead of throwing", async () => {
+  const { LocalityRing } = await load();
+  const { resolveLocality } = await import("../../src/lib/locality.ts");
+  const route = resolveLocality({ mode: "providers", provider: "__proto__" });
+  const html = renderStatic(LocalityRing, {
+    locality: route.locality,
+    label: "x",
+    provider: route.provider,
+  });
+  assert.match(html, /locality-ring__badge/);
+});
+
 test("shape carries locality; orbit only runs while active and never under reduced motion", () => {
   const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
   assert.match(
@@ -58,7 +82,10 @@ test("the dotted network ring keeps a visible gap after round caps and closes th
   const rule = css.match(
     /\.locality-ring\[data-locality="network"\] \.locality-ring__svg circle\s*\{([^}]*)\}/
   )[1];
-  const [dash, gap] = rule.match(/stroke-dasharray:\s*([\d.]+) ([\d.]+)/).slice(1).map(Number);
+  const [dash, gap] = rule
+    .match(/stroke-dasharray:\s*([\d.]+) ([\d.]+)/)
+    .slice(1)
+    .map(Number);
   const width = Number(rule.match(/stroke-width:\s*([\d.]+)/)[1]);
   const unit = (2 * Math.PI * 10.75) / 100; // viewBox units per pathLength unit
   // Round caps extend each dash by half the stroke width at both ends.

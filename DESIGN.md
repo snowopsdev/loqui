@@ -13,12 +13,19 @@ colors:
   divider-gray: "#E5E5E5"
   secondary-text: "#525252"
   link-orange: "#C43E13"
-  night-charcoal: "oklch(0.22 0.006 260)"
-  night-card: "oklch(0.27 0.008 260)"
-  night-raised: "oklch(0.33 0.01 260)"
-  night-border: "oklch(0.35 0.007 260)"
-  night-text: "oklch(0.93 0 0)"
-  night-secondary-text: "oklch(0.65 0 0)"
+  cta: "#171717"
+  live: "#FF5A1F"
+  nav-marker-light: "#E84E16"
+  nav-marker-dark: "#E6007A"
+  locality-device: "#0B7A54"
+  locality-network: "#3B6EA8"
+  locality-remote: "#AD5008"
+  night-charcoal: "#1C1218"
+  night-card: "#271820"
+  night-raised: "#33202B"
+  night-border: "#3D2733"
+  night-text: "#F3E9EE"
+  night-secondary-text: "#B59AA8"
 typography:
   display:
     fontFamily: "Inter Variable, Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif"
@@ -47,8 +54,15 @@ spacing:
   "6": "24px"
 components:
   button-primary:
+    backgroundColor: "#171717"
+    textColor: "#FFFFFF"
+    typography: "{typography.label}"
+    rounded: "{rounded.pill}"
+    padding: "8px 16px"
+    height: "40px"
+  button-live:
     backgroundColor: "{colors.signal-orange}"
-    textColor: "{colors.paper}"
+    textColor: "{colors.brand-ink}"
     typography: "{typography.label}"
     rounded: "{rounded.pill}"
     padding: "8px 16px"
@@ -88,10 +102,10 @@ components:
 
 Loqui is a desktop work surface for voice and personal knowledge. Compact navigation and window chrome frame dictation, notes, history, meetings, search, and model controls. The interface is focused and direct; the vivid orange and fuchsia accents give the workbench a distinct signal while text and user content remain the main event.
 
-The same React interface runs in the Electron shell on macOS and Linux, with platform-specific window controls and permissions. Light mode uses clean white and pale-gray surfaces. Dark mode shifts to low-chroma charcoal layers. Rounded controls, restrained elevation, and clear interaction states carry the system across both themes. The visual anti-reference is generic AI-dashboard styling.
+The same React interface runs in the Electron shell on macOS and Linux, with platform-specific window controls and permissions. Light mode uses clean white and pale-gray surfaces. Dark mode is Plum Night: the brand guide's Deep Plum family; magenta marks active navigation; orange still means live voice. Rounded controls, restrained elevation, and clear interaction states carry the system across both themes. The visual anti-reference is generic AI-dashboard styling.
 
 **Key Characteristics:**
-- Signal Orange leads primary actions; Electric Fuchsia supports secondary emphasis.
+- The ink CTA is the everyday action; Signal Orange means live voice; Electric Fuchsia supports secondary emphasis.
 - Inter Variable anchors a compact, high-clarity interface.
 - Light surfaces use subtle lift; dark surfaces use tonal separation and soft edge rims.
 - Capsules, small-radius controls, and inset work areas shape the desktop shell.
@@ -109,11 +123,11 @@ Regenerate with `npm run assets:generate` and verify with `npm run assets:check`
 
 ## Colors
 
-The interface palette pairs a vivid orange action color with fuchsia highlights over neutral light and charcoal dark themes. These functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor controls or semantic states.
+The interface palette pairs a vivid orange live-voice color with fuchsia highlights over neutral light and Plum Night dark themes. The light-theme functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor light-theme controls or semantic states. The dark theme deliberately adopts the guide's Deep Plum family as Plum Night.
 
 ### Primary
-- **Signal Orange** (#FF5A1F): Primary actions, active navigation markers, selection, and focus accents.
-- **Orange Highlight** (#FF6A36): The brighter top stop in the primary button and brand-surface gradient.
+- **Signal Orange** (#FF5A1F): Live voice and the Plum Night focus accent (light theme uses the deeper #E84E16 for focus). The ink CTA is the everyday action. The light-theme active-navigation marker uses the deeper orange #E84E16 (3:1 on the sidebar surface); Plum Night uses magenta for the active marker.
+- **Orange Highlight** (#FF6A36): The brighter top stop in the live button and brand-surface gradient.
 
 ### Secondary
 - **Electric Fuchsia** (#D90078): Supporting accent for secondary interface emphasis, including sparkle and action details. It complements the orange role rather than replacing it.
@@ -128,14 +142,22 @@ The interface palette pairs a vivid orange action color with fuchsia highlights 
 - **Surface Gray** (#F5F5F5): Light muted panels and controls.
 - **Divider Gray** (#E5E5E5): Light-theme borders and separators.
 - **Secondary Text** (#525252): Supporting copy and labels in light mode.
-- **Night Charcoal** (oklch(0.22 0.006 260)): Dark-theme canvas; panels rise through oklch lightness levels 0.25, 0.27, 0.30, and 0.33.
-- **Night Card** (oklch(0.27 0.008 260)): Dark card surface.
-- **Night Border** (oklch(0.35 0.007 260)): Dark-theme separators and control borders.
-- **Night Text** (oklch(0.93 0 0)): Main dark-theme text; secondary text uses oklch(0.65 0 0).
-- **Orange Link** (#C43E13 in light mode; #FF9A7A in dark mode): Text links, kept distinct from the primary action fill.
+- **Night Plum** (#1C1218): Plum Night canvas; panels rise through #21151B, #271820, #2D1C25, and #33202B, with #160D12 for the window backing.
+- **Night Card** (#271820): Dark card surface.
+- **Night Border** (#3D2733): Dark-theme separators and control borders.
+- **Night Text** (#F3E9EE): Main dark-theme text; secondary text uses #B59AA8.
+- **Orange Link** (#C43E13 in light mode; #FF9A7A in dark mode): Text links, kept distinct from the live orange fill.
+
+### Roles
+- **Live** (`--color-live` #FF5A1F, ink text #171717): orange means a voice is live. Use it only for record/stop/mic controls, the pill and the meters (`Button variant="live"`).
+- **Call to action** (`--color-cta` #171717 / white text; Plum Night #F3E9EE / #1C1218 text): the default `Button`. It carries a 6px orange dot as the brand mark. Hover/press fills: #2E2E2E / #0A0A0A (white text) in light, #E6D8DF / #D8C7D1 (#1C1218 text) in Plum Night.
+- **Link** (`--color-link` #C43E13 light, #FF9A7A dark; hover `--color-link-hover` #A8340D light, #FFB39A dark): always for inline links, never raw orange. Hover swaps to the hover token at full opacity; it never fades the link, which would drop it below 4.5:1.
+- **Focus ring** (`--color-ring`): #E84E16 in light (at least 3:1 on every light surface), #FF5A1F in Plum Night. Always drawn fully opaque; a translucent orange ring does not reach 3:1.
+- **Locality**: device #0B7A54, your network #3B6EA8, remote provider #AD5008 (dark: #5EE0AD, #9BB4D6, #FBBF6A). Always paired with ring shape and words.
+- **Nav marker** (`--color-nav-marker`): deeper orange #E84E16 in light (3:1 on the sidebar surface), magenta #E6007A in Plum Night.
 
 ### Named Rules
-**The Two-Brand-Accent Rule.** Orange marks primary action and current state. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
+**The Two-Brand-Accent Rule.** Orange marks live voice, the focus accent and, in the light theme (as the deeper #E84E16), the active navigation marker; the everyday primary action is the ink CTA, and Plum Night marks active navigation in magenta #E6007A. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
 
 ## Typography
 
@@ -161,7 +183,7 @@ The desktop shell pairs a 208px sidebar with a flexible content area. The main w
 
 ## Elevation & Depth
 
-Depth is layered: light mode uses a subtle card shadow and restrained hover lift; dark mode relies on stepped charcoal surfaces, quiet borders, and soft inner rims, with stronger shadows reserved for overlays. Primary orange surfaces carry a fine top highlight and inset rim. Focus rings, selected-model glows, and modal shadows remain state-specific.
+Depth is layered: light mode uses a subtle card shadow and restrained hover lift; dark mode relies on stepped Plum Night surfaces, quiet borders, and soft inner rims, with stronger shadows reserved for overlays. Orange live surfaces carry a fine top highlight and inset rim. Focus rings, selected-model glows, and modal shadows remain state-specific.
 
 ### Shadow Vocabulary
 - **Card at rest:** `0 1px 3px oklch(0 0 0 / 0.2), inset 0 1px 0 oklch(1 0 0 / 0.03)` in dark mode; light cards use the component's subtle `shadow-sm` treatment.
@@ -172,6 +194,30 @@ Depth is layered: light mode uses a subtle card shadow and restrained hover lift
 ### Named Rules
 **The Layered-Not-Floating Rule.** Separate adjacent work areas with tone and borders first. Reserve stronger lift for overlays and deliberate hover states.
 
+## Motion
+
+One language for every surface. **Hue is mode, shape is locality, motion is progress.**
+
+| Token | Value | Use |
+|---|---|---|
+| `--motion-instant` | 90ms | press, colour change |
+| `--motion-fast` | 150ms | hover, label swaps, tooltips |
+| `--motion-base` | 240ms | surface enter, toast, chip |
+| `--motion-slow` | 360ms | morphs, panel growth |
+| `--motion-hero` | 520ms | spring settle (visual length) |
+| `--motion-ease-std` | cubic-bezier(0.2, 0, 0, 1) | movement and morphs |
+| `--motion-ease-enter` | cubic-bezier(0.16, 1, 0.3, 1) | things arriving |
+| `--motion-ease-exit` | cubic-bezier(0.2, 0, 0.4, 1) | things leaving, at ~70% of enter |
+| `--motion-spring-snap` / `-settle` / `-bounce` | CSS `linear()` | press release and morphs / panels / success only |
+
+Rules:
+- First feedback within 50 ms.
+- At most two focal motions at once.
+- Animate only `transform`, `opacity`, `clip-path`, `filter` and registered properties.
+- Loops run only while their state is active and the window is visible.
+- Every motion has a non-motion twin (shape, label or colour).
+- Never ease-in.
+
 ## Shapes
 
 The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px larger cards, and 12px for the inset workspace shell. Primary actions, search, and badges use full capsules. Borders are thin and neutral at rest; active and focus borders take the orange accent. Large 24px corners belong to the animated voice and assistant panels, not ordinary cards.
@@ -180,8 +226,8 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 
 ### Buttons
 - **Shape:** Capsule for text actions (9999px); icon-only buttons use a 6px radius.
-- **Primary:** Orange vertical gradient from #FF6A36 to #FF5A1F, white semibold label, 40px default height, and 16px horizontal padding. A fine glass rim adds a small highlight.
-- **Hover / Focus:** Hover brightens the primary surface. Keyboard focus uses a 2px visible ring with a small offset; pressed controls scale slightly to confirm activation.
+- **Primary:** Default buttons are ink capsules with a leading orange dot; `live` buttons use the orange glass surface with ink text and are reserved for voice controls. 40px default height and 16px horizontal padding.
+- **Hover / Focus:** Hover shifts the fill of the ink CTA (`--color-cta-hover`: a step lighter in light, a step darker in Plum Night) and the orange glass (`--gradient-brand-glass-hover`); press goes deeper (`--color-cta-active`, `--gradient-brand-glass-active`). Feedback is a fill change, never a CSS filter or opacity, because a filter would recolour the box-shadow focus ring. Keyboard focus uses a 2px visible ring with a small offset; pressed controls scale slightly to confirm activation.
 - **Secondary / Ghost / Tertiary:** Outline and secondary buttons use muted fills, thin borders, and restrained shadow; ghost actions gain a muted surface on hover, while link actions remain text-first.
 
 ### Chips
@@ -190,9 +236,9 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 
 ### Cards / Containers
 - **Corner Style:** 8px on the shared Card primitive; 8–10px on grouped panels and setup cards.
-- **Background:** White cards in light mode; charcoal card tokens in dark mode.
+- **Background:** White cards in light mode; Plum Night card tokens in dark mode.
 - **Shadow Strategy:** A faint resting shadow; dark mode adds a low-contrast top rim and soft shadow. The `.card` utility may lift 1px on light hover, while dark cards change border and shadow without moving.
-- **Border:** One-pixel neutral border; active or selected panels may tint the border with primary orange.
+- **Border:** One-pixel neutral border; active or selected panels may tint the border with the orange accent.
 - **Internal Padding:** Common card headers and contents use 24px; compact setup rows use 16px.
 
 ### Inputs / Fields
@@ -201,25 +247,25 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 - **Error / Disabled:** Errors use the separate destructive color; disabled fields lower contrast and disable pointer interaction.
 
 ### Navigation
-- **Sidebar:** 208px wide, with 36px rows and 13px labels. The active item uses a quiet foreground-tinted surface and a 2px orange rail; icons shift to orange while inactive icons remain subdued.
+- **Sidebar:** 208px wide, with 36px rows and 13px labels. The active item uses a quiet foreground-tinted surface and a 2px rail in the nav-marker colour (orange in the light theme, magenta #E6007A in Plum Night); the active icon takes that same colour while inactive icons remain subdued.
 - **Top bar:** A 48px draggable Electron title area with centered capsule search and platform-appropriate window controls. macOS clears space for traffic lights when the sidebar is collapsed; Linux displays the app window controls.
 - **Narrow layout:** The sidebar collapses for focused note and meeting side panels; a back control replaces it.
 
 ### Voice Pill
 
-The persistent dictation control is a compact bordered capsule with a waveform and voice identity mark. Recording and processing remain legible through waveform and control state; assistant thinking can add a restrained glow. The pill expands into the assistant or live-transcript surface with 24px corners, then contracts back to the same anchor.
+The persistent dictation control is a compact bordered capsule with a waveform and voice identity mark. Recording and processing remain legible through waveform and control state; assistant thinking can add a restrained glow. The pill expands into the assistant or live-transcript surface with 24px corners, then contracts back to the same anchor. Dictation thinking glows in the logo gradient (#FF8A5C → #FF5A1F → #D90078); Agent Mode thinking glows violet (#8787FF). Blue is not a Loqui state colour.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** use Signal Orange for primary actions and current navigation state.
+- **Do** use the ink CTA for everyday actions, Signal Orange for live voice, and the deeper orange nav marker for current navigation state in the light theme; in Plum Night, magenta marks current navigation.
 - **Do** use Electric Fuchsia as a supporting accent, keeping the two roles distinct.
-- **Do** preserve the charcoal surface steps and soft rims when adding dark-theme surfaces.
+- **Do** preserve the Plum Night surface steps and soft rims when adding dark-theme surfaces.
 - **Do** use compact controls, clear labels, and the existing visible focus treatment.
 - **Do** adapt window controls and traffic-light clearance to the host OS while keeping the shared React interface coherent.
 
 ### Don't:
 - **Don't** drift into generic AI-dashboard styling or decorative marketing-page chrome.
-- **Don't** swap orange and fuchsia roles or make both accents compete for primary-action status.
+- **Don't** swap orange and fuchsia roles or make both accents compete for the live-voice signal.
 - **Don't** rely on shadow alone to distinguish dark surfaces; use the existing tonal layers and borders.
 - **Don't** use movement as the only cue for recording, processing, selection, focus, or error states.

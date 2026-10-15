@@ -4122,5 +4122,12 @@
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
+  },
+  "locality": {
+    "device": "在此设备上",
+    "network": "在你的服务器上",
+    "remote": "发送至 {{provider}}",
+    "unknownProvider": "未知提供商",
+    "customEndpoint": "自定义端点"
   }
 }

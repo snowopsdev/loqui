@@ -30,9 +30,39 @@
 **Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`. It covers D1, D2, D3, D4, D9 and D10, the Plan 04 row in §3, §4, and contracts §5.1–§5.4.
 - Visual reference: `design-explorations/loqui-uiux-review.html#ch-voice`. Source: `design-explorations/loqui-uiux-review/parts/03-voice.html` (sibling worktree `t3-5038e8e6`). The picked variant cards are R1 C (lines 207–217), R6 B (412–422), R8 B (502–512), R10 A (859–868), R11 B (667–677), R12 A (708–718) and R14 B (810–820).
 - Audit: `.omc/research/ui-review/audit-voice.md` in the same sibling worktree.
-- Independent review this revision answers: `.omc/research/ui-review/reviews/plan-04-codex.md` (sibling worktree).
+- Independent reviews this revision answers: `.omc/research/ui-review/reviews/plan-04-codex.md` (round 1) and `plan-04-codex-r2.md` (round 2, pinned at ff423fb), both in the sibling worktree.
+- Spec state: §5 consolidated at 091d198, with the §5.2 clarifications at ff8c9cd and the D2 Linux clarification at 7f31ece.
 
 ---
+
+## Round-2 review response
+
+This revision answers `plan-04-codex-r2.md`, Codex's second review at ff423fb: 4 Critical, 13 Important, 1 Minor. All 18 are fixed in the named tasks, and none is disputed. Each fix changes the task code **and** its tests, and the tests drive the production paths named in the finding. They run the real `AudioManager` cancel and restore methods, the real notice store and buttons, the real `WindowManager`, tray and notification module, the real Plan 03 route graph and settings store, and a real App render. Only IPC, OS and transport leaves are faked. Two cases need the spec owner's eye, and they are flagged under the table.
+
+| Finding | Severity | Where | How it is fixed | Pinned by |
+|---|---|---|---|---|
+| **R1-C2** Standalone Agent Undo resolved its destination from live settings | Critical | Tasks 6, 7, 8 | A banked Agent command carries `operation` (session id and credential-free settings) through `useAudioRecording` → `useAssistantPanel` → `AssistantPanel` / onboarding → `useChatStreaming` → `ReasoningService`, which resolves that one request from it. A per-session context owns the press-time selection read and screenshot. It moves into the cancel hold, comes back on restore, and is released when the hold closes. A restored session never reads the OS selection again, and main still re-validates the selection target before replacing. | Task 6 `dictationOperationHandoff.test.js` (each handoff); Task 8 "Undo through restoreCancelled keeps a standalone Agent command's route and screenshot", "…edits the press-time selection on the session's route", "a hold's press-time context is released…" |
+| **R2-C1** Immediate Undo could discard audio before MediaRecorder's final event | Critical | Task 8 | The final chunk is registered with `buffer.expect()` **before** the window opens. Restore waits for it, bounded by `FINAL_AUDIO_WAIT_MS`. On timeout the recording goes back into its window, unzeroed, and the late chunk still lands. "Not delivered yet" is never reported or zeroed as "empty". The fake recorder now stops asynchronously, as the real one does. | "an immediate Undo waits for the recorder's final chunk…", "a final chunk that never arrives…", "expiry before the final chunk, retention off…" |
+| **R2-C2** Failed batch Undo lost its audio and could stay busy | Critical | Task 8 | `_restoreBatch` sets `lastAudioBlob` and its session owner before provider work, so the failure path and Plan 07's `_noteSealedFailure` see it in either merge order. A merge failure settles its own pipeline and re-holds the source audio. An STT or Sealed failure keeps the audio as a normal dictation would (a failed history row with audio when retention is on); with retention off it is re-held, unless Plan 07 already holds it. | "a merge failure during Undo settles idle and puts the recording back", "an STT or Sealed failure during Undo keeps the audio, retention on or off" |
+| **R2-C3** A later dictation removed unresolved recovered words | Critical | Tasks 1, 3, 4 | Content-bearing failures get session ids (`dictation-recovery:<sessionId>`). Status-only failures keep the stable `dictation-error` id, and only that id is cleared at recording edges. Words are never evicted or replaced by the store. Only a successful Paste again, or the user's Dismiss, removes them. Extra held transcripts sit behind an "N more" control instead of being dropped. | Task 1 store tests; Task 4 "two failed deliveries… both stay recoverable through a successful third dictation" |
+| **R1-I1** Expiry waited indefinitely before zeroing | Important | Task 8 | With retention off, or a private hold, `_closeCancelled` zeroes at the deadline, and copies that land later are zeroed on arrival. With retention on it waits at most `CLOSE_SAVE_WAIT_MS`, saves what arrived, and zeroes right after copying into Blobs. | "expiry zeroes at the deadline even when a copy never settles (R1-I1)" (off, private, on) |
+| **R1-I3** An abandoned restore could settle a newer operation | Important | Task 8 | A restore settles the lifecycle only while its generation is current, and the streaming replay's `finally` follows the same rule. A stale continuation never re-holds over newer work: it closes its recording as a newer start would, and emits nothing. | "Esc, then a new recording, while an Undo waits…" (resolve and reject) |
+| **R1-I4** Ownership wiring read a const before initialization | Important | Task 11 | The auto-hide effect moves into `usePillAutoHide`, which App calls after the stage derivation it reads. Tasks 12–14 place their derivations after that block. | `appPillOwnership.test.js` (real `App.jsx` render, auto-hide on); `pillAutoHide.test.js` |
+| **R1-I5** Fallback evidence was late and could claim pre-transport dispatch | Important | Task 7 | Without Plan 07, evidence comes only from main's `dictation-dispatch` event, sent immediately before the provider request leaves and filtered by session id. Completion is never read as dispatch, so renderer-side validation errors record nothing. The main-fed three-phase tracker is unchanged. | Task 7: held upload (evidence before the response), pre-IPC `ReasoningService` errors, cancelled start, main rejections |
+| **R1-I6** The bridge dropped `alsoSentTo`, the order was reversed, and there was no second-merge step | Important | Tasks 8, 9 | The sanitiser keeps every `RemoteDisclosure` field. The broadcaster moves into the testable `buildOnboardingDemoBroadcast`. Restore emits `cancelClosed/restored` before `processing`. Task 9 Step 4b executes Plan 05's Task 22 and deletes its fallback when 05 merged first. Onboarding reads cancel details only from `onboarding-demo-event`. | "the real broadcaster keeps every receiver…", "Undo announces the closed window before processing starts", Task 9 Step 4b's reducer test |
+| **R1-I7** An unexpectedly closed meeting prompt kept its shortcut | Important | Tasks 2, 18 | Each prompt's lease has its own owner, `main:meeting-prompt:<generation>`. It is released on close, renderer loss, navigation, dismissal and quit. | Task 18 real window-manager tests: unexpected close with deferred acquisition, crash, navigation, quit |
+| **R1-I8** The Linux fallback substituted for D2 | Important | Tasks 16, 17, 20 | Implements the D2 clarification (7f31ece). Stop appears only where `GetCapabilities` lists `actions`. Elsewhere, or when publishing fails, a persistent notification without actions still shows, and clicking it reveals the pill with Stop (Task 17), even with the on-screen setting off. The tray Stop always stays, and the Stop transport stays session-bound and separate from `showSystemNotification`. | Task 16: service loss during discovery and publication, `Notify` rejection, a session-bound Stop delivery through the real `WindowManager`/`TrayManager`; Task 17 reveal test |
+| **R1-I9** Quit did not join an expiry save already running | Important | Tasks 8, 9 | The undo window tracks every close still saving, and `expireNow()` joins them all. A `quitCoordinator` prevents every repeated quit until the one coordinated shutdown exits. | "a flush joins an expiry or replacement save that is already running"; `quitCoordinator.test.js` (delayed flush, duplicate quit, throwing flush) |
+| **R1-I12** Deep links could vanish into a loading panel | Important | Task 4 | Main holds the Settings path until the control panel's subscriber acknowledges it, whether the panel is new, loading or reloading. A newer request replaces an older one, and an unacknowledged one expires after 15 s. | `settingsDeepLinkDelivery.test.js` (real main → preload → subscriber, through initial load and reload) |
+| **R1-I14** Non-throwing failures were called "saved" | Important | Task 16 | "Saved" requires `{ success: true }` from both the transcript write and the stop. `{ success: false }`, `stale-session`, no result, no API and a throw are all failures. No content means no write was needed, which still counts as saved. | Task 16 table-driven tests with the real returned shapes |
+| **R2-I1** Session routes called the wrong Plan 03 API | Important | Task 6 | Sessions use Plan 03's published `routeSnapshotFromSettings`. A resolution failure starts the dictation with `routes: null`, and Undo's Sealed pre-check fails closed on that. | Task 6 tests on the real Plan 03 modules: local, provider, network, loopback, unknown facts, sealed |
+| **R2-I2** Pre-window awaits let obsolete prompts reappear | Important | Task 18 | A prompt generation is taken before the first await, invalidated on replacement, dismissal and teardown, and checked after every await. A stale prompt releases only its own lease. | Task 18: dismissal during display lookup or registration, out-of-order display and acquire |
+| **R2-I3** Words-card Copy could falsely report success | Important | Task 3 | `writeClipboardText` reports success only on the bridge's `{ success: true }`, or a resolved `navigator.clipboard.writeText` fallback. A failure shows "Couldn't copy" and keeps the words. `useCopyFeedback` uses the same helper. | `wordsCardActions.test.js` (rejected, `{ success: false }`, absent bridge, web fallback, success) |
+| **R2-M1** Replacement motion used literal timings | Minor | Tasks 11–14 | Ordinary transitions use Plan 01's `--motion-*` tokens. The picked choreography beats become shared tokens (CCR-8). The only literals left are loop periods and functional deadlines, listed explicitly. | `pillMotionTokens.test.js` |
+
+**For the spec owner:**
+- **The D2 click without `actions` (R1-I8).** The freedesktop spec lets a server without `actions` ignore every action, including the default click. Electron's Linux `Notification` registers its click only when the server advertises `actions`. The plan requests the click on both paths, names the tray in the notification text, and Task 20 records which desktops deliver it. On a desktop that delivers neither, the notification is informational only, and the tray Stop is the way out.
+- **New motion tokens (R2-M1).** Five beat tokens extend Plan 01's motion contract (CCR-8).
 
 ## Review response
 
@@ -46,14 +76,14 @@ This revision answers the independent review (`plan-04-codex.md`: 2 Critical, 14
 | **I2** streaming and merge-time cancels lacked Undo | Closed | Task 8 | Streaming Undo replays the held PCM frames through the **same** streaming provider at 4× real time, then runs the normal finalization. This works for Deepgram and AssemblyAI too, which have no batch endpoint. Merge-time and processing-time batch cancels hold the raw segments registered before the merge. There are tests per path. A startup cancel, before any audio exists, has nothing to restore. **Different fix:** the report suggested re-transcribing through a batch endpoint; that would change the route (and does not exist for two providers), so replay stays on the streaming route. |
 | **I3** restore not atomic; no Esc in restored processing | Closed | Tasks 8, 9 | `restoreCancelled` claims the buffer and enters `isProcessing` synchronously, before any await. Esc bumps a restore generation that every await checks, so an Esc before the pipeline starts puts the recording back in its window, and an Esc during it re-holds the audio. Every failure settles idle. Esc is registered from lifecycle transitions (busy ↔ idle), not from a successful mic start. Tests: a start during a pending restore, byte rejection, and Undo→processing→Esc. |
 | **I4** stage selection ignores native visibility and ownership | Closed | Tasks 10, 11, 17 | `resolvePillOwnership(stage)` returns `holdsWindow`, `interactive` and `outranksFooter`. That one policy feeds auto-hide (`shouldAutoHidePill`), Assistant footer suppression, `resolveVoicePillInteraction` (mac and Windows click-through, and the Linux input region), and the show-when-hidden branch. Tested with auto-hide on, Assistant final actions, and Live Transcript or Assistant mounted. |
-| **I5** "already received" is not egress evidence | Closed | Task 7 | With Plan 07, evidence comes only from main's `EgressNotice`s for this session's `correlationId` with a content payload: `delivered` is `attested`, `dispatched` is `dispatched`, and `undelivered` withdraws its ticket (spec §5.4). Without Plan 07, evidence is recorded only after the transport hand-off (`dispatched`), and the copy then says "may have received". Startup failures, main rejections (`dispatched: false`) and Sealed blocks record nothing. Translation, cleanup, Agent and vision are instrumented. Loopback custom endpoints resolve to the device through Plan 03's resolver. |
+| **I5** "already received" is not egress evidence | Closed | Task 7 | With Plan 07, evidence comes only from main's `EgressNotice`s for this session's `correlationId` with a content payload: `delivered` is `attested`, `dispatched` is `dispatched`, and `undelivered` withdraws its ticket (spec §5.4). Without Plan 07, evidence is recorded only after the transport hand-off (`dispatched`), and the copy then says "may have received". Startup failures, main rejections and Sealed blocks record nothing; since round 2, the no-07 fallback reads main's `dictation-dispatch` hand-off (R1-I5). Translation, cleanup, Agent and vision are instrumented. Loopback custom endpoints resolve to the device through Plan 03's resolver. |
 | **I6** no cross-window Undo for Plan 05; disclosure shapes disagree | Closed | Tasks 7, 9; CCR-5, CCR-6 | There are `cancelled` and `cancelClosed` demo statuses with sanitised fields, `windowManager.sendUndoCancelDictation(sessionId)` (a request/reply to the overlay that returns `UndoResult`), and `lastCancelledDictation`. One `RemoteDisclosure` type (target id + payload + evidence) and one label helper serve Plans 04, 05 and 07. A two-window contract test covers the round trip. |
 | **I7** temporary hotkeys lack main ownership | Closed | Tasks 2, 9, 18 | `hotkeyLeases.js` gives each temporary shortcut a main-owned lease. It is released on release, TTL, owner destruction, renderer crash and navigation. Registration is serialised per slot, so a late registration after release is undone and a newer lease is never unregistered by an older result. The UI shows a shortcut only when main reports `held`. Temporary slots never go to KGlobalAccel. The meeting prompt uses a lease too. |
-| **I8** Linux notification races; fallback without Stop | Closed (fallback Stop moves to the tray) | Task 16 | The notification uses the bundled `@homebridge/dbus-native`, not a host CLI. Its lifetime is serialised by generation: a late id is closed, signals are subscribed first, and `NotificationClosed`, service loss and teardown are handled. Stop is bound to the meeting session. Where the server has no `actions` capability or no service, the tray's "Stop meeting recording" is the Stop, and a never-expiring notification says so. **Different fix:** Electron cannot add buttons on Linux, so a fallback notification with a Stop button is impossible. The platform question is Open question 4. |
+| **I8** Linux notification races; fallback without Stop | Closed; the fallback is superseded in round 2 by the D2 clarification (R1-I8) | Task 16 | The notification uses the bundled `@homebridge/dbus-native`, not a host CLI. Its lifetime is serialised by generation: a late id is closed, signals are subscribed first, and `NotificationClosed`, service loss and teardown are handled. Stop is bound to the meeting session. Where the server has no `actions` capability or no service, the tray's "Stop meeting recording" is the Stop, and a never-expiring notification says so. **Different fix:** Electron cannot add buttons on Linux, so a fallback notification with a Stop button is impossible. The platform question is Open question 4. |
 | **I9** quit flush not wired | Closed | Task 9 | `before-quit` awaits `flushDictationBeforeQuit({ timeoutMs: 3000 })`, a token-bound request/reply to the overlay, before teardown. A dead renderer times out, and its RAM is gone with it. With retention off, the flush only zeroes. The test replies only after a delayed flush settles. |
 | **I10** failed Retry cleanup dismisses its own alert | Closed | Tasks 1, 4 | `runNoticeAction` dismisses only the revision it started on. Notices are `busy` while an action runs, and repeat activations are ignored. An integration test runs the real store and the real retry. |
 | **I11** secondary actions discarded | Closed | Task 3 | A chip with more than one action gets an accessible "More" disclosure (`aria-expanded`, `aria-controls`) listing every other action. The test renders and finds the secondary controls. |
-| **I12** `openSettingsAt` path ignored | Closed | Task 4 | The path is carried end to end: main waits for a freshly created control panel to load, preload passes the payload, `ControlPanel` validates it against Plan 03's grammar and sets the section, and `SettingsModal` re-applies a section that arrives while it is open. |
+| **I12** `openSettingsAt` path ignored | Closed | Task 4 | The path is carried end to end: main holds it until the panel's subscriber acknowledges it (round 2, R1-I12), preload passes the payload, `ControlPanel` validates it against Plan 03's grammar and sets the section, and `SettingsModal` re-applies a section that arrives while it is open. |
 | **I13** `words` contract permits expiry | Closed | Task 1 | `NoticeInput` is discriminated: `words` is typed only on alerts. At runtime, words on any kind make an alert that never expires. Tested. |
 | **I14** presence loss treated as "saved" | Closed | Tasks 16, 17 | Presence is liveness only. `stopRecording` reports an explicit `MeetingOutcome` after the transcript write and the main stop settle: saved, `failed: save`, or `failed: stop`. Owner loss is `failed: ownerLost`. The pill announces only outcomes. Tested with a failed write and duplicate stops. |
 | **M1** countdown regex fails | Closed | Task 11 | The test asserts each style declaration independently of order. |
@@ -236,6 +266,18 @@ disclosureCopy(disclosure, t): string;    // "{{provider}} already received the 
 
 **CCR-7 (§5.1, owner Plan 03): `ResolvedRoute.providerId: string | null`.** *Applied in spec §5.1 (091d198).* Plan 03's revision has accepted this. `routeProviderLabel` (Task 11) uses it unconditionally once present. Until then, it falls back to `route.provider`.
 
+**CCR-8 (§5.1 Plan 01 table, motion tokens; new in round 2).** *Requested.* Plan 04 extends Plan 01's motion tokens with five beat tokens in the `src/index.css` `:root` Motion block, plus matching DESIGN.md rows:
+
+```css
+--motion-nudge: 260ms;             /* the failed pill's nudge */
+--motion-bounce: 640ms;            /* the length --motion-spring-bounce is drawn for */
+--motion-condense-fly: 140ms;      /* a spark rises from the bars */
+--motion-condense-land: 220ms;     /* a word lands */
+--motion-rewrite-underline: 600ms; /* cleanup's rewrite underline */
+```
+
+They are additive, and no existing token changes. Please add them to the "Extended by" column of the §5.1 Plan 01 table.
+
 ## Open questions for the owner
 
 Each question has a default that the plan implements. A different answer changes only the task named.
@@ -247,7 +289,7 @@ Each question has a default that the plan implements. A different answer changes
    - ⌥⌘M (Ctrl+Alt+M) "Start notes" while a meeting prompt is up (Task 18).
 
    Are those combinations acceptable?
-4. **Linux without notification actions (Task 16).** Electron cannot add buttons to Linux notifications, and some notification servers do not support actions. On those desktops, Stop lives in the tray menu and the pill. The resident notification is a never-expiring message that points there. Acceptable, or should the plan add a native helper?
+4. *(Resolved by the D2 clarification, 7f31ece.)* **Linux without notification actions (Task 16).** Stop appears where the server advertises `actions`. Elsewhere, the persistent notification shows without actions, and a click reveals the pill with Stop. The tray Stop is always there. Open point: such servers may ignore the click (see "For the spec owner" above).
 5. **Linux and the on-screen setting (Tasks 16, 17).** By default, the tray dot and the resident notification appear on Linux whenever a meeting records. "Show meeting recorder on screen" governs only the pill. Should the setting also suppress the notification?
 6. **"Retry cleanup" (Task 4).** After a raw paste the pasted text cannot be rewritten in another app, so Retry copies the cleaned text and says so. History keeps the raw text. Is that the expected behaviour?
 7. **Words-card primary colour (Task 3).** The R6 B mock paints "Paste again" orange. D1 reserves orange for voice controls, so the plan uses the ink button.
@@ -317,7 +359,7 @@ Plan 02's Q16 native interruption notifications are untouched. Task 16's residen
 - **Temporary global shortcuts** (⌥Z, ⌥↵, ⌥⌘M) are main-owned leases (Task 2). They are released on disable, TTL, owner loss and navigation, and shown only while held.
 - **D2, the meeting recorder:**
   - It is a state of the existing pill window, never a second always-on-top window.
-  - Linux adds a tray recording state, with Stop in the tray menu, and a resident notification with Stop where the notification server supports actions.
+  - Linux adds a tray recording state, with Stop in the tray menu, and a persistent notification. Stop appears in it where the server advertises `actions` (`GetCapabilities`). Elsewhere, or when publishing fails, it shows without actions, and a click reveals the pill with Stop (D2 clarification, 7f31ece).
   - "Show meeting recorder on screen" defaults to on.
   - "Saved" is announced only from an explicit outcome, never from presence disappearing.
 - Condensation words render on their own layer above the bars. The bars are never clipped by words (D9). Agent Mode ships without the frame glyph (D9, VO-R8 owner note).
@@ -328,10 +370,12 @@ Plan 02's Q16 native interruption notifications are untouched. Task 16's residen
 - Text contrast is at least 4.5:1 and non-text UI at least 3:1, in light and Plum Night. Never put white text on `#FF5A1F`.
 - **Motion tokens.** Motion uses the Plan 01 tokens (`--motion-*`, springs as `linear()`) for every transition and every enter or exit. The exceptions are literal values the picked specs fix:
   - loop periods: the 1.6 s comet, 2.4 s and 1.2 s orbit, 1.2 s dot and 2 s shimmer;
-  - choreography beats: 140/220 ms word landing, the 600 ms underline, 640 ms with `--motion-spring-bounce`, and the 260 ms nudge.
+  - functional deadlines: the undo countdown and the pill's footprint grow, whose duration JS also reads.
+
+  The picked choreography beats are shared tokens, not literals (CCR-8): `--motion-condense-fly` (140 ms), `--motion-condense-land` (220 ms), `--motion-rewrite-underline` (600 ms), `--motion-bounce` (640 ms, with `--motion-spring-bounce`) and `--motion-nudge` (260 ms).
 
   Ambient loops (breathe, dot pulse) may use `ease-in-out`, per the audit §4.1 mapping. Every loop is gated to its active state. Reduced motion keeps opacity and colour and drops transforms. No `cubic-bezier(0.4, 0, 1, 1)`.
-- Every visible string goes through i18n, with keys in all 12 locales (`ar de en es fr it ja pt ru zh-CN zh-TW`), including every CLDR plural category `i18n:check` asks for. `npm run i18n:check` passes.
+- Every visible string goes through i18n, with keys in all 11 locales (`ar de en es fr it ja pt ru zh-CN zh-TW`), including every CLDR plural category `i18n:check` asks for. `npm run i18n:check` passes.
 - Use logical properties for RTL. The exception is anchors that track the pill's physical screen dock (`data-direction` / `horizontalDirection`): the pill notice stack, the pill caption and the pill tooltip stay physical.
 - Tests: `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the app. Never use personal profiles, and never mutate the host system (uninstalling binaries, for example), in tests or verification.
 - Before the PR: `npm run lint`, `npm run typecheck`, `npm test`, `npm run i18n:check`, `npm run format:check`.
@@ -340,13 +384,14 @@ Plan 02's Q16 native interruption notifications are untouched. Task 16's residen
 
 ## Review Focus
 
-These are the five failure modes most likely to bite a person, each pinned by a test in the owning task.
+These are the six failure modes most likely to bite a person, each pinned by a test in the owning task.
 
 1. **Settings change during the undo window.** The user switches STT from local to OpenAI, then presses ⌥Z. They expect the restored dictation to stay on the device. Pinned in Task 8 (`audioManagerCancelBuffer.test.js`, "Undo restores through the session's route even after settings move to a provider") and Task 6 (`audioManagerSessionRoute.test.js`, "audio recorded on-device stays on-device…", "provider A stays provider A…").
 2. **Cancel after a microphone change, retention off.** Two recorded segments, then Esc. They expect nothing on disk, temp files included, and every byte zeroed when the window closes. Pinned in Task 8 ("two segments, retention off: no merge, no write, every byte zeroed (C1)", "bytes that arrive after the buffer was zeroed are zeroed on arrival (I1)").
 3. **Undo, then Esc, then a new dictation.** They expect Esc to cancel the restored processing, and a new hotkey press during a pending restore not to start a second pipeline. Pinned in Task 8 ("Undo is claimed synchronously…", "Esc while a restore waits for its bytes cancels it and puts the recording back (I3)") and Task 9 ("Esc is owned by the lifecycle…, including an Undo-started processing phase").
 4. **⌥Z or ⌥↵ leaking after the affordance is gone.** This includes a renderer reload and a backend that answers late. They expect the shortcut back in other apps. Pinned in Task 2 (`hotkeyLeases.test.js`, "released while registration is pending…", "the owner's renderer going away releases every lease it holds") and Task 9 ("⌥Z is leased while a window is open and released when it closes").
-5. **The control panel crashes mid-meeting.** They expect the pill to stop showing a timer and to say the recorder stopped unexpectedly, never "Meeting saved". Pinned in Task 16 (`meetingPresence.test.js`, "presence clears when the owner goes away, and that is reported as ownerLost, never saved"; `meetingStopOutcome.test.js`, "a failed transcript write is a failed outcome…") and Task 17 ("the pill never announces 'saved' because presence vanished").
+5. **Two failed deliveries in a row, with history and the clipboard unavailable.** They expect both transcripts to stay recoverable, even after a successful third dictation. Pinned in Task 4 ("two failed deliveries…") and Task 1's store tests (words are never evicted or replaced).
+6. **The control panel crashes mid-meeting.** They expect the pill to stop showing a timer and to say the recorder stopped unexpectedly, never "Meeting saved". Pinned in Task 16 (`meetingPresence.test.js`, "presence clears when the owner goes away, and that is reported as ownerLost, never saved"; `meetingStopOutcome.test.js`, "a failed transcript write is a failed outcome…") and Task 17 ("the pill never announces 'saved' because presence vanished").
 
 ## File map
 
@@ -354,15 +399,15 @@ These are the five failure modes most likely to bite a person, each pinned by a 
 |---|---|---|
 | `src/components/ui/notices.ts` | Notice store and `notify()` (§5.3, CCR-4) | 1 |
 | `src/helpers/hotkeyLeases.js`, `src/hooks/usePillHotkey.ts` | Main-owned temporary shortcuts | 2 |
-| `src/components/ui/NoticeStack.tsx`, `NoticeChip.tsx`, `WordsFirstCard.tsx`, `src/styles/notices.css` | R14 B chips with "More", R6 B card | 3 |
-| `src/components/voiceNotices.ts`, `src/helpers/retryDictationCleanup.js`, `src/utils/settingsDeepLink.ts`, `*NoticeListener.tsx` | VO-Q7, VO-Q21, the Settings deep link | 4 |
+| `src/components/ui/NoticeStack.tsx`, `NoticeChip.tsx`, `WordsFirstCard.tsx`, `src/styles/notices.css`, `src/utils/writeClipboardText.ts`, `test/lib/clickableTree.js` | R14 B chips with "More", R6 B card, honest Copy | 3 |
+| `src/components/voiceNotices.ts`, `src/helpers/retryDictationCleanup.js`, `src/utils/settingsDeepLink.ts`, `src/helpers/settingsLinks.js`, `*NoticeListener.tsx` | VO-Q7, VO-Q21, the acknowledged Settings deep link | 4 |
 | Toast removal | Finish the §5.3 migration | 5 |
-| `src/helpers/dictationSession.js` | Route snapshot and correlation id per recording | 6 |
-| `src/types/dictation.ts`, `src/helpers/dictationDisclosure.js` | Shared §5.2 types; attested or dispatched disclosure | 7 |
+| `src/helpers/dictationSession.js` | Route snapshot, correlation id, the Agent operation and the press-time context per recording | 6 |
+| `src/types/dictation.ts`, `src/helpers/dictationDisclosure.js` | Shared §5.2 types; attested or dispatched disclosure from main's hand-off | 7 |
 | `src/helpers/cancelBuffer.js` (+ `audioManager.js`) | RAM-only cancel buffer and same-route Undo (D3) | 8 |
-| `src/helpers/rendererRequest.js`, `src/hooks/useAudioRecording.js`, `src/hooks/useUndoCancelHotkey.ts`, `main.js` | §5.2 lifecycle, Esc ownership, Undo bridge, quit flush | 9 |
+| `src/helpers/rendererRequest.js`, `src/helpers/quitCoordinator.js`, `src/hooks/useAudioRecording.js`, `src/hooks/useUndoCancelHotkey.ts`, `main.js` | §5.2 lifecycle, Esc ownership, Undo bridge, coordinated quit flush | 9 |
 | `src/helpers/voicePillPresentation.js` | Stage, footprint and ownership model; VO-Q5, Q12, Q18 | 10 |
-| `VoicePill.tsx`, `pillLocality.ts`, `PillCaption.tsx`, `useRecentOutcome.ts` | Condensation pill, locality ring, undo capsule | 11 |
+| `VoicePill.tsx`, `pillLocality.ts`, `PillCaption.tsx`, `useRecentOutcome.ts`, `usePillAutoHide.js` | Condensation pill, locality ring, undo capsule, ordered auto-hide | 11 |
 | `condensation.ts`, `CondensationWords.tsx` | R1 C word layer (D9) | 12 |
 | `AgentOrbit.tsx`, `agentOrbitMath.ts`, `useAgentAnswering.ts` | R8 B violet orbit | 13 |
 | `PillTooltip.tsx`, `pillTooltipLines.ts`, CSS | VO-Q14, Q19, Q20 and the Plan 01 leftovers | 14 |
@@ -378,7 +423,7 @@ These are the five failure modes most likely to bite a person, each pinned by a 
 
 ### Task 1: Notice store and the `notify()` API
 
-Covers §5.3 (the logic half) and VO-R14 B (lifetimes, cap, stagger). It also closes review findings I10 (a replaced notice is never dismissed by the action that replaced it), I13 (`words` only on alerts, and never expiring) and M2 (removal reasons, each delivered exactly once).
+Covers §5.3 (the logic half) and VO-R14 B (lifetimes, cap, stagger). It also closes review findings I10 (a replaced notice is never dismissed by the action that replaced it), I13 (`words` only on alerts, and never expiring), M2 (removal reasons, each delivered exactly once) and the store half of R2-C3 (recovered words never leave on their own, and the cap never hides them for good).
 
 **Files:**
 - Create: `src/components/ui/notices.ts`
@@ -416,7 +461,11 @@ Covers §5.3 (the logic half) and VO-R14 B (lifetimes, cap, stagger). It also cl
   export function pauseNotice(id: string): void;
   export function resumeNotice(id: string): void;
   export function runNoticeAction(id: string, action: NoticeAction): Promise<void>;
-  export function visibleNotices(list: readonly Notice[]): Notice[];
+  export function visibleNotices(list: readonly Notice[], max?: number): Notice[]; // newest `max` (default 3) notices without words
+  export function wordsNotices(list: readonly Notice[]): Notice[];                 // every notice that carries words, in list order
+  export function wordsCardNotice(list: readonly Notice[]): Notice | null;         // the last of those: the card on screen
+  export function noticeLayout(list: readonly Notice[], placement: "pill" | "panel"): { card: Notice | null; moreWords: number; chips: Notice[] };
+  export function raiseNotice(id: string): void;                                   // move to the newest position; no revision bump, no onDismiss
   export function staggerIndex(list: readonly Notice[], id: string): number; // 0..2
   export function getNotices(): readonly Notice[];
   export function subscribeNotices(listener: () => void): () => void;
@@ -430,6 +479,16 @@ Covers §5.3 (the logic half) and VO-R14 B (lifetimes, cap, stagger). It also cl
   - `runNoticeAction` dismisses only the revision it started on. If the action published a replacement under the same id (for example, a failed retry), the replacement survives (I10).
   - While an action is running, the notice is `busy`. Repeated activations are ignored, so an unsafe operation never runs twice concurrently.
   - Content safety: a `words` value on a receipt or notice is a type error. At runtime it is promoted to an alert, so recovered content never expires silently (I13).
+  - Recovered words leave the store only when the user dismisses them or an action removes them (R2-C3):
+    - they never get a timer, and eviction never picks them;
+    - `dismissNotice(id, "timeout" | "evicted" | "replaced")` is ignored for a notice that carries words;
+    - a same-id update without words keeps the earlier words (for example, a status line about a retry);
+    - different words under an id that already holds words never overwrite them. The new words get a fresh id, `<id>~<n>`, which `notify()` returns.
+  - Callers give each content notice its own id, and give a status notice a stable id that the next status replaces. Task 4 uses `dictation-recovery:<sessionId>` and `dictation-error`.
+  - At most three notices are visible (§5.3). `noticeLayout` decides which:
+    - the words card counts as one. In the 168px pill slot it fills the space, and chips wait behind it;
+    - held words beyond the card are counted in `moreWords`. The card's "N more" control calls `raiseNotice` on the oldest of them, so every transcript stays reachable;
+    - chips over the cap either expire (they are evicted oldest first) or wait, when persistent.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -545,6 +604,63 @@ test("visibleNotices shows the newest three when persistent notices overflow", a
   for (const title of ["a", "b", "c", "d"]) m.notify({ kind: "alert", title, persistent: true });
   assert.equal(m.getNotices().length, 4);
   assert.deepEqual(m.visibleNotices(m.getNotices()).map((n) => n.title), ["b", "c", "d"]);
+});
+
+test("recovered words are never evicted, however many arrive (R2-C3)", async (t) => {
+  const { m } = await fresh(t);
+  const reasons = [];
+  for (const words of ["one", "two", "three", "four"]) {
+    m.notify({ id: `dictation-recovery:${words}`, kind: "alert", title: "Couldn't paste", words, onDismiss: (r) => reasons.push(r) });
+  }
+  m.notify({ kind: "receipt", title: "Pasted" });
+  m.notify({ kind: "receipt", title: "Copied" });
+  assert.deepEqual(m.wordsNotices(m.getNotices()).map((n) => n.words), ["one", "two", "three", "four"]);
+  assert.deepEqual(reasons, []);
+});
+
+test("only the user or an action removes words; automatic reasons are ignored (R2-C3)", async (t) => {
+  const { m } = await fresh(t);
+  const id = m.notify({ id: "dictation-recovery:rec-1", kind: "alert", title: "Couldn't paste", words: "keep me" });
+  for (const reason of ["timeout", "evicted", "replaced"]) m.dismissNotice(id, reason);
+  assert.equal(m.getNotices().length, 1);
+  m.dismissNotice(id, "action");
+  assert.equal(m.getNotices().length, 0);
+});
+
+test("a status update under a words id keeps the words (R2-C3)", async (t) => {
+  const { m } = await fresh(t);
+  const id = m.notify({ id: "dictation-recovery:rec-1", kind: "alert", title: "Couldn't paste", words: "keep me" });
+  m.notify({ id, kind: "notice", title: "Still couldn't paste" });
+  const [n] = m.getNotices();
+  assert.deepEqual([n.title, n.kind, n.words, n.expiresAt, n.revision], ["Still couldn't paste", "alert", "keep me", null, 2]);
+});
+
+test("different words under one id never overwrite the earlier words (R2-C3)", async (t) => {
+  const { m } = await fresh(t);
+  const first = m.notify({ id: "dictation-recovery:x", kind: "alert", title: "A", words: "first" });
+  const second = m.notify({ id: "dictation-recovery:x", kind: "alert", title: "B", words: "second" });
+  assert.notEqual(second, first);
+  assert.deepEqual(m.wordsNotices(m.getNotices()).map((n) => [n.id, n.words]), [[first, "first"], [second, "second"]]);
+});
+
+test("at most three are visible; held words beyond the card are counted and can be raised", async (t) => {
+  const { m } = await fresh(t);
+  const a = m.notify({ id: "dictation-recovery:a", kind: "alert", title: "A", words: "first" });
+  m.notify({ id: "dictation-recovery:b", kind: "alert", title: "B", words: "second" });
+  for (const title of ["x", "y", "z"]) m.notify({ kind: "notice", title, persistent: true });
+
+  const pill = m.noticeLayout(m.getNotices(), "pill");
+  assert.equal(pill.card.words, "second");
+  assert.equal(pill.moreWords, 1);
+  assert.deepEqual(pill.chips, []);
+  const panel = m.noticeLayout(m.getNotices(), "panel");
+  assert.equal(panel.card.words, "second");
+  assert.deepEqual(panel.chips.map((n) => n.title), ["y", "z"]); // card + two chips = three
+
+  m.raiseNotice(a);
+  assert.equal(m.noticeLayout(m.getNotices(), "pill").card.words, "first");
+  assert.equal(m.getNotices().find((n) => n.id === a).revision, 1, "raising is not a new revision");
+  assert.equal(m.getNotices().length, 5, "nothing was dropped");
 });
 
 test("hover pause freezes the countdown; resume keeps the remaining time", async (t) => {
@@ -756,8 +872,17 @@ function remove(target: Notice, reason: NoticeRemoval): void {
 }
 
 export function notify(raw: NoticeInput): string {
-  const input = normalize(raw);
-  const id = input.id ?? `notice-${++seq}`;
+  let input = normalize(raw);
+  let id = input.id ?? `notice-${++seq}`;
+  // Recovered words leave only when the user or an action removes them (R2-C3).
+  const held = notices.find((n) => n.id === id && n.words);
+  if (held && !input.words) {
+    // A status update about held words keeps them.
+    input = { ...input, kind: "alert", words: held.words } as NoticeInput;
+  } else if (held && input.words !== held.words) {
+    // Different words never overwrite: the new words get their own notice.
+    id = `${id}~${++seq}`;
+  }
   const revision = (revisions.get(id) ?? 0) + 1;
   revisions.set(id, revision);
   const previous = notices.find((n) => n.id === id);
@@ -775,7 +900,8 @@ export function notify(raw: NoticeInput): string {
   let next = [...notices.filter((n) => n.id !== id), notice];
   const evicted: Notice[] = [];
   // Over the cap, the oldest notice that may expire leaves first. Persistent
-  // notices queue (visibleNotices shows the newest three).
+  // notices and recovered words (expiresAt null) are never picked: they wait,
+  // and noticeLayout decides what shows.
   while (next.length > NOTICE_MAX_VISIBLE) {
     const victim = next.find((n) => n.expiresAt !== null && n.id !== id);
     if (!victim) break;
@@ -791,9 +917,21 @@ export function notify(raw: NoticeInput): string {
   return id;
 }
 
+/** Reasons the store gives on its own. None of them may remove recovered words. */
+const AUTOMATIC_REMOVALS: ReadonlySet<NoticeRemoval> = new Set(["timeout", "evicted", "replaced"]);
+
 export function dismissNotice(id: string, reason: NoticeRemoval = "user"): void {
   const target = notices.find((n) => n.id === id);
-  if (target) remove(target, reason);
+  if (!target) return;
+  if (target.words && AUTOMATIC_REMOVALS.has(reason)) return;
+  remove(target, reason);
+}
+
+/** Move a notice to the newest position, e.g. the card's "N more". No revision bump, no onDismiss. */
+export function raiseNotice(id: string): void {
+  const target = notices.find((n) => n.id === id);
+  if (!target || notices[notices.length - 1] === target) return;
+  emit([...notices.filter((n) => n !== target), target]);
 }
 
 function replace(target: Notice, patch: Partial<Notice>): void {
@@ -836,8 +974,38 @@ export async function runNoticeAction(id: string, action: NoticeAction): Promise
   }
 }
 
-export function visibleNotices(list: readonly Notice[]): Notice[] {
-  return list.slice(-NOTICE_MAX_VISIBLE);
+/** The newest `max` chips. A notice that carries words is the card, never a chip. */
+export function visibleNotices(list: readonly Notice[], max = NOTICE_MAX_VISIBLE): Notice[] {
+  return max > 0 ? list.filter((n) => !n.words).slice(-max) : [];
+}
+
+export function wordsNotices(list: readonly Notice[]): Notice[] {
+  return list.filter((n) => !!n.words);
+}
+
+/** The card on screen: the newest words notice. `raiseNotice` changes which one that is. */
+export function wordsCardNotice(list: readonly Notice[]): Notice | null {
+  const held = wordsNotices(list);
+  return held.length ? held[held.length - 1] : null;
+}
+
+/**
+ * §5.3: at most three notices are visible, and the card counts as one. In the
+ * 168px pill slot the card fills the space, so chips wait behind it. Held
+ * words beyond the card are counted, never dropped; the card's "N more"
+ * control raises the oldest of them (R2-C3).
+ */
+export function noticeLayout(
+  list: readonly Notice[],
+  placement: "pill" | "panel"
+): { card: Notice | null; moreWords: number; chips: Notice[] } {
+  const card = wordsCardNotice(list);
+  const slots = !card ? NOTICE_MAX_VISIBLE : placement === "pill" ? 0 : NOTICE_MAX_VISIBLE - 1;
+  return {
+    card,
+    moreWords: card ? wordsNotices(list).length - 1 : 0,
+    chips: visibleNotices(list, slots),
+  };
 }
 
 /** Position within a burst of notices that arrived inside one stagger window. */
@@ -925,7 +1093,7 @@ Covers review finding I7. ⌥Z (undo cancel), ⌥↵ (paste again) and ⌥⌘M (
   }
   ```
 
-  Main-process code such as the meeting prompt (Task 18) acquires with `ownerId: "main:meeting-prompt"`.
+  Main-process code such as the meeting prompt (Task 18) acquires with its own owner per prompt, `ownerId: "main:meeting-prompt:<generation>"`, and releases it with the prompt's lifetime.
 - Produces (renderer):
 
   ```ts
@@ -1414,12 +1582,18 @@ git commit -m "feat(voice): main-owned leases for temporary global shortcuts"
 
 ### Task 3: Notice chips, the words-first card and the pill notice slot
 
-Covers VO-R14 B and VO-R6 B (the card), and carries Plan 02's VO-Q9 rules forward. Also closes I11: every action stays reachable, because a chip with more than one action gets an accessible "More" disclosure.
+Covers VO-R14 B and VO-R6 B (the card), and carries Plan 02's VO-Q9 rules forward. Also closes:
+- I11: every action stays reachable, because a chip with more than one action gets an accessible "More" disclosure;
+- R2-I3: Copy says "Copied" only when a clipboard confirmed the write. Otherwise it shows a failure and the words stay;
+- the visible half of R2-C3: every held transcript stays reachable through the card's "N more" control.
 
 **Files:**
 - Create: `src/components/ui/NoticeChip.tsx`
 - Create: `src/components/ui/WordsFirstCard.tsx`
 - Create: `src/components/ui/NoticeStack.tsx`
+- Create: `src/utils/writeClipboardText.ts`. The one clipboard write that reports real success.
+- Modify: `src/hooks/useCopyFeedback.ts:40-57`. `copyText` delegates to `writeClipboardText`, which closes the same absent-API gap for every existing Copy button.
+- Create: `test/lib/clickableTree.js`. Move `installTree` from `test/components/onboardingCleanupWiring.test.js:14-99` here, and make that test import it.
 - Create: `src/styles/notices.css`. Add `@import "./styles/notices.css";` to `src/index.css`, directly after `@import "./styles/dictation-panel.css";` at line 3.
 - Modify: `src/utils/windowSizeLadder.js`
 - Modify: `src/helpers/windowConfig.js:139-157` (add `WITH_NOTICES`)
@@ -1429,6 +1603,7 @@ Covers VO-R14 B and VO-R6 B (the card), and carries Plan 02's VO-Q9 rules forwar
 - Modify: `src/locales/*/translation.json`. Add a top-level `"notices"` object.
 - Modify: `DESIGN.md`. Add a `### Notices` section after `### Voice Pill`.
 - Test: `test/components/noticeStack.test.js`
+- Test: `test/components/wordsCardActions.test.js`. Clicks the real buttons.
 - Test: `test/helpers/windowSizeLadder.test.js`. This file already exists; update it in Step 1.
 
 **Interfaces:**
@@ -1438,8 +1613,21 @@ Covers VO-R14 B and VO-R6 B (the card), and carries Plan 02's VO-Q9 rules forwar
   ```tsx
   export function NoticeStack(props: { placement: "pill" | "panel"; horizontalDirection?: "left" | "right"; primaryHotkeyLabel?: string | null }): JSX.Element | null;
   export function NoticeChip(props: { notice: Notice; stagger: number; defaultExpanded?: boolean }): JSX.Element;
-  export function WordsFirstCard(props: { notice: Notice; onHeight?: (px: number) => void; hotkeyLabel?: string | null }): JSX.Element;
+  export function WordsFirstCard(props: {
+    notice: Notice; onHeight?: (px: number) => void; hotkeyLabel?: string | null;
+    moreCount?: number; onShowMore?: () => void;   // "N more": other held transcripts (R2-C3)
+  }): JSX.Element;
   export function useNoticeWindowState(): { noticeCount: number; wordsCardVisible: boolean };
+  ```
+
+  ```ts
+  // src/utils/writeClipboardText.ts
+  export function writeClipboardText(text: string): Promise<boolean>; // true only when a clipboard confirmed the write
+  ```
+
+  ```js
+  // test/lib/clickableTree.js
+  installClickableTree(): { container; click(label): Promise<void>; clickNode(node): Promise<void>; find(predicate): node | null; text(): string };
   ```
 
   ```js
@@ -1518,7 +1706,7 @@ test("the words-first card shows the words as the headline, selectable and dragg
   const html = renderStatic(WordsFirstCard, {
     notice: {
       ...base,
-      id: "dictation-error",
+      id: "dictation-recovery:rec-1",
       kind: "alert",
       title: "Couldn't paste into Slack",
       words: "Hey Maya, can you move the design review to Thursday at 2?",
@@ -1542,14 +1730,16 @@ test("the stack shows at most three chips; a words card owns the pill slot", asy
   assert.equal((chipsOnly.match(/class="notice-chip"/g) || []).length, 3);
   assert.match(chipsOnly, /data-placement="pill"/);
 
-  m.notify({ kind: "alert", title: "Couldn't paste", words: "keep me" });
+  m.notify({ id: "dictation-recovery:rec-1", kind: "alert", title: "Couldn't paste", words: "keep me" });
   const pill = renderStatic(NoticeStack, { placement: "pill", horizontalDirection: "right" });
   assert.match(pill, /class="words-card"/);
   // In the 168px pill slot the card owns the space; chips wait until it is dismissed.
   assert.equal((pill.match(/class="notice-chip"/g) || []).length, 0);
   const panel = renderStatic(NoticeStack, { placement: "panel" });
   assert.match(panel, /class="words-card"/);
-  assert.equal((panel.match(/class="notice-chip"/g) || []).length, 3);
+  // §5.3: at most three visible. The card counts as one.
+  assert.equal((panel.match(/class="notice-chip"/g) || []).length, 2);
+  assert.doesNotMatch(panel, /class="words-card__more"/, "one held transcript needs no 'N more'");
 });
 
 test("chip CSS uses the motion tokens and no ease-in", () => {
@@ -1557,8 +1747,250 @@ test("chip CSS uses the motion tokens and no ease-in", () => {
   assert.match(css, /animation:\s*notice-in var\(--motion-base\) var\(--motion-ease-enter\)/);
   assert.match(css, /animation-delay:\s*calc\(var\(--notice-stagger\) \* 40ms\)/);
   assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.notice-chip[\s\S]*transform:\s*none/);
+  assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.words-card \{\s*\/\*[^*]*\*\/\s*animation: notice-fade var\(--motion-fast\) linear both !important;/, "the fade survives index.css's global cut");
 });
 
+```
+
+Create `test/lib/clickableTree.js`. The body is `installTree` from `test/components/onboardingCleanupWiring.test.js:14-99`, moved verbatim, with three additions:
+- `nodeValue` on text nodes, because React updates mixed text through it;
+- `getBoundingClientRect`, because the card measures itself;
+- `find` and `clickNode`. `clickNode` lets a handler's voided promise settle inside `act`.
+
+```js
+// A tiny element tree for mounting real components with react-dom's
+// createRoot under Node. The shared fake DOM has no events, so tests invoke the
+// onClick handlers React stored on the nodes. Call installBrowserGlobals and
+// installHookDom first.
+const assert = require("node:assert/strict");
+const React = require("react");
+
+function installClickableTree() {
+  const document = globalThis.document;
+  const make = (nodeType, props) => {
+    const node = {
+      nodeType,
+      ownerDocument: document,
+      style: {},
+      childNodes: [],
+      parentNode: null,
+      appendChild(child) {
+        node.insertBefore(child, null);
+        return child;
+      },
+      insertBefore(child, before) {
+        if (child.parentNode) child.parentNode.removeChild(child);
+        const index = before ? node.childNodes.indexOf(before) : -1;
+        child.parentNode = node;
+        if (index < 0) node.childNodes.push(child);
+        else node.childNodes.splice(index, 0, child);
+        return child;
+      },
+      removeChild(child) {
+        const index = node.childNodes.indexOf(child);
+        if (index >= 0) node.childNodes.splice(index, 1);
+        child.parentNode = null;
+        return child;
+      },
+      get firstChild() {
+        return node.childNodes[0] ?? null;
+      },
+      get nextSibling() {
+        const siblings = node.parentNode?.childNodes ?? [];
+        return siblings[siblings.indexOf(node) + 1] ?? null;
+      },
+      get textContent() {
+        return node.nodeType === 3 ? node.data : node.childNodes.map((c) => c.textContent).join("");
+      },
+      set textContent(value) {
+        node.childNodes = [];
+        if (value) node.appendChild(make(3, { nodeName: "#text", data: String(value) }));
+      },
+      get nodeValue() {
+        return node.nodeType === 3 ? node.data : null;
+      },
+      set nodeValue(value) {
+        if (node.nodeType === 3) node.data = String(value);
+      },
+      getBoundingClientRect: () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
+      attributes: {},
+      setAttribute(name, value) {
+        node.attributes[name] = String(value);
+      },
+      removeAttribute(name) {
+        delete node.attributes[name];
+      },
+      addEventListener() {},
+      removeEventListener() {},
+      focus() {},
+      querySelector: () => null,
+      ...props,
+    };
+    return node;
+  };
+  document.createElement = (tag) =>
+    make(1, {
+      nodeName: tag.toUpperCase(),
+      tagName: tag.toUpperCase(),
+      namespaceURI: "http://www.w3.org/1999/xhtml",
+    });
+  document.createElementNS = (namespaceURI, tag) =>
+    make(1, { nodeName: tag, tagName: tag, namespaceURI });
+  document.createTextNode = (data) => make(3, { nodeName: "#text", data });
+  const container = make(1, { nodeName: "DIV", tagName: "DIV" });
+  const walk = (node, visit) => {
+    visit(node);
+    for (const child of node.childNodes) walk(child, visit);
+  };
+  const find = (predicate) => {
+    let found = null;
+    walk(container, (node) => {
+      if (!found && predicate(node)) found = node;
+    });
+    return found;
+  };
+  const click = async (label) => {
+    let target = null;
+    walk(container, (node) => {
+      if (target || node.tagName !== "BUTTON") return;
+      if (node.textContent.includes(label)) target = node;
+    });
+    assert.ok(target, `button containing "${label}" is rendered`);
+    const key = Object.keys(target).find((name) => name.startsWith("__reactProps$"));
+    await React.act(async () => {
+      // The handler returns the pending check; awaiting it would deadlock the test.
+      void target[key].onClick();
+    });
+  };
+  // For handlers that void an async operation (a clipboard write): click, then
+  // let that promise chain settle before act flushes.
+  const clickNode = async (target) => {
+    assert.ok(target, "the button is rendered");
+    const key = Object.keys(target).find((name) => name.startsWith("__reactProps$"));
+    await React.act(async () => {
+      void target[key].onClick();
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+  };
+  const text = () => container.textContent;
+  return { container, click, clickNode, find, text };
+}
+
+module.exports = { installClickableTree };
+```
+
+In `test/components/onboardingCleanupWiring.test.js`, delete lines 14–99 and add `const { installClickableTree: installTree } = require("../lib/clickableTree");` under the existing requires. Nothing else in that file changes.
+
+Create `test/components/wordsCardActions.test.js`. It mounts the real `NoticeStack` over the real notice store, and clicks the real buttons:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
+const { installClickableTree } = require("../lib/clickableTree");
+
+const TRANSLATION_SOURCE = `
+const t = (key, options) => (options && "count" in options ? key + ":" + options.count : key);
+export const useTranslation = () => ({ t });
+`;
+
+const WORDS = "Hey Maya, can you move the design review to Thursday at 2?";
+
+async function mountStack(t, { electronAPI = {}, webClipboard } = {}) {
+  // Registered first, so it runs before the globals it needs are restored.
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t, { window: { electronAPI } });
+  installHookDom(t);
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    value: webClipboard ? { clipboard: webClipboard } : {},
+    configurable: true,
+    writable: true,
+  });
+  t.after(() => {
+    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+    else delete globalThis.navigator;
+  });
+  const tree = installClickableTree();
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-words-card-actions-",
+    noExternal: ["react-i18next"],
+    mockModules: { "react-i18next": TRANSLATION_SOURCE },
+  });
+  const notices = await vite.ssrLoadModule("/components/ui/notices.ts");
+  notices.__setNoticeClockForTests();
+  t.after(() => notices.__setNoticeClockForTests());
+  const { NoticeStack } = await vite.ssrLoadModule("/components/ui/NoticeStack.tsx");
+  root = createRoot(tree.container);
+  const render = () => React.act(async () => root.render(React.createElement(NoticeStack, { placement: "panel" })));
+  const copyButton = () => tree.find((node) => node.tagName === "BUTTON" && "data-copy" in node.attributes);
+  return { ...tree, notices, render, copyButton };
+}
+
+const showCard = (notices) =>
+  notices.notify({ id: "dictation-recovery:rec-1", kind: "alert", title: "Couldn't paste into Slack", words: WORDS });
+
+for (const [label, electronAPI, webClipboard] of [
+  ["the bridge rejects and there is no web clipboard", { writeClipboard: async () => { throw new Error("denied"); } }, undefined],
+  ["the bridge returns { success: false }", { writeClipboard: async () => ({ success: false }) }, undefined],
+  ["there is no bridge and no web clipboard (Browser Preview)", {}, undefined],
+  ["the bridge fails and the web clipboard rejects too", { writeClipboard: async () => ({ success: false }) }, { writeText: async () => { throw new Error("Document is not focused"); } }],
+]) {
+  test(`Copy shows a failure and keeps the words when ${label} (R2-I3)`, async (t) => {
+    const stack = await mountStack(t, { electronAPI, webClipboard });
+    showCard(stack.notices);
+    await stack.render();
+    await stack.clickNode(stack.copyButton());
+    assert.equal(stack.copyButton().attributes["data-copy-state"], "failed");
+    assert.match(stack.text(), /notices\.wordsCard\.copyFailedHint/);
+    assert.doesNotMatch(stack.text(), /notices\.wordsCard\.copied/);
+    assert.equal(stack.notices.getNotices()[0].words, WORDS, "the words stay in the store");
+    assert.match(stack.text(), /Hey Maya, can you move the design review/, "and on screen");
+  });
+}
+
+test("Copy without a bridge uses the web Clipboard API, and says Copied only after it resolves", async (t) => {
+  const writes = [];
+  const stack = await mountStack(t, { electronAPI: {}, webClipboard: { writeText: async (text) => { writes.push(text); } } });
+  showCard(stack.notices);
+  await stack.render();
+  await stack.clickNode(stack.copyButton());
+  assert.deepEqual(writes, [WORDS]);
+  assert.equal(stack.copyButton().attributes["data-copy-state"], "copied");
+});
+
+test("Copy through the bridge confirms on { success: true } and keeps the card", async (t) => {
+  const writes = [];
+  const stack = await mountStack(t, {
+    electronAPI: { writeClipboard: async (text) => { writes.push(text); return { success: true }; } },
+  });
+  showCard(stack.notices);
+  await stack.render();
+  await stack.clickNode(stack.copyButton());
+  assert.deepEqual(writes, [WORDS]);
+  assert.equal(stack.copyButton().attributes["data-copy-state"], "copied");
+  assert.match(stack.text(), /notices\.wordsCard\.copied/);
+  assert.equal(stack.notices.getNotices().length, 1, "copying is not discarding");
+});
+
+test("'N more' cycles through every held transcript (R2-C3)", async (t) => {
+  const stack = await mountStack(t);
+  stack.notices.notify({ id: "dictation-recovery:rec-1", kind: "alert", title: "A", words: "first words" });
+  stack.notices.notify({ id: "dictation-recovery:rec-2", kind: "alert", title: "B", words: "second words" });
+  await stack.render();
+  assert.match(stack.text(), /second words/);
+  await stack.click("notices.wordsCard.more:1");
+  assert.match(stack.text(), /first words/);
+  assert.doesNotMatch(stack.text(), /second words/);
+  await stack.click("notices.wordsCard.more:1");
+  assert.match(stack.text(), /second words/);
+  assert.equal(stack.notices.wordsNotices(stack.notices.getNotices()).length, 2, "cycling drops nothing");
+});
 ```
 
 Update the existing `test/helpers/windowSizeLadder.test.js`:
@@ -1599,8 +2031,8 @@ test("WITH_NOTICES fits three 32px chips with 6px gaps above the dock inset", ()
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/components/noticeStack.test.js test/helpers/windowSizeLadder.test.js`
-Expected: FAIL. `NoticeChip.tsx` is not found, and `resolveMainWindowSizeKey({ noticeCount: 1 })` returns `"BASE"`.
+Run: `npm test -- test/components/noticeStack.test.js test/components/wordsCardActions.test.js test/helpers/windowSizeLadder.test.js`
+Expected: FAIL. `NoticeChip.tsx` and `NoticeStack.tsx` are not found, and `resolveMainWindowSizeKey({ noticeCount: 1 })` returns `"BASE"`.
 
 - [ ] **Step 3: Implement the chip, card and stack**
 
@@ -1706,42 +2138,95 @@ export function NoticeChip({
 
 `src/components/ui/WordsFirstCard.tsx`:
 
+`src/utils/writeClipboardText.ts`:
+
+```ts
+/**
+ * Writes text to the clipboard and reports whether it really landed (R2-I3).
+ * The Electron bridge must answer `{ success: true }`. A rejection, a
+ * `{ success: false }`, or no bridge at all (Browser Preview supplies only a
+ * subset of the API) falls back to the web Clipboard API where it exists.
+ * Never reports a copy it cannot see.
+ */
+export async function writeClipboardText(text: string): Promise<boolean> {
+  if (!text.trim()) return false;
+  const bridge = globalThis.window?.electronAPI?.writeClipboard;
+  if (typeof bridge === "function") {
+    try {
+      const result = await bridge(text);
+      if (result?.success === true) return true;
+    } catch {
+      // Fall through to the web Clipboard API.
+    }
+  }
+  const web = globalThis.navigator?.clipboard;
+  if (typeof web?.writeText !== "function") return false;
+  try {
+    await web.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+In `src/hooks/useCopyFeedback.ts`, replace the body of `copyText` (lines 40–57, keep the comment) with the helper. Today a missing bridge returns `undefined`, which passes the `result?.success === false` check and claims success:
+
+```ts
+  // Writes without touching the copied state: the shared feedback belongs to
+  // the full-text copy, not to a partial selection.
+  const copyText = useCallback((textToCopy: string) => writeClipboardText(textToCopy), []);
+```
+
+Add `import { writeClipboardText } from "../utils/writeClipboardText";`. The existing callers (`TechnicalErrorDetails`, `Toast`, `LiveTranscriptPanel`, `AssistantPanel`) keep their behaviour when the bridge works, and stop reporting a copy that never happened when it does not.
+
+`src/components/ui/WordsFirstCard.tsx`:
+
 ```tsx
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "../icons";
 import { Button } from "./button";
+import { useCopyFeedback } from "../../hooks/useCopyFeedback";
 import { dismissNotice, runNoticeAction, type Notice } from "./notices";
 
 /**
  * VO-R6 B: the card *is* the transcript. The error is a one-line chip above
  * the recovered words; the words are selectable and draggable straight into
  * the target field. Primary actions use the ink Button (D1: orange is for
- * voice controls only).
+ * voice controls only). Only Dismiss, or an action that delivered the words,
+ * removes the card; Copy never does.
  */
 export function WordsFirstCard({
   notice,
   onHeight,
   hotkeyLabel = null,
+  moreCount = 0,
+  onShowMore,
 }: {
   notice: Notice;
   onHeight?: (px: number) => void;
   hotkeyLabel?: string | null;
+  moreCount?: number;
+  onShowMore?: () => void;
 }) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLElement>(null);
-  const [copied, setCopied] = useState(false);
   const words = notice.words ?? "";
+  // "Copied" only after a clipboard confirmed the write (R2-I3).
+  const { copied, copyText, confirmCopied } = useCopyFeedback(words, { resetMs: 1200 });
+  const [copyFailed, setCopyFailed] = useState(false);
 
   useLayoutEffect(() => {
     if (rootRef.current && onHeight) onHeight(Math.ceil(rootRef.current.getBoundingClientRect().height));
-  }, [words, notice.title, onHeight]);
+  }, [words, notice.title, copyFailed, moreCount, onHeight]);
 
   const copy = async () => {
-    await window.electronAPI?.writeClipboard?.(words);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    const ok = await copyText(words);
+    setCopyFailed(!ok);
+    if (ok) confirmCopied(words);
   };
+  const copyState = copyFailed ? "failed" : copied ? "copied" : "idle";
 
   return (
     <section ref={rootRef} className="words-card" role="alert" aria-live="assertive">
@@ -1775,18 +2260,30 @@ export function WordsFirstCard({
             {action.primary && hotkeyLabel ? <kbd className="words-card__kbd">{hotkeyLabel}</kbd> : null}
           </Button>
         ))}
-        <Button size="sm" variant="outline" data-copy="" onClick={() => void copy()}>
-          {copied ? t("notices.wordsCard.copied") : t("notices.wordsCard.copy")}
+        <Button size="sm" variant="outline" data-copy="" data-copy-state={copyState} onClick={() => void copy()}>
+          {copyState === "failed"
+            ? t("notices.wordsCard.copyFailed")
+            : copyState === "copied"
+              ? t("notices.wordsCard.copied")
+              : t("notices.wordsCard.copy")}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => dismissNotice(notice.id)}>
           {t("notices.dismiss")}
         </Button>
       </div>
+      {copyFailed ? <p className="words-card__copy-failed">{t("notices.wordsCard.copyFailedHint")}</p> : null}
+      {moreCount > 0 && onShowMore ? (
+        <button type="button" className="words-card__more" onClick={onShowMore}>
+          {t("notices.wordsCard.more", { count: moreCount })}
+        </button>
+      ) : null}
       <p className="words-card__hint">{t("notices.wordsCard.hint")}</p>
     </section>
   );
 }
 ```
+
+The card sits inside `role="alert"`, so the failure hint is announced without its own live region.
 
 Check that `Button` supports `size="sm"` and the `outline` and `ghost` variants:
 
@@ -1802,12 +2299,12 @@ If a name differs, use the closest existing one. Do not add variants here.
 import { useCallback } from "react";
 import { NoticeChip } from "./NoticeChip";
 import { WordsFirstCard } from "./WordsFirstCard";
-import { staggerIndex, useNotices, visibleNotices } from "./notices";
+import { noticeLayout, raiseNotice, staggerIndex, useNotices, wordsNotices } from "./notices";
 
 export function useNoticeWindowState(): { noticeCount: number; wordsCardVisible: boolean } {
   const list = useNotices();
-  const wordsCardVisible = list.some((n) => n.kind === "alert" && !!n.words);
-  return { noticeCount: list.filter((n) => !(n.kind === "alert" && n.words)).length, wordsCardVisible };
+  const wordsCardVisible = list.some((n) => !!n.words);
+  return { noticeCount: list.filter((n) => !n.words).length, wordsCardVisible };
 }
 
 /**
@@ -1825,11 +2322,14 @@ export function NoticeStack({
   primaryHotkeyLabel?: string | null;
 }) {
   const list = useNotices();
-  const card = list.find((n) => n.kind === "alert" && !!n.words) ?? null;
-  // The pill slot is 168px tall; a words card fills it, so chips queue
-  // behind the card there. The control panel has room for both.
-  const chips =
-    placement === "pill" && card ? [] : visibleNotices(list.filter((n) => n !== card));
+  // §5.3: at most three visible, the card counting as one. In the 168px pill
+  // slot the card fills the space and chips queue behind it. Other held
+  // transcripts are one "N more" press away, never dropped (R2-C3).
+  const { card, moreWords, chips } = noticeLayout(list, placement);
+  const showMore = useCallback(() => {
+    const oldest = wordsNotices(list)[0];
+    if (oldest) raiseNotice(oldest.id);
+  }, [list]);
   const reportHeight = useCallback(
     (px: number) => {
       if (placement === "pill") void window.electronAPI?.resizeDictationErrorWindowToContent?.(px);
@@ -1839,7 +2339,16 @@ export function NoticeStack({
   if (!card && chips.length === 0) return null;
   return (
     <div className="notice-stack" data-placement={placement} data-direction={horizontalDirection}>
-      {card ? <WordsFirstCard notice={card} onHeight={reportHeight} hotkeyLabel={primaryHotkeyLabel} /> : null}
+      {card ? (
+        <WordsFirstCard
+          key={card.id}
+          notice={card}
+          onHeight={reportHeight}
+          hotkeyLabel={primaryHotkeyLabel}
+          moreCount={moreWords}
+          onShowMore={showMore}
+        />
+      ) : null}
       {chips
         .slice()
         .reverse()
@@ -2040,6 +2549,20 @@ export function NoticeStack({
   font: 500 12px/1.3 var(--font-family-sans);
   color: var(--color-muted-foreground);
 }
+.words-card__copy-failed {
+  margin-top: 7px;
+  font: 600 12px/1.3 var(--font-family-sans);
+  color: var(--color-destructive);
+}
+.words-card__more {
+  margin-top: 7px;
+  height: 22px;
+  padding-inline: 8px;
+  border-radius: 999px;
+  color: var(--color-popover-foreground);
+  background: color-mix(in oklch, var(--color-foreground) 8%, transparent);
+  font: 600 11px/1 var(--font-family-sans);
+}
 
 @keyframes notice-in {
   from {
@@ -2051,7 +2574,8 @@ export function NoticeStack({
 @media (prefers-reduced-motion: reduce) {
   .notice-chip,
   .words-card {
-    animation: notice-fade var(--motion-fast) linear both;
+    /* !important: index.css cuts every animation to 0.01ms under reduced motion; the fade must survive. */
+    animation: notice-fade var(--motion-fast) linear both !important;
     animation-delay: 0ms;
     transform: none;
   }
@@ -2127,7 +2651,8 @@ Rename each hit in `useMainWindowSizeOwner.js`, `App.jsx` and `test/hooks/dictat
          "noticePrimary",
          wordsCardVisible,
          () => {
-           const card = getNotices().find((n) => n.kind === "alert" && n.words);
+           // The card on screen, the same one NoticeStack shows (Task 1's noticeLayout).
+           const card = wordsCardNotice(getNotices());
            const primary = card?.actions?.find((a) => a.primary);
            if (card && primary) void runNoticeAction(card.id, primary);
          },
@@ -2135,7 +2660,7 @@ Rename each hit in `useMainWindowSizeOwner.js`, `App.jsx` and `test/hooks/dictat
        );
      ```
 
-     Pass `primaryHotkeyLabel={noticeHotkey.held ? (getCachedPlatform() === "darwin" ? "⌥↵" : "Alt+Enter") : null}` to `<NoticeStack placement="pill" …>`. `getCachedPlatform` comes from `src/utils/platform.ts`.
+     Import `getNotices`, `runNoticeAction` and `wordsCardNotice` from `./components/ui/notices`. Pass `primaryHotkeyLabel={noticeHotkey.held ? (getCachedPlatform() === "darwin" ? "⌥↵" : "Alt+Enter") : null}` to `<NoticeStack placement="pill" …>`. `getCachedPlatform` comes from `src/utils/platform.ts`.
 5. `src/AppRouter.jsx`: in the `isControlPanel` branch (lines 64–78), wrap the existing ternary in a fragment and render `<NoticeStack placement="panel" />` after it. The panel stack then shows in onboarding (Plan 05's trial raises notices there) as well as in `ControlPanel`.
 
 - [ ] **Step 5: Locale strings and DESIGN.md**
@@ -2149,6 +2674,10 @@ Add this to `src/locales/en/translation.json` as a top-level `"notices"` object.
   "wordsCard": {
     "copy": "Copy",
     "copied": "Copied",
+    "copyFailed": "Couldn't copy",
+    "copyFailedHint": "The clipboard didn't take it. Your words are still here: select or drag them.",
+    "more_one": "{{count}} more unsent",
+    "more_other": "{{count}} more unsent",
     "hint": "Drag the words into your app, or paste again.",
     "dragHint": "Drag into the field you were typing in"
   }
@@ -2168,7 +2697,7 @@ Three tiers, one look (VO-R14 B). Chips are 32px lines that hug the pill on its 
 | Notice | cleanup skipped, model changed, fallbacks | 10 s, or until acknowledged when `persistent` | `role="status"` |
 | Alert | words or work at risk | 10 s; never while it carries recovered words | `role="alert"` |
 
-An alert that carries recovered words renders the **words-first card**: the transcript is the headline, selectable and draggable; the error is a one-line chip above it; primary is "Paste again" (⌥↵). Primaries use the ink button, never orange. Close is always visible. Motion: enter `--motion-base --motion-ease-enter`, 8 px rise, 40 ms stagger for bursts; reduced motion fades only.
+An alert that carries recovered words renders the **words-first card**: the transcript is the headline, selectable and draggable; the error is a one-line chip above it; primary is "Paste again" (⌥↵). Primaries use the ink button, never orange. Close is always visible. Copy says "Copied" only when the clipboard confirmed it, and "Couldn't copy" otherwise. Words leave only through Dismiss or a delivered Paste again; each failed dictation keeps its own card, and "N more" shows the others. Motion: enter `--motion-base --motion-ease-enter`, 8 px rise, 40 ms stagger for bursts; reduced motion fades only.
 ```
 
 - [ ] **Step 6: Keep the card-height regression**
@@ -2177,22 +2706,23 @@ An alert that carries recovered words renders the **words-first card**: the tran
 
 - [ ] **Step 7: Run tests to verify they pass**
 
-Run: `npm test -- test/components/noticeStack.test.js test/helpers/windowSizeLadder.test.js test/helpers/voiceSurfaceGeometry.test.js test/hooks/dictationErrorAutoHide.test.js test/helpers/voicePillPresentation.test.js`
-Expected: PASS.
+Run: `npm test -- test/components/noticeStack.test.js test/components/wordsCardActions.test.js test/components/onboardingCleanupWiring.test.js test/helpers/assistantPanel.test.js test/helpers/windowSizeLadder.test.js test/helpers/voiceSurfaceGeometry.test.js test/hooks/dictationErrorAutoHide.test.js test/helpers/voicePillPresentation.test.js`
+Expected: PASS. `onboardingCleanupWiring` proves the moved tree helper, and `assistantPanel` covers the existing `useCopyFeedback` callers.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/components/ui/NoticeChip.tsx src/components/ui/WordsFirstCard.tsx src/components/ui/NoticeStack.tsx src/styles/notices.css src/index.css src/utils/windowSizeLadder.js src/helpers/windowConfig.js src/hooks/useMainWindowSizeOwner.js src/App.jsx src/AppRouter.jsx src/helpers/voicePillPresentation.js src/locales DESIGN.md test
+git add src/components/ui/NoticeChip.tsx src/components/ui/WordsFirstCard.tsx src/components/ui/NoticeStack.tsx src/utils/writeClipboardText.ts src/hooks/useCopyFeedback.ts src/styles/notices.css src/index.css src/utils/windowSizeLadder.js src/helpers/windowConfig.js src/hooks/useMainWindowSizeOwner.js src/App.jsx src/AppRouter.jsx src/helpers/voicePillPresentation.js src/locales DESIGN.md test
 git commit -m "feat(voice): pill-anchored notice chips and the words-first card"
 ```
 
 ---
 ### Task 4: Voice notices: cleanup, Tinfoil, dictation errors, meeting and main-process notices
 
-Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3 migration. It also closes two review findings:
-- I12: the Settings action opens the route's actual section;
-- I10: a failed Retry cleanup leaves its explanation on screen. This is pinned end to end against the real store.
+Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3 migration. It also closes these review findings:
+- I12 (and its round-2 follow-up): the Settings action opens the route's actual section, even when the control panel is still loading or is reloading. Main holds the request until the panel's subscriber acknowledges it, and drops it after 15 s;
+- I10: a failed Retry cleanup leaves its explanation on screen. This is pinned end to end against the real store;
+- R2-C3: every failed dictation that holds content gets its own notice, `dictation-recovery:<sessionId>`. A later recording, error or success never removes it. Only a delivered Paste again or the user's Dismiss does. A failure without content keeps the stable `dictation-error` id, which the next status replaces and the next start or success clears.
 
 **Files:**
 - Create: `src/components/voiceNotices.ts`. Pure builders, so the listeners stay thin and testable.
@@ -2203,22 +2733,26 @@ Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3
 - Rename (`git mv`): `src/components/notes/BackgroundActionToastListener.tsx` becomes `src/components/notes/BackgroundActionNoticeListener.tsx`. Update its import in `ControlPanel.tsx:862`.
 - Modify: `src/renderApp.jsx:6-8,33-35` (listener imports and mounts)
 - Modify: `src/stores/cleanupFailureStore.ts:3-16`. Add `rawText?: string` to `CleanupFailure`.
-- Modify: `src/hooks/useAudioRecording.js`. Change the signature, migrate every `toast(` call, and attach `rawText` at line 659.
+- Modify: `src/hooks/useAudioRecording.js`. Change the signature, migrate every `toast(` call, and attach `rawText` at line 659. Give content-bearing errors per-session ids, and dismiss the status id itself at the start (`:190`) and success (`:454`) edges, in place of the `dismissDictationError` option (`:62`, `:241`, `:805`).
 - Modify: `src/hooks/useMainProcessNotifications.tsx`. Change the signature to `({ t })` and migrate all four calls.
 - Modify: `src/components/MeetingRecordingMount.tsx` (calls at 84, 101, 129, 178, 185, and the dismiss subscription at 150–159)
 - Modify: `src/App.jsx`:
   - line 209: `useAudioRecording(toast, {` becomes `useAudioRecording({`
   - line 386: `refuse()`
-  - lines 343–347: `dismissByPresentation`
+  - lines 88–91 and 214: delete `dismissDictationError` and the option that passes it
+  - lines 343–347: delete the recording-edge dismissal effect
   - the `useMainProcessNotifications` call
 - Modify: `src/components/OnboardingFlow.tsx:747`
-- Modify: `src/helpers/windowManager.js:2240-2245`. `openSettings()` becomes `openSettings(settingsPath?)`, and waits for a freshly created control panel to finish loading before it sends.
-- Modify: `src/helpers/ipcHandlers.js`, `preload.js`, `src/types/electron.ts` and `src/preview/browserPreview.ts`. Add `openSettingsAt(settingsPath)`, and widen `onShowSettings`.
-- Modify: `src/components/ControlPanel.tsx:284-289`. The `onShowSettings` subscriber applies the section.
+- Create: `src/helpers/settingsLinks.js`. The pending-request queue and its three IPC handlers.
+- Modify: `src/helpers/windowManager.js`. Add `this.settingsLinks` in the constructor (line 48), and replace `openSettings()` (lines 2240–2245) with `openSettings(settingsPath?)`, which queues the request and returns its delivery result.
+- Modify: `src/helpers/ipcHandlers.js`. Call `registerSettingsLinkIpc` after the `window-is-maximized` handler (lines 1176–1181).
+- Modify: `preload.js` and `src/types/electron.ts`. Add `openSettingsAt`, `pendingSettingsLink` and `ackSettingsLink`, and widen `onShowSettings`. `src/preview/browserPreview.ts` stays as it is: Browser Preview has no main process, and optional desktop features stay absent there.
+- Modify: `src/components/ControlPanel.tsx:284-289`. The subscriber becomes `subscribeSettingsDeepLinks`.
 - Modify: `src/components/SettingsModal.tsx:111-114`. Re-apply `initialSection` when it changes while the modal is already open.
 - Create: `src/utils/settingsDeepLink.ts`
 - Test: `test/components/settingsDeepLink.test.js`
-- Modify: the 6 hook tests that call `useAudioRecording(…, {…})` (listed in Step 5)
+- Test: `test/helpers/settingsDeepLinkDelivery.test.js`. Real `WindowManager`, real IPC registration, real preload, real subscriber.
+- Modify: the 6 hook tests that call `useAudioRecording(…, {…})` (listed in Step 5). `useAudioRecordingForceStop.test.js` also gains the R2-C3 regression.
 - Modify: `src/locales/*/translation.json` (`notices.*` keys)
 - Test: `test/components/voiceNotices.test.js`
 - Test: `test/helpers/retryDictationCleanup.test.js`
@@ -2233,8 +2767,11 @@ Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3
   type T = (key: string, options?: Record<string, unknown>) => string;
   export function buildCleanupFailureNotice(failure: CleanupFailure, t: T, actions: { retry: () => Promise<void>; openSettings: () => void }): NoticeInput;
   export function buildModelSwitchNotice(change: { from: string; to: string }, t: T, actions: { openSettings: () => void }): NoticeInput;
+  export const DICTATION_STATUS_NOTICE_ID = "dictation-error";             // a failure with no content: replaced and cleared
+  export function dictationRecoveryNoticeId(sessionKey: string): string;  // "dictation-recovery:<sessionKey>": one per session
   export function buildDictationErrorNotice(
-    input: { title: string; description?: string; words?: string; recoveryHeld?: boolean },  // recoveryHeld: Plan 07 holds the audio
+    // recoveryHeld: Plan 07 holds the audio. sessionKey: the session id, or a local key before Task 6.
+    input: { title: string; description?: string; words?: string; recoveryHeld?: boolean; sessionKey: string },
     t: T,
     actions: { retry: () => void; pasteAgain: (words: string) => Promise<void>; extraActions?: NoticeAction[] }
   ): NoticeInput;
@@ -2245,14 +2782,35 @@ Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3
   ```js
   // src/helpers/retryDictationCleanup.js
   export async function retryDictationCleanup(rawText, deps?): Promise<"cleaned" | "unchanged" | "failed">; // deps default loads lazily
+
+  // src/helpers/settingsLinks.js (main)
+  SETTINGS_LINK_TTL_MS = 15_000;
+  createSettingsLinkQueue({ ttlMs?, timers? }): {
+    enqueue(settingsPath): { link: { id: string; path: string | null }; done: Promise<SettingsLinkResult> };
+    peek(): { id: string; path: string | null } | null;
+    ack(id: string): boolean;
+  };
+  registerSettingsLinkIpc(ipcMain, windowManager): void; // "open-settings-at", "settings-link-pending", "settings-link-ack"
+  // WindowManager
+  settingsLinks;                                            // the queue
+  openSettings(settingsPath?: string | null): Promise<SettingsLinkResult>;
   ```
 
   ```ts
+  // src/utils/settingsDeepLink.ts
+  export interface SettingsLink { id: string; path: string | null }
+  export function parseSettingsDeepLink(payload: unknown): string | undefined;
+  export function subscribeSettingsDeepLinks(api: SettingsLinkApi | undefined, open: (section: string | undefined) => void): () => void;
+
   // electronAPI
-  openSettingsAt?: (settingsPath: string) => Promise<void>;
+  type SettingsLinkResult = { delivered: true } | { delivered: false; reason: "timeout" | "replaced" };
+  openSettingsAt?: (settingsPath: string) => Promise<SettingsLinkResult>;
+  pendingSettingsLink?: () => Promise<SettingsLink | null>;   // control panel only
+  ackSettingsLink?: (id: string) => Promise<boolean>;          // control panel only
+  onShowSettings?: (callback: (link?: SettingsLink) => void) => () => void;
   ```
 
-  `useAudioRecording(options)`: the `toast` parameter is removed. `useMainProcessNotifications({ t })`.
+  `useAudioRecording(options)`: the `toast` parameter and the `dismissDictationError` option are removed. The hook owns the status notice's dismissal. `useMainProcessNotifications({ t })`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2298,19 +2856,26 @@ test("a model the user did not pick is a persistent notice with Accept (VO-Q21)"
   assert.match(notice.body, /gpt-oss-120b/);
 });
 
-test("a dictation error with recovered words becomes the words-first card", async () => {
+test("a dictation error with recovered words becomes the words-first card, under its session's own id", async () => {
   const { buildDictationErrorNotice } = await load();
   const withWords = buildDictationErrorNotice(
-    { title: "Couldn't paste into Slack", description: "couldn't reach app", words: "Hey Maya" },
+    { title: "Couldn't paste into Slack", description: "couldn't reach app", words: "Hey Maya", sessionKey: "rec-1" },
     t,
     { retry: () => {}, pasteAgain: async () => {} }
   );
   assert.equal(withWords.kind, "alert");
+  assert.equal(withWords.id, "dictation-recovery:rec-1");
   assert.equal(withWords.words, "Hey Maya");
   assert.equal(withWords.actions[0].label, "notices.actions.pasteAgain");
   assert.equal(withWords.actions[0].keepOpen, true);
 
-  const noWords = buildDictationErrorNotice({ title: "We didn't hear anything" }, t, { retry: () => {}, pasteAgain: async () => {} });
+  // No content: the stable status id, so the next status replaces it.
+  const noWords = buildDictationErrorNotice(
+    { title: "We didn't hear anything", sessionKey: "rec-2" },
+    t,
+    { retry: () => {}, pasteAgain: async () => {} }
+  );
+  assert.equal(noWords.id, "dictation-error");
   assert.equal(noWords.words, undefined);
   assert.equal(noWords.actions[0].label, "common.retry");
 });
@@ -2320,12 +2885,14 @@ test("Plan 07's notices keep their §5.3 shapes", async () => {
   const transcribe = { label: "sealedMode.recovery.transcribe", onClick: () => {} };
   // A sealed refusal that holds audio in memory is an alert that never times out.
   const held = buildDictationErrorNotice(
-    { title: "sealedMode.blocked.dictationPreflight", recoveryHeld: true },
+    { title: "sealedMode.blocked.dictationPreflight", recoveryHeld: true, sessionKey: "rec-3" },
     t,
     { retry: () => {}, pasteAgain: async () => {}, extraActions: [transcribe] }
   );
   assert.equal(held.kind, "alert");
   assert.equal(held.persistent, true);
+  // Held audio is content too: its own id, never the status id that a new start clears.
+  assert.equal(held.id, "dictation-recovery:rec-3");
   assert.ok(held.actions.includes(transcribe), "Transcribe is reachable from the pill's notice slot");
 
   const recovery = buildSealedRecoveryNotice(t, { transcribe: async () => true, discard: () => {} });
@@ -2334,10 +2901,11 @@ test("Plan 07's notices keep their §5.3 shapes", async () => {
   assert.deepEqual(recovery.actions.map((a) => a.label), ["sealedMode.recovery.transcribe", "sealedMode.recovery.discard"]);
 });
 
-test("a failed Retry cleanup leaves its explanation on screen (I10, real store)", async (t) => {
+// `ctx`, not `t`: the module-level `t` is the translator the builder needs.
+test("a failed Retry cleanup leaves its explanation on screen (I10, real store)", async (ctx) => {
   const notices = await import("../../src/components/ui/notices.ts");
   notices.__setNoticeClockForTests();
-  t.after(() => notices.__setNoticeClockForTests());
+  ctx.after(() => notices.__setNoticeClockForTests());
   const { buildCleanupFailureNotice } = await load();
   const { retryDictationCleanup } = await import("../../src/helpers/retryDictationCleanup.js");
   const deps = {
@@ -2420,10 +2988,24 @@ Expected: FAIL with `Cannot find module '…/voiceNotices.ts'` and `…/retryDic
 `src/components/voiceNotices.ts`:
 
 ```ts
-import type { NoticeInput } from "./ui/notices";
+import type { NoticeAction, NoticeInput } from "./ui/notices";
 import type { CleanupFailure } from "../stores/cleanupFailureStore";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
+
+/**
+ * A dictation failure with no content shares this id: the next status
+ * replaces it, and the next start or success clears it.
+ */
+export const DICTATION_STATUS_NOTICE_ID = "dictation-error";
+
+/**
+ * A failure that holds content (recovered words, or audio Plan 07 holds) gets
+ * one notice per dictation session. Nothing automatic removes it (R2-C3).
+ */
+export function dictationRecoveryNoticeId(sessionKey: string): string {
+  return `dictation-recovery:${sessionKey}`;
+}
 
 /** VO-Q7: dictation succeeded, cleanup did not. Amber, actionable, not an error. */
 export function buildCleanupFailureNotice(
@@ -2468,11 +3050,12 @@ export function buildModelSwitchNotice(
 
 /** VO-R6 B: words first. Without words it is a plain alert with Retry. */
 export function buildDictationErrorNotice(
-  input: { title: string; description?: string; words?: string; recoveryHeld?: boolean },
+  input: { title: string; description?: string; words?: string; recoveryHeld?: boolean; sessionKey: string },
   t: T,
   actions: { retry: () => void; pasteAgain: (words: string) => Promise<void>; extraActions?: NoticeAction[] }
 ): NoticeInput {
   const words = input.words?.trim() || undefined;
+  const holdsContent = Boolean(words || input.recoveryHeld);
   const primary: NoticeAction[] = words
     ? [
         {
@@ -2486,7 +3069,7 @@ export function buildDictationErrorNotice(
       ? [] // Retry would hit the same seal; Plan 07's Transcribe (extraActions) is the way back
       : [{ label: t("common.retry"), primary: true, onClick: actions.retry }];
   return {
-    id: "dictation-error",
+    id: holdsContent ? dictationRecoveryNoticeId(input.sessionKey) : DICTATION_STATUS_NOTICE_ID,
     kind: "alert",
     title: input.title,
     ...(input.description ? { body: input.description } : {}),
@@ -2582,13 +3165,22 @@ Check `src/utils/agentName` and `src/i18n` (`grep -n "export" src/utils/agentNam
 
 - [ ] **Step 4: Settings deep link, end to end (I12)**
 
-Today the path dies twice:
+Today the path dies three times:
 - `preload.js:916` drops the `show-settings` payload;
-- the `ControlPanel.tsx:284-289` subscriber only calls `setShowSettings(true)`.
+- the `ControlPanel.tsx:284-289` subscriber only calls `setShowSettings(true)`;
+- `openSettings()` (`windowManager.js:2240-2245`) sends once and forgets. `createControlPanelWindow` returns at once for an existing window (lines 1271–1281), even while it is loading or reloading. For a new window it waits for the page load, but `ControlPanel` subscribes later, in a React effect. Either way the message can reach a page with no listener.
 
-On top of that, `SettingsModal` applies `initialSection` only on the closed→open edge (lines 111–114). Plan 03 defines the grammar (`"<section>/<subTab>"`) and makes `SettingsModal` parse it (Plan 03 clarification 10). This step carries the path all the way there.
+On top of that, `SettingsModal` applies `initialSection` only on the closed→open edge (lines 111–114). Plan 03 defines the grammar (`"<section>/<subTab>"`) and makes `SettingsModal` parse it (Plan 03 clarification 10).
 
-1. Add to `test/components/settingsDeepLink.test.js`:
+The fix is a pending request with an acknowledgment. Main keeps the request until the panel's subscriber acknowledges it:
+- a mounted subscriber gets it by push;
+- a subscriber that mounts later (first load, reload, crash recovery) asks main for it on mount;
+- a request nobody acknowledges expires after 15 s, so a stale link never opens Settings much later;
+- a newer request replaces an older one.
+
+No load event is involved, so new and existing windows behave the same.
+
+1. Create `test/components/settingsDeepLink.test.js`:
 
    ```js
    const assert = require("node:assert/strict");
@@ -2601,28 +3193,257 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
 
    test("only Plan 03's settingsPath grammar is accepted", async () => {
      const { parseSettingsDeepLink } = await import("../../src/utils/settingsDeepLink.ts");
-     assert.equal(parseSettingsDeepLink({ path: "llms/cleanup" }), "llms/cleanup");
+     assert.equal(parseSettingsDeepLink({ id: "settings-link-1", path: "llms/cleanup" }), "llms/cleanup");
      assert.equal(parseSettingsDeepLink({ path: "privacyData" }), "privacyData");
-     for (const bad of [null, {}, { path: "" }, { path: "../x" }, { path: "a/b/c" }, { path: "javascript:alert(1)" }, { path: 7 }]) {
+     for (const bad of [null, {}, { path: "" }, { path: null }, { path: "../x" }, { path: "a/b/c" }, { path: "javascript:alert(1)" }, { path: 7 }]) {
        assert.equal(parseSettingsDeepLink(bad), undefined, JSON.stringify(bad));
      }
    });
 
-   test("the payload survives preload and reaches the modal", () => {
-     assert.match(read("preload.js"), /onShowSettings: registerListener\("show-settings", \(callback\) => \(_event, payload\) => callback\(payload\)\)/);
+   test("ControlPanel subscribes through the acknowledged deep-link subscriber", () => {
      const panel = read("src/components/ControlPanel.tsx");
-     assert.match(panel, /onShowSettings\?\.\(\(payload\) => \{\s*setSettingsSection\(parseSettingsDeepLink\(payload\)\);\s*setShowSettings\(true\);/);
+     assert.match(panel, /subscribeSettingsDeepLinks\(window\.electronAPI, \(section\) => \{\s*setSettingsSection\(section\);\s*setShowSettings\(true\);/);
+     assert.doesNotMatch(panel, /onShowSettings\?\.\(\(\) =>/);
      // An already-open modal must move to the new section too.
      assert.match(read("src/components/SettingsModal.tsx"), /useEffect\(\(\) => \{\s*if \(open && initialSection\)/);
    });
+   ```
 
-   test("a control panel created for the deep link is loaded before the path is sent", () => {
-     const wm = read("src/helpers/windowManager.js");
-     const body = wm.slice(wm.indexOf("async openSettings("), wm.indexOf("async openSettings(") + 900);
-     assert.match(body, /did-finish-load/);
-     assert.match(body, /send\("show-settings", \{ path/);
+   Create `test/helpers/settingsDeepLinkDelivery.test.js`. It drives the real `WindowManager.openSettings`, the real IPC registration, the real `preload.js` and the real subscriber. Only Electron and the window's page lifecycle are faked:
+
+   ```js
+   const assert = require("node:assert/strict");
+   const fs = require("node:fs");
+   const path = require("node:path");
+   const test = require("node:test");
+   const vm = require("node:vm");
+   const { EventEmitter } = require("node:events");
+   const Module = require("node:module");
+
+   function deferred() {
+     let resolve;
+     const promise = new Promise((done) => (resolve = done));
+     return { promise, resolve };
+   }
+
+   const created = [];
+
+   class FakeWebContents extends EventEmitter {
+     constructor() {
+       super();
+       this.document = null; // the page loaded right now, if any
+     }
+     // Main → renderer: reaches only the current page, and only the listeners
+     // it has registered so far.
+     send(channel, payload) {
+       this.document?.deliver(channel, payload);
+     }
+     setWindowOpenHandler() {}
+     isCrashed() {
+       return false;
+     }
+   }
+
+   class FakeBrowserWindow extends EventEmitter {
+     constructor() {
+       super();
+       this.webContents = new FakeWebContents();
+       this.load = deferred();
+       created.push(this);
+     }
+     loadFile() {
+       return this.load.promise;
+     }
+     loadURL() {
+       return this.load.promise;
+     }
+     isDestroyed() {
+       return false;
+     }
+     isMinimized() {
+       return false;
+     }
+     isVisible() {
+       return true;
+     }
+     restore() {}
+     show() {}
+     focus() {}
+     setTitle() {}
+   }
+
+   // Same stubbing as windowManagerMeetingNotification.test.js, plus what the
+   // control-panel path touches.
+   const originalLoad = Module._load;
+   Module._load = function loadWithStubs(request, parent, isMain) {
+     if (request === "electron") {
+       return {
+         app: { on: () => undefined },
+         screen: { getPrimaryDisplay: () => ({}), on: () => undefined },
+         BrowserWindow: FakeBrowserWindow,
+         shell: {},
+         dialog: {},
+       };
+     }
+     if (request === "./debugLogger") return { info() {}, warn() {}, debug() {}, error() {} };
+     if (request === "./hotkeyManager") {
+       class FakeHotkeyManager {
+         unregisterAll() {}
+         isInListeningMode() {
+           return false;
+         }
+       }
+       FakeHotkeyManager.isGlobeLikeHotkey = () => false;
+       return FakeHotkeyManager;
+     }
+     if (request === "./dragManager") return class FakeDragManager { cleanup() {} };
+     if (request === "./menuManager") return { setupControlPanelMenu() {}, setupMainMenu() {} };
+     if (request === "./devServerManager") {
+       return { getAppFilePath: () => ({ path: __filename, query: {} }), getAppUrl: () => null, waitForDevServer: async () => {} };
+     }
+     if (request === "./dockManager") return { setControlPanelVisible() {} };
+     if (request === "./i18nMain") return { i18nMain: { t: (key) => key } };
+     if (request === "./windowConfig") {
+       return { MAIN_WINDOW_CONFIG: {}, CONTROL_PANEL_CONFIG: {}, NOTIFICATION_WINDOW_CONFIG: {}, WINDOW_SIZES: {}, WindowPositionUtil: {} };
+     }
+     return originalLoad.call(this, request, parent, isMain);
+   };
+   const WindowManager = require("../../src/helpers/windowManager");
+   Module._load = originalLoad;
+   const { createSettingsLinkQueue, registerSettingsLinkIpc } = require("../../src/helpers/settingsLinks");
+
+   const PRELOAD = fs.readFileSync(path.join(__dirname, "../../preload.js"), "utf8");
+   const flush = () => new Promise((resolve) => setImmediate(resolve));
+   const deepLink = () => import("../../src/utils/settingsDeepLink.ts");
+
+   function setup(t, { ttlMs } = {}) {
+     created.length = 0;
+     const handlers = new Map();
+     const manager = new WindowManager();
+     if (ttlMs) manager.settingsLinks = createSettingsLinkQueue({ ttlMs });
+     registerSettingsLinkIpc({ handle: (channel, handler) => handlers.set(channel, handler) }, manager);
+     t.after(() => manager._clearControlPanelVisibilityTimer());
+
+     // A page that has loaded: a fresh preload with no listeners until the app
+     // subscribes. invoke() reaches main's handlers with this window as sender.
+     const loadDocument = (contents) => {
+       const listeners = new Map();
+       let api = null;
+       const ipcRenderer = {
+         invoke: async (channel, ...args) => handlers.get(channel)({ sender: contents }, ...args),
+         on: (channel, listener) => listeners.set(channel, [...(listeners.get(channel) ?? []), listener]),
+         removeListener: (channel, listener) =>
+           listeners.set(channel, (listeners.get(channel) ?? []).filter((l) => l !== listener)),
+         send() {},
+         sendSync: () => undefined,
+       };
+       vm.runInNewContext(PRELOAD, {
+         require: (specifier) => {
+           if (specifier !== "electron") throw new Error(`Unexpected preload dependency: ${specifier}`);
+           return { contextBridge: { exposeInMainWorld: (_name, exposed) => (api = exposed) }, ipcRenderer, webUtils: {} };
+         },
+         process,
+       });
+       contents.document = {
+         deliver: (channel, payload) =>
+           (listeners.get(channel) ?? []).forEach((listener) => listener({ sender: contents }, payload)),
+       };
+       return api;
+     };
+     // A reload begins: the old page and its listeners are gone.
+     const unloadDocument = (contents) => {
+       contents.document = null;
+     };
+     return { manager, handlers, loadDocument, unloadDocument };
+   }
+
+   test("a link sent while a new control panel loads opens once its subscriber mounts (I12)", async (t) => {
+     const { subscribeSettingsDeepLinks } = await deepLink();
+     const { manager, loadDocument } = setup(t);
+     const opened = [];
+
+     const result = manager.openSettings("llms/cleanup");
+     await flush();
+     const [panel] = created;
+     assert.ok(panel, "openSettings created the control panel");
+     // The page loads and main sends, but React has not subscribed yet.
+     const page = loadDocument(panel.webContents);
+     panel.load.resolve();
+     await flush();
+     assert.deepEqual(opened, []);
+
+     subscribeSettingsDeepLinks(page, (section) => opened.push(section));
+     assert.deepEqual(await result, { delivered: true });
+     assert.deepEqual(opened, ["llms/cleanup"]);
+   });
+
+   test("a link sent while an existing control panel reloads opens in the reloaded page (I12)", async (t) => {
+     const { subscribeSettingsDeepLinks } = await deepLink();
+     const { manager, loadDocument, unloadDocument } = setup(t);
+     const opened = [];
+     const open = (section) => opened.push(section);
+
+     // Mounting while the first request is both pending and being pushed
+     // opens it once: the push and the mount check carry the same id.
+     const first = manager.openSettings("privacyData");
+     await flush();
+     const [panel] = created;
+     const page = loadDocument(panel.webContents);
+     const unsubscribe = subscribeSettingsDeepLinks(page, open);
+     panel.load.resolve();
+     assert.deepEqual(await first, { delivered: true });
+     // A loaded, subscribed panel gets the next request by push.
+     assert.deepEqual(await manager.openSettings("llms/cleanup"), { delivered: true });
+     assert.deepEqual(opened, ["privacyData", "llms/cleanup"]);
+
+     // The panel reloads. The request arrives before the new page subscribes.
+     unsubscribe();
+     unloadDocument(panel.webContents);
+     const during = manager.openSettings("general");
+     await flush();
+     assert.deepEqual(opened, ["privacyData", "llms/cleanup"], "nothing reached the unloading page");
+     subscribeSettingsDeepLinks(loadDocument(panel.webContents), open);
+     assert.deepEqual(await during, { delivered: true });
+     assert.deepEqual(opened, ["privacyData", "llms/cleanup", "general"]);
+     assert.equal(created.length, 1, "the existing window was reused");
+   });
+
+   test("an unacknowledged link expires, and a page that mounts later does not open it", async (t) => {
+     const { subscribeSettingsDeepLinks } = await deepLink();
+     const { manager, loadDocument } = setup(t, { ttlMs: 20 });
+     const result = manager.openSettings("llms/cleanup");
+     await flush();
+     const [panel] = created;
+     panel.load.resolve();
+     assert.deepEqual(await result, { delivered: false, reason: "timeout" });
+
+     const opened = [];
+     subscribeSettingsDeepLinks(loadDocument(panel.webContents), (section) => opened.push(section));
+     await flush();
+     assert.deepEqual(opened, []);
+   });
+
+   test("a newer link replaces an older one; only the control panel may read or acknowledge it", async (t) => {
+     const { manager, handlers } = setup(t);
+     const older = manager.settingsLinks.enqueue("privacyData");
+     const newer = manager.settingsLinks.enqueue("llms/cleanup");
+     t.after(() => manager.settingsLinks.ack(newer.link.id));
+     assert.deepEqual(await older.done, { delivered: false, reason: "replaced" });
+
+     const stranger = { sender: new FakeWebContents() };
+     assert.equal(await handlers.get("settings-link-pending")(stranger), null);
+     assert.equal(await handlers.get("settings-link-ack")(stranger, newer.link.id), false);
+     assert.deepEqual(manager.settingsLinks.peek(), newer.link);
+
+     // Main normalises a path outside the grammar to "open Settings".
+     const odd = manager.settingsLinks.enqueue("../x");
+     t.after(() => manager.settingsLinks.ack(odd.link.id));
+     assert.equal(odd.link.path, null);
    });
    ```
+
+   Run: `npm test -- test/components/settingsDeepLink.test.js test/helpers/settingsDeepLinkDelivery.test.js`
+   Expected: FAIL with `Cannot find module '…/settingsDeepLink.ts'` and `…/settingsLinks`.
 
 2. Create `src/utils/settingsDeepLink.ts`:
 
@@ -2631,59 +3452,175 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
    // letters only. Anything else opens Settings at its default section.
    const SETTINGS_PATH = /^[A-Za-z]+(?:\/[A-Za-z]+)?$/;
 
+   export interface SettingsLink {
+     id: string;
+     path: string | null;
+   }
+
+   interface SettingsLinkApi {
+     onShowSettings?: (callback: (link?: SettingsLink) => void) => () => void;
+     pendingSettingsLink?: () => Promise<SettingsLink | null>;
+     ackSettingsLink?: (id: string) => Promise<boolean>;
+   }
+
    export function parseSettingsDeepLink(payload: unknown): string | undefined {
      const value = (payload as { path?: unknown } | null)?.path;
      return typeof value === "string" && SETTINGS_PATH.test(value) ? value : undefined;
    }
-   ```
 
-3. `src/helpers/windowManager.js`. Replace `openSettings()` (lines 2240–2245) with:
-
-   ```js
-     async openSettings(settingsPath = null) {
-       const existed = Boolean(this.controlPanelWindow && !this.controlPanelWindow.isDestroyed());
-       await this.createControlPanelWindow();
-       const contents = this.controlPanelWindow?.webContents;
-       if (!contents) return;
-       // A window created just now has no listener yet; wait for its first load.
-       if (!existed && contents.isLoading()) {
-         await new Promise((resolve) => contents.once("did-finish-load", resolve));
+   /**
+    * The control panel's Settings deep-link subscriber (I12). Main holds each
+    * request until this acknowledges it. A request sent while the panel was
+    * loading or reloading is fetched here on mount, so it is never lost into a
+    * page that had no listener yet. The push and the mount check can carry the
+    * same request; it opens once.
+    */
+   export function subscribeSettingsDeepLinks(
+     api: SettingsLinkApi | undefined,
+     open: (section: string | undefined) => void
+   ): () => void {
+     if (!api?.onShowSettings) return () => {};
+     let disposed = false;
+     let lastId: string | null = null;
+     const apply = (link: SettingsLink | null | undefined) => {
+       if (disposed) return;
+       if (link?.id) {
+         if (link.id === lastId) return;
+         lastId = link.id;
        }
-       contents.send("show-settings", { path: typeof settingsPath === "string" ? settingsPath : null });
-     }
+       open(parseSettingsDeepLink(link));
+       if (link?.id) void api.ackSettingsLink?.(link.id);
+     };
+     const unsubscribe = api.onShowSettings(apply);
+     void api.pendingSettingsLink?.().then(
+       (link) => {
+         if (link) apply(link);
+       },
+       () => {}
+     );
+     return () => {
+       disposed = true;
+       unsubscribe?.();
+     };
+   }
    ```
 
-   The menu callers (lines 165, 1347, 2228 and 2231) keep calling `openSettings()` with no argument.
+   A disposed subscriber never acknowledges, so in React's development double mount the second subscriber still finds the request pending.
 
-4. `src/helpers/ipcHandlers.js`, near the other control-panel handlers:
+3. Create `src/helpers/settingsLinks.js`:
 
    ```js
-       ipcMain.handle("open-settings-at", (_event, settingsPath) => this.windowManager.openSettings(settingsPath));
+   // Settings deep links (I12). Main holds one pending request until the
+   // control panel's subscriber acknowledges it. A panel that is still loading,
+   // or reloading, asks for it when its subscriber mounts, so a request is never
+   // sent into a page with no listener and forgotten. A request nobody
+   // acknowledges expires, so a stale link never opens Settings much later.
+   const SETTINGS_LINK_TTL_MS = 15_000;
+   // Plan 03's grammar, mirrored from src/utils/settingsDeepLink.ts.
+   const SETTINGS_PATH = /^[A-Za-z]+(?:\/[A-Za-z]+)?$/;
+
+   function createSettingsLinkQueue({ ttlMs = SETTINGS_LINK_TTL_MS, timers = { setTimeout, clearTimeout } } = {}) {
+     let seq = 0;
+     let pending = null;
+     const settle = (result) => {
+       if (!pending) return;
+       const current = pending;
+       pending = null;
+       timers.clearTimeout(current.timer);
+       current.resolve(result);
+     };
+     return {
+       enqueue(settingsPath) {
+         settle({ delivered: false, reason: "replaced" });
+         const link = {
+           id: `settings-link-${++seq}`,
+           path: typeof settingsPath === "string" && SETTINGS_PATH.test(settingsPath) ? settingsPath : null,
+         };
+         let resolve;
+         const done = new Promise((r) => (resolve = r));
+         const timer = timers.setTimeout(() => settle({ delivered: false, reason: "timeout" }), ttlMs);
+         timer?.unref?.(); // never keeps the app from quitting
+         pending = { link, resolve, timer };
+         return { link, done };
+       },
+       peek() {
+         return pending ? { ...pending.link } : null;
+       },
+       ack(id) {
+         if (!pending || pending.link.id !== id) return false;
+         settle({ delivered: true });
+         return true;
+       },
+     };
+   }
+
+   function registerSettingsLinkIpc(ipcMain, windowManager) {
+     // Only the control panel may read or acknowledge the pending request.
+     const fromControlPanel = (event) => {
+       const panel = windowManager.controlPanelWindow;
+       return Boolean(panel && !panel.isDestroyed() && event?.sender === panel.webContents);
+     };
+     ipcMain.handle("open-settings-at", (_event, settingsPath) => windowManager.openSettings(settingsPath));
+     ipcMain.handle("settings-link-pending", (event) =>
+       fromControlPanel(event) ? windowManager.settingsLinks.peek() : null
+     );
+     ipcMain.handle("settings-link-ack", (event, id) =>
+       fromControlPanel(event) && typeof id === "string" ? windowManager.settingsLinks.ack(id) : false
+     );
+   }
+
+   module.exports = { SETTINGS_LINK_TTL_MS, createSettingsLinkQueue, registerSettingsLinkIpc };
    ```
 
-5. `preload.js`:
-   - add `openSettingsAt: (settingsPath) => ipcRenderer.invoke("open-settings-at", settingsPath),`;
-   - change line 916 to `onShowSettings: registerListener("show-settings", (callback) => (_event, payload) => callback(payload)),`.
+4. `src/helpers/windowManager.js`:
+   - Add `const { createSettingsLinkQueue } = require("./settingsLinks");` with the other requires (lines 1–45).
+   - In the constructor (line 48), add `this.settingsLinks = createSettingsLinkQueue();` after `this.controlPanelWindow = null;`.
+   - Replace `openSettings()` (lines 2240–2245) with:
 
-   `electron.ts`:
-   - add `openSettingsAt?: (settingsPath: string) => Promise<void>;`;
-   - widen `onShowSettings` (line 1490) to `(callback: (payload?: { path: string | null }) => void) => () => void`.
+     ```js
+       async openSettings(settingsPath = null) {
+         // Queue first: a panel that is loading or reloading picks the request
+         // up when its subscriber mounts, so nothing here waits on load events.
+         const { link, done } = this.settingsLinks.enqueue(settingsPath);
+         await this.createControlPanelWindow();
+         const panel = this.controlPanelWindow;
+         if (panel && !panel.isDestroyed()) panel.webContents.send("show-settings", link);
+         return done;
+       }
+     ```
 
-   `browserPreview.ts`: add `openSettingsAt: async () => {}`.
-6. `src/components/ControlPanel.tsx:284-289`:
+   The menu callers (lines 165, 1347, 2228 and 2231) keep calling `openSettings()` with no argument and do not await it.
+5. `src/helpers/ipcHandlers.js`: add `const { registerSettingsLinkIpc } = require("./settingsLinks");` with the other requires, and call `registerSettingsLinkIpc(ipcMain, this.windowManager);` after the `window-is-maximized` handler (lines 1176–1181).
+6. `preload.js`:
+   - add, next to `onShowSettings`:
+
+     ```js
+       openSettingsAt: (settingsPath) => ipcRenderer.invoke("open-settings-at", settingsPath),
+       pendingSettingsLink: () => ipcRenderer.invoke("settings-link-pending"),
+       ackSettingsLink: (id) => ipcRenderer.invoke("settings-link-ack", id),
+     ```
+
+   - change line 916 to `onShowSettings: registerListener("show-settings", (callback) => (_event, link) => callback(link)),`.
+
+   `src/types/electron.ts`:
+   - add `import type { SettingsLink } from "../utils/settingsDeepLink";` beside the imports at lines 1–3, and `type SettingsLinkResult` as in the Interfaces block;
+   - add `openSettingsAt?`, `pendingSettingsLink?` and `ackSettingsLink?`;
+   - widen `onShowSettings` (line 1490) to `(callback: (link?: SettingsLink) => void) => () => void`.
+7. `src/components/ControlPanel.tsx:284-289`:
 
    ```tsx
-     useEffect(() => {
-       const cleanup = window.electronAPI?.onShowSettings?.((payload) => {
-         setSettingsSection(parseSettingsDeepLink(payload));
-         setShowSettings(true);
-       });
-       return () => cleanup?.();
-     }, []);
+     useEffect(
+       () =>
+         subscribeSettingsDeepLinks(window.electronAPI, (section) => {
+           setSettingsSection(section);
+           setShowSettings(true);
+         }),
+       []
+     );
    ```
 
-   This also clears a stale section left from an earlier open, because a payload with no path sets `undefined`.
-7. `src/components/SettingsModal.tsx`. After the existing open-edge logic (lines 111–114), add:
+   Import `subscribeSettingsDeepLinks` from `../utils/settingsDeepLink`. A request with no path sets `undefined`, which also clears a stale section left from an earlier open.
+8. `src/components/SettingsModal.tsx`. After the existing open-edge logic (lines 111–114), add:
 
    ```tsx
      // A deep link that arrives while Settings is already open moves it too.
@@ -2728,16 +3665,36 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
 2. **`src/stores/cleanupFailureStore.ts`.** Add `rawText?: string;` to `CleanupFailure` (lines 3–16).
 
 3. **`src/hooks/useAudioRecording.js`:**
-   - Signature, line 32: `export const useAudioRecording = (options = {}) => {`. Delete the `toast` parameter. The destructure on lines 58–69 is unchanged except that `onShowTranscript` is removed: the words card replaces "View transcript". Remove its use in `App.jsx` too.
+   - Signature, line 32: `export const useAudioRecording = (options = {}) => {`. Delete the `toast` parameter. The destructure on lines 58–69 is unchanged except that `onShowTranscript` (the words card replaces "View transcript") and `dismissDictationError` are removed. Remove both from `App.jsx` too.
+   - Remove `dismissDictationError` from the dependency arrays at lines 241 and 805. The hook now owns the status notice:
+     - line 190: `if (didStart) dismissNotice(DICTATION_STATUS_NOTICE_ID);`
+     - line 454: `dismissNotice(DICTATION_STATUS_NOTICE_ID);`
+
+     Both clear only the stable status id. Content notices carry their own ids, so neither edge can reach them (R2-C3).
+   - Above the hook (next to `SELECTION_EDIT_DETAIL_KEY_BY_CODE`, lines 24–29), add `let localRecoveryKey = 0;`. It keys content notices when no session id exists: before Task 6 adds `activeSession`, and for failures outside a session.
    - `showDictationError` (lines 300–331) becomes:
 
      ```js
-     const showDictationError = ({ title, description, transcript = "", recoveryHeld = false }, extraActions = []) => {
+     // Content (recovered words, or audio Plan 07 holds) gets one notice per
+     // dictation session, and nothing automatic removes it: only a delivered
+     // Paste again or the user's Dismiss does (R2-C3). A failure without content
+     // shares DICTATION_STATUS_NOTICE_ID, so the next status replaces it and the
+     // next start or success clears it.
+     const showDictationError = (
+       { title, description, transcript = "", recoveryHeld = false, sessionId = null },
+       extraActions = []
+     ) => {
        const recoverAssistant = Boolean(audioManagerRef.current?.voiceAgentRequested);
        onDictationError?.({ recoverAssistant });
-       notify(
+       const noticeId = notify(
          buildDictationErrorNotice(
-           { title, description, words: getRecoverableTranscript(transcript), recoveryHeld },
+           {
+             title,
+             description,
+             words: getRecoverableTranscript(transcript),
+             recoveryHeld,
+             sessionKey: sessionId ?? `local-${++localRecoveryKey}`,
+           },
            t,
            {
              extraActions,
@@ -2747,18 +3704,27 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
                  restoreClipboard: false,
                  allowClipboardFallback: true,
                });
-               if (pasted) {
-                 dismissNotice("dictation-error");
-                 notify({ kind: "receipt", title: t("notices.pasted") });
-               }
+               if (!pasted) return; // keepOpen: the card and its words stay
+               dismissNotice(noticeId, "action"); // this card only; other held words stay
+               notify({ kind: "receipt", title: t("notices.pasted") });
              },
            }
          )
        );
+       // The content card says everything the bare status line said.
+       if (noticeId !== DICTATION_STATUS_NOTICE_ID) dismissNotice(DICTATION_STATUS_NOTICE_ID, "replaced");
+       return noticeId;
      };
      ```
 
      Callers that pass `duration` keep compiling, because the argument is ignored. Remove `duration` from those call sites (`grep -n "showDictationError(" src/hooks/useAudioRecording.js`).
+   - **Session ids.** At the top of `onError` (line 383) and of `onTranscriptionComplete` (line 452), before any `await`, add:
+
+     ```js
+     const sessionId = audioManagerRef.current?.activeSession?.id ?? null;
+     ```
+
+     Pass `sessionId` to every `showDictationError({ … })` inside those two callbacks (lines 402, 459, 598 and 629). Read it there and nowhere later: the pipeline settles right after these callbacks are invoked (`audioManager.js:1860` then `:1932`), and Task 6 ends the session at that edge, so a read after an `await` sees `null`. `onNoAudio` (line 412) carries no content and needs no id. Until Task 6 lands, `activeSession` is `undefined`, and `localRecoveryKey` keeps each card distinct.
    - Line 363, mic disconnected: `notify({ id: "mic", kind: "notice", title: t("hooks.audioRecording.micDisconnected.title"), body: t("hooks.audioRecording.micDisconnected.description") })`. Keep the existing description key.
    - Line 370, mic restored: `notify({ id: "mic", kind: "receipt", title: t("hooks.audioRecording.micRestored.title") })`. The same id replaces the disconnected notice.
    - Line 400, screen context skipped: `notify({ kind: "notice", title, body })` with the same title and description as today.
@@ -2766,7 +3732,7 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
    - Line 666, fallback: `notify({ kind: "notice", title, body })`.
    - Line 682, translation fallback (destructive today): `notify({ kind: "alert", title, body })`.
    - Line 659: `if (result.cleanupFailure) recordCleanupFailure({ ...result.cleanupFailure, rawText: result.text });`.
-   - Add the imports `import { notify, dismissNotice } from "../components/ui/notices";` and `import { buildDictationErrorNotice } from "../components/voiceNotices";`.
+   - Add the imports `import { notify, dismissNotice } from "../components/ui/notices";` and `import { buildDictationErrorNotice, DICTATION_STATUS_NOTICE_ID } from "../components/voiceNotices";`.
    - Remove `toast` from every hook dependency array (`grep -n "\btoast\b" src/hooks/useAudioRecording.js`, around line 801). ESLint's `react-hooks/exhaustive-deps` flags the stale entry.
 4. **`src/hooks/useMainProcessNotifications.tsx`.** Change the signature to `({ t })`, then migrate each call:
 
@@ -2793,8 +3759,8 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
 6. **`src/App.jsx`:**
    - Line 209 becomes `useAudioRecording({`.
    - `refuse()` (lines 383–389) uses `notify({ kind: "notice", title: t(messageKey) })`.
-   - Lines 343–347 call `dismissNotice("dictation-error")` instead of `dismissByPresentation("dictation-error")`.
-   - Lines 88–91: `dismissDictationError` becomes `React.useCallback(() => dismissNotice("dictation-error"), [])`.
+   - Delete the effect at lines 343–347. It dismissed every dictation error when a recording started, which would now include unresolved words (R2-C3). The hook clears the status notice at its own start and success edges.
+   - Delete `dismissDictationError` (lines 88–91) and the `dismissDictationError,` option (line 214). Then drop `dismissByPresentation` from the `useToast()` destructure (line 64) if `grep -n dismissByPresentation src/App.jsx` finds no other use.
    - The `useMainProcessNotifications` call becomes `useMainProcessNotifications({ t })`.
 7. **`src/components/OnboardingFlow.tsx:747`.** Change it to `const recording = useAudioRecording({ trialMode: true, onDemoEvent });`. Remove the `toast` destructure only if nothing else in the file uses it (`grep -n "toast" src/components/OnboardingFlow.tsx`).
 8. **Hook tests.** Change each call to the new single-argument form:
@@ -2806,16 +3772,78 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
 
    For example, `useAudioRecording(() => {}, { onDemoEvent: () => {} })` becomes `useAudioRecording({ onDemoEvent: () => {} })`.
 
-   `test/helpers/useAudioRecordingForceStop.test.js:134` collected toasts. Read the notices through the same Vite module graph the hook uses:
+   `test/helpers/useAudioRecordingForceStop.test.js:134` collected toasts. Read the notices through the same Vite module graph the hook uses, and give the harness a session and a failure path:
+   - In `FAKE_AUDIO_MANAGER_SOURCE`, add `this.activeSession = null;` to the constructor.
+   - In `mountHarness`, after `createRendererServer(…)`:
+
+     ```js
+     const notices = await vite.ssrLoadModule("/components/ui/notices.ts");
+     notices.__setNoticeClockForTests();
+     t.after(() => notices.__setNoticeClockForTests());
+     ```
+
+     Render with `useAudioRecording({ onDemoEvent: NOOP })`. In the returned object, replace `toasts` with `get toasts() { return notices.getNotices(); }`, and add:
+
+     ```js
+     notices,
+     session: (id) => {
+       globalThis.__forceStopAudioManager.activeSession = id ? { id } : null;
+     },
+     fail: async (error) => {
+       await React.act(async () => globalThis.__forceStopAudioManager.callbacks.onError(error));
+     },
+     ```
+
+   - `errorToasts` becomes `harness.toasts.filter((n) => n.id === "dictation-error" || n.id.startsWith("dictation-recovery:"))`.
+   - Change each `.description` assertion to `.body`. In the force-stopped test, replace the "View transcript" assertion with `assert.equal(toast.words, "held too long");` and `assert.equal(toast.actions[0].label, "notices.actions.pasteAgain");`.
+   - "the latch does not leak into the next dictation" keeps `errorToasts(harness).length === 1`. That card is the first dictation's, which still holds unsent words; change the message to "the first card stays; no second card".
+
+   Then append the R2-C3 regression. History is off (the fake `saveTranscription` stores nothing, as `audioManager.js:3049-3053` does with retention off) and the clipboard rejects, so each card is the only copy of its words:
 
    ```js
-   const notices = await vite.ssrLoadModule("/components/ui/notices.ts");
-   notices.__setNoticeClockForTests();
-   // …render with useAudioRecording({ onDemoEvent: NOOP }) …
-   const toasts = notices.getNotices(); // replaces the pushed array
-   ```
+   test("two failed deliveries both stay recoverable, through a status error and a third successful dictation (R2-C3)", async (t) => {
+     const harness = await mountHarness(t, {
+       writeClipboard: async () => {
+         throw new Error("clipboard unavailable");
+       },
+     });
+     const held = () => harness.notices.wordsNotices(harness.notices.getNotices()).map((n) => [n.id, n.words]);
 
-   Then change each assertion on `toasts[i].title` or `.description` to `.title` or `.body`. Change `presentation: "dictation-error"` checks to `id === "dictation-error"`.
+     harness.session("rec-1");
+     await harness.forceStop("timeout");
+     await harness.complete({ text: "first words", rawText: "first words" });
+
+     await harness.startRecording();
+     harness.session("rec-2");
+     await harness.forceStop("timeout");
+     await harness.complete({ text: "second words", rawText: "second words" });
+     assert.deepEqual(held(), [
+       ["dictation-recovery:rec-1", "first words"],
+       ["dictation-recovery:rec-2", "second words"],
+     ]);
+
+     // A failure without content takes the stable status id…
+     await harness.fail({ title: "Transcription Error", description: "Transcription failed: timeout" });
+     assert.equal(harness.toasts.filter((n) => n.id === "dictation-error").length, 1);
+
+     // …and the next start and success clear that one, and only that one.
+     await harness.startRecording();
+     harness.session("rec-3");
+     await harness.complete({ text: "third words", rawText: "third words" });
+     assert.equal(harness.pastes.at(-1).text, "third words", "the third dictation pasted");
+     assert.equal(harness.toasts.some((n) => n.id === "dictation-error"), false);
+     assert.deepEqual(held(), [
+       ["dictation-recovery:rec-1", "first words"],
+       ["dictation-recovery:rec-2", "second words"],
+     ]);
+
+     // Paste again on the first card recovers it, and removes that card only.
+     const first = harness.toasts.find((n) => n.id === "dictation-recovery:rec-1");
+     await React.act(() => harness.notices.runNoticeAction(first.id, first.actions.find((a) => a.primary)));
+     assert.equal(harness.pastes.at(-1).text, "first words");
+     assert.deepEqual(held(), [["dictation-recovery:rec-2", "second words"]]);
+   });
+   ```
 
 Locale keys (en). Add these under the `"notices"` object from Task 3, and mirror them into the 11 other locales:
 
@@ -2837,13 +3865,13 @@ Locale keys (en). Add these under the `"notices"` object from Task 3, and mirror
 
 - [ ] **Step 6: Run the tests**
 
-Run: `npm test -- test/components/voiceNotices.test.js test/components/settingsDeepLink.test.js test/helpers/retryDictationCleanup.test.js test/helpers/cleanupFailureToast.test.js "test/helpers/useAudioRecording*.test.js" test/components/meetingInterruptionWarning.test.js test/hooks/dictationErrorAutoHide.test.js`
+Run: `npm test -- test/components/voiceNotices.test.js test/components/settingsDeepLink.test.js test/helpers/settingsDeepLinkDelivery.test.js test/helpers/retryDictationCleanup.test.js test/helpers/cleanupFailureToast.test.js "test/helpers/useAudioRecording*.test.js" test/components/meetingInterruptionWarning.test.js test/hooks/dictationErrorAutoHide.test.js`
 Expected: PASS. `meetingInterruptionWarning.test.js` mocks the toast. If it fails on `toast`, read it, load `notices.ts` through its Vite server, and assert on `getNotices()` as in item 8.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A src/components src/utils/settingsDeepLink.ts src/helpers/windowManager.js src/helpers/retryDictationCleanup.js src/stores/cleanupFailureStore.ts src/hooks src/App.jsx src/renderApp.jsx src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/locales test
+git add -A src/components src/utils/settingsDeepLink.ts src/helpers/settingsLinks.js src/helpers/windowManager.js src/helpers/retryDictationCleanup.js src/stores/cleanupFailureStore.ts src/hooks src/App.jsx src/renderApp.jsx src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/locales test
 git commit -m "feat(voice): voice notices: cleanup retry, model switch, words-first errors"
 ```
 
@@ -3006,26 +4034,49 @@ git commit -m "refactor(ui): migrate every toast to notify() and remove the toas
 ```
 
 ---
-### Task 6: Dictation sessions and the route snapshot
+### Task 6: Dictation sessions, the route snapshot and the whole operation
 
-Closes review finding C2 and lays the groundwork for C1, I2 and I5. Every recording becomes a **dictation session**, with:
+Closes review finding C2 and, in round 2, R1-C2. It lays the groundwork for C1, I2 and I5. Every recording becomes a **dictation session**, with:
 - an id, which is also the `correlationId` Plan 07 asked for (its CCR-3);
 - an immutable, credential-free snapshot of every setting that decides where the audio and text go, taken when recording starts;
 - the recording's intents (Agent, translation, screen context, selection).
 
-The processing pipeline reads routing settings **only** from the session. A settings change during processing, during the undo window, or between cancel and Undo can therefore never move the audio to a different provider, and local audio can never go remote. Credentials are not in the snapshot. Main resolves API keys live by provider id (`ipcHandlers.js:8068-8075`), and the renderer-held keys are read live, so revoking a key makes the request fail explicitly instead of silently switching.
+The processing pipeline reads routing settings **only** from the session. A settings change during processing, during the undo window, or between cancel and Undo can therefore never move the audio to a different provider, and local audio can never go remote. Credentials are not in the snapshot. Main resolves API keys live by provider id (`ipcHandlers.js:8069-8075`), and the renderer-held keys are read live, so revoking a key makes the request fail explicitly instead of silently switching.
+
+**The whole operation, not only the speech (R1-C2).** A standalone Agent command does not end in the dictation pipeline:
+- It is banked for the assistant panel (`audioManager.js:2262-2275`, `:2295-2313`).
+- It is handed on through `useAudioRecording.js:474-504` and `useAssistantPanel.js:135-151`.
+- The panel's request then resolved its route from live settings again (`useChatStreaming.ts:233-238`).
+
+Record with a local Voice Assistant, cancel, switch it to a provider, then Undo: the speech stayed local, but the command went to the new provider. This task closes that path in two parts.
+
+- **The operation.** The banked command carries the session's credential-free **operation**, `{ sessionId, settings }`, the same frozen snapshot. The hook, `useAssistantPanel`, `AssistantPanel`, the onboarding demo and `useChatStreaming` pass it on. The panel's request resolves its route, prompt inputs and `correlationId` from it. A typed follow-up in the panel is a new request and uses live settings.
+- **The context.** What the user pointed at belongs to the session too. The hook requests the OS selection read and the screenshot at press time (`useAudioRecording.js:170-179`). Today a processing cancel clears both promises (`audioManager.js:3776-3778`), and `consumeSelectionCapture` (`:768-777`) then reads whatever is selected *now*. A per-session **context** (`createSessionContext`) now owns both reads:
+  - It moves with the session into the cancel buffer and back on Undo (Task 8). A restored command quotes or edits the original selection and carries the original screenshot.
+  - A restored session never reads the OS selection again. If it never had a read, its command runs as a standalone panel command, which types nothing.
+  - Main still re-validates the original target and text before it replaces anything (`selectionManager.js:213-235`). Its capture sessions live 5 minutes (`selectionManager.js:5`), longer than any undo window.
 
 **Files:**
 - Create: `src/helpers/dictationSession.js`
 - Modify: `src/helpers/audioManager.js`:
   - start the session in `startRecording` (≈1141) and `startStreamingRecording` (≈3430);
-  - add `settings()` and the `_activeSession` plumbing;
-  - make every read site listed in Step 4 take its routing settings from the session.
-- Modify: `src/services/ReasoningService.ts:65-141`. An explicit `config.provider` / `baseUrl` / `lanUrl` is always honoured, and dictation now always passes them. Add `config.settingsView`, which local-provider prompts read instead of live settings.
-- Modify: `src/services/BaseReasoningService.ts:33-58`. The `get*` helpers prefer `config.settingsView`.
+  - add `settings()` and the `_activeSession` / `_sessionContext` plumbing;
+  - make every read site listed in Step 4 take its routing settings from the session;
+  - read the selection and the screenshot through the session context (`:768-795`), and bank the operation with a panel command (`:2262-2275`).
+- Modify: `src/services/ReasoningService.ts:38-141`. An explicit `config.provider` / `baseUrl` / `lanUrl` is always honoured, and dictation now always passes them. Add `config.settingsView`, which local-provider prompts read instead of live settings.
+- Modify: `src/services/BaseReasoningService.ts:8-58`. `ReasoningConfig` gains `settingsView` and `correlationId`. The `get*` helpers prefer `config.settingsView`.
 - Modify: `src/config/prompts/index.ts:17-21`. `resolvePrompt(kind, opts)` accepts `opts.customPrompts`.
+- Modify: `src/hooks/useAudioRecording.js:474-504`. The Agent command carries `operation`.
+- Modify: `src/hooks/useAssistantPanel.js:135-151`. The pending command keeps it.
+- Modify: `src/components/dictation/AssistantPanel.tsx:46-52`, `:205-209`. The panel sends it.
+- Modify: `src/components/chat/useChatStreaming.ts:13-15`, `:84-97`, `:233`, `:380-397`. `sendToAI` resolves its route from it.
+- Modify: `src/hooks/useOnboardingAssistantDemo.ts:8-11`, `:58-60`. The onboarding demo sends it too.
+- Modify: `src/helpers/ipcHandlers.js`, `src/helpers/personalInference.js`, `src/services/ai/personalInferenceTypes.ts`, `src/helpers/dictationStreamingRouting.js` (the correlation id, Step 4.6).
+- Modify: `test/helpers/harness/audioManager.js`. Export `realSettingsStoreSource`.
 - Test: `test/helpers/dictationSession.test.js`
 - Test: `test/helpers/audioManagerSessionRoute.test.js`
+- Test: `test/helpers/dictationOperationHandoff.test.js`
+- Modify: `test/helpers/useAudioRecordingClipboardPersistence.test.js`, `test/helpers/assistantPanel.test.js`
 
 **Interfaces:**
 - Consumes `INFERENCE_SCOPES` (`src/config/inferenceScopes.ts:20-100`) and `selectResolvedLLMConfig` (`settingsStore.ts:2629`).
@@ -3037,30 +4088,54 @@ The processing pipeline reads routing settings **only** from the session. A sett
   export function isCredentialKey(key: string): boolean; // /apikey|secret|token|clientid|password|credential/i
   export function captureDictationSession({ settings, intents, agentName, id?, now? }): DictationSession;
   export function sessionSettings(session: DictationSession, live: object): object; // live, overlaid with the snapshot
+  export function sessionOperation(session: DictationSession): DictationOperation;  // frozen { sessionId, settings: session.settings }
+  export function createSessionContext({ sessionId, selection?, screen? }): SessionContext;
   // DictationSession (frozen):
   // { id: string; startedAt: number; settings: Readonly<Record<string, unknown>>; agentName: string;
   //   intents: { voiceAgentRequested: boolean; translationRequested: boolean; streaming: boolean;
   //              streamingProviderName: string | null; assistantSelectionContext: unknown } }
+  // SessionContext (owned by one session; it moves into the cancel buffer and back on Undo):
+  // { sessionId: string; readonly restored: boolean; readonly released: boolean;
+  //   selection(): Promise<SelectionCapture> | null; adoptSelection(read): read;
+  //   screen(): Promise<ScreenContextImage | null> | null; markRestored(): void; release(): void }
   ```
 
   ```js
   // AudioManager
-  beginDictationSession(intents): DictationSession;   // called at both start paths
+  beginDictationSession(intents): DictationSession;   // both start paths; adopts the press-time reads into a new SessionContext
   settings(): object;                                 // sessionSettings(this._activeSession, getSettings()) or getSettings()
   get activeSession(): DictationSession | null;
+  applySessionIntents(session, { context }?): void;   // Undo's entry point (Task 8)
+  _detachSessionOperation(): { session, context };    // cancel's exit point (Task 8): ends the session, keeps its reads
   ```
 
-- Every later task uses `session.id` as the correlation id. Task 8 stores the whole session in the undo hold.
+  ```ts
+  // src/components/chat/useChatStreaming.ts
+  export interface DictationOperation { sessionId: string; settings: Readonly<Record<string, unknown>> }
+  SendToAIOptions.operation?: DictationOperation;     // resolve this request's route from the dictation, not live Settings
+  ```
+
+  ```js
+  // test/helpers/harness/audioManager.js
+  realSettingsStoreSource(settingsKey): string;       // the real settings store, with getSettings() = real defaults + the suite's settings
+  ```
+
+- Every later task uses `session.id` as the correlation id. Task 8 stores the whole session in the undo hold, with its context from `_detachSessionOperation()`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `test/helpers/dictationSession.test.js`:
+Create `test/helpers/dictationSession.test.js`. `dictationSession.js` is a renderer module (Task 7 adds Plan 03's route graph to it), so the test loads it through the renderer harness:
 
 ```js
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-const load = () => import("../../src/helpers/dictationSession.js");
+async function load(t) {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-dictation-session-" });
+  return { vite, ...(await vite.ssrLoadModule("/helpers/dictationSession.js")) };
+}
 
 const live = {
   useLocalWhisper: true,
@@ -3077,8 +4152,8 @@ const live = {
   theme: "dark",
 };
 
-test("the snapshot is frozen, credential-free and covers every route key", async () => {
-  const { captureDictationSession, SESSION_ROUTE_KEYS, isCredentialKey } = await load();
+test("the snapshot is frozen, credential-free and covers every route key", async (t) => {
+  const { captureDictationSession, SESSION_ROUTE_KEYS, isCredentialKey } = await load(t);
   const session = captureDictationSession({
     settings: live,
     intents: { voiceAgentRequested: false, translationRequested: true, streaming: false, streamingProviderName: null },
@@ -3096,8 +4171,8 @@ test("the snapshot is frozen, credential-free and covers every route key", async
   assert.equal(session.intents.translationRequested, true);
 });
 
-test("the session view keeps the snapshot's route and the live credentials", async () => {
-  const { captureDictationSession, sessionSettings } = await load();
+test("the session view keeps the snapshot's route and the live credentials", async (t) => {
+  const { captureDictationSession, sessionSettings } = await load(t);
   const session = captureDictationSession({ settings: live, intents: {}, agentName: "Loqui" });
   const changed = { ...live, useLocalWhisper: false, cloudTranscriptionProvider: "groq", openaiApiKey: "sk-rotated" };
   const view = sessionSettings(session, changed);
@@ -3106,9 +4181,9 @@ test("the session view keeps the snapshot's route and the live credentials", asy
   assert.equal(view.openaiApiKey, "sk-rotated", "credentials are never frozen");
 });
 
-test("every inference scope the dictation pipeline uses is covered", async () => {
-  const { SESSION_ROUTE_KEYS } = await load();
-  const { INFERENCE_SCOPES } = await import("../../src/config/inferenceScopes.ts");
+test("every inference scope the dictation pipeline uses is covered", async (t) => {
+  const { vite, SESSION_ROUTE_KEYS } = await load(t);
+  const { INFERENCE_SCOPES } = await vite.ssrLoadModule("/config/inferenceScopes.ts");
   for (const scope of ["dictationCleanup", "dictationAgent", "dictationAgentVision", "dictationTranslation"]) {
     const keys = Object.values(INFERENCE_SCOPES[scope].storeKeys);
     assert.ok(keys.length >= 6, `${scope} has store keys`);
@@ -3122,6 +4197,37 @@ test("every inference scope the dictation pipeline uses is covered", async () =>
     assert.ok(SESSION_ROUTE_KEYS.includes(key), key);
   }
   assert.equal(SESSION_ROUTE_KEYS.includes("dictationAgent"), false, "fallbackScope is not a settings key");
+});
+
+test("the operation is the session's own credential-free snapshot", async (t) => {
+  const { captureDictationSession, sessionOperation, isCredentialKey } = await load(t);
+  const session = captureDictationSession({ settings: live, intents: {}, agentName: "Loqui", id: "rec-2" });
+  const operation = sessionOperation(session);
+  assert.deepEqual(operation, { sessionId: "rec-2", settings: session.settings });
+  assert.equal(operation.settings, session.settings, "no copy that could drift");
+  assert.equal(Object.isFrozen(operation), true);
+  for (const key of Object.keys(operation.settings)) assert.equal(isCredentialKey(key), false, key);
+});
+
+test("a session context keeps its first reads and forgets them on release", async (t) => {
+  const { createSessionContext } = await load(t);
+  const selection = Promise.resolve({ status: "selected", sessionId: "sel-1", text: "old" });
+  const screen = Promise.resolve({ data: "A", mediaType: "image/png" });
+  const context = createSessionContext({ sessionId: "rec-1", selection, screen });
+  assert.equal(context.selection(), selection);
+  assert.equal(context.screen(), screen);
+  const later = Promise.resolve({ status: "selected", sessionId: "sel-2", text: "new" });
+  assert.equal(context.adoptSelection(later), later);
+  assert.equal(context.selection(), selection, "a later read never replaces the session's own");
+  assert.equal(context.restored, false);
+  context.markRestored();
+  assert.equal(context.restored, true);
+  context.release();
+  assert.equal(context.selection(), null);
+  assert.equal(context.screen(), null);
+  assert.equal(context.released, true);
+  assert.equal(context.adoptSelection(later), later);
+  assert.equal(context.selection(), null, "a released context adopts nothing");
 });
 ```
 
@@ -3201,6 +4307,8 @@ test("Agent and translation intents come from the session, not from live flags",
   assert.equal(manager.voiceAgentRequested, true);
   assert.equal(manager.translationRequested, false);
   assert.equal(manager._activeSession, session);
+  assert.equal(manager._sessionContext.restored, true, "a restored session never reads the OS again");
+  assert.equal(manager._sessionContext.selection(), null);
 });
 
 test("a new streaming start resolves its provider from live settings, not the previous session", async (t) => {
@@ -3233,10 +4341,433 @@ test("no routing read in the dictation pipeline bypasses the session", () => {
 });
 ```
 
+Create `test/helpers/dictationOperationHandoff.test.js`. It covers R1-C2 through each real handoff: the real `processTranscriptionCore` → `processAgentCommand` → `_bankPanelAgentCommand` path on the real settings store, and the real `useChatStreaming` → `ReasoningService` path. Only the IPC leaves are fakes. The cancel and Undo steps call the two methods Task 8 wires in (`_detachSessionOperation` at cancel, `applySessionIntents` at restore). Task 8 repeats these cases through `restoreCancelled`.
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const React = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { loadAudioManager, realSettingsStoreSource } = require("./harness/audioManager");
+
+const LOCAL_AGENT = {
+  useDictationAgent: true,
+  dictationAgentMode: "local",
+  dictationAgentProvider: "qwen",
+  dictationAgentModel: "qwen3.5-2b-q4_k_m",
+  dictationAgentCustomApiKey: "sk-secret",
+  useCleanupModel: false,
+  voiceAgentScreenContext: true,
+  autoPasteEnabled: false,
+};
+const REMOTE_AGENT = {
+  ...LOCAL_AGENT,
+  dictationAgentMode: "providers",
+  dictationAgentProvider: "openai",
+  dictationAgentModel: "gpt-5-mini",
+};
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+// `selection()` and `screen()` answer with what is selected and on screen *now*.
+async function setupManager(t, { selection, screen }) {
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-operation-handoff-",
+    settingsKey: "__operationHandoffSettings",
+    settings: LOCAL_AGENT,
+    mockModules: {
+      "/stores/settingsStore": realSettingsStoreSource("__operationHandoffSettings"),
+      // The leaf transport: record what a selection edit sends, and answer it.
+      "/services/ReasoningService": `export default {
+        cancelAllRequests() {},
+        async processText(text, model, agentName, config) {
+          globalThis.__operationHandoffSent.push({ text, model, config });
+          const marker = config.systemPrompt.match(/__LOQUI_SELECTION_COMPLETE_[0-9a-f-]+__/)[0];
+          return "Fixed draft" + marker;
+        },
+      };`,
+    },
+  });
+  const sent = [];
+  globalThis.__operationHandoffSent = sent;
+  t.after(() => delete globalThis.__operationHandoffSent);
+  const reads = { selection: 0, screen: 0 };
+  loaded.window.electronAPI = {
+    ...loaded.window.electronAPI,
+    captureSelectedText: async () => (reads.selection++, selection()),
+    captureScreenContext: async () => (reads.screen++, screen()),
+  };
+  const manager = loaded.createManager({ isProcessing: true, pendingAssistantConversation: null });
+  // The hook's press-time sequence (useAudioRecording.js:153-179), then startRecording's session.
+  manager.setVoiceAgentRequested(true);
+  manager.beginScreenContextCapture();
+  manager.beginSelectionCapture();
+  const session = manager.beginDictationSession({});
+  await flush();
+  return { ...loaded, manager, session, sent, reads };
+}
+
+// cancelProcessing clears the raw reads first (audioManager.js:3776-3778);
+// the cancel buffer then takes the session, and Undo hands it back (Task 8).
+function cancelThenUndo(manager, changeTheWorld) {
+  manager._requestStreamingCancellation();
+  const held = manager._detachSessionOperation();
+  assert.equal(manager.activeSession, null);
+  assert.equal(held.context.released, false, "the reads survive the cancel");
+  changeTheWorld();
+  manager.applySessionIntents(held.session, { context: held.context });
+  return held;
+}
+
+test("a standalone Agent command carries its session's operation, not live Settings", async (t) => {
+  const { manager, session, setSettings } = await setupManager(t, {
+    selection: () => ({ status: "none" }),
+    screen: () => ({ data: "A", mediaType: "image/png" }),
+  });
+  setSettings(REMOTE_AGENT); // switched to OpenAI while the command was transcribing
+  await manager.processTranscriptionCore("draft a reply", "local-parakeet");
+  const { assistantConversation } = manager._takePendingResultExtras();
+  assert.equal(assistantConversation.transcript, "draft a reply");
+  assert.equal(assistantConversation.operation.sessionId, session.id);
+  assert.equal(assistantConversation.operation.settings, session.settings);
+  assert.equal(assistantConversation.operation.settings.dictationAgentMode, "local");
+  assert.equal("dictationAgentCustomApiKey" in assistantConversation.operation.settings, false, "no key rides along");
+});
+
+test("Undo of a standalone Agent command keeps its route and its press-time screenshot", async (t) => {
+  let shot = { data: "A", mediaType: "image/png" };
+  const { manager, session, reads, setSettings } = await setupManager(t, {
+    selection: () => ({ status: "none" }),
+    screen: () => shot,
+  });
+  cancelThenUndo(manager, () => {
+    setSettings(REMOTE_AGENT);
+    shot = { data: "B", mediaType: "image/png" };
+  });
+  await manager.processTranscriptionCore("draft a reply", "local-parakeet");
+  const { assistantConversation } = manager._takePendingResultExtras();
+  assert.equal(assistantConversation.operation.sessionId, session.id);
+  assert.equal(assistantConversation.operation.settings.dictationAgentMode, "local");
+  assert.equal(assistantConversation.screenContext.data, "A", "the screenshot from the press, not a new one");
+  assert.deepEqual(reads, { selection: 1, screen: 1 }, "Undo reads nothing from the OS again");
+});
+
+test("Undo of a selection edit edits the press-time selection on the session's route", async (t) => {
+  let selected = { status: "selected", sessionId: "sel-original", text: "teh draft", characterCount: 9 };
+  const { manager, session, sent, reads, setSettings } = await setupManager(t, {
+    selection: () => selected,
+    screen: () => null,
+  });
+  cancelThenUndo(manager, () => {
+    setSettings(REMOTE_AGENT);
+    selected = { status: "selected", sessionId: "sel-newer", text: "an unrelated paragraph", characterCount: 22 };
+  });
+  const text = await manager.processTranscriptionCore("fix the typo", "local-parakeet");
+  assert.equal(text, "Fixed draft");
+  // Main re-validates this capture's target and text before it replaces anything (selectionManager.js:213-235).
+  assert.deepEqual(manager._takePendingResultExtras().selectionEdit, { sessionId: "sel-original" });
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /teh draft/);
+  assert.doesNotMatch(sent[0].text, /unrelated paragraph/);
+  assert.equal(sent[0].model, "qwen3.5-2b-q4_k_m");
+  assert.equal(sent[0].config.provider, "local", "the local Voice Assistant, not OpenAI");
+  assert.equal(sent[0].config.correlationId, session.id);
+  assert.equal(reads.selection, 1);
+});
+
+test("a restored session without a press-time read never reads the OS selection", async (t) => {
+  const { manager, reads } = await setupManager(t, {
+    selection: () => ({ status: "selected", sessionId: "sel-now", text: "whatever is selected now", characterCount: 24 }),
+    screen: () => null,
+  });
+  manager._requestStreamingCancellation();
+  const { session } = manager._detachSessionOperation();
+  manager.applySessionIntents(session); // a context that never had a selection read
+  const capture = await manager.consumeSelectionCapture();
+  assert.deepEqual(capture, { status: "none" }, "the command goes to the panel as standalone");
+  assert.equal(reads.selection, 1, "only the press-time read");
+});
+
+test("the panel answers a voice command on its dictation's route, with its correlation id", async (t) => {
+  const requests = [];
+  const listeners = new Set();
+  const emit = (event) => [...listeners].forEach((listener) => listener(event));
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: {
+        llamaServerStart: async () => ({ success: true, port: 8123 }),
+        personalInference: {
+          onTextEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+          async textStream(request) {
+            requests.push(request);
+            emit({ requestId: request.requestId, type: "chunk", chunk: { type: "content", text: "Done." } });
+            emit({ requestId: request.requestId, type: "end" });
+          },
+          async textCancel() {},
+        },
+      },
+    },
+  });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-operation-panel-" });
+  const [{ default: i18n }, { initReactI18next }] = await Promise.all([
+    vite.ssrLoadModule("i18next"),
+    vite.ssrLoadModule("react-i18next"),
+  ]);
+  if (!i18n.isInitialized) {
+    const translation = JSON.parse(fs.readFileSync(path.join(__dirname, "../../src/locales/en/translation.json"), "utf8"));
+    await i18n.use(initReactI18next).init({ lng: "en", resources: { en: { translation } }, interpolation: { escapeValue: false } });
+  }
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { captureDictationSession, sessionOperation } = await vite.ssrLoadModule("/helpers/dictationSession.js");
+  const session = captureDictationSession({
+    settings: { ...useSettingsStore.getState(), ...LOCAL_AGENT },
+    intents: { voiceAgentRequested: true },
+    agentName: "Loqui",
+    id: "rec-9",
+  });
+  useSettingsStore.setState(REMOTE_AGENT); // Settings now say OpenAI
+  const reasoning = (await vite.ssrLoadModule("/services/ReasoningService.ts")).default;
+  t.after(() => reasoning.destroy());
+  const { useChatStreaming } = await vite.ssrLoadModule("/components/chat/useChatStreaming.ts");
+  let messages = [];
+  let streaming;
+  function Harness() {
+    streaming = useChatStreaming({
+      messages,
+      setMessages: (next) => (messages = typeof next === "function" ? next(messages) : next),
+      inferenceScope: "dictationAgent",
+    });
+    return null;
+  }
+  renderToStaticMarkup(React.createElement(Harness));
+  const user = { id: "u1", role: "user", content: "draft a reply", isStreaming: false };
+
+  await streaming.sendToAI("draft a reply", [user], { operation: sessionOperation(session) });
+  assert.equal(requests[0].provider, "local");
+  assert.equal(requests[0].model, "qwen3.5-2b-q4_k_m");
+  assert.equal(requests[0].baseUrl, "http://127.0.0.1:8123/v1");
+  assert.equal(requests[0].correlationId, "rec-9");
+
+  await streaming.sendToAI("and a typed follow-up", [user]);
+  assert.equal(requests[1].provider, "openai", "a typed follow-up is a new request on live Settings");
+  assert.equal(requests[1].correlationId, null);
+});
+```
+
+In `test/helpers/useAudioRecordingClipboardPersistence.test.js`, let `mountCompletionHarness` (`:64-173`) wire the two Agent callbacks:
+- Add `onAssistantCommand = NOOP`, `onOnboardingAssistantCommand = NOOP` and `onboardingCompleted = false` to its options.
+- Pass `initialStorage: onboardingCompleted ? { onboardingCompleted: "true" } : {}` to `installBrowserGlobals`.
+- Render `useAudioRecording(NOOP, { onDemoEvent: NOOP, onAssistantCommand, onOnboardingAssistantCommand })`.
+
+Then add:
+
+```js
+for (const [destination, onboardingCompleted] of [
+  ["the assistant panel", true],
+  ["the onboarding demo", false],
+]) {
+  test(`an Agent command reaches ${destination} with its dictation operation`, async (t) => {
+    const commands = [];
+    const operation = Object.freeze({
+      sessionId: "rec-4",
+      settings: Object.freeze({ snippets: [], dictationAgentMode: "local" }),
+    });
+    const harness = await mountCompletionHarness(t, {
+      settings: {},
+      onboardingCompleted,
+      onAssistantCommand: (command) => commands.push(command),
+      onOnboardingAssistantCommand: (command) => commands.push(command),
+    });
+    await harness.complete({
+      success: true,
+      text: "draft a reply",
+      assistantConversation: { transcript: "draft a reply", screenContext: null, operation },
+    });
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].text, "draft a reply");
+    assert.equal(commands[0].operation, operation);
+  });
+}
+```
+
+Add to `test/helpers/assistantPanel.test.js`:
+
+```js
+test("a voice command keeps its dictation operation until the panel sends it", async (t) => {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  const container = installInteractiveDom(t);
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-assistant-operation-hook-test-" });
+  const { useAssistantPanel } = await vite.ssrLoadModule("/hooks/useAssistantPanel.js");
+  const { createRoot } = require("react-dom/client");
+  let assistant;
+  function Harness() {
+    assistant = useAssistantPanel({
+      requestMainWindowSize: async () => ({ success: true }),
+      dictationErrorActionCount: 0,
+      recordingControlsRef: { current: null },
+    });
+    return null;
+  }
+  root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(Harness)));
+  const operation = { sessionId: "rec-5", settings: { dictationAgentMode: "local" } };
+  await React.act(async () => {
+    assistant.handleCommand({ text: "draft a reply", attachment: null, selectedContext: null, delivery: null, operation });
+  });
+  assert.equal(assistant.pendingCommand.operation, operation);
+  await React.act(async () => {
+    assistant.handleCommand({ text: "another", attachment: null, selectedContext: null, delivery: null });
+  });
+  assert.equal(assistant.pendingCommand.operation, null);
+});
+
+test("the panel sends a voice command with its dictation operation", async (t) => {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  const container = installInteractiveDom(t);
+  const sent = [];
+  globalThis.__assistantPanelSent = sent;
+  t.after(() => {
+    delete globalThis.__assistantPanelSent;
+  });
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-assistant-panel-operation-test-",
+    mockModules: {
+      "/components/icons": `
+        import React from "react";
+        const Icon = () => React.createElement("span");
+        export const Check = Icon;
+        export const Copy = Icon;
+        export const Plus = Icon;
+        export const X = Icon;
+      `,
+      "/chat/useChatPersistence": `
+        import { useState } from "react";
+        export function useChatPersistence() {
+          const [messages, setMessages] = useState([]);
+          return {
+            messages,
+            setMessages,
+            conversationId: null,
+            async createConversation() { return 1; },
+            async loadConversation() {},
+            saveUserMessage() {},
+            saveAssistantMessage() {},
+            handleNewChat() {},
+          };
+        }
+      `,
+      "/chat/useChatStreaming": `
+        export function useChatStreaming() {
+          return { agentState: "idle", activeToolName: null, toolStatus: "", cancelStream() {} };
+        }
+      `,
+      "/chat/useChatMessageSender": `
+        export function useChatMessageSender() {
+          return async (text, options) => {
+            globalThis.__assistantPanelSent.push({ text, options });
+            return true;
+          };
+        }
+      `,
+      "/chat/ChatInput": `
+        import React from "react";
+        export function ChatInput() { return React.createElement("input"); }
+      `,
+      "/dictation/AssistantEmptyState": `
+        import React from "react";
+        export function AssistantEmptyState() { return React.createElement("div", null, "Empty state"); }
+      `,
+      "/dictation/BrandMarkIcon": `
+        import React from "react";
+        export function BrandMarkIcon() { return React.createElement("span"); }
+      `,
+      "/ui/MarkdownRenderer": `
+        import React from "react";
+        export function MarkdownRenderer({ content }) { return React.createElement("div", null, content); }
+      `,
+      "/ui/button": `
+        import React from "react";
+        export function Button(props) { return React.createElement("button", props); }
+      `,
+      "/hooks/useWindowDrag": `
+        export function useWindowDrag() { return { handleMouseDown() {}, handleMouseUp() {} }; }
+      `,
+      "/hooks/useCopyFeedback": `
+        export function useCopyFeedback() {
+          return { copied: false, async copy() {}, confirmCopied() {} };
+        }
+      `,
+      "/stores/settingsStore": `
+        const state = { voiceAgentKey: [] };
+        export function useSettingsStore(selector) { return selector(state); }
+      `,
+      "/utils/hotkeys": `
+        export function formatHotkeyListLabel() { return ""; }
+      `,
+      "/ui/useToast": `
+        export function useToast() { return { toast() {} }; }
+      `,
+    },
+  });
+  const [{ default: viteI18next }, { initReactI18next }] = await Promise.all([
+    vite.ssrLoadModule("i18next"),
+    vite.ssrLoadModule("react-i18next"),
+  ]);
+  const translation = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "../../src/locales/en/translation.json"), "utf8")
+  );
+  await viteI18next.use(initReactI18next).init({
+    lng: "en",
+    resources: { en: { translation } },
+    interpolation: { escapeValue: false },
+  });
+  const { AssistantPanel } = await vite.ssrLoadModule("/components/dictation/AssistantPanel.tsx");
+  const { createRoot } = require("react-dom/client");
+  const operation = { sessionId: "rec-6", settings: { dictationAgentMode: "local" } };
+  root = createRoot(container);
+  await React.act(async () =>
+    root.render(
+      React.createElement(AssistantPanel, {
+        pendingCommand: { id: 1, text: "draft a reply", attachment: null, selectedContext: null, delivery: null, operation },
+        onCommandConsumed: noop,
+        onCommandDiscarded: noop,
+        onCommandSettled: noop,
+        initialConversationId: null,
+        onConversationIdChange: noop,
+        voiceState: "idle",
+        thinking: false,
+        open: true,
+        footerPhase: "pill",
+        horizontalDirection: "right",
+        onClose: noop,
+        onBusyChange: noop,
+        onResponseReadyChange: noop,
+        onResponseContent: noop,
+        onConversationReset: noop,
+        onSelectionContextChange: noop,
+      })
+    )
+  );
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].text, "draft a reply");
+  assert.equal(sent[0].options.operation, operation);
+});
+```
+
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js`
-Expected: FAIL with `Cannot find module '…/dictationSession.js'`.
+Run: `npm test -- test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js test/helpers/dictationOperationHandoff.test.js test/helpers/useAudioRecordingClipboardPersistence.test.js test/helpers/assistantPanel.test.js`
+Expected: FAIL. Vite cannot load `/helpers/dictationSession.js`, `realSettingsStoreSource` is not exported, and the hook and panel tests see no `operation`.
 
 - [ ] **Step 3: Implement `dictationSession.js`**
 
@@ -3310,11 +4841,76 @@ export function captureDictationSession({ settings, intents = {}, agentName = ""
 export function sessionSettings(session, live) {
   return session ? { ...live, ...session.settings } : live;
 }
+
+/**
+ * The dictation's route for work that outlives its pipeline: the assistant
+ * panel answers a banked Agent command on it (R1-C2). Credential-free, because
+ * `session.settings` is.
+ */
+export function sessionOperation(session) {
+  return Object.freeze({ sessionId: session.id, settings: session.settings });
+}
+
+/**
+ * What the user pointed at when this dictation started: the OS selection read
+ * and the screenshot, both requested at press time. One session owns them.
+ * They move with the session into the cancel buffer and back on Undo (Task 8),
+ * and are released when the session or its undo window ends.
+ */
+export function createSessionContext({ sessionId, selection = null, screen = null }) {
+  let selectionRead = selection;
+  let screenRead = screen;
+  let restored = false;
+  let released = false;
+  return {
+    sessionId,
+    get restored() {
+      return restored;
+    },
+    get released() {
+      return released;
+    },
+    selection: () => selectionRead,
+    /** Keep the first read this session takes; a later read never replaces it. */
+    adoptSelection(read) {
+      if (!released && !selectionRead && read) selectionRead = read;
+      return read;
+    },
+    screen: () => screenRead,
+    markRestored() {
+      restored = true;
+    },
+    release() {
+      released = true;
+      selectionRead = null;
+      screenRead = null;
+    },
+  };
+}
 ```
+
+In `test/helpers/harness/audioManager.js`, add this helper and export it next to `loadAudioManager`:
+
+```js
+// The real settings store, with the suite's settings over its real defaults.
+// Route selectors and Plan 03's route graph read the whole state, so suites
+// that exercise routing use this instead of the default stub.
+function realSettingsStoreSource(settingsKey) {
+  return `
+    export * from "/stores/settingsStore.ts";
+    import { useSettingsStore } from "/stores/settingsStore.ts";
+    export const getSettings = () => ({ ...useSettingsStore.getState(), ...globalThis.${settingsKey} });
+  `;
+}
+
+module.exports = { loadAudioManager, realSettingsStoreSource };
+```
+
+The local `getSettings` export shadows the star export. The `.ts` specifier does not end with the mocked suffix `/stores/settingsStore`, so it resolves to the real module.
 
 - [ ] **Step 4: Thread the session through `AudioManager`**
 
-1. **Plumbing.** Add `import { captureDictationSession, sessionSettings } from "./dictationSession";`, then add these methods near `getStreamingProviderName` (≈822):
+1. **Plumbing.** Add `import { captureDictationSession, createSessionContext, sessionOperation, sessionSettings } from "./dictationSession";`, then add these methods near `getStreamingProviderName` (`:821`):
 
    ```js
      beginDictationSession(intents = {}) {
@@ -3329,6 +4925,13 @@ export function sessionSettings(session, live) {
          },
          agentName: typeof window !== "undefined" && window.localStorage ? getAgentName() : "OpenWhispr",
        });
+       // The hook requested both reads at press time (useAudioRecording.js:170-179), before this start.
+       this._sessionContext?.release();
+       this._sessionContext = createSessionContext({
+         sessionId: this._activeSession.id,
+         selection: this.selectionCapturePromise,
+         screen: this.screenContextPromise,
+       });
        return this._activeSession;
      }
 
@@ -3341,18 +4944,24 @@ export function sessionSettings(session, live) {
        return sessionSettings(this._activeSession ?? null, getSettings());
      }
 
-     applySessionIntents(session) {
+     /** Undo's entry point (Task 8): the session, its intents and the reads it took at press time. */
+     applySessionIntents(session, { context = null } = {}) {
        this._activeSession = session;
        this.voiceAgentRequested = session.intents.voiceAgentRequested;
        this.translationRequested = session.intents.translationRequested;
        this.assistantSelectionContext = session.intents.assistantSelectionContext;
+       if (this._sessionContext && this._sessionContext !== context) this._sessionContext.release();
+       this._sessionContext =
+         context?.sessionId === session.id ? context : createSessionContext({ sessionId: session.id });
+       // A restored session never reads the OS selection or the screen again.
+       this._sessionContext.markRestored();
      }
    ```
 
    The `applySessionIntents` assignments must not go through `setVoiceAgentRequested`, because that setter (`:707-720`) also clears pending selection and screen state.
 2. **Start points.**
-   - In `startRecording`, after the guard at `:1145-1153` passes, call `this.beginDictationSession({ streaming: false, streamingProviderName: null });`.
-   - In `startStreamingRecording`, after its guard (`:3419-3427`), resolve the provider from **live** settings before the new session exists, then begin it:
+   - In `startRecording`, after the guard at `:1144-1153` passes, call `this.beginDictationSession({ streaming: false, streamingProviderName: null });`.
+   - In `startStreamingRecording`, after its guard (`:3422-3430`), resolve the provider from **live** settings before the new session exists, then begin it:
 
      ```js
          this._activeSession = null; // never let the previous session's pin leak into a new start
@@ -3360,18 +4969,32 @@ export function sessionSettings(session, live) {
          this.beginDictationSession({ streaming: true, streamingProviderName });
      ```
 
-   - **A session ends at the idle edge.** Add:
+   - **A session ends at the idle edge, and its reads go with it.** Add:
 
      ```js
        _endDictationSession(session) {
-         if (session && this._activeSession === session) this._activeSession = null;
+         if (!session || this._activeSession !== session) return;
+         this._activeSession = null;
+         if (this._sessionContext?.sessionId === session.id) {
+           this._sessionContext.release(); // drop the selection text and the screenshot with the session
+           this._sessionContext = null;
+         }
+       }
+
+       /** Cancel's exit point (Task 8): end the session, but keep what it read for Undo. */
+       _detachSessionOperation() {
+         const session = this._activeSession;
+         const context = session && this._sessionContext?.sessionId === session.id ? this._sessionContext : null;
+         if (context) this._sessionContext = null; // the cancel buffer owns it now
+         this._endDictationSession(session);
+         return { session, context };
        }
      ```
 
      Call `this._endDictationSession(this._activeSession)` in three places:
-     - in `_settleProcessingPipeline` (≈1735) when it settles the active pipeline;
+     - in `_settleProcessingPipeline` (`:1735`) when it settles the active pipeline;
      - in the `finally` of `stopStreamingRecording` (3745–3760) where it reports idle;
-     - in the idle branch of `cancelRecording` / `cancelStreamingRecording` (Task 8 hands the session to the cancel buffer first).
+     - in the idle branch of `cancelRecording` / `cancelStreamingRecording`. Task 8 hands the session and its context to the cancel buffer first, through `_detachSessionOperation()`.
 
      Between dictations, `settings()` is plain live settings, so warm-up and the next start never see a stale pin.
 3. **Read sites.** Each line below reads live settings today. Change each to `this.settings()`, or pass the view, and keep everything else the same.
@@ -3384,14 +5007,14 @@ export function sessionSettings(session, live) {
    | `processWithOpenAIAPI` `:2912` | `const settings = this.settings();`, and add `correlationId: this._activeSession?.id ?? null` to the payload (`:2934-2951`) |
    | `getTranscriptionModel` `:2992` | `const s = this.settings();` |
    | `getKeyterms` `:2907` | `this.settings().customDictionary` |
-   | `processTranscriptionCore` `:2594-2600` | `const settings = this.settings();`, `const cleanupModel = selectResolvedLLMConfig(settings, "dictationCleanup").model;`, `const agentName = this._activeSession?.agentName ?? getAgentName();` (import `selectResolvedLLMConfig` from the settings store) |
-   | `isReasoningAvailable` `:2444` | `const s = this.settings();` and `ReasoningService.isAvailable(s)` (see 5) |
+   | `processTranscriptionCore` `:2593-2600` | `const settings = this.settings();`, `const cleanupModel = selectResolvedLLMConfig(settings, "dictationCleanup").model;`, `const agentName = this._activeSession?.agentName ?? getAgentName();` (import `selectResolvedLLMConfig` from the settings store) |
+   | `isReasoningAvailable` `:2443` | `const s = this.settings();` and `ReasoningService.isAvailable(s)` (see 5) |
    | `processWithReasoningModel` `:2248` | `dictationAgentPrompt(this.settings(), agentName)` |
    | `_bankPanelAgentCommand` `:2301` | `this.settings()` |
-   | `consumeSelectionCapture` `:768-777` | `probeEditable: Boolean(this.settings().autoPasteEnabled)` |
+   | `consumeSelectionCapture` `:768-777` | rewritten in item 7 |
    | `processAgentCommand` `:2345` | `this.settings().autoPasteEnabled` |
    | `finalizeChineseScript` `:608` / `getEffectiveOutputLanguage` `:584` | default `settings = this.settings()` |
-   | `getStreamingProviderName` `:822` | `return this._activeSession?.intents.streamingProviderName ?? resolveStreamingProviderName({ settings: this.settings(), context: "dictation" })` |
+   | `getStreamingProviderName` `:821` | `return this._activeSession?.intents.streamingProviderName ?? resolveStreamingProviderName({ settings: this.settings(), context: "dictation" })` |
    | `_finalizeStreamingRecording` `:4006` | `this.settings()` |
    | streaming `provider.start` options (`:3586-3603`) | `settings: this.settings()`, and add `correlationId: this._activeSession.id` to `buildStreamingSessionOptions(...)` |
 
@@ -3421,38 +5044,142 @@ export function sessionSettings(session, live) {
        };
      ```
 
-   - Agent and translation configs already carry `provider` / `lanUrl` / `baseUrl` / `credentialRef` (`dictationAgentInference.js:36-48`, `dictationTranslationInference.js:30-41`). Add `settingsView: settings` to each in `resolveReasoningRoute`, and add `correlationId: this._activeSession?.id` where the route config is handed to `processWithReasoningModel` / `processAgentCommand` / `runTranslationChain`.
+   - Agent and translation configs already carry `provider` / `lanUrl` / `baseUrl` / `credentialRef` (`dictationAgentInference.js:47-54`, `dictationTranslationInference.js:30-41`). Add `settingsView: settings` to each in `resolveReasoningRoute`.
+   - Every text request of the dictation goes through `processWithReasoningModel` (`:2199`): cleanup, both translation steps (`:2507`, `:2518`) and the selection edit (`:2419`). Stamp the correlation id there once, directly after the `CALLING_REASONING_SERVICE` log (`:2200-2205`):
+
+     ```js
+         // Every text request of this dictation names it (§5.4). The text-only
+         // retry below spreads the same config, so it carries the id too.
+         config = { ...config, correlationId: config?.correlationId ?? this._activeSession?.id ?? null };
+     ```
+
 5. **ReasoningService and prompts.**
-   - `ReasoningService.processText` (`:65-141`): replace `const settings = getSettings();` with `const settings = config.settingsView ?? getSettings();`. The implicit branch stays for non-dictation callers.
+   - `ReasoningService.processText` (`:64-141`): replace `const settings = getSettings();` with `const settings = config.settingsView ?? getSettings();`. The implicit branch stays for non-dictation callers.
    - `isAvailable(settingsView?)`: read `settingsView ?? getSettings()`.
-   - `requestConfig` (`:34-62`): add `correlationId: config.correlationId ?? null` to the request object.
+   - `requestConfig` (`:38-62`): add `correlationId: config.correlationId ?? null` to the request object.
+   - `ReasoningConfig` (`BaseReasoningService.ts:8-30`): add `settingsView?: Record<string, unknown>;` and `correlationId?: string | null;`.
    - `BaseReasoningService.get*` (`:33-58`): each getter reads `this.config?.settingsView ?? getSettings()`. If the getters do not receive `config`, change their signatures to take it from `processText`, the only caller on this path.
    - `src/config/prompts/index.ts`: `resolvePrompt(kind, opts)` uses `opts.customPrompts ?? useSettingsStore.getState().customPrompts`.
    - `dictationAgentPrompt(settings, agentName)` (`audioManager.js:140-147`) and the translate prompt in `resolveReasoningRoute` (`:231-247`) pass `customPrompts: settings.customPrompts`.
 6. **Correlation id across IPC.**
-   - `src/helpers/ipcHandlers.js:7964-7989`: add `correlationId` to the destructured `transcribe-audio-file-byok` arguments and pass it to the job registration and to any egress gate call Plan 07 has installed.
-   - `src/helpers/personalInference.js` `validateRequest` (`:93-130`): accept an optional `correlationId` string of at most 100 characters.
-   - `src/types/personalInferenceTypes.ts` `TextRequest`: add `correlationId?: string | null`.
-   - `buildStreamingSessionOptions` (`dictationStreamingRouting.js:47-70`) passes `correlationId` through, and the hardened `dictation-realtime-start` allowlist (`ipcHandlers.js`, see the #1624 comment at `:300-302`) admits it. The per-provider start channels (Deepgram, AssemblyAI, Gemini, Corti) admit it too.
+   - `src/helpers/ipcHandlers.js:7963-7989`: add `correlationId` to the destructured `transcribe-audio-file-byok` arguments and pass it to the job registration and to any egress gate call Plan 07 has installed.
+   - `src/helpers/personalInference.js` `validateRequest` (`:93-171`): accept an optional `correlationId` string of at most 100 characters (`throw new Error("Invalid correlation id.")` otherwise).
+   - `src/services/ai/personalInferenceTypes.ts` `TextRequest` (`:6-20`): add `correlationId?: string | null`.
+   - `buildStreamingSessionOptions` (`dictationStreamingRouting.js:49-71`) passes `correlationId` through, and the hardened `dictation-realtime-start` allowlist (`ipcHandlers.js`, see the #1624 comment at `:300-302`) admits it. The per-provider start channels (Deepgram, AssemblyAI, Gemini, Corti) admit it too.
    - `test/helpers/audioManagerStreamingRouting.test.js` pins that allowlist; extend it with the new field.
+7. **The whole operation (R1-C2).**
+   - **The session's reads.** Add the ownership check, and read the selection and the screenshot through the session context:
+
+     ```js
+       _ownedSessionContext() {
+         const context = this._sessionContext;
+         return context && !context.released && context.sessionId === this._activeSession?.id ? context : null;
+       }
+
+       consumeSelectionCapture() {
+         const pending = this.selectionCapturePromise;
+         this.selectionCapturePromise = null;
+         const context = this._ownedSessionContext();
+         const original = context?.selection();
+         if (original) return original; // the press-time read; Undo hands back the same one
+         // A restored session never reads the OS selection again: what is selected
+         // now is not what the user pointed at. Its command goes to the panel as a
+         // standalone command, which types nothing.
+         if (context?.restored) return Promise.resolve({ status: "none" });
+         const read =
+           pending ??
+           window.electronAPI?.captureSelectedText?.({
+             probeEditable: Boolean(this.settings().autoPasteEnabled),
+           });
+         return context ? context.adoptSelection(read) : read;
+       }
+     ```
+
+     In `consumeScreenContext` (`:779-795`), replace its first two lines with:
+
+     ```js
+         // The press-time screenshot; a restored session gets the same one.
+         const pending = this._ownedSessionContext()?.screen() ?? this.screenContextPromise;
+         this.screenContextPromise = null;
+     ```
+
+     `_requestStreamingCancellation` (`:3768-3779`) still clears the raw promises, and the context keeps its own references. A main-side selection capture is single-use and lives 5 minutes (`selectionManager.js:5`, `:220-221`). `replaceSelectedText` and `pasteAtCapturedTarget` re-read the original target and refuse a changed target or text (`:226-235`, `:271-274`).
+   - **The banked command carries the operation.** In `_bankAssistantDirective` (`:2262-2275`), add the operation as the last field of `pendingAssistantConversation`:
+
+     ```js
+         const session = this._activeSession;
+         this.pendingAssistantConversation = {
+           transcript,
+           screenContext: config?.rawScreenContext ?? null,
+           ...(selectedContext ? { selectedContext } : {}),
+           ...(deliverySessionId ? { deliverySessionId } : {}),
+           // The panel answers on this dictation's route, never on Settings changed since (R1-C2).
+           ...(session ? { operation: sessionOperation(session) } : {}),
+         };
+     ```
+
+   - **`useAudioRecording.js:474-504`.** Take `operation` from `result.assistantConversation`, expand snippets with the session's own, and put it on the command. Both the panel path (`:495`) and the onboarding path (`:492`) then receive it:
+
+     ```js
+             const { screenContext, transcript, selectedContext, deliverySessionId, operation } =
+               result.assistantConversation;
+             const command = {
+               text: expandSnippets(transcript, operation?.settings?.snippets ?? getSettings().snippets),
+               attachment: screenContext
+                 ? { image: screenContext.data, mediaType: screenContext.mediaType }
+                 : null,
+               // The dictation's credential-free route (Task 6); the panel's request resolves from it.
+               operation: operation ?? null,
+             };
+     ```
+
+   - **`useAssistantPanel.js:135-151`.** In `handleCommand`, add `operation: command.operation ?? null,` to the object passed to `setPendingCommand`.
+   - **`AssistantPanel.tsx`.** Add `operation: DictationOperation | null;` to `AssistantCommand` (`:46-52`), with `import type { DictationOperation } from "../chat/useChatStreaming";`. In the pending-command effect, add `operation: pendingCommand.operation ?? undefined,` to the options passed to `sendMessage` (`:205-209`). `useChatMessageSender` already passes its options to `sendToAI` unchanged (`useChatMessageSender.ts:58-79`).
+   - **`useChatStreaming.ts`.** Import `type SettingsState` with `getSettings` (`:15`). Add the type and the option after `SendToAIOptions`'s `onComplete` (`:84-97`):
+
+     ```ts
+     /** A spoken command's dictation: its session id and credential-free route snapshot (Plan 04 Task 6). */
+     export interface DictationOperation {
+       sessionId: string;
+       settings: Readonly<Record<string, unknown>>;
+     }
+     ```
+
+     ```ts
+       /** Resolve this request's route from its dictation, not from live Settings. */
+       operation?: DictationOperation;
+     ```
+
+     At `:233`:
+
+     ```ts
+           // A spoken command answers on the route its dictation started with
+           // (R1-C2). Keys are never in the snapshot, so live credentials apply.
+           const settings = (
+             options?.operation ? { ...getSettings(), ...options.operation.settings } : getSettings()
+           ) as SettingsState;
+     ```
+
+     In the `processTextStreamingAI` config (`:380-397`), add `correlationId: options?.operation?.sessionId ?? null,`.
+   - **`useOnboardingAssistantDemo.ts`.** Add `operation?: DictationOperation | null;` to `OnboardingAssistantCommand` (`:8-11`), importing the type from `../components/chat/useChatStreaming`. Add `operation: command.operation ?? undefined,` to the `sendToAI` options (`:58-60`).
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js "test/helpers/audioManager*.test.js" "test/helpers/useAudioRecording*.test.js" "test/services/*.test.js"`
-Expected: PASS. If an existing reasoning test asserted the implicit cleanup provider, update it to the explicit config: the provider and endpoint are the same values, now passed in.
+Run: `npm test -- test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js test/helpers/dictationOperationHandoff.test.js test/helpers/useAudioRecordingClipboardPersistence.test.js test/helpers/assistantPanel.test.js "test/helpers/audioManager*.test.js" "test/helpers/useAudioRecording*.test.js" "test/helpers/useChatStreaming*.test.js" "test/services/*.test.js"`
+Expected: PASS. If an existing reasoning test asserted the implicit cleanup provider, update it to the explicit config: the provider and endpoint are the same values, now passed in. `audioManagerAssistantDirective.test.js` builds managers without a session, so its banked directives stay without `operation`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/helpers/dictationSession.js src/helpers/audioManager.js src/services src/config/prompts/index.ts src/helpers/ipcHandlers.js src/helpers/personalInference.js src/types/personalInferenceTypes.ts src/helpers/dictationStreamingRouting.js test
-git commit -m "feat(voice): dictation sessions pin their route at recording start"
+git add src/helpers/dictationSession.js src/helpers/audioManager.js src/services src/config/prompts/index.ts src/helpers/ipcHandlers.js src/helpers/personalInference.js src/helpers/dictationStreamingRouting.js src/hooks/useAudioRecording.js src/hooks/useAssistantPanel.js src/hooks/useOnboardingAssistantDemo.ts src/components/dictation/AssistantPanel.tsx src/components/chat/useChatStreaming.ts test
+git commit -m "feat(voice): dictation sessions pin their route and their Agent operation at recording start"
 ```
 
 ---
 
 ### Task 7: Who already received it: shared types and attested disclosure
 
-Closes review finding I5, and settles the disclosure shape with Plan 07 (CCR-6).
+Closes review finding I5 (round 2: R1-I5) and R2-I1, and settles the disclosure shape with Plan 07 (CCR-6).
 
 "OpenAI already received the audio" is a claim about egress, so main must attest it. When Plan 07's egress gate is present, evidence comes **only** from main's `EgressNotice`s for this session's `correlationId` with a content payload (spec §5.4):
 - `delivered` means `attested` ("already received");
@@ -3460,22 +5187,35 @@ Closes review finding I5, and settles the disclosure shape with Plan 07 (CCR-6).
 - `undelivered` withdraws that ticket's evidence; other tickets of the session still count;
 - `metadata` never counts.
 
-Renderer-side records are then ignored. When the gate is absent, which happens only if Plan 07 has not merged, the renderer records evidence only **after** a request has actually been handed to the transport. That means after `provider.start()` succeeded, or after a transcription or text request returned or failed *after* dispatch. The copy then says "may have received", never "already received".
+Renderer-side records are then ignored. The gate is absent only if Plan 07 has not merged. The renderer then records evidence only from **main's transport hand-off** (R1-I5):
+- Main sends `dictation-dispatch` `{ correlationId, task, payload }` to the requesting window immediately before a provider request leaves. That covers the BYOK upload and every cleanup, translation, Agent and vision text request, Codex included.
+- The renderer never infers dispatch from a result or an error. A renderer-side failure before IPC, a main rejection, a refused route, a missing key and a cancel before the upload all record nothing.
+- A cancel during a slow upload discloses as soon as the upload starts, not when the response settles.
+- Realtime streaming records once `provider.start()` resolves successfully. Main answers the start only after the socket has connected, and the frames sent while it connected are already queued in main (`ipcHandlers.js:7053-7056`).
+- The copy then says "may have received", never "already received".
 
-Startup failures, main-side validation rejections and Sealed-mode blocks record nothing. Translation, cleanup, Agent and vision requests are covered, not only speech. Provider-mode custom endpoints on loopback resolve to the device through Plan 03's resolver (clarification 9), so they never produce a disclosure.
+Sealed-mode blocks record nothing either way. Provider-mode custom endpoints on loopback resolve to the device through Plan 03's resolver (§5.1 rule 10), so they never produce a disclosure.
+
+**Route capture (R2-I1).** Each session resolves its five disclosure routes once, at start, with Plan 03's published imperative reader `routeSnapshotFromSettings(settings)` (§5.1; Plan 03 Task 3). It builds the complete `RouteSettingsSnapshot` from the current route facts, the sealed store and i18n, with no IPC and no subscription. The session passes it the live settings overlaid with its own snapshot: the same view every pipeline read uses. Facts the overlay window has not loaded only make a route's `state` `unknown`, because `locality` and `providerId` come from settings. Those two fields are all the tracker and Task 8's sealed pre-check read. A reader failure must never block a dictation. The session then has `routes: null`, and the tracker discloses every hand-off as an unknown provider: it fails toward disclosure (D4).
 
 **Files:**
-- Create: `src/types/dictation.ts`. These are the shared §5.2 types (CCR-1 to CCR-3, CCR-6) that Plans 05 and 07 import.
+- Create: `src/types/dictation.ts`. These are the shared §5.2 types (CCR-1 to CCR-3, CCR-6) that Plans 05 and 07 import, plus the hand-off event.
 - Create: `src/helpers/dictationDisclosure.js`
-- Modify: `src/helpers/dictationSession.js`. `captureDictationSession` also stores `session.routes`: the Plan 03 `ResolvedRoute` for `dictationStt`, `dictationCleanup`, `translation`, `voiceAssistant` and `assistantVision`, resolved from the snapshot.
+- Modify: `src/helpers/dictationSession.js`. `captureDictationSession` also stores `session.routes`: the Plan 03 `ResolvedRoute` for `dictationStt`, `dictationCleanup`, `translation`, `voiceAssistant` and `assistantVision`, from `routeSnapshotFromSettings`.
 - Modify: `src/helpers/audioManager.js`:
   - add the per-session disclosure tracker;
-  - attach main's egress feed;
-  - record route evidence at the four dispatch points in Step 4.
-- Modify: `src/helpers/ipcHandlers.js` `transcribe-audio-file-byok` (`:7964-8009`). Return `dispatched: false` on every path that fails **before** the provider request is sent: validation, a missing key, an unsupported route, or a Sealed block.
+  - record the streaming start;
+  - tag each text route config with its `disclosureTask` (`resolveReasoningRoute`, `:159-289`).
+- Modify: `src/services/ReasoningService.ts:38-62`, `src/services/BaseReasoningService.ts:8-30`, `src/services/ai/personalInferenceTypes.ts:6-20`. A text request carries `disclosureTask`.
+- Modify: `src/helpers/personalInference.js`. `validateRequest` (`:93-171`) checks `disclosureTask`. `execute` (`:347-512`) sends the hand-off right before `codex.generate` (`:392`), `streamText` (`:471`) and `generateText` (`:489`).
+- Modify: `src/helpers/ipcHandlers.js` `transcribe-audio-file-byok` (`:7963-8312`). Send the hand-off right before each of its five provider requests (`:8089`, `:8118`, `:8131`, `:8146`, `:8241`).
+- Modify: `preload.js`. Add `onDictationDispatch` after `transcribeAudioFileByok` (`:703`).
+- Modify: `src/types/electron.ts`. Declare `onDictationDispatch?` after `transcribeAudioFileByok?` (`:1713-1738`).
 - Test: `test/helpers/dictationDisclosure.test.js`
+- Modify: `test/helpers/dictationSession.test.js`, `test/helpers/personalInferenceTransport.test.js`, `test/helpers/retryTranscriptionHandler.test.js`
 
 **Interfaces:**
+- Consumes, from Plan 03 (`src/lib/routes.ts`, §5.1): `routeSnapshotFromSettings(settings: SettingsState): RouteSettingsSnapshot` and `resolveRoute(snapshot, id): ResolvedRoute`. For tests: `useRouteFactsStore` and `EMPTY_ROUTE_FACTS` (`src/stores/routeFactsStore.ts`), `useSealedStore` (`src/stores/sealedStore.ts`).
 - Produces `src/types/dictation.ts`:
 
   ```ts
@@ -3486,8 +5226,14 @@ Startup failures, main-side validation rejections and Sealed-mode blocks record 
   export interface RemoteDisclosure {
     target: string;
     payload: DisclosurePayload;          // strongest seen: audio > image > text
-    evidence: "attested" | "dispatched"; // attested = main's EgressNotice; dispatched = transport hand-off seen by the renderer
+    evidence: "attested" | "dispatched"; // attested = main's EgressNotice; dispatched = main's transport hand-off
     alsoSentTo: string[];                // every other target that received part of this dictation (never hidden)
+  }
+  /** Main → the requesting window, immediately before a provider request leaves. The no-Plan-07 evidence. */
+  export interface DictationDispatch {
+    correlationId: string;
+    task: DisclosureTask;
+    payload: DisclosurePayload;
   }
   export interface CancelledState {
     sessionId: string;
@@ -3515,18 +5261,22 @@ Startup failures, main-side validation rejections and Sealed-mode blocks record 
   export function disclosureTargetFor(route, settingsView): string | null; // null = stays on this device
   export function dispatchTargetLabel(target, t): string;                  // providerDisplayLabel, or the bare host
   export function disclosureCopy(d, t): string;                            // the caption text
-  export function createDisclosureTracker({ session, onChange, privacyApi? }): {
-    record({ task, payload, evidence }): void;      // renderer-side; ignored once main's feed is attached
+  export function createDisclosureTracker({ session, onChange, privacyApi?, dispatchApi? }): {
+    record({ task, payload, evidence }): void;      // renderer-side; ignored once main's egress feed is attached
     applyEgress(notice: EgressNotice): void;        // main's feed (§5.4); keeps per-ticket state
     get(): RemoteDisclosure | null; attested(): boolean;
-    setOnChange(fn): void; dispose(): void;         // dispose also detaches main's feed
+    setOnChange(fn): void; dispose(): void;         // dispose also detaches both of main's feeds
   };
-  // The tracker attaches itself at creation (privacyApi defaults to window.electronAPI.privacy).
-  // Its tickets live as long as the tracker, so a restored session keeps them (Task 8).
-  export function attachEgressEvidence(tracker, sessionId, privacyApi?): () => void; // no-op when Plan 07 is absent
+  // The tracker attaches itself at creation: privacyApi defaults to window.electronAPI.privacy,
+  // dispatchApi to window.electronAPI. Its tickets live as long as the tracker, so a restored session keeps them (Task 8).
+  export function attachEgressEvidence(tracker, sessionId, privacyApi?): () => void;   // no-op when Plan 07 is absent
+  export function attachDispatchEvidence(tracker, sessionId, dispatchApi?): () => void; // main's hand-off; record() ignores it under Plan 07
   ```
 
-- [ ] **Step 1: Write the failing test**
+- Produces, main → renderer: the `dictation-dispatch` event (`DictationDispatch`), and `window.electronAPI.onDictationDispatch(cb): () => void`.
+- Produces, on `TextRequest` / `ReasoningConfig`: `disclosureTask?: DisclosureTask | null`. Main validates it and echoes it in the hand-off. Without both `correlationId` and `disclosureTask`, a text request is never handed off, so typed chat and the panel's later requests produce no dictation evidence.
+
+- [ ] **Step 1: Write the failing tests**
 
 Create `test/helpers/dictationDisclosure.test.js`:
 
@@ -3534,10 +5284,15 @@ Create `test/helpers/dictationDisclosure.test.js`:
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const test = require("node:test");
+const { loadAudioManager, realSettingsStoreSource } = require("./harness/audioManager");
 
 const load = () => import("../../src/helpers/dictationDisclosure.js");
 const route = (id, locality, providerId = null) => ({ id, locality, providerId, provider: null, state: { status: "ready" } });
 const session = (routes) => ({ id: "rec-1", routes, settings: { remoteTranscriptionUrl: "http://gpu-box.lan:8080/v1", cleanupRemoteUrl: "http://10.0.0.5:11434/v1" } });
+const handOffBus = () => {
+  const bus = new EventEmitter();
+  return { bus, dispatchApi: { onDictationDispatch: (cb) => (bus.on("d", cb), () => bus.off("d", cb)) } };
+};
 
 test("targets come from the session's resolved route: device is silent, network is a host, remote is a provider id", async () => {
   const { disclosureTargetFor } = await load();
@@ -3549,7 +5304,7 @@ test("targets come from the session's resolved route: device is silent, network 
   assert.equal(disclosureTargetFor(route("dictationStt", "remote", null), s.settings), "", "unknown remote still discloses");
 });
 
-test("a loopback custom endpoint resolves to the device and never discloses (Plan 03 clarification 9)", async () => {
+test("a loopback custom endpoint resolves to the device and never discloses (§5.1 rule 10)", async () => {
   const { disclosureTargetFor } = await load();
   // Plan 03's resolver reports provider-mode custom on localhost as device.
   assert.equal(disclosureTargetFor(route("dictationCleanup", "device", null), {}), null);
@@ -3588,7 +5343,7 @@ test("every receiver is named; the primary is the strongest evidence, then the s
   assert.equal(seen.length, 2);
 });
 
-test("an attested receiver is never downgraded by a later renderer-side guess", async () => {
+test("an attested receiver is never downgraded by a later renderer-side record", async () => {
   const { createDisclosureTracker } = await load();
   const s = session({ dictationStt: route("dictationStt", "remote", "openai") });
   const tracker = createDisclosureTracker({ session: s });
@@ -3608,12 +5363,35 @@ test("setOnChange redirects later evidence to a new listener (cancel window upda
   assert.deepEqual(seen, ["dispatched", "attested"]);
 });
 
+test("a session whose routes could not be resolved discloses as an unknown provider (D4)", async () => {
+  const { createDisclosureTracker } = await load();
+  const tracker = createDisclosureTracker({ session: { id: "rec-1", routes: null, settings: {} } });
+  tracker.record({ task: "dictationCleanup", payload: "text", evidence: "dispatched" });
+  assert.deepEqual(tracker.get(), { target: "", payload: "text", evidence: "dispatched", alsoSentTo: [] });
+});
+
+test("main's hand-off (no Plan 07) records may-have for this session only; dispose detaches it", async () => {
+  const { createDisclosureTracker } = await load();
+  const s = session({ dictationStt: route("dictationStt", "remote", "openai"), dictationCleanup: route("dictationCleanup", "device") });
+  const { bus, dispatchApi } = handOffBus();
+  const tracker = createDisclosureTracker({ session: s, dispatchApi });
+  bus.emit("d", { correlationId: "rec-2", task: "dictationStt", payload: "audio" });
+  bus.emit("d", { correlationId: "rec-1", task: "dictationCleanup", payload: "text" });
+  bus.emit("d", { correlationId: "rec-1", task: "chat", payload: "text" });
+  assert.equal(tracker.get(), null, "another session, a device route and an unknown task disclose nothing");
+  bus.emit("d", { correlationId: "rec-1", task: "dictationStt", payload: "audio" });
+  assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
+  tracker.dispose();
+  assert.equal(bus.listenerCount("d"), 0);
+});
+
 test("main's egress feed (§5.4): delivered attests, dispatched may-have, undelivered withdraws its ticket", async () => {
   const { createDisclosureTracker, attachEgressEvidence } = await load();
   const s = session({ dictationStt: route("dictationStt", "remote", "openai") });
   const bus = new EventEmitter();
   const privacy = { onEgress: (cb) => (bus.on("n", cb), () => bus.off("n", cb)) };
-  const tracker = createDisclosureTracker({ session: s, privacyApi: privacy });
+  const handOff = handOffBus();
+  const tracker = createDisclosureTracker({ session: s, privacyApi: privacy, dispatchApi: handOff.dispatchApi });
   const n = (o) =>
     bus.emit("n", { task: "dictationStt", targetId: "openai", host: "api.openai.com", payload: "audio", correlationId: "rec-1", ts: 1, ...o });
 
@@ -3622,7 +5400,8 @@ test("main's egress feed (§5.4): delivered attests, dispatched may-have, undeli
   bus.emit("n", { phase: "recorded", event: { id: 1 } });
   assert.equal(tracker.get(), null, "token fetches, other sessions and flight-recorder rows do not count");
   tracker.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" });
-  assert.equal(tracker.get(), null, "with Plan 07 present, only main's notices count");
+  handOff.bus.emit("d", { correlationId: "rec-1", task: "dictationStt", payload: "audio" });
+  assert.equal(tracker.get(), null, "with Plan 07 present, only main's egress notices count");
 
   n({ phase: "dispatched", ticketId: 3 });
   assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
@@ -3643,46 +5422,242 @@ test("main's egress feed (§5.4): delivered attests, dispatched may-have, undeli
   assert.deepEqual(tracker.get().alsoSentTo, ["host:gpu-box.lan"]);
 
   tracker.dispose();
-  assert.equal(bus.listenerCount("n"), 0, "dispose detaches main's feed");
+  assert.equal(bus.listenerCount("n"), 0, "dispose detaches main's egress feed");
+  assert.equal(handOff.bus.listenerCount("d"), 0, "and its hand-off feed");
   assert.equal(attachEgressEvidence(tracker, "rec-1", undefined)(), undefined, "absent Plan 07 is a no-op");
 });
 ```
 
-Add these AudioManager cases to the same file. They use the `loadAudioManager` harness and the session from Task 6.
+Add these AudioManager cases to the same file. They run the real `processWithOpenAIAPI`, `processWithReasoningModel` and `ReasoningService`, on the real settings store and the real Plan 03 route graph. Only the IPC leaves are fakes, and `bus` stands in for main's `dictation-dispatch` event.
 
 ```js
-const { loadAudioManager } = require("./harness/audioManager");
+const REMOTE_STT = { useLocalWhisper: false, transcriptionMode: "providers", cloudTranscriptionProvider: "openai", cloudTranscriptionModel: "whisper-1" };
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const blob = () => new Blob([new Uint8Array(8)], { type: "audio/webm" });
 
-async function managerWith(t, electronAPI) {
-  const loaded = await loadAudioManager(t, { cachePrefix: "openwhispr-disclosure-", settingsKey: "__disclosureSettings",
-    settings: { useLocalWhisper: false, cloudTranscriptionProvider: "openai", transcriptionMode: "providers", openaiApiKey: "sk" } });
-  loaded.window.electronAPI = { ...loaded.window.electronAPI, cancelUploadTranscription: () => {}, ...electronAPI };
-  const manager = Object.assign(Object.create(loaded.AudioManager.prototype), { getTranscriptionModel: () => "whisper-1" });
-  manager.beginDictationSession({});
-  return manager;
+async function managerWith(t, electronAPI, { mockModules = {} } = {}) {
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-disclosure-",
+    settingsKey: "__disclosureSettings",
+    settings: REMOTE_STT,
+    mockModules: { "/stores/settingsStore": realSettingsStoreSource("__disclosureSettings"), ...mockModules },
+  });
+  const bus = new EventEmitter();
+  loaded.window.electronAPI = {
+    ...loaded.window.electronAPI,
+    cancelUploadTranscription: () => {},
+    onDictationDispatch: (cb) => (bus.on("d", cb), () => bus.off("d", cb)),
+    ...electronAPI(bus),
+  };
+  const manager = loaded.createManager({ isProcessing: true });
+  manager.beginDictationSession({}); // the tracker subscribes to main's hand-off here
+  return { ...loaded, manager, bus };
 }
 
-test("a request main rejected before dispatch discloses nothing", async (t) => {
-  const manager = await managerWith(t, {
-    transcribeAudioFileByok: async () => ({ success: false, dispatched: false, code: "SEALED_BLOCKED" }),
-  });
-  await manager.processWithOpenAIAPI(new Blob([new Uint8Array(8)]), {}, () => false).catch(() => {});
+test("a held upload discloses when main hands it off, before the provider answers", async (t) => {
+  let answer;
+  const { manager } = await managerWith(t, (bus) => ({
+    transcribeAudioFileByok: (payload) => {
+      bus.emit("d", { correlationId: payload.correlationId, task: "dictationStt", payload: "audio" });
+      return new Promise((resolve) => (answer = resolve));
+    },
+  }));
+  const pending = manager.processWithOpenAIAPI(blob(), {}, () => false);
+  while (!answer) await tick();
+  assert.deepEqual(manager.getDisclosure(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
+  answer({ success: false, error: "Rate limit exceeded. Please try again later." });
+  await assert.rejects(pending, /Rate limit/);
+  assert.equal(manager.getDisclosure().evidence, "dispatched", "an error after the hand-off keeps the evidence");
+});
+
+test("an upload main refuses before sending discloses nothing", async (t) => {
+  const { manager } = await managerWith(t, () => ({
+    transcribeAudioFileByok: async () => ({ success: false, error: "Sealed mode is on", code: "SEALED_BLOCKED" }),
+  }));
+  await assert.rejects(manager.processWithOpenAIAPI(blob(), {}, () => false), /Sealed mode/);
   assert.equal(manager.getDisclosure(), null);
 });
 
-test("a request that reached the provider discloses as dispatched", async (t) => {
-  const manager = await managerWith(t, { transcribeAudioFileByok: async () => ({ success: false, error: "429", status: 429 }) });
-  await manager.processWithOpenAIAPI(new Blob([new Uint8Array(8)]), {}, () => false).catch(() => {});
-  assert.deepEqual(manager.getDisclosure(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
+test("a cancelled start never reaches IPC and discloses nothing", async (t) => {
+  let calls = 0;
+  const { manager } = await managerWith(t, () => ({
+    transcribeAudioFileByok: async () => (calls++, { success: true, text: "hello" }),
+  }));
+  await assert.rejects(manager.processWithOpenAIAPI(blob(), {}, () => true), { name: "AbortError" });
+  assert.equal(calls, 0);
+  assert.equal(manager.getDisclosure(), null);
+});
+
+test("a text request refused before IPC or by main discloses nothing", async (t) => {
+  const { manager, vite } = await managerWith(
+    t,
+    () => ({
+      personalInference: {
+        onTextEvent: () => () => {},
+        // Main's own rejection: no hand-off was sent (personalInference.js:409-411).
+        textGenerate: async () => {
+          throw new Error("Configure the anthropic API key in Settings.");
+        },
+      },
+    }),
+    { mockModules: { "/services/ReasoningService": 'export { default } from "/services/ReasoningService.ts";' } }
+  );
+  const reasoning = (await vite.ssrLoadModule("/services/ReasoningService.ts")).default;
+  t.after(() => reasoning.destroy());
+  const config = { provider: "anthropic", inferenceScope: "dictationCleanup", disclosureTask: "dictationCleanup", systemPrompt: "Clean up." };
+  // ReasoningService.ts:47 and :44-45: renderer-side failures before IPC.
+  await assert.rejects(manager.processWithReasoningModel("hello", "", "Loqui", config), /No reasoning model selected/);
+  await assert.rejects(
+    manager.processWithReasoningModel("hello", "m", "Loqui", { ...config, provider: "not-a-provider" }),
+    /Unsupported reasoning provider/
+  );
+  await assert.rejects(manager.processWithReasoningModel("hello", "claude", "Loqui", config), /Configure the anthropic API key/);
+  assert.equal(manager.getDisclosure(), null);
+});
+```
+
+Add the route cases to `test/helpers/dictationSession.test.js` (R2-I1). They load the **real** Plan 03 modules through the renderer harness, with no mocks:
+
+```js
+const { loadAudioManager, realSettingsStoreSource } = require("./harness/audioManager");
+
+test("the session resolves its routes through Plan 03's reader: local, provider, network and unknown facts", async (t) => {
+  const { vite, captureDictationSession } = await load(t);
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { useRouteFactsStore, EMPTY_ROUTE_FACTS } = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
+  const { useSealedStore } = await vite.ssrLoadModule("/stores/sealedStore.ts");
+  const base = useSettingsStore.getState();
+  const routesFor = (overrides) =>
+    captureDictationSession({ settings: { ...base, ...overrides }, intents: {}, agentName: "Loqui" }).routes;
+  // The overlay window may never load route facts: every fact unknown.
+  useRouteFactsStore.setState({ facts: EMPTY_ROUTE_FACTS });
+
+  const provider = routesFor({ transcriptionMode: "providers", useLocalWhisper: false, cloudTranscriptionProvider: "openai", cloudTranscriptionModel: "whisper-1" });
+  assert.deepEqual(Object.keys(provider).sort(), ["assistantVision", "dictationCleanup", "dictationStt", "translation", "voiceAssistant"]);
+  assert.equal(provider.dictationStt.locality, "remote");
+  assert.equal(provider.dictationStt.providerId, "openai");
+  assert.equal(provider.dictationStt.state.status, "unknown", "unknown facts are not ready, and the locality still holds");
+
+  const local = routesFor({ transcriptionMode: "local", useLocalWhisper: true, localTranscriptionProvider: "whisper", whisperModel: "base", useCleanupModel: true, cleanupMode: "local", cleanupModel: "qwen3.5-2b-q4_k_m" });
+  assert.equal(local.dictationStt.locality, "device");
+  assert.equal(local.dictationCleanup.locality, "device");
+
+  const network = routesFor({ transcriptionMode: "self-hosted", useLocalWhisper: false, remoteTranscriptionUrl: "http://192.168.1.20:8080", remoteTranscriptionModel: "whisper-1" });
+  assert.equal(network.dictationStt.locality, "network");
+  const loopback = routesFor({ transcriptionMode: "self-hosted", useLocalWhisper: false, remoteTranscriptionUrl: "http://127.0.0.1:8080", remoteTranscriptionModel: "whisper-1" });
+  assert.equal(loopback.dictationStt.locality, "device", "§5.1 rule 10");
+
+  const agent = routesFor({ useDictationAgent: true, dictationAgentMode: "providers", dictationAgentProvider: "anthropic", dictationAgentModel: "claude-sonnet-5" });
+  assert.equal(agent.voiceAssistant.locality, "remote");
+  assert.equal(agent.voiceAssistant.providerId, "anthropic");
+
+  useSealedStore.setState({ sealed: true, known: true });
+  const sealed = routesFor({ transcriptionMode: "providers", useLocalWhisper: false, cloudTranscriptionProvider: "openai", cloudTranscriptionModel: "whisper-1" });
+  assert.deepEqual(sealed.dictationStt.state, { status: "unreachable", detail: "sealed" });
+});
+
+test("a route reader failure never blocks a dictation: the session starts without routes", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-dictation-session-reader-failure-",
+    mockModules: {
+      "/lib/routes": `
+        export function routeSnapshotFromSettings() { throw new Error("route facts unavailable"); }
+        export function resolveRoute() { throw new Error("unreachable"); }
+      `,
+    },
+  });
+  const { captureDictationSession } = await vite.ssrLoadModule("/helpers/dictationSession.js");
+  const session = captureDictationSession({ settings: { useLocalWhisper: true }, intents: {}, agentName: "Loqui", id: "rec-x" });
+  assert.equal(session.id, "rec-x");
+  assert.equal(session.routes, null, "the tracker then discloses toward an unknown provider");
+});
+
+test("AudioManager's start path builds the session against the merged route module", async (t) => {
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-session-routes-",
+    settingsKey: "__sessionRoutesSettings",
+    settings: { transcriptionMode: "providers", useLocalWhisper: false, cloudTranscriptionProvider: "groq", cloudTranscriptionModel: "whisper-large-v3" },
+    mockModules: { "/stores/settingsStore": realSettingsStoreSource("__sessionRoutesSettings") },
+  });
+  const session = loaded.createManager().beginDictationSession({});
+  assert.equal(session.routes.dictationStt.locality, "remote");
+  assert.equal(session.routes.dictationStt.providerId, "groq");
+  assert.equal(Object.isFrozen(session.routes.dictationStt), true);
+});
+```
+
+Add these main-side cases to `test/helpers/personalInferenceTransport.test.js`. They use its `harness(t, behavior)` (`:6-108`), whose `wait` model holds the response until it is cancelled:
+
+```js
+test("a dictation text request is handed off before the provider answers (no Plan 07)", async (t) => {
+  const { invoke, request, sender, modelCalls } = harness(t, { wait: true });
+  const handOffs = [];
+  const send = sender.send;
+  sender.send = (channel, payload) => (channel === "dictation-dispatch" ? handOffs.push(payload) : send(channel, payload));
+  const pending = invoke("text-generate", { ...request, correlationId: "rec-1", disclosureTask: "dictationCleanup" });
+  while (modelCalls.length < 2) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(handOffs, [{ correlationId: "rec-1", task: "dictationCleanup", payload: "text" }]);
+  await invoke("text-cancel", request.requestId);
+  await assert.rejects(pending, /abort/i);
+});
+
+test("a text request main rejects, or that names no dictation, is never handed off", async (t) => {
+  const { invoke, request, sender } = harness(t);
+  const handOffs = [];
+  sender.send = (channel, payload) => channel === "dictation-dispatch" && handOffs.push(payload);
+  await assert.rejects(
+    invoke("text-generate", { ...request, model: " ", correlationId: "rec-1", disclosureTask: "dictationCleanup" }),
+    /Choose a text model/
+  );
+  await assert.rejects(
+    invoke("text-generate", { ...request, correlationId: "rec-1", disclosureTask: "chat" }),
+    /Invalid disclosure task/
+  );
+  await invoke("text-generate", request); // typed chat: no correlation id
+  assert.deepEqual(handOffs, []);
+});
+```
+
+Add this case to `test/helpers/retryTranscriptionHandler.test.js`. It uses the registered handler and the deferrable `fetchResponse` (`:15-22`):
+
+```js
+test("captured dictation audio is handed off right before the upload, never on a refused route", async () => {
+  fetches.length = 0;
+  const handOffs = [];
+  const sender = { isDestroyed: () => false, send: (channel, payload) => handOffs.push({ channel, payload }) };
+  const upload = (payload) =>
+    handlers.get("transcribe-audio-file-byok")(
+      { sender },
+      { audioBuffer: WAV_BUFFER, mimeType: "audio/wav", provider: "openai", model: "whisper-1", correlationId: "rec-1", ...payload }
+    );
+  const ok = fetchResponse;
+  let respond;
+  fetchResponse = () => new Promise((resolve) => (respond = resolve));
+  try {
+    const pending = upload({ requestId: "hand-off", transcriptionMode: "providers" });
+    while (!respond) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(handOffs, [
+      { channel: "dictation-dispatch", payload: { correlationId: "rec-1", task: "dictationStt", payload: "audio" } },
+    ], "sent before the provider answered");
+    respond(ok());
+    assert.equal((await pending).success, true);
+  } finally {
+    fetchResponse = ok;
+  }
+  handOffs.length = 0;
+  const refused = await upload({ requestId: "hand-off-refused", transcriptionMode: "openwhispr" });
+  assert.equal(refused.success, false, "transcriptionRoute.ts:216 refuses a retired mode");
+  assert.deepEqual(handOffs, []);
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- test/helpers/dictationDisclosure.test.js`
-Expected: FAIL with `Cannot find module '…/dictationDisclosure.js'`.
+Run: `npm test -- test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/personalInferenceTransport.test.js test/helpers/retryTranscriptionHandler.test.js`
+Expected: FAIL with `Cannot find module '…/dictationDisclosure.js'`. The session has no `routes`, and main sends no `dictation-dispatch`.
 
-- [ ] **Step 3: Implement the types and the tracker**
+- [ ] **Step 3: Implement the types, the tracker and the session routes**
 
 Create `src/types/dictation.ts` with exactly the Interfaces block above.
 
@@ -3692,6 +5667,7 @@ Create `src/helpers/dictationDisclosure.js`:
 import { providerDisplayLabel } from "../lib/locality";
 
 export const PAYLOAD_RANK = { text: 1, image: 2, audio: 3 };
+const DISCLOSURE_TASKS = new Set(["dictationStt", "dictationCleanup", "translation", "voiceAssistant", "assistantVision"]);
 
 // The user's own server is named by host; every other non-device route by
 // provider id. Network-route URLs come from the session's own snapshot.
@@ -3734,12 +5710,13 @@ export function disclosureCopy(d, t) {
 
 const EVIDENCE_RANK = { dispatched: 1, attested: 2 };
 
-export function createDisclosureTracker({ session, onChange, privacyApi } = {}) {
+export function createDisclosureTracker({ session, onChange, privacyApi, dispatchApi } = {}) {
   let listener = onChange;
   const byTarget = new Map(); // target -> { payload, evidence }
   const tickets = new Map(); // main's ticketId -> { target, payload, phase }
   let mainFed = false;
   let detach = () => undefined;
+  let detachDispatch = () => undefined;
   let attested = false;
   let current = null;
   const settingsView = session?.settings ?? {};
@@ -3754,9 +5731,10 @@ export function createDisclosureTracker({ session, onChange, privacyApi } = {}) 
   };
   const tracker = {
     record({ task, payload, evidence }) {
-      if (mainFed) return; // Plan 07 present: main's notices are the only evidence (§5.2)
+      if (mainFed) return; // Plan 07 present: main's egress notices are the only evidence (§5.2)
       if (!PAYLOAD_RANK[payload]) return; // "metadata" never counts
-      const target = disclosureTargetFor(session?.routes?.[task], settingsView);
+      // No routes (the reader failed): fail toward disclosure, as an unknown provider (D4).
+      const target = session?.routes ? disclosureTargetFor(session.routes[task], settingsView) : "";
       if (target === null) return;
       merge(target, payload, evidence);
     },
@@ -3779,6 +5757,9 @@ export function createDisclosureTracker({ session, onChange, privacyApi } = {}) 
       mainFed = true;
       detach = off;
     },
+    _startDispatchFeed(off) {
+      detachDispatch = off;
+    },
     get: () => current,
     attested: () => attested,
     setOnChange(fn) {
@@ -3786,13 +5767,17 @@ export function createDisclosureTracker({ session, onChange, privacyApi } = {}) 
     },
     dispose() {
       detach();
+      detachDispatch();
       byTarget.clear();
       tickets.clear();
       current = null;
       listener = undefined;
     },
   };
-  if (session?.id) attachEgressEvidence(tracker, session.id, privacyApi);
+  if (session?.id) {
+    attachEgressEvidence(tracker, session.id, privacyApi);
+    attachDispatchEvidence(tracker, session.id, dispatchApi);
+  }
   return tracker;
 
   function merge(target, payload, evidence, { quiet = false } = {}) {
@@ -3822,63 +5807,139 @@ export function attachEgressEvidence(tracker, sessionId, privacyApi = globalThis
   tracker._startMainFeed?.(off);
   return off;
 }
+
+/**
+ * Main's transport hand-off for this session (no Plan 07): sent right before a
+ * provider request leaves, so it is "may have received", never "already
+ * received". record() ignores it once Plan 07's egress feed is attached.
+ */
+export function attachDispatchEvidence(tracker, sessionId, dispatchApi = globalThis.window?.electronAPI) {
+  if (!dispatchApi?.onDictationDispatch) return () => undefined;
+  const off = dispatchApi.onDictationDispatch((dispatch) => {
+    if (dispatch?.correlationId !== sessionId || !DISCLOSURE_TASKS.has(dispatch.task)) return;
+    tracker.record({ task: dispatch.task, payload: dispatch.payload, evidence: "dispatched" });
+  });
+  tracker._startDispatchFeed?.(off);
+  return off;
+}
 ```
 
 Check the remote-URL key names for the agent and translation scopes in `inferenceScopes.ts` (`grep -n "RemoteUrl" src/config/inferenceScopes.ts`), and correct the `translation` and agent entries in `NETWORK_URL_KEY` if they differ. The session snapshot contains them because `SESSION_ROUTE_KEYS` includes every key of those scopes (Task 6).
 
-In `captureDictationSession` (`dictationSession.js`), resolve the session's routes once, from the snapshot:
+In `dictationSession.js`, resolve the session's routes once, with Plan 03's published reader:
 
 ```js
-import { buildRouteSnapshot, resolveRoute } from "../lib/routes";
+import { resolveRoute, routeSnapshotFromSettings } from "../lib/routes";
+import logger from "../utils/logger";
+
 const DISCLOSURE_TASKS = ["dictationStt", "dictationCleanup", "translation", "voiceAssistant", "assistantVision"];
-// …inside captureDictationSession, after `snapshot` is built:
-const routeSnapshot = buildRouteSnapshot({ ...settings, ...snapshot });
-const routes = Object.fromEntries(DISCLOSURE_TASKS.map((id) => [id, resolveRoute(routeSnapshot, id)]));
-// …and add `routes` to the frozen session object.
+
+// routeSnapshotFromSettings (§5.1) reads the current route facts, the sealed
+// store and i18n, with no IPC and no subscription, and needs the whole
+// settings state. It gets the live state pinned to the snapshot: the same
+// view every pipeline read uses.
+function resolveSessionRoutes(settings, snapshot) {
+  try {
+    const routeSnapshot = routeSnapshotFromSettings({ ...settings, ...snapshot });
+    return Object.fromEntries(DISCLOSURE_TASKS.map((id) => [id, structuredClone(resolveRoute(routeSnapshot, id))]));
+  } catch (error) {
+    // Never block a dictation on its disclosure routes. Without routes, the
+    // tracker discloses every hand-off as an unknown provider (D4).
+    logger.warn("Could not resolve the dictation's routes", { error: error?.message }, "audio");
+    return null;
+  }
+}
 ```
 
-`buildRouteSnapshot` and `resolveRoute` are Plan 03 exports (Plan 03, "Additive exports"). If `buildRouteSnapshot` needs main-process facts as a second argument, pass `{}`: unknown facts never downgrade a route (Plan 03 clarification 2), and the tracker reads only `locality` and `providerId`.
+In `captureDictationSession`, add `routes: resolveSessionRoutes(settings, snapshot),` to the object passed to `deepFreeze`. The routes are cloned, so freezing them never freezes Plan 03's shared constants. Suites whose settings-store stub lacks Plan 03's selectors get `routes: null` and keep working. Every route assertion runs on the real store (Step 1).
 
-- [ ] **Step 4: Record evidence in `AudioManager`**
+- [ ] **Step 4: Record evidence**
 
-1. **Tracker per session.** In `beginDictationSession` (Task 6), and in `applySessionIntents(session, { tracker } = {})`:
+1. **Tracker per session.** In `beginDictationSession` (Task 6), and in `applySessionIntents(session, { context, tracker } = {})`:
 
    ```js
-     // A restored session keeps the evidence and main's egress tickets gathered before its cancel
-     // (Task 8 passes buffer.tracker). The tracker attaches main's feed itself.
+     // A restored session keeps the evidence and main's tickets gathered before its cancel
+     // (Task 8 passes buffer.tracker). The tracker attaches main's feeds itself.
      if (this._disclosure && this._disclosure !== tracker) this._disclosure.dispose();
      this._disclosure = tracker ?? createDisclosureTracker({ session: this._activeSession });
    ```
 
-   A tracker a cancel buffer owns is no longer `this._disclosure` (Task 8 moves it at cancel), so this never disposes it. The buffer disposes it when its window closes, which also detaches main's feed.
+   A tracker a cancel buffer owns is no longer `this._disclosure` (Task 8 moves it at cancel), so this never disposes it. The buffer disposes it when its window closes, which also detaches both of main's feeds. The tracker is subscribed by session id, so a hand-off that arrives after a cancel still lands on the cancelled session and updates its window, never on the next session.
 
    Add `getDisclosure() { return this._disclosure?.get() ?? null; }`. Cancel paths (Task 8) read it when they build `CancelledState`.
-2. **Route evidence.** These record only when no attested feed exists; the tracker enforces that.
-   - **Streaming.** In `startStreamingRecording`, capture `const tracker = this._disclosure;` before `await provider.start(...)`. Once it resolves with `res.success` (`:3594`), call `tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" })`. Audio frames are already buffered in main by then (`ipcHandlers.js:7053-7055`). A thrown or unsuccessful start records nothing. A cancel during the connect moves `this._disclosure` into the cancel buffer (Task 8), and the captured tracker still records onto that cancelled session. Task 8's replay records the same way.
-   - **Batch STT.** In `processWithOpenAIAPI`, capture `const tracker = this._disclosure;` **before** the `await`. After `transcribeAudioFileByok` settles (`:2952`), call `tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" })` unless `result?.dispatched === false`. A thrown IPC error records only if `error?.dispatched !== false`. Recording into the captured tracker means evidence that settles after a cancel still lands on the cancelled session (whose buffer now owns that tracker), never on the next session.
-   - **Text (cleanup, agent, vision, translation).** Wrap the three call sites that hand a request to `ReasoningService`: `processWithReasoningModel` (`:2199`), `processAgentCommand`'s call (`:2419`) and both `runTranslationChain` steps (`:2507`, `:2518`). Use this helper:
+2. **Where evidence comes from.**
+   - **Batch STT and every text request: main's hand-off only.** `processWithOpenAIAPI` and `processWithReasoningModel` record nothing themselves. They carry the `correlationId` (Task 6), and main sends the evidence.
+   - **Tag each text route config with its task** in `resolveReasoningRoute`:
+     - `cleanupConfig`: `disclosureTask: "dictationCleanup"`;
+     - the translation config (`:226-241`): `disclosureTask: "translation"`;
+     - the agent config (`:262-284`): `disclosureTask: useVisionOverride ? "assistantVision" : "voiceAssistant"`.
+
+     The selection edit spreads the agent config (`:2394-2395`), and the text-only retry spreads its config (`:2238-2249`), so both keep the task. Main reports an image part as a second `image` hand-off for the same task. Local routes resolve to a `null` target, so local cleanup or agent calls record nothing even if main reports them.
+   - **`ReasoningService.requestConfig`** (`:38-62`): add `disclosureTask: config.disclosureTask ?? null`. Add `disclosureTask?: DisclosureTask | null` to `ReasoningConfig` (`BaseReasoningService.ts:8-30`) and to `TextRequest` (`personalInferenceTypes.ts:6-20`).
+   - **Streaming.** In `startStreamingRecording`, capture `const tracker = this._disclosure;` before `await provider.start(...)`. Once it resolves with `res.success` (`:3594`), call `tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" })`. A thrown or unsuccessful start records nothing. A cancel during the connect moves `this._disclosure` into the cancel buffer (Task 8), and the captured tracker still records onto that cancelled session. Task 8's replay records the same way.
+3. **Main's hand-off: text** (`personalInference.js`).
+   - In `validateRequest`, before its `return` (`:170`):
 
      ```js
-       async _dispatchText(task, payload, run) {
-         const tracker = this._disclosure; // the session that sent it, even if it is cancelled meanwhile
-         try {
-           const result = await run();
-           tracker?.record({ task, payload, evidence: "dispatched" });
-           return result;
-         } catch (error) {
-           if (error?.dispatched !== false) tracker?.record({ task, payload, evidence: "dispatched" });
-           throw error;
-         }
-       }
+       if (input.disclosureTask != null && !DISCLOSURE_TASKS.has(input.disclosureTask))
+         throw new Error("Invalid disclosure task.");
      ```
 
-     Use these task values:
-     - cleanup → `"dictationCleanup"`;
-     - the translate step → `"translation"`;
-     - agent → `"voiceAssistant"`, plus a second `record({ task: "assistantVision", payload: "image" })` when the agent request carried `screenContext`.
+     Define `const DISCLOSURE_TASKS = new Set(["dictationStt", "dictationCleanup", "translation", "voiceAssistant", "assistantVision"]);` next to `SCOPES` (`:37`).
+   - In `execute` (`:347`), after `abortFailure` (`:361-364`):
 
-     Local routes resolve to a `null` target, so local cleanup or agent calls record nothing.
-3. **Processing stage.** The hook shows "Transcribing…" and "Cleaning up" from this callback (Tasks 9, 10).
+     ```js
+         // The renderer's disclosure fallback (no Plan 07) records "may have received"
+         // only from this hand-off, sent right before the request leaves. A request that
+         // fails validation, has no key or is cancelled never gets one.
+         const handOff = () => {
+           if (!request.correlationId || !request.disclosureTask || request.provider === "local") return;
+           if (controller.signal.aborted || sender.isDestroyed()) return;
+           const image = request.messages.some(
+             (message) => Array.isArray(message.content) && message.content.some((part) => part?.type === "image")
+           );
+           for (const payload of image ? ["text", "image"] : ["text"])
+             sender.send("dictation-dispatch", { correlationId: request.correlationId, task: request.disclosureTask, payload });
+         };
+     ```
+
+   - Call `handOff();` on the line before `const text = await codex.generate({` (`:392`), before `const result = streamText(options);` (`:471`) and before `const result = await generateText(options);` (`:489`).
+4. **Main's hand-off: batch STT** (`ipcHandlers.js` `transcribe-audio-file-byok`). After `completedText` (`:7991-8004`), add:
+
+   ```js
+           // The renderer's disclosure fallback (no Plan 07) records "may have
+           // received" only from this hand-off, sent right before the upload leaves.
+           // Validation, a refused route, a missing key or a cancel never reach it.
+           const handOff = () => {
+             if (typeof correlationId !== "string" || !correlationId || correlationId.length > 100) return;
+             if (job.signal?.aborted || typeof event.sender?.send !== "function" || event.sender.isDestroyed?.()) return;
+             event.sender.send("dictation-dispatch", { correlationId, task: "dictationStt", payload: "audio" });
+           };
+   ```
+
+   Call `handOff();` on the line before each provider request: the self-hosted `postMultipart` (`:8089`), Corti's `transcribeAudio` (`:8118`), `transcribeWithTinfoil` (`:8131`), `transcribeWithGemini` (`:8146`) and the final `postMultipart` (`:8241`). Every early `return { success: false, … }` and throw above them (`:8009`, `:8016`, `:8027`, `:8048-8055`, `:8108`, `:8115`, `:8158`) therefore sends nothing. A loopback self-hosted server still gets a hand-off, and the tracker drops it: its route is `device`.
+5. **Preload and types.**
+   - `preload.js`, after `transcribeAudioFileByok` (`:703`):
+
+     ```js
+       // Main's transport hand-off for a dictation request (Plan 04 Task 7).
+       onDictationDispatch: (callback) => {
+         const listener = (_event, dispatch) => callback?.(dispatch);
+         ipcRenderer.on("dictation-dispatch", listener);
+         return () => ipcRenderer.removeListener("dictation-dispatch", listener);
+       },
+     ```
+
+   - `src/types/electron.ts`, after the `transcribeAudioFileByok?` declaration (`:1713-1738`):
+
+     ```ts
+           // Main's transport hand-off for a dictation request (Plan 04 Task 7)
+           onDictationDispatch?: (
+             callback: (dispatch: import("./dictation").DictationDispatch) => void
+           ) => () => void;
+     ```
+
+6. **Processing stage.** The hook shows "Transcribing…" and "Cleaning up" from this callback (Tasks 9, 10).
    - In `setCallbacks` (`:629`), add `onProcessingStage = undefined` to the destructure and `this.onProcessingStage = onProcessingStage;` to the body.
    - Emit `this.onProcessingStage?.("transcribing")` at the top of `processAudio` (after `const wasCancelled = …`, `:1775`) and right after the streaming finalize reports processing (`≈3886`).
    - Emit `this.onProcessingStage?.("cleaning")` in `processTranscriptionCore` directly before the cleanup or translation request (`≈2689`), when `route.kind !== "agent"`. Agent turns show the orbit instead.
@@ -3893,18 +5954,17 @@ const routes = Object.fromEntries(DISCLOSURE_TASKS.map((id) => [id, resolveRoute
      assert.ok(core.indexOf('onProcessingStage?.("cleaning")') < core.indexOf("processWithReasoningModel("));
    });
    ```
-4. **`dispatched: false` in main.** In `transcribe-audio-file-byok` (`ipcHandlers.js:7964-8009`), every `return { success: false, … }` or thrown error before the provider HTTP call carries `dispatched: false`. This covers validation, missing credentials, `resolveTranscriptionRoute` errors and Plan 07's Sealed block. In `personalInference.js`, do the same for `validateRequest` rejections and for credential-status failures before the provider call: rejected promises carry `error.dispatched = false`.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js`
+Run: `npm test -- test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js test/helpers/dictationOperationHandoff.test.js test/helpers/personalInferenceTransport.test.js test/helpers/personalInference.test.js test/helpers/retryTranscriptionHandler.test.js "test/helpers/audioManager*.test.js"`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/types/dictation.ts src/helpers/dictationDisclosure.js src/helpers/dictationSession.js src/helpers/audioManager.js src/helpers/ipcHandlers.js src/helpers/personalInference.js test/helpers/dictationDisclosure.test.js
-git commit -m "feat(voice): disclosure is attested by main, or recorded only after dispatch"
+git add src/types/dictation.ts src/types/electron.ts src/helpers/dictationDisclosure.js src/helpers/dictationSession.js src/helpers/audioManager.js src/helpers/ipcHandlers.js src/helpers/personalInference.js src/services/ReasoningService.ts src/services/BaseReasoningService.ts src/services/ai/personalInferenceTypes.ts preload.js test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/personalInferenceTransport.test.js test/helpers/retryTranscriptionHandler.test.js
+git commit -m "feat(voice): disclosure is attested by main, or recorded at main's transport hand-off"
 ```
 
 ---
@@ -3916,10 +5976,11 @@ Closes review findings C1, I1, I2 and the AudioManager half of I3. The owner-con
 | D3 rule | How | Pinned by |
 |---|---|---|
 | Held in RAM only, never on disk (temp files included) unless retention already saves discarded audio | The buffer holds the **raw** recorded segments (batch) or PCM frames plus fallback segments (streaming) as owned byte copies. Nothing calls `mergeAudioSegments` (FFmpeg temp files, `ffmpegUtils.js:474-509`) while holding. A merge happens only after Undo (the audio is then a normal dictation again) or at expiry when `shouldSaveDiscardedRecording` allows saving | "two segments, retention off: no merge, no write, every byte zeroed (C1)". A merge already running in main when the cancel lands is the one exception (see "Known limit", Step 4) |
-| Zeroed on expiry, including late bytes, and no Blob stays reachable | Every byte copy is owned by the buffer. A copy that finishes after the buffer closed is zeroed on arrival, and rejected copies are swallowed. Source Blob references (`segmentChunks`, `_batchSegments`, `_streamingFallbackSegments`, `streamingFallbackChunks`, `_sessionAudio`, and `lastAudioBlob` when it belongs to the cancelled session) are dropped at cancel. Immutable browser Blobs cannot be overwritten; they become unreachable and the browser frees them | "late bytes are zeroed", "only the cancelled session's lastAudioBlob is released (I1)" |
+| Zeroed on expiry, including late bytes, and no Blob stays reachable | Every byte copy is owned by the buffer. A copy that finishes after the buffer closed is zeroed on arrival, and rejected copies are swallowed. Source Blob references (`segmentChunks`, `_batchSegments`, `_streamingFallbackSegments`, `streamingFallbackChunks`, `_sessionAudio`, and `lastAudioBlob` when it belongs to the cancelled session) are dropped at cancel. Immutable browser Blobs cannot be overwritten; they become unreachable and the browser frees them | "late bytes are zeroed", "only the cancelled session's lastAudioBlob is released (I1)", "expiry zeroes at the deadline even when a copy never settles (R1-I1)", "expiry before the final chunk, retention off…" |
 | Undo replays the original route | The buffer carries the frozen `DictationSession` (Task 6). Restore applies it, so every read goes through the snapshot. Main still enforces Sealed mode, and the renderer pre-checks it to fail explicitly | "Undo restores through the session's route even after settings move to a provider (C2)", "streaming Undo replays the frames through the same provider…", "Sealed mode refuses a non-device Undo and keeps the recording held" |
 | Every cancel path gets Undo | Recording, mic recovery, segment merge, transcription and cleanup (batch); recording and finalization (streaming). A cancel during startup, before any audio exists, has nothing to restore and shows no Undo | one test per path |
-| Esc and new starts during restore | Restore claims the buffer and enters `isProcessing` **synchronously**, before any await. A start is rejected by the existing guard, and Esc is lifecycle-owned (Task 9) | "Undo is claimed synchronously…", "Esc while a restore waits for its bytes cancels it and puts the recording back (I3)" |
+| Esc and new starts during restore | Restore claims the buffer and enters `isProcessing` **synchronously**, before any await. A start is rejected by the existing guard, and Esc is lifecycle-owned (Task 9). A restore that Esc abandoned settles nothing it no longer owns | "Undo is claimed synchronously…", "Esc while a restore waits for its bytes cancels it and puts the recording back (I3)", "Esc, then a new recording, while an Undo waits… (R1-I3)" |
+| Undo never loses the words | Restore waits, bounded, for the recorder's final chunk, and on timeout keeps the hold unzeroed. A failed merge, STT or Sealed block keeps the audio: re-held, or kept by the normal failure path | "an immediate Undo waits for the recorder's final chunk… (R2-C1)", "a merge failure during Undo… (R2-C2)", "an STT or Sealed failure during Undo keeps the audio… (R2-C2)" |
 
 **Streaming Undo replays through the same streaming provider.** Batch endpoints are not used: Deepgram and AssemblyAI have none (`STREAMING_ONLY_PROVIDERS`), and a different endpoint would be a different route. The buffer keeps the exact 16 kHz PCM frames that were sent to the provider, and restore opens a new session with the same provider and options. It replays the frames at 4× real time (main buffers frames while connecting, `ipcHandlers.js:7053-7055`), then runs the normal streaming finalization. The fallback WebM segments are kept only to give history the same audio file a normal streaming dictation saves.
 
@@ -3946,23 +6007,28 @@ Closes review findings C1, I1, I2 and the AudioManager half of I3. The owner-con
   export const UNDO_WINDOW_MS = 5000, LONG_UNDO_WINDOW_MS = 10000, LONG_RECORDING_SECONDS = 30;
   export const REPLAY_BATCH_FRAMES = 4, REPLAY_PACE_MS = 50; // 4×800-sample frames per 50 ms ≈ 4× real time
   export function undoWindowMs(durationSeconds: number | null): number;
-  export function createCancelBuffer({ session, kind: "batch" | "streaming", mimeType, durationSeconds, analyticsOccurredAt, tracker }): CancelBuffer;
-  // CancelBuffer: { session, kind, mimeType, durationSeconds, analyticsOccurredAt, tracker,
+  export function createCancelBuffer({ session, kind: "batch" | "streaming", mimeType, durationSeconds, analyticsOccurredAt, tracker, context }): CancelBuffer;
+  // CancelBuffer: { session, kind, mimeType, durationSeconds, analyticsOccurredAt, tracker, context,
   //   adoptBlob(blob, role: "segment" | "fallback"): void; adoptFrames(frames: Int16Array[]): void;
-  //   ready(): Promise<void>; bytes(role): Uint8Array[]; frames(): Int16Array[]; zero(): void; isZeroed(): boolean }
+  //   expect(role): { deliver(blob): void; fail(): void };   // audio that lands later (the recorder's final chunk)
+  //   ready({ until?: Promise }): Promise<boolean>;          // false: `until` won before everything arrived
+  //   awaiting(): boolean; bytes(role): Uint8Array[]; frames(): Int16Array[]; zero(): void; isZeroed(): boolean }
   export function createUndoWindow({ now?, setTimer?, clearTimer?, onClose }): {
     open(buffer): void; peek(): CancelBuffer | null; take(): CancelBuffer | null;
-    pause(): void; resume(): void; expireNow(): Promise<void>;
+    pause(): void; resume(): void;
+    expireNow(): Promise<void>;                  // closes the window and joins every close still saving
+    discard(buffer, reason): Promise<void>;      // closes a taken buffer through the same path
     state(): { undoUntil: number; paused: boolean; remainingMs: number } | null;
   };
-  // onClose(buffer, reason: "expired" | "replaced" | "flushed") may return a promise; the buffer is zeroed after it settles.
+  // onClose(buffer, reason: "expired" | "replaced" | "flushed", { wait(ms) }) may return a promise.
+  // It zeroes the buffer itself as soon as the bytes are no longer needed; the window zeroes again when it settles.
   ```
 
   ```js
   // AudioManager
   restoreCancelled(sessionId?: string): Promise<UndoResult>; // settles once the pipeline starts; the run is this._restoreRun
   pauseCancelHold(): void; resumeCancelHold(): void;
-  flushCancelHold(): Promise<void>;                 // persist if retention allows, then zero (shutdown, Task 9)
+  flushCancelHold(): Promise<void>;                 // persist if retention allows, then zero; joins any close still saving (shutdown, Task 9)
   // emits onCancelledChange(CancelledState) whenever the window opens, pauses, resumes or gets new
   // disclosure evidence, and onCancelledChange(null, { sessionId, reason }) when it closes,
   // reason: "expired" | "replaced" | "flushed" | "restored"
@@ -4098,6 +6164,8 @@ Fixtures follow the real guards:
 - Blobs are at least `MIN_AUDIO_BYTES` (256, `recordingGuard.js:8`), so `mergeRecordedSegments` keeps them.
 - `_receivedAudioData` is set.
 - `recordingStartTime` is two seconds in the past, so the window is the 5 s one.
+- The fake MediaRecorder delivers `onstop` **asynchronously**, as the real one does (`audioManager.js:1619-1622`). `{ manualStop: true }` hands that moment to the test.
+- Every deadline (the window, `FINAL_AUDIO_WAIT_MS`, `CLOSE_SAVE_WAIT_MS`) runs on one fake clock.
 
 ```js
 const assert = require("node:assert/strict");
@@ -4133,11 +6201,12 @@ async function setup(t, settings = LOCAL) {
     for (const [id, e] of [...pending]) if (e.at <= now) (pending.delete(id), e.fn());
     for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r));
   };
-  const io = { merges: 0, saves: 0, local: 0, byok: [], streamStarts: [], streamSends: 0, cancelled: [], closed: [] };
+  const io = { merges: 0, mergeInputs: [], saves: 0, local: 0, byok: [], streamStarts: [], streamSends: 0, cancelled: [], closed: [] };
   loaded.window.electronAPI = {
     ...loaded.window.electronAPI,
     mergeAudioSegments: async (payload) => {
       io.merges += 1; // FFmpeg temp files in main
+      io.mergeInputs.push(payload.map((p) => new Uint8Array(p.buffer)[0]));
       return { success: true, buffer: new Uint8Array(payload[0].buffer).buffer, mimeType: "audio/webm" };
     },
     transcribeAudioFileByok: async (p) => (io.byok.push(p), { success: true, text: "hi" }),
@@ -4147,6 +6216,7 @@ async function setup(t, settings = LOCAL) {
   const manager = Object.assign(Object.create(loaded.AudioManager.prototype), {
     _undoWindowFactory: (opts) => createUndoWindow({ ...clock, ...opts }),
     _readSealed: () => false, // the sealedStore seam (§5.4); the Sealed test overrides it
+    _delay: (ms) => new Promise((resolve) => clock.setTimer(resolve, ms)),
     _processingCancellationGeneration: 0,
     _streamingCancellationGeneration: 0,
     _streamingSessionGeneration: 0,
@@ -4175,12 +6245,24 @@ async function setup(t, settings = LOCAL) {
   return { ...loaded, manager, io, advance };
 }
 
-function startBatch(manager, segmentFills, chunkFill) {
+function startBatch(manager, segmentFills, chunkFill, { manualStop = false } = {}) {
   manager.beginDictationSession({ streaming: false });
   manager.isRecording = true;
   manager.recordingStartTime = Date.now() - 2000;
   manager._batchSegments = segmentFills.map(blob);
-  const recorder = { state: "recording", stream: null, onstop: null, stop() { this.state = "inactive"; this.onstop?.(); } };
+  const recorder = {
+    state: "recording",
+    stream: null,
+    onstop: null,
+    // The real final dataavailable/onstop land after stop() returns.
+    stop() {
+      this.state = "inactive";
+      if (!manualStop) setImmediate(() => this.onstop?.());
+    },
+    finish() {
+      this.onstop?.();
+    },
+  };
   manager.mediaRecorder = recorder;
   manager.audioChunks = [blob(chunkFill)];
   return recorder;
@@ -4298,6 +6380,19 @@ test("Undo restores through the session's route even after settings move to a pr
   assert.equal(io.byok.length, 0, "local audio never left the device");
 });
 
+test("Undo announces the closed window before processing starts (§5.2 order, R1-I6)", async (t) => {
+  const { manager, advance } = await setup(t);
+  const order = [];
+  manager.onCancelledChange = (state, closed) => order.push(state ? "cancelled" : `closed:${closed?.reason}`);
+  manager.onStateChange = (state) => state.isProcessing && order.push("processing");
+  startBatch(manager, [], 3);
+  manager.cancelRecording();
+  await advance(0);
+  await manager.restoreCancelled();
+  assert.deepEqual(order.slice(-2), ["closed:restored", "processing"]);
+  await manager._restoreRun;
+});
+
 test("Undo is claimed synchronously: a start during a pending restore is rejected (I3)", async (t) => {
   const { manager, advance } = await setup(t);
   startBatch(manager, [], 3);
@@ -4309,7 +6404,7 @@ test("Undo is claimed synchronously: a start during a pending restore is rejecte
   const restoring = manager.restoreCancelled();
   assert.equal(manager.isProcessing, true, "busy before any await");
   assert.equal(await manager.startRecording(), false);
-  gate.resolve();
+  gate.resolve(true);
   await restoring;
   await manager._restoreRun;
 });
@@ -4324,7 +6419,7 @@ test("Esc while a restore waits for its bytes cancels it and puts the recording 
   held.ready = () => gate.promise;
   const restoring = manager.restoreCancelled();
   manager.cancelProcessing(); // Esc
-  gate.resolve();
+  gate.resolve(true);
   const result = await restoring;
   assert.equal(result.restored, false);
   assert.equal(manager.isProcessing, false);
@@ -4460,6 +6555,238 @@ test("a private hold is never persisted, and its restore stays private (§5.2)",
   await manager._restoreRun;
 });
 
+test("an immediate Undo waits for the recorder's final chunk instead of calling it empty (R2-C1)", async (t) => {
+  const { manager, io, advance } = await setup(t);
+  const rec = startBatch(manager, [1], 3, { manualStop: true });
+  manager.cancelRecording();
+  const restoring = manager.restoreCancelled(); // before onstop
+  await advance(0);
+  rec.finish(); // the final dataavailable/onstop
+  const result = await restoring;
+  assert.equal(result.restored, true);
+  await manager._restoreRun;
+  assert.deepEqual(io.mergeInputs[0], [1, 3], "the earlier segment and the tail");
+  assert.equal(io.local, 1);
+
+  const single = await setup(t);
+  const rec2 = startBatch(single.manager, [], 4, { manualStop: true });
+  single.manager.cancelRecording();
+  const restoring2 = single.manager.restoreCancelled();
+  rec2.finish();
+  assert.equal((await restoring2).restored, true, "one segment: not reported empty");
+  await single.manager._restoreRun;
+  assert.equal(single.io.local, 1);
+});
+
+test("a final chunk that never arrives: Undo keeps the hold unzeroed, and a late chunk still lands (R2-C1)", async (t) => {
+  const { manager, advance } = await setup(t);
+  const rec = startBatch(manager, [], 3, { manualStop: true });
+  manager.cancelRecording();
+  const held = manager._undo.peek();
+  const restoring = manager.restoreCancelled();
+  await advance(5000); // FINAL_AUDIO_WAIT_MS
+  const result = await restoring;
+  assert.deepEqual([result.restored, result.reason], [false, "noAudio"]);
+  assert.equal(manager._undo.peek(), held, "back in its window");
+  assert.equal(held.isZeroed(), false);
+  assert.equal(manager.isProcessing, false);
+  rec.finish();
+  await advance(0);
+  assert.deepEqual(held.bytes("segment").map(firstByte), [3]);
+});
+
+test("expiry before the final chunk, retention off: zeroed at the deadline, the late chunk is never kept", async (t) => {
+  const { manager, advance } = await setup(t);
+  const rec = startBatch(manager, [1], 3, { manualStop: true });
+  manager.cancelRecording();
+  await advance(0);
+  const held = manager._undo.peek();
+  const early = held.bytes("segment");
+  await advance(5000);
+  assert.ok(early.every(allZero));
+  assert.equal(held.isZeroed(), true);
+  rec.finish();
+  await advance(0);
+  assert.deepEqual(held.bytes("segment"), [], "zeroed on arrival");
+});
+
+test("expiry zeroes at the deadline even when a copy never settles (R1-I1)", async (t) => {
+  const never = { arrayBuffer: () => new Promise(() => {}) };
+  const broken = { arrayBuffer: async () => { throw new Error("gone"); } };
+
+  // Retention off: nothing will be saved, so zero now.
+  const off = await setup(t);
+  startBatch(off.manager, [1], 3);
+  off.manager.cancelRecording();
+  await off.advance(0);
+  const heldOff = off.manager._undo.peek();
+  heldOff.adoptBlob(never, "segment");
+  heldOff.adoptBlob(broken, "segment");
+  const viewsOff = heldOff.bytes("segment");
+  await off.advance(5000);
+  assert.ok(viewsOff.every(allZero));
+  assert.equal(heldOff.isZeroed(), true);
+
+  // Private, retention on: never persisted, zeroed at the deadline too.
+  const priv = await setup(t, { ...LOCAL, ...RETAIN });
+  priv.setSettings({ ...LOCAL, ...RETAIN });
+  startBatch(priv.manager, [1], 3);
+  priv.manager._recordingPrivate = true;
+  priv.manager.cancelRecording();
+  await priv.advance(0);
+  const heldPriv = priv.manager._undo.peek();
+  heldPriv.adoptBlob(never, "segment");
+  await priv.advance(5000);
+  assert.equal(heldPriv.isZeroed(), true);
+  assert.equal(priv.io.saves, 0);
+
+  // Retention on: a bounded wait, then the bytes that arrived are saved and zeroed.
+  const on = await setup(t, { ...LOCAL, ...RETAIN });
+  on.setSettings({ ...LOCAL, ...RETAIN });
+  startBatch(on.manager, [1], 3);
+  on.manager.cancelRecording();
+  await on.advance(0);
+  const heldOn = on.manager._undo.peek();
+  heldOn.adoptBlob(never, "segment");
+  const viewsOn = heldOn.bytes("segment");
+  await on.advance(5000);
+  assert.equal(heldOn.isZeroed(), false, "waiting, bounded, for the stuck copy");
+  await on.advance(3000); // CLOSE_SAVE_WAIT_MS
+  assert.equal(on.io.saves, 1);
+  assert.ok(viewsOn.every(allZero));
+  assert.equal(heldOn.isZeroed(), true);
+});
+
+test("Esc, then a new recording, while an Undo waits: the old restore touches neither (R1-I3)", async (t) => {
+  for (const settle of ["resolve", "reject"]) {
+    const { manager, advance } = await setup(t);
+    const states = [];
+    manager.onStateChange = (state) => states.push(state);
+    startBatch(manager, [], 3);
+    manager.cancelRecording();
+    await advance(0);
+    const held = manager._undo.peek();
+    const gate = deferred();
+    held.ready = () => gate.promise;
+    const restoring = manager.restoreCancelled();
+    manager.cancelProcessing(); // Esc
+    startBatch(manager, [], 5); // a new recording starts
+    const before = states.length;
+    if (settle === "resolve") gate.resolve(true);
+    else gate.reject(new Error("copy failed"));
+    const result = await restoring;
+    await advance(0);
+    assert.equal(result.restored, false);
+    assert.equal(manager.isRecording, true, `${settle}: the new recording is untouched`);
+    assert.equal(states.length, before, `${settle}: no idle broadcast from the old restore`);
+    assert.equal(manager._undo.peek(), null, `${settle}: the old recording does not take the window`);
+    assert.equal(held.isZeroed(), true, `${settle}: retention off, it closed as a newer start closes a window`);
+  }
+});
+
+test("a merge failure during Undo settles idle and puts the recording back (R2-C2)", async (t) => {
+  const { manager, advance } = await setup(t);
+  startBatch(manager, [1, 2], 3);
+  manager.cancelRecording();
+  await advance(0);
+  manager.mergeRecordedSegments = async () => {
+    throw new Error("ffmpeg failed");
+  };
+  const errors = [];
+  manager.onError = (error) => errors.push(error);
+  assert.equal((await manager.restoreCancelled()).restored, true);
+  await manager._restoreRun;
+  await advance(0);
+  assert.equal(manager.isProcessing, false, "never stuck busy");
+  assert.equal(errors.length, 1);
+  const again = manager._undo.peek();
+  assert.ok(await again.ready());
+  assert.deepEqual(again.bytes("segment").map(firstByte).sort(), [1, 2, 3]);
+});
+
+test("an STT or Sealed failure during Undo keeps the audio, retention on or off (R2-C2)", async (t) => {
+  for (const retention of [true, false]) {
+    const settings = { ...LOCAL, dataRetentionEnabled: retention };
+    const { manager, advance, window: win, setSettings } = await setup(t, settings);
+    setSettings(settings);
+    const saved = [];
+    win.electronAPI.saveTranscription = async (...args) => (saved.push(args), { id: 1 });
+    win.electronAPI.saveTranscriptionAudio = async () => ({ success: true });
+    startBatch(manager, [], 3);
+    manager.cancelRecording();
+    await advance(0);
+    let ownedAtDispatch = false;
+    manager.processWithLocalParakeet = async (audio) => {
+      // Plan 07's _noteSealedFailure and the failure path both read lastAudioBlob.
+      ownedAtDispatch = manager.lastAudioBlob === audio && manager._lastAudioSessionId === manager.activeSession.id;
+      // Sealing landed between the pre-check and dispatch; main refuses the request.
+      throw Object.assign(new Error("Blocked by Sealed mode"), { code: "SEALED_MODE" });
+    };
+    await manager.restoreCancelled();
+    await manager._restoreRun;
+    await advance(0);
+    assert.equal(ownedAtDispatch, true, `retention ${retention}: owned before provider work`);
+    assert.equal(manager.isProcessing, false);
+    if (retention) {
+      assert.equal(saved.length, 1, "a failed history row with its audio, as for any dictation");
+      assert.equal(manager._undo.peek(), null);
+    } else {
+      assert.equal(manager._undo.peek()?.kind, "batch", "re-held: nothing else keeps it");
+    }
+  }
+});
+
+test("a flush joins an expiry or replacement save that is already running (R1-I9)", async (t) => {
+  const { manager, io, advance, setSettings } = await setup(t, { ...LOCAL, ...RETAIN });
+  setSettings({ ...LOCAL, ...RETAIN });
+  const save = deferred();
+  manager.saveDiscardedTranscription = () => (io.saves++, save.promise);
+  startBatch(manager, [], 3);
+  manager.cancelRecording();
+  await advance(5000); // natural expiry; its save is pending
+  assert.equal(io.saves, 1);
+  let flushed = false;
+  const flushing = manager.flushCancelHold().then(() => (flushed = true));
+  await advance(0);
+  assert.equal(flushed, false, "quit waits for the running save");
+  save.resolve();
+  await flushing;
+
+  const replaced = await setup(t, { ...LOCAL, ...RETAIN });
+  replaced.setSettings({ ...LOCAL, ...RETAIN });
+  const first = deferred();
+  replaced.manager.saveDiscardedTranscription = () => (replaced.io.saves++, first.promise);
+  startBatch(replaced.manager, [], 3);
+  replaced.manager.cancelRecording();
+  await replaced.advance(0);
+  startBatch(replaced.manager, [], 4);
+  replaced.manager.cancelRecording(); // replaces the first window; its save starts
+  await replaced.advance(0);
+  let done = false;
+  const quitting = replaced.manager.flushCancelHold().then(() => (done = true));
+  await replaced.advance(3000);
+  assert.equal(done, false, "the replaced window's save is joined too");
+  first.resolve();
+  await quitting;
+  assert.equal(replaced.io.saves, 2);
+});
+
+test("a hold's press-time context is released when its window closes, and kept by a refusal that re-holds (R1-C2)", async (t) => {
+  const { manager, advance } = await setup(t, { ...LOCAL, useLocalWhisper: false }); // a provider route, so Sealed refuses
+  startBatch(manager, [], 3);
+  const context = { sessionId: manager.activeSession.id, released: false, release() { this.released = true; } };
+  manager._sessionContext = context;
+  manager.cancelRecording();
+  await advance(0);
+  assert.equal(manager._undo.peek().context, context, "the hold owns the reads");
+  manager._readSealed = () => true;
+  assert.equal(await manager._sealedBlocks({ routes: null, intents: {}, settings: {} }), true, "unresolved routes fail closed");
+  assert.equal((await manager.restoreCancelled()).reason, "sealed");
+  assert.equal(context.released, false, "a refusal that keeps the recording keeps its context");
+  await advance(5000);
+  assert.equal(context.released, true, "expiry releases it");
+});
+
 test("flush persists once when retention allows; with retention off it only zeroes", async (t) => {
   const on = await setup(t, { ...LOCAL, ...RETAIN });
   on.setSettings({ ...LOCAL, ...RETAIN });
@@ -4472,6 +6799,71 @@ test("flush persists once when retention allows; with retention off it only zero
   assert.deepEqual(on.io.closed.at(-1).reason, "flushed");
 });
 ```
+
+Append the Agent cases to Task 6's `test/helpers/dictationOperationHandoff.test.js`, which already has the real settings store, the real pipeline and the `setupManager` helper. These go through the real `cancelProcessing` → hold → `restoreCancelled` path, instead of the direct `_detachSessionOperation` / `applySessionIntents` calls:
+
+```js
+async function holdWithFakeClock(manager, vite) {
+  const { createUndoWindow } = await vite.ssrLoadModule("/helpers/cancelBuffer.js");
+  const timers = [];
+  manager._undoWindowFactory = (opts) =>
+    createUndoWindow({ ...opts, now: () => 0, setTimer: (fn, ms) => timers.push({ fn, ms }), clearTimer() {} });
+  manager._delay = () => new Promise(() => {}); // the final chunk is never awaited here: batch segments are registered
+  manager._readSealed = () => false;
+  return timers;
+}
+
+async function cancelProcessingThenRestore({ manager, session, vite }, changeTheWorld) {
+  await holdWithFakeClock(manager, vite);
+  manager._sessionAudio = {
+    session, kind: "batch", segments: [new Blob([new Uint8Array(300).fill(1)], { type: "audio/webm" })],
+    mimeType: "audio/webm", durationSeconds: 2, analyticsOccurredAt: "x",
+  };
+  assert.equal(manager.cancelProcessing(), true); // the hook's Esc (Task 9)
+  await flush();
+  changeTheWorld();
+  const result = await manager.restoreCancelled(session.id);
+  assert.equal(result.restored, true);
+  await manager._restoreRun;
+}
+
+test("Undo through restoreCancelled keeps a standalone Agent command's route and screenshot (Task 8)", async (t) => {
+  let shot = { data: "A", mediaType: "image/png" };
+  const setup = await setupManager(t, {
+    selection: () => ({ status: "none" }),
+    screen: () => shot,
+  });
+  const { manager, session, reads, setSettings } = setup;
+  manager.processWithLocalParakeet = async () => ({ success: true, text: "draft a reply", source: "local-parakeet" });
+  await cancelProcessingThenRestore(setup, () => {
+    setSettings(REMOTE_AGENT);
+    shot = { data: "B", mediaType: "image/png" };
+  });
+  const { assistantConversation } = manager._takePendingResultExtras();
+  assert.equal(assistantConversation.operation.sessionId, session.id);
+  assert.equal(assistantConversation.operation.settings.dictationAgentMode, "local");
+  assert.equal(assistantConversation.screenContext.data, "A");
+  assert.deepEqual(reads, { selection: 1, screen: 1 }, "Undo reads nothing from the OS again");
+});
+
+test("Undo through restoreCancelled edits the press-time selection on the session's route (Task 8)", async (t) => {
+  let selected = { status: "selected", sessionId: "sel-original", text: "teh draft", characterCount: 9 };
+  const setup = await setupManager(t, { selection: () => selected, screen: () => null });
+  const { manager, session, sent, reads, setSettings } = setup;
+  manager.processWithLocalParakeet = async () => ({ success: true, text: "fix the typo", source: "local-parakeet" });
+  await cancelProcessingThenRestore(setup, () => {
+    setSettings(REMOTE_AGENT);
+    selected = { status: "selected", sessionId: "sel-newer", text: "an unrelated paragraph", characterCount: 22 };
+  });
+  assert.deepEqual(manager._takePendingResultExtras().selectionEdit, { sessionId: "sel-original" });
+  assert.match(sent[0].text, /teh draft/);
+  assert.equal(sent[0].config.provider, "local");
+  assert.equal(sent[0].config.correlationId, session.id);
+  assert.equal(reads.selection, 1);
+});
+```
+
+If the real `processAudio` reaches a helper these setups do not stub, add the stub to `setupManager`, and keep the assertions.
 
 `startRecording()` in the I3 test runs the real guard (`:1145-1153`). If the prototype instance lacks a field that guard reads, add it to `setup`. The streaming tests replace the provider-facing leaves (`cleanupStreamingAudio`, `cleanupStreamingListeners`, `_attachStreamingListeners`, the `dictationRealtime*` IPC). The cancel, hold and replay logic under test is real.
 
@@ -4492,36 +6884,71 @@ export const LONG_UNDO_WINDOW_MS = 10000;
 export const LONG_RECORDING_SECONDS = 30;
 export const REPLAY_BATCH_FRAMES = 4;
 export const REPLAY_PACE_MS = 50;
+// Restore waits this long for the recorder's final chunk before it gives up and keeps the hold (R2-C1).
+export const FINAL_AUDIO_WAIT_MS = 5000;
+// With retention on, closing waits this long for in-flight copies, then saves what it has (R1-I1).
+export const CLOSE_SAVE_WAIT_MS = 3000;
 
 export function undoWindowMs(durationSeconds) {
   return Number(durationSeconds) > LONG_RECORDING_SECONDS ? LONG_UNDO_WINDOW_MS : UNDO_WINDOW_MS;
 }
 
-export function createCancelBuffer({ session, kind, mimeType, durationSeconds, analyticsOccurredAt, tracker = null }) {
+export function createCancelBuffer({ session, kind, mimeType, durationSeconds, analyticsOccurredAt, tracker = null, context = null }) {
   const owned = []; // { role, bytes: Uint8Array }
   const frames = []; // Int16Array, transferred from the worklet
-  const pending = new Set();
+  const pending = new Set(); // byte copies in flight
+  const expected = new Set(); // sources that have not delivered yet (the recorder's final chunk)
   let zeroed = false;
+  const track = (promise, set) => {
+    set.add(promise);
+    promise.finally(() => set.delete(promise));
+  };
 
-  return {
+  const buffer = {
     session,
     kind,
     mimeType: mimeType || "audio/webm",
     durationSeconds,
     analyticsOccurredAt,
     tracker,
+    // Task 6's session context (press-time selection and screenshot). zero() never releases it:
+    // a restore hands it back to the session. _closeCancelled releases it.
+    context,
     adoptBlob(blob, role) {
       if (!blob) return;
       const copy = Promise.resolve()
         .then(() => blob.arrayBuffer())
-        .then((buffer) => {
-          const bytes = new Uint8Array(buffer);
+        .then((arrayBuffer) => {
+          const bytes = new Uint8Array(arrayBuffer);
           if (zeroed) bytes.fill(0);
           else owned.push({ role, bytes });
         })
         .catch(() => {});
-      pending.add(copy);
-      copy.finally(() => pending.delete(copy));
+      track(copy, pending);
+    },
+    /**
+     * Registers audio that will arrive later: MediaRecorder's final dataavailable/onstop
+     * lands after cancel returns. Call it before the window opens, so `ready()` waits for
+     * it. Exactly one of deliver/fail settles it; later calls are ignored.
+     */
+    expect(role) {
+      let settle;
+      const gate = new Promise((resolve) => (settle = resolve));
+      track(gate, expected);
+      let done = false;
+      return {
+        deliver(blob) {
+          if (done) return;
+          done = true;
+          buffer.adoptBlob(blob, role); // registers its copy before the gate opens
+          settle();
+        },
+        fail() {
+          if (done) return;
+          done = true;
+          settle();
+        },
+      };
     },
     adoptFrames(list) {
       for (const frame of list) {
@@ -4529,9 +6956,18 @@ export function createCancelBuffer({ session, kind, mimeType, durationSeconds, a
         else frames.push(frame);
       }
     },
-    async ready() {
-      while (pending.size) await Promise.all([...pending]);
+    /**
+     * Resolves true once every expected source has delivered and every copy has settled
+     * (rejected copies count as settled). Resolves false if `until` settles first.
+     */
+    async ready({ until } = {}) {
+      const drained = (async () => {
+        while (expected.size || pending.size) await Promise.all([...expected, ...pending]);
+        return true;
+      })();
+      return until ? Promise.race([drained, until.then(() => false)]) : drained;
     },
+    awaiting: () => expected.size > 0,
     bytes: (role) => owned.filter((o) => o.role === role).map((o) => o.bytes),
     frames: () => [...frames],
     zero() {
@@ -4543,6 +6979,7 @@ export function createCancelBuffer({ session, kind, mimeType, durationSeconds, a
     },
     isZeroed: () => zeroed,
   };
+  return buffer;
 }
 
 export function createUndoWindow({
@@ -4552,13 +6989,23 @@ export function createUndoWindow({
   onClose,
 } = {}) {
   let current = null; // { buffer, expiresAt, remainingMs, timer }
+  const closing = new Set(); // closes still saving; a flush joins them (R1-I9)
+  const wait = (ms) => new Promise((resolve) => setTimer(resolve, ms));
 
-  const close = async (entry, reason) => {
-    try {
-      await onClose?.(entry.buffer, reason);
-    } finally {
-      entry.buffer.zero();
-    }
+  // onClose decides when the bytes may be zeroed. It zeroes at once when nothing will be
+  // saved, and otherwise right after copying them into Blobs (R1-I1). The final zero()
+  // here covers an onClose that throws.
+  const close = (buffer, reason) => {
+    const done = (async () => {
+      try {
+        await onClose?.(buffer, reason, { wait });
+      } finally {
+        buffer.zero();
+      }
+    })();
+    closing.add(done);
+    done.finally(() => closing.delete(done));
+    return done;
   };
 
   const end = (reason) => {
@@ -4566,7 +7013,7 @@ export function createUndoWindow({
     const entry = current;
     current = null;
     clearTimer(entry.timer);
-    return close(entry, reason);
+    return close(entry.buffer, reason);
   };
 
   return {
@@ -4595,7 +7042,13 @@ export function createUndoWindow({
       current.expiresAt = now() + ms;
       current.timer = setTimer(() => void end("expired"), ms);
     },
-    expireNow: () => end("flushed"),
+    /** Closes the open window and joins every close still saving, including earlier ones. */
+    async expireNow() {
+      void end("flushed");
+      while (closing.size) await Promise.all([...closing]);
+    },
+    /** Closes a buffer that is not (or no longer) in the window, through the same path. */
+    discard: (buffer, reason) => close(buffer, reason),
     state() {
       if (!current) return null;
       const paused = current.remainingMs !== null;
@@ -4611,12 +7064,17 @@ export function createUndoWindow({
 
 - [ ] **Step 4: Session audio and the cancel paths in `AudioManager`**
 
-1. **Imports and the window.** Add `import { createCancelBuffer, createUndoWindow, REPLAY_BATCH_FRAMES, REPLAY_PACE_MS } from "./cancelBuffer";` and `import { canStartDictation } from "../utils/dictationReadiness";`. Then add:
+1. **Imports and the window.** Add `import { createCancelBuffer, createUndoWindow, REPLAY_BATCH_FRAMES, REPLAY_PACE_MS, FINAL_AUDIO_WAIT_MS, CLOSE_SAVE_WAIT_MS } from "./cancelBuffer";` and `import { canStartDictation } from "../utils/dictationReadiness";`. Then add:
 
    ```js
      _undoWindow() {
        const factory = this._undoWindowFactory ?? createUndoWindow;
-       return (this._undo ??= factory({ onClose: (buffer, reason) => this._closeCancelled(buffer, reason) }));
+       return (this._undo ??= factory({ onClose: (buffer, reason, opts) => this._closeCancelled(buffer, reason, opts) }));
+     }
+
+     /** A timer on the window's clock, so tests drive every deadline with one fake clock. */
+     _delay(ms) {
+       return new Promise((resolve) => setTimeout(resolve, ms));
      }
 
      _emitCancelled(buffer) {
@@ -4637,15 +7095,22 @@ export function createUndoWindow({
        this._emitCancelled(buffer);
      }
 
-     async _closeCancelled(buffer, reason) {
-       this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason });
+     async _closeCancelled(buffer, reason, { wait } = {}) {
+       if (reason !== "abandoned") this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason });
        buffer.tracker?.dispose();
+       buffer.context?.release(); // the press-time reads end with the hold (Task 6)
        if (reason === "replaced" && this._undo?.peek()) this._emitCancelled(this._undo.peek());
-       await buffer.ready();
-       if (buffer.private) return; // an expired private hold is never persisted (§5.2)
-       if (!shouldSaveDiscardedRecording(getSettings(), buffer.durationSeconds)) return; // zeroed by the window
+       // Nothing will be saved: zero now, at the deadline. Copies still in flight are zeroed
+       // when they land (R1-I1). An expired or flushed private hold is never persisted (§5.2).
+       if (buffer.private || !shouldSaveDiscardedRecording(getSettings(), buffer.durationSeconds)) {
+         buffer.zero();
+         return;
+       }
+       // Retention on: wait a bounded time for the final chunk and copies, then save what arrived.
+       await buffer.ready({ until: wait?.(CLOSE_SAVE_WAIT_MS) });
        const role = buffer.kind === "streaming" ? "fallback" : "segment";
        const blobs = buffer.bytes(role).map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
+       buffer.zero(); // the Blobs hold their own copies
        if (blobs.length === 0) return;
        try {
          // Disk is allowed here only because retention already saves discarded audio.
@@ -4658,10 +7123,11 @@ export function createUndoWindow({
 
      /** Move the active session, its tracker and its audio into a new buffer; release every other reference. */
      _bufferForSession(kind, { durationSeconds, analyticsOccurredAt, mimeType }) {
-       const session = this._activeSession;
+       // Task 6: ends the session but keeps its press-time reads (selection, screenshot) for Undo (R1-C2).
+       const { session, context } = this._detachSessionOperation();
        const buffer = createCancelBuffer({
          session, kind, mimeType: mimeType || this.recordingMimeType,
-         durationSeconds, analyticsOccurredAt, tracker: this._disclosure,
+         durationSeconds, analyticsOccurredAt, tracker: this._disclosure, context,
        });
        // §5.2 private holds: Plan 05's per-recording flag; absent before 05 merges, so false.
        buffer.private = this._recordingPrivate === true;
@@ -4671,7 +7137,6 @@ export function createUndoWindow({
          this._lastAudioSessionId = null;
        }
        if (this._sessionAudio?.session === session) this._sessionAudio = null;
-       this._endDictationSession(session); // Task 6
        return buffer;
      }
    ```
@@ -4687,15 +7152,23 @@ export function createUndoWindow({
        const buffer = this._bufferForSession("batch", snapshot);
        for (const segment of snapshot.segments) buffer.adoptBlob(segment, "segment");
        snapshot.segments.length = 0;
+       // R2-C1: the open segment arrives with the recorder's final dataavailable, after this
+       // method returns. Register it before the window opens, so Undo waits for it.
+       const finalChunk = buffer.expect("segment");
+       const deliverFinal = () => {
+         finalChunk.deliver(new Blob(snapshot.chunks, { type: snapshot.mimeType }));
+         snapshot.chunks.length = 0; // drop every reference to the Blob chunks
+       };
        this.mediaRecorder.onstop = () => {
          recorder.stream?.getTracks().forEach((track) => track.stop());
-         // The final dataavailable has landed: take the open segment and drop
-         // every reference to its Blob chunks.
-         buffer.adoptBlob(new Blob(snapshot.chunks, { type: snapshot.mimeType }), "segment");
-         snapshot.chunks.length = 0;
+         deliverFinal();
        };
        this.resetDiscardedBatchRecordingState();
-       recorder.stop();
+       try {
+         recorder.stop();
+       } catch {
+         deliverFinal(); // already inactive: no onstop will come
+       }
        if (recorder.stream) {
          recorder.stream.getTracks().forEach((track) => track.stop());
          this._markCaptureStreamReleased();
@@ -4833,65 +7306,121 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
     // Claim before any await (I3): the window closes, the lifecycle is busy.
     this._undo.take();
     const generation = (this._restoreGeneration = (this._restoreGeneration ?? 0) + 1);
+    // §5.2 order: the window closes ("restored"), then processing starts (R1-I6).
+    this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason: "restored" });
     this.isProcessing = true;
     this.onStateChange?.({ isRecording: false, isProcessing: true });
-    this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason: "restored" });
 
-    const settleIdle = () => {
-      this.isProcessing = false;
-      this.onStateChange?.({ isRecording: false, isProcessing: false });
-    };
+    // This restore owns the lifecycle only while its generation is current. Esc
+    // (cancelProcessing / cancelRecording) bumps it and settles idle itself (R1-I3).
+    const owns = () => generation === this._restoreGeneration;
     const refuse = (reason, { keep }) => {
-      settleIdle();
-      if (keep) this._openCancelled(buffer); // content is preserved
-      else buffer.zero();
+      if (owns()) {
+        this.isProcessing = false;
+        this.onStateChange?.({ isRecording: false, isProcessing: false });
+      }
+      if (keep) this._rehold(buffer);
+      else {
+        buffer.zero();
+        buffer.context?.release();
+      }
       return { restored: false, sessionId: buffer.session.id, reason };
     };
 
+    // R2-C1: wait for the recorder's final chunk, bounded. "Not delivered yet" is not
+    // "empty": on timeout the recording goes back into its window, unzeroed, and a
+    // late chunk still lands in it.
+    let complete = false;
     try {
-      await buffer.ready();
+      complete = await buffer.ready({ until: this._delay(FINAL_AUDIO_WAIT_MS) });
     } catch {
       return refuse("noAudio", { keep: false });
     }
-    if (generation !== this._restoreGeneration) return refuse("busy", { keep: true });
+    if (!owns()) return refuse("busy", { keep: true });
+    if (!complete) return refuse("noAudio", { keep: true });
     if (await this._sealedBlocks(buffer.session)) return refuse("sealed", { keep: true });
-    if (generation !== this._restoreGeneration) return refuse("busy", { keep: true });
+    if (!owns()) return refuse("busy", { keep: true });
     const empty = buffer.kind === "streaming" ? !buffer.frames().length : !buffer.bytes("segment").length;
     if (empty) return refuse("noAudio", { keep: false });
     if (buffer.kind === "streaming" && !STREAMING_PROVIDERS[buffer.session.intents.streamingProviderName]) {
       return refuse("routeUnavailable", { keep: true }); // never re-route; the window keeps the words until it ends
     }
 
-    this.applySessionIntents(buffer.session, { tracker: buffer.tracker }); // Task 7 keeps the evidence
+    // Task 7 keeps the evidence; Task 6 hands back the press-time selection and screenshot (R1-C2).
+    this.applySessionIntents(buffer.session, { tracker: buffer.tracker, context: buffer.context });
     this._recordingPrivate = buffer.private === true; // §5.2: re-applied before processing
-    this._restoreRun = (buffer.kind === "streaming" ? this._replayStreamingSession(buffer, generation) : this._restoreBatch(buffer))
+    this._restoreRun = (buffer.kind === "streaming" ? this._replayStreamingSession(buffer, generation) : this._restoreBatch(buffer, generation))
       .catch((error) => {
         logger.warn("Undo could not run the original route", { error: error?.message }, "audio");
-        this.onError?.(error);
+        if (owns()) this.onError?.(error);
       })
       .finally(() => buffer.zero());
     return { restored: true, sessionId: buffer.session.id };
   }
 
-  async _restoreBatch(buffer) {
+  /**
+   * Puts a recording back in the undo window, unless something newer owns the
+   * pill: a newer hold, or a recording or pipeline that started after Esc. Then
+   * it closes the way a newer start ends a window (Step 4.9): saved if retention
+   * allows, zeroed otherwise (R1-I3). The reason "abandoned" is internal: its
+   * window already announced its close, so nothing is emitted and a newer
+   * window's state is never cleared.
+   */
+  _rehold(buffer) {
+    const newer = this._undo?.peek() || this.isRecording || this.isProcessing || this.isStreaming;
+    if (newer) void this._undoWindow().discard(buffer, "abandoned");
+    else this._openCancelled(buffer);
+  }
+
+  async _restoreBatch(buffer, generation) {
+    const { session } = buffer;
     const blobs = buffer.bytes("segment").map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
     buffer.zero(); // the Blobs are the restored dictation's own audio now
-    // Re-register the audio first, so an Esc during this restore re-holds it (Step 4.8).
-    this._sessionAudio = {
-      session: buffer.session, kind: "batch", segments: blobs, mimeType: buffer.mimeType,
-      durationSeconds: buffer.durationSeconds, analyticsOccurredAt: buffer.analyticsOccurredAt,
+    const metadata = {
+      durationSeconds: buffer.durationSeconds,
+      analyticsOccurredAt: buffer.analyticsOccurredAt,
+      restoredFromCancel: true,
     };
+    // Re-register the audio first, so an Esc during this restore re-holds it (Step 4.8).
+    this._sessionAudio = { session, kind: "batch", segments: blobs, mimeType: buffer.mimeType, ...metadata };
     const pipeline = this._startProcessingPipeline(); // Esc bumps its generation (cancelProcessing)
-    const audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
-    await this.processAudio(
-      audio,
-      { durationSeconds: buffer.durationSeconds, analyticsOccurredAt: buffer.analyticsOccurredAt, restoredFromCancel: true },
-      pipeline
-    );
+    let audio;
+    try {
+      audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
+      if (!audio) throw Object.assign(new Error("Undo could not combine the recording"), { code: "MERGE_FAILED" });
+    } catch (error) {
+      // R2-C2: the merge runs outside processAudio's try/finally. Settle this pipeline
+      // (only if it is still ours) and put the source audio back in a window.
+      if (this._settleProcessingPipeline(pipeline)) this._reholdAudio(session, blobs, metadata);
+      throw error;
+    }
+    if (this._shouldAbandonProcessingPipeline(pipeline)) return; // Esc during the merge re-held it (Step 4.8)
+    // R2-C2: the same recovery ownership as a normal dictation (:1447). The failure path
+    // (:1909-1926) and Plan 07's _noteSealedFailure read lastAudioBlob, in either merge order.
+    this.lastAudioBlob = audio;
+    this._lastAudioSessionId = session.id;
+    await this.processAudio(audio, metadata, pipeline);
+  }
+
+  /** Re-holds audio the user brought back with Undo, when no other copy will survive. */
+  _reholdAudio(session, blobs, metadata) {
+    // Keep the press-time reads when the session is still live; once it has ended, a later
+    // Undo runs as a standalone command (Task 6) and never reads the OS selection again.
+    const context = this._activeSession === session ? this._detachSessionOperation().context : null;
+    const held = createCancelBuffer({
+      session, kind: "batch", mimeType: blobs[0]?.type || "audio/webm",
+      durationSeconds: metadata.durationSeconds, analyticsOccurredAt: metadata.analyticsOccurredAt,
+      tracker: this._disclosure, context,
+    });
+    held.private = this._recordingPrivate === true;
+    for (const blob of blobs) held.adoptBlob(blob, "segment");
+    if (this._sessionAudio?.session === session) this._sessionAudio = null;
+    this._rehold(held);
   }
 
   async _sealedBlocks(session) {
     if (!this._readSealed()) return false;
+    if (!session.routes) return true; // routes could not be resolved (Task 6): fail closed while sealed
     const routes = session.routes ?? {};
     const { intents, settings } = session;
     const used = [
@@ -4924,6 +7453,20 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
 ```
 
 - `processAudio(audio, metadata, pipeline)` returns early when `_activeProcessingPipeline !== pipeline` (`:1773-1774`), and `wasCancelled()` is true once `cancelProcessing` bumps the generation. An Esc during a batch restore therefore stops the pipeline, and Step 4.8 re-holds `_sessionAudio`.
+- **A restored dictation that fails keeps its audio (R2-C2).** In `processAudio`, declare `let reholdRestored = false;` next to `noAudioDetected` (`:1778`). In the failure branch (`:1914-1927`), after the existing `saveFailedTranscription` call, add:
+
+  ```js
+          // D3: audio the user brought back with Undo is never silently lost. With retention
+          // off nothing else keeps it, unless Plan 07 already holds it for sealed recovery.
+          reholdRestored =
+            metadata.restoredFromCancel === true &&
+            !error.recoveryHeld &&
+            !getEffectiveRetentionPreferences().dataRetentionEnabled;
+  ```
+
+  In the `finally` (`:1929-1932`), directly after `this._settleProcessingPipeline(pipeline);`, add `if (reholdRestored) this._reholdAudio(this._activeSession, [audioBlob], metadata);`. It must run after settling: `_rehold` treats a busy lifecycle as newer work.
+
+  With retention on, `saveFailedTranscription` already keeps it as a failed history row with audio, exactly as for any dictation. A Sealed block that lands between the pre-check and dispatch fails in main, and takes this same path. With Plan 07 merged, its `_noteSealedFailure` runs first and finds `lastAudioBlob` set, whichever plan merged first.
 - Sealed state comes only from `src/stores/sealedStore.ts` (§5.4), never from `privacy.getSealed` directly:
 
   ```js
@@ -4987,12 +7530,13 @@ Streaming replay. It owns its streaming state from start to finish, so a failure
     } finally {
       this._streamingStopPromise = null;
       if (this._activeStreamingSessionId === sessionId) this._activeStreamingSessionId = null;
-      this.isStreaming = false;
-      if (this.isProcessing) {
+      this.isStreaming = false; // no other streaming session can start while this one holds it
+      // Settle only a lifecycle this replay still owns: after Esc, a newer operation may run (R1-I3).
+      if (generation === this._restoreGeneration && this.isProcessing) {
         this.isProcessing = false;
         this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
       }
-      this._endDictationSession(session);
+      if (this._activeSession === session) this._endDictationSession(session);
     }
   }
 ```
@@ -5037,7 +7581,9 @@ It also wires §5.7: an open cancel window reaches the control panel as the life
 - Modify: `src/helpers/dictationLifecycle.js`. Add `CANCELLED: "cancelled"` to `DICTATION_LIFECYCLE`. Main normalises every unknown state to `idle` (`normalizeDictationLifecycle`, line 17), so without this, §5.7's "future states pass through" would not hold for `cancelled`. `resolveAgentDictationPillState` treats `cancelled` as `idle`. `shouldIgnoreDictationHotkey` is unchanged, so a new dictation can start during the window.
 - Create: `src/helpers/rendererRequest.js` (main). A token, sender and timeout request/reply helper, generalised from `_prepareRendererForMainWindowResize` (`windowManager.js:345-370`).
 - Modify: `src/helpers/windowManager.js`. Add `sendUndoCancelDictation(sessionId?)`, `flushDictationBeforeQuit({ timeoutMs })` and `lastCancelledDictation`.
-- Modify: `main.js:1472-1479`. `before-quit` flushes the dictation window before teardown.
+- Create: `src/helpers/quitCoordinator.js`. One coordinated shutdown: the flush, then teardown, then exit. Every repeated quit is held until that exit (R1-I9).
+- Modify: `main.js:1472-1479`. `before-quit` uses the coordinator.
+- Test: `test/helpers/quitCoordinator.test.js`
 - Modify: `src/helpers/onboardingInputPolicy.js` and `src/helpers/ipcHandlers.js:1059-1080`. The demo channel accepts `cancelled` and `cancelClosed`, with sanitised fields.
 - Modify: `preload.js`, `src/types/electron.ts`, `src/preview/browserPreview.ts`
 - Modify: `src/hooks/useAudioRecording.js`
@@ -5165,26 +7711,99 @@ test("the demo channel accepts cancelled and cancelClosed with sanitised fields"
     sessionId: "rec-7",
     cancelled: {
       sessionId: "rec-7", undoUntil: 5000, paused: false, remainingMs: 5000,
-      remoteAlreadySent: { target: "openai", payload: "audio", evidence: "attested", extra: "x" }, junk: 1,
+      remoteAlreadySent: { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: ["anthropic", "host:gpu-box.lan", 7], extra: "x" },
+      junk: 1,
     },
     reason: "nope",
   });
   assert.deepEqual(clean, {
     sessionId: "rec-7",
     cancelled: { sessionId: "rec-7", undoUntil: 5000, paused: false, remainingMs: 5000,
-      remoteAlreadySent: { target: "openai", payload: "audio", evidence: "attested" } },
+      // §5.2 (ff8c9cd): every RemoteDisclosure field survives, including alsoSentTo.
+      remoteAlreadySent: { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: ["anthropic", "host:gpu-box.lan"] } },
   });
+  const bare = sanitizeCancelledDemoFields({
+    sessionId: "rec-8",
+    cancelled: { sessionId: "rec-8", undoUntil: 1, paused: false, remainingMs: 1,
+      remoteAlreadySent: { target: "openai", payload: "text", evidence: "dispatched" } },
+  });
+  assert.deepEqual(bare.cancelled.remoteAlreadySent.alsoSentTo, [], "a missing list is the empty list, never undefined");
   assert.equal(sanitizeCancelledDemoFields({ sessionId: "x".repeat(200) }).sessionId, undefined);
   assert.equal(sanitizeCancelledDemoFields({ sessionId: "rec-7", reason: "restored" }).reason, "restored");
 });
 
-test("normal quit flushes the cancel window before teardown", () => {
+test("main.js routes before-quit through the coordinator", () => {
   const main = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
-  const handler = main.slice(main.indexOf('app.on("before-quit"'), main.indexOf('app.on("before-quit"') + 700);
-  // windowManager is nullable in main.js; a throw here would leave the app unable to quit.
-  assert.match(handler, /\(windowManager\?\.flushDictationBeforeQuit\?\.\(\{ timeoutMs: \d+ \}\) \?\? Promise\.resolve\(\)\)\.finally\(\(\) => \{\s*performSyncTeardown\(\);/);
+  assert.match(main, /app\.on\("before-quit", createQuitCoordinator\(/);
+  assert.doesNotMatch(main, /isShuttingDown/, "the coordinator owns the shutdown state");
 });
 ```
+
+Create `test/helpers/quitCoordinator.test.js`. It drives the real coordinator through every quit transition:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { createQuitCoordinator } = require("../../src/helpers/quitCoordinator.js");
+const { deferred } = require("./harness/deferred");
+
+function harness({ flush, updateExit = false } = {}) {
+  const log = [];
+  const onBeforeQuit = createQuitCoordinator({
+    isUpdateExit: () => updateExit,
+    flush: flush ? () => flush(log) : () => (log.push("flush"), Promise.resolve(true)),
+    teardown: () => log.push("teardown"),
+    shutdown: () => (log.push("shutdown"), Promise.resolve()),
+    exit: (code) => log.push(`exit:${code}`),
+  });
+  const quit = () => {
+    const event = { prevented: false, preventDefault() { this.prevented = true; } };
+    onBeforeQuit(event);
+    return event;
+  };
+  return { log, quit };
+}
+const settle = () => new Promise((r) => setImmediate(r));
+
+test("quit flushes the dictation window, then tears down, then exits", async () => {
+  const { log, quit } = harness();
+  assert.equal(quit().prevented, true);
+  await settle();
+  assert.deepEqual(log, ["flush", "teardown", "shutdown", "exit:0"]);
+});
+
+test("a repeated quit during a slow flush is held, never let through (R1-I9)", async () => {
+  const save = deferred();
+  const { log, quit } = harness({ flush: (log) => (log.push("flush"), save.promise) });
+  quit();
+  const second = quit();
+  assert.equal(second.prevented, true, "Electron's default quit would bypass the flush");
+  await settle();
+  assert.deepEqual(log, ["flush"], "nothing tears down while the save runs");
+  save.resolve(true);
+  await settle();
+  assert.deepEqual(log, ["flush", "teardown", "shutdown", "exit:0"], "one shutdown, not two");
+});
+
+test("a flush that throws or a missing window manager still quits", async () => {
+  const { log, quit } = harness({ flush: () => { throw new Error("no window"); } });
+  quit();
+  await settle();
+  assert.deepEqual(log, ["teardown", "shutdown", "exit:0"]);
+  const missing = harness({ flush: () => undefined });
+  missing.quit();
+  await settle();
+  assert.deepEqual(missing.log, ["teardown", "shutdown", "exit:0"]);
+});
+
+test("the updater's own exit passes straight through", () => {
+  const { log, quit } = harness({ updateExit: true });
+  assert.equal(quit().prevented, false);
+  assert.deepEqual(log, []);
+});
+```
+
+The joins inside the renderer (an expiry or replacement save that is already running) are pinned by Task 8's "a flush joins an expiry or replacement save that is already running".
 
 Create `test/helpers/useAudioRecordingLifecycle.test.js`. It uses the hook harness from `useAudioRecordingPreparingReset.test.js`, with a fake manager whose callbacks the test fires:
 
@@ -5431,18 +8050,49 @@ Import `ipcMain` from `electron` if `windowManager.js` does not already. Add `th
 `main.js:1472-1479`:
 
 ```js
-let isShuttingDown = false;
-app.on("before-quit", (event) => {
-  if (updateExit || isShuttingDown) return;
-  isShuttingDown = true;
-  event.preventDefault();
-  // D3: an open cancel window is persisted (only if retention saves discarded
-  // audio) and zeroed before the app exits. A dead renderer times out.
-  (windowManager?.flushDictationBeforeQuit?.({ timeoutMs: 3000 }) ?? Promise.resolve()).finally(() => {
-    performSyncTeardown();
-    sidecarRegistry.shutdownAll().finally(() => app.exit(0));
-  });
-});
+// D3: an open cancel window, and any close still saving, is persisted (only if retention
+// saves discarded audio) and zeroed before the app exits. A dead renderer times out.
+app.on(
+  "before-quit",
+  createQuitCoordinator({
+    isUpdateExit: () => updateExit,
+    flush: () => windowManager?.flushDictationBeforeQuit?.({ timeoutMs: 3000 }),
+    teardown: performSyncTeardown,
+    shutdown: () => sidecarRegistry.shutdownAll(),
+    exit: (code) => app.exit(code),
+  })
+);
+```
+
+Delete `let isShuttingDown = false;`. Add `const { createQuitCoordinator } = require("./src/helpers/quitCoordinator");` with the other helper requires. `app.exit()` emits no further `before-quit` (Electron docs), so the held events never loop.
+
+`src/helpers/quitCoordinator.js`:
+
+```js
+// One coordinated shutdown. The first quit runs flush → teardown → shutdown → exit.
+// Every later quit event is prevented until that exit, so Electron's default quit can
+// never bypass a flush that is still saving (R1-I9).
+function createQuitCoordinator({ isUpdateExit = () => false, flush, teardown, shutdown, exit }) {
+  let shuttingDown = false;
+  return function onBeforeQuit(event) {
+    if (isUpdateExit()) return; // the updater already tore down and is restarting
+    event.preventDefault();
+    if (shuttingDown) return;
+    shuttingDown = true;
+    Promise.resolve()
+      .then(() => flush?.())
+      .catch(() => {})
+      .finally(() => {
+        teardown();
+        Promise.resolve()
+          .then(() => shutdown())
+          .catch(() => {})
+          .finally(() => exit(0));
+      });
+  };
+}
+
+module.exports = { createQuitCoordinator };
 ```
 
 The `windowManager.js:104-107` `before-quit` listener (`isQuitting = true` and `unregisterAll()`) still runs first and needs no change. The flush does not need hotkeys.
@@ -5455,6 +8105,8 @@ const PAYLOADS = new Set(["audio", "text", "image"]);
 const EVIDENCE = new Set(["attested", "dispatched"]);
 const id = (v) => (typeof v === "string" && v.length > 0 && v.length <= 128 ? v : undefined);
 const num = (v) => (Number.isFinite(v) && v >= 0 ? v : undefined);
+const target = (v) => typeof v === "string" && v.length <= 128;
+const MAX_ALSO_SENT_TO = 8; // more receivers than routes in a dictation means a bad payload
 
 function sanitizeCancelledDemoFields(event = {}) {
   const out = {};
@@ -5469,8 +8121,13 @@ function sanitizeCancelledDemoFields(event = {}) {
       paused: Boolean(c.paused),
       remainingMs: c.remainingMs,
       remoteAlreadySent:
-        d && typeof d.target === "string" && d.target.length <= 128 && PAYLOADS.has(d.payload) && EVIDENCE.has(d.evidence)
-          ? { target: d.target, payload: d.payload, evidence: d.evidence }
+        d && target(d.target) && PAYLOADS.has(d.payload) && EVIDENCE.has(d.evidence)
+          ? {
+              target: d.target,
+              payload: d.payload,
+              evidence: d.evidence,
+              alsoSentTo: (Array.isArray(d.alsoSentTo) ? d.alsoSentTo : []).filter(target).slice(0, MAX_ALSO_SENT_TO),
+            }
           : null,
     };
   }
@@ -5478,15 +8135,47 @@ function sanitizeCancelledDemoFields(event = {}) {
 }
 ```
 
-In `ipcHandlers.js:1059-1080` (`onboarding-demo-publish`), spread `...sanitizeCancelledDemoFields(event)` into the broadcast object. Then record the open window:
+Move the broadcast object out of `ipcHandlers.js:1063-1077` (`onboarding-demo-publish`) into `onboardingInputPolicy.js`, so the real broadcaster is testable, and spread the sanitiser into it:
 
 ```js
-      const cancelFields = sanitizeCancelledDemoFields(event);
-      if (event.status === "cancelled" && cancelFields.sessionId) this.windowManager.lastCancelledDictation = { sessionId: cancelFields.sessionId };
-      if (event.status === "cancelClosed") this.windowManager.lastCancelledDictation = null;
+// The object onboarding-demo-publish broadcasts on onboarding-demo-event (§5.2).
+function buildOnboardingDemoBroadcast(session, event) {
+  const text = typeof event.text === "string" ? event.text.slice(0, 20000) : undefined;
+  const message = typeof event.message === "string" ? event.message.slice(0, 500) : undefined;
+  const tool = typeof event.tool === "string" ? event.tool.slice(0, 64) : undefined;
+  const level = Number.isFinite(event.level) ? Math.min(1, Math.max(0, event.level)) : undefined;
+  return { demoId: session.id, kind: session.kind, status: event.status, text, message, tool, level, ...sanitizeCancelledDemoFields(event) };
+}
 ```
 
-Plan 05 extends the same handler (its CCR 1) and must keep this sanitiser.
+Export it. The handler keeps its session and status guards (`:1060-1062`), then:
+
+```js
+      const broadcast = buildOnboardingDemoBroadcast(session, event);
+      if (event.status === "cancelled" && broadcast.sessionId) this.windowManager.lastCancelledDictation = { sessionId: broadcast.sessionId };
+      if (event.status === "cancelClosed") this.windowManager.lastCancelledDictation = null;
+      broadcastToWindows("onboarding-demo-event", broadcast);
+      return true;
+```
+
+If Plan 05 merged first, its `sanitizeOnboardingDemoEvent(event, session)` already is this builder. Spread the sanitiser into it instead and skip `buildOnboardingDemoBroadcast` (Step 4b).
+
+Add to `test/helpers/undoBridge.test.js`:
+
+```js
+test("the real broadcaster keeps every receiver, and the copy names them all (§5.2, R1-I6)", async () => {
+  const { buildOnboardingDemoBroadcast } = require("../../src/helpers/onboardingInputPolicy.js");
+  const { disclosureCopy } = await import("../../src/helpers/dictationDisclosure.js");
+  const broadcast = buildOnboardingDemoBroadcast({ id: "demo-1", kind: "dictation" }, {
+    kind: "dictation", status: "cancelled", sessionId: "rec-1",
+    cancelled: { sessionId: "rec-1", undoUntil: 9000, paused: false, remainingMs: 5000,
+      remoteAlreadySent: { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: ["anthropic"] } },
+  });
+  assert.deepEqual(broadcast.cancelled.remoteAlreadySent.alsoSentTo, ["anthropic"]);
+  const t = (k, o) => (o ? `${k}|${o.provider}` : k);
+  assert.equal(disclosureCopy(broadcast.cancelled.remoteAlreadySent, t), "pill.caption.remoteSeveral|OpenAI, Anthropic");
+});
+```
 
 `preload.js` (overlay APIs):
 
@@ -5550,8 +8239,10 @@ In `src/hooks/useAudioRecording.js`:
 
    On unmount, the existing cleanup releases it: add `if (escHeldRef.current) window.electronAPI?.unregisterCancelHotkey?.();` to the effect cleanup at `:786-800`. Main also releases the `cancel` slot if the renderer goes away: Task 2's owner watch covers it, installed from `register-cancel-hotkey` itself.
 4. **Outcome.**
-   - Paste success (`:657-660`): `setOutcome({ sessionId: audioManagerRef.current?.activeSession?.id ?? "", kind: "pasted", words: countWords(result.text), at: Date.now() });`
-   - `showDictationError` (Task 4): `setOutcome({ sessionId: audioManagerRef.current?.activeSession?.id ?? "", kind: "failed", at: Date.now() });`
+   - Paste success (`:657-660`): `setOutcome({ sessionId: sessionId ?? "", kind: "pasted", words: countWords(result.text), at: Date.now() });`
+   - `showDictationError` (Task 4): `setOutcome({ sessionId: sessionId ?? "", kind: "failed", at: Date.now() });`, using its `sessionId` argument.
+
+   Both use the `sessionId` Task 4 reads at the top of `onTranscriptionComplete` and `onError`, before any `await`. By the time of the paste, the pipeline has settled and Task 6 has ended the session, so `activeSession` is already `null`.
    - Module scope: `const countWords = (text) => (text.trim() ? text.trim().split(/\s+/u).length : 0);`
 5. **Undo, pause, bridge, flush.**
 
@@ -5620,7 +8311,7 @@ A window paused by hover can outlive the 120 s `undoCancel` lease. Main then sen
 
   Add `const isProcessingRef = useRef(isProcessing); isProcessingRef.current = isProcessing;` next to `isRecordingRef`.
 
-Locale keys (`notices.undo`, all 12 locales):
+Locale keys (`notices.undo`, all 11 locales):
 
 ```json
 "undo": {
@@ -5633,15 +8324,55 @@ Locale keys (`notices.undo`, all 12 locales):
 }
 ```
 
+- [ ] **Step 4b: If Plan 05 merged first, run its Task 22 here (§3, R1-I6)**
+
+Spec §3 and §5.2 (ff8c9cd) give the Undo bridge to whichever of 04 and 05 merges second. If `git log --oneline origin/main -- src/utils/onboardingTrial.ts` shows Plan 05 on `main` when this branch is rebased, this branch merges second, and this step is required. Otherwise skip it: Plan 05 runs its own Task 22 after this plan merges.
+
+1. Check Plan 05 Task 22's pre-flight. All three must print a match, which this task's Steps 3 and 4 make true:
+
+   ```bash
+   grep -n "sendUndoCancelDictation" src/helpers/windowManager.js
+   grep -n "sanitizeCancelledDemoFields" src/helpers/onboardingInputPolicy.js
+   ls src/types/dictation.ts src/helpers/dictationDisclosure.js
+   ```
+
+2. Execute Plan 05's Task 22 (`docs/superpowers/plans/2026-10-15-loqui-uiux-05-onboarding.md`, "Task 22: Undo with Plan 04") step by step on this branch, with its tests. It does the following:
+   - spreads `sanitizeCancelledDemoFields` into Plan 05's `sanitizeOnboardingDemoEvent`, in place of `buildOnboardingDemoBroadcast` above;
+   - adds the §5.2 fields to `OnboardingDemoEvent`, `canUndo`, `undo()`/`undoAvailable` and the trial's Undo and disclosure;
+   - **deletes Plan 05's fallback:** the bare `cancelled` publish in `useAudioRecording.js` (Plan 05 Task 5), and its test "cancelling an active take tells setup it was discarded…". Plan 04's `onCancelledChange` publishes `cancelled` and `cancelClosed` instead.
+3. Extend Plan 05's reducer test with two receivers and the §5.2 event order. Append to `test/utils/onboardingTrial.test.js`:
+
+   ```js
+   test("two receivers survive to the trial, and closure comes before processing (R1-I6)", async () => {
+     const disclosure = { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: ["anthropic"] };
+     const state = await play([
+       { status: "listening", atMs: 0 },
+       { status: "cancelled", sessionId: "rec-1", cancelled: undoWindow({ remoteAlreadySent: disclosure }), atMs: 1 },
+     ]);
+     assert.deepEqual(state.cancelled.remoteAlreadySent.alsoSentTo, ["anthropic"]);
+     const restored = await play([
+       { status: "listening", atMs: 0 },
+       { status: "cancelled", sessionId: "rec-1", cancelled: undoWindow(), atMs: 1 },
+       { status: "cancelClosed", sessionId: "rec-1", reason: "restored", atMs: 2 },
+       { status: "processing", atMs: 3 },
+     ]);
+     assert.deepEqual([restored.phase, restored.cancelled], ["processing", null]);
+   });
+   ```
+
+4. Check that no fallback remains: `rg -n "status: \"cancelled\"" src/hooks/useAudioRecording.js` prints only Plan 04's `onCancelledChange` publish.
+
+Onboarding reads cancel details only from `onboarding-demo-event`. §5.7's lifecycle string (`"cancelled"`, Step 4) is for the workspace mic card, and onboarding never reads it.
+
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/dictationLifecycle.test.js test/helpers/rendererRequest.test.js test/helpers/undoBridge.test.js test/helpers/useAudioRecordingLifecycle.test.js "test/helpers/useAudioRecording*.test.js" test/helpers/preloadOnboardingBridge.test.js`
+Run: `npm test -- test/helpers/quitCoordinator.test.js test/helpers/dictationLifecycle.test.js test/helpers/rendererRequest.test.js test/helpers/undoBridge.test.js test/helpers/useAudioRecordingLifecycle.test.js "test/helpers/useAudioRecording*.test.js" test/helpers/preloadOnboardingBridge.test.js`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/helpers/dictationLifecycle.js src/helpers/rendererRequest.js src/helpers/windowManager.js main.js src/helpers/onboardingInputPolicy.js src/helpers/ipcHandlers.js src/helpers/audioManager.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/hooks/useAudioRecording.js src/hooks/useUndoCancelHotkey.ts src/App.jsx src/locales test
+git add src/helpers/quitCoordinator.js src/helpers/dictationLifecycle.js src/helpers/rendererRequest.js src/helpers/windowManager.js main.js src/helpers/onboardingInputPolicy.js src/helpers/ipcHandlers.js src/helpers/audioManager.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/hooks/useAudioRecording.js src/hooks/useUndoCancelHotkey.ts src/App.jsx src/locales test
 git commit -m "feat(voice): lifecycle-owned Esc, cross-window Undo bridge and a quit flush"
 ```
 
@@ -5939,7 +8670,10 @@ Expected: FAIL in five places:
      return OWNERSHIP[stage] ?? NO_OWNERSHIP;
    }
 
-   /** App's auto-hide condition (App.jsx:407-414), with stage ownership. */
+   /**
+    * App's auto-hide condition (App.jsx:407-414), with stage ownership. Its one
+    * caller is usePillAutoHide (Task 11), which App calls after pillOwnership.
+    */
    export function shouldAutoHidePill({
      floatingIconAutoHide, isRecording, isVisuallyProcessing, noticesOnScreen,
      wordsCardHandoffActive, assistantMounted, liveTranscriptMounted, ownership,
@@ -5970,25 +8704,33 @@ git commit -m "feat(voice): pill stage model, no press hold, words-first transcr
 
 ### Task 11: The Condensation pill: LevelBars, LocalityRing, stage labels and undo
 
-Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and caption, FND-R5 adoption on the pill, and §5.1/§5.4 consumption.
+Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and caption, FND-R5 adoption on the pill, and §5.1/§5.4 consumption. It also closes R1-I4 (no read of `pillOwnership` before its declaration) and R2-M1 (the pill's motion uses the shared tokens).
 
 **Files:**
 - Modify (rewrite): `src/components/dictation/VoicePill.tsx`
 - Create: `src/components/dictation/pillLocality.ts`. A pure combiner plus a `usePillLocality` hook.
 - Create: `src/components/dictation/PillCaption.tsx`. The layer above the pill; Task 12 renders words into it.
 - Create: `src/hooks/useRecentOutcome.ts`
+- Create: `src/hooks/usePillAutoHide.js`. App's auto-hide effect (`App.jsx:403–434`), moved so App calls it after the stage derivation it reads (R1-I4).
 - Delete: `src/components/dictation/PillWaveform.tsx`, `src/components/dictation/waveformMath.ts`
 - Modify: `src/App.jsx`:
-  - pill state derivation (lines 472–481, 576–581)
+  - `prevAutoHideRef` (line 76) and the auto-hide effect (403–434) move into `usePillAutoHide`
+  - the new stage block goes directly after `agentModeActive` (512–517)
+  - `resolveVoicePillInteraction` (519–525) and `cancelPillFootprint` (537–539)
   - `activateVoicePill` (540–557)
+  - `commonPillState` (576–581) and footer suppression (599–604)
   - hover handlers (648–659)
   - the `VoicePill` props (666–739)
 - Modify: `src/components/dictation/AgentDictationPillOverlay.tsx:228-244`. It keeps `getAudioLevel`; no other change.
-- Modify: `src/styles/dictation-panel.css`. Add the stage, countdown and caption rules, the `[data-stage]` comet variant and the `liquid-cancel-skin` states.
+- Modify: `src/styles/dictation-panel.css`. Add the stage, countdown and caption rules, the token transitions for the pill's own parts, the `[data-stage]` comet variant and the `liquid-cancel-skin` states.
+- Modify: `src/index.css`. Five shared beat tokens in the Plan 01 Motion block (R2-M1).
 - Modify: `src/locales/*/translation.json` (`pill.*` keys)
-- Modify: `DESIGN.md` `### Voice Pill`
+- Modify: `DESIGN.md` `### Voice Pill` and the `## Motion` token table
 - Test: `test/helpers/voicePillStructure.test.js` (update)
 - Test: `test/components/pillLocality.test.js` (new)
+- Test: `test/hooks/pillAutoHide.test.js` (new). The real hook, mounted with auto-hide on.
+- Test: `test/components/appPillOwnership.test.js` (new). The real `App.jsx`, rendered with auto-hide on (R1-I4).
+- Test: `test/components/pillMotionTokens.test.js` (new). Token adoption and the literal-timing scan (R2-M1).
 
 **Interfaces:**
 - Consumes:
@@ -6019,6 +8761,26 @@ Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and ca
   export function PillCaption(props: { children: React.ReactNode; horizontalDirection: "left" | "right" }): JSX.Element;
   export function useRecentOutcome(outcome: Outcome | null, windowMs?: number): Outcome | null;
   ```
+
+  ```js
+  // src/hooks/usePillAutoHide.js
+  export const PILL_AUTO_HIDE_DELAY_MS = 500;   // unchanged from App.jsx:419
+  export function usePillAutoHide(input: {
+    floatingIconAutoHide: boolean; isRecording: boolean; isVisuallyProcessing: boolean; noticesOnScreen: boolean;
+    wordsCardHandoffActive: boolean; assistantMounted: boolean; liveTranscriptMounted: boolean; ownership: { holdsWindow: boolean };
+  }): void;
+  ```
+
+  ```css
+  /* src/index.css, :root Motion block: picked beats as shared tokens (R2-M1) */
+  --motion-nudge: 260ms;             /* the failed pill's nudge */
+  --motion-bounce: 640ms;            /* the length --motion-spring-bounce is drawn for */
+  --motion-condense-fly: 140ms;      /* Task 12: a spark rises from the bars */
+  --motion-condense-land: 220ms;     /* Task 12: a word lands */
+  --motion-rewrite-underline: 600ms; /* Task 12: cleanup's rewrite underline */
+  ```
+
+  These extend the Plan 01 motion-token contract (spec §5, "Motion and colour tokens") additively. Nothing Plan 01 ships changes.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -6149,12 +8911,403 @@ test("the retired pill waveform is gone; recording uses LevelBars", async () => 
 });
 ```
 
+Create `test/hooks/pillAutoHide.test.js`. It mounts the real hook the way `test/hooks/dictationErrorAutoHide.test.js` mounts the size owner: real timers, the fake DOM from `installHookDom`, and auto-hide on.
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
+
+// Mounts the real usePillAutoHide with "Auto-hide when idle" on. `stage` goes
+// through the real resolvePillOwnership (Task 10), so a policy change reaches
+// this test.
+async function mountAutoHide(t, initial = {}) {
+  // Registered before the browser globals so React still has `window` when the
+  // harness tears the root down (the order dictationErrorAutoHide.test.js uses).
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+
+  const calls = [];
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: {
+        hideWindow: async () => calls.push("hide"),
+        showDictationPanel: async () => calls.push("show"),
+      },
+    },
+  });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-pill-auto-hide-" });
+  const { usePillAutoHide, PILL_AUTO_HIDE_DELAY_MS } = await vite.ssrLoadModule(
+    "/hooks/usePillAutoHide.js"
+  );
+  const { resolvePillOwnership } = await vite.ssrLoadModule("/helpers/voicePillPresentation.js");
+
+  let props = {
+    floatingIconAutoHide: true,
+    isRecording: false,
+    isVisuallyProcessing: false,
+    noticesOnScreen: false,
+    wordsCardHandoffActive: false,
+    assistantMounted: false,
+    liveTranscriptMounted: false,
+    stage: null,
+    ...initial,
+  };
+  function Harness() {
+    const { stage, ...input } = props;
+    usePillAutoHide({ ...input, ownership: resolvePillOwnership(stage) });
+    return null;
+  }
+
+  root = createRoot(container);
+  const render = async (next = {}) => {
+    props = { ...props, ...next };
+    await React.act(async () => {
+      root.render(React.createElement(Harness));
+      await Promise.resolve();
+    });
+  };
+  // Real timers: wait just past the hide delay.
+  const wait = async () => {
+    await React.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, PILL_AUTO_HIDE_DELAY_MS + 100));
+    });
+  };
+
+  await render();
+  return { calls, render, wait };
+}
+
+test("an idle pill still auto-hides", async (t) => {
+  const { calls, wait } = await mountAutoHide(t);
+  await wait();
+  assert.deepEqual(calls, ["hide"]);
+});
+
+test("Esc during a recording keeps the window for the whole undo window (R1-I4)", async (t) => {
+  const { calls, render, wait } = await mountAutoHide(t, { isRecording: true });
+  // The cancel lands: recording stops and the cancelled stage starts in one render.
+  await render({ isRecording: false, stage: "cancelled" });
+  await wait();
+  assert.deepEqual(calls, ["show"], "the stage brings the window back and nothing hides it");
+  // The undo window closes; the idle pill hides as before.
+  await render({ stage: null });
+  await wait();
+  assert.deepEqual(calls, ["show", "hide"]);
+});
+
+for (const stage of ["pasted", "failed", "sealedPaused", "meeting"]) {
+  test(`the ${stage} stage holds the window`, async (t) => {
+    const { calls, wait } = await mountAutoHide(t, { stage });
+    await wait();
+    assert.deepEqual(calls, ["show"]);
+  });
+}
+
+test("a stage shows the window once, not on every render", async (t) => {
+  // show-dictation-panel repositions to the active display, so repeats would move the pill.
+  const { calls, render, wait } = await mountAutoHide(t, { stage: "meeting" });
+  await render({ isVisuallyProcessing: true });
+  await render({ isVisuallyProcessing: false });
+  await wait();
+  assert.deepEqual(calls, ["show"]);
+});
+
+test("turning auto-hide off still brings the pill back", async (t) => {
+  const { calls, render } = await mountAutoHide(t, { isRecording: true });
+  await render({ floatingIconAutoHide: false });
+  assert.deepEqual(calls, ["show"]);
+});
+```
+
+Create `test/components/appPillOwnership.test.js`. It renders the real `App.jsx` through Vite SSR, like `test/components/pillCommandMenu.test.js` renders its component. App already renders this way: on the current tree, stubbing only `index.css` and `useToast` (Task 5 deletes the second) is enough.
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { createElement } = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+
+// R1-I4, App level. This renders the real App.jsx with the real stage
+// derivation, ownership policy, settings store and VoicePill. Rendering
+// evaluates every hook's dependency array, so a value read above its `const`
+// throws a ReferenceError here; helper tests cannot see that. Three modules
+// are stand-ins:
+// - useAudioRecording: the pipeline state each test sets;
+// - usePillAutoHide: records what App passes it. SSR runs no effects, and
+//   test/hooks/pillAutoHide.test.js mounts the real hook;
+// - lib/routes' useResolvedRoute: pinned to on-device routes, so the locality
+//   ring does not depend on the test machine's settings.
+const MOCKS = {
+  "/index.css": "export default {};",
+  "/hooks/useAudioRecording": "export const useAudioRecording = () => globalThis.__appPillAudio;",
+  "/hooks/usePillAutoHide":
+    "export const usePillAutoHide = (input) => { globalThis.__appPillAutoHide.push(input); };",
+  "/lib/routes": `
+    export * from "/lib/routes.ts";
+    export const useResolvedRoute = (id) => ({
+      id, kind: "speech", locality: "device", provider: null, model: null,
+      state: { status: "ready" }, sends: null, settingsPath: id,
+    });
+  `,
+};
+
+// Every field App reads from useAudioRecording, at its idle value. A task
+// that makes App read a new field adds its idle value here.
+const pipeline = (state) => ({
+  isRecording: false,
+  isProcessing: false,
+  isAssistantVoice: false,
+  isPreparing: false,
+  isStopping: false,
+  micCaptureStatus: "ok",
+  toggleListening() {},
+  cancelRecording() {},
+  cancelProcessing() {},
+  getAudioLevel: () => 0,
+  cancelled: null,
+  undoCancel: async () => true,
+  pauseUndo() {},
+  resumeUndo() {},
+  processingStage: null,
+  outcome: null,
+  ...state,
+});
+
+async function renderApp(t, state = {}) {
+  // "Auto-hide when idle" is on; the real settings store reads it at load.
+  installBrowserGlobals(t, { initialStorage: { floatingIconAutoHide: "true" } });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-app-pill-", mockModules: MOCKS });
+  globalThis.__appPillAudio = pipeline(state);
+  globalThis.__appPillAutoHide = [];
+  t.after(() => {
+    delete globalThis.__appPillAudio;
+    delete globalThis.__appPillAutoHide;
+  });
+  const { default: App } = await vite.ssrLoadModule("/App.jsx");
+  const html = renderToStaticMarkup(createElement(App));
+  return { html, autoHide: globalThis.__appPillAutoHide.at(-1) };
+}
+
+const cancelled = {
+  sessionId: "s1",
+  undoUntil: Date.now() + 5000,
+  paused: false,
+  remainingMs: 5000,
+  remoteAlreadySent: null,
+};
+
+test("App renders the Undo capsule with auto-hide on, and auto-hide sees the hold (R1-I4)", async (t) => {
+  const { html, autoHide } = await renderApp(t, { cancelled });
+  assert.match(html, /data-pill-state="cancelled"[^>]*role="button"/);
+  assert.match(html, /class="pill-countdown"/);
+  assert.equal(autoHide.floatingIconAutoHide, true);
+  assert.deepEqual(autoHide.ownership, { holdsWindow: true, interactive: true, outranksFooter: true });
+});
+
+test("an idle App leaves auto-hide free to hide the window", async (t) => {
+  const { autoHide } = await renderApp(t);
+  assert.equal(autoHide.floatingIconAutoHide, true);
+  assert.equal(autoHide.isRecording, false);
+  assert.equal(autoHide.ownership.holdsWindow, false);
+});
+
+test("live work reaches auto-hide as live work, not as a held stage", async (t) => {
+  const { html, autoHide } = await renderApp(t, { isProcessing: true, processingStage: "transcribing" });
+  assert.match(html, /data-pill-state="transcribing"/);
+  assert.equal(autoHide.isVisuallyProcessing, true);
+  assert.equal(autoHide.ownership.holdsWindow, false);
+});
+```
+
+Create `test/components/pillMotionTokens.test.js` (R2-M1). It checks token adoption, scans the new rules and sources for literal timings, and checks the reduced-motion fades.
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const { renderStatic } = require("../helpers/harness/reactSsr");
+
+// Spec §4: motion uses the shared tokens only. This pins Plan 04's pill,
+// caption, word-row and orbit motion to them.
+const repoRoot = path.join(__dirname, "../..");
+const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
+const flat = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ");
+const withoutJsComments = (src) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+
+// Picked beats, shared next to Plan 01's tokens in src/index.css.
+const BEAT_TOKENS = {
+  "--motion-nudge": "260ms",
+  "--motion-bounce": "640ms",
+  "--motion-condense-fly": "140ms",
+  "--motion-condense-land": "220ms",
+  "--motion-rewrite-underline": "600ms",
+};
+
+// Plan 04's rules in dictation-panel.css. Older rules in that file keep their
+// timings until their owners migrate them.
+const SCOPED =
+  /\.pill-|\.condense-|\.agent-orbit|\.voice-pill-(?:sheen|levels|identity-icon|identity-logo|expand-chevron)\b|\.locality-ring--blocked|\[data-pill-state=/;
+
+// The declared exception list (Global Constraints, "Motion tokens"). Loop
+// periods are the only literal timings a scoped rule may carry:
+const LOOP_PERIODS = new Map([
+  ['.agent-orbit[data-phase="thinking"] .agent-orbit__ring', ["2400ms"]],
+  ['.agent-orbit[data-phase="answering"] .agent-orbit__ring', ["1200ms"]],
+  [".agent-orbit__satellite", ["2400ms"]],
+  [".agent-orbit__satellite--b", ["1200ms"]], // phase offset: half a 2.4 s turn
+  // An ambient loop, so ease-in-out is allowed (audit §4.1).
+  [
+    '.voice-pill-control[data-agent-mode="true"][data-pill-state="thinking"] .voice-identity-agent',
+    ["2400ms", "ease-in-out"],
+  ],
+]);
+// Functional deadlines are not motion, so they get no token. None is a
+// literal in the scanned code, so the scans need no entry for them:
+// - the undo underline (.pill-countdown) runs for the session's real undo
+//   window: VoicePill sets animation-duration and --undo-ms from
+//   countdown.durationMs (5 s or 10 s, decided by AudioManager);
+// - the footprint grow (VOICE_PILL_GROW_TRANSITION) stays a JS value, because
+//   LiquidCancelButton's frame tween and the listening timeline read the same
+//   LISTENING_ENTRANCE_TIMING.expansionMs;
+// - PILL_OUTCOME_BEAT_MS, PILL_SEALED_PAUSED_MS, PILL_AUTO_HIDE_DELAY_MS and
+//   AGENT_ANSWERING_MS (Task 13) are timers, not transitions.
+// Tailwind's animate-pulse on the unavailable identity is an existing ambient loop.
+
+// Sources whose class lists and inline styles must use the tokens.
+// Tasks 12, 13 and 14 add theirs.
+const MOTION_SOURCES = [
+  "src/components/dictation/VoicePill.tsx",
+  "src/components/dictation/PillCaption.tsx",
+];
+
+const DURATION = /(?<![\w.])\d*\.?\d+m?s(?![\w-])/g;
+const EASING = /cubic-bezier\(|(?<![\w-])ease(?:-in-out|-in|-out)?(?![\w-])/g;
+
+// Innermost `selector { body }` pairs, including those inside @media.
+function scopedRules(css) {
+  const rules = [];
+  const plain = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [, selector, body] of plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const name = selector.replace(/\s+/g, " ").trim();
+    if (SCOPED.test(name)) rules.push({ selector: name, body });
+  }
+  return rules;
+}
+
+function reducedMotionBlocks(css) {
+  const blocks = [];
+  const open = /@media \(prefers-reduced-motion: reduce\) \{/g;
+  for (let m = open.exec(css); m; m = open.exec(css)) {
+    let depth = 1;
+    let i = open.lastIndex;
+    for (; i < css.length && depth > 0; i += 1) {
+      if (css[i] === "{") depth += 1;
+      else if (css[i] === "}") depth -= 1;
+    }
+    blocks.push(css.slice(open.lastIndex, i - 1));
+  }
+  return blocks;
+}
+
+test("Plan 04's beat tokens sit with Plan 01's, each defined once", () => {
+  const css = flat(read("src/index.css"));
+  for (const [name, value] of Object.entries(BEAT_TOKENS)) {
+    const matches = css.match(new RegExp(`${name}:\\s*([^;]+);`, "g")) ?? [];
+    assert.equal(matches.length, 1, `${name} defined exactly once`);
+    assert.equal(matches[0].replace(/^[^:]+:\s*/, "").replace(/;$/, ""), value);
+  }
+});
+
+test("the pill's transitions and beats use the shared tokens", () => {
+  const css = flat(read("src/styles/dictation-panel.css"));
+  assert.match(css, /\.voice-pill-sheen, \.voice-pill-levels \{[^}]*transition: opacity var\(--motion-fast\) var\(--motion-ease-std\)/);
+  assert.match(
+    css,
+    /\.voice-pill-identity-logo, \.voice-pill-expand-chevron \{[^}]*transition-duration: var\(--motion-base\);[^}]*transition-timing-function: var\(--motion-ease-std\)/
+  );
+  assert.match(css, /\.voice-pill-identity-icon \{[^}]*width var\(--motion-base\) var\(--motion-ease-std\)/);
+  assert.match(css, /\.voice-pill-control\[data-pill-state="failed"\] \{[^}]*animation: pill-nudge var\(--motion-nudge\) var\(--motion-ease-std\)/);
+  assert.match(
+    css,
+    /\.pill-success-check \{[^}]*draw-check var\(--motion-base\) var\(--motion-ease-std\) var\(--motion-instant\) both, pill-pop var\(--motion-bounce\) var\(--motion-spring-bounce\) both/
+  );
+});
+
+test("the rendered pill carries the token classes and no utility timings", async () => {
+  const { VoicePill } = await import("../../src/components/dictation/VoicePill.tsx");
+  const render = (state, props = {}) =>
+    renderStatic(VoicePill, { variant: "floating", state, getAudioLevel: () => 0, ...props });
+  const recording = render("recording", { expanded: true });
+  const hover = render("hover", { showExpandChevron: true });
+  const cancelled = render("cancelled", {
+    label: "Discarded",
+    countdown: { durationMs: 5000, paused: false },
+  });
+  assert.match(recording, /voice-pill-levels/);
+  for (const html of [recording, hover, cancelled]) {
+    assert.match(html, /class="voice-pill-sheen /);
+    assert.match(html, /voice-pill-identity-logo/);
+    assert.match(html, /voice-pill-expand-chevron/);
+    assert.doesNotMatch(html, /\b(?:duration|delay)-\d|\bease-(?:in|out|in-out|linear)\b|transition-\[/);
+  }
+});
+
+test("pill sources carry no literal timings (spec §4)", () => {
+  for (const file of MOTION_SOURCES) {
+    const src = withoutJsComments(read(file));
+    assert.deepEqual(src.match(/\b(?:duration|delay)-\d+\b/g) ?? [], [], `${file}: Tailwind timing utilities`);
+    assert.deepEqual(src.match(EASING) ?? [], [], `${file}: easing literals`);
+    assert.deepEqual(src.match(DURATION) ?? [], [], `${file}: literal durations`);
+  }
+});
+
+test("Plan 04's pill rules use tokens; only the declared loop periods are literal", () => {
+  const rules = scopedRules(read("src/styles/dictation-panel.css"));
+  assert.ok(rules.some((rule) => rule.selector === ".pill-success-check"), "the scan sees the new rules");
+  for (const { selector, body } of rules) {
+    const allowed = LOOP_PERIODS.get(selector) ?? [];
+    const found = [...(body.match(DURATION) ?? []), ...(body.match(EASING) ?? [])];
+    assert.deepEqual(found.filter((value) => !allowed.includes(value)), [], selector);
+  }
+});
+
+test("reduced motion keeps the pill's opacity cues and drops its movement", () => {
+  const reduced = reducedMotionBlocks(read("src/styles/dictation-panel.css")).map(flat).join(" ");
+  // index.css crushes every animation to 0.01ms; these fades opt back in.
+  assert.match(
+    reduced,
+    /\.pill-success-check, \.pill-caption \{ animation: notice-fade var\(--motion-fast\) linear both !important; \}/
+  );
+  assert.match(reduced, /\.voice-pill-control\[data-pill-state="failed"\] \{ animation: none; \}/);
+  // The token transitions keep their fade: index.css keeps opacity in
+  // transition-property and drops transform, translate and scale.
+  assert.match(read("src/index.css"), /prefers-reduced-motion: reduce[\s\S]*?transition-property:\s*opacity, color, background-color/);
+});
+```
+
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/components/pillLocality.test.js test/helpers/voicePillStructure.test.js`
-Expected: FAIL. `pillLocality.ts` is not found, there is no `data-level-bar`, and there are no stage labels.
+Run: `npm test -- test/components/pillLocality.test.js test/helpers/voicePillStructure.test.js test/hooks/pillAutoHide.test.js test/components/appPillOwnership.test.js test/components/pillMotionTokens.test.js`
+Expected: FAIL:
+- `pillLocality.ts` and `usePillAutoHide.js` are not found;
+- there is no `data-level-bar`, and there are no stage labels;
+- App never calls `usePillAutoHide` and renders no `data-pill-state="cancelled"`;
+- `--motion-nudge` is undefined, and `VoicePill.tsx` still has `duration-200` and `ease-out`.
 
-- [ ] **Step 3: Implement `pillLocality.ts`, `useRecentOutcome` and `PillCaption`**
+- [ ] **Step 3: Implement `pillLocality.ts`, `useRecentOutcome`, `PillCaption` and `usePillAutoHide`**
 
 `src/components/dictation/pillLocality.ts`:
 
@@ -6268,6 +9421,74 @@ export function PillCaption({
       {children}
     </div>
   );
+}
+```
+
+`src/hooks/usePillAutoHide.js`. This is App's auto-hide effect (`App.jsx:403–434`) with stage ownership added. It lives in a hook so App can call it after `pillOwnership` exists (Step 6, item 9), and so a test can mount it.
+
+```js
+import { useEffect, useRef } from "react";
+import { shouldAutoHidePill } from "../helpers/voicePillPresentation";
+
+/** The pause before an idle pill hides, so processing can start after recording stops without a flash. */
+export const PILL_AUTO_HIDE_DELAY_MS = 500;
+
+/**
+ * "Auto-hide when idle" for the floating pill window. A stage that holds the
+ * window (Task 10) keeps it on screen, and brings an auto-hidden pill back
+ * when that stage starts.
+ */
+export function usePillAutoHide({
+  floatingIconAutoHide,
+  isRecording,
+  isVisuallyProcessing,
+  noticesOnScreen,
+  wordsCardHandoffActive,
+  assistantMounted,
+  liveTranscriptMounted,
+  ownership,
+}) {
+  const holdsWindow = Boolean(ownership?.holdsWindow);
+  const prevAutoHideRef = useRef(floatingIconAutoHide);
+  const prevHoldsWindowRef = useRef(false);
+
+  useEffect(() => {
+    let hideTimeout;
+    if (
+      shouldAutoHidePill({
+        floatingIconAutoHide,
+        isRecording,
+        isVisuallyProcessing,
+        noticesOnScreen,
+        wordsCardHandoffActive,
+        assistantMounted,
+        liveTranscriptMounted,
+        ownership: { holdsWindow },
+      })
+    ) {
+      hideTimeout = setTimeout(() => {
+        window.electronAPI?.hideWindow?.();
+      }, PILL_AUTO_HIDE_DELAY_MS);
+    } else if (!floatingIconAutoHide && prevAutoHideRef.current) {
+      window.electronAPI?.showDictationPanel?.();
+    } else if (floatingIconAutoHide && holdsWindow && !prevHoldsWindowRef.current) {
+      // Only when the stage starts: show-dictation-panel also repositions the
+      // window to the active display (ipcHandlers.js:1196-1198).
+      window.electronAPI?.showDictationPanel?.();
+    }
+    prevAutoHideRef.current = floatingIconAutoHide;
+    prevHoldsWindowRef.current = holdsWindow;
+    return () => clearTimeout(hideTimeout);
+  }, [
+    floatingIconAutoHide,
+    isRecording,
+    isVisuallyProcessing,
+    noticesOnScreen,
+    wordsCardHandoffActive,
+    assistantMounted,
+    liveTranscriptMounted,
+    holdsWindow,
+  ]);
 }
 ```
 
@@ -6406,7 +9627,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
         size={identitySize}
         agentMode={agentMode}
         className={cn(
-          "transition-[width,height] duration-200",
+          "voice-pill-identity-icon",
           state === "idle" && "text-foreground",
           (isUnavailable || state === "processing") && "animate-pulse"
         )}
@@ -6446,8 +9667,9 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
       data-expand-chevron={showExpandChevron || undefined}
       {...props}
     >
+      {/* Transitions live in dictation-panel.css on the motion tokens (R2-M1). */}
       <div
-        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-foreground/10 to-transparent transition-opacity duration-200 ease-out"
+        className="voice-pill-sheen pointer-events-none absolute inset-0 bg-gradient-to-br from-foreground/10 to-transparent"
         style={{ opacity: state === "hover" ? 0.72 : 0 }}
       />
 
@@ -6458,7 +9680,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
       >
         <span
           className={cn(
-            "voice-pill-identity-logo absolute inset-0 grid place-items-center transition-[opacity,transform] duration-200 ease-out",
+            "voice-pill-identity-logo absolute inset-0 grid place-items-center",
             showExpandChevron ? "translate-y-1 scale-75 opacity-0" : "scale-100 opacity-100"
           )}
         >
@@ -6479,7 +9701,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
         </span>
         <ChevronUp
           className={cn(
-            "voice-pill-expand-chevron absolute inset-0 m-auto size-5 transition-[opacity,transform] duration-200 ease-out",
+            "voice-pill-expand-chevron absolute inset-0 m-auto size-5",
             showExpandChevron ? "scale-100 opacity-100" : "translate-y-1 scale-75 opacity-0"
           )}
           strokeWidth={2}
@@ -6505,7 +9727,7 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
               readLevel={readLevel}
               height={20}
               className={cn(
-                "transition-opacity duration-200 ease-out",
+                "voice-pill-levels",
                 showCompactPill && waveformVisible ? "opacity-100" : "opacity-0"
               )}
             />
@@ -6551,11 +9773,27 @@ export const VoicePill = forwardRef<HTMLDivElement, VoicePillProps>(function Voi
 });
 ```
 
+No class list in the file carries a Tailwind duration or easing utility (R2-M1). The sheen, the identity/chevron swap, the identity icon and the level bars get their transitions from Step 5's CSS, on the motion tokens. The inline `transition` keeps `VOICE_PILL_GROW_TRANSITION` for width, height and padding. That duration stays a JS value on purpose: LiquidCancelButton's frame tween (`LiquidCancelButton.tsx:85`) and the listening timeline read the same `LISTENING_ENTRANCE_TIMING.expansionMs`, so it is a declared functional exception.
+
 Check that `Check` is exported from `src/components/icons` (`grep -n "Check\b" src/components/icons/index.*`). If it is not, add the lucide re-export the same way the neighbouring icons are exported.
 
 Delete `PillWaveform.tsx` and `waveformMath.ts`. Then run `grep -rn "waveformMath\|PillWaveform\|RESTING_WAVE_SILHOUETTE\|WAVEFORM_BAR_COUNT" src test` and remove each remaining reference. The known references are `voicePillStructure.test.js` (handled in Step 1) and any `liveWaveform`/`rtlMotion` assertion that names them.
 
-- [ ] **Step 5: CSS**
+- [ ] **Step 5: CSS and the beat tokens**
+
+First the tokens. In `src/index.css`, in the `:root` Motion block, add these lines directly after the `--motion-spring-bounce: linear(…);` declaration. On the Plan 01 branch it closes just above the `/* Bundled open-source fonts work without network access. */` comment (about line 172):
+
+```css
+  /* Plan 04 beats the picked voice specs fix (VO-R1 C, VO-Q12). Shared here
+     so no pill rule carries a literal duration (spec §4). */
+  --motion-nudge: 260ms;
+  --motion-bounce: 640ms; /* the length --motion-spring-bounce is drawn for */
+  --motion-condense-fly: 140ms;
+  --motion-condense-land: 220ms;
+  --motion-rewrite-underline: 600ms;
+```
+
+Task 12 uses the last three. The Plan 01 test `test/components/motionTokens.test.js` still passes: it checks only its own names.
 
 Append to `src/styles/dictation-panel.css`, before the `@media (prefers-reduced-motion: reduce)` block at line 658:
 
@@ -6571,12 +9809,34 @@ Append to `src/styles/dictation-panel.css`, before the `@media (prefers-reduced-
   font-variant-numeric: tabular-nums;
 }
 
+/* VoicePill's own transitions, on the shared tokens (spec §4). The sheen and
+   the level bars only fade. The identity/chevron swap also drops 4px and
+   scales; Tailwind v4's translate-* and scale-* set the individual translate
+   and scale properties, so both are listed. Under reduced motion index.css
+   drops transform, translate and scale from transition-property, and the
+   fade stays. */
+.voice-pill-sheen,
+.voice-pill-levels {
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.voice-pill-identity-logo,
+.voice-pill-expand-chevron {
+  transition-property: opacity, transform, translate, scale;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--motion-ease-std);
+}
+.voice-pill-identity-icon {
+  transition:
+    width var(--motion-base) var(--motion-ease-std),
+    height var(--motion-base) var(--motion-ease-std);
+}
+
 .voice-pill-control[data-pill-state="pasted"] {
   border-color: var(--color-success);
 }
 .voice-pill-control[data-pill-state="failed"] {
   border-color: var(--color-destructive);
-  animation: pill-nudge 260ms var(--motion-ease-std) 1;
+  animation: pill-nudge var(--motion-nudge) var(--motion-ease-std) 1;
 }
 .voice-pill-control[data-pill-state="recording"] {
   border-color: color-mix(in oklch, var(--color-live) 55%, transparent);
@@ -6586,8 +9846,8 @@ Append to `src/styles/dictation-panel.css`, before the `@media (prefers-reduced-
   color: var(--color-success);
   stroke-dasharray: 24;
   animation:
-    draw-check 220ms var(--motion-ease-std) 80ms both,
-    pill-pop 640ms var(--motion-spring-bounce) both;
+    draw-check var(--motion-base) var(--motion-ease-std) var(--motion-instant) both,
+    pill-pop var(--motion-bounce) var(--motion-spring-bounce) both;
 }
 @keyframes pill-pop {
   from {
@@ -6674,10 +9934,16 @@ Append to `src/styles/dictation-panel.css`, before the `@media (prefers-reduced-
 Inside the existing reduced-motion block (lines 658–707), add:
 
 ```css
-  .voice-pill-control[data-pill-state="failed"],
+  /* Movement goes; the cue stays. The red edge carries a failure without the
+     nudge. The check and the caption fade in instead of popping or rising.
+     index.css crushes every animation to 0.01ms under reduced motion, so the
+     fade needs !important to keep its length. */
+  .voice-pill-control[data-pill-state="failed"] {
+    animation: none;
+  }
   .pill-success-check,
   .pill-caption {
-    animation: none;
+    animation: notice-fade var(--motion-fast) linear both !important;
   }
   /* index.css forces animation-duration: 0.01ms !important on everything under
      reduced motion; the countdown is information, not decoration, so it keeps
@@ -6689,18 +9955,23 @@ Inside the existing reduced-motion block (lines 658–707), add:
   }
 ```
 
-Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css src/styles/*.css`). If it does not, add `@keyframes draw-check { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }` next to `pill-pop`.
+`@keyframes draw-check` already exists (`src/index.css:1373` on the Plan 01 branch, `stroke-dashoffset` 24 → 0). `notice-fade` is Task 3's opacity-only keyframe in `src/styles/notices.css`, which `src/index.css` imports next to `dictation-panel.css`, so the pill window has it.
 
 - [ ] **Step 6: Wire `App.jsx`**
 
 1. Add these imports:
-   - `resolvePillStage` (same `../helpers/voicePillPresentation` path App already uses);
-   - `usePillLocality`, `PillCaption` and `useRecentOutcome`;
-   - `resolvePillOwnership`, `shouldAutoHidePill` and `PILL_SEALED_PAUSED_MS` (same module as `resolvePillStage`);
+   - `resolvePillStage`, `resolvePillOwnership` and `PILL_SEALED_PAUSED_MS`, added to the existing `./helpers/voicePillPresentation` import (`App.jsx:27–45`);
+   - `usePillLocality` from `./components/dictation/pillLocality`, `PillCaption` from `./components/dictation/PillCaption`, and `useRecentOutcome` from `./hooks/useRecentOutcome`;
+   - `usePillAutoHide` from `./hooks/usePillAutoHide`;
    - `disclosureCopy` from `./helpers/dictationDisclosure`.
 
-   `useSettingsStore` is already imported. `disclosureCopy` renders the `RemoteDisclosure` in `cancelled.remoteAlreadySent`. It names the receiver through `providerDisplayLabel` (Plan 01 review item 1), and says "may have received" when only the renderer saw the dispatch (Task 7).
-2. After `micState` (line 481):
+   App does not import `shouldAutoHidePill`; only `usePillAutoHide` calls it. `useSettingsStore` is already imported. `disclosureCopy` renders the `RemoteDisclosure` in `cancelled.remoteAlreadySent`. It names the receiver through `providerDisplayLabel` (Plan 01 review item 1), and says "may have received" when only the renderer saw the dispatch (Task 7).
+2. **Declaration order (R1-I4).** Insert this block directly after `agentModeActive` (`App.jsx:512–517`) and before `assistantFooter` (line 518). Everything it reads is declared above that point:
+   - `voicePillIsRecording` and `voicePillIsProcessing` (286–287);
+   - `isProcessing`, plus Task 9's `cancelled`, `processingStage` and `outcome`, from the `useAudioRecording` destructuring (198–227);
+   - `micState` (481) and `agentModeActive` (512–517).
+
+   Everything that reads `pillStage` or `pillOwnership` comes after it: `resolveVoicePillInteraction` (519), `cancelPillFootprint` (537), `activateVoicePill` (540), `commonPillState` (576), footer suppression (599), `useLinuxPillInteractivity` (619) and the JSX. The only consumer that sits above this point is the auto-hide effect (403–434). Its dependency array is evaluated during render, so reading `pillOwnership` there would throw `ReferenceError: Cannot access 'pillOwnership' before initialization`. Item 9 moves it below. The block's hook calls (`usePillLocality`, `useRecentOutcome`, `useRef`) are unconditional, so the hook order is the same on every render.
 
    ```js
      const pillLocality = usePillLocality();
@@ -6743,7 +10014,7 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
            : null;
    ```
 
-   `agentModeActive` is computed at line 512, after `micState`. Move the `pillStage` block below line 517 so it can read `agentModeActive`.
+   Tasks 12, 13 and 14 add their pill derivations (`condensed`, the Agent caption, `micTooltip`) directly after this block, so they can read it. Task 17's meeting inputs feed `resolvePillStage`, so they go directly above it. `test/components/appPillOwnership.test.js` renders App and fails on any read before a declaration.
 3. Replace `commonPillState` (lines 576–581):
 
    ```js
@@ -6776,7 +10047,7 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
    ```
 
    Change `aria-label` to read the stage when one is active: `aria-label={stageLabel ?? <the existing label>}`.
-7. Render the caption as a sibling of the pill inside `div.assistant-pill-presence` (lines 639–660):
+7. Render the caption as a sibling of the pill inside `div.assistant-pill-presence` (lines 639–660), directly after `</PillTooltip>` (line 740) and before `<LiquidCancelButton` (line 741):
 
    ```jsx
      {pillCaption ? (
@@ -6793,7 +10064,22 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
 
    This keeps the 144 px "Transcribing…" capsule from being fused to a 98 px skin on hover.
 9. **Stage ownership (I4).** Every owner of visibility and input reads `pillOwnership`:
-   - **Auto-hide** (lines 403–434). Replace the inline condition with `shouldAutoHidePill({ floatingIconAutoHide, isRecording, isVisuallyProcessing, noticesOnScreen, wordsCardHandoffActive, assistantMounted: assistant.mounted, liveTranscriptMounted: liveTranscript.mounted, ownership: pillOwnership })`, and add `pillOwnership.holdsWindow` to the dependency list. Add a branch so a stage that holds the window brings back an auto-hidden pill: `else if (floatingIconAutoHide && pillOwnership.holdsWindow) window.electronAPI?.showDictationPanel?.();`.
+   - **Auto-hide (R1-I4).** Delete the effect at lines 403–434 and `prevAutoHideRef` (line 76); the effect is that ref's only reader. Call the hook from Step 3 directly after the item 2 block, so `pillOwnership` exists before anything reads it:
+
+     ```js
+       usePillAutoHide({
+         floatingIconAutoHide,
+         isRecording,
+         isVisuallyProcessing,
+         noticesOnScreen,
+         wordsCardHandoffActive,
+         assistantMounted: assistant.mounted,
+         liveTranscriptMounted: liveTranscript.mounted,
+         ownership: pillOwnership,
+       });
+     ```
+
+     `floatingIconAutoHide` (line 74), `noticesOnScreen` (Task 3) and `wordsCardHandoffActive` (Task 3's rename of `dictationErrorPillHandoffActive`, line 313) are all declared above it. The effect now registers after the Escape `keydown` effect (440–469) instead of before it. Neither reads the other, so that order change is safe. A stage that holds the window brings back an auto-hidden pill once, when the stage starts (the hook's `prevHoldsWindowRef`).
    - **Footer suppression** (lines 599–604). Pass `ownership: pillOwnership` to `shouldSuppressPillForAssistantActions`.
    - **Input** (lines 519–525). Pass `ownership: pillOwnership` to `resolveVoicePillInteraction`. `pillIsInteractive` then feeds:
      - the hover handlers (mac/Windows click-through, `setWindowInteractivity`);
@@ -6804,7 +10090,7 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
 
 - [ ] **Step 7: Locale strings and DESIGN.md**
 
-Add this to `en/translation.json` and mirror it to all 12 locales. For `ar`, `ru`, `ja` and `zh-*`, keep the English text until translated; i18next plural suffixes apply.
+Add this to `en/translation.json` and mirror it to all 11 locales. For `ar`, `ru`, `ja` and `zh-*`, keep the English text until translated; i18next plural suffixes apply.
 
 ```json
 "pill": {
@@ -6857,15 +10143,27 @@ In `DESIGN.md` `### Voice Pill`, replace the state description with:
   - "the success beat is 700 ms";
   - "the undo underline is 5 s or 10 s and pauses on hover".
 
+In `DESIGN.md` `## Motion`, add these rows to the token table, after the `--motion-spring-snap` / `-settle` / `-bounce` row:
+
+```markdown
+| `--motion-nudge` | 260ms | the failed pill's nudge |
+| `--motion-bounce` | 640ms | the length `--motion-spring-bounce` is drawn for; the pasted check |
+| `--motion-condense-fly` | 140ms | a spark rising from the pill's bars to its word |
+| `--motion-condense-land` | 220ms | a condensation word landing |
+| `--motion-rewrite-underline` | 600ms | the underline under a word cleanup rewrote |
+```
+
+Under the table, add one line: "Literal timings are allowed only for loop periods (the comet, the orbit, the meeting dot, the shimmer) and for functional deadlines such as the undo underline, whose length is the real undo window."
+
 - [ ] **Step 8: Run tests to verify they pass**
 
-Run: `npm test -- test/components/pillLocality.test.js test/helpers/voicePillStructure.test.js test/helpers/voicePillPresentation.test.js test/helpers/liquidCancelFusion.test.js test/helpers/agentDictationPillIpc.test.js test/components/levelBars.test.js test/components/localityRing.test.js`
+Run: `npm test -- test/components/pillLocality.test.js test/helpers/voicePillStructure.test.js test/helpers/voicePillPresentation.test.js test/helpers/liquidCancelFusion.test.js test/helpers/agentDictationPillIpc.test.js test/components/levelBars.test.js test/components/localityRing.test.js test/hooks/pillAutoHide.test.js test/components/appPillOwnership.test.js test/components/pillMotionTokens.test.js test/components/motionTokens.test.js`
 Expected: PASS.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add -A src/components/dictation src/hooks/useRecentOutcome.ts src/App.jsx src/styles/dictation-panel.css src/locales DESIGN.md test
+git add -A src/components/dictation src/hooks/useRecentOutcome.ts src/hooks/usePillAutoHide.js src/App.jsx src/styles/dictation-panel.css src/index.css src/locales DESIGN.md test
 git commit -m "feat(voice): condensation pill with LevelBars, locality ring and undo capsule"
 ```
 
@@ -6878,12 +10176,14 @@ Live words condense into a row **above** the pill, in the `PillCaption` layer. T
 - Create: `src/components/dictation/condensation.ts`
 - Create: `src/components/dictation/CondensationWords.tsx`
 - Modify: `src/hooks/useAudioRecording.js`. Add `liveText` state: set it in `onPartialTranscript` (line 429), set `cleaned` in `onTranscriptionComplete`, and reset it at start and at idle.
-- Modify: `src/App.jsx`. Render the words in the caption layer.
+- Modify: `src/App.jsx`. Destructure `liveText` (lines 198–227), compute the words after the Task 11 stage block, and render them in the caption layer.
 - Modify: `src/styles/dictation-panel.css`
 - Test: `test/components/condensation.test.js`
+- Test: `test/components/pillMotionTokens.test.js` (add `CondensationWords.tsx` to the scanned sources)
+- Test: `test/components/appPillOwnership.test.js` (`liveText` in the stand-in, and an App-level D9 check)
 
 **Interfaces:**
-- Consumes `PillCaption` (Task 11) and `pillStage` (Task 11, in App).
+- Consumes `PillCaption` (Task 11), `pillStage` (Task 11, in App), and the beat tokens `--motion-condense-fly`, `--motion-condense-land` and `--motion-rewrite-underline` (Task 11, `src/index.css`).
 - Produces:
 
   ```ts
@@ -6956,12 +10256,29 @@ test("the row renders partial and changed words with their classes", async () =>
   assert.equal(renderStatic(CondensationWords, { words: [] }), "");
 });
 
-test("words land with the specified motion and no flight under reduced motion", () => {
-  const styles = css();
-  assert.match(styles, /\.condense-word\s*\{[^}]*animation:\s*condense-in 220ms var\(--motion-ease-enter\)/);
-  assert.match(styles, /@keyframes condense-in\s*\{\s*from\s*\{[^}]*filter:\s*blur\(6px\)/);
-  assert.match(styles, /\.condense-word\.is-changed::after\s*\{[^}]*animation:\s*condense-underline 600ms/);
-  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*\.condense-spark\s*\{\s*display:\s*none/);
+test("words land on the beat tokens; reduced motion keeps the fades and drops the flight", () => {
+  const styles = css().replace(/\s+/g, " ");
+  // Spark flies --motion-condense-fly (140ms); the word lands over
+  // --motion-condense-land (220ms), one --motion-instant after it leaves (R2-M1).
+  assert.match(
+    styles,
+    /\.condense-word \{[^}]*animation: condense-in var\(--motion-condense-land\) var\(--motion-ease-enter\) var\(--motion-instant\) both/
+  );
+  assert.match(styles, /\.condense-word\.is-partial \{[^}]*transition: opacity var\(--motion-fast\) var\(--motion-ease-std\)/);
+  assert.match(styles, /@keyframes condense-in \{ from \{[^}]*filter: blur\(6px\)/);
+  assert.match(styles, /\.condense-word\.is-changed::after \{[^}]*animation: condense-underline var\(--motion-rewrite-underline\) var\(--motion-ease-std\) both/);
+  assert.match(
+    styles,
+    /\.condense-spark \{[^}]*condense-spark-rise var\(--motion-condense-fly\) var\(--motion-ease-std\) both, condense-spark-fade var\(--motion-fast\) var\(--motion-ease-exit\) var\(--motion-condense-fly\) both/
+  );
+  // Reduced motion: no flight; the words still fade in, and the rewrite
+  // underline (colour, not movement) keeps its full length.
+  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*\.condense-spark \{ display: none; \}/);
+  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*\.condense-word \{ animation: notice-fade var\(--motion-fast\) linear both !important; \}/);
+  assert.match(
+    styles,
+    /prefers-reduced-motion: reduce[\s\S]*\.condense-word\.is-changed::after \{ animation-duration: var\(--motion-rewrite-underline\) !important; \}/
+  );
 });
 
 test("words never render inside the pill box (D9)", () => {
@@ -6970,10 +10287,27 @@ test("words never render inside the pill box (D9)", () => {
 });
 ```
 
+In `test/components/pillMotionTokens.test.js`, add `"src/components/dictation/CondensationWords.tsx"` to `MOTION_SOURCES`. Its `.condense-*` rules are already in the scan's scope.
+
+In `test/components/appPillOwnership.test.js`, add `liveText: { committed: "", partial: "", cleaned: null },` to `pipeline()`, and append this App-level D9 check. It renders the real `condensed` derivation and caption slot:
+
+```js
+test("live words render in the caption layer, after the pill and outside it (D9)", async (t) => {
+  const { html } = await renderApp(t, {
+    isRecording: true,
+    liveText: { committed: "hey maya can", partial: "you", cleaned: null },
+  });
+  const caption = html.indexOf('class="pill-caption"');
+  assert.ok(caption > html.indexOf("voice-pill-glow-anchor"), "the caption follows the pill");
+  assert.doesNotMatch(html.slice(0, caption), /condense-word/);
+  assert.equal((html.slice(caption).match(/class="condense-word/g) || []).length, 4);
+});
+```
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- test/components/condensation.test.js`
-Expected: FAIL with `Cannot find module '…/condensation.ts'`.
+Run: `npm test -- test/components/condensation.test.js test/components/pillMotionTokens.test.js test/components/appPillOwnership.test.js`
+Expected: FAIL. `condensation.ts` and `CondensationWords.tsx` are not found, and App renders no `pill-caption` while recording.
 
 - [ ] **Step 3: Implement**
 
@@ -7044,8 +10378,9 @@ import type { CondensedWord } from "./condensation";
 
 /**
  * The word row that sits in the caption layer above the pill. Each committed
- * word gets a spark that rises from the bar row into its slot (the "bar flies
- * 140ms, word lands 220ms" beat); the pill's bars are never covered (D9).
+ * word gets a spark that rises from the bar row into its slot (the "bar flies,
+ * word lands" beat on --motion-condense-fly and --motion-condense-land); the
+ * pill's bars are never covered (D9).
  */
 export function CondensationWords({ words }: { words: CondensedWord[] }) {
   if (words.length === 0) return null;
@@ -7089,16 +10424,19 @@ CSS (append to `src/styles/dictation-panel.css`, before the reduced-motion block
 [dir="rtl"] .condense-track {
   mask-image: linear-gradient(270deg, transparent, #000 24px);
 }
+/* The picked beat: the spark flies --motion-condense-fly (140ms) and the word
+   lands over --motion-condense-land (220ms), starting one --motion-instant
+   after the spark leaves, so it settles as the spark fades. */
 .condense-word {
   position: relative;
   flex: none;
   font: 500 13px/1.3 var(--font-family-sans);
-  animation: condense-in 220ms var(--motion-ease-enter) 100ms both;
+  animation: condense-in var(--motion-condense-land) var(--motion-ease-enter) var(--motion-instant) both;
 }
 .condense-word.is-partial {
   opacity: 0.55;
   font-style: italic;
-  transition: opacity 160ms var(--motion-ease-std);
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
 }
 @keyframes condense-in {
   from {
@@ -7115,7 +10453,7 @@ CSS (append to `src/styles/dictation-panel.css`, before the reduced-motion block
   height: 2px;
   border-radius: 2px;
   background: var(--color-live);
-  animation: condense-underline 600ms var(--motion-ease-std) both;
+  animation: condense-underline var(--motion-rewrite-underline) var(--motion-ease-std) both;
 }
 @keyframes condense-underline {
   to {
@@ -7123,9 +10461,11 @@ CSS (append to `src/styles/dictation-panel.css`, before the reduced-motion block
   }
 }
 /* The spark: a 2px bar that rises from the pill's top edge (the caption sits
-   8px above the pill) to the newest word at the row's trailing end over
-   140ms, then fades. It is positioned on .pill-caption, outside the masked
-   track, and never overlaps the pill's bars (D9). */
+   8px above the pill) to the newest word at the row's trailing end, then
+   fades. The rise and the fade are two animations, so each runs on a token
+   and the rise is exactly --motion-condense-fly. It is positioned on
+   .pill-caption, outside the masked track, and never overlaps the pill's
+   bars (D9). */
 .condense-spark {
   position: absolute;
   right: 18px;
@@ -7134,20 +10474,21 @@ CSS (append to `src/styles/dictation-panel.css`, before the reduced-motion block
   height: 10px;
   border-radius: 2px;
   background: var(--color-live);
-  animation: condense-spark 320ms var(--motion-ease-std) both;
+  animation:
+    condense-spark-rise var(--motion-condense-fly) var(--motion-ease-std) both,
+    condense-spark-fade var(--motion-fast) var(--motion-ease-exit) var(--motion-condense-fly) both;
   pointer-events: none;
 }
-@keyframes condense-spark {
-  0% {
+@keyframes condense-spark-rise {
+  from {
     transform: translateY(0) scaleY(1);
-    opacity: 1;
   }
-  44% {
+  to {
     transform: translateY(-14px) scaleY(0.3);
-    opacity: 1;
   }
-  100% {
-    transform: translateY(-14px) scaleY(0.3);
+}
+@keyframes condense-spark-fade {
+  to {
     opacity: 0;
   }
 }
@@ -7156,11 +10497,17 @@ CSS (append to `src/styles/dictation-panel.css`, before the reduced-motion block
 Inside the reduced-motion block, add:
 
 ```css
+  /* No flight. The words still fade in, and the rewrite underline is colour,
+     not movement, so it keeps its full length. index.css crushes every
+     animation to 0.01ms here, hence !important. */
   .condense-spark {
     display: none;
   }
   .condense-word {
-    animation: notice-fade 120ms linear both;
+    animation: notice-fade var(--motion-fast) linear both !important;
+  }
+  .condense-word.is-changed::after {
+    animation-duration: var(--motion-rewrite-underline) !important;
   }
 ```
 
@@ -7172,7 +10519,9 @@ Inside the reduced-motion block, add:
 - Add `liveText` to the return object.
 
 `App.jsx`:
-- Compute the words:
+- Add `useMemo` to the React import (line 1). Import `condenseWords` and `diffWords` from `./components/dictation/condensation`, and `CondensationWords` from `./components/dictation/CondensationWords`.
+- Add `liveText` to the `useAudioRecording` destructuring (lines 198–227).
+- Compute the words directly after the Task 11 stage block (after `pillCaption`), because the memo reads `pillStage`:
 
   ```js
     const condensed = useMemo(() => {
@@ -7204,13 +10553,13 @@ Inside the reduced-motion block, add:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/condensation.test.js test/helpers/voicePillStructure.test.js "test/helpers/useAudioRecording*.test.js"`
+Run: `npm test -- test/components/condensation.test.js test/helpers/voicePillStructure.test.js "test/helpers/useAudioRecording*.test.js" test/components/pillMotionTokens.test.js test/components/appPillOwnership.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/dictation/condensation.ts src/components/dictation/CondensationWords.tsx src/hooks/useAudioRecording.js src/App.jsx src/styles/dictation-panel.css test/components/condensation.test.js
+git add src/components/dictation/condensation.ts src/components/dictation/CondensationWords.tsx src/hooks/useAudioRecording.js src/App.jsx src/styles/dictation-panel.css test/components/condensation.test.js test/components/pillMotionTokens.test.js test/components/appPillOwnership.test.js
 git commit -m "feat(voice): condensation word row above the pill with cleanup diff"
 ```
 
@@ -7224,14 +10573,15 @@ git commit -m "feat(voice): condensation word row above the pill with cleanup di
 - Create: `src/hooks/useAgentAnswering.ts`
 - Modify: `src/components/dictation/VoicePill.tsx`. Mount the orbit, collapse to the circle while Agent listens, and drop the beam attribute.
 - Modify: `src/styles/dictation-panel.css`. Remove `.voice-pill-control[data-agent-beam-active="true"]` (lines 250–258) and add the orbit rules.
-- Modify: `src/App.jsx`. Add the answering phase and the Agent caption.
+- Modify: `src/App.jsx`. Add the answering phase and the Agent caption, after the Task 11 stage block.
 - Modify: `src/locales/*/translation.json` (`pill.agent.*`)
 - Modify: `DESIGN.md` `### Voice Pill`, Agent paragraph
 - Test: `test/components/agentOrbit.test.js`
 - Test: `test/helpers/voicePillStructure.test.js`. Update the Agent tests at lines 238–310.
+- Test: `test/components/pillMotionTokens.test.js` (add `AgentOrbit.tsx` to the scanned sources)
 
 **Interfaces:**
-- Consumes `nextLevelBarsFrame`, `LEVEL_BARS_SILENCE_FLOOR`, `LOGO_BAR_SHAPE` and `levelBarScale` (Plan 01, `levelBarsMath.ts`), `routeProviderLabel` (Task 11), `useResolvedRoute("voiceAssistant" | "assistantVision")` (§5.1), the `voiceAgentScreenContext` setting (`settingsStore.ts:1755`), `assistant.thinking` / `assistant.busy` (`useAssistantPanel.js:32-33`), and `PillCaption` (Task 11).
+- Consumes `nextLevelBarsFrame`, `LEVEL_BARS_SILENCE_FLOOR`, `LOGO_BAR_SHAPE` and `levelBarScale` (Plan 01, `levelBarsMath.ts`), `routeProviderLabel` (Task 11), `useResolvedRoute("voiceAssistant" | "assistantVision")` (§5.1), the `voiceAgentScreenContext` setting (`settingsStore.ts:1755`), `assistant.thinking` / `assistant.busy` (`useAssistantPanel.js:32-33`), `PillCaption` (Task 11), and the Plan 01 tokens `--motion-slow`, `--motion-hero` and `--motion-ease-exit`.
 - Produces:
 
   ```ts
@@ -7239,9 +10589,12 @@ git commit -m "feat(voice): condensation word row above the pill with cleanup di
   export function agentTickLength(index: number, level: number, timeMs: number, reduce?: boolean): number; // 2..11 px; flat phase when reduce
   export function agentTickLevel(frame: LevelBarsFrame, raw: unknown): number; // 0..1, peak-normalised with LEVEL_BARS_SILENCE_FLOOR
   export function AgentOrbit(props: { phase: "listening" | "thinking" | "answering"; readLevel: () => number }): JSX.Element;
-  export function useAgentAnswering(thinking: boolean, busy: boolean): boolean; // true for 1000ms after the first token
+  export const AGENT_ANSWERING_MS = 1000;
+  export function useAgentAnswering(thinking: boolean, busy: boolean): boolean; // true for AGENT_ANSWERING_MS after the first token
   // VoicePill gains: agentPhase?: "answering"
   ```
+
+  The orbit's loop periods (2.4 s thinking, 1.2 s answering) are declared exceptions. The answering dissolve is an ordinary exit, so it runs on `--motion-hero` after `--motion-slow` (R2-M1).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7296,18 +10649,32 @@ test("listening draws 24 ticks; thinking draws the orbit with two satellites", a
   assert.equal((thinking.match(/class="agent-orbit__satellite/g) || []).length, 2);
 });
 
-test("orbit timing: 2.4s thinking, 1.2s answering that fades after 400ms", () => {
+test("orbit timing: 2.4s thinking, 1.2s answering that dissolves on the exit tokens", () => {
   const styles = css();
   assert.match(styles, /\.agent-orbit\[data-phase="thinking"\] \.agent-orbit__ring\s*\{[^}]*animation:\s*agent-orbit 2400ms linear infinite/);
-  assert.match(styles, /\.agent-orbit\[data-phase="answering"\] \.agent-orbit__ring\s*\{[^}]*agent-orbit 1200ms linear infinite,\s*agent-orbit-fade 600ms var\(--motion-ease-exit\) 400ms forwards/);
+  assert.match(
+    styles,
+    /\.agent-orbit\[data-phase="answering"\] \.agent-orbit__ring\s*\{[^}]*agent-orbit 1200ms linear infinite,\s*agent-orbit-fade var\(--motion-hero\) var\(--motion-ease-exit\) var\(--motion-slow\) forwards/
+  );
   assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*\.agent-orbit__ring[\s\S]*animation:\s*none/);
 });
 
-test("no frame glyph and no beam ring ship with Agent Mode (owner note)", () => {
-  const styles = css();
-  const orbit = fs.readFileSync(path.join(repoRoot, "src/components/dictation/AgentOrbit.tsx"), "utf8");
-  assert.doesNotMatch(orbit, /frame/i);
-  assert.doesNotMatch(styles, /data-agent-beam-active/);
+test("the answering dissolve ends inside the answering phase", async () => {
+  const { AGENT_ANSWERING_MS } = await import("../../src/hooks/useAgentAnswering.ts");
+  const index = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
+  const token = (name) => Number(index.match(new RegExp(`${name}:\\s*(\\d+)ms;`))[1]);
+  // 360 + 520 = 880 ms today: the ring has dissolved before data-phase leaves "answering".
+  assert.ok(token("--motion-slow") + token("--motion-hero") <= AGENT_ANSWERING_MS);
+});
+
+test("no frame glyph and no beam ring ship with Agent Mode (owner note)", async () => {
+  // Checks the rendered orbit, not its source: the source legitimately says
+  // "frame" for LevelBars frames (nextLevelBarsFrame).
+  const { AgentOrbit } = await import("../../src/components/dictation/AgentOrbit.tsx");
+  for (const phase of ["listening", "thinking", "answering"]) {
+    assert.doesNotMatch(renderStatic(AgentOrbit, { phase, readLevel: () => 0 }), /frame|glyph/i, phase);
+  }
+  assert.doesNotMatch(css(), /data-agent-beam-active/);
 });
 ```
 
@@ -7316,10 +10683,12 @@ In `test/helpers/voicePillStructure.test.js`, rewrite the Agent tests (lines 238
 - `renderPill("recording", true, "right", { agentMode: true })` keeps the 40×40 footprint (`pillFootprints().idle`) and contains `data-phase="listening"`.
 - The violet identity leaf (`voice-identity-final-agent`, `data-agent-mode="true"`) assertions stay as they are.
 
+In `test/components/pillMotionTokens.test.js`, add `"src/components/dictation/AgentOrbit.tsx"` to `MOTION_SOURCES`. Its `.agent-orbit*` rules are already in the scan's scope, and `LOOP_PERIODS` already lists the orbit, satellite and breathe loops.
+
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/components/agentOrbit.test.js test/helpers/voicePillStructure.test.js`
-Expected: FAIL with `Cannot find module '…/agentOrbitMath.ts'`.
+Run: `npm test -- test/components/agentOrbit.test.js test/helpers/voicePillStructure.test.js test/components/pillMotionTokens.test.js`
+Expected: FAIL with `Cannot find module '…/agentOrbitMath.ts'`, and `AgentOrbit.tsx` is not found.
 
 - [ ] **Step 3: Implement**
 
@@ -7373,9 +10742,9 @@ function tickEnd(index: number, length: number) {
 /**
  * Agent Mode identity (VO-R8 B). Listening: 24 violet radial ticks driven by
  * the level feed. Thinking: a 2.4s conic orbit with two satellites (slower
- * than dictation's 1.6s comet, "thinking" not "working"). Answering: 1.2s for
- * 400ms, then it dissolves. Mounted only in those phases, so its loops are
- * gated. The screen-context glyph was cut (owner note, D9); the caption
+ * than dictation's 1.6s comet, "thinking" not "working"). Answering: a 1.2s
+ * spin-up that dissolves on the exit tokens. Mounted only in those phases, so
+ * its loops are gated. The screen-context glyph was cut (owner note, D9); the caption
  * above the pill says when screen context is on and where it goes.
  */
 export function AgentOrbit({
@@ -7460,14 +10829,17 @@ export function AgentOrbit({
 ```ts
 import { useEffect, useRef, useState } from "react";
 
-/** True for 1s after the Agent's first token (thinking → streaming while busy). */
+/** How long the orbit shows "answering". The CSS dissolve must end inside it. */
+export const AGENT_ANSWERING_MS = 1000;
+
+/** True for AGENT_ANSWERING_MS after the Agent's first token (thinking → streaming while busy). */
 export function useAgentAnswering(thinking: boolean, busy: boolean): boolean {
   const wasThinking = useRef(thinking);
   const [answering, setAnswering] = useState(false);
   useEffect(() => {
     if (wasThinking.current && !thinking && busy) {
       setAnswering(true);
-      const id = setTimeout(() => setAnswering(false), 1000);
+      const id = setTimeout(() => setAnswering(false), AGENT_ANSWERING_MS);
       wasThinking.current = thinking;
       return () => clearTimeout(id);
     }
@@ -7529,10 +10901,13 @@ CSS: delete the beam rule (`dictation-panel.css:250-258`), then append:
 .agent-orbit[data-phase="thinking"] .agent-orbit__ring {
   animation: agent-orbit 2400ms linear infinite;
 }
+/* The spin-up keeps its picked 1.2 s period (a declared loop exception). The
+   dissolve is an ordinary exit: --motion-hero after --motion-slow, which ends
+   at 880 ms, inside useAgentAnswering's AGENT_ANSWERING_MS. */
 .agent-orbit[data-phase="answering"] .agent-orbit__ring {
   animation:
     agent-orbit 1200ms linear infinite,
-    agent-orbit-fade 600ms var(--motion-ease-exit) 400ms forwards;
+    agent-orbit-fade var(--motion-hero) var(--motion-ease-exit) var(--motion-slow) forwards;
 }
 .agent-orbit__satellite {
   position: absolute;
@@ -7598,6 +10973,7 @@ Inside the reduced-motion block, add:
 Imports: `VoicePill.tsx` imports `AgentOrbit` from `./AgentOrbit`. `App.jsx` imports `useAgentAnswering` from `./hooks/useAgentAnswering`, `routeProviderLabel` from `./components/dictation/pillLocality`, and `useResolvedRoute` from `./lib/routes`.
 
 `App.jsx`:
+- Put both additions below directly after the Task 11 stage block (and after Task 12's `condensed`). The caption reads `agentModeActive` (lines 512–517), so it cannot go higher. `test/components/appPillOwnership.test.js` fails on any read before a declaration.
 - Add `const agentAnswering = useAgentAnswering(assistant.thinking, assistant.busy);` and pass `agentPhase={agentAnswering ? "answering" : undefined}` to `VoicePill`.
 - Add the Agent caption. It shows in the caption layer while the pill is in Agent listening or thinking, unless the D3 caption is active:
 
@@ -7640,7 +11016,7 @@ In `DESIGN.md` `### Voice Pill`, Agent paragraph:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/agentOrbit.test.js test/helpers/voicePillStructure.test.js test/helpers/voicePillPresentation.test.js`
+Run: `npm test -- test/components/agentOrbit.test.js test/helpers/voicePillStructure.test.js test/helpers/voicePillPresentation.test.js test/components/pillMotionTokens.test.js test/components/appPillOwnership.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -7658,12 +11034,13 @@ Covers VO-Q14, VO-Q19 and VO-Q20, plus Plan 01 review item 2: one exit curve and
 
 **Files:**
 - Create: `src/components/dictation/pillTooltipLines.ts`
-- Modify: `src/components/dictation/PillTooltip.tsx`. Use 12 px text, allow two lines, and use a rounded rectangle.
-- Modify: `src/App.jsx:483-494` (`getMicTooltip`)
+- Modify: `src/components/dictation/PillTooltip.tsx`. Use 12 px text, allow two lines, use a rounded rectangle, and drop the dead `transition-opacity duration-150`.
+- Modify: `src/App.jsx:483-496` (`getMicTooltip` and `micTooltip`). The new `micTooltip` moves below the Task 11 stage block, because it reads `pillLocality`.
 - Modify: `src/styles/dictation-panel.css`. Covers VO-Q19, VO-Q20, and the `.assistant-response-content-updating` exit at about lines 566–572.
-- Modify: `src/index.css`. Covers `.thinking-shimmer-text` (about line 1752), used by `ChatMessage.tsx:249`.
+- Modify: `src/index.css`. Covers `.thinking-shimmer-text` (about line 1762 on the Plan 01 branch), used by `ChatMessage.tsx:249`.
 - Modify: `src/locales/*/translation.json` (`pill.tooltip.*`)
 - Test: `test/components/pillTooltip.test.js`
+- Test: `test/components/pillMotionTokens.test.js` (add `PillTooltip.tsx` to the scanned sources)
 
 **Interfaces:**
 - Consumes `PillLocality.routeLine` (Task 11) and the `activationMode` setting (`"tap" | "push"`, `settingsStore.ts:1467`).
@@ -7743,10 +11120,12 @@ test("the thinking shimmer uses theme tokens, not cool hues (Plan 01 review)", (
 });
 ```
 
+In `test/components/pillMotionTokens.test.js`, add `"src/components/dictation/PillTooltip.tsx"` to `MOTION_SOURCES`.
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- test/components/pillTooltip.test.js`
-Expected: FAIL with `Cannot find module '…/pillTooltipLines.ts'`.
+Run: `npm test -- test/components/pillTooltip.test.js test/components/pillMotionTokens.test.js`
+Expected: FAIL with `Cannot find module '…/pillTooltipLines.ts'`, and the scan finds `duration-150` in `PillTooltip.tsx`.
 
 - [ ] **Step 3: Implement**
 
@@ -7783,10 +11162,11 @@ export function buildPillTooltipLines({
 In `PillTooltip.tsx`:
 - In the bubble class (line 39), change `text-[10px]` to `text-xs` and `rounded-full` to `rounded-lg`.
 - Change `px-1.5 py-1` to `px-2 py-1.5`.
+- Delete `transition-opacity duration-150`. The bubble mounts only while hovered (`isVisible && !disabled`, line 37) at full opacity, so that transition never ran. Removing it changes nothing on screen and leaves no literal timing (R2-M1).
 - Wrap the content in `<span className="flex flex-col gap-0.5">`. Leave `whitespace-nowrap`, since each line stays a single line.
 - Keep the physical `left-*`/`right-*` in `alignClass` and `arrowClass`. `align` follows the pill's physical screen dock, not the text direction, so mirroring it in RTL would point the tooltip away from the pill.
 
-In `App.jsx`, replace `getMicTooltip` (lines 483–494):
+In `App.jsx`, delete `getMicTooltip` and `const micTooltip = getMicTooltip();` (lines 483–496). Define the new `micTooltip` directly after the Task 11 stage block, which declares `pillLocality`; its only readers are the JSX (`content` at line 662 and `aria-label` at line 692). `test/components/appPillOwnership.test.js` renders App and fails if it reads `pillLocality` first.
 
 ```jsx
   const activationMode = useSettingsStore((s) => s.activationMode);
@@ -7807,7 +11187,7 @@ In `App.jsx`, replace `getMicTooltip` (lines 483–494):
   );
 ```
 
-`pillLocality` is computed in Task 11. Move that line above this block if needed.
+`activationMode` is a new store read; it sits with the tooltip, below the stage block. Keep `formatPillHotkeyLabel` (lines 47–51); the tooltip still uses it.
 
 CSS (append before the reduced-motion block):
 
@@ -7886,13 +11266,13 @@ Add this under `pill`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/pillTooltip.test.js test/helpers/voicePillStructure.test.js test/components/rtlMotion.test.js`
+Run: `npm test -- test/components/pillTooltip.test.js test/helpers/voicePillStructure.test.js test/components/rtlMotion.test.js test/components/pillMotionTokens.test.js test/components/appPillOwnership.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/dictation/pillTooltipLines.ts src/components/dictation/PillTooltip.tsx src/App.jsx src/styles/dictation-panel.css src/index.css src/locales test/components/pillTooltip.test.js
+git add src/components/dictation/pillTooltipLines.ts src/components/dictation/PillTooltip.tsx src/App.jsx src/styles/dictation-panel.css src/index.css src/locales test/components/pillTooltip.test.js test/components/pillMotionTokens.test.js
 git commit -m "feat(voice): tooltip names hold or press and the route; idle hairline; halo fix; exit curve and shimmer tokens"
 ```
 
@@ -8232,7 +11612,7 @@ git commit -m "feat(voice): soft sound family for start, stop, success, cancel, 
 ---
 ### Task 16: Meeting presence, meeting outcome, the tray state and the Linux Stop notification (D2)
 
-Closes review findings I8 and I14 for the main-process side.
+Closes review findings I8 and I14 for the main-process side, and round 2's R1-I8 and R1-I14.
 
 Plan 02's `showSystemNotification` (§5.5) is for interruptions and carries no actions. The resident Linux recorder notification needs a Stop action, so it keeps its own freedesktop path: the bundled `@homebridge/dbus-native` client below, never a host CLI. It does not route through `showSystemNotification`.
 
@@ -8240,15 +11620,29 @@ Meeting capture runs in the control-panel renderer. That renderer reports two se
 - **presence**, which is liveness only: is a meeting recording right now, since when, and is a source lost;
 - an explicit **outcome**, sent after the stop has actually finished: saved, failed to save, or failed to stop.
 
+"Saved" needs two acknowledgements (R1-I14):
+- the transcript write returned `{ success: true }`, or there was no transcript content to write;
+- main's stop returned `{ success: true }`.
+
+A returned `{ success: false }`, a missing API, a missing result and a throw are all failures. `updateNote` returns `{ success: false }` without throwing (`database.js:1194`, `:1231`, `:1239`; the IPC handler passes it through at `ipcHandlers.js:1606-1618`). Main's stop returns `{ success: false, reason: "stale-session" }` for an unknown session (`meetingTranscriptionLifecycle.js:39-43`, `ipcHandlers.js:7700-7702`) and `{ success: false, error }` when teardown fails.
+
 Main relays both to the pill window and the tray. It turns owner loss (crash, reload, close) into a `failed` outcome with reason `ownerLost`, and never into "saved".
 
-On Linux, main posts a persistent notification with a Stop button through the freedesktop notification service. It uses the D-Bus library the app already ships (`@homebridge/dbus-native`, `package.json:129`, used lazily by `kdeShortcut.js`, `gnomeShortcut.js` and others), not a host CLI. The notification's lifetime is serialised by generation:
+On Linux, main posts a persistent notification through the freedesktop notification service. It uses the D-Bus library the app already ships (`@homebridge/dbus-native`, `package.json:129`, used lazily by `kdeShortcut.js`, `gnomeShortcut.js` and others), not a host CLI. This follows D2 with the spec owner's 2026-10-15 clarification:
+- Where the server advertises `actions` (`GetCapabilities`), the notification has a Stop button.
+- Where it does not, the notification is still posted, without Stop. Clicking it brings up the pill with Stop visible.
+- Where publishing fails, the same notification is posted without actions through Electron's `Notification`. Clicking it brings up the pill with Stop visible. Publishing fails when there is no session bus, when the service goes away during `GetCapabilities`, when `Notify` rejects or times out, and when the service drops after the notification was posted.
+- The tray menu's "Stop meeting recording" item is always there.
+- Stop and the click are bound to the meeting session the notification was posted for. A stale notification id, or a session that already ended, does nothing.
+
+The notification's lifetime is serialised by generation:
 - a notification posted after its session ended is closed as soon as its id arrives;
 - signals are subscribed before posting;
-- `NotificationClosed`, service loss and app teardown are all handled;
-- Stop is bound to the meeting session it was posted for.
+- `NotificationClosed`, service loss and app teardown are all handled.
 
-Where the service is missing or does not support actions, the tray menu's "Stop meeting recording" item is the Stop control. A never-expiring notification without a button tells the user so (see Open question 5).
+**What a click can deliver.** A freedesktop click is the `default` action, reported as `ActionInvoked(id, "default")`. The freedesktop spec lets a server without the `actions` capability ignore every action, `default` included. Electron's Linux `Notification` registers its click only when the server advertises `actions` (`NotifierSupportsActions()` in Electron's `shell/browser/notifications/linux/libnotify_notification.cc`). So the plan always asks for the `default` action and handles both `ActionInvoked "default"` and Electron's `click`. A server that ignores clicks delivers nothing, so the fallback text also names the tray. Task 20's Linux matrix should record which desktops deliver the click.
+
+**Bringing up the pill.** A click calls `windowManager.revealMeetingRecorder(sessionId)`. It shows the pill window (`showDictationPanel`, `windowManager.js:1545`) and sends `meeting-recorder-reveal-requested` with the session id. **Hand-off to Task 17:** the App consumes `onMeetingRecorderRevealRequested` and shows the capsule with Stop for that session, even when `showMeetingRecorderOnScreen` is off or the pill is auto-hidden, for as long as that session's presence lasts.
 
 **Files:**
 - Create: `src/helpers/meetingPresence.js` (main, CommonJS)
@@ -8256,17 +11650,18 @@ Where the service is missing or does not support actions, the tray menu's "Stop 
 - Create: `src/helpers/freedesktopNotifications.js` (main; the thin `@homebridge/dbus-native` adapter)
 - Create: `src/helpers/trayRecordingIcon.js` (main)
 - Modify: `src/stores/meetingRecordingStore.ts`:
-  - `stopRecording` (1503–1615) learns whether persistence and the main stop succeeded, and reports an outcome;
+  - `stopRecording` (1503–1615) learns whether the transcript write and the main stop were acknowledged, and reports an outcome;
   - `StopRecordingResult` (1495–1501) gains `persisted` and `stopError`.
 - Modify: `src/helpers/ipcHandlers.js`. Add `meeting-recording-presence`, `meeting-recording-outcome`, `get-meeting-recording-presence` and `request-stop-meeting-recording`.
-- Modify: `src/helpers/windowManager.js`. Own the presence, relay to `mainWindow`, and add `requestStopMeetingRecording(sessionId)`.
-- Modify: `src/helpers/tray.js`. Add `setMeetingPresence`, the recording items at the top of `buildContextMenuTemplate()` (254), the tooltip, and the Linux icon and notification.
+- Modify: `src/helpers/windowManager.js`. Own the presence, relay to `mainWindow`, and add `requestStopMeetingRecording(sessionId)` and `revealMeetingRecorder(sessionId)`.
+- Modify: `src/helpers/tray.js`. Add `setMeetingPresence`, the recording items at the top of `buildContextMenuTemplate()` (254), the tooltip, and the Linux icon and notification. Add the `platform`, `createNotificationClient` and `ElectronNotification` fields, so tests drive the real tray on any host.
 - Modify: `main.js:883-889`. Wire presence and outcome to the tray. On `before-quit`, close the notification.
 - Modify: `preload.js`, `src/types/electron.ts`, `src/preview/browserPreview.ts`
 - Modify: `src/components/MeetingRecordingMount.tsx`. Report presence; stop on request, bound to the session.
 - Test: `test/helpers/meetingPresence.test.js`
 - Test: `test/helpers/linuxRecordingNotification.test.js`
 - Test: `test/helpers/meetingStopOutcome.test.js`
+- Test: modify `test/helpers/windowManagerMeetingNotification.test.js`. Stop and click delivery through the real window manager, tray and notification.
 
 **Interfaces:**
 - Consumes `MeetingPresence` and `MeetingOutcome` (`src/types/dictation.ts`, Task 7).
@@ -8282,16 +11677,25 @@ Where the service is missing or does not support actions, the tray menu's "Stop 
   ```js
   // src/helpers/linuxRecordingNotification.js
   class LinuxRecordingNotification {
-    constructor({ client, ElectronNotification, onStop: (sessionId) => void, onOpen: () => void });
-    show({ sessionId, title, body, stopLabel, fallbackBody }): Promise<void>;  // serialised; replaces any earlier one
-    close(): Promise<void>;                                                     // idempotent; also closes a late id
+    constructor({ client, ElectronNotification, onStop: (sessionId) => void, onOpen: (sessionId) => void });
+    // Serialised; replaces any earlier one. Stop where the server has `actions`;
+    // otherwise no Stop, and the click (where delivered) calls onOpen. Falls back
+    // to an action-free Electron notification when publishing fails.
+    show({ sessionId, title, body, stopLabel, fallbackBody }): Promise<void>;
+    close(): Promise<void>;  // idempotent; also closes a late id and the fallback
   }
   // src/helpers/freedesktopNotifications.js
   createFreedesktopClient({ getDBus? }): Promise<{
     capabilities(): Promise<string[]>; notify(o): Promise<number>; close(id): Promise<void>;
     onAction(cb: (id: number, key: string) => void): void; onClosed(cb: (id: number) => void): void;
     onDisconnect(cb: () => void): void;
-  } | null>;  // null when D-Bus or the service is unavailable
+  } | null>;  // null when D-Bus or the service is unavailable; every call rejects after 5 s without an answer
+  ```
+
+  ```js
+  // src/helpers/windowManager.js
+  requestStopMeetingRecording(sessionId): boolean;  // false for a session that is not the one recording
+  revealMeetingRecorder(sessionId): boolean;        // shows the pill and asks it for the capsule; same session check
   ```
 
   ```ts
@@ -8303,6 +11707,7 @@ Where the service is missing or does not support actions, the tray menu's "Stop 
   onMeetingRecordingOutcome?: (cb: (o: MeetingOutcome) => void) => () => void;
   requestStopMeetingRecording?: (sessionId: string) => Promise<void>;
   onMeetingRecordingStopRequested?: (cb: (sessionId: string) => void) => () => void;
+  onMeetingRecorderRevealRequested?: (cb: (sessionId: string) => void) => () => void;  // consumed by Task 17
   ```
 
 - [ ] **Step 1: Write the failing tests**
@@ -8384,24 +11789,35 @@ Create `test/helpers/linuxRecordingNotification.test.js`. The fake client stands
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const test = require("node:test");
-const { deferred } = require("./harness/deferred");
 const { LinuxRecordingNotification } = require("../../src/helpers/linuxRecordingNotification.js");
 
-function fakeClient({ caps = ["actions", "body"] } = {}) {
+// Stands in for the D-Bus service. With `manual`, each Notify answer waits until
+// the test calls the function queued in `pendingNotify` (true answers with the
+// next id, false rejects). `capsError` and `notifyError` make those calls reject
+// the way a service that drops off the bus does.
+function fakeClient({ caps = ["actions", "body"], capsError = null, notifyError = null, manual = true } = {}) {
   const bus = new EventEmitter();
   const calls = [];
+  const posted = [];
   const pendingNotify = [];
   let nextId = 41;
   return {
     calls,
+    posted,
     bus,
     pendingNotify,
-    capabilities: async () => caps,
+    capabilities: async () => {
+      if (capsError) throw capsError;
+      return caps;
+    },
     notify: (o) => {
       calls.push(["notify", o.actions]);
-      const d = deferred();
-      pendingNotify.push(() => d.resolve(++nextId));
-      return d.promise;
+      posted.push(o);
+      return new Promise((resolve, reject) => {
+        const answer = (ok = !notifyError) => (ok ? resolve(++nextId) : reject(notifyError ?? new Error("Connection closed")));
+        if (manual) pendingNotify.push(answer);
+        else answer();
+      });
     },
     close: async (id) => calls.push(["close", id]),
     onAction: (cb) => bus.on("action", cb),
@@ -8415,30 +11831,47 @@ class FakeElectronNotification extends EventEmitter {
   constructor(opts) {
     super();
     this.opts = opts;
+  }
+  show() {
     FakeElectronNotification.shown.push(this);
   }
-  show() {}
   close() {
     this.closed = true;
   }
 }
+
+test.beforeEach(() => {
+  FakeElectronNotification.shown.length = 0;
+});
 
 const tick = () => new Promise((r) => setImmediate(r));
 const until = async (cond) => {
   for (let i = 0; i < 100 && !cond(); i += 1) await tick();
   assert.ok(cond(), "condition reached");
 };
-const opts = { title: "Loqui is recording", body: "b", stopLabel: "Stop", fallbackBody: "Stop it from the tray menu." };
+const opts = { title: "Loqui is recording", body: "b", stopLabel: "Stop", fallbackBody: "Click to show the pill." };
+
+function make(client) {
+  const stops = [];
+  const opened = [];
+  const n = new LinuxRecordingNotification({
+    client,
+    ElectronNotification: FakeElectronNotification,
+    onStop: (sessionId) => stops.push(sessionId),
+    onOpen: (sessionId) => opened.push(sessionId),
+  });
+  return { n, stops, opened };
+}
 
 test("stop pressed in the notification stops that meeting session", async () => {
   const client = fakeClient();
-  const stops = [];
-  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop: (id) => stops.push(id), onOpen() {} });
+  const { n, stops } = make(client);
   const shown = n.show({ ...opts, sessionId: "m1" });
   await until(() => client.pendingNotify.length > 0);
   client.pendingNotify.shift()();
   await shown;
   assert.deepEqual(client.calls[0], ["notify", ["default", "", "stop", "Stop"]]);
+  assert.equal(client.posted[0].body, "b");
   client.bus.emit("action", 99, "stop"); // someone else's notification
   client.bus.emit("action", 42, "stop");
   assert.deepEqual(stops, ["m1"]);
@@ -8446,7 +11879,7 @@ test("stop pressed in the notification stops that meeting session", async () => 
 
 test("close() while Notify is pending closes the late id when it arrives (I8)", async () => {
   const client = fakeClient();
-  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen() {} });
+  const { n, stops } = make(client);
   const shown = n.show({ ...opts, sessionId: "m1" });
   await until(() => client.pendingNotify.length > 0);
   const closing = n.close(); // the meeting stopped before the service answered
@@ -8454,12 +11887,12 @@ test("close() while Notify is pending closes the late id when it arrives (I8)", 
   await Promise.all([shown, closing]);
   assert.deepEqual(client.calls.filter(([c]) => c === "close"), [["close", 42]]);
   client.bus.emit("action", 42, "stop");
+  assert.deepEqual(stops, [], "a closed notification stops nothing");
 });
 
 test("a new meeting replaces the old notification; the old one's late id is closed", async () => {
   const client = fakeClient();
-  const stops = [];
-  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop: (id) => stops.push(id), onOpen() {} });
+  const { n, stops } = make(client);
   const first = n.show({ ...opts, sessionId: "m1" });
   await until(() => client.pendingNotify.length > 0);
   const second = n.show({ ...opts, sessionId: "m2" });
@@ -8468,13 +11901,14 @@ test("a new meeting replaces the old notification; the old one's late id is clos
   client.pendingNotify.shift()(); // 43 for m2
   await Promise.all([first, second]);
   assert.deepEqual(client.calls.filter(([c]) => c === "close"), [["close", 42]]);
+  client.bus.emit("action", 42, "stop"); // the stale id
   client.bus.emit("action", 43, "stop");
   assert.deepEqual(stops, ["m2"]);
 });
 
 test("a notification the user dismissed is forgotten; service loss falls back next time", async () => {
   const client = fakeClient();
-  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen() {} });
+  const { n } = make(client);
   const shown = n.show({ ...opts, sessionId: "m1" });
   await until(() => client.pendingNotify.length > 0);
   client.pendingNotify.shift()();
@@ -8483,32 +11917,171 @@ test("a notification the user dismissed is forgotten; service loss falls back ne
   await n.close();
   assert.equal(client.calls.some(([c, id]) => c === "close" && id === 42), false, "nothing left to close");
   client.bus.emit("disconnect");
-  FakeElectronNotification.shown.length = 0;
   await n.show({ ...opts, sessionId: "m2" });
   assert.equal(FakeElectronNotification.shown.length, 1, "fell back after the service went away");
 });
 
-test("no service, or no action support: a never-expiring notification that says where Stop is", async () => {
-  FakeElectronNotification.shown.length = 0;
-  let opened = 0;
-  const none = new LinuxRecordingNotification({ client: null, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen: () => opened++ });
-  await none.show({ ...opts, sessionId: "m1" });
+test("no action support: the notification still shows, without Stop, and its click brings up the pill (D2)", async () => {
+  const client = fakeClient({ caps: ["body"], manual: false });
+  const { n, stops, opened } = make(client);
+  await n.show({ ...opts, sessionId: "m1" });
+  assert.deepEqual(client.calls, [["notify", ["default", ""]]], "never offers a Stop the server cannot show");
+  assert.equal(client.posted[0].body, opts.fallbackBody);
+  assert.equal(client.posted[0].hints.resident, true);
+  assert.equal(FakeElectronNotification.shown.length, 0, "the service took it; no second notification");
+  client.bus.emit("action", 42, "stop"); // no button was offered, so this cannot be a Stop
+  client.bus.emit("action", 42, "default"); // the click
+  assert.deepEqual(stops, []);
+  assert.deepEqual(opened, ["m1"]);
+});
+
+test("no service at all: an action-free notification still shows, and its click brings up the pill (D2)", async () => {
+  const { n, opened } = make(null);
+  await n.show({ ...opts, sessionId: "m1" });
   const [fallback] = FakeElectronNotification.shown;
   assert.equal(fallback.opts.timeoutType, "never");
-  assert.equal(fallback.opts.body, "Stop it from the tray menu.");
+  assert.equal(fallback.opts.body, opts.fallbackBody);
+  assert.equal("actions" in fallback.opts, false);
   fallback.emit("click");
-  assert.equal(opened, 1);
-  await none.close();
+  assert.deepEqual(opened, ["m1"]);
+  await n.close();
   assert.equal(fallback.closed, true);
+});
 
-  const noActions = fakeClient({ caps: ["body"] });
-  const n = new LinuxRecordingNotification({ client: noActions, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen() {} });
-  await n.show({ ...opts, sessionId: "m2" });
-  assert.equal(noActions.calls.length, 0, "never posts a Stop the server cannot show");
+test("service lost during capability discovery: the notification still shows (R1-I8)", async () => {
+  const client = fakeClient({ capsError: new Error("org.freedesktop.DBus.Error.ServiceUnknown") });
+  const { n, opened } = make(client);
+  await n.show({ ...opts, sessionId: "m1" });
+  assert.deepEqual(client.calls, [], "nothing posted to a service that did not answer");
+  assert.equal(FakeElectronNotification.shown.length, 1);
+  assert.equal(FakeElectronNotification.shown[0].opts.body, opts.fallbackBody);
+  FakeElectronNotification.shown[0].emit("click");
+  assert.deepEqual(opened, ["m1"]);
+});
+
+test("Notify rejected after discovery: the notification still shows, without Stop (R1-I8)", async () => {
+  const client = fakeClient({ notifyError: new Error("Connection closed") });
+  const { n, stops } = make(client);
+  const shown = n.show({ ...opts, sessionId: "m1" });
+  await until(() => client.pendingNotify.length > 0);
+  client.pendingNotify.shift()(); // rejects
+  await shown;
+  assert.deepEqual(client.calls, [["notify", ["default", "", "stop", "Stop"]]]);
+  assert.equal(FakeElectronNotification.shown.length, 1, "the rejection is not swallowed");
+  assert.equal(FakeElectronNotification.shown[0].opts.body, opts.fallbackBody);
+  await n.close();
+  assert.equal(FakeElectronNotification.shown[0].closed, true);
+  assert.deepEqual(stops, []);
+});
+
+test("a meeting that ends while Notify is failing posts nothing", async () => {
+  const client = fakeClient({ notifyError: new Error("Connection closed") });
+  const { n } = make(client);
+  const shown = n.show({ ...opts, sessionId: "m1" });
+  await until(() => client.pendingNotify.length > 0);
+  const closing = n.close();
+  client.pendingNotify.shift()(); // rejects after the meeting ended
+  await Promise.all([shown, closing]);
+  assert.equal(FakeElectronNotification.shown.length, 0);
+});
+
+test("service lost after posting: the notification is posted again without Stop, for the same session", async () => {
+  const client = fakeClient({ manual: false });
+  const { n, stops, opened } = make(client);
+  await n.show({ ...opts, sessionId: "m1" });
+  client.bus.emit("disconnect");
+  await until(() => FakeElectronNotification.shown.length === 1);
+  client.bus.emit("action", 42, "stop"); // the old id can no longer stop anything
+  assert.deepEqual(stops, []);
+  FakeElectronNotification.shown[0].emit("click");
+  assert.deepEqual(opened, ["m1"]);
+  await n.close();
+  assert.equal(FakeElectronNotification.shown[0].closed, true);
 });
 ```
 
-Create `test/helpers/meetingStopOutcome.test.js`. It drives the real `stopRecording` through the renderer harness:
+Session-bound delivery is tested through the real window manager and tray, not only through the class. In `test/helpers/windowManagerMeetingNotification.test.js`:
+- Inside the `Module._load` stub block, right after `const WindowManager = require("../../src/helpers/windowManager");` (line 129), add `const TrayManager = require("../../src/helpers/tray");`. The stubs already cover what `tray.js` loads at module level (`electron`, `./debugLogger`, `./dockManager`, `./i18nMain`).
+- After `createDeferred` (lines 6–14), add:
+
+  ```js
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  async function until(condition) {
+    for (let i = 0; i < 100 && !condition(); i += 1) await settle();
+    assert.ok(condition(), "condition reached");
+  }
+  ```
+
+- Append this test:
+
+```js
+// D2: Stop and the click in the Linux notification reach the real window
+// manager, bound to the session the notification was posted for.
+test("the Linux notification stops and reveals only the session it was posted for (D2)", async () => {
+  const manager = createNormalWindowManager();
+  const toPanel = [];
+  const toPill = [];
+  manager.controlPanelWindow = {
+    isDestroyed: () => false,
+    webContents: { isLoading: () => false, send: (channel, data) => toPanel.push([channel, data]) },
+  };
+  manager.mainWindow = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    isVisible: () => false,
+    showInactive: () => toPill.push("show"),
+    webContents: { send: (channel, data) => toPill.push([channel, data]) },
+  };
+  const bus = new EventEmitter();
+  const posted = [];
+  const client = {
+    capabilities: async () => ["actions", "body"],
+    notify: async (o) => (posted.push(o), 41 + posted.length),
+    close: async () => undefined,
+    onAction: (cb) => bus.on("action", cb),
+    onClosed: (cb) => bus.on("closed", cb),
+    onDisconnect: (cb) => bus.on("disconnect", cb),
+  };
+  const tray = new TrayManager();
+  tray.platform = "linux";
+  tray.createNotificationClient = async () => client;
+  tray.ElectronNotification = class extends EventEmitter {
+    show() {}
+    close() {}
+  };
+  tray.setWindowManager(manager);
+  manager.onMeetingPresenceChanged = (presence) => tray.setMeetingPresence(presence);
+  const stopRequests = () => toPanel.filter(([channel]) => channel === "meeting-recording-stop-requested");
+
+  manager.meetingPresence.set(7, { recording: true, sessionId: "m1", startedAt: 1000 });
+  await until(() => posted.length === 1); // id 42 for m1
+  bus.emit("action", 99, "stop"); // another app's notification
+  bus.emit("action", 42, "stop");
+  assert.deepEqual(stopRequests(), [["meeting-recording-stop-requested", "m1"]]);
+
+  bus.emit("action", 42, "default"); // the click
+  assert.deepEqual(toPill.slice(-2), ["show", ["meeting-recorder-reveal-requested", "m1"]]);
+
+  manager.meetingPresence.set(7, { recording: false });
+  manager.meetingPresence.set(7, { recording: true, sessionId: "m2", startedAt: 2000 });
+  await until(() => posted.length === 2); // id 43 for m2
+  bus.emit("action", 42, "stop"); // m1's notification is gone
+  assert.equal(stopRequests().length, 1, "a stale notification id stops nothing");
+  bus.emit("action", 43, "stop");
+  assert.deepEqual(stopRequests().at(-1), ["meeting-recording-stop-requested", "m2"]);
+
+  // The session ended before the Stop arrived: main's session check drops it.
+  manager.meetingPresence.set(7, { recording: false });
+  bus.emit("action", 43, "stop");
+  bus.emit("action", 43, "default");
+  assert.equal(stopRequests().length, 2);
+  assert.equal(toPill.filter((entry) => entry[0] === "meeting-recorder-reveal-requested").length, 1);
+});
+```
+
+The last two actions arrive before the queued `close()` runs, so the notification still forwards them. `requestStopMeetingRecording` and `revealMeetingRecorder` drop them, because presence no longer names `m2`.
+
+Create `test/helpers/meetingStopOutcome.test.js`. It drives the real `stopRecording` through the renderer harness. The failure tests use the shapes the real handlers return, not only throws:
 
 ```js
 const assert = require("node:assert/strict");
@@ -8517,65 +12090,111 @@ const { createRendererServer, installBrowserGlobals } = require("../lib/renderer
 
 async function load(t, electronAPI) {
   const outcomes = [];
-  installBrowserGlobals(t, { window: { electronAPI: { ...electronAPI, reportMeetingRecordingOutcome: (o) => outcomes.push(o) } } });
+  const api = { ...electronAPI, reportMeetingRecordingOutcome: (o) => outcomes.push(o) };
+  installBrowserGlobals(t, { window: { electronAPI: api } });
   const vite = await createRendererServer(t, { cachePrefix: "openwhispr-meeting-outcome-" });
   const store = await vite.ssrLoadModule("/stores/meetingRecordingStore.ts");
-  return { store, outcomes };
+  return { store, outcomes, api };
 }
 
-test("a saved meeting reports saved only after the transcript write succeeded", async (t) => {
+const ok = async () => ({ success: true });
+
+test("a saved meeting reports saved only after the write and the stop were acknowledged", async (t) => {
   const { store, outcomes } = await load(t, {
-    updateNote: async () => ({ success: true }),
+    updateNote: async () => ({ success: true, note: {} }),
     meetingTranscriptionStop: async () => ({ success: true }),
   });
-  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now() - 1000, segments: [{ text: "hi" }] });
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: 11, startedAt: Date.now() - 1000, segments: [{ text: "hi" }] });
   const result = await store.stopRecording("m1");
   assert.equal(result.persisted, true);
-  assert.equal(outcomes.at(-1).kind, "saved");
-  assert.equal(outcomes.at(-1).sessionId, "m1");
+  assert.equal(result.stopError, false);
+  assert.equal(outcomes.length, 1);
+  assert.equal(outcomes[0].kind, "saved");
+  assert.equal(outcomes[0].sessionId, "m1");
+  assert.equal(outcomes[0].noteId, "11");
 });
 
-test("a failed transcript write is a failed outcome, never 'saved' (I14)", async (t) => {
-  const { store, outcomes } = await load(t, {
-    updateNote: async () => {
+test("a write that returns failure, returns nothing, throws or has no API is a failed save, never 'saved' (R1-I14)", async (t) => {
+  const { store, outcomes, api } = await load(t, { meetingTranscriptionStop: ok });
+  const failingWrites = {
+    "note gone (database.js:1194)": async () => ({ success: false, error: "Note not found" }),
+    "nothing written (database.js:1231)": async () => ({ success: false }),
+    "no result": async () => undefined,
+    threw: async () => {
       throw new Error("disk full");
     },
-    meetingTranscriptionStop: async () => ({ success: true }),
-  });
-  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now(), segments: [{ text: "hi" }] });
-  const result = await store.stopRecording("m1");
-  assert.equal(result.persisted, false);
-  assert.deepEqual(outcomes.at(-1), { sessionId: "m1", kind: "failed", reason: "save" });
+    "no API": undefined,
+  };
+  for (const [label, updateNote] of Object.entries(failingWrites)) {
+    api.updateNote = updateNote;
+    outcomes.length = 0;
+    const sessionId = `m-${label}`;
+    store.__primeRecordingForTests({ sessionId, noteId: 11, startedAt: Date.now(), segments: [{ text: "hi" }] });
+    const result = await store.stopRecording(sessionId);
+    assert.equal(result.persisted, false, label);
+    assert.deepEqual(outcomes, [{ sessionId, kind: "failed", reason: "save" }], label);
+  }
 });
 
-test("an empty meeting (no segments, no fallback transcript) is saved, not 'save failed'", async (t) => {
+test("a stop main did not acknowledge is a failed stop, never 'saved' (R1-I14)", async (t) => {
+  const { store, outcomes, api } = await load(t, { updateNote: async () => ({ success: true, note: {} }) });
+  const failingStops = {
+    "stale session (meetingTranscriptionLifecycle.js:39-43)": async () => ({ success: false, reason: "stale-session" }),
+    "teardown error": async () => ({ success: false, error: "socket closed" }),
+    "no result": async () => undefined,
+    threw: async () => {
+      throw new Error("ipc gone");
+    },
+    "no API": undefined,
+  };
+  for (const [label, meetingTranscriptionStop] of Object.entries(failingStops)) {
+    api.meetingTranscriptionStop = meetingTranscriptionStop;
+    outcomes.length = 0;
+    const sessionId = `m-${label}`;
+    store.__primeRecordingForTests({ sessionId, noteId: 11, startedAt: Date.now(), segments: [{ text: "hi" }] });
+    const result = await store.stopRecording(sessionId);
+    assert.equal(result.persisted, true, label);
+    assert.equal(result.stopError, true, label);
+    assert.deepEqual(outcomes, [{ sessionId, kind: "failed", reason: "stop" }], label);
+  }
+});
+
+test("an empty meeting (no segments, no fallback transcript) is saved: there was nothing to write", async (t) => {
   let writes = 0;
   const { store, outcomes } = await load(t, {
     updateNote: async () => (writes++, { success: true }),
-    meetingTranscriptionStop: async () => ({ success: true }),
+    meetingTranscriptionStop: ok,
   });
-  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now(), segments: [] });
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: 11, startedAt: Date.now(), segments: [] });
   const result = await store.stopRecording("m1");
   assert.equal(writes, 0, "nothing to write");
   assert.equal(result.persisted, true);
   assert.equal(outcomes.at(-1).kind, "saved");
 });
 
+test("a transcript with no note to write to is a failed save, not a no-write", async (t) => {
+  const { store, outcomes } = await load(t, { updateNote: ok, meetingTranscriptionStop: ok });
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: null, startedAt: Date.now(), segments: [{ text: "hi" }] });
+  const result = await store.stopRecording("m1");
+  assert.equal(result.persisted, false);
+  assert.deepEqual(outcomes, [{ sessionId: "m1", kind: "failed", reason: "save" }]);
+});
+
 test("a stop for another session is ignored, and duplicate stops report once", async (t) => {
-  const { store, outcomes } = await load(t, { updateNote: async () => ({}), meetingTranscriptionStop: async () => ({ success: true }) });
-  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now(), segments: [] });
+  const { store, outcomes } = await load(t, { updateNote: ok, meetingTranscriptionStop: ok });
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: 11, startedAt: Date.now(), segments: [] });
   assert.equal((await store.stopRecording("m-other")).stopped, false);
   await Promise.all([store.stopRecording("m1"), store.stopRecording("m1")]);
   assert.equal(outcomes.length, 1);
 });
 ```
 
-`__primeRecordingForTests` is a test seam you add to `meetingRecordingStore.ts`. It sets the module flags (`activeRecordingSessionId`, `isRecordingFlag`) and the store fields `stopRecording` reads (`recordingNoteId`, `segments`, `recordingStartedAt`, `isRecording`), without starting capture. If `stopRecording` calls the cleanup closure set by `startRecording`, have the seam set it to a no-op. Mock `"/utils/logger"` in `createRendererServer` if the store's logger import needs it, the way `test/helpers/harness/audioManager.js` does.
+`__primeRecordingForTests` is a test seam you add to `meetingRecordingStore.ts`. It sets the module flags (`activeRecordingSessionId`, `isRecordingFlag`) and the store fields `stopRecording` reads (`recordingNoteId`, `segments`, `recordingStartedAt`, `isRecording`, and `transcript: ""`), without starting capture. If `stopRecording` calls the cleanup closure set by `startRecording`, have the seam set it to a no-op. Mock `"/utils/logger"` in `createRendererServer` if the store's logger import needs it, the way `test/helpers/harness/audioManager.js` does. If `{ text: "hi" }` is not enough for `serializeTranscriptSegments`, give the primed segments the fields it reads; keep one non-empty segment.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js test/helpers/meetingStopOutcome.test.js`
-Expected: FAIL with `Cannot find module '…/meetingPresence.js'`.
+Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js test/helpers/meetingStopOutcome.test.js test/helpers/windowManagerMeetingNotification.test.js`
+Expected: FAIL with `Cannot find module '…/meetingPresence.js'`. The window-manager suite fails because `manager.meetingPresence` does not exist yet.
 
 - [ ] **Step 3: Presence and the tray icon**
 
@@ -8686,10 +12305,19 @@ module.exports = { paintRecordingDot, createRecordingTrayIcon };
 `src/helpers/linuxRecordingNotification.js`:
 
 ```js
-// The resident "recording" notification on Linux, with a Stop action. One
-// lifetime at a time, serialised by generation: a Notify answer that arrives
-// after its session ended is closed immediately, and signals are subscribed
-// before anything is posted.
+// The resident "recording" notification on Linux (D2, with the spec owner's
+// 2026-10-15 clarification):
+// - the server advertises `actions`: a Stop button, plus the click (`default`);
+// - it does not: the same notification without Stop; its click, where the
+//   server delivers one, brings up the pill;
+// - publishing fails (no service, GetCapabilities or Notify rejects or times
+//   out, the service drops later): an action-free Electron notification whose
+//   click brings up the pill.
+// One lifetime at a time, serialised by generation: a Notify answer that
+// arrives after its session ended is closed immediately, and signals are
+// subscribed before anything is posted. Stop and the click carry the session
+// the notification was posted for. This never goes through
+// showSystemNotification (§5.5), which stays action-free.
 class LinuxRecordingNotification {
   constructor({ client, ElectronNotification, onStop, onOpen }) {
     this.client = client;
@@ -8697,22 +12325,32 @@ class LinuxRecordingNotification {
     this.onStop = onStop;
     this.onOpen = onOpen;
     this.generation = 0;
-    this.current = null; // { id, sessionId, generation }
-    this.fallback = null;
+    this.current = null; // { id, sessionId, withStop, title, fallbackBody }
+    this.fallback = null; // { notification, sessionId }
     this.queue = Promise.resolve();
     this.serviceAlive = Boolean(client);
     if (client) {
       client.onAction((id, key) => {
-        if (!this.current || id !== this.current.id) return;
-        if (key === "stop") this.onStop?.(this.current.sessionId);
-        else if (key === "default") this.onOpen?.();
+        const current = this.current;
+        if (!current || id !== current.id) return; // another app's, or a replaced or closed one
+        if (key === "stop" && current.withStop) this.onStop?.(current.sessionId);
+        else if (key === "default") this.onOpen?.(current.sessionId);
       });
       client.onClosed((id) => {
-        if (this.current?.id === id) this.current = null; // dismissed by the user; the tray Stop remains
+        if (this.current?.id === id) this.current = null; // dismissed by the user; the tray and the pill still stop it
       });
       client.onDisconnect(() => {
+        if (!this.serviceAlive) return;
         this.serviceAlive = false;
+        const lost = this.current;
         this.current = null;
+        if (!lost) return;
+        // The server's copy can no longer reach us. Keep a notification on
+        // screen for the same session, unless a newer show() or close() came.
+        const generation = this.generation;
+        void this._enqueue(async () => {
+          if (generation === this.generation) this._postFallback(lost);
+        });
       });
     }
   }
@@ -8727,28 +12365,56 @@ class LinuxRecordingNotification {
     return this._enqueue(async () => {
       await this._closeNow();
       if (generation !== this.generation) return;
-      const caps = this.serviceAlive ? await this.client.capabilities().catch(() => []) : [];
-      if (!caps.includes("actions")) {
-        this.fallback = new this.ElectronNotification({ title, body: fallbackBody, timeoutType: "never", silent: true });
-        this.fallback.on("click", () => this.onOpen?.());
-        this.fallback.show();
-        return;
+      if (this.serviceAlive) {
+        const posted = await this._postToService({ sessionId, title, body, stopLabel, fallbackBody });
+        if (generation !== this.generation) {
+          if (posted) await this.client.close(posted.id).catch(() => {}); // obsolete before it was posted
+          return;
+        }
+        if (posted) {
+          this.current = posted;
+          return;
+        }
       }
-      let id;
-      try {
-        id = await this.client.notify({
-          title, body, actions: ["default", "", "stop", stopLabel],
-          hints: { resident: true, urgency: 1, category: "device" },
-        });
-      } catch {
-        return;
-      }
-      if (generation !== this.generation) {
-        await this.client.close(id).catch(() => {}); // obsolete before it was posted
-        return;
-      }
-      this.current = { id, sessionId, generation };
+      this._postFallback({ sessionId, title, fallbackBody });
     });
+  }
+
+  // The posted notification, or null when the service did not take it.
+  async _postToService({ sessionId, title, body, stopLabel, fallbackBody }) {
+    let caps;
+    try {
+      caps = await this.client.capabilities();
+    } catch {
+      return null; // the service went away during discovery
+    }
+    const withStop = Array.isArray(caps) && caps.includes("actions");
+    try {
+      const id = await this.client.notify({
+        title,
+        body: withStop ? body : fallbackBody,
+        // "default" is the click. A server without `actions` may ignore it.
+        actions: withStop ? ["default", "", "stop", stopLabel] : ["default", ""],
+        hints: { resident: true, urgency: 1, category: "device" },
+      });
+      return Number.isInteger(id) && id > 0 ? { id, sessionId, withStop, title, fallbackBody } : null;
+    } catch {
+      return null; // Notify rejected or timed out after discovery (R1-I8)
+    }
+  }
+
+  _postFallback({ sessionId, title, fallbackBody }) {
+    try {
+      const notification = new this.ElectronNotification({ title, body: fallbackBody, timeoutType: "never", silent: true });
+      notification.on("click", () => this.onOpen?.(sessionId));
+      notification.on("close", () => {
+        if (this.fallback?.notification === notification) this.fallback = null;
+      });
+      notification.show();
+      this.fallback = { notification, sessionId };
+    } catch {
+      // Nothing else can post here. The tray's Stop is always there.
+    }
   }
 
   close() {
@@ -8760,17 +12426,16 @@ class LinuxRecordingNotification {
     const current = this.current;
     this.current = null;
     if (current && this.serviceAlive) await this.client.close(current.id).catch(() => {});
-    if (this.fallback) {
-      this.fallback.close();
-      this.fallback = null;
-    }
+    const fallback = this.fallback;
+    this.fallback = null;
+    fallback?.notification.close();
   }
 }
 
 module.exports = { LinuxRecordingNotification };
 ```
 
-`close()` bumps the generation before queueing, so an in-flight `show()` sees the mismatch when its Notify answer arrives, and closes the late id. That is the probe the review reproduced.
+`close()` bumps the generation before queueing. An in-flight `show()` therefore sees the mismatch when its Notify answer arrives, and closes the late id. That is the probe the review reproduced. The same check runs after a rejected Notify, so a meeting that already ended gets no fallback either.
 
 `src/helpers/freedesktopNotifications.js`. This is the thin adapter over the bundled D-Bus library. It is lazy, like `kdeShortcut.js:8`:
 
@@ -8790,6 +12455,9 @@ function getDBus() {
 
 const PATH = "/org/freedesktop/Notifications";
 const NAME = "org.freedesktop.Notifications";
+// dbus-native may never answer a call on a connection that died. A bounded
+// wait lets the notification post its fallback instead of hanging its queue.
+const CALL_TIMEOUT_MS = 5000;
 
 async function createFreedesktopClient({ getDBus: loadDBus = getDBus } = {}) {
   const dbus = loadDBus();
@@ -8800,12 +12468,33 @@ async function createFreedesktopClient({ getDBus: loadDBus = getDBus } = {}) {
   } catch {
     return null;
   }
-  const iface = await new Promise((resolve) =>
-    bus.getService(NAME).getInterface(PATH, NAME, (err, value) => resolve(err ? null : value))
-  );
+  const iface = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), CALL_TIMEOUT_MS);
+    try {
+      bus.getService(NAME).getInterface(PATH, NAME, (err, value) => {
+        clearTimeout(timer);
+        resolve(err ? null : value);
+      });
+    } catch {
+      clearTimeout(timer);
+      resolve(null);
+    }
+  });
   if (!iface) return null;
   const call = (method, ...args) =>
-    new Promise((resolve, reject) => iface[method](...args, (err, value) => (err ? reject(err) : resolve(value))));
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${method} timed out`)), CALL_TIMEOUT_MS);
+      try {
+        iface[method](...args, (err, value) => {
+          clearTimeout(timer);
+          if (err) reject(err);
+          else resolve(value);
+        });
+      } catch (error) {
+        clearTimeout(timer);
+        reject(error);
+      }
+    });
   const hint = (key, value) => [key, typeof value === "boolean" ? ["b", value] : typeof value === "number" ? ["y", value] : ["s", value]];
   return {
     capabilities: () => call("GetCapabilities"),
@@ -8827,26 +12516,139 @@ async function createFreedesktopClient({ getDBus: loadDBus = getDBus } = {}) {
 module.exports = { createFreedesktopClient };
 ```
 
-The hint encoding (`[key, [signature, value]]`) and the signal subscription (`iface.on`) follow the forms the existing D-Bus users in this repo already use. Before relying on them, check `src/helpers/gnomeShortcut.js:211-219` and `kdeShortcut.js` for the exact call shapes, and match them. The adapter is not unit-tested, because it needs a session bus. Task 20's Linux matrix exercises it on a real desktop.
+The hint encoding (`[key, [signature, value]]`) and the signal subscription (`iface.on`) follow the forms the existing D-Bus users in this repo already use. Before relying on them, check `src/helpers/gnomeShortcut.js:211-219` and `kdeShortcut.js` for the exact call shapes, and match them. The adapter is not unit-tested, because it needs a session bus. Task 20's Linux matrix exercises it on a real desktop: with and without `actions`, with the service stopped (`Notify` failing), and whether the click reaches the pill.
 
 - [ ] **Step 5: The meeting outcome in the store**
 
 In `src/stores/meetingRecordingStore.ts`:
-1. Extend `StopRecordingResult` (1495–1501) with `persisted: boolean; stopError: boolean;`. Early-return paths report `persisted: false, stopError: false`.
-2. Inside `runStop`:
-   - Before line 1545, capture `const startedAt = useMeetingRecordingStore.getState().recordingStartedAt;`.
-   - Make `persistTranscript` record whether it tried and whether it worked: `let attempted = false; let saveOk = false;`. Set `attempted = true` on entry to the write, `saveOk = true` on success, and leave the `catch` logging as it is. After `persistFinalTranscriptAroundStop` returns, `const persisted = !attempted || saveOk;`. A segment-less recording with no fallback transcript never calls `persist`, so it reports `persisted = true` rather than a false "save failed": there was nothing to save. A recording with no note (`recordingNoteId == null`) takes the same path.
-   - In `stop()`, set `stopError = true` in both the `result?.error` branch and the `catch`.
-   - After `persistFinalTranscriptAroundStop` returns, report the outcome:
+1. Extend `StopRecordingResult` (1495–1501) with `persisted: boolean; stopError: boolean;`. Early-return paths report `persisted: false, stopError: false`. Import `type MeetingOutcome` from `../types/dictation` (Task 7).
+2. Inside `runStop`, replace lines 1546–1613 (from the `// Persist here` comment to the final `return`) with the code below. "Saved" comes from the acknowledged results, never from the absence of a throw (R1-I14):
+   - The write counts only when `updateNote` returns `{ success: true }`. `{ success: false }`, no result, no API and a throw are failures.
+   - The stop counts only when `meetingTranscriptionStop` returns `{ success: true }`. `{ success: false, reason: "stale-session" }`, `{ success: false, error }`, no result, no API and a throw are failures.
+   - No content means no write was required: a segment-less recording with no fallback transcript never calls `persist`, so it is saved. Content with no note to write to is a failed save, because that content is kept nowhere.
 
-     ```ts
-         const outcome: MeetingOutcome = persisted && !stopError
-           ? { sessionId, kind: "saved", durationMs: startedAt ? Date.now() - startedAt : 0, noteId: recordingNoteId ?? null }
-           : { sessionId, kind: "failed", reason: persisted ? "stop" : "save" };
-         window.electronAPI?.reportMeetingRecordingOutcome?.(outcome);
-     ```
+   ```ts
+       // Persist here, not in a notes-view effect: an auto-end stop can fire while
+       // that view is unmounted, and any view-scoped saver dies with it. (Delayed
+       // diarization results are persisted by the module-level listener below.)
+       const {
+         recordingNoteId,
+         segments: finalSegments,
+         recordingStartedAt,
+       } = useMeetingRecordingStore.getState();
+       // R1-I14: "saved" needs acknowledgements. updateNote answers
+       // { success: false } without throwing (database.js:1194, :1231, :1239), and
+       // main's stop answers { success: false, reason: "stale-session" }
+       // (meetingTranscriptionLifecycle.js:39-43). A missing API or result is no
+       // acknowledgement either.
+       let writeRequired = false; // persist() runs only when there is content
+       let writeAcknowledged = false;
+       let stopAcknowledged = false;
+       const persistTranscript = async (transcript: string) => {
+         writeRequired = true;
+         if (recordingNoteId == null) {
+           logger.error("Meeting transcript has no note to write to", {}, "meeting");
+           return;
+         }
+         try {
+           const result = await window.electronAPI?.updateNote?.(recordingNoteId, { transcript });
+           writeAcknowledged = result?.success === true;
+           if (!writeAcknowledged) {
+             logger.error(
+               "Failed to persist final meeting transcript",
+               { error: result?.error ?? "no acknowledgement", noteId: recordingNoteId },
+               "meeting"
+             );
+           }
+         } catch (err) {
+           logger.error(
+             "Failed to persist final meeting transcript",
+             { error: (err as Error).message, noteId: recordingNoteId },
+             "meeting"
+           );
+         }
+       };
+       const persisted = () => !writeRequired || writeAcknowledged;
 
-   - Return `{ diarizationSessionId, stopped: true, persisted, stopError }`.
+       let diarizationSessionId: string | null = null;
+       try {
+         diarizationSessionId = await persistFinalTranscriptAroundStop({
+           segments: finalSegments,
+           serializeSegments: serializeTranscriptSegments,
+           persist: persistTranscript,
+           fallbackTranscript: () => useMeetingRecordingStore.getState().transcript,
+           stop: async () => {
+             await cleanup();
+
+             let stoppedDiarizationSessionId: string | null = null;
+             try {
+               const result = await window.electronAPI?.meetingTranscriptionStop?.(
+                 sessionId ?? undefined
+               );
+               stopAcknowledged = result?.success === true;
+               if (result?.diarizationSessionId) {
+                 stoppedDiarizationSessionId = result.diarizationSessionId;
+                 useMeetingRecordingStore.setState({
+                   diarizationSessionId: stoppedDiarizationSessionId,
+                 });
+               }
+               if (result?.success && result.transcript) {
+                 useMeetingRecordingStore.setState({ transcript: result.transcript });
+               } else if (result?.error) {
+                 reportMeetingError(result.error);
+               } else if (!stopAcknowledged) {
+                 logger.error(
+                   "Meeting transcription stop was not acknowledged",
+                   { reason: result?.reason ?? "no result" },
+                   "meeting"
+                 );
+               }
+             } catch (err) {
+               reportMeetingError((err as Error).message);
+               logger.error(
+                 "Meeting transcription stop failed",
+                 { error: (err as Error).message },
+                 "meeting"
+               );
+             }
+             return stoppedDiarizationSessionId;
+           },
+         });
+       } finally {
+         // Once per real stop (runStop dedupes), and also when the stop threw.
+         if (sessionId) {
+           const outcome: MeetingOutcome =
+             persisted() && stopAcknowledged
+               ? {
+                   sessionId,
+                   kind: "saved",
+                   durationMs: recordingStartedAt ? Date.now() - recordingStartedAt : 0,
+                   noteId: recordingNoteId == null ? null : String(recordingNoteId),
+                 }
+               : { sessionId, kind: "failed", reason: persisted() ? "stop" : "save" };
+           window.electronAPI?.reportMeetingRecordingOutcome?.(outcome);
+         }
+       }
+
+       useMeetingRecordingStore.setState({
+         micPartial: "",
+         systemPartial: "",
+         systemPartialSpeakerId: null,
+         systemPartialSpeakerName: null,
+         systemAudioSilentWarning: false,
+         systemAudioInterrupted: null,
+         currentMicLevel: 0,
+         recordingStartedAt: null,
+       });
+
+       logger.info("Meeting transcription stopped", {}, "meeting");
+       // Reaching here means this call ended a live recording. persisted and
+       // stopError say whether the write and main's stop were acknowledged; the
+       // outcome above already told main which it was.
+       return { diarizationSessionId, stopped: true, persisted: persisted(), stopError: !stopAcknowledged };
+   ```
+
+   When the write and the stop both fail, the outcome reason is `save`: unsaved content matters more than a stop error. `MeetingOutcome.noteId` is a string (Task 7) and `recordingNoteId` is a number, hence the `String(...)`.
 
    `meetingRecordingStopBarrier.runStop` already dedupes concurrent stops (1525–1533), so the outcome is reported once.
 3. Add the `__primeRecordingForTests` seam described in Step 1. Name it with the double underscore so it reads as test-only, and export it.
@@ -8885,9 +12687,24 @@ In `src/stores/meetingRecordingStore.ts`:
        this.onMeetingOutcome?.(outcome);
      }
 
+     // Session-bound: a Stop from a stale tray item or notification, or for a
+     // session that already ended, does nothing.
      requestStopMeetingRecording(sessionId) {
-       if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return; // stale button
+       if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return false;
        this.sendToControlPanel("meeting-recording-stop-requested", sessionId);
+       return true;
+     }
+
+     // D2: clicking the Linux recording notification brings up the pill with
+     // Stop visible. The pill (Task 17) shows the capsule for this session even
+     // when the on-screen recorder setting is off or the pill is auto-hidden.
+     revealMeetingRecorder(sessionId) {
+       if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return false;
+       this.showDictationPanel();
+       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+         this.mainWindow.webContents.send("meeting-recorder-reveal-requested", sessionId);
+       }
+       return true;
      }
    ```
 
@@ -8923,25 +12740,46 @@ In `src/stores/meetingRecordingStore.ts`:
        });
    ```
 
-3. **`tray.js`.** In the constructor, add `this.meetingPresence = null; this.linuxNotification = null; this.baseIcon = null;`, and store the loaded icon in `createTray()` (141) as `this.baseIcon`.
+3. **`tray.js`.**
+   - Line 1: also take `Notification` from `require("electron")`. Require `createFreedesktopClient`, `LinuxRecordingNotification`, `buildTrayRecordingItems` and `createRecordingTrayIcon` from the new modules.
+   - In the constructor, add:
+
+     ```js
+         this.meetingPresence = null;
+         this.linuxNotificationPromise = null;
+         this.baseIcon = null;
+         // Seams for tests, which drive the real tray on any host.
+         this.platform = process.platform;
+         this.createNotificationClient = createFreedesktopClient;
+         this.ElectronNotification = null; // null means Electron's Notification
+     ```
+
+   - Store the loaded icon in `createTray()` as `this.baseIcon` (after `const trayIcon = await this.loadTrayIcon();`, line 135).
+   - Add:
 
    ```js
-     async _linuxNotification() {
-       if (this.linuxNotification) return this.linuxNotification;
-       const client = await createFreedesktopClient();
-       this.linuxNotification = new LinuxRecordingNotification({
-         client,
-         ElectronNotification: require("electron").Notification,
-         onStop: (sessionId) => this.windowManager?.requestStopMeetingRecording(sessionId),
-         onOpen: () => this.showControlPanelFromTray(),
-       });
-       return this.linuxNotification;
+     // One instance, created once, even when presence changes before the D-Bus
+     // client answers. show() and close() both chain on this promise, so they
+     // run in the order presence changed: a meeting that ends while the client
+     // is still connecting never leaves its notification behind.
+     _linuxNotification() {
+       this.linuxNotificationPromise ??= (async () => {
+         const client = await this.createNotificationClient().catch(() => null);
+         return new LinuxRecordingNotification({
+           client,
+           ElectronNotification: this.ElectronNotification ?? Notification,
+           onStop: (sessionId) => this.windowManager?.requestStopMeetingRecording(sessionId),
+           // D2: a click brings up the pill with Stop visible, for that session.
+           onOpen: (sessionId) => this.windowManager?.revealMeetingRecorder(sessionId),
+         });
+       })();
+       return this.linuxNotificationPromise;
      }
 
      setMeetingPresence(presence) {
        const previous = this.meetingPresence;
        this.meetingPresence = presence;
-       if (process.platform === "linux") {
+       if (this.platform === "linux") {
          if (this.tray && this.baseIcon) {
            this.tray.setImage(presence ? createRecordingTrayIcon(this.baseIcon) : this.baseIcon);
          }
@@ -8956,14 +12794,14 @@ In `src/stores/meetingRecordingStore.ts`:
              })
            );
          } else if (!presence && previous) {
-           void this.linuxNotification?.close();
+           void this._linuxNotification().then((n) => n.close());
          }
        }
        this.updateTrayMenu();
      }
 
      teardownMeetingNotification() {
-       return this.linuxNotification?.close() ?? Promise.resolve();
+       return this.linuxNotificationPromise?.then((n) => n.close()) ?? Promise.resolve();
      }
    ```
 
@@ -8985,7 +12823,7 @@ In `src/stores/meetingRecordingStore.ts`:
 5. **`preload.js`.** Add the APIs from the Interfaces block:
    - `reportMeetingRecordingPresence` and `reportMeetingRecordingOutcome` use `ipcRenderer.send`;
    - `getMeetingRecordingPresence` and `requestStopMeetingRecording` use `invoke`;
-   - the three `on…` listeners use `registerListener`.
+   - the four `on…` listeners use `registerListener` (`preload.js:47`). `onMeetingRecorderRevealRequested` listens on `meeting-recorder-reveal-requested`.
 
    Add the types to the `electronAPI` interface in `src/types/electron.ts`, importing `MeetingPresence` and `MeetingOutcome` from `./dictation`. Add no-op stubs to `browserPreview.ts`.
 6. **`MeetingRecordingMount.tsx`:**
@@ -9024,7 +12862,7 @@ Locale keys (`en`, mirrored to all 12; the main process reads them through `i18n
 "meetingRecorder": {
   "notificationTitle": "Loqui is recording this meeting",
   "notificationBody": "Stop it here, from the tray, or from the Loqui pill.",
-  "notificationFallbackBody": "Stop it from the Loqui tray menu or the Loqui pill.",
+  "notificationFallbackBody": "Click to show the Loqui pill and stop it there, or use the tray menu.",
   "stop": "Stop"
 }
 ```
@@ -9033,7 +12871,7 @@ The notification makes no claim about where meeting audio goes, because the meet
 
 - [ ] **Step 7: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js test/helpers/meetingStopOutcome.test.js test/helpers/trayQuickActions.test.js test/helpers/trayActionPolicy.test.js "test/helpers/meeting*.test.js"`
+Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js test/helpers/meetingStopOutcome.test.js test/helpers/windowManagerMeetingNotification.test.js test/helpers/trayQuickActions.test.js test/helpers/trayActionPolicy.test.js "test/helpers/meeting*.test.js"`
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
@@ -9048,7 +12886,7 @@ git commit -m "feat(meeting): presence, explicit outcome, tray state and a seria
 ### Task 17: The recorder capsule as a pill state (VO-R12 A per D2)
 
 **Files:**
-- Create: `src/hooks/useMeetingRecordingPresence.ts`
+- Create: `src/hooks/useMeetingRecordingPresence.ts`. It also tracks a reveal request from the Linux notification (Task 16, D2 clarification).
 - Create: `src/components/dictation/MeetingCapsule.tsx`
 - Modify: `src/hooks/useAudioRecording.js`. Return `meetingRecording` (§5.2).
 - Modify: `src/components/dictation/VoicePill.tsx`. Treat `meeting` as a labelled state, add a `meetingInterrupted` prop, and use `role="group"`.
@@ -9068,6 +12906,9 @@ git commit -m "feat(meeting): presence, explicit outcome, tray state and a seria
 
   ```ts
   export function useMeetingRecordingPresence(): MeetingPresence | null;
+  // D2 (7f31ece): a click on the Linux recording notification asks for the pill with Stop.
+  export function useMeetingRecorderRevealed(presence: MeetingPresence | null): boolean;
+  export function isMeetingRecorderRevealed(revealedSessionId: string | null, presence: MeetingPresence | null): boolean;
   export function MeetingCapsule(props: { presence: MeetingPresence; now: number; onStop: () => void }): JSX.Element;
   export function meetingCapsuleState(presence: MeetingPresence): "recording" | "quiet" | "lost";
   // useAudioRecording return: meetingRecording: MeetingPresence | null
@@ -9134,6 +12975,15 @@ test("the dot pulses only while recording, and not under reduced motion", () => 
   assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.meeting-capsule__dot\s*\{\s*animation:\s*none/);
 });
 
+test("a notification click reveals the capsule for that session only, while it records (D2)", async () => {
+  const { isMeetingRecorderRevealed } = await import("../../src/hooks/useMeetingRecordingPresence.ts");
+  const m1 = { sessionId: "m1", startedAt: 1, interruption: null, quiet: false };
+  assert.equal(isMeetingRecorderRevealed("m1", m1), true);
+  assert.equal(isMeetingRecorderRevealed("m0", m1), false, "a stale click for an ended session");
+  assert.equal(isMeetingRecorderRevealed("m1", null), false, "presence ended");
+  assert.equal(isMeetingRecorderRevealed(null, m1), false);
+});
+
 test("the on-screen recorder setting defaults to on", () => {
   const src = fs.readFileSync(path.join(repoRoot, "src/stores/settingsStore.ts"), "utf8");
   assert.match(src, /showMeetingRecorderOnScreen:\s*readBoolean\("showMeetingRecorderOnScreen", true\)/);
@@ -9165,6 +13015,20 @@ export function useMeetingRecordingPresence(): MeetingPresence | null {
     };
   }, []);
   return presence;
+}
+
+export function isMeetingRecorderRevealed(revealedSessionId: string | null, presence: MeetingPresence | null): boolean {
+  return Boolean(presence && revealedSessionId && presence.sessionId === revealedSessionId);
+}
+
+/** True after a Linux notification click for this session (Task 16), until its presence ends. */
+export function useMeetingRecorderRevealed(presence: MeetingPresence | null): boolean {
+  const [revealedSessionId, setRevealedSessionId] = useState<string | null>(null);
+  useEffect(() => window.electronAPI?.onMeetingRecorderRevealRequested?.((sessionId) => setRevealedSessionId(sessionId)), []);
+  useEffect(() => {
+    if (!presence) setRevealedSessionId(null);
+  }, [presence]);
+  return isMeetingRecorderRevealed(revealedSessionId, presence);
 }
 ```
 
@@ -9245,7 +13109,11 @@ Pass it through in `useSettings.ts`.
 - Read the settings and presence:
 
   ```js
-    const showMeetingRecorder = useSettingsStore((s) => s.showMeetingRecorderOnScreen);
+    const showMeetingRecorderSetting = useSettingsStore((s) => s.showMeetingRecorderOnScreen);
+    // D2 (7f31ece): a click on the Linux notification brings up the pill with Stop, even
+    // with the setting off, for as long as that session records.
+    const meetingRecorderRevealed = useMeetingRecorderRevealed(meetingRecording);
+    const showMeetingRecorder = showMeetingRecorderSetting || meetingRecorderRevealed;
     const meetingRecorderVisible = Boolean(meetingRecording && showMeetingRecorder);
     const [meetingNow, setMeetingNow] = useState(() => Date.now());
     useEffect(() => {
@@ -9411,11 +13279,19 @@ git commit -m "feat(meeting): the dictation pill becomes the meeting recorder wh
 
 ### Task 18: Notch-drop meeting prompt (VO-R11 B, VO-Q10)
 
+Closes round 2's R1-I7 and R2-I2 for the prompt.
+
+The prompt now awaits two things before its window exists: the active display and the ⌥⌘M lease. Each prompt therefore gets a **generation** before its first await, and its own lease owner, `main:meeting-prompt:<generation>`:
+- Replacing, dismissing or tearing down a prompt bumps the generation and releases that prompt's owner.
+- After every await, a prompt that is no longer current returns without creating or overwriting anything. It releases only its own lease, never the current one.
+- The lease lives as long as the prompt's window. It is released when the window closes (including a compositor kill, which bypasses `dismissMeetingNotification`), when its renderer goes away, when it navigates, and at quit.
+
 **Files:**
-- Modify: `src/helpers/windowConfig.js`. Add `getNotchDropPosition(display)` to `WindowPositionUtil` next to `getNotificationPosition` (lines 328–341).
+- Modify: `src/helpers/windowConfig.js`. Add `static getNotchDropPosition(display)` to `WindowPositionUtil` next to `getNotificationPosition` (lines 328–341).
 - Modify: `src/helpers/windowManager.js`:
-  - `showMeetingNotification` (2030–2125): use the active display, register ⌥⌘M, and send the hotkey label;
-  - `dismissMeetingNotification` (line 2144): unregister the hotkey.
+  - constructor (48–108): the prompt generation, and a prompt dismissal in the `before-quit` handler (104–107);
+  - `showMeetingNotification` (2030–2125): take a generation before the first await, use the active display, lease ⌥⌘M for this prompt, check the generation after every await, bind the lease to the window, and send the hotkey label;
+  - `dismissMeetingNotification` (2144–2160): end the prompt, which releases its lease, even before its window exists.
 - Modify: `src/helpers/meetingDetectionEngine.js:421-428`. Add `appName` to the prompt payload.
 - Modify: `src/types/electron.ts:66-73`. Add `appName?: string | null; acceptHotkeyLabel?: string | null` to `MeetingNotificationData`.
 - Modify: `src/components/meetingNotificationModel.ts`
@@ -9424,12 +13300,17 @@ git commit -m "feat(meeting): the dictation pill becomes the meeting recorder wh
 - Modify: `src/index.css` or `src/styles/notices.css`. Add the `.meeting-drop` rules to `notices.css`.
 - Modify: `src/locales/*/translation.json` (`meetingNotification.*`)
 - Test: `test/components/meetingPrompt.test.js`
+- Test: modify `test/helpers/windowManagerMeetingNotification.test.js`. Lease lifetime and stale prompts, through the real window manager and Task 2's real lease module.
 
 **Interfaces:**
+- Consumes Task 2's `hotkeyLeases` (`acquire`, `release`, `releaseOwner`). The owner is `main:meeting-prompt:<generation>`, not one fixed string.
 - Produces:
 
   ```js
   WindowPositionUtil.getNotchDropPosition(display): { x: number; y: number; width: 392; height: 92 } // top-centre of the work area, 8px below the menu bar
+  // windowManager (main only)
+  _beginMeetingPrompt(detectionId): { generation: number; detectionId: string | null; ownerId: string }; // ends any earlier prompt
+  _endMeetingPrompt(): { generation; detectionId; ownerId } | null; // bumps the generation, releases that prompt's lease
   ```
 
   ```ts
@@ -9505,72 +13386,477 @@ test("the prompt is placed top-centre on the active display (VO-Q10)", () => {
   assert.match(block, /_resolveActiveDisplay\(/);
   assert.match(block, /getNotchDropPosition\(/);
   assert.doesNotMatch(block, /getPrimaryDisplay\(\)/);
-  assert.match(block, /hotkeyLeases\.acquire\(\{ slot: "meetingAccept"/);
   assert.doesNotMatch(block, /registerSlot\(/, "temporary shortcuts go through main's leases (I7)");
+});
+```
+
+The lease's lifetime and stale prompts are tested by behaviour, in the real window-manager suite. Task 16 already added `settle`, `until` and the `TrayManager` require to `test/helpers/windowManagerMeetingNotification.test.js`. Change that file as follows.
+
+1. **Stubs.** The window manager now awaits the display and a real lease (Task 2's `createHotkeyLeases`, built in the constructor) before it creates the window:
+   - `FakeBrowserWindow` (lines 19–63): make `webContents` an emitter, so tests can raise `render-process-gone` and `did-start-navigation`:
+
+     ```js
+         this.webContents = Object.assign(new EventEmitter(), {
+           send: (channel, payload) => this.messages.push({ channel, payload }),
+         });
+     ```
+
+   - Replace the `FakeHotkeyManager` class (lines 65–71); keep line 72. It records registrations, and can hold each one until the test answers (the KDE/GNOME await):
+
+     ```js
+     class FakeHotkeyManager {
+       constructor() {
+         this.registered = new Map();
+         this.pendingRegistrations = [];
+         this.registerCalls = 0;
+         this.deferRegistrations = false;
+       }
+
+       registerSlot(slot, _accelerator, callback) {
+         this.registerCalls += 1;
+         const answer = (ok = true) => {
+           if (ok) this.registered.set(slot, callback);
+           return ok ? { success: true } : { success: false, reason: "conflict" };
+         };
+         if (!this.deferRegistrations) return Promise.resolve(answer());
+         return new Promise((resolve) => this.pendingRegistrations.push((ok) => resolve(answer(ok))));
+       }
+
+       unregisterSlot(slot) {
+         this.registered.delete(slot);
+       }
+
+       unregisterAll() {
+         this.registered.clear();
+       }
+
+       isInListeningMode() {
+         return false;
+       }
+     }
+     ```
+
+   - In the `electron` stub (lines 80–88), record `app` listeners and add the display lookups `_resolveActiveDisplay` uses (`windowManager.js:1469-1481`):
+
+     ```js
+     const appListeners = {};
+     // …in the electron stub:
+           app: { on: (event, listener) => (appListeners[event] ??= []).push(listener) },
+           screen: {
+             getPrimaryDisplay: () => ({}),
+             getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+             getDisplayNearestPoint: () => ({ id: "cursor", workArea: { x: 0, y: 0, width: 1000, height: 800 } }),
+             getDisplayMatching: () => ({ id: "target", workArea: { x: 0, y: 0, width: 1000, height: 800 } }),
+             on: () => undefined,
+           },
+     ```
+
+   - In the `./windowConfig` stub (lines 110–126), add `getNotchDropPosition: () => ({ ...notificationSize, x: 304, y: 8 })` to `WindowPositionUtil`.
+   - Next to `notificationWindowFor` (line 133), add:
+
+     ```js
+     const ACCEPT_LABEL = process.platform === "darwin" ? "⌥⌘M" : "Ctrl+Alt+M";
+     // The window now appears after the display and lease awaits.
+     async function windowCreated(index) {
+       await until(() => createdWindows.length > index);
+       return createdWindows[index];
+     }
+     ```
+
+2. **Existing tests that read a window synchronously.** Each reads `createdWindows[n]` or `notificationWindowFor(n)` straight after `showMeetingNotification(...)`. Replace each read with `await windowCreated(n)`:
+   - "window creation uses the notification dimensions and position" (line 363). Its expected position becomes `x: 304, y: 8`. Its payload assertion becomes `assert.deepEqual(manager._pendingNotificationData, { ...notification, acceptHotkeyLabel: ACCEPT_LABEL });`.
+   - "a replaced deferred notification…" (lines 395 and 400). Await the first window before calling the second `showMeetingNotification`, so the replacement still happens mid-load.
+   - "canceling during a deferred load…" (line 426), "canceling while waiting for the dev server…" (line 456), "a stale ready callback…" (lines 479 and 487), "a notification raised from the timeout handler…" (lines 524, 528, 532 and 533; await `windowCreated(1)` after `timers.runDelay`), "an expired detection…" (line 577) and "a detection card whose load fails…" (line 601).
+
+3. **Extend the replacement test** ("a replaced deferred notification cannot send its payload to the newer window", lines 385–414). Give it an engine, and before `timers.runAll()` assert that only the newer prompt holds the shortcut. The assertions must come before `runAll()`, because the lease TTL timer is one of the fake timers:
+
+   ```js
+     const responses = [];
+     manager.meetingDetectionEngine = {
+       handleNotificationResponse: (detectionId, action) => responses.push([detectionId, action]),
+       handleDetectionNotificationClosed: () => undefined,
+     };
+     // …after `await firstShowPromise;`, before `timers.runAll();`:
+     await settle();
+     // R1-I7: the replaced prompt's lease went with it; the newer prompt holds the shortcut.
+     assert.equal(manager.hotkeyManager.registered.has("temp:meetingAccept"), true);
+     manager.hotkeyManager.registered.get("temp:meetingAccept")();
+     assert.deepEqual(responses, [["second", "start"]]);
+   ```
+
+4. **Replace the unexpected-close test** (lines 540–559) with the same scenario plus deferred acquisition and lease cleanup:
+
+```js
+test("unexpected detection card closure releases that detection and its shortcut (R1-I7)", async () => {
+  const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
+  const closedDetections = [];
+  manager.meetingDetectionEngine = {
+    handleDetectionNotificationClosed: (detectionId) => closedDetections.push(detectionId),
+  };
+
+  const showPromise = manager.showMeetingNotification({
+    detectionId: "audio:sustained-audio",
+    source: "audio",
+  });
+  await until(() => hotkeys.pendingRegistrations.length === 1);
+  assert.equal(createdWindows.length, 0, "no window before the shortcut answers");
+  hotkeys.pendingRegistrations.shift()(true);
+  const notificationWindow = await windowCreated(0);
+  notificationWindow.loadDeferred.resolve();
+  await showPromise;
+  assert.equal(hotkeys.registered.has("temp:meetingAccept"), true);
+  assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, ACCEPT_LABEL);
+
+  // A compositor window kill never reaches the renderer's response IPC, and
+  // never calls dismissMeetingNotification.
+  notificationWindow.close();
+  await settle();
+
+  assert.deepEqual(closedDetections, ["audio:sustained-audio"]);
+  assert.equal(hotkeys.registered.has("temp:meetingAccept"), false, "the shortcut went with the window");
+  assert.equal(manager._meetingPrompt, null);
+});
+```
+
+5. **In "a detection card whose load fails…"**, after the `closedDetections` assertion, add `await settle();` and `assert.equal(manager.hotkeyManager.registered.has("temp:meetingAccept"), false);`.
+
+6. **Append these tests:**
+
+```js
+test("a crash or a navigation in the prompt's renderer releases its shortcut and closes it (R1-I7)", async () => {
+  const losses = [
+    ["crash", (win) => win.webContents.emit("render-process-gone", {}, { reason: "crashed" })],
+    ["navigation", (win) => win.webContents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false, url: "file:///elsewhere" })],
+  ];
+  for (const [label, lose] of losses) {
+    createdWindows.length = 0;
+    const manager = createNormalWindowManager();
+    const closedDetections = [];
+    manager.meetingDetectionEngine = {
+      handleDetectionNotificationClosed: (detectionId) => closedDetections.push(detectionId),
+    };
+    const showPromise = manager.showMeetingNotification({ detectionId: `audio:${label}`, source: "audio" });
+    const win = await windowCreated(0);
+    win.loadDeferred.resolve();
+    await showPromise;
+
+    win.webContents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true, url: "file:///app#x" });
+    assert.equal(manager.notificationWindow, win, `${label}: a same-document navigation is not a loss`);
+
+    lose(win);
+    await settle();
+    assert.equal(manager.hotkeyManager.registered.has("temp:meetingAccept"), false, label);
+    assert.equal(manager.notificationWindow, null, label);
+    assert.equal(win.isDestroyed(), true, label);
+    assert.deepEqual(closedDetections, [`audio:${label}`], label);
+  }
+});
+
+test("a prompt dismissed while its display resolves never appears or registers (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const bounds = createDeferred();
+  manager.textEditMonitor = { lastTargetPid: 42, getTargetWindowBounds: () => bounds.promise };
+  const closedDetections = [];
+  manager.meetingDetectionEngine = {
+    handleDetectionNotificationClosed: (detectionId) => closedDetections.push(detectionId),
+  };
+
+  const showPromise = manager.showMeetingNotification({ detectionId: "audio:a", source: "audio" });
+  manager.dismissMeetingNotification();
+  bounds.resolve({ x: 0, y: 0, width: 10, height: 10 });
+
+  assert.equal(await showPromise, false);
+  assert.equal(createdWindows.length, 0);
+  assert.equal(manager.hotkeyManager.registerCalls, 0);
+  assert.deepEqual(closedDetections, ["audio:a"], "the engine learns this prompt will not show");
+});
+
+test("a prompt dismissed while its shortcut registers never appears, and the late registration is undone (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
+
+  const showPromise = manager.showMeetingNotification({ detectionId: "audio:a", source: "audio" });
+  await until(() => hotkeys.pendingRegistrations.length === 1);
+  manager.dismissMeetingNotification();
+  hotkeys.pendingRegistrations.shift()(true); // the backend answers after the dismissal
+
+  assert.equal(await showPromise, false);
+  await settle();
+  assert.equal(createdWindows.length, 0);
+  assert.equal(hotkeys.registered.has("temp:meetingAccept"), false);
+});
+
+test("an older prompt whose display resolves last never replaces the newer prompt (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const lookups = [createDeferred(), createDeferred()];
+  let lookup = 0;
+  manager.textEditMonitor = { lastTargetPid: 42, getTargetWindowBounds: () => lookups[lookup++].promise };
+  const responses = [];
+  manager.meetingDetectionEngine = {
+    handleNotificationResponse: (detectionId, action) => responses.push([detectionId, action]),
+    handleDetectionNotificationClosed: () => undefined,
+  };
+
+  try {
+    const older = manager.showMeetingNotification({ detectionId: "older" }, { autoDismiss: false });
+    const newer = manager.showMeetingNotification({ detectionId: "newer" }, { autoDismiss: false });
+    lookups[1].resolve({ x: 0, y: 0, width: 10, height: 10 });
+    const newerWindow = await windowCreated(0);
+    lookups[0].resolve({ x: 0, y: 0, width: 10, height: 10 }); // the older lookup lands last
+
+    assert.equal(await older, false);
+    newerWindow.loadDeferred.resolve();
+    assert.equal(await newer, true);
+    assert.equal(createdWindows.length, 1);
+    assert.equal(manager.notificationWindow, newerWindow);
+    assert.equal(manager._pendingNotificationData.detectionId, "newer");
+    manager.hotkeyManager.registered.get("temp:meetingAccept")();
+    assert.deepEqual(responses, [["newer", "start"]]);
+  } finally {
+    manager.dismissMeetingNotification();
+  }
+});
+
+test("an older prompt's late shortcut answer never takes the newer prompt's lease (R2-I2)", async () => {
+  const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
+  const responses = [];
+  manager.meetingDetectionEngine = {
+    handleNotificationResponse: (detectionId, action) => responses.push([detectionId, action]),
+    handleDetectionNotificationClosed: () => undefined,
+  };
+
+  try {
+    const older = manager.showMeetingNotification({ detectionId: "older" }, { autoDismiss: false });
+    await until(() => hotkeys.pendingRegistrations.length === 1); // older is registering
+    const newer = manager.showMeetingNotification({ detectionId: "newer" }, { autoDismiss: false });
+    hotkeys.pendingRegistrations.shift()(true); // older's answer arrives after it was replaced
+    assert.equal(await older, false);
+
+    await until(() => hotkeys.pendingRegistrations.length === 1); // newer registers after older's slot work
+    hotkeys.pendingRegistrations.shift()(true);
+    const newerWindow = await windowCreated(0);
+    newerWindow.loadDeferred.resolve();
+    assert.equal(await newer, true);
+
+    assert.equal(createdWindows.length, 1);
+    assert.equal(manager._pendingNotificationData.acceptHotkeyLabel, ACCEPT_LABEL);
+    hotkeys.registered.get("temp:meetingAccept")();
+    assert.deepEqual(responses, [["newer", "start"]]);
+  } finally {
+    manager.dismissMeetingNotification();
+  }
+});
+
+test("quitting while a prompt is still being prepared shows nothing and leaves no shortcut (R1-I7)", async () => {
+  const manager = createNormalWindowManager();
+  const hotkeys = manager.hotkeyManager;
+  hotkeys.deferRegistrations = true;
+
+  const showPromise = manager.showMeetingNotification({ detectionId: "audio:q", source: "audio" });
+  await until(() => hotkeys.pendingRegistrations.length === 1);
+  appListeners["before-quit"].at(-1)(); // this manager's handler; each constructor adds one
+  hotkeys.pendingRegistrations.shift()(true);
+
+  assert.equal(await showPromise, false);
+  await settle();
+  assert.equal(createdWindows.length, 0);
+  assert.equal(hotkeys.registered.has("temp:meetingAccept"), false);
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- test/components/meetingPrompt.test.js`
-Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `acceptHotkeyLabel` is not exported.
+Run: `npm test -- test/components/meetingPrompt.test.js test/helpers/windowManagerMeetingNotification.test.js`
+Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `acceptHotkeyLabel` is not exported. In the window-manager suite, the position is still `x: 608, y: 16`, nothing registers `temp:meetingAccept`, and the stale-prompt tests create windows they must not.
 
 - [ ] **Step 3: Implement**
 
-1. **`windowConfig.js`.** Add this to `WindowPositionUtil`:
+1. **`windowConfig.js`.** `WindowPositionUtil` is a class of static methods. Add this next to `static getNotificationPosition` (line 328):
 
    ```js
      // VO-R11 B: the prompt drops from the menu-bar edge, centred, on the
      // display the user is working on.
-     getNotchDropPosition(display) {
+     static getNotchDropPosition(display) {
        const { x, y, width } = display.workArea;
        const w = NOTIFICATION_WINDOW_CONFIG.width;
        const h = NOTIFICATION_WINDOW_CONFIG.height;
        return { x: Math.round(x + (width - w) / 2), y: y + 8, width: w, height: h };
-     },
+     }
    ```
 
-   If `NOTIFICATION_WINDOW_CONFIG` is declared after `WindowPositionUtil`, it is still defined by the time the method runs. Leave the order as it is.
-2. **`windowManager.js`, `showMeetingNotification` (line 2030).**
-   - It is already `async`.
-   - Replace lines 2046–2047 with:
+   `NOTIFICATION_WINDOW_CONFIG` is declared above the class (line 266).
+2. **`windowManager.js`.** Task 2 already builds `this.hotkeyLeases` in the constructor.
+   - **Constructor.** After `this._pendingNoteNavigation = null;` (line 102), add:
 
      ```js
-         const display = await this._resolveActiveDisplay();
-         const position = WindowPositionUtil.getNotchDropPosition(display);
+         // R1-I7/R2-I2: the meeting prompt being prepared or shown. Each prompt
+         // has its own generation and its own lease owner.
+         this._meetingPrompt = null;
+         this._meetingPromptGeneration = 0;
      ```
 
-     `_resolveActiveDisplay(targetPidPromise)` (line 1469) falls back to the display under the cursor when no pid is given.
-   - Before the window is created, lease the accept shortcut from Task 2's `hotkeyLeases` (I7). The lease owner is the prompt itself, so a replacing prompt releases the older lease before acquiring, and a late registration for a dismissed prompt is undone by the lease module:
+     In the `before-quit` handler (lines 104–107), before `this.hotkeyManager.unregisterAll();`, add `this.dismissMeetingNotification({ notifyEngine: false });`. A prompt still resolving its display or its shortcut must not appear or register during quit.
+   - **Add two methods** before `showMeetingNotification`:
 
      ```js
-         if (this._meetingAcceptLease) this.hotkeyLeases.release(this._meetingAcceptLease, "main:meeting-prompt");
-         const detectionId = promptData.detectionId;
+       // R1-I7/R2-I2: a prompt takes its generation before its first await.
+       // Ending it (replacement, dismissal, its window going, quit) bumps the
+       // generation, so a call that wakes after that stops. The lease owner is
+       // unique to the prompt, so releasing it never touches a newer prompt's
+       // shortcut.
+       _beginMeetingPrompt(detectionId) {
+         this._endMeetingPrompt();
+         const generation = ++this._meetingPromptGeneration;
+         this._meetingPrompt = {
+           generation,
+           detectionId: detectionId ?? null,
+           ownerId: `main:meeting-prompt:${generation}`,
+         };
+         return this._meetingPrompt;
+       }
+
+       _endMeetingPrompt() {
+         const prompt = this._meetingPrompt;
+         this._meetingPrompt = null;
+         this._meetingPromptGeneration += 1;
+         // releaseOwner also ends a lease whose registration is still pending;
+         // the lease module undoes its late success (Task 2).
+         if (prompt) this.hotkeyLeases.releaseOwner(prompt.ownerId);
+         return prompt;
+       }
+     ```
+
+   - **`showMeetingNotification` (2030–2125).** It is already `async`. Replace lines 2030–2080 (from the signature through `this._pendingNotificationData = promptData;`) with:
+
+     ```js
+       async showMeetingNotification(promptData, { autoDismiss = true } = {}) {
+         if (this._onboardingActive) return false;
+         // Before the first await (R2-I2). This also ends the previous prompt,
+         // which releases its shortcut.
+         const prompt = this._beginMeetingPrompt(promptData?.detectionId);
+         const isCurrent = () => this._meetingPrompt?.generation === prompt.generation;
+         if (this.notificationWindow && !this.notificationWindow.isDestroyed()) {
+           const previousWindow = this.notificationWindow;
+           this.notificationWindow = null;
+           this._pendingNotificationData = null;
+           previousWindow.close();
+         }
+         this._notificationDismissTimer.cancel();
+         if (this._notificationReadyFallback) {
+           clearTimeout(this._notificationReadyFallback);
+           this._notificationReadyFallback = null;
+         }
+
+         // VO-Q10: the display the user is working on, not the primary one.
+         let display;
+         try {
+           display = await this._resolveActiveDisplay();
+         } catch {
+           display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+         }
+         if (!isCurrent()) return false;
+         const position = WindowPositionUtil.getNotchDropPosition(display);
+
+         // I7: the accept shortcut is leased to this prompt only.
          const lease = await this.hotkeyLeases.acquire({
            slot: "meetingAccept",
-           ownerId: "main:meeting-prompt",
-           onPress: () => this.meetingDetectionEngine?.handleNotificationResponse(detectionId, "start"),
+           ownerId: prompt.ownerId,
+           onPress: () => {
+             if (!isCurrent()) return;
+             void this.meetingDetectionEngine?.handleNotificationResponse?.(prompt.detectionId, "start");
+           },
          });
-         this._meetingAcceptLease = lease.leaseId;
+         if (!isCurrent()) {
+           // Replaced or dismissed while the shortcut registered. Ending the
+           // prompt already released this owner. Releasing by this lease id and
+           // owner again cannot touch the current prompt's lease.
+           this.hotkeyLeases.release(lease.leaseId, prompt.ownerId);
+           return false;
+         }
          const data = {
            ...promptData,
            // Shown only when main actually holds the shortcut (another app may own it).
            acceptHotkeyLabel: lease.held ? (process.platform === "darwin" ? "⌥⌘M" : "Ctrl+Alt+M") : null,
          };
+
+         const win = new BrowserWindow({
+           ...NOTIFICATION_WINDOW_CONFIG,
+           ...position,
+         });
+         this.notificationWindow = win;
+
+         // "closed" fires asynchronously, so a replaced prompt's window emits it
+         // after the replacement already took over the reference and the countdown.
+         win.on("closed", () => {
+           // R1-I7: the shortcut goes with this prompt's window, however the
+           // window went (compositor kill, crash, replacement, dismissal).
+           this.hotkeyLeases.releaseOwner(prompt.ownerId);
+           if (this.notificationWindow !== win) return;
+           if (isCurrent()) this._endMeetingPrompt();
+           const closedDetectionId = this._pendingNotificationData?.detectionId ?? null;
+           this.notificationWindow = null;
+           this._pendingNotificationData = null;
+           this._notificationDismissTimer.cancel();
+           if (this._notificationReadyFallback) {
+             clearTimeout(this._notificationReadyFallback);
+             this._notificationReadyFallback = null;
+           }
+           if (closedDetectionId) {
+             this.meetingDetectionEngine?.handleDetectionNotificationClosed?.(closedDetectionId);
+           }
+         });
+
+         // Renderer loss ends the prompt and its shortcut too. Navigation is
+         // watched after the load below, because the load is itself a navigation.
+         const promptLost = () => {
+           this.hotkeyLeases.releaseOwner(prompt.ownerId);
+           if (this.notificationWindow === win) this.dismissMeetingNotification();
+         };
+         win.webContents.on("render-process-gone", promptLost);
+
+         win.setContentProtection(true);
+
+         if (process.platform === "darwin") {
+           win.setIgnoreMouseEvents(true, { forward: true });
+         }
+
+         // Notifications must clear every other window, including our own floating
+         // dictation panel and assistant pill.
+         WindowPositionUtil.setupAlwaysOnTop(win, { level: "screen-saver" });
+
+         this._pendingNotificationData = data;
      ```
 
-     Send `data` instead of `promptData` at line 2114.
-   - In `dismissMeetingNotification` (line 2144), add:
+     The rest of the `closed` handler is today's (lines 2057–2067).
+   - After the post-load checks (lines 2103–2107, the `this.notificationWindow !== win` and `_onboardingActive` returns), add:
 
      ```js
-         if (this._meetingAcceptLease) {
-           this.hotkeyLeases.release(this._meetingAcceptLease, "main:meeting-prompt");
-           this._meetingAcceptLease = null;
-         }
+         win.webContents.on("did-start-navigation", (details) => {
+           if (details?.isMainFrame && !details.isSameDocument) promptLost();
+         });
      ```
 
-     Leases also expire on their own after `LEASE_MAX_TTL_MS.meetingAccept` (120 s), which covers the calendar prompt's 2 min auto-dismiss.
-   - Callers of `showMeetingNotification` (`meetingDetectionEngine.js:421`) can stay fire-and-forget.
+     This uses the `details` form, like `meetingTranscriptionLifecycle.js:120-123`.
+   - In the ready fallback, send `data` instead of `promptData` (line 2114).
+   - **`dismissMeetingNotification` (2144–2160).** Replace its first two lines (2145–2146) with:
+
+     ```js
+         // R1-I7/R2-I2: end the prompt first. Its generation is bumped and its
+         // shortcut released, even when it has no window yet.
+         const prompt = this._endMeetingPrompt();
+         const notification =
+           this._pendingNotificationData ?? (prompt?.detectionId ? { detectionId: prompt.detectionId } : null);
+         this._pendingNotificationData = null;
+     ```
+
+     A prompt dismissed before its window exists is reported to the engine like any other card that closed without a response. `handleDetectionNotificationClosed` ignores a detection it no longer holds (`meetingDetectionEngine.js:634-635`).
+   - Leases also expire on their own after `LEASE_MAX_TTL_MS.meetingAccept` (120 s), which covers the calendar prompt's 2 min auto-dismiss.
+   - Callers of `showMeetingNotification` (`meetingDetectionEngine.js:421`) can stay fire-and-forget. It now resolves `false` for a prompt that was replaced or dismissed before it showed.
 3. **`meetingDetectionEngine.js:421-428`.** Audio-activity detections carry no app name (`audioActivityDetector.js` emits `{ durationMs, detectedAt, attributed }`). Take it from the process detector, which already tracks running meeting apps:
 
    ```js
@@ -9660,7 +13946,7 @@ Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `
    }
    @media (prefers-reduced-motion: reduce) {
      .meeting-drop {
-       animation: notice-fade var(--motion-fast) linear both;
+       animation: notice-fade var(--motion-fast) linear both !important;
      }
      .meeting-card {
        transition: opacity var(--motion-fast) linear;
@@ -9682,14 +13968,14 @@ Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/meetingPrompt.test.js test/helpers/windowPositionClamp.test.js test/components/brandGlow.test.js`
+Run: `npm test -- test/components/meetingPrompt.test.js test/helpers/windowManagerMeetingNotification.test.js test/helpers/hotkeyLeases.test.js test/helpers/windowPositionClamp.test.js test/components/brandGlow.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/helpers/windowConfig.js src/helpers/windowManager.js src/helpers/meetingDetectionEngine.js src/types/electron.ts src/components/meetingNotificationModel.ts src/components/MeetingNotificationCard.tsx src/components/MeetingNotificationOverlay.tsx src/styles/notices.css src/preview src/locales DESIGN.md test/components/meetingPrompt.test.js
-git commit -m "feat(meeting): notch-drop prompt on the active display with an accept hotkey"
+git add src/helpers/windowConfig.js src/helpers/windowManager.js src/helpers/meetingDetectionEngine.js src/types/electron.ts src/components/meetingNotificationModel.ts src/components/MeetingNotificationCard.tsx src/components/MeetingNotificationOverlay.tsx src/styles/notices.css src/preview src/locales DESIGN.md test/components/meetingPrompt.test.js test/helpers/windowManagerMeetingNotification.test.js
+git commit -m "feat(meeting): notch-drop prompt on the active display with a prompt-bound accept hotkey"
 ```
 
 ---
@@ -10059,7 +14345,7 @@ Use the machines in `~/.agents/ssh-access.md` for Linux. Mark a check "not run" 
 | 9 | Agent Mode | Radial ticks while listening, a 2.4 s orbit while thinking, a dissolve on the first token, a caption naming the destination, no frame glyph. |
 | 10 | Meeting recorder | The pill becomes the capsule while a meeting records, including over the Assistant panel's final actions and with auto-hide on. Stop works from the pill. A save failure shows the failed alert, not "saved". Killing the control panel (`kill -9` on its renderer pid) shows "stopped unexpectedly". |
 | 11 | Meeting prompt | It drops from the top centre of the display that has the meeting window. It folds after 8 s. ⌥⌘M accepts only while its label is shown. A second prompt replaces the first and the old shortcut is released. |
-| 12 | Linux only | The tray shows an orange dot and leads with "Recording meeting · m:ss" and Stop. The resident notification's Stop ends that meeting. Stopping from the pill removes the notification. On a desktop whose notification server lacks actions, the never-expiring notification says to use the tray, and the tray Stop works. |
+| 12 | Linux only | The tray shows an orange dot and leads with "Recording meeting · m:ss" and Stop. The resident notification's Stop ends that meeting. Stopping from the pill removes the notification. On a desktop whose notification server lacks `actions` (or with the notification service stopped), the persistent notification still shows, without Stop. Record whether clicking it brings up the pill with Stop: the freedesktop spec lets such servers ignore the click (D2 clarification, Task 16). The tray Stop always works. |
 | 13 | Focus | In every check above, typing in the target app keeps focus. The pill and prompt never take keyboard focus. |
 | 14 | Reduced motion | No orbit, spark, spring or nudge. The meters still update. The countdown steps in fifths. Every state reads from label and ring shape. |
 | 15 | RTL (Arabic) | Pill chips and captions stay beside the physical dock. Panel chips sit at the inline end. |

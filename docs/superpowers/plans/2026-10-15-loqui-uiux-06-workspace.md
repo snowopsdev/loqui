@@ -155,7 +155,10 @@ These resolve conflicts between picks, or gaps between a mock and the code. Each
 
 These are the input classes most likely to bite a real user that no recommendation's happy path exercises. Each one has a test in the task that owns the code.
 
-1. **A one-click path that sends content to a remote model without the user seeing where it goes.** "Ask the assistant: “…”" in the palette, "Ask AI" in the bubble toolbar, and citation "Open" must seed a draft, never send it. Pinned in Task 13 (`paletteSections.test.js`, "ask row seeds a draft") and Task 16 (`bubbleToolbar.test.js`, "Ask AI hands the selection to the caller, it never submits").
+1. **A one-click path that sends content to a remote model without the user seeing where it goes.** "Ask the assistant: “…”" in the palette, "Ask AI" in the bubble toolbar, and citation "Open" must seed a draft, never send it. Pinned in:
+   - Task 13 (`paletteSections.test.js`, "ask row seeds a draft");
+   - Task 4 (`chatComposerSeed.test.js`: a queued draft never sends after a palette seed);
+   - Task 16 (`bubbleToolbar.test.js`, "Ask AI opens a visible composer and seeds it").
 2. **Workspace hrefs (`note:17`, `meeting:42`, `dictation:311`, `folder:2`) in chat markdown and note content.** They must navigate inside Loqui. They must never reach `target="_blank"` and the OS URL handler. Unknown and `javascript:` hrefs stay inert. Pinned in Task 20 (`markdownRendererWorkspaceLinks.test.js`) and Task 16 (`linkHref.test.js`).
 3. **A deep link to a transcript the current Home view hides.** The row may be filtered out by a chip, excluded by the in-view search, or folded inside a session. Opening it from the palette must clear the filter, expand the session, scroll to the row and ring it. Pinned in Task 3 (`homeViewStore.test.js`) and Task 10 (`homeFeed.test.js`, "a transcript folded inside a session can be located for a deep link").
 4. **Stale persisted state at launch.** The cases are a saved view id that no longer exists (`upload` still exists; a future rename must not crash), a saved note id that was deleted, and corrupt `localStorage`. Each falls back to Home or the notes overview. Pinned in Task 3 (`workspaceView.test.js`).
@@ -7511,11 +7514,14 @@ This covers WS-R6 B (the bubble toolbar) and interpretation 6. It also covers Re
 **Files:**
 - Modify: `package.json`, `package-lock.json`. Promote `@tiptap/extension-bubble-menu` from an optional transitive dependency to a direct one, pinned `3.31.3`.
 - Create: `src/lib/linkHref.ts`, `src/components/ui/editor/BubbleToolbar.tsx`
-- Modify: `src/components/ui/RichTextEditor.tsx`. Render the toolbar when `onAskAi` is provided and the editor is editable.
-- Modify: `src/components/notes/NoteEditor.tsx`. Pass `onAskAi` to the raw-notes editor, and pass `seed` to `NoteBottomBar` (`:992-1010`).
-- Modify: `src/components/notes/NoteBottomBar.tsx`. Add the `seed` prop (props at `:12-22`, state at `:34-36`).
+- Create: `src/components/ui/editor/editorChrome.ts`. Decides which clicks may refocus the document (review I07).
+- Modify: `src/components/ui/RichTextEditor.tsx`:
+  - render the toolbar when `onAskAi` is provided and the editor is editable;
+  - the wrapper's `handleClick` (`:114-118`) ignores clicks inside editor chrome.
+- Modify: `src/components/notes/NoteEditor.tsx`. Ask AI opens the floating chat (`chatMode`, `:223`) and seeds its composer (review I05).
+- Modify: `src/components/notes/EmbeddedChat.tsx`. A `composerSeed` prop is forwarded to its `ChatInput` (`:137`). `NoteBottomBar` is **not** changed.
 - Modify: `src/index.css`. Add `.bubble-toolbar` after the editor block.
-- Test: `test/lib/linkHref.test.js`, `test/components/bubbleToolbar.test.js`
+- Test: `test/lib/linkHref.test.js`, `test/components/bubbleToolbar.test.js`, `test/components/editorChrome.test.js`
 
 **Interfaces:**
 - Produces `src/lib/linkHref.ts`: `sanitizeLinkHref(input: string): string | null`. It allows `http:`, `https:` and `mailto:`. A bare domain becomes `https://…`. Everything else returns `null`.
@@ -7535,7 +7541,10 @@ This covers WS-R6 B (the bubble toolbar) and interpretation 6. It also covers Re
   ```
 
 - `RichTextEditor` prop `onAskAi?: (selection: string) => void`.
-- `NoteBottomBar` prop `seed?: { text: string; nonce: number } | null`. It sets the ask input's text and focuses it. It never calls `onAskSubmit`.
+- `askAiTransition(mode: "hidden" | "floating" | "sidebar", selection: string): { mode: "floating" | "sidebar"; seed: ComposerSeed } | null`, exported from `BubbleToolbar.tsx`. Ask AI opens the chat if it is hidden, keeps a docked sidebar where it is, and seeds the **visible** chat composer with the quote and `resetQueue: true`. An empty selection does nothing.
+  - **Why (review I05).** Seeding `NoteBottomBar` focused it. Its focus handler (`NoteBottomBar.tsx:62` → `NoteEditor.handleChatInputFocus`, `:638`) opens the floating chat, and `hideInput={chatMode !== "hidden"}` (`:1010`) then hides the seeded field.
+- `EmbeddedChat` prop `composerSeed?: ComposerSeed | null`, forwarded as `ChatInput`'s `seed` (Task 4). That composer applies seeds during render, never submits, and disarms any queue.
+- `isEditorChromeTarget(target: EventTarget | null): boolean` (`editorChrome.ts`). It is true inside any element marked `data-editor-chrome`, which covers the bubble toolbar, the slash and mention popups (`suggestionPopup.ts` marks them) and the mention hover card (Task 18). The editor wrapper's click-to-focus skips those targets, so the Link URL field keeps focus and caret (review I07).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7603,10 +7612,21 @@ test("Ask AI hands the selection to the caller, it never submits", async () => {
   assert.equal(buildAskAiDraft("  Thursday, not Monday  "), "“Thursday, not Monday” ");
   assert.equal(buildAskAiDraft(""), "");
   assert.ok(buildAskAiDraft("x".repeat(1000)).length <= 280);
-  const bar = fs.readFileSync(path.join(root, "src/components/notes/NoteBottomBar.tsx"), "utf8");
-  const seedEffect = bar.match(/useEffect\(\(\) => \{\s*if \(!seed\)[\s\S]*?\}, \[seed\?\.nonce\]\);/);
-  assert.ok(seedEffect, "NoteBottomBar has a seed effect");
-  assert.doesNotMatch(seedEffect[0], /onAskSubmit|handleSubmit/);
+});
+
+test("Ask AI opens a visible composer and seeds it, disarming any queue (I05)", async () => {
+  const { askAiTransition } = await load();
+  const opened = askAiTransition("hidden", "Thursday, not Monday");
+  assert.equal(opened.mode, "floating", "a hidden chat opens");
+  assert.equal(opened.seed.text, "“Thursday, not Monday” ");
+  assert.equal(opened.seed.resetQueue, true);
+  assert.equal(askAiTransition("sidebar", "x").mode, "sidebar", "a docked chat stays docked");
+  assert.equal(askAiTransition("hidden", "   "), null);
+  // The seed goes to EmbeddedChat's ChatInput, never to the bottom bar that hides itself.
+  const editor = fs.readFileSync(path.join(root, "src/components/notes/NoteEditor.tsx"), "utf8");
+  assert.equal((editor.match(/composerSeed=\{chatSeed\}/g) ?? []).length, 2, "floating and sidebar chats both receive it");
+  assert.doesNotMatch(editor, /<NoteBottomBar[^>]*\bseed=/);
+  assert.match(fs.readFileSync(path.join(root, "src/components/notes/EmbeddedChat.tsx"), "utf8"), /seed=\{composerSeed\}/);
 });
 
 test("the bubble menu extension is a direct, pinned dependency", () => {
@@ -7615,9 +7635,39 @@ test("the bubble menu extension is a direct, pinned dependency", () => {
 });
 ```
 
+Create `test/components/editorChrome.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const load = () => import("../../src/components/ui/editor/editorChrome.ts");
+const el = (inChrome) => ({ closest: (sel) => (sel === "[data-editor-chrome]" && inChrome ? {} : null) });
+
+test("clicks inside the bubble toolbar, its URL field or a popup never refocus the document (I07)", async () => {
+  const { isEditorChromeTarget } = await load();
+  assert.equal(isEditorChromeTarget(el(true)), true);
+  assert.equal(isEditorChromeTarget(el(false)), false);
+  assert.equal(isEditorChromeTarget(null), false);
+  assert.equal(isEditorChromeTarget({}), false, "non-element targets are not chrome");
+});
+
+test("the editor wrapper and every chrome surface use the marker", () => {
+  const root = path.join(__dirname, "../..");
+  const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
+  assert.match(read("src/components/ui/RichTextEditor.tsx"), /if \(isEditorChromeTarget\(event\.target\)\) return;/);
+  assert.match(read("src/components/ui/editor/BubbleToolbar.tsx"), /data-editor-chrome=""/);
+  assert.match(read("src/components/ui/editor/suggestionPopup.ts"), /setAttribute\("data-editor-chrome", ""\)/);
+});
+```
+
+The fake DOM has no layout or real focus, so these tests pin the decision and the wiring. The behaviour itself is checked in Task 26: type a URL and click inside the field.
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/lib/linkHref.test.js test/components/bubbleToolbar.test.js`
+Run: `npm test -- test/lib/linkHref.test.js test/components/bubbleToolbar.test.js test/components/editorChrome.test.js`
 Expected: FAIL. Modules are missing, and `pkg.dependencies["@tiptap/extension-bubble-menu"]` is `undefined`.
 
 - [ ] **Step 3: Implement**
@@ -7662,6 +7712,8 @@ Expected: FAIL. Modules are missing, and `pkg.dependencies["@tiptap/extension-bu
    import { cn } from "../../lib/utils";
    import { sanitizeLinkHref } from "../../../lib/linkHref";
 
+   import type { ComposerSeed } from "../../chat/chatRequest";
+
    const MAX_DRAFT = 280;
 
    export function buildAskAiDraft(selection: string): string {
@@ -7669,6 +7721,16 @@ Expected: FAIL. Modules are missing, and `pkg.dependencies["@tiptap/extension-bu
      if (!quote) return "";
      const clipped = quote.length > MAX_DRAFT - 3 ? `${quote.slice(0, MAX_DRAFT - 4)}…` : quote;
      return `“${clipped}” `;
+   }
+
+   type ChatMode = "hidden" | "floating" | "sidebar";
+
+   /** Ask AI opens a visible composer: a hidden chat floats in, a docked one
+    *  stays. The quote is seeded with resetQueue, never sent (review I05). */
+   export function askAiTransition(mode: ChatMode, selection: string): { mode: Exclude<ChatMode, "hidden">; seed: ComposerSeed } | null {
+     const text = buildAskAiDraft(selection);
+     if (!text) return null;
+     return { mode: mode === "hidden" ? "floating" : mode, seed: { nonce: Date.now(), text, resetQueue: true } };
    }
 
    export interface BubbleToolbarButtonsProps {
@@ -7775,6 +7837,11 @@ Expected: FAIL. Modules are missing, and `pkg.dependencies["@tiptap/extension-bu
          shouldShow={({ editor: e, from, to }) =>
            e.isEditable && from !== to && !e.isActive("codeBlock") && e.state.doc.textBetween(from, to, " ").trim().length > 0
          }
+         data-editor-chrome=""
+         // Buttons keep the editor selection; the URL field still takes focus normally.
+         onMouseDown={(e) => {
+           if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+         }}
          className="bubble-toolbar flex h-8 items-center rounded-lg border border-border bg-popover px-1 shadow-(--shadow-elevated)"
        >
          <BubbleToolbarButtons
@@ -7815,27 +7882,55 @@ Expected: FAIL. Modules are missing, and `pkg.dependencies["@tiptap/extension-bu
 5. In `src/components/ui/RichTextEditor.tsx`:
    - Add the prop `onAskAi?: (selection: string) => void;`.
    - After `<EditorContent … />`, render `{editor && onAskAi && !disabled && <BubbleToolbar editor={editor} onAskAi={onAskAi} />}`.
+   - Create `src/components/ui/editor/editorChrome.ts`:
+
+     ```ts
+     // UI that floats over the editor (bubble toolbar, slash and mention popups,
+     // mention hover cards). React portals bubble clicks to the editor wrapper,
+     // so the wrapper must not pull focus back into the document from these.
+     export function isEditorChromeTarget(target: EventTarget | null): boolean {
+       const node = target as { closest?: (selector: string) => unknown } | null;
+       return typeof node?.closest === "function" && node.closest("[data-editor-chrome]") != null;
+     }
+     ```
+
+   - Change the wrapper's `handleClick` (`:114-118`) to:
+
+     ```ts
+     const handleClick = useCallback(
+       (event: React.MouseEvent) => {
+         if (isEditorChromeTarget(event.target)) return;
+         if (editor && !editor.isFocused && !disabled) editor.commands.focus();
+       },
+       [editor, disabled]
+     );
+     ```
    - StarterKit 3.31.3 already includes Link with `openOnClick: true`. Configure it in the `StarterKit.configure({ … })` call (`:46-50`) as `link: { openOnClick: false, autolink: true }`. With `openOnClick: false`, clicking a link places the caret, as editors do, and the bubble shows it.
    - Keep Link's default `isAllowedUri`. It already refuses `javascript:` and similar schemes. Narrowing it to `sanitizeLinkHref` would strip `tel:`, `ftp:`, `#anchor` and relative links from existing notes on load, and the next save would lose them. The strict allow-list applies only to what a user types in the bubble.
 
-6. In `src/components/notes/NoteBottomBar.tsx`, add `seed?: { text: string; nonce: number } | null;` to the props and destructure it. After the existing effects, add:
-
-   ```ts
-   useEffect(() => {
-     if (!seed) return;
-     setInputText(seed.text);
-     setIsExpanded(true);
-     inputRef.current?.focus();
-     // eslint-disable-next-line react-hooks/exhaustive-deps -- one run per seed nonce
-   }, [seed?.nonce]);
-   ```
-
-   This exact shape is what `bubbleToolbar.test.js` pins. It must never call `onAskSubmit` or `handleSubmit`.
+6. In `src/components/notes/EmbeddedChat.tsx`, add `composerSeed?: ComposerSeed | null;` to `EmbeddedChatProps` (`:15`), destructure it, and pass `seed={composerSeed}` to its `<ChatInput …>` (`:137`). Task 4's `ChatInput` applies the seed during render, focuses the composer and never submits.
 
 7. In `src/components/notes/NoteEditor.tsx`:
-   - Add `const [askSeed, setAskSeed] = useState<{ text: string; nonce: number } | null>(null);`.
-   - Pass `onAskAi={(selection) => setAskSeed({ text: buildAskAiDraft(selection), nonce: Date.now() })}` to the raw-notes `<RichTextEditor>` and to the enhanced editor.
-   - Pass `seed={askSeed}` to `<NoteBottomBar …>`.
+   - Add `const [chatSeed, setChatSeed] = useState<ComposerSeed | null>(null);`.
+   - Add the handler:
+
+     ```ts
+     // Ask AI opens a visible composer: the floating chat (or the docked one if
+     // it is open) receives the quote. The bottom bar is not seeded; it hides
+     // whenever the chat is open (review I05).
+     const handleAskAi = useCallback(
+       (selection: string) => {
+         const next = askAiTransition(chatMode, selection);
+         if (!next) return;
+         setChatMode(next.mode);
+         setChatSeed(next.seed);
+       },
+       [chatMode]
+     );
+     ```
+
+   - Pass `onAskAi={handleAskAi}` to the raw-notes `<RichTextEditor>` and to the enhanced editor.
+   - Pass `composerSeed={chatSeed}` to **both** `<EmbeddedChat …>` instances (floating `:1013` and sidebar `:1030`). The floating one mounts in the same commit that sets the seed, and `ChatInput` applies a seed that is present at mount (Task 4's "a seed present at mount" test).
 
 8. In `test/components/fieldDirectionPolicy.test.js`, add `"src/components/ui/editor/BubbleToolbar.tsx": ["ltr"],` to the per-file input map. The URL field is `dir="ltr"`.
 
@@ -7858,13 +7953,13 @@ Expected: FAIL. Modules are missing, and `pkg.dependencies["@tiptap/extension-bu
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/linkHref.test.js test/components/bubbleToolbar.test.js test/components/noteBottomBar.test.js test/components/fieldDirectionPolicy.test.js test/helpers/packageRuntimeProbe.test.js test/locales/translationCoverage.test.js && npm run typecheck`
+Run: `npm test -- test/lib/linkHref.test.js test/components/bubbleToolbar.test.js test/components/editorChrome.test.js test/components/chatComposerSeed.test.js test/components/noteBottomBar.test.js test/components/fieldDirectionPolicy.test.js test/helpers/packageRuntimeProbe.test.js test/locales/translationCoverage.test.js && npm run typecheck`
 Expected: PASS. The existing `noteBottomBar` suite still passes.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add package.json package-lock.json test/components/fieldDirectionPolicy.test.js src/lib/linkHref.ts src/components/ui/editor/BubbleToolbar.tsx src/components/ui/RichTextEditor.tsx src/components/notes/NoteEditor.tsx src/components/notes/NoteBottomBar.tsx src/index.css src/locales test/lib/linkHref.test.js test/components/bubbleToolbar.test.js
+git add package.json package-lock.json test/components/fieldDirectionPolicy.test.js src/lib/linkHref.ts src/components/ui/editor/BubbleToolbar.tsx src/components/ui/editor/editorChrome.ts src/components/ui/RichTextEditor.tsx src/components/notes/NoteEditor.tsx src/components/notes/EmbeddedChat.tsx src/index.css src/locales test/lib/linkHref.test.js test/components/bubbleToolbar.test.js test/components/editorChrome.test.js
 git commit -m "feat(notes): add a bubble toolbar with safe links and Ask AI drafts"
 ```
 
@@ -7940,6 +8035,21 @@ test("labels cannot break out of the link", async () => {
     "[@Q3 draft plan](note:4)"
   );
 });
+
+test("labels survive a real Markdown parse: backslashes, emphasis and punctuation (M02)", async () => {
+  const { buildEntityMentionMarkdown, buildMentionMarkdown, parseMentionHref } = await load();
+  const MarkdownIt = require("markdown-it"); // the parser tiptap-markdown uses
+  const md = new MarkdownIt({ html: false });
+  const unescape = (html) => html.replace(/&amp;/g, "&");
+  for (const label of ["Trailing\\", "A\\B", "Q&A: pricing (v2)!", "50% *bold* _x_", "`code` ~strike~"]) {
+    const html = md.renderInline(buildEntityMentionMarkdown({ kind: "note", label, entityId: "17", email: null }));
+    const link = html.match(/^<a href="([^"]+)">@(.*)<\/a>$/);
+    assert.ok(link, `${label} → ${html}`);
+    assert.equal(unescape(link[2]), label, "the label comes back verbatim");
+    assert.deepEqual(parseMentionHref(link[1]), { kind: "note", entityId: "17", email: null });
+  }
+  assert.equal(md.renderInline(buildMentionMarkdown({ name: "Ops\\", email: "ops@acme.co" })), '<a href="mention:ops%40acme.co">@Ops\\</a>');
+});
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -7988,13 +8098,22 @@ Expected: FAIL with `buildEntityMentionMarkdown is not a function`.
 
    export function buildEntityMentionMarkdown(entity: MentionEntity): string {
      if (entity.kind === "person") return buildMentionMarkdown({ name: entity.label, email: entity.email });
-     const label = sanitizeLabel(entity.label);
+     const label = markdownLabel(entity.label);
      if (!entity.entityId || !POSITIVE_INT.test(entity.entityId)) return `@${label}`;
      return `[@${label}](${entity.kind}:${entity.entityId})`;
    }
    ```
 
-   `sanitizeLabel` and `encodeMentionId` are the existing private helpers at `:8-16`.
+   `sanitizeLabel` and `encodeMentionId` are the existing private helpers at `:8-16`. Add one more next to them, and use it in the existing `buildMentionMarkdown` (`:20-23`) as well, in place of its `sanitizeLabel(person.name)` call:
+
+   ```ts
+   // Brackets and newlines are removed (sanitizeLabel); backslashes and inline
+   // emphasis markers are escaped, so markdown-it gives the label back verbatim
+   // and the link keeps its identity (review M02: "Trailing\" lost its link).
+   const markdownLabel = (name: string) => sanitizeLabel(name).replace(/[\\*_`~]/g, "\\$&");
+   ```
+
+   This was checked against the installed markdown-it 14.2: `Trailing\`, `A\B`, `Q&A: pricing (v2)!`, `50% *bold* _x_` and `` `code` ~strike~ `` all render as one link whose text equals the label. The existing people-mention tests are unchanged, because none of their names contains these characters.
 
 2. In `src/components/ui/RichTextEditorMention.tsx`:
    - Attributes (`:82-87`): add
@@ -8054,13 +8173,13 @@ git commit -m "feat(notes): store note, meeting, dictation and folder mentions a
 This covers WS-R7 B (People, Notes, Meetings, Dictations and Folders; a hover card with Open and Insert quote) and WS-21.
 
 **Files:**
-- Create: `src/lib/mentionSearch.ts`, `src/components/ui/MentionHoverCard.tsx`
+- Create: `src/lib/mentionSearch.ts`, `src/components/ui/MentionHoverCard.tsx`, `src/components/ui/useHoverCard.ts`
 - Modify:
   - `src/components/ui/MentionSuggestions.tsx`: grouped rows;
   - `src/components/ui/RichTextEditorMention.tsx`: async items and the 262px width;
   - `src/components/ui/MentionChip.tsx`: navigation and hover card;
   - `src/components/ui/RichTextEditor.tsx`: builds the sources.
-- Test: `test/lib/mentionSearch.test.js`, `test/components/mentionSuggestions.test.js`, `test/components/mentionHoverCard.test.js`
+- Test: `test/lib/mentionSearch.test.js`, `test/components/mentionSuggestions.test.js`, `test/components/mentionHoverCard.test.js`, `test/components/hoverCard.test.js`
 
 **Interfaces:**
 - Consumes `MentionKind`, `MentionEntity` and `parseMentionHref` (Task 17); `useWorkspaceNavigation` (Task 3); `useTranscriptions()` (`transcriptionStore.ts:113`); `useFolders()`/`getFoldersValue()` (`noteStore.ts`); `useRecentNotes` (Task 9); and `window.electronAPI.searchNotes`, `searchContacts`, `getNote` and `getTranscriptionById` (`electron.ts:928, 969, 2014, 839`).
@@ -8097,6 +8216,31 @@ This covers WS-R7 B (People, Notes, Meetings, Dictations and Folders; a hover ca
     | { status: "missing" }
     | { status: "ready"; title: string; meta: string | null; excerpt: string };
   export function MentionPreview(props: { kind: MentionKind; state: MentionPreviewState; onOpen(): void; onInsertQuote?: () => void }): JSX.Element;
+  ```
+
+- Produces `useHoverCard.ts` (review I08):
+
+  ```ts
+  export const HOVER_CARD_CLOSE_DELAY_MS = 150;
+  export type HoverCardEvent =
+    | { type: "pointerEnter" } | { type: "pointerLeave" }
+    | { type: "focusIn" } | { type: "focusOut"; staysInside: boolean }
+    | { type: "escape" } | { type: "closeTimer" };
+  export interface HoverCardState { open: boolean; closing: boolean }
+  export function hoverCardReducer(state: HoverCardState, event: HoverCardEvent): HoverCardState;
+  /** One hover/focus boundary around trigger + card: crossing the gap or
+   *  tabbing into the card keeps it open; leaving both closes after a delay;
+   *  Escape closes and returns focus to the trigger. */
+  export function useHoverCard(triggerRef: React.RefObject<HTMLElement | null>): {
+    open: boolean;
+    boundary: {
+      onMouseEnter(): void;
+      onMouseLeave(): void;
+      onFocus(): void;
+      onBlur(e: React.FocusEvent): void;
+      onKeyDown(e: React.KeyboardEvent): void;
+    };
+  };
   ```
 
 - Suggestion items become `MentionResult`. The `command` inserts `{ label, email, kind, entityId }`.
@@ -8205,6 +8349,57 @@ test("an empty result says so", async () => {
   assert.match(renderStatic(MentionSuggestions, { command: () => {}, items: [] }), /Nothing to mention/);
 });
 ```
+
+Create `test/components/hoverCard.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const load = () => import("../../src/components/ui/useHoverCard.ts");
+const closed = { open: false, closing: false };
+
+test("moving from the chip across the gap into the card keeps it open (I08)", async () => {
+  const { hoverCardReducer: r } = await load();
+  let s = r(closed, { type: "pointerEnter" });
+  s = r(s, { type: "pointerLeave" }); // leaves the chip
+  assert.deepEqual(s, { open: true, closing: true });
+  s = r(s, { type: "pointerEnter" }); // reaches the card before the timer
+  assert.deepEqual(s, { open: true, closing: false });
+  assert.deepEqual(r(s, { type: "closeTimer" }), { open: true, closing: false }, "a stale timer is ignored");
+});
+
+test("leaving both closes after the delay", async () => {
+  const { hoverCardReducer: r } = await load();
+  const s = r(r(closed, { type: "pointerEnter" }), { type: "pointerLeave" });
+  assert.deepEqual(r(s, { type: "closeTimer" }), closed);
+});
+
+test("tabbing from the chip into Open and Insert quote keeps it open; tabbing out closes", async () => {
+  const { hoverCardReducer: r } = await load();
+  let s = r(closed, { type: "focusIn" });
+  s = r(s, { type: "focusOut", staysInside: true }); // chip → Open
+  assert.equal(s.open, true);
+  s = r(s, { type: "focusOut", staysInside: true }); // Open → Insert quote
+  assert.equal(s.open, true);
+  assert.deepEqual(r(s, { type: "focusOut", staysInside: false }), closed);
+});
+
+test("Escape closes", async () => {
+  const { hoverCardReducer: r } = await load();
+  assert.deepEqual(r({ open: true, closing: false }, { type: "escape" }), closed);
+});
+
+test("the chip and its card share one boundary, and the card is editor chrome", () => {
+  const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/components/ui/MentionChip.tsx"), "utf8");
+  assert.match(src, /useHoverCard\(chipRef\)/);
+  assert.match(src, /<span\s+\{\.\.\.boundary\}/);
+  assert.match(src, /data-editor-chrome=""/);
+  assert.doesNotMatch(src, /onBlur=\{\(\) => setOpen\(false\)\}/);
+});
+```
+
+The fake DOM has no pointer or focus events, so the boundary is tested as a reducer and its wiring is pinned. Task 26 checks the real pointer, Tab, Escape and RTL behaviour.
 
 Create `test/components/mentionHoverCard.test.js`:
 
@@ -8496,6 +8691,73 @@ Expected: FAIL. Two modules are missing, and the existing `MentionSuggestions` h
    }
    ```
 
+5a. Create `src/components/ui/useHoverCard.ts`:
+
+   ```ts
+   import { useCallback, useEffect, useReducer } from "react";
+
+   export const HOVER_CARD_CLOSE_DELAY_MS = 150;
+
+   export type HoverCardEvent =
+     | { type: "pointerEnter" }
+     | { type: "pointerLeave" }
+     | { type: "focusIn" }
+     | { type: "focusOut"; staysInside: boolean }
+     | { type: "escape" }
+     | { type: "closeTimer" };
+
+   export interface HoverCardState {
+     open: boolean;
+     closing: boolean;
+   }
+
+   const CLOSED: HoverCardState = { open: false, closing: false };
+
+   export function hoverCardReducer(state: HoverCardState, event: HoverCardEvent): HoverCardState {
+     switch (event.type) {
+       case "pointerEnter":
+       case "focusIn":
+         return { open: true, closing: false };
+       case "pointerLeave":
+         return state.open ? { open: true, closing: true } : state;
+       case "focusOut":
+         return event.staysInside ? state : CLOSED;
+       case "escape":
+         return CLOSED;
+       case "closeTimer":
+         return state.closing ? CLOSED : state;
+     }
+   }
+
+   export function useHoverCard(triggerRef: React.RefObject<HTMLElement | null>) {
+     const [state, dispatch] = useReducer(hoverCardReducer, CLOSED);
+     useEffect(() => {
+       if (!state.closing) return;
+       const id = window.setTimeout(() => dispatch({ type: "closeTimer" }), HOVER_CARD_CLOSE_DELAY_MS);
+       return () => window.clearTimeout(id);
+     }, [state.closing]);
+     const boundary = {
+       onMouseEnter: useCallback(() => dispatch({ type: "pointerEnter" }), []),
+       onMouseLeave: useCallback(() => dispatch({ type: "pointerLeave" }), []),
+       onFocus: useCallback(() => dispatch({ type: "focusIn" }), []),
+       onBlur: useCallback((e: React.FocusEvent) => {
+         const next = e.relatedTarget as Node | null;
+         dispatch({ type: "focusOut", staysInside: !!next && e.currentTarget.contains(next) });
+       }, []),
+       onKeyDown: useCallback(
+         (e: React.KeyboardEvent) => {
+           if (e.key !== "Escape") return;
+           e.stopPropagation();
+           dispatch({ type: "escape" });
+           triggerRef.current?.focus();
+         },
+         [triggerRef]
+       ),
+     };
+     return { open: state.open, boundary };
+   }
+   ```
+
 6. Replace `src/components/ui/MentionChip.tsx`. Keep the person rendering for `kind === "person"`, and add navigation and the hover card for entities:
 
    ```tsx
@@ -8503,7 +8765,9 @@ Expected: FAIL. Two modules are missing, and the existing `MentionSuggestions` h
      const { t, i18n } = useTranslation();
      const navigation = useWorkspaceNavigation();
      const { label, email, kind = "person", entityId } = node.attrs as { label: string; email: string | null; kind: MentionKind; entityId: string | null };
-     const [open, setOpen] = useState(false);
+     const chipRef = useRef<HTMLButtonElement>(null);
+     // One hover/focus boundary around chip and card (review I08).
+     const { open, boundary } = useHoverCard(chipRef);
      const [preview, setPreview] = useState<MentionPreviewState>({ status: "loading" });
      const id = entityId ? Number(entityId) : null;
 
@@ -8548,7 +8812,7 @@ Expected: FAIL. Two modules are missing, and the existing `MentionSuggestions` h
          type: "blockquote",
          content: [{ type: "paragraph", content: [{ type: "text", text: preview.excerpt }] }],
        }).run();
-       setOpen(false);
+       chipRef.current?.focus();
      };
 
      if (kind === "person") {
@@ -8568,31 +8832,34 @@ Expected: FAIL. Two modules are missing, and the existing `MentionSuggestions` h
      }
 
      return (
-       <NodeViewWrapper as="span" className="relative inline-flex items-baseline align-baseline mx-px">
-         <button
-           type="button"
-           data-mention
-           data-mention-kind={kind}
-           contentEditable={false}
-           onClick={openTarget}
-           onMouseEnter={() => setOpen(true)}
-           onMouseLeave={() => setOpen(false)}
-           onFocus={() => setOpen(true)}
-           onBlur={() => setOpen(false)}
-           className="inline-flex h-5 items-center gap-1 rounded-md bg-foreground/6 px-1.5 text-[0.85em] font-medium text-foreground hover:bg-foreground/10"
-         >
-           <MentionMarker kind={kind} email={email} label={label} />
-           {label}
-         </button>
-         {open && kind !== "folder" && (
-           <span className="absolute start-0 top-full z-50 pt-1" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-             <MentionPreview kind={kind} state={preview} onOpen={openTarget} onInsertQuote={editor.isEditable ? insertQuote : undefined} />
-           </span>
-         )}
+       <NodeViewWrapper as="span" className="inline-flex items-baseline align-baseline mx-px">
+         {/* The boundary wraps chip and card, so the padded gap between them is
+             inside it; logical start-0 keeps the card aligned in RTL. */}
+         <span {...boundary} className="relative inline-flex">
+           <button
+             ref={chipRef}
+             type="button"
+             data-mention
+             data-mention-kind={kind}
+             contentEditable={false}
+             onClick={openTarget}
+             className="inline-flex h-5 items-center gap-1 rounded-md bg-foreground/6 px-1.5 text-[0.85em] font-medium text-foreground hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+           >
+             <MentionMarker kind={kind} email={email} label={label} />
+             {label}
+           </button>
+           {open && kind !== "folder" && (
+             <span data-editor-chrome="" className="absolute start-0 top-full z-50 pt-1">
+               <MentionPreview kind={kind} state={preview} onOpen={openTarget} onInsertQuote={editor.isEditable ? insertQuote : undefined} />
+             </span>
+           )}
+         </span>
        </NodeViewWrapper>
      );
    }
    ```
+
+   Imports for this file: `useEffect`, `useRef` and `useState` from React, `useHoverCard` from `./useHoverCard`, and `MentionPreview`/`MentionPreviewState` from `./MentionHoverCard`. Also import `MentionMarker` from `./MentionSuggestions`, `quoteExcerpt` from `../../lib/mentionSearch`, `getFoldersValue` from `../../stores/noteStore`, and `useWorkspaceNavigation`.
 
    Tiptap renders React node views through portals inside `EditorContent`, so `useWorkspaceNavigation()` reads `ControlPanel`'s provider. Outside a provider, navigation is inert (Task 3).
 
@@ -8622,7 +8889,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/mentionSearch.ts src/components/ui/MentionHoverCard.tsx src/components/ui/MentionSuggestions.tsx src/components/ui/MentionChip.tsx src/components/ui/RichTextEditorMention.tsx src/components/ui/RichTextEditor.tsx src/locales test/lib/mentionSearch.test.js test/components/mentionSuggestions.test.js test/components/mentionHoverCard.test.js
+git add src/lib/mentionSearch.ts src/components/ui/MentionHoverCard.tsx src/components/ui/useHoverCard.ts test/components/hoverCard.test.js src/components/ui/MentionSuggestions.tsx src/components/ui/MentionChip.tsx src/components/ui/RichTextEditorMention.tsx src/components/ui/RichTextEditor.tsx src/locales test/lib/mentionSearch.test.js test/components/mentionSuggestions.test.js test/components/mentionHoverCard.test.js
 git commit -m "feat(notes): mention people, notes, meetings, dictations and folders"
 ```
 

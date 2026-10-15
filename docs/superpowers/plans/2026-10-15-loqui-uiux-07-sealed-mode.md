@@ -6457,41 +6457,55 @@ git commit -m "feat(privacy): gate downloads, URL import, yt-dlp and update chec
 
 ---
 
-### Task 11: Gate calendars and their background sync (N19, N20)
+### Task 11: Gate calendars, their background sync, pending OAuth flows and browser links (N19–N21)
 
 **Files:**
+- Create:
+  - `src/helpers/privacy/calendarGuard.js`.
 - Modify:
   - `src/helpers/googleCalendarOAuth.js:152-160` (`_httpsPost`).
   - `src/helpers/googleCalendarManager.js:357` (`_apiGet`).
   - `src/helpers/microsoftCalendarOAuth.js:155, 168`.
   - `src/helpers/microsoftCalendarManager.js:396-400` (`_apiGet`).
-  - `src/helpers/ipcHandlers.js:9164` (`gcal-start-oauth`) and `:9251` (`mcal-start-oauth`).
-  - `main.js:566-567` (start), `:781-785` (focus) and `:788-794` (wake).
-- Test: `test/helpers/calendarSealed.test.js`
+  - `src/helpers/oauthLoopbackFlow.js:33` (`runOAuthLoopbackFlow`) and its `module.exports` (`:130`).
+  - `src/helpers/externalUrlOpener.js:35` (`openExternalUrl`) and its `module.exports`.
+  - `src/helpers/windowManager.js:1259-1268` (`openExternalUrl` wrapper).
+  - `src/helpers/ipcHandlers.js`: `open-external` (`:3539-3550`), `gcal-start-oauth` (`:9164`) and `mcal-start-oauth` (`:9251`).
+  - `src/helpers/privacy/privacyBoot.js` (`createSealTransition`, `createConfirmations`; Task 7).
+  - `main.js:566-567` (start), `:781-785` (focus) and `:788-794` (wake), and the Task 7 wiring block.
+  - `src/locales/*/translation.json`.
+- Test: `test/helpers/calendarSealed.test.js`, `test/helpers/externalLinkSealed.test.js`
 
 **Interfaces:**
-- Consumes `gatedNetFetch` (Task 8) and `egress.assertAllowed` (Task 5).
-- The seal transition (Task 7) already calls `stop()` and `start()` on both managers.
+- Consumes `gatedNetFetch` (Task 8), `egress.assertAllowed` (Task 5) and `SealedModeError` (Task 2).
+- Produces:
+  - `createCalendarGuard({ isSealed }): { start(managers), onFocus(managers), onWake(managers) }`. Each is a no-op while sealed. `main.js` calls these instead of the managers, so a test can execute the exact code main runs.
+  - `cancelAllOAuthFlows(reason: Error): number` and `activeOAuthFlowCount(): number` from `oauthLoopbackFlow.js`. Every pending flow rejects with `reason` and its loopback server closes, so a consent page that finishes later reaches nothing.
+  - `setExternalOpenGuard(guard: ((url: string) => Promise<boolean>) | null)` from `externalUrlOpener.js`. `openExternalUrl(url)` now resolves `true` when it handed the URL to the OS and `false` when the guard declined. It still throws on a blocked scheme.
+  - `createConfirmations(...).openLink(url, event?)`: a main-owned dialog naming the destination host. Its default and cancel button is "Don't open".
+  - `createSealTransition({ ..., cancelPending = () => 0 })`: called once per seal, after the calendars stop.
 
-- [ ] **Step 1: Write the failing test**
+**Why links are confirmed, not blocked.** The OS browser and mail client are outside Loqui's process boundary (Task 1, "Out of scope"). Loqui cannot meter or stop their traffic, so it does not pretend to. While sealed, every path that hands a URL to the OS (`open-external`, `window.open` and navigation in the control panel, meeting join links, the Help menu, OAuth consent pages) asks first, in a dialog the renderer cannot answer. The dialog says that the link opens in another app that Sealed mode does not cover. Declining is silent: no error box.
+
+- [ ] **Step 1: Write the failing tests**
 
 Create `test/helpers/calendarSealed.test.js`:
 
 ```js
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
+const http = require("node:http");
 const Module = require("node:module");
-const path = require("node:path");
 const test = require("node:test");
 
 const fetches = [];
+const opened = [];
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (request === "electron")
     return {
       app: { getPath: () => process.cwd(), isReady: () => false, getName: () => "test" },
       net: { fetch: async (url) => { fetches.push(url); return new Response("{}", { status: 200 }); } },
-      shell: { openExternal: async () => {} },
+      shell: { openExternal: async (url) => { opened.push(url); } },
       BrowserWindow: { getAllWindows: () => [] },
     };
   return originalLoad.call(this, request, parent, isMain);
@@ -6500,16 +6514,21 @@ test.after(() => { Module._load = originalLoad; });
 
 const gate = require("../../src/helpers/privacy/egressGate");
 const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
-const { isSealedModeError } = require("../../src/helpers/privacy/egressPolicy");
+const { SealedModeError, isSealedModeError, sealedPhaseOf } = require("../../src/helpers/privacy/egressPolicy");
+const { createCalendarGuard } = require("../../src/helpers/privacy/calendarGuard");
+const { runOAuthLoopbackFlow, cancelAllOAuthFlows, activeOAuthFlowCount } = require("../../src/helpers/oauthLoopbackFlow");
 const GoogleCalendarOAuth = require("../../src/helpers/googleCalendarOAuth");
 const MicrosoftCalendarManager = require("../../src/helpers/microsoftCalendarManager");
 
 let recorder;
+let sealed;
 test.beforeEach(() => {
   fetches.length = 0;
+  opened.length = 0;
+  sealed = true;
   recorder = new FlightRecorder({ now: () => 1 });
   gate._resetForTests();
-  gate.configureEgress({ isSealed: () => true, recorder, now: () => 1 });
+  gate.configureEgress({ isSealed: () => sealed, recorder, now: () => 1 });
 });
 
 test("sealed: Google token exchange is refused before net.fetch", async () => {
@@ -6527,50 +6546,534 @@ test("sealed: Microsoft Graph reads are refused", async () => {
   assert.deepEqual(fetches, []);
 });
 
-test("main does not start calendar sync while sealed", () => {
-  const main = fs.readFileSync(path.join(__dirname, "../../main.js"), "utf8");
-  assert.match(main, /if \(!privacy\.state\.isSealed\(\)\) \{\s*googleCalendarManager\.start\(\);\s*microsoftCalendarManager\.start\(\);\s*\}/);
-  assert.match(main, /browser-window-focus[\s\S]{0,200}privacy\.state\.isSealed\(\)/);
-  assert.match(main, /powerMonitor\.on\("resume"[\s\S]{0,400}privacy\.state\.isSealed\(\)/);
+test("the calendar guard main uses starts, focus-syncs and wake-syncs nothing while sealed", () => {
+  const calls = [];
+  const manager = (name) => ({
+    start: () => calls.push(`${name}.start`),
+    syncOnFocus: () => calls.push(`${name}.focus`),
+    onWakeFromSleep: () => calls.push(`${name}.wake`),
+  });
+  const managers = [manager("google"), manager("microsoft"), null];
+  const guard = createCalendarGuard({ isSealed: () => sealed });
+  guard.start(managers);
+  guard.onFocus(managers);
+  guard.onWake(managers);
+  assert.deepEqual(calls, []);
+  sealed = false;
+  guard.start(managers);
+  guard.onFocus(managers);
+  guard.onWake(managers);
+  assert.deepEqual(calls, [
+    "google.start", "microsoft.start",
+    "google.focus", "microsoft.focus",
+    "google.wake", "microsoft.wake",
+  ]);
+});
+
+test("sealing cancels a pending OAuth flow: it rejects as interrupted and its loopback server closes", async () => {
+  sealed = false;
+  let redirectUri;
+  const flow = runOAuthLoopbackFlow({
+    buildAuthUrl: (uri) => { redirectUri = uri; return "https://accounts.example.test/auth"; },
+    handleCallback: async () => assert.fail("a cancelled flow must not exchange a code"),
+    errorParam: "gcal_error",
+  });
+  while (!redirectUri) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(activeOAuthFlowCount(), 1);
+
+  const reason = new SealedModeError({ task: "calendar", host: null, phase: "interrupted" });
+  assert.equal(cancelAllOAuthFlows(reason), 1);
+  await assert.rejects(flow, (e) => isSealedModeError(e) && sealedPhaseOf(e) === "interrupted");
+  assert.equal(activeOAuthFlowCount(), 0);
+
+  // The consent page may still redirect back later. Nothing is listening.
+  await assert.rejects(
+    new Promise((resolve, reject) => http.get(`${redirectUri}/?code=c&state=s`, resolve).on("error", reject)),
+    (e) => e.code === "ECONNREFUSED"
+  );
 });
 ```
 
-Both modules export their class directly: `googleCalendarOAuth.js:169` exports `GoogleCalendarOAuth(databaseManager)`, and `microsoftCalendarManager.js:429` exports the manager, whose constructor is `(databaseManager, reminderScheduler)`. `_apiGet(path, accountEmail)` (`:396`) builds the Graph URL from `path` and gets a token from `this.oauth.getValidAccessToken(accountEmail)`. The test stubs `oauth` so the only network step left is the gated fetch.
+Both calendar modules export their class directly: `googleCalendarOAuth.js:169` exports `GoogleCalendarOAuth(databaseManager)`, and `microsoftCalendarManager.js:429` exports the manager, whose constructor is `(databaseManager, reminderScheduler)`. `_apiGet(path, accountEmail)` (`:396`) builds the Graph URL from `path` and gets a token from `this.oauth.getValidAccessToken(accountEmail)`. The test stubs `oauth` so the only network step left is the gated fetch.
+
+Create `test/helpers/externalLinkSealed.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const Module = require("node:module");
+const test = require("node:test");
+
+const opened = [];
+const originalLoad = Module._load;
+Module._load = function (request, parent, isMain) {
+  if (request === "electron")
+    return {
+      app: { getPath: () => process.cwd(), isReady: () => false, getName: () => "test" },
+      shell: { openExternal: async (url) => { opened.push(url); } },
+    };
+  return originalLoad.call(this, request, parent, isMain);
+};
+test.after(() => { Module._load = originalLoad; });
+
+const { openExternalUrl, setExternalOpenGuard } = require("../../src/helpers/externalUrlOpener");
+const { createConfirmations } = require("../../src/helpers/privacy/privacyBoot");
+
+test.beforeEach(() => { opened.length = 0; setExternalOpenGuard(null); });
+test.after(() => setExternalOpenGuard(null));
+
+test("a declined link never reaches the OS, and is not an error", async () => {
+  const asked = [];
+  setExternalOpenGuard(async (url) => { asked.push(url); return false; });
+  assert.equal(await openExternalUrl("https://example.com/a?b=1"), false);
+  assert.deepEqual(asked, ["https://example.com/a?b=1"]);
+  assert.deepEqual(opened, []);
+});
+
+test("a confirmed link opens; a blocked scheme is refused before the guard is asked", async () => {
+  const asked = [];
+  setExternalOpenGuard(async (url) => { asked.push(url); return true; });
+  assert.equal(await openExternalUrl("mailto:someone@example.com"), true);
+  await assert.rejects(openExternalUrl("file:///etc/passwd"), /Blocked URL scheme/);
+  assert.deepEqual(asked, ["mailto:someone@example.com"]);
+  assert.deepEqual(opened, ["mailto:someone@example.com"]);
+});
+
+test("the link dialog names the host, and its default answer is don't open", async () => {
+  const shown = [];
+  const confirm = createConfirmations({
+    dialog: { showMessageBox: async (_win, options) => { shown.push(options); return { response: options.defaultId }; } },
+    BrowserWindow: { fromWebContents: () => undefined },
+    t: (key, params) => (params ? `${key} ${JSON.stringify(params)}` : key),
+  });
+  assert.equal(await confirm.openLink("https://meet.example.com/abc?pwd=secret"), false);
+  assert.equal(shown[0].defaultId, 0);
+  assert.equal(shown[0].cancelId, 0);
+  assert.match(shown[0].detail, /meet\.example\.com/);
+  assert.doesNotMatch(shown[0].detail, /pwd=secret/, "the dialog names the host, never the full URL");
+});
+
+test("open-external over IPC reports a declined link as declined, not failed", async () => {
+  const { attachOpenExternal } = require("../../src/helpers/externalUrlOpener");
+  const handlers = new Map();
+  attachOpenExternal({ ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) } });
+  setExternalOpenGuard(async () => false);
+  assert.deepEqual(await handlers.get("open-external")({}, "https://example.com"), { success: false, declined: true });
+  setExternalOpenGuard(async () => true);
+  assert.deepEqual(await handlers.get("open-external")({}, "https://example.com"), { success: true });
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npm test -- test/helpers/calendarSealed.test.js test/helpers/externalLinkSealed.test.js`
+Expected: FAIL. `fetches` is non-empty, and `calendarGuard`, `cancelAllOAuthFlows`, `setExternalOpenGuard`, `openLink` and `attachOpenExternal` do not exist.
+
+- [ ] **Step 3: Gate the calendar requests**
+
+1. In each of the four calendar modules, add `const { gatedNetFetch } = require("./privacy/gatedFetch");`. Replace each `net.fetch(url, init)` named above with `gatedNetFetch(url, init, { task: "calendar", provider: "google" })` (or `"microsoft"`). The `useSessionCookies: false` option is now supplied by `gatedNetFetch`, so it can stay or go.
+2. In `ipcHandlers.js`, make the first statement of the `gcal-start-oauth` handler (`:9164`) `egress.assertAllowed({ task: "calendar", target: "https://accounts.google.com" });`. Do the same in the `mcal-start-oauth` handler (`:9251`) with `"https://login.microsoftonline.com"`. This refuses before a browser consent page opens for a sign-in that could not complete.
+
+- [ ] **Step 4: Create the calendar guard and use it in `main.js`**
+
+Create `src/helpers/privacy/calendarGuard.js`:
+
+```js
+// Remote calendar sync is network traffic. main.js routes every start, focus
+// and wake trigger through here so the sealed check is code a test executes,
+// not a pattern in main.js. Apple Calendar (EventKit) is local and is not
+// passed in.
+function createCalendarGuard({ isSealed }) {
+  const each = (managers, method) => {
+    if (isSealed()) return;
+    for (const manager of managers) manager?.[method]?.();
+  };
+  return {
+    start: (managers) => each(managers, "start"),
+    onFocus: (managers) => each(managers, "syncOnFocus"),
+    onWake: (managers) => each(managers, "onWakeFromSleep"),
+  };
+}
+
+module.exports = { createCalendarGuard };
+```
+
+In `main.js`:
+
+- Next to the other privacy requires from Task 7, add:
+
+  ```js
+  const calendarGuard = require("./src/helpers/privacy/calendarGuard").createCalendarGuard({
+    isSealed: () => privacy.state.isSealed(),
+  });
+  const remoteCalendars = () => [googleCalendarManager, microsoftCalendarManager];
+  ```
+
+- Replace `googleCalendarManager.start();` and `microsoftCalendarManager.start();` (`:566-567`) with `calendarGuard.start(remoteCalendars()); // the seal transition restarts them on unseal`.
+- In the `browser-window-focus` handler (`:781-785`), replace the Google and Microsoft lines (`:782-783`) with `calendarGuard.onFocus(remoteCalendars());`. Leave the Apple line.
+- In the `powerMonitor.on("resume")` handler (`:788-794`), replace the Google block (`:790-792`) and the Microsoft line (`:793`) with `calendarGuard.onWake(remoteCalendars());`. Leave the reminder scheduler and Apple lines.
+
+`src/helpers/calendarSyncInterval.js` has no network primitive of its own; it drives the managers. Leave the `egress-sites` block alone.
+
+- [ ] **Step 5: Cancel pending OAuth flows when sealing**
+
+In `src/helpers/oauthLoopbackFlow.js`:
+
+1. Above `runOAuthLoopbackFlow` (`:33`), add:
+
+   ```js
+   // Every flow still waiting for its browser redirect. Sealing cancels them all:
+   // a consent page that completes later must find nothing listening.
+   const activeFlows = new Set();
+
+   function cancelAllOAuthFlows(reason) {
+     const flows = [...activeFlows];
+     for (const flow of flows) flow.cancel(reason);
+     return flows.length;
+   }
+
+   const activeOAuthFlowCount = () => activeFlows.size;
+   ```
+
+2. Inside the promise executor, directly after `let callbackClaimed = false;`, register the flow:
+
+   ```js
+       const flow = {
+         cancel(reason) {
+           if (callbackClaimed) return;
+           callbackClaimed = true;
+           cleanup();
+           reject(reason);
+         },
+       };
+       activeFlows.add(flow);
+   ```
+
+3. Make `cleanup` (`:95-98`) also remove the flow: add `activeFlows.delete(flow);`. Every settle path (the error, state-mismatch, success and catch branches, the `server.on("error")` handler) already calls `cleanup()`. The timeout handler (`:113-117`) calls `server.close()` directly; replace those two lines with `cleanup();`.
+
+   `cleanup` is declared with `const` after the server is created, and `flow.cancel` only runs after the executor returns, so the reference is initialized by then. Keep `const flow` above `const server` so the `http.createServer` callback can see it.
+
+4. Export them: `module.exports = { runOAuthLoopbackFlow, OAuthFlowError, cancelAllOAuthFlows, activeOAuthFlowCount };`.
+
+In `src/helpers/privacy/privacyBoot.js`:
+
+1. Add `cancelPending = () => 0` to the `createSealTransition` parameters.
+2. In `apply(sealed)`, directly after `for (const calendar of getCalendars()) calendar?.stop?.();`, add `cancelPending();`.
+
+In `main.js`, in the Task 7 `createSealTransition({ ... })` call, add:
+
+```js
+       cancelPending: () =>
+         require("./src/helpers/oauthLoopbackFlow").cancelAllOAuthFlows(
+           new (require("./src/helpers/privacy/egressPolicy").SealedModeError)({ task: "calendar", host: null, phase: "interrupted" })
+         ),
+```
+
+The `gcal-start-oauth` and `mcal-start-oauth` handlers already return `{ success: false, error }` on a rejected flow. The renderer's calendar settings show the `[SEALED_MODE:interrupted]` message (Task 13).
+
+- [ ] **Step 6: Confirm browser links while sealed**
+
+In `src/helpers/externalUrlOpener.js`:
+
+1. Above `openExternalUrl`, add:
+
+   ```js
+   // Installed by main.js. While sealed it asks the user, in a main-owned
+   // dialog, before a URL leaves for another app. null means "always open".
+   let externalOpenGuard = null;
+   function setExternalOpenGuard(guard) {
+     externalOpenGuard = guard;
+   }
+   ```
+
+2. In `openExternalUrl`, directly after the scheme check (`:37-39`), add:
+
+   ```js
+     if (externalOpenGuard && !(await externalOpenGuard(href))) return false;
+   ```
+
+   Change the Windows `explorer.exe` early `return;` to `return true;`, and the final `return shell.openExternal(url);` to `await shell.openExternal(url); return true;`.
+
+3. Move the `open-external` handler here so its behaviour has one owner and a test can register it:
+
+   ```js
+   function attachOpenExternal({ ipcMain }) {
+     ipcMain.handle("open-external", async (_event, url) => {
+       try {
+         const opened = await openExternalUrl(url);
+         return opened ? { success: true } : { success: false, declined: true };
+       } catch (error) {
+         return { success: false, error: error.message };
+       }
+     });
+   }
+   ```
+
+   `openExternalUrl` already refuses schemes other than `http:`, `https:` and `mailto:` (`:36-39`), so the handler's duplicate check is not needed.
+
+4. `module.exports = { openExternalUrl, setExternalOpenGuard, attachOpenExternal };`.
+
+In `src/helpers/ipcHandlers.js`, replace the `ipcMain.handle("open-external", ...)` block (`:3539-3550`) with `attachOpenExternal({ ipcMain });`, imported alongside `openExternalUrl` (`:12`).
+
+In `src/helpers/windowManager.js`, the `openExternalUrl(url, showError)` wrapper (`:1259-1268`) needs no change. A declined link resolves `false` and never reaches the `.catch` error box.
+
+In `src/helpers/privacy/privacyBoot.js`, add a third confirmation to `createConfirmations`:
+
+```js
+    // Names only the host: a meeting link's query string can carry a passcode.
+    openLink: (url, event) => {
+      let host;
+      try {
+        const parsed = new URL(url);
+        host = parsed.protocol === "mailto:" ? "mail" : parsed.host;
+      } catch {
+        host = "?";
+      }
+      return ask(event, {
+        title: t("sealedMode.confirmLink.title"),
+        message: t("sealedMode.confirmLink.message"),
+        detail: t("sealedMode.confirmLink.detail", { host }),
+        buttons: [t("sealedMode.confirmLink.keep"), t("sealedMode.confirmLink.open")],
+      });
+    },
+```
+
+`ask(undefined, ...)` shows an app-modal dialog, which is right for menu and meeting-engine opens that have no sender.
+
+In `main.js`, in the Task 7 wiring, hoist the confirmations into a constant and install the guard:
+
+```js
+     const confirmations = privacyBoot.createConfirmations({ dialog, BrowserWindow, t: (key, params) => i18nMain.t(key, params) });
+     require("./src/helpers/externalUrlOpener").setExternalOpenGuard(async (url) =>
+       !privacy.state.isSealed() || confirmations.openLink(url)
+     );
+```
+
+and pass `confirm: confirmations` to `attachPrivacyIPC`.
+
+Add these English source strings to all 11 locales with the Task 14 merge script:
+
+```json
+{
+  "sealedMode.confirmLink.title": "Open this link outside Loqui?",
+  "sealedMode.confirmLink.message": "The link opens in another app. Sealed mode does not cover that app's network use.",
+  "sealedMode.confirmLink.detail": "Destination: {{host}}",
+  "sealedMode.confirmLink.keep": "Don't open",
+  "sealedMode.confirmLink.open": "Open link"
+}
+```
+
+Update inventory row N21 in `docs/security/sealed-mode-threat-model.md` (Task 1) if its wording has drifted: decision "allowed after a main-owned confirmation while sealed", test `externalLinkSealed.test.js`.
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/calendarSealed.test.js test/helpers/externalLinkSealed.test.js test/helpers/sealTransition.test.js test/helpers/privacyBootOrder.test.js && npm run i18n:check`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/helpers/privacy/calendarGuard.js src/helpers/googleCalendarOAuth.js src/helpers/googleCalendarManager.js src/helpers/microsoftCalendarOAuth.js src/helpers/microsoftCalendarManager.js src/helpers/oauthLoopbackFlow.js src/helpers/externalUrlOpener.js src/helpers/ipcHandlers.js src/helpers/privacy/privacyBoot.js main.js src/locales test/helpers/calendarSealed.test.js test/helpers/externalLinkSealed.test.js
+git commit -m "feat(privacy): gate calendars, cancel pending OAuth on seal, confirm links while sealed"
+```
+
+---
+
+### Task 11a: One loopback rule for main and the route graph, and a gated self-hosted probe (Plan 01 and Plan 03 integration)
+
+**Prerequisites.** Plan 01 has merged, so `src/lib/locality.ts` exists. Plan 03 has merged, so `src/helpers/selfHostedProbe.js` and its `probe-self-hosted` handler exist (P03 Task 14). If Plan 03 has not merged yet, do Steps 1–3 now and Steps 4–6 in the commit that lands after it. Do not add a second probe.
+
+**Files:**
+- Create:
+  - `test/fixtures/loopbackCases.json`.
+- Modify:
+  - `src/lib/locality.ts` (Plan 01): `isLoopbackUrl`.
+  - `src/helpers/selfHostedProbe.js` (Plan 03): map a sealed refusal to `{ ok: false, code: "sealed" }`.
+  - `src/helpers/ipcHandlers.js`: the `probe-self-hosted` handler (Plan 03).
+  - `src/types/electron.ts`: add `"sealed"` to the `probeSelfHosted` result codes.
+  - `test/helpers/egressPolicy.test.js` (Task 2): read its loopback cases from the fixture.
+- Test: `test/helpers/loopbackParity.test.js`, `test/helpers/selfHostedProbeSealed.test.js`
+
+**Interfaces:**
+- Consumes `isLoopbackHost` and `hostOf` (Task 2), `gatedNodeFetch` (Task 8) and `isSealedModeError` (Task 2).
+- Produces:
+  - `isLoopbackHostname(hostname: string): boolean` in `src/lib/locality.ts`. `isLoopbackUrl(url)` delegates to it.
+  - `probeSelfHosted(...)` result code `"sealed"`. Plan 03's panel shows `routes.state.sealed` for it (CCR-2).
+
+**Why.** The renderer decides whether a route is `device` with `isLoopbackUrl` (Plan 01). Main decides what Sealed mode lets through with `isLoopbackHost` (Task 2). Today they disagree on `127.0.0.2`, `[::ffff:127.0.0.1]`, `[0:0:0:0:0:0:0:1]` and `localhost.`: main allows these as loopback, and the route graph calls them `network` and shows them paused while sealed. Both sides now read the same case list, and a test fails if either drifts.
+
+- [ ] **Step 1: Write the shared cases and the failing parity test**
+
+Create `test/fixtures/loopbackCases.json`:
+
+```json
+{
+  "loopback": [
+    "http://localhost:11434/v1",
+    "http://LOCALHOST.:8080",
+    "http://127.0.0.1:8080",
+    "http://127.0.0.2:9000",
+    "http://[::1]:8080",
+    "http://[::ffff:127.0.0.1]/",
+    "http://[0:0:0:0:0:0:0:1]/",
+    "http://llm.localhost/v1",
+    "http://app.localhost:5173/"
+  ],
+  "notLoopback": [
+    "http://192.168.1.5:8080",
+    "https://gpu-box.lan/v1",
+    "http://localhost.evil.example",
+    "http://127.0.0.1.nip.io",
+    "http://0.0.0.0:8080",
+    "http://[::ffff:10.0.0.1]/",
+    "http://[::2]/",
+    "https://api.openai.com"
+  ]
+}
+```
+
+Create `test/helpers/loopbackParity.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const cases = require("../fixtures/loopbackCases.json");
+const { isLoopbackHost, hostOf } = require("../../src/helpers/privacy/egressPolicy");
+
+test("main and the route graph agree on every loopback case", async () => {
+  const { isLoopbackUrl } = await import("../../src/lib/locality.ts");
+  for (const url of cases.loopback) {
+    assert.equal(isLoopbackHost(hostOf(url)), true, `main: ${url}`);
+    assert.equal(isLoopbackUrl(url), true, `renderer: ${url}`);
+  }
+  for (const url of cases.notLoopback) {
+    assert.equal(isLoopbackHost(hostOf(url)), false, `main: ${url}`);
+    assert.equal(isLoopbackUrl(url), false, `renderer: ${url}`);
+  }
+});
+
+test("a self-hosted server on any loopback form is the device, so Sealed mode keeps it", async () => {
+  const { resolveLocality } = await import("../../src/lib/locality.ts");
+  for (const url of cases.loopback) {
+    assert.equal(resolveLocality({ mode: "self-hosted", remoteUrl: url }).locality, "device", url);
+  }
+});
+```
+
+In `test/helpers/egressPolicy.test.js` (Task 2), replace the two inline URL arrays in `"loopback classification"` with `cases.loopback` and `cases.notLoopback`, and add `const cases = require("../fixtures/loopbackCases.json");` at the top. Keep the `null` and `""` assertions.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm test -- test/helpers/calendarSealed.test.js`
-Expected: FAIL. `fetches` is non-empty, and the `main.js` patterns are not found.
+Run: `npm test -- test/helpers/loopbackParity.test.js`
+Expected: FAIL on `renderer: http://127.0.0.2:9000`. Plan 01's `isLoopbackUrl` accepts only `localhost`, `127.0.0.1`, `::1` and `*.localhost` (`src/lib/locality.ts`, `LOOPBACK_HOSTS`).
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Port main's rule to the renderer**
 
-1. In each of the four calendar modules, add `const { gatedNetFetch } = require("./privacy/gatedFetch");`. Replace each `net.fetch(url, init)` named above with `gatedNetFetch(url, init, { task: "calendar" })`. The `useSessionCookies: false` option is now supplied by `gatedNetFetch`, so it can stay or go.
-2. In `ipcHandlers.js`, make the first statement of the `gcal-start-oauth` handler (`:9164`) `egress.assertAllowed({ task: "calendar", target: "https://accounts.google.com" });`. Do the same in the `mcal-start-oauth` handler (`:9251`) with `"https://login.microsoftonline.com"`. This refuses before a browser consent page opens for a sign-in that could not complete.
-3. In `main.js`:
-   - `:566-567` becomes:
+In `src/lib/locality.ts`, replace `LOOPBACK_HOSTS` and the body of `isLoopbackUrl` with:
 
-     ```js
-       // Sealed mode: remote calendars stay stopped; the seal transition restarts them.
-       if (!privacy.state.isSealed()) {
-         googleCalendarManager.start();
-         microsoftCalendarManager.start();
-       }
-     ```
+```ts
+// Must match isLoopbackHost in src/helpers/privacy/egressPolicy.js, which is
+// what Sealed mode lets through. test/helpers/loopbackParity.test.js holds both
+// to test/fixtures/loopbackCases.json.
+export function isLoopbackHostname(hostname: string): boolean {
+  let host = hostname.trim().toLowerCase();
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  if (host.endsWith(".")) host = host.slice(0, -1);
+  if (!host) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return host.split(".")[0] === "127";
+  if (!host.includes(":")) return false;
+  if (host === "::1" || /^(?:0{1,4}:){7}0{0,3}1$/.test(host)) return true;
+  const dotted = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+  if (dotted) return dotted[1].split(".")[0] === "127";
+  // WHATWG URL parsing turns ::ffff:127.0.0.1 into ::ffff:7f00:1.
+  const hex = /^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/.exec(host);
+  return !!hex && parseInt(hex[1], 16) >> 8 === 127;
+}
 
-   - In the `browser-window-focus` handler (`:781-785`; Google and Microsoft at `:782-783`), change the Google and Microsoft lines to `if (googleCalendarManager && !privacy.state.isSealed()) googleCalendarManager.syncOnFocus();` (and the same for Microsoft). Leave Apple unchanged: EventKit is local.
-   - In the `powerMonitor.on("resume")` handler (`:788-794`; Google at `:790-792`, Microsoft at `:793`), make the same change to the Google and Microsoft `onWakeFromSleep()` calls.
-4. Add `src/helpers/calendarSyncInterval.js` to the N20 row only if it gains a network primitive. It does not, so leave the `egress-sites` block alone.
+export function isLoopbackUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    return isLoopbackHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+`URL` already canonicalizes `[0:0:0:0:0:0:0:1]` to `[::1]` and `127.1` to `127.0.0.1`, so the regexes see canonical forms. Plan 01's existing `test/lib/locality.test.js` cases are all still classified the same way.
 
-Run: `npm test -- test/helpers/calendarSealed.test.js test/helpers/privacyBootOrder.test.js`
+Run: `npm test -- test/helpers/loopbackParity.test.js test/helpers/egressPolicy.test.js test/lib/locality.test.js`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Write the failing probe test**
+
+Create `test/helpers/selfHostedProbeSealed.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const http = require("node:http");
+const { once } = require("node:events");
+const test = require("node:test");
+const gate = require("../../src/helpers/privacy/egressGate");
+const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
+const { gatedNodeFetch } = require("../../src/helpers/privacy/gatedFetch");
+const { probeSelfHosted } = require("../../src/helpers/selfHostedProbe");
+
+let recorder;
+test.beforeEach(() => {
+  recorder = new FlightRecorder({ now: () => 1 });
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => true, recorder, now: () => 1 });
+});
+
+test("sealed: a LAN probe is refused as 'sealed', not 'network', and is recorded as blocked", async () => {
+  assert.deepEqual(await probeSelfHosted("http://192.168.1.20:11434/v1", gatedNodeFetch("providerCheck")), { ok: false, code: "sealed" });
+  const [row] = recorder.list();
+  assert.deepEqual([row.task, row.host, row.outcome], ["providerCheck", "192.168.1.20", "blocked"]);
+});
+
+test("sealed: a loopback probe still reaches the local server", async (t) => {
+  const server = http.createServer((_req, res) => res.end(JSON.stringify({ data: [{ id: "a" }] })));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => server.close());
+  const url = `http://127.0.0.1:${server.address().port}/v1`;
+  assert.deepEqual(await probeSelfHosted(url, gatedNodeFetch("providerCheck")), { ok: true, count: 1 });
+  assert.equal(recorder.list().length, 0, "loopback is never recorded");
+});
+```
+
+The production IPC handler is exercised in Task 12 (row N4, `probe-self-hosted`).
+
+Run: `npm test -- test/helpers/selfHostedProbeSealed.test.js`
+Expected: FAIL. The first case returns `{ ok: false, code: "network" }`: the probe's `catch` turns the sealed refusal into a generic transport error.
+
+- [ ] **Step 5: Gate the probe and keep the typed refusal**
+
+1. In `src/helpers/selfHostedProbe.js`, add `const { isSealedModeError } = require("./privacy/egressPolicy");` and make the first line of the `catch` `if (isSealedModeError(error)) return { ok: false, code: "sealed" };`.
+2. In `src/helpers/ipcHandlers.js`, change the `probe-self-hosted` handler to pass the gated fetch:
+
+   ```js
+     ipcMain.handle("probe-self-hosted", (_e, baseUrl) =>
+       require("./selfHostedProbe").probeSelfHosted(baseUrl, gatedNodeFetch("providerCheck", { provider: "custom" }))
+     );
+   ```
+
+   `gatedNodeFetch` is already imported in `ipcHandlers.js` (Task 8).
+3. In `src/types/electron.ts`, add `"sealed"` to the `code` union of `probeSelfHosted`'s result.
+4. In `src/components/SelfHostedPanel.tsx` (Plan 03), when `result.code === "sealed"` set the failure text to `t("routes.state.sealed")` instead of "Couldn't list models at {{host}}". That key exists (Plan 03 Task 4).
+5. Add `src/helpers/selfHostedProbe.js` to inventory row N4 and to the `egress-sites` block in `docs/security/sealed-mode-threat-model.md` (Task 1). Its decision is "blocked unless loopback". Plan 03's note about a "sealed-mode allowlist" (P03 Task 14) is superseded by this rule (CCR-2).
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/loopbackParity.test.js test/helpers/selfHostedProbeSealed.test.js test/helpers/selfHostedProbe.test.js test/helpers/egressInventory.test.js && npm run typecheck`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/helpers/googleCalendarOAuth.js src/helpers/googleCalendarManager.js src/helpers/microsoftCalendarOAuth.js src/helpers/microsoftCalendarManager.js src/helpers/ipcHandlers.js main.js test/helpers/calendarSealed.test.js
-git commit -m "feat(privacy): gate calendar OAuth, API reads and background sync"
+git add src/lib/locality.ts src/helpers/selfHostedProbe.js src/helpers/ipcHandlers.js src/types/electron.ts src/components/SelfHostedPanel.tsx docs/security/sealed-mode-threat-model.md test/fixtures/loopbackCases.json test/helpers/loopbackParity.test.js test/helpers/selfHostedProbeSealed.test.js test/helpers/egressPolicy.test.js
+git commit -m "feat(privacy): one loopback rule for main and routes; gate the self-hosted probe"
 ```
 
 ---

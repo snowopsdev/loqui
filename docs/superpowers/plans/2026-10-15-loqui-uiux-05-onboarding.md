@@ -95,6 +95,15 @@
 | R2-M01 | M2 docked but did not settle the live bars | Three stages. (1) Settle: the same `LevelBars` driver runs on a zero level for `SETTLE_MS`, and its smoothing eases to the rest silhouette, so no math is duplicated. (2) Draw: the bubble draws for `DRAW_MS` (360 ms). (3) Dock. Reduced motion is an instant swap. The rail test and the flow test assert the stage order. | `levelBars.test.js`: a zero or invalid sample steps toward the rest silhouette. | 11, 15, composition |
 | R2-M02 | Route disclosures bypassed Plan 03's chips | Cleanup uses `RouteDestinationChip` and `RouteStateChip`. Ready's note action uses `RouteDestinationChip` (`NoteActionState` gains `model`). Tests stub the chip module and assert the route each receives. The onboarding sentences stay. | Spec §5.1 published components. Plan 03 `c912d19`, `RouteChips.tsx` props. | 16, 18 |
 
+### Round-3 review response
+
+**Round 4** is Codex `gpt-6.1-sol` at xhigh on `5d2c9d7`: `.omc/research/ui-review/reviews/plan-05-codex-r3.md`. Its verdict was "execute after revisions", with 2 Minor findings left. Both are fixed in the task steps and their tests, and neither is disputed.
+
+| ID | Finding | Fix | Tasks |
+|---|---|---|---|
+| R3-M01 | The settle stage still lost the live meter. Processing unmounted it, and the first success render dropped it. | Adds `InstrumentMode` `processing`, which the composition maps from `trial.phase === "processing"`. The rail adjusts its meter state during render when the mode changes, so no render drops it. One keyed `LevelBars` instance lives from `listening` through `processing` and the settle, switching to zero input. Its retained frame eases to the rest silhouette, then the bubble draws (`DRAW_MS`), then the mark docks. Reduced motion keeps the instant swap. The new rail test drives the real sampler on a mocked clock, through listening → processing → success. It asserts that the meter's DOM node is the same instance in all three, that the centre bar's transform rises and then eases toward rest, and that the bubble follows. The flow test now emits `processing` and asserts the same identity before checking bubble-then-dock. | 11, 15, composition |
+| R3-M02 | `RouteStateChip` said "Off" next to a chosen but unavailable cleanup | The state chip shows only when the choice's own check has passed (`status === "ready"`) and the route is not `off`. Before that, the prerequisite sentence owns the status. The destination chip stays as it was. The pending-choice test now covers provider failed, provider checking, ChatGPT failed and local pending, and rejects any state chip in each. It accepts exactly one `ready` chip once the route is validated. | 16 |
+
 ## Contract change requests
 
 The spec consolidated every plan's requests into §3 and §5 at `091d198` (`snowopsdev/feat/uiux-foundations`). Each request below now has a status. Where this plan's code and a spec shape differed, the plan was changed to match the spec.
@@ -4880,7 +4889,7 @@ It keeps ONB-Q1 (Plan 02): the pinned shell and the physical traffic-light inset
 
 **Interfaces:**
 - `instrumentMath.ts`:
-  - `InstrumentMode`: `idle | download{percent, downloadedBytes, totalBytes} | listening{heardVoice} | success | error{reason}`;
+  - `InstrumentMode`: `idle | download{percent, downloadedBytes, totalBytes} | listening{heardVoice} | processing | success | error{reason}`. `processing` keeps the take's meter mounted (R3-M01);
   - `INSTRUMENT_HEIGHT = 140`, `ERROR_FILL = 0.3`, `SETTLE_MS = 520` (`--motion-hero`, stage 1: the live bars settle) and `DRAW_MS = 360` (`--motion-slow`, stage 2: the bubble draws). The dock (stage 3) starts after both (R2-M01);
   - `barHeights()`, `instrumentFills(mode)` and `instrumentCaption(mode, locale)`;
   - `dockMark(update, { reducedMotion, doc })` returns `"transition" | "instant"`.
@@ -5046,29 +5055,71 @@ test("listening hands the bars to LevelBars; errors drop them to 30%; success dr
   assert.equal(ui.byAttr("data-bubble").length, 1, "the speech bubble draws around the settled bars (M02)");
 });
 
-test("success settles the live bars first, then draws the bubble; reduced motion swaps at once (R2-M01)", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+// Drives LevelBars' real sampler (window.setInterval + performance.now) on one mocked clock.
+function meterClock(t) {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+  return {
+    windowProps: { setInterval: (cb, ms) => setInterval(cb, ms), clearInterval: (id) => clearInterval(id) },
+    async advance(ms) {
+      for (let elapsed = 0; elapsed < ms; elapsed += 33) {
+        now += 33;
+        t.mock.timers.tick(33);
+      }
+      await React.act(async () => {});
+    },
+  };
+}
+const centreScale = (ui) => Number(/scaleY\(([\d.]+)\)/.exec(ui.byAttr("data-level-bar")[2].style.transform)[1]);
+
+test("one meter lives from listening through processing and the settle, easing to rest; then the bubble (R3-M01)", async (t) => {
+  const clock = meterClock(t);
+  const rail = (mode) => ({ title: "Say something", body: "", mode, readLevel: () => 0.9 });
   const ui = await mountComponent(t, "/components/onboarding/InstrumentRail.tsx", {
     exportName: "InstrumentRail",
-    props: { title: "Say something", body: "", mode: { kind: "listening", heardVoice: true }, readLevel: () => 0.6 },
+    windowProps: clock.windowProps,
+    props: rail({ kind: "listening", heardVoice: true }),
   });
-  await ui.rerender({ mode: { kind: "success" } });
-  const instrument = () => ui.findAll((node) => node.attributes.class === "onb-instrument")[0];
-  assert.equal(instrument().attributes["data-stage"], "settle");
-  assert.equal(ui.byAttr("data-level-bar").length, 5, "the same LevelBars driver eases to rest");
-  assert.equal(ui.byAttr("data-bubble").length, 0, "no bubble until the bars have settled");
-  await React.act(async () => t.mock.timers.tick(520));
-  assert.equal(instrument().attributes["data-stage"], "mark");
-  assert.equal(ui.byAttr("data-bubble").length, 1);
-  assert.equal(ui.byAttr("data-level-bar").length, 0);
+  await clock.advance(400);
+  const meter = ui.byAttr("data-level-bar");
+  const rest = 0.55; // levelBarScale(2, 0, …): the centre bar's rest silhouette (Plan 01 levelBars.test.js)
+  const loud = centreScale(ui);
+  assert.ok(loud > rest + 0.1, `the live level lifts the centre bar (${loud})`);
 
+  await ui.rerender(rail({ kind: "processing" }));
+  assert.equal(ui.byAttr("data-level-bar")[2], meter[2], "processing keeps the same meter instance");
+  await clock.advance(132);
+  const easing = centreScale(ui);
+  assert.ok(easing < loud, "zero input: the bars start to settle during processing");
+
+  await ui.rerender(rail({ kind: "success" }));
+  assert.equal(ui.byAttr("data-level-bar")[2], meter[2], "the first success render keeps it too");
+  assert.equal(ui.byAttr("data-bubble").length, 0, "stage 1: settle, no bubble yet");
+  await clock.advance(480);
+  const settled = centreScale(ui);
+  assert.ok(Math.abs(settled - rest) < Math.abs(easing - rest), `the same frame eases toward rest (${easing} → ${settled})`);
+  await clock.advance(40);
+  assert.equal(ui.byAttr("data-level-bar").length, 0, "after SETTLE_MS the meter gives way to the mark");
+  assert.equal(ui.byAttr("data-bubble").length, 1, "stage 2: the bubble draws");
+});
+
+test("reduced motion swaps to the mark at once; a success with no live take has nothing to settle", async (t) => {
   const reduced = await mountComponent(t, "/components/onboarding/InstrumentRail.tsx", {
     exportName: "InstrumentRail",
     reducedMotion: true,
     props: { title: "Say something", body: "", mode: { kind: "listening", heardVoice: true }, readLevel: () => 0.6 },
   });
+  await reduced.rerender({ mode: { kind: "processing" } });
   await reduced.rerender({ mode: { kind: "success" } });
-  assert.equal(reduced.byAttr("data-bubble").length, 1, "reduced motion: an instant swap");
+  assert.equal(reduced.byAttr("data-bubble").length, 1);
+  assert.equal(reduced.byAttr("data-level-bar").length, 0);
+  const cold = await mountComponent(t, "/components/onboarding/InstrumentRail.tsx", {
+    exportName: "InstrumentRail",
+    props: { title: "Say something", body: "", mode: { kind: "idle" } },
+  });
+  await cold.rerender({ mode: { kind: "success" } });
+  assert.equal(cold.byAttr("data-bubble").length, 1);
 });
 
 test("the dock uses a View Transition unless motion is reduced or unsupported", async () => {
@@ -5200,6 +5251,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
      | { kind: "idle" }
      | { kind: "download"; percent: number; downloadedBytes: number; totalBytes: number }
      | { kind: "listening"; heardVoice: boolean }
+     | { kind: "processing" } // the take stopped and is being written; the live meter stays mounted (R3-M01)
      | { kind: "success" }
      | { kind: "error"; reason: "download" | "microphone" | "noAudio" | "other" };
 
@@ -5225,7 +5277,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 
    type ByteParts = { value: string; unit: "mb" | "gb" };
    export type InstrumentCaption =
-     | { key: "idle" | "goodLevel" | "waiting" | "heard" | "downloadError" | "micError" | "nothingHeard" | "error" }
+     | { key: "idle" | "goodLevel" | "waiting" | "processing" | "heard" | "downloadError" | "micError" | "nothingHeard" | "error" }
      | { key: "downloading"; percent: number; done: ByteParts; total: ByteParts };
 
    const ERROR_CAPTIONS = { download: "downloadError", microphone: "micError", noAudio: "nothingHeard", other: "error" } as const;
@@ -5236,6 +5288,8 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
          return { key: "downloading", percent: clampPercent(mode.percent), done: byteParts(mode.downloadedBytes, locale), total: byteParts(mode.totalBytes, locale) };
        case "listening":
          return { key: mode.heardVoice ? "goodLevel" : "waiting" };
+       case "processing":
+         return { key: "processing" };
        case "success":
          return { key: "heard" };
        case "error":
@@ -5280,7 +5334,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 3. Create `src/components/onboarding/InstrumentRail.tsx`:
 
    ```tsx
-   import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+   import { useCallback, useEffect, useState, type CSSProperties } from "react";
    import { useTranslation } from "react-i18next";
    import { LevelBars } from "../ui/LevelBars";
    import { INSTRUMENT_HEIGHT, SETTLE_MS, barHeights, instrumentCaption, instrumentFills, type InstrumentMode } from "./instrumentMath";
@@ -5313,33 +5367,31 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    export function InstrumentRail({ title, body, mode, readLevel }: InstrumentRailProps) {
      const { t, i18n } = useTranslation();
      const dark = useDarkTheme();
-     // M2 stage 1 (R2-M01): after a take, the same LevelBars driver keeps running on a
-     // zero level, so its own smoothing eases the bars to the rest silhouette (the
-     // mark's proportions). Then the static mark and its bubble replace it.
-     const [stage, setStage] = useState<"live" | "settle" | "mark">("live");
-     const wasListening = useRef(false);
-     const silence = useCallback(() => 0, []);
-     useEffect(() => {
-       if (mode.kind === "listening") {
-         wasListening.current = true;
-         setStage("live");
-         return;
-       }
-       if (mode.kind !== "success") {
-         wasListening.current = false;
-         setStage("live");
-         return;
-       }
+     // M2 (R3-M01): one LevelBars instance lives from the first "listening" of a take
+     // through "processing" and the settle after "success", so its frame is never
+     // reset. The meter state is adjusted during render when the mode changes (React's
+     // documented "adjust state on prop change" pattern), so no render ever drops it.
+     //   live     → the real level;
+     //   settling → zero input: the driver's own smoothing eases the bars to the rest
+     //              silhouette, the mark's proportions (processing, then SETTLE_MS of success);
+     //   off      → the static bars; on success, the mark and its bubble (DRAW_MS), then the dock.
+     const [meter, setMeter] = useState<"off" | "live" | "settling">(mode.kind === "listening" ? "live" : "off");
+     const [prevKind, setPrevKind] = useState(mode.kind);
+     if (mode.kind !== prevKind) {
+       setPrevKind(mode.kind);
        const reduced = globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-       if (!wasListening.current || reduced) {
-         setStage("mark"); // nothing live to settle, or an instant swap under reduced motion
-         return;
-       }
-       setStage("settle");
-       const id = setTimeout(() => setStage("mark"), SETTLE_MS);
+       if (mode.kind === "listening") setMeter("live");
+       else if ((mode.kind === "processing" || mode.kind === "success") && meter !== "off" && !reduced) setMeter("settling");
+       else setMeter("off"); // another mode, nothing live to settle, or an instant swap under reduced motion
+     }
+     useEffect(() => {
+       if (mode.kind !== "success" || meter !== "settling") return;
+       const id = setTimeout(() => setMeter("off"), SETTLE_MS);
        return () => clearTimeout(id);
-     }, [mode.kind]);
-     const liveLevel = stage === "settle" ? silence : mode.kind === "listening" ? readLevel : undefined;
+     }, [meter, mode.kind]);
+     const silence = useCallback(() => 0, []);
+     const liveLevel = meter === "live" ? readLevel : meter === "settling" ? silence : undefined;
+     const stage = mode.kind !== "success" ? "live" : meter === "settling" ? "settle" : "mark";
      const caption = instrumentCaption(mode, i18n?.language);
      const fills = instrumentFills(mode);
      const captionText =
@@ -5356,14 +5408,15 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
            <h1 tabIndex={-1}>{title}</h1>
            {body ? <p>{body}</p> : null}
          </div>
-         <div className="onb-instrument" data-mode={mode.kind} data-stage={stage} aria-hidden="true">
+         <div className="onb-instrument" data-mode={mode.kind} data-stage={stage} data-meter={meter} aria-hidden="true">
            {mode.kind === "success" && stage === "mark" ? (
              <svg className="onb-bubble" data-bubble="" viewBox="-4 0 168 160" aria-hidden="true">
                <path d={BUBBLE_PATH} pathLength={1} />
              </svg>
            ) : null}
            {liveLevel ? (
-             <LevelBars readLevel={liveLevel} height={INSTRUMENT_HEIGHT} tone={dark ? "brand" : "onLive"} />
+             // One keyed instance: changing readLevel never remounts it (LevelBars keeps the latest in a ref).
+             <LevelBars key="take-meter" readLevel={liveLevel} height={INSTRUMENT_HEIGHT} tone={dark ? "brand" : "onLive"} />
            ) : (
              barHeights().map((height, index) => (
                <span key={index} className="onb-bar" style={{ height }}>
@@ -5710,7 +5763,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 
    /* After the first success the mark lives in the header; the rail shows bars
       again only while they carry state (M02). */
-   .onb-shell[data-docked] .onb-instrument:not([data-mode="download"]):not([data-mode="listening"]):not([data-mode="error"]) {
+   .onb-shell[data-docked] .onb-instrument:not([data-mode="download"]):not([data-mode="listening"]):not([data-mode="processing"]):not([data-mode="error"]) {
      opacity: 0;
      view-transition-name: none;
    }
@@ -5941,6 +5994,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
           "downloading": "Downloading · {{percent}}% · {{done}} of {{total}}",
           "goodLevel": "Listening · good level",
           "waiting": "Listening · waiting for your voice",
+          "processing": "Writing it down…",
           "heard": "Heard you",
           "downloadError": "Download stopped",
           "micError": "Loqui can't hear your microphone",
@@ -8919,7 +8973,12 @@ test("the first success settles, then docks the mark, and the dock stays for the
   const emit = (event) => React.act(async () => [...listeners].forEach((listener) => listener({ demoId, kind: "dictation", ...event })));
   const shell = () => ui.findAll((node) => (node.attributes.class ?? "").split(" ").includes("onb-shell"))[0];
   await emit({ status: "listening" });
+  const meter = ui.byAttr("data-level-bar");
+  assert.equal(meter.length, 5);
+  await emit({ status: "processing" });
+  assert.equal(ui.byAttr("data-level-bar")[0], meter[0], "the real path keeps the take's meter through processing (R3-M01)");
   await emit({ status: "success", text: "Hello there.", rawText: "hello there", cleanup: "skipped" });
+  assert.equal(ui.byAttr("data-level-bar")[0], meter[0], "and through the first success render");
   const instrument = () => ui.findAll((node) => node.attributes.class === "onb-instrument")[0];
   assert.equal(instrument().attributes["data-stage"], "settle", "stage 1: the live bars settle");
   assert.equal(shell().attributes["data-docked"], undefined);
@@ -9757,16 +9816,28 @@ test("a remote route never runs on its own, even if Local is selected", async (t
   assert.deepEqual(runs, []);
 });
 
-test("Now names the unmet prerequisite of the user's choice (I05)", async (t) => {
-  const { ui } = await cleanup(t, { choice: "provider", status: "failed", route: route({ locality: "remote", providerId: "openai" }) });
+test("Now names the unmet prerequisite of the user's choice, with no raw state chip beside it (I05, R3-M02)", async (t) => {
+  // Plan 03 resolves a chosen-but-unvalidated cleanup as `off` (cleanup stays disabled
+  // until the check passes), so a raw chip here would read "Off" next to "needs key".
+  const stateChips = (ui) => ui.byAttr("data-route-chip", "state");
+  const offRoute = route({ locality: "remote", providerId: "openai", state: { status: "off" } });
+  const { ui } = await cleanup(t, { choice: "provider", status: "failed", route: offRoute });
   expectKey(ui, "setupFlow.cleanup.now.needsKey", { provider: "OpenAI" });
   assert.equal(ui.text().includes("setupFlow.cleanup.now.off"), false);
-  await ui.rerender({ choice: "codex" });
+  assert.equal(stateChips(ui).length, 0, "failed check: the sentence owns the status");
+  await ui.rerender({ choice: "provider", status: "checking" });
+  expectKey(ui, "setupFlow.cleanup.now.checking");
+  assert.equal(stateChips(ui).length, 0, "still checking: no Off chip");
+  await ui.rerender({ choice: "codex", status: "failed" });
   expectKey(ui, "setupFlow.cleanup.now.needsConnection");
+  assert.equal(stateChips(ui).length, 0);
   await ui.rerender({ choice: "local", status: "pending", route: route() });
   expectKey(ui, "setupFlow.cleanup.now.needsModel");
+  assert.equal(stateChips(ui).length, 0, "local model pending: no Off chip");
   await ui.rerender({ choice: "provider", status: "ready", route: { ...remoteReady, model: "GPT-5 mini" } });
   expectKey(ui, "setupFlow.cleanup.now.ready", { name: "GPT-5 mini", provider: "OpenAI" });
+  assert.deepEqual(stateChips(ui).map((chip) => chip.attributes["data-state"]), ["ready"], "a validated route shows its state");
+  assert.equal(ui.byAttr("data-route-chip", "destination").length, 1, "the destination chip stays in every case");
 });
 
 test("route disclosures use Plan 03's published chips, fed the real route (R2-M02)", async (t) => {
@@ -10020,6 +10091,10 @@ Expected: FAIL. The modules are missing, and the wiring test cannot find the new
          ? t("setupFlow.cleanup.now.ready", { name: route.model ?? providerLabel, provider: providerLabel })
          : t(`setupFlow.cleanup.now.${situation}`, { provider: providerLabel });
      const offerConsent = situation === "ready" && !onDevice && sentence !== null && !consented && run === null;
+     // R3-M02: the raw route state describes the user's choice only once its check has
+     // passed. Before that, cleanup is deliberately disabled and Plan 03 resolves the
+     // route as `off`, so the prerequisite sentence (`now`) owns the status instead.
+     const showRouteState = choice !== "none" && status === "ready" && route.state.status !== "off";
 
      return (
        <>
@@ -10082,7 +10157,7 @@ Expected: FAIL. The modules are missing, and the wiring test cannot find the new
          </section>
          {choice === "codex" ? <CodexConnection onSignedInChange={() => onChoose("codex")} /> : null}
          <p className="onb-muted" role="status">
-           {choice !== "none" ? <RouteStateChip state={route.state} /> : null} {now}
+           {showRouteState ? <RouteStateChip state={route.state} /> : null} {now}
          </p>
          <label className="onb-check">
            <input type="checkbox" dir="ltr" checked={reuse} onChange={(event) => onReuseChange(event.target.checked)} />
@@ -12720,6 +12795,8 @@ export default function OnboardingFlow({ onComplete, onExplore, initialStep, pre
       ? (downloadRail ?? { kind: "idle" })
       : trial.phase === "recording"
         ? { kind: "listening", heardVoice: trial.heardVoice }
+        : trial.phase === "processing"
+          ? { kind: "processing" } // keeps the take's meter mounted (R3-M01)
         : trial.phase === "success"
           ? { kind: "success" }
           : trial.phase === "error"

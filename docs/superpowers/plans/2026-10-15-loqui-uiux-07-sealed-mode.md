@@ -2144,7 +2144,7 @@ git commit -m "feat(privacy): add metadata-only flight recorder store"
 - Consumes `egressPolicy` (Task 2) and a `FlightRecorder`-shaped `recorder` with `record(event)` (Task 4).
 - Produces a module singleton. Every main-process site requires it.
 
-  ```js
+  ```text
   configureEgress({ isSealed: () => boolean, recorder?: FlightRecorder|null, now?: () => number }): void
   attachRecorder(recorder): void;  getRecorder(): FlightRecorder|null
   isSealed(): boolean                       // a throwing isSealed() counts as sealed (fail closed)
@@ -2172,7 +2172,7 @@ git commit -m "feat(privacy): add metadata-only flight recorder store"
 
   The types:
 
-  ```js
+  ```text
   TicketMeta = { task?, target, model?, provider?: string|null, meter?: "body"|"socket"|"opaque" = "body",
                  payload?: "audio"|"text"|"image"|"metadata" = "metadata", correlationId?: string|null }
   EgressNotice = { ticketId, task, targetId, host, payload, correlationId, ts }   // targetId: provider id, or "host:<host>" (Plan 04 encoding)
@@ -4232,7 +4232,7 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task contro
 **Interfaces:**
 - Produces:
 
-  ```js
+  ```text
   // src/helpers/privacy/childRegistry.js
   installSpawnGuard({ childProcess?, utilityProcess? }): void   // idempotent; wraps spawn/execFile/exec/fork and their Sync forms, and utilityProcess.fork
   register(child, { kind: string, group?: boolean, tree?: boolean }): Entry  // the guard registers automatically; exported for tests
@@ -4970,7 +4970,7 @@ A native start while sealed may reach program `exec` only after a platform launc
 
 **Main-owned registry contract:**
 
-```js
+```text
 // src/helpers/privacy/childRegistry.js
 installSpawnGuard({ childProcess?, utilityProcess?, nativeBoundary? }): void
 getNativeBoundary(): NativeBoundary  // unavailable is the fail-closed default
@@ -7421,17 +7421,15 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
    const CODEX_HOST = "https://chatgpt.com";
    ```
 
-2. Give `createModel` (`:173`) a seventh parameter `fetchImpl`, and pass it to every SDK factory:
+2. Give `createModel` (`:173`) a seventh parameter `fetchImpl`. After its existing enterprise-provider branches, use this block for the remaining SDK factories:
 
    ```js
-   async function createModel(provider, model, apiKey, baseURL, disableThinking, enterprise, fetchImpl) {
-     const withFetch = fetchImpl ? { fetch: fetchImpl } : {};
-     // …enterprise branch unchanged…
-     if (provider === "openai") return createOpenAI({ apiKey, ...withFetch })(model);
-     if (provider === "anthropic")
-       return require("@ai-sdk/anthropic").createAnthropic({ apiKey, ...withFetch })(model);
-     if (provider === "gemini") return require("@ai-sdk/google").createGoogle({ apiKey, ...withFetch })(model);
-     if (provider === "groq") return require("@ai-sdk/groq").createGroq({ apiKey, ...withFetch })(model);
+   const withFetch = fetchImpl ? { fetch: fetchImpl } : {};
+   if (provider === "openai") return createOpenAI({ apiKey, ...withFetch })(model);
+   if (provider === "anthropic")
+     return require("@ai-sdk/anthropic").createAnthropic({ apiKey, ...withFetch })(model);
+   if (provider === "gemini") return require("@ai-sdk/google").createGoogle({ apiKey, ...withFetch })(model);
+   if (provider === "groq") return require("@ai-sdk/groq").createGroq({ apiKey, ...withFetch })(model);
    ```
 
    In the OpenRouter `customFetch` (`:189-199`), replace `return fetch(url, init);` with `return (fetchImpl ?? fetch)(url, init);`. In the final `createOpenAI({ … })`, replace `...(customFetch ? { fetch: customFetch } : {}),` with `...(customFetch ? { fetch: customFetch } : withFetch),`.
@@ -10201,7 +10199,7 @@ test("a claim keeps the hold until the replay succeeds; a failed replay releases
   r.releaseRecovery(id, { done: false });
   assert.equal(original.context.released, false, "a failed replay retains the same live press-time reads");
   const again = r.claimRecovery(0);
-  assert.deepEqual([again.id, again.operation.owned.sessionId, again.operation.owned.private, again.operation.context.selection],
+  assert.deepEqual([again.id, again.operation.owned.sessionId, again.operation.owned.private, again.operation.context.selection()],
     [id, "private-old", true, "captured"], "same owner and context, still held");
   r.releaseRecovery(id, { done: true });
   assert.equal(r.recoveryCount(0), 0);
@@ -10773,15 +10771,15 @@ test("a private replay restores its original owner and privacy after a newer pub
   assert.equal(oldContext.releaseCount, 1, "terminal replay closes only the old context");
 });
 
-Extend Plan 04's existing `test/helpers/enterpriseRecipientPinning.test.js` using its
-real settings store, route-fact fixture, session factory, and main request handler.
-Capture a ready enterprise session and its existing opaque `enterpriseRecipientTags`
-through `captureDictationSession`; put that exact session and its `createSessionContext`
-handle in the recovery hold. Change live provider configuration before replay, then
-run the existing real RequestContext/main-handler path. Assert the request still
-carries the captured tag and the main handler accepts only the exact captured factory
-projection after credential resolution. Never hand-write a ready tag or add a new
-published field for Plan 07.
+// Extend Plan 04's existing `test/helpers/enterpriseRecipientPinning.test.js` using
+// its real settings store, route-fact fixture, session factory, and main request
+// handler. Capture a ready enterprise session and its existing opaque
+// `enterpriseRecipientTags` through `captureDictationSession`; put that exact
+// session and its `createSessionContext` handle in the recovery hold. Change live
+// provider configuration before replay, then run the existing real
+// RequestContext/main-handler path. Assert the request still carries the captured
+// tag and the main handler accepts only the exact captured factory projection after
+// credential resolution. Never hand-write a ready tag or add a new published field.
 
 test("the press-time context survives initial settlement, failed/cancelled replay, retry and terminal close", async (t) => {
   const fixtures = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });

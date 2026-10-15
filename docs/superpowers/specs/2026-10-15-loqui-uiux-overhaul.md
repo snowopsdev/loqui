@@ -214,7 +214,7 @@ export function useResolvedRoute(id: RouteId): ResolvedRoute;
 7. **Sealed.** While sealed, every route with `isSealedLocality(locality)` (that is, `network` and `remote`) is `{ status: "unreachable", detail: "sealed" }`.
 8. **Retired mode.** `openwhispr` mode is `remote` with a provider id and `unreachable`/`retired`.
 9. **Unsupported combinations.** `noteRecordingStt` in self-hosted mode, or with a provider outside the meeting providers, is `unreachable`/`unsupported` (Plan 05 CCR 5). So is `uploadStt` on a streaming-only provider.
-10. **Loopback endpoints.** A valid loopback custom endpoint is `device`. An invalid URL is never `device`.
+10. **Loopback endpoints.** A valid loopback custom endpoint is `device`. An invalid URL is never `device`. Plain-HTTP `*.localhost` is loopback by host, but the executors refuse it, so it resolves `needsUrl`.
 11. **Ready matches the executors.** Readiness uses the same validation the executors apply.
 
 **Published components** (Plan 08 CCR-6), in `src/components/settings/routing/RouteChips.tsx`:
@@ -429,7 +429,7 @@ window.electronAPI.showSystemNotification(payload: { title: string; body?: strin
 
 When Plan 03's storage list (SET-R7 A) replaces this UI, it keeps `readable` and `failed`, the unavailable state and their tests. An unreadable zero is never shown as "cleared".
 
-**Update status (Plan 02, D13).** `UpdateStatus.phase` gains `"available"`. Plan 03 moves `UpdateSettings`, and keeps rendering that phase.
+**Update status (Plan 02, D13).** `UpdateStatus.phase` gains `"available"`. `UpdateSettings` stays in System; Plan 03 adds only a search attribute, and keeps rendering that phase.
 
 ### 5.7 Capture status bridge (owner: Plan 06; consumers: 04, 05)
 

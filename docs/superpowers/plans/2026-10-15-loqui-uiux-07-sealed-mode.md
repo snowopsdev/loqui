@@ -9505,40 +9505,343 @@ git commit -m "feat(privacy): add the flight recorder view and document Sealed m
 
 ---
 
-### Task 16: Whole-plan verification, including a sealed Electron smoke run
+### Task 16: Electron sealed acceptance run, with an independent observer
+
+The unit tests and the matrix (Task 12) run in Node with fakes for Electron. This task runs the real app in Electron and attacks it with every transport it ships: Electron `net`, Node `http(s)`, `ws`, a renderer page (an image and `fetch`), a redirect out of loopback, and electron-updater. It runs with Sealed mode on and, as a control, with it off.
+
+The **observer is independent of the code under test.** A fixture HTTP server on 127.0.0.1 logs every request it receives. Remote-looking hostnames are mapped to it: by Chromium's `--host-resolver-rules` for Chromium traffic, and by a `lookup` option for Node sockets. If the fixture logs a request while sealed, something left. Loqui's own observer cannot say otherwise, and is not consulted.
+
+The script has no offline blockers of its own. `scripts/smoke-electron.cjs:71-83` installs blockers that could hide a missing guard (I1); this script installs none. The backstop and the gate are the only things standing between the probes and the fixture.
 
 **Files:**
-- Modify: `scripts/smoke-electron.cjs`. Add a `LOQUI_SMOKE_SEALED=1` mode.
+- Create: `scripts/sealed-acceptance.cjs`. It is both the launcher (run with Node) and the Electron bootstrap, the same pattern as `scripts/smoke-electron.cjs`.
+- Create: `scripts/lib/egressFixture.cjs`, the logging fixture server.
+- Modify: `package.json`. Add `"test:sealed-electron": "node scripts/sealed-acceptance.cjs"`.
 
-- [ ] **Step 1: Add the sealed smoke mode**
+**Interfaces:**
+- Consumes the shipped app: `main.js`, the privacy boot (Task 7), the backstop (Task 6), the child registry (Task 6a) and `window.electronAPI.privacy` through the real preload.
+- Produces `report.json` and `netlog.json` in the output directory. The netlog is an artifact for the security review (Task 18), not an assertion source.
 
-In `scripts/smoke-electron.cjs`, make three changes:
-1. **Bootstrap side**, next to the observer added in Task 6. Record every backstop decision:
+- [ ] **Step 1: Write the fixture**
 
-   ```js
-     globalThis.__whisprSmoke.egress = [];
-     require(path.join(repoRoot, "src/helpers/privacy/egressBackstop.js")).addObserver((event) => {
-       globalThis.__whisprSmoke.egress.push({ layer: event.layer, host: event.host, allowed: event.allowed });
-     });
-   ```
+Create `scripts/lib/egressFixture.cjs`:
 
-2. **Launcher side**, where the profile directory is created and passed as `LOQUI_PROFILE_DIR` (`:167`). Before launching, when `process.env.LOQUI_SMOKE_SEALED === "1"`, write the switch:
+```js
+const http = require("node:http");
 
-   ```js
-       if (process.env.LOQUI_SMOKE_SEALED === "1")
-         fs.writeFileSync(path.join(profile, "privacy.json"), JSON.stringify({ sealed: true, sealedSince: Date.now() }), { mode: 0o600 });
-   ```
+// Logs every request it receives. It is the independent observer: if it saw a
+// request while Loqui was sealed, that request left Loqui.
+function startEgressFixture() {
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    hits.push({ at: Date.now(), host: String(req.headers.host || ""), path: req.url });
+    if (req.url === "/redirect") {
+      res.writeHead(302, { location: `http://api.loqui-fixture.test:${server.address().port}/after-redirect` });
+      return res.end();
+    }
+    if (req.url.endsWith(".yml")) {
+      res.writeHead(200, { "content-type": "text/yaml" });
+      return res.end("version: 0.0.1\npath: none.zip\nsha512: none\nreleaseDate: '2026-01-01T00:00:00.000Z'\n");
+    }
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("ok");
+  });
+  server.on("upgrade", (req, socket) => {
+    hits.push({ at: Date.now(), host: String(req.headers.host || ""), path: `${req.url} (upgrade)` });
+    socket.destroy();
+  });
+  return new Promise((resolve) =>
+    server.listen(0, "127.0.0.1", () =>
+      resolve({
+        port: server.address().port,
+        hits,
+        remoteHits: (since = 0) => hits.filter((h) => h.at >= since && /loqui-fixture\.test/.test(h.host)),
+        close: () => new Promise((r) => server.close(r)),
+      })
+    )
+  );
+}
 
-3. **Report side.** Where the script reads `globalThis.__whisprSmoke.requests` (`:236`), also read `globalThis.__whisprSmoke.egress`. Add a check after the existing `verify(...)` calls (`:443-456`; the helper is at `:135`):
+module.exports = { startEgressFixture };
+```
 
-   ```js
-       if (process.env.LOQUI_SMOKE_SEALED === "1")
-         verify("sealed: no non-loopback connection was allowed", egress.every((e) => e.allowed === false));
-   ```
+- [ ] **Step 2: Write the bootstrap and probes**
 
-   The backstop notifies observers only for non-loopback targets, so any `allowed: true` event while sealed is a leak.
+Create `scripts/sealed-acceptance.cjs`. The bootstrap half:
 
-- [ ] **Step 2: Run everything**
+```js
+#!/usr/bin/env node
+/**
+ * Sealed-mode acceptance run (Plan 07, Task 16). Launches the real app twice
+ * against a logging fixture server and checks that, while sealed, the fixture
+ * receives nothing from any transport. Requires a built renderer and native
+ * modules rebuilt for Electron. No network access is needed.
+ * Run: node scripts/sealed-acceptance.cjs [--output-dir DIR]
+ */
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const assert = require("node:assert/strict");
+const repoRoot = path.resolve(__dirname, "..");
+
+function bootstrapElectron() {
+  const electron = require("electron");
+  const sandbox = process.env.LOQUI_ACCEPT_SANDBOX;
+  const port = Number(process.env.LOQUI_ACCEPT_PORT);
+  if (!sandbox || !process.env.LOQUI_PROFILE_DIR || !port) throw new Error("Acceptance bootstrap requires its sandbox.");
+  const temporaryHome = path.join(sandbox, "home");
+  fs.mkdirSync(temporaryHome, { recursive: true });
+  os.homedir = () => temporaryHome;
+  electron.app.setPath("home", temporaryHome);
+  electron.app.setAppPath(repoRoot);
+  // Chromium resolves the fixture names to the fixture. Node does not read this
+  // switch; the Node probes pass their own lookup.
+  electron.app.commandLine.appendSwitch("host-resolver-rules", "MAP *.loqui-fixture.test 127.0.0.1");
+  electron.app.whenReady().then(() => electron.netLog.startLogging(path.join(sandbox, "netlog.json")));
+
+  const toFixture = (_host, options, callback) =>
+    options?.all ? callback(null, [{ address: "127.0.0.1", family: 4 }]) : callback(null, "127.0.0.1", 4);
+  const url = (host, p) => `http://${host}.loqui-fixture.test:${port}${p}`;
+  const settle = (promise) => promise.then(() => "reached", (error) => error?.code || error?.name || "error");
+
+  // Every probe makes a real attempt and reports how it ended. The fixture
+  // log, not these results, decides whether anything left.
+  async function runProbes(label) {
+    const { net, BrowserWindow } = electron;
+    const http = require("node:http");
+    const WebSocket = require(path.join(repoRoot, "node_modules/ws"));
+    const results = {};
+    results.netFetch = await settle(net.fetch(url("api", `/net-fetch-${label}`)));
+    results.netRequest = await settle(
+      new Promise((resolve, reject) => {
+        const req = net.request(url("api", `/net-request-${label}`));
+        req.on("response", resolve);
+        req.on("error", reject);
+        req.end();
+      })
+    );
+    results.nodeHttp = await settle(
+      new Promise((resolve, reject) => {
+        const req = http.get(url("api", `/node-http-${label}`), { lookup: toFixture }, resolve);
+        req.on("error", reject);
+      })
+    );
+    results.ws = await settle(
+      new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://stream.loqui-fixture.test:${port}/ws-${label}`, { lookup: toFixture });
+        ws.on("error", reject);
+        ws.on("close", resolve);
+      })
+    );
+    // Out of loopback by redirect: the first hop is local and allowed.
+    results.redirect = await settle(net.fetch(`http://127.0.0.1:${port}/redirect`));
+    // A renderer page: an image and a fetch, in a fresh window of the default session.
+    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    await win.loadURL(
+      "data:text/html," +
+        encodeURIComponent(
+          `<img src="${url("img", `/img-${label}.png`)}"><script>fetch("${url("api", `/renderer-fetch-${label}`)}").catch(()=>{})</script>`
+        )
+    );
+    await new Promise((r) => setTimeout(r, 1000));
+    win.destroy();
+    results.renderer = "attempted";
+    // electron-updater's own request path, pointed at the fixture. The app's
+    // UpdateManager stays as configured; this probes the transport underneath.
+    try {
+      const { autoUpdater: updater } = require(path.join(repoRoot, "node_modules/electron-updater"));
+      updater.autoDownload = false;
+      updater.setFeedURL({ provider: "generic", url: url("updates", "/") });
+      results.updater = await settle(updater.checkForUpdates());
+    } catch (error) {
+      results.updater = `setup:${error.message}`;
+    }
+    // Loopback must keep working.
+    results.loopback = await settle(net.fetch(`http://127.0.0.1:${port}/loopback-${label}`).then((r) => r.text()));
+    return results;
+  }
+
+  // A network-capable child registered like yt-dlp. It ignores SIGTERM, so
+  // the registry has to escalate and wait for the OS to report the exit.
+  function startStubbornChild() {
+    const { spawn } = require("node:child_process");
+    const child = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      stdio: "ignore",
+    });
+    require(path.join(repoRoot, "src/helpers/privacy/childRegistry.js")).register(child, { kind: "yt-dlp" });
+    return child.pid;
+  }
+  const pidAlive = (pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  globalThis.__loquiAcceptance = { runProbes, startStubbornChild, pidAlive };
+  require(path.join(repoRoot, "main.js"));
+}
+```
+
+The spawn above runs before the seal, so the spawn guard allows it. It is registered under the kind the barrier must stop.
+
+- [ ] **Step 3: Write the launcher and its assertions**
+
+Append the launcher half:
+
+```js
+async function acceptance() {
+  const { _electron } = require("playwright");
+  const { startEgressFixture } = require("./lib/egressFixture.cjs");
+  const args = process.argv.slice(2);
+  const outputIndex = args.indexOf("--output-dir");
+  const output = outputIndex === -1 ? fs.mkdtempSync(path.join(os.tmpdir(), "loqui-sealed-accept-")) : path.resolve(args[outputIndex + 1]);
+  fs.mkdirSync(output, { recursive: true });
+  const fixture = await startEgressFixture();
+  const report = { output, port: fixture.port, runs: {}, passed: [] };
+  const verify = (name, condition, detail) => {
+    assert.ok(condition, `${name}${detail ? `: ${JSON.stringify(detail)}` : ""}`);
+    report.passed.push(name);
+    console.log(`PASS ${name}`);
+  };
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function waitFor(read, predicate, message, timeout = 15000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const value = await read();
+      if (predicate(value)) return value;
+      await pause(200);
+    }
+    throw new Error(`Timed out: ${message}`);
+  }
+
+  async function launch(name, { bootSealed }) {
+    const sandbox = fs.mkdtempSync(path.join(output, `${name}-`));
+    const profile = path.join(sandbox, "profile");
+    fs.mkdirSync(profile);
+    if (bootSealed) fs.writeFileSync(path.join(profile, "privacy.json"), JSON.stringify({ sealed: true, sealedSince: Date.now() }), { mode: 0o600 });
+    const env = {
+      ...process.env,
+      NODE_ENV: "test",
+      LOQUI_PROFILE_DIR: profile,
+      LOQUI_ACCEPT_SANDBOX: sandbox,
+      LOQUI_ACCEPT_PORT: String(fixture.port),
+      LOQUI_CACHE_ROOT: path.join(sandbox, "cache"),
+    };
+    delete env.ELECTRON_RUN_AS_NODE;
+    const app = await _electron.launch({ executablePath: require("electron"), args: ["--lang=en-US", __filename], cwd: repoRoot, env, timeout: 45000 });
+    const panel = await waitFor(
+      async () => app.windows().find((page) => /[?&]panel=true(?:&|$)/.test(page.url())),
+      Boolean,
+      "control panel page"
+    );
+    await panel.waitForFunction(() => !!window.electronAPI?.privacy);
+    return { app, panel, sandbox };
+  }
+  const attestation = (panel) => panel.evaluate(() => window.electronAPI.privacy.getAttestation());
+  const probe = (app, label) => app.evaluate((_electron, l) => globalThis.__loquiAcceptance.runProbes(l), label);
+  const EXPECTED_REMOTE = ["net-fetch", "net-request", "node-http", "ws", "after-redirect", "img", "renderer-fetch", "updates"];
+  const kinds = (hits) => EXPECTED_REMOTE.filter((k) => hits.some((h) => h.path.includes(k) || h.host.startsWith(`${k}.`)));
+
+  try {
+    // Run 1: the control. Unsealed, every probe must reach the fixture, which
+    // proves each probe would be seen if it leaked.
+    {
+      const { app, panel } = await launch("open", { bootSealed: false });
+      const since = Date.now();
+      report.runs.openProbes = await probe(app, "open");
+      const reached = kinds(fixture.remoteHits(since));
+      verify("control: every remote probe reached the fixture while unsealed", reached.length === EXPECTED_REMOTE.length, { reached });
+
+      // Seal from the renderer through the real preload and trusted IPC, with a
+      // stubborn network-capable child running.
+      const pid = await app.evaluate(() => globalThis.__loquiAcceptance.startStubbornChild());
+      await panel.evaluate(() => window.electronAPI.privacy.setSealed(true));
+      const sealedAt = Date.now();
+      const verified = await waitFor(() => attestation(panel), (a) => a.nothingLeaves === true, "verified seal after toggling", 20000);
+      verify("toggle: the child was gone before the seal was verified", !(await app.evaluate((_e, p) => globalThis.__loquiAcceptance.pidAlive(p), pid)));
+      verify("toggle: verification is dated after the toggle", verified.effectiveSince >= sealedAt - 1000);
+      report.runs.toggledProbes = await probe(app, "toggled");
+      verify("toggle: the fixture saw nothing remote after sealing", fixture.remoteHits(sealedAt).length === 0, fixture.remoteHits(sealedAt));
+      verify("toggle: loopback still works", report.runs.toggledProbes.loopback === "reached");
+      verify(
+        "toggle: every remote probe was attempted and refused",
+        Object.entries(report.runs.toggledProbes).filter(([k]) => !["loopback", "renderer"].includes(k)).every(([, v]) => v !== "reached"),
+        report.runs.toggledProbes
+      );
+      await app.close();
+    }
+
+    // Run 2: sealed from boot. Nothing remote, from the first instruction.
+    {
+      const since = Date.now();
+      const { app, panel } = await launch("sealed", { bootSealed: true });
+      const a = await waitFor(() => attestation(panel), (x) => x.sealed === true, "sealed attestation");
+      verify("boot: the app reports sealed", a.sealed === true);
+      report.runs.bootProbes = await probe(app, "boot");
+      await pause(1500); // let late renderer and updater requests surface
+      verify("boot: the fixture saw nothing remote during the whole sealed run", fixture.remoteHits(since).length === 0, fixture.remoteHits(since));
+      verify("boot: loopback works", report.runs.bootProbes.loopback === "reached");
+      const ledger = await panel.evaluate(() => window.electronAPI.privacy.egressSummary({ since: 0 }));
+      verify("boot: the refused attempts are in the flight recorder as blocked", ledger.blocked > 0, ledger);
+      await app.close();
+    }
+  } finally {
+    await fixture.close();
+    fs.writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
+    console.log(`Acceptance artifacts: ${output}`);
+  }
+}
+
+if (process.versions.electron) bootstrapElectron();
+else
+  acceptance().catch((error) => {
+    console.error(error.stack || error);
+    process.exitCode = 1;
+  });
+```
+
+Notes for the implementer:
+- `app.evaluate` runs in Electron main with the `electron` module as its first argument; the probes live on `globalThis` because the evaluated function cannot `require`.
+- If `ws` or `electron-updater` resolve differently in this repo, fix the `require` paths, never drop the probe. Each kind in `EXPECTED_REMOTE` must be reached in the control run, or the sealed result for it proves nothing.
+- If the updater probe cannot be pointed at the fixture on a platform (`setFeedURL` refuses in an unpackaged app), record `report.runs.*.updater` and keep the probe out of `EXPECTED_REMOTE` on that platform only, with a comment naming the reason. The matrix (Task 12, N16) still covers the gate.
+- A probe that hangs is a failure, not a pass: keep the per-probe settle bounded by the fixture's own response.
+
+- [ ] **Step 4: Run it**
+
+```bash
+npm run native:electron
+npm run build
+npm run test:sealed-electron -- --output-dir /tmp/loqui-sealed-accept
+npm run native:node
+```
+
+Expected: every `PASS` line prints, and the script exits with code 0. `report.json` lists the probe results for each run. On failure, the assertion names the probe whose request reached the fixture.
+
+- [ ] **Step 5: Prove the observer catches a leak**
+
+Temporarily comment out the `installNodeBackstop()` call in `privacyBoot.bootEgressGuards` and rebuild. Rerun: "toggle: the fixture saw nothing remote after sealing" must fail on `node-http` or `ws`. Restore the line. Record the failing output in the PR description.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/sealed-acceptance.cjs scripts/lib/egressFixture.cjs package.json
+git commit -m "test(privacy): Electron sealed acceptance run with an independent fixture observer"
+```
+
+---
+
+### Task 17: Whole-plan verification and manual checks
+
+The sealed Electron evidence comes from Task 16's acceptance run, whose observer is independent of the app. An earlier draft added a sealed mode to `scripts/smoke-electron.cjs` that checked `egress.every((e) => e.allowed === false)`. That check passes on an empty list, and it trusted the backstop's own observer, so it is not used (I1). The regular smoke run stays as it is.
+
+**Files:**
+- None, unless a check below fails.
+
+- [ ] **Step 1: Run everything**
 
 ```bash
 npm run native:node
@@ -9549,19 +9852,19 @@ npm run i18n:check
 npm run format:check
 npm run native:electron
 npm run build
-LOQUI_SMOKE_SEALED=1 node scripts/smoke-electron.cjs --output-dir /tmp/loqui-smoke-sealed
+npm run test:sealed-electron -- --output-dir /tmp/loqui-sealed-accept
 node scripts/smoke-electron.cjs --output-dir /tmp/loqui-smoke-open
 npm run native:node
 ```
 
 Expected:
 - every command passes;
-- `/tmp/loqui-smoke-sealed/report.json` shows the sealed check passing;
-- the unsealed smoke run still passes its existing checks.
+- `/tmp/loqui-sealed-accept/report.json` lists every `PASS` from Task 16;
+- the regular smoke run still passes its existing checks.
 
 Any pre-existing test that fails because a transport moved (`postMultipart` out of `ipcHandlers.js`, or `proxyFetch` now gated) is updated in this branch only where it asserted the old location. Note each one in the PR description.
 
-- [ ] **Step 3: Manual verification in the desktop app**
+- [ ] **Step 2: Manual verification in the desktop app**
 
 Run `npm run dev` with a disposable profile: `LOQUI_PROFILE_DIR=$(mktemp -d)`. Never use your personal profile. Then check each of these, screenshotting each for the PR:
 - **Privacy & Data shows Sealed mode first.** Off, it is a normal card. Toggling it on turns the panel navy and shows "Sealed and verified since …" within about two seconds.
@@ -9571,6 +9874,11 @@ Run `npm run dev` with a disposable profile: `LOQUI_PROFILE_DIR=$(mktemp -d)`. N
 - **Seal during a long cloud chat reply.** The bubble reads "Chat stopped: Sealed mode was turned on mid-reply…", not "Chat paused".
 - **Press the dictation hotkey with a cloud STT route while sealed.** Nothing records, and "Dictation paused: Sealed mode is on" appears.
 - **Seal while a cloud-route dictation is already recording, then stop.** The copy says the provider may have received part of it (when the realtime stream was open), or nothing was sent (batch). With history on, the recording appears in History with Retry, and retrying after unsealing works.
+- **The same, with local history off.** The toast says the recording is kept in memory only and offers "Transcribe". Nothing appears in History, and the profile directory gains no audio file (`find "$LOQUI_PROFILE_DIR" -newer <marker> -name "*.webm" -o -name "*.wav"` is empty). Unseal: a notice offers "Transcribe" again, and it transcribes. Reload the window instead: the recording is gone, as the copy said.
+- **Browser links while sealed.** Click a link in a chat answer, and a meeting join link. A system dialog names only the host and defaults to "Don't open". "Don't open" opens nothing and shows no error.
+- **Remote images while sealed.** A chat answer with a remote markdown image shows the "Image not loaded while Sealed mode is on" placeholder, and the flight recorder gains no unexplained row.
+- **Calendar sign-in while sealed.** "Connect Google Calendar" is refused before a browser opens. Start the sign-in unsealed, then seal before finishing it in the browser: the flow ends as interrupted, and finishing in the browser afterwards reaches nothing.
+- **A stubborn child.** Seal while a URL import (yt-dlp) is downloading. The panel names yt-dlp until the process has exited, and only then says verified.
 - **Codex.** Sign in to ChatGPT, then seal. The Codex process exits, and the panel becomes verified only after it is gone. The recorder shows one "Session — its traffic is not visible to Loqui" row for that run.
 - **Dictate with a local model while sealed.** It works, and nothing is added to the recorder.
 - **Start a model download, then seal.** The download stops, the partial file is kept for resume, and the recorder shows "Stopped".
@@ -9579,18 +9887,18 @@ Run `npm run dev` with a disposable profile: `LOQUI_PROFILE_DIR=$(mktemp -d)`. N
 - **Export CSV.** Open the file. It has the header row, no URLs and no message text.
 - **Theme and direction.** Switch to Plum Night and to an RTL locale (`ar`). The panel remains readable and the hosts render left-to-right.
 
-- [ ] **Step 4: Commit any fixes**
+- [ ] **Step 3: Commit any fixes**
 
 ```bash
 git add -A
-git commit -m "test(privacy): add a sealed Electron smoke run"
+git commit -m "fix(privacy): issues found in whole-plan verification"
 ```
 
-Get the owner's explicit OK before pushing or opening a PR. Publishing a PR is outward-facing, and Task 17 must complete first.
+Get the owner's explicit OK before pushing or opening a PR. Publishing a PR is outward-facing, and Task 18 must complete first.
 
 ---
 
-### Task 17: Dedicated security review before merge
+### Task 18: Dedicated security review before merge
 
 The owner requires a dedicated review of Sealed mode before merge (D6). This task is a separate pass by a reviewer who did not write the code. Its output is a findings document, plus the owner's sign-off.
 
@@ -9608,17 +9916,20 @@ Run the review in a fresh context on the most capable model available (Opus), fo
 ```text
 Review Loqui's Sealed mode for ways data can still leave the computer while sealed, and for ways the UI can claim more than main attests. Work adversarially; assume every path not proven blocked is open. For each item, answer with evidence (file:line, a test you ran, or a command and its output):
 
-1. Inventory completeness. Grep main.js, src/helpers, src/workers, src/services and preload.js for every transport: fetch, net.fetch/net.request, http(s).request/get, http2, tls.connect, net.connect, dgram, WebSocket/ws, EventSource, child_process spawn/exec/fork of network-capable binaries, utilityProcess.fork, worker_threads, session.fetch, webContents.downloadURL, BrowserWindow.loadURL with remote URLs, shell.openExternal. Every hit is in the threat model inventory with a decision.
+1. Inventory completeness. Grep main.js, preload.js, src/helpers, src/workers, src/services, src/components, src/hooks and src/stores (.js, .ts, .tsx, .jsx, .mjs, .cjs) for every transport: fetch, net.fetch/net.request, http(s).request/get and aliases such as `mod.request`, http2, tls.connect, net.connect, dgram, dns, WebSocket/ws, EventSource, child_process spawn/exec/execFile/fork, utilityProcess.fork, worker_threads, session.fetch, webContents.downloadURL, BrowserWindow.loadURL with remote URLs, shell.openExternal. Every hit is in the threat model's `egress-sites` or `spawn-sites` block with a decision, and the ratchet tests fail when one is removed.
 2. Layer B coverage. Confirm in a packaged build (or `npm run dev`) that: undici fetch, https.request, ws, AWS SDK and Tinfoil SDK connections all pass through net.Socket.prototype.connect; electron-updater's partition session is watched (session-created fires for it); renderer image loads in rendered markdown are cancelled while sealed; nothing else calls webRequest.onBeforeRequest.
 3. Bypass attempts. Hostnames that resolve to loopback, IPv6 forms, IPv4-mapped IPv6, decimal/octal IP spellings, trailing dots, uppercase, `localhost.` vs `localhost.example`, a custom `lookup` for `localhost`; proxies — the CONNECT/absolute-form refusal, `NODE_USE_ENV_PROXY`, a PAC/WPAD fetch by Chromium, and any library that tunnels through a loopback proxy without CONNECT (e.g. SOCKS).
-4. Child processes. Codex app-server is killed on seal and never spawned while sealed; yt-dlp downloads are killed and self-update skipped; llama-server/whisper-server/parakeet/qdrant are started with loopback-only binds and no download flags (e.g. llama.cpp `-hf`, `--model-url`); the ONNX utility process has no network code.
+4. Child processes. A child counts as stopped only when the OS reports its exit (and, for a process group, when the group is gone); a SIGKILL that is ignored keeps the seal unverified. Codex app-server is stopped on seal and never spawned while sealed; yt-dlp downloads and self-update are stopped and their sessions settle only on exit; the spawn guard refuses network-capable and third-party spawns while sealed; FFmpeg runs only with `-protocol_whitelist file,pipe` — try an adversarial playlist/concat/HLS file that references a remote URL; llama-server/whisper-server/parakeet/qdrant are started with loopback-only binds and no download flags (e.g. llama.cpp `-hf`, `--model-url`); the ONNX utility process has no network code.
 5. Transition races. Toggle sealed rapidly; seal during: chat stream, realtime STT, model download, update download, URL import, Codex turn, calendar OAuth. Check attestation.nothingLeaves only becomes true after everything is stopped, and that no request authorised before the seal completes a new connection after it.
 6. Fail-closed state. Corrupt/unreadable/unwritable privacy.json; isSealed throwing; boot order (guards installed before any helper require; before app ready).
 7. IPC. Only the main frame of the main window or control panel, showing Loqui's own page, can set-sealed or clear/export the ledger; argument validation; main's native confirmation for unseal and clear; the control panel is now sandboxed with web security on (Task 7a) — confirm nothing regressed and no window still relaxes either.
 8. Ledger privacy. No content, prompts, keys, URL paths/queries or error messages can reach egress_events or the CSV; CSV formula injection; retention and the local-history-off path never write to disk; Clear deletes rows.
-9. Honest UI. The verified Sealed-mode line, the "nothing was sent" copy (refusals only, never interruptions), the route "Paused" states and the cancel copy (Plan 04 CCR-3, `sent` notices with correlation ids) can only appear from main's attestation and notices.
+9. Honest UI. The verified Sealed-mode line (dated from effectiveSince, dropped when older than 30 s), the "nothing was sent" copy (refusals only, never interruptions), the route "Paused" states, the flight recorder's observed-request and helper-session counts, and the cancel copy (Plan 04 CCR-3: `dispatched` = "may have received", `delivered` = "received", with correlation ids and target ids) can only appear from main's attestation and notices.
 10. Chromium speculative networking (DNS prefetch/preconnect) while sealed, despite `x-dns-prefetch-control: off`: observe with a packet capture or `chrome://net-export` in a sealed dev session with chat answers containing links and images; recommend a switch if leaks are seen. Also confirm the WebRTC policy reaches every webContents (including the pill and notification windows).
-11. Attestation honesty. Try to make the panel show "verified" while something can still send: a stalled response body, a warm realtime socket, a Codex start in progress, a yt-dlp update, an unread `guardResponse` body, an env proxy.
+11. Attestation honesty. Try to make the panel show "verified" while something can still send: a stalled response body, a warm realtime socket, a Codex start in progress, a yt-dlp update whose process ignores signals, an un-ticketed Chromium request that never finishes, a pending DNS lookup, an unread `guardResponse` body, an env proxy. Attestation must stay unverified, and nothing may clear evidence to make it pass.
+12. Outside the boundary. Confirm each exception in the threat model is disabled or disclosed: browser and mail links ask first in a main-owned dialog that names only the host; pending calendar OAuth flows are cancelled on seal; remote markdown images are placeholders; loopback forwarders (a local proxy the user runs) are named as trusted.
+13. Content preservation. A dictation refused or interrupted while sealed with history off is held in renderer memory only (check that no file is written), offered for "Transcribe", and dropped on quit; a refused cleanup after local speech-to-text keeps the local transcript.
+14. Acceptance evidence. Read Task 16's report and netlog. Confirm the control run reached the fixture with every probe kind, and that the leak-injection check in Task 16, Step 5 failed as it should.
 
 Report: a table of findings with severity (critical/high/medium/low), evidence, and a concrete fix. Mark each checklist item PASS/FAIL/NOT VERIFIED.
 ```
@@ -9637,7 +9948,7 @@ Write the reviewer's report to `docs/security/sealed-mode-review-2026-10.md`. Ad
 
 - [ ] **Step 3: Fix, then re-review**
 
-Fix each critical and high finding in its owning task's files, with a test that pins it. Re-run the full Task 16 suite, then send the reviewer the fix diff for a focused re-review. Repeat until no critical or high finding remains open.
+Fix each critical and high finding in its owning task's files, with a test that pins it. Re-run the full Task 17 suite, including the Task 16 acceptance run, then send the reviewer the fix diff for a focused re-review. Repeat until no critical or high finding remains open.
 
 - [ ] **Step 4: Commit and hand off**
 

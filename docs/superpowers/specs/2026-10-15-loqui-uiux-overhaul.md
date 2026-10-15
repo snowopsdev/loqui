@@ -106,7 +106,7 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
   - **Merge gate.** Plan 07 doesn't merge until this ships.
 - **D15, Linux isolation: a packaged AppArmor profile, otherwise pause** (owner decision, 2026-10-15). Ubuntu 24.04 restricts unprivileged user namespaces by default.
   - **Packages.** The `.deb` and `.rpm` packages install an AppArmor profile that lets `loqui-isolate` create its namespaces.
-  - **Fallback.** Where isolation still can't be set up (AppImage, tar.gz, locked-down systems, or a failed boot self-test), native model servers **pause while sealed**. The Sealed panel names the reason and the fix: install the package, or unseal. Device routes that need no native child keep working.
+  - **Fallback.** Where isolation still can't be set up (AppImage, tar.gz, locked-down systems, or a failed boot self-test), every native child Loqui starts **pauses while sealed**: model servers and helpers alike, as in D14. An unconfined helper would keep the seal from ever verifying. The Sealed panel names the reason and the fix: install the package, or unseal. Device routes that need no native child keep working.
   - **No weaker fallback.** No seccomp or Landlock fallback is claimed as isolation, and partial coverage never counts toward `nothingLeaves`.
 
 ## 3. Plans and dependencies
@@ -199,7 +199,7 @@ export interface ResolvedRoute {
   locality: Locality;
   provider: string | null;      // English providerDisplayName: logs only
   providerId: string | null;    // raw provider id; null for device and network. UI shows providerDisplayLabel(providerId, t).
-  host: string | null;          // normalized effective endpoint host[:port]; null when nothing leaves the device or the endpoint is invalid
+  host: string | null;          // normalized effective endpoint host[:port] of any user-configured endpoint, loopback included; null for Loqui's built-in engines and invalid endpoints
   model: string | null;         // display name of the selected model
   state: RouteState;
   sends: string | null;         // translated payload list; null when the route is on the device or off

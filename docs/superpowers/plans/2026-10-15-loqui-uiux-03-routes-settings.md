@@ -57,7 +57,7 @@ Every Critical and Important finding is closed. One finding is narrowed with evi
 
 | Finding | Status | How |
 |---|---|---|
-| **C1** Authenticated discovery without explicit action | Closed | Task 9. `OpenAICompatiblePanel` loses mount, blur and auto-adopt discovery. URL edits are a local draft committed through the planner. The only path to `personalInference.models` is a "List models" button that names the receiving host and the credential slot it sends (or "no key"). The self-hosted Test uses a new unauthenticated probe that sends no headers. Mounted tests assert zero discovery calls on mount, tab browsing, typing and blur, and exactly one on the button. |
+| **C1** Authenticated discovery without explicit action | Closed | Task 9. `OpenAICompatiblePanel` loses mount, blur and auto-adopt discovery. URL edits are a local draft committed through the planner. The only path to `personalInference.models` is a "List models" button that names the receiving host and the credential slot it sends (or "no key"). The self-hosted Test uses a new unauthenticated probe that sends no headers. `CodexConnection` no longer checks status or quota on mount in Settings; that is an explicit "Check ChatGPT status" button. Mounted tests assert zero discovery calls on mount, tab browsing, typing and blur, and exactly one on the button. A repo-wide guard in Task 18 fails if any component writes a route-affecting setting outside the planner. |
 | **C2** Counted history deletion deletes more | Closed | Task 14. `storageOps.js` in main owns preview and deletion with identical predicates. History deletion counts every transcript row (completed, discarded, soft-deleted) and every audio file, because the existing clear deletes all audio, and the confirmation names both. Tests use mixed rows and unlinked audio, and assert deleted == previewed. |
 | **I1** Remote switching outside staged flow | Closed (narrowed) | Tasks 7–9. All four mode selectors, both pickers' commit paths, the custom base-URL field (no more automatic provider recognition), every self-hosted URL field, the editors' enable switches (cleanup, assistant, translation, screen context, vision model), the provider web-search toggle and the Corti region all go through the planner (`requestRouteChange` / `requestRoutePatch`). Turning a switch off is instant; turning one on stages when the route would send off the device. The policy-reconcile write is removed; invalid selections are preserved and shown as non-ready. On-device effective results (including loopback endpoints) are instant. New off-device recipients are staged. **Narrowing:** a model-only change at the same provider and host, with no growth in payload, applies instantly with a named toast and Undo. Evidence: spec §4 and SET-R3 B constrain moving work toward remote and silent provider switches, and such a change adds no recipient and no payload. It still runs through the planner, so the effective-recipient check is applied, not assumed. |
 | **I2** Route facts start Codex network activity | Closed | Tasks 2–3. Codex presence is `fs.stat` of `<userData>/codex/auth.json` in main (no read, no process, no network). The facts loader never calls `codexStatus`, discovery or verification. A test fails if any of those are invoked. Facts publish independently. |
@@ -158,6 +158,7 @@ Each question has a default, and the plan implements that default unless the own
 4. **Curated model tiers.** The pips are size-derived estimates until `speedTier` and `qualityTier` are curated. Should they be curated before release?
 5. **Main-process provider names.** Native reminder notifications use a small `PROVIDER_NAMES` map in main that mirrors `locality.ts`. Default: accept it.
 6. **Incidental finding, out of scope.** `src/helpers/audioManager.js:3254` and `:3593` reference `usesKeywords`/`dictionary`, which are declared only inside `processWithOpenAIAPI` (`:2924-2925`). This is a possible ReferenceError on streaming dictation, not verified by running. Track it separately?
+7. **Codex status in onboarding.** Settings no longer starts Codex on mount. `OnboardingFlow.tsx:546` keeps today's mount-time status check through an opt-in prop, so onboarding behaviour is unchanged. Default: Plan 05 decides whether onboarding keeps it.
 
 ## Global Constraints
 
@@ -12309,6 +12310,7 @@ Closes **C1** and the picker half of **I1**.
 - **C1.** `OpenAICompatiblePanel` stops discovering models on mount (`:225-237`), on blur (`:239-252`) and through sibling-base auto-adoption (`:165-193`). A typed URL stays a local draft; "Use this endpoint" goes to `requestRouteChange`. The only path to `personalInference.models` is an explicit **List models** button whose label names the receiving host and whose tooltip and caption name the saved credential slot main will send (or say that none is). Browsing ReasoningModelSelector's OpenRouter, custom and Codex tabs (`:572-608`) sends nothing.
 - **I1 (pickers).** Every committed provider, model and endpoint change in `TranscriptionModelPicker` (`handleCloudModelSelect` `:863-878`, the custom base-URL blur that switched provider `:900-927`, per-keystroke URL writes `:1190-1194`, the policy-reconcile write `:636-659`), `ReasoningModelSelector` (`handleModelSelect` `:480-491`, `handleModeChange` `:493-506`) and `SelfHostedPanel` (Settings `:648-656`, Upload `:132-139`) goes through one `onCommit(target)` → `requestRouteChange`. On-device results apply at once with Undo; a new recipient is staged behind Apply. An invalid persisted selection is shown and left for the resolver to report as not ready; the picker no longer rewrites it.
 - **Corti region (I1 follow-up).** The region `Select` and tenant field in `TranscriptionModelPicker`'s Corti credentials (`:301-315`, rendered at `:1249-1272`) called `setCortiEnvironment`/`setCortiTenant`. The region picks the receiving host (`api.<region>.corti.app`, `cortiTranscription.js:39`, `cortiStreaming.js:48`), so both now commit through Task 8's `useRouteChange().requestPatch` (Task 7's `requestRoutePatch`): a region switch is staged when a speech route uses Corti (Corti text always calls `ai.eu.corti.app`, Task 1's `providerHosts["corti:text"]`, so it is not moved), and the tenant (same host) applies at once. The tenant is a local draft committed on leave or Enter, never per keystroke.
+- **C1/I2 (Codex connection).** `CodexConnection` (`src/components/CodexConnection.tsx:60-62`) runs `refresh()` on mount. That calls `codexStatus()`, which starts the Codex app server (`src/helpers/codexAppServer.js:359-367` → `start()` `:116-181`). The first start in a session may also ask GitHub to verify the release (`verifyOfficialCodex`, `src/helpers/codexCli.js:309-340`). When the account is signed in, it then calls `codexRateLimits()` (`:35`, `:44-48`). `CodexModelPicker` renders it (`ReasoningModelSelector.tsx:789`), so opening the Codex tab started Codex. In Settings it now runs nothing on mount. Signed-in presence comes from Task 2's main-confirmed `credentials.list` row for `"codex"`, a stat of `auth.json` with no process and no network, read through Task 3's `useRouteFactsStore`. Status and quota are read only by an explicit **Check ChatGPT status** button whose tooltip names ChatGPT via the Codex app. Account events still refresh, because they follow an explicit sign-in or sign-out. Onboarding (`OnboardingFlow.tsx:546`) is Plan 05's concern. It opts into the old mount read with `checkStatusOnMount`, so its behaviour and tests stay as they are, and Plan 05 decides whether to keep it.
 - **SET-Q19.** Self-hosted inputs are labelled (`htmlFor`/`useId` via Task 8's `EndpointDraft`) and get an unauthenticated **Test** that calls a new main probe, `src/helpers/selfHostedProbe.js` (no headers; `GET <base>/models`; plain http only for private hosts using the now-exported `isPrivateHost`), exposed as `window.electronAPI.probeSelfHosted`. Upload's panel is read-only, because it shares dictation's URL.
 
 **Files:**
@@ -12317,21 +12319,23 @@ Closes **C1** and the picker half of **I1**.
 - Modify: `src/helpers/ipcHandlers.js` (new handler after `test-provider-connection`, which ends at `:1152`), `preload.js:118`, `src/types/electron.ts:702-711`, `src/preview/browserPreview.ts:155-156`
 - Rewrite: `src/components/OpenAICompatiblePanel.tsx`
 - Rewrite: `src/components/SelfHostedPanel.tsx`
+- Rewrite: `src/components/CodexConnection.tsx` (`:1-148`)
+- Modify: `src/components/OnboardingFlow.tsx:546` (opt into the mount read; behaviour unchanged, Plan 05 owns it)
 - Modify: `src/components/ReasoningModelSelector.tsx` (`:47-75`, `:338-351`, `:475-506`, `:577-608`, `:783-788`, `:790-792`)
 - Modify: `src/components/TranscriptionModelPicker.tsx` (`:214-237`, `:376-397`, `:412-415`, `:476-576`, `:636-659`, `:843-947`, `:970-983`, `:1184-1225`, `:1266-1272`)
 - Modify: `src/components/settings/InferenceConfigEditor.tsx` (`:124-143`, `:166-182`)
 - Modify: `src/components/notes/NotesOnboarding.tsx` (`:41-45`, `:161-171`)
 - Modify: `src/components/SettingsPage.tsx` (`TranscriptionSection`: props `:428-457`, destructuring `:465-494`, `handleLocalModelSelect`, `renderTranscriptionPicker`, the self-hosted block; the `<TranscriptionSection` call `:3107-3136`)
 - Modify: `src/components/settings/MeetingSettings.tsx`, `src/components/settings/UploadSettings.tsx`
-- Modify: `docs/PRIVACY.md:51`
-- Modify tests: `test/components/personalWorkspace.test.js` (delete the mount-discovery case `:162-189`; update the selector case's props `:192-203`), `test/components/orukeetOrganization.test.js:92-131`, `test/components/fieldDirectionPolicy.test.js:58-73`
+- Modify: `docs/PRIVACY.md:49`, `:51`
+- Modify tests: `test/components/personalWorkspace.test.js` (delete the mount-discovery case `:162-189`; update the selector case's props `:192-203`), `test/components/orukeetOrganization.test.js:92-131`, `test/components/fieldDirectionPolicy.test.js:58-73`, `test/components/codexConnectionSignIn.test.js:69` (these cases pin onboarding's opt-in mount read)
 - Modify: `src/locales/*/translation.json`
 - Test: `test/helpers/selfHostedProbe.test.js`, `test/components/endpointDiscovery.test.js`, `test/components/routePickers.test.js`
 
 **Interfaces:**
 - Consumes:
   - Task 8: `useRouteCommit(id)`, `useRouteChange().requestPatch` (I1 follow-up), `EndpointDraft`/`EndpointDraftValue`, `TEXT_PROVIDER_TABS`, `StagedRouteBar` (`placement`, `shortcut`), test helpers `createProbeRoot`/`findElement` and `routeTestApi`/`primeRouteFacts`/`toastCapture`/`rendererServer`, locale keys `staging.useEndpoint` and `staging.useServer`.
-  - Task 7: `useRouteDraftStore` (tests); its `commit` already stops llama-server when a scope moves to a server. Task 6: `RouteTarget`. Task 1 (re-exported by Task 3's `src/lib/routes.ts`): `SCOPE_ROUTE`, `STT_CONTEXT_ROUTE`, `LlmRouteScope`. Task 3: `useSealedStore` (`src/stores/sealedStore.ts`), `loadRouteFacts(api)` (tests, through Task 8's `primeRouteFacts`). Task 2: `saveSecret(storeKey: SecretStoreKey, value)` and `type SecretStoreKey`, exported from `src/stores/settingsStore.ts` (the custom-endpoint keys `cleanupCustomApiKey` … `chatAgentCustomApiKey` and `customTranscriptionApiKey` are secret store keys), and the ack-returning per-provider setters (`setOpenrouterApiKey`).
+  - Task 7: `useRouteDraftStore` (tests); its `commit` already stops llama-server when a scope moves to a server. Task 6: `RouteTarget`. Task 1 (re-exported by Task 3's `src/lib/routes.ts`): `SCOPE_ROUTE`, `STT_CONTEXT_ROUTE`, `LlmRouteScope`. Task 3: `useSealedStore` (`src/stores/sealedStore.ts`), `loadRouteFacts(api)` (tests, through Task 8's `primeRouteFacts`), and `useRouteFactsStore` and `ensureRouteFactsSubscribed()` (`src/stores/routeFactsStore.ts`). `facts.credentials` is a `Map<CredentialId, boolean>`, or `null` before main has listed credentials. Task 2: the `credentials.list` row `{ id: "codex", present }`, where present means main found `<userData>/codex/auth.json` (`hasStoredAccount`, a stat with no process and no network). Task 2: `saveSecret(storeKey: SecretStoreKey, value)` and `type SecretStoreKey`, exported from `src/stores/settingsStore.ts` (the custom-endpoint keys `cleanupCustomApiKey` … `chatAgentCustomApiKey` and `customTranscriptionApiKey` are secret store keys), and the ack-returning per-provider setters (`setOpenrouterApiKey`).
   - `BidiInterpolatedText`/`BIDI_VALUE_TOKEN` (`src/components/ui/BidiInterpolatedText.tsx`).
   - Main's discovery handler resolves the credential slot it sends: `custom:<scope>` for custom endpoints and `openrouter` for OpenRouter (`src/helpers/personalInference.js:136-138`, `:286-301`).
 - Produces:
@@ -12357,6 +12361,9 @@ Closes **C1** and the picker half of **I1**.
     className?: string; variant?: "onboarding" | "settings"; mode?: "cloud" | "local"; streamingOnly?: boolean }
   // SelfHostedPanel props (replaces onUrlChange / onModelChange)
   { service: "transcription" | "reasoning"; url: string; model?: string; onUse?: (next: EndpointDraftValue) => void } // no onUse → read-only
+  // CodexConnection props (adds checkStatusOnMount; default false = Settings: nothing runs on mount)
+  { onSignedInChange?: (signedIn: boolean) => void; checkStatusOnMount?: boolean }
+  // CodexConnection's explicit status button: data-action="codex-check-status"
   ```
 
 - [ ] **Step 1: Write the failing tests**
@@ -12417,7 +12424,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { installBrowserGlobals } = require("../lib/rendererTestHarness");
 const { createProbeRoot, findElement } = require("../lib/probeRoot");
-const { rendererServer } = require("../lib/routeTestApi");
+const { primeRouteFacts, rendererServer, routeTestApi } = require("../lib/routeTestApi");
 
 function discoveryApi(calls) {
   return {
@@ -12543,6 +12550,129 @@ test("browsing ReasoningModelSelector's custom, OpenRouter and Codex tabs sends 
   await probes.act(() => tabs.props.onSelect("codex"));
   await mountChild((node) => node.type?.name === "CodexModelPicker");
   assert.equal(calls.length, 0);
+});
+
+// Change-driving (C1/I2): CodexConnection called codexStatus() on mount (CodexConnection.tsx:60-62).
+// That starts the Codex app server (codexAppServer.js:359-367) and may ask GitHub to verify the
+// release (codexCli.js:309-340). For a signed-in account it then called codexRateLimits() (:44-48).
+// The test above stops at CodexModelPicker, so this one mounts the whole Codex tab path:
+// selector → CodexModelPicker → CodexConnection.
+test("the Codex tab shows main's stored sign-in and asks ChatGPT only from its button", async (t) => {
+  const calls = [];
+  const listeners = [];
+  // Recording spies: any call before the button is a failure.
+  const spy = (name, value) => async () => {
+    calls.push(name);
+    return value;
+  };
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: routeTestApi({
+        present: ["codex"],
+        extra: {
+          personalInference: {
+            codexStatus: spy("codexStatus", {
+              available: true,
+              account: { type: "chatgpt", email: "fixture@example.invalid" },
+            }),
+            codexRateLimits: spy("codexRateLimits", { rateLimits: { primary: { usedPercent: 40 } } }),
+            codexModels: spy("codexModels", { data: [], nextCursor: null }),
+            codexLogin: spy("codexLogin", { loginId: "fixture" }),
+            codexLogout: spy("codexLogout", {}),
+            models: spy("models", { data: [] }),
+            onTextEvent: (listener) => {
+              listeners.push(listener);
+              return () => listeners.splice(listeners.indexOf(listener), 1);
+            },
+          },
+        },
+      }),
+    },
+  });
+  const vite = await rendererServer(t, "loqui-codex-settings-");
+  const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
+  await primeRouteFacts(vite);
+  const probes = createProbeRoot(t);
+  const selector = await probes.mount("selector", () =>
+    Selector({
+      mode: "cloud",
+      credentialRef: "custom:chatIntelligence",
+      reasoningModel: "",
+      localReasoningProvider: "openai",
+      cloudReasoningBaseUrl: "",
+      onCommit() {},
+    })
+  );
+  const tabs = findElement(selector(), (node) => node.props?.providers?.some?.((provider) => provider.id === "codex"));
+  await probes.act(() => tabs.props.onSelect("openrouter"));
+  await probes.act(() => tabs.props.onSelect("codex"));
+  const picker = await probes.mount("picker", () => {
+    const element = findElement(selector(), (node) => node.type?.name === "CodexModelPicker");
+    return element.type(element.props);
+  });
+  const connection = await probes.mount("connection", () => {
+    const element = findElement(picker(), (node) => node.type?.name === "CodexConnection");
+    return element.type(element.props);
+  });
+  await probes.settle();
+  assert.deepEqual(calls, [], "mounting and browsing the Codex tab start nothing");
+
+  const text = (pattern) =>
+    findElement(connection(), (node) => typeof node.props?.children === "string" && pattern.test(node.props.children));
+  assert.ok(text(/codexConnection\.signedInStored/), "signed-in presence comes from credentials.list");
+  assert.ok(text(/codexConnection\.disconnect/));
+  assert.equal(text(/codexConnection\.remaining/), null, "no quota before a check");
+  const check = findElement(connection(), (node) => node.props?.["data-action"] === "codex-check-status");
+  assert.match(check.props.title, /codexConnection\.checkStatusTitle/);
+  assert.match(String(check.props.children), /codexConnection\.checkStatus/);
+
+  await probes.act(() => check.props.onClick());
+  await probes.settle();
+  assert.deepEqual(calls, ["codexStatus", "codexRateLimits"], "exactly one status read, then the signed-in quota");
+  assert.ok(text(/codexConnection\.connected/));
+  assert.ok(text(/codexConnection\.remaining/));
+
+  // An account event follows an explicit sign-in or sign-out, so it still refreshes once.
+  calls.length = 0;
+  await probes.act(() => listeners.forEach((listener) => listener({ type: "account", method: "account/updated" })));
+  await probes.settle();
+  assert.equal(calls.filter((name) => name === "codexStatus").length, 1);
+});
+
+// Change-driving: Connect was disabled until a status read (`disabled={busy || !status?.available}`, :127).
+test("without a stored ChatGPT sign-in, Connect is offered without a status read", async (t) => {
+  const calls = [];
+  const record = (name) => async () => {
+    calls.push(name);
+    return {};
+  };
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: routeTestApi({
+        present: [],
+        extra: {
+          personalInference: {
+            codexStatus: record("codexStatus"),
+            codexRateLimits: record("codexRateLimits"),
+            codexModels: record("codexModels"),
+            onTextEvent: () => () => {},
+          },
+        },
+      }),
+    },
+  });
+  const vite = await rendererServer(t, "loqui-codex-settings-signed-out-");
+  const CodexConnection = (await vite.ssrLoadModule("/components/CodexConnection.tsx")).default;
+  await primeRouteFacts(vite);
+  const probes = createProbeRoot(t);
+  const connection = await probes.mount("connection", () => CodexConnection({}));
+  await probes.settle();
+  const connect = findElement(
+    connection(),
+    (node) => typeof node.props?.onClick === "function" && /codexConnection\.connect/.test(String(node.props.children))
+  );
+  assert.equal(connect.props.disabled, false, "an unread status no longer disables Connect");
+  assert.deepEqual(calls, []);
 });
 ```
 
@@ -12796,10 +12926,14 @@ test("pickers commit through the route planner (I1)", async (t) => {
 test("pickers no longer write provider, model or endpoint fields themselves", () => {
   const banned = {
     "components/TranscriptionModelPicker.tsx": [/switchCloudTranscriptionProvider/, /setCloudTranscriptionBaseUrl/, /onCloudModelSelect/, /onLocalModelSelect/, /validateAndSelectModel/, /setCortiEnvironment/, /setCortiTenant/],
-    "components/ReasoningModelSelector.tsx": [/setReasoningModel\(/, /setLocalReasoningProvider/, /setCloudReasoningBaseUrl/, /setReasoningModeProp/, /llamaServerStop/],
+    // checkStatusOnMount is onboarding's opt-in; Settings (and NotesOnboarding, via the selector) never passes it.
+    "components/ReasoningModelSelector.tsx": [/setReasoningModel\(/, /setLocalReasoningProvider/, /setCloudReasoningBaseUrl/, /setReasoningModeProp/, /llamaServerStop/, /checkStatusOnMount/],
     "components/OpenAICompatiblePanel.tsx": [/getModelListBaseCandidates/, /setBaseUrl/, /onBlur/],
     "components/SelfHostedPanel.tsx": [/onUrlChange/, /onModelChange/],
     "components/settings/UploadSettings.tsx": [/setRemoteTranscriptionUrl/, /setUploadCloudTranscriptionProvider/],
+    // C1/I2: the unconditional mount read (:60-62), the double read behind Refresh (action(refresh)
+    // reads twice) and Connect gated on a status read that never ran.
+    "components/CodexConnection.tsx": [/useEffect\(\(\) => \{\s*void refresh\(\)/, /action\(refresh\)/, /!status\?\.available/],
   };
   for (const [file, patterns] of Object.entries(banned)) {
     const source = fs.readFileSync(path.join(SRC, file), "utf8");
@@ -12807,13 +12941,17 @@ test("pickers no longer write provider, model or endpoint fields themselves", ()
   }
   const panel = fs.readFileSync(path.join(SRC, "components/OpenAICompatiblePanel.tsx"), "utf8");
   assert.equal((panel.match(/personalInference\.models\(/g) ?? []).length, 1, "one discovery call site");
+  const codex = fs.readFileSync(path.join(SRC, "components/CodexConnection.tsx"), "utf8");
+  assert.equal((codex.match(/codexStatus\(/g) ?? []).length, 1, "one status call site, inside refresh");
+  assert.match(codex, /if \(checkStatusOnMount\) void refresh\(\)/, "the mount read is opt-in");
+  assert.match(codex, /s\.facts\.credentials\?\.get\("codex"\)/, "stored sign-in comes from main's credential list");
 });
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `npm test -- test/helpers/selfHostedProbe.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js`
-Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not exported; the panel calls `personalInference.models` on mount and has no List models button; the custom and OpenRouter tabs and Codex discover when browsed; the pickers have no `onCommit`/`onUse`, write the store directly (the Corti region and tenant included) and the meeting picker rewrites the invalid `groq` pair on mount.
+Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not exported; the panel calls `personalInference.models` on mount and has no List models button; the custom and OpenRouter tabs and Codex discover when browsed; `CodexConnection` calls `codexStatus` and `codexRateLimits` on mount, has no `codex-check-status` button and disables Connect until a status read; the pickers have no `onCommit`/`onUse`, write the store directly (the Corti region and tenant included) and the meeting picker rewrites the invalid `groq` pair on mount.
 
 - [ ] **Step 3: Implement**
 
@@ -13289,7 +13427,198 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
            </Button>
      ```
 
-4. **`src/components/settings/InferenceConfigEditor.tsx`** (after Task 8):
+4. **`src/components/CodexConnection.tsx`** (rendered by `CodexModelPicker`, `ReasoningModelSelector.tsx:789`, and by onboarding, `OnboardingFlow.tsx:546`). Replace the whole file:
+
+   ```tsx
+   import { useCallback, useEffect, useRef, useState } from "react";
+   import { useTranslation } from "react-i18next";
+   import { Button } from "./ui/button";
+   import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
+   import codexPolicy from "../config/codex.json";
+   import { ensureRouteFactsSubscribed, useRouteFactsStore } from "../stores/routeFactsStore";
+
+   type Status = Awaited<ReturnType<PersonalInferenceAPI["codexStatus"]>>;
+   export default function CodexConnection({
+     onSignedInChange,
+     checkStatusOnMount = false,
+   }: {
+     /** Called when a later status refresh finds the ChatGPT account signed in or out. */
+     onSignedInChange?: (signedIn: boolean) => void;
+     /**
+      * Read status when mounted. Only onboarding opts in (OnboardingFlow.tsx; Plan 05
+      * owns that step). Settings never does: codexStatus starts the Codex app server
+      * (codexAppServer.js:359-367) and may ask GitHub to verify the release (codexCli.js:309-340).
+      */
+     checkStatusOnMount?: boolean;
+   } = {}) {
+     const { t } = useTranslation();
+     // Main-confirmed presence (Task 2 stats the Codex profile's auth.json: no
+     // process, no network). null until main has listed credentials.
+     const storedAccount = useRouteFactsStore((s) => s.facts.credentials?.get("codex") ?? null);
+     const [status, setStatus] = useState<Status | null>(null);
+     const [loginId, setLoginId] = useState<string | null>(null);
+     const [busy, setBusy] = useState(false);
+     const [error, setError] = useState("");
+     const [remaining, setRemaining] = useState<number | null>(null);
+     const api = window.electronAPI?.personalInference;
+     const signedInRef = useRef<boolean | null>(null);
+     const onSignedInChangeRef = useRef(onSignedInChange);
+     onSignedInChangeRef.current = onSignedInChange;
+     const mountedRef = useRef(false);
+     const refreshSeqRef = useRef(0);
+     useEffect(() => {
+       mountedRef.current = true;
+       return () => {
+         mountedRef.current = false;
+       };
+     }, []);
+     useEffect(() => {
+       ensureRouteFactsSubscribed();
+     }, []);
+     const refresh = useCallback(async () => {
+       if (!api) return;
+       const seq = ++refreshSeqRef.current;
+       const next = await api.codexStatus();
+       // A read that finishes after unmount, or after a newer read began, is stale:
+       // it must not update state or tell the owner about an account change.
+       if (!mountedRef.current || seq !== refreshSeqRef.current) return;
+       setStatus(next);
+       const signedIn = next.account?.type === "chatgpt";
+       // The first read only establishes the baseline; later changes are reported.
+       if (signedInRef.current !== null && signedInRef.current !== signedIn)
+         onSignedInChangeRef.current?.(signedIn);
+       signedInRef.current = signedIn;
+       if (signedIn) {
+         setLoginId(null);
+         try {
+           const limits = await api.codexRateLimits();
+           if (!mountedRef.current || seq !== refreshSeqRef.current) return;
+           const percentages = [
+             limits.rateLimits?.primary?.usedPercent,
+             limits.rateLimits?.secondary?.usedPercent,
+           ].filter((value) => typeof value === "number") as number[];
+           setRemaining(percentages.length ? Math.max(0, 100 - Math.max(...percentages)) : null);
+         } catch {
+           if (mountedRef.current && seq === refreshSeqRef.current) setRemaining(null);
+         }
+       } else setRemaining(null);
+     }, [api]);
+     // Onboarding only; see checkStatusOnMount.
+     useEffect(() => {
+       if (checkStatusOnMount) void refresh().catch((error) => setError(error.message));
+     }, [checkStatusOnMount, refresh]);
+     // Account events follow an explicit sign-in or sign-out (the app server runs
+     // only after one of the buttons below), so they still refresh.
+     useEffect(
+       () =>
+         api?.onTextEvent((event) => {
+           if (event.type !== "account") return;
+           if (event.method === "account/login/completed" && event.params?.success === false) {
+             setLoginId(null);
+             setError(String(event.params.error || t("codexConnection.loginFailed")));
+           }
+           void refresh().catch((error) => setError(error.message));
+         }),
+       [api, refresh, t]
+     );
+     const run = async (fn: () => Promise<unknown>) => {
+       setBusy(true);
+       setError("");
+       try {
+         await fn();
+       } catch (error) {
+         setError((error as Error).message);
+       } finally {
+         setBusy(false);
+       }
+     };
+     // Sign-in and sign-out are explicit, so the status read that follows them is too.
+     const action = (fn: () => Promise<unknown>) =>
+       run(async () => {
+         await fn();
+         await refresh();
+       });
+     // A read status wins over the stored presence (a stale auth.json reads as signed out).
+     const signedIn = status ? status.account?.type === "chatgpt" : storedAccount === true;
+     return (
+       <div className="space-y-3 rounded-lg border p-4">
+         <div className="font-medium">{t("codexConnection.title")}</div>
+         <p className="text-sm text-muted-foreground">
+           {t("codexConnection.description", { minimumVersion: codexPolicy.minimumVersion })}
+         </p>
+         {signedIn ? (
+           <>
+             <p className="text-sm">
+               {status?.account?.type === "chatgpt"
+                 ? t("codexConnection.connected", {
+                     account: status.account.email || status.account.planType || "ChatGPT",
+                   })
+                 : t("codexConnection.signedInStored")}
+             </p>
+             {remaining !== null && (
+               <p className="text-sm text-muted-foreground">
+                 {t("codexConnection.remaining", { percent: Math.round(remaining) })}
+               </p>
+             )}
+             <Button variant="outline" disabled={busy} onClick={() => void action(() => api.codexLogout())}>
+               {t("codexConnection.disconnect")}
+             </Button>
+           </>
+         ) : loginId ? (
+           <>
+             <p className="text-sm">{t("codexConnection.waiting")}</p>
+             <Button
+               variant="outline"
+               disabled={busy}
+               onClick={() =>
+                 void action(async () => {
+                   await api.codexCancelLogin(loginId);
+                   setLoginId(null);
+                 })
+               }
+             >
+               {t("codexConnection.cancel")}
+             </Button>
+           </>
+         ) : (
+           // Connect is the explicit action that starts Codex; only a status read that
+           // found Codex unavailable disables it.
+           <Button
+             disabled={busy || status?.available === false}
+             onClick={() =>
+               void action(async () => {
+                 const login = await api.codexLogin();
+                 setLoginId(login.loginId);
+               })
+             }
+           >
+             {t("codexConnection.connect")}
+           </Button>
+         )}
+         <Button
+           className="ms-2"
+           variant="ghost"
+           disabled={busy}
+           data-action="codex-check-status"
+           title={t("codexConnection.checkStatusTitle")}
+           onClick={() => void run(refresh)}
+         >
+           {t("codexConnection.checkStatus")}
+         </Button>
+         {(error || status?.error) && (
+           <p className="text-sm text-destructive" role="alert">
+             {error || status.error}
+           </p>
+         )}
+       </div>
+     );
+   }
+   ```
+
+   - The check button replaces Refresh, which ran `action(refresh)` and so read status twice per click. `codexConnection.refresh` stays in the locale files unused; `check-i18n.js` does not flag unused keys.
+   - `src/components/OnboardingFlow.tsx:546`: change `<CodexConnection onSignedInChange={() => onChoice("codex")} />` to `<CodexConnection checkStatusOnMount onSignedInChange={() => onChoice("codex")} />`. Onboarding keeps today's mount read, its first-read baseline for `onSignedInChange`, and `onboardingCleanupWiring.test.js`. Whether the first-run step should also wait for a click is Plan 05's call.
+
+5. **`src/components/settings/InferenceConfigEditor.tsx`** (after Task 8):
    - Merge `type InferenceScopeStoreKeys` into the existing `INFERENCE_SCOPES` import (`:19-23`), add `saveSecret` and `type SecretStoreKey` to the `settingsStore` import (`:8-13`), and change `import { useRouteChange } from "./routing/useRouteChange";` to `import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";`.
    - Replace `const setMode = setField("mode"); const setProvider = setField("provider"); const setModel = setField("model");` (`:124-126`) with:
 
@@ -13339,7 +13668,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
 
    `setField` remains only for `disableThinking`.
 
-5. **`src/components/notes/NotesOnboarding.tsx`.** Replace the five setter selectors (`:41-45`) with:
+6. **`src/components/notes/NotesOnboarding.tsx`.** Replace the five setter selectors (`:41-45`) with:
 
    ```tsx
      const commitCleanup = useRouteCommit("dictationCleanup");
@@ -13360,7 +13689,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
                    <StagedRouteBar placement="inline" shortcut={false} />
    ```
 
-6. **`src/components/TranscriptionModelPicker.tsx`.**
+7. **`src/components/TranscriptionModelPicker.tsx`.**
    - Imports: add `import type { RouteTarget } from "../lib/routePlanner";` and `import { EndpointDraft } from "./settings/routing/EndpointDraft";`.
    - Replace `TranscriptionModelPickerProps` (`:214-237`) with:
 
@@ -13555,7 +13884,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
      }
      ```
 
-     The region `Select` keeps `value={credentialValues[field.key]}` (the live value), so a staged region shows the old one until Apply. `fieldDirectionPolicy.test.js` still sees one `dir="ltr"` field in this file (step 11).
+     The region `Select` keeps `value={credentialValues[field.key]}` (the live value), so a staged region shows the old one until Apply. `fieldDirectionPolicy.test.js` still sees one `dir="ltr"` field in this file (step 12).
    - Delete `handleBaseUrlBlur` (`:900-927`). In `handleDelete` (`:929-947`) delete the line `validateAndSelectModel(result.models);` and change its dependency list to `[showConfirmDialog, deleteModel, t]`.
    - Replace the custom-endpoint block (`:1184-1198` URL field and `:1207-1220` model field; keep the `ApiKeyInput` at `:1200-1205` and the Azure hint at `:1222-1224`) so the branch reads:
 
@@ -13590,7 +13919,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
                    ) : (
      ```
 
-7. **`src/components/SelfHostedPanel.tsx`.** Replace the whole file:
+8. **`src/components/SelfHostedPanel.tsx`.** Replace the whole file:
 
    ```tsx
    import { useState } from "react";
@@ -13712,7 +14041,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
 
    A whisper.cpp server may not implement `/models`; the failure copy says it couldn't list models at that host, without claiming the server is down.
 
-8. **`src/components/SettingsPage.tsx`** (after Task 8).
+9. **`src/components/SettingsPage.tsx`** (after Task 8).
    - Change the routing import to `import { useRouteChange, useRouteCommit } from "./settings/routing/useRouteChange";`.
    - Replace `TranscriptionSectionProps` (`:428-457` after Task 8's removal of `toast`) with:
 
@@ -13812,7 +14141,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
                      />
      ```
 
-9. **`src/components/settings/MeetingSettings.tsx`** (after Task 8): change the routing import to `{ useRouteChange, useRouteCommit }`; delete `import { useCallback } from "react";`, `const noop = () => {};`, the setters `setMeetingWhisperModel`, `setMeetingLocalTranscriptionProvider`, `setMeetingParakeetModel`, `setMeetingCohereModel`, `setMeetingCloudTranscriptionProvider`, `setMeetingCloudTranscriptionModel`, `setMeetingCloudTranscriptionBaseUrl` from the destructuring, and `handleLocalTranscriptionModelSelect` (`:97-114`); replace `renderTranscriptionPicker` (`:116-141`) with:
+10. **`src/components/settings/MeetingSettings.tsx`** (after Task 8): change the routing import to `{ useRouteChange, useRouteCommit }`; delete `import { useCallback } from "react";`, `const noop = () => {};`, the setters `setMeetingWhisperModel`, `setMeetingLocalTranscriptionProvider`, `setMeetingParakeetModel`, `setMeetingCohereModel`, `setMeetingCloudTranscriptionProvider`, `setMeetingCloudTranscriptionModel`, `setMeetingCloudTranscriptionBaseUrl` from the destructuring, and `handleLocalTranscriptionModelSelect` (`:97-114`); replace `renderTranscriptionPicker` (`:116-141`) with:
 
    ```tsx
      const commitNoteRecording = useRouteCommit("noteRecordingStt");
@@ -13839,7 +14168,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
      );
    ```
 
-10. **`src/components/settings/UploadSettings.tsx`** (after Task 8): the same import change; delete `import { useCallback } from "react";`, `handleLocalTranscriptionModelSelect` (`:77-94`) and every `set…` member left in the destructuring (`setUploadWhisperModel`, `setUploadLocalTranscriptionProvider`, `setUploadParakeetModel`, `setUploadCohereModel`, `setUploadCloudTranscriptionProvider`, `setUploadCloudTranscriptionModel`, `setUploadCloudTranscriptionBaseUrl`, `setRemoteTranscriptionUrl`, `setRemoteTranscriptionModel`); replace `renderTranscriptionPicker` (`:96-120`) with:
+11. **`src/components/settings/UploadSettings.tsx`** (after Task 8): the same import change; delete `import { useCallback } from "react";`, `handleLocalTranscriptionModelSelect` (`:77-94`) and every `set…` member left in the destructuring (`setUploadWhisperModel`, `setUploadLocalTranscriptionProvider`, `setUploadParakeetModel`, `setUploadCohereModel`, `setUploadCloudTranscriptionProvider`, `setUploadCloudTranscriptionModel`, `setUploadCloudTranscriptionBaseUrl`, `setRemoteTranscriptionUrl`, `setRemoteTranscriptionModel`); replace `renderTranscriptionPicker` (`:96-120`) with:
 
     ```tsx
       const commitUpload = useRouteCommit("uploadStt");
@@ -13874,14 +14203,16 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
           )}
     ```
 
-11. **Tests that pinned the old behaviour.**
+12. **Tests that pinned the old behaviour.**
     - `test/components/personalWorkspace.test.js`: delete the case "custom model discovery sends only its task-scoped credential reference" (`:162-189`); `endpointDiscovery.test.js` replaces it with the click-only version. In the "provider choices support the task" case (`:192-203`) replace the props `setReasoningModel() {}, setLocalReasoningProvider() {}, setCloudReasoningBaseUrl() {},` with `onCommit() {},`.
     - `test/components/orukeetOrganization.test.js`: in the first two cases replace `onLocalModelSelect: noop, onModeChange: noop,` with `onCommit: noop,`. In the unsupported-macOS case (`:92-131`) rename `selectedProviders` to `commits`, replace `onLocalModelSelect: noop, onLocalProviderSelect: (provider) => selectedProviders.push(provider), onModeChange: noop,` with `onCommit: (target) => commits.push(target),`, and replace `assert.ok(selectedProviders.includes("whisper"));` with `assert.deepEqual(commits, [{ mode: "local", provider: "whisper" }]);`.
     - `test/components/fieldDirectionPolicy.test.js` (`EXPECTED_SHARED_FIELD_DIRECTIONS`): delete the `OpenAICompatiblePanel.tsx` and `SelfHostedPanel.tsx` entries and change `"src/components/TranscriptionModelPicker.tsx": ["ltr", "ltr", "ltr"]` to `["ltr"]` (only the Corti tenant field remains; the URL and model fields now live in `EndpointDraft.tsx`).
+    - `test/components/codexConnectionSignIn.test.js`: these cases describe onboarding's first-read baseline. At `:69` change `React.createElement(CodexConnection, { onSignedInChange })` to `React.createElement(CodexConnection, { onSignedInChange, checkStatusOnMount: true })`, and add the comment `// Onboarding's opt-in mount read (OnboardingFlow.tsx:546); Settings never reads on mount (endpointDiscovery.test.js).` above it.
 
-12. **`docs/PRIVACY.md:51`.** Replace the row's description with: "Only when you press **List models** or **Test**. List models sends the named saved key (if any) to the host shown on the button and asks for its model list. Test sends no key: it asks a self-hosted server for its model list. Neither runs when a page opens, a tab is browsed or an address is typed."
+13. **`docs/PRIVACY.md:49`, `:51`.** Replace the `:51` row's description with: "Only when you press **List models** or **Test**. List models sends the named saved key (if any) to the host shown on the button and asks for its model list. Test sends no key: it asks a self-hosted server for its model list. Neither runs when a page opens, a tab is browsed or an address is typed."
+    In the "Codex CLI verification" row (`docs/PRIVACY.md:49`), append to the description: "In Settings this happens only when you press Connect ChatGPT, Check ChatGPT status or List models from ChatGPT, never when the Codex tab opens."
 
-13. Write `/tmp/loqui-i18n-task-9.json` and merge it with `node scripts/merge-locale-keys.js /tmp/loqui-i18n-task-9.json && npm run i18n:check`. `testOk` needs every CLDR plural category per locale. Keep `{{host}}` and `{{model}}` as separate tokens; the UI isolates them with `BidiInterpolatedText`.
+14. Write `/tmp/loqui-i18n-task-9.json` and merge it with `node scripts/merge-locale-keys.js /tmp/loqui-i18n-task-9.json && npm run i18n:check`. `testOk` needs every CLDR plural category per locale. Keep `{{host}}` and `{{model}}` as separate tokens; the UI isolates them with `BidiInterpolatedText`.
 
     ```json
     {
@@ -13902,6 +14233,11 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
           "listModelsTitle": "The Codex app asks ChatGPT for its model list using your ChatGPT sign-in. Loqui sends no saved key."
         }
       },
+      "codexConnection": {
+        "signedInStored": "Signed in to ChatGPT on this device. Check ChatGPT status to see the account and remaining usage.",
+        "checkStatus": "Check ChatGPT status",
+        "checkStatusTitle": "Starts the Codex app, which asks ChatGPT (via the Codex app) for your sign-in and remaining usage. The first check after Loqui starts also asks GitHub to confirm the Codex app is an official release. Loqui sends no saved key."
+      },
       "settingsPage": {
         "selfHosted": {
           "test": "Test",
@@ -13920,19 +14256,20 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/helpers/selfHostedProbe.test.js test/helpers/providerConnectionTest.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/personalWorkspace.test.js test/components/orukeetOrganization.test.js test/components/fieldDirectionPolicy.test.js test/components/stagedRoutePanel.test.js test/components/routeModeEditors.test.js && npm run typecheck && npm run lint && npm run i18n:check`
-Expected: PASS. `providerConnectionTest.test.js`, `stagedRoutePanel.test.js` and `routeModeEditors.test.js` are baseline guards.
+Run: `npm test -- test/helpers/selfHostedProbe.test.js test/helpers/providerConnectionTest.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/personalWorkspace.test.js test/components/orukeetOrganization.test.js test/components/fieldDirectionPolicy.test.js test/components/stagedRoutePanel.test.js test/components/routeModeEditors.test.js test/components/codexConnectionSignIn.test.js test/components/onboardingCleanupWiring.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Expected: PASS. `providerConnectionTest.test.js`, `stagedRoutePanel.test.js`, `routeModeEditors.test.js`, `codexConnectionSignIn.test.js` (with the opt-in prop) and `onboardingCleanupWiring.test.js` (unchanged; onboarding opts in) are baseline guards.
 
 Then check in the app (`npm run native:electron && npm run dev`), with a local Ollama on `http://localhost:11434/v1` and a fake key saved for Chat's custom endpoint:
 - LLMs › Chat → Cloud tab → Custom: nothing appears in the main log's network lines. Type a new URL and click elsewhere: still nothing. "Use this endpoint" with a LAN or public host shows the Apply bar; with `localhost` it applies at once with Undo.
 - The button reads "List models from localhost:11434" and the caption names "the custom-endpoint key saved for Chat". One click makes one request.
 - Speech-to-Text › Dictation → Self-hosted: the address and model fields are labelled; Test reports "Connected · N models"; Upload shows the same server read-only.
+- LLMs › Chat → Cloud tab → ChatGPT, after signing in once and restarting Loqui: no `codex` process starts and no request goes to GitHub or ChatGPT when the tab opens. The card reads "Signed in to ChatGPT on this device". "Check ChatGPT status" shows the account and remaining usage after one status read.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-npx prettier --write src/helpers/selfHostedProbe.js src/helpers/providerConnectionTest.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/components/OpenAICompatiblePanel.tsx src/components/SelfHostedPanel.tsx src/components/ReasoningModelSelector.tsx src/components/TranscriptionModelPicker.tsx src/components/settings/InferenceConfigEditor.tsx src/components/notes/NotesOnboarding.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx
-git add src/helpers/selfHostedProbe.js src/helpers/providerConnectionTest.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/components/OpenAICompatiblePanel.tsx src/components/SelfHostedPanel.tsx src/components/ReasoningModelSelector.tsx src/components/TranscriptionModelPicker.tsx src/components/settings/InferenceConfigEditor.tsx src/components/notes/NotesOnboarding.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx docs/PRIVACY.md src/locales test/helpers/selfHostedProbe.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/personalWorkspace.test.js test/components/orukeetOrganization.test.js test/components/fieldDirectionPolicy.test.js
+npx prettier --write src/helpers/selfHostedProbe.js src/helpers/providerConnectionTest.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/components/OpenAICompatiblePanel.tsx src/components/SelfHostedPanel.tsx src/components/CodexConnection.tsx src/components/OnboardingFlow.tsx src/components/ReasoningModelSelector.tsx src/components/TranscriptionModelPicker.tsx src/components/settings/InferenceConfigEditor.tsx src/components/notes/NotesOnboarding.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx
+git add src/helpers/selfHostedProbe.js src/helpers/providerConnectionTest.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/components/OpenAICompatiblePanel.tsx src/components/SelfHostedPanel.tsx src/components/CodexConnection.tsx src/components/OnboardingFlow.tsx src/components/ReasoningModelSelector.tsx src/components/TranscriptionModelPicker.tsx src/components/settings/InferenceConfigEditor.tsx src/components/notes/NotesOnboarding.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx docs/PRIVACY.md src/locales test/helpers/selfHostedProbe.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/personalWorkspace.test.js test/components/orukeetOrganization.test.js test/components/fieldDirectionPolicy.test.js test/components/codexConnectionSignIn.test.js
 git commit -m "fix(settings): Route picker commits through the planner and make discovery explicit"
 ```
 
@@ -26214,13 +26551,13 @@ git commit -m "fix(settings): Name destinations, label actions and soften privac
 
 ### Task 18: DESIGN.md, guards and whole-plan verification
 
-Closes I13 (guards for every changed Settings component, including inherited Button hover surfaces), M1 (hard preflight), M4 (no manual `tail -f`; the partial-delete check is Task 14's test), M5 (baseline guards and change-driving tests are labelled, and a command finds unlabelled ones) and the tracked spec §5.1 update. It also hands the finished contract to Plan 07.
+Closes I13 (guards for every changed Settings component, including inherited Button hover surfaces), M1 (hard preflight), M4 (no manual `tail -f`; the partial-delete check is Task 14's test), M5 (baseline guards and change-driving tests are labelled, and a command finds unlabelled ones) and the tracked spec §5.1 update. It also hardens **I1**: a repo-wide source guard fails if any file outside the planner, the store and an explicit allowlist references a route-affecting setter or writes `personalWebSearch:`. And it extends the **C1/I2** network guard to `codexRateLimits`/`codexModels` and to the mount path of Settings' Codex views (`CodexConnection`, `CodexModelPicker`). It also hands the finished contract to Plan 07.
 
 **Step 0 below is a hard preflight for the whole plan. Run it before Task 1.** It lives here only because this is the last task of the plan; the plan header points to it.
 
 **Files:**
 - Modify: `DESIGN.md`. Add a `### Settings` subsection after `### Voice Pill`, one sentence each to `### Chips` and `### Cards / Containers`, and a `--motion-flash` row to the `## Motion` table.
-- Create: `test/components/settingsColorRoles.test.js`, `test/components/destructiveRemedy.test.js`, `test/components/routeFactsNoNetwork.test.js`, `test/components/settingsDesignDoc.test.js`
+- Create: `test/components/settingsColorRoles.test.js`, `test/components/destructiveRemedy.test.js`, `test/components/routeFactsNoNetwork.test.js`, `test/components/routeWriteGuard.test.js`, `test/components/settingsDesignDoc.test.js`
 - Modify: the files the guards report (Step 3 lists the sites known at the base commit).
 - No other new files. This task runs every check and fixes what they surface.
 
@@ -26254,7 +26591,7 @@ Expected: ends with `PREFLIGHT OK`, and the four test files pass. **If any line 
 
 - [ ] **Step 1: Write the guards**
 
-**Classification.** Every test below is a **baseline guard** (it passes when written and protects against regressions) except `settingsDesignDoc.test.js`, which is **change-driving** (DESIGN.md does not document Settings yet). The baseline guards are still useful: they run over files that earlier tasks changed, so they fail if any task left a low-contrast pairing, an English provider name or a network call behind. If a guard fails when first run, that is a finding in an earlier task's output; fix the code (Step 3), not the guard.
+**Classification.** Every test below is a **baseline guard** (it passes when written and protects against regressions) except `settingsDesignDoc.test.js`, which is **change-driving** (DESIGN.md does not document Settings yet). The baseline guards are still useful: they run over files that earlier tasks changed, so they fail if any task left a low-contrast pairing, an English provider name, a network call or a direct route write behind. `routeWriteGuard.test.js` and the Codex mount-path case in `routeFactsNoNetwork.test.js` are **baseline guards after Tasks 6–9 land**. Both fail at the base commit, because pickers, editors and `CodexConnection` write or call directly there, and both pass once Tasks 6–9 are in. If a guard fails when first run, that is a finding in an earlier task's output; fix the code (Step 3), not the guard.
 
 Create `test/components/settingsColorRoles.test.js`:
 
@@ -26285,6 +26622,7 @@ const EXTRA = [
   "src/components/SettingsPage.tsx", // Tasks 4, 5, 8, 9, 10, 14, 15, 17
   "src/components/SettingsModal.tsx", // Tasks 4, 8, 10, 16
   "src/components/DeveloperSection.tsx",
+  "src/components/CodexConnection.tsx", // Task 9
   "src/components/DictionaryHeaderActions.tsx", // Task 17 (new)
   "src/components/DictionaryView.tsx", // Task 17
   "src/components/EnterpriseProviderConfig.tsx", // Tasks 2, 12
@@ -26479,7 +26817,11 @@ const test = require("node:test");
 const root = path.join(__dirname, "../..");
 const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 const FORBIDDEN = [
+  // Each starts the Codex app server (codexAppServer.js:116-181), whose first start in a session
+  // may ask GitHub to verify the release (codexCli.js:309-340).
   [/\bcodexStatus\b/, "starts the Codex client"],
+  [/\bcodexRateLimits\b/, "starts the Codex client and asks ChatGPT for quota"],
+  [/\bcodexModels\b/, "starts the Codex client and asks ChatGPT for models"],
   [/\bpersonalInference\??\.models\b/, "authenticated model discovery"],
   [/\bkeyring\??\.verify\b/, "sends a stored key to a provider"],
   [/\bprobeSelfHosted\b/, "network probe"],
@@ -26508,6 +26850,189 @@ test("[source guard, baseline] route facts, the resolver, the planner and the ro
     const src = stripComments(fs.readFileSync(path.join(root, file), "utf8"));
     for (const [pattern, why] of FORBIDDEN) assert.doesNotMatch(src, pattern, `${file}: ${why}`);
   }
+});
+
+// Argument text of every `name(` call, found by paren depth (enough for these files' effects).
+function callArguments(src, name) {
+  const found = [];
+  const re = new RegExp(`\\b${name}\\s*\\(`, "g");
+  let match;
+  while ((match = re.exec(src))) {
+    let depth = 1;
+    let j = re.lastIndex;
+    for (; j < src.length && depth > 0; j++) {
+      if (src[j] === "(") depth++;
+      else if (src[j] === ")") depth--;
+    }
+    found.push(src.slice(re.lastIndex, j - 1));
+  }
+  return found;
+}
+
+const CODEX_CALL = /\b(?:refresh|codexStatus|codexRateLimits|codexModels)\s*\(/;
+
+test("[source guard, baseline after Task 9] Settings' Codex views start nothing on mount", () => {
+  // C1/I2: CodexConnection read codexStatus/codexRateLimits on mount (v1 :60-62) and CodexModelPicker
+  // listed models on mount. Only button handlers and account events (which follow an explicit sign-in
+  // or sign-out) may call Codex. Onboarding's opt-in read (`if (checkStatusOnMount) void refresh()`)
+  // is the one exception, and ReasoningModelSelector (Settings, NotesOnboarding) never opts in.
+  const read = (file) => stripComments(fs.readFileSync(path.join(root, file), "utf8"));
+  const selector = read("src/components/ReasoningModelSelector.tsx");
+  const views = [
+    ["src/components/CodexConnection.tsx", read("src/components/CodexConnection.tsx")],
+    ["CodexModelPicker (ReasoningModelSelector.tsx)", selector.slice(selector.indexOf("function CodexModelPicker"))],
+  ];
+  assert.ok(views[1][1].startsWith("function CodexModelPicker"), "CodexModelPicker still lives in ReasoningModelSelector.tsx");
+  for (const [file, src] of views) {
+    const effects = callArguments(src, "useEffect");
+    assert.ok(effects.length > 0, `${file}: effects found`);
+    for (const effect of effects) {
+      const mountPath = callArguments(effect, "onTextEvent")
+        .reduce((rest, handler) => rest.replace(handler, ""), effect)
+        .replace(/if \(checkStatusOnMount\) void refresh\(\)/, "");
+      assert.doesNotMatch(mountPath, CODEX_CALL, `${file}: an effect calls Codex outside an account event`);
+    }
+  }
+  assert.doesNotMatch(selector, /checkStatusOnMount/, "Settings never opts into the mount read");
+});
+```
+
+Create `test/components/routeWriteGuard.test.js`. Rule 3 of the plan: every provider, model, endpoint, mode, enable switch, Corti region and web-search change goes through the route planner (Tasks 6–9). Task 9's `routePickers.test.js` bans named setters in named files. This is the repo-wide net: any other file that references a route-affecting setter fails, so a new component cannot reintroduce a direct write. It matches any reference, not only calls, so destructuring a setter from `useSettings()` or selecting it from the store is caught too. The allowlist was built by grepping the base commit (`grep -rnoE` over `src/components src/hooks src/services src/utils src/helpers src/lib src/stores` for the names below). Every file that the grep reports and the allowlist does not name is one that Tasks 6–9 rewrite, or a Step 3 row.
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const root = path.join(__dirname, "../..");
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+function sourceFiles(dir, out = []) {
+  const abs = path.join(root, dir);
+  if (!fs.existsSync(abs)) return out;
+  for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+    const rel = path.posix.join(dir, entry.name);
+    if (entry.isDirectory()) sourceFiles(rel, out);
+    else if (/\.(?:tsx?|jsx?)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) out.push(rel);
+  }
+  return out;
+}
+
+const SCANNED = ["src/components", "src/hooks", "src/services", "src/utils", "src/helpers", "src/lib", "src/stores"];
+
+// Store actions (src/stores/settingsStore.ts) that change a route's provider, model, host, mode or on/off state.
+// Not listed: the secret-key setters (Task 2 owns keys), the *CloudMode setters, *DisableThinking and the
+// translation language and target setters, which do not change who receives what.
+const ROUTE_SETTERS = [
+  // speech: dictation, meeting, upload
+  "setTranscriptionMode", "setMeetingTranscriptionMode", "setUploadTranscriptionMode",
+  "setUseLocalWhisper", "setMeetingUseLocalWhisper", "setUploadUseLocalWhisper",
+  "setCloudTranscriptionProvider", "setMeetingCloudTranscriptionProvider", "setUploadCloudTranscriptionProvider",
+  "setCloudTranscriptionModel", "setMeetingCloudTranscriptionModel", "setUploadCloudTranscriptionModel",
+  "setCloudTranscriptionBaseUrl", "setMeetingCloudTranscriptionBaseUrl", "setUploadCloudTranscriptionBaseUrl",
+  "setRemoteTranscriptionUrl", "setMeetingRemoteTranscriptionUrl", "setRemoteTranscriptionModel",
+  "setLocalTranscriptionProvider", "setMeetingLocalTranscriptionProvider", "setUploadLocalTranscriptionProvider",
+  "setWhisperModel", "setMeetingWhisperModel", "setUploadWhisperModel",
+  "setParakeetModel", "setMeetingParakeetModel", "setUploadParakeetModel",
+  "setCohereModel", "setMeetingCohereModel", "setUploadCohereModel",
+  "switchCloudTranscriptionProvider", "setCloudTranscriptionForAllScopes",
+  // text: per-scope setters and the shared switch
+  "switchReasoningProvider", "setCloudReasoningForAllScopes",
+  "setCleanupMode", "setCleanupProvider", "setCleanupModel", "setCleanupCloudBaseUrl", "setCleanupRemoteUrl",
+  "setChatAgentMode", "setChatAgentProvider", "setChatAgentModel", "setChatAgentCloudBaseUrl", "setChatAgentRemoteUrl",
+  "setDictationAgentMode", "setDictationAgentProvider", "setDictationAgentModel", "setDictationAgentCloudBaseUrl", "setDictationAgentRemoteUrl",
+  "setDictationAgentVisionProvider", "setDictationAgentVisionModel", "setDictationAgentVisionCloudBaseUrl",
+  "setTranslationMode", "setTranslationProvider", "setTranslationModel", "setTranslationCloudBaseUrl", "setTranslationRemoteUrl",
+  "setNoteFormattingModel",
+  // switches that turn a route on, and the Corti host and tenant
+  "setUseCleanupModel", "setUseDictationTranslation", "setUseDictationAgent", "setVoiceAgentScreenContext",
+  "setUseDictationAgentVisionModel", "setCortiEnvironment", "setCortiTenant",
+];
+const SETTER_RE = new RegExp(`\\b(?:${ROUTE_SETTERS.join("|")})\\b`, "g");
+// setResolvedLLMConfig(scope, patch) is a route write when the patch can carry a route key.
+const LLM_ROUTE_KEY = /\b(?:mode|provider|model|remoteUrl|cloudBaseUrl|cloudMode)\b/;
+
+// Files that may write routes, each with the reason it is not a bypass.
+const ALLOWLIST = {
+  "src/stores/settingsStore.ts": "defines the setters and Task 6's applyRoutePatch, the one writer the planner calls",
+  "src/stores/routeDraftStore.ts": "Task 7: commits and Undo apply the planner's patch through applyRoutePatch",
+  "src/lib/providerSwitchPlans.ts": "Task 6: the provider-switch planners extracted from switchCloudTranscriptionProvider/switchReasoningProvider",
+  "src/lib/routePlanner.ts": "Task 6: builds the patch that preview, commit and Undo share",
+  "src/utils/providerSearch.ts": "Task 6: writeProviderSearchPreference is the only personalWebSearch:<scope> writer, called by applyRoutePatch",
+  "src/hooks/useSettings.ts": "passthrough object (`setTranscriptionMode: store.setTranscriptionMode`, :328) that calls nothing; every consumer that destructures a setter is scanned here",
+  "src/components/OnboardingFlow.tsx": "first-run setup seeds routes (setResolvedLLMConfig :1240; setUseLocalWhisper/setLocalTranscriptionProvider/setParakeetModel :1350-1352); Plan 05 owns onboarding",
+  "src/utils/onboardingCleanup.ts": "applyCleanupChoice (setUseCleanupModel :59, :65, :69; cleanup mode/provider/model) for onboarding's cleanup step; Plan 05 owns onboarding",
+};
+
+// Argument text of every `name(` call, by paren depth.
+function callArguments(src, name) {
+  const found = [];
+  const re = new RegExp(`\\b${name}\\s*\\(`, "g");
+  let match;
+  while ((match = re.exec(src))) {
+    let depth = 1;
+    let j = re.lastIndex;
+    for (; j < src.length && depth > 0; j++) {
+      if ("([{".includes(src[j])) depth++;
+      else if (")]}".includes(src[j])) depth--;
+    }
+    found.push(src.slice(re.lastIndex, j - 1));
+  }
+  return found;
+}
+
+// The text after the first top-level comma.
+function secondArgument(args) {
+  let depth = 0;
+  for (let i = 0; i < args.length; i++) {
+    if ("([{".includes(args[i])) depth++;
+    else if (")]}".includes(args[i])) depth--;
+    else if (args[i] === "," && depth === 0) return args.slice(i + 1).trim();
+  }
+  return "";
+}
+
+const scanned = () => [...new Set(SCANNED.flatMap((dir) => sourceFiles(dir)))].filter((file) => !(file in ALLOWLIST)).sort();
+
+test("[baseline guard] every allowlisted route writer exists", () => {
+  for (const file of Object.keys(ALLOWLIST)) assert.ok(fs.existsSync(path.join(root, file)), `${file} (${ALLOWLIST[file]})`);
+});
+
+test("[baseline guard after Tasks 6–9] no file outside the planner and the allowlist references a route-affecting setter", () => {
+  const offenders = [];
+  for (const file of scanned()) {
+    const src = stripComments(fs.readFileSync(path.join(root, file), "utf8"));
+    const names = [...new Set(src.match(SETTER_RE) ?? [])];
+    if (names.length) offenders.push(`${file}: ${names.join(", ")}`);
+  }
+  assert.deepEqual(offenders, [], "commit through useRouteCommit / requestPatch / RouteSwitch (Tasks 7–9), not the store");
+});
+
+test("[baseline guard after Tasks 6–9] setResolvedLLMConfig outside the allowlist never carries a route key", () => {
+  const offenders = [];
+  for (const file of scanned()) {
+    const src = stripComments(fs.readFileSync(path.join(root, file), "utf8"));
+    for (const args of callArguments(src, "setResolvedLLMConfig")) {
+      const patch = secondArgument(args);
+      // An opaque patch (a variable, a spread or a computed key) could carry any key, so it fails too.
+      const opaque = !patch.startsWith("{") || patch.includes("...") || /[{,]\s*\[/.test(patch);
+      if (opaque || LLM_ROUTE_KEY.test(patch)) offenders.push(`${file}: setResolvedLLMConfig(${args.replace(/\s+/g, " ")})`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test("[baseline guard after Tasks 6–9] only providerSearch.ts touches personalWebSearch:<scope> and nothing bypasses the store's actions", () => {
+  const offenders = [];
+  for (const file of scanned()) {
+    const src = stripComments(fs.readFileSync(path.join(root, file), "utf8"));
+    // Any literal: localStorage.setItem/removeItem, useLocalStorage(`personalWebSearch:…`) or a read that skips
+    // readProviderSearchPreference. Turning web search on stages (Task 6's providerSearch:<scope> patch key).
+    if (/personalWebSearch:/.test(src)) offenders.push(`${file}: personalWebSearch:`);
+    if (/\buseSettingsStore\.setState\s*\(/.test(src)) offenders.push(`${file}: useSettingsStore.setState(`);
+  }
+  assert.deepEqual(offenders, []);
 });
 ```
 
@@ -26554,8 +27079,8 @@ test("DESIGN.md documents Settings: routing, planner, keys, storage, search and 
 });
 ```
 
-Run: `npm test -- test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js test/components/settingsDesignDoc.test.js`
-Expected: `settingsDesignDoc.test.js` FAILS (change-driving). The others should pass. If a colour-role test reports offenders, that is expected only for the sites in Step 3's table (earlier tasks may already have removed some); fix them there.
+Run: `npm test -- test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js test/components/routeWriteGuard.test.js test/components/settingsDesignDoc.test.js`
+Expected: `settingsDesignDoc.test.js` FAILS (change-driving). The others should pass. `routeWriteGuard.test.js` may list leftover sites from Step 3's table. If a colour-role test reports offenders, that is expected only for the sites in Step 3's table (earlier tasks may already have removed some); fix them there.
 
 - [ ] **Step 2: Update `DESIGN.md`**
 
@@ -26592,7 +27117,7 @@ Expected: PASS.
 
 - [ ] **Step 3: Fix what the guards surface**
 
-Run: `npm test -- test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js`
+Run: `npm test -- test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js test/components/routeWriteGuard.test.js`
 
 At the base commit these sites violate the rules in files this plan edits. Earlier tasks fix some (Task 14 removes the System reset button, Task 13 replaces the local cards, Task 17 and Task 15 fix theirs); fix whatever the guards still report, with these changes:
 
@@ -26603,6 +27128,9 @@ At the base commit these sites violate the rules in files this plan edits. Earli
 | `OpenAICompatiblePanel.tsx` | four `text-xs text-warning` hint paragraphs | Task 9 rewrites the file without `text-warning`; nothing to do unless the guard still reports them (then use `text-muted-foreground`) |
 | `DeveloperSection.tsx` | `font-medium text-warning` | `font-medium text-foreground` |
 | `ui/ApiKeyInput.tsx` | save button `text-success hover:bg-success/10` | Task 12 already changes it to `text-foreground hover:bg-muted`; if it is still there, make that change |
+| `SettingsPage.tsx` (`routeWriteGuard`) | setters left in the `useSettings()` destructuring (`:1081`) or `TranscriptionSection` after Tasks 8–9 replaced their uses (for example `setWhisperModel`, `setCohereModel`, `setLocalTranscriptionProvider` at base `:442-483`) | delete the unused names; any remaining use commits through `useRouteCommit`/`RouteSwitch` |
+| `notes/UploadAudioView.tsx` (`routeWriteGuard`) | `setUploadTranscriptionMode` (`:288`) and `setUploadUseLocalWhisper` (`:292`) are selected and never called | delete both selectors |
+| `settings/InferenceConfigEditor.tsx` (`routeWriteGuard`) | `setField` (`:91-97`) calls `setResolvedLLMConfig(scope, { [field]: value })`, a computed key; after Task 9 only `disableThinking` (`:196`) uses it | replace `setField` with `const setDisableThinking = useCallback((value: boolean) => setResolvedLLMConfig(scope, { disableThinking: value }), [scope]);` and use `onChange={setDisableThinking}` |
 | `ui/SidebarModal.tsx`, `settings/DictationAgentSettings.tsx`, `DictionaryView.tsx` | nav badge `bg-warning/10 text-warning`; screen-context hint `text-warning/80`; "{n} words ready" `text-success` | Task 15 moves the badge into `SettingsNav.tsx` as `bg-foreground/10 text-foreground`; Task 17 changes the other two to `text-muted-foreground` and `text-foreground`. Nothing to do unless the guard still reports them |
 
 Status glyphs (`<CircleAlert … text-warning />`, `<Check … text-success />`) stay as they are: they are graphics and the guard exempts them.
@@ -26675,7 +27203,7 @@ npm run dev
 
 Screenshot each check for the PR. Compare against the picked cards in `design-explorations/loqui-uiux-review.html#ch-settings`.
 
-0. **No automatic network traffic.** Open DevTools → Network, clear it, then open Settings and visit every section and sub-tab, type in every key and URL field, tab through the provider pickers and blur the fields. Expect no request to a provider or to the typed address. The only requests come from the explicit buttons: Verify, Verify all, List models, Test (the self-hosted probe carries no headers).
+0. **No automatic network traffic.** Open DevTools → Network, clear it, then open Settings and visit every section and sub-tab, type in every key and URL field, tab through the provider pickers and blur the fields. Expect no request to a provider or to the typed address. The only requests come from the explicit buttons: Verify, Verify all, List models, Test (the self-hosted probe carries no headers), Connect ChatGPT, Check ChatGPT status and List models from ChatGPT. Opening LLMs › Cloud › ChatGPT starts no `codex` process (Activity Monitor or `ps`) and sends nothing to GitHub.
 1. **Routing (R1 B).**
    - 11 tasks and destinations with cables.
    - Chat to This device applies with Undo.
@@ -26723,7 +27251,7 @@ Screenshot each check for the PR. Compare against the picked cards in `design-ex
 - [ ] **Step 8: Commit fixes, then hand off for the PR**
 
 ```bash
-git add DESIGN.md test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js test/components/settingsDesignDoc.test.js
+git add DESIGN.md test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js test/components/routeWriteGuard.test.js test/components/settingsDesignDoc.test.js
 git add -u
 git commit -m "docs(design): Settings routing, planner, keyring, storage and search"
 ```
@@ -26743,7 +27271,7 @@ Write `/tmp/plan03-pr-body.md` (not committed):
   > - `RouteSettingsSnapshot.sealed` is a required `boolean`. Do not redeclare it optional.
   > - `src/lib/routeGraph.ts` is the Node-loadable pure resolver (imports only `./locality.ts`, `../helpers/transcriptionRoute.ts` and `../utils/urlUtils.ts`; explicit extensions; no React, store or JSON). Import it directly in Plan 07's Node test, or load `routes.ts` through the renderer harness. `test/lib/routeFixtures.js` exports `makeSnapshot` and `makeRoute`.
   > - While sealed, every non-device route (LAN servers included) resolves `unreachable/sealed`; routes that are off stay `off`.
-  > - Egress inventory additions: the self-hosted probe (`selfHostedProbe.js`, unauthenticated, user-initiated), keyring Verify and "List models" (explicit buttons that name the receiving host).
+  > - Egress inventory additions: the self-hosted probe (`selfHostedProbe.js`, unauthenticated, user-initiated), keyring Verify and "List models" (explicit buttons that name the receiving host), and the Codex buttons (Connect ChatGPT, Check ChatGPT status, List models from ChatGPT). Each starts the Codex app server, whose first start per session may verify the release with GitHub; Settings never starts it on mount.
 
 Get the owner's explicit OK before `git push` or `gh pr create`. Publishing is outward-facing.
 

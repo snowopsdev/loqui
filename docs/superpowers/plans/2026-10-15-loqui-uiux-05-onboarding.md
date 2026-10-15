@@ -38,6 +38,10 @@
 
 ## Review response
 
+**PR #45 review:**
+- **P1, Ready privacy summary:** Task 18 includes `noteRecordingStt` in `ReadinessInput` and `allLocal`; the composition passes the actual note route. Tests cover device, remote, network and unknown note locality, and the remote-note subtitle cannot claim everything runs on device.
+- **P2, detected-language fallback:** Task 3's `VoicePick.languages` contains only languages heard by the detected model. The `he-IL` / `fr-FR` regression retains French, remains compatible, and Task 13's flow test commits only `fr-FR` without manual changes.
+
 **Round 2** is Codex `gpt-6.1-sol` at xhigh: `.omc/research/ui-review/reviews/plan-05-codex.md`, with 1 Critical, 14 Important and 5 Minor findings. All 20 are closed, and two are closed differently from the review's first suggestion.
 
 | ID | Finding | Status | Where |
@@ -1270,7 +1274,7 @@ export function spokenLocalesFor(locales: readonly string[], languages: readonly
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm test -- test/utils/onboardingDetection.test.js`
-Expected: PASS (11 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 

@@ -5,7 +5,7 @@
 **Goal:** Make every voice moment legible, recoverable and honest about where data goes. This plan delivers:
 - one notice system;
 - words-first error recovery;
-- undoable cancel;
+- undoable cancel that keeps D3;
 - the Condensation pill with locality;
 - the Agent violet orbit;
 - the soft sound family;
@@ -13,167 +13,301 @@
 - the meeting recorder as a pill state.
 
 **Architecture:**
-- **Pure modules hold the logic.** `notices.ts` is the notice store. `cancelHold.js` is the RAM undo buffer. `remoteDispatch.js` answers "who already received it". `voicePillPresentation.js` gains the stage and footprint model. `condensation.ts` handles word commits and the cleanup diff. `meetingPresence.js` holds the main-process meeting state and the tray/notification decisions.
-- **React renders the result.** `VoicePill`, `NoticeStack`, `WordsFirstCard`, `CondensationWords` and `AgentOrbit` draw what the pure modules decide.
-- **Audio stays in main or AudioManager.** `AudioManager` keeps owning audio, so the undo buffer lives there. Electron main owns the overlay windows, the tray, global shortcuts and native notifications, and is touched only for those.
+- **Pure modules hold the logic:**
+  - `notices.ts` is the notice store.
+  - `hotkeyLeases.js` owns temporary global shortcuts in main.
+  - `dictationSession.js` pins each recording's route.
+  - `dictationDisclosure.js` decides who demonstrably received data.
+  - `cancelBuffer.js` holds a cancelled recording in RAM and zeroes it.
+  - `voicePillPresentation.js` gains the stage, footprint and ownership model.
+  - `condensation.ts` handles word commits and the cleanup diff.
+  - `meetingPresence.js` and `linuxRecordingNotification.js` hold the main-process meeting state.
+- **React renders the result.** `VoicePill`, `NoticeStack`, `WordsFirstCard`, `CondensationWords`, `AgentOrbit` and `MeetingCapsule` draw what the pure modules decide.
+- **Audio stays in the AudioManager; windows and the system stay in main.** `AudioManager` keeps owning audio, so the session snapshot and the cancel buffer live there. Electron main owns the overlay windows, the tray, global shortcuts, native notifications and the quit sequence, and is touched only for those.
 
-**Tech Stack:** React 19, Tailwind CSS 4, TypeScript and JS (ESM), Zustand settings store, Electron 44 main process, Web Audio. Tests run on Node `node:test` with `tsx`, `react-dom/server` (`test/helpers/harness/reactSsr.js`), and the Vite SSR renderer harness (`test/lib/rendererTestHarness.js`, `test/helpers/harness/audioManager.js`).
+**Tech Stack:** React 19, Tailwind CSS 4, TypeScript and JS (ESM), Zustand settings store, Electron 44 main process, `@homebridge/dbus-native` (already a dependency), Web Audio. Tests run on Node `node:test` with `tsx`, `react-dom/server` (`test/helpers/harness/reactSsr.js`), and the Vite SSR renderer harness (`test/lib/rendererTestHarness.js`, `test/helpers/harness/audioManager.js`).
 
 **Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`. It covers D1, D2, D3, D4, D9 and D10, the Plan 04 row in §3, §4, and contracts §5.1–§5.4.
 - Visual reference: `design-explorations/loqui-uiux-review.html#ch-voice`. Source: `design-explorations/loqui-uiux-review/parts/03-voice.html` (sibling worktree `t3-5038e8e6`). The picked variant cards are R1 C (lines 207–217), R6 B (412–422), R8 B (502–512), R10 A (859–868), R11 B (667–677), R12 A (708–718) and R14 B (810–820).
 - Audit: `.omc/research/ui-review/audit-voice.md` in the same sibling worktree.
+- Independent review this revision answers: `.omc/research/ui-review/reviews/plan-04-codex.md` (sibling worktree).
+
+---
+
+## Review response
+
+This revision answers the independent review (`plan-04-codex.md`: 2 Critical, 14 Important, 3 Minor; the report body lists M1–M3). Every finding is closed in a named task. None is disputed. Two findings received a different fix from the one the report suggested, and the reasons are given in the table.
+
+| Finding | Status | Where | How |
+|---|---|---|---|
+| **C1** cancel path writes audio to disk with retention off | Closed | Task 8 | The cancel buffer holds the **raw** segments, or PCM frames plus fallback segments, as owned RAM copies. No FFmpeg merge runs while it is held. The only cancel-time merge is in `_closeCancelled`, behind `shouldSaveDiscardedRecording`, which is the retention gate. A test with two segments and retention off rejects any merge or save. Task 20 Step 3 checks the temp directory on a real recording. |
+| **C2** Undo can use a different route | Closed | Tasks 6, 8 | Each recording captures a frozen, credential-free `DictationSession` at start (route, model, endpoint, prompts, and the Agent and translation intents). Every routing read in the pipeline goes through `this.settings()`, which pins the snapshot, and a source guard test enforces this. The explicit cleanup provider and endpoint replace `ReasoningService`'s live fallback. Undo applies the held session. Tests cover local→remote and provider A→B through the real `processAudio` and `processWithOpenAIAPI`. Sealed mode is re-checked before restore, and main still enforces it. |
+| **I1** late bytes not zeroed; Blobs reachable | Closed | Task 8 | The buffer owns every byte copy, zeroes copies that arrive after it closed, and swallows rejections. Source references are dropped at cancel: `segmentChunks`, `_batchSegments`, the streaming fallback chunks and segments, `_processingAudio`, and `lastAudioBlob` only when it belongs to the same session. A newer session is never cleared. Tested for late bytes, rejection, replacement and residual references. PRIVACY.md states the Blob distinction honestly. |
+| **I2** streaming and merge-time cancels lacked Undo | Closed | Task 8 | Streaming Undo replays the held PCM frames through the **same** streaming provider at 4× real time, then runs the normal finalization. This works for Deepgram and AssemblyAI too, which have no batch endpoint. Merge-time and processing-time batch cancels hold the raw segments registered before the merge. There are tests per path. A startup cancel, before any audio exists, has nothing to restore. **Different fix:** the report suggested re-transcribing through a batch endpoint; that would change the route (and does not exist for two providers), so replay stays on the streaming route. |
+| **I3** restore not atomic; no Esc in restored processing | Closed | Tasks 8, 9 | `restoreCancelled` claims the buffer and enters `isProcessing` synchronously, before any await. A restore generation rejects stale work, and every failure settles idle. Esc is registered from lifecycle transitions (busy ↔ idle), not from a successful mic start. Tests: a start during a pending restore, byte rejection, and Undo→processing→Esc. |
+| **I4** stage selection ignores native visibility and ownership | Closed | Tasks 10, 11, 17 | `resolvePillOwnership(stage)` returns `holdsWindow`, `interactive` and `outranksFooter`. That one policy feeds auto-hide (`shouldAutoHidePill`), Assistant footer suppression, `resolveVoicePillInteraction` (mac and Windows click-through, and the Linux input region), and the show-when-hidden branch. Tested with auto-hide on, Assistant final actions, and Live Transcript or Assistant mounted. |
+| **I5** "already received" is not egress evidence | Closed | Task 7 | With Plan 07, only main's `EgressNotice { phase: "sent" }` for this session's `correlationId` and a content payload counts (`attested`). Without Plan 07, evidence is recorded only after the transport hand-off (`dispatched`), and the copy then says "may have received". Startup failures, main rejections (`dispatched: false`) and Sealed blocks record nothing. Translation, cleanup, Agent and vision are instrumented. Loopback custom endpoints resolve to the device through Plan 03's resolver. |
+| **I6** no cross-window Undo for Plan 05; disclosure shapes disagree | Closed | Tasks 7, 9; CCR-5, CCR-6 | There are `cancelled` and `cancelClosed` demo statuses with sanitised fields, `windowManager.sendUndoCancelDictation(sessionId)` (a request/reply to the overlay that returns `UndoResult`), and `lastCancelledDictation`. One `RemoteDisclosure` type (target id + payload + evidence) and one label helper serve Plans 04, 05 and 07. A two-window contract test covers the round trip. |
+| **I7** temporary hotkeys lack main ownership | Closed | Tasks 2, 9, 18 | `hotkeyLeases.js` gives each temporary shortcut a main-owned lease. It is released on release, TTL, owner destruction, renderer crash and navigation. Registration is serialised per slot, so a late registration after release is undone and a newer lease is never unregistered by an older result. The UI shows a shortcut only when main reports `held`. Temporary slots never go to KGlobalAccel. The meeting prompt uses a lease too. |
+| **I8** Linux notification races; fallback without Stop | Closed (fallback Stop moves to the tray) | Task 16 | The notification uses the bundled `@homebridge/dbus-native`, not a host CLI. Its lifetime is serialised by generation: a late id is closed, signals are subscribed first, and `NotificationClosed`, service loss and teardown are handled. Stop is bound to the meeting session. Where the server has no `actions` capability or no service, the tray's "Stop meeting recording" is the Stop, and a never-expiring notification says so. **Different fix:** Electron cannot add buttons on Linux, so a fallback notification with a Stop button is impossible. The platform question is Open question 4. |
+| **I9** quit flush not wired | Closed | Task 9 | `before-quit` awaits `flushDictationBeforeQuit({ timeoutMs: 3000 })`, a token-bound request/reply to the overlay, before teardown. A dead renderer times out, and its RAM is gone with it. With retention off, the flush only zeroes. The test replies only after a delayed flush settles. |
+| **I10** failed Retry cleanup dismisses its own alert | Closed | Tasks 1, 4 | `runNoticeAction` dismisses only the revision it started on. Notices are `busy` while an action runs, and repeat activations are ignored. An integration test runs the real store and the real retry. |
+| **I11** secondary actions discarded | Closed | Task 3 | A chip with more than one action gets an accessible "More" disclosure (`aria-expanded`, `aria-controls`) listing every other action. The test renders and finds the secondary controls. |
+| **I12** `openSettingsAt` path ignored | Closed | Task 4 | The path is carried end to end: main waits for a freshly created control panel to load, preload passes the payload, `ControlPanel` validates it against Plan 03's grammar and sets the section, and `SettingsModal` re-applies a section that arrives while it is open. |
+| **I13** `words` contract permits expiry | Closed | Task 1 | `NoticeInput` is discriminated: `words` is typed only on alerts. At runtime, words on any kind make an alert that never expires. Tested. |
+| **I14** presence loss treated as "saved" | Closed | Tasks 16, 17 | Presence is liveness only. `stopRecording` reports an explicit `MeetingOutcome` after the transcript write and the main stop settle: saved, `failed: save`, or `failed: stop`. Owner loss is `failed: ownerLost`. The pill announces only outcomes. Tested with a failed write and duplicate stops. |
+| **M1** countdown regex fails | Closed | Task 11 | The test asserts each style declaration independently of order. |
+| **M2** `onDismiss` semantics undefined | Closed | Task 1 | `onDismiss(reason)` fires exactly once per revision, with `user`, `action`, `timeout`, `replaced` or `evicted`. Each reason is tested. |
+| **M3** non-concrete verification commands | Closed | Tasks 3, 19, 20 | The deletion gate is a quoted `rg` over imports only, excluding the files being removed. The missing-service case is tested by injection, never by mutating the host. Plan 02's behaviours are checked by name. There is a recorded macOS / X11 / Wayland matrix. The card-height regression is ported to `WordsFirstCard`. |
+
+**Cross-plan items from the review's conflict table:**
+- **03.** Route-change receipts with Undo keep 7 s (`NOTICE_DURATION_MS.receiptWithAction`). `openSettingsAt` uses Plan 03's `settingsPath` grammar and its `SettingsModal` parser. `providerId` (CCR-7) is accepted in Plan 03's revision.
+- **05.** Plan 04 owns and tests the bridge (CCR-5). Plan 05 keeps its new demo events when it rebases onto this plan's hook changes.
+- **06.** Cancellation is **not** a broadcast dictation-lifecycle edge. It is a separate hook field (`cancelled`) plus the demo/bridge events, so Plan 06's lifecycle forwarding is untouched. Any toast Plan 06 adds is migrated by the guard test in Task 5, which runs on the final combined tree.
+- **07.** One disclosure shape and one correlation id (CCR-6). Main's Sealed enforcement stays authoritative, and Undo pre-checks it but never bypasses it.
 
 ---
 
 ## Contract change requests
 
-Plan 04 owns §5.2 and §5.3. Every change below is **additive**: no consumer written against the spec text breaks. The spec says the owning plan updates §5 in the same PR, but this planning thread must not edit the spec. So Task 19 applies these edits to the spec **only after the owner approves them**. Until then, consumers keep coding against the spec text, which stays valid.
+Plan 04 owns §5.2 and §5.3. These are the exact shapes this plan ships. The owner applies them to the spec and notifies Plans 05 and 07. Task 21 confirms the merged spec matches before the PR. Shared types live in `src/types/dictation.ts`, created in Task 7, so consumers import them instead of restating them.
 
-1. **CCR-1, §5.2 `cancelled` gains `remotePayload` and a no-undo sentinel.**
-   - New shape: `{ undoUntil: number; remoteAlreadySent: string | null; remotePayload: "audio" | "text" | null }`.
-   - Why `remotePayload`: when speech is local but cleanup is remote, the honest copy is "Anthropic already received the text", not "the audio".
-   - Why the sentinel: `undoUntil === 0` means "nothing to restore". A streaming dictation keeps no local buffer once cancelled (see Open question 1), so the pill shows "Cancelled · {provider} already received the audio." with no Undo.
-   - **Encoding of `remoteAlreadySent`.** It is a **target id**, not display text, so it can be localised:
-     - a provider id such as `"openai"`;
-     - or `"host:<host>"` for a self-hosted server on the network.
+**CCR-1 (§5.2), the `cancelled` state.** Every cancel that captured audio has an Undo window, including streaming and merge-time cancels. A cancel before any audio exists produces no `cancelled` state.
 
-     Render it with `dispatchTargetLabel(target, t)` from `src/helpers/remoteDispatch.js`. That uses `providerDisplayLabel` for providers (Plan 01 review item 1).
-   - Plan 07 reads `remoteAlreadySent` and renders it with the same helper.
-2. **CCR-2, §5.2 `meetingRecording` gains `interruption` and `quiet`.**
-   - New shape: `{ startedAt: number; interruption: "systemAudio" | "mic" | null; quiet: boolean }`.
-   - These drive the R12 A "system lost" (amber, wider) and "quiet" (pale dot) capsule states.
-   - Meeting capture runs in the control-panel renderer, so `useAudioRecording` sources this value from a main-process relay (Task 14), not from `AudioManager`.
-3. **CCR-3, §5.2 adds two read-only fields to the `useAudioRecording` return.**
-   - `processingStage: "transcribing" | "cleaning" | null` drives "Transcribing…" / "Cleaning up".
-   - `outcome: { kind: "pasted"; words: number; at: number } | { kind: "failed"; at: number } | null` drives the 700 ms success beat and the failure nudge.
-   - Onboarding (05) can use both in its trial.
-4. **CCR-4, §5.3 `notify()` additions.**
-   - `notify()` returns the notice `id: string`.
-   - New optional fields: `id` (dedupe or replace), `words` (recovered transcript; renders the words-first card and never auto-dismisses), `details` (the existing `TechnicalErrorDetailsData`), and `onDismiss`.
-   - Actions are `{ label: string; onClick: () => void | Promise<void>; primary?: boolean; keepOpen?: boolean }`.
-   - New exports: `dismissNotice(id)`, `useNotices()`.
-   - Default lifetimes: receipt 3.5 s, notice 10 s, alert 10 s. A notice or alert never auto-dismisses when `persistent` is set or when it carries `words`. This preserves Plan 02's VO-Q6 rule.
+```ts
+export interface CancelledState {
+  sessionId: string;              // the dictation session (also the correlationId, CCR-6)
+  undoUntil: number;              // epoch ms the window closes; frozen while paused
+  paused: boolean;                // the pointer rests on the pill
+  remainingMs: number;            // what is left of the window
+  remoteAlreadySent: RemoteDisclosure | null;   // CCR-6; updates while the window is open
+}
+export type UndoResult =
+  | { restored: true; sessionId: string }
+  | { restored: false; sessionId: string | null; reason: "expired" | "busy" | "sealed" | "routeUnavailable" | "noAudio" | "unavailable" };
+```
 
-5. **CCR-5, to Plan 03 (owner of §5.1): add `providerId: string | null` to `ResolvedRoute`.** Plan 01's review requires `providerDisplayLabel(providerId, t)` for every provider name in the pill. Today `ResolvedRoute.provider` is already a display string, built without `t`, so the unknown and custom fallbacks cannot be localised.
-   - This is additive.
-   - Until it lands, `routeProviderLabel` (Task 9) falls back to `route.provider`.
+`undoCancel(): Promise<boolean>` keeps the §5.2 signature. When it returns `false`, a notice explains the reason. The earlier draft's `remotePayload` field and its `undoUntil: 0` sentinel are withdrawn.
+
+**CCR-2 (§5.2), the meeting recorder.** The `meetingRecording` pill state carries liveness only. Saving is a separate, explicit outcome.
+
+```ts
+export interface MeetingPresence { sessionId: string; startedAt: number; interruption: "systemAudio" | "mic" | null; quiet: boolean }
+export type MeetingOutcome =
+  | { sessionId: string; kind: "saved"; durationMs: number; noteId: string | null }
+  | { sessionId: string; kind: "failed"; reason: "save" | "stop" | "ownerLost" };
+```
+
+**CCR-3 (§5.2), `useAudioRecording` return additions.** These are read-only:
+
+```ts
+cancelled: CancelledState | null;
+undoCancel(): Promise<boolean>;
+pauseUndo(): void;
+resumeUndo(): void;
+processingStage: "transcribing" | "cleaning" | null;
+outcome: { sessionId: string; kind: "pasted"; words: number; at: number } | { sessionId: string; kind: "failed"; at: number } | null;
+meetingRecording: MeetingPresence | null;
+```
+
+**CCR-4 (§5.3), `notify()`.**
+
+```ts
+export type NoticeKind = "receipt" | "notice" | "alert";
+export type NoticeRemoval = "user" | "action" | "timeout" | "replaced" | "evicted";
+export interface NoticeAction { label: string; onClick: () => void | Promise<void>; primary?: boolean; keepOpen?: boolean }
+interface NoticeBase { title: string; body?: string; actions?: NoticeAction[]; persistent?: boolean; id?: string;
+  details?: TechnicalErrorDetailsData; onDismiss?: (reason: NoticeRemoval) => void }
+export type NoticeInput =
+  | (NoticeBase & { kind: "alert"; words?: string })
+  | (NoticeBase & { kind: "receipt" | "notice"; words?: never });
+export function notify(input: NoticeInput): string;
+export function dismissNotice(id: string, reason?: NoticeRemoval): void;
+export function useNotices(): readonly Notice[];   // Notice adds id, revision, createdAt, expiresAt, remainingMs, busy
+```
+
+The semantics:
+- **Lifetimes.** A receipt lasts 3.5 s, or 7 s when it carries an action. A notice or alert lasts 10 s. A notice or alert never expires when `persistent`, and an alert never expires when it carries `words`. Words on any other kind are promoted to an alert.
+- **Replacement.** The same `id` replaces the earlier notice and bumps its `revision`.
+- **Actions.** An action dismisses only the revision it began on. Repeat activation is ignored while the notice is `busy`.
+- **`onDismiss`.** It fires exactly once per revision, with the removal reason.
+- **Cap.** At most three notices are visible.
+
+**CCR-5 (§5.2), the cross-window Undo bridge for Plan 05.** The trial records in the overlay window, and the control panel drives it.
+- **Overlay → main → control panel.** These go on `onboarding-demo-event`. Main sanitises them with `sanitizeCancelledDemoFields`:
+
+  ```ts
+  | { kind: "dictation" | "assistant"; status: "cancelled"; sessionId: string; cancelled: CancelledState }  // on open, pause, resume, new evidence
+  | { kind: "dictation" | "assistant"; status: "cancelClosed"; sessionId: string; reason: "expired" | "restored" | "replaced" | "flushed" }
+  // A successful Undo is followed by the existing { status: "processing" } event.
+  ```
+
+- **Control panel → main → overlay.**
+
+  ```js
+  windowManager.sendUndoCancelDictation(sessionId?: string): Promise<UndoResult>;
+  // Request/reply on undo-cancel-request / undo-cancel-reply, bound to the overlay's webContents and a token.
+  // Times out after 2 s with { restored: false, sessionId, reason: "unavailable" }.
+  windowManager.lastCancelledDictation: { sessionId: string } | null;
+  ```
+
+- **For Plan 05.** Its `onboarding-demo-undo-cancel` handler calls `windowManager.sendUndoCancelDictation(windowManager.lastCancelledDictation?.sessionId)`, and returns `result.restored`. Its `OnboardingDemoEvent` uses `cancelled: CancelledState`, not the earlier `undoUntil` / `remoteAlreadySent?: string` pair. Its copy renders `cancelled.remoteAlreadySent` with `disclosureCopy` (CCR-6), so local speech with remote cleanup reads "…received the text".
+
+**CCR-6 (§5.2 / §5.4), one disclosure shape, settled with Plan 07.**
+
+```ts
+export type DisclosurePayload = "audio" | "text" | "image";
+export interface RemoteDisclosure {
+  target: string;                         // provider id ("openai", "custom"), or "host:<hostname>" for the user's own server
+  payload: DisclosurePayload;             // strongest seen: audio > image > text
+  evidence: "attested" | "dispatched";    // attested = Plan 07 EgressNotice; dispatched = renderer saw the transport hand-off
+}
+// src/helpers/dictationDisclosure.js
+dispatchTargetLabel(target, t): string;   // providerDisplayLabel for providers, the host for "host:…"
+disclosureCopy(disclosure, t): string;    // "{{provider}} already received the audio." / "…may have received…"
+```
+
+- **Correlation.** The `correlationId` Plan 07 asked for (its CCR-3) is the dictation session id. It is carried on the BYOK transcription payload, the realtime and per-provider streaming start options, and every cleanup, Agent, vision and translation text request of that recording.
+- **Evidence.** When Plan 07's `privacy.onEgress` exists, only a `{ phase: "sent" }` notice with this session's `correlationId` and payload `audio`, `text` or `image` sets `evidence: "attested"`. `metadata` (token fetches) never counts. Without Plan 07, evidence is recorded only after the transport hand-off.
+- **Amendment to Plan 07's CCR-3.** `remoteAlreadySent` is a `RemoteDisclosure`, not a display-name string. Main has no user-locale `t()`, and Plan 01's review requires `providerDisplayLabel(providerId, t)` for every shown provider name. The flight recorder keeps its own `EgressEvent` rows unchanged.
+- **Naming.** Plan 07's `EgressNotice` is an IPC event type, unrelated to the §5.3 notice tier. Any user-facing egress message is shown through `notify({ kind: "receipt" | "notice" })`, with text from `disclosureCopy`.
+
+**CCR-7 (§5.1, owner Plan 03): `ResolvedRoute.providerId: string | null`.** Plan 03's revision has accepted this. `routeProviderLabel` (Task 11) uses it unconditionally once present. Until then, it falls back to `route.provider`.
 
 ## Open questions for the owner
 
 Each question has a default that the plan implements. A different answer changes only the task named.
 
-1. **Undo for streaming dictation (Task 6). This deviates from D3 ("⌥Z or a click restores it") and needs your sign-off.** A streaming provider has already received the audio, and the code keeps no local copy after a cancel (`cancelStreamingRecording` clears the fallback chunks). The default is no Undo: the pill says "Cancelled", with the caption "OpenAI already received the audio." The alternative keeps the fallback recorder's chunks in RAM and re-transcribes through the **same** provider's batch endpoint. That fails for streaming-only providers.
-2. **The Condensation word row and "Show transcription preview" (Task 10).** The default shows live words above the pill whenever streaming partials exist, even with the preview setting off, because that is the picked design. Words on screen matter during screen sharing. Should the row honour that setting (off by default), or get its own?
-3. **R11 B mini pill width (Task 16).** The card's tradeoff text says 168 px, but the mock CSS uses 224 px. "Meeting? Start notes ⌥⌘M" does not fit in 168 px at 12.5 px, so the plan uses 224 px.
-4. **Global shortcuts beyond ⌥Z.** The plan adds ⌥↵ "Paste again" while a words card is up (Task 2), and ⌥⌘M (Ctrl+Alt+M) "Start notes" while a meeting prompt is up (Task 16). Each is held only while its surface shows; the pill and prompt windows cannot take focus. Are those combinations acceptable?
-5. **Linux fallbacks and the on-screen setting (Tasks 14 and 15).** The default shows the tray dot and the persistent notification on Linux whenever a meeting records. "Show meeting recorder on screen" governs only the pill. Should the setting also suppress the Linux notification?
-6. **What "Retry cleanup" does (Task 3).** After a raw paste the pasted text cannot be rewritten in another app, so Retry copies the cleaned text to the clipboard and says so. History keeps the raw text. Is that the expected behaviour?
-7. **Words-card primary colour (Task 2).** The R6 B mock paints "Paste again" orange. D1 reserves orange for voice controls, so the plan uses the ink button. Confirm.
-8. **When discarded audio is saved.** With "Save discarded" on, the audio is now saved when the undo window ends, not at the moment of cancel. An unload flush covers a normal quit, but a crash inside the 5–10 s window loses that one recording. Acceptable?
+1. **Live words and "Show transcription preview" (Task 12).** The default shows Condensation words above the pill whenever streaming partials exist, even with the preview setting off. Words on screen matter when screen sharing. Should the row honour that setting (off by default), or get its own?
+2. **R11 B mini pill width (Task 18).** The card text says 168 px, but the mock CSS uses 224 px. "Meeting? Start notes ⌥⌘M" does not fit in 168 px at 12.5 px, so the plan uses 224 px.
+3. **Global shortcuts beyond ⌥Z.** The plan adds two more, each leased only while its surface shows, and displayed only while main holds it:
+   - ⌥↵ "Paste again" while a words card is up (Task 3);
+   - ⌥⌘M (Ctrl+Alt+M) "Start notes" while a meeting prompt is up (Task 18).
+
+   Are those combinations acceptable?
+4. **Linux without notification actions (Task 16).** Electron cannot add buttons to Linux notifications, and some notification servers do not support actions. On those desktops, Stop lives in the tray menu and the pill. The resident notification is a never-expiring message that points there. Acceptable, or should the plan add a native helper?
+5. **Linux and the on-screen setting (Tasks 16, 17).** By default, the tray dot and the resident notification appear on Linux whenever a meeting records. "Show meeting recorder on screen" governs only the pill. Should the setting also suppress the notification?
+6. **"Retry cleanup" (Task 4).** After a raw paste the pasted text cannot be rewritten in another app, so Retry copies the cleaned text and says so. History keeps the raw text. Is that the expected behaviour?
+7. **Words-card primary colour (Task 3).** The R6 B mock paints "Paste again" orange. D1 reserves orange for voice controls, so the plan uses the ink button.
+8. **Crash inside the undo window.** With "Save discarded" on, the audio is saved when the window closes. A normal quit flushes it (Task 9), but a crash inside the 5–10 s window loses that one recording. A crash-proof save would mean writing to disk at cancel, which D3 forbids.
+9. **Streaming Undo pacing (Task 8).** The replay sends at 4× real time. A provider that rate-limits faster-than-real-time input would fail the Undo with "route unavailable", and the words would not be recovered. Should the replay drop to 1× (slower Undo for long dictations)?
 
 ## Plan 01 review hand-offs (shipped at `172f9df` on `snowopsdev/feat/uiux-foundations`)
 
 Plan 01's final review sent four items to this plan. Each is folded into the task named below.
 
 1. **Provider names.** Every provider name in the pill or in a notice comes from `providerDisplayLabel(providerId, t)` (`src/lib/locality.ts`), which localises the "Custom endpoint" and "Unknown provider" fallbacks. `providerDisplayName` is for logs only.
-   - Task 5 records provider **ids**, not display names. Its new helper `dispatchTargetLabel(target, t)` renders them.
-   - Tasks 9 and 11 render route providers through `routeProviderLabel(route, t)`, which prefers `providerDisplayLabel(route.providerId, t)` (see CCR-5).
-2. **Two leftover motion and colour rules.** These are `.assistant-response-content-updating` (`dictation-panel.css` ≈569–570, an exit: the old answer recedes) and `.thinking-shimmer-text` (`index.css` ≈1752, cool hues 260/240/250). Task 12 moves the first onto `--motion-ease-exit` and the second onto foreground/muted tokens, which are neutral in light and plum in Plum Night.
-3. **Meeting card Start button.** Decision: it starts a recording, so it **is** a live-voice control under D1 and keeps the orange `Button variant="live"`. The `bg-primary/10` tile behind the Loqui mark doubles the orange bubble, so it is removed. Recorded in Task 16 and in DESIGN.md.
-4. **`LevelBars` internals.** `LevelBars` now holds `readLevel` in a ref, so callers pass inline closures with no `useCallback`. `nextLevelBarsFrame` and `LEVEL_BARS_SILENCE_FLOOR` are exported, and reduced motion uses a flat phase.
-   - Tasks 9 and 17 pass inline closures.
-   - Task 11's radial ticks reuse `nextLevelBarsFrame` (for the decaying peak and the silence floor) and the flat reduced-motion phase, instead of a second meter maths.
+   - Task 7 records provider **ids**, and `dispatchTargetLabel` / `disclosureCopy` render them.
+   - Tasks 11 and 13 render route providers through `routeProviderLabel(route, t)`.
+2. **Two leftover motion and colour rules.** These are `.assistant-response-content-updating` (an exit) and `.thinking-shimmer-text` (cool hues). Task 14 moves the first onto `--motion-ease-exit`, and the second onto the foreground and muted tokens.
+3. **Meeting card Start button.** It starts a recording, so it is a live-voice control under D1 and keeps `Button variant="live"`. The `bg-primary/10` tile behind the mark is removed. Both are recorded in Task 18 and in DESIGN.md.
+4. **`LevelBars` internals.** Callers pass inline readers (`readLevel` is held in a ref). Task 13's radial ticks reuse `nextLevelBarsFrame`, `LEVEL_BARS_SILENCE_FLOOR` and the flat reduced-motion phase. Tasks 11 and 19 replace the old waveforms.
 
 ## Before you start (dependency check)
 
-Plan 04 executes after Plans 01 and 03 have merged (spec §3). It also assumes Plan 02 has merged, because Plan 02 changes the same toast, Esc and meeting-interruption code. Verify before Task 1:
+Plan 04 executes after Plans 01, 02 and 03 have merged (spec §3). Plan 02 changes the same toast, Esc and meeting-interruption code that this plan replaces. Verify before Task 1:
 
 ```bash
-grep -n "export function providerDisplayLabel" src/lib/locality.ts
-grep -n "export function nextLevelBarsFrame\|export const LEVEL_BARS_SILENCE_FLOOR" src/components/ui/levelBarsMath.ts
+rg -n "export function providerDisplayLabel" src/lib/locality.ts
+rg -n "export function nextLevelBarsFrame|export const LEVEL_BARS_SILENCE_FLOOR" src/components/ui/levelBarsMath.ts
 ls src/lib/locality.ts src/lib/routes.ts src/components/ui/LevelBars.tsx src/components/ui/LocalityRing.tsx src/utils/contrast.ts test/helpers/harness/cssTokens.js
-grep -n -- "--motion-ease-exit\|--color-live:" src/index.css | head
-grep -n 'variant.*live' src/components/ui/button.tsx | head -3
-grep -n "export function useResolvedRoute" src/lib/routes.ts
+rg -n -- "--motion-ease-exit|--color-live:" src/index.css
+rg -n "variant.*live" src/components/ui/button.tsx
+rg -n "export function (useResolvedRoute|resolveRoute|buildRouteSnapshot)" src/lib/routes.ts
+rg -n "providerId" src/lib/routes.ts
+rg -ln "new Notification\(" src/helpers main.js
 ```
 
-Expected: every file exists, the tokens and `live` variant are present, and `useResolvedRoute` is exported.
-- If `routes.ts` is missing, Plan 03 has not merged. Stop and report.
-- If Plan 07's `window.electronAPI.privacy` is absent, nothing in this plan breaks. The pill simply never sees `detail: "sealed"`.
+Expected:
+- every file exists;
+- the tokens and the `live` variant are present;
+- `routes.ts` exports `useResolvedRoute`, `resolveRoute` and `buildRouteSnapshot`, and carries `providerId`;
+- Plan 02's native notification module is present.
 
-Plan 02 overlap. Plan 02 owns VO-Q6, VO-Q8, VO-Q9 and VO-Q16. This plan **deletes** `Toast.tsx`, `toastPresentation.js` and `DictationErrorCard.tsx` (Task 4), so it carries their rules forward instead:
-- Q6: words alerts never auto-dismiss.
-- Q9: `role="status"`/`role="alert"`, and close is always visible.
-- Q8: Esc is armed until idle. Task 7 pins it with a test and implements it if Plan 02 did not.
+If `routes.ts` or Plan 02's module is missing, the dependency has not merged. Stop and report. If Plan 07's `window.electronAPI.privacy` is absent, nothing breaks: disclosure falls back to `dispatched` evidence, and Undo's Sealed pre-check is skipped (main still enforces Sealed mode once Plan 07 ships).
 
-Plan 02's VO-Q16 native interruption notifications stay as Plan 02 built them. Task 14 reuses its `Notification` helper if one exists (`grep -rn "new Notification(" src/helpers main.js`).
+**Plan 02 overlap.** Plan 02 owns VO-Q6, VO-Q8, VO-Q9 and VO-Q16. This plan deletes `Toast.tsx`, `toastPresentation.js` and `DictationErrorCard.tsx` (Task 5), and carries their rules forward:
+- Q6: words alerts never expire (Task 1).
+- Q9: live regions and a visible close (Task 3).
+- Q8: Esc is armed until idle, now owned by the lifecycle (Task 9).
+
+Plan 02's Q16 native interruption notifications are untouched. Task 16's resident recording notification is separate. Task 20 Step 2 re-checks all four.
 
 ## Global Constraints
 
-- Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md). Every new IPC method gets a `preload.js` entry and a `src/types/electron.ts` type, plus a `src/preview/browserPreview.ts` stub when the renderer calls it unguarded.
-- Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Undo re-runs the **same** route the cancelled dictation used, and never a different one. Content is preserved on every failure.
-- Cancel is instant, with no confirmation dialog.
-  - The undo window is 5 s, or 10 s when the recording is over 30 s. Hover pauses it, and ⌥Z or a click restores.
-  - Audio is held in RAM only and zeroed when the window expires. It is never persisted unless the retention settings already save discarded audio (`shouldSaveDiscardedRecording`).
-  - Esc stays armed until the pipeline is idle.
-  - If a remote request was already sent, the copy says so (D3). The pill reads "Discarded · Undo", or "Cancelled" when there is nothing to restore, and the caption above it reads "OpenAI already received the audio." Together they render D3's "Cancelled · OpenAI already received the audio." The provider name comes from `providerDisplayLabel`.
-- The meeting recorder is a state of the existing pill window, never a second always-on-top window (D2). Linux adds a tray recording state and a persistent notification with Stop. The setting "Show meeting recorder on screen" defaults to on.
+- Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md). Every new IPC method gets a `preload.js` entry and a `src/types/electron.ts` type, plus a `src/preview/browserPreview.ts` stub when the renderer calls it unguarded. Main-side request/reply goes through `requestFromRenderer` (token, sender, timeout).
+- Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. A dictation's route is pinned by its session at recording start, and Undo replays that route. Content is preserved on every failure.
+- **D3, cancel (owner-confirmed):**
+  - Cancel is instant, with no confirmation dialog.
+  - The undo window is 5 s, or 10 s when the recording is over 30 s. Hover pauses it. ⌥Z or a click restores.
+  - Every cancel that captured audio gets Undo: recording, mic recovery, segment merge, transcription and cleanup (batch); recording and finalization (streaming).
+  - The cancelled recording is held **in RAM only**: no file, and no temp file (no FFmpeg merge). It is never persisted unless retention already saves discarded audio (`shouldSaveDiscardedRecording`).
+  - When the window closes, every owned byte is zeroed, including bytes that finish copying afterwards, and no reference to a source Blob remains.
+  - Undo replays the session's original route, never current settings. Sealed mode blocks a non-device Undo.
+  - Esc is armed whenever the pipeline is busy, including an Undo-started processing phase, and released at idle.
+  - If a provider received the audio or text, the copy says so. Main-attested evidence reads "already received", renderer-only evidence reads "may have received", and nothing is said when nothing was dispatched.
+- **Temporary global shortcuts** (⌥Z, ⌥↵, ⌥⌘M) are main-owned leases (Task 2). They are released on disable, TTL, owner loss and navigation, and shown only while held.
+- **D2, the meeting recorder:**
+  - It is a state of the existing pill window, never a second always-on-top window.
+  - Linux adds a tray recording state, with Stop in the tray menu, and a resident notification with Stop where the notification server supports actions.
+  - "Show meeting recorder on screen" defaults to on.
+  - "Saved" is announced only from an explicit outcome, never from presence disappearing.
 - Condensation words render on their own layer above the bars. The bars are never clipped by words (D9). Agent Mode ships without the frame glyph (D9, VO-R8 owner note).
 - Orange (`variant="live"`, `--color-live`) is only for record, stop, mic, send-by-voice, the pill and meters (D1). Notice and card primaries use the default ink `Button`.
-- The pill window stays 208×120 (`PILL_WINDOW_SIZE`) for every pill-only state. No pill footprint may exceed 184 px wide, which is the window minus the 12 px dock insets. Recording edges never call `setBounds`.
-- Provider names shown in the pill or in notices come from `providerDisplayLabel(providerId, t)` (`src/lib/locality.ts`). `providerDisplayName` is for logs only.
+- The pill window stays 208×120 (`PILL_WINDOW_SIZE`) for every pill-only state. No pill footprint may exceed 184 px wide. Recording edges never call `setBounds`.
+- One ownership policy (`resolvePillOwnership`) decides auto-hide, footer suppression and pill input for long-lived stages (Task 10).
+- Provider names shown in the pill or in notices come from `providerDisplayLabel(providerId, t)`. `providerDisplayName` is for logs only.
 - Text contrast is at least 4.5:1 and non-text UI at least 3:1, in light and Plum Night. Never put white text on `#FF5A1F`.
-- Motion uses the Plan 01 tokens (`--motion-*`, springs as `linear()`) for every transition and every enter or exit. The exceptions are literal values the picked specs fix:
+- **Motion tokens.** Motion uses the Plan 01 tokens (`--motion-*`, springs as `linear()`) for every transition and every enter or exit. The exceptions are literal values the picked specs fix:
   - loop periods: the 1.6 s comet, 2.4 s and 1.2 s orbit, 1.2 s dot and 2 s shimmer;
   - choreography beats: 140/220 ms word landing, the 600 ms underline, 640 ms with `--motion-spring-bounce`, and the 260 ms nudge.
 
   Ambient loops (breathe, dot pulse) may use `ease-in-out`, per the audit §4.1 mapping. Every loop is gated to its active state. Reduced motion keeps opacity and colour and drops transforms. No `cubic-bezier(0.4, 0, 1, 1)`.
-- Every visible string goes through i18n, with keys in all 12 locales (`ar de en es fr it ja pt ru zh-CN zh-TW`). `npm run i18n:check` passes. Non-English locales get an English placeholder that the existing translation workflow fills. Do not leave keys missing.
-- Use logical properties (`ms-`/`me-`, `start`/`end`, `inset-inline-*`) for RTL. The exception is anchors that track the pill's physical screen dock (`data-direction` / `horizontalDirection`): the pill notice stack, the pill caption and the pill tooltip stay physical.
-- Tests: `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the app. Never use personal profiles in tests.
+- Every visible string goes through i18n, with keys in all 12 locales (`ar de en es fr it ja pt ru zh-CN zh-TW`), including every CLDR plural category `i18n:check` asks for. `npm run i18n:check` passes.
+- Use logical properties for RTL. The exception is anchors that track the pill's physical screen dock (`data-direction` / `horizontalDirection`): the pill notice stack, the pill caption and the pill tooltip stay physical.
+- Tests: `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the app. Never use personal profiles, and never mutate the host system (uninstalling binaries, for example), in tests or verification.
 - Before the PR: `npm run lint`, `npm run typecheck`, `npm test`, `npm run i18n:check`, `npm run format:check`.
-- `--shadow-card` and `--shadow-elevated` exist only under `.dark`. Every `box-shadow` that uses them carries a light fallback (`var(--shadow-elevated, 0 8px 24px rgb(0 0 0 / 0.14))`), because an undefined `var()` with no fallback invalidates the whole declaration.
+- `--shadow-card` and `--shadow-elevated` exist only under `.dark`. Every `box-shadow` that uses them carries a light fallback.
 - DESIGN.md is the source of truth (D10). Each task that changes a documented surface updates DESIGN.md in the same commit.
 
 ## Review Focus
 
-1. **Cancel after a batch upload has started.** Cancel lands while `transcribeAudioFileByok` is in flight. A person expects the pill to read "Discarded · Undo" with the caption "OpenAI already received the audio.", and Undo to re-send to the same provider. Cancelling **before** the upload must say nothing about a provider. Pinned in Task 5 (`remoteDispatch.test.js`, "batch dispatch is marked only once the upload is invoked") and Task 6 (`audioManagerCancelHold.test.js`, "cancel during an in-flight upload holds the blob and names the provider").
-2. **Save-discarded with Undo, or a quit inside the window.** With "Save discarded" on, the cancelled audio is saved exactly once when the window expires, and never when Undo restores it. If the app quits inside the window, it is flushed once. With retention off, nothing is ever written. Pinned in Task 6 ("expiry persists once when retention allows", "undo never persists a discarded copy", "flush on unload persists once").
-3. **⌥Z leaking after the window.** The ⌥Z slot must be unregistered when the window expires, when Undo runs, and when a new recording starts. Otherwise Loqui steals ⌥Z (Ω) from every app. Pinned in Task 7 (`useAudioRecordingCancelUndo.test.js`, "undo hotkey is released at expiry, on undo and on a new start").
-4. **Long translations in fixed pill footprints.** German and Russian stage labels ("Wird bereinigt", "Вставлено · 19 слов") must truncate with an ellipsis inside the footprint, never widen the pill past 184 px or wrap. Pinned in Task 9 (`voicePillStructure.test.js`, "stage labels truncate inside the footprint").
-5. **The control panel reloads mid-meeting.** A crash, reload or close of the control panel leaves the presence relay stale. The pill must not show a recording timer forever. Main clears presence when the owning webContents is destroyed or navigates. Pinned in Task 14 (`meetingPresence.test.js`, "presence clears when the owner goes away").
+These are the five failure modes most likely to bite a person, each pinned by a test in the owning task.
+
+1. **Settings change during the undo window.** The user switches STT from local to OpenAI, then presses ⌥Z. They expect the restored dictation to stay on the device. Pinned in Task 8 (`audioManagerCancelBuffer.test.js`, "Undo restores through the session's route even after settings move to a provider") and Task 6 (`audioManagerSessionRoute.test.js`, "audio recorded on-device stays on-device…", "provider A stays provider A…").
+2. **Cancel after a microphone change, retention off.** Two recorded segments, then Esc. They expect nothing on disk, temp files included, and every byte zeroed when the window closes. Pinned in Task 8 ("two segments, retention off: no merge, no write, every byte zeroed (C1)", "bytes that arrive after the buffer was zeroed are zeroed on arrival (I1)").
+3. **Undo, then Esc, then a new dictation.** They expect Esc to cancel the restored processing, and a new hotkey press during a pending restore not to start a second pipeline. Pinned in Task 8 ("Undo is claimed synchronously…") and Task 9 ("Esc is owned by the lifecycle…, including an Undo-started processing phase").
+4. **⌥Z or ⌥↵ leaking after the affordance is gone.** This includes a renderer reload and a backend that answers late. They expect the shortcut back in other apps. Pinned in Task 2 (`hotkeyLeases.test.js`, "released while registration is pending…", "the owner's renderer going away releases every lease it holds") and Task 9 ("⌥Z is leased while a window is open and released when it closes").
+5. **The control panel crashes mid-meeting.** They expect the pill to stop showing a timer and to say the recorder stopped unexpectedly, never "Meeting saved". Pinned in Task 16 (`meetingPresence.test.js`, "presence clears when the owner goes away, and that is reported as ownerLost, never saved"; `meetingStopOutcome.test.js`, "a failed transcript write is a failed outcome…") and Task 17 ("the pill never announces 'saved' because presence vanished").
 
 ## File map
 
 | File | Responsibility | Task |
 |---|---|---|
-| `src/components/ui/notices.ts` (new) | Notice store and `notify()` API (§5.3) | 1 |
-| `src/components/ui/NoticeStack.tsx`, `NoticeChip.tsx`, `WordsFirstCard.tsx` (new), `src/styles/notices.css` (new) | R14 B chips, R6 B card | 2 |
-| `src/hooks/usePillHotkey.ts` (new) + IPC `register-pill-hotkey` | Global ⌥Z / ⌥↵ while the pill shows undo or a words card | 2 |
-| `src/components/*NoticeListener.tsx` (renamed from `*ToastListener`) | Cleanup (VO-Q7), Tinfoil (VO-Q21), GPU pack, background actions | 3 |
-| `src/helpers/retryDictationCleanup.js` (new) | "Retry cleanup" action | 3 |
-| Toast removal (`Toast.tsx`, `useToast.ts`, `toastPresentation.js`, `DictationErrorCard.tsx`) | Migration finish | 4 |
-| `src/helpers/remoteDispatch.js` (new) + `audioManager.js` | Who already received the audio or text; processing stage | 5 |
-| `src/helpers/cancelHold.js` (new) + `audioManager.js` | RAM undo buffer (D3) | 6 |
-| `src/hooks/useAudioRecording.js` | §5.2 lifecycle: `cancelled`, `undoCancel`, `processingStage`, `outcome`, `meetingRecording` | 7 |
-| `src/helpers/voicePillPresentation.js` | Stage model, footprints, VO-Q5, VO-Q12, VO-Q18 | 8 |
-| `src/components/dictation/VoicePill.tsx`, `pillLocality.ts` (new), `PillCaption.tsx` (new), `src/hooks/useRecentOutcome.ts` (new) | LevelBars, LocalityRing, stage labels, cancelled capsule, caption layer | 9 |
-| `src/hooks/useUndoCancelHotkey.ts` (new) | ⌥Z while an undo window is open | 7 |
-| `src/hooks/useAgentAnswering.ts` (new), `agentOrbitMath.ts` (new) | Agent first-token beat, tick maths | 11 |
-| `src/helpers/trayRecordingIcon.js` (new), `src/hooks/useMeetingRecordingPresence.ts` (new) | Linux tray dot, presence hook | 14, 15 |
-| `src/utils/meetingMicLevel.ts`, `src/utils/meetingQuiet.ts` (new) | Shared meeting level reader, quiet detection | 17 |
-| `src/components/dictation/condensation.ts`, `CondensationWords.tsx` (new) | R1 C words layer (D9) | 10 |
-| `src/components/dictation/AgentOrbit.tsx` (new) | R8 B violet orbit | 11 |
-| `PillTooltip.tsx`, `dictation-panel.css` | VO-Q14, VO-Q19, VO-Q20 | 12 |
-| `src/utils/dictationCues.js`, settings | R10 A soft family | 13 |
-| `src/helpers/meetingPresence.js` (new), `tray.js`, `linuxRecordingNotification.js` (new), IPC | D2 relay, tray, Linux notification | 14 |
-| `src/components/dictation/MeetingCapsule.tsx` (new), settings | R12 A capsule as a pill state | 15 |
-| `MeetingNotificationOverlay.tsx`, `MeetingNotificationCard.tsx`, `windowManager.js`, `windowConfig.js` | R11 B notch drop, VO-Q10, ⌥⌘M | 16 |
-| `NoteRecordControl.tsx`, `MeetingRecordingPill.tsx`, `MeetingRecordingMount.tsx`, `ChatInput.tsx`, `MeetingTranscriptChat.tsx` | LevelBars everywhere, VO-Q11, VO-Q13, VO-Q15 | 17 |
-| `docs/PRIVACY.md` | D3 undo sentence | 6 |
-| Whole plan | Verification | 18, 19 |
+| `src/components/ui/notices.ts` | Notice store and `notify()` (§5.3, CCR-4) | 1 |
+| `src/helpers/hotkeyLeases.js`, `src/hooks/usePillHotkey.ts` | Main-owned temporary shortcuts | 2 |
+| `src/components/ui/NoticeStack.tsx`, `NoticeChip.tsx`, `WordsFirstCard.tsx`, `src/styles/notices.css` | R14 B chips with "More", R6 B card | 3 |
+| `src/components/voiceNotices.ts`, `src/helpers/retryDictationCleanup.js`, `src/utils/settingsDeepLink.ts`, `*NoticeListener.tsx` | VO-Q7, VO-Q21, the Settings deep link | 4 |
+| Toast removal | Finish the §5.3 migration | 5 |
+| `src/helpers/dictationSession.js` | Route snapshot and correlation id per recording | 6 |
+| `src/types/dictation.ts`, `src/helpers/dictationDisclosure.js` | Shared §5.2 types; attested or dispatched disclosure | 7 |
+| `src/helpers/cancelBuffer.js` (+ `audioManager.js`) | RAM-only cancel buffer and same-route Undo (D3) | 8 |
+| `src/helpers/rendererRequest.js`, `src/hooks/useAudioRecording.js`, `src/hooks/useUndoCancelHotkey.ts`, `main.js` | §5.2 lifecycle, Esc ownership, Undo bridge, quit flush | 9 |
+| `src/helpers/voicePillPresentation.js` | Stage, footprint and ownership model; VO-Q5, Q12, Q18 | 10 |
+| `VoicePill.tsx`, `pillLocality.ts`, `PillCaption.tsx`, `useRecentOutcome.ts` | Condensation pill, locality ring, undo capsule | 11 |
+| `condensation.ts`, `CondensationWords.tsx` | R1 C word layer (D9) | 12 |
+| `AgentOrbit.tsx`, `agentOrbitMath.ts`, `useAgentAnswering.ts` | R8 B violet orbit | 13 |
+| `PillTooltip.tsx`, `pillTooltipLines.ts`, CSS | VO-Q14, Q19, Q20 and the Plan 01 leftovers | 14 |
+| `src/utils/dictationCues.js`, settings | R10 A soft family | 15 |
+| `meetingPresence.js`, `linuxRecordingNotification.js`, `freedesktopNotifications.js`, `trayRecordingIcon.js`, `meetingRecordingStore.ts` | D2 relay, explicit outcome, tray, Linux notification | 16 |
+| `MeetingCapsule.tsx`, `useMeetingRecordingPresence.ts`, settings | R12 A capsule as a pill state | 17 |
+| `MeetingNotificationOverlay.tsx`, `MeetingNotificationCard.tsx`, `windowManager.js`, `windowConfig.js` | R11 B notch drop, VO-Q10, the leased ⌥⌘M | 18 |
+| `NoteRecordControl.tsx`, `MeetingRecordingPill.tsx`, `MeetingRecordingMount.tsx`, `ChatInput.tsx`, `MeetingTranscriptChat.tsx` | LevelBars everywhere, VO-Q11, Q13, Q15 | 19 |
+| Whole plan | Verification, D3 audit, platform matrix | 20 |
+| Spec confirmation, PR body | Contracts and PR | 21 |
 
 ---
+
 ### Task 1: Notice store and the `notify()` API
 
 Covers §5.3 (the logic half) and VO-R14 B (lifetimes, cap, stagger). It also closes review findings I10 (a replaced notice is never dismissed by the action that replaced it), I13 (`words` only on alerts, and never expiring) and M2 (removal reasons, each delivered exactly once).
@@ -722,7 +856,7 @@ Covers review finding I7. ⌥Z (undo cancel), ⌥↵ (paste again) and ⌥⌘M (
   }
   ```
 
-  Main-process code such as the meeting prompt (Task 19) acquires with `ownerId: "main:meeting-prompt"`.
+  Main-process code such as the meeting prompt (Task 18) acquires with `ownerId: "main:meeting-prompt"`.
 - Produces (renderer):
 
   ```ts
@@ -1294,7 +1428,7 @@ test("chip CSS uses the motion tokens and no ease-in", () => {
 Update the existing `test/helpers/windowSizeLadder.test.js`:
 - In every `resolveMainWindowSizeKey({...})` call, and in the ladder-domain loop, rename `toastCount` to `noticeCount` and `dictationErrorActionCount` (a count) to `wordsCardVisible` (a boolean: `> 0` becomes `true`).
 - Retitle "a toast outranks the listening pill so both fit" to "notices outrank the listening pill so both fit", and expect `"WITH_NOTICES"` wherever it expected `"WITH_TOAST"`.
-- Leave the `DICTATION_ERROR` geometry tests alone until Task 4.
+- Leave the `DICTATION_ERROR` geometry tests alone until Task 5.
 
 Then append:
 
@@ -1800,7 +1934,7 @@ Run `grep -n -- "--font-family-sans\|--shadow-elevated\|--color-warning\|--color
 
 - [ ] **Step 4: Ladder, window size and mounting**
 
-1. `src/helpers/windowConfig.js`: add `WITH_NOTICES: { width: 400, height: 168 },` after `WITH_MENU` in `WINDOW_SIZES` (line 154). Leave `WITH_TOAST` in place until Task 4. Also add `"WITH_NOTICES"` to the `resizeMainWindow` size-key union in `src/types/electron.ts` (lines 1409–1416).
+1. `src/helpers/windowConfig.js`: add `WITH_NOTICES: { width: 400, height: 168 },` after `WITH_MENU` in `WINDOW_SIZES` (line 154). Leave `WITH_TOAST` in place until Task 5. Also add `"WITH_NOTICES"` to the `resizeMainWindow` size-key union in `src/types/electron.ts` (lines 1409–1416).
 2. `src/utils/windowSizeLadder.js`: replace the whole file with:
 
 ```js
@@ -1841,12 +1975,12 @@ export function resolveMainWindowSizeKey({
 grep -rn "toastCount\|dictationErrorActionCount\|dictationErrorPillHandoffActive" src test
 ```
 
-Rename each hit in `useMainWindowSizeOwner.js`, `App.jsx` and `test/hooks/dictationErrorAutoHide.test.js`. Leave the `useToast()` destructuring in `App.jsx:64-65` alone; Task 4 removes it.
+Rename each hit in `useMainWindowSizeOwner.js`, `App.jsx` and `test/hooks/dictationErrorAutoHide.test.js`. Leave the `useToast()` destructuring in `App.jsx:64-65` alone; Task 5 removes it.
 
 4. `src/App.jsx`:
    - Import `NoticeStack` and `useNoticeWindowState`.
    - Under the existing `useToast()` line, add `const { noticeCount, wordsCardVisible } = useNoticeWindowState();`.
-   - In the props to `useMainWindowSizeOwner` (lines 312–325), pass `noticeCount: noticeCount + toastCount` and `wordsCardVisible: wordsCardVisible || dictationErrorActionCount > 0`. The `+ toastCount` and `|| dictationErrorActionCount` terms disappear in Task 4.
+   - In the props to `useMainWindowSizeOwner` (lines 312–325), pass `noticeCount: noticeCount + toastCount` and `wordsCardVisible: wordsCardVisible || dictationErrorActionCount > 0`. The `+ toastCount` and `|| dictationErrorActionCount` terms disappear in Task 5.
    - Define `const noticesOnScreen = noticeCount + toastCount > 0 || wordsCardVisible;` and use it everywhere `toastCount > 0` gates interactivity (line 329), auto-hide (line 411) and `useLinuxPillInteractivity` (line 621). `noticeCount` deliberately excludes the words card, so without `wordsCardVisible` the card would sit in a click-through window, and auto-hide would hide the recovered words.
    - Render `<NoticeStack placement="pill" horizontalDirection={voiceHorizontalDirection} />` as the last child of `div.dictation-window` (line 626).
    - R6 B keeps the pill visible next to the card. Change `dictationErrorSuppressesPill` (around line 593) to `const dictationErrorSuppressesPill = false;`, then delete that constant, the `data-dictation-error-suppressed` attribute (line 635), and its use in `resolvePillVisualSuppression` (pass `dictationErrorSuppressed: false`). Remove the parameter from `resolvePillVisualSuppression` in `voicePillPresentation.js:388` only if no other caller passes it (`grep -rn dictationErrorSuppressed src test`).
@@ -2499,7 +2633,7 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
 
    Then change each assertion on `toasts[i].title` or `.description` to `.title` or `.body`. Change `presentation: "dictation-error"` checks to `id === "dictation-error"`.
 
-Locale keys (en). Add these under the `"notices"` object from Task 2, and mirror them into the 11 other locales:
+Locale keys (en). Add these under the `"notices"` object from Task 3, and mirror them into the 11 other locales:
 
 ```json
 "pasted": "Pasted",
@@ -9335,29 +9469,29 @@ gh pr create --title "feat(voice): voice overlay — notices, undoable cancel, c
 
 | Item | Task |
 |---|---|
-| VO-R1 C Condensation, with words outside the bars (D9) | 8, 9, 10 |
-| VO-R6 B words-first card | 2, 3 |
-| D3 cancel flow:<br>- instant cancel;<br>- 5 s / 10 s window;<br>- hover pause;<br>- ⌥Z or click;<br>- RAM-only, zeroed;<br>- Esc armed until idle;<br>- "already received" copy;<br>- PRIVACY.md | 5, 6, 7, 9 |
-| VO-R8 B violet orbit, no frame glyph | 11 |
-| VO-R10 A soft family | 13 |
-| VO-R11 B notch drop | 16 |
-| VO-R12 A recorder capsule as a pill state (D2), Linux tray and notification, on-screen setting | 14, 15 |
-| VO-R14 B pill-anchored chips | 1, 2 |
-| §5.3 `notify()` and migrating every toast | 1, 2, 3, 4 |
-| §5.2 lifecycle additions | 5, 6, 7, 15 |
-| §5.1 `useResolvedRoute` for the pill ring and tooltip | 9, 11, 12 |
-| §5.4 Sealed mode shows a blocked ring | 9 |
-| LevelBars on every voice surface | 9, 17 |
-| VO-Q5 | 8 |
-| VO-Q7 | 3 |
-| VO-Q10 | 16 |
-| VO-Q11 | 17 |
-| VO-Q12 | 8, 9 |
-| VO-Q13 | 17 |
-| VO-Q14 | 12 |
-| VO-Q15 | 17 |
-| VO-Q18 | 8 |
-| VO-Q19 | 12 |
-| VO-Q20 | 12 |
-| VO-Q21 | 3 |
-| DESIGN.md sections (D10) | 2, 9, 11, 15 |
+| VO-R1 C Condensation, with words outside the bars (D9) | 10, 11, 12 |
+| VO-R6 B words-first card | 3, 4 |
+| D3 cancel flow: instant cancel; 5 s / 10 s window; hover pause; ⌥Z or click; RAM-only (no temp files); zeroed, late bytes included; same-route Undo; Undo on every cancel path; Esc armed until idle; honest "already received" copy; PRIVACY.md | 6, 7, 8, 9, 11 |
+| VO-R8 B violet orbit, no frame glyph | 13 |
+| VO-R10 A soft family | 15 |
+| VO-R11 B notch drop | 18 |
+| VO-R12 A recorder capsule as a pill state (D2), Linux tray and notification, on-screen setting | 16, 17 |
+| VO-R14 B pill-anchored chips | 1, 3 |
+| §5.3 `notify()` and migrating every toast | 1, 3, 4, 5 |
+| §5.2 lifecycle additions, including the Plan 05 Undo bridge | 7, 8, 9, 17 |
+| §5.1 `useResolvedRoute` for the pill ring and tooltip; session routes | 6, 7, 11, 13, 14 |
+| §5.4 Sealed mode: blocked ring, and Sealed pre-check on Undo | 8, 11 |
+| LevelBars on every voice surface | 11, 13, 19 |
+| VO-Q5 | 10 |
+| VO-Q7 | 4 |
+| VO-Q10 | 18 |
+| VO-Q11 | 19 |
+| VO-Q12 | 10, 11 |
+| VO-Q13 | 19 |
+| VO-Q14 | 14 |
+| VO-Q15 | 19 |
+| VO-Q18 | 10 |
+| VO-Q19 | 14 |
+| VO-Q20 | 14 |
+| VO-Q21 | 4 |
+| DESIGN.md sections (D10) | 3, 11, 13, 17, 18 |

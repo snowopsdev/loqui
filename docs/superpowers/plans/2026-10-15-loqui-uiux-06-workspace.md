@@ -219,28 +219,40 @@ These are the input classes most likely to bite a real user that no recommendati
 
 ---
 
-### Task 1: Locale merge helper
+### Task 1: Strict mode for Plan 03's locale merge helper
 
-This is infrastructure for every later task's strings. Plan 06 adds about 150 keys to 11 locales, and hand-editing 11 JSON files per task is where key-parity mistakes come from.
+Plan 03 Task 2 already ships `scripts/merge-locale-keys.js` and `test/scripts/mergeLocaleKeys.test.js` (review I16). This task upgrades that helper and leaves its contract intact:
+- the CLI stays `node scripts/merge-locale-keys.js <fragment.json> [localesRoot]`;
+- usage errors still exit 2;
+- a missing locale still exits 1 with `Missing locales in fragment: <list>`;
+- a plain run still overwrites existing values.
+
+All new checks run only behind `--strict`, which every Plan 06 "Add strings" step uses. Plan 03's test file is not edited; a separate test file covers strict mode.
 
 **Files:**
-- Create: `scripts/merge-locale-keys.js`
-- Test: `test/scripts/mergeLocaleKeys.test.js`
+- Modify: `scripts/merge-locale-keys.js` (Plan 03's file). It is restructured into exported functions plus a `require.main` CLI; the default behaviour is byte-for-byte the same.
+- Test: `test/scripts/mergeLocaleKeysStrict.test.js` (new). Plan 03's `test/scripts/mergeLocaleKeys.test.js` must still pass unchanged.
 
 **Interfaces:**
-- Produces `node scripts/merge-locale-keys.js <patch.json>`. The patch shape is `{ "<locale>": { ...nested keys } }`, covering every folder in `src/locales/` that has a `translation.json`.
-- It rejects the whole patch, writing nothing, when:
-  - a locale is missing or unknown;
+- CLI: `node scripts/merge-locale-keys.js [--strict] <fragment.json> [localesRoot]`. The flag may appear anywhere.
+- With `--strict`, the whole fragment is rejected and nothing is written when:
   - a locale's keys differ from `en` (plural suffixes `_zero|_one|_two|_few|_many|_other` are compared by base key);
   - `{{placeholders}}` differ from `en` on non-plural keys;
   - a key already exists with a different value.
-- Re-running the same patch is a no-op.
-- Exports `{ flatten, validatePatch, mergeLocalePatch }` for tests.
-- **Every later task's "Add strings" step uses this helper.** Write the patch to `/tmp/plan06-task<N>-i18n.json`. Put the task's English block under `"en"`, and add `"ar" "de" "es" "fr" "it" "ja" "pt" "ru" "zh-CN" "zh-TW"` with translated values. Keep `{{placeholders}}`, use the same plural keys `en` uses, and add Arabic's extra plural forms (`_zero _two _few _many`) wherever `en` has `_one`/`_other`. Then run the helper and `npx prettier --write "src/locales/**/translation.json"`.
+
+  Re-running the same fragment is a no-op.
+- Exports, for tests: `{ flatten, validateFragment, mergeFragment }`.
+  - `mergeFragment(fragment, { localesRoot, strict })` returns the locale list.
+  - It throws `Error("Missing locales in fragment: …")` or `Error("Locale fragment rejected: …")`.
+- **Every later "Add strings" step** writes `/tmp/plan06-task<N>-i18n.json`:
+  - the English block under `"en"`;
+  - translated values under `"ar" "de" "es" "fr" "it" "ja" "pt" "ru" "zh-CN" "zh-TW"`, keeping `{{placeholders}}` and the plural keys `en` uses, plus Arabic's `_zero _two _few _many` wherever `en` has `_one`/`_other`.
+
+  Then it runs `node scripts/merge-locale-keys.js --strict /tmp/plan06-task<N>-i18n.json`, followed by `npx prettier --write "src/locales/**/translation.json"`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `test/scripts/mergeLocaleKeys.test.js`:
+Create `test/scripts/mergeLocaleKeysStrict.test.js`:
 
 ```js
 const assert = require("node:assert/strict");
@@ -248,175 +260,155 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { mergeLocalePatch, validatePatch } = require("../../scripts/merge-locale-keys.js");
+const { spawnSync } = require("node:child_process");
 
-function makeLocales(t, locales = ["en", "de", "ar"]) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan06-locales-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  for (const locale of locales) {
-    fs.mkdirSync(path.join(dir, locale));
-    fs.writeFileSync(
-      path.join(dir, locale, "translation.json"),
-      JSON.stringify({ sidebar: { home: `home-${locale}` } }, null, 2)
-    );
+const script = path.join(__dirname, "../../scripts/merge-locale-keys.js");
+const helper = () => require(script);
+
+function makeRoot(t, locales = ["en", "de", "ar"]) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "plan06-locales-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const lang of locales) {
+    fs.mkdirSync(path.join(root, lang));
+    fs.writeFileSync(path.join(root, lang, "translation.json"), JSON.stringify({ sidebar: { home: `home-${lang}` } }, null, 2) + "\n");
   }
-  return dir;
+  return root;
 }
-const read = (dir, locale) =>
-  JSON.parse(fs.readFileSync(path.join(dir, locale, "translation.json"), "utf8"));
+const read = (root, lang) => JSON.parse(fs.readFileSync(path.join(root, lang, "translation.json"), "utf8"));
+const run = (args) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
+function writeFragment(root, fragment) {
+  const file = path.join(root, "frag.json");
+  fs.writeFileSync(file, JSON.stringify(fragment));
+  return file;
+}
 
-test("merges nested keys into every locale and keeps existing ones", (t) => {
-  const dir = makeLocales(t);
-  mergeLocalePatch(
-    {
-      en: { sidebar: { voice: "Voice" } },
-      de: { sidebar: { voice: "Stimme" } },
-      ar: { sidebar: { voice: "الصوت" } },
-    },
-    { localesDir: dir }
-  );
-  assert.deepEqual(read(dir, "de").sidebar, { home: "home-de", voice: "Stimme" });
-  assert.equal(read(dir, "en").sidebar.home, "home-en");
+test("the plain CLI keeps Plan 03's contract: optional root, overwrite, missing-locale message", (t) => {
+  const root = makeRoot(t, ["en", "de"]);
+  const bad = run([writeFragment(root, { en: { a: "A" } }), root]);
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /Missing locales in fragment: de/);
+  const ok = run([writeFragment(root, { en: { sidebar: { home: "Home" } }, de: { sidebar: { home: "Start" } } }), root]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(read(root, "de").sidebar.home, "Start", "plain mode overwrites, as before");
+  assert.equal(run([]).status, 2);
 });
 
-test("re-running the same patch is a no-op", (t) => {
-  const dir = makeLocales(t);
-  const patch = { en: { a: "A" }, de: { a: "Ä" }, ar: { a: "أ" } };
-  mergeLocalePatch(patch, { localesDir: dir });
-  mergeLocalePatch(patch, { localesDir: dir });
-  assert.equal(read(dir, "de").a, "Ä");
+test("--strict refuses a changed existing value and writes nothing", (t) => {
+  const root = makeRoot(t);
+  const frag = writeFragment(root, { en: { sidebar: { home: "Today" } }, de: { sidebar: { home: "Heute" } }, ar: { sidebar: { home: "اليوم" } } });
+  const result = run(["--strict", frag, root]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /already exist/);
+  assert.equal(read(root, "en").sidebar.home, "home-en");
 });
 
-test("a missing locale rejects the patch and writes nothing", (t) => {
-  const dir = makeLocales(t);
-  assert.throws(
-    () => mergeLocalePatch({ en: { a: "A" }, de: { a: "Ä" } }, { localesDir: dir }),
-    /missing locale "ar"/
-  );
-  assert.equal(read(dir, "en").a, undefined);
+test("--strict works from any argument position and is idempotent", (t) => {
+  const root = makeRoot(t);
+  const frag = writeFragment(root, { en: { a: "A" }, de: { a: "Ä" }, ar: { a: "أ" } });
+  assert.equal(run([frag, "--strict", root]).status, 0);
+  assert.equal(run([frag, root, "--strict"]).status, 0);
+  assert.equal(read(root, "de").a, "Ä");
 });
 
-test("placeholders must match English on non-plural keys", () => {
-  const errors = validatePatch(
-    { en: { a: "In {{minutes}} min" }, de: { a: "In {{min}} Min." } },
-    ["de", "en"]
-  );
-  assert.deepEqual(errors, ["de: placeholders differ at a"]);
+test("--strict checks key parity and placeholders against English", () => {
+  const { validateFragment } = helper();
+  assert.deepEqual(validateFragment({ en: { a: "In {{minutes}} min", b: "B" }, de: { a: "In {{min}} Min." } }, ["de", "en"]), [
+    "de: missing b",
+    "de: placeholders differ at a",
+  ]);
 });
 
 test("Arabic may carry extra plural forms for the same base key", () => {
-  const errors = validatePatch(
+  const { validateFragment } = helper();
+  const errors = validateFragment(
     {
       en: { n_one: "{{count}} capture", n_other: "{{count}} captures" },
-      ar: {
-        n_zero: "لا شيء",
-        n_one: "{{count}}",
-        n_two: "{{count}}",
-        n_few: "{{count}}",
-        n_many: "{{count}}",
-        n_other: "{{count}}",
-      },
+      ar: { n_zero: "لا شيء", n_one: "{{count}}", n_two: "{{count}}", n_few: "{{count}}", n_many: "{{count}}", n_other: "{{count}}" },
     },
     ["ar", "en"]
   );
   assert.deepEqual(errors, []);
 });
-
-test("an existing key with a different value is a conflict and nothing is written", (t) => {
-  const dir = makeLocales(t);
-  assert.throws(
-    () =>
-      mergeLocalePatch(
-        { en: { sidebar: { home: "Today" } }, de: { sidebar: { home: "Heute" } }, ar: { sidebar: { home: "اليوم" } } },
-        { localesDir: dir }
-      ),
-    /already exist/
-  );
-  assert.equal(read(dir, "en").sidebar.home, "home-en");
-});
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/scripts/mergeLocaleKeys.test.js`
-Expected: FAIL with `Cannot find module '../../scripts/merge-locale-keys.js'`.
+Run: `npm test -- test/scripts/mergeLocaleKeysStrict.test.js test/scripts/mergeLocaleKeys.test.js`
+Expected:
+- Plan 03's suite PASSES.
+- The strict suite FAILS: `--strict` is treated as the fragment path (ENOENT), and `validateFragment` is not a function.
 
 - [ ] **Step 3: Implement**
 
-Create `scripts/merge-locale-keys.js`:
+Replace the body of `scripts/merge-locale-keys.js` with:
 
 ```js
 #!/usr/bin/env node
-/*
- * Merge a multi-locale string patch into src/locales/<lang>/translation.json.
- *   node scripts/merge-locale-keys.js /tmp/patch.json
- * Patch: { "en": { "sidebar": { "voice": "Voice" } }, "de": { ... }, ... }
- * All-or-nothing: every locale must be present with the same keys as "en"
- * (plural suffixes compared by base key) and the same {{placeholders}};
- * an existing key with a different value is a conflict.
- */
+// Deep-merges a per-locale fragment into every src/locales/<lang>/translation.json.
+// Usage: node scripts/merge-locale-keys.js [--strict] <fragment.json> [localesRoot]
+// The fragment is { "en": {...}, "de": {...}, ... } and must cover every locale,
+// so a new key can never land in English only (Plan 03).
+// --strict (Plan 06) also requires every locale to carry the same keys as "en"
+// (plural suffixes compared by base key) and the same {{placeholders}}, and
+// refuses to change an existing value. Strict runs are all-or-nothing.
 const fs = require("node:fs");
 const path = require("node:path");
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
 const baseKey = (key) => key.replace(PLURAL_SUFFIX, "");
 const placeholders = (value) =>
-  [...String(value).matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)]
-    .map((match) => match[1])
-    .sort()
-    .join(",");
+  [...String(value).matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)].map((m) => m[1]).sort().join(",");
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 function flatten(obj, prefix = "", out = {}) {
   for (const [key, value] of Object.entries(obj)) {
     const full = prefix ? `${prefix}.${key}` : key;
-    if (value && typeof value === "object" && !Array.isArray(value)) flatten(value, full, out);
+    if (isObject(value)) flatten(value, full, out);
     else out[full] = value;
   }
   return out;
 }
 
-function listLocales(localesDir) {
-  return fs
-    .readdirSync(localesDir)
-    .filter((entry) => fs.existsSync(path.join(localesDir, entry, "translation.json")))
-    .sort();
+function listLocales(root) {
+  return fs.readdirSync(root).filter((d) => fs.existsSync(path.join(root, d, "translation.json")));
 }
 
-function validatePatch(patch, locales) {
+function validateFragment(fragment, locales) {
   const errors = [];
-  for (const locale of locales) if (!patch[locale]) errors.push(`missing locale "${locale}"`);
-  for (const locale of Object.keys(patch)) {
-    if (!locales.includes(locale)) errors.push(`unknown locale "${locale}"`);
-  }
-  if (!patch.en) return errors;
-  const en = flatten(patch.en);
+  if (!fragment.en) return ["missing locale \"en\""];
+  const en = flatten(fragment.en);
   const enBases = new Set(Object.keys(en).map(baseKey));
-  for (const locale of locales) {
-    if (locale === "en" || !patch[locale]) continue;
-    const flat = flatten(patch[locale]);
+  for (const lang of [...locales].sort()) {
+    if (lang === "en" || !fragment[lang]) continue;
+    const flat = flatten(fragment[lang]);
     const bases = new Set(Object.keys(flat).map(baseKey));
-    for (const key of enBases) if (!bases.has(key)) errors.push(`${locale}: missing ${key}`);
-    for (const key of bases) if (!enBases.has(key)) errors.push(`${locale}: extra ${key}`);
+    for (const key of enBases) if (!bases.has(key)) errors.push(`${lang}: missing ${key}`);
+    for (const key of bases) if (!enBases.has(key)) errors.push(`${lang}: extra ${key}`);
     for (const [key, value] of Object.entries(flat)) {
       if (PLURAL_SUFFIX.test(key) || !(key in en)) continue;
-      if (placeholders(value) !== placeholders(en[key])) {
-        errors.push(`${locale}: placeholders differ at ${key}`);
-      }
+      if (placeholders(value) !== placeholders(en[key])) errors.push(`${lang}: placeholders differ at ${key}`);
     }
   }
   return errors;
 }
 
-function mergeInto(target, patch, trail, conflicts) {
-  for (const [key, value] of Object.entries(patch)) {
+function mergeLoose(target, source) {
+  for (const [key, value] of Object.entries(source)) {
+    target[key] = isObject(value) ? mergeLoose(isObject(target[key]) ? target[key] : {}, value) : value;
+  }
+  return target;
+}
+
+function mergeStrict(target, source, trail, conflicts) {
+  for (const [key, value] of Object.entries(source)) {
     const at = trail ? `${trail}.${key}` : key;
-    if (value && typeof value === "object" && !Array.isArray(value)) {
+    if (isObject(value)) {
       if (target[key] === undefined) target[key] = {};
-      if (typeof target[key] !== "object" || target[key] === null) {
+      if (!isObject(target[key])) {
         conflicts.push(at);
         continue;
       }
-      mergeInto(target[key], value, at, conflicts);
+      mergeStrict(target[key], value, at, conflicts);
     } else if (target[key] === undefined) {
       target[key] = value;
     } else if (target[key] !== value) {
@@ -425,51 +417,64 @@ function mergeInto(target, patch, trail, conflicts) {
   }
 }
 
-function mergeLocalePatch(patch, { localesDir }) {
-  const locales = listLocales(localesDir);
-  const errors = validatePatch(patch, locales);
-  if (errors.length) throw new Error(`Locale patch rejected:\n${errors.join("\n")}`);
+function mergeFragment(fragment, { localesRoot, strict = false }) {
+  const langs = listLocales(localesRoot);
+  const missing = langs.filter((lang) => !fragment[lang]);
+  if (missing.length) throw new Error(`Missing locales in fragment: ${missing.join(", ")}`);
+  if (strict) {
+    const errors = validateFragment(fragment, langs);
+    if (errors.length) throw new Error(`Locale fragment rejected:\n${errors.join("\n")}`);
+  }
   const pending = [];
-  for (const locale of locales) {
-    const file = path.join(localesDir, locale, "translation.json");
+  for (const lang of langs) {
+    const file = path.join(localesRoot, lang, "translation.json");
     const json = JSON.parse(fs.readFileSync(file, "utf8"));
-    const conflicts = [];
-    mergeInto(json, patch[locale], "", conflicts);
-    if (conflicts.length) {
-      throw new Error(`${locale}: keys already exist with other values: ${conflicts.join(", ")}`);
+    if (strict) {
+      const conflicts = [];
+      mergeStrict(json, fragment[lang], "", conflicts);
+      if (conflicts.length) throw new Error(`${lang}: keys already exist with other values: ${conflicts.join(", ")}`);
+    } else {
+      mergeLoose(json, fragment[lang]);
     }
     pending.push([file, json]);
   }
-  for (const [file, json] of pending) fs.writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`);
-  return locales;
+  for (const [file, json] of pending) fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+  return langs;
 }
 
-module.exports = { flatten, validatePatch, mergeLocalePatch };
+module.exports = { flatten, validateFragment, mergeFragment };
 
 if (require.main === module) {
-  const [patchPath] = process.argv.slice(2);
-  if (!patchPath) {
-    console.error("Usage: node scripts/merge-locale-keys.js <patch.json>");
+  const args = process.argv.slice(2);
+  const strict = args.includes("--strict");
+  const [fragmentPath, rootArg] = args.filter((a) => a !== "--strict");
+  if (!fragmentPath) {
+    console.error("Usage: node scripts/merge-locale-keys.js [--strict] <fragment.json> [localesRoot]");
+    process.exit(2);
+  }
+  const localesRoot = rootArg ?? path.join(__dirname, "..", "src", "locales");
+  try {
+    const langs = mergeFragment(JSON.parse(fs.readFileSync(fragmentPath, "utf8")), { localesRoot, strict });
+    console.log(`Merged ${path.basename(fragmentPath)} into ${langs.length} locales${strict ? " (strict)" : ""}.`);
+  } catch (error) {
+    console.error(error.message);
     process.exit(1);
   }
-  const patch = JSON.parse(fs.readFileSync(patchPath, "utf8"));
-  const locales = mergeLocalePatch(patch, {
-    localesDir: path.join(__dirname, "..", "src", "locales"),
-  });
-  console.log(`Merged ${Object.keys(flatten(patch.en)).length} keys into ${locales.length} locales.`);
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+Plain mode differs from Plan 03's code in one way only. Plan 03 wrote each locale as it merged it; now every locale is merged in memory first and then written together. A plain run never fails between the missing-locale check and the writes, so its observable behaviour is unchanged.
 
-Run: `npm test -- test/scripts/mergeLocaleKeys.test.js`
-Expected: PASS (6 tests).
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- test/scripts/mergeLocaleKeysStrict.test.js test/scripts/mergeLocaleKeys.test.js`
+Expected: PASS. Plan 03's suite is unedited.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/merge-locale-keys.js test/scripts/mergeLocaleKeys.test.js
-git commit -m "chore(i18n): add an all-or-nothing locale merge helper"
+git add scripts/merge-locale-keys.js test/scripts/mergeLocaleKeysStrict.test.js
+git commit -m "chore(i18n): add an all-or-nothing --strict mode to the locale merge helper"
 ```
 
 ---
@@ -743,11 +748,16 @@ This covers WS-Q9 and the foundation for WS-Q3, mentions, citations and Insights
 - Create: `src/lib/workspaceView.ts`
 - Create: `src/stores/homeViewStore.ts`
 - Create: `src/components/workspaceNavigation.tsx`, `src/components/chat/chatRequest.ts`
+- Modify: `src/stores/noteStore.ts`. Add the one authoritative open-by-id path and the launch restore (review I04, I06):
+  - the `NoteState` interface (`:14-27`) and the initial state (`:46-57`);
+  - `findNoteInState` (`:92-98`);
+  - `initializeNotesTree`'s auto-select (`:342-344`);
+  - `updateNoteInStore` (`:382`), `removeNote` (`:409`) and `setActiveNoteId` (`:513-516`).
 - Modify: `src/components/ControlPanel.tsx`:
   - `:102` (the `activeView` state);
-  - the CommandSearch props at `:674-694`;
+  - the CommandSearch props at `:674-694` (note selection goes through `openNote`);
   - the root `return` at `:632`, which gets the provider.
-- Test: `test/lib/workspaceView.test.js`, `test/stores/homeViewStore.test.js`, `test/components/workspaceNavigation.test.js`
+- Test: `test/lib/workspaceView.test.js`, `test/stores/homeViewStore.test.js`, `test/components/workspaceNavigation.test.js`, `test/stores/noteOpenRestore.test.js`
 
 **Interfaces:**
 - Produces `src/lib/workspaceView.ts`:
@@ -760,8 +770,6 @@ This covers WS-Q9 and the foundation for WS-Q3, mentions, citations and Insights
   export type WorkspaceStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
   export function readPersistedWorkspace(storage: WorkspaceStorage | null | undefined): PersistedWorkspace;
   export function writePersistedWorkspace(storage: WorkspaceStorage | null | undefined, state: PersistedWorkspace): void;
-  export interface NoteRestoreTarget { noteId: number; spaceId: number; folderId: number | null }
-  export function noteRestoreTarget(note: Pick<NoteItem, "id" | "space_id" | "folder_id" | "deleted_at"> | null | undefined): NoteRestoreTarget | null;
   ```
 
 - Produces `src/stores/homeViewStore.ts`:
@@ -777,6 +785,22 @@ This covers WS-Q9 and the foundation for WS-Q3, mentions, citations and Insights
   export function clearTranscriptFocus(): void;
   ```
 
+- Produces, in `src/stores/noteStore.ts`, the only way a deep link opens a note. Palette rows, mention chips, citations, Sources chips, Recent rows and the launch restore all go through it:
+
+  ```ts
+  export type OpenNoteResult = "opened" | "missing" | "superseded";
+  /** Fetch (when not cached), hold, reveal and select. A note outside every
+   *  loaded container page is kept in `openedNotes`, which the editor reads
+   *  through `findNoteInState`, so an older note always opens. */
+  export function openNoteById(id: number): Promise<OpenNoteResult>;
+  /** Launch restore. While pending, `initializeNotesTree` does not auto-pick a
+   *  note. A missing note keeps the Notes overview for this launch. Any
+   *  deliberate selection made meanwhile (pending native navigation, a click)
+   *  wins, and the restore resolves "superseded". */
+  export function restoreLaunchNote(id: number): Promise<OpenNoteResult>;
+  ```
+
+  `setActiveNoteId` remains the deliberate-selection API. It now also marks a navigation, so a pending restore yields to it. The tree's own first-note pick no longer goes through it.
 - Produces `src/components/workspaceNavigation.tsx`:
 
   ```ts
@@ -856,21 +880,133 @@ test("writing a null note removes the key", async () => {
   assert.deepEqual(storage.dump(), { "workspace.activeView": "home" });
 });
 
-test("ControlPanel reads the saved note before anything can overwrite it", () => {
-  const panel = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/components/ControlPanel.tsx"), "utf8");
-  assert.match(panel, /const \[initialWorkspace\] = useState\(\(\) => readPersistedWorkspace\(window\.localStorage\)\)/);
-  assert.match(panel, /if \(!restoreDoneRef\.current\) return;\s*writePersistedWorkspace/);
+```
+
+Create `test/stores/noteOpenRestore.test.js`. These tests drive the real store with a stubbed `electronAPI`, using the same harness as `test/stores/personalNotesPersistence.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+
+const note = (id, over = {}) => ({
+  id, title: `Note ${id}`, content: "", note_type: "personal", space_id: 1, folder_id: 2, deleted_at: null, ...over,
+});
+// The first page of the default folder: ids 1–50. Note 999 is older and outside it.
+const FIRST_PAGE = Array.from({ length: 50 }, (_, i) => note(i + 1));
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+async function loadStore(t, api = {}) {
+  const calls = { getNotes: 0, getNote: 0 };
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: {
+        getSpaces: async () => [{ id: 1, kind: "private", name: "Personal" }],
+        getFolders: async () => [{ id: 2, space_id: 1, name: "Work", is_default: 1 }],
+        getFolderNoteCounts: async () => [],
+        getNotes: async (_type, _limit, folderId) => {
+          calls.getNotes += 1;
+          return folderId === 2 ? FIRST_PAGE : [];
+        },
+        getNote: async () => null,
+        ...api,
+      },
+    },
+  });
+  const vite = await createRendererServer(t);
+  const store = await vite.ssrLoadModule("/stores/noteStore.ts");
+  return { store, calls };
+}
+
+test("a deep link opens a note older than the first page, and the editor can read it", async (t) => {
+  const { store } = await loadStore(t, { getNote: async (id) => (id === 999 ? note(999) : null) });
+  await store.initializeNotesTree();
+  assert.equal(await store.openNoteById(999), "opened");
+  assert.equal(store.getActiveNoteIdValue(), 999);
+  assert.equal(store.getNoteFromStore(999)?.title, "Note 999");
+  assert.equal(store.getActiveFolderIdValue(), 2);
 });
 
-test("a deleted or missing note has no restore target", async () => {
-  const { noteRestoreTarget } = await load();
-  assert.equal(noteRestoreTarget(null), null);
-  assert.equal(noteRestoreTarget({ id: 3, space_id: 1, folder_id: 2, deleted_at: "2026-10-01" }), null);
-  assert.deepEqual(noteRestoreTarget({ id: 3, space_id: 1, folder_id: null, deleted_at: null }), {
-    noteId: 3,
-    spaceId: 1,
-    folderId: null,
+test("a note in an already-cached container opens without refetching", async (t) => {
+  const { store, calls } = await loadStore(t);
+  await store.initializeNotesTree();
+  const before = { ...calls };
+  assert.equal(await store.openNoteById(5), "opened");
+  assert.equal(store.getActiveNoteIdValue(), 5);
+  assert.deepEqual(calls, before);
+});
+
+test("a folderless note opens at its space root", async (t) => {
+  const { store } = await loadStore(t, { getNote: async () => note(7, { folder_id: null }) });
+  assert.equal(await store.openNoteById(7), "opened");
+  assert.equal(store.getActiveFolderIdValue(), null);
+  assert.equal(store.getNoteFromStore(7)?.id, 7);
+});
+
+test("a missing note changes nothing", async (t) => {
+  const { store } = await loadStore(t);
+  await store.initializeNotesTree();
+  const before = store.getActiveNoteIdValue();
+  assert.equal(await store.openNoteById(404), "missing");
+  assert.equal(store.getActiveNoteIdValue(), before);
+});
+
+test("an IPC delete of an opened older note clears it from the editor", async (t) => {
+  let deleted;
+  const { store } = await loadStore(t, {
+    getNote: async () => note(999),
+    onNoteDeleted: (cb) => {
+      deleted = cb;
+      return () => {};
+    },
   });
+  await store.initializeNotesTree();
+  await store.openNoteById(999);
+  deleted({ id: 999 });
+  assert.equal(store.getNoteFromStore(999), null);
+  assert.equal(store.getActiveNoteIdValue(), null);
+});
+
+test("launch restore wins over the tree's first-note pick when the tree loads first", async (t) => {
+  const pending = deferred();
+  const { store } = await loadStore(t, { getNote: () => pending.promise });
+  const restore = store.restoreLaunchNote(999);
+  await store.initializeNotesTree();
+  assert.equal(store.getActiveNoteIdValue(), null, "no incidental first-note pick while restoring");
+  pending.resolve(note(999));
+  assert.equal(await restore, "opened");
+  assert.equal(store.getActiveNoteIdValue(), 999);
+});
+
+test("launch restore wins when the saved note loads first", async (t) => {
+  const { store } = await loadStore(t, { getNote: async () => note(999) });
+  assert.equal(await store.restoreLaunchNote(999), "opened");
+  await store.initializeNotesTree();
+  assert.equal(store.getActiveNoteIdValue(), 999);
+});
+
+test("a deleted saved note lands on the overview, even after the Notes view initialises again", async (t) => {
+  const { store } = await loadStore(t);
+  assert.equal(await store.restoreLaunchNote(999), "missing");
+  await store.initializeNotesTree();
+  await store.initializeNotesTree();
+  assert.equal(store.getActiveNoteIdValue(), null);
+  store.setActiveNoteId(3);
+  assert.equal(store.getActiveNoteIdValue(), 3, "a deliberate pick still works");
+});
+
+test("pending native navigation during a restore takes precedence", async (t) => {
+  const pending = deferred();
+  const { store } = await loadStore(t, { getNote: () => pending.promise });
+  const restore = store.restoreLaunchNote(999);
+  store.setActiveNoteId(5); // what ControlPanel's pending-note drains do
+  pending.resolve(note(999));
+  assert.equal(await restore, "superseded");
+  assert.equal(store.getActiveNoteIdValue(), 5);
 });
 ```
 
@@ -950,8 +1086,11 @@ test("a provider value reaches deep consumers", async () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js`
-Expected: FAIL with `Cannot find module` for all three.
+Run: `npm test -- test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js test/stores/noteOpenRestore.test.js test/stores/personalNotesPersistence.test.js`
+Expected:
+- FAIL with `Cannot find module` for the three new modules.
+- `noteOpenRestore` FAILS with `store.openNoteById is not a function`.
+- `personalNotesPersistence` PASSES; it guards the unchanged auto-select.
 
 - [ ] **Step 3: Implement**
 
@@ -959,7 +1098,6 @@ Expected: FAIL with `Cannot find module` for all three.
 
    ```ts
    import type { ControlPanelView } from "../components/controlPanelNav";
-   import type { NoteItem } from "../types/electron";
 
    // WS-Q9: the main window reopens where you left it.
    export const WORKSPACE_VIEW_KEY = "workspace.activeView";
@@ -1015,22 +1153,123 @@ Expected: FAIL with `Cannot find module` for all three.
        // Storage can be unavailable (quota, policy); losing the restore point is harmless.
      }
    }
-
-   export interface NoteRestoreTarget {
-     noteId: number;
-     spaceId: number;
-     folderId: number | null;
-   }
-
-   export function noteRestoreTarget(
-     note: Pick<NoteItem, "id" | "space_id" | "folder_id" | "deleted_at"> | null | undefined
-   ): NoteRestoreTarget | null {
-     if (!note || note.deleted_at) return null;
-     return { noteId: note.id, spaceId: note.space_id, folderId: note.folder_id ?? null };
-   }
    ```
 
-   If `NoteItem` has no `deleted_at` field, check `src/types/electron.ts:149-246` and drop that field from the `Pick` and the check. `getNote` already filters deleted rows in that case, so `null` covers deletion.
+1a. In `src/stores/noteStore.ts`:
+   - Add `openedNotes: Record<number, NoteItem>;` to `NoteState` (`:14-27`) and `openedNotes: {},` to the initial state (`:46-57`).
+   - `findNoteInState` (`:92-98`) falls back to the opened notes:
+
+     ```ts
+     function findNoteInState(state: NoteState, id: number): NoteItem | null {
+       for (const items of Object.values(state.notesByContainer)) {
+         const note = items.find((n) => n.id === id);
+         if (note) return note;
+       }
+       return state.notes.find((n) => n.id === id) ?? state.openedNotes[id] ?? null;
+     }
+     ```
+
+   - Next to the other module state (`:63-70`), add:
+
+     ```ts
+     // Opening notes by id (Plan 06). Every deliberate selection bumps the
+     // generation, so a slower launch restore can tell it was overtaken.
+     let noteNavigationGeneration = 0;
+     let launchRestorePending = false; // the tree must not auto-pick a note meanwhile
+     let landOnOverview = false; // a restore found nothing: keep the overview this launch
+     ```
+
+   - In `initializeNotesTree`, replace the auto-select (`:342-344`) with the version below. The tree's own pick is not a navigation, so it must not overtake a restore.
+
+     ```ts
+         if (getActiveNoteIdValue() == null && notes.length > 0 && !launchRestorePending && !landOnOverview) {
+           useNoteStore.setState({ activeNoteId: notes[0].id });
+         }
+     ```
+
+   - `setActiveNoteId` (`:513-516`) becomes:
+
+     ```ts
+     export function setActiveNoteId(id: number | null): void {
+       noteNavigationGeneration += 1;
+       if (id != null) landOnOverview = false;
+       if (useNoteStore.getState().activeNoteId === id) return;
+       useNoteStore.setState({ activeNoteId: id });
+     }
+     ```
+
+   - At the top of `updateNoteInStore` (`:382`), after the null check:
+
+     ```ts
+       const opened = useNoteStore.getState().openedNotes;
+       if (opened[note.id]) useNoteStore.setState({ openedNotes: { ...opened, [note.id]: note } });
+     ```
+
+   - At the top of `removeNote` (`:409`), after the null check:
+
+     ```ts
+       const before = useNoteStore.getState();
+       if (before.openedNotes[id]) {
+         const { [id]: _removed, ...rest } = before.openedNotes;
+         useNoteStore.setState({
+           openedNotes: rest,
+           ...(before.activeNoteId === id ? { activeNoteId: null } : {}),
+         });
+       }
+     ```
+
+   - Append:
+
+     ```ts
+     export type OpenNoteResult = "opened" | "missing" | "superseded";
+
+     async function fetchLiveNote(id: number): Promise<NoteItem | null> {
+       try {
+         const note = await window.electronAPI.getNote(id);
+         return note && !note.deleted_at ? note : null;
+       } catch {
+         return null;
+       }
+     }
+
+     function holdAndSelect(note: NoteItem): void {
+       const state = useNoteStore.getState();
+       const inPage = Object.values(state.notesByContainer).some((items) => items.some((n) => n.id === note.id));
+       if (!inPage) useNoteStore.setState({ openedNotes: { ...state.openedNotes, [note.id]: note } });
+       setActiveContext(note.space_id, note.folder_id ?? null);
+       revealContainer(note.space_id, note.folder_id ?? null);
+       useNoteStore.setState({ activeNoteId: note.id });
+     }
+
+     export async function openNoteById(id: number): Promise<OpenNoteResult> {
+       const generation = ++noteNavigationGeneration;
+       landOnOverview = false;
+       const note = findNoteInState(useNoteStore.getState(), id) ?? (await fetchLiveNote(id));
+       if (generation !== noteNavigationGeneration) return "superseded";
+       if (!note) return "missing";
+       holdAndSelect(note);
+       return "opened";
+     }
+
+     export async function restoreLaunchNote(id: number): Promise<OpenNoteResult> {
+       const generation = noteNavigationGeneration;
+       launchRestorePending = true;
+       try {
+         const note = await fetchLiveNote(id);
+         if (generation !== noteNavigationGeneration) return "superseded";
+         if (!note) {
+           landOnOverview = true;
+           return "missing";
+         }
+         holdAndSelect(note);
+         return "opened";
+       } finally {
+         launchRestorePending = false;
+       }
+     }
+     ```
+
+   If `NoteItem` has no `deleted_at` field (`src/types/electron.ts:149-246`), drop that check. `getNote` filters deleted rows itself in that case.
 
 2. Create `src/stores/homeViewStore.ts`:
 
@@ -1136,17 +1375,13 @@ Expected: FAIL with `Cannot find module` for all three.
    a. Add imports:
 
    ```ts
-   import {
-     noteRestoreTarget,
-     readPersistedWorkspace,
-     writePersistedWorkspace,
-   } from "../lib/workspaceView";
+   import { readPersistedWorkspace, writePersistedWorkspace } from "../lib/workspaceView";
    import { requestTranscriptFocus } from "../stores/homeViewStore";
    import { WorkspaceNavigationProvider, type WorkspaceNavigation } from "./workspaceNavigation";
    import type { ChatViewRequest } from "./chat/chatRequest";
    ```
 
-   Also add `getNoteFromStore` and `getActiveNoteIdValue` to the existing `../stores/noteStore` import list.
+   Also add `openNoteById` and `restoreLaunchNote` to the existing `../stores/noteStore` import list.
 
    b. Create `src/components/chat/chatRequest.ts`. Task 4's `ChatView` consumes and re-exports it:
 
@@ -1156,6 +1391,15 @@ Expected: FAIL with `Cannot find module` for all three.
      | { kind: "new"; draft?: string; nonce: number }
      | { kind: "open"; conversationId: number; nonce: number }
      | { kind: "focus"; nonce: number };
+
+   /** Text placed into a composer from outside (palette, Ask AI, a mention
+    *  pick). It is never submitted. `resetQueue` is true for anything that
+    *  starts a new intent, so a draft queued earlier can't send it (review I01). */
+   export interface ComposerSeed {
+     nonce: number;
+     text?: string; // replaces the draft when present
+     resetQueue: boolean;
+   }
    ```
 
    c. Replace line 102 with the code below. The persisted state is read once, before any effect runs. Otherwise the persist effect would write `noteId: null` on mount and erase the note it is about to restore.
@@ -1163,8 +1407,11 @@ Expected: FAIL with `Cannot find module` for all three.
    ```ts
    const [initialWorkspace] = useState(() => readPersistedWorkspace(window.localStorage));
    const [activeView, setActiveView] = useState<ControlPanelView>(initialWorkspace.view);
-   // Nothing is persisted until the one-time restore below has finished.
-   const restoreDoneRef = useRef(initialWorkspace.view !== "personal-notes" || initialWorkspace.noteId == null);
+   // Nothing is persisted until the one-time restore below has settled; then
+   // the observable result (opened, overview, or a superseding navigation) is.
+   const [restoring, setRestoring] = useState(
+     initialWorkspace.view === "personal-notes" && initialWorkspace.noteId != null
+   );
    const [chatRequest, setChatRequest] = useState<ChatViewRequest | null>(null);
    const requestNonceRef = useRef(0);
    const nextNonce = () => ++requestNonceRef.current;
@@ -1174,56 +1421,29 @@ Expected: FAIL with `Cannot find module` for all three.
 
    ```ts
    useEffect(() => {
-     if (!restoreDoneRef.current) return;
+     if (restoring) return;
      writePersistedWorkspace(window.localStorage, { view: activeView, noteId: activeNoteId ?? null });
-   }, [activeView, activeNoteId]);
+   }, [activeView, activeNoteId, restoring]);
 
-   // Reopen the last note. A deleted note leaves the Notes overview showing; a
-   // note the pending-navigation drains (:243-282) already opened wins.
+   // Reopen the last note through the store's launch restore: the tree does not
+   // auto-pick a note meanwhile, a deleted note keeps the overview, and the
+   // pending-navigation drains (:243-282, which call setActiveNoteId) win.
    useEffect(() => {
-     if (restoreDoneRef.current) return;
-     let cancelled = false;
-     void window.electronAPI
-       .getNote(initialWorkspace.noteId!)
-       .then(async (note) => {
-         const target = noteRestoreTarget(note);
-         if (cancelled || !target || getActiveNoteIdValue() != null) return;
-         if (target.folderId != null) {
-           await initializeNotes(null, 50, target.folderId);
-           setActiveFolderId(target.folderId);
-         } else {
-           navigateToContainer(target.spaceId, null);
-         }
-         if (!cancelled && getActiveNoteIdValue() == null) setActiveNoteId(target.noteId);
-       })
-       .catch(() => {})
-       .finally(() => {
-         restoreDoneRef.current = true;
-       });
-     return () => {
-       cancelled = true;
-     };
+     if (!restoring) return;
+     void restoreLaunchNote(initialWorkspace.noteId!).finally(() => setRestoring(false));
      // eslint-disable-next-line react-hooks/exhaustive-deps -- one restore per launch
    }, []);
    ```
 
-   This mirrors the pending-note drains at `ControlPanel.tsx:243-282`. If those drains use a different order of `initializeNotes`, `setActiveFolderId` and `setActiveNoteId`, copy their order.
-
    e. Before `return (`, build the navigation value:
 
    ```ts
+   // One path for every deep link: palette rows, mention chips, citations,
+   // Sources chips and Recent rows. Older, uncached notes open too (I04).
    const openNote = useCallback(
      async (noteId: number) => {
-       const note = getNoteFromStore(noteId) ?? (await window.electronAPI.getNote(noteId));
-       const target = noteRestoreTarget(note);
-       if (!target) {
-         toast({ title: t("workspace.noteMissing") });
-         return;
-       }
-       if (target.folderId != null) setActiveFolderId(target.folderId);
-       else navigateToContainer(target.spaceId, null);
-       setActiveNoteId(target.noteId);
        setActiveView("personal-notes");
+       if ((await openNoteById(noteId)) === "missing") toast({ title: t("workspace.noteMissing") });
      },
      [t, toast]
    );
@@ -1267,7 +1487,10 @@ Expected: FAIL with `Cannot find module` for all three.
 
    f. Wrap everything inside the root `<div className="h-screen bg-surface-window flex flex-col">` in `<WorkspaceNavigationProvider value={navigation}> … </WorkspaceNavigationProvider>`.
 
-   g. In the `<CommandSearch …>` props, replace `onTranscriptSelect={() => { setActiveView("home"); }}` with `onTranscriptSelect={navigation.openTranscript}`, and add `onConversationSelect={navigation.openConversation}`.
+   g. In the `<CommandSearch …>` props:
+      - replace the `onNoteSelect` body (`:680-685`) with `onNoteSelect={(id) => navigation.openNote(id)}`, so the palette uses the same uncached-note path;
+      - replace `onTranscriptSelect={() => { setActiveView("home"); }}` with `onTranscriptSelect={navigation.openTranscript}`;
+      - add `onConversationSelect={navigation.openConversation}`.
 
 5. Add strings (Task 1 helper). English block:
 
@@ -1277,13 +1500,13 @@ Expected: FAIL with `Cannot find module` for all three.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js test/locales/translationCoverage.test.js && npm run typecheck`
+Run: `npm test -- test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js test/stores/noteOpenRestore.test.js test/stores/personalNotesPersistence.test.js test/locales/translationCoverage.test.js && npm run typecheck`
 Expected: PASS. Typecheck is clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/workspaceView.ts src/stores/homeViewStore.ts src/components/workspaceNavigation.tsx src/components/chat/chatRequest.ts src/components/ControlPanel.tsx src/locales test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js
+git add src/lib/workspaceView.ts src/stores/homeViewStore.ts src/stores/noteStore.ts src/components/workspaceNavigation.tsx src/components/chat/chatRequest.ts src/components/ControlPanel.tsx src/locales test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js test/stores/noteOpenRestore.test.js
 git commit -m "feat(workspace): persist the view and add workspace navigation"
 ```
 
@@ -1297,8 +1520,8 @@ This covers WS-Q12. It also delivers Task 3's chat requests to `ChatView`, which
 - Create: `src/lib/workspaceShortcuts.ts`
 - Modify: `src/components/ControlPanel.tsx`. Replace the keydown effect at `:228-241`, and pass `request` to `<ChatView />` at `:816-818`.
 - Modify: `src/components/chat/ChatView.tsx`. Remove the `⌘N` listener at `:117-127`, and add the `request` prop and `ChatViewRequest` type.
-- Modify: `src/components/chat/ChatInput.tsx`. Add the `seed` prop.
-- Test: `test/lib/workspaceShortcuts.test.js`
+- Modify: `src/components/chat/ChatInput.tsx` (as rewritten by Plan 02 Task 12). Add the `seed` prop and a draft generation for its refused-send restore.
+- Test: `test/lib/workspaceShortcuts.test.js`, `test/components/chatComposerSeed.test.js` (mounted, on Plan 02's `rendererMocks` and `fakeDomTree` harness)
 
 **Interfaces:**
 - Produces:
@@ -1321,7 +1544,12 @@ This covers WS-Q12. It also delivers Task 3's chat requests to `ChatView`, which
   - `request?: ChatViewRequest | null`;
   - `onRequestHandled?: () => void`. `ControlPanel` clears the request with it, so the request does not replay when Chat remounts.
   - `onOpenSettings?: (section?: string) => void`, used by Task 21.
-- Produces, in `ChatInput.tsx`, the prop `seed?: { text?: string; nonce: number } | null`. A new nonce replaces the draft with `text` when given, then focuses the composer. It never submits.
+- Produces, in `ChatInput.tsx`, the prop `seed?: ComposerSeed | null` (`chatRequest.ts`). A seed takes effect when its nonce is new, and it never submits.
+  - The seed is applied **during render**, before any effect of that commit runs, so Plan 02's queued auto-send can never see the old draft or an armed queue.
+  - `resetQueue: true` disarms Plan 02's `queued` flag.
+  - `text`, when present, replaces the draft.
+  - Every replacing or resetting seed bumps a draft generation. A send that started before the seed, and that is refused or fails, does not restore its text over the seeded draft.
+  - A focus-only seed (`resetQueue: false`, no `text`) keeps the draft and any queue the user armed.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1398,10 +1626,120 @@ test("an open Radix dialog is detected from the DOM", async () => {
 });
 ```
 
+Create `test/components/chatComposerSeed.test.js`. It mounts the real composer with Plan 02's harness (`test/helpers/harness/rendererMocks.js`, `test/helpers/harness/fakeDomTree.js`), the same way Plan 02's `chatComposer.test.js` does:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { createElement } = React;
+const { createRoot } = require("react-dom/client");
+const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
+const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { installTree } = require("../helpers/harness/fakeDomTree");
+
+const MOCKS = {
+  "/ui/useToast": TOAST_MOCK,
+  "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
+};
+
+async function mount(t, onTextSubmit) {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  installHookDom(t);
+  const tree = installTree();
+  const vite = await createRendererServer(t, rendererOptions("loqui-composer-seed-", MOCKS));
+  const { ChatInput } = await vite.ssrLoadModule("/components/chat/ChatInput.tsx");
+  let props = { partialTranscript: "", agentState: "idle", onTextSubmit, onCancel() {}, seed: null };
+  const render = (next = {}) => {
+    props = { ...props, ...next };
+    return React.act(async () => {
+      root.render(createElement(ChatInput, props));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  };
+  root = createRoot(tree.container);
+  await render();
+  const textarea = () => tree.find((n) => n.tagName === "TEXTAREA");
+  const type = (value) => React.act(async () => tree.props(textarea()).onChange({ target: { value } }));
+  const press = (key, nativeEvent = {}) =>
+    React.act(async () => {
+      tree.props(textarea()).onKeyDown({
+        key,
+        shiftKey: false,
+        nativeEvent: { isComposing: false, keyCode: key === "Enter" ? 13 : 27, ...nativeEvent },
+        preventDefault() {},
+      });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  return { render, type, press, value: () => tree.props(textarea()).value };
+}
+
+test("a palette seed disarms a queued draft: nothing is sent on idle, and B stays editable", async (t) => {
+  const sent = [];
+  const c = await mount(t, async (text) => (sent.push(text), true));
+  await c.render({ agentState: "streaming" });
+  await c.type("A");
+  await c.press("Enter"); // queued while busy
+  await c.render({ seed: { nonce: 1, text: "B", resetQueue: true } });
+  await c.render({ agentState: "idle" });
+  assert.deepEqual(sent, []);
+  assert.equal(c.value(), "B");
+});
+
+test("a seed that lands in the same commit as idle still wins over the queue", async (t) => {
+  const sent = [];
+  const c = await mount(t, async (text) => (sent.push(text), true));
+  await c.render({ agentState: "thinking" });
+  await c.type("A");
+  await c.press("Enter");
+  await c.render({ agentState: "idle", seed: { nonce: 2, text: "B", resetQueue: true } });
+  assert.deepEqual(sent, []);
+  assert.equal(c.value(), "B");
+});
+
+test("a focus-only request keeps the draft and the queue the user armed", async (t) => {
+  const sent = [];
+  const c = await mount(t, async (text) => (sent.push(text), true));
+  await c.render({ agentState: "streaming" });
+  await c.type("A");
+  await c.press("Enter");
+  await c.render({ seed: { nonce: 3, resetQueue: false } });
+  await c.render({ agentState: "idle" });
+  assert.deepEqual(sent, ["A"]);
+});
+
+test("a refused send that started before a new chat does not restore its text there", async (t) => {
+  let settle;
+  const c = await mount(t, () => new Promise((resolve) => (settle = resolve)));
+  await c.type("A");
+  await c.press("Enter"); // submit starts and the box clears
+  await c.render({ seed: { nonce: 4, resetQueue: true } }); // new chat, no draft
+  await React.act(async () => {
+    settle(false);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(c.value(), "");
+});
+
+test("a seed present at mount fills the composer and sends nothing", async (t) => {
+  const sent = [];
+  const c = await mount(t, async (text) => (sent.push(text), true));
+  await c.render({ seed: { nonce: 5, text: "“Thursday, not Monday” ", resetQueue: true } });
+  assert.equal(c.value(), "“Thursday, not Monday” ");
+  assert.deepEqual(sent, []);
+});
+```
+
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm test -- test/lib/workspaceShortcuts.test.js`
-Expected: FAIL with `Cannot find module`.
+Run: `npm test -- test/lib/workspaceShortcuts.test.js test/components/chatComposerSeed.test.js`
+Expected:
+- `workspaceShortcuts` FAILS with `Cannot find module`.
+- `chatComposerSeed` FAILS because the seed prop is ignored: the queued draft `A` is sent on idle, and `B` never appears.
 
 - [ ] **Step 3: Implement**
 
@@ -1542,7 +1880,7 @@ Expected: FAIL with `Cannot find module`.
    - Re-export the request type, and accept the props:
 
    ```ts
-   import type { ChatViewRequest } from "./chatRequest";
+   import type { ChatViewRequest, ComposerSeed } from "./chatRequest";
    export type { ChatViewRequest } from "./chatRequest";
 
    interface ChatViewProps {
@@ -1557,18 +1895,20 @@ Expected: FAIL with `Cannot find module`.
    - After `handleNewChat` and `handleSelectConversation` are defined, add:
 
    ```ts
-   const [composerSeed, setComposerSeed] = useState<{ text?: string; nonce: number } | null>(null);
+   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null);
    // Requests come from the palette, Capture and shortcuts. A draft is placed
-   // in the composer and never sent: the user sees the model chip first.
+   // in the composer and never sent: the user sees the model chip first. A new
+   // chat disarms any queue, so an earlier queued draft can't send into it.
    useEffect(() => {
      if (!request) return;
      if (request.kind === "new") {
        handleNewChat();
-       setComposerSeed({ text: request.draft, nonce: request.nonce });
+       setComposerSeed({ text: request.draft, nonce: request.nonce, resetQueue: true });
      } else if (request.kind === "open") {
        handleSelectConversation(request.conversationId);
+       setComposerSeed({ nonce: request.nonce, resetQueue: true });
      } else {
-       setComposerSeed({ nonce: request.nonce });
+       setComposerSeed({ nonce: request.nonce, resetQueue: false });
      }
      onRequestHandled?.();
      // eslint-disable-next-line react-hooks/exhaustive-deps -- one run per request nonce
@@ -1578,28 +1918,42 @@ Expected: FAIL with `Cannot find module`.
    - Pass `seed={composerSeed}` to `<ChatInput … />` (`:172-181`).
    - `onOpenSettings` is unused until Task 21. Prefix the destructured name with `_` if lint complains, and rename it in Task 21.
 
-5. In `src/components/chat/ChatInput.tsx`, add `seed?: { text?: string; nonce: number } | null;` to the props interface and destructure it. Then, after the existing refocus effect (`:110-114`), add:
+5. In `src/components/chat/ChatInput.tsx`, as rewritten by Plan 02 Task 12:
+   - Add `seed?: ComposerSeed | null;` to the props interface (imported as a type from `./chatRequest`) and destructure it.
+   - Directly after Plan 02's `const [queued, setQueued] = useState(false);`, add:
 
-   ```ts
-   useEffect(() => {
-     if (!seed) return;
-     if (seed.text !== undefined) setInputText(seed.text);
-     inputRef.current?.focus();
-     // eslint-disable-next-line react-hooks/exhaustive-deps -- one run per seed nonce
-   }, [seed?.nonce]);
-   ```
+     ```tsx
+     // Seeds apply during render (React's "adjust state when a prop changes"
+     // pattern), so no effect in this commit, in particular the queued
+     // auto-send below, can see the old draft or an armed queue (review I01).
+     const [appliedSeed, setAppliedSeed] = useState<number | null>(null);
+     const [draftGeneration, setDraftGeneration] = useState(0);
+     const draftGenerationRef = useRef(0);
+     draftGenerationRef.current = draftGeneration;
+     if (seed && seed.nonce !== appliedSeed) {
+       setAppliedSeed(seed.nonce);
+       if (seed.resetQueue) setQueued(false);
+       if (seed.resetQueue || seed.text !== undefined) setDraftGeneration((g) => g + 1);
+       if (seed.text !== undefined) setInputText(seed.text);
+     }
+     useEffect(() => {
+       if (appliedSeed != null) inputRef.current?.focus();
+     }, [appliedSeed]);
+     ```
 
-   After Plan 02 (WS-Q5), `inputRef` points at the textarea. Plan 02's auto-grow runs from `inputText`, so the seeded draft sizes itself.
+   - In Plan 02's `handleSubmit`, capture `const generation = draftGenerationRef.current;` right after the `if (!text || !onTextSubmit) return;` line. Then change its restore line to `if (accepted === false && generation === draftGenerationRef.current) setInputText((current) => (current.trim() ? current : text));`. A send overtaken by a seed (a new chat, a palette draft) no longer puts its text back into a conversation it was not typed for.
+
+   Plan 02's auto-grow runs from `inputText`, so a seeded draft sizes itself.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/workspaceShortcuts.test.js && npm run typecheck && npm run lint`
-Expected: PASS. Typecheck and lint are clean. A grep for `e.key === "n"` in `src/components/chat/ChatView.tsx` returns nothing.
+Run: `npm test -- test/lib/workspaceShortcuts.test.js test/components/chatComposerSeed.test.js test/components/chatComposer.test.js && npm run typecheck && npm run lint`
+Expected: PASS. Plan 02's `chatComposer` suite still passes. Typecheck and lint are clean. A grep for `e.key === "n"` in `src/components/chat/ChatView.tsx` returns nothing.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/workspaceShortcuts.ts src/components/ControlPanel.tsx src/components/chat/ChatView.tsx src/components/chat/ChatInput.tsx test/lib/workspaceShortcuts.test.js
+git add src/lib/workspaceShortcuts.ts src/components/ControlPanel.tsx src/components/chat/ChatView.tsx src/components/chat/ChatInput.tsx test/lib/workspaceShortcuts.test.js test/components/chatComposerSeed.test.js
 git commit -m "feat(workspace): add global shortcuts and chat requests"
 ```
 
@@ -1911,6 +2265,7 @@ This covers the WS-R3 C live states as data.
   export type MicCaptureStatus = "inactive" | "active" | "reconnecting" | "unavailable";
   export interface CaptureFacts {
     dictationState: string | null;           // Task 5 snapshot.state; unknown values mean idle
+    dictationInputKind: string | null;       // Task 5 snapshot.inputKind
     dictationStartedAt: number | null;
     meeting: { isRecording: boolean; startedAt: number | null; micCaptureStatus: MicCaptureStatus };
     micGranted: boolean | null;              // null while unknown
@@ -1920,8 +2275,18 @@ This covers the WS-R3 C live states as data.
     source: "dictation" | "meeting" | null;
     startedAt: number | null;
     offlineReason: "permission" | "device" | null;
+    inputKind: "dictation" | "assistant" | "translation" | null; // null unless dictation is the source
   }
   export function resolveCaptureStatus(facts: CaptureFacts): CaptureStatus;
+  /** Which §5.1 routes a capture uses (review I13). Speech goes to dictationStt
+   *  or, for a meeting, noteRecordingStt; assistant and translation captures
+   *  then also go through their text route. Idle is the next dictation. */
+  export type CaptureRole = "dictation" | "meeting" | "assistant" | "translation";
+  export function captureRouteIds(status: Pick<CaptureStatus, "source" | "inputKind">): {
+    role: CaptureRole;
+    speech: "dictationStt" | "noteRecordingStt";
+    text: "voiceAssistant" | "translation" | null;
+  };
   export function nextDictationStartedAt(prevState: string | null, prevStartedAt: number | null, nextState: string, now: number): number | null;
   export function formatElapsed(ms: number): string;     // "0:07", "12:40", "1:02:03"
   export function railLevelStep(previous: number, target: number): number; // attack 0.65, release 0.24 per 66ms tick
@@ -1959,6 +2324,7 @@ const load = () => import("../../src/lib/captureStatus.ts");
 const idleMeeting = { isRecording: false, startedAt: null, micCaptureStatus: "inactive" };
 const facts = (over = {}) => ({
   dictationState: "idle",
+  dictationInputKind: "dictation",
   dictationStartedAt: null,
   meeting: idleMeeting,
   micGranted: true,
@@ -1967,13 +2333,13 @@ const facts = (over = {}) => ({
 
 test("idle is Ready", async () => {
   const { resolveCaptureStatus } = await load();
-  assert.deepEqual(resolveCaptureStatus(facts()), { kind: "ready", source: null, startedAt: null, offlineReason: null });
+  assert.deepEqual(resolveCaptureStatus(facts()), { kind: "ready", source: null, startedAt: null, offlineReason: null, inputKind: null });
 });
 
 test("dictation recording is Listening with its start time", async () => {
   const { resolveCaptureStatus } = await load();
   const status = resolveCaptureStatus(facts({ dictationState: "recording", dictationStartedAt: 1000 }));
-  assert.deepEqual(status, { kind: "listening", source: "dictation", startedAt: 1000, offlineReason: null });
+  assert.deepEqual(status, { kind: "listening", source: "dictation", startedAt: 1000, offlineReason: null, inputKind: "dictation" });
 });
 
 test("a meeting recording is Listening from the meeting's start", async () => {
@@ -2032,6 +2398,17 @@ test("elapsed time reads like a recorder", async () => {
   for (const bad of [-5, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(formatElapsed(bad), "0:00");
 });
 
+test("a live capture names the routes its audio and text actually take (I13)", async () => {
+  const { resolveCaptureStatus, captureRouteIds } = await load();
+  const meeting = resolveCaptureStatus(facts({ meeting: { isRecording: true, startedAt: 1, micCaptureStatus: "active" } }));
+  assert.deepEqual(captureRouteIds(meeting), { role: "meeting", speech: "noteRecordingStt", text: null });
+  const assistant = resolveCaptureStatus(facts({ dictationState: "recording", dictationInputKind: "assistant" }));
+  assert.deepEqual(captureRouteIds(assistant), { role: "assistant", speech: "dictationStt", text: "voiceAssistant" });
+  const translation = resolveCaptureStatus(facts({ dictationState: "processing", dictationInputKind: "translation" }));
+  assert.deepEqual(captureRouteIds(translation), { role: "translation", speech: "dictationStt", text: "translation" });
+  assert.deepEqual(captureRouteIds(resolveCaptureStatus(facts())), { role: "dictation", speech: "dictationStt", text: null });
+});
+
 test("the rail rises fast and falls slowly", async () => {
   const { railLevelStep } = await load();
   const up = railLevelStep(0, 1);
@@ -2059,6 +2436,7 @@ Expected: FAIL with `Cannot find module`.
 
    export interface CaptureFacts {
      dictationState: string | null;
+     dictationInputKind: string | null;
      dictationStartedAt: number | null;
      meeting: { isRecording: boolean; startedAt: number | null; micCaptureStatus: MicCaptureStatus };
      micGranted: boolean | null;
@@ -2069,27 +2447,51 @@ Expected: FAIL with `Cannot find module`.
      source: "dictation" | "meeting" | null;
      startedAt: number | null;
      offlineReason: "permission" | "device" | null;
+     inputKind: "dictation" | "assistant" | "translation" | null;
    }
+
+   const INPUT_KINDS = new Set(["dictation", "assistant", "translation"]);
 
    const status = (
      kind: CaptureStatusKind,
      source: CaptureStatus["source"] = null,
      startedAt: number | null = null,
-     offlineReason: CaptureStatus["offlineReason"] = null
-   ): CaptureStatus => ({ kind, source, startedAt, offlineReason });
+     offlineReason: CaptureStatus["offlineReason"] = null,
+     inputKind: CaptureStatus["inputKind"] = null
+   ): CaptureStatus => ({ kind, source, startedAt, offlineReason, inputKind });
 
    export function resolveCaptureStatus(facts: CaptureFacts): CaptureStatus {
      const { meeting } = facts;
      const meetingMicLost =
        meeting.micCaptureStatus === "unavailable" || meeting.micCaptureStatus === "reconnecting";
+     const kind = INPUT_KINDS.has(facts.dictationInputKind ?? "")
+       ? (facts.dictationInputKind as CaptureStatus["inputKind"])
+       : "dictation";
      if (meeting.isRecording && meetingMicLost) return status("offline", "meeting", null, "device");
      if (facts.dictationState === "recording") {
-       return status("listening", "dictation", facts.dictationStartedAt);
+       return status("listening", "dictation", facts.dictationStartedAt, null, kind);
      }
      if (meeting.isRecording) return status("listening", "meeting", meeting.startedAt);
-     if (facts.dictationState === "processing") return status("processing", "dictation");
+     if (facts.dictationState === "processing") return status("processing", "dictation", null, null, kind);
      if (facts.micGranted === false) return status("offline", null, null, "permission");
      return status("ready");
+   }
+
+   export type CaptureRole = "dictation" | "meeting" | "assistant" | "translation";
+
+   export function captureRouteIds(status: Pick<CaptureStatus, "source" | "inputKind">): {
+     role: CaptureRole;
+     speech: "dictationStt" | "noteRecordingStt";
+     text: "voiceAssistant" | "translation" | null;
+   } {
+     if (status.source === "meeting") return { role: "meeting", speech: "noteRecordingStt", text: null };
+     if (status.source === "dictation" && status.inputKind === "assistant") {
+       return { role: "assistant", speech: "dictationStt", text: "voiceAssistant" };
+     }
+     if (status.source === "dictation" && status.inputKind === "translation") {
+       return { role: "translation", speech: "dictationStt", text: "translation" };
+     }
+     return { role: "dictation", speech: "dictationStt", text: null };
    }
 
    export function nextDictationStartedAt(
@@ -2142,6 +2544,7 @@ Expected: FAIL with `Cannot find module`.
 
    export function useCaptureStatus(): CaptureStatusModel {
      const [dictationState, setDictationState] = useState<string | null>(null);
+     const [dictationInputKind, setDictationInputKind] = useState<string | null>(null);
      const [dictationStartedAt, setDictationStartedAt] = useState<number | null>(null);
      const [micGranted, setMicGranted] = useState<boolean | null>(null);
      const stateRef = useRef<{ state: string | null; startedAt: number | null }>({ state: null, startedAt: null });
@@ -2168,6 +2571,7 @@ Expected: FAIL with `Cannot find module`.
          stateRef.current = { state: snapshot.state, startedAt };
          if (snapshot.state !== "recording") dictationLevelRef.current = 0;
          setDictationState(snapshot.state);
+         setDictationInputKind(snapshot.inputKind ?? null);
          setDictationStartedAt(startedAt);
        };
        void api?.getDictationLifecycleState?.().then(apply).catch(() => {});
@@ -2191,8 +2595,8 @@ Expected: FAIL with `Cannot find module`.
      }, []);
 
      const status = useMemo(
-       () => resolveCaptureStatus({ dictationState, dictationStartedAt, meeting, micGranted }),
-       [dictationState, dictationStartedAt, meeting, micGranted]
+       () => resolveCaptureStatus({ dictationState, dictationInputKind, dictationStartedAt, meeting, micGranted }),
+       [dictationState, dictationInputKind, dictationStartedAt, meeting, micGranted]
      );
 
      const readLevel = useCallback(() => {
@@ -2758,7 +3162,9 @@ This covers the WS-R3 C live states in the sidebar (the R1 B footer "mic chip" a
     status: CaptureStatus;
     now: number;
     hotkeyLabel: string;
-    route: Pick<ResolvedRoute, "locality" | "providerId" | "model" | "state"> | null; // dictationStt (CR-06-5)
+    role: CaptureRole;           // whose route this is (Task 6 captureRouteIds)
+    route: Pick<ResolvedRoute, "locality" | "providerId" | "model" | "state"> | null; // the speech route
+    textRoute?: Pick<ResolvedRoute, "locality" | "providerId" | "model" | "state"> | null; // assistant/translation
     compact: boolean;            // sidebar rail mode
     onOpenSettings: () => void;
   }
@@ -2799,6 +3205,7 @@ const base = {
   now: 10_000,
   readLevel: () => 0,
   hotkeyLabel: "Fn",
+  role: "dictation",
   route: { locality: "device", providerId: null, model: "Parakeet v3", state: { status: "ready" } },
   compact: false,
   onOpenSettings: () => {},
@@ -2860,6 +3267,30 @@ test("remote providers are named through providerDisplayLabel, localised for cus
   assert.match(renderStatic(MicStatusCard, { ...base, route: remote("openai", "gpt-4o-mini-transcribe"), status: st("ready") }), /OpenAI · gpt-4o-mini-transcribe/);
   assert.match(renderStatic(MicStatusCard, { ...base, route: remote("custom", "whisper-large"), status: st("ready") }), /Custom endpoint · whisper-large/);
   assert.match(renderStatic(MicStatusCard, { ...base, route: remote(null, "x"), status: st("ready") }), /Unknown provider · x/);
+});
+
+test("a meeting shows the meeting route, not the dictation route (I13)", async () => {
+  const { MicStatusCard } = await load();
+  const html = renderStatic(MicStatusCard, {
+    ...base,
+    role: "meeting",
+    route: { locality: "remote", providerId: "openai", model: "gpt-4o-transcribe", state: { status: "ready" } },
+    status: st("listening", { source: "meeting", startedAt: 3_000 }),
+  });
+  assert.match(html, /Meeting<\/span> · OpenAI · gpt-4o-transcribe/);
+  assert.doesNotMatch(html, /Parakeet/);
+});
+
+test("an assistant capture also shows where its text goes", async () => {
+  const { MicStatusCard } = await load();
+  const html = renderStatic(MicStatusCard, {
+    ...base,
+    role: "assistant",
+    textRoute: { locality: "remote", providerId: "anthropic", model: "Claude", state: { status: "ready" } },
+    status: st("listening", { source: "dictation", inputKind: "assistant", startedAt: 3_000 }),
+  });
+  assert.match(html, /Dictation<\/span> · Local · Parakeet v3/);
+  assert.match(html, /Assistant<\/span> · Anthropic · Claude/);
 });
 
 test("the rail is decorative and carries its state for CSS", async () => {
@@ -2932,7 +3363,7 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
    import { useTranslation } from "react-i18next";
    import { AlertTriangle, Loader2 } from "lucide-react";
    import { LocalityRing } from "./ui/LocalityRing";
-   import { formatElapsed, railLevelStep, type CaptureStatus } from "../lib/captureStatus";
+   import { formatElapsed, railLevelStep, type CaptureRole, type CaptureStatus } from "../lib/captureStatus";
    import { providerDisplayLabel } from "../lib/locality";
    import type { ResolvedRoute } from "../lib/routes";
 
@@ -2940,9 +3371,38 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
      status: CaptureStatus;
      now: number;
      hotkeyLabel: string;
+     role: CaptureRole;
      route: Pick<ResolvedRoute, "locality" | "providerId" | "model" | "state"> | null;
+     textRoute?: Pick<ResolvedRoute, "locality" | "providerId" | "model" | "state"> | null;
      compact: boolean;
      onOpenSettings: () => void;
+   }
+
+   type RouteLike = NonNullable<MicStatusCardProps["route"]>;
+
+   // One line per route: ring shape first, then role, place and model in words.
+   function RouteLine({ role, route, t }: { role: string; route: RouteLike; t: (k: string, o?: Record<string, unknown>) => string }) {
+     // UI names come from providerDisplayLabel (localised custom/unknown); never providerDisplayName.
+     const providerLabel = route.locality === "remote" ? providerDisplayLabel(route.providerId, t) : null;
+     return (
+       <span className="flex items-center gap-1.5 text-caption text-muted-foreground">
+         <LocalityRing
+           size={14}
+           locality={route.locality}
+           provider={providerLabel}
+           label={t(`locality.${route.locality}`, { provider: providerLabel ?? "" })}
+         />
+         <span className="truncate">
+           <span className="text-foreground">{t(`micCard.role.${role}`)}</span>
+           {/* One text node, so screen readers and SSR read it as one phrase. */}
+           {` · ${
+             route.state.status === "ready"
+               ? t(`micCard.route.${route.locality}`, { model: route.model ?? "", provider: providerLabel ?? "" })
+               : t("micCard.routeNeedsSetup")
+           }`}
+         </span>
+       </span>
+     );
    }
 
    const LABEL_KEY = {
@@ -2962,7 +3422,7 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
      return <span aria-hidden className="size-2 rounded-full bg-success" />;
    }
 
-   export function MicStatusCard({ status, now, hotkeyLabel, route, compact, onOpenSettings }: MicStatusCardProps) {
+   export function MicStatusCard({ status, now, hotkeyLabel, role, route, textRoute, compact, onOpenSettings }: MicStatusCardProps) {
      const { t } = useTranslation();
      const elapsed = status.kind === "listening" && status.startedAt != null ? formatElapsed(now - status.startedAt) : null;
      const label = elapsed ? t("micCard.listeningFor", { time: elapsed }) : t(LABEL_KEY[status.kind]);
@@ -2987,9 +3447,6 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
        );
      }
 
-     const routeReady = route?.state.status === "ready";
-     // UI names come from providerDisplayLabel (localised custom/unknown); never providerDisplayName.
-     const providerLabel = route?.locality === "remote" ? providerDisplayLabel(route.providerId, t) : null;
      return (
        <button
          type="button"
@@ -3008,21 +3465,8 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
            )}
          </span>
          {detail && <span className="text-caption text-muted-foreground">{detail}</span>}
-         {route && (
-           <span className="flex items-center gap-1.5 text-caption text-muted-foreground">
-             <LocalityRing
-               size={14}
-               locality={route.locality}
-               provider={providerLabel}
-               label={t(`locality.${route.locality}`, { provider: providerLabel ?? "" })}
-             />
-             <span className="truncate">
-               {routeReady
-                 ? t(`micCard.route.${route.locality}`, { model: route.model ?? "", provider: providerLabel ?? "" })
-                 : t("micCard.routeNeedsSetup")}
-             </span>
-           </span>
-         )}
+         {route && <RouteLine role={role === "meeting" ? "meeting" : "dictation"} route={route} t={t} />}
+         {textRoute && (role === "assistant" || role === "translation") && <RouteLine role={role} route={textRoute} t={t} />}
        </button>
      );
    }
@@ -3118,6 +3562,7 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
        "offlinePermission": "Microphone access is off",
        "offlineDevice": "Microphone disconnected",
        "routeNeedsSetup": "Speech model needs setup",
+       "role": { "dictation": "Dictation", "meeting": "Meeting", "assistant": "Assistant", "translation": "Translation" },
        "route": {
          "device": "Local · {{model}}",
          "network": "Your server · {{model}}",
@@ -3350,6 +3795,12 @@ test("the sidebar footer carries the mic card and the edge carries the capture r
   const sidebar = read("src/components/ControlPanelSidebar.tsx");
   assert.match(sidebar, /<MicStatusCard/);
   assert.match(sidebar, /<CaptureRail/);
+});
+
+test("the new sidebar keeps Plan 02's full-opacity focus rings (I14)", () => {
+  const sidebar = read("src/components/ControlPanelSidebar.tsx");
+  assert.ok((sidebar.match(/focus-visible:ring-2 focus-visible:ring-ring"/g) ?? []).length >= 3);
+  assert.doesNotMatch(sidebar, /ring-(?:ring|primary)\/\d+/);
 });
 
 test("hover peek is gone; collapse is a rail", () => {
@@ -3654,7 +4105,8 @@ Expected: FAIL.
    import { useHotkey } from "../hooks/useHotkey";
    import { useNoteTreeActions } from "../hooks/useNoteTreeActions";
    import { useRecentNotes } from "../hooks/useRecentNotes";
-   import { useResolvedRoute } from "../lib/routes";
+   import { ROUTE_IDS, useResolvedRoutes } from "../lib/routes";
+   import { captureRouteIds } from "../lib/captureStatus";
    import { shortcutHint } from "../lib/workspaceShortcuts";
    import type { SidebarMode } from "../lib/sidebarMode";
    import { formatHotkeyLabel, parseHotkeyList } from "../utils/hotkeys";
@@ -3677,7 +4129,13 @@ Expected: FAIL.
      const rail = mode === "rail";
      const navItems = useControlPanelNavItems();
      const navigation = useWorkspaceNavigation();
-     const route = useResolvedRoute("dictationStt");
+     // The card shows the routes this capture really takes: the meeting route
+     // during a meeting, plus the text route for assistant/translation (I13).
+     const routes = useResolvedRoutes();
+     const ids = captureRouteIds(capture);
+     const routeFor = (id: (typeof ROUTE_IDS)[number]) => routes[ROUTE_IDS.indexOf(id)];
+     const route = routeFor(ids.speech);
+     const textRoute = ids.text ? routeFor(ids.text) : null;
      const { hotkey } = useHotkey();
      const treeActions = useNoteTreeActions();
      const { createNoteIn } = useCreateNote();
@@ -3697,6 +4155,7 @@ Expected: FAIL.
              aria-label={rail ? item.label : undefined}
              className={cn(
                "group relative flex h-9 items-center gap-2.5 rounded-md text-ui text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                rail ? "mx-auto w-10 justify-center" : "px-2.5",
                isActive && "bg-foreground/7 text-foreground dark:bg-white/8"
              )}
@@ -3758,7 +4217,7 @@ Expected: FAIL.
                    key={note.id}
                    type="button"
                    onClick={() => navigation.openNote(note.id)}
-                   className="h-7 truncate rounded-md px-2.5 text-start text-ui text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                   className="h-7 truncate rounded-md px-2.5 text-start text-ui text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                  >
                    <span dir="auto">{note.title || t("notes.list.untitledNote")}</span>
                  </button>
@@ -3776,7 +4235,9 @@ Expected: FAIL.
              status={capture}
              now={now}
              hotkeyLabel={formatHotkeyLabel(parseHotkeyList(hotkey)[0])}
+             role={ids.role}
              route={route}
+             textRoute={textRoute}
              compact={rail}
              onOpenSettings={() => onOpenSettings(route.settingsPath)}
            />
@@ -3786,6 +4247,7 @@ Expected: FAIL.
              aria-label={rail ? t("sidebar.settings") : undefined}
              className={cn(
                "mb-2 flex h-9 items-center gap-2.5 rounded-md text-ui text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                rail ? "mx-auto w-10 justify-center" : "mx-2 px-2.5"
              )}
            >
@@ -4806,10 +5268,11 @@ This covers the WS-R4 B UI, WS-Q3 (landing and ring), WS-Q13 (the visible Histor
 - Modify: `src/components/HistoryView.tsx`. Replace the list body (`:60-92` grouping, and `:142-223` loading, empty and list), removing the hover-only controls at `:193-204`.
 - Modify: `src/components/ui/TranscriptionItem.tsx`. Change the props (`:44-51`), time (`:70-77`), row (`:149-170`) and text (`:280-285`).
 - Modify: `src/index.css`. Add the `history-row-focus` keyframes after the `.capture-rail` block.
-- Test: `test/components/historyToolbar.test.js`, `test/components/transcriptionItemRow.test.js`, `test/components/feedRows.test.js`, `test/components/historyFocusCss.test.js`
+- Modify: `src/stores/transcriptionStore.ts`. Add `revealTranscription` (review M01).
+- Test: `test/components/historyToolbar.test.js`, `test/components/transcriptionItemRow.test.js`, `test/components/feedRows.test.js`, `test/components/historyFocusCss.test.js`, `test/stores/transcriptionReveal.test.js`
 
 **Interfaces:**
-- Consumes `buildHomeFeed`, `locateTranscript`, `transcriptionLocality`, `countWords` and `parseDbTimestamp` (Task 10); `useHomeViewStore`, `setHomeFilter`, `setHomeQuery` and `clearTranscriptFocus` (Task 3); `useRecentNotes(50)` (Task 9); `useWorkspaceNavigation` (Task 3); `formatElapsed` (Task 6); `initializeTranscriptions` (`transcriptionStore.ts:72`); and `LocalityRing` (Plan 01).
+- Consumes `buildHomeFeed`, `locateTranscript`, `transcriptionLocality`, `countWords` and `parseDbTimestamp` (Task 10); `useHomeViewStore`, `setHomeFilter`, `setHomeQuery` and `clearTranscriptFocus` (Task 3); `useRecentNotes(50)` (Task 9); `useWorkspaceNavigation` (Task 3); `formatElapsed` (Task 6); `getTranscriptionById` (`electron.ts:839`); and `LocalityRing` (Plan 01).
 - Produces:
   - `HistoryToolbar` props: `{ query; onQueryChange(q: string); filter: HomeFilter; onFilterChange(f: HomeFilter); counts: Record<HomeFilter, number>; inputRef: React.RefObject<HTMLInputElement | null>; menu: React.ReactNode }`.
   - `HistoryMenu` props: `{ showDiscarded: boolean; onToggleDiscarded(): void; onClearAll(): void; hasHistory: boolean }`.
@@ -4818,8 +5281,36 @@ This covers the WS-R4 B UI, WS-Q3 (landing and ring), WS-Q13 (the visible Histor
     - `NoteFeedRow({ entry, onOpen })`;
     - `formatClockTime(ms: number, locale?: string): string`. It is not zero-padded: `7:51 PM`, and `19:51` in 24-hour locales.
   - `TranscriptionItem` gains optional props `words?: number`, `focused?: boolean` and `nested?: boolean`. It renders `data-transcript-id` and `data-focused`.
+  - `transcriptionStore.revealTranscription(item: TranscriptionItem): void`. It inserts one fetched row into the loaded list in timestamp order, with no page-limit slicing, so a deep link to an older dictation lands on a real row. A row already present is replaced in place.
 
 - [ ] **Step 1: Write the failing tests**
+
+Create `test/stores/transcriptionReveal.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const load = () => import("../../src/stores/transcriptionStore.ts");
+const row = (id, timestamp) => ({ id, text: `t${id}`, timestamp, status: "completed" });
+
+test("an older dictation is revealed in order, beyond the loaded page", async () => {
+  const store = await load();
+  store.useTranscriptionStore.setState({ transcriptions: [row(3, "2026-10-14 12:00:00"), row(2, "2026-10-13 12:00:00")] });
+  store.revealTranscription(row(1, "2026-09-01 08:00:00"));
+  store.revealTranscription(row(9, "2026-10-13 18:00:00"));
+  assert.deepEqual(store.useTranscriptionStore.getState().transcriptions.map((r) => r.id), [3, 9, 2, 1]);
+});
+
+test("revealing a row that is already loaded replaces it in place", async () => {
+  const store = await load();
+  store.useTranscriptionStore.setState({ transcriptions: [row(3, "2026-10-14 12:00:00")] });
+  store.revealTranscription({ ...row(3, "2026-10-14 12:00:00"), text: "edited" });
+  assert.deepEqual(store.useTranscriptionStore.getState().transcriptions.map((r) => [r.id, r.text]), [[3, "edited"]]);
+});
+```
+
+`useTranscriptionStore` is a non-exported `const` today (`transcriptionStore.ts:9`). Export it; the test needs its `setState` and `getState`.
 
 Create `test/components/historyToolbar.test.js`:
 
@@ -4921,10 +5412,20 @@ test("rows read time, words and duration at a glance", async (t) => {
   assert.match(html, /data-locality="device"/);
 });
 
-test("actions are discoverable at rest (40%), not hidden", async (t) => {
+test("actions are visible at rest in a colour that clears 3:1, never faded (I14)", async (t) => {
   const html = await renderRow(t, {});
-  assert.match(html, /opacity-40/);
-  assert.doesNotMatch(html, /\bopacity-0\b/);
+  assert.match(html, /data-row-actions="true"[^>]*class="[^"]*text-muted-foreground/);
+  assert.doesNotMatch(html, /data-row-actions="true"[^>]*class="[^"]*opacity-\d+/);
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { resolveTokens } = require("../helpers/harness/cssTokens");
+  const { contrastRatio } = await import("../../src/utils/contrast.ts");
+  const { light, dark } = resolveTokens(fs.readFileSync(path.join(__dirname, "../../src/index.css"), "utf8"));
+  for (const map of [light, dark]) {
+    for (const surface of ["--color-background", "--color-card", "--color-surface-1"]) {
+      assert.ok(contrastRatio(map["--color-muted-foreground"], map[surface]) >= 3, surface);
+    }
+  }
 });
 
 test("no recorded provider means no locality claim", async (t) => {
@@ -5032,7 +5533,7 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
      const { t } = useTranslation();
      return (
        <div className="mb-2 flex min-h-10 flex-wrap items-center gap-2">
-         <label className="flex h-8 min-w-48 flex-1 items-center gap-2 rounded-lg border border-border px-2.5 focus-within:ring-2 focus-within:ring-ring/40 @min-[640px]:flex-none dark:border-white/10">
+         <label className="flex h-8 min-w-48 flex-1 items-center gap-2 rounded-lg border border-border px-2.5 focus-within:ring-2 focus-within:ring-ring @min-[640px]:flex-none dark:border-white/10">
            <Search size={14} aria-hidden className="text-muted-foreground" />
            <input
              ref={inputRef}
@@ -5208,7 +5709,9 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
    - Props: add `words?: number; focused?: boolean; nested?: boolean;`.
    - Time (`:70-77`): replace the `{hour:"2-digit",minute:"2-digit"}` options with `{ hour: "numeric", minute: "2-digit" }`.
    - Row wrapper (`:149-160`): add `data-transcript-id={item.id}` and `data-focused={focused ? "true" : undefined}`. Change the layout of the transcribed body to `grid grid-cols-[64px_1fr_auto] items-start gap-x-3`, with the time in column 1, the text in column 2 and the actions plus meta in column 3. Keep the failed and discarded bodies in column 2.
-   - Actions wrapper (`:163-170`): replace `opacity-0 group-hover/row:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-state=open]]:opacity-100` with `opacity-40 group-hover/row:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-state=open]]:opacity-100`.
+   - Actions wrapper (`:163-170`): delete the `opacity-0 group-hover/row:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-state=open]]:opacity-100` branch entirely, and add `data-row-actions="true"`. The Copy and More buttons rest in full `text-muted-foreground` (`#525252`, 7.9:1 on white; Plum Night `#b59aa8`), and hover or open states add `bg-foreground/8` and `text-foreground`.
+     - **Review I14.** R2 A's "actions stay at 40% opacity" composites to about 1.95:1 on white, under the 3:1 non-text floor in spec §4. The global constraint wins, so the visible-at-rest intent is kept at a colour that passes.
+     - Keep each button's focus style as `focus-visible:ring-2 focus-visible:ring-ring` (Plan 02 Task 3).
    - Text (`:280-285`): `<p dir="auto" className="text-body line-clamp-4 wrap-break-word whitespace-pre-wrap text-foreground" onClick={copyUnlessSelecting}>{item.text}</p>`, where:
 
      ```ts
@@ -5269,7 +5772,7 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
      [history, recentNotes, filter, query]
    );
    const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-   const [ringId, setRingId] = useState<number | null>(null);
+   const [ring, setRing] = useState<{ id: number; nonce: number } | null>(null);
    const filterRef = useRef<HTMLInputElement>(null);
    const navigation = useWorkspaceNavigation();
 
@@ -5286,46 +5789,75 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
      return () => window.removeEventListener("keydown", onKey);
    }, []);
 
-   // WS-Q3 landing: expand the session if needed, scroll, ring for 1.2s. A row
-   // older than the loaded page gets one wider load before we give up.
-   const widenedRef = useRef(false);
+   // WS-Q3 landing (review M01):
+   // - every request is its own generation;
+   // - a row outside the loaded page is fetched by id and revealed;
+   // - a missing row ends the request explicitly;
+   // - the ring carries a nonce, so asking twice restarts it.
+   const landingGenRef = useRef(0);
+   const feedRef = useRef(feed);
+   feedRef.current = feed;
    useEffect(() => {
      if (focusTranscriptId == null) return;
-     const found = locateTranscript(feed, focusTranscriptId);
-     if (!found) {
-       if (!widenedRef.current) {
-         widenedRef.current = true;
-         void initializeTranscriptions(500);
-         return;
-       }
-       toast({ title: t("home.history.olderMissing") });
-       clearTranscriptFocus();
-       return;
-     }
-     widenedRef.current = false;
-     if (found.inSession) setExpanded((prev) => new Set(prev).add(found.entryKey));
-     setRingId(focusTranscriptId);
+     const generation = ++landingGenRef.current;
+     const id = focusTranscriptId;
      clearTranscriptFocus();
-     // Two frames: the first commits the expanded session, the second can scroll to it.
-     const target = focusTranscriptId;
-     requestAnimationFrame(() =>
-       requestAnimationFrame(() => {
-         const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-         document
-           .querySelector(`[data-transcript-id="${target}"]`)
-           ?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
-       })
-     );
-     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per focus request and when the feed grows
-   }, [focusNonce, feed.captures]);
+     void (async () => {
+       if (!locateTranscript(feedRef.current, id)) {
+         const fetched = await window.electronAPI.getTranscriptionById(id).catch(() => null);
+         if (generation !== landingGenRef.current) return;
+         if (!fetched || fetched.deleted_at) {
+           toast({ title: t("home.history.olderMissing") });
+           return;
+         }
+         revealTranscription(fetched);
+         await new Promise((r) => requestAnimationFrame(r)); // let the feed rebuild
+         if (generation !== landingGenRef.current) return;
+       }
+       const found = locateTranscript(feedRef.current, id);
+       if (!found) return;
+       if (found.inSession) setExpanded((prev) => new Set(prev).add(found.entryKey));
+       setRing((prev) => ({ id, nonce: (prev?.nonce ?? 0) + 1 }));
+       // Two frames: the first commits the expanded session, the second can scroll to it.
+       requestAnimationFrame(() =>
+         requestAnimationFrame(() => {
+           const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+           document
+             .querySelector(`[data-transcript-id="${id}"]`)
+             ?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+         })
+       );
+     })();
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- one landing per request nonce
+   }, [focusNonce]);
 
-   // The ring clears 1.2s after it starts, whatever else re-renders meanwhile.
+   // The ring clears 1.2s after each (re)start; the nonce restarts the timer and animation.
    useEffect(() => {
-     if (ringId == null) return;
-     const clear = window.setTimeout(() => setRingId(null), 1200);
+     if (!ring) return;
+     const clear = window.setTimeout(() => setRing(null), 1200);
      return () => window.clearTimeout(clear);
-   }, [ringId]);
+   }, [ring?.nonce]);
    ```
+
+   In `src/stores/transcriptionStore.ts`, add and export:
+
+   ```ts
+   /** Put one fetched row into the loaded list for a deep link (M01). Keeps
+    *  timestamp-DESC, id-DESC order; never slices to the page limit. */
+   export function revealTranscription(item: TranscriptionItem): void {
+     useTranscriptionStore.setState((state) => {
+       const rest = state.transcriptions.filter((existing) => existing.id !== item.id);
+       const index = rest.findIndex(
+         (existing) => existing.timestamp < item.timestamp || (existing.timestamp === item.timestamp && existing.id < item.id)
+       );
+       const next = rest.slice();
+       next.splice(index === -1 ? next.length : index, 0, item);
+       return { transcriptions: next };
+     });
+   }
+   ```
+
+   SQLite timestamps share one fixed `YYYY-MM-DD HH:MM:SS` format, so string order is time order.
 
    Add `const { toast } = useToast();` (from `./ui/useToast`) and `const { t } = useTranslation();` if `HistoryView` does not already have them.
 
@@ -5351,8 +5883,8 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
       - Otherwise, one block per `feed.groups` entry:
         - a sticky day header: `formatDateGroup` of the group's first entry, plus `t("home.history.dayCount", { count: group.captures })` and `t("home.history.words", { count: group.words })` when `group.captures > 0`, in `text-caption text-muted-foreground`;
         - the existing card (`:206`), with its entries mapped:
-          - `dictation` → `<TranscriptionItem item={entry.item} words={entry.words} focused={ringId === entry.item.id} …existing handlers />`;
-          - `session` → `<SessionRow entry={entry} expanded={expanded.has(entry.key)} onToggle={() => toggle(entry.key)}>` containing one `<TranscriptionItem nested words={countWords(i.text)} focused={ringId === i.id} …/>` per item;
+          - `dictation` → `<TranscriptionItem key={ring?.id === entry.item.id ? `${entry.key}-${ring.nonce}` : entry.key} item={entry.item} words={entry.words} focused={ring?.id === entry.item.id} …existing handlers />`. The ring nonce in the key remounts the row, so the CSS ring restarts on a repeated request;
+          - `session` → `<SessionRow entry={entry} expanded={expanded.has(entry.key)} onToggle={() => toggle(entry.key)}>` containing one `<TranscriptionItem nested key={ring?.id === i.id ? `${i.id}-${ring.nonce}` : i.id} words={countWords(i.text)} focused={ring?.id === i.id} …/>` per item;
           - `note`/`meeting` → `<NoteFeedRow entry={entry} onOpen={navigation.openNote} />`.
 
    `formatDateGroup(item.timestamp, t, locale)` takes a timestamp string. For groups whose first entry is a note, pass `new Date(group.at).toISOString()`. Delete the hover-only controls that were at `:193-204`.
@@ -6241,33 +6773,55 @@ This covers WS-R6 B (`/` opens blocks, AI actions and inserts) and interpretatio
 - Test: `test/components/slashItems.test.js`, `test/components/suggestionPopup.test.js`, `test/components/slashMenu.test.js`
 
 **Interfaces:**
-- Consumes `ActionItem` (`src/types/electron.ts:298`); `useActions()` (`src/stores/actionStore.ts`); `useNotesOnboarding().isLLMConfigured` (CR-06-1); `runNoteAction` (`PersonalNotesView.tsx:618`); and `toggleDictationFromControlPanel` (Task 5).
+- Consumes:
+  - `ActionItem` (`src/types/electron.ts:298`);
+  - `useActions()` (`src/stores/actionStore.ts`);
+  - `useResolvedRoute("noteFormatting")` and `RouteState` (§5.1, Plan 03), which decide AI readiness (review I09);
+  - `runNoteAction` (`PersonalNotesView.tsx:618`);
+  - `toggleDictationFromControlPanel` (Task 5).
+
+  `useNotesOnboarding().isLLMConfigured` is **not** used. It is `!!cleanupModel`, which is non-empty by default (`settingsStore.ts:1420`) before any model is downloaded. Plan 02 (P02:3341) documents that it is not readiness.
 - Produces `suggestionPopup.ts`:
 
   ```ts
   export interface SuggestionHandle { onKeyDown: (event: KeyboardEvent) => boolean }
   export function popupPosition(rect: { left: number; top: number; bottom: number }, viewport: { width: number; height: number }, size: { width: number; height: number }): { left: number; top: number };
-  export function createSuggestionPopup<Item, P extends Record<string, unknown>>(
-    component: React.ComponentType<P & React.RefAttributes<SuggestionHandle>>,
+  export type SuggestionPopupComponent<P> = ForwardRefExoticComponent<PropsWithoutRef<P> & RefAttributes<SuggestionHandle>>;
+  export function createSuggestionPopup<Item, P extends object>(
+    component: SuggestionPopupComponent<P>,
     options: { width: number; toProps: (props: SuggestionProps<Item>) => P }
   ): NonNullable<SuggestionOptions<Item>["render"]>;
   ```
+
+  **Typechecked (review I03).** The previous `P extends Record<string, unknown>` failed with TS2344 on both callers, because `SlashMenuProps` and `MentionSuggestionsProps` are interfaces without an index signature.
+
+  The shape above was compiled with TypeScript 6.0.3 against the installed `@tiptap/react`/`@tiptap/suggestion`/`@tiptap/extension-mention` 3.31.3 and `@types/react`. The compiled program contained:
+  - this helper;
+  - a `forwardRef` `SlashMenu`, with `Suggestion<SlashItem, SlashItem>({ …, render: createSuggestionPopup<SlashItem, SlashMenuProps>(SlashMenu, …) })`;
+  - a `forwardRef` `MentionSuggestions`, with `Mention.extend(…).configure({ suggestion: { items, command, render: createSuggestionPopup<MentionSuggestionItem, MentionSuggestionsProps>(…) } })`.
+
+  It compiled clean under `strict: false` (the repo's `src/tsconfig.json`) and `strict: true`. Reverting the constraint to `Record<string, unknown>` reproduces TS2344 on both calls.
+
+  TipTap's `ReactRenderer<R, P extends Record<string, any>>` is the reason for the single `as RendererProps` widening inside the helper. Callers keep their exact prop types.
 
 - Produces `slashItems.ts`:
 
   ```ts
   export type SlashGroup = "text" | "ai" | "insert";
   export type SlashItemId = "h1" | "h2" | "h3" | "bullet" | "numbered" | "todo" | "quote" | "code"
-    | "timestamp" | "dictation" | "mention" | "manageActions" | `action-${number}`;
+    | "timestamp" | "dictation" | "mention" | "manageActions" | "setupAi" | `action-${number}`;
   export interface SlashItem { id: SlashItemId; group: SlashGroup; label: string; keywords: readonly string[]; actionId?: number; disabledReason?: string }
   export interface SlashContext {
     items: SlashItem[];
     onRunAction(actionId: number): void;
     onManageActions(): void;
+    onSetupAi(): void;          // opens Settings at the noteFormatting route's settingsPath
     onDictateHere(): void;
     formatTimestamp(date: Date): string;
   }
-  export function buildSlashItems(input: { actions: ActionItem[]; aiAvailable: boolean; t: (key: string) => string }): SlashItem[];
+  export function noteAiReadiness(state: RouteState): { available: boolean; reasonKey: string | null };
+  export function buildSlashItems(input: { actions: ActionItem[]; aiAvailable: boolean; aiUnavailableReason?: string; t: (key: string) => string }): SlashItem[];
+  // Not available: AI items are disabled with the reason, and "Set up notes AI…" leads the group.
   export function filterSlashItems(items: SlashItem[], query: string): SlashItem[];
   export function groupSlashItems(items: SlashItem[]): Array<{ group: SlashGroup; items: SlashItem[] }>;
   export function applySlashItem(item: SlashItem, chain: SlashChain, ctx: SlashContext): boolean; // false when disabled
@@ -6275,7 +6829,7 @@ This covers WS-R6 B (`/` opens blocks, AI actions and inserts) and interpretatio
   ```
 
 - Produces `SlashCommand.ts`: `createSlashCommand(getContext: () => SlashContext): Extension`. It is a `@tiptap/suggestion` extension with `char: "/"`, `startOfLine: false` and the default space prefix, so URLs and dates don't trigger it. It is inert inside code blocks.
-- `RichTextEditor` prop `slash?: { actions: ActionItem[]; aiAvailable: boolean; onRunAction(actionId: number): void; onManageActions(): void; onDictateHere(): void }`. The slash extension is enabled only when `slash` is provided at mount and the editor is editable.
+- `RichTextEditor` prop `slash?: { actions: ActionItem[]; aiAvailable: boolean; aiUnavailableReason?: string; onRunAction(actionId: number): void; onManageActions(): void; onSetupAi(): void; onDictateHere(): void }`. The slash extension is enabled only when `slash` is provided at mount and the editor is editable.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -6307,9 +6861,31 @@ test("Text, AI and Insert groups in that order; AI lists the user's real actions
 
 test("without an AI model, AI items stay visible but disabled with the reason", async () => {
   const { buildSlashItems } = await load();
-  const ai = buildSlashItems({ actions, aiAvailable: false, t }).filter((i) => i.group === "ai" && i.id !== "manageActions");
+  const items = buildSlashItems({ actions, aiAvailable: false, aiUnavailableReason: "Add an API key in Settings", t });
+  const ai = items.filter((i) => i.group === "ai" && i.id !== "manageActions" && i.id !== "setupAi");
   assert.ok(ai.length > 0);
-  for (const item of ai) assert.equal(item.disabledReason, "t(notes.slash.aiNeedsModel)");
+  for (const item of ai) assert.equal(item.disabledReason, "Add an API key in Settings");
+  assert.equal(items.filter((i) => i.group === "ai")[0].id, "setupAi", "the fix leads the group");
+  assert.equal(buildSlashItems({ actions, aiAvailable: true, t }).some((i) => i.id === "setupAi"), false);
+});
+
+test("AI readiness follows the resolved note-formatting route, not the cleanup-model selection (I09)", async () => {
+  const { noteAiReadiness } = await load();
+  // A fresh install: local route, model chosen by default but not downloaded.
+  assert.deepEqual(noteAiReadiness({ status: "needsModel", sizeBytes: 1_300_000_000 }), { available: false, reasonKey: "notes.slash.ai.needsModel" });
+  // A remote route with no saved key.
+  assert.deepEqual(noteAiReadiness({ status: "needsKey", provider: "openai" }), { available: false, reasonKey: "notes.slash.ai.needsKey" });
+  // Ready, local or remote alike.
+  assert.deepEqual(noteAiReadiness({ status: "ready" }), { available: true, reasonKey: null });
+  assert.equal(noteAiReadiness({ status: "unreachable", detail: "sealed" }).reasonKey, "notes.slash.ai.unreachable");
+  assert.equal(noteAiReadiness({ status: "off" }).reasonKey, "notes.slash.ai.off");
+  assert.equal(noteAiReadiness({ status: "needsUrl" }).reasonKey, "notes.slash.ai.needsUrl");
+});
+
+test("PersonalNotesView takes readiness from the route", () => {
+  const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/components/notes/PersonalNotesView.tsx"), "utf8");
+  assert.match(src, /useResolvedRoute\("noteFormatting"\)/);
+  assert.doesNotMatch(src, /aiAvailable:\s*isLLMConfigured/);
 });
 
 test("typing filters by label or keyword, case-insensitively", async () => {
@@ -6441,10 +7017,21 @@ Expected: FAIL with `Cannot find module` for all three.
    ```ts
    import { ReactRenderer } from "@tiptap/react";
    import type { SuggestionOptions, SuggestionProps } from "@tiptap/suggestion";
+   import type { ForwardRefExoticComponent, PropsWithoutRef, RefAttributes } from "react";
 
    export interface SuggestionHandle {
      onKeyDown: (event: KeyboardEvent) => boolean;
    }
+
+   /** A forwardRef popup whose ref exposes onKeyDown. */
+   export type SuggestionPopupComponent<P> = ForwardRefExoticComponent<
+     PropsWithoutRef<P> & RefAttributes<SuggestionHandle>
+   >;
+
+   // TipTap's ReactRenderer requires props assignable to Record<string, any>.
+   // Interfaces have no implicit index signature, so the popup props are widened
+   // at this one boundary; callers keep their exact prop types.
+   type RendererProps = Record<string, any>;
 
    const GAP = 6;
    const MARGIN = 8;
@@ -6460,17 +7047,15 @@ Expected: FAIL with `Cannot find module` for all three.
      return { left, top: fitsBelow ? below : Math.max(MARGIN, rect.top - GAP - size.height) };
    }
 
-   // Shared by @ mentions and the / menu: a fixed popup at the caret that flips
-   // above near the bottom edge. Escape hides it without ending the session.
-   export function createSuggestionPopup<Item, P extends Record<string, unknown>>(
-     component: React.ComponentType<P & React.RefAttributes<SuggestionHandle>>,
+   export function createSuggestionPopup<Item, P extends object>(
+     component: SuggestionPopupComponent<P>,
      options: { width: number; toProps: (props: SuggestionProps<Item>) => P }
    ): NonNullable<SuggestionOptions<Item>["render"]> {
      return () => {
-       let renderer: ReactRenderer<SuggestionHandle, P> | null = null;
+       let renderer: ReactRenderer<SuggestionHandle, RendererProps> | null = null;
        const place = (props: SuggestionProps<Item>) => {
          const rect = props.clientRect?.();
-         const el = renderer?.element as HTMLElement | undefined;
+         const el = renderer?.element;
          if (!rect || !el) return;
          const position = popupPosition(
            rect,
@@ -6481,18 +7066,22 @@ Expected: FAIL with `Cannot find module` for all three.
        };
        return {
          onStart: (props) => {
-           renderer = new ReactRenderer(component, { props: options.toProps(props), editor: props.editor });
+           renderer = new ReactRenderer<SuggestionHandle, RendererProps>(
+             component as unknown as SuggestionPopupComponent<RendererProps>,
+             { editor: props.editor, props: options.toProps(props) as RendererProps }
+           );
+           renderer.element.setAttribute("data-editor-chrome", "");
            document.body.appendChild(renderer.element);
            place(props);
          },
          onUpdate: (props) => {
-           renderer?.updateProps(options.toProps(props));
-           (renderer?.element as HTMLElement | undefined)?.style.removeProperty("display");
+           renderer?.updateProps(options.toProps(props) as RendererProps);
+           renderer?.element.style.removeProperty("display");
            place(props);
          },
          onKeyDown: ({ event }) => {
            if (event.key === "Escape") {
-             (renderer?.element as HTMLElement | undefined)?.style.setProperty("display", "none");
+             renderer?.element.style.setProperty("display", "none");
              return true;
            }
            return renderer?.ref?.onKeyDown(event) ?? false;
@@ -6522,11 +7111,12 @@ Expected: FAIL with `Cannot find module` for all three.
 
    ```ts
    import type { ActionItem } from "../../../types/electron";
+   import type { RouteState } from "../../../lib/routes";
 
    export type SlashGroup = "text" | "ai" | "insert";
    export type SlashItemId =
      | "h1" | "h2" | "h3" | "bullet" | "numbered" | "todo" | "quote" | "code"
-     | "timestamp" | "dictation" | "mention" | "manageActions" | `action-${number}`;
+     | "timestamp" | "dictation" | "mention" | "manageActions" | "setupAi" | `action-${number}`;
 
    export interface SlashItem {
      id: SlashItemId;
@@ -6541,6 +7131,7 @@ Expected: FAIL with `Cannot find module` for all three.
      items: SlashItem[];
      onRunAction(actionId: number): void;
      onManageActions(): void;
+     onSetupAi(): void;
      onDictateHere(): void;
      formatTimestamp(date: Date): string;
    }
@@ -6576,10 +7167,11 @@ Expected: FAIL with `Cannot find module` for all three.
    export function buildSlashItems(input: {
      actions: ActionItem[];
      aiAvailable: boolean;
+     aiUnavailableReason?: string;
      t: (key: string) => string;
    }): SlashItem[] {
      const { t } = input;
-     const reason = input.aiAvailable ? undefined : t("notes.slash.aiNeedsModel");
+     const reason = input.aiAvailable ? undefined : (input.aiUnavailableReason ?? t("notes.slash.aiNeedsModel"));
      const ai: SlashItem[] = [...input.actions]
        .sort((a, b) => a.sort_order - b.sort_order)
        .map((action) => ({
@@ -6590,6 +7182,9 @@ Expected: FAIL with `Cannot find module` for all three.
          actionId: action.id,
          disabledReason: reason,
        }));
+     if (!input.aiAvailable) {
+       ai.unshift({ id: "setupAi", group: "ai", label: t("notes.slash.setupAi"), keywords: ["setup", "model", "key", "ai"] });
+     }
      ai.push({ id: "manageActions", group: "ai", label: t("notes.slash.manageActions"), keywords: ["actions", "edit"] });
      return [
        ...TEXT.map(([id, keywords]) => ({ id, group: "text" as const, label: t(`notes.slash.items.${id}`), keywords })),
@@ -6614,7 +7209,14 @@ Expected: FAIL with `Cannot find module` for all three.
        .filter((entry) => entry.items.length > 0);
    }
 
-   export function applySlashItem(item: SlashItem, chain: SlashChain, ctx: Pick<SlashContext, "onRunAction" | "onManageActions" | "onDictateHere" | "formatTimestamp">): boolean {
+   // Readiness comes from the resolved noteFormatting route (§5.1), never from
+   // which cleanup model is selected (review I09).
+   export function noteAiReadiness(state: RouteState): { available: boolean; reasonKey: string | null } {
+     if (state.status === "ready") return { available: true, reasonKey: null };
+     return { available: false, reasonKey: `notes.slash.ai.${state.status}` };
+   }
+
+   export function applySlashItem(item: SlashItem, chain: SlashChain, ctx: Pick<SlashContext, "onRunAction" | "onManageActions" | "onSetupAi" | "onDictateHere" | "formatTimestamp">): boolean {
      if (item.disabledReason) return false;
      switch (item.id) {
        case "h1": return chain.setNode("heading", { level: 1 }).run();
@@ -6634,6 +7236,10 @@ Expected: FAIL with `Cannot find module` for all three.
        case "manageActions":
          chain.run();
          ctx.onManageActions();
+         return true;
+       case "setupAi":
+         chain.run();
+         ctx.onSetupAi();
          return true;
        default:
          chain.run();
@@ -6748,7 +7354,7 @@ Expected: FAIL with `Cannot find module` for all three.
        name: "slashCommand",
        addProseMirrorPlugins() {
          return [
-           Suggestion<SlashItem>({
+           Suggestion<SlashItem, SlashItem>({
              editor: this.editor,
              pluginKey: SLASH_PLUGIN_KEY,
              char: "/",
@@ -6783,7 +7389,9 @@ Expected: FAIL with `Cannot find module` for all three.
      slash?: {
        actions: ActionItem[];
        aiAvailable: boolean;
+       aiUnavailableReason?: string;
        onRunAction: (actionId: number) => void;
+       onSetupAi: () => void;
        onManageActions: () => void;
        onDictateHere: () => void;
      };
@@ -6798,7 +7406,8 @@ Expected: FAIL with `Cannot find module` for all three.
            createSlashCommand(() => {
              const current = slashRef.current!;
              return {
-               items: buildSlashItems({ actions: current.actions, aiAvailable: current.aiAvailable, t }),
+               items: buildSlashItems({ actions: current.actions, aiAvailable: current.aiAvailable, aiUnavailableReason: current.aiUnavailableReason, t }),
+               onSetupAi: current.onSetupAi,
                onRunAction: current.onRunAction,
                onManageActions: current.onManageActions,
                onDictateHere: current.onDictateHere,
@@ -6816,14 +7425,18 @@ Expected: FAIL with `Cannot find module` for all three.
 
 7. In `src/components/notes/PersonalNotesView.tsx`:
    - Reuse the existing `const actions = useActions();` (`:265`).
-   - Extend the existing destructure at `:250` to `const { isComplete: isOnboardingComplete, complete: completeOnboarding, isLLMConfigured } = useNotesOnboarding();`. Do not call either hook a second time.
+   - Add `const noteRoute = useResolvedRoute("noteFormatting");` and `const aiReady = noteAiReadiness(noteRoute.state);`. Import them from `../../lib/routes` and `../ui/editor/slashItems`.
+     - Do not read `isLLMConfigured`; it reports a selection, not readiness (I09).
+     - Plan 02's actual-readiness behaviour for the Actions row (WS-Q7) is untouched.
    - After `runNoteAction` (`:618`), add:
 
    ```ts
    const slash = useMemo(
      () => ({
        actions,
-       aiAvailable: isLLMConfigured,
+       aiAvailable: aiReady.available,
+       aiUnavailableReason: aiReady.reasonKey ? t(aiReady.reasonKey) : undefined,
+       onSetupAi: () => onOpenSettings?.(noteRoute.settingsPath),
        onRunAction: (actionId: number) => {
          const action = actions.find((candidate) => candidate.id === actionId);
          if (action) void runNoteAction(action);
@@ -6832,7 +7445,7 @@ Expected: FAIL with `Cannot find module` for all three.
        // Loqui's window is focused with the caret in the note, so dictation pastes here.
        onDictateHere: () => void window.electronAPI?.toggleDictationFromControlPanel?.(),
      }),
-     [actions, isLLMConfigured, runNoteAction]
+     [actions, aiReady.available, aiReady.reasonKey, noteRoute.settingsPath, onOpenSettings, runNoteAction, t]
    );
    ```
 
@@ -6847,6 +7460,14 @@ Expected: FAIL with `Cannot find module` for all three.
          "label": "Insert block",
          "empty": "No blocks match",
          "aiNeedsModel": "Actions need an AI model",
+         "setupAi": "Set up notes AI…",
+         "ai": {
+           "needsModel": "Download the notes model in Settings",
+           "needsKey": "Add an API key in Settings",
+           "needsUrl": "Add a server address in Settings",
+           "off": "Notes AI is turned off in Settings",
+           "unreachable": "The notes model can't be reached"
+         },
          "manageActions": "Manage actions…",
          "groups": { "text": "Text", "ai": "AI", "insert": "Insert" },
          "items": {
@@ -9552,7 +10173,8 @@ Expected: FAIL with `Cannot find module`.
                const next = pinnedFromMention(item);
                if (next) setPinned((list) => (list.some((p) => p.kind === next.kind && p.id === next.id) ? list : [...list, next]));
                if (mentionMatch.source === "typed") {
-                 setComposerSeed({ text: removeMentionQuery(draftRef.current.text, mentionMatch), nonce: Date.now() });
+                 // Editing the user's own draft: keep any queue they armed.
+                 setComposerSeed({ text: removeMentionQuery(draftRef.current.text, mentionMatch), nonce: Date.now(), resetQueue: false });
                }
                setMentionMatch(null);
              }}
@@ -9721,7 +10343,7 @@ Expected: FAIL. The module is missing, and `size-6` and `lg:grid-cols-4` are sti
      );
      const frame = "rounded-xl border border-border/70 bg-card/70 p-4 text-start dark:border-white/10";
      return onSelect ? (
-       <button type="button" aria-label={selectLabel} onClick={onSelect} className={cn(frame, "hover:bg-card focus-visible:ring-2 focus-visible:ring-ring/40")}>
+       <button type="button" aria-label={selectLabel} onClick={onSelect} className={cn(frame, "hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
          {body}
        </button>
      ) : (
@@ -9916,7 +10538,7 @@ Expected: FAIL. The module is missing, and `<NoProviderView` is still rendered.
              "bg-surface-1/40 dark:bg-white/[0.03] border border-foreground/6 dark:border-white/10",
              disabled
                ? "cursor-not-allowed opacity-60"
-               : "cursor-pointer hover:bg-surface-1/60 hover:border-foreground/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+               : "cursor-pointer hover:bg-surface-1/60 hover:border-foreground/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
              !disabled && isDragOver && "border-foreground/30 bg-foreground/[0.04] scale-[1.01]"
            )}
          >

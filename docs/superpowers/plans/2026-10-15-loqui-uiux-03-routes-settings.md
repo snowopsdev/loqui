@@ -53,6 +53,15 @@ The evidence is in `.omc/research/ui-review/audit-settings.md` (§1.4 is the 11-
 
 ---
 
+## PR #50 review follow-up
+
+The two findings in the [GitHub review](https://github.com/snowopsdev/loqui/pull/50#issuecomment-6196856244) are addressed in this implementation plan:
+
+- **Credential reset (Task 2).** The authority fences new mutations, invalidates queued work and Undo, and drains active writes before erasure. The module-wide `.env` queue uses the same reset boundary for independent writers. Reset waits for every erase operation even when one fails; overlapping resets cannot lower another reset's fence. Deferred tests cover active and queued saves, multi-field Undo, independent plaintext writes, overlapping resets and erase failure.
+- **Storage snapshot identity (Task 14).** Audio and history previews carry main-produced identity digests. The confirm returns its reviewed digests, and main compares them before deletion; equal counts cannot authorize deletion of replacement items. Tests replace transcripts and recordings while preserving counts, including a recording replaced at the same filename. A stale confirmation requires a fresh review.
+
+These are executable planning changes; app implementation remains outside this PR revision.
+
 ## Round-2 review response
 
 This answers Codex's second review (`plan-03-codex-r2.md`, pinned at `c912d19`). Every finding is fixed in the task steps and the test code. Where a finding asked for production wiring, the tests go through the registered IPC handlers, the real `IPCHandlers` constructor, or the real `EnvironmentManager` persistence bodies over a fake filesystem. No finding is rejected. Five are partly disputed, and each partial dispute is in the last column, with its evidence.
@@ -2734,7 +2743,7 @@ Round-2 revisions (Codex R2-2, R2-3, R2-4 and the Task 2 half of R2-5):
 - Create: `test/helpers/harness/fakeCredentialEnv.js` (shared with Task 11)
 - Create: `test/helpers/harness/realCredentialEnv.js` (shared with Tasks 11 and 12). It runs the real `EnvironmentManager` persistence bodies over a deferred fake filesystem.
 - Modify (R2-3 typecheck): `src/components/OpenAICompatiblePanel.tsx` (`:24` prop type), `src/components/ReasoningModelSelector.tsx` (`:70` prop type, `:601` fallback), `src/components/settings/InferenceConfigEditor.tsx` (`:139`, `:171`), `src/components/TranscriptionModelPicker.tsx` (`:970-983` table, `:1245` secret field)
-- Modify: `src/helpers/environment.js`. Add `persistSecret` after `_saveKey` (`:249-264`).
+- Modify: `src/helpers/environment.js`. Add `persistSecret` after `_saveKey` (`:249-264`); fence/drain every module-wide `.env` write during reset, and remove `.env.tmp` along with persisted credentials.
 - Modify: `src/helpers/ipcHandlers.js`:
   - require the authority next to `BYOK_API_KEYS` (`:14`);
   - create `this.credentials` in the constructor, just before `this.setupHandlers();` (`:338`);
@@ -3415,16 +3424,30 @@ function createDeferredFs() {
   };
 }
 
-function loadEnvironmentManager(fakeFs) {
+function loadEnvironmentManager(fakeFs, { encryptionAvailable = true } = {}) {
   const originalLoad = Module._load;
   Module._load = function loadForEnvironment(request, parent, isMain) {
     if (parent?.filename === ENV_MODULE) {
       if (request === "fs/promises") return fakeFs.promises;
       if (request === "electron") return { app: { getPath: () => USER_DATA } };
+      if (request === "dotenv") {
+        return {
+          config: ({ path: envPath }) => {
+            fakeFs.dotenvLoads.push(envPath);
+            const bytes = fakeFs.files.get(envPath);
+            if (!bytes) return {};
+            for (const line of bytes.toString("utf8").split("\n")) {
+              const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
+              if (match && process.env[match[1]] === undefined) process.env[match[1]] = match[2];
+            }
+            return {};
+          },
+        };
+      }
       // Encryption "available", and ciphertext that never contains the value.
       if (request === "./secretCrypto") {
         return {
-          isAvailable: () => true,
+          isAvailable: () => encryptionAvailable,
           encrypt: (value) => Buffer.from(`sealed:${value.length}`),
           decrypt: () => {
             throw new Error("not used by these tests");
@@ -3447,14 +3470,15 @@ function loadEnvironmentManager(fakeFs) {
 // The real EnvironmentManager prototype (persistSecret, _saveSecretKey,
 // _deleteSecretKey, clearAllPersistedData and every getter) over the deferred
 // fs. The constructor is skipped: it only loads dotenv files from disk.
-function realCredentialEnv(t, initial = {}) {
+function realCredentialEnv(t, initial = {}, options = {}) {
   const savedEnv = { ...process.env };
   t.after(() => {
     for (const name of Object.keys(process.env)) if (!(name in savedEnv)) delete process.env[name];
     Object.assign(process.env, savedEnv);
   });
   const fs = createDeferredFs();
-  const EnvironmentManager = loadEnvironmentManager(fs);
+  fs.dotenvLoads = [];
+  const EnvironmentManager = loadEnvironmentManager(fs, options);
   const env = Object.create(EnvironmentManager.prototype);
   const secretFile = (name) => path.join(SECURE_KEYS, `${name}.enc`);
   for (const [name, value] of Object.entries(initial)) {
@@ -3464,6 +3488,7 @@ function realCredentialEnv(t, initial = {}) {
   return {
     env,
     fs,
+    dotenvLoads: fs.dotenvLoads,
     stored: (name) => fs.files.has(secretFile(name)),
     erase: () => env.clearAllPersistedData(),
   };
@@ -3484,8 +3509,8 @@ const { createCredentialAuthority } = require("../../src/helpers/credentialAutho
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const isRename = (name) => (op, file) => op === "rename" && file === name;
 
-function setup(t, initial) {
-  const real = realCredentialEnv(t, initial);
+function setup(t, initial, environmentOptions = {}) {
+  const real = realCredentialEnv(t, initial, environmentOptions);
   const broadcasts = [];
   const authority = createCredentialAuthority({
     env: real.env,
@@ -3578,6 +3603,102 @@ test("reset during a first save: the save fails, reset waits for it, and no key 
   assert.equal(env.getOpenAIKey(), "");
   assert.equal(authority.present("openai"), false);
   assert.ok(!fs.log.includes("writeFile GROQ_API_KEY.enc.tmp"), "a save during reset never writes");
+});
+
+// change-driving (R3-2): the production `save-all-keys-to-env` channel bypasses
+// credentialAuthority's per-slot queues. In the supported non-encrypted mode,
+// saveAllKeysToEnvFile snapshots the secret into .env.tmp before its first await.
+test("reset fences and drains the independent plaintext .env writer", async (t) => {
+  const { authority, env, fs, erase, dotenvLoads } = setup(
+    t,
+    { OPENAI_API_KEY: "sk-env-queued-SECRET" },
+    { encryptionAvailable: false }
+  );
+  fs.holdNext((op, name) => op === "writeFile" && name === ".env.tmp");
+  const writing = env.saveAllKeysToEnvFile(); // same body as save-all-keys-to-env IPC
+  const hold = await fs.nextHold();
+  const queued = env.saveAllKeysToEnvFile();
+  const queuedRefused = assert.rejects(queued, { code: "ENV_RESET" });
+  let resetSettled = false;
+  const resetting = authority.reset(erase).then(() => (resetSettled = true));
+  await tick();
+  assert.equal(resetSettled, false, "reset waits for the active non-authority writer");
+  await assert.rejects(env.saveAllKeysToEnvFile(), { code: "ENV_RESET" }, "new .env writes are fenced");
+  await assert.rejects(env.removeKeyFromEnvFile("OPENAI_API_KEY"), { code: "ENV_RESET" });
+  hold.release();
+  await assert.rejects(writing, { code: "ENV_RESET" }, "invalidated write cannot report success or reload dotenv");
+  await resetting;
+  await queuedRefused;
+  assert.equal(fs.log.filter((entry) => entry === "writeFile .env.tmp").length, 1,
+    "the queued independent writer never starts");
+  assert.equal(process.env.OPENAI_API_KEY, undefined);
+  assert.equal(authority.present("openai"), false);
+  assert.deepEqual(dotenvLoads, [], "an invalidated .env snapshot is never loaded back into process.env");
+  assert.equal(
+    [...fs.files.keys()].some((file) => file.endsWith("/.env") || file.endsWith("/.env.tmp")),
+    false,
+    "neither the old .env snapshot nor its temp file survives reset"
+  );
+});
+
+// change-driving: a failed atomic rename can leave plaintext in the temp file.
+test("reset removes plaintext .env.tmp left by a failed active rename", async (t) => {
+  const { authority, env, fs, erase, dotenvLoads } = setup(
+    t, { OPENAI_API_KEY: "sk-temp-SECRET" }, { encryptionAvailable: false }
+  );
+  fs.holdNext((op, name) => op === "rename" && name === ".env");
+  const writing = env.saveAllKeysToEnvFile();
+  const rejected = assert.rejects(writing, /rename failed/);
+  const hold = await fs.nextHold();
+  assert.equal([...fs.files.keys()].some((file) => file.endsWith("/.env.tmp")), true);
+  const resetting = authority.reset(erase);
+  hold.fail(new Error("rename failed"));
+  await rejected;
+  await resetting;
+  assert.equal([...fs.files.keys()].some((file) => file.endsWith("/.env.tmp")), false);
+  assert.equal(env.getOpenAIKey(), "");
+  assert.deepEqual(dotenvLoads, []);
+});
+
+// change-driving: a second reset cannot release the first reset's fence.
+test("overlapping credential resets refuse the second caller and keep writes fenced", async (t) => {
+  const { authority, erase } = setup(t);
+  let releaseErase;
+  let enteredErase;
+  const entered = new Promise((resolve) => (enteredErase = resolve));
+  const held = new Promise((resolve) => (releaseErase = resolve));
+  const first = authority.reset(async () => {
+    enteredErase();
+    await held;
+    await erase();
+  });
+  await entered;
+  await assert.rejects(authority.reset(), /reset already in progress/);
+  assert.deepEqual(await authority.save("groq", "key", "gsk-refused"), { ok: false, error: "reset" });
+  releaseErase();
+  await first;
+  assert.deepEqual(await authority.save("groq", "key", "gsk-after"), { ok: true, generation: 2 });
+});
+
+// change-driving: an erase failure must still await every other erase operation.
+test("failed environment erase holds the write fence until every deletion settles", async (t) => {
+  const { env, fs } = setup(t);
+  const rm = fs.promises.rm;
+  fs.promises.rm = async (target, options) => {
+    if (target.endsWith("/.env")) throw new Error("EACCES: .env");
+    return rm(target, options);
+  };
+  fs.holdNext((op, name) => op === "rm" && name === "secure-keys");
+  let settled = false;
+  const resetting = env.clearAllPersistedData();
+  const rejected = assert.rejects(resetting, /Environment erase failed/).then(() => (settled = true));
+  const hold = await fs.nextHold();
+  await tick();
+  assert.equal(settled, false);
+  await assert.rejects(env.saveAllKeysToEnvFile(), { code: "ENV_RESET" });
+  hold.release();
+  await rejected;
+  assert.equal((await env.saveAllKeysToEnvFile()).success, true, "the fence is released after all erases settle");
 });
 
 // change-driving (R2-2): a queued replacement used to run after the erase.
@@ -4543,6 +4664,8 @@ Expected: FAIL.
      // value; bump every generation, which discards verifications in flight
      // (Task 11); wait for the write in flight; and only then erase.
      async function reset(erase = async () => {}) {
+       // A second caller must not lower the first reset's fence in its finally.
+       if (fenced) throw new Error("Credential reset already in progress");
        fenced = true;
        epoch += 1;
        for (const entry of undoEntries.values()) entry.values = null;
@@ -4594,7 +4717,116 @@ Expected: FAIL.
    };
    ```
 
-2. In `src/helpers/environment.js`, add this method right after `_saveKey` (after `:264`):
+2. In `src/helpers/environment.js`, replace the module-level `.env` queue (`:64`) with an epoch-aware admission fence, and route every `.env` writer through it:
+
+   Add `const dotenv = require("dotenv");` beside the imports and replace every `require("dotenv").config(...)` with `dotenv.config(...)`. Capturing the dependency when the module loads lets the real-environment harness replace it for the lifetime of the instance, including calls made after `Module._load` is restored.
+
+   ```js
+   let envWriteQueue = Promise.resolve();
+   let envWriteEpoch = 0;
+   let envWriteFenced = false;
+
+   function environmentResetError() {
+     return Object.assign(new Error("Environment persistence is resetting"), { code: "ENV_RESET" });
+   }
+
+   function enqueueEnvWrite(write) {
+     if (envWriteFenced) return Promise.reject(environmentResetError());
+     const epoch = envWriteEpoch;
+     const queued = envWriteQueue.catch(() => {}).then(async () => {
+       if (envWriteFenced || epoch !== envWriteEpoch) return false; // invalidated while queued
+       await write();
+       return true;
+     });
+     envWriteQueue = queued;
+     return queued;
+   }
+   ```
+
+   `_writeEnvFileAtomic(envPath)` becomes `return enqueueEnvWrite(() => this._writeEnvFile(envPath));`. `removeKeyFromEnvFile(key)` returns `enqueueEnvWrite(() => this._removeKeyLine(envPath, key))`; do not append directly to `envWriteQueue` anywhere. `saveAllKeysToEnvFile({ expectedEpoch } = {})` captures the current epoch before enqueueing when no epoch is supplied; with an internal `expectedEpoch`, it rejects unless that epoch still matches before and after the queue wait. After awaiting the writer it rejects with `ENV_RESET` unless the writer returned `true`, the fence is still down, and the selected epoch equals `envWriteEpoch`; only after those checks may it call `dotenv.config`. Thus queued work invalidated by reset is skipped, and an active writer cannot reload its captured contents after reset begins.
+
+   Wrap `clearAllPersistedData()` in the same module-wide fence: synchronously reject a second reset if already fenced, set `envWriteFenced = true`, increment `envWriteEpoch`, then await `envWriteQueue.catch(() => {})` before clearing `process.env` or removing files. Hold the fence while removing `.env` and the encrypted-key directory; release it in `finally` after deletion finishes or fails. Every new environment write rejects with `ENV_RESET` for that whole interval. This is below the credential authority because `save-all-keys-to-env` uses a separate IPC and currently bypasses the slot queues.
+
+   Use these method bodies:
+
+   ```js
+   _writeEnvFileAtomic(envPath) {
+     return enqueueEnvWrite(() => this._writeEnvFile(envPath));
+   }
+
+   async saveAllKeysToEnvFile({ expectedEpoch } = {}) {
+     if (envWriteFenced) throw environmentResetError();
+     const epoch = expectedEpoch ?? envWriteEpoch;
+     if (epoch !== envWriteEpoch) throw environmentResetError();
+     const envPath = path.join(app.getPath("userData"), ".env");
+     const written = await this._writeEnvFileAtomic(envPath);
+     if (!written || envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+     dotenv.config({ path: envPath, quiet: true });
+     return { success: true, path: envPath };
+   }
+
+   async clearAllPersistedData() {
+     if (envWriteFenced) throw environmentResetError();
+     envWriteFenced = true;
+     envWriteEpoch += 1;
+     try {
+       await envWriteQueue.catch(() => {});
+       for (const envVarName of PERSISTED_KEYS) delete process.env[envVarName];
+       delete process.env.CUSTOM_REASONING_API_KEY;
+       const erased = await Promise.allSettled([
+         fsPromises.rm(path.join(app.getPath("userData"), ".env"), { force: true }),
+         fsPromises.rm(path.join(app.getPath("userData"), ".env.tmp"), { force: true }),
+         fsPromises.rm(this._getSecureKeysDir(), { recursive: true, force: true }),
+       ]);
+       const failures = erased.filter((result) => result.status === "rejected");
+       if (failures.length > 0) {
+         throw new AggregateError(failures.map((result) => result.reason), "Environment erase failed");
+       }
+       return { success: true };
+     } finally {
+       envWriteFenced = false;
+     }
+   }
+
+   removeKeyFromEnvFile(key) {
+     const envPath = path.join(app.getPath("userData"), ".env");
+     return enqueueEnvWrite(() => this._removeKeyLine(envPath, key));
+   }
+
+   getEnvWriteEpoch() {
+     return envWriteEpoch;
+   }
+
+   drainEnvWrites() {
+     return envWriteQueue.catch(() => {});
+   }
+
+   getVertexAuthSource() {
+     const source = process.env.VERTEX_AUTH_SOURCE;
+     return source === "adc" || source === "apiKey" ? source : null;
+   }
+
+   // Main-only. An expected epoch is supplied only by startup migration; it
+   // prevents a paused migration from writing after reset has reopened the fence.
+   async saveVertexAuthSource(source, { expectedEpoch } = {}) {
+     if (source !== "adc" && source !== "apiKey") throw new Error("Invalid Vertex auth source");
+     const epoch = expectedEpoch ?? envWriteEpoch;
+     if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+     const previous = process.env.VERTEX_AUTH_SOURCE;
+     process.env.VERTEX_AUTH_SOURCE = source;
+     try {
+       await this.saveAllKeysToEnvFile({ expectedEpoch: epoch });
+       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+       return { success: true };
+     } catch (error) {
+       if (previous === undefined) delete process.env.VERTEX_AUTH_SOURCE;
+       else process.env.VERTEX_AUTH_SOURCE = previous;
+       throw error;
+     }
+   }
+   ```
+
+   Add `persistSecret` right after `_saveKey` (after `:264`):
 
    ```js
      // Awaitable twin of _saveKey for acknowledged saves (credentialAuthority.js):
@@ -26328,10 +26560,10 @@ Transcript history   1482 transcripts, including 15 discarded or deleted   [Dele
 Reset Loqui          Deletes settings, history, audio, models and keys.   [Reset…]
 ```
 
-Every "Delete…" opens a confirm built from a **snapshot** taken when the dialog opens: count, size and folder (monospace, `dir="ltr"`), and a button that repeats the count. The history confirm counts and names both sets, e.g. "Delete 1482 transcripts (12 discarded, 3 deleted) and 214 audio files (1.2 GB)", because the existing clear deletes every row and every recording (`src/helpers/ipcHandlers.js:1287-1298` deletes all audio first; `src/helpers/database.js:551-560` runs an unfiltered `DELETE FROM transcriptions`; `src/helpers/audioStorage.js:167-185` unlinks every `.webm`). Main receives the reviewed counts and refuses with `"stale"` if the set changed; the dialog then shows the new counts for a fresh review. A failure keeps the dialog open with `role="alert"`, main's exact numbers and the raw error list. Reset requires typing the localized word and only relaunches after `cleanupApp()` reports `success: true`.
+Every "Delete…" opens a confirm built from a **snapshot** taken when the dialog opens: count, size and folder (monospace, `dir="ltr"`), and a button that repeats the count. The history confirm counts and names both sets, e.g. "Delete 1482 transcripts (12 discarded, 3 deleted) and 214 audio files (1.2 GB)", because the existing clear deletes every row and every recording (`src/helpers/ipcHandlers.js:1287-1298` deletes all audio first; `src/helpers/database.js:551-560` runs an unfiltered `DELETE FROM transcriptions`; `src/helpers/audioStorage.js:167-185` unlinks every `.webm`). Main receives the reviewed counts plus separate opaque SHA-256 `audioIdentity` and `historyIdentity` digests and refuses with `"stale"` if either set changed, including a same-count replacement; the dialog then shows the current items and counts for a fresh review. Digests are computed only in main from sorted transcript rows (all persisted identity/state fields) and sorted recording names plus stat identity/version metadata; transcript contents and file identities never cross IPC. Missing or malformed digests are `"invalid-request"`, with no unchecked deletion path. A stat failure leaves audio identity unknown and blocks confirmation/deletion even when the folder count is readable. A failure keeps the dialog open with `role="alert"`, main's exact numbers and the raw error list. Reset requires typing the localized word and only relaunches after `cleanupApp()` reports `success: true`.
 
 What changes from v1 (old Task 11), and why:
-- v1 counted visible transcripts (`deleted_at IS NULL AND status != 'discarded'`) but deleted every row and every recording (C2). v2 moves the count and the delete into `src/helpers/storageOps.js` in main, uses the same predicate for both, checks the reviewed counts inside the delete transaction and rolls back if `clearTranscriptions` ever removes a different number of rows than the count.
+- v1 counted visible transcripts (`deleted_at IS NULL AND status != 'discarded'`) but deleted every row and every recording (C2). v2 moves the count and the delete into `src/helpers/storageOps.js` in main, uses the same predicate for both, checks the reviewed counts and both identity digests inside the synchronous delete transaction before touching any row or recording and rolls back if `clearTranscriptions` ever removes a different number of rows than the count.
 - v1 decided success from a recount that turned unreadable state into zero and ignored resolved failure results (I12). Plan 02 (spec §5.6, its Task 19) already fixed the base for the single "Clear All Audio" row: `getStorageUsage()` returns `{ fileCount, totalBytes, readable }`, `deleteAllAudio()` returns `{ deleted, failed, readable }`, main has `remainingAudioIds()` and `clearFlagsForDeletedAudio()` (`src/helpers/audioFlagReconcile.js`), and the renderer has `resolveClearAudioOutcome` (`src/utils/audioDeletion.ts`) and `useAudioStorageUsage`. v2 builds on that contract instead of a parallel one: the new `listStoredAudio()` is the by-name form of `getStorageUsage()` with the same `readable` flag (it never throws; `getStorageUsage()` is derived from it, so Plan 02's shape and tests are unchanged), `storageOps` maps `readable: false` to a typed `count-failed`/`recount-failed` error, flag reconciliation is Plan 02's `clearFlagsForDeletedAudio`, every audio result carries Plan 02's `failed` and `readable`, the Storage list's audio row takes its count, bytes and unavailable state from Plan 02's `useAudioStorageUsage` hook (unchanged), and the renderer grants audio success only when `resolveClearAudioOutcome` says `"cleared"` (plus `ok`, no errors and `remaining === 0`). An unreadable zero is never shown as "cleared".
 - v1's dialog read live row state, so a retry lost the reviewed count. v2 stores the snapshot in the dialog state; row refreshes never touch it.
 - v1's reset toasted success after any resolved `cleanupApp()` and relaunched, although main returns `{ success: false, errors }` instead of throwing (`src/helpers/ipcHandlers.js:3277-3281`). v2 keeps the reset dialog open with the errors and never relaunches on failure. Main's reset also stopped swallowing per-file audio failures (`deleteAllAudio` catches each unlink at `src/helpers/audioStorage.js:171-179`, so its `try` at `ipcHandlers.js:3164-3168` never fired). The credential reset in `cleanup-app` is Task 2's reset barrier (`await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());`, which replaced the `clearAllPersistedData` try/catch body, R2-2); this task leaves that call untouched and must not add another reset.
@@ -26344,7 +26576,7 @@ Model-cache clearing and reset move here from System. Plan 02's one-click "Clear
 - Create: `src/helpers/storageOps.js` (main; injected deps; owns both predicates)
 - Create: `src/components/settings/storageMath.ts` (pure)
 - Create: `src/components/settings/StorageList.tsx`
-- Modify: `src/helpers/audioStorage.js` (as Plan 02 left it): require `isStoredAudioFile` from `./storageOps` and use it in `deleteAllAudio`; add `listStoredAudio()` and `removeFiles(names)`; make `getStorageUsage()` return Plan 02's `{ fileCount, totalBytes, readable }` derived from `listStoredAudio()`. `remainingAudioIds()` stays as Plan 02 wrote it.
+- Modify: `src/helpers/audioStorage.js` (as Plan 02 left it): require `isStoredAudioFile` and `identityDigest` from `./storageOps` and use it in `deleteAllAudio`; add `listStoredAudio()` and `removeFiles(names)`; make `getStorageUsage()` return Plan 02's `{ fileCount, totalBytes, readable }` derived from `listStoredAudio()`. `remainingAudioIds()` stays as Plan 02 wrote it.
 - Modify: `src/helpers/ipcHandlers.js`:
   - require `createStorageOps` next to the `./windowBroadcast` require (`:11`);
   - construct `this.storageOps` after `this.audioStorageManager = new AudioStorageManager();` (`:316`);
@@ -26376,29 +26608,31 @@ Model-cache clearing and reset move here from System. Plan 02's one-click "Clear
 - Produces, main (`src/helpers/storageOps.js`, CommonJS):
 
   ```js
+  function identityDigest(value: unknown): string;            // SHA-256 of canonical ordered data, main only
   function isStoredAudioFile(name: string): boolean;          // the audio predicate: every ".webm" in the audio folder
   const HISTORY_COUNT_SQL: string;                             // the history predicate: every row of transcriptions
   function createStorageOps({ audio, database, broadcast }): {
     preview(): StoragePreview;
-    deleteAudio(opts?: { expected?: { files: number } | null }): StorageDeleteResult;
-    deleteHistory(opts?: { expected?: { total: number; files: number } | null }): StorageHistoryDeleteResult;
+    deleteAudio(opts: { expected: { files: number; audioIdentity: string } }): StorageDeleteResult;
+    deleteHistory(opts: { expected: { total: number; files: number; audioIdentity: string; historyIdentity: string } }): StorageHistoryDeleteResult;
   };
   // audio: { audioDir, listStoredAudio(): StoredAudioList, removeFiles(names): { deleted: number; failed: { file: string; error: string }[] }, remainingAudioIds() /* Plan 02 */ }
   // database: { db /* better-sqlite3 */, clearTranscriptions(), clearAudioFlags(ids) }
   // Flags: Plan 02's clearFlagsForDeletedAudio({ audioStorage: audio, database }), only after a readable recount.
   // readable: false from listStoredAudio maps to "count-failed: …" / "recount-failed: …".
-  // expected === undefined: unchecked (no caller after this task; main's reset uses Plan 02's deleteAllAudio()); null or malformed: "invalid-request".
+  // expected is required, including every digest: absent, null or malformed is "invalid-request".
+  // Main's reset still uses Plan 02's deleteAllAudio(), never this counted-delete interface.
   // errors are stable strings: "stale", "invalid-request", "count-failed: …", "delete-failed: <file>: …",
   // "recount-failed: …", "flags-failed: …", "history-failed: …".
   ```
 
-- Produces, `AudioStorageManager.listStoredAudio(): StoredAudioList` where `StoredAudioList = { files: string[]; totalBytes: number; readable: boolean; directory: string; error?: string }`. It is the by-name form of Plan 02's `getStorageUsage()`, with the same predicate and the same `readable` rule: it never throws, and any folder read error (missing included) is `readable: false` with `files: []`, never an empty store. A file that cannot be stat'd still counts, without its size, as in Plan 02. `getStorageUsage()` becomes `{ fileCount: files.length, totalBytes, readable }` of it, so Plan 02's shape and tests are unchanged. Also `AudioStorageManager.removeFiles(names)` (never throws; refuses names that are not plain recordings; an already-missing file is neither deleted nor failed).
-- Produces, IPC: `storage-preview` → `StoragePreview`; `storage-delete-audio(expected: { files })` → `StorageDeleteResult`; `storage-delete-history(expected: { total, files })` → `StorageHistoryDeleteResult`. Preload `window.electronAPI.storage.{ preview, deleteAudio, deleteHistory }`.
+- Produces, `AudioStorageManager.listStoredAudio(): StoredAudioList` where `StoredAudioList = { files: string[]; totalBytes: number; readable: boolean; directory: string; identity: string | null; error?: string; identityError?: string }`. It is the by-name form of Plan 02's `getStorageUsage()`, with the same predicate and the same `readable` rule: it never throws, and any folder read error (missing included) is `readable: false` with `files: []`, never an empty store. A file that cannot be stat'd still counts, without its size, as in Plan 02, but yields `identity: null` and `identityError`, so Storage preview/deletion fails closed. The identity hashes sorted names and bigint stat `dev`, `ino`, `mode`, `size`, `mtimeNs`, `ctimeNs`, `birthtimeNs`; a same-name overwrite/replacement changes it. `getStorageUsage()` becomes `{ fileCount: files.length, totalBytes, readable }` of it, so Plan 02's shape and tests are unchanged. Also `AudioStorageManager.removeFiles(names)` (never throws; refuses names that are not plain recordings; an already-missing file is neither deleted nor failed).
+- Produces, IPC: `storage-preview` → `StoragePreview`; `storage-delete-audio(expected: { files, audioIdentity })` → `StorageDeleteResult`; `storage-delete-history(expected: { total, files, audioIdentity, historyIdentity })` → `StorageHistoryDeleteResult`. Preload `window.electronAPI.storage.{ preview, deleteAudio, deleteHistory }`.
 - Produces, `src/types/electron.ts`:
 
   ```ts
-  export interface StorageAudioPreview { files: number; bytes: number; directory: string }
-  export interface StorageHistoryPreview { total: number; discarded: number; softDeleted: number; withAudio: number }
+  export interface StorageAudioPreview { files: number; bytes: number; directory: string; audioIdentity: string }
+  export interface StorageHistoryPreview { total: number; discarded: number; softDeleted: number; withAudio: number; historyIdentity: string }
   export interface StoragePreview { audio: StorageAudioPreview | { error: string }; history: StorageHistoryPreview | { error: string } }
   // failed and readable are Plan 02's fields (spec §5.6): failed = recordings that could not be unlinked;
   // readable = the folder could be read to count them (false also when nothing was read, e.g. "invalid-request").
@@ -26413,8 +26647,8 @@ Model-cache clearing and reset move here from System. Plan 02's one-click "Clear
   ```ts
   export type ModelFamily = "whisper" | "parakeet" | "llm";
   export const MODEL_FAMILIES: readonly ModelFamily[];
-  export interface AudioSnapshot { kind: "audio"; files: number; bytes: number; directory: string }
-  export interface HistorySnapshot { kind: "history"; total: number; discarded: number; softDeleted: number; files: number; bytes: number; directory: string }
+  export interface AudioSnapshot { kind: "audio"; files: number; bytes: number; directory: string; audioIdentity: string }
+  export interface HistorySnapshot { kind: "history"; total: number; discarded: number; softDeleted: number; files: number; bytes: number; directory: string; audioIdentity: string; historyIdentity: string }
   export interface ModelsSnapshot { kind: "models"; count: number; bytes: number; directory: string | null }
   export type StorageSnapshot = AudioSnapshot | HistorySnapshot | ModelsSnapshot;
   export type StorageKind = StorageSnapshot["kind"];
@@ -26435,7 +26669,8 @@ Model-cache clearing and reset move here from System. Plan 02's one-click "Clear
   export function resetConfirmed(typed: string, word: string): boolean;
   export function snapshotCount(snapshot: StorageSnapshot): number;
   export function isEmptySnapshot(snapshot: StorageSnapshot): boolean;
-  // Plan 02's hook state as the audio row; `directory` comes from main's preview row ("" until it loads).
+  // Plan 02's hook state as the audio row; directory and identity require a ready main preview.
+  // Confirmations always use the fresh main snapshot, never mixed hook counts and a digest.
   export function audioRowFromUsage(usage: AudioUsage, preview: RowState<AudioSnapshot>): RowState<AudioSnapshot>;
   ```
 
@@ -26508,6 +26743,11 @@ function seed({ db, audio }) {
   fs.writeFileSync(path.join(audio.audioDir, "notes.txt"), "not a recording");
 }
 
+const reviewedAudio = (preview) => ({ files: preview.audio.files, audioIdentity: preview.audio.audioIdentity });
+const reviewedHistory = (preview) => ({
+  total: preview.history.total, ...reviewedAudio(preview), historyIdentity: preview.history.historyIdentity,
+});
+
 const rowCount = (db) => db.db.prepare("SELECT COUNT(*) AS n FROM transcriptions").get().n;
 const flagged = (db) =>
   db.db.prepare("SELECT COUNT(*) AS n FROM transcriptions WHERE has_audio = 1").get().n;
@@ -26519,12 +26759,12 @@ test("history preview counts every row and recording; deleting removes exactly t
   seed(s);
   const preview = s.ops.preview();
   assert.deepEqual(preview, {
-    audio: { files: 4, bytes: 37, directory: s.audio.audioDir },
-    history: { total: 5, discarded: 1, softDeleted: 2, withAudio: 3 },
+    audio: { files: 4, bytes: 37, directory: s.audio.audioDir, audioIdentity: preview.audio.audioIdentity },
+    history: { total: 5, discarded: 1, softDeleted: 2, withAudio: 3, historyIdentity: preview.history.historyIdentity },
   });
 
   const result = s.ops.deleteHistory({
-    expected: { total: preview.history.total, files: preview.audio.files },
+    expected: reviewedHistory(preview),
   });
   assert.deepEqual(result, {
     ok: true,
@@ -26533,10 +26773,16 @@ test("history preview counts every row and recording; deleting removes exactly t
     errors: [],
     audio: { deleted: preview.audio.files, failed: 0, readable: true, remaining: 0 },
   });
-  assert.deepEqual(s.ops.preview(), {
-    audio: { files: 0, bytes: 0, directory: s.audio.audioDir },
-    history: { total: 0, discarded: 0, softDeleted: 0, withAudio: 0 },
+  const empty = s.ops.preview();
+  assert.deepEqual(empty, {
+    audio: { files: 0, bytes: 0, directory: s.audio.audioDir, audioIdentity: empty.audio.audioIdentity },
+    history: { total: 0, discarded: 0, softDeleted: 0, withAudio: 0, historyIdentity: empty.history.historyIdentity },
   });
+  for (const identity of [preview.audio.audioIdentity, preview.history.historyIdentity, empty.audio.audioIdentity, empty.history.historyIdentity]) {
+    assert.match(identity, /^[a-f0-9]{64}$/);
+  }
+  assert.notEqual(empty.audio.audioIdentity, preview.audio.audioIdentity);
+  assert.notEqual(empty.history.historyIdentity, preview.history.historyIdentity);
   assert.ok(fs.existsSync(path.join(s.audio.audioDir, "notes.txt")), "only recordings match");
   assert.deepEqual(s.broadcasts, [
     ["transcriptions-cleared", { cleared: 5 }],
@@ -26549,9 +26795,10 @@ test("audio deletion removes every recording, linked or not, and keeps transcrip
   const s = setup(t);
   if (!s) return;
   seed(s);
-  const previewed = s.ops.preview().audio.files;
+  const preview = s.ops.preview();
+  const previewed = preview.audio.files;
   assert.equal(previewed, 4, "three linked recordings plus the orphan");
-  assert.deepEqual(s.ops.deleteAudio({ expected: { files: previewed } }), {
+  assert.deepEqual(s.ops.deleteAudio({ expected: reviewedAudio(preview) }), {
     ok: true,
     deleted: previewed,
     failed: 0,
@@ -26570,14 +26817,14 @@ test("a count that changed after review refuses the delete and touches nothing",
   const s = setup(t);
   if (!s) return;
   seed(s);
-  assert.deepEqual(s.ops.deleteHistory({ expected: { total: 4, files: 4 } }), {
+  assert.deepEqual(s.ops.deleteHistory({ expected: { ...reviewedHistory(s.ops.preview()), total: 4 } }), {
     ok: false,
     deleted: 0,
     remaining: 5,
     errors: ["stale"],
     audio: { deleted: 0, failed: 0, readable: true, remaining: 4 },
   });
-  assert.deepEqual(s.ops.deleteAudio({ expected: { files: 3 } }), {
+  assert.deepEqual(s.ops.deleteAudio({ expected: { ...reviewedAudio(s.ops.preview()), files: 3 } }), {
     ok: false,
     deleted: 0,
     failed: 0,
@@ -26590,7 +26837,7 @@ test("a count that changed after review refuses the delete and touches nothing",
 });
 
 // change-driving
-test("renderer requests without valid reviewed counts are refused", (t) => {
+test("renderer requests without valid reviewed counts and identity digests are refused", (t) => {
   const s = setup(t);
   if (!s) return;
   seed(s);
@@ -26602,7 +26849,15 @@ test("renderer requests without valid reviewed counts are refused", (t) => {
     remaining: null,
     errors: ["invalid-request"],
   });
-  assert.equal(s.ops.deleteHistory({ expected: { total: "5", files: 4 } }).errors[0], "invalid-request");
+  for (const expected of [undefined, null, { files: 4 }, { files: 4, audioIdentity: "bad" }]) {
+    assert.deepEqual(s.ops.deleteAudio({ expected }).errors, ["invalid-request"]);
+  }
+  assert.deepEqual(s.ops.deleteAudio().errors, ["invalid-request"]);
+  const approved = reviewedHistory(s.ops.preview());
+  for (const expected of [undefined, null, { total: 5, files: 4 }, { ...approved, total: "5" }, { ...approved, historyIdentity: "bad" }, { ...approved, audioIdentity: undefined }]) {
+    assert.deepEqual(s.ops.deleteHistory({ expected }).errors, ["invalid-request"]);
+  }
+  assert.deepEqual(s.ops.deleteHistory().errors, ["invalid-request"]);
   assert.equal(rowCount(s.db), 5);
 });
 
@@ -26611,24 +26866,100 @@ test("an unreadable audio folder is an error, never zero, and blocks history del
   const s = setup(t);
   if (!s) return;
   seed(s);
+  const reviewed = s.ops.preview();
   fs.rmSync(s.audio.audioDir, { recursive: true, force: true });
   fs.writeFileSync(s.audio.audioDir, "not a folder");
   const preview = s.ops.preview();
   assert.match(preview.audio.error, /ENOTDIR/);
   assert.equal(preview.history.total, 5);
-  const result = s.ops.deleteHistory({ expected: { total: 5, files: 0 } });
+  const result = s.ops.deleteHistory({ expected: reviewedHistory(reviewed) });
   assert.equal(result.ok, false);
   assert.equal(result.deleted, 0);
   assert.equal(result.remaining, null);
   assert.match(result.errors[0], /^count-failed: .*ENOTDIR/);
   assert.equal(result.audio.readable, false, "Plan 02's readable flag, mapped to a typed error");
   assert.equal(rowCount(s.db), 5);
-  const audioOnly = s.ops.deleteAudio({ expected: { files: 0 } });
+  const audioOnly = s.ops.deleteAudio({ expected: reviewedAudio(reviewed) });
   assert.deepEqual(
     { ok: audioOnly.ok, readable: audioOnly.readable, remaining: audioOnly.remaining },
     { ok: false, readable: false, remaining: null },
     "an unreadable zero is never a clean delete"
   );
+});
+
+// change-driving: equal counts cannot authorize new transcript identities/state.
+test("equal-count transcript replacement or same-id state change is stale; nothing is touched", (t) => {
+  const s = setup(t);
+  if (!s) return;
+  seed(s);
+  for (const replace of [
+    () => {
+      const id = s.db.db.prepare("SELECT MIN(id) AS id FROM transcriptions").get().id;
+      s.db.db.prepare("DELETE FROM transcriptions WHERE id = ?").run(id);
+      s.db.db.prepare("INSERT INTO transcriptions (text, has_audio) VALUES (?, 1)").run("new transcript");
+    },
+    () => s.db.db.prepare("UPDATE transcriptions SET text = ? WHERE id = (SELECT MIN(id) FROM transcriptions)").run("edited transcript"),
+  ]) {
+    const before = s.ops.preview();
+    replace();
+    const result = s.ops.deleteHistory({ expected: reviewedHistory(before) });
+    assert.deepEqual(result.errors, ["stale"]);
+    assert.equal(result.deleted, 0);
+    assert.equal(rowCount(s.db), before.history.total);
+    assert.equal(s.ops.preview().audio.audioIdentity, before.audio.audioIdentity, "all audio stays untouched");
+    assert.notEqual(s.ops.preview().history.historyIdentity, before.history.historyIdentity);
+    assert.deepEqual(s.broadcasts, []);
+  }
+});
+
+// change-driving: names and stat metadata bind audio even with unchanged count/size.
+test("equal-count audio rename, same-name replacement and overwrite block audio AND history deletion", (t) => {
+  const s = setup(t);
+  if (!s) return;
+  seed(s);
+  const orphan = path.join(s.audio.audioDir, "OpenWhispr-9999.webm");
+  const renamed = path.join(s.audio.audioDir, "OpenWhispr-10000.webm");
+  for (const change of [
+    () => fs.renameSync(orphan, renamed),
+    () => { // atomic same-name replacement, same bytes; inode/version differs
+      const replacement = path.join(s.audio.audioDir, "replacement.tmp");
+      fs.writeFileSync(replacement, "replace");
+      fs.renameSync(replacement, renamed);
+    },
+    () => { // overwrite same inode and size; force a deterministic version change
+      fs.writeFileSync(renamed, "updated");
+      fs.utimesSync(renamed, new Date(0), new Date("2030-01-01T00:00:00Z"));
+    },
+  ]) {
+    const before = s.ops.preview();
+    change();
+    const after = s.ops.preview();
+    assert.equal(after.audio.files, before.audio.files);
+    assert.equal(after.audio.bytes, before.audio.bytes);
+    assert.notEqual(after.audio.audioIdentity, before.audio.audioIdentity);
+    assert.deepEqual(s.ops.deleteAudio({ expected: reviewedAudio(before) }).errors, ["stale"]);
+    assert.deepEqual(s.ops.deleteHistory({ expected: reviewedHistory(before) }).errors, ["stale"]);
+    assert.equal(rowCount(s.db), 5, "history checks audio identity before clearing rows");
+    assert.equal(s.ops.preview().audio.audioIdentity, after.audio.audioIdentity, "no recording touched");
+    assert.deepEqual(s.broadcasts, []);
+  }
+});
+
+// change-driving: readable count is insufficient when any file identity is unknown.
+test("stat failure keeps Plan 02 usage shape but blocks Storage preview and deletion", (t) => {
+  const s = setup(t);
+  if (!s) return;
+  seed(s);
+  const before = s.ops.preview();
+  fs.symlinkSync(path.join(s.audio.audioDir, "missing-target"), path.join(s.audio.audioDir, "broken.webm"));
+  const usage = s.audio.getStorageUsage();
+  assert.deepEqual(usage, { fileCount: 5, totalBytes: 37, readable: true });
+  assert.equal(s.audio.listStoredAudio().identity, null);
+  assert.match(s.ops.preview().audio.error, /^stat-failed: broken.webm:/);
+  assert.match(s.ops.deleteAudio({ expected: reviewedAudio(before) }).errors[0], /^count-failed: stat-failed:/);
+  assert.match(s.ops.deleteHistory({ expected: reviewedHistory(before) }).errors[0], /^count-failed: stat-failed:/);
+  assert.equal(rowCount(s.db), 5);
+  assert.equal(fs.readdirSync(s.audio.audioDir).filter((name) => name.endsWith(".webm")).length, 5);
 });
 
 // change-driving (M4): a main fake that fails one unlink.
@@ -26647,7 +26978,7 @@ test("a partial file failure reports exact deleted and remaining counts (M4)", (
   });
   if (!s) return;
   seed(s);
-  assert.deepEqual(s.ops.deleteAudio({ expected: { files: 4 } }), {
+  assert.deepEqual(s.ops.deleteAudio({ expected: reviewedAudio(s.ops.preview()) }), {
     ok: false,
     deleted: 3,
     failed: 1,
@@ -26655,7 +26986,7 @@ test("a partial file failure reports exact deleted and remaining counts (M4)", (
     remaining: 1,
     errors: [`delete-failed: ${busy}: EBUSY`],
   });
-  assert.deepEqual(s.ops.deleteHistory({ expected: { total: 5, files: 1 } }), {
+  assert.deepEqual(s.ops.deleteHistory({ expected: reviewedHistory(s.ops.preview()) }), {
     ok: false,
     deleted: 5,
     remaining: 0,
@@ -26672,7 +27003,7 @@ test("a failed recount leaves the result unknown, not successful, and keeps flag
       Object.create(real, {
         listStoredAudio: {
           value() {
-            if (reads++ === 0) return real.listStoredAudio();
+            if (reads++ < 2) return real.listStoredAudio(); // preview and pre-delete identity read
             return { files: [], totalBytes: 0, readable: false, directory: real.audioDir, error: "EACCES: permission denied" };
           },
         },
@@ -26680,7 +27011,7 @@ test("a failed recount leaves the result unknown, not successful, and keeps flag
   });
   if (!s) return;
   seed(s);
-  assert.deepEqual(s.ops.deleteAudio({ expected: { files: 4 } }), {
+  assert.deepEqual(s.ops.deleteAudio({ expected: reviewedAudio(s.ops.preview()) }), {
     ok: false,
     deleted: 4,
     failed: 0,
@@ -26708,7 +27039,7 @@ test("if the delete ever removes a different set than the count, it rolls back",
   });
   if (!s) return;
   seed(s);
-  const result = s.ops.deleteHistory({ expected: { total: 5, files: 4 } });
+  const result = s.ops.deleteHistory({ expected: reviewedHistory(s.ops.preview()) });
   assert.equal(result.ok, false);
   assert.equal(result.deleted, 0);
   assert.equal(result.remaining, 5);
@@ -26728,12 +27059,13 @@ test("listStoredAudio names what getStorageUsage counts; an unreadable folder is
   const audio = new AudioStorageManager();
   fs.writeFileSync(path.join(audio.audioDir, "OpenWhispr-1.webm"), "abc");
   fs.writeFileSync(path.join(audio.audioDir, "readme.txt"), "x");
-  assert.deepEqual(audio.listStoredAudio(), {
-    files: ["OpenWhispr-1.webm"],
-    totalBytes: 3,
-    readable: true,
-    directory: audio.audioDir,
+  const listed = audio.listStoredAudio();
+  assert.deepEqual(listed, {
+    files: ["OpenWhispr-1.webm"], totalBytes: 3, readable: true, directory: audio.audioDir,
+    identity: listed.identity,
   });
+  assert.match(listed.identity, /^[a-f0-9]{64}$/);
+  assert.equal(audio.listStoredAudio().identity, listed.identity, "stable for the same files and metadata");
   // Plan 02's shape (spec §5.6), derived from the same list: one predicate for the row, the count and the delete.
   assert.deepEqual(audio.getStorageUsage(), { fileCount: 1, totalBytes: 3, readable: true });
   assert.deepEqual(audio.removeFiles(["../escape.webm", "readme.txt"]), {
@@ -26815,7 +27147,11 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
    // carries `readable`, which this module maps to a typed error (an unreadable
    // folder is never zero), every audio result keeps `failed` and `readable`,
    // and has_audio flags go through Plan 02's clearFlagsForDeletedAudio.
+   const { createHash } = require("node:crypto");
    const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
+
+   // Callers supply deterministically ordered arrays/rows. Only digests leave main.
+   const identityDigest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
    /** Audio predicate: every recording in the audio folder, linked to a transcript or not. */
    function isStoredAudioFile(name) {
@@ -26837,8 +27173,12 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
 
    const describe = (error) => String(error?.message || error);
    const isCount = (value) => Number.isInteger(value) && value >= 0;
-   const validExpected = (expected, keys) =>
-     !!expected && typeof expected === "object" && keys.every((key) => isCount(expected[key]));
+   const isIdentity = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+   const validExpected = (expected, counts, identities) =>
+     !!expected && typeof expected === "object" &&
+     counts.every((key) => isCount(expected[key])) && identities.every((key) => isIdentity(expected[key]));
+
+   class AudioCountError extends Error {}
 
    class StaleHistoryError extends Error {
      constructor(total) {
@@ -26855,16 +27195,22 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
          discarded: row.discarded,
          softDeleted: row.softDeleted,
          withAudio: row.withAudio,
+         // SELECT * binds all persisted identity/state, including same-id edits.
+         // Raw rows remain in main; ORDER BY id makes the digest deterministic.
+         historyIdentity: identityDigest(database.db.prepare("SELECT * FROM transcriptions ORDER BY id").all()),
        };
      };
 
      const unreadable = (listed) => listed.error || `unreadable: ${listed.directory}`;
+     const audioCountError = (listed) => !listed.readable ? unreadable(listed)
+       : !isIdentity(listed.identity) ? (listed.identityError || "unknown audio identity") : null;
 
      function preview() {
        const listed = audio.listStoredAudio();
-       const audioPreview = listed.readable
-         ? { files: listed.files.length, bytes: listed.totalBytes, directory: listed.directory }
-         : { error: unreadable(listed) };
+       const audioError = audioCountError(listed);
+       const audioPreview = audioError === null
+         ? { files: listed.files.length, bytes: listed.totalBytes, directory: listed.directory, audioIdentity: listed.identity }
+         : { error: audioError };
        let history;
        try {
          history = countHistory();
@@ -26904,10 +27250,11 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
      const notRead = (error) => ({ ok: false, deleted: 0, failed: 0, readable: false, remaining: null, errors: [error] });
 
      function deleteAudio({ expected } = {}) {
-       if (expected !== undefined && !validExpected(expected, ["files"])) return notRead("invalid-request");
+       if (!validExpected(expected, ["files"], ["audioIdentity"])) return notRead("invalid-request");
        const counted = audio.listStoredAudio();
-       if (!counted.readable) return notRead(`count-failed: ${unreadable(counted)}`);
-       if (expected !== undefined && counted.files.length !== expected.files) {
+       const countError = audioCountError(counted);
+       if (countError !== null) return notRead(`count-failed: ${countError}`);
+       if (counted.files.length !== expected.files || counted.identity !== expected.audioIdentity) {
          return { ok: false, deleted: 0, failed: 0, readable: true, remaining: counted.files.length, errors: ["stale"] };
        }
        const result = removeCounted(counted.files);
@@ -26925,28 +27272,22 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
 
      function deleteHistory({ expected } = {}) {
        const untouched = (files) => ({ deleted: 0, failed: 0, readable: files !== null, remaining: files });
-       if (expected !== undefined && !validExpected(expected, ["total", "files"])) {
+       if (!validExpected(expected, ["total", "files"], ["audioIdentity", "historyIdentity"])) {
          return { ok: false, deleted: 0, remaining: null, errors: ["invalid-request"], audio: untouched(null) };
        }
-       const counted = audio.listStoredAudio();
-       if (!counted.readable) {
-         return {
-           ok: false,
-           deleted: 0,
-           remaining: null,
-           errors: [`count-failed: ${unreadable(counted)}`],
-           audio: untouched(null),
-         };
-       }
-       // Rows first, in one transaction: a stale or drifting count rolls back
-       // before any recording is touched.
+       // No await or callback turn between identity recheck and deletion. Read
+       // both sets inside the transaction, before any row or recording is touched.
+       let counted;
        let cleared;
        try {
          cleared = database.db.transaction(() => {
+           counted = audio.listStoredAudio();
+           const countError = audioCountError(counted);
+           if (countError !== null) throw new AudioCountError(countError);
            const rows = countHistory();
            if (
-             expected !== undefined &&
-             (rows.total !== expected.total || counted.files.length !== expected.files)
+             rows.total !== expected.total || counted.files.length !== expected.files ||
+             rows.historyIdentity !== expected.historyIdentity || counted.identity !== expected.audioIdentity
            ) {
              throw new StaleHistoryError(rows.total);
            }
@@ -26959,6 +27300,9 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
            return result.cleared;
          })();
        } catch (error) {
+         if (error instanceof AudioCountError) {
+           return { ok: false, deleted: 0, remaining: null, errors: [`count-failed: ${describe(error)}`], audio: untouched(null) };
+         }
          if (error instanceof StaleHistoryError) {
            return { ok: false, deleted: 0, remaining: error.total, errors: ["stale"], audio: untouched(counted.files.length) };
          }
@@ -26973,7 +27317,7 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
            deleted: 0,
            remaining,
            errors: [`history-failed: ${describe(error)}`],
-           audio: untouched(counted.files.length),
+           audio: untouched(counted?.readable ? counted.files.length : null),
          };
        }
        broadcast("transcriptions-cleared", { cleared });
@@ -26992,13 +27336,13 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
      return { preview, deleteAudio, deleteHistory };
    }
 
-   module.exports = { createStorageOps, isStoredAudioFile, HISTORY_COUNT_SQL };
+   module.exports = { createStorageOps, isStoredAudioFile, HISTORY_COUNT_SQL, identityDigest };
    ```
 
-   `clearTranscriptions` opens its own `this.db.transaction(...)()` (`database.js:552`); better-sqlite3 runs a transaction function called inside another as a savepoint, so the outer rollback covers it.
+   The digests guard changes between review and this synchronous main-process operation, including equal-count replacements. There is no asynchronous gap in the delete path; this does not claim a cross-process filesystem lock against an external writer during unlink. `clearTranscriptions` opens its own `this.db.transaction(...)()` (`database.js:552`); better-sqlite3 runs a transaction function called inside another as a savepoint, so the outer rollback covers it.
 
 2. `src/helpers/audioStorage.js`, as Plan 02 Task 19 left it (spec §5.6: `deleteAllAudio()` → `{ deleted, failed, readable }`, `getStorageUsage()` → `{ fileCount, totalBytes, readable }`, `remainingAudioIds()`):
-   - After `const { parseDbTimestamp } = require("./dbTimestamp");` (`:5`) add `const { isStoredAudioFile } = require("./storageOps");`.
+   - After `const { parseDbTimestamp } = require("./dbTimestamp");` (`:5`) add `const { isStoredAudioFile, identityDigest } = require("./storageOps");`.
    - In Plan 02's `deleteAllAudio()`, replace `.filter((f) => f.endsWith(".webm"))` with `.filter(isStoredAudioFile)`. Its body and return shape stay Plan 02's.
    - Replace Plan 02's `getStorageUsage()` body with the derived form below, and add `listStoredAudio()` directly above it. `remainingAudioIds()` stays as Plan 02 wrote it.
 
@@ -27006,25 +27350,34 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
        // The stored recordings behind getStorageUsage(), by name, so Settings >
        // Storage deletes exactly the set it counted. Never throws: like Plan 02's
        // getStorageUsage (spec §5.6), any folder read error is `readable: false`,
-       // never an empty store. A file that can't be stat'd still counts, without
-       // its size.
+       // never an empty store. A stat failure still counts (Plan 02), but leaves
+       // identity unknown and blocks Storage preview/deletion.
        listStoredAudio() {
          let files;
          try {
-           files = fs.readdirSync(this.audioDir).filter(isStoredAudioFile);
+           files = fs.readdirSync(this.audioDir).filter(isStoredAudioFile).sort();
          } catch (error) {
            debugLogger.error("Failed to read the audio folder", { error: error.message }, "audio-storage");
-           return { files: [], totalBytes: 0, readable: false, directory: this.audioDir, error: error.message };
+           return { files: [], totalBytes: 0, readable: false, directory: this.audioDir, identity: null, error: error.message };
          }
          let totalBytes = 0;
+         const identities = [];
+         let identityError;
          for (const file of files) {
            try {
-             totalBytes += fs.statSync(path.join(this.audioDir, file)).size;
-           } catch {
-             // Skip files that can't be stat'd (Plan 02's rule)
+             const stat = fs.statSync(path.join(this.audioDir, file), { bigint: true });
+             totalBytes += Number(stat.size);
+             identities.push([file, ...[stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs, stat.birthtimeNs].map(String)]);
+           } catch (error) {
+             // Count remains readable for Plan 02; identity cannot be approved.
+             identityError = `stat-failed: ${file}: ${error.message}`;
            }
          }
-         return { files, totalBytes, readable: true, directory: this.audioDir };
+         return {
+           files, totalBytes, readable: true, directory: this.audioDir,
+           identity: identityError ? null : identityDigest(identities),
+           ...(identityError ? { identityError } : {}),
+         };
        }
 
        // Plan 02's shape, derived from the same listing: one predicate for the
@@ -27074,8 +27427,8 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
    - After the `get-audio-storage-usage` handler (`:1378-1380`) add:
 
      ```js
-         // Settings > Storage. The renderer sends back the counts it showed;
-         // main refuses with "stale" if the set changed since then.
+         // Settings > Storage. Required reviewed counts and opaque identity digests;
+         // main refuses equal-count replacements too, before touching anything.
          ipcMain.handle("storage-preview", async () => this.storageOps.preview());
          ipcMain.handle("storage-delete-audio", async (_event, expected) =>
            this.storageOps.deleteAudio({ expected: expected ?? null })
@@ -27128,10 +27481,12 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
    ```ts
          storage?: {
            preview: () => Promise<StoragePreview>;
-           deleteAudio: (expected: { files: number }) => Promise<StorageDeleteResult>;
+           deleteAudio: (expected: { files: number; audioIdentity: string }) => Promise<StorageDeleteResult>;
            deleteHistory: (expected: {
              total: number;
              files: number;
+             audioIdentity: string;
+             historyIdentity: string;
            }) => Promise<StorageHistoryDeleteResult>;
          };
    ```
@@ -27163,6 +27518,8 @@ Create `test/components/storageMath.test.js` (pure; direct `import()`):
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
+const AUDIO_IDENTITY = "a".repeat(64);
+const HISTORY_IDENTITY = "b".repeat(64);
 const load = () => import("../../src/components/settings/storageMath.ts");
 const ok = (value) => ({ status: "fulfilled", value });
 const no = (message) => ({ status: "rejected", reason: new Error(message) });
@@ -27281,28 +27638,38 @@ test("reset succeeds only on success: true with no errors", async () => {
 
 test("the audio row is Plan 02's useAudioStorageUsage state; unavailable is never zero", async () => {
   const { audioRowFromUsage } = await load();
-  const preview = { status: "ready", snapshot: { kind: "audio", files: 9, bytes: 9, directory: "/tmp/a" } };
+  const preview = { status: "ready", snapshot: { kind: "audio", files: 9, bytes: 9, directory: "/tmp/a", audioIdentity: AUDIO_IDENTITY } };
   assert.deepEqual(audioRowFromUsage({ status: "loading" }, preview), { status: "loading" });
   assert.deepEqual(audioRowFromUsage({ status: "unavailable" }, preview), { status: "error", error: "unavailable" });
   assert.deepEqual(audioRowFromUsage({ status: "known", fileCount: 4, totalBytes: 37 }, preview), {
     status: "ready",
-    snapshot: { kind: "audio", files: 4, bytes: 37, directory: "/tmp/a" },
+    snapshot: { kind: "audio", files: 4, bytes: 37, directory: "/tmp/a", audioIdentity: AUDIO_IDENTITY },
   });
-  assert.equal(audioRowFromUsage({ status: "known", fileCount: 4, totalBytes: 37 }, { status: "loading" }).snapshot.directory, "");
+  assert.deepEqual(audioRowFromUsage({ status: "known", fileCount: 4, totalBytes: 37 }, { status: "loading" }), { status: "loading" });
+  assert.deepEqual(audioRowFromUsage({ status: "known", fileCount: 4, totalBytes: 37 }, { status: "error", error: "stat-failed" }), { status: "error", error: "stat-failed" });
 });
 
 test("an uncountable audio folder makes history uncountable too", async () => {
   const { rowsFromPreview } = await load();
-  const history = { total: 5, discarded: 1, softDeleted: 2, withAudio: 3 };
+  const history = { total: 5, discarded: 1, softDeleted: 2, withAudio: 3, historyIdentity: HISTORY_IDENTITY };
   assert.deepEqual(rowsFromPreview({ audio: { error: "ENOTDIR" }, history }), {
     audio: { status: "error", error: "ENOTDIR" },
     history: { status: "error", error: "audio: ENOTDIR" },
   });
-  assert.deepEqual(rowsFromPreview({ audio: { files: 4, bytes: 37, directory: "/tmp/a" }, history }).history, {
+  assert.deepEqual(rowsFromPreview({ audio: { files: 4, bytes: 37, directory: "/tmp/a", audioIdentity: AUDIO_IDENTITY }, history }).history, {
     status: "ready",
-    snapshot: { kind: "history", total: 5, discarded: 1, softDeleted: 2, files: 4, bytes: 37, directory: "/tmp/a" },
+    snapshot: { kind: "history", total: 5, discarded: 1, softDeleted: 2, files: 4, bytes: 37, directory: "/tmp/a", audioIdentity: AUDIO_IDENTITY, historyIdentity: HISTORY_IDENTITY },
   });
   assert.equal(rowsFromPreview(null).audio.status, "error");
+  const audio = { files: 4, bytes: 37, directory: "/tmp/a", audioIdentity: AUDIO_IDENTITY };
+  for (const audioIdentity of [undefined, null, "", "bad", "A".repeat(64)]) {
+    const invalid = rowsFromPreview({ audio: { ...audio, audioIdentity }, history });
+    assert.equal(invalid.audio.status, "error");
+    assert.equal(invalid.history.status, "error", "history also needs the audio digest");
+  }
+  for (const historyIdentity of [undefined, null, "bad"]) {
+    assert.equal(rowsFromPreview({ audio, history: { ...history, historyIdentity } }).history.status, "error");
+  }
 });
 ```
 
@@ -27329,7 +27696,9 @@ const { resolveTokens } = require("../helpers/harness/cssTokens");
 const T = "(k, o) => (o ? k + '(' + Object.entries(o).map(([a, b]) => a + '=' + b).join(',') + ')' : k)";
 const serverOptions = (prefix) => withI18nMock({ cachePrefix: prefix }, { t: T });
 
-const AUDIO = { kind: "audio", files: 214, bytes: 1_200_000_000, directory: "/tmp/loqui-test/audio" };
+const AUDIO_IDENTITY = "a".repeat(64);
+const HISTORY_IDENTITY = "b".repeat(64);
+const AUDIO = { kind: "audio", files: 214, bytes: 1_200_000_000, directory: "/tmp/loqui-test/audio", audioIdentity: AUDIO_IDENTITY };
 const HISTORY = {
   kind: "history",
   total: 1482,
@@ -27338,6 +27707,7 @@ const HISTORY = {
   files: 214,
   bytes: 1_200_000_000,
   directory: "/tmp/loqui-test/audio",
+  audioIdentity: AUDIO_IDENTITY, historyIdentity: HISTORY_IDENTITY,
 };
 const MODELS = { kind: "models", count: 3, bytes: 9_800_000_000, directory: "/tmp/loqui-test/cache" };
 const ready = (snapshot) => ({ status: "ready", snapshot });
@@ -27469,8 +27839,8 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const UNREADABLE = { fileCount: 0, totalBytes: 0, readable: false }; // Plan 02's unreadable usage
 const PREVIEW = {
-  audio: { files: 214, bytes: 1_200_000_000, directory: "/tmp/loqui-test/audio" },
-  history: { total: 1482, discarded: 12, softDeleted: 3, withAudio: 199 },
+  audio: { files: 214, bytes: 1_200_000_000, directory: "/tmp/loqui-test/audio", audioIdentity: AUDIO_IDENTITY },
+  history: { total: 1482, discarded: 12, softDeleted: 3, withAudio: 199, historyIdentity: HISTORY_IDENTITY },
 };
 
 function fakeApi({ storage = {}, ...rest } = {}) {
@@ -27585,7 +27955,7 @@ async function confirmDelete(h, kind) {
 }
 
 // change-driving (every mounted test): the container does not exist.
-test("history delete sends the reviewed counts and reports main's numbers (C2)", async (t) => {
+test("history delete sends the reviewed counts and identities and reports main's numbers (C2)", async (t) => {
   const { api, calls } = fakeApi();
   const h = await mount(t, api);
   await React.act(async () => h.view().onDelete("history"));
@@ -27597,10 +27967,11 @@ test("history delete sends the reviewed counts and reports main's numbers (C2)",
     files: 214,
     bytes: 1_200_000_000,
     directory: "/tmp/loqui-test/audio",
+    audioIdentity: AUDIO_IDENTITY, historyIdentity: HISTORY_IDENTITY,
   });
   await React.act(async () => h.dialog().onConfirm());
   await settle();
-  assert.deepEqual(calls, [["deleteHistory", { total: 1482, files: 214 }]]);
+  assert.deepEqual(calls, [["deleteHistory", { total: 1482, files: 214, audioIdentity: AUDIO_IDENTITY, historyIdentity: HISTORY_IDENTITY }]]);
   assert.equal(h.dialog(), null);
   assert.deepEqual(
     h.toasts.map((x) => x.title),
@@ -27737,6 +28108,7 @@ test("the dialog keeps the reviewed snapshot while a delete runs (I12)", async (
   assert.equal(h.dialog().snapshot.files, 214, "the dialog did not");
   await React.act(async () => h.dialog().onConfirm());
   await React.act(async () => h.dialog().onOpenChange(false));
+  assert.deepEqual(sent, [{ files: 214, audioIdentity: AUDIO_IDENTITY }], "reviewed identity stays fixed while running");
   assert.equal(sent.length, 1, "a second click while running is ignored");
   assert.equal(h.dialog().phase, "running", "a running dialog cannot be closed");
   pending.resolve({ ok: true, deleted: 214, failed: 0, readable: true, remaining: 0, errors: [] });
@@ -27771,6 +28143,41 @@ test("main's stale refusal brings back the new counts for review (C2)", async (t
   assert.ok(html.includes("storage.failed.stale"));
   assert.ok(html.includes("storage.history.transcripts(count=1483)"));
   assert.deepEqual(h.toasts, []);
+});
+
+test("same-count stale refusal refreshes identities and the next confirmation sends the new pair", async (t) => {
+  const newAudioIdentity = "c".repeat(64);
+  const newHistoryIdentity = "d".repeat(64);
+  let changed = false;
+  const sent = [];
+  const { api } = fakeApi({ storage: {
+    preview: async () => changed ? {
+      audio: { ...PREVIEW.audio, audioIdentity: newAudioIdentity },
+      history: { ...PREVIEW.history, historyIdentity: newHistoryIdentity },
+    } : PREVIEW,
+    deleteHistory: async (expected) => {
+      sent.push(expected);
+      if (!changed) {
+        changed = true;
+        return { ok: false, deleted: 0, remaining: 1482, errors: ["stale"], audio: { deleted: 0, failed: 0, readable: true, remaining: 214 } };
+      }
+      return { ok: true, deleted: 1482, remaining: 0, errors: [], audio: { deleted: 214, failed: 0, readable: true, remaining: 0 } };
+    },
+  } });
+  const h = await mount(t, api);
+  await confirmDelete(h, "history");
+  assert.equal(h.dialog().phase, "review");
+  assert.equal(h.dialog().snapshot.total, 1482, "counts need not change");
+  assert.equal(h.dialog().snapshot.audioIdentity, newAudioIdentity);
+  assert.equal(h.dialog().snapshot.historyIdentity, newHistoryIdentity);
+  assert.deepEqual(h.toasts, []);
+  await React.act(async () => h.dialog().onConfirm());
+  await settle();
+  assert.deepEqual(sent, [
+    { total: 1482, files: 214, audioIdentity: AUDIO_IDENTITY, historyIdentity: HISTORY_IDENTITY },
+    { total: 1482, files: 214, audioIdentity: newAudioIdentity, historyIdentity: newHistoryIdentity },
+  ]);
+  assert.equal(h.dialog(), null);
 });
 
 test("models: typed per-family outcomes; selections stay after a partial delete", async (t) => {
@@ -27937,7 +28344,7 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
    export type ModelFamily = "whisper" | "parakeet" | "llm";
    export const MODEL_FAMILIES: readonly ModelFamily[] = ["whisper", "parakeet", "llm"];
 
-   export interface AudioSnapshot { kind: "audio"; files: number; bytes: number; directory: string }
+   export interface AudioSnapshot { kind: "audio"; files: number; bytes: number; directory: string; audioIdentity: string }
    export interface HistorySnapshot {
      kind: "history";
      total: number;
@@ -27946,6 +28353,8 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
      files: number;
      bytes: number;
      directory: string;
+     audioIdentity: string;
+     historyIdentity: string;
    }
    export interface ModelsSnapshot { kind: "models"; count: number; bytes: number; directory: string | null }
    export type StorageSnapshot = AudioSnapshot | HistorySnapshot | ModelsSnapshot;
@@ -27977,6 +28386,8 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
    const isObject = (value: unknown): value is Loose => !!value && typeof value === "object";
    const isCount = (value: unknown): value is number =>
      typeof value === "number" && Number.isInteger(value) && value >= 0;
+   const isIdentity = (value: unknown): value is string =>
+     typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 
    export function errorText(error: unknown): string {
      if (error instanceof Error) return error.message;
@@ -27995,9 +28406,9 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
      if (isObject(audioRaw) && typeof audioRaw.error === "string") {
        audio = { status: "error", error: audioRaw.error };
      } else if (isObject(audioRaw)) {
-       const { files, bytes, directory } = audioRaw;
-       if (isCount(files) && isCount(bytes) && typeof directory === "string") {
-         audio = { status: "ready", snapshot: { kind: "audio", files, bytes, directory } };
+       const { files, bytes, directory, audioIdentity } = audioRaw;
+       if (isCount(files) && isCount(bytes) && typeof directory === "string" && isIdentity(audioIdentity)) {
+         audio = { status: "ready", snapshot: { kind: "audio", files, bytes, directory, audioIdentity } };
        }
      }
 
@@ -28008,12 +28419,12 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
        // History deletion also deletes every recording, so it can't be counted without them.
        history = { status: "error", error: `audio: ${audio.error}` };
      } else if (isObject(historyRaw) && audio.status === "ready") {
-       const { total, discarded, softDeleted } = historyRaw;
-       if (isCount(total) && isCount(discarded) && isCount(softDeleted)) {
-         const { files, bytes, directory } = audio.snapshot;
+       const { total, discarded, softDeleted, historyIdentity } = historyRaw;
+       if (isCount(total) && isCount(discarded) && isCount(softDeleted) && isIdentity(historyIdentity)) {
+         const { files, bytes, directory, audioIdentity } = audio.snapshot;
          history = {
            status: "ready",
-           snapshot: { kind: "history", total, discarded, softDeleted, files, bytes, directory },
+           snapshot: { kind: "history", total, discarded, softDeleted, files, bytes, directory, audioIdentity, historyIdentity },
          };
        }
      }
@@ -28188,17 +28599,18 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
    }
 
    // The audio row is Plan 02's useAudioStorageUsage state (spec §5.6): unavailable
-   // is an error row, never zero. Only the folder path comes from main's preview.
+   // is an error row, never zero. Main must also provide a valid folder identity.
+   // Display may use hook counts; confirmation uses load()'s main snapshot.
    export function audioRowFromUsage(
      usage: AudioUsage,
      preview: RowState<AudioSnapshot>
    ): RowState<AudioSnapshot> {
      if (usage.status === "loading") return { status: "loading" };
      if (usage.status === "unavailable") return { status: "error", error: "unavailable" };
-     const directory = preview.status === "ready" ? preview.snapshot.directory : "";
+     if (preview.status !== "ready") return preview;
      return {
        status: "ready",
-       snapshot: { kind: "audio", files: usage.fileCount, bytes: usage.totalBytes, directory },
+       snapshot: { ...preview.snapshot, files: usage.fileCount, bytes: usage.totalBytes },
      };
    }
    ```
@@ -28629,8 +29041,8 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
        if (s.kind === "models") return await deleteModels(api, s);
        const storage = api?.storage;
        if (!storage) throw new Error("unavailable in this window");
-       if (s.kind === "audio") return outcomeFromResult(await storage.deleteAudio({ files: s.files }));
-       return historyOutcomeFromResult(await storage.deleteHistory({ total: s.total, files: s.files }));
+       if (s.kind === "audio") return outcomeFromResult(await storage.deleteAudio({ files: s.files, audioIdentity: s.audioIdentity }));
+       return historyOutcomeFromResult(await storage.deleteHistory({ total: s.total, files: s.files, audioIdentity: s.audioIdentity, historyIdentity: s.historyIdentity }));
      } catch (error) {
        return outcomeFromRejection(error, s.kind);
      }
@@ -28853,7 +29265,7 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
        "failed": {
          "partial": "Deleted {{deleted}} of {{total}}. {{remaining}} could not be deleted.",
          "unknown": "Loqui couldn't confirm what was deleted. Count again before you try again.",
-         "stale": "The numbers changed after you opened this. Review the new counts before deleting.",
+         "stale": "The stored items changed after you opened this, even if the counts stayed the same. Review the current items and counts before deleting.",
          "historyRows": "Transcripts: deleted {{deleted}} of {{total}}.",
          "historyAudio": "Audio files: deleted {{deleted}} of {{total}}. {{remaining}} could not be deleted.",
          "historyAudioUnknown": "Audio files: Loqui couldn't confirm how many were deleted."
@@ -33177,6 +33589,7 @@ createCredentialAuthority({ env /* environmentManager */, codexHome, fs, broadca
 // CredentialError = "unknownCredential" | "unknownField" | "invalidValue" | "persistFailed" | "unsupported" | "notStored" | "reset"
 ```
 - **Reset contract (R2-2).** Once `reset` starts, any `save`/`remove` resolves `{ ok: false, error: "reset" }`, and any `undoRemove` resolves `{ ok: false, reason: "unknown" }`. That holds for calls made during the reset and for calls queued or running when it began. A save, removal or Undo whose write completes after the reset began resolves as a failure, never as a success. `cleanup-app` calls `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())`, and that is the only erase (Task 18 guard).
+- **Environment reset boundary.** `clearAllPersistedData()` fences the module-wide `.env` queue, invalidates queued writes, drains the active writer, then awaits every deletion (`.env`, `.env.tmp`, encrypted directory), including when one fails. Invalidated saves never reload dotenv. Concurrent authority resets reject before touching the active fence. Task 2's deferred real-environment tests pin these cases.
 - **Committed-state contract (R2-4).** While a slot is being written, `present`, `list`, `fields` and broadcasts use the snapshot taken just before the write. A broadcast happens only after a successful write. A failed write restores `process.env` (`persistSecret`).
 - **Slots.** The 16 `CredentialId`s plus the seven custom slots (`CustomCredentialSlot`). `list()` reports only the 16 ids, and events are broadcast for every slot. Pair credentials (`corti:speech`: `clientId` + `clientSecret`; `bedrock`: `accessKeyId` + `secretAccessKey` + `sessionToken`) are removed and restored whole. No field can be removed on its own.
 
@@ -33475,7 +33888,7 @@ Undo is a toast action when a `ToastContext` exists. The action captures the tok
 
 ### Storage ops
 
-`storage-preview` → `{ audio: { files, bytes, directory } | { error }, history: { total, discarded, softDeleted, withAudio } | { error }, models handled in renderer lists }`; `storage-delete-audio` → `{ ok: boolean; deleted: number; failed: number; readable: boolean; remaining: number | null; errors: string[] }`; `storage-delete-history` → `{ ok; deleted; remaining; errors; audio: { deleted; failed; readable; remaining } }`; the count predicate and the delete predicate are the SAME functions (audio = every `.webm` in audioDir; history = every row in `transcriptions` plus every `.webm` — i.e. history deletion also deletes all audio and the confirmation says so and counts both). Unreadable counts are errors, never zero. Built on Plan 02's stored-audio contract (spec §5.6): `getStorageUsage()` → `{ fileCount, totalBytes, readable }` (derived from the new `listStoredAudio()`), `deleteAllAudio()` → `{ deleted, failed, readable }` (used by `cleanup-app`), `remainingAudioIds()` and `clearFlagsForDeletedAudio()` (used by `storageOps`), renderer `resolveClearAudioOutcome` (gates audio success in `storageMath`) and `useAudioStorageUsage` (kept unchanged with its tests; it feeds the Storage list's audio row count, bytes and unavailable state through `audioRowFromUsage`). `failed` and `readable` are kept end to end; an unreadable zero is never "cleared". Only Plan 02's `AudioStorageRow` is retired, with its markup cases ported (Task 14).
+`storage-preview` → `{ audio: { files, bytes, directory, audioIdentity } | { error }, history: { total, discarded, softDeleted, withAudio, historyIdentity } | { error }, models handled in renderer lists }`; deletion requests require the reviewed counts and opaque SHA-256 digests (`{ files, audioIdentity }` for audio; `{ total, files, audioIdentity, historyIdentity }` for history). Missing/malformed identities are `invalid-request`; any count or identity change, including equal-count transcript replacement, audio rename or same-name overwrite/replacement, is `stale` and touches nothing. Main hashes sorted full transcript rows and sorted audio names plus stat identity/version metadata; only digests cross IPC. History recomputes both inside its synchronous transaction before clearing rows/audio. A stat failure makes identity unknown and blocks Storage confirmation/deletion while Plan 02's count/readable behavior stays unchanged; `storage-delete-audio` → `{ ok: boolean; deleted: number; failed: number; readable: boolean; remaining: number | null; errors: string[] }`; `storage-delete-history` → `{ ok; deleted; remaining; errors; audio: { deleted; failed; readable; remaining } }`; the count predicate and the delete predicate are the SAME functions (audio = every `.webm` in audioDir; history = every row in `transcriptions` plus every `.webm` — i.e. history deletion also deletes all audio and the confirmation says so and counts both). Unreadable counts are errors, never zero. Built on Plan 02's stored-audio contract (spec §5.6): `getStorageUsage()` → `{ fileCount, totalBytes, readable }` (derived from the new `listStoredAudio()`), `deleteAllAudio()` → `{ deleted, failed, readable }` (used by `cleanup-app`), `remainingAudioIds()` and `clearFlagsForDeletedAudio()` (used by `storageOps`), renderer `resolveClearAudioOutcome` (gates audio success in `storageMath`) and `useAudioStorageUsage` (kept unchanged with its tests; it feeds the Storage list's audio row count, bytes and unavailable state through `audioRowFromUsage`). `failed` and `readable` are kept end to end; an unreadable zero is never "cleared". Only Plan 02's `AudioStorageRow` is retired, with its markup cases ported (Task 14).
 
 ### Tokens (CCR to Plan 01 tokens, implemented by T5)
 

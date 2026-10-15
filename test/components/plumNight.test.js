@@ -50,3 +50,17 @@ test("magenta marks active navigation in Plum Night and clears 3:1", async () =>
   assert.equal(dark["--color-nav-marker"], "#e6007a");
   assert.ok(contrastRatio(dark["--color-nav-marker"], dark["--color-surface-window"]) >= 3);
 });
+
+test("Plum Night status fills and status text meet 4.5:1", async () => {
+  const { contrastRatio } = await load();
+  const { dark } = resolveTokens(css);
+  for (const role of ["accent", "destructive", "success", "warning", "info"]) {
+    const ratio = contrastRatio(dark[`--color-${role}-foreground`], dark[`--color-${role}`]);
+    assert.ok(ratio >= 4.5, `${role}-foreground on ${role} is ${ratio}:1`);
+  }
+  for (const role of ["destructive", "success", "warning", "info"])
+    for (const surface of ["--color-background", "--color-surface-raised"]) {
+      const ratio = contrastRatio(dark[`--color-${role}`], dark[surface]);
+      assert.ok(ratio >= 4.5, `${role} text on ${surface} is ${ratio}:1`);
+    }
+});

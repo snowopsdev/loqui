@@ -109,10 +109,10 @@ Regenerate with `npm run assets:generate` and verify with `npm run assets:check`
 
 ## Colors
 
-The interface palette pairs a vivid orange action color with fuchsia highlights over neutral light and Plum Night dark themes. These functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor controls or semantic states.
+The interface palette pairs a vivid orange action color with fuchsia highlights over neutral light and Plum Night dark themes. The light-theme functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor light-theme controls or semantic states. The dark theme deliberately adopts the guide's Deep Plum family as Plum Night.
 
 ### Primary
-- **Signal Orange** (#FF5A1F): Primary actions, active navigation markers, selection, and focus accents.
+- **Signal Orange** (#FF5A1F): Primary actions, selection, and focus accents; marks active navigation in the light theme (Plum Night uses magenta for the active marker).
 - **Orange Highlight** (#FF6A36): The brighter top stop in the primary button and brand-surface gradient.
 
 ### Secondary
@@ -243,7 +243,7 @@ The persistent dictation control is a compact bordered capsule with a waveform a
 ## Do's and Don'ts
 
 ### Do:
-- **Do** use Signal Orange for primary actions and current navigation state.
+- **Do** use Signal Orange for primary actions, and for current navigation state in the light theme; in Plum Night, magenta marks current navigation.
 - **Do** use Electric Fuchsia as a supporting accent, keeping the two roles distinct.
 - **Do** preserve the Plum Night surface steps and soft rims when adding dark-theme surfaces.
 - **Do** use compact controls, clear labels, and the existing visible focus treatment.

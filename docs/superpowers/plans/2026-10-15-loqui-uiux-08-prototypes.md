@@ -29,34 +29,29 @@ Positions persist in local SQLite, owned by main. WS-M4 (confidence typography) 
 
 ## Contract change requests
 
-Spec §5 says only the owning plan may change a contract. These requests go to the owner and the owning plans. Plan 08 codes against the assumption stated in each one, so execution can proceed if the request is accepted as written.
+All six requests are settled in the consolidated spec (commit `091d198`). The spec's shapes are binding, and this plan codes against them.
 
-1. **CCR-1, new §5.5 "Space surface" (owner: Plan 06; consumer: Plan 08).** Plan 06 reshapes the sidebar and Spaces (WS-R1 B). Plan 08 needs a stable place to mount a per-Space view switch.
-   - **Request:** Plan 06 publishes, as a contract, the component that renders a Space's root content and a `viewSwitch` slot in its header. Alternatively, it keeps `ContainerOverview` (`src/components/notes/overview/ContainerOverview.tsx`) with its current props `{ space, folder, onOpenNote, onNewNote, onAddExisting }`, rendered by `PersonalNotesView` when no note is open.
-   - **Assumption used in Task 8:** the latter.
-2. **CCR-2, new §5.6 "Entity mention links" (owner: Plan 06; consumer: Plan 08).** WS-R7 B (universal mentions) lets notes mention notes, meetings and dictations. The Table draws connectors from these links.
-   - Plan 06 (its universal-mentions task) defines the scheme `<kind>:<positiveInt>`, stored as `[@Label](note:17)`, with kinds `note | meeting | dictation | folder`. It also defines `parseMentionHref(href): { kind; entityId: string | null; email: string | null } | null` in `src/utils/mentionMarkdown.ts`.
-   - **Request:** Plan 06 publishes the scheme and `parseMentionHref` in spec §5.
-   - **Plan 08's use:** Task 4 wraps it as `parseEntityHref` in `src/components/table/tableEdges.ts`:
+1. **CCR-1, Space surface: applied in spec §5.9 (091d198).** Plan 06 keeps `ContainerOverview` (`src/components/notes/overview/ContainerOverview.tsx`) with its props unchanged: `{ space, folder, onOpenNote, onNewNote, onAddExisting }`. `PersonalNotesView` renders it as the Space root whenever no note is open. Task 8 mounts the view switch in its header.
+2. **CCR-2, entity mention links: applied in spec §5.10 (091d198).**
+   - The href scheme is `<kind>:<positiveInt>`, with kind `note | meeting | dictation | folder`. It is stored as `[@Label](note:17)`.
+   - `parseMentionHref(href: string | null | undefined): Omit<MentionEntity, "label"> | null` comes from `src/utils/mentionMarkdown.ts`.
+   - Task 4 wraps it as `parseEntityHref` in `src/components/table/tableEdges.ts`:
      - `note` and `meeting` map to a note card;
      - `dictation` maps to a dictation card;
      - `folder` and `person` map to nothing.
-3. **CCR-3, new §5.7 "Labs flags" (owner: Plan 08; consumers: any later prototype).**
-   - **Plan 08 produces:**
-     - the boolean setting `labsTable` in `src/stores/settingsStore.ts` (`BOOLEAN_SETTINGS`, `readBoolean`, `createBooleanSetter`);
-     - a `LabsSettings` panel (`src/components/settings/LabsSettings.tsx`) rendered in Settings → System.
-   - **Rule:** a Labs flag defaults to `false`, gates both UI and any request change, and turning it off restores today's behaviour exactly. A later prototype adds its own flag and row to the same panel.
-4. **CCR-4, resolved by D11 (WS-M4 on hold).** The owner chose not to ship confidence typography without per-word alternatives. See the "Deferred: WS-M4" appendix.
-5. **CCR-5, resolved by D12 (approved as written).** The Table's selection action is "Remove from table": the card returns to the Inbox tray and nothing is ever deleted.
-   - Summarise and Ask about these reuse the Space's existing chat (`useContainerChat`). The answer becomes a chat-answer card linked to its sources.
-   - There is no new AI request path, so Sealed mode (Plan 07, D6) covers these actions without changes.
-6. **CCR-6, publish the route chips (owner: Plan 03; consumers: Plan 08, and any surface that discloses a route).** The Table discloses the chat route with Plan 03's two chips:
+3. **CCR-3, Labs flags: applied in spec §5.11 (091d198).** Plan 08 owns the contract.
+   - It provides `labsTable` in `src/stores/settingsStore.ts` (`BOOLEAN_SETTINGS`, `readBoolean`, `createBooleanSetter`) and its row in `LabsSettings` (`src/components/settings/LabsSettings.tsx`), under Settings → System.
+   - A Labs flag defaults to `false` and gates both the UI and any change to requests.
+   - Later prototypes add their own flag and row.
+4. **CCR-4, word alternatives: superseded by D11 (spec §2).** WS-M4 is on hold until per-word alternatives exist. See the "Deferred: WS-M4" appendix.
+5. **CCR-5, Remove from table: superseded by D12 (spec §2).** "Remove from table" returns the card to the Inbox tray and nothing is ever deleted.
+   - Summarise and Ask about these reuse the Space's existing chat (`useContainerChat`), so Sealed mode (§5.4) covers them without changes.
+   - The answer becomes a chat-answer card linked to its sources.
+6. **CCR-6, route chips: applied in spec §5.1 (091d198).** Both chips are published in `src/components/settings/routing/RouteChips.tsx` with exactly the props this plan uses:
    - `RouteDestinationChip(props: { route: Pick<ResolvedRoute, "locality" | "providerId" | "model">; className?: string })`;
    - `RouteStateChip(props: { state: RouteState; className?: string })`.
 
-   They live in `src/components/settings/routing/RouteChips.tsx`.
-   - **Request:** Plan 03 lists them, and `ResolvedRoute.providerId`, in spec §5.1.
-   - **If declined:** Plan 08 renders `LocalityRing` plus `providerDisplayLabel(providerId, t)` itself, in a local `TableRouteChip` with the same props.
+   Any surface that discloses a route uses these. The Table builds no chip of its own.
 
 ## Review response (independent review 2026-10-15, Codex gpt-6.1-sol xhigh: 0 Critical, 7 Important, 3 Minor)
 
@@ -64,14 +59,14 @@ All ten findings are closed and none is disputed. Five of them concerned WS-M4. 
 
 | Finding | Resolution |
 |---|---|
-| I4 Table AI actions lack route disclosure; Labs copy over-promises | Task 7: the toolbar, the Ask panel and the selection bar show Plan 03's `RouteDestinationChip`, which renders `LocalityRing` and `providerDisplayLabel(providerId, t)`, from `useResolvedRoute("chat")` before anything is sent. A non-ready route shows `RouteStateChip` and disables Summarise and Ask. One test renders the real chip. Task 1: the Labs copy says card positions stay on the device and Summarise and Ask use the chat provider. Per-answer route stamps remain Plan 06's, in `ChatView`. |
+| I4 Table AI actions lack route disclosure; Labs copy over-promises | Task 7: the toolbar, the Ask panel and the selection bar show Plan 03's `RouteDestinationChip`, which renders `LocalityRing` and `providerDisplayLabel(providerId, t)`, from `useResolvedRoute("chat")` before anything is sent. A non-ready route shows `RouteStateChip` and disables Summarise and Ask. One test renders the real chip. Task 1: the Labs copy says card positions stay on the device and Summarise and Ask use the chat provider. Per-answer route stamps remain Plan 06's, in `ChatView`. The chips are the spec §5.1 published components (CCR-6). |
 | I6 Ask uses the live selection; large selections are silently cut | Tasks 4 and 7: `pinSelection` freezes the selection's keys and context when Ask or Summarise starts. The Ask panel shows "Pinned cards: N". Selection AI actions are limited to 12 with an on-bar explanation, and `buildSelectionContext` never truncates. Board context names the total and says what it left out. |
 | I7 Acceptance features missing | Card resize is Task 9, with a corner handle, Alt+arrows, clamped and snapped sizes, `w`/`h` persisted, and cancel restoring the old size. The raw versus cleaned diff belonged to WS-M4 and is deferred with it. |
 | M1 Preview ignores `placedKeys` | Task 8: `src/preview/previewTable.ts` is an in-memory store that honours `placedKeys`, hide and links, with a place → read → hide → read test. |
 | M3 No per-frame performance evidence; hard-coded 380 ms | Task 6: pointer moves are coalesced per animation frame, and the snap uses `--motion-slow` (a test forbids literal `ms` in Table CSS). Task 7: handlers are stable. Task 10 Step 4 adds a 500-card trace with pass criteria. |
 | I1, I2, I3, I5, M2 (WS-M4) | On hold with WS-M4 (D11). The appendix records each fix: positional alignment, the `raw_text` trigger, the two-stage gate, Plan 06 token-guard compliance, and the storage budget. I5 no longer applies to this plan, because Plan 08 no longer touches `TranscriptionItem.tsx`. |
 
-Execution order: Plan 08 runs after Plans 03 and 06 are implemented. Before starting, check that `useResolvedRoute`, `RouteDestinationChip`, `RouteStateChip`, `parseMentionHref` and `--color-ai-text` are on `main`.
+Execution order: Plan 08 runs after Plans 03 and 06 are implemented. Before starting, check that `useResolvedRoute` (§5.1), `RouteDestinationChip` and `RouteStateChip` (§5.1), `parseMentionHref` (§5.10), `--color-ai-text` (§5) and Plan 06's `test/helpers/workspaceTokenGuard.js` (§5.8) are on `main`.
 
 ## Owner decisions
 
@@ -85,7 +80,7 @@ Execution order: Plan 08 runs after Plans 03 and 06 are implemented. Before star
 
 These were checked against Plan 06's plan (`snowopsdev/plan/uiux-06-workspace`). Plan 08 executes after Plan 06 merges. Before Task 1, the executor runs `git log --oneline main -- src/components/notes src/hooks/useContainerChat.ts` and reads Plan 06's plan. Where an assumption below is false, the affected task says what to do.
 
-- **A1.** The Space root overview is still `ContainerOverview`, with the props above (CCR-1). There is still exactly one Space, "Personal" (`spaces.kind CHECK (kind = 'private')`, `src/helpers/localDatabaseSchema.js:276`), but all Plan 08 code is keyed by `space_id` and works unchanged with more Spaces.
+- **A1.** The Space root overview is `ContainerOverview`, with its props unchanged (spec §5.9). There is still exactly one Space, "Personal" (`spaces.kind CHECK (kind = 'private')`, `src/helpers/localDatabaseSchema.js:276`), but all Plan 08 code is keyed by `space_id` and works unchanged with more Spaces.
 - **A2.** Plan 06 does not touch `useContainerChat`. `src/hooks/useContainerChat.ts` still returns `{ messages, agentState, sendMessage, cancelStream, conversations, activeConversationId, switchConversation, startNewChat }`, and `OverviewAskSection` still takes the props passed at `ContainerOverview.tsx:129-139`.
 - **A3.** Plan 06 adds `--color-ai-text` (CR-06-4), which Task 7 uses for the machine-authored Summarise label.
 - **A4.** Tokens from Plan 01 exist: `--motion-*`, `--color-agent-brand`, and the hex dark tokens in `.dark`. Helpers exist: `src/utils/contrast.ts` (`contrastRatio`) and `test/helpers/harness/cssTokens.js` (`resolveTokens`).
@@ -125,8 +120,8 @@ Upgrade: an existing profile gains all three tables on next launch, and Task 2 t
    - Task 7's board hook reloads on note and transcription lifecycle events and applies only the placements main accepted.
 3. **Hostile or garbage placements over IPC.** The renderer is not trusted: an unknown Space, ids that do not exist, non-integer ids, `NaN` coordinates, batches over 500, and links to missing entities must be refused without writing.
    - Pinned in Task 2 ("only real entities can be placed", "links and hides to missing entities or Spaces are refused", "the table refuses a 501st placed card").
-4. **AI actions on a route that cannot run, or with too many cards.** If the chat route needs a key, is sealed, or is unreachable, Summarise and Ask must say why and stay disabled. More than 12 selected cards must disable them with an explanation, never silently truncate.
-   - Pinned in Task 4 ("pinning freezes up to 12 selected items and refuses more") and Task 7 ("a route that cannot run disables the AI actions and says why", "more than 12 selected cards disables AI actions").
+4. **AI actions on a route that cannot run, or with too many cards.** If the chat route is still `unknown` (§5.1), needs a key, is sealed (`remote` or `network`, §5.4), or is unreachable, Summarise and Ask must say why and stay disabled. More than 12 selected cards must disable them with an explanation, never silently truncate.
+   - Pinned in Task 4 ("pinning freezes up to 12 selected items and refuses more") and Task 7. The Task 7 tests are "a route that cannot run disables the AI actions and says why", "an unknown route … is never treated as ready", "a sealed network route disables the AI actions too" and "more than 12 selected cards disables AI actions".
 5. **A cancelled or contested pointer.** A system gesture, lost capture, or a second finger must never commit a half-finished drag, pan or resize.
    - Pinned in Task 5 ("a cancelled pointer restores positions and viewport", and the resize cancel in Task 9) and Task 6 (one owning pointer id).
 
@@ -1516,13 +1511,13 @@ Expected: FAIL. The modules are not found.
 
 - [ ] **Step 3: Implement**
 
-Confirm Plan 06's parser is on `main`: `grep -n "export function parseMentionHref" src/utils/mentionMarkdown.ts`. Then create `src/components/table/tableEdges.ts`:
+Confirm Plan 06's parser (spec §5.10) is on `main`: `grep -n "export function parseMentionHref" src/utils/mentionMarkdown.ts`. Then create `src/components/table/tableEdges.ts`:
 
 ```ts
 import type { TableEntityRef } from "../../types/table";
 import { parseMentionHref } from "../../utils/mentionMarkdown";
 
-// Adapter over Plan 06's universal mention hrefs (CCR-2). Meetings are notes on
+// Adapter over the spec §5.10 entity mention hrefs. Meetings are notes on
 // the Table; folders and people are not cards, so they draw no connector.
 export function parseEntityHref(href: string): TableEntityRef | null {
   const mention = parseMentionHref(href);
@@ -1534,15 +1529,7 @@ export function parseEntityHref(href: string): TableEntityRef | null {
 }
 ```
 
-If the grep finds nothing (Plan 06 shipped without its universal-mentions task), use this body instead and keep the same tests:
-
-```ts
-export function parseEntityHref(href: string): TableEntityRef | null {
-  const match = /^(note|meeting|dictation):([1-9]\d*)$/.exec(href.trim());
-  if (!match) return null;
-  return { type: match[1] === "dictation" ? "dictation" : "note", id: Number(match[2]) };
-}
-```
+Spec §5.10 makes `parseMentionHref` binding, so there is no fallback parser. If the grep finds nothing, Plan 06 has not merged yet; stop and wait for it.
 
 Create `src/components/table/tableModel.ts`:
 
@@ -3047,6 +3034,19 @@ test("a route that cannot run disables the AI actions and says why", async (t) =
   assert.equal(disabled(html, "table.selection.group"), false, "grouping is local and stays available");
 });
 
+test("an unknown route (§5.1: not confirmed yet) is never treated as ready", async (t) => {
+  const html = await bar(t, { route: { ...READY, state: { status: "unknown" } } });
+  assert.match(html, /data-route-state="unknown"/);
+  assert.doesNotMatch(html, /data-route-chip=/);
+  assert.ok(disabled(html, "table.selection.summarise") && disabled(html, "table.selection.ask"));
+});
+
+test("a sealed network route disables the AI actions too (§5.4)", async (t) => {
+  const html = await bar(t, { route: { ...READY, locality: "network", providerId: null, state: { status: "unreachable", detail: "sealed" } } });
+  assert.match(html, /data-route-state="unreachable"/);
+  assert.ok(disabled(html, "table.selection.summarise") && disabled(html, "table.selection.ask"));
+});
+
 test("more than 12 selected cards disables AI actions and explains the limit", async (t) => {
   const html = await bar(t, { count: 13 });
   assert.ok(disabled(html, "table.selection.summarise") && disabled(html, "table.selection.ask"));
@@ -3081,7 +3081,7 @@ test("TableView composes toolbar, canvas, inbox and a live status region", async
                    activeConversationId: null, switchConversation: async () => {}, startNewChat() {} };
         }`,
       "/overview/OverviewAskSection": `export function OverviewAskSection() { return null; }`,
-      "/lib/routes": `export const useResolvedRoute = () => (${JSON.stringify({ id: "chat", kind: "text", locality: "remote", provider: "OpenAI", providerId: "openai", model: "gpt-x", state: { status: "ready" }, sends: "x", settingsPath: "llms/chat" })});`,
+      "/lib/routes": `export const useResolvedRoute = () => (${JSON.stringify({ id: "chat", kind: "text", locality: "remote", provider: "OpenAI", providerId: "openai", host: "api.openai.com", model: "gpt-x", state: { status: "ready" }, sends: "x", settingsPath: "llms" })});`,
       ...CHIP_STUBS,
     }
   );
@@ -3324,7 +3324,8 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
 
    // CCR-5: nothing here deletes content. Summarise and Ask go through the
    // Space's own chat; the destination (LocalityRing + provider) is on the bar
-   // before anything is sent, and a route that cannot run disables them.
+   // before anything is sent. Anything but "ready" (including §5.1's "unknown"
+   // and §5.4's sealed state) shows RouteStateChip and disables them.
    export function TableSelectionBar({ count, busy, route, onSummarise, onAsk, onGroup, onRemove }: TableSelectionBarProps) {
      const { t } = useTranslation();
      const tooMany = count > SELECTION_AI_LIMIT;
@@ -3925,9 +3926,45 @@ test("folders never offer the Table, and a junk stored value reads as List", asy
 
 With `React.lazy`, SSR through `renderToStaticMarkup` cannot resolve a lazy component. For this reason `ContainerOverview` imports `TableView` **statically** when it is rendered in tests. To keep the main bundle lean, `TableView` is lazy-loaded one level up instead, in `ControlPanel`'s existing lazy `PersonalNotesView` chunk (`ControlPanel.tsx:72-80`). Nothing extra is needed: `ContainerOverview` is already inside that chunk.
 
+Create `test/components/tableTokenGuard.test.js`. Spec §5.8 lets Plan 08's new files opt in to Plan 06's workspace token guard, and this test does that. It also scans the `TableViewSwitch` that Task 8 adds to `ContainerOverview.tsx`. Only that function is scanned, so the guard judges Plan 08's own lines:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const { scanFiles, scanText } = require("../helpers/workspaceTokenGuard");
+
+const repoRoot = path.join(__dirname, "../..");
+// Same repo-relative path form as WORKSPACE_GUARDED_FILES (spec §5.8).
+const TABLE_FILES = [
+  "src/components/settings/LabsSettings.tsx",
+  "src/components/table/TableCanvas.tsx",
+  "src/components/table/TableCard.tsx",
+  "src/components/table/TableInbox.tsx",
+  "src/components/table/TableSelectionBar.tsx",
+  "src/components/table/TableView.tsx",
+];
+
+test("The Table's components pass the workspace token guard (§5.8 opt-in)", () => {
+  assert.deepEqual(scanFiles(TABLE_FILES), []);
+});
+
+test("the List | Table switch added to ContainerOverview passes the guard", () => {
+  const file = "src/components/notes/overview/ContainerOverview.tsx";
+  const src = fs.readFileSync(path.join(repoRoot, file), "utf8");
+  const start = src.indexOf("export function TableViewSwitch");
+  assert.ok(start > -1, "TableViewSwitch exists");
+  const fn = src.slice(start, src.indexOf("\n}\n", start) + 2);
+  assert.deepEqual(scanText(file, fn), []);
+});
+```
+
+Plan 08 needs no opt-out comments. If the guard ever flags a Plan 08 line, change the class to the guard's replacement (spec §5.8, Plan 06 CR-06-6). Do not add `token-guard: allow` without a stated rule and reason, which the PR body must then list.
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- test/components/containerOverviewTable.test.js`
+Run: `npm test -- test/components/containerOverviewTable.test.js test/components/tableTokenGuard.test.js`
 Expected: FAIL. With Labs on, there is no `table.view.label` group.
 
 - [ ] **Step 3: Implement**
@@ -3962,7 +3999,7 @@ Expected: FAIL. With Labs on, there is no `table.view.label` group.
                onClick={() => onChange(v)}
                className={cn(
                  "h-7 rounded-full px-3 text-xs font-medium",
-                 value === v ? "bg-background text-foreground shadow-sm" : "text-foreground/60 hover:text-foreground"
+                 value === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                )}
              >
                {t(`table.view.${v}`)}
@@ -4149,13 +4186,13 @@ Expected: FAIL. With Labs on, there is no `table.view.label` group.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/containerOverviewTable.test.js test/components/previewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js test/components/tableView.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Run: `npm test -- test/components/containerOverviewTable.test.js test/components/tableTokenGuard.test.js test/components/previewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js test/components/tableView.test.js && npm run typecheck && npm run lint && npm run i18n:check`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/notes/overview/ContainerOverview.tsx src/preview/browserPreview.ts src/preview/previewTable.ts test/components/previewTable.test.js DESIGN.md docs/PRIVACY.md test/components/containerOverviewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js
+git add src/components/notes/overview/ContainerOverview.tsx src/preview/browserPreview.ts src/preview/previewTable.ts test/components/previewTable.test.js test/components/tableTokenGuard.test.js DESIGN.md docs/PRIVACY.md test/components/containerOverviewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js
 git commit -m "feat(notes): List | Table switch for a space when Labs is on"
 ```
 
@@ -4435,7 +4472,7 @@ npm run i18n:check
 npm run format:check
 ```
 
-Expected: everything passes. Plan 06's `test/components/workspaceTokenAdoption.test.js` must pass unchanged. Plan 08 creates no files in its scope, and the Table's own CSS test forbids literal durations. Any failure is a regression in this branch; fix the code, never the guard.
+Expected: everything passes. Plan 06's `test/components/workspaceTokenAdoption.test.js` must pass unchanged (§5.8). Plan 08's own files opt in through `tableTokenGuard.test.js` (Task 8), and the Table's CSS test forbids literal durations. Any failure is a regression in this branch; fix the code, never the guard.
 
 - [ ] **Step 2: Flag-off regression check**
 
@@ -4466,9 +4503,10 @@ Screenshot each of these for the PR:
    - Click into the Ask box, then pan or zoom with the wheel: focus stays in the Ask box.
    - Reopen the Table with its first card scrolled off screen, then Tab into the canvas and press an arrow: focus lands on a visible card.
 4. **RTL** (UI language Arabic). The Inbox sits at the inline start (right), the selection bar is centred, and the canvas world is not mirrored.
-5. **Sealed mode** (if Plan 07 has merged). Turn Sealed on with a remote chat route:
+5. **Sealed mode** (if Plan 07 has merged). Turn Sealed on, once with a remote chat route and once with a network (self-hosted on the LAN) chat route. Spec §5.4 blocks both:
    - Summarise or Ask is blocked by main exactly as the Space's Ask box is, and no new path bypasses it.
    - The selection bar shows the route's sealed state chip, and both AI buttons are disabled.
+   - While route facts are still loading (`unknown`), the chip says so and the buttons stay disabled.
 6. **Route disclosure.**
    - With a remote chat provider, the toolbar, the Ask panel and the selection bar all show the dashed remote `LocalityRing` and the provider's localised name before you click Summarise.
    - Switch the chat route to a local model: the solid device ring replaces it.

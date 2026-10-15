@@ -4244,5 +4244,10 @@
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
+  },
+  "locality": {
+    "device": "على هذا الجهاز",
+    "network": "على خادمك",
+    "remote": "يُرسل إلى {{provider}}"
   }
 }

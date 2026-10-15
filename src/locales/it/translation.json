@@ -4122,5 +4122,10 @@
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
+  },
+  "locality": {
+    "device": "Su questo dispositivo",
+    "network": "Sul tuo server",
+    "remote": "Inviato a {{provider}}"
   }
 }

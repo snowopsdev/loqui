@@ -42,7 +42,7 @@ Every Important finding is closed. Minor findings M01–M03 are closed, and so i
 
 | # | Finding | Fix | Pinned in |
 |---|---|---|---|
-| I01 | Palette seed inherits an armed send queue | `ChatInput` applies a `seed` during render: it replaces the draft, disarms `queued` when `resetQueue`, and bumps a draft generation so a refused send that started earlier cannot restore its text over the seed. ChatView `new`/`open` requests reset the queue; `focus` keeps it. | Task 4, `chatComposerSeed.test.js` (mounted): "a palette seed disarms a queued draft…", "a refused send that started before a new chat…", "a focus-only request keeps…", "a seed present at mount…" |
+| I01 | Palette seed inherits an armed send queue | `ChatInput` applies a `seed` during render: it replaces the draft, disarms `queued` when `resetQueue`, and bumps a draft generation so a refused send that started earlier cannot restore its text over the seed. ChatView `new`/`open` requests reset the queue; `focus` keeps it. | Task 4; superseded by I01-R2 below (the cases now live in Plan 02's `chatSends.test.js`) |
 | I02 | Stop during pinned-context loading starts a request anyway | After `await buildPinnedContext(...)` the stream rechecks `cancelled() \|\| !mountedRef.current` before any provider call. | Task 22, `useChatStreamingCancellation.test.js` (deferred lookup on the real hook): Stop, unmount and a superseding send never reach the provider |
 | I03 | Suggestion helper does not typecheck | `suggestionPopup.ts` is constrained `P extends object`, with an explicit `SuggestionPopupComponent<P>` and a `RendererProps` widening. Both callers compiled with tsc 6.0.3 against the repo's `node_modules` in `strict: false` and `strict: true`; reverting the constraint reproduces TS2344. | Task 15, Step 4 runs `npm run typecheck` |
 | I04 | A fetched deep-linked note is not available to the editor | `noteStore` gains `openedNotes` and `openNoteById(id)` (one fetch-by-id path); `updateNoteInStore` and `removeNote` keep it current. Navigation and the palette use it. | Task 3, `noteOpenRestore.test.js`: "a deep link opens a note older than the first page, and the editor can read it", "an IPC delete of an opened older note…" |
@@ -69,9 +69,23 @@ Every Important finding is closed. Minor findings M01–M03 are closed, and so i
 - **Execution is already bounded.** Each task ends in its own commit and runs alone under superpowers:subagent-driven-development; a subagent reads one task, not the whole document.
 - **What was done instead:** the file map was regenerated and the handback completed (the actionable half of M04). If the owner still wants a split after reading this, Tasks 1–13, 14–18 and 19–26 are the natural cut points, and each already starts from merged code.
 
+## Round-2 review response (Codex `plan-06-codex-r2.md`, pinned at 750866c: 0 Critical, 5 Important, 2 Minor)
+
+All seven findings are fixed in the task steps and test code, and none is disputed. Each fix was checked against the real code in this worktree (`src/` at the branch head), as the "Checked" column says. Scratch copies used the repo's own harness and the foundations `node_modules`; no app code in this branch was changed.
+
+| # | Finding | Fix (task steps and tests) | Checked |
+|---|---|---|---|
+| I01-R2 | The seed targeted Plan 02's superseded boolean queue | Task 4 now builds on Plan 02 Task 13's real API: `setQueuedFor(null)` disarms, `setQueueDropped(true)` tells the user, and words a new-intent seed replaces go to Plan 02's `unsent` buffer (Restore / Discard), never discarded. A refused send overtaken by a seed is held in `unsent` instead of refilling the new chat. `ChatView` sets the seed during render (`seedForRequest`, Task 3), so it reaches `ChatInput` in the same commit as the request. The seed cases are appended to Plan 02's `chatSends.test.js`, each asserting the queue was armed first, and the shared `mountComposer` passes a `queueKey`. Precondition and CR-06-1 now name Task 13's state. | A minimal composer reproducing Plan 02 Task 13's state machine plus Task 4's seed code, mounted with real React 19 on `installHookDom`: 8/8 cases pass, including a request and an idle transition in the same commit, and Plan 02's own refill rule without a seed. |
+| I08-R2 | Escape refocused the chip and reopened the card | `hoverCardReducer` gains `dismissed` (dismissed-until-leave): the focus Escape returns to the chip stays closed; leaving by focus or pointer clears it. New reducer case plus a hook case that drives the production `useHoverCard` handlers in browser order, including the `chip.focus()` Escape causes. | The plan's hook and tests extracted and run against the repo harness: 5/5 pass; with the old reducer the two new cases fail. `tsc --strict` clean. |
+| I09-R2 | `aiNeedsSetup` was dropped between Notes and the slash extension | `slashReadiness(state, t)` builds all three readiness fields on the Notes side; `slashItemsFromProp(slash, t)` is the editor's only path to `buildSlashItems`. `RichTextEditor`'s `slash` type gains `aiNeedsSetup`. New test walks `unknown → needsKey → ready` through both halves and runs the setup item; source tests pin the spread in `PersonalNotesView` and the call in `RichTextEditor`. | The plan's `slashItems.ts` and tests extracted and run: every pure case passes (the two source-only assertions need the implemented files); `tsc` clean. |
+| N01 | `openedNotes` survived deleting the note's folder | `teardownNoteContainers` (`noteListOps.ts`), which both the `onFolderDeleted` handler and `deleteFolder` already use, now evicts opened notes in removed containers; both callers store `teardown.openedNotes`; `createClearedAccountNoteState` resets it. Two store tests: broadcast and local deletion of a non-default folder holding an uncached older note, then a reopen reports `missing`. | Task 3's store edits and the N01 edits applied to a copy of the real `noteStore.ts`/`noteListOps.ts`: all 11 `noteOpenRestore` tests pass, the two N01 tests fail without the eviction, the existing `noteListOps.test.js` passes 9/9, and `tsc -p src/tsconfig.json` is clean. |
+| N02 | Main normalized away future lifecycle states | `setDictationLifecycleState` keeps a raw bridge state (`toBridgeLifecycleState`, short identifiers only) beside the normalized one; the equality early return publishes a raw-only change; `getControlPanelDictationState` returns the raw state. The pill, hotkey gate, tray and level gate are unchanged. New main test covers idle and recording origins, `inputKind` survival, no duplicate push and non-string input; Task 6 adds a future-state-with-`inputKind` case. | Task 5's main-process edits applied to a copy of the real `windowManager.js`: `windowManagerAssistantPanel.test.js` passes 35/35 (existing cases included); the N02 case fails when the bridge state is normalized. `dictationLifecycle` and `agentDictationPillIpc` suites pass 19/19. |
+| M04-R2 | One acceptance step checked the retired Ask AI destination | Task 27 now checks the floating or docked embedded chat's visible composer with zero sends, and adds a ⌘K-while-queued check for I01-R2. | Text check: no "ask bar" acceptance remains. |
+| N03 | New motion durations were literals, and tests required them | Task 2 adds `--motion-loop-travel`, `--motion-loop-pulse`, `--motion-loop-blink`, `--motion-stagger` and `--motion-dwell-ring` beside Plan 01's durations (CR-06-4 amendment). The capture rail, history ring, thinking dots, streaming cursor and upload drop zone (`duration-(--motion-base)`) use tokens, and their tests assert the token references and the absence of literal durations. The history ring's JS timer stays a named behavioural constant, as the review allows. | The Task 2 token test and the capture-rail test, run against the plan's CSS: 2/2 pass. |
+
 ## Contract change requests
 
-**All eight requests are applied in spec commit 091d198.** The spec's §5 now holds the binding shapes; this section keeps the rationale. Where this plan and the spec disagree, the spec wins.
+**All eight requests are applied in spec commit 091d198.** The spec's §5 now holds the binding shapes; this section keeps the rationale. Where this plan and the spec disagree, the spec wins. **Rechecked at 4980c81:** the § numbers and every shape Plan 06 uses are unchanged. Since 091d198 the spec (ff8c9cd, 4980c81) only reworded §5.1 rule 10, §5.2 and §5.6, and its new §5.2 line ("the §5.7 capture bridge carries the lifecycle `state` string, which may be `"cancelled"`") is what Task 5's pass-through now guarantees. One round-2 addition to CR-06-4 is pending (below).
 
 **Numbering.** The proposal this section used to carry is superseded by the spec owner's numbering: §5.5 System notifications (Plan 02), §5.6 Stored audio (Plan 02), §5.7 Capture status bridge (CR-06-3), §5.8 Workspace token guard (CR-06-6), §5.9 Space surface (CR-06-7), §5.10 Entity mention links (CR-06-8), §5.11 Labs flags (Plan 08). Every § reference in this plan uses these numbers.
 
@@ -96,6 +110,7 @@ Every Important finding is closed. Minor findings M01–M03 are closed, and so i
 
    Plan 04 adds `cancelled` (§5.2), which reaches the control panel through the same channel. Plan 06 maps any state it does not know to "ready". Plans 04 and 05 should reuse this channel rather than add a second relay. `inputKind` is what lets the mic card name the right route (I13).
 4. **CR-06-4. Add to the §5 Plan 01 token table, marked "added by Plan 06". Applied in spec §5, Plan 01 contracts, "Motion and colour tokens" row (091d198).** The new tokens are `--color-ai`, `--color-ai-text`, `--color-agent`, `--color-agent-text`, and the UI type ramp `--text-display|title|heading|body|ui|caption|micro`, which carries line-height, weight and tracking. They are additive: the ramp never redefines Tailwind's `--text-xs…--text-9xl` (Task 25 tests this). This request creates **no dependency** of Plans 04 or 05 on Plan 06. They may adopt the aliases after Plan 06 merges, and the existing `--color-agent-brand` stays valid until an agreed migration.
+   - **Round-2 addition, pending in the spec (review N03).** Task 2 also adds five loop and dwell cadences to Plan 01's motion block: `--motion-loop-travel` (1400ms), `--motion-loop-pulse` (1200ms), `--motion-loop-blink` (1000ms), `--motion-stagger` (150ms) and `--motion-dwell-ring` (1200ms). Spec §4 allows shared motion tokens only, and Plan 06's capture rail, history ring, thinking dots and streaming cursor needed cadences the five Plan 01 durations do not cover. They are additive. The spec owner should list them in the same "Motion and colour tokens" row.
 5. **CR-06-5. Extend §5.1 (owner: Plan 03): `providerId: string | null` on `ResolvedRoute`. Applied in spec §5.1 (091d198).** UI names providers with `providerDisplayLabel(route.providerId, t)` (Plan 01), which localises "Custom endpoint" and "Unknown provider". `provider` stays for logs. Plans 04, 05 and 08 should do the same.
 6. **CR-06-6. "Workspace token guard" (owner: Plan 06; consumers: every plan that edits a workspace file, Plan 08 first). Applied in spec §5.8 (091d198).** This settles the Plan 08 Task 10 collision on `TranscriptionItem.tsx`.
    - **Module:** `test/helpers/workspaceTokenGuard.js` (Task 25) exports `LINE_RULES`, `LIVE_GLASS_ALLOWED`, `WORKSPACE_GUARDED_FILES`, `scanText(file, text)` and `scanFiles(files)`. `test/components/workspaceTokenAdoption.test.js` asserts `scanFiles(WORKSPACE_GUARDED_FILES)` is `[]`.
@@ -643,6 +658,20 @@ test("the UI type ramp is registered with Tailwind", () => {
   }
 });
 
+test("Plan 06's loop and dwell cadences are shared motion tokens (N03)", () => {
+  // Same block as Plan 01's --motion-* durations; every new animation in Plan 06 reads these.
+  const cadence = {
+    "--motion-loop-travel": "1400ms",
+    "--motion-loop-pulse": "1200ms",
+    "--motion-loop-blink": "1000ms",
+    "--motion-stagger": "150ms",
+    "--motion-dwell-ring": "1200ms",
+  };
+  for (const [name, value] of Object.entries(cadence)) {
+    assert.match(css, new RegExp(`${name}:\\s*${value};`), name);
+  }
+});
+
 test("no ramp step is smaller than 11px", () => {
   const theme = readTokens(css, "@theme");
   for (const name of Object.keys(RAMP)) {
@@ -766,6 +795,18 @@ Expected: FAIL.
      --text-micro--line-height: 1.3;
      --text-micro--font-weight: 500;
      --text-micro--letter-spacing: 0.02em;
+   ```
+
+1b. In the same block as Plan 01's motion durations (directly after `--motion-hero: 520ms;`), add the loop and dwell cadences Plan 06's animations use. Spec §4 says motion uses the shared tokens only, so no Plan 06 animation writes a literal duration (review N03). They are additive, like the rest of CR-06-4.
+
+   ```css
+     /* Loop and dwell cadences (Plan 06, CR-06-4). A loop runs only in its
+        active state; reduced motion stops it (the policy below). */
+     --motion-loop-travel: 1400ms; /* the capture rail's "Cleaning up…" band */
+     --motion-loop-pulse: 1200ms;  /* chat "thinking" dots */
+     --motion-loop-blink: 1000ms;  /* streaming cursor */
+     --motion-stagger: 150ms;      /* step between items of one loop */
+     --motion-dwell-ring: 1200ms;  /* a deep-linked history row's focus ring */
    ```
 
 2. In the `.dark { … }` block that Plan 01 Task 4 wrote (the one with `--color-background: #1c1218;`), add after `--color-locality-remote: #fbbf6a;`:
@@ -3669,7 +3710,8 @@ test("listening opacity follows the level", () => {
 });
 
 test("only Cleaning up has a travelling highlight, and it is a loop gated to that state", () => {
-  assert.match(rule('.capture-rail[data-state="processing"]::after'), /animation:\s*capture-rail-travel 1\.4s linear infinite/);
+  assert.match(rule('.capture-rail[data-state="processing"]::after'), /animation:\s*capture-rail-travel var\(--motion-loop-travel\) linear infinite/);
+  assert.doesNotMatch(rule('.capture-rail[data-state="processing"]::after'), /\d(?:ms|s)\b/, "no literal duration (N03)");
   const travelling = css.match(/animation:[^;]*capture-rail-travel/g) ?? [];
   assert.equal(travelling.length, 1);
 });
@@ -3861,7 +3903,7 @@ Expected: FAIL. The module is missing, and the rule `.capture-rail` is missing.
      top: 0;
      height: 120px;
      background: rgb(255 255 255 / 0.95);
-     animation: capture-rail-travel 1.4s linear infinite;
+     animation: capture-rail-travel var(--motion-loop-travel) linear infinite;
    }
    .capture-rail[data-state="offline"] {
      opacity: 1;
@@ -5821,7 +5863,7 @@ const test = require("node:test");
 const css = fs.readFileSync(path.join(__dirname, "../../src/index.css"), "utf8");
 
 test("a deep-linked row rings for 1.2s, and reduced motion keeps the ring without the pulse", () => {
-  assert.match(css, /\[data-focused="true"\]\s*\{[^}]*animation:\s*history-row-focus 1200ms var\(--motion-ease-std\)/);
+  assert.match(css, /\[data-focused="true"\]\s*\{[^}]*animation:\s*history-row-focus var\(--motion-dwell-ring\) var\(--motion-ease-std\)/);
   assert.match(css, /@keyframes history-row-focus/);
   assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\[data-focused="true"\]\s*\{[^}]*animation:\s*none[^}]*box-shadow/);
 });
@@ -6075,7 +6117,7 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
    /* WS-Q3: a deep-linked history row rings for 1.2s. */
    [data-focused="true"] {
      border-radius: var(--radius-md, 8px);
-     animation: history-row-focus 1200ms var(--motion-ease-std) both;
+     animation: history-row-focus var(--motion-dwell-ring) var(--motion-ease-std) both;
    }
    @keyframes history-row-focus {
      0%, 70% { box-shadow: inset 0 0 0 2px var(--color-ring); }
@@ -6156,9 +6198,11 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
    }, [focusNonce]);
 
    // The ring clears 1.2s after each (re)start; the nonce restarts the timer and animation.
+   // Declare at module scope: const HISTORY_RING_MS = 1200;
    useEffect(() => {
      if (!ring) return;
-     const clear = window.setTimeout(() => setRing(null), 1200);
+     // A user-facing window, so a behavioural constant; it equals --motion-dwell-ring.
+     const clear = window.setTimeout(() => setRing(null), HISTORY_RING_MS);
      return () => window.clearTimeout(clear);
    }, [ring?.nonce]);
    ```
@@ -9892,6 +9936,16 @@ test("thinking is three dots with a text twin", async (t) => {
   assert.match(html, /class="thinking-dots"/);
   assert.match(html, /agentMode\.input\.thinking/);
 });
+
+test("the chat loops use the shared cadence tokens, never literal durations (N03)", () => {
+  const css = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/index.css"), "utf8");
+  const dots = css.slice(css.indexOf(".thinking-dots {"), css.indexOf("@keyframes thinking-dot"));
+  assert.match(dots, /animation:\s*thinking-dot var\(--motion-loop-pulse\)/);
+  assert.match(dots, /animation-delay:\s*calc\(var\(--motion-stagger\) \* 2\)/);
+  assert.doesNotMatch(dots, /\d(?:ms|s)\b/);
+  const message = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/components/chat/ChatMessage.tsx"), "utf8");
+  assert.match(message, /agent-cursor-blink var\(--motion-loop-blink\)/, "the document branch's cursor");
+});
 ```
 
 Create `test/components/sourcesRow.test.js`:
@@ -10129,7 +10183,7 @@ Expected: FAIL.
              />
            )}
            {isStreaming && hasContent && (
-             <span className="inline-block h-[15px] w-[2px] align-middle bg-foreground/70" style={{ animation: "agent-cursor-blink 1s ease-in-out infinite" }} />
+             <span className="inline-block h-[15px] w-[2px] align-middle bg-foreground/70" style={{ animation: "agent-cursor-blink var(--motion-loop-blink) ease-in-out infinite" }} />
            )}
            {isStreaming && !hasContent && !hasToolCalls && (
              <span className="flex items-center gap-2 text-ui text-muted-foreground">
@@ -10187,10 +10241,10 @@ Expected: FAIL.
    .thinking-dots { display: inline-flex; gap: 3px; }
    .thinking-dots i {
      width: 5px; height: 5px; border-radius: 9999px; background: currentColor; opacity: 0.35;
-     animation: thinking-dot 1.2s var(--motion-ease-std) infinite;
+     animation: thinking-dot var(--motion-loop-pulse) var(--motion-ease-std) infinite;
    }
-   .thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
-   .thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
+   .thinking-dots i:nth-child(2) { animation-delay: var(--motion-stagger); }
+   .thinking-dots i:nth-child(3) { animation-delay: calc(var(--motion-stagger) * 2); }
    @keyframes thinking-dot { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
    /* Each citation and source fades in as its tool result lands. */
    .citation-in { animation: citation-in var(--motion-fast) var(--motion-ease-enter) both; }
@@ -11442,7 +11496,7 @@ Expected: FAIL. The module is missing, and `<NoProviderView` is still rendered.
            onClick={disabled ? undefined : onBrowse}
            onKeyDown={disabled ? undefined : onKeyDown}
            className={cn(
-             "relative w-full rounded-lg p-8 text-center transition-[background-color,border-color,transform] duration-300 group",
+             "relative w-full rounded-lg p-8 text-center transition-[background-color,border-color,transform] duration-(--motion-base) ease-(--motion-ease-std) group",
              "bg-surface-1/40 dark:bg-white/[0.03] border border-foreground/6 dark:border-white/10",
              disabled
                ? "cursor-not-allowed opacity-60"
@@ -12134,9 +12188,10 @@ Check each item, and screenshot it for the PR:
   - Typing `meet` orders Commands first, with highlighted matches.
   - Selecting a transcript lands on Home, scrolled, with a 1.2s ring, even when a chip was hiding it.
   - `what did we decide`, then Ask, opens Chat with the draft in the composer and **not sent**.
+  - Queue a draft while an answer streams, then ⌘K Ask: the queued draft is never sent, a "not sent" note appears, and Restore puts it back beside the new draft (Task 4, I01-R2).
 - **Notes.**
   - `/` opens the menu. H2 works. An AI action runs, or is disabled with "Actions need an AI model".
-  - Select text: the bubble shows B/I/Link/Ask AI. `javascript:alert(1)` is refused. Ask AI fills the ask bar and does not send.
+  - Select text: the bubble shows B/I/Link/Ask AI. `javascript:alert(1)` is refused. Ask AI opens the note's floating chat (a docked sidebar chat stays where it is) with the quote in its visible, editable composer; nothing is sent. The bottom ask bar is not involved.
   - `@pri` shows grouped results. Insert a meeting, then hover: the card with Insert quote. Click: it opens the meeting.
   - Export as Markdown: the mention reads `[@Pricing review](meeting:38)`.
 - **Chat.**

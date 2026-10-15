@@ -817,6 +817,7 @@ function DesktopTrial({
         )}
         <div className="onboarding-guided-record-actions mt-5 flex items-center gap-3">
           <Button
+            variant="live"
             onClick={start}
             disabled={!ready || recording.isRecording || recording.isProcessing}
           >

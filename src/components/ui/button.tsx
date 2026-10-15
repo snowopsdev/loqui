@@ -10,20 +10,30 @@ const buttonVariants = cva(
     "inline-flex items-center justify-center gap-2 whitespace-nowrap",
     "rounded-full text-sm font-medium cursor-pointer select-none",
     "transition-[background-color,border-color,color,transform] duration-200 ease-out",
-    "outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+    "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
     "disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed",
     "[&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 shrink-0",
   ].join(" "),
   {
     variants: {
       variant: {
-        // Primary CTA — brand glass capsule
+        // Everyday call to action: ink capsule, small orange brand dot first.
         default: [
           "relative font-semibold tracking-[0.005em]",
+          "bg-cta text-cta-foreground shadow-sm",
+          "before:content-[''] before:size-1.5 before:rounded-full before:bg-live before:shadow-[0_0_0_3px_rgb(255_90_31/0.25)]",
+          // Hover and press change the fill, never a filter: a filter would
+          // recolour the box-shadow focus ring.
+          "hover:bg-cta-hover",
+          "active:bg-cta-active active:scale-[0.985]",
+        ].join(" "),
+
+        // Live voice only: record, stop, mic, voice send. Orange glass, ink text.
+        live: [
+          "relative font-semibold tracking-[0.005em]",
           BRAND_GLASS_SURFACE,
-          "hover:brightness-110",
-          "active:brightness-95 active:scale-[0.985]",
-          "transition-[filter,transform] duration-200 ease-out",
+          "hover:bg-[image:var(--gradient-brand-glass-hover)]",
+          "active:bg-[image:var(--gradient-brand-glass-active)] active:scale-[0.985]",
         ].join(" "),
 
         // Success — uses design tokens
@@ -90,8 +100,8 @@ const buttonVariants = cva(
         // Link — uses design tokens
         link: [
           "font-medium",
-          "text-primary",
-          "hover:text-primary/80 hover:underline",
+          "text-link",
+          "hover:text-link-hover hover:underline",
           "underline-offset-4",
         ].join(" "),
 
@@ -115,6 +125,7 @@ const buttonVariants = cva(
         icon: "size-10 rounded",
       },
     },
+    compoundVariants: [{ variant: "default", size: "icon", className: "before:hidden" }],
     defaultVariants: {
       variant: "default",
       size: "default",

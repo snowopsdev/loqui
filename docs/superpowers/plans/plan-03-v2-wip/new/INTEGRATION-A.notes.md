@@ -25,6 +25,15 @@ Owner rule: provider, model and endpoint changes, and anything that adds an off-
 - Step 1 `routeChangeMessage.test.js`: "an off route…" now has an off `before`; new "switching a route off says it is off".
 - Step 3 `routeDraftStore.ts`: `readyToPlan()` (`flushSecretSaves` then `refreshRouteFacts(["credentials"])`), shared `settle()`, `requestRoutePatch`; `applyDraft` uses `readyToPlan`.
 - Step 3 `routeChangeMessage.ts`: `routes.toast.off` when the main route turns off; en block gains `"off"`.
+- Step 3 `commit()`: calls `window.electronAPI.setScreenContextEnabled(value)` whenever a committed patch writes `voiceAgentScreenContext` (moved out of `DictationAgentSettings.tsx:61`, so Apply-bar and Undo commits reach main). Interfaces consumes `src/types/electron.ts:1674`. Test api stubs it; new subtest "committing the screen-context switch tells main, from any entry point".
+
+### T08.md (done)
+- Header: INTEGRATION-A sentence (Steps 6–10).
+- Files: "Steps 6–10" block (RouteSwitch.tsx; SettingsPage AiModelsSection; DictationAgentSettings; DictationTranslationSettings; InferenceConfigEditor ProviderSearchPreference; routesHooks.test.js guard; routeSwitches.test.js).
+- Interfaces: consumes Task 6 `SettingsPatch`/`RouteSwitchKey`/`ProviderSearchScope`/`readProviderSearchPreference`, Task 7 `requestRoutePatch`; produces `useRouteChange().requestPatch` and `RouteSwitch`.
+- Step 3 item 4 `useRouteChange.ts`: `requestPatch(id, patch)` (calls `requestRoutePatch`, toasts like `request`).
+- New section "Enable switches through the planner (INTEGRATION-A)", Steps 6–10: `test/components/routeSwitches.test.js` (mounted: RouteSwitch for cleanup + source pin of the AiModelsSection call site; DictationAgentSettings enable / screen context / vision override; DictationTranslationSettings enable; InferenceConfigEditor ProviderSearchPreference), Task 3 `routesHooks.test.js` guard rewritten, `RouteSwitch.tsx`, call-site edits, `ProviderSearchPreference` via `useSyncExternalStore` + `requestPatch(SCOPE_ROUTE[scope], { "providerSearch:<scope>": next })`, commit `feat(settings): Send route switches and web search through the planner`.
+- T16 search: already resolved by T16 itself (cleanup/assistant/translation/screen-context entries are `link`, not live), so INTEGRATION.md item 1's "T16 search live toggles" needs no edit.
 
 ## Unresolved
 

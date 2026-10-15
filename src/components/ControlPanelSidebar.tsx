@@ -54,14 +54,14 @@ export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSe
                       className={cn(
                         "group relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-start text-[13px] outline-none transition-colors duration-150",
                         "text-foreground/75 hover:bg-foreground/5 hover:text-foreground dark:hover:bg-white/6",
-                        "focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-window",
+                        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface-window",
                         isActive && "bg-foreground/7 font-medium text-foreground dark:bg-white/8"
                       )}
                     >
                       <span
                         aria-hidden="true"
                         className={cn(
-                          "absolute start-0 top-2 bottom-2 w-0.5 rounded-full bg-primary opacity-0 transition-opacity duration-150",
+                          "absolute start-0 top-2 bottom-2 w-0.5 rounded-full bg-nav-marker opacity-0 transition-opacity duration-150",
                           isActive && "opacity-100"
                         )}
                       />
@@ -70,7 +70,7 @@ export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSe
                         className={cn(
                           "shrink-0 transition-colors duration-150",
                           isActive
-                            ? "text-primary"
+                            ? "text-nav-marker"
                             : "text-foreground/55 group-hover:text-foreground/80"
                         )}
                       />
@@ -86,7 +86,7 @@ export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSe
       <button
         type="button"
         onClick={onOpenSettings}
-        className="mx-2 mb-2 flex h-9 items-center gap-2.5 rounded-md border-t border-border/60 px-2.5 pt-2 text-[13px] text-foreground/75 outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-window dark:border-white/10"
+        className="mx-2 mb-2 flex h-9 items-center gap-2.5 rounded-md border-t border-border/60 px-2.5 pt-2 text-[13px] text-foreground/75 outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface-window dark:border-white/10"
       >
         <Settings size={16} />
         {t("sidebar.settings")}

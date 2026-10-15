@@ -57,31 +57,28 @@ Only the owning plan may change a §5 contract. These are requests to the owners
    - `LevelBars` paints its gradient in an inline style (Plan 01 Task 8).
    - What this plan does now: Task 11 overrides it with one scoped `!important` rule in `src/styles/onboarding.css`, with a comment pointing here.
 
-## Open questions for the owner
+## Owner decisions (2026-10-14)
 
-Each question has a default, and this plan is written to that default. Answer only if you want the other choice.
+The owner answered the plan's open questions. The plan is written to these answers.
 
-1. **R5 C merges Try and Shortcut, but R7 B is a separate shortcut step.**
-   - Default: Phase 1 "Say something" is the hotkey-first trial (R5 C, 96px keycap).
+1. **R5 C and R7 B overlap: accepted.**
+   - Phase 1 "Say something" is the hotkey-first trial (R5 C, 96px keycap).
    - Phase 2 "Shortcut" is the R7 B tester. There the user changes the key, sees tap versus hold detected, and sets auto-paste and Accessibility.
-2. **R2 B removes the two Welcome toggles but does not say where they go.**
-   - Default: they move to the Ready step as "Privacy defaults". Both keep their current defaults (history on, automatic updates on).
-   - "Start using Loqui" on the success band goes to Ready, so everyone sees them.
-3. **Should "Download stopped at 42%. Your progress is kept." (ONB-Q17) stay?**
-   - It is not true today. `downloadFile` deletes the `.tmp` file on cancel and on terminal failure (`src/helpers/downloadUtils.js:328-343`). Only retries inside one attempt resume.
-   - Default: the plan says "Download stopped at 42%." plus Retry.
-   - Keeping the `.tmp` file on retryable network failures would make the original sentence true. That is a small main-process change, but it is out of scope here.
-4. **R3 C copy says "Say something to confirm".**
-   - D8 removes speech-based confirmation (ONB-M1 was skipped).
-   - Default: the line is "We picked English because your Mac is set to English." followed by "Not right? Choose yourself".
-5. **Motion tokens replace the showcase timings.**
+2. **The two Welcome toggles move to Ready as "Privacy defaults": accepted.** Both keep their current defaults (history on, automatic updates on). "Start using Loqui" on the success band goes to Ready, so everyone sees them.
+3. **"Download stopped at 42%. Your progress is kept." (ONB-Q17): fix it so it is true.** Task 7 makes the download keep its partial file on network failures:
+   - Today `downloadFile` deletes the `.tmp` file on cancel and on terminal failure (`src/helpers/downloadUtils.js:328-343`). After the fix, a network-class failure keeps it, and main reports `keptBytes`. Retry then resumes with a `Range` request through the existing resume path (`downloadUtils.js:274-283`).
+   - Setup says "Your progress is kept" only when main reports kept bytes. Otherwise it says "Retry starts it again."
+   - Cancel still deletes the partial file, because cancelling is deliberate. Stale `.tmp` files are still swept after 24 hours (`downloadUtils.js:15, 399-412`).
+4. **"Say something to confirm" is dropped (D8): accepted.** The line is "We picked English because your Mac is set to English." followed by "Not right? Choose yourself".
+5. **Motion tokens replace the showcase timings: accepted.**
    - The dock uses `--motion-slow` (360ms) instead of 420ms.
    - The keycap press uses `--motion-instant` (90ms) instead of 80ms.
    - The success band uses `--motion-base` (240ms) instead of 220ms.
-   - Default: tokens, per §4.
-6. **Hello has no input-device picker.**
-   - The settings store has `selectedMicDeviceId` but no setter (`src/stores/settingsStore.ts:1477`).
-   - Default: "nothing heard" offers "Open Sound settings" instead.
+6. **Hello gets a microphone picker: fix.**
+   - The settings store already has the setters: `setMicrophoneSelectionMode(mode)` and `setSelectedMicDevice(deviceId, label)` (`src/stores/settingsStore.ts:1081-1082, 2161-2176`). This plan's first draft missed them.
+   - Task 12 adds the picker. The Hello meter listens to the picked device, and the picker is highlighted when Hello hears nothing for 2.5 s.
+   - The trial's "nothing heard" recovery offers "Change microphone" (Task 15).
+7. **Inline download of the local cleanup model (R6 A) is out of scope: accepted.** Cleanup's Local option points to Settings → Language Models, and Ready lists it as pending.
 
 ## Global Constraints
 
@@ -111,7 +108,11 @@ Each question has a default, and this plan is written to that default. Answer on
    - Pinned in Task 15 ("leaving the step ends the demo session") and Task 12 ("leaving Hello stops the microphone").
 3. **The download fails, is cancelled, or the user switches voice.**
    - Expected: the footer chip turns into "Download failed" with Retry. Continue is never blocked. The voice picker is locked while a download runs, with a visible reason and a Cancel button. A finished download reads `ready` even before routes refresh.
-   - Pinned in Task 7 (`deriveVoiceDownloadState` precedence, `estimateRate` with stalls and restarts) and Task 13 ("picker is locked with a reason while downloading").
+   - After a network failure the partial file is kept, and Retry resumes from it. "Your progress is kept" appears only when main reports kept bytes. After a cancel or an HTTP failure, the file is gone and the copy says so.
+   - Pinned in:
+     - Task 7: `deriveVoiceDownloadState` precedence and `progressKept`; `estimateRate` with stalls and restarts; `downloadFile` keeps a partial on a network failure and resumes it with `Range`, but drops it on HTTP failures.
+     - Task 8: the interrupted scenario resumes on Retry.
+     - Task 13: "picker is locked with a reason while downloading".
 4. **Locales the catalog cannot serve.**
    - `[]`, `["zh-Hant-TW"]`, `["he-IL"]`, `["ja-JP","en-US"]`, `["pt-BR","en-US"]`, `["en-GB"]`, `["de-DE","ja-JP"]`.
    - Expected: no crash, never an English model for a Japanese-only Mac, and an explicit "Choose yourself" path when nothing fits.
@@ -191,6 +192,8 @@ The commit commands below show only the subject line.
 | `src/utils/onboardingDemo.ts` | modify | Success/error demo event builders |
 | `src/utils/afterSetupIntent.ts` | create | One-shot "dictate into a note" hand-off |
 | `src/helpers/systemProfile.js` | create | Main: locales, RAM, free disk, GPU |
+| `src/helpers/downloadUtils.js` | modify | Keep the partial file on network failures; report `keptBytes` (owner decision 3) |
+| `src/utils/onboardingMic.ts` | create | Microphone picker model over the existing selection settings (owner decision 6) |
 | `src/helpers/onboardingInputPolicy.js` | modify | `shortcut` demo, `cancelled` status, hotkey gate, sanitizer |
 | `src/helpers/ipcHandlers.js`, `src/helpers/windowManager.js`, `main.js`, `preload.js`, `src/types/electron.ts` | modify | IPC for profile, demo toggle/cancel/undo, hotkey events |
 | `src/App.jsx`, `src/hooks/useAudioRecording.js`, `src/hooks/useSetupIncomplete.ts` | modify/create | Overlay trial mode until setup completes |
@@ -2066,15 +2069,18 @@ git commit -m "feat(onboarding): trial state reducer over demo events"
 
 ---
 
-### Task 7: Voice download state, rate, milestones and the notices shim
+### Task 7: Voice download state, kept progress, rate, milestones and the notices shim
 
-Covers the logic of ONB-R4 B, building on ONB-Q2 from Plan 02, and consumes §5.3.
+Covers the logic of ONB-R4 B, building on ONB-Q2 from Plan 02, and consumes §5.3. Also covers owner decision 3: a network failure keeps the partial download, so "Your progress is kept" is true.
 
 **Files:**
 - Create: `src/utils/onboardingDownload.ts`
 - Create: `src/components/onboarding/useVoiceDownload.ts`
 - Create: `src/components/onboarding/onboardingNotices.ts`
-- Test: `test/utils/onboardingDownload.test.js` and `test/components/onboardingNotices.test.js`
+- Modify: `src/helpers/downloadUtils.js`. Touch the terminal-failure branch of `downloadFile` (328-343).
+- Modify: `src/helpers/ipcHandlers.js`. Touch the `download-parakeet-model` catch block (≈2840-2860).
+- Modify: `src/types/electron.ts`. Touch `ParakeetDownloadProgressData` (517-526).
+- Test: `test/utils/onboardingDownload.test.js` and `test/components/onboardingNotices.test.js`. Append to `test/helpers/downloadUtils.test.js`.
 
 **Interfaces:**
 - Consumes `useModelDownload({ modelType: "parakeet" })` (`src/hooks/useModelDownload.ts:93`). It returns `downloadProgress {percentage, downloadedBytes, totalBytes}`, `downloadErrors`, `isDownloadingModel(id)`, `isInstalling`, `downloadModel(id)` and `cancelDownload(id)`.
@@ -2088,12 +2094,12 @@ Covers the logic of ONB-R4 B, building on ONB-Q2 from Plan 02, and consumes §5.
     | { status: "downloading"; percent: number; downloadedBytes: number; totalBytes: number; bytesPerSecond: number | null; etaSeconds: number | null }
     | { status: "installing" }
     | { status: "ready" }
-    | { status: "error"; message: string; percent: number | null };
+    | { status: "error"; message: string; percent: number | null; progressKept: boolean };
   export interface RateSample { atMs: number; bytes: number }
   export const RATE_WINDOW_MS = 5000;
   export function pushSample(samples: readonly RateSample[], sample: RateSample): RateSample[];
   export function estimateRate(samples: readonly RateSample[], totalBytes: number): { bytesPerSecond: number | null; etaSeconds: number | null };
-  export interface DownloadFacts { installed: boolean | null; active: boolean; installing: boolean; progress: { percentage: number; downloadedBytes: number; totalBytes: number }; error: string | null; lastPercent: number | null; samples: readonly RateSample[] }
+  export interface DownloadFacts { installed: boolean | null; active: boolean; installing: boolean; progress: { percentage: number; downloadedBytes: number; totalBytes: number }; error: string | null; lastPercent: number | null; keptBytes: number | null; samples: readonly RateSample[] }
   export function deriveVoiceDownloadState(facts: DownloadFacts): VoiceDownloadState;
   export const DOWNLOAD_MILESTONES: readonly [25, 50, 75];
   export type DownloadMilestone = 25 | 50 | 75;
@@ -2109,6 +2115,10 @@ Covers the logic of ONB-R4 B, building on ONB-Q2 from Plan 02, and consumes §5.
   - `announceVoiceFailed(toast, t, message, retry)`
   - `shouldAnnounceOffStep(step): boolean`
 - Produces the i18n keys `setupFlow.download.*` and `setupFlow.units.*`.
+- Produces in main:
+  - A terminal `downloadFile` error carries `keptBytes: number`. It is the size of the kept `.tmp` file after a network-class failure (`isRetryable`), and `0` after a cancel or any other failure. In those cases the file is deleted, as today.
+  - The `parakeet-download-progress` error payload and the `download-parakeet-model` result carry `keptBytes`. `ParakeetDownloadProgressData` gains `keptBytes?: number`.
+  - Whisper and LLM downloads share `downloadFile`, so they resume after network failures too. That is intended. Their error payloads are unchanged.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2126,6 +2136,7 @@ const facts = (patch = {}) => ({
   progress: { percentage: 0, downloadedBytes: 0, totalBytes: 0 },
   error: null,
   lastPercent: null,
+  keptBytes: null,
   samples: [],
   ...patch,
 });
@@ -2155,11 +2166,19 @@ test("state precedence: running beats installed beats a stale error", async () =
   assert.deepEqual(deriveVoiceDownloadState(facts()), { status: "idle" });
   assert.deepEqual(deriveVoiceDownloadState(facts({ installed: true, error: "old failure" })), { status: "ready" });
   assert.deepEqual(deriveVoiceDownloadState(facts({ active: true, installing: true })), { status: "installing" });
-  assert.deepEqual(deriveVoiceDownloadState(facts({ error: "Network timeout", lastPercent: 42 })), {
+  assert.deepEqual(deriveVoiceDownloadState(facts({ error: "Network timeout", lastPercent: 42, keptBytes: 265e6 })), {
     status: "error",
     message: "Network timeout",
     percent: 42,
+    progressKept: true,
   });
+  for (const keptBytes of [0, null]) {
+    assert.equal(
+      deriveVoiceDownloadState(facts({ error: "HTTP 404", lastPercent: 42, keptBytes })).progressKept,
+      false,
+      "progress is only called kept when main says bytes were kept"
+    );
+  }
   const running = deriveVoiceDownloadState(
     facts({
       active: true,
@@ -2238,10 +2257,99 @@ test("only steps without their own download status announce", async () => {
 });
 ```
 
+Append to `test/helpers/downloadUtils.test.js`. It reuses that file's `fs`, `os`, `path`, `EventEmitter` and `PassThrough` requires:
+
+```js
+// Each net.request() answers with the next scripted response and records its headers.
+function loadWithResponses(responses) {
+  const electronPath = require.resolve("electron");
+  const downloadUtilsPath = require.resolve("../../src/helpers/downloadUtils.js");
+  const originalElectronCache = require.cache[electronPath];
+  const requests = [];
+  require.cache[electronPath] = {
+    exports: {
+      app: { isReady: () => false },
+      net: {
+        request() {
+          const request = new EventEmitter();
+          const headers = {};
+          requests.push(headers);
+          request.setHeader = (name, value) => (headers[name] = value);
+          request.abort = () => {};
+          request.end = () => {
+            const { statusCode, headers: responseHeaders, body } = responses.shift();
+            const response = new PassThrough();
+            response.statusCode = statusCode;
+            response.headers = responseHeaders;
+            response.end(body);
+            queueMicrotask(() => request.emit("response", response));
+          };
+          return request;
+        },
+      },
+    },
+  };
+  delete require.cache[downloadUtilsPath];
+  return {
+    downloadUtils: require(downloadUtilsPath),
+    requests,
+    restore() {
+      delete require.cache[downloadUtilsPath];
+      if (originalElectronCache) require.cache[electronPath] = originalElectronCache;
+      else delete require.cache[electronPath];
+    },
+  };
+}
+
+test("a network failure keeps the partial file and the next attempt resumes it", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-keep-"));
+  const destination = path.join(dir, "model.bin");
+  const loaded = loadWithResponses([
+    { statusCode: 200, headers: { "content-length": "10" }, body: Buffer.from("hello") },
+    { statusCode: 206, headers: { "content-range": "bytes 5-9/10", "content-length": "5" }, body: Buffer.from("world") },
+  ]);
+  t.after(() => {
+    loaded.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const { downloadFile } = loaded.downloadUtils;
+
+  const failure = await downloadFile("https://example.com/model.bin", destination, { maxRetries: 0 }).catch((error) => error);
+  assert.equal(failure.code, "ERR_DOWNLOAD_INCOMPLETE");
+  assert.equal(failure.keptBytes, 5);
+  assert.equal(fs.readFileSync(`${destination}.tmp`, "utf8"), "hello");
+
+  await downloadFile("https://example.com/model.bin", destination, { maxRetries: 0 });
+  assert.equal(loaded.requests[1].Range, "bytes=5-");
+  assert.equal(fs.readFileSync(destination, "utf8"), "helloworld");
+  assert.equal(fs.existsSync(`${destination}.tmp`), false);
+});
+
+test("an HTTP failure drops the partial file and reports nothing kept", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "downloadUtils-drop-"));
+  const destination = path.join(dir, "model.bin");
+  fs.writeFileSync(`${destination}.tmp`, "hello");
+  const loaded = loadWithResponses([{ statusCode: 404, headers: {}, body: Buffer.alloc(0) }]);
+  t.after(() => {
+    loaded.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const failure = await loaded.downloadUtils
+    .downloadFile("https://example.com/model.bin", destination, { maxRetries: 0 })
+    .catch((error) => error);
+  assert.equal(failure.isHttpError, true);
+  assert.equal(failure.keptBytes, 0);
+  assert.equal(fs.existsSync(`${destination}.tmp`), false);
+});
+```
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/utils/onboardingDownload.test.js test/components/onboardingNotices.test.js`
-Expected: FAIL. Both modules are missing.
+Run: `npm test -- test/utils/onboardingDownload.test.js test/components/onboardingNotices.test.js test/helpers/downloadUtils.test.js`
+Expected: FAIL.
+- Both new modules are missing.
+- `failure.keptBytes` is `undefined`.
+- The partial `.tmp` file is deleted after the network failure.
 
 - [ ] **Step 3: Implement**
 
@@ -2263,7 +2371,7 @@ Expected: FAIL. Both modules are missing.
        }
      | { status: "installing" }
      | { status: "ready" }
-     | { status: "error"; message: string; percent: number | null };
+     | { status: "error"; message: string; percent: number | null; progressKept: boolean };
 
    export interface RateSample {
      atMs: number;
@@ -2304,6 +2412,8 @@ Expected: FAIL. Both modules are missing.
      progress: { percentage: number; downloadedBytes: number; totalBytes: number };
      error: string | null;
      lastPercent: number | null;
+     /** From main's error payload: bytes of the partial file kept for Retry (null: no failure seen). */
+     keptBytes: number | null;
      samples: readonly RateSample[];
    }
 
@@ -2320,7 +2430,14 @@ Expected: FAIL. Both modules are missing.
        };
      }
      if (facts.installed) return { status: "ready" };
-     if (facts.error) return { status: "error", message: facts.error, percent: facts.lastPercent };
+     if (facts.error) {
+       return {
+         status: "error",
+         message: facts.error,
+         percent: facts.lastPercent,
+         progressKept: (facts.keptBytes ?? 0) > 0,
+       };
+     }
      return { status: "idle" };
    }
 
@@ -2378,9 +2495,21 @@ Expected: FAIL. Both modules are missing.
      const [installed, setInstalled] = useState<boolean | null>(null);
      const [samples, setSamples] = useState<RateSample[]>([]);
      const [milestone, setMilestone] = useState<DownloadMilestone | null>(null);
+     const [keptBytes, setKeptBytes] = useState<number | null>(null);
      const lastPercentRef = useRef<number | null>(null);
      const modelIdRef = useRef(modelId);
      modelIdRef.current = modelId;
+
+     // Main attests what it kept (owner decision 3); useModelDownload keeps only the message.
+     useEffect(
+       () =>
+         window.electronAPI?.onParakeetDownloadProgress?.((_event, data) => {
+           if (data.model !== modelIdRef.current) return;
+           if (data.type === "error") setKeptBytes(Number.isFinite(data.keptBytes) ? (data.keptBytes as number) : 0);
+           else if (data.type === "progress") setKeptBytes(null);
+         }),
+       []
+     );
 
      const refresh = useCallback(async () => {
        const requested = modelIdRef.current;
@@ -2421,6 +2550,7 @@ Expected: FAIL. Both modules are missing.
        progress: download.downloadProgress,
        error: modelId ? (download.downloadErrors[modelId] ?? null) : null,
        lastPercent: lastPercentRef.current,
+       keptBytes,
        samples,
      });
 
@@ -2474,7 +2604,44 @@ Expected: FAIL. Both modules are missing.
 
    If `src/components/ui/notices.ts` already exists when you reach this task (Plan 04 merged), implement the two functions with `notify` exactly as the comment maps them. Keep the `toast` parameter name as `notify` so the tests above still pass with an injected fake.
 
-4. Add the strings:
+4. In `src/helpers/downloadUtils.js`, replace the two `unlink` branches at the end of `downloadFile`'s `catch` (328-343) with:
+
+   ```js
+         if (error.isAbort) {
+           await fsPromises.unlink(tempPath).catch(() => {});
+           error.keptBytes = 0;
+           throw error;
+         }
+
+         if (!isRetryable(error) || attempt >= maxRetries) {
+           debugLogger.error("Download failed", {
+             url,
+             error: error.message,
+             code: error.code,
+           });
+           // A network failure keeps the partial file so the next attempt resumes
+           // with a Range request (setup tells the user their progress is kept).
+           // HTTP, TLS and size failures start over. Stale temps are swept after 24 h.
+           if (isRetryable(error)) {
+             error.keptBytes = await fsPromises.stat(tempPath).then(
+               (stats) => stats.size,
+               () => 0
+             );
+           } else {
+             await fsPromises.unlink(tempPath).catch(() => {});
+             error.keptBytes = 0;
+           }
+           throw error;
+         }
+   ```
+
+   `parakeet.js` rethrows non-abort errors unchanged (`src/helpers/parakeet.js:461-468`), so `keptBytes` reaches the IPC handler. Its archive-reuse check (364-377) only inspects the final `.tar.bz2`, never the `.tmp`.
+
+5. In `src/helpers/ipcHandlers.js`, in the `download-parakeet-model` catch block, add `keptBytes: Number.isFinite(error.keptBytes) ? error.keptBytes : 0,` to both the `type: "error"` progress payload and the returned `{ success: false, … }` object.
+
+6. In `src/types/electron.ts`, add `keptBytes?: number;` to `ParakeetDownloadProgressData`.
+
+7. Add the strings:
 
    ```bash
    node scripts/dev/merge-locale-keys.cjs - <<'JSON'
@@ -2490,7 +2657,8 @@ Expected: FAIL. Both modules are missing.
          "chipFailed": "Download failed",
          "detail": "{{done}} of {{total}} · {{speed}} · {{eta}} left",
          "detailNoRate": "{{done}} of {{total}}",
-         "stopped": "Download stopped at {{percent}}%.",
+         "stoppedKept": "Download stopped at {{percent}}%. Your progress is kept.",
+         "stoppedRestart": "Download stopped at {{percent}}%. Retry starts it again.",
          "retry": "Retry",
          "cancel": "Cancel",
          "readyTitle": "Voice model ready",
@@ -2506,14 +2674,14 @@ Expected: FAIL. Both modules are missing.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/utils/onboardingDownload.test.js test/components/onboardingNotices.test.js && npm run typecheck && npm run i18n:check`
-Expected: PASS.
+Run: `npm test -- test/utils/onboardingDownload.test.js test/components/onboardingNotices.test.js test/helpers/downloadUtils.test.js test/helpers && npm run typecheck && npm run i18n:check`
+Expected: PASS. The whole `test/helpers` folder runs, because other download tests (`modelManagerBridgeDownloadStatus`, `transcriptionModelDownloadStatus`) share `downloadFile`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/utils/onboardingDownload.ts src/components/onboarding/useVoiceDownload.ts src/components/onboarding/onboardingNotices.ts src/locales test/utils/onboardingDownload.test.js test/components/onboardingNotices.test.js
-git commit -m "feat(onboarding): measured download speed, ETA, milestones and off-step notices"
+git add src/utils/onboardingDownload.ts src/components/onboarding/useVoiceDownload.ts src/components/onboarding/onboardingNotices.ts src/helpers/downloadUtils.js src/helpers/ipcHandlers.js src/types/electron.ts src/locales test/utils/onboardingDownload.test.js test/components/onboardingNotices.test.js test/helpers/downloadUtils.test.js
+git commit -m "feat(onboarding): keep partial downloads, measured speed and ETA, milestones and notices"
 ```
 
 ---
@@ -2551,7 +2719,7 @@ ONB-Q18 groundwork. Every new state is previewable, and no production component 
   | `fresh` | Voice not installed. The download goes from 0 to 100% in 7% steps every 400 ms. |
   | `ready` | Voice installed. |
   | `downloading` | A download of the default voice is already running from 35%, through `modelGetActiveDownloads`. |
-  | `download-interrupted` | The download fails at 42% with `ECONNRESET`. |
+  | `download-interrupted` | The first attempt fails at 42% with `ECONNRESET`, keeping the 35% already written (`keptBytes`). Retry resumes from 35% and completes. |
   | `microphone-denied` | The mic is denied. The trial fails at the start with `NotAllowedError`. |
   | `nothing-heard` | Levels stay at 0.003. Stopping fails with `NO_AUDIO`. |
   | `insufficient-memory` | The profile reports 4 GiB of memory. Stopping fails with `INSUFFICIENT_MEMORY`. |
@@ -2621,7 +2789,7 @@ test("a fresh download completes and the voice then reads as installed", async (
   assert.equal((await api.checkParakeetModelStatus("parakeet-unified-en-0.6b")).downloaded, true);
 });
 
-test("an interrupted download stops at 42% with a mappable error", async () => {
+test("an interrupted download keeps its progress and Retry resumes it", async () => {
   const { api, time } = await bridgeFor("download-interrupted");
   const progress = [];
   api.onParakeetDownloadProgress((_event, data) => progress.push(data));
@@ -2630,8 +2798,16 @@ test("an interrupted download stops at 42% with a mappable error", async () => {
   const result = await pending;
   assert.equal(result.success, false);
   assert.equal(result.code, "ECONNRESET");
+  assert.equal(result.keptBytes, Math.round(631000000 * 0.35));
   assert.equal(progress.at(-1).type, "error");
+  assert.equal(progress.at(-1).keptBytes, result.keptBytes);
   assert.ok(progress.filter((event) => event.type === "progress").every((event) => event.percentage < 42));
+
+  progress.length = 0;
+  const retry = api.downloadParakeetModel("parakeet-unified-en-0.6b");
+  time.advance(10000);
+  assert.equal((await retry).success, true);
+  assert.equal(progress.find((event) => event.type === "progress").percentage, 42, "resumes from 35%");
 });
 
 test("cancel stops the transfer with the cancellation code", async () => {
@@ -2776,7 +2952,14 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
    const PROCESS_MS = 350;
    const UNDO_MS = 5000;
 
-   type DownloadResult = { success: boolean; downloaded?: boolean; model: string; error?: string; code?: string };
+   type DownloadResult = {
+     success: boolean;
+     downloaded?: boolean;
+     model: string;
+     error?: string;
+     code?: string;
+     keptBytes?: number;
+   };
    type ProgressListener = (event: unknown, data: Record<string, unknown>) => void;
    type DemoPayload = Omit<OnboardingDemoEvent, "demoId" | "kind">;
 
@@ -2788,6 +2971,9 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      const demoListeners = new Set<(event: OnboardingDemoEvent) => void>();
      const hotkeyListeners = new Set<(event: DictationHotkeyEvent) => void>();
      const downloaded = new Set<string>();
+     // Mirrors main (owner decision 3): a network failure keeps the partial download.
+     const kept = new Map<string, number>();
+     const interrupted = new Set<string>();
      let active: { model: string; percent: number; timer: unknown; resolve: (r: DownloadResult) => void } | null = null;
      let session: { id: string; kind: OnboardingDemoKind } | null = null;
      let recording = false;
@@ -2827,10 +3013,13 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
          const tick = () => {
            if (!active) return;
            const percent = Math.min(100, active.percent + STEP_PERCENT);
-           if (scenario() === "download-interrupted" && percent >= INTERRUPT_AT) {
+           if (scenario() === "download-interrupted" && !interrupted.has(model) && percent >= INTERRUPT_AT) {
+             interrupted.add(model);
+             kept.set(model, active.percent);
              const error = "The connection was reset.";
-             emitProgress({ type: "error", model, error, code: "ECONNRESET" });
-             return finish({ success: false, model, error, code: "ECONNRESET" });
+             const keptBytes = Math.round((MODEL_BYTES * active.percent) / 100);
+             emitProgress({ type: "error", model, error, code: "ECONNRESET", keptBytes });
+             return finish({ success: false, model, error, code: "ECONNRESET", keptBytes });
            }
            active.percent = percent;
            emitProgress({
@@ -2916,6 +3105,8 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
        if (active) clock.clearTimeout(active.timer);
        active = null;
        downloaded.clear();
+       kept.clear();
+       interrupted.clear();
        endSession();
      }
 
@@ -2931,7 +3122,11 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
          model,
          downloaded: scenario() === "ready" || downloaded.has(model),
        }),
-       downloadParakeetModel: (model: string) => runDownload(model, 0),
+       downloadParakeetModel: (model: string) => {
+         const from = kept.get(model) ?? 0;
+         kept.delete(model);
+         return runDownload(model, from);
+       },
        cancelParakeetDownload: async () => {
          if (!active) return { success: false };
          const { model, timer, resolve } = active;
@@ -4924,29 +5119,112 @@ git commit -m "feat(onboarding): pinned two-phase shell with the instrument rail
 
 ### Task 12: Hello (Phase 1, screen 1)
 
-Covers ONB-R2 B "Hello: mic permission and level", ONB-Q6 on this screen, and part of ONB-Q17. The privacy toggles move to Ready (open question 2).
+Covers ONB-R2 B "Hello: mic permission and level", ONB-Q6 on this screen, part of ONB-Q17, and owner decision 6 (a microphone picker). The privacy toggles move to Ready (owner decision 2).
 
 **Files:**
+- Create: `src/utils/onboardingMic.ts`
 - Create: `src/components/onboarding/useMicLevelPreview.ts`
 - Create: `src/components/onboarding/HelloStep.tsx`
 - Create: `src/components/onboarding/PrivacyDefaults.tsx`
 - Delete: `src/components/onboarding/WelcomeScreen.tsx`
-- Modify: `src/components/OnboardingFlow.tsx`. Touch the `WelcomeScreen` import (23), the welcome early return (1399-1413) and the legacy `FinishStep` (931-1008), which gains `<PrivacyDefaults>`. Move `import "../styles/onboarding-welcome.css";` here, because it was only imported by `WelcomeScreen.tsx:5`.
+- Modify: `src/components/OnboardingFlow.tsx`. Touch the `WelcomeScreen` import (23), the welcome early return (1399-1413), and the legacy `FinishStep` (931-1008), which gains `<PrivacyDefaults>`. Move `import "../styles/onboarding-welcome.css";` here, because it was only imported by `WelcomeScreen.tsx:5`.
 - Modify: `src/styles/onboarding.css` (append)
-- Test: `test/components/onboardingHello.test.js`. Extend `test/components/onboardingFlow.test.js`.
+- Test: `test/utils/onboardingMic.test.js` and `test/components/onboardingHello.test.js`. Extend `test/components/onboardingFlow.test.js`.
 
 **Interfaces:**
-- Consumes `useMicrophoneAccess`, `openMicrophoneHelp` and `RecoveryCard` (Task 10), `LevelBars` (Plan 01), `analyserRms` (`src/utils/audioLevel.ts:2`, `(analyser, buf: { current: Float32Array | null }) => number`) and `VOICE_LEVEL_FLOOR` (Task 6).
+- Consumes:
+  - `useMicrophoneAccess`, `openMicrophoneHelp` and `RecoveryCard` (Task 10);
+  - `LevelBars` (Plan 01);
+  - `analyserRms` (`src/utils/audioLevel.ts:2`, `(analyser, buf: { current: Float32Array | null }) => number`);
+  - `VOICE_LEVEL_FLOOR` and `SILENCE_HINT_MS` (Task 6);
+  - `isBuiltInMicrophone` (`src/utils/audioDeviceUtils.ts:10`) and `resolveMicDeviceSelection` (`src/helpers/micDeviceSelection.js`). These are the same helpers `MicrophoneSettings` uses.
+  - The existing selection settings: `microphoneSelectionMode` (`"system" | "built-in" | "specific"`), `selectedMicDeviceId` and `selectedMicDeviceLabel` (`src/stores/settingsStore.ts:1470-1478`), plus `setMicrophoneSelectionMode(mode)` and `setSelectedMicDevice(deviceId, label)` (2161-2176). The dictation recorder already reads these, so the device picked on Hello is the one every later dictation uses.
+- Produces `src/utils/onboardingMic.ts`:
+
+  ```ts
+  export type MicSelectionMode = "system" | "built-in" | "specific";
+  export interface AudioInput { deviceId: string; label: string; isBuiltIn: boolean }
+  export const SYSTEM_MIC = "__system__";
+  export const BUILT_IN_MIC = "__built-in__";
+  export function toAudioInputs(devices: ReadonlyArray<Pick<MediaDeviceInfo, "kind" | "deviceId" | "label">>): AudioInput[]; // drops "default"/"communications"
+  export interface MicPickerModel { value: string; previewDeviceId: string | null; hasBuiltIn: boolean; devices: AudioInput[]; missing: boolean }
+  export function micPickerModel(devices: AudioInput[], mode: MicSelectionMode, selectedId: string, selectedLabel: string): MicPickerModel;
+  export function selectionFor(value: string, devices: AudioInput[]): { mode: MicSelectionMode; device: AudioInput | null };
+  ```
+
 - Produces:
 
   ```ts
-  export interface MicLevelPreview { status: "off" | "starting" | "live" | "failed"; deviceLabel: string | null; heardVoice: boolean; readLevel(): number }
-  export function useMicLevelPreview(active: boolean): MicLevelPreview; // releases every track when inactive or unmounted
-  export interface HelloStepProps { platform: "darwin" | "linux" | "win32"; access: MicAccess; preview: MicLevelPreview; onAllow(): void; onRecheck(): void }
+  export interface MicLevelPreview {
+    status: "off" | "starting" | "live" | "failed";
+    deviceLabel: string | null;
+    heardVoice: boolean;
+    silent: boolean;            // live for SILENCE_HINT_MS without a voice: highlight the picker
+    inputs: AudioInput[];       // enumerated once the stream is live (labels need permission)
+    readLevel(): number;
+  }
+  export function useMicLevelPreview(active: boolean, deviceId?: string | null): MicLevelPreview; // releases every track when inactive, on device change, or unmounted
+  export interface HelloStepProps {
+    platform: "darwin" | "linux" | "win32"; access: MicAccess; preview: MicLevelPreview;
+    picker: MicPickerModel; onPickMicrophone(value: string): void;
+    onAllow(): void; onRecheck(): void;
+  }
   export interface PrivacyDefaultsProps { platform: "darwin" | "linux" | "win32"; historyEnabled: boolean; onHistoryChange(value: boolean): void; updatesEnabled: boolean; onUpdatesChange(value: boolean): void }
   ```
 
 - [ ] **Step 1: Write the failing tests**
+
+Create `test/utils/onboardingMic.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const load = () => import("../../src/utils/onboardingMic.ts");
+const devices = [
+  { kind: "audioinput", deviceId: "default", label: "Default - MacBook Pro Microphone" },
+  { kind: "audioinput", deviceId: "mbp", label: "MacBook Pro Microphone" },
+  { kind: "audioinput", deviceId: "usb", label: "USB Mic" },
+  { kind: "audiooutput", deviceId: "spk", label: "Speakers" },
+];
+
+test("only real inputs are listed, and built-in microphones are recognised", async () => {
+  const { toAudioInputs } = await load();
+  assert.deepEqual(toAudioInputs(devices), [
+    { deviceId: "mbp", label: "MacBook Pro Microphone", isBuiltIn: true },
+    { deviceId: "usb", label: "USB Mic", isBuiltIn: false },
+  ]);
+});
+
+test("the picker shows the saved choice and listens to that device", async () => {
+  const { toAudioInputs, micPickerModel, SYSTEM_MIC, BUILT_IN_MIC } = await load();
+  const inputs = toAudioInputs(devices);
+  assert.deepEqual(
+    [micPickerModel(inputs, "system", "", "").value, micPickerModel(inputs, "system", "", "").previewDeviceId],
+    [SYSTEM_MIC, null]
+  );
+  const builtIn = micPickerModel(inputs, "built-in", "", "");
+  assert.deepEqual([builtIn.value, builtIn.previewDeviceId, builtIn.hasBuiltIn], [BUILT_IN_MIC, "mbp", true]);
+  assert.equal(micPickerModel(inputs, "specific", "usb", "USB Mic").previewDeviceId, "usb");
+  assert.equal(micPickerModel(inputs, "specific", "old-id", "USB Mic").value, "usb", "a re-plugged device is found by its label");
+});
+
+test("a saved device that is gone falls back to the system default and says so", async () => {
+  const { toAudioInputs, micPickerModel, SYSTEM_MIC } = await load();
+  const gone = micPickerModel(toAudioInputs(devices), "specific", "headset", "Headset");
+  assert.deepEqual([gone.value, gone.previewDeviceId, gone.missing], [SYSTEM_MIC, null, true]);
+  assert.equal(micPickerModel([], "specific", "headset", "Headset").missing, false, "not before the list has loaded");
+});
+
+test("a picked value maps back to a selection mode and device", async () => {
+  const { toAudioInputs, selectionFor, SYSTEM_MIC, BUILT_IN_MIC } = await load();
+  const inputs = toAudioInputs(devices);
+  assert.deepEqual(selectionFor(SYSTEM_MIC, inputs), { mode: "system", device: null });
+  assert.deepEqual(selectionFor(BUILT_IN_MIC, inputs), { mode: "built-in", device: null });
+  assert.deepEqual(selectionFor("usb", inputs), { mode: "specific", device: inputs[1] });
+  assert.deepEqual(selectionFor("unplugged", inputs), { mode: "system", device: null });
+});
+```
 
 Create `test/components/onboardingHello.test.js`:
 
@@ -4958,7 +5236,17 @@ const { createRoot } = require("react-dom/client");
 const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
 const { mountComponent } = require("../helpers/harness/mountComponent");
 
-const preview = (patch = {}) => ({ status: "off", deviceLabel: null, heardVoice: false, readLevel: () => 0, ...patch });
+const preview = (patch = {}) => ({
+  status: "off",
+  deviceLabel: null,
+  heardVoice: false,
+  silent: false,
+  inputs: [],
+  readLevel: () => 0,
+  ...patch,
+});
+const usb = { deviceId: "usb", label: "USB Mic", isBuiltIn: false };
+const picker = (patch = {}) => ({ value: "__system__", previewDeviceId: null, hasBuiltIn: false, devices: [usb], missing: false, ...patch });
 
 async function hello(t, props) {
   const actions = [];
@@ -4968,6 +5256,8 @@ async function hello(t, props) {
       platform: "darwin",
       access: "unknown",
       preview: preview(),
+      picker: picker(),
+      onPickMicrophone: (value) => actions.push(["pick", value]),
       onAllow: () => actions.push("allow"),
       onRecheck: () => actions.push("recheck"),
       ...props,
@@ -4982,12 +5272,29 @@ test("before permission, one live button asks for the microphone", async (t) => 
   assert.ok(allow.textContent.includes("setupFlow.hello.allowMic"));
   await ui.click(allow);
   assert.deepEqual(actions, ["allow"]);
+  assert.equal(ui.findAll((node) => node.tagName === "SELECT").length, 0, "no picker before permission");
 });
 
 test("with permission, the meter shows which microphone is listening", async (t) => {
   const { ui } = await hello(t, { access: "granted", preview: preview({ status: "live", deviceLabel: "MacBook Pro Microphone" }) });
   assert.equal(ui.byAttr("data-level-bar").length, 5);
   assert.ok(ui.text().includes('setupFlow.hello.micReady {"device":"MacBook Pro Microphone"}'));
+});
+
+test("the picker lists the system default and each input, and picking one reports it", async (t) => {
+  const { ui, actions } = await hello(t, { access: "granted", preview: preview({ status: "live", inputs: [usb] }) });
+  const [select] = ui.findAll((node) => node.tagName === "SELECT");
+  const options = ui.findAll((node) => node.tagName === "OPTION").map((node) => node.textContent);
+  assert.deepEqual(options, ["setupFlow.hello.systemDefault", "USB Mic"]);
+  await React.act(async () => ui.reactProps(select).onChange({ target: { value: "usb" } }));
+  assert.deepEqual(actions, [["pick", "usb"]]);
+});
+
+test("hearing nothing highlights the picker; a missing saved device is said", async (t) => {
+  const { ui } = await hello(t, { access: "granted", preview: preview({ status: "live", silent: true }), picker: picker({ missing: true }) });
+  assert.equal(ui.byAttr("data-attention", "true").length, 1);
+  assert.ok(ui.text().includes("setupFlow.hello.notHearing"));
+  assert.ok(ui.text().includes("setupFlow.hello.savedMicMissing"));
 });
 
 test("a denied microphone gets one recovery card with a deep link and a re-check", async (t) => {
@@ -5006,20 +5313,32 @@ test("a microphone that will not open says so instead of showing a dead meter", 
   assert.equal(ui.byAttr("data-level-bar").length, 0);
 });
 
-test("leaving Hello stops the microphone", async (t) => {
+async function mountPreview(t) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
   });
   installBrowserGlobals(t);
   const container = installHookDom(t);
+  const opened = [];
   const stopped = [];
   const closed = [];
-  const track = { label: "USB Mic", stop: () => stopped.push("track") };
   const previousDevices = Object.getOwnPropertyDescriptor(globalThis.navigator, "mediaDevices");
   Object.defineProperty(globalThis.navigator, "mediaDevices", {
     configurable: true,
-    value: { getUserMedia: async () => ({ getTracks: () => [track], getAudioTracks: () => [track] }) },
+    value: {
+      getUserMedia: async (constraints) => {
+        opened.push(constraints);
+        const track = { label: `Mic ${opened.length}`, stop: () => stopped.push(opened.length) };
+        return { getTracks: () => [track], getAudioTracks: () => [track] };
+      },
+      enumerateDevices: async () => [
+        { kind: "audioinput", deviceId: "default", label: "Default" },
+        { kind: "audioinput", deviceId: "usb", label: "USB Mic" },
+      ],
+      addEventListener() {},
+      removeEventListener() {},
+    },
   });
   const previousContext = globalThis.AudioContext;
   globalThis.AudioContext = class {
@@ -5042,21 +5361,42 @@ test("leaving Hello stops the microphone", async (t) => {
   const vite = await createRendererServer(t, { cachePrefix: "loqui-mic-preview-test-" });
   const { useMicLevelPreview } = await vite.ssrLoadModule("/components/onboarding/useMicLevelPreview.ts");
   let current;
-  function Harness({ active }) {
-    current = useMicLevelPreview(active);
+  function Harness({ active, deviceId }) {
+    current = useMicLevelPreview(active, deviceId);
     return null;
   }
   root = createRoot(container);
-  await React.act(async () => root.render(React.createElement(Harness, { active: true })));
-  await React.act(async () => {}); // let getUserMedia settle
-  assert.equal(current.status, "live");
-  assert.equal(current.deviceLabel, "USB Mic");
-  await React.act(async () => root.render(React.createElement(Harness, { active: false })));
-  assert.deepEqual([stopped, closed, current.status], [["track"], ["context"], "off"]);
+  const render = async (props) => {
+    await React.act(async () => root.render(React.createElement(Harness, props)));
+    await React.act(async () => {}); // let getUserMedia and enumerateDevices settle
+  };
+  return { render, current: () => current, opened, stopped, closed };
+}
+
+test("the preview lists inputs and reopens on the picked device", async (t) => {
+  const mic = await mountPreview(t);
+  await mic.render({ active: true, deviceId: null });
+  assert.equal(mic.current().status, "live");
+  assert.deepEqual(mic.current().inputs.map((input) => input.deviceId), ["usb"]);
+  await mic.render({ active: true, deviceId: "usb" });
+  assert.deepEqual(mic.opened, [{ audio: true }, { audio: { deviceId: { exact: "usb" } } }]);
+  assert.deepEqual(mic.stopped, [1], "the first stream is released before the second opens");
+});
+
+test("leaving Hello stops the microphone", async (t) => {
+  const mic = await mountPreview(t);
+  await mic.render({ active: true, deviceId: null });
+  await mic.render({ active: false, deviceId: null });
+  assert.deepEqual([mic.stopped, mic.closed, mic.current().status], [[1], ["context"], "off"]);
 });
 ```
 
-Change the flow test in `test/components/onboardingFlow.test.js` so the walk starts at Hello. Replace `initialStep: "speech"` in `mountFlow`'s defaults with `"welcome"`, and `step: "speech"` in `PREVIEW` with `"welcome"`. Prepend `'setupFlow.progress.goTo {"step":"setupFlow.steps.welcome"}'` to the expected `seen` list. Then append:
+Change the flow test in `test/components/onboardingFlow.test.js` so the walk starts at Hello:
+- In `mountFlow`'s defaults, replace `initialStep: "speech"` with `"welcome"`.
+- In `PREVIEW`, replace `step: "speech"` with `"welcome"`.
+- Prepend `'setupFlow.progress.goTo {"step":"setupFlow.steps.welcome"}'` to the expected `seen` list.
+
+Then append:
 
 ```js
 test("Hello offers Look around first instead of a dead Back", async (t) => {
@@ -5069,22 +5409,88 @@ test("Hello offers Look around first instead of a dead Back", async (t) => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/components/onboardingHello.test.js test/components/onboardingFlow.test.js`
-Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is still the old full-screen `WelcomeScreen`.
+Run: `npm test -- test/utils/onboardingMic.test.js test/components/onboardingHello.test.js test/components/onboardingFlow.test.js`
+Expected: FAIL. `onboardingMic.ts`, `HelloStep` and `useMicLevelPreview` are missing, and Hello is still the old full-screen `WelcomeScreen`.
 
 - [ ] **Step 3: Implement**
 
-1. Create `src/components/onboarding/useMicLevelPreview.ts`:
+1. Create `src/utils/onboardingMic.ts`:
+
+   ```ts
+   import { isBuiltInMicrophone } from "./audioDeviceUtils";
+   import { resolveMicDeviceSelection } from "../helpers/micDeviceSelection";
+
+   // Hello's microphone picker over the same settings MicrophoneSettings writes,
+   // so the device chosen in setup is the one every dictation uses.
+   export type MicSelectionMode = "system" | "built-in" | "specific";
+
+   export interface AudioInput {
+     deviceId: string;
+     label: string;
+     isBuiltIn: boolean;
+   }
+
+   export const SYSTEM_MIC = "__system__";
+   export const BUILT_IN_MIC = "__built-in__";
+   const PSEUDO_DEVICES = new Set(["default", "communications"]);
+
+   export function toAudioInputs(
+     devices: ReadonlyArray<Pick<MediaDeviceInfo, "kind" | "deviceId" | "label">>
+   ): AudioInput[] {
+     return devices
+       .filter((device) => device.kind === "audioinput" && !PSEUDO_DEVICES.has(device.deviceId))
+       .map((device) => ({ deviceId: device.deviceId, label: device.label, isBuiltIn: isBuiltInMicrophone(device.label) }));
+   }
+
+   export interface MicPickerModel {
+     value: string;
+     previewDeviceId: string | null;
+     hasBuiltIn: boolean;
+     devices: AudioInput[];
+     missing: boolean;
+   }
+
+   export function micPickerModel(
+     devices: AudioInput[],
+     mode: MicSelectionMode,
+     selectedId: string,
+     selectedLabel: string
+   ): MicPickerModel {
+     const builtIn = devices.find((device) => device.isBuiltIn) ?? null;
+     const base = { hasBuiltIn: Boolean(builtIn), devices, missing: false };
+     if (mode === "built-in" && builtIn) return { ...base, value: BUILT_IN_MIC, previewDeviceId: builtIn.deviceId };
+     if (mode === "specific") {
+       const resolved = resolveMicDeviceSelection(devices, selectedId, selectedLabel);
+       if (resolved.device) return { ...base, value: resolved.device.deviceId, previewDeviceId: resolved.device.deviceId };
+       return { ...base, value: SYSTEM_MIC, previewDeviceId: null, missing: Boolean(selectedId) && devices.length > 0 };
+     }
+     return { ...base, value: SYSTEM_MIC, previewDeviceId: null };
+   }
+
+   export function selectionFor(value: string, devices: AudioInput[]): { mode: MicSelectionMode; device: AudioInput | null } {
+     if (value === SYSTEM_MIC) return { mode: "system", device: null };
+     if (value === BUILT_IN_MIC) return { mode: "built-in", device: null };
+     const device = devices.find((candidate) => candidate.deviceId === value) ?? null;
+     return device ? { mode: "specific", device } : { mode: "system", device: null };
+   }
+   ```
+
+   If typecheck rejects the `.js` import, add `// @ts-expect-error untyped helper` above it, as other TS callers of `src/helpers/*.js` do. `MicrophoneSettings.tsx:9` imports the same module without one, so it should not be needed.
+
+2. Create `src/components/onboarding/useMicLevelPreview.ts`:
 
    ```ts
    import { useCallback, useEffect, useRef, useState } from "react";
    import { analyserRms } from "../../utils/audioLevel";
-   import { VOICE_LEVEL_FLOOR } from "../../utils/onboardingTrial";
+   import { SILENCE_HINT_MS, VOICE_LEVEL_FLOOR } from "../../utils/onboardingTrial";
+   import { toAudioInputs, type AudioInput } from "../../utils/onboardingMic";
 
    export interface MicLevelPreview {
      status: "off" | "starting" | "live" | "failed";
      deviceLabel: string | null;
      heardVoice: boolean;
+     silent: boolean;
+     inputs: AudioInput[];
      readLevel(): number;
    }
 
@@ -5092,41 +5498,61 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
 
    /**
     * A level meter for Hello. Nothing is recorded: the stream feeds an analyser
-    * only, and every track is stopped when Hello is left (Review Focus 2).
+    * only, and every track is stopped when Hello is left or the device changes
+    * (Review Focus 2).
     */
-   export function useMicLevelPreview(active: boolean): MicLevelPreview {
+   export function useMicLevelPreview(active: boolean, deviceId: string | null = null): MicLevelPreview {
      const levelRef = useRef(0);
      const [state, setState] = useState<Omit<MicLevelPreview, "readLevel">>({
        status: "off",
        deviceLabel: null,
        heardVoice: false,
+       silent: false,
+       inputs: [],
      });
 
      useEffect(() => {
        if (!active) {
-         setState((previous) => ({ ...previous, status: "off" }));
+         setState((previous) => ({ ...previous, status: "off", silent: false }));
          return;
        }
        let cancelled = false;
+       let heard = false;
        let stream: MediaStream | null = null;
        let context: AudioContext | null = null;
        let timer: ReturnType<typeof setInterval> | null = null;
-       setState((previous) => ({ ...previous, status: "starting" }));
+       let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+       const devices = navigator.mediaDevices;
+       const listInputs = async () => {
+         try {
+           const inputs = toAudioInputs(await devices.enumerateDevices());
+           if (!cancelled) setState((previous) => ({ ...previous, inputs }));
+         } catch {
+           // The picker keeps its last list.
+         }
+       };
+       setState((previous) => ({ ...previous, status: "starting", heardVoice: false, silent: false }));
        void (async () => {
          try {
-           stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+           stream = await devices.getUserMedia({ audio: deviceId ? { deviceId: { exact: deviceId } } : true });
            if (cancelled) return;
            context = new AudioContext();
            const analyser = context.createAnalyser();
            analyser.fftSize = 1024;
            context.createMediaStreamSource(stream).connect(analyser);
            const buffer: { current: Float32Array<ArrayBuffer> | null } = { current: null };
-           setState({ status: "live", deviceLabel: stream.getAudioTracks()[0]?.label || null, heardVoice: false });
+           setState((previous) => ({ ...previous, status: "live", deviceLabel: stream?.getAudioTracks()[0]?.label || null }));
+           void listInputs();
+           devices.addEventListener?.("devicechange", listInputs);
+           silenceTimer = setTimeout(() => {
+             if (!heard && !cancelled) setState((previous) => ({ ...previous, silent: true }));
+           }, SILENCE_HINT_MS);
            timer = setInterval(() => {
              const level = analyserRms(analyser, buffer);
              levelRef.current = level;
-             if (level > VOICE_LEVEL_FLOOR) {
-               setState((previous) => (previous.heardVoice ? previous : { ...previous, heardVoice: true }));
+             if (level > VOICE_LEVEL_FLOOR && !heard) {
+               heard = true;
+               setState((previous) => ({ ...previous, heardVoice: true, silent: false }));
              }
            }, SAMPLE_MS);
          } catch {
@@ -5136,26 +5562,30 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
        return () => {
          cancelled = true;
          if (timer) clearInterval(timer);
+         if (silenceTimer) clearTimeout(silenceTimer);
+         devices?.removeEventListener?.("devicechange", listInputs);
          stream?.getTracks().forEach((track) => track.stop());
          void context?.close();
          levelRef.current = 0;
        };
-     }, [active]);
+     }, [active, deviceId]);
 
      const readLevel = useCallback(() => levelRef.current, []);
      return { ...state, readLevel };
    }
    ```
 
-   If `getUserMedia` resolves after the effect was cleaned up, the stream is stopped in the cleanup above, because `stream` is assigned before the `cancelled` check.
+   If `getUserMedia` resolves after the effect was cleaned up, the stream is still stopped in the cleanup above, because `stream` is assigned before the `cancelled` check.
 
-2. Create `src/components/onboarding/HelloStep.tsx`:
+3. Create `src/components/onboarding/HelloStep.tsx`:
 
    ```tsx
+   import { useId } from "react";
    import { useTranslation } from "react-i18next";
    import { Mic } from "../icons";
    import { Button } from "../ui/button";
    import { LevelBars } from "../ui/LevelBars";
+   import { BUILT_IN_MIC, SYSTEM_MIC, type MicPickerModel } from "../../utils/onboardingMic";
    import { RecoveryCard } from "./RecoveryCard";
    import { openMicrophoneHelp, type MicAccess } from "./useMicrophoneAccess";
    import type { MicLevelPreview } from "./useMicLevelPreview";
@@ -5164,12 +5594,15 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
      platform: "darwin" | "linux" | "win32";
      access: MicAccess;
      preview: MicLevelPreview;
+     picker: MicPickerModel;
+     onPickMicrophone(value: string): void;
      onAllow(): void;
      onRecheck(): void;
    }
 
-   export function HelloStep({ platform, access, preview, onAllow, onRecheck }: HelloStepProps) {
+   export function HelloStep({ platform, access, preview, picker, onPickMicrophone, onAllow, onRecheck }: HelloStepProps) {
      const { t } = useTranslation();
+     const pickerId = useId();
      const recheck = { label: t("setupFlow.hello.recheck"), onClick: onRecheck, variant: "ghost" as const };
 
      if (access === "denied") {
@@ -5199,15 +5632,35 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
            {t("setupFlow.hello.micTitle")}
          </h2>
          {access === "granted" ? (
-           <div className="onb-mic-row">
-             <Mic aria-hidden="true" className="onb-mic-row__icon" />
-             <LevelBars readLevel={preview.readLevel} height={20} />
-             <span>
-               {preview.deviceLabel
-                 ? t("setupFlow.hello.micReady", { device: preview.deviceLabel })
-                 : t("setupFlow.hello.micReadyGeneric")}
-             </span>
-           </div>
+           <>
+             <div className="onb-mic-row">
+               <Mic aria-hidden="true" className="onb-mic-row__icon" />
+               <LevelBars readLevel={preview.readLevel} height={20} />
+               <span>
+                 {preview.deviceLabel
+                   ? t("setupFlow.hello.micReady", { device: preview.deviceLabel })
+                   : t("setupFlow.hello.micReadyGeneric")}
+               </span>
+             </div>
+             <div className="onb-select-row" data-attention={preview.silent || picker.missing || undefined}>
+               <label htmlFor={pickerId}>{t("setupFlow.hello.micLabel")}</label>
+               <select id={pickerId} value={picker.value} onChange={(event) => onPickMicrophone(event.target.value)}>
+                 <option value={SYSTEM_MIC}>{t("setupFlow.hello.systemDefault")}</option>
+                 {picker.hasBuiltIn ? <option value={BUILT_IN_MIC}>{t("setupFlow.hello.builtIn")}</option> : null}
+                 {picker.devices.map((device) => (
+                   <option key={device.deviceId} value={device.deviceId}>
+                     {device.label || t("setupFlow.hello.unnamedMic")}
+                   </option>
+                 ))}
+               </select>
+             </div>
+             {preview.silent ? (
+               <p className="onb-warning" role="status">
+                 {t("setupFlow.hello.notHearing")}
+               </p>
+             ) : null}
+             {picker.missing ? <p className="onb-muted">{t("setupFlow.hello.savedMicMissing")}</p> : null}
+           </>
          ) : (
            <Button variant="live" onClick={onAllow}>
              <Mic aria-hidden="true" />
@@ -5220,7 +5673,7 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
    }
    ```
 
-3. Create `src/components/onboarding/PrivacyDefaults.tsx`:
+4. Create `src/components/onboarding/PrivacyDefaults.tsx`:
 
    ```tsx
    import { useTranslation } from "react-i18next";
@@ -5234,7 +5687,7 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
      onUpdatesChange(value: boolean): void;
    }
 
-   /** The two choices that used to sit on Welcome (open question 2): unchanged defaults. */
+   /** The two choices that used to sit on Welcome (owner decision 2): unchanged defaults. */
    export function PrivacyDefaults({
      platform,
      historyEnabled,
@@ -5267,16 +5720,32 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
    }
    ```
 
-4. In `src/components/OnboardingFlow.tsx`:
-   - Delete the `WelcomeScreen` import and add imports for `HelloStep`, `PrivacyDefaults`, `useMicrophoneAccess` and `useMicLevelPreview`.
+5. In `src/components/OnboardingFlow.tsx`:
+   - Delete the `WelcomeScreen` import. Add imports for `HelloStep`, `PrivacyDefaults`, `useMicrophoneAccess`, `useMicLevelPreview`, `micPickerModel` and `selectionFor`.
    - Add `import "../styles/onboarding-welcome.css";`. The legacy wrapper still needs it until Task 18.
    - Delete the welcome early return (1399-1413).
    - Add:
 
    ```tsx
    const mic = useMicrophoneAccess();
-   const helloPreview = useMicLevelPreview(step === "welcome" && mic.access === "granted");
+   const micMode = useSettingsStore((s) => s.microphoneSelectionMode);
+   const micId = useSettingsStore((s) => s.selectedMicDeviceId);
+   const micLabel = useSettingsStore((s) => s.selectedMicDeviceLabel);
+   const [helloInputs, setHelloInputs] = useState<AudioInput[]>([]);
+   const micPicker = micPickerModel(helloInputs, micMode, micId, micLabel);
+   const helloPreview = useMicLevelPreview(step === "welcome" && mic.access === "granted", micPicker.previewDeviceId);
+   useEffect(() => setHelloInputs(helloPreview.inputs), [helloPreview.inputs]);
+
+   // An explicit pick on Hello writes the same settings MicrophoneSettings does.
+   const pickMicrophone = (value: string) => {
+     const { mode, device } = selectionFor(value, helloInputs);
+     const store = useSettingsStore.getState();
+     store.setMicrophoneSelectionMode(mode);
+     if (device) store.setSelectedMicDevice(device.deviceId, device.label);
+   };
    ```
+
+   The picker model reads the previous render's inputs, which breaks the dependency loop between "which device to open" and "which devices exist". When the saved device resolves, the preview reopens on it once.
 
    Then branch the shell props on `step === "welcome"`:
    - `railMode` is `helloPreview.status === "live" ? { kind: "listening", heardVoice: helloPreview.heardVoice } : { kind: "idle" }`.
@@ -5291,16 +5760,21 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
      platform={platform}
      access={mic.access}
      preview={helloPreview}
+     picker={micPicker}
+     onPickMicrophone={pickMicrophone}
      onAllow={() => void mic.request()}
      onRecheck={() => void mic.check()}
    />
    ```
 
-   Inside the legacy `FinishStep` (rendered from `content` for `finish`), add `<PrivacyDefaults>` under the readiness list. Pass `platform`, `dataRetentionEnabled`/`setDataRetentionEnabled`, and the existing `updatesEnabled` with an `onUpdatesChange` that sets state and calls `window.electronAPI?.updates?.preferences?.({ enabled: value })`. That is the same call `WelcomeScreen` used at line 1405.
+   Inside the legacy `FinishStep` (rendered from `content` for `finish`), add `<PrivacyDefaults>` under the readiness list. Pass it:
+   - `platform`;
+   - `dataRetentionEnabled` and `setDataRetentionEnabled`;
+   - the existing `updatesEnabled`, with an `onUpdatesChange` that sets state and calls `window.electronAPI?.updates?.preferences?.({ enabled: value })`. That is the same call `WelcomeScreen` made at line 1405.
 
-5. Delete `src/components/onboarding/WelcomeScreen.tsx`.
+6. Delete `src/components/onboarding/WelcomeScreen.tsx`.
 
-6. Append to `src/styles/onboarding.css`:
+7. Append to `src/styles/onboarding.css`:
 
    ```css
    .onb-card {
@@ -5338,6 +5812,37 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
      color: var(--color-muted-foreground);
    }
 
+   .onb-select-row {
+     display: grid;
+     gap: 6px;
+     padding: 10px 12px;
+     border: 1px solid var(--color-border);
+     border-radius: 10px;
+     font-size: 13px;
+     transition: border-color var(--motion-fast) var(--motion-ease-std);
+   }
+
+   /* R3 C "nothing heard": the device select is what to check first. */
+   .onb-select-row[data-attention] {
+     border-color: var(--color-live);
+     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-live) 18%, transparent);
+   }
+
+   .onb-select-row select {
+     min-height: 36px;
+     padding-inline: 10px;
+     border: 1px solid var(--color-border);
+     border-radius: 6px;
+     background: var(--color-background);
+     color: var(--color-foreground);
+     font: inherit;
+   }
+
+   .onb-select-row select:focus-visible {
+     outline: 2px solid var(--color-ring);
+     outline-offset: 2px;
+   }
+
    .onb-toggle-row {
      display: flex;
      align-items: center;
@@ -5354,7 +5859,7 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
    }
    ```
 
-7. Add the strings:
+8. Add the strings:
 
    ```bash
    node scripts/dev/merge-locale-keys.cjs - <<'JSON'
@@ -5367,6 +5872,12 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
          "allowMic": "Allow microphone",
          "micReady": "{{device}} is listening",
          "micReadyGeneric": "Your microphone is listening",
+         "micLabel": "Microphone",
+         "systemDefault": "System default",
+         "builtIn": "Built-in microphone",
+         "unnamedMic": "Unnamed microphone",
+         "notHearing": "Not hearing you? Choose another microphone.",
+         "savedMicMissing": "Your saved microphone isn't connected, so Loqui is using the system default.",
          "deniedTitle": "Loqui can't use your microphone",
          "deniedBodyMac": "Allow it in System Settings, then come back. Loqui checks again when you return.",
          "deniedBodyOther": "Allow it in your system's privacy or sound settings, then come back. Loqui checks again when you return.",
@@ -5392,17 +5903,23 @@ Expected: FAIL. `HelloStep` and `useMicLevelPreview` are missing, and Hello is s
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/components/onboardingHello.test.js test/components/onboardingFlow.test.js && npm run typecheck && npm run i18n:check`
+Run: `npm test -- test/utils/onboardingMic.test.js test/components/onboardingHello.test.js test/components/onboardingFlow.test.js && npm run typecheck && npm run i18n:check`
 Expected: PASS.
 
-Preview: open `?preview=onboarding&step=welcome&scenario=fresh`. "Allow microphone" turns into a live meter, and the rail bars follow your voice. With `scenario=microphone-denied` you get one recovery card.
+Preview: open `?preview=onboarding&step=welcome&scenario=fresh`. Check:
+- "Allow microphone" turns into a live meter and a microphone picker;
+- picking another input reopens the meter on it;
+- the rail bars follow your voice;
+- after 2.5 s of silence the picker is highlighted.
+
+With `scenario=microphone-denied` you get one recovery card. The picker runs on the browser's real `navigator.mediaDevices`; it needs no bridge fake.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/onboarding/useMicLevelPreview.ts src/components/onboarding/HelloStep.tsx src/components/onboarding/PrivacyDefaults.tsx src/components/OnboardingFlow.tsx src/styles/onboarding.css src/locales test/components/onboardingHello.test.js test/components/onboardingFlow.test.js
+git add src/utils/onboardingMic.ts src/components/onboarding/useMicLevelPreview.ts src/components/onboarding/HelloStep.tsx src/components/onboarding/PrivacyDefaults.tsx src/components/OnboardingFlow.tsx src/styles/onboarding.css src/locales test/utils/onboardingMic.test.js test/components/onboardingHello.test.js test/components/onboardingFlow.test.js
 git rm src/components/onboarding/WelcomeScreen.tsx
-git commit -m "feat(onboarding): Hello asks for the microphone and shows it listening"
+git commit -m "feat(onboarding): Hello asks for the microphone, shows it listening, and lets you pick it"
 ```
 
 ---
@@ -5544,6 +6061,13 @@ test("Not right? opens a picker that lists every voice and blocks the ones that 
   assert.equal(english.attributes["aria-disabled"], "true");
   await ui.click(radios.find((radio) => radio.attributes["data-value"] === "nemotron-3.5-asr-streaming-0.6b"));
   assert.deepEqual(events, [["select", "nemotron-3.5-asr-streaming-0.6b"]]);
+});
+
+test("a stopped download says whether its progress was kept (owner decision 3)", async (t) => {
+  const kept = await voice(t, { props: { download: { status: "error", message: "Network timeout", percent: 42, progressKept: true } } });
+  assert.ok(kept.ui.text().includes('setupFlow.download.stoppedKept {"percent":42}'));
+  await kept.ui.rerender({ download: { status: "error", message: "HTTP 404", percent: 42, progressKept: false } });
+  assert.ok(kept.ui.text().includes('setupFlow.download.stoppedRestart {"percent":42}'));
 });
 
 test("the picker is locked with a reason while downloading, and Cancel is right there", async (t) => {
@@ -5787,7 +6311,9 @@ Expected: FAIL. `spokenLocalesFor` and `VoiceStep` are missing, and the legacy s
              ) : null}
              {download.status === "error" ? (
                <p className="onb-warning">
-                 {download.percent !== null ? `${t("setupFlow.download.stopped", { percent: download.percent })} ` : ""}
+                 {download.percent !== null
+                   ? `${t(download.progressKept ? "setupFlow.download.stoppedKept" : "setupFlow.download.stoppedRestart", { percent: download.percent })} `
+                   : ""}
                  {download.message}
                </p>
              ) : null}
@@ -6118,7 +6644,7 @@ test("the chip shows percent and ETA, and falls back to percent alone", async (t
 
 test("a failed download keeps the chip with Retry; idle shows nothing", async (t) => {
   let retried = 0;
-  const failed = await chip(t, { status: "error", message: "Disk full", percent: 42 }, { onRetry: () => retried++ });
+  const failed = await chip(t, { status: "error", message: "Disk full", percent: 42, progressKept: false }, { onRetry: () => retried++ });
   assert.equal(failed.byAttr("data-status", "error").length, 1);
   await failed.click("setupFlow.download.retry");
   assert.equal(retried, 1);
@@ -6180,6 +6706,21 @@ test("the stage swaps the tour for the trial at 100% and pops it in only then", 
   assert.ok(ui.text().includes("TRIAL"));
   assert.ok(ui.text().includes("setupFlow.tour.readyTitle"));
   assert.equal(ui.byAttr("data-arrived", "true").length, 1);
+});
+
+test("a stopped download keeps the tour and says the progress is kept", async (t) => {
+  const ui = await mountComponent(t, "/components/onboarding/TryStage.tsx", {
+    exportName: "TryStage",
+    props: {
+      download: { status: "error", message: "Network timeout", percent: 42, progressKept: true },
+      onRetry() {},
+      onCancel() {},
+      tour: "TOUR",
+      children: "TRIAL",
+    },
+  });
+  assert.ok(ui.text().includes("TOUR"));
+  assert.ok(ui.text().includes('setupFlow.download.stoppedKept {"percent":42}'));
 });
 
 test("a voice that is already installed shows the trial with no pop-in", async (t) => {
@@ -6473,6 +7014,13 @@ Expected: FAIL. The modules are missing.
        return (
          <div className="onb-stage">
            <DownloadChip state={download} onRetry={onRetry} onCancel={onCancel} />
+           {download.status === "error" && download.percent !== null ? (
+             <p className="onb-muted">
+               {t(download.progressKept ? "setupFlow.download.stoppedKept" : "setupFlow.download.stoppedRestart", {
+                 percent: download.percent,
+               })}
+             </p>
+           ) : null}
            {tour}
          </div>
        );
@@ -6942,6 +7490,7 @@ async function view(t, patch = {}) {
       onRetryCleanup: () => calls.push("retryCleanup"),
       onTurnCleanupOff: () => calls.push("cleanupOff"),
       onBackToVoice: () => calls.push("voice"),
+      onChangeMicrophone: () => calls.push("mic"),
       ...patch,
     },
   });
@@ -7025,6 +7574,12 @@ test("each failure has its own fix", async (t) => {
 test("silence for a while suggests checking the microphone", async (t) => {
   const { ui } = await view(t, { trial: trialState({ phase: "recording", recordingSinceMs: 0 }), nowMs: 3000 });
   assert.ok(ui.text().includes("setupFlow.try.silent"));
+});
+
+test("nothing heard leads back to the microphone picker", async (t) => {
+  const { ui, calls } = await view(t, { trial: trialState({ phase: "error", errorKind: "noAudio" }) });
+  await ui.click("setupFlow.try.changeMic");
+  assert.deepEqual(calls, ["mic"]);
 });
 
 test("the success band offers Make it yours first, then Start using Loqui", async (t) => {
@@ -7312,6 +7867,7 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
      onRetryCleanup(): void;
      onTurnCleanupOff(): void;
      onBackToVoice(): void;
+     onChangeMicrophone(): void; // back to Hello's picker (owner decision 6)
    }
 
    export function HotkeyTrial(props: HotkeyTrialProps) {
@@ -7321,6 +7877,7 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
      const recording = trial.phase === "recording";
      const key = { key: hotkeyLabel };
      const openSound = { label: t("setupFlow.hello.openSound"), onClick: () => void window.electronAPI?.openSoundInputSettings?.() };
+     const changeMic = { label: t("setupFlow.try.changeMic"), onClick: props.onChangeMicrophone };
 
      const failure = (() => {
        if (trial.phase !== "error") return null;
@@ -7334,7 +7891,13 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
              />
            );
          case "noAudio":
-           return <RecoveryCard title={t("setupFlow.try.noAudioTitle")} body={t("setupFlow.try.noAudioBody")} actions={[openSound]} />;
+           return (
+             <RecoveryCard
+               title={t("setupFlow.try.noAudioTitle")}
+               body={t("setupFlow.try.noAudioBody")}
+               actions={[changeMic, { ...openSound, variant: "ghost" }]}
+             />
+           );
          case "memory":
            return (
              <RecoveryCard
@@ -7403,8 +7966,8 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
            {isSilent(trial, props.nowMs) ? (
              <p className="onb-warning">
                {t("setupFlow.try.silent")}{" "}
-               <Button size="sm" variant="link" onClick={openSound.onClick}>
-                 {openSound.label}
+               <Button size="sm" variant="link" onClick={changeMic.onClick}>
+                 {changeMic.label}
                </Button>
              </p>
            ) : null}
@@ -7555,6 +8118,7 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
          onRetryCleanup={() => void retryCleanup()}
          onTurnCleanupOff={() => chooseCleanup("none")}
          onBackToVoice={() => goTo("speech")}
+         onChangeMicrophone={() => goTo("welcome")}
        />
      </div>
      {trial.successes > 0 ? <SuccessBand onPersonalize={() => goTo("cleanup")} onFinish={() => goTo("finish")} /> : null}
@@ -7689,6 +8253,7 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
           "memoryTitle": "This voice needs more memory than is free",
           "memoryBody": "Close some apps, or choose a smaller voice.",
           "chooseSmaller": "Choose another voice",
+          "changeMic": "Change microphone",
           "otherTitle": "That take didn't work",
           "otherBody": "Try again. Your setup is unchanged.",
           "again": "Try again",
@@ -8270,7 +8835,7 @@ Expected: FAIL. The modules are missing, and the wiring test cannot find the new
    }
    ```
 
-   The highlight fades in with `--motion-slow` (360ms) rather than the showcase's 400ms (open question 5). Under reduced motion the keyframes are dropped and the 15% highlight stays.
+   The highlight fades in with `--motion-slow` (360ms) rather than the showcase's 400ms (owner decision 5). Under reduced motion the keyframes are dropped and the 15% highlight stays.
 
 6. Add the strings:
 
@@ -9786,9 +10351,9 @@ Run `npm run dev:renderer`, then open `http://127.0.0.1:5183/?preview=onboarding
 | `multilingual` | Voice says "…uses Spanish and English" and picks Many languages. |
 | `low-disk` | Voice shows the disk note with real numbers. |
 | `downloading` | Say something opens straight onto the tour with the chip already counting. |
-| `download-interrupted` | The chip shows Download failed with Retry. The tour stays. Continue still works. |
+| `download-interrupted` | The chip shows Download failed with Retry, and "Download stopped at 35%. Your progress is kept." The tour stays. Continue still works. Retry resumes from 35%. |
 | `microphone-denied` | Hello shows one recovery card. The trial fails with the mic card. |
-| `nothing-heard` | The silence hint appears after 2.5 s. Stop gives "We didn't hear anything". |
+| `nothing-heard` | The silence hint appears after 2.5 s. Stop gives "We didn't hear anything", and "Change microphone" returns to Hello's picker. |
 | `insufficient-memory` | The trial offers "Choose another voice". |
 | `cleanup-failed` | The success shows the raw words with Retry cleanup and Turn cleanup off. |
 | `accessibility-missing` (macOS) | The trial and Shortcut show Grant access. "Use a button instead" works. |
@@ -9807,7 +10372,7 @@ npm run dev
 ```
 
 On a fresh test profile (never a personal profile), on macOS:
-1. On Hello, allow the mic. The meter moves with your voice.
+1. On Hello, allow the mic. The meter moves with your voice. Pick a different input in the picker (for example, AirPods). The meter follows it. After setup, dictate once and confirm Settings → Microphone shows the same device.
 2. On Voice, press Download. On Say something, if Accessibility is granted, press **fn**:
    - the keycap presses;
    - the rail follows your voice;
@@ -9816,9 +10381,10 @@ On a fresh test profile (never a personal profile), on macOS:
    - the mark docks.
 3. **Privacy check (Review Focus 1).** With a text editor focused behind Loqui, press fn and speak. Nothing is pasted into the editor. Then finish setup, open History, and confirm the trial is not there.
 4. Leave Say something mid-recording with Back. The mic indicator turns off, and nothing appears later (Review Focus 2).
-5. In Shortcut, hold fn for about a second. You see "Hold to talk detected" and Switch. After switching, holding fn dictates in the workspace.
-6. On Ready, press "Dictate into a note". A new note opens with its recorder running.
-7. From the workspace resume card, click "Choose text cleanup". Setup opens on Cleanup with no window reload.
+5. Kept progress (owner decision 3): start a voice download, turn Wi-Fi off until the chip says Download failed, and confirm "Your progress is kept". Turn Wi-Fi on and press Retry. The percent continues from where it stopped instead of restarting at 0.
+6. In Shortcut, hold fn for about a second. You see "Hold to talk detected" and Switch. After switching, holding fn dictates in the workspace.
+7. On Ready, press "Dictate into a note". A new note opens with its recorder running.
+8. From the workspace resume card, click "Choose text cleanup". Setup opens on Cleanup with no window reload.
 
 Repeat steps 1–3 on Linux (X11 or GNOME): no Accessibility rows, and the default shortcut from `getEffectiveDefaultHotkey` works.
 

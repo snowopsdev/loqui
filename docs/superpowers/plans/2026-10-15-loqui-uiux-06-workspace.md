@@ -77,7 +77,7 @@ Every Important finding is closed. Minor findings M01–M03 are closed, and so i
 
 1. **CR-06-1. Add a Plan 02 → Plan 06 edge to §3 (owner: Plan 02; consumer: 06). Applied in spec §3 (091d198)**, which records 01 → 02 → 03 → {04, 05, 06, 07} and names Plan 02's harness. Plan 06 builds on WS-Q1, WS-Q5 and WS-Q7, but the §3 graph only gates 06 on 01 and 03. Plan 06 consumes these names from Plan 02:
    - `src/hooks/useNow.ts`: `export function useNow(intervalMs?: number): Date`. Tasks 11 and 12 read "now" from it.
-   - `ChatInput.tsx` after WS-Q5 (Plan 02 Task 12): the `inputText`/`setInputText` and `queued`/`setQueued` state pairs, `inputRef`, `handleKeyDown` (with its `isComposing` check), the async `handleSubmit` that restores the draft on refusal, and the props `agentState`, `onTextSubmit`, `onCancel`, `autoFocus`, `placeholder`, `className` and `voiceDraft`. Tasks 4 and 22 add props on top of them.
+   - `ChatInput.tsx` after WS-Q5 (Plan 02 Task 12): the `inputText`/`setInputText` pair and Plan 02 Task 13's `queuedFor`/`setQueuedFor`, derived `queued`, `queueDropped` and `unsent` state, the `queueKey` prop, `inputRef`, `handleKeyDown` (with its `isComposing` check), the async `handleSubmit` that restores the draft on refusal, and the props `agentState`, `onTextSubmit`, `onCancel`, `autoFocus`, `placeholder`, `className` and `voiceDraft`. Tasks 4 and 22 add props on top of them.
    - The focus rule `focus-visible:ring-2 focus-visible:ring-ring` (Plan 02 Task 3).
    - The test harness files `test/helpers/harness/rendererMocks.js` (`rendererOptions`, `TOAST_MOCK`) and `test/helpers/harness/fakeDomTree.js` (`installTree`). Tasks 4 and 22 mount the composer with them.
 2. **CR-06-2. Extend §5.1 (owner: Plan 03). Applied in spec §5.1 (091d198):** `settingsPath` is "always a valid SettingsModal initialSection". Plan 06 opens Settings from the chat model chip, the mic card, the slash menu's `setupAi` item and the Notes Actions hint with `onOpenSettings(route.settingsPath)`.
@@ -169,7 +169,7 @@ grep -q "export function providerDisplayLabel" src/lib/locality.ts && echo "plan
 test -f src/lib/routes.ts && grep -q "export function useResolvedRoute" src/lib/routes.ts && echo "plan03 ok"
 grep -q "providerId" src/lib/routes.ts && echo "plan03 providerId ok (CR-06-5)"
 test -f src/hooks/useNow.ts && grep -q "export function useNow" src/hooks/useNow.ts && echo "plan02 useNow ok"
-grep -q "<textarea" src/components/chat/ChatInput.tsx && grep -q "const \[queued, setQueued\]" src/components/chat/ChatInput.tsx && echo "plan02 composer ok"
+grep -q "<textarea" src/components/chat/ChatInput.tsx && grep -q "const \[queuedFor, setQueuedFor\]" src/components/chat/ChatInput.tsx && grep -q "const \[unsent, setUnsent\]" src/components/chat/ChatInput.tsx && test -f test/components/chatSends.test.js && echo "plan02 composer ok (Task 13 queue)"
 test -f test/helpers/harness/rendererMocks.js && test -f test/helpers/harness/fakeDomTree.js && echo "plan02 harness ok"
 test -f scripts/merge-locale-keys.js && test -f test/scripts/mergeLocaleKeys.test.js && echo "plan03 locale helper ok"
 grep -q "export function RouteDestinationChip" src/components/settings/routing/RouteChips.tsx && grep -q "export function routeSnapshotFromSettings" src/lib/routes.ts && test -f test/lib/routeFixtures.js && echo "plan03 chips and snapshot ok"
@@ -237,7 +237,7 @@ These are the input classes most likely to bite a real user that no recommendati
 
 1. **A one-click path that sends content to a remote model without the user seeing where it goes.** "Ask the assistant: “…”" in the palette, "Ask AI" in the bubble toolbar, and citation "Open" must seed a draft, never send it. Pinned in:
    - Task 13 (`paletteSections.test.js`, "ask row seeds a draft");
-   - Task 4 (`chatComposerSeed.test.js`: a queued draft never sends after a palette seed);
+   - Task 4 (Plan 02's `chatSends.test.js`, extended: an armed queue never sends after a palette seed, and the replaced words are held);
    - Task 16 (`bubbleToolbar.test.js`, "Ask AI opens a visible composer and seeds it").
 2. **Workspace hrefs (`note:17`, `meeting:42`, `dictation:311`, `folder:2`) in chat markdown and note content.** They must navigate inside Loqui. They must never reach `target="_blank"` and the OS URL handler. Unknown and `javascript:` hrefs stay inert. Pinned in Task 20 (`markdownRendererWorkspaceLinks.test.js`) and Task 16 (`linkHref.test.js`).
 3. **A deep link to a transcript the current Home view hides.** The row may be filtered out by a chip, excluded by the in-view search, or folded inside a session. Opening it from the palette must clear the filter, expand the session, scroll to the row and ring it. Pinned in Task 3 (`homeViewStore.test.js`) and Task 10 (`homeFeed.test.js`, "a transcript folded inside a session can be located for a deep link").
@@ -1497,12 +1497,25 @@ Expected:
      | { kind: "focus"; nonce: number };
 
    /** Text placed into a composer from outside (palette, Ask AI, a mention
-    *  pick). It is never submitted. `resetQueue` is true for anything that
-    *  starts a new intent, so a draft queued earlier can't send it (review I01). */
+    *  pick). It is never submitted.
+    *  - `resetQueue: true`: the seed starts a new intent (new chat, palette
+    *    draft, Ask AI). It disarms Plan 02's destination-bound queue, and a
+    *    different non-empty draft it replaces moves to Plan 02's unsent buffer
+    *    (Restore / Discard) instead of being lost (review I01, I01-R2).
+    *  - `resetQueue: false`: an edit of the user's own draft (a mention pick)
+    *    or a focus request. The queue and the draft's ownership stay. */
    export interface ComposerSeed {
      nonce: number;
      text?: string; // replaces the draft when present
      resetQueue: boolean;
+   }
+
+   /** The seed a Chat request places in the composer. ChatView applies it
+    *  during render, so it reaches ChatInput in the same commit as the request. */
+   export function seedForRequest(request: ChatViewRequest): ComposerSeed {
+     if (request.kind === "new") return { nonce: request.nonce, text: request.draft, resetQueue: true };
+     if (request.kind === "open") return { nonce: request.nonce, resetQueue: true };
+     return { nonce: request.nonce, resetQueue: false };
    }
    ```
 
@@ -1624,9 +1637,9 @@ This covers WS-Q12. It also delivers Task 3's chat requests to `ChatView`, which
 - Create: `src/lib/workspaceShortcuts.ts`
 - Modify: `src/components/ControlPanel.tsx`. Replace the keydown effect at `:228-241`, and pass `request` to `<ChatView />` at `:816-818`.
 - Modify: `src/components/chat/ChatView.tsx`. Remove the `⌘N` listener at `:117-127`, and add the `request` prop and `ChatViewRequest` type.
-- Modify: `src/components/chat/ChatInput.tsx` (as rewritten by Plan 02 Task 12). Add the `seed` prop and a draft generation for its refused-send restore.
-- Create: `test/helpers/harness/mountComposer.js`. A mounted-composer helper on Plan 02's `rendererMocks` and `fakeDomTree` harness, shared with Task 22.
-- Test: `test/lib/workspaceShortcuts.test.js`, `test/components/chatComposerSeed.test.js`
+- Modify: `src/components/chat/ChatInput.tsx` (as rewritten by Plan 02 Tasks 12 and 13). Add the `seed` prop, applied during render on top of Plan 02 Task 13's `queuedFor`/`queueDropped`/`unsent` state, and a draft generation that routes an overtaken refused send to `unsent`.
+- Create: `test/helpers/harness/mountComposer.js`. A mounted-composer helper on Plan 02's `rendererMocks` and `fakeDomTree` harness for Task 22. It passes a stable `queueKey`, without which Plan 02's composer never arms a queue.
+- Test: `test/lib/workspaceShortcuts.test.js`; append the seed cases to Plan 02 Task 13's `test/components/chatSends.test.js` (its `mount`, `composer`, `deferred` helpers), which stays the composer's one send-semantics suite.
 
 **Interfaces:**
 - Produces:
@@ -1649,12 +1662,13 @@ This covers WS-Q12. It also delivers Task 3's chat requests to `ChatView`, which
   - `request?: ChatViewRequest | null`;
   - `onRequestHandled?: () => void`. `ControlPanel` clears the request with it, so the request does not replay when Chat remounts.
   - `onOpenSettings?: (section?: string) => void`, used by Task 21.
-- Produces, in `ChatInput.tsx`, the prop `seed?: ComposerSeed | null` (`chatRequest.ts`). A seed takes effect when its nonce is new, and it never submits.
-  - The seed is applied **during render**, before any effect of that commit runs, so Plan 02's queued auto-send can never see the old draft or an armed queue.
-  - `resetQueue: true` disarms Plan 02's `queued` flag.
-  - `text`, when present, replaces the draft.
-  - Every replacing or resetting seed bumps a draft generation. A send that started before the seed, and that is refused or fails, does not restore its text over the seeded draft.
-  - A focus-only seed (`resetQueue: false`, no `text`) keeps the draft and any queue the user armed.
+- Produces, in `ChatInput.tsx`, the prop `seed?: ComposerSeed | null` (`chatRequest.ts`). A seed takes effect when its nonce is new, and it never submits. It builds on Plan 02 Task 13's composer (`queuedFor`/`setQueuedFor`, derived `queued`, `queueDropped`, `unsent`, the `queueKey` prop, and a `handleSubmit` whose result is `sent`):
+  - The seed is applied **during render**, before any effect of that commit runs, so Plan 02's idle auto-send effect can never see the old draft or an armed queue.
+  - `resetQueue: true` disarms the queue with `setQueuedFor(null)`. If a queue was armed, `setQueueDropped(true)` shows Plan 02's "not sent" notice, so the user knows.
+  - `text`, when present, replaces the draft. When a `resetQueue: true` seed replaces a different non-empty draft, the old words go to Plan 02's `unsent` buffer, where Restore and Discard already exist. Nothing the user typed is discarded.
+  - Every `resetQueue: true` seed bumps a draft generation. A send that started before it and is then refused goes to `unsent`, never back into the box of the conversation the seed opened. Without a seed in between, Plan 02's refill-or-hold rule is unchanged.
+  - A `resetQueue: false` seed (a focus request, or Task 22's mention pick) keeps the queue the user armed and never moves their draft to `unsent`.
+- `ChatView` turns a request into a seed **during render** (`seedForRequest`, Task 3), not in its request effect, so the seed reaches `ChatInput` in the same commit as the request even when the agent goes idle in that commit. The effect only runs the side effects (`handleNewChat`, `handleSelectConversation`, `onRequestHandled`). The seed is state, so it survives `onRequestHandled` clearing the request, and a composer that mounts later (Chat had no active conversation) applies it at mount.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1756,7 +1770,8 @@ async function mountComposer(t, onTextSubmit, extraProps = {}) {
   const tree = installTree();
   const vite = await createRendererServer(t, rendererOptions("loqui-composer-seed-", MOCKS));
   const { ChatInput } = await vite.ssrLoadModule("/components/chat/ChatInput.tsx");
-  let props = { partialTranscript: "", agentState: "idle", onTextSubmit, onCancel() {}, seed: null, ...extraProps };
+  // A stable queueKey: Plan 02 Task 13 arms a queue only for a known destination.
+  let props = { partialTranscript: "", agentState: "idle", queueKey: "chat|1|route-a", onTextSubmit, onCancel() {}, seed: null, ...extraProps };
   const render = (next = {}) => {
     props = { ...props, ...next };
     return React.act(async () => {
@@ -1784,76 +1799,108 @@ async function mountComposer(t, onTextSubmit, extraProps = {}) {
 module.exports = { mountComposer };
 ```
 
-Create `test/components/chatComposerSeed.test.js`:
+Append to Plan 02 Task 13's `test/components/chatSends.test.js`. These use that file's `mount`, `composer`, `deferred` and `settle`, and its key-echo strings. Each queue case first asserts that the queue was visibly armed, so "nothing was sent" cannot pass vacuously. Add `const fs = require("node:fs");` and `const path = require("node:path");` to its requires if they are not there.
 
 ```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const React = require("react");
-const { mountComposer: mount } = require("../helpers/harness/mountComposer");
+// Plan 06 Task 4: composer seeds. A seed never submits (review I01, I01-R2).
+const QUEUE = "chat|1|route-a";
+const isArmed = (c) => /agentMode\.input\.queued/.test(c.text());
 
-test("a palette seed disarms a queued draft: nothing is sent on idle, and B stays editable", async (t) => {
+test("a palette seed disarms a queued draft and holds the words it replaced", async (t) => {
   const sent = [];
-  const c = await mount(t, async (text) => (sent.push(text), true));
-  await c.render({ agentState: "streaming" });
+  const c = await mount(t, composer, { agentState: "streaming", queueKey: QUEUE, onTextSubmit: async (text) => (sent.push(text), true) });
   await c.type("A");
-  await c.press("Enter"); // queued while busy
-  await c.render({ seed: { nonce: 1, text: "B", resetQueue: true } });
-  await c.render({ agentState: "idle" });
+  await c.press("Enter");
+  assert.ok(isArmed(c), "the queue was armed before the seed");
+  await c.rerender({ seed: { nonce: 1, text: "B", resetQueue: true } });
+  assert.ok(!isArmed(c));
+  assert.match(c.text(), /agentMode\.input\.queueDropped/, "the user is told A was not sent");
+  await c.rerender({ agentState: "idle" });
   assert.deepEqual(sent, []);
   assert.equal(c.value(), "B");
+  assert.match(c.text(), /agentMode\.input\.unsent/, "A is held, not lost");
+  await c.clickText("agentMode.input.restoreUnsent");
+  assert.equal(c.value(), "A\n\nB");
 });
 
 test("a seed that lands in the same commit as idle still wins over the queue", async (t) => {
   const sent = [];
-  const c = await mount(t, async (text) => (sent.push(text), true));
-  await c.render({ agentState: "thinking" });
+  const c = await mount(t, composer, { agentState: "thinking", queueKey: QUEUE, onTextSubmit: async (text) => (sent.push(text), true) });
   await c.type("A");
   await c.press("Enter");
-  await c.render({ agentState: "idle", seed: { nonce: 2, text: "B", resetQueue: true } });
+  assert.ok(isArmed(c));
+  await c.rerender({ agentState: "idle", seed: { nonce: 2, text: "B", resetQueue: true } });
   assert.deepEqual(sent, []);
   assert.equal(c.value(), "B");
 });
 
 test("a focus-only request keeps the draft and the queue the user armed", async (t) => {
   const sent = [];
-  const c = await mount(t, async (text) => (sent.push(text), true));
-  await c.render({ agentState: "streaming" });
+  const c = await mount(t, composer, { agentState: "streaming", queueKey: QUEUE, onTextSubmit: async (text) => (sent.push(text), true) });
   await c.type("A");
   await c.press("Enter");
-  await c.render({ seed: { nonce: 3, resetQueue: false } });
-  await c.render({ agentState: "idle" });
+  assert.ok(isArmed(c));
+  await c.rerender({ seed: { nonce: 3, resetQueue: false } });
+  assert.ok(isArmed(c), "still armed after a focus request");
+  await c.rerender({ agentState: "idle" });
   assert.deepEqual(sent, ["A"]);
 });
 
-test("a refused send that started before a new chat does not restore its text there", async (t) => {
-  let settle;
-  const c = await mount(t, () => new Promise((resolve) => (settle = resolve)));
+test("an edit seed (a mention pick) keeps the queue and never holds the user's own draft", async (t) => {
+  const c = await mount(t, composer, { agentState: "streaming", queueKey: QUEUE, onTextSubmit: async () => true });
+  await c.type("ask @pri");
+  await c.press("Enter");
+  assert.ok(isArmed(c));
+  await c.rerender({ seed: { nonce: 4, text: "ask @Pricing review ", resetQueue: false } });
+  assert.equal(c.value(), "ask @Pricing review ");
+  assert.ok(isArmed(c));
+  assert.doesNotMatch(c.text(), /agentMode\.input\.unsent/);
+});
+
+test("a refused send overtaken by a new chat is held, never refilled into the new chat", async (t) => {
+  const pending = deferred();
+  const c = await mount(t, composer, { agentState: "idle", queueKey: QUEUE, onTextSubmit: () => pending.promise });
   await c.type("A");
-  await c.press("Enter"); // submit starts and the box clears
-  await c.render({ seed: { nonce: 4, resetQueue: true } }); // new chat, no draft
-  await React.act(async () => {
-    settle(false);
-    await new Promise((r) => setTimeout(r, 0));
-  });
+  await c.press("Enter"); // the send starts and the box clears
   assert.equal(c.value(), "");
+  await c.rerender({ queueKey: "chat|new|route-a", seed: { nonce: 5, resetQueue: true } });
+  await c.run(() => pending.resolve(false));
+  assert.equal(c.value(), "", "the new chat's box stays empty");
+  assert.match(c.text(), /agentMode\.input\.unsent/, "A is held with Restore and Discard");
 });
 
 test("a seed present at mount fills the composer and sends nothing", async (t) => {
   const sent = [];
-  const c = await mount(t, async (text) => (sent.push(text), true));
-  await c.render({ seed: { nonce: 5, text: "“Thursday, not Monday” ", resetQueue: true } });
+  const c = await mount(t, composer, {
+    agentState: "idle",
+    queueKey: QUEUE,
+    seed: { nonce: 6, text: "“Thursday, not Monday” ", resetQueue: true },
+    onTextSubmit: async (text) => (sent.push(text), true),
+  });
   assert.equal(c.value(), "“Thursday, not Monday” ");
   assert.deepEqual(sent, []);
 });
+
+test("ChatView turns a request into a seed during render, not in its request effect", async () => {
+  const { seedForRequest } = await import("../../src/components/chat/chatRequest.ts");
+  assert.deepEqual(seedForRequest({ kind: "new", draft: "x", nonce: 7 }), { nonce: 7, text: "x", resetQueue: true });
+  assert.deepEqual(seedForRequest({ kind: "open", conversationId: 3, nonce: 8 }), { nonce: 8, resetQueue: true });
+  assert.deepEqual(seedForRequest({ kind: "focus", nonce: 9 }), { nonce: 9, resetQueue: false });
+  const view = fs.readFileSync(path.join(__dirname, "../../src/components/chat/ChatView.tsx"), "utf8");
+  assert.match(view, /if \(request && request\.nonce !== seededNonce\) \{\s*setSeededNonce\(request\.nonce\);\s*setComposerSeed\(seedForRequest\(request\)\);/);
+  const effect = view.slice(view.indexOf("if (!request) return;"));
+  assert.doesNotMatch(effect.slice(0, effect.indexOf("[request?.nonce]")), /setComposerSeed/, "the effect only runs side effects");
+});
 ```
+
+The mounted cases drive the real `ChatInput`. The last case pins the parent half of the ordering: because `ChatView` sets the seed during render, the "same commit as idle" case above is the commit a request actually produces. Mounting the whole `ChatView` would need its persistence and streaming hooks, IPC and Settings; Task 27's manual check covers that end to end (⌘K Ask while an answer streams).
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm test -- test/lib/workspaceShortcuts.test.js test/components/chatComposerSeed.test.js`
+Run: `npm test -- test/lib/workspaceShortcuts.test.js test/components/chatSends.test.js`
 Expected:
 - `workspaceShortcuts` FAILS with `Cannot find module`.
-- `chatComposerSeed` FAILS because the seed prop is ignored: the queued draft `A` is sent on idle, and `B` never appears.
+- The new `chatSends` cases FAIL because the seed prop is ignored: the queued draft `A` is sent on idle, `B` never appears, and `seedForRequest` is missing. Plan 02's own `chatSends` cases still pass.
 
 - [ ] **Step 3: Implement**
 
@@ -2010,44 +2057,57 @@ Expected:
 
    ```ts
    const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null);
+   const [seededNonce, setSeededNonce] = useState<number | null>(null);
    // Requests come from the palette, Capture and shortcuts. A draft is placed
-   // in the composer and never sent: the user sees the model chip first. A new
-   // chat disarms any queue, so an earlier queued draft can't send into it.
+   // in the composer and never sent: the user sees the model chip first. The
+   // seed is set during render, so it reaches ChatInput in the same commit as
+   // the request, before its queued auto-send effect can run (review I01-R2).
+   if (request && request.nonce !== seededNonce) {
+     setSeededNonce(request.nonce);
+     setComposerSeed(seedForRequest(request));
+   }
+   // Side effects only: switching conversation and clearing the request.
    useEffect(() => {
      if (!request) return;
-     if (request.kind === "new") {
-       handleNewChat();
-       setComposerSeed({ text: request.draft, nonce: request.nonce, resetQueue: true });
-     } else if (request.kind === "open") {
-       handleSelectConversation(request.conversationId);
-       setComposerSeed({ nonce: request.nonce, resetQueue: true });
-     } else {
-       setComposerSeed({ nonce: request.nonce, resetQueue: false });
-     }
+     if (request.kind === "new") handleNewChat();
+     else if (request.kind === "open") void handleSelectConversation(request.conversationId);
      onRequestHandled?.();
      // eslint-disable-next-line react-hooks/exhaustive-deps -- one run per request nonce
    }, [request?.nonce]);
    ```
 
+   Import `seedForRequest` with the types from `./chatRequest`. Plan 02 Task 13 already passes `queueKey={`chat|${activeConversationId ?? "new"}|${routeKey}`}` to this `ChatInput`; keep it.
+
    - Pass `seed={composerSeed}` to `<ChatInput … />` (`:172-181`).
    - `onOpenSettings` is unused until Task 21. Prefix the destructured name with `_` if lint complains, and rename it in Task 21.
 
-5. In `src/components/chat/ChatInput.tsx`, as rewritten by Plan 02 Task 12:
+5. In `src/components/chat/ChatInput.tsx`, as rewritten by Plan 02 Tasks 12 and 13:
    - Add `seed?: ComposerSeed | null;` to the props interface (imported as a type from `./chatRequest`) and destructure it.
-   - Directly after Plan 02's `const [queued, setQueued] = useState(false);`, add:
+   - Directly after Plan 02 Task 13's state block (`queuedFor`, `queueDropped`, `unsent`, `const queued = queuedFor !== null;`), add:
 
      ```tsx
      // Seeds apply during render (React's "adjust state when a prop changes"
-     // pattern), so no effect in this commit, in particular the queued
-     // auto-send below, can see the old draft or an armed queue (review I01).
+     // pattern), so no effect in this commit, in particular Plan 02's queued
+     // auto-send, can see the old draft or an armed queue (review I01, I01-R2).
      const [appliedSeed, setAppliedSeed] = useState<number | null>(null);
      const [draftGeneration, setDraftGeneration] = useState(0);
      const draftGenerationRef = useRef(0);
      draftGenerationRef.current = draftGeneration;
      if (seed && seed.nonce !== appliedSeed) {
        setAppliedSeed(seed.nonce);
-       if (seed.resetQueue) setQueued(false);
-       if (seed.resetQueue || seed.text !== undefined) setDraftGeneration((g) => g + 1);
+       if (seed.resetQueue) {
+         if (queuedFor !== null) {
+           setQueuedFor(null);
+           setQueueDropped(true);
+         }
+         setDraftGeneration((g) => g + 1);
+         // A new intent replacing different words: hold them in Plan 02's
+         // unsent buffer (Restore / Discard) rather than lose them.
+         const previous = inputText;
+         if (seed.text !== undefined && previous.trim() && previous.trim() !== seed.text.trim()) {
+           setUnsent((held) => (held ? `${held}\n\n${previous}` : previous));
+         }
+       }
        if (seed.text !== undefined) setInputText(seed.text);
      }
      useEffect(() => {
@@ -2055,19 +2115,29 @@ Expected:
      }, [appliedSeed]);
      ```
 
-   - In Plan 02's `handleSubmit`, capture `const generation = draftGenerationRef.current;` right after the `if (!text || !onTextSubmit) return;` line. Then change its restore line to `if (accepted === false && generation === draftGenerationRef.current) setInputText((current) => (current.trim() ? current : text));`. A send overtaken by a seed (a new chat, a palette draft) no longer puts its text back into a conversation it was not typed for.
+   - In Plan 02 Task 13's `handleSubmit`, capture `const generation = draftGenerationRef.current;` right after `if (!text || !onTextSubmit) return;`. Then replace its two refusal lines (`if (!inputTextRef.current.trim()) setInputText(text); else setUnsent(…)`) with:
+
+     ```tsx
+         // Not sent. A seed since the send started means the box now belongs to
+         // another intent (a new chat, a palette draft): hold the words there.
+         if (generation === draftGenerationRef.current && !inputTextRef.current.trim()) setInputText(text);
+         else setUnsent((held) => (held ? `${held}\n\n${text}` : text));
+     ```
+
+     Without a seed in between, this is exactly Plan 02's refill-or-hold rule. Nothing is discarded on either path.
+   - Do not touch Plan 02's `queueKey` effects. A new chat also changes `queueKey`; because the seed has already set `queuedFor` to `null`, Plan 02's drop effect sees nothing to drop, and the notice comes from the seed alone.
 
    Plan 02's auto-grow runs from `inputText`, so a seeded draft sizes itself.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/workspaceShortcuts.test.js test/components/chatComposerSeed.test.js test/components/chatComposer.test.js && npm run typecheck && npm run lint`
-Expected: PASS. Plan 02's `chatComposer` suite still passes. Typecheck and lint are clean. A grep for `e.key === "n"` in `src/components/chat/ChatView.tsx` returns nothing.
+Run: `npm test -- test/lib/workspaceShortcuts.test.js test/components/chatSends.test.js test/helpers/chatSendOutcome.test.js test/components/chatComposer.test.js && npm run typecheck && npm run lint`
+Expected: PASS. Plan 02's own `chatSends`, `chatSendOutcome` and `chatComposer` cases still pass unchanged. Typecheck and lint are clean. A grep for `e.key === "n"` in `src/components/chat/ChatView.tsx` returns nothing.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/workspaceShortcuts.ts src/components/ControlPanel.tsx src/components/chat/ChatView.tsx src/components/chat/ChatInput.tsx test/lib/workspaceShortcuts.test.js test/helpers/harness/mountComposer.js test/components/chatComposerSeed.test.js
+git add src/lib/workspaceShortcuts.ts src/components/ControlPanel.tsx src/components/chat/ChatView.tsx src/components/chat/ChatInput.tsx src/components/chat/chatRequest.ts test/lib/workspaceShortcuts.test.js test/helpers/harness/mountComposer.js test/components/chatSends.test.js
 git commit -m "feat(workspace): add global shortcuts and chat requests"
 ```
 
@@ -8087,7 +8157,7 @@ Expected: FAIL. Modules are missing, and `pkg.dependencies["@tiptap/extension-bu
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/linkHref.test.js test/components/bubbleToolbar.test.js test/components/editorChrome.test.js test/components/chatComposerSeed.test.js test/components/noteBottomBar.test.js test/components/fieldDirectionPolicy.test.js test/helpers/packageRuntimeProbe.test.js test/locales/translationCoverage.test.js && npm run typecheck`
+Run: `npm test -- test/lib/linkHref.test.js test/components/bubbleToolbar.test.js test/components/editorChrome.test.js test/components/chatSends.test.js test/components/noteBottomBar.test.js test/components/fieldDirectionPolicy.test.js test/helpers/packageRuntimeProbe.test.js test/locales/translationCoverage.test.js && npm run typecheck`
 Expected: PASS. The existing `noteBottomBar` suite still passes.
 
 - [ ] **Step 5: Commit**
@@ -10809,7 +10879,7 @@ Expected: FAIL with `Cannot find module`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/components/contextRail.test.js test/components/chatContextRail.test.js test/components/chatComposerMention.test.js test/components/chatComposerSeed.test.js test/helpers/useChatStreamingCancellation.test.js test/lib/mentionSearch.test.js test/helpers/chatMessageSubmissionLock.test.js test/locales/translationCoverage.test.js && npm run typecheck && npm run lint`
+Run: `npm test -- test/components/contextRail.test.js test/components/chatContextRail.test.js test/components/chatComposerMention.test.js test/components/chatSends.test.js test/helpers/useChatStreamingCancellation.test.js test/lib/mentionSearch.test.js test/helpers/chatMessageSubmissionLock.test.js test/locales/translationCoverage.test.js && npm run typecheck && npm run lint`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**

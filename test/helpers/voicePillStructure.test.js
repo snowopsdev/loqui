@@ -59,7 +59,7 @@ test("thinking and recording keep the same persistent glow and pill roots", asyn
   assert.equal((recording.match(/rounded-full bg-current/g) || []).length, expectedBars);
 });
 
-test("one Signal glow serves both identities: blue processing, purple agent", async () => {
+test("one Signal glow serves both identities: brand orange processing, violet agent", async () => {
   const styles = readDictationStyles();
   const agentThinking = await renderPill("thinking", false, "right", { agentMode: true });
   // Listening must not glow in either identity: a glow before any transcript

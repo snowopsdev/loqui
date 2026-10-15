@@ -634,7 +634,7 @@ export function HotkeyInput({
           e.stopPropagation();
           onClear();
         }}
-        className="rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-ring/30 transition-opacity duration-150 text-muted-foreground/70 hover:text-destructive cursor-pointer"
+        className="rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity duration-150 text-muted-foreground/70 hover:text-destructive cursor-pointer"
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>
@@ -653,7 +653,7 @@ export function HotkeyInput({
         onMouseDown={handleMouseDown}
         onFocus={handleFocus}
         onBlur={handleBlur}
-        className="absolute inset-0 z-10 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
+        className="absolute inset-0 z-10 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="sr-only">
           {validationWarning ??
@@ -680,12 +680,13 @@ export function HotkeyInput({
         className={`
           relative group flex flex-col items-center justify-center py-4 px-5 min-h-28
           rounded-md border cursor-pointer select-none outline-none
+          focus-visible:ring-2 focus-visible:ring-ring
           transition-colors duration-150
           ${
             disabled
               ? "bg-muted/30 border-border cursor-not-allowed opacity-50"
               : isCapturing
-                ? "bg-primary/5 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,212,0.1)]"
+                ? "bg-primary/5 border-primary/30 ring-2 ring-ring"
                 : "bg-surface-1 border-border hover:border-border-hover hover:bg-surface-2"
           }
         `}
@@ -792,11 +793,12 @@ export function HotkeyInput({
       className={`
         relative group overflow-hidden rounded-md border
         transition-colors duration-150 cursor-pointer select-none focus:outline-none
+        focus-visible:ring-2 focus-visible:ring-ring
         ${
           disabled
             ? "bg-muted/30 border-border cursor-not-allowed opacity-50"
             : isCapturing
-              ? "bg-primary/5 border-primary/30 shadow-[0_0_0_2px_rgba(37,99,212,0.1)]"
+              ? "bg-primary/5 border-primary/30 ring-2 ring-ring"
               : "bg-surface-1 border-border hover:border-border-hover hover:bg-surface-2"
         }
       `}

@@ -4,6 +4,8 @@
 
 **Revision 2.** This revision answers the independent Codex review (`.omc/research/ui-review/reviews/plan-03-codex.md`, verdict "needs rework": 2 Critical, 15 Important, 5 Minor). See "Review response" below.
 
+**Revision 3.** This revision answers Codex's second review (`.omc/research/ui-review/reviews/plan-03-codex-r2.md`, pinned at `c912d19`, verdict "still needs rework": 3 Critical, 6 Important, 1 Minor). See "Round-2 review response" below. It is aligned with the spec at `7f31ece`.
+
 **Goal:** Give Loqui one routing model and rebuild Settings on top of it:
 - the route graph (contract §5.1), which answers "which task runs where, and is it usable?" for all 11 routes, using the same validation the executors use;
 - a Patchbay switchboard that shows every route at once (SET-R1 B);
@@ -26,7 +28,7 @@
 
 **Tech Stack:** React 19, TypeScript, zustand, Tailwind CSS 4, Radix Dialog, react-i18next, Electron IPC (`preload.js`, `src/helpers/ipcHandlers.js`), better-sqlite3, Node `node:test` with `tsx`, and Vite SSR (`test/lib/rendererTestHarness.js`) for renderer modules that import the settings store.
 
-**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` (contracts consolidated at `091d198`): the Plan 03 row in §3, decisions D1, D4 and D6, constraints §4, contracts §5.1 (owned here), §5.3, §5.4 and §5.6 (consumed). Visual acceptance is the picked variant cards in `design-explorations/loqui-uiux-review.html#ch-settings`. Their source is `design-explorations/loqui-uiux-review/parts/05-settings.html`:
+**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` (at `7f31ece`; contracts consolidated at `091d198`): the Plan 03 row in §3, decisions D1, D4 and D6, constraints §4, contracts §5.1 (owned here), §5.3, §5.4 and §5.6 (consumed). Visual acceptance is the picked variant cards in `design-explorations/loqui-uiux-review.html#ch-settings`. Their source is `design-explorations/loqui-uiux-review/parts/05-settings.html`:
 
 | Pick | Card lines | Script lines |
 |---|---|---|
@@ -51,7 +53,24 @@ The evidence is in `.omc/research/ui-review/audit-settings.md` (§1.4 is the 11-
 
 ---
 
-## Review response
+## Round-2 review response
+
+This answers Codex's second review (`plan-03-codex-r2.md`, pinned at `c912d19`). Every finding is fixed in the task steps and the test code. Where a finding asked for production wiring, the tests go through the registered IPC handlers, the real `IPCHandlers` constructor, or the real `EnvironmentManager` persistence bodies over a fake filesystem. No finding is rejected. Five are partly disputed, and each partial dispute is in the last column, with its evidence.
+
+| Finding | Status | How | Partial dispute (evidence) |
+|---|---|---|---|
+| **R2-1** (Critical) Enterprise recipients bypass the planner and graph validation | Fixed | **Tasks 1, 3, 6, 9.** `bedrockRegion`, `azureEndpoint`, `vertexProject` and `vertexLocation` join the planner's route keys (`ROUTE_ENTERPRISE_KEYS`). The UI edits them only through `requestRoutePatch`. `planEnterpriseCoupling` adds the Bedrock region→model update to the same patch and its Undo. `EnterpriseProviderConfig` commits on leave, never per keystroke, and calls no setter or `adjustBedrockModelForRegion`. The snapshot gains a non-secret `enterprise` slice. The graph derives each enterprise host and readiness: missing, invalid, HTTP or credential-bearing Azure → `needsUrl`. Main is authoritative for the inputs: a once-per-window sync from main's four getters (main wins), and a new network-free `enterprise-route-facts` IPC reports the `AWS_ENDPOINT_URL*` override host and the Vertex env-key booleans. Until synced, enterprise routes are `unknown`. An unknown host or `unknown` state counts as a recipient change, so an enterprise edit made before the sync stages, and Apply is blocked with `unknown` (planner and `settle()` tests with `enterpriseMain: null`, and with Vertex presence unknown). Tests: the agreement test runs 9 injected environments × 20 configurations through the real `getEnterpriseAIModel` and SDK (fetch stubbed). The IPC test runs over the production `setupHandlers`. Mounted Azure and Bedrock edits stage, Apply writes main once, and Undo restores exactly. A Task 18 guard covers the four setters and `adjustBedrockModelForRegion`. | Hosts are still derived in the pure graph from main-synced inputs, not computed in main. Spec §5.1 forbids IPC in `routeSnapshotFromSettings`, and the planner must preview a staged `azureEndpoint` or `bedrockRegion` that main has not seen yet. Rule 11 is held by the agreement test against the real helper and SDK. |
+| **R2-2** (Critical) Reset doesn't fence credential writes or an in-flight Undo | Fixed | **Task 2.** `credentials.reset(erase)` is an authority-wide barrier. It fences and bumps the epoch, drops every undo token, bumps generations, drains the write in flight (queued tasks see the stale epoch and do not write), then erases. A save, removal or Undo that finishes after reset began fails (`CredentialError` `"reset"`). A two-field Undo stops between fields. `cleanup-app` erases only inside the barrier. Tests over the real `EnvironmentManager` persistence bodies with a holdable fake filesystem (`realCredentialEnv.js`): reset during a first save, during a queued replacement, during a two-field Corti Undo, and a failed erase. | none |
+| **R2-3** (Critical) Two input interfaces cannot typecheck | Fixed | **Tasks 2, 8, 9.** One type, `AcknowledgedSecretSave = (value) => Promise<SecretSaveResult>`, exported from `ApiKeyInput.tsx`, is used by `ApiKeyInput.setApiKey`, `StagedCredentialInput.save` and `OpenAICompatiblePanel.saveApiKey`. The `() => {}` / `() => undefined` fallbacks become `unavailableSecretSave`. Task 2 fixes every caller that exists before Task 9. Each task's verification runs the real `npm run typecheck` (`package.json:63`). A test checks that the unavailable fallback resolves `{ ok: false, error: "unavailable" }`. | none |
+| **R2-4** Main exposes uncommitted secrets and can bind health to the wrong value | Fixed | **Tasks 2, 11.** The authority keeps a committed snapshot while a write is pending. Presence, `list`, fields and broadcasts move only after persistence succeeds. New main-only `captureCommitted(id)` is queued behind writes. Verify tests the captured committed value at its generation, never `process.env`. Tests over the real persistence bodies: a pending first save is not listed and Verify waits; a replacement that commits during Verify gives `superseded`; a failed replacement tests and records the restored key. | none |
+| **R2-5** Several Remove paths erase keys permanently with no Undo | Fixed | **Tasks 2, 9, 12.** A shared `CredentialSlot` type lives in `src/lib/credentialSlots.ts`, covering the seven custom slots and the pair credentials. Every Remove goes through `credentials.remove` with a toast Undo. Pairs (`corti:speech`, `bedrock`) are removed and restored whole. Task 9 passes OpenRouter's and the custom slots' identity through `ReasoningModelSelector` → `OpenAICompatiblePanel` → `ApiKeyInput`. The empty-save fallback is deleted, and a Task 18 guard keeps it gone. Mounted tests: OpenRouter Remove → toast → Undo after the field unmounts, custom slots and pairs. | Two partial disputes. (1) **Test placement:** the mounted OpenRouter Undo test is in Task 12, not Task 9, because token removal lands in Task 12. Task 9 tests the identity flow (`credentialId === "openrouter"`). (2) **Bedrock session token:** under whole-pair removal, the optional `bedrockSessionToken` can no longer be removed alone. Today it has a per-field permanent delete (`ApiKeyInput.tsx:164-171`, `EnterpriseProviderConfig.tsx:136-139`). Per-field removal would need `remove(id, field?)`. |
+| **R2-6** The Verify host shown doesn't match the host requested | Fixed | **Tasks 9, 11, 12.** Main computes the disclosure with the request's own URL builders, `window.electronAPI.keyring.describeVerify(identity, options?)` → `{ hosts, fields }`. It uses `cortiTokenUrl` for Corti speech, `resolveProviderRequest` for the rest, and main's committed enterprise config plus `enterpriseRouteFacts(process.env)` for the enterprise identities. A Bedrock endpoint override names the override host; a Vertex env key names the express host with `environmentKey`. `KeyringPanel` drops `providerHosts` and `useMemo([])`, and re-describes on `keyring-changed`, `credentials-changed` and Corti region changes. The enterprise Test button labels its host from `describeVerify`. Tests: through a real `IPCHandlers`, the described host equals the host `net.fetch` received (Corti `eu` → `us`, groq, enterprise). For enterprise, it equals the real SDK request host across 9 injected environments. A mounted `KeyringPanel` shows the transport's host before and after a region change. | **Signature:** `describeVerify` gains an optional `options` argument (`cortiEnvironment`, `cortiTenant`). Corti's region exists only in renderer state (`settingsStore.ts:1034,1404`), and main's Corti calls already receive it from the renderer (`ipcHandlers.js:5178`). Enterprise identities ignore it. |
+| **R2-7** The main Keyring never receives the seal predicate | Fixed (per the owner's ruling) | **Task 11; handoff in Task 18.** The `IPCHandlers` constructor reads `managers.isSealed` (default `() => false`) and passes it to `createKeyring`. Verify checks it after the save wait. A predicate refusal or a thrown sealed refusal is outcome `sealed`, and credential health is unchanged. Task 12's sequential Verify all stops on `sealed` and checks between steps. Tests: `keyringProduction.test.js` builds a real `new IPCHandlers(managers)` and goes through the registered `keyring-verify` handler. It covers: sealed → no fetch; a Corti `net.fetch` sealed throw → `sealed` with the row unchanged; sealing while a real save is held refuses the Verify queued behind it. Task 18 records the Plan 07 handoff: pass main's authoritative predicate as `new IPCHandlers({ …, isSealed })`. | **Transport:** in Plan 03, `providerConnectionTest.js:316-333` still maps every BYOK transport throw to `network`. Plan 07 adds the rethrow (P07:6355). The production thrown-sealed test therefore uses Corti, which Task 11 rethrows itself. The keyring mapping for BYOK is unit-tested and becomes live with Plan 07. |
+| **R2-8** An async route request can outlive close or a newer selection | Fixed | **Tasks 7, 8, 10.** The draft store gains a session `requestEpoch`, bumped only by `discard()` and `endSettingsSession()`, plus per-route `routeEpochs`, bumped by each request and by Undo for the routes it moves. A newer request on the same route supersedes an older one; requests on different routes both settle. `SettingsModal` close calls `endSettingsSession()` through `withDraftDiscard`. A request re-checks its epoch after every wait, and a stale one returns `"superseded"` without committing or staging. Toast Undo is not epoch-gated, so it still works after close. The board, `RouteSwitch` and the inference editor settle `"superseded"` silently. Tests with deferred `credentials.list`: close during a key save or presence read; an instant pick pending at close; out-of-order route/route and patch/route in both orders; two different routes requested concurrently both settle; Apply in flight at close; a mounted `SettingsModal` close. | none |
+| **R2-9** Apply accepts unusable off-device routes | Fixed | **Tasks 6, 7, 8, 9.** `routeBlocker` returns null only for device and off routes. Any changed, enabled, off-device route that is not `ready` blocks Apply, including Codex and enterprise `needsKey`, and `needsModel` with or without a size. The two earlier null-blocker tests are reversed. Setup happens inside the staged editor without committing: a registry-only model radiogroup or typed id; Codex Connect; enterprise fields through `stageDraftSetup`, which joins the draft and writes nothing until Apply. Blocked copy: "Sign in to X first", "Choose a model first". Open question 1's default changes to match. Tests: staged Azure is `needsUrl` until the endpoint is set, then Apply writes once and Undo restores; staged Codex stays blocked until sign-in. | none |
+| **R2-10** (Minor) Dictionary actions use the default transition timing | Fixed | **Task 17.** Both `DictionaryHeaderActions` class strings carry `duration-[var(--motion-fast)]`. A source guard requires one `--motion` duration per `transition` utility and bans raw `duration-<n>`. | none |
+
+## Review response (round 1)
 
 Every Critical and Important finding is closed. One finding is narrowed with evidence (I1, model-only changes). Nothing is rejected outright.
 
@@ -151,7 +170,7 @@ Consumer impact (also in §5.1 rule 1): Plans 04, 05 and 06 render `unknown` as 
 
 Each question has a default, and the plan implements that default unless the owner says otherwise.
 
-1. **Codex and enterprise setup.** Codex, Bedrock, Azure and Vertex sign in inside the provider editor, which appears only after a switch. Their staged Apply is allowed before credentials exist, with the copy "Sign in to X next. Nothing is sent until you do." Default: allow it.
+1. **Codex and enterprise setup.** Codex, Bedrock, Azure and Vertex are set up inside the staged panel before Apply: Connect ChatGPT, or the endpoint, region, project, location, credentials and deployment. Nothing is committed and nothing is sent until Apply. Apply stays disabled until the route is Ready ("Sign in to X first", "Enter a valid server address", "Choose a model first"), as in SET-R3 B (`05-settings.html:867,878`). This replaces the round-1 default, which allowed Apply before credentials existed. Default: require readiness. The only question left for the owner is whether to keep an escape hatch, and the plan has none.
 2. **History deletion also deletes all audio.** That is today's behaviour (`db-clear-transcriptions`), and the confirmation now says so and counts it. Should history deletion keep audio instead? Default: keep today's behaviour, disclosed.
 3. **Transcript export.** There is no export IPC today. Default: ship without it.
 4. **Curated model tiers.** The pips are size-derived estimates until `speedTier` and `qualityTier` are curated. Should they be curated before release?
@@ -229,17 +248,19 @@ Each question has a default, and the plan implements that default unless the own
 
 ### Task 1: Route graph core: pure resolver with executor validation (§5.1)
 
-Closes **I8** (a route is `ready` only when the real executor would run it), **I9** resolver side (per-family `unknown`, never `ready` from unknown facts), **I10** (credential identity `corti:text` vs `corti:speech`; rejection keyed by identity), **I7** (new `host` field), **I15** resolver side (`routePayloadParts` and composed `sends`, agreement test 1) and **M5** (a Node-loadable pure module plus a reusable complete fixture). This is the data half of SET-R1/SET-R3 (the route state machine) and fixes SET-04 ("Active" means selected, not usable). The §5.1 hooks, `buildRouteSnapshot`, `routeSnapshotFromSettings`, the translated `RouteCopy` and `src/lib/routes.ts` are Task 3; nothing here reads the store, i18n or IPC.
+Closes **I8** (a route is `ready` only when the real executor would run it), **I9** resolver side (per-family `unknown`, never `ready` from unknown facts), **I10** (credential identity `corti:text` vs `corti:speech`; rejection keyed by identity), **I7** (new `host` field), **I15** resolver side (`routePayloadParts` and composed `sends`, agreement test 1) and **M5** (a Node-loadable pure module plus a reusable complete fixture). Round 2 adds the graph half of **R2-1**: a non-secret `enterprise` snapshot slice and main-confirmed credential field presence, plus a main fact (`enterpriseMain`: main's environment overrides as hosts and booleans, from the new main-side `src/helpers/enterpriseRouteFacts.js`). From them every Bedrock, Azure and Vertex route derives its effective `host` and its readiness exactly as `src/helpers/enterpriseAiProviders.js` and the AI SDK packages it calls would, pinned by an agreement test against the real helper and SDK under injected environment overrides. Until Task 3 has synced the slice from main, every enterprise route is `unknown`. This is the data half of SET-R1/SET-R3 (the route state machine) and fixes SET-04 ("Active" means selected, not usable). The §5.1 hooks, `buildRouteSnapshot`, `routeSnapshotFromSettings`, the translated `RouteCopy` and `src/lib/routes.ts` are Task 3; nothing here reads the store, i18n or IPC.
 
 What changes from v1 (old Task 1), and why:
 - The resolver moves to `src/lib/routeGraph.ts` with exactly three imports, so tests and Plan 07 `import()` it directly under `node --import tsx` (M5). v1's `routes.ts` imported the store and the registry and needed Vite.
 - Speech readiness comes from `resolveTranscriptionRoute` itself, with the meeting and text-endpoint rules mirrored from their executors (I8). v1 called any non-empty custom URL `ready` and decided loopback before validating.
 - Facts are per model family and per credential identity; a family or credential map that main has not confirmed resolves to `{ status: "unknown" }` (I9, I10). v1's "unknown facts never downgrade a route" test asserted `ready`; it is replaced by the opposite assertion.
 - Every route carries `host` (I7) and `sends` is composed from `PayloadPart`s (I15) instead of one fixed string per route.
+- Round 2 (R2-1): enterprise routes no longer read `capabilities.providerHosts` (which never had Bedrock, Azure or Vertex entries, so their `host` was always `null`) and no longer count as `ready` on credential presence alone. An Azure route with a saved key and a missing, malformed, HTTP or credential-bearing endpoint is `needsUrl`; a Bedrock region or Vertex location that cannot form a host is `needsUrl`; Vertex without its API key and without a project is `needsKey`.
 
 **Files:**
 - Create: `src/lib/routeGraph.ts`
 - Create: `test/lib/routeFixtures.js` (shared fixtures; not picked up as a test because `scripts/run-tests.js:14` globs only `test/**/*.test.js`)
+- Create: `src/helpers/enterpriseRouteFacts.js` (R2-1: main-side, pure, network-free reader of the environment overrides the enterprise SDKs honour; Task 3 registers it as the `enterprise-route-facts` IPC)
 - Test: `test/lib/routeGraph.test.js`
 
 **Interfaces:**
@@ -249,8 +270,38 @@ What changes from v1 (old Task 1), and why:
 - Mirrors (does not import; agreement tests pin them):
   - `src/helpers/personalInference.js`: `PROVIDERS` (`:6-23`), "Choose a supported text provider." (`:94-95`), "Choose a text model." (`:98-99`), the custom/self-hosted endpoint rule (`:147-162`: http(s), no embedded credentials, `isSecureHttpEndpoint`, not `openwhispr.(com|app)`).
   - `src/helpers/meetingTranscriptionRouting.js`: `MEETING_STREAMING_PROVIDER_IDS` (`:8-14`, passed in as `capabilities.meetingProviders`), `resolveMeetingTranscriptionOptions` rejecting self-hosted and unlisted providers (`:57-70`) and adding Corti `keyterms` (`:79-86`; fed from `customDictionary` at `src/stores/meetingRecordingStore.ts:153-171`).
+  - `src/helpers/enterpriseAiProviders.js` (the only enterprise executor on the route path: personal inference's `createModel`, `src/helpers/personalInference.js:173-180`, passes it main's `getEnterpriseConfig()`, `main.js:447-457`, at `:417-420`). Bedrock: `region = enterprise.bedrockRegion || "us-east-1"` (`:26`) into `createAmazonBedrock({ region })` (`:59-68`). Azure: refuses a missing key or endpoint (`:73-74`), parses the endpoint with `new URL` (`:75`, throws on malformed), refuses a non-HTTPS or credential-bearing URL (`:76-77`), then uses it as `baseURL` (`:80`); `azureApiVersion` (`:81`) is only the `api-version` query parameter. Vertex: with the API key, `createVertex({ apiKey })` (`:87-88`); otherwise ADC with `project: enterprise.vertexProject` and `location: enterprise.vertexLocation || "us-central1"` (`:90-93`). The legacy `validateEnterpriseEndpoint` SSRF guard (`src/helpers/enterpriseProviderErrors.js:552-569`) runs only on the `test-enterprise-connection`/`process-enterprise-reasoning`/`enterprise-stream-start` channels (`src/helpers/ipcHandlers.js:3953-4232`), which no renderer code calls (only `src/types/electron.ts` declares them), so the graph does not mirror it.
+  - The hosts those SDKs build, read in the installed packages (`package.json:117-121`; versions 5.0.94, 4.0.79 and 5.0.93):
+    - `@ai-sdk/amazon-bedrock` `resolveAmazonBedrockBaseURL` (`dist/index.js:3105-3135`): `https://bedrock-runtime.<region>.<suffix>`, where `suffix` comes from the partition table `cn-` → `amazonaws.com.cn`, `us-iso-` → `c2s.ic.gov`, `us-isob-` → `sc2s.sgov.gov`, `eu-isoe-` → `cloud.adc-e.uk`, `us-isof-` → `csp.hci.ic.gov`, `eusc-` → `amazonaws.eu`, else `amazonaws.com`. `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`/`AWS_ENDPOINT_URL` in main's environment override it (`:3120-3128`).
+    - `@ai-sdk/azure` `createAzure` `url()` (`dist/index.js:109-125`): with `baseURL` set, the request URL is `baseURL` plus a path (`/v1/responses`, `/chat/completions`, …), so the host is the endpoint's own host.
+    - `@ai-sdk/google-vertex` `createGoogleVertex` `loadBaseURL` (`dist/index.js:1619,1653-1669`): with an API key, the express base `https://aiplatform.googleapis.com/v1/publishers/google`; otherwise `https://<host>/v1beta1/projects/<project>/locations/<location>/…`, where `host` is `aiplatform.googleapis.com` for `global`, `aiplatform.<loc>.rep.googleapis.com` for `eu`/`us`, else `<location>-aiplatform.googleapis.com`. `GOOGLE_VERTEX_API_KEY` in main's environment switches to express mode (`:1637-1640`).
+    The graph builds the same URL strings and takes `new URL(…).host`, so a region or location containing `/`, `@` or spaces yields the host the SDK would really contact, or `needsUrl` when the URL cannot be built or carries credentials (fetch refuses those).
   - Corti speech authenticates with the client id/secret pair (`src/helpers/ipcHandlers.js:1103-1121`, `src/helpers/audioManager.js:3223`) and connects to the region's `api.<region>.corti.app`; Corti text uses the API key and always calls `https://ai.eu.corti.app/v1` (`src/helpers/personalInference.js:78`, `src/config/constants.ts:123`), whatever the region. The resolver therefore reads the host of a Corti text route from `capabilities.providerHosts["corti:text"]` and the host of a Corti speech route from `providerHosts.corti`.
-- Produces, `src/lib/routeGraph.ts`. Types exactly as Appendix A §5.1: `RouteId`, `RouteKind`, `RouteState` (with `unknown`), `ResolvedRoute` (with `providerId` and `host`), `SttContext`, `LlmRouteScope`, `CredentialId`, `SttRouteInput`, `LlmRouteInput`, `ModelInfo`, `RouteFacts`, `RouteCapabilities`, `PayloadPart`, `RouteCopy`, `RouteSettingsSnapshot`. Values:
+- Produces, `src/lib/routeGraph.ts`. Types exactly as Appendix A §5.1: `RouteId`, `RouteKind`, `RouteState` (with `unknown`), `ResolvedRoute` (with `providerId` and `host`), `SttContext`, `LlmRouteScope`, `CredentialId`, `SttRouteInput`, `LlmRouteInput`, `ModelInfo`, `RouteFacts`, `RouteCapabilities`, `PayloadPart`, `RouteCopy`, `RouteSettingsSnapshot`, plus (R2-1, Plan 03's own snapshot types; §5.1 fixes only `sealed`) `EnterpriseProviderId`, `EnterpriseRouteSettings` and `EnterpriseMainFacts`:
+
+  ```ts
+  export type EnterpriseProviderId = "bedrock" | "azure" | "vertex";
+  // Raw settings-store strings; non-secret. Main feeds the same four values to the executor.
+  export interface EnterpriseRouteSettings {
+    bedrockRegion: string;
+    azureEndpoint: string;
+    vertexProject: string;
+    vertexLocation: string;
+  }
+  // What main's own environment does to enterprise requests. Hosts and booleans only.
+  export interface EnterpriseMainFacts {
+    bedrockEndpoint: { set: boolean; host: string | null }; // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL; host null = set but unusable
+    vertexApiKeyEnv: boolean;  // non-empty GOOGLE_VERTEX_API_KEY: Vertex runs in express mode
+    vertexProjectEnv: boolean; // GOOGLE_VERTEX_PROJECT set; reported only (the helper always passes a string project)
+  }
+  // RouteSettingsSnapshot gains:  enterprise: EnterpriseRouteSettings;
+  // RouteFacts gains:             credentialFields: ReadonlyMap<CredentialId, Readonly<Record<string, boolean>>> | null;
+  //                               enterpriseMain: EnterpriseMainFacts | null;  // null until Task 3 has synced the four
+  //                               enterprise settings from main and main answered enterprise-route-facts
+  //                               (Task 2's credentials.list/onChanged `fields`; null until the list first answers)
+  ```
+
+  Values:
 
   ```ts
   export const ROUTE_IDS: readonly RouteId[];                       // the 11 ids in contract order
@@ -265,22 +316,37 @@ What changes from v1 (old Task 1), and why:
   export function isSealedLocality(locality: Locality): boolean;     // locality !== "device"
   export function routeCredentialId(id: RouteId, providerId: string | null | undefined): CredentialId | null;
   export function isValidTextEndpoint(url: string | null | undefined): boolean;
+  // R2-1: host[:port] enterpriseAiProviders.js + the AI SDK would contact; null when the executor refuses the
+  // configuration or the URL cannot be built. vertexApiKey = main-confirmed presence of the Vertex key field.
+  export function enterpriseRequestHost(providerId: EnterpriseProviderId, enterprise: EnterpriseRouteSettings, vertexApiKey: boolean, main: EnterpriseMainFacts): string | null;
   export function routePayloadParts(id: RouteId, snapshot: RouteSettingsSnapshot): PayloadPart[];
   export function resolveRoutes(snapshot: RouteSettingsSnapshot): ResolvedRoute[];
   export function resolveRoute(snapshot: RouteSettingsSnapshot, id: RouteId): ResolvedRoute;
   ```
 
-  Snapshot conventions Task 3's builder must follow: `facts.installed.<family>` holds raw model ids (`"base"`, `"parakeet-tdt-0.6b-v3"`, `"qwen3.5-2b-q4_k_m"`), `null` when that family's list call has never succeeded; `facts.credentials` holds only main-confirmed presence keyed by `CredentialId`, `null` until `credentials.list` first resolves; `facts.rejected` is keyed by `CredentialId`; `models` keys are `"whisper:<id>"`, `"sherpa:<id>"`, `"llm:<id>"` and `"cloud:<providerId>:<modelId>"`; `capabilities.providerHosts` values are bare `host[:port]`, keyed by raw provider id, plus one extra key `"corti:text"` for the Corti text host (`providerHosts.corti` is the Corti speech host for the selected region). A missing key gives `host: null`; the resolver never falls back from `"corti:text"` to `corti`.
+  Snapshot conventions Task 3's builder must follow: `facts.installed.<family>` holds raw model ids (`"base"`, `"parakeet-tdt-0.6b-v3"`, `"qwen3.5-2b-q4_k_m"`), `null` when that family's list call has never succeeded; `facts.credentials` holds only main-confirmed presence keyed by `CredentialId`, `null` until `credentials.list` first resolves; `facts.rejected` is keyed by `CredentialId`; `models` keys are `"whisper:<id>"`, `"sherpa:<id>"`, `"llm:<id>"` and `"cloud:<providerId>:<modelId>"`; `capabilities.providerHosts` values are bare `host[:port]`, keyed by raw provider id, plus one extra key `"corti:text"` for the Corti text host (`providerHosts.corti` is the Corti speech host for the selected region). A missing key gives `host: null`; the resolver never falls back from `"corti:text"` to `corti`. Enterprise providers have no `providerHosts` entry: their host comes only from `snapshot.enterprise` through `enterpriseRequestHost`. `snapshot.enterprise` holds the raw store strings (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`), untrimmed, because the executor uses them untrimmed. `facts.credentialFields` holds main's per-field presence for each `CredentialId` (Vertex: `{ key }`), loaded and nulled together with `facts.credentials`. `facts.enterpriseMain` is `null` until Task 3's loader has reconciled the settings store's four enterprise fields to main's values (main wins) and main answered `enterprise-route-facts`; while it is `null` the renderer's slice may be stale, so every enterprise route is `unknown`.
+
+  Enterprise resolution (any mode whose provider is `bedrock`, `azure` or `vertex`, so the provider-only vision override is covered too): locality `remote`, `providerId` the enterprise id. `facts.enterpriseMain` `null` → `unknown`, `host: null`, before anything else. Vertex with `credentials` or `credentialFields` still `null` → `unknown`, `host: null` (the key decides the host). Otherwise `host = enterpriseRequestHost(…)`; `null` → `needsUrl` (a settings fact, decided before key facts, like custom endpoints). A Bedrock endpoint override in main's environment replaces the region host (`bedrockEndpoint.set` → its `host`, `null` → `needsUrl`). Then the credential state (`unknown`, `needsKey`, `ready`), except: Vertex with `vertexApiKeyEnv` uses the express host and is `ready` unless its key was rejected (main's presence does not count the environment key); Vertex without either key and with a blank project is `needsKey`. Then the usual `needsModel` for an empty model (an empty Azure deployment name).
 
   Resolution order per route: destination (locality, providerId, host, model, state) → `off` if the route's enable flag is off → `unreachable "sealed"` if `snapshot.sealed` and the locality is not `device` → otherwise the destination state. `sends` is `copy.list(parts.map((p) => copy.parts[p]))` unless the route is off or on the device. `provider` is `providerDisplayName(providerId)` or `null`; `host` is always `null` on the device.
 
+- Produces, `src/helpers/enterpriseRouteFacts.js` (main, CommonJS, no imports; R2-1):
+
+  ```ts
+  function enterpriseRouteFacts(env: NodeJS.ProcessEnv): EnterpriseMainFacts; // reads env only; returns hosts and booleans, never a value
+  ```
+
+  The SDK precedence it mirrors: `@ai-sdk/amazon-bedrock` `resolveAmazonBedrockBaseURL` uses `options.baseURL ?? AWS_ENDPOINT_URL_BEDROCK_RUNTIME ?? AWS_ENDPOINT_URL` before the region (`dist/index.js:3113-3129`), and `@ai-sdk/provider-utils@5.0.47` `loadOptionalSetting` (`dist/index.js:1720-1735`) returns any string, `""` included, so an empty runtime variable still wins and yields an unusable base URL. `enterpriseAiProviders.js:59-68` never passes `baseURL`. Vertex: `createGoogleVertex` reads `GOOGLE_VERTEX_API_KEY` when no key is passed (`google-vertex/dist/index.js:1637-1640,1814-1820`) and switches to express mode when it is truthy. `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION` and `AWS_REGION` never apply on this path: the helper always passes string `project`, `location` and `region` (`enterpriseAiProviders.js:26,91-92`; main's getters return `process.env.X || ""`, `src/helpers/environment.js:245-247`), and `loadSetting` returns a string setting without reading the environment (`provider-utils/dist/index.js:1739-1747`). Azure passes `baseURL` and `apiKey` explicitly (`:78-82`), so no Azure variable redirects it.
 - Produces, `test/lib/routeFixtures.js` (CommonJS, no imports; Task 3, Task 6, Task 7, Task 10 and Plan 07 reuse it):
 
   ```ts
   // Complete, all-local snapshot: every STT context local Whisper "base"; every LLM scope local
   // "qwen3.5-2b-q4_k_m" (providerSearch false); all enable flags on except visionOverride;
   // dictionaryInUse false; facts all known (whisper {"base"}, sherpa {}, llm {qwen}, credentials
-  // = empty Map, rejected = empty Set, support models ready); capabilities = the five meeting
+  // = empty Map, credentialFields = empty Map, enterpriseMain = synced with no environment override,
+  // rejected = empty Set, support models ready);
+  // enterprise = the store defaults (bedrockRegion "us-east-1", azureEndpoint "", vertexProject "",
+  // vertexLocation "us-central1", settingsStore.ts:1442-1453); capabilities = the five meeting
   // providers, openai/groq/tinfoil base URLs and twelve provider-host entries (eleven provider ids
 // plus "corti:text"); sealed false; copy = the
   // Appendix B en strings joined with Intl.ListFormat("en", conjunction).
@@ -397,9 +463,19 @@ function baseSnapshot() {
       speakerId: true,
     },
     dictionaryInUse: false,
+    // The settings store's defaults (settingsStore.ts:1442-1453).
+    enterprise: {
+      bedrockRegion: "us-east-1",
+      azureEndpoint: "",
+      vertexProject: "",
+      vertexLocation: "us-central1",
+    },
     facts: {
       installed: { whisper: new Set(["base"]), sherpa: new Set(), llm: new Set([QWEN]) },
       credentials: new Map(), // loaded: no credential present
+      credentialFields: new Map(), // loaded: no field present
+      // Synced from main, no environment override (R2-1).
+      enterpriseMain: { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false },
       rejected: new Set(),
       speakerIdModelsReady: true,
       searchModelReady: true,
@@ -1027,6 +1103,312 @@ test("a text provider main refuses is unsupported", async () => {
   assert.deepEqual(wrongMode.chat.state, { status: "unreachable", detail: "unsupported" });
 });
 
+// R2-1: enterprise routes derive host and readiness from the enterprise slice.
+const enterpriseChat = (provider, model, overrides = {}) => ({
+  ...overrides,
+  llm: { chatIntelligence: { mode: "enterprise", provider, model } },
+});
+
+test("Azure: a saved key never makes a missing or refused endpoint ready, and the host is the endpoint's", async () => {
+  const { providerDisplayName } = await import("../../src/lib/locality.ts");
+  const azure = async (azureEndpoint, credentials = keys("azure")) =>
+    (await routesOf(enterpriseChat("azure", "gpt-4o-deploy", { enterprise: { azureEndpoint }, facts: { credentials } })))
+      .chat;
+  // createAzureModel refuses each of these (enterpriseAiProviders.js:73-77).
+  for (const url of [
+    "",
+    "   ",
+    "not a url",
+    "http://myres.openai.azure.com/openai",
+    "https://user:secret@myres.openai.azure.com/openai",
+  ]) {
+    const route = await azure(url);
+    assert.deepEqual(route.state, { status: "needsUrl" }, `a saved key does not make ${JSON.stringify(url)} ready`);
+    assert.equal(route.host, null, url);
+    assert.equal(route.locality, "remote", url);
+    assert.equal(route.providerId, "azure", url);
+  }
+  const first = await azure("https://myres.openai.azure.com/openai");
+  assert.deepEqual(first.state, { status: "ready" });
+  assert.equal(first.host, "myres.openai.azure.com");
+  assert.equal(first.sends, "your messages, recent conversation, and notes and calendar details it looks up");
+  const moved = await azure("https://Proxy.Example.com:8443/openai/");
+  assert.equal(moved.host, "proxy.example.com:8443", "an endpoint host change changes route.host");
+  assert.notEqual(moved.host, first.host);
+  assert.deepEqual((await azure("https://myres.openai.azure.com/openai", keys())).state, {
+    status: "needsKey",
+    provider: providerDisplayName("azure"),
+  });
+  assert.deepEqual((await azure("https://myres.openai.azure.com/openai", null)).state, { status: "unknown" });
+  assert.deepEqual((await azure("", null)).state, { status: "needsUrl" }, "a missing endpoint is a settings fact");
+  const noDeployment = (
+    await routesOf(enterpriseChat("azure", "", {
+      enterprise: { azureEndpoint: "https://myres.openai.azure.com/openai" },
+      facts: { credentials: keys("azure") },
+    }))
+  ).chat;
+  assert.deepEqual(noDeployment.state, { status: "needsModel" }, "an empty deployment name");
+});
+
+test("Bedrock: the host follows the region through the SDK's partition table", async () => {
+  const bedrock = async (bedrockRegion, credentials = keys("bedrock")) =>
+    (
+      await routesOf(
+        enterpriseChat("bedrock", "us.anthropic.claude-fable-5", { enterprise: { bedrockRegion }, facts: { credentials } })
+      )
+    ).chat;
+  for (const [region, host] of [
+    ["us-east-1", "bedrock-runtime.us-east-1.amazonaws.com"],
+    ["eu-west-1", "bedrock-runtime.eu-west-1.amazonaws.com"],
+    ["cn-north-1", "bedrock-runtime.cn-north-1.amazonaws.com.cn"],
+    ["", "bedrock-runtime.us-east-1.amazonaws.com"], // enterpriseAiProviders.js:26 default
+  ]) {
+    const route = await bedrock(region);
+    assert.equal(route.host, host, region);
+    assert.deepEqual(route.state, { status: "ready" }, region);
+  }
+  const unusable = await bedrock("us east");
+  assert.deepEqual(unusable.state, { status: "needsUrl" }, "no request URL can be built");
+  assert.equal(unusable.host, null);
+  const noCredentials = await bedrock("eu-west-1", keys());
+  assert.equal(noCredentials.state.status, "needsKey");
+  assert.equal(noCredentials.host, "bedrock-runtime.eu-west-1.amazonaws.com", "the destination is known before sign-in");
+  // The provider-only vision override reaches Bedrock in "providers" mode; same host rule.
+  const vision = (
+    await routesOf({
+      enabled: { visionOverride: true },
+      enterprise: { bedrockRegion: "ap-southeast-2" },
+      facts: { credentials: keys("bedrock") },
+      llm: { dictationAgentVision: { mode: "providers", provider: "bedrock", model: "apac.anthropic.claude-fable-5" } },
+    })
+  ).assistantVision;
+  assert.equal(vision.host, "bedrock-runtime.ap-southeast-2.amazonaws.com");
+});
+
+test("Vertex: the host follows the location, or the API key's express host", async () => {
+  const { providerDisplayName } = await import("../../src/lib/locality.ts");
+  const fields = (key) => new Map([["vertex", { key }]]);
+  const vertex = async (enterprise, facts) =>
+    (await routesOf(enterpriseChat("vertex", "gemini-2.5-flash", { enterprise, facts }))).chat;
+  const adc = { credentials: keys("vertex"), credentialFields: fields(false) };
+  for (const [vertexLocation, host] of [
+    ["europe-west4", "europe-west4-aiplatform.googleapis.com"],
+    ["", "us-central1-aiplatform.googleapis.com"], // enterpriseAiProviders.js:92 default
+    ["global", "aiplatform.googleapis.com"],
+    ["eu", "aiplatform.eu.rep.googleapis.com"],
+  ]) {
+    const route = await vertex({ vertexProject: "acme-prod", vertexLocation }, adc);
+    assert.equal(route.host, host, vertexLocation);
+    assert.deepEqual(route.state, { status: "ready" }, vertexLocation);
+  }
+  const express = await vertex(
+    { vertexProject: "", vertexLocation: "europe-west4" },
+    { credentials: keys("vertex"), credentialFields: fields(true) }
+  );
+  assert.equal(express.host, "aiplatform.googleapis.com", "the API key ignores project and location");
+  assert.deepEqual(express.state, { status: "ready" });
+  assert.deepEqual((await vertex({ vertexProject: "  ", vertexLocation: "us-central1" }, adc)).state, {
+    status: "needsKey",
+    provider: providerDisplayName("vertex"),
+  });
+  const badLocation = await vertex({ vertexProject: "acme-prod", vertexLocation: "bad location" }, adc);
+  assert.deepEqual(badLocation.state, { status: "needsUrl" });
+  assert.equal(badLocation.host, null);
+  const unknownKey = await vertex({ vertexProject: "acme-prod" }, { credentials: keys("vertex"), credentialFields: null });
+  assert.deepEqual(unknownKey.state, { status: "unknown" });
+  assert.equal(unknownKey.host, null, "whether the key exists decides the host");
+});
+
+test("main facts: environment overrides move enterprise hosts, and an unsynced slice is unknown", async () => {
+  const unsynced = await routesOf({
+    ...enterpriseChat("azure", "gpt-4o-deploy", {
+      enterprise: { azureEndpoint: "https://myres.openai.azure.com/openai" },
+      facts: { credentials: keys("azure"), enterpriseMain: null },
+    }),
+  });
+  assert.deepEqual(unsynced.chat.state, { status: "unknown" }, "the slice may be stale until synced from main");
+  assert.equal(unsynced.chat.host, null);
+  for (const provider of ["bedrock", "vertex"]) {
+    const r = await routesOf(
+      enterpriseChat(provider, "m", { facts: { credentials: keys(provider), enterpriseMain: null } })
+    );
+    assert.deepEqual(r.chat.state, { status: "unknown" }, provider);
+    assert.equal(r.chat.host, null, provider);
+  }
+  const main = (over) => ({
+    bedrockEndpoint: { set: false, host: null },
+    vertexApiKeyEnv: false,
+    vertexProjectEnv: false,
+    ...over,
+  });
+  const bedrock = async (enterpriseMain) =>
+    (
+      await routesOf(
+        enterpriseChat("bedrock", "eu.anthropic.claude-fable-5", {
+          enterprise: { bedrockRegion: "eu-west-1" },
+          facts: { credentials: keys("bedrock"), enterpriseMain },
+        })
+      )
+    ).chat;
+  const proxied = await bedrock(main({ bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" } }));
+  assert.equal(proxied.host, "bedrock-proxy.corp.example:8443", "the override host, not the region's");
+  assert.deepEqual(proxied.state, { status: "ready" });
+  const unusable = await bedrock(main({ bedrockEndpoint: { set: true, host: null } }));
+  assert.deepEqual(unusable.state, { status: "needsUrl" });
+  assert.equal(unusable.host, null);
+  const vertexEnvKey = (
+    await routesOf(
+      enterpriseChat("vertex", "gemini-2.5-flash", {
+        enterprise: { vertexProject: "", vertexLocation: "europe-west4" },
+        facts: { credentials: keys(), enterpriseMain: main({ vertexApiKeyEnv: true }) },
+      })
+    )
+  ).chat;
+  assert.equal(vertexEnvKey.host, "aiplatform.googleapis.com", "express mode through main's environment key");
+  assert.deepEqual(vertexEnvKey.state, { status: "ready" }, "runs without a stored key or project");
+  const envProjectOnly = (
+    await routesOf(
+      enterpriseChat("vertex", "gemini-2.5-flash", {
+        enterprise: { vertexProject: "", vertexLocation: "europe-west4" },
+        facts: { credentials: keys("vertex"), enterpriseMain: main({ vertexProjectEnv: true }) },
+      })
+    )
+  ).chat;
+  assert.equal(envProjectOnly.state.status, "needsKey", "the helper passes the blank project, never GOOGLE_VERTEX_PROJECT");
+});
+
+test("agreement: enterprise hosts and refusals match enterpriseAiProviders.js and the request the AI SDK sends, with main's environment overrides", async (t) => {
+  const { enterpriseRequestHost } = await load();
+  const { getEnterpriseAIModel } = require("../../src/helpers/enterpriseAiProviders.js");
+  // The real main-side reader Task 3 registers as the enterprise-route-facts IPC.
+  const { enterpriseRouteFacts } = require("../../src/helpers/enterpriseRouteFacts.js");
+  const ENV = [
+    "AWS_ENDPOINT_URL",
+    "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
+    "AWS_REGION",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "GOOGLE_VERTEX_API_KEY",
+    "GOOGLE_VERTEX_PROJECT",
+    "GOOGLE_VERTEX_LOCATION",
+  ];
+  const savedEnv = new Map(ENV.map((name) => [name, process.env[name]]));
+  const originalFetch = global.fetch;
+  t.after(() => {
+    global.fetch = originalFetch;
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  const prompt = [{ role: "user", content: [{ type: "text", text: "Hello" }] }];
+  // Fixture AWS keys only let Bedrock sign locally; the stubbed fetch answers every request.
+  const AWS = { bedrockAccessKeyId: "AKIAFIXTURE", bedrockSecretAccessKey: "fixture-secret" };
+
+  // The host the real executor's request goes to; null when it refuses the
+  // configuration or no request can be made (the stub constructs a Request
+  // first, so it refuses relative and credential-bearing URLs like fetch does).
+  async function executorHost(provider, enterprise, apiKey) {
+    let model;
+    try {
+      model = await getEnterpriseAIModel(provider, "fixture-model", apiKey, { ...AWS, ...enterprise });
+    } catch {
+      return null; // refused before any request (enterpriseAiProviders.js:73-77)
+    }
+    if (provider === "vertex" && !apiKey && !process.env.GOOGLE_VERTEX_API_KEY) {
+      // ADC would first ask Google for a token (a real network call), so read the
+      // base URL the SDK will call instead (@ai-sdk/google-vertex loadBaseURL).
+      assert.equal(typeof model.config?.baseURL, "string", "re-read @ai-sdk/google-vertex loadBaseURL");
+      try {
+        return new URL(model.config.baseURL).host;
+      } catch {
+        return null;
+      }
+    }
+    let requested = null;
+    global.fetch = async (url) => {
+      new Request(String(url));
+      requested = String(url);
+      return new Response('{"error":{"message":"stub"}}', {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    try {
+      await model.doGenerate({ prompt });
+    } catch {
+      // The stub fails every request; an unusable URL fails before or inside fetch.
+    } finally {
+      global.fetch = originalFetch;
+    }
+    if (requested === null) return null;
+    try {
+      return new URL(requested).host;
+    } catch {
+      return null;
+    }
+  }
+
+  // Injected environments only; never the developer's own.
+  const scenarios = [
+    {},
+    { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://bedrock-proxy.corp.example:8443/" },
+    { AWS_ENDPOINT_URL: "https://aws-gateway.corp.example" },
+    { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://runtime.corp.example", AWS_ENDPOINT_URL: "https://ignored.corp.example" },
+    { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "" }, // set, so it wins, and no request URL can be built
+    { AWS_ENDPOINT_URL: "https://user:pw@aws-gateway.corp.example" }, // fetch refuses credentials
+    { GOOGLE_VERTEX_API_KEY: "fixture-env-key" },
+    { GOOGLE_VERTEX_API_KEY: "" },
+    { GOOGLE_VERTEX_PROJECT: "env-project", GOOGLE_VERTEX_LOCATION: "asia-east1", AWS_REGION: "ap-south-1" }, // never used
+  ];
+  const base = makeSnapshot().enterprise;
+  const cases = [
+    ["azure", { azureEndpoint: "https://myres.openai.azure.com/openai" }, "fixture-key"],
+    ["azure", { azureEndpoint: "https://Proxy.Example.com:8443/x/" }, "fixture-key"],
+    ["azure", { azureEndpoint: "" }, "fixture-key"],
+    ["azure", { azureEndpoint: "not a url" }, "fixture-key"],
+    ["azure", { azureEndpoint: "http://myres.openai.azure.com/openai" }, "fixture-key"],
+    ["azure", { azureEndpoint: "https://u:p@myres.openai.azure.com/openai" }, "fixture-key"],
+    ["bedrock", { bedrockRegion: "us-east-1" }, ""],
+    ["bedrock", { bedrockRegion: "eu-central-1" }, ""],
+    ["bedrock", { bedrockRegion: "cn-northwest-1" }, ""],
+    ["bedrock", { bedrockRegion: "us-isob-east-1" }, ""],
+    ["bedrock", { bedrockRegion: "" }, ""],
+    ["bedrock", { bedrockRegion: "us east" }, ""],
+    ["bedrock", { bedrockRegion: "evil.example/x" }, ""], // the SDK really contacts bedrock-runtime.evil.example
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "europe-west4" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "global" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "us" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "bad location" }, ""],
+    ["vertex", { vertexProject: "", vertexLocation: "europe-west4" }, ""],
+    ["vertex", { vertexProject: "", vertexLocation: "europe-west4" }, "fixture-key"],
+  ];
+  for (const scenario of scenarios) {
+    for (const name of ENV) delete process.env[name];
+    Object.assign(process.env, scenario);
+    const main = enterpriseRouteFacts(process.env);
+    assert.equal(
+      JSON.stringify(main).includes("fixture-env-key") || JSON.stringify(main).includes("user:pw"),
+      false,
+      "main's facts carry no value"
+    );
+    for (const [provider, overrides, apiKey] of cases) {
+      const enterprise = { ...base, ...overrides };
+      assert.equal(
+        enterpriseRequestHost(provider, enterprise, apiKey !== "", main),
+        await executorHost(provider, enterprise, apiKey),
+        `${JSON.stringify(scenario)} ${provider} ${JSON.stringify(overrides)}`
+      );
+    }
+  }
+  for (const name of ENV) delete process.env[name];
+  // Without its key Azure is refused too; the graph reports that as needsKey, not as a host problem.
+  assert.equal(
+    await executorHost("azure", { ...base, azureEndpoint: "https://myres.openai.azure.com/openai" }, ""),
+    null
+  );
+});
+
 test("the retired openwhispr mode names a provider and says it cannot run", async () => {
   const bare = (await routesOf({ stt: { upload: { mode: "openwhispr", cloudProvider: "" } } }))
     .uploadStt;
@@ -1313,6 +1695,11 @@ Test labels. Every test below is **change-driving**: `src/lib/routeGraph.ts` doe
 | text endpoints use the executor's rule before the loopback decision | I8: malformed, public HTTP, hosted, embedded credentials, `ws://localhost`, plain-HTTP `*.localhost`; loopback custom → device |
 | plain-HTTP *.localhost is loopback but refused … (§5.1 rule 10) | §5 Locality row + §5.1 rule 10: `isLoopbackUrl("http://lmstudio.localhost/v1") === true` (Plan 01's `isLoopbackUrl` already accepts `*.localhost`; Plan 07 CCR-5 keeps it) and yet the custom text, custom speech and self-hosted routes are `needsUrl`, never `device` |
 | a text provider main refuses is unsupported | I8: providers main rejects |
+| Azure: a saved key never makes a missing or refused endpoint ready … | R2-1: missing, blank, malformed, HTTP and credential-bearing endpoints are `needsUrl` with a key present (and with facts unknown); a valid endpoint is `ready` with the endpoint's normalized host; an endpoint host change changes `route.host`; no key → `needsKey`; empty deployment → `needsModel` |
+| Bedrock: the host follows the region … | R2-1: `bedrock-runtime.<region>.<partition suffix>`, the helper's `us-east-1` default, an unbuildable region → `needsUrl`, the host is known before sign-in, the providers-mode vision override uses the same rule |
+| Vertex: the host follows the location, or the API key's express host | R2-1: location hosts (regional, `global`, `eu`/`us` multi-region, the helper's `us-central1` default), the key's express host, blank project without key → `needsKey`, unbuildable location → `needsUrl`, unknown key field → `unknown` with `host: null` |
+| main facts: environment overrides move enterprise hosts … | R2-1: `facts.enterpriseMain` `null` (not yet synced from main) → every enterprise route `unknown` with `host: null`, even Azure with a key and a valid endpoint; a Bedrock endpoint override replaces the region host, and an unusable one is `needsUrl`; main's `GOOGLE_VERTEX_API_KEY` gives the express host and `ready` without a stored key or project; `GOOGLE_VERTEX_PROJECT` never makes a blank project ready |
+| agreement: enterprise hosts and refusals match enterpriseAiProviders.js … with main's environment overrides | R2-1 + §5.1 rule 11: across 9 injected environments (none; runtime override; `AWS_ENDPOINT_URL`; both, runtime wins; empty runtime; credential-bearing URL; Vertex env key; empty env key; project/location/region variables that never apply) × 20 configurations, `enterpriseRequestHost(…, enterpriseRouteFacts(process.env))` equals the host the real helper's request reaches through the installed SDK (stubbed `fetch` constructs a `Request` first, so it refuses relative and credential-bearing URLs as fetch does; Vertex ADC reads the SDK's own `baseURL`, because ADC would first call Google for a token), and `null` exactly where the helper refuses or no request can be made. The real main reader's output never contains an environment value. Environments are injected and restored; the developer's own is never used |
 | the retired openwhispr mode … | retired, provider named (kept from v1) |
 | off routes keep their destination … | off keeps locality/host, sends nothing |
 | assistant vision follows the assistant … | vision follows the assistant's provider/host/model with stale override values (I7) |
@@ -1327,7 +1714,7 @@ Test labels. Every test below is **change-driving**: `src/lib/routeGraph.ts` doe
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- test/lib/routeGraph.test.js`
-Expected: FAIL, `# tests 26`, `# pass 0`, `# fail 26`. Twenty-five fail with `ERR_MODULE_NOT_FOUND` "Cannot find module '…/src/lib/routeGraph.ts' imported from …/test/lib/routeGraph.test.js"; the import guard fails with `ENOENT: no such file or directory, open '…/src/lib/routeGraph.ts'`.
+Expected: FAIL, `# tests 31`, `# pass 0`, `# fail 31`. Thirty fail with `ERR_MODULE_NOT_FOUND` "Cannot find module '…/src/lib/routeGraph.ts' imported from …/test/lib/routeGraph.test.js"; the import guard fails with `ENOENT: no such file or directory, open '…/src/lib/routeGraph.ts'`.
 
 - [ ] **Step 3: Implement**
 
@@ -1447,6 +1834,13 @@ export interface RouteFacts {
     llm: ReadonlySet<string> | null;
   };
   credentials: ReadonlyMap<CredentialId, boolean> | null; // main-confirmed presence; null = not loaded
+  // Main-confirmed presence per credential field (Task 2's list rows' `fields`),
+  // loaded and nulled together with `credentials`. Vertex's `key` decides its host.
+  credentialFields: ReadonlyMap<CredentialId, Readonly<Record<string, boolean>>> | null;
+  // Main's own environment overrides for the enterprise SDKs (Task 3's
+  // enterprise-route-facts). null until Task 3 has also reconciled the four
+  // enterprise settings to main's values: until then every enterprise route is unknown.
+  enterpriseMain: EnterpriseMainFacts | null;
   rejected: ReadonlySet<CredentialId>;
   speakerIdModelsReady: boolean | null;
   searchModelReady: boolean | null;
@@ -1502,9 +1896,30 @@ export interface RouteCopy {
   list: (items: string[]) => string;
 }
 
+export type EnterpriseProviderId = "bedrock" | "azure" | "vertex";
+
+// The non-secret enterprise settings that decide where an enterprise request
+// goes. Raw store strings: main hands the same values, untrimmed, to
+// enterpriseAiProviders.js (main.js:447-457).
+export interface EnterpriseRouteSettings {
+  bedrockRegion: string;
+  azureEndpoint: string;
+  vertexProject: string;
+  vertexLocation: string;
+}
+
+// Hosts and booleans only; produced by src/helpers/enterpriseRouteFacts.js in main.
+export interface EnterpriseMainFacts {
+  // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL. host null = set but unusable.
+  bedrockEndpoint: { set: boolean; host: string | null };
+  vertexApiKeyEnv: boolean; // non-empty GOOGLE_VERTEX_API_KEY: express mode
+  vertexProjectEnv: boolean; // reported only: the helper always passes a string project
+}
+
 export interface RouteSettingsSnapshot {
   stt: Record<SttContext, SttRouteInput>;
   llm: Record<LlmRouteScope, LlmRouteInput>;
+  enterprise: EnterpriseRouteSettings;
   enabled: {
     cleanup: boolean;
     voiceAssistant: boolean;
@@ -1606,6 +2021,88 @@ export const TEXT_PROVIDER_IDS: readonly string[] = [
 ];
 
 const ENTERPRISE_PROVIDER_IDS: readonly string[] = ["bedrock", "azure", "vertex"];
+
+// @ai-sdk/amazon-bedrock 5.0.94, resolveAmazonBedrockBaseURL
+// (dist/index.js:3105-3135): https://bedrock-runtime.<region>.<partition suffix>.
+const AWS_PARTITION_DNS_SUFFIXES: readonly (readonly [string, string])[] = [
+  ["cn-", "amazonaws.com.cn"],
+  ["us-iso-", "c2s.ic.gov"],
+  ["us-isob-", "sc2s.sgov.gov"],
+  ["eu-isoe-", "cloud.adc-e.uk"],
+  ["us-isof-", "csp.hci.ic.gov"],
+  ["eusc-", "amazonaws.eu"],
+];
+
+function bedrockBaseUrl(region: string): string {
+  const suffix =
+    AWS_PARTITION_DNS_SUFFIXES.find(([prefix]) => region.startsWith(prefix))?.[1] ?? "amazonaws.com";
+  return `https://bedrock-runtime.${region}.${suffix}`;
+}
+
+// @ai-sdk/google-vertex 5.0.93, createGoogleVertex loadBaseURL
+// (dist/index.js:1619, 1653-1669). The API key selects express mode.
+function vertexBaseUrl(apiKey: boolean, project: string, location: string): string {
+  if (apiKey) return "https://aiplatform.googleapis.com/v1/publishers/google";
+  const host =
+    location === "global"
+      ? "aiplatform.googleapis.com"
+      : location === "eu" || location === "us"
+        ? `aiplatform.${location}.rep.googleapis.com`
+        : `${location}-aiplatform.googleapis.com`;
+  return `https://${host}/v1beta1/projects/${project}/locations/${location}/publishers/google`;
+}
+
+// The host a URL built like the SDK's really reaches; null when it cannot be
+// parsed or carries credentials (fetch refuses both).
+function requestHost(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.username || parsed.password ? null : parsed.host || null;
+  } catch {
+    return null;
+  }
+}
+
+// Where enterpriseAiProviders.js and the AI SDK would send this request, or
+// null when the executor refuses the configuration. Mirrors the helper exactly,
+// including its `||` defaults and untrimmed values; the agreement test runs
+// the real helper and SDK against the same inputs.
+export function enterpriseRequestHost(
+  providerId: EnterpriseProviderId,
+  enterprise: EnterpriseRouteSettings,
+  vertexApiKey: boolean,
+  main: EnterpriseMainFacts
+): string | null {
+  switch (providerId) {
+    case "bedrock":
+      // An endpoint override in main's environment wins over the region
+      // (resolveAmazonBedrockBaseURL, dist/index.js:3120-3129).
+      if (main.bedrockEndpoint.set) return main.bedrockEndpoint.host;
+      return requestHost(bedrockBaseUrl(enterprise.bedrockRegion || "us-east-1"));
+    case "azure": {
+      // createAzureModel (:73-77): required, parsable, HTTPS, no embedded credentials.
+      const endpoint = enterprise.azureEndpoint;
+      if (!endpoint) return null;
+      try {
+        const url = new URL(endpoint);
+        if (url.protocol !== "https:" || url.username || url.password) return null;
+        return url.host || null;
+      } catch {
+        return null;
+      }
+    }
+    case "vertex":
+      return requestHost(
+        vertexBaseUrl(
+          vertexApiKey || main.vertexApiKeyEnv,
+          enterprise.vertexProject,
+          enterprise.vertexLocation || "us-central1"
+        )
+      );
+    default:
+      return null;
+  }
+}
 
 const KEYED_PROVIDER_IDS: readonly string[] = [
   "openai",
@@ -1930,6 +2427,51 @@ function sttDestination(s: RouteSettingsSnapshot, id: RouteId, input: SttRouteIn
   return batchSttDestination(s, id, input);
 }
 
+// Bedrock, Azure and Vertex (R2-1). The host comes from the enterprise slice,
+// never providerHosts. A configuration the executor refuses is needsUrl before
+// any key fact, like a custom endpoint; Vertex's host depends on whether its own
+// API key exists, so it stays unknown until main has listed the key field.
+function enterpriseDestination(
+  s: RouteSettingsSnapshot,
+  id: RouteId,
+  providerId: EnterpriseProviderId,
+  model: string | null
+): Destination {
+  const at = (host: string | null, state: RouteState): Destination => ({
+    locality: "remote",
+    providerId,
+    host,
+    model,
+    state,
+  });
+  // Main is the source of truth: until Task 3 has synced the slice from main
+  // and read main's environment overrides, the destination is not known.
+  const main = s.facts.enterpriseMain;
+  if (main === null) return at(null, UNKNOWN);
+  let vertexApiKey = false;
+  if (providerId === "vertex") {
+    if (s.facts.credentials === null || s.facts.credentialFields === null) return at(null, UNKNOWN);
+    vertexApiKey = s.facts.credentialFields.get("vertex")?.key === true;
+  }
+  const host = enterpriseRequestHost(providerId, s.enterprise, vertexApiKey, main);
+  if (host === null) return at(null, NEEDS_URL);
+  // GOOGLE_VERTEX_API_KEY in main's environment runs express mode without a
+  // stored key or a project; main's presence (Task 2) does not count it.
+  if (providerId === "vertex" && !vertexApiKey && main.vertexApiKeyEnv) {
+    return at(
+      host,
+      s.facts.rejected.has("vertex") ? { status: "needsKey", provider: providerDisplayName(providerId) } : READY
+    );
+  }
+  const state = credentialState(s, id, providerId);
+  // Without its key, Vertex runs as the ADC project (enterpriseAiProviders.js:90-93);
+  // a blank project builds ".../projects//..." and every request fails.
+  if (providerId === "vertex" && !vertexApiKey && !s.enterprise.vertexProject.trim() && state.status === "ready") {
+    return at(host, { status: "needsKey", provider: providerDisplayName(providerId) });
+  }
+  return at(host, state);
+}
+
 function llmDestination(s: RouteSettingsSnapshot, id: RouteId, input: LlmRouteInput): Destination {
   const mode = input.mode.trim();
   const providerId = input.provider.trim();
@@ -1955,7 +2497,10 @@ function llmDestination(s: RouteSettingsSnapshot, id: RouteId, input: LlmRouteIn
     const model = cloudModelName(s, providerId, modelId);
     if (!providerId) dest = remote(s, providerId, model, CHOOSE_PROVIDER);
     else if (!supported.includes(providerId)) dest = remote(s, providerId, model, UNSUPPORTED);
-    else {
+    else if (ENTERPRISE_PROVIDER_IDS.includes(providerId)) {
+      // Also reached in "providers" mode: the vision override is provider-only.
+      dest = enterpriseDestination(s, id, providerId as EnterpriseProviderId, model);
+    } else {
       dest = remote(s, providerId, model, credentialState(s, id, providerId), textHostKey(providerId));
     }
   } else {
@@ -2101,15 +2646,59 @@ export function resolveRoutes(s: RouteSettingsSnapshot): ResolvedRoute[] {
 }
 ```
 
+Create `src/helpers/enterpriseRouteFacts.js` (main process; Task 3 registers it as the `enterprise-route-facts` IPC):
+
+```js
+// What main's own environment does to enterprise requests (R2-1), as facts the
+// route graph can disclose. Hosts and booleans only: never a value, so no key,
+// token or credential-bearing URL leaves main. Reads process.env; no network.
+//
+// Precedence mirrors the installed SDKs on the enterpriseAiProviders.js path:
+// - @ai-sdk/amazon-bedrock resolveAmazonBedrockBaseURL (dist/index.js:3113-3129):
+//   AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL, else the region.
+//   loadOptionalSetting (provider-utils dist/index.js:1720-1735) accepts any
+//   string, "" included, and the base URL loses one trailing slash.
+// - @ai-sdk/google-vertex (dist/index.js:1637-1640, 1814-1820): a truthy
+//   GOOGLE_VERTEX_API_KEY selects express mode when no key is passed.
+// GOOGLE_VERTEX_PROJECT/LOCATION and AWS_REGION never apply here: the helper
+// always passes string settings, which loadSetting returns as they are.
+
+function requestHost(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.username || parsed.password ? null : parsed.host || null; // fetch refuses credentials
+  } catch {
+    return null;
+  }
+}
+
+function enterpriseRouteFacts(env = process.env) {
+  const runtime = env.AWS_ENDPOINT_URL_BEDROCK_RUNTIME;
+  const raw = typeof runtime === "string" ? runtime : env.AWS_ENDPOINT_URL;
+  return {
+    bedrockEndpoint:
+      typeof raw === "string"
+        ? { set: true, host: requestHost(`${raw.replace(/\/$/, "")}/model/fixture/converse`) }
+        : { set: false, host: null },
+    vertexApiKeyEnv: Boolean(env.GOOGLE_VERTEX_API_KEY),
+    vertexProjectEnv: typeof env.GOOGLE_VERTEX_PROJECT === "string",
+  };
+}
+
+module.exports = { enterpriseRouteFacts };
+```
+
 Notes for the implementer:
 - Keep the three imports exactly as written, with their `.ts` extensions (`src/tsconfig.json` sets `allowImportingTsExtensions`). Do not import the store, the registry JSON, React or i18n here; Task 3's builder passes those facts in. The import guard test enforces this.
 - `resolveTranscriptionRoute` is called with `useLocalWhisper: false` because the snapshot's `mode` is already the resolved mode; Task 3 maps `useLocalWhisper`/`transcriptionMode` into `SttRouteInput.mode`.
 - Do not call `resolveLocality` for endpoints: validation must run before the loopback decision.
+- Enterprise hosts (R2-1): do not import `@ai-sdk/*` or `enterpriseAiProviders.js` into the graph (the import guard forbids it and the renderer cannot load them). `bedrockBaseUrl`/`vertexBaseUrl` copy the SDK URL builders cited in the Interfaces; the agreement test runs the real helper and SDK, so an SDK upgrade that changes a host fails that test, not production disclosure. Keep the helper's `||` defaults and untrimmed values: `" "` as a region is truthy in the helper and yields an unbuildable URL, so the route is `needsUrl`. An Azure endpoint at a private or loopback address stays `remote` with `providerId: "azure"`, because the executor accepts it and it is a named enterprise provider.
+- Main's environment overrides (`AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, `AWS_ENDPOINT_URL`, `GOOGLE_VERTEX_API_KEY`) are a main fact (`facts.enterpriseMain`, Task 3), not a guess: `src/helpers/enterpriseRouteFacts.js` reads them in main and returns hosts and booleans only. Keep it import-free and network-free; Task 3 registers it.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/routeGraph.test.js test/helpers/transcriptionRoute.test.js test/helpers/meetingTranscriptionRouting.test.js && npm run typecheck`
-Expected: PASS. `test/lib/routeGraph.test.js` reports `# tests 26`, `# pass 26`; the two executor suites are unchanged and still pass. Typecheck is clean.
+Run: `npm test -- test/lib/routeGraph.test.js test/helpers/transcriptionRoute.test.js test/helpers/meetingTranscriptionRouting.test.js test/helpers/enterpriseAiProviders.test.js test/helpers/enterpriseAiProvidersAzureHosts.test.js && npm run typecheck`
+Expected: PASS. `test/lib/routeGraph.test.js` reports `# tests 31`, `# pass 31`; the executor suites (including the two enterprise-helper suites, **baseline guards** for the helper the agreement test drives) are unchanged and still pass. Typecheck is clean. The agreement test makes no network request: every `fetch` is stubbed, and the Vertex ADC case reads the SDK's base URL instead of requesting a token.
 
 Then confirm the module loads in plain Node with the test loader and nothing else:
 
@@ -2119,10 +2708,11 @@ Expected: prints `11`.
 - [ ] **Step 5: Commit**
 
 ```bash
-npx prettier --write src/lib/routeGraph.ts test/lib/routeGraph.test.js test/lib/routeFixtures.js
+npx prettier --write src/lib/routeGraph.ts src/helpers/enterpriseRouteFacts.js test/lib/routeGraph.test.js test/lib/routeFixtures.js
 npm run lint
-git add src/lib/routeGraph.ts test/lib/routeGraph.test.js test/lib/routeFixtures.js
-git commit -m "feat(routes): Add the pure route graph checked against the executors"
+git add src/lib/routeGraph.ts src/helpers/enterpriseRouteFacts.js test/lib/routeGraph.test.js test/lib/routeFixtures.js
+git commit -m "feat(routes): Add the pure route graph checked against the executors" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2131,11 +2721,19 @@ git commit -m "feat(routes): Add the pure route graph checked against the execut
 
 Closes I3 (saved-key readiness becomes a main-acknowledged fact: renderer setters await main, the raw value never enters zustand, `flushSecretSaves()`, `credentials-changed` events update every window, `ApiKeyInput` clears its draft only after a successful save and keeps it with an error otherwise, legacy save channels return `{ success, error? }`), I4 main side (removal returns an opaque, generation-bound undo token; the removed value lives only in main memory for 8 s; reset invalidates every token), I2 (Codex presence is a `stat` of `<userData>/codex/auth.json`, so listing credentials never starts the Codex app server or touches the network) and the credential half of I10 (Corti is two identities: `corti:text` is `cortiApiKey`, `corti:speech` is the client id plus secret pair).
 
-Today `_saveKey` (`src/helpers/environment.js:249-264`) returns `{ success: true }` before the encrypted write finishes and only logs a failure, and the renderer puts the raw key into zustand before a 250 ms debounced IPC (`src/stores/settingsStore.ts:1280-1297`, `:1363-1366`). This task moves the authority to main: main persists, acknowledges, bumps a per-identity generation and broadcasts presence; the renderer stores only `"__stored__"` or `""`, and only after the acknowledgement. The UI for undoable removal (`ApiKeyInput` `credentialId` prop, "Removed · Undo") is Task 12; this task ships the main contract it calls.
+Today `_saveKey` (`src/helpers/environment.js:249-264`) returns `{ success: true }` before the encrypted write finishes and only logs a failure, and the renderer puts the raw key into zustand before a 250 ms debounced IPC (`src/stores/settingsStore.ts:1280-1297`, `:1363-1366`). This task moves the authority to main: main persists, acknowledges, bumps a per-identity generation and broadcasts presence; the renderer stores only `"__stored__"` or `""`, and only after the acknowledgement. The UI for undoable removal (the toast Undo and the deletion of the empty-save Remove) is Task 12. This task ships the main contract it calls and declares the `credentialId?: CredentialSlot` prop, so Tasks 8 and 9 can pass identities before Task 12 gives the prop its behaviour.
+
+Round-2 revisions (Codex R2-2, R2-3, R2-4 and the Task 2 half of R2-5):
+- **Reset barrier (R2-2).** `reset(erase)` is authority-wide and async. It raises a fence that refuses new mutations, and it bumps an epoch so that queued mutations return without writing. It then drops every undo token and bumps every generation, which discards verifications already in flight. It waits for the write in flight, and only then calls `erase` (`clearAllPersistedData`). A save, removal or Undo that was requested before the reset resolves as a failure, never as a success. `cleanup-app` calls `this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())` in place of the bare erase.
+- **Committed snapshots (R2-4).** The real `_saveSecretKey` sets `process.env` before its awaited write (`src/helpers/environment.js:155`, then `:157-165`), and the getters read `process.env` (`:245-246`). While a slot is being written, the authority answers `present`/`list`/`fields` from the snapshot it took just before the write. It publishes the new presence only after persistence succeeded. `captureCommitted(id)` gives main's keyring the value and generation it tests. It is queued behind the slot's mutations, so the value it tests is always one main has committed. Tests use the real `EnvironmentManager` method bodies over a deferred fake filesystem (`test/helpers/harness/realCredentialEnv.js`).
+- **Shared slot type and acknowledged-save type (R2-5, R2-3).** The new pure module `src/lib/credentialSlots.ts` exports `CredentialSlot` (the 16 `CredentialId`s plus seven custom-endpoint slots), `MULTI_FIELD_CREDENTIALS` (`corti:speech` and `bedrock`; Remove takes the whole credential), the store-key→slot table and `credentialSlotForRef`. `ApiKeyInput.tsx` exports `AcknowledgedSecretSave` and types `setApiKey` with it. Every caller passes a real acknowledged save, with no casts. The repo's `src/tsconfig.json` has `"strict": false`, but a `void`-returning callback is still not assignable to `Promise<SecretSaveResult>`. Step 3.13 therefore fixes the four places that would fail `npm run typecheck`.
 
 **Files:**
 - Create: `src/helpers/credentialAuthority.js`
+- Create: `src/lib/credentialSlots.ts` (pure; shared slot type and tables)
 - Create: `test/helpers/harness/fakeCredentialEnv.js` (shared with Task 11)
+- Create: `test/helpers/harness/realCredentialEnv.js` (shared with Tasks 11 and 12). It runs the real `EnvironmentManager` persistence bodies over a deferred fake filesystem.
+- Modify (R2-3 typecheck): `src/components/OpenAICompatiblePanel.tsx` (`:24` prop type), `src/components/ReasoningModelSelector.tsx` (`:70` prop type, `:601` fallback), `src/components/settings/InferenceConfigEditor.tsx` (`:139`, `:171`), `src/components/TranscriptionModelPicker.tsx` (`:970-983` table, `:1245` secret field)
 - Modify: `src/helpers/environment.js`. Add `persistSecret` after `_saveKey` (`:249-264`).
 - Modify: `src/helpers/ipcHandlers.js`:
   - require the authority next to `BYOK_API_KEYS` (`:14`);
@@ -2143,7 +2741,7 @@ Today `_saveKey` (`src/helpers/environment.js:249-264`) returns `{ success: true
   - add `_acknowledgedSave` after `_mintStoredCortiToken` (`:997-1009`);
   - rewire the BYOK save channels (`:1244-1251`) and register the four `credentials-*` channels after that loop;
   - rewire `save-corti-client-id` / `save-corti-client-secret` (`:3794-3804`), `save-custom-transcription-key` (`:3866-3868`), `save-cleanup-custom-key` (`:3874-3876`), the Bedrock, Azure and Vertex secret savers (`:3894-3911`, `:3918-3920`, `:3948-3950`), and make `save-bedrock-profile` (`:3888-3890`) and `save-vertex-project` (`:3936-3938`) refresh presence;
-  - call `this.credentials.reset()` in `cleanup-app` after `clearAllPersistedData` (`:3222-3226`).
+  - in `cleanup-app`, replace the `clearAllPersistedData` try/catch (`:3221-3226`) with `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())`, so the erase runs inside the reset barrier (R2-2).
 - Modify: `main.js`. Route `saveCredential` for `personal-inference:credential-save` (`:442-446`) through the authority.
 - Modify: `preload.js`. Add a `credentials` namespace after the `personalInference` block (`:78-99`).
 - Modify: `src/types/electron.ts`. Credential types next to `InferenceMode` (`:18`); `credentials: CredentialsAPI` after `personalInference` (`:677`); the 25 secret `save*` signatures return `Promise<SecretSaveAck>`.
@@ -2158,14 +2756,14 @@ Today `_saveKey` (`src/helpers/environment.js:249-264`) returns `{ success: true
 - Modify: `src/components/EnterpriseProviderConfig.tsx`. Its local `saveSecret` (`:53-85`) delegates to the store and returns the acknowledgement to `ApiKeyInput` (`:129`, `:134`, `:139`, `:160`, `:181`).
 - Modify: `docs/PRIVACY.md`. One paragraph after `:34` ("Storage and credentials").
 - Modify: `src/locales/*/translation.json`. `apiKeyInput.saveFailed`, `apiKeyInput.removeFailed`.
-- Test: `test/helpers/credentialAuthority.test.js`, `test/helpers/credentialIpc.test.js`, `test/helpers/environmentPersistSecret.test.js`, `test/stores/settingsStoreSecretAck.test.js`, and two new tests appended to `test/components/personalWorkspace.test.js`.
+- Test: `test/helpers/credentialAuthority.test.js`, `test/helpers/credentialAuthorityRealEnv.test.js` (R2-2/R2-4, real persistence bodies), `test/helpers/credentialIpc.test.js`, `test/helpers/environmentPersistSecret.test.js`, `test/stores/settingsStoreSecretAck.test.js`, `test/lib/credentialSlots.test.js`, and two new tests appended to `test/components/personalWorkspace.test.js`.
 
 **Interfaces:**
 - Consumes:
   - `CredentialId` from `src/lib/routeGraph.ts` (Task 1);
   - `BYOK_API_KEYS` (`src/config/secretKeys.js:9-120`) and the environment getters it names;
   - `broadcastToWindows` (`src/helpers/windowBroadcast.js:3`);
-  - `EnvironmentManager._saveSecretKey` / `_encryptionAvailable` / `saveAllKeysToEnvFile` (`src/helpers/environment.js:112-118`, `:146-165`, `:482-487`);
+  - `EnvironmentManager._saveSecretKey` / `_encryptionAvailable` / `saveAllKeysToEnvFile` (`src/helpers/environment.js:112-118`, `:149-166`, `:482-487`);
   - the Codex profile location `path.join(userDataPath, "codex")` (`src/helpers/codexAppServer.js:96`), whose credential store is file-based (`cli_auth_credentials_store: "file"`, `:74`; `CODEX_HOME`, `:135`).
 - Produces (main, `src/helpers/credentialAuthority.js`):
 
@@ -2176,18 +2774,29 @@ Today `_saveKey` (`src/helpers/environment.js:249-264`) returns `{ success: true
   function slotForCredentialRef(ref): { id: string; field: "key" } | null; // personal-inference refs → slots
   function hasStoredAccount({ fs, codexHome }): boolean; // fs.statSync(<codexHome>/auth.json): isFile && size > 2; never reads it
   function createCredentialAuthority({ env, codexHome, fs, broadcast, now, undoMs, setTimer, randomToken }) → {
-    list(): Array<{ id: CredentialId; present: boolean; generation: number; fields: Record<string, boolean> }>;
-    present(id): boolean;
+    list(): Array<{ id: CredentialId; present: boolean; generation: number; fields: Record<string, boolean> }>; // committed state only
+    present(id): boolean;                         // committed: never true for a write main has not acknowledged
     generation(id): number;
     save(id, field, value): Promise<{ ok: true; generation: number } | { ok: false; error: CredentialError }>;
-    remove(id): Promise<{ ok: true; undoToken: string; expiresAt: number; generation: number } | { ok: false; error: CredentialError }>;
+    remove(id): Promise<{ ok: true; undoToken: string; expiresAt: number; generation: number } | { ok: false; error: CredentialError }>; // every field of the slot
     undoRemove(token): Promise<{ ok: true; generation: number } | { ok: false; reason: "expired" | "replaced" | "unknown" | "persistFailed" }>;
-    reset(): void;
+    captureCommitted(id): Promise<{ generation: number; present: boolean; values: Record<string, string> } | null>; // MAIN ONLY (Task 11 Verify); null for an unknown slot or during a reset
+    reset(erase?: () => Promise<unknown>): Promise<void>; // barrier: fence, cancel queued work, drop tokens, bump generations, drain, then erase; rethrows erase's error after unfencing
     refresh(id): void;                            // re-broadcast presence after a non-secret input (Bedrock profile, Vertex project) changed
     subscribe(listener: (change: CredentialChange & { cause: "save" | "remove" | "undo" | "reset" | "refresh" }) => void): () => void;
   }
-  // CredentialError = "unknownCredential" | "unknownField" | "invalidValue" | "persistFailed" | "unsupported" | "notStored"
+  // CredentialError = "unknownCredential" | "unknownField" | "invalidValue" | "persistFailed" | "unsupported" | "notStored" | "reset"
   ```
+
+  Reset contract (R2-2):
+  - Once `reset` starts, any `save`/`remove` resolves `{ ok: false, error: "reset" }`, and any `undoRemove` resolves `{ ok: false, reason: "unknown" }`. This includes calls made during the reset and calls queued or running when it began.
+  - A running write stops before its next field. A two-field removal never writes the removed values back.
+  - `erase` runs only after every slot queue has settled.
+
+  Committed-state contract (R2-4):
+  - While a slot is being written, `present`, `list`, `fields` and broadcasts use the snapshot taken just before the write.
+  - A broadcast happens only after a successful write.
+  - `captureCommitted` runs in the slot's queue, so it sees neither a pending write nor a write that failed and was rolled back.
 
   Slot ids are the 16 `CredentialId`s plus seven custom-endpoint slots named like personal-inference credential refs (`main.js:493-506`): `custom:transcription`, `custom:dictationCleanup`, `custom:noteFormatting`, `custom:dictationTranslation`, `custom:dictationAgent`, `custom:dictationAgentVision`, `custom:chatIntelligence`. `list()` reports only the 16 `CredentialId`s; events are broadcast for every slot. Fields: `key` everywhere except `corti:speech` (`clientId`, `clientSecret`) and `bedrock` (`accessKeyId`, `secretAccessKey`, `sessionToken`). Presence: `corti:speech` needs both fields; `bedrock` is profile or access key id and `vertex` is API key or project (both mirror `personal-inference:credential-status`, `src/helpers/personalInference.js:268-279`); `codex` is `hasStoredAccount`; everything else is "any field stored".
 - Produces (main, `src/helpers/environment.js`): `async persistSecret(envVarName, value): Promise<void>`. Resolves only after the encrypted file was written or removed (or, without encryption, after `.env` was rewritten); rejects on failure and restores the previous in-memory value.
@@ -2195,15 +2804,43 @@ Today `_saveKey` (`src/helpers/environment.js:249-264`) returns `{ success: true
 - Produces (renderer, `src/stores/settingsStore.ts`):
 
   ```ts
-  export type SecretStoreKey; // the 25 secret store fields
-  export interface SecretSaveResult { ok: boolean; error?: string }
+  export type { SecretStoreKey, SecretSaveResult } from "../lib/credentialSlots"; // re-exported
   export function saveSecret(storeKey: SecretStoreKey, value: string): Promise<SecretSaveResult>;
   export function flushSecretSaves(): Promise<void>;   // Task 7 (requestRouteChange/applyDraft) and Task 12 (Verify) await this first
   export function subscribeCredentialChanges(): () => void; // called once by initializeSettings
   // every secret setter (setOpenaiApiKey, setCortiClientId, setBedrockAccessKeyId, …) now returns Promise<SecretSaveResult>
   ```
-- Produces (`src/components/ui/ApiKeyInput.tsx`): `setApiKey: (key: string) => void | Promise<SecretSaveResult | void>`. A `{ ok: false }` result keeps the editor open with the draft and shows `role="alert"`; success clears the draft. Task 12 adds the `credentialId` prop and the undoable Remove on top.
-- For Task 3: `credentials.list()` is the presence source for `RouteFacts.credentials`, and `credentials.onChanged` is a refresh trigger. For Task 11: `present(id)`, `generation(id)` and `subscribe()`.
+- Produces (`src/lib/credentialSlots.ts`, pure, no store or Electron imports):
+
+  ```ts
+  export type CustomCredentialSlot =
+    | "custom:transcription" | "custom:dictationCleanup" | "custom:noteFormatting" | "custom:dictationTranslation"
+    | "custom:dictationAgent" | "custom:dictationAgentVision" | "custom:chatIntelligence";
+  export type CredentialSlot = CredentialId | CustomCredentialSlot;          // every slot main's authority accepts
+  export type CredentialField = "key" | "clientId" | "clientSecret" | "accessKeyId" | "secretAccessKey" | "sessionToken";
+  export interface SecretSaveResult { ok: boolean; error?: string }
+  export const CUSTOM_CREDENTIAL_SLOTS: readonly CustomCredentialSlot[];
+  export const MULTI_FIELD_CREDENTIALS: ReadonlySet<CredentialSlot>;        // "corti:speech", "bedrock": Remove/Undo act on every field
+  export const SECRET_STORE_SLOTS: { readonly [K in SecretStoreKey]: readonly [CredentialSlot, CredentialField] }; // the 25 secret store fields
+  export type SecretStoreKey;                                                // keyof typeof SECRET_STORE_SLOTS
+  export function credentialSlotForStoreKey(storeKey: string): CredentialSlot | undefined;
+  export function isSecretStoreKey(key: string): key is SecretStoreKey;
+  export function credentialSlotForRef(ref: string | undefined): CredentialSlot | undefined; // "openrouter" → "openrouter", "custom:noteFormatting" → same, "corti" → "corti:text", unknown → undefined
+  export const unavailableSecretSave: (value: string) => Promise<SecretSaveResult>; // { ok: false, error: "unavailable" }; never writes
+  ```
+
+  `src/types/electron.ts` re-exports `CredentialSlot` and `CredentialField`.
+- Produces (`src/components/ui/ApiKeyInput.tsx`):
+
+  ```ts
+  export type { SecretSaveResult } from "../../stores/settingsStore";
+  export type AcknowledgedSecretSave = (value: string) => Promise<SecretSaveResult>;
+  export { unavailableSecretSave } from "../../lib/credentialSlots"; // re-export
+  // props: setApiKey: AcknowledgedSecretSave; credentialId?: CredentialSlot  (inert until Task 12)
+  ```
+
+  A `{ ok: false }` result keeps the editor open with the draft and shows `role="alert"`; success clears the draft. In this task, Remove is still today's `setApiKey("")`. Task 12 replaces it with main's token removal and a toast Undo, and deletes the empty-save path. `StagedCredentialInput.save` (Task 8) and `OpenAICompatiblePanel`'s key save (Task 9) are typed `AcknowledgedSecretSave`. Nothing casts the type or drops the promise.
+- For Task 3: `credentials.list()` is the presence source for `RouteFacts.credentials`, and `credentials.onChanged` is a refresh trigger. For Task 11: `present(id)`, `generation(id)`, `captureCommitted(id)`, `list()` (field presence for `describeVerify`) and `subscribe()`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2537,7 +3174,7 @@ test("undo after expiry, replacement or reset is refused and never resurrects th
   {
     const { authority, env } = setup({ initial: { OPENAI_API_KEY: SECRETS[0] } });
     const { undoToken } = await authority.remove("openai");
-    authority.reset();
+    await authority.reset();
     assert.deepEqual(await authority.undoRemove(undoToken), { ok: false, reason: "unknown" });
     assert.equal(env.values.has("OPENAI_API_KEY"), false);
     assert.equal(authority.generation("groq"), 1, "reset bumps every generation");
@@ -2590,7 +3227,7 @@ test("no result, list or broadcast ever carries secret material", async () => {
     throw new Error(`failed for ${SECRETS[1]}`);
   };
   results.push(await authority.save("openai", "key", SECRETS[1]));
-  authority.reset();
+  await authority.reset();
   const surface = JSON.stringify({ results, broadcasts });
   for (const secret of SECRETS) assert.ok(!surface.includes(secret), `leaked ${secret}`);
 });
@@ -2605,7 +3242,7 @@ test("subscribers learn the cause of each change and can unsubscribe", async () 
   await authority.save("openai", "key", SECRETS[1]);
   authority.refresh("bedrock");
   assert.deepEqual(seen, ["remove:openai", "undo:openai", "save:openai", "refresh:bedrock"]);
-  authority.reset();
+  await authority.reset();
   assert.ok(seen.includes("reset:openai") && seen.includes("reset:codex"));
   stop();
   await authority.save("groq", "key", "gsk");
@@ -2703,6 +3340,345 @@ test("persistSecret awaits the encrypted write, and the .env rewrite without enc
     EnvironmentManager.prototype.persistSecret.call(plain, "DICTATION_KEY", "F8"),
     /not a secret/i
   );
+});
+```
+
+Create `test/helpers/harness/realCredentialEnv.js`. R2-2 and R2-4 are races inside the real `EnvironmentManager` bodies. `_saveSecretKey` sets `process.env` first and then awaits `mkdir`/`writeFile`/`rename` (`src/helpers/environment.js:149-166`); `_deleteSecretKey` deletes and then awaits `unlink` (`:168-175`); `clearAllPersistedData` clears `process.env` and then awaits `rm` (`:489-499`). This harness runs those exact method bodies. It swaps only the module's `fs/promises`, `electron`, `./secretCrypto` and `./debugLogger`, and the swap applies to `environment.js` alone. No real profile, keychain or disk is touched.
+
+```js
+const Module = require("node:module");
+const path = require("node:path");
+const { deferred } = require("./deferred");
+
+const ENV_MODULE = require.resolve("../../../src/helpers/environment.js");
+// A path that is never created: every filesystem call goes to the fake below.
+const USER_DATA = path.join(path.sep, "loqui-test-profile-never-on-disk");
+const SECURE_KEYS = path.join(USER_DATA, "secure-keys");
+
+// An in-memory fs/promises whose operations a test can hold (one at a time)
+// and then release or fail, to stop the real persistence code mid-write.
+function createDeferredFs() {
+  const files = new Map();
+  const log = [];
+  const holds = [];
+  let holdNext = null;
+  const enoent = (file) => Object.assign(new Error(`ENOENT: ${file}`), { code: "ENOENT" });
+  async function gate(op, file) {
+    const name = path.basename(file);
+    log.push(`${op} ${name}`);
+    if (holdNext && holdNext(op, name)) {
+      holdNext = null;
+      const gateway = deferred();
+      let rejectGate;
+      const failed = new Promise((_resolve, reject) => (rejectGate = reject));
+      holds.push({ op, name, release: () => gateway.resolve(), fail: (error) => rejectGate(error) });
+      await Promise.race([gateway.promise, failed]);
+    }
+  }
+  return {
+    files,
+    log,
+    holdNext(predicate) {
+      holdNext = predicate;
+    },
+    async nextHold() {
+      while (holds.length === 0) await new Promise((resolve) => setImmediate(resolve));
+      return holds.shift();
+    },
+    promises: {
+      mkdir: async (dir) => gate("mkdir", dir),
+      writeFile: async (file, data) => {
+        await gate("writeFile", file);
+        files.set(file, Buffer.from(data));
+      },
+      rename: async (from, to) => {
+        await gate("rename", to);
+        if (!files.has(from)) throw enoent(from);
+        files.set(to, files.get(from));
+        files.delete(from);
+      },
+      unlink: async (file) => {
+        await gate("unlink", file);
+        if (!files.delete(file)) throw enoent(file);
+      },
+      rm: async (target) => {
+        await gate("rm", target);
+        for (const file of [...files.keys()]) {
+          if (file === target || file.startsWith(target + path.sep)) files.delete(file);
+        }
+      },
+      readFile: async (file) => {
+        if (!files.has(file)) throw enoent(file);
+        return files.get(file);
+      },
+    },
+  };
+}
+
+function loadEnvironmentManager(fakeFs) {
+  const originalLoad = Module._load;
+  Module._load = function loadForEnvironment(request, parent, isMain) {
+    if (parent?.filename === ENV_MODULE) {
+      if (request === "fs/promises") return fakeFs.promises;
+      if (request === "electron") return { app: { getPath: () => USER_DATA } };
+      // Encryption "available", and ciphertext that never contains the value.
+      if (request === "./secretCrypto") {
+        return {
+          isAvailable: () => true,
+          encrypt: (value) => Buffer.from(`sealed:${value.length}`),
+          decrypt: () => {
+            throw new Error("not used by these tests");
+          },
+        };
+      }
+      if (request === "./debugLogger") return new Proxy({}, { get: () => () => {} });
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    delete require.cache[ENV_MODULE];
+    return require(ENV_MODULE);
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[ENV_MODULE];
+  }
+}
+
+// The real EnvironmentManager prototype (persistSecret, _saveSecretKey,
+// _deleteSecretKey, clearAllPersistedData and every getter) over the deferred
+// fs. The constructor is skipped: it only loads dotenv files from disk.
+function realCredentialEnv(t, initial = {}) {
+  const savedEnv = { ...process.env };
+  t.after(() => {
+    for (const name of Object.keys(process.env)) if (!(name in savedEnv)) delete process.env[name];
+    Object.assign(process.env, savedEnv);
+  });
+  const fs = createDeferredFs();
+  const EnvironmentManager = loadEnvironmentManager(fs);
+  const env = Object.create(EnvironmentManager.prototype);
+  const secretFile = (name) => path.join(SECURE_KEYS, `${name}.enc`);
+  for (const [name, value] of Object.entries(initial)) {
+    process.env[name] = value;
+    fs.files.set(secretFile(name), Buffer.from("sealed:initial"));
+  }
+  return {
+    env,
+    fs,
+    stored: (name) => fs.files.has(secretFile(name)),
+    erase: () => env.clearAllPersistedData(),
+  };
+}
+
+module.exports = { realCredentialEnv };
+```
+
+Create `test/helpers/credentialAuthorityRealEnv.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { realCredentialEnv } = require("./harness/realCredentialEnv");
+const { fakeCodexFs } = require("./harness/fakeCredentialEnv");
+const { createCredentialAuthority } = require("../../src/helpers/credentialAuthority.js");
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const isRename = (name) => (op, file) => op === "rename" && file === name;
+
+function setup(t, initial) {
+  const real = realCredentialEnv(t, initial);
+  const broadcasts = [];
+  const authority = createCredentialAuthority({
+    env: real.env,
+    fs: fakeCodexFs(),
+    codexHome: "/profile/codex",
+    broadcast: (_channel, payload) => broadcasts.push(payload),
+    setTimer: () => {},
+  });
+  return { ...real, authority, broadcasts };
+}
+
+// change-driving (R2-4): the real _saveSecretKey puts the value in process.env
+// before its write (environment.js:155), and presence read process.env.
+test("a first save that is still being written is not present anywhere", async (t) => {
+  const { authority, env, fs, broadcasts, stored } = setup(t);
+  fs.holdNext(isRename("OPENAI_API_KEY.enc"));
+  const saving = authority.save("openai", "key", "sk-first-SECRET");
+  const hold = await fs.nextHold();
+  assert.equal(env.getOpenAIKey(), "sk-first-SECRET", "the real window: process.env already has it");
+  assert.equal(authority.present("openai"), false);
+  const row = authority.list().find((entry) => entry.id === "openai");
+  assert.deepEqual([row.present, row.fields, row.generation], [false, { key: false }, 0]);
+  assert.equal(stored("OPENAI_API_KEY"), false);
+  assert.deepEqual(broadcasts, []);
+  hold.release();
+  assert.deepEqual(await saving, { ok: true, generation: 1 });
+  assert.equal(authority.present("openai"), true);
+  assert.equal(stored("OPENAI_API_KEY"), true);
+  assert.deepEqual(broadcasts, [{ id: "openai", present: true, generation: 1, fields: { key: true } }]);
+});
+
+// change-driving (R2-4): a replacement that fails must never be what presence,
+// a broadcast or a verification capture sees.
+test("a failed replacement never shows the attempted key and keeps the committed one", async (t) => {
+  const { authority, env, fs, broadcasts } = setup(t, { GROQ_API_KEY: "gsk-committed-SECRET" });
+  fs.holdNext(isRename("GROQ_API_KEY.enc"));
+  const replacing = authority.save("groq", "key", "gsk-attempt-SECRET");
+  const hold = await fs.nextHold();
+  assert.equal(env.getGroqKey(), "gsk-attempt-SECRET");
+  const capture = authority.captureCommitted("groq"); // queued behind the write
+  hold.fail(Object.assign(new Error("EIO"), { code: "EIO" }));
+  assert.deepEqual(await replacing, { ok: false, error: "persistFailed" });
+  assert.equal(env.getGroqKey(), "gsk-committed-SECRET", "persistSecret restored process.env");
+  const captured = await capture;
+  assert.equal(captured.generation, 0);
+  assert.equal(captured.values.key, "gsk-committed-SECRET", "Verify tests the committed key");
+  assert.equal(authority.present("groq"), true);
+  assert.deepEqual(broadcasts, []);
+});
+
+// change-driving (R2-4): a capture waits for a pending replacement and then
+// pairs the new value with the new generation.
+test("a capture requested during a replacement tests the replacement under its own generation", async (t) => {
+  const { authority, fs } = setup(t, { GROQ_API_KEY: "gsk-old-SECRET" });
+  fs.holdNext(isRename("GROQ_API_KEY.enc"));
+  const replacing = authority.save("groq", "key", "gsk-new-SECRET");
+  const hold = await fs.nextHold();
+  let settled = false;
+  const capture = authority.captureCommitted("groq").then((value) => ((settled = true), value));
+  await tick();
+  assert.equal(settled, false, "no value is captured while a write is pending");
+  hold.release();
+  await replacing;
+  assert.deepEqual(await capture, {
+    generation: 1,
+    present: true,
+    values: { key: "gsk-new-SECRET" },
+  });
+});
+
+// change-driving (R2-2): reset did not fence a write that was already running.
+test("reset during a first save: the save fails, reset waits for it, and no key survives", async (t) => {
+  const { authority, env, fs, stored, erase } = setup(t);
+  fs.holdNext(isRename("OPENAI_API_KEY.enc"));
+  const saving = authority.save("openai", "key", "sk-first-SECRET");
+  const hold = await fs.nextHold();
+  let erased = false;
+  const resetting = authority.reset(async () => {
+    await erase();
+    erased = true;
+  });
+  await tick();
+  assert.equal(erased, false, "nothing is erased while a write is still running");
+  assert.deepEqual(await authority.save("groq", "key", "gsk-SECRET"), { ok: false, error: "reset" });
+  hold.release();
+  assert.deepEqual(await saving, { ok: false, error: "reset" }, "never reported as saved");
+  await resetting;
+  assert.equal(erased, true);
+  assert.equal(stored("OPENAI_API_KEY"), false);
+  assert.equal(env.getOpenAIKey(), "");
+  assert.equal(authority.present("openai"), false);
+  assert.ok(!fs.log.includes("writeFile GROQ_API_KEY.enc.tmp"), "a save during reset never writes");
+});
+
+// change-driving (R2-2): a queued replacement used to run after the erase.
+test("reset during a queued replacement: the queued write never starts and nothing survives", async (t) => {
+  const { authority, env, fs, stored, erase } = setup(t, { OPENAI_API_KEY: "sk-old-SECRET" });
+  fs.holdNext(isRename("OPENAI_API_KEY.enc"));
+  const first = authority.save("openai", "key", "sk-one-SECRET");
+  const hold = await fs.nextHold();
+  const second = authority.save("openai", "key", "sk-two-SECRET");
+  const resetting = authority.reset(erase);
+  hold.release();
+  assert.deepEqual(await first, { ok: false, error: "reset" });
+  assert.deepEqual(await second, { ok: false, error: "reset" });
+  await resetting;
+  assert.equal(
+    fs.log.filter((entry) => entry === "writeFile OPENAI_API_KEY.enc.tmp").length,
+    1,
+    "only the first write ever started"
+  );
+  assert.equal(stored("OPENAI_API_KEY"), false);
+  assert.equal(env.getOpenAIKey(), "");
+});
+
+// change-driving (R2-2): an Undo that passed its token check could restore the
+// key after Reset Loqui deleted it, and report success.
+test("reset during Undo of a two-field credential: Undo fails and neither field comes back", async (t) => {
+  const { authority, env, fs, stored, erase } = setup(t, {
+    CORTI_CLIENT_ID: "cid-SECRET",
+    CORTI_CLIENT_SECRET: "csec-SECRET",
+  });
+  const removed = await authority.remove("corti:speech");
+  assert.equal(removed.ok, true);
+  fs.holdNext(isRename("CORTI_CLIENT_ID.enc"));
+  const undoing = authority.undoRemove(removed.undoToken);
+  const hold = await fs.nextHold();
+  const mark = fs.log.length;
+  const resetting = authority.reset(erase);
+  hold.release();
+  assert.deepEqual(await undoing, { ok: false, reason: "unknown" });
+  await resetting;
+  assert.ok(
+    !fs.log.slice(mark).includes("writeFile CORTI_CLIENT_SECRET.enc.tmp"),
+    "the second field is never written after the reset began"
+  );
+  assert.equal(stored("CORTI_CLIENT_ID"), false);
+  assert.equal(stored("CORTI_CLIENT_SECRET"), false);
+  assert.equal(env.getCortiClientId(), "");
+  assert.equal(authority.present("corti:speech"), false);
+  assert.deepEqual(await authority.undoRemove(removed.undoToken), { ok: false, reason: "unknown" });
+});
+
+// change-driving (R2-2): a failed erase is reported, and the fence comes down.
+test("a failed erase rejects reset and leaves the authority usable", async (t) => {
+  const { authority } = setup(t);
+  await assert.rejects(
+    authority.reset(async () => {
+      throw new Error("rm failed");
+    }),
+    /rm failed/
+  );
+  assert.deepEqual(await authority.save("groq", "key", "gsk-after"), { ok: true, generation: 2 });
+});
+```
+
+`generation: 2` in the last test is right: `reset` bumps every slot once (to 1), and the save bumps `groq` to 2.
+
+Create `test/lib/credentialSlots.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { BYOK_API_KEYS } = require("../../src/config/secretKeys");
+const { CREDENTIAL_IDS, slotForCredentialRef } = require("../../src/helpers/credentialAuthority.js");
+
+// change-driving: the module does not exist yet.
+test("renderer slot tables agree with main's credential authority", async () => {
+  const slots = await import("../../src/lib/credentialSlots.ts");
+  assert.deepEqual([...slots.MULTI_FIELD_CREDENTIALS].sort(), ["bedrock", "corti:speech"]);
+  for (const ref of [
+    ...BYOK_API_KEYS.map((k) => k.base).filter((base) => !base.endsWith("-custom")),
+    "azure",
+    "vertex",
+    ...slots.CUSTOM_CREDENTIAL_SLOTS,
+  ]) {
+    assert.equal(slots.credentialSlotForRef(ref), slotForCredentialRef(ref)?.id, ref);
+  }
+  assert.equal(slots.credentialSlotForRef("custom:transcription"), "custom:transcription");
+  assert.equal(slots.credentialSlotForRef("custom:nope"), undefined);
+  assert.equal(slots.credentialSlotForRef(undefined), undefined);
+  for (const [storeKey, [slot]] of Object.entries(slots.SECRET_STORE_SLOTS)) {
+    assert.ok(
+      CREDENTIAL_IDS.includes(slot) || slots.CUSTOM_CREDENTIAL_SLOTS.includes(slot),
+      `${storeKey} → ${slot}`
+    );
+    assert.equal(slots.credentialSlotForStoreKey(storeKey), slot);
+  }
+  assert.equal(Object.keys(slots.SECRET_STORE_SLOTS).length, 25);
+  assert.equal(slots.credentialSlotForStoreKey("cortiEnvironment"), undefined);
+  assert.equal(slots.isSecretStoreKey("chatAgentCustomApiKey"), true);
+  assert.equal(slots.isSecretStoreKey("cortiTenant"), false);
+  assert.deepEqual(await slots.unavailableSecretSave("x"), { ok: false, error: "unavailable" });
 });
 ```
 
@@ -2873,7 +3849,7 @@ test("saving the Bedrock profile or Vertex project refreshes presence", async ()
 });
 
 // change-driving source guard: preload exposes the namespace, main.js routes
-// personal-inference saves through the authority, cleanup resets it.
+// personal-inference saves through the authority, cleanup erases inside the reset barrier.
 test("preload, main.js and cleanup are wired to the authority", () => {
   const root = path.join(__dirname, "../..");
   const preload = fs.readFileSync(path.join(root, "preload.js"), "utf8");
@@ -2890,7 +3866,12 @@ test("preload, main.js and cleanup are wired to the authority", () => {
   assert.match(main, /ipcHandlers\.credentials\.save\(/);
   const ipc = fs.readFileSync(handlersModulePath, "utf8");
   const cleanup = ipc.match(/ipcMain\.handle\("cleanup-app"[\s\S]*?ipcMain\.handle\("update-hotkey"/);
-  assert.match(cleanup[0], /this\.credentials\.reset\(\)/);
+  // R2-2: the erase runs inside the authority's reset barrier and nowhere else.
+  assert.match(
+    cleanup[0],
+    /await this\.credentials\.reset\(\(\) => this\.environmentManager\?\.clearAllPersistedData\(\)\)/
+  );
+  assert.equal((cleanup[0].match(/clearAllPersistedData/g) || []).length, 1);
 });
 ```
 
@@ -3122,15 +4103,131 @@ The existing test "saved credential presence is never revealed or erased by open
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/helpers/credentialAuthority.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js`
+Run: `npm test -- test/helpers/credentialAuthority.test.js test/helpers/credentialAuthorityRealEnv.test.js test/lib/credentialSlots.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js`
 Expected: FAIL.
-- `credentialAuthority.test.js`: `Cannot find module '../../src/helpers/credentialAuthority.js'`.
+- `credentialAuthority.test.js`, `credentialAuthorityRealEnv.test.js` and `credentialSlots.test.js`: `Cannot find module '../../src/helpers/credentialAuthority.js'`.
+  - Once only the authority exists, the R2-4 tests in `credentialAuthorityRealEnv.test.js` must still fail if presence reads the live getters. A first save that is still being written would read `present: true`.
+  - The R2-2 tests must still fail if `reset` does not fence and drain. The queued replacement would write `sk-two-SECRET` after the erase, and the save would resolve `{ ok: true }`.
 - `environmentPersistSecret.test.js`: `TypeError: Cannot read properties of undefined (reading 'call')` (no `persistSecret`).
-- `credentialIpc.test.js`: `save-openai-key` returns a proxy, not `{ success: true }`; `handlers.get("credentials-list")` is `undefined`.
+- `credentialIpc.test.js`: `save-openai-key` returns a proxy, not `{ success: true }`; `handlers.get("credentials-list")` is `undefined`; the cleanup guard finds a bare `clearAllPersistedData` outside any reset barrier.
 - `settingsStoreSecretAck.test.js`: `openaiApiKey` equals the raw key immediately; `setGroqApiKey` returns `undefined`; `flushSecretSaves` is not a function.
 - `personalWorkspace.test.js`: the two new tests fail (`editor.input()` is `undefined` right after Save); the existing tests pass.
 
 - [ ] **Step 3: Implement**
+
+0. Create `src/lib/credentialSlots.ts`. It is pure (type-only imports), so Node tests load it under `tsx`, and every renderer surface shares one slot vocabulary with main's authority (R2-5):
+
+   ```ts
+   import type { CredentialId } from "./routeGraph";
+
+   // Main's credential slots (src/helpers/credentialAuthority.js): the 16
+   // CredentialIds plus the seven custom-endpoint keys, named like the
+   // personal-inference credential refs (main.js credentialSlot).
+   export type CustomCredentialSlot =
+     | "custom:transcription"
+     | "custom:dictationCleanup"
+     | "custom:noteFormatting"
+     | "custom:dictationTranslation"
+     | "custom:dictationAgent"
+     | "custom:dictationAgentVision"
+     | "custom:chatIntelligence";
+   export type CredentialSlot = CredentialId | CustomCredentialSlot;
+   export type CredentialField =
+     | "key"
+     | "clientId"
+     | "clientSecret"
+     | "accessKeyId"
+     | "secretAccessKey"
+     | "sessionToken";
+
+   /** What an acknowledged secret save resolves to (Task 2). */
+   export interface SecretSaveResult {
+     ok: boolean;
+     error?: string;
+   }
+
+   export const CUSTOM_CREDENTIAL_SLOTS: readonly CustomCredentialSlot[] = [
+     "custom:transcription",
+     "custom:dictationCleanup",
+     "custom:noteFormatting",
+     "custom:dictationTranslation",
+     "custom:dictationAgent",
+     "custom:dictationAgentVision",
+     "custom:chatIntelligence",
+   ];
+
+   // One credential stored in several fields. Remove takes the whole credential
+   // (main's remove clears every field) and Undo restores every field. There is
+   // no per-field removal: half a Corti client pair or half a Bedrock key pair
+   // is not a usable credential.
+   export const MULTI_FIELD_CREDENTIALS: ReadonlySet<CredentialSlot> = new Set<CredentialSlot>([
+     "corti:speech",
+     "bedrock",
+   ]);
+
+   // Store field → main slot and field. Corti text and speech are separate
+   // identities: different credentials.
+   export const SECRET_STORE_SLOTS = {
+     openaiApiKey: ["openai", "key"],
+     anthropicApiKey: ["anthropic", "key"],
+     geminiApiKey: ["gemini", "key"],
+     groqApiKey: ["groq", "key"],
+     xaiApiKey: ["xai", "key"],
+     mistralApiKey: ["mistral", "key"],
+     openrouterApiKey: ["openrouter", "key"],
+     tinfoilApiKey: ["tinfoil", "key"],
+     deepgramApiKey: ["deepgram", "key"],
+     assemblyaiApiKey: ["assemblyai", "key"],
+     cortiApiKey: ["corti:text", "key"],
+     cortiClientId: ["corti:speech", "clientId"],
+     cortiClientSecret: ["corti:speech", "clientSecret"],
+     customTranscriptionApiKey: ["custom:transcription", "key"],
+     cleanupCustomApiKey: ["custom:dictationCleanup", "key"],
+     noteFormattingCustomApiKey: ["custom:noteFormatting", "key"],
+     translationCustomApiKey: ["custom:dictationTranslation", "key"],
+     dictationAgentCustomApiKey: ["custom:dictationAgent", "key"],
+     dictationAgentVisionCustomApiKey: ["custom:dictationAgentVision", "key"],
+     chatAgentCustomApiKey: ["custom:chatIntelligence", "key"],
+     bedrockAccessKeyId: ["bedrock", "accessKeyId"],
+     bedrockSecretAccessKey: ["bedrock", "secretAccessKey"],
+     bedrockSessionToken: ["bedrock", "sessionToken"],
+     azureApiKey: ["azure", "key"],
+     vertexApiKey: ["vertex", "key"],
+   } as const satisfies Record<string, readonly [CredentialSlot, CredentialField]>;
+
+   export type SecretStoreKey = keyof typeof SECRET_STORE_SLOTS;
+
+   export function credentialSlotForStoreKey(storeKey: string): CredentialSlot | undefined {
+     return Object.hasOwn(SECRET_STORE_SLOTS, storeKey)
+       ? SECRET_STORE_SLOTS[storeKey as SecretStoreKey][0]
+       : undefined;
+   }
+
+   export function isSecretStoreKey(key: string): key is SecretStoreKey {
+     return Object.hasOwn(SECRET_STORE_SLOTS, key);
+   }
+
+   const REF_SLOTS: ReadonlySet<string> = new Set<string>([
+     ...Object.values(SECRET_STORE_SLOTS).map(([slot]) => slot),
+     ...CUSTOM_CREDENTIAL_SLOTS,
+   ]);
+
+   // A personal-inference credential ref (OpenAICompatiblePanel's credentialRef,
+   // main.js credentialSlot) → its slot. "corti" is the Corti text key, as in
+   // the BYOK table; anything unknown has no slot, so it gets no Remove.
+   export function credentialSlotForRef(ref: string | undefined): CredentialSlot | undefined {
+     if (!ref) return undefined;
+     if (ref === "corti") return "corti:text";
+     return REF_SLOTS.has(ref) ? (ref as CredentialSlot) : undefined;
+   }
+
+   // For a key field whose owner has nowhere to save it (an optional callback
+   // that was not passed). Never writes; the field keeps the draft and says so.
+   export const unavailableSecretSave = async (_value: string): Promise<SecretSaveResult> => ({
+     ok: false,
+     error: "unavailable",
+   });
+   ```
 
 1. Create `src/helpers/credentialAuthority.js`:
 
@@ -3142,7 +4239,8 @@ Expected: FAIL.
    // Main-owned credential authority (Plan 03 Task 2). Main persists, then
    // acknowledges; renderers only ever learn presence, a per-identity generation
    // and an opaque undo token. Secret values leave this module only toward the
-   // environment manager that stores them.
+   // environment manager that stores them and, through captureCommitted, toward
+   // main's keyring Verify (Task 11). Neither path crosses IPC.
 
    const UNDO_MS = 8000;
    const MAX_SECRET_LENGTH = 8192; // same cap as personal-inference:credential-save
@@ -3239,6 +4337,9 @@ Expected: FAIL.
      }
    }
 
+   // Thrown inside a write to stop it once a reset began; never leaves the module.
+   class ResetBarrier extends Error {}
+
    function createCredentialAuthority({
      env,
      codexHome,
@@ -3253,6 +4354,18 @@ Expected: FAIL.
      const queues = new Map();
      const undoEntries = new Map(); // token → { id, generation, values | null, expiresAt }
      const listeners = new Set();
+     // R2-4. EnvironmentManager._saveSecretKey sets process.env before its
+     // awaited mkdir/write/rename (environment.js:155-165), and every getter
+     // reads process.env. While a slot is being written, presence and values
+     // come from the snapshot taken just before the write, so nothing sees a
+     // key main has not acknowledged. persistSecret restores process.env when a
+     // write fails, so between writes the live getters are the committed state.
+     const committed = new Map(); // slot id → { [field]: value }, main memory only
+     // R2-2. reset() raises the fence and moves the epoch. Work requested while
+     // fenced is refused; work queued or running under an older epoch returns a
+     // failure, and a running write stops before its next field.
+     let epoch = 0;
+     let fenced = false;
 
      const generation = (id) => generations.get(id) || 0;
      const bump = (id) => {
@@ -3260,9 +4373,13 @@ Expected: FAIL.
        generations.set(id, next);
        return next;
      };
+     const liveValues = (id) =>
+       Object.fromEntries(
+         Object.entries(SLOTS[id].fields).map(([name, f]) => [name, env[f.get]() || ""])
+       );
      const fieldsOf = (id) =>
        Object.fromEntries(
-         Object.entries(SLOTS[id].fields).map(([name, f]) => [name, !!env[f.get]()])
+         Object.entries(committed.get(id) || liveValues(id)).map(([name, value]) => [name, !!value])
        );
      const present = (id) => {
        if (id === "codex") return hasStoredAccount({ fs, codexHome });
@@ -3287,15 +4404,40 @@ Expected: FAIL.
          } catch {}
        }
      };
-     // One write at a time per identity, in call order, so a replacement save
-     // can never be overtaken by the save it replaces.
+     // A write succeeded: drop the pre-write snapshot first, so the broadcast
+     // and every later read show the newly committed state.
+     const publish = (id, cause) => {
+       committed.delete(id);
+       const next = bump(id);
+       emit(id, cause);
+       return next;
+     };
+     // One task at a time per slot, in call order, so a replacement save can
+     // never be overtaken by the save it replaces.
      const enqueue = (id, task) => {
        const run = (queues.get(id) || Promise.resolve()).then(task);
        queues.set(id, run.catch(() => {}));
        return run;
      };
-     const persist = async (id, values) => {
+     // A mutation of one slot. Resolves null when a reset began after it was
+     // requested; `stale()` turns true from that moment.
+     const mutate = (id, task) => {
+       if (fenced) return Promise.resolve(null);
+       const taskEpoch = epoch;
+       const stale = () => taskEpoch !== epoch;
+       return enqueue(id, async () => {
+         if (stale()) return null; // queued before the reset: never written
+         committed.set(id, liveValues(id));
+         try {
+           return await task(stale);
+         } finally {
+           committed.delete(id);
+         }
+       });
+     };
+     const persist = async (id, values, stale) => {
        for (const [name, value] of Object.entries(values)) {
+         if (stale()) throw new ResetBarrier();
          await env.persistSecret(SLOTS[id].fields[name].env, value);
        }
      };
@@ -3310,55 +4452,59 @@ Expected: FAIL.
        }
        // The renderer echoes the sentinel back for an unchanged key; never store it.
        if (value === STORED_SENTINEL) return Promise.resolve({ ok: true, generation: generation(id) });
-       return enqueue(id, async () => {
+       return mutate(id, async (stale) => {
          try {
-           await persist(id, { [fieldName]: value.trim() });
+           await persist(id, { [fieldName]: value.trim() }, stale);
          } catch {
-           return fail("persistFailed");
+           return stale() ? null : fail("persistFailed");
          }
-         const next = bump(id);
-         emit(id, "save");
-         return { ok: true, generation: next };
-       });
+         // Persisted, but a reset began meanwhile and will erase it: not a save.
+         if (stale()) return null;
+         return { ok: true, generation: publish(id, "save") };
+       }).then((result) => result || fail("reset"));
      }
 
+     // Removes every field of the slot (a two-field credential is removed whole)
+     // and keeps the values in main memory for the Undo window.
      function remove(id) {
        if (!SLOTS[id]) return Promise.resolve(fail(slotError(id)));
-       return enqueue(id, async () => {
+       return mutate(id, async (stale) => {
          const values = {};
-         for (const [name, f] of Object.entries(SLOTS[id].fields)) {
-           const stored = env[f.get]();
+         for (const [name, stored] of Object.entries(committed.get(id))) {
            if (stored) values[name] = stored;
          }
          if (Object.keys(values).length === 0) return fail("notStored");
          const cleared = {};
          try {
            for (const name of Object.keys(values)) {
+             if (stale()) throw new ResetBarrier();
              await env.persistSecret(SLOTS[id].fields[name].env, "");
              cleared[name] = values[name];
            }
          } catch {
-           await persist(id, cleared).catch(() => {});
+           // A reset is erasing everything: never write a removed value back.
+           if (stale()) return null;
+           await persist(id, cleared, stale).catch(() => {});
            return fail("persistFailed");
          }
-         const next = bump(id);
+         if (stale()) return null;
          const undoToken = randomToken();
          const expiresAt = now() + undoMs;
-         const entry = { id, generation: next, values, expiresAt };
+         const entry = { id, generation: generation(id) + 1, values, expiresAt };
          undoEntries.set(undoToken, entry);
          // The removed value must not outlive the Undo window in memory.
          setTimer(() => {
            entry.values = null;
          }, undoMs);
-         emit(id, "remove");
+         const next = publish(id, "remove");
          return { ok: true, undoToken, expiresAt, generation: next };
-       });
+       }).then((result) => result || fail("reset"));
      }
 
      function undoRemove(token) {
        const entry = typeof token === "string" ? undoEntries.get(token) : undefined;
        if (!entry) return Promise.resolve({ ok: false, reason: "unknown" });
-       return enqueue(entry.id, async () => {
+       return mutate(entry.id, async (stale) => {
          if (undoEntries.get(token) !== entry) return { ok: false, reason: "unknown" };
          if (!entry.values || now() >= entry.expiresAt) {
            entry.values = null;
@@ -3369,25 +4515,52 @@ Expected: FAIL.
            return { ok: false, reason: "replaced" };
          }
          try {
-           await persist(entry.id, entry.values);
+           await persist(entry.id, entry.values, stale);
          } catch {
-           return { ok: false, reason: "persistFailed" };
+           return stale() ? null : { ok: false, reason: "persistFailed" };
          }
+         if (stale()) return null; // restored, but the reset erases it: Undo failed
          undoEntries.delete(token);
          entry.values = null;
-         const next = bump(entry.id);
-         emit(entry.id, "undo");
-         return { ok: true, generation: next };
+         return { ok: true, generation: publish(entry.id, "undo") };
+       }).then((result) => result || { ok: false, reason: "unknown" });
+     }
+
+     // Task 11 Verify (R2-4). Queued behind every save, removal and Undo already
+     // requested for the slot, so it reads the committed value together with the
+     // generation that value belongs to. Main-only: the values never cross IPC.
+     function captureCommitted(id) {
+       if (!SLOTS[id] || fenced) return Promise.resolve(null);
+       const taskEpoch = epoch;
+       return enqueue(id, async () => {
+         if (taskEpoch !== epoch) return null;
+         return { generation: generation(id), present: present(id), values: liveValues(id) };
        });
      }
 
-     function reset() {
+     // R2-2. Reset Loqui must leave no credential behind. Fence new work and
+     // move the epoch (queued work returns without writing); forget every Undo
+     // value; bump every generation, which discards verifications in flight
+     // (Task 11); wait for the write in flight; and only then erase.
+     async function reset(erase = async () => {}) {
+       fenced = true;
+       epoch += 1;
        for (const entry of undoEntries.values()) entry.values = null;
        undoEntries.clear();
-       for (const id of [...Object.keys(SLOTS), "codex"]) {
-         bump(id);
-         emit(id, "reset");
+       const ids = [...Object.keys(SLOTS), "codex"];
+       for (const id of ids) bump(id);
+       let failure = null;
+       try {
+         await Promise.allSettled([...queues.values()]);
+         await erase();
+       } catch (error) {
+         failure = error;
+       } finally {
+         committed.clear();
+         fenced = false;
        }
+       for (const id of ids) emit(id, "reset");
+       if (failure) throw failure;
      }
 
      function refresh(id) {
@@ -3401,6 +4574,7 @@ Expected: FAIL.
        save,
        remove,
        undoRemove,
+       captureCommitted,
        reset,
        refresh,
        subscribe(listener) {
@@ -3551,12 +4725,21 @@ Expected: FAIL.
          });
      ```
 
-   - In `cleanup-app`, directly after the `clearAllPersistedData` try/catch (`:3222-3226`), add:
+   - In `cleanup-app`, replace the whole `clearAllPersistedData` try/catch (`:3221-3226`, the comment `// Delete device-wide settings and encrypted credentials.` through its closing `}`) with:
 
      ```js
-           // Pending undo tokens and every credential generation die with the store.
-           this.credentials.reset();
+           // Delete device-wide settings and encrypted credentials inside the
+           // credential authority's reset barrier (R2-2): new saves, removals and
+           // Undos are refused, queued ones are cancelled, the write in flight is
+           // drained, tokens and generations die, and only then is anything erased.
+           try {
+             await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());
+           } catch (e) {
+             errors.push(`Environment settings: ${e.message}`);
+           }
      ```
+
+     The error line is unchanged, so the existing cleanup result contract (`:3277-3281`) still reports a failed erase.
 
 4. In `main.js`, replace `saveCredential` in the `registerPersonalInferenceIPC` call (`:442-446`):
 
@@ -3598,22 +4781,17 @@ Expected: FAIL.
    - After `export type InferenceMode = …;` (`:18`), add:
 
      ```ts
-     /** Main-owned credential slots (src/helpers/credentialAuthority.js). */
-     export type CredentialSlotId = import("../lib/routeGraph").CredentialId | `custom:${string}`;
-     export type CredentialField =
-       | "key"
-       | "clientId"
-       | "clientSecret"
-       | "accessKeyId"
-       | "secretAccessKey"
-       | "sessionToken";
+     /** Main-owned credential slots (src/helpers/credentialAuthority.js); one shared definition. */
+     export type CredentialSlot = import("../lib/credentialSlots").CredentialSlot;
+     export type CredentialField = import("../lib/credentialSlots").CredentialField;
      export type CredentialError =
        | "unknownCredential"
        | "unknownField"
        | "invalidValue"
        | "persistFailed"
        | "unsupported"
-       | "notStored";
+       | "notStored"
+       | "reset"; // a Reset Loqui began after the request: nothing was kept
      export interface CredentialPresence {
        id: import("../lib/routeGraph").CredentialId;
        present: boolean;
@@ -3621,7 +4799,7 @@ Expected: FAIL.
        fields: Partial<Record<CredentialField, boolean>>;
      }
      export interface CredentialChange extends Omit<CredentialPresence, "id"> {
-       id: CredentialSlotId;
+       id: CredentialSlot;
      }
      export type CredentialSaveResult =
        | { ok: true; generation: number }
@@ -3640,11 +4818,11 @@ Expected: FAIL.
      export interface CredentialsAPI {
        list: () => Promise<CredentialPresence[]>;
        save: (
-         id: CredentialSlotId,
+         id: CredentialSlot,
          field: CredentialField,
          value: string
        ) => Promise<CredentialSaveResult>;
-       remove: (id: CredentialSlotId) => Promise<CredentialRemoveResult>;
+       remove: (id: CredentialSlot) => Promise<CredentialRemoveResult>; // every field of the slot
        undoRemove: (token: string) => Promise<CredentialUndoResult>;
        onChanged: (callback: (change: CredentialChange) => void) => () => void;
      }
@@ -3682,50 +4860,27 @@ Expected: FAIL.
    ```ts
    import type {
      ChineseScriptPreference,
-     CredentialField,
      CredentialSaveResult,
-     CredentialSlotId,
      LocalTranscriptionProvider,
      InferenceMode,
      SelfHostedType,
    } from "../types/electron";
+   import {
+     SECRET_STORE_SLOTS as SECRET_SLOTS,
+     type CredentialField,
+     type CredentialSlot,
+     type SecretSaveResult,
+     type SecretStoreKey,
+   } from "../lib/credentialSlots";
+
+   export type { SecretSaveResult, SecretStoreKey };
    ```
+
+   The store-field→slot table lives in `src/lib/credentialSlots.ts` (Step 3.0), so `ApiKeyInput`'s Remove, Task 8's staged inputs and these saves share one table.
 
    b. Replace everything from `const SECRET_IPC_SAVERS = {` (`:1249`) through the closing `}` of `createSecretSetter` (`:1368`) with:
 
    ```ts
-   // Store field → main credential slot (src/helpers/credentialAuthority.js).
-   // Corti text and speech are separate identities: different credentials.
-   const SECRET_SLOTS = {
-     openaiApiKey: ["openai", "key"],
-     anthropicApiKey: ["anthropic", "key"],
-     geminiApiKey: ["gemini", "key"],
-     groqApiKey: ["groq", "key"],
-     xaiApiKey: ["xai", "key"],
-     mistralApiKey: ["mistral", "key"],
-     openrouterApiKey: ["openrouter", "key"],
-     tinfoilApiKey: ["tinfoil", "key"],
-     deepgramApiKey: ["deepgram", "key"],
-     assemblyaiApiKey: ["assemblyai", "key"],
-     cortiApiKey: ["corti:text", "key"],
-     cortiClientId: ["corti:speech", "clientId"],
-     cortiClientSecret: ["corti:speech", "clientSecret"],
-     customTranscriptionApiKey: ["custom:transcription", "key"],
-     cleanupCustomApiKey: ["custom:dictationCleanup", "key"],
-     noteFormattingCustomApiKey: ["custom:noteFormatting", "key"],
-     translationCustomApiKey: ["custom:dictationTranslation", "key"],
-     dictationAgentCustomApiKey: ["custom:dictationAgent", "key"],
-     dictationAgentVisionCustomApiKey: ["custom:dictationAgentVision", "key"],
-     chatAgentCustomApiKey: ["custom:chatIntelligence", "key"],
-     bedrockAccessKeyId: ["bedrock", "accessKeyId"],
-     bedrockSecretAccessKey: ["bedrock", "secretAccessKey"],
-     bedrockSessionToken: ["bedrock", "sessionToken"],
-     azureApiKey: ["azure", "key"],
-     vertexApiKey: ["vertex", "key"],
-   } as const;
-
-   export type SecretStoreKey = keyof typeof SECRET_SLOTS;
-
    // Which ReasoningService key cache a secret invalidates (same as the former setters).
    const SECRET_CACHE: Partial<
      Record<SecretStoreKey, Parameters<typeof invalidateApiKeyCaches>[0]>
@@ -3807,11 +4962,6 @@ Expected: FAIL.
      if (persistEnv) debouncedPersistToEnv();
    }
 
-   export interface SecretSaveResult {
-     ok: boolean;
-     error?: string;
-   }
-
    const pendingSecretSaves = new Set<Promise<SecretSaveResult>>();
    const latestSecretSave: Partial<Record<SecretStoreKey, number>> = {};
    let secretSaveSequence = 0;
@@ -3868,7 +5018,7 @@ Expected: FAIL.
        const caches = new Set<Parameters<typeof invalidateApiKeyCaches>[0]>();
        for (const [storeKey, [id, field]] of Object.entries(SECRET_SLOTS) as [
          SecretStoreKey,
-         readonly [CredentialSlotId, CredentialField],
+         readonly [CredentialSlot, CredentialField],
        ][]) {
          const stored = change.fields[field];
          if (id !== change.id || stored === undefined) continue;
@@ -3979,12 +5129,32 @@ Expected: FAIL.
 
 9. In `src/components/ui/ApiKeyInput.tsx`:
 
-   a. Add `import type { SecretSaveResult } from "../../stores/settingsStore";` after the `logger` import (`:3`), and change the prop (`:9`) to:
+   a. After the `logger` import (`:3`) add the shared types, and export the acknowledged-save type (R2-3; Task 8's `StagedCredentialInput.save` and Task 9's `OpenAICompatiblePanel` key save import it from here):
 
    ```ts
-     /** Secret setters resolve with main's acknowledgement; other setters may return nothing. */
-     setApiKey: (key: string) => void | Promise<SecretSaveResult | void>;
+   import type { CredentialSlot } from "../../lib/credentialSlots";
+   import type { SecretSaveResult } from "../../stores/settingsStore";
+
+   export type { SecretSaveResult };
+   // Re-exported so callers that type a key save import everything from here (Task 9).
+   export { unavailableSecretSave } from "../../lib/credentialSlots";
+   /** Every key field saves through main and waits for its acknowledgement (I3). */
+   export type AcknowledgedSecretSave = (value: string) => Promise<SecretSaveResult>;
    ```
+
+   Change the prop (`:9`) and add the identity prop after it:
+
+   ```ts
+     /** Resolves only after main persisted (or refused) the key. */
+     setApiKey: AcknowledgedSecretSave;
+     /**
+      * The main credential slot this field edits. Declared here so Tasks 8 and 9
+      * can pass it; Task 12 routes Remove through main's undoable removal with it.
+      */
+     credentialId?: CredentialSlot;
+   ```
+
+   `credentialId` is not destructured in this task (Task 12 does), so it has no behaviour yet.
 
    b. Replace the body from `const [isEditing, setIsEditing] = useState(false);` (`:31`) through the click-outside effect (`:89`) with:
 
@@ -4018,7 +5188,7 @@ Expected: FAIL.
      const commit = async (value: string): Promise<boolean> => {
        try {
          const result = await setApiKey(value);
-         return !(result && result.ok === false);
+         return result?.ok === true;
        } catch (err) {
          logger.warn("Failed to save API key", { error: (err as Error).message }, "settings");
          return false;
@@ -4046,6 +5216,8 @@ Expected: FAIL.
        setIsEditing(false);
      }, [draft, draftTouched, saving, setApiKey]);
 
+     // Today's Remove (an empty save), unchanged in this task. Task 12 replaces
+     // it with main's undoable token removal and deletes this path (R2-5).
      const remove = async () => {
        setFailure(null);
        if (!(await commit(""))) setFailure("remove");
@@ -4139,7 +5311,7 @@ Expected: FAIL.
 11. In `docs/PRIVACY.md`, after the paragraph at `:34` ("Provider credentials saved by the application …"), add:
 
     ```markdown
-    Settings windows never hold a saved credential. They learn only whether a slot is stored, and a key counts as saved only after the main process has written it to the credential store. When you remove a key, it is deleted from the credential store at once and kept only in main-process memory for 8 seconds so **Undo** can restore it; replacing the key, the 8 seconds passing, or resetting the app discards it. Codex sign-in presence is detected by checking that `auth.json` exists in Loqui's Codex profile; its contents are not read and no Codex process is started.
+    Settings windows never hold a saved credential. They learn only whether a slot is stored, and a key counts as saved only after the main process has written it to the credential store. When you remove a key, it is deleted from the credential store at once and kept only in main-process memory for 8 seconds so **Undo** can restore it; replacing the key, the 8 seconds passing, or resetting the app discards it. Resetting the app first stops every key save, removal and Undo still in progress, and only then deletes the credential store, so none of them can bring a key back. Codex sign-in presence is detected by checking that `auth.json` exists in Loqui's Codex profile; its contents are not read and no Codex process is started.
     ```
 
 12. Add the strings. `scripts/merge-locale-keys.js` arrives in Task 3, so this task merges its two keys with an inline script. Write `/tmp/loqui-i18n-task-2.json`:
@@ -4174,17 +5346,63 @@ Expected: FAIL.
     }' && npm run i18n:check
     ```
 
+13. Make every `ApiKeyInput` caller pass an acknowledged save (R2-3). `src/tsconfig.json` has `"strict": false`, but `typecheck` (`cd src && tsc --noEmit`, `package.json:63`) still rejects a `void`-returning callback where `Promise<SecretSaveResult>` is required. After Step 3.8, the store setters (`setOpenaiApiKey` … `setVertexApiKey`) already return `Promise<SecretSaveResult>`. `ReasoningModelSelector.tsx:619-695` passes store setters, and so does the custom STT field at `TranscriptionModelPicker.tsx:1202`; `EnterpriseProviderConfig` returns `saveStoredSecret(...)` (Step 3.10). Only these four places change:
+
+    a. `src/components/OpenAICompatiblePanel.tsx`: add `import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";` after the `ApiKeyInput` import (`:5`), and change the prop (`:24`) to `setApiKey: AcknowledgedSecretSave;`. (Task 9 renames it `saveApiKey` and keeps this type.)
+
+    b. `src/components/ReasoningModelSelector.tsx`: add `import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";` and `import { unavailableSecretSave } from "../lib/credentialSlots";` to the imports. Change the prop (`:70`) to `setCustomReasoningApiKey?: AcknowledgedSecretSave;` and the custom panel's fallback (`:601`) from `setApiKey={setCustomReasoningApiKey || (() => {})}` to `setApiKey={setCustomReasoningApiKey ?? unavailableSecretSave}`. `NotesOnboarding.tsx:169` already passes the store's `setCleanupCustomApiKey`.
+
+    c. `src/components/settings/InferenceConfigEditor.tsx`: add `saveSecret` to the `settingsStore` import (`:8-13`), and add `import { isSecretStoreKey, unavailableSecretSave } from "../../lib/credentialSlots";` and `import type { AcknowledgedSecretSave } from "../ui/ApiKeyInput";`. Directly after `const setModel = setField("model");` (`:126`) add:
+
+    ```tsx
+      // The scope's custom-endpoint key saves through main and is acknowledged
+      // (I3, R2-3); setField would route it through the fire-and-forget setter.
+      const customKeyField = INFERENCE_SCOPES[scope].storeKeys.customApiKey;
+      const saveCustomKey: AcknowledgedSecretSave = (value) =>
+        customKeyField && isSecretStoreKey(customKeyField)
+          ? saveSecret(customKeyField, value)
+          : unavailableSecretSave(value);
+    ```
+
+    Replace `setCustomReasoningApiKey={setField("customApiKey")}` (`:139`) with `setCustomReasoningApiKey={saveCustomKey}`, and the self-hosted panel's `setApiKey={setField("customApiKey")}` (`:171`) with `setApiKey={saveCustomKey}`. This is the same store slot `setResolvedLLMConfig` reached through `SECRET_SCOPE_KEY_SETTERS` (`src/stores/settingsStore.ts:2685-2689`), now awaited. Task 9 reuses `saveCustomKey` unchanged.
+
+    d. `src/components/TranscriptionModelPicker.tsx`: add `import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";` and `import { unavailableSecretSave } from "../lib/credentialSlots";`. Directly after the `credentialSetters` table (`:970-983`) add:
+
+    ```tsx
+      // Key fields need the acknowledged save; credentialSetters also holds the
+      // non-secret Corti region/tenant setters, so it stays (value) => void.
+      const credentialSecretSavers: Partial<
+        Record<ProviderCredentialField["key"], AcknowledgedSecretSave>
+      > = {
+        openaiApiKey: setOpenaiApiKey,
+        groqApiKey: setGroqApiKey,
+        xaiApiKey: setXaiApiKey,
+        mistralApiKey: setMistralApiKey,
+        geminiApiKey: setGeminiApiKey,
+        cortiClientId: setCortiClientId,
+        cortiClientSecret: setCortiClientSecret,
+        tinfoilApiKey: setTinfoilApiKey,
+        deepgramApiKey: setDeepgramApiKey,
+        assemblyaiApiKey: setAssemblyaiApiKey,
+      };
+    ```
+
+    and change the secret field's `setApiKey={credentialSetters[field.key]}` (`:1245`) to `setApiKey={credentialSecretSavers[field.key] ?? unavailableSecretSave}`.
+
+    Then run `npm run typecheck`. Expected: exit 0, with no TS2322 at any `setApiKey`.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/helpers/credentialAuthority.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js test/helpers/secretKeys.test.js test/helpers/environmentDotenv.test.js test/helpers/deviceCleanupContract.test.js test/helpers/personalIpcContract.test.js test/helpers/retryTranscriptionHandler.test.js test/helpers/granolaImportIpc.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Run: `npm test -- test/helpers/credentialAuthority.test.js test/helpers/credentialAuthorityRealEnv.test.js test/lib/credentialSlots.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js test/helpers/secretKeys.test.js test/helpers/environmentDotenv.test.js test/helpers/deviceCleanupContract.test.js test/helpers/personalIpcContract.test.js test/helpers/retryTranscriptionHandler.test.js test/helpers/granolaImportIpc.test.js && npm run typecheck && npm run lint && npm run i18n:check`
 Expected: PASS. The last six files are **baseline guards**: the BYOK bridge mirror, `.env` handling, device cleanup coverage and the handler-registration tests (which call `setupHandlers` on a fake `this` and must not construct the authority) are unchanged.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-npx prettier --write src/helpers/credentialAuthority.js src/helpers/environment.js src/helpers/ipcHandlers.js main.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/stores/settingsStore.ts src/components/ui/ApiKeyInput.tsx src/components/EnterpriseProviderConfig.tsx test/helpers/harness/fakeCredentialEnv.js test/helpers/credentialAuthority.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js
-git add src/helpers/credentialAuthority.js src/helpers/environment.js src/helpers/ipcHandlers.js main.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/stores/settingsStore.ts src/components/ui/ApiKeyInput.tsx src/components/EnterpriseProviderConfig.tsx docs/PRIVACY.md src/locales test/helpers/harness/fakeCredentialEnv.js test/helpers/credentialAuthority.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js
-git commit -m "feat(credentials): Acknowledge secret saves in main and make removal undoable"
+npx prettier --write src/helpers/credentialAuthority.js src/lib/credentialSlots.ts src/helpers/environment.js src/helpers/ipcHandlers.js main.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/stores/settingsStore.ts src/components/ui/ApiKeyInput.tsx src/components/EnterpriseProviderConfig.tsx src/components/OpenAICompatiblePanel.tsx src/components/ReasoningModelSelector.tsx src/components/settings/InferenceConfigEditor.tsx src/components/TranscriptionModelPicker.tsx test/helpers/harness/fakeCredentialEnv.js test/helpers/harness/realCredentialEnv.js test/helpers/credentialAuthority.test.js test/helpers/credentialAuthorityRealEnv.test.js test/lib/credentialSlots.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js
+git add src/helpers/credentialAuthority.js src/lib/credentialSlots.ts src/helpers/environment.js src/helpers/ipcHandlers.js main.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/stores/settingsStore.ts src/components/ui/ApiKeyInput.tsx src/components/EnterpriseProviderConfig.tsx src/components/OpenAICompatiblePanel.tsx src/components/ReasoningModelSelector.tsx src/components/settings/InferenceConfigEditor.tsx src/components/TranscriptionModelPicker.tsx docs/PRIVACY.md src/locales test/helpers/harness/fakeCredentialEnv.js test/helpers/harness/realCredentialEnv.js test/helpers/credentialAuthority.test.js test/helpers/credentialAuthorityRealEnv.test.js test/lib/credentialSlots.test.js test/helpers/environmentPersistSecret.test.js test/helpers/credentialIpc.test.js test/stores/settingsStoreSecretAck.test.js test/components/personalWorkspace.test.js
+git commit -m "feat(credentials): Acknowledge secret saves in main, fence reset and make removal undoable" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4193,7 +5411,12 @@ git commit -m "feat(credentials): Acknowledge secret saves in main and make remo
 
 This task completes the §5.1 contract on top of Task 1's pure graph. `src/lib/routes.ts` re-exports `routeGraph.ts` unchanged and adds the snapshot builder, translated route copy, the imperative `routeSnapshotFromSettings`, and the hooks `useResolvedRoutes()` / `useResolvedRoute(id)`. Readiness facts come from a network-free store that publishes each fact family on its own, and sealed state comes from one store that every Plan 03 reader shares. The task also adds the i18n merge script and the `withI18nMock` test helper that every later task uses.
 
-Closes **I2** (the facts loader never calls `codexStatus`, discovery or verification; Codex presence comes from Task 2's `credentials.list`; a mounted test proves the forbidden calls never run), **I3** (key readiness comes only from main's `credentials.list` presence, refreshed on `credentials.onChanged` and `keyring.onChanged`; renderer key fields are never read), **I9** (per-family facts, independent publication, per-key generations, last-known values kept across transient errors, `null` only before the first answer), **I14** (`src/stores/sealedStore.ts` is the single sealed authority; event-versus-fetch ordering and a seal change during an outstanding facts load are tested), **M5** (`routes.ts` = `export * from "./routeGraph.ts"` plus the renderer-only additions; the pure graph stays Node-loadable), and the **I15** inputs (`dictionaryInUse` from `getDictionaryHintWords`, `providerSearch` from `isProviderSearchEnabled`, capabilities from the registry and `MEETING_STREAMING_PROVIDER_IDS`, Appendix B agreement tests 2 and 3, translated payload parts and `metadataNote`).
+Closes **I2** (the facts loader never calls `codexStatus`, discovery or verification; Codex presence comes from Task 2's `credentials.list`; a mounted test proves the forbidden calls never run), **I3** (key readiness comes only from main's `credentials.list` presence, refreshed on `credentials.onChanged` and `keyring.onChanged`; renderer key fields are never read), **I9** (per-family facts, independent publication, per-key generations, last-known values kept across transient errors, `null` only before the first answer), **I14** (`src/stores/sealedStore.ts` is the single sealed authority; event-versus-fetch ordering and a seal change during an outstanding facts load are tested), **M5** (`routes.ts` = `export * from "./routeGraph.ts"` plus the renderer-only additions; the pure graph stays Node-loadable), and the **I15** inputs (`dictionaryInUse` from `getDictionaryHintWords`, `providerSearch` from `isProviderSearchEnabled`, capabilities from the registry and `MEETING_STREAMING_PROVIDER_IDS`, Appendix B agreement tests 2 and 3, translated payload parts and `metadataNote`). Round 2 adds the facts-and-snapshot half of **R2-1**: `buildRouteSnapshot` fills the non-secret `enterprise` slice (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`) from the settings store, and the facts store keeps main's per-field credential presence (`credentialFields`) from the same `credentials.list`/`onChanged` rows and generations. Main is the source of truth for the enterprise destination (`main.js:447-457` hands `enterpriseAiProviders.js` main's environment, not localStorage). So the facts loader gains one fact key, `enterprise`, made of network-free preload calls only:
+- Once per window it reads main's four getters (`get-bedrock-region`, `get-azure-endpoint`, `get-vertex-project`, `get-vertex-location`, `src/helpers/ipcHandlers.js:3879-3941`) and reconciles the settings store's four fields to them. Main wins, except over a local write made after the read began; that write has already gone to main too.
+- Every load re-reads the new `enterprise-route-facts` IPC, which returns main's environment overrides as hosts and booleans only (Task 1's `src/helpers/enterpriseRouteFacts.js`).
+- `facts.enterpriseMain` publishes only after both, so until the sync lands every enterprise route is `unknown`, never `ready`.
+
+`routeSnapshotFromSettings` still makes no IPC call and no subscription: it reads only the facts store, `getSealed()` and i18n. The hooks still subscribe only to the settings, facts and sealed stores.
 
 **Files:**
 - Create: `src/stores/routeFactsStore.ts`
@@ -4201,15 +5424,19 @@ Closes **I2** (the facts loader never calls `codexStatus`, discovery or verifica
 - Create: `src/lib/routes.ts`
 - Modify: `src/utils/providerSearch.ts`. Add `PROVIDER_SEARCH_CHANGED_EVENT` after `isProviderSearchEnabled` (`:9-12`).
 - Modify: `src/components/settings/InferenceConfigEditor.tsx`. `ProviderSearchPreference` (`:203-213`) announces a toggle change.
-- Modify: `src/types/electron.ts`. Add the optional `privacy?` namespace inside the `electronAPI` interface, directly after `downloadSearchModel` (`:675`).
+- Modify: `src/types/electron.ts`. Add the optional `privacy?` namespace inside the `electronAPI` interface, directly after `downloadSearchModel` (`:675`); add `enterpriseRouteFacts?` after `saveVertexLocation?` (`:1596`).
+- Modify: `src/helpers/ipcHandlers.js`. Register `enterprise-route-facts` after `save-vertex-location` (`:3942-3944`).
+- Modify: `preload.js`. Expose `enterpriseRouteFacts` after `saveVertexLocation` (`:605`).
+- Modify: `src/stores/settingsStore.ts`. Add `noteEnterpriseLocalWrite`, `enterpriseLocalWriteCount` and `reconcileEnterpriseSettingsFromMain` after `debouncedPersistToEnv` (`:1235-1247`); the four enterprise setters (`:2033-2097`) call `noteEnterpriseLocalWrite()`.
 - Create: `scripts/merge-locale-keys.js`
 - Create: `test/lib/i18nTestMock.js`
 - Modify: `src/locales/*/translation.json`. Add a new top-level `routes` object.
-- Test: `test/stores/routeFactsStore.test.js`, `test/stores/sealedStore.test.js`, `test/lib/routesSnapshot.test.js`, `test/lib/routesHooks.test.js`, `test/locales/routeCopy.test.js`, `test/scripts/mergeLocaleKeys.test.js`
+- Test: `test/stores/routeFactsStore.test.js`, `test/stores/sealedStore.test.js`, `test/lib/routesSnapshot.test.js`, `test/lib/routesHooks.test.js`, `test/locales/routeCopy.test.js`, `test/scripts/mergeLocaleKeys.test.js`, `test/helpers/enterpriseRouteFactsIpc.test.js`
 
 **Interfaces:**
 - Consumes, from Task 1 (`src/lib/routeGraph.ts`): the §5.1 types (`RouteId`, `ResolvedRoute`, `RouteSettingsSnapshot`, `RouteFacts`, `RouteCopy`, `PayloadPart`, `RouteCapabilities`, `SttContext`, `SttRouteInput`, `LlmRouteScope`, `LlmRouteInput`, `ModelInfo`, `CredentialId`), `resolveRoutes`, `resolveRoute`, `localSttModelKey`, `ROUTE_IDS`. Task 1's resolver reads `snapshot.models` with the keys this task writes: `localSttModelKey(localProvider, id)` (= `whisper:<id>` / `sherpa:<id>`) for local speech models, `llm:<id>` for local text models, `cloud:<provider>:<id>` for cloud models. Task 1's other snapshot conventions, which this builder follows: `facts.installed.<family>` holds raw model ids (`model` from the Whisper/Parakeet lists, `id` from `modelGetAll`); `capabilities.providerHosts` values are bare `host[:port]` keyed by raw provider id, with `corti` = the Corti speech host for `cortiEnvironment` and the extra key `"corti:text"` = the Corti text host (`ai.eu.corti.app`, from `API_ENDPOINTS.CORTI_MODELS_BASE`, `src/config/constants.ts:123`; personal inference always sends Corti text there, `src/helpers/personalInference.js:78`, `:202`).
-- Consumes, from Task 2 (preload `window.electronAPI.credentials`): `list(): Promise<{ id: CredentialId; present: boolean; generation: number }[]>` and `onChanged(cb: (e: { id; present; generation }) => void): () => void`. Codex presence is a row of `list()` (main stats `auth.json`; no process, no network).
+- Consumes, from Task 2 (preload `window.electronAPI.credentials`): `list(): Promise<{ id: CredentialId; present: boolean; generation: number; fields: Record<string, boolean> }[]>` and `onChanged(cb: (e: { id; present; generation; fields }) => void): () => void`. `fields` is per-field presence, never values; for `vertex` it is `{ key }`, which tells an API-key (express) Vertex route from an ADC-project one (R2-1).
+- Consumes, from the settings store (R2-1): `bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation` (`src/stores/settingsStore.ts:1041-1053`, defaults `:1442-1453`). Their setters write localStorage and main (`saveBedrockRegion`/`saveAzureEndpoint`/`saveVertexProject`/`saveVertexLocation`, `:2033-2097`); Task 6's `applyRoutePatch` keeps that, so the renderer slice and main's `getEnterpriseConfig()` (`main.js:447-457`) carry the same values. Codex presence is a row of `list()` (main stats `auth.json`; no process, no network).
 - Consumes, from Task 11 when it lands (preload `window.electronAPI.keyring`, optional until then): `list(): Promise<{ id: CredentialId; status: string }[]>` and `onChanged(cb: () => void): () => void`. Before Task 11, `rejected` stays the empty set.
 - Consumes, from Plan 07 when it lands (optional until then): `privacy.getSealed(): Promise<boolean>` and `privacy.onSealedChange(cb: (sealed: boolean) => void): () => void`.
 - Consumes these existing preload calls (all local, no network): `listWhisperModels()` → `{ success, models: { model, downloaded }[] }`, `listParakeetModels()` → same shape, `modelGetAll()` → `{ id, isDownloaded }[]` (`src/helpers/ipcHandlers.js:3572-3583`), `getDiarizationModelStatus?()` → `{ available, modelsDownloaded }` (`:2937-2944`), `getSearchModelStatus()` → `{ downloaded }`.
@@ -4218,9 +5445,17 @@ Closes **I2** (the facts loader never calls `codexStatus`, discovery or verifica
 
   ```ts
   // src/stores/routeFactsStore.ts
-  export type RouteFactKey = "whisper" | "sherpa" | "llm" | "speakerId" | "search" | "credentials" | "rejected";
+  export type RouteFactKey = "whisper" | "sherpa" | "llm" | "speakerId" | "search" | "credentials" | "rejected" | "enterprise";
   export const ROUTE_FACT_KEYS: readonly RouteFactKey[];
-  export const EMPTY_ROUTE_FACTS: RouteFacts;               // every fact unknown (null), rejected empty
+  export const EMPTY_ROUTE_FACTS: RouteFacts;               // every fact unknown (null, incl. credentialFields and enterpriseMain), rejected empty
+
+  // src/stores/settingsStore.ts (R2-1)
+  export function noteEnterpriseLocalWrite(): void;          // the four setters and Task 6's applyRoutePatch call it
+  export function enterpriseLocalWriteCount(): number;
+  export function reconcileEnterpriseSettingsFromMain(main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string>, since: number): boolean; // renderer-only; false = a newer local write was kept
+
+  // IPC (main) + preload (R2-1)
+  // "enterprise-route-facts" → window.electronAPI.enterpriseRouteFacts(): Promise<EnterpriseMainFacts>  // hosts and booleans only
   export interface RouteFactsApi { /* structural subset of window.electronAPI; full declaration in Step 3, item 5 */ }
   export const useRouteFactsStore: UseBoundStore<StoreApi<{ facts: RouteFacts }>>;
   export function loadRouteFacts(api: RouteFactsApi | undefined, keys?: readonly RouteFactKey[]): Promise<void>; // publishes per key as each call resolves
@@ -4234,7 +5469,7 @@ Closes **I2** (the facts loader never calls `codexStatus`, discovery or verifica
 
   // src/lib/routes.ts
   export * from "./routeGraph.ts";
-  export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot;
+  export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot; // R2-1: also fills `enterprise` from settings
   export function routeCopy(t: (key: string) => string, language: string): RouteCopy;
   export function currentRouteCopy(): RouteCopy;                                   // i18n instance, current language
   export function routeSnapshotFromSettings(settings: SettingsState): RouteSettingsSnapshot; // facts store + getSealed() + i18n; no subscriptions, no IPC
@@ -4305,11 +5540,28 @@ function api(over = {}) {
 }
 
 // Each scenario gets a fresh module instance: generations and subscriptions are module state.
-async function freshStore(t, windowProps = {}) {
-  installBrowserGlobals(t, { window: windowProps });
+async function freshStore(t, windowProps = {}, initialStorage = {}) {
+  const { storage } = installBrowserGlobals(t, { window: windowProps, initialStorage });
   const vite = await createRendererServer(t, { cachePrefix: "loqui-route-facts-test-" });
   const store = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
-  return { store, facts: () => store.useRouteFactsStore.getState().facts };
+  return { vite, storage, store, facts: () => store.useRouteFactsStore.getState().facts };
+}
+
+// R2-1: main's four enterprise settings (the existing getters) and its
+// environment facts (enterprise-route-facts), each call recorded.
+const NO_OVERRIDES = { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false };
+function enterpriseApi(calls, main = {}, envFacts = NO_OVERRIDES) {
+  const answer = (name, value) => () => {
+    calls.push(name);
+    return typeof value === "function" ? value() : Promise.resolve(value);
+  };
+  return {
+    getBedrockRegion: answer("getBedrockRegion", main.bedrockRegion ?? ""),
+    getAzureEndpoint: answer("getAzureEndpoint", main.azureEndpoint ?? ""),
+    getVertexProject: answer("getVertexProject", main.vertexProject ?? null),
+    getVertexLocation: answer("getVertexLocation", main.vertexLocation ?? ""),
+    enterpriseRouteFacts: answer("enterpriseRouteFacts", envFacts),
+  };
 }
 
 test("cold start: every fact is unknown until main answers, then each family is filled", async (t) => {
@@ -4444,6 +5696,42 @@ test("credential presence follows main's generations, not arrival order", async 
   assert.equal(facts().credentials.get("groq"), true);
 });
 
+test("credential field presence comes from the same rows and generations as presence", async (t) => {
+  // R2-1: Vertex's host depends on whether its own API key exists (express mode)
+  // or only the ADC project does; Task 2's rows carry that as fields.key.
+  let changed;
+  const { store, facts } = await freshStore(t);
+  assert.equal(facts().credentialFields, null, "unknown until main answers");
+  await store.loadRouteFacts(
+    api({
+      credentials: {
+        list: async () => [
+          { id: "vertex", present: true, generation: 2, fields: { key: false } },
+          { id: "openai", present: true, generation: 1, fields: { key: true } },
+        ],
+      },
+    })
+  );
+  assert.deepEqual(facts().credentialFields.get("vertex"), { key: false }, "present through the project only");
+  assert.equal(facts().credentials.get("vertex"), true);
+  globalThis.window.electronAPI = api({
+    credentials: {
+      list: async () => [],
+      onChanged: (cb) => {
+        changed = cb;
+        return () => {};
+      },
+    },
+  });
+  store.ensureRouteFactsSubscribed();
+  changed({ id: "vertex", present: true, generation: 3, fields: { key: true } });
+  assert.deepEqual(facts().credentialFields.get("vertex"), { key: true }, "the event applies at once");
+  changed({ id: "vertex", present: true, generation: 2, fields: { key: false } });
+  assert.deepEqual(facts().credentialFields.get("vertex"), { key: true }, "an older generation is ignored");
+  changed({ id: "groq", present: true, generation: 1 });
+  assert.deepEqual(facts().credentialFields.get("groq"), {}, "a row without fields has no field present");
+});
+
 test("a credential event before the first list re-reads the list instead of inventing a partial map", async (t) => {
   // I3: no presence is assumed for credentials main has not listed.
   let changed;
@@ -4467,6 +5755,68 @@ test("a credential event before the first list re-reads the list instead of inve
   await flush();
   assert.equal(listCalls, 2);
   assert.equal(facts().credentials.get("openai"), true);
+});
+
+test("enterprise: main's settings win once, then main's environment facts publish; until then nothing is known", async (t) => {
+  // R2-1, change-driving: v2 read the enterprise slice from localStorage only,
+  // while the executor reads main's environment (main.js:447-457).
+  const { vite, storage, store, facts } = await freshStore(t, {}, {
+    azureEndpoint: "https://stale.example.com/openai",
+    bedrockRegion: "us-east-1",
+  });
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  assert.equal(useSettingsStore.getState().azureEndpoint, "https://stale.example.com/openai");
+  assert.equal(facts().enterpriseMain, null, "unknown before main answers");
+  const calls = [];
+  const slowEndpoint = deferred();
+  const proxy = { bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" }, vertexApiKeyEnv: false, vertexProjectEnv: true };
+  const pending = store.loadRouteFacts(
+    api(enterpriseApi(calls, { bedrockRegion: "eu-west-1", azureEndpoint: () => slowEndpoint.promise }, proxy)),
+    ["enterprise"]
+  );
+  await flush();
+  assert.equal(facts().enterpriseMain, null, "still unknown while main's settings are in flight");
+  slowEndpoint.resolve("https://main.example.com/openai");
+  await pending;
+  const settings = useSettingsStore.getState();
+  assert.equal(settings.azureEndpoint, "https://main.example.com/openai", "main wins");
+  assert.equal(settings.bedrockRegion, "eu-west-1");
+  assert.equal(settings.vertexProject, "", "a null answer is an empty setting");
+  assert.equal(settings.vertexLocation, "", "main's empty value replaces the renderer default");
+  assert.equal(storage.getItem("azureEndpoint"), "https://main.example.com/openai");
+  assert.deepEqual(facts().enterpriseMain, proxy);
+
+  // Later loads re-read main's environment only: the settings sync runs once per window.
+  await store.loadRouteFacts(api(enterpriseApi(calls, {}, NO_OVERRIDES)), ["enterprise"]);
+  assert.equal(calls.filter((c) => c === "getAzureEndpoint").length, 1);
+  assert.equal(calls.filter((c) => c === "enterpriseRouteFacts").length, 2);
+  assert.deepEqual(facts().enterpriseMain, NO_OVERRIDES);
+  assert.equal(useSettingsStore.getState().azureEndpoint, "https://main.example.com/openai", "not re-synced");
+});
+
+test("enterprise: a failed or malformed answer is not a sync, and a local write during the sync is kept", async (t) => {
+  const failing = await freshStore(t);
+  const calls = [];
+  await failing.store.loadRouteFacts(api(enterpriseApi(calls, { azureEndpoint: fail })), ["enterprise"]);
+  assert.equal(failing.facts().enterpriseMain, null, "a failed getter leaves the slice unknown");
+  await failing.store.loadRouteFacts(api({ ...enterpriseApi(calls), enterpriseRouteFacts: async () => ({ bedrockEndpoint: "https://x" }) }), ["enterprise"]);
+  assert.equal(failing.facts().enterpriseMain, null, "a malformed environment answer is not a fact");
+  await failing.store.loadRouteFacts(api({ getBedrockRegion: async () => "" }), ["enterprise"]);
+  assert.equal(failing.facts().enterpriseMain, null, "a build without the calls cannot confirm main");
+
+  const racing = await freshStore(t);
+  const { useSettingsStore } = await racing.vite.ssrLoadModule("/stores/settingsStore.ts");
+  const slow = deferred();
+  const pending = racing.store.loadRouteFacts(
+    api(enterpriseApi([], { azureEndpoint: () => slow.promise })),
+    ["enterprise"]
+  );
+  await flush();
+  useSettingsStore.getState().setAzureEndpoint("https://typed.example.com/openai"); // also sent to main
+  slow.resolve("https://old.example.com/openai");
+  await pending;
+  assert.equal(useSettingsStore.getState().azureEndpoint, "https://typed.example.com/openai", "the newer write is kept");
+  assert.notEqual(racing.facts().enterpriseMain, null, "the window counts as synced");
 });
 
 test("rejected keys come from keyring.list and refresh on keyring.onChanged", async (t) => {
@@ -4624,13 +5974,19 @@ const FACTS = Object.freeze({
     ["openai", true],
     ["groq", true],
   ]),
+  credentialFields: new Map([
+    ["openai", { key: true }],
+    ["groq", { key: true }],
+  ]),
+  // Synced from main, no environment override (R2-1).
+  enterpriseMain: { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false },
   rejected: new Set(),
   speakerIdModelsReady: true,
   searchModelReady: true,
 });
 
-async function load(t, windowProps = {}) {
-  const { storage } = installBrowserGlobals(t, { window: windowProps });
+async function load(t, windowProps = {}, initialStorage = {}) {
+  const { storage } = installBrowserGlobals(t, { window: windowProps, initialStorage });
   const vite = await createRendererServer(t, { cachePrefix: "loqui-routes-snapshot-test-" });
   const routes = await vite.ssrLoadModule("/lib/routes.ts");
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
@@ -4779,6 +6135,128 @@ test("Corti text routes disclose the API-key host, whatever the region", async (
   }
 });
 
+test("the enterprise slice is the store's raw enterprise settings, and their hosts follow edits", async (t) => {
+  // R2-1, change-driving: v1 had no enterprise input, so every Bedrock, Azure
+  // and Vertex route had host null and Azure was ready with a key and no endpoint.
+  const { routes, copy, base } = await load(t);
+  assert.deepEqual(
+    routes.buildRouteSnapshot(base, FACTS, copy, false).enterprise,
+    { bedrockRegion: "us-east-1", azureEndpoint: "", vertexProject: "", vertexLocation: "us-central1" },
+    "the store defaults (settingsStore.ts:1442-1453)"
+  );
+  const azureChat = (azureEndpoint) => ({
+    ...base,
+    azureEndpoint,
+    chatAgentMode: "enterprise",
+    chatAgentProvider: "azure",
+    chatAgentModel: "gpt-4o-deploy",
+  });
+  const facts = { ...FACTS, credentials: new Map([["azure", true]]), credentialFields: new Map([["azure", { key: true }]]) };
+  const chat = (state) => routes.resolveRoute(routes.buildRouteSnapshot(state, facts, copy, false), "chat");
+  const missing = chat(azureChat(""));
+  assert.deepEqual(missing.state, { status: "needsUrl" }, "a saved key without an endpoint is not ready");
+  assert.equal(missing.host, null);
+  const first = chat(azureChat("https://myres.openai.azure.com/openai"));
+  assert.equal(first.host, "myres.openai.azure.com");
+  assert.deepEqual(first.state, { status: "ready" });
+  assert.equal(chat(azureChat("https://other.example.com/openai")).host, "other.example.com");
+  assert.equal(
+    routes.buildRouteSnapshot(azureChat("  https://x.example.com "), facts, copy, false).enterprise.azureEndpoint,
+    "  https://x.example.com ",
+    "raw, untrimmed: the executor receives the same string"
+  );
+  const bedrock = {
+    ...base,
+    bedrockRegion: "eu-west-1",
+    chatAgentMode: "enterprise",
+    chatAgentProvider: "bedrock",
+    chatAgentModel: "eu.anthropic.claude-fable-5",
+  };
+  const bedrockFacts = { ...FACTS, credentials: new Map([["bedrock", true]]) };
+  assert.equal(
+    routes.resolveRoute(routes.buildRouteSnapshot(bedrock, bedrockFacts, copy, false), "chat").host,
+    "bedrock-runtime.eu-west-1.amazonaws.com"
+  );
+  const vertex = {
+    ...base,
+    vertexProject: "acme-prod",
+    vertexLocation: "europe-west4",
+    chatAgentMode: "enterprise",
+    chatAgentProvider: "vertex",
+    chatAgentModel: "gemini-2.5-flash",
+  };
+  const vertexFacts = (key) => ({
+    ...FACTS,
+    credentials: new Map([["vertex", true]]),
+    credentialFields: new Map([["vertex", { key }]]),
+  });
+  const vertexHost = (key) =>
+    routes.resolveRoute(routes.buildRouteSnapshot(vertex, vertexFacts(key), copy, false), "chat").host;
+  assert.equal(vertexHost(false), "europe-west4-aiplatform.googleapis.com", "ADC project and location");
+  assert.equal(vertexHost(true), "aiplatform.googleapis.com", "the API key's express host");
+  const s = routes.buildRouteSnapshot(base, FACTS, copy, false);
+  assert.equal(Object.keys(s.enterprise).some((key) => /key|secret|token|profile/i.test(key)), false, "no secret or credential-source field");
+});
+
+test("main wins: until main's enterprise settings are synced the route is unknown, then the snapshot shows main's host", async (t) => {
+  // R2-1, change-driving: localStorage and main differ. v2 disclosed the stale
+  // localStorage host while the executor used main's (main.js:447-457).
+  const { vite, routes } = await load(t, {}, { azureEndpoint: "https://stale.example.com/openai" });
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { useRouteFactsStore, loadRouteFacts } = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
+  useSettingsStore.setState({ chatAgentMode: "enterprise", chatAgentProvider: "azure", chatAgentModel: "gpt-4o-deploy" });
+  assert.equal(useSettingsStore.getState().azureEndpoint, "https://stale.example.com/openai");
+  useRouteFactsStore.setState({
+    facts: { ...FACTS, credentials: new Map([["azure", true]]), enterpriseMain: null },
+  });
+  const chat = () => routes.resolveRoute(routes.routeSnapshotFromSettings(useSettingsStore.getState()), "chat");
+  assert.deepEqual(chat().state, { status: "unknown" }, "sync pending: never ready");
+  assert.equal(chat().host, null, "never the stale host");
+  await loadRouteFacts(
+    {
+      getBedrockRegion: async () => "",
+      getAzureEndpoint: async () => "https://main.example.com/openai",
+      getVertexProject: async () => "",
+      getVertexLocation: async () => "",
+      enterpriseRouteFacts: async () => FACTS.enterpriseMain,
+    },
+    ["enterprise"]
+  );
+  assert.equal(useSettingsStore.getState().azureEndpoint, "https://main.example.com/openai");
+  assert.equal(chat().host, "main.example.com", "the snapshot shows main's host");
+  assert.deepEqual(chat().state, { status: "ready" });
+});
+
+test("a Bedrock endpoint override in main's environment is the disclosed host", async (t) => {
+  // R2-1: AWS_ENDPOINT_URL_BEDROCK_RUNTIME/AWS_ENDPOINT_URL beat the region in the SDK.
+  const { vite, routes } = await load(t);
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { useRouteFactsStore, loadRouteFacts } = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
+  useSettingsStore.setState({
+    chatAgentMode: "enterprise",
+    chatAgentProvider: "bedrock",
+    chatAgentModel: "us.anthropic.claude-fable-5",
+  });
+  useRouteFactsStore.setState({ facts: { ...FACTS, credentials: new Map([["bedrock", true]]), enterpriseMain: null } });
+  await loadRouteFacts(
+    {
+      getBedrockRegion: async () => "us-east-1",
+      getAzureEndpoint: async () => "",
+      getVertexProject: async () => "",
+      getVertexLocation: async () => "",
+      enterpriseRouteFacts: async () => ({
+        bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" },
+        vertexApiKeyEnv: false,
+        vertexProjectEnv: false,
+      }),
+    },
+    ["enterprise"]
+  );
+  const chat = routes.resolveRoute(routes.routeSnapshotFromSettings(useSettingsStore.getState()), "chat");
+  assert.equal(chat.host, "bedrock-proxy.corp.example:8443");
+  assert.deepEqual(chat.state, { status: "ready" });
+});
+
 test("key readiness comes from main-confirmed presence, never the renderer's key fields", async (t) => {
   // I3: a "__stored__" sentinel or an empty field in the settings store has no say.
   const { routes, copy, base } = await load(t);
@@ -4910,8 +6388,9 @@ test("routeSnapshotFromSettings makes no IPC and no subscription; an unknown sea
   const { vite, routes, base } = await load(t, { electronAPI });
   const { useSealedStore } = await vite.ssrLoadModule("/stores/sealedStore.ts");
   touched.length = 0;
-  const s = routes.routeSnapshotFromSettings(base);
+  const s = routes.routeSnapshotFromSettings({ ...base, azureEndpoint: "https://myres.openai.azure.com/openai" });
   assert.deepEqual(touched, [], "no preload call");
+  assert.equal(s.enterprise.azureEndpoint, "https://myres.openai.azure.com/openai", "R2-1: the enterprise slice is read from settings, not main");
   assert.equal(s.sealed, false, "§5.4: known: false maps to sealed = false in route snapshots");
   // ensureSealedSubscribed() with no privacy API would set known: true at once, so this proves it never ran.
   assert.deepEqual(useSealedStore.getState(), { sealed: false, known: false });
@@ -4972,8 +6451,13 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const ALLOWED = [
   "credentials.list",
+  "enterpriseRouteFacts",
+  "getAzureEndpoint",
+  "getBedrockRegion",
   "getDiarizationModelStatus",
   "getSearchModelStatus",
+  "getVertexLocation",
+  "getVertexProject",
   "keyring.list",
   "listParakeetModels",
   "listWhisperModels",
@@ -5004,6 +6488,22 @@ function recordingApi() {
     modelGetAll: ok("modelGetAll", []),
     getDiarizationModelStatus: ok("getDiarizationModelStatus", { available: true, modelsDownloaded: true }),
     getSearchModelStatus: ok("getSearchModelStatus", { downloaded: true }),
+    // R2-1: main's enterprise settings and environment facts are local reads.
+    getBedrockRegion: ok("getBedrockRegion", ""),
+    getAzureEndpoint: ok("getAzureEndpoint", ""),
+    getVertexProject: ok("getVertexProject", ""),
+    getVertexLocation: ok("getVertexLocation", ""),
+    enterpriseRouteFacts: ok("enterpriseRouteFacts", {
+      bedrockEndpoint: { set: false, host: null },
+      vertexApiKeyEnv: false,
+      vertexProjectEnv: false,
+    }),
+    // The sync never writes main and never tests a connection.
+    saveBedrockRegion: forbidden("saveBedrockRegion"),
+    saveAzureEndpoint: forbidden("saveAzureEndpoint"),
+    saveVertexProject: forbidden("saveVertexProject"),
+    saveVertexLocation: forbidden("saveVertexLocation"),
+    testEnterpriseConnection: forbidden("testEnterpriseConnection"),
     credentials: {
       list: ok("credentials.list", [{ id: "openai", present: true, generation: 1 }]),
       onChanged: subscribe("credentials"),
@@ -5090,6 +6590,8 @@ test("mounting the route hooks loads facts from local calls only and never start
   await h.fire("openwhispr-models-cleared");
   await h.fire("openwhispr-local-models-changed");
   assert.equal(h.count("listWhisperModels"), 4);
+  assert.equal(h.count("enterpriseRouteFacts"), 4, "main's environment is re-read with every refresh");
+  assert.equal(h.count("getAzureEndpoint"), 1, "main's enterprise settings sync once per window");
   const keyringReads = h.count("keyring.list");
   await h.act(() => h.subscriptions.keyring());
   assert.equal(h.count("keyring.list"), keyringReads + 1);
@@ -5196,11 +6698,150 @@ test("merges nested keys into every locale and refuses incomplete fragments", (t
 });
 ```
 
+Create `test/helpers/enterpriseRouteFactsIpc.test.js`. It registers the **production** handlers with `IPCHandlers.prototype.setupHandlers` (the harness of `test/helpers/bedrockEnterpriseIpc.test.js:1-140`), backs `this.environmentManager` with the real `EnvironmentManager` prototype (whose getters read `process.env`, `src/helpers/environment.js:245-247`), and injects the environment; it never reads the developer's own:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const Module = require("node:module");
+
+const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
+const originalLoad = Module._load;
+const handlers = new Map();
+
+const electronStub = {
+  app: { getPath: () => "/tmp", getName: () => "test", getVersion: () => "0.0.0", isPackaged: false, on: () => {}, requestSingleInstanceLock: () => true },
+  ipcMain: { handle: (channel, fn) => handlers.set(channel, fn), on: () => {}, removeHandler: () => {} },
+  net: { fetch: async () => { throw new Error("no network in route facts"); } },
+  BrowserWindow: class BrowserWindow {
+    static getAllWindows() {
+      return [];
+    }
+    static fromWebContents() {
+      return null;
+    }
+  },
+  shell: {},
+  dialog: {},
+  screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
+  systemPreferences: { getMediaAccessStatus: () => "granted" },
+  session: { fromPartition: () => ({}) },
+  clipboard: {},
+  nativeImage: {},
+  globalShortcut: {},
+  utilityProcess: {},
+  MessageChannelMain: class {},
+};
+
+Module._load = function loadWithMocks(request, parent, isMain) {
+  if (request === "electron") return electronStub;
+  if (parent?.filename === handlersModulePath) {
+    if (request === "./debugLogger") return new Proxy({}, { get: () => () => {} });
+    if (request === "./windowBroadcast") return { broadcastToWindows: () => {} };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+function anything() {
+  return new Proxy(function () {}, {
+    get: (target, property) => {
+      if (property === Symbol.toPrimitive || property === "toString") return () => "";
+      if (property === "then") return undefined;
+      return anything();
+    },
+    apply: () => anything(),
+  });
+}
+
+const ENV = [
+  "AWS_ENDPOINT_URL",
+  "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
+  "GOOGLE_VERTEX_API_KEY",
+  "GOOGLE_VERTEX_PROJECT",
+  "BEDROCK_REGION",
+  "AZURE_OPENAI_ENDPOINT",
+  "VERTEX_PROJECT",
+  "VERTEX_LOCATION",
+];
+const savedEnv = new Map(ENV.map((name) => [name, process.env[name]]));
+function injectEnv(values) {
+  for (const name of ENV) delete process.env[name];
+  Object.assign(process.env, values);
+}
+
+test.before(() => {
+  delete require.cache[handlersModulePath];
+  const IPCHandlers = require(handlersModulePath);
+  const Ctor = IPCHandlers.default || IPCHandlers;
+  const EnvironmentManager = require("../../src/helpers/environment");
+  // The real getters over an injected environment; the constructor only loads dotenv files.
+  const target = { environmentManager: Object.create(EnvironmentManager.prototype) };
+  Ctor.prototype.setupHandlers.call(
+    new Proxy(target, { get: (value, property) => (property in value ? value[property] : anything()) })
+  );
+});
+
+test.after(() => {
+  Module._load = originalLoad;
+  for (const [name, value] of savedEnv) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+});
+
+test("enterprise-route-facts reports main's overrides as hosts and booleans, never a value", async () => {
+  // R2-1, change-driving: the channel does not exist yet.
+  const facts = () => handlers.get("enterprise-route-facts")({});
+  assert.ok(handlers.get("enterprise-route-facts"), "registered by the production setupHandlers");
+  injectEnv({});
+  assert.deepEqual(await facts(), {
+    bedrockEndpoint: { set: false, host: null },
+    vertexApiKeyEnv: false,
+    vertexProjectEnv: false,
+  });
+  injectEnv({
+    AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://bedrock-proxy.corp.example:8443/",
+    AWS_ENDPOINT_URL: "https://ignored.corp.example",
+    GOOGLE_VERTEX_API_KEY: "fixture-env-key",
+    GOOGLE_VERTEX_PROJECT: "fixture-project",
+  });
+  const withOverrides = await facts();
+  assert.deepEqual(withOverrides, {
+    bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" },
+    vertexApiKeyEnv: true,
+    vertexProjectEnv: true,
+  });
+  injectEnv({ AWS_ENDPOINT_URL: "https://user:fixture-pass@aws-gateway.corp.example" });
+  const credentialUrl = await facts();
+  assert.deepEqual(credentialUrl.bedrockEndpoint, { set: true, host: null }, "fetch refuses it, so no host");
+  for (const result of [withOverrides, credentialUrl]) {
+    const text = JSON.stringify(result);
+    for (const secret of ["fixture-env-key", "fixture-project", "fixture-pass", "user:"]) {
+      assert.equal(text.includes(secret), false, `no value leaves main: ${secret}`);
+    }
+  }
+});
+
+test("the existing getters return main's enterprise settings exactly as the executor receives them", async () => {
+  // R2-1: these are the values main.js:447-457 hands enterpriseAiProviders.js.
+  injectEnv({
+    BEDROCK_REGION: "eu-west-1",
+    AZURE_OPENAI_ENDPOINT: "https://main.example.com/openai",
+    VERTEX_PROJECT: "acme-prod",
+  });
+  assert.equal(await handlers.get("get-bedrock-region")({}), "eu-west-1");
+  assert.equal(await handlers.get("get-azure-endpoint")({}), "https://main.example.com/openai");
+  assert.equal(await handlers.get("get-vertex-project")({}), "acme-prod");
+  assert.equal(await handlers.get("get-vertex-location")({}), "", "unset is empty; the executor defaults it");
+});
+```
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/stores/routeFactsStore.test.js test/stores/sealedStore.test.js test/lib/routesSnapshot.test.js test/lib/routesHooks.test.js test/locales/routeCopy.test.js test/scripts/mergeLocaleKeys.test.js`
+Run: `npm test -- test/stores/routeFactsStore.test.js test/stores/sealedStore.test.js test/lib/routesSnapshot.test.js test/lib/routesHooks.test.js test/locales/routeCopy.test.js test/scripts/mergeLocaleKeys.test.js test/helpers/enterpriseRouteFactsIpc.test.js`
 
 Expected: FAIL.
+- `enterpriseRouteFactsIpc.test.js`: the first test fails at `registered by the production setupHandlers` (the channel does not exist); the getter test is a **baseline guard** and passes before and after.
 - `routeFactsStore`, `sealedStore` and `routesSnapshot` tests fail with `Failed to load url /stores/routeFactsStore.ts`, `/stores/sealedStore.ts` and `/lib/routes.ts`.
 - `routesHooks.test.js` fails at load with `Cannot find module './i18nTestMock'`.
 - `routeCopy.test.js` fails with `en has routes` (`json.routes` is undefined).
@@ -5355,7 +6996,8 @@ Expected: FAIL.
 
    ```ts
    import { create } from "zustand";
-   import type { CredentialId, RouteFacts } from "../lib/routeGraph";
+   import type { CredentialId, EnterpriseMainFacts, EnterpriseRouteSettings, RouteFacts } from "../lib/routeGraph";
+   import { enterpriseLocalWriteCount, reconcileEnterpriseSettingsFromMain } from "./settingsStore";
 
    // Facts the route resolver needs that the settings store does not hold.
    // Every call here is local to this machine: model inventories on disk, main's
@@ -5374,7 +7016,8 @@ Expected: FAIL.
      | "speakerId"
      | "search"
      | "credentials"
-     | "rejected";
+     | "rejected"
+     | "enterprise";
 
    export const ROUTE_FACT_KEYS: readonly RouteFactKey[] = [
      "whisper",
@@ -5384,6 +7027,7 @@ Expected: FAIL.
      "search",
      "credentials",
      "rejected",
+     "enterprise",
    ];
 
    interface ModelListResult {
@@ -5394,6 +7038,8 @@ Expected: FAIL.
      id: CredentialId;
      present: boolean;
      generation: number;
+     // Per-field presence, never values (Task 2). Vertex's `key` picks its host (R2-1).
+     fields?: Record<string, boolean>;
    }
 
    export interface RouteFactsApi {
@@ -5410,11 +7056,20 @@ Expected: FAIL.
        list?: () => Promise<{ id: CredentialId; status: string }[]>;
        onChanged?: (callback: () => void) => (() => void) | void;
      };
+     // R2-1: main's enterprise settings (ipcHandlers.js:3879-3941) and its
+     // environment overrides (enterprise-route-facts). All local reads.
+     getBedrockRegion?: () => Promise<string | null>;
+     getAzureEndpoint?: () => Promise<string | null>;
+     getVertexProject?: () => Promise<string | null>;
+     getVertexLocation?: () => Promise<string | null>;
+     enterpriseRouteFacts?: () => Promise<EnterpriseMainFacts>;
    }
 
    export const EMPTY_ROUTE_FACTS: RouteFacts = {
      installed: { whisper: null, sherpa: null, llm: null },
      credentials: null,
+     credentialFields: null,
+     enterpriseMain: null,
      rejected: new Set<CredentialId>(),
      speakerIdModelsReady: null,
      searchModelReady: null,
@@ -5464,9 +7119,23 @@ Expected: FAIL.
    // before a save can never undo the save's event.
    const credentialGenerations = new Map<CredentialId, number>();
 
+   // Only booleans survive: a row can never smuggle a value into renderer state.
+   function presentFields(fields: unknown): Record<string, boolean> {
+     if (!fields || typeof fields !== "object") return {};
+     return Object.fromEntries(
+       Object.entries(fields as Record<string, unknown>).map(([name, present]) => [name, present === true])
+     );
+   }
+
+   const sameFields = (a: Readonly<Record<string, boolean>> | undefined, b: Record<string, boolean>) =>
+     a !== undefined && JSON.stringify(a) === JSON.stringify(b);
+
+   // Presence and field presence move together under one generation, so the
+   // graph never sees a Vertex key field from a different moment than its presence.
    function mergeCredentials(facts: RouteFacts, rows: readonly CredentialRow[]): RouteFacts {
      const next = new Map(facts.credentials ?? []);
-     let changed = facts.credentials === null;
+     const nextFields = new Map(facts.credentialFields ?? []);
+     let changed = facts.credentials === null || facts.credentialFields === null;
      for (const row of rows) {
        if (!row || typeof row.id !== "string") continue;
        const generation = typeof row.generation === "number" ? row.generation : 0;
@@ -5474,8 +7143,67 @@ Expected: FAIL.
        credentialGenerations.set(row.id, generation);
        if (next.get(row.id) !== (row.present === true)) changed = true;
        next.set(row.id, row.present === true);
+       const fields = presentFields(row.fields);
+       if (!sameFields(nextFields.get(row.id), fields)) changed = true;
+       nextFields.set(row.id, fields);
      }
-     return changed ? { ...facts, credentials: next } : facts;
+     return changed ? { ...facts, credentials: next, credentialFields: nextFields } : facts;
+   }
+
+   // R2-1: main is the source of truth for where an enterprise request goes.
+   // Once per window, the settings store's four enterprise fields are
+   // reconciled to main's values (main wins, unless a local write went to main
+   // after the read began); every load then re-reads main's environment
+   // overrides. facts.enterpriseMain publishes only after both, so until the
+   // sync lands every enterprise route resolves unknown (Task 1).
+   let enterpriseSynced = false;
+
+   const asText = (value: unknown): string => (typeof value === "string" ? value : "");
+
+   function enterpriseMainFacts(raw: unknown): EnterpriseMainFacts | undefined {
+     const r = raw as Partial<EnterpriseMainFacts> | null | undefined;
+     const endpoint = r?.bedrockEndpoint;
+     if (
+       !r ||
+       !endpoint ||
+       typeof endpoint.set !== "boolean" ||
+       !(endpoint.host === null || typeof endpoint.host === "string") ||
+       typeof r.vertexApiKeyEnv !== "boolean" ||
+       typeof r.vertexProjectEnv !== "boolean"
+     ) {
+       return undefined; // malformed: not a fact
+     }
+     return {
+       bedrockEndpoint: { set: endpoint.set, host: endpoint.set ? endpoint.host : null },
+       vertexApiKeyEnv: r.vertexApiKeyEnv,
+       vertexProjectEnv: r.vertexProjectEnv,
+     };
+   }
+
+   async function loadEnterpriseMain(api: RouteFactsApi): Promise<EnterpriseMainFacts | undefined> {
+     const { getBedrockRegion, getAzureEndpoint, getVertexProject, getVertexLocation, enterpriseRouteFacts } = api;
+     // A build that cannot confirm main's configuration stays unknown.
+     if (!getBedrockRegion || !getAzureEndpoint || !getVertexProject || !getVertexLocation || !enterpriseRouteFacts) {
+       return undefined;
+     }
+     if (!enterpriseSynced) {
+       const since = enterpriseLocalWriteCount();
+       const [bedrockRegion, azureEndpoint, vertexProject, vertexLocation] = await Promise.all([
+         getBedrockRegion(),
+         getAzureEndpoint(),
+         getVertexProject(),
+         getVertexLocation(),
+       ]);
+       const main: EnterpriseRouteSettings = {
+         bedrockRegion: asText(bedrockRegion),
+         azureEndpoint: asText(azureEndpoint),
+         vertexProject: asText(vertexProject),
+         vertexLocation: asText(vertexLocation),
+       };
+       reconcileEnterpriseSettingsFromMain(main, since);
+       enterpriseSynced = true;
+     }
+     return enterpriseMainFacts(await enterpriseRouteFacts());
    }
 
    const LOADERS: Record<RouteFactKey, (api: RouteFactsApi) => Promise<void>> = {
@@ -5526,6 +7254,13 @@ Expected: FAIL.
              : undefined,
          (f, rejected) => ({ ...f, rejected })
        ),
+     enterprise: (api) =>
+       track(
+         "enterprise",
+         () => loadEnterpriseMain(api),
+         (value) => value,
+         (f, enterpriseMain) => ({ ...f, enterpriseMain })
+       ),
    };
 
    export async function loadRouteFacts(
@@ -5575,7 +7310,68 @@ Expected: FAIL.
    }
    ```
 
-   This file imports only types from `routeGraph`, so it adds no runtime import cycle with `routes.ts`.
+   This file imports only types from `routeGraph`, so it adds no runtime import cycle with `routes.ts`. Its one runtime import, `settingsStore` (R2-1 reconciliation), does not import this file, `routes.ts` or `routeGraph.ts` (`src/stores/settingsStore.ts:1-46`; Task 6 adds only `providerSwitchPlans` and `providerSearch`).
+
+5a. **Main side of R2-1.** Register Task 1's `src/helpers/enterpriseRouteFacts.js` and expose it, plus the settings reconciler the loader calls:
+
+   - In `src/helpers/ipcHandlers.js`, directly after the `save-vertex-location` handler (`:3942-3944`), add:
+
+     ```js
+         // R2-1: non-secret facts about main's environment that redirect the
+         // enterprise SDKs. Hosts and booleans only; reads process.env, no network.
+         ipcMain.handle("enterprise-route-facts", () =>
+           require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env)
+         );
+     ```
+
+   - In `preload.js`, directly after `saveVertexLocation` (`:605`), add `enterpriseRouteFacts: () => ipcRenderer.invoke("enterprise-route-facts"),`. The four getters already exist (`:584,594,602,604` → `get-bedrock-region` `ipcHandlers.js:3879-3881`, `get-azure-endpoint` `:3909-3911`, `get-vertex-project` `:3933-3935`, `get-vertex-location` `:3939-3941`; each returns `environmentManager.get…()`, which is `process.env.X || ""`, `src/helpers/environment.js:245-247,301-303,333-335,359-367`). Those are exactly the values `main.js:447-457` hands the executor.
+   - In `src/types/electron.ts`, directly after `saveVertexLocation?` (`:1596`), add:
+
+     ```ts
+           enterpriseRouteFacts?: () => Promise<{
+             bedrockEndpoint: { set: boolean; host: string | null };
+             vertexApiKeyEnv: boolean;
+             vertexProjectEnv: boolean;
+           }>;
+     ```
+
+   - In `src/stores/settingsStore.ts`, after `debouncedPersistToEnv` (`:1235-1247`), add the reconciler, and make each of `setBedrockRegion`, `setAzureEndpoint`, `setVertexProject` and `setVertexLocation` (`:2033-2097`) call `noteEnterpriseLocalWrite()` first:
+
+     ```ts
+     // R2-1: main's environment is what the enterprise executor reads
+     // (main.js:447-457), so main wins over localStorage. A local write sends
+     // the new value to main as well, so a write after the read began is newer
+     // than that read and is kept.
+     const ENTERPRISE_ROUTE_FIELDS = ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"] as const;
+     let enterpriseLocalWrites = 0;
+
+     export function noteEnterpriseLocalWrite(): void {
+       enterpriseLocalWrites += 1;
+     }
+
+     export function enterpriseLocalWriteCount(): number {
+       return enterpriseLocalWrites;
+     }
+
+     export function reconcileEnterpriseSettingsFromMain(
+       main: Record<(typeof ENTERPRISE_ROUTE_FIELDS)[number], string>,
+       since: number
+     ): boolean {
+       if (enterpriseLocalWrites !== since) return false;
+       const state = useSettingsStore.getState();
+       const changed: Partial<SettingsState> = {};
+       for (const key of ENTERPRISE_ROUTE_FIELDS) {
+         if (state[key] === main[key]) continue;
+         changed[key] = main[key];
+         if (isBrowser) localStorage.setItem(key, main[key]);
+       }
+       // Renderer-only: nothing is written back to main.
+       if (Object.keys(changed).length > 0) useSettingsStore.setState(changed);
+       return true;
+     }
+     ```
+
+     Main's `""` replaces the renderer's `"us-east-1"`/`"us-central1"` defaults when main has no value; the executor applies the same defaults (`enterpriseAiProviders.js:26,92`), so Task 1 resolves the same host.
 
 6. In `src/utils/providerSearch.ts`, append after `isProviderSearchEnabled` (`:9-12`):
 
@@ -5760,6 +7556,10 @@ Expected: FAIL.
      // Codex requests go through the ChatGPT account it signs in to
      // (auth hosts checked at src/helpers/personalInference.js:258).
      add("codex", "https://chatgpt.com");
+     // Bedrock, Azure and Vertex deliberately get no entry (R2-1): their host
+     // follows settings (region, endpoint, project/location) and the Vertex key,
+     // so Task 1 derives it from snapshot.enterprise + facts.credentialFields with
+     // enterpriseRequestHost, never from this static table.
      capabilities = {
        meetingProviders: [...MEETING_STREAMING_PROVIDER_IDS],
        transcriptionProviderBaseUrls: transcriptionProviders.map(({ id, baseUrl }) => ({ id, baseUrl })),
@@ -5821,6 +7621,16 @@ Expected: FAIL.
      return {
        stt,
        llm,
+       // R2-1: the non-secret settings main hands enterpriseAiProviders.js
+       // (main.js:447-457; the setters write both sides, settingsStore.ts:2033-2097).
+       // Raw strings, untrimmed, because the executor uses them untrimmed. No
+       // secret, profile or API version: none of them changes the host.
+       enterprise: {
+         bedrockRegion: settings.bedrockRegion ?? "",
+         azureEndpoint: settings.azureEndpoint ?? "",
+         vertexProject: settings.vertexProject ?? "",
+         vertexLocation: settings.vertexLocation ?? "",
+       },
        enabled: {
          cleanup: settings.useCleanupModel,
          voiceAssistant: settings.useDictationAgent,
@@ -6001,17 +7811,18 @@ Expected: FAIL.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/stores/routeFactsStore.test.js test/stores/sealedStore.test.js test/lib/routesSnapshot.test.js test/lib/routesHooks.test.js test/locales/routeCopy.test.js test/locales/translationCoverage.test.js test/scripts/mergeLocaleKeys.test.js test/lib/providerSearch.test.js && npm run typecheck && npm run i18n:check`
+Run: `npm test -- test/stores/routeFactsStore.test.js test/stores/sealedStore.test.js test/lib/routesSnapshot.test.js test/lib/routesHooks.test.js test/locales/routeCopy.test.js test/locales/translationCoverage.test.js test/scripts/mergeLocaleKeys.test.js test/lib/providerSearch.test.js test/helpers/enterpriseRouteFactsIpc.test.js test/helpers/bedrockEnterpriseIpc.test.js && npm run typecheck && npm run i18n:check`
 
-Expected: PASS. `test/lib/providerSearch.test.js` and `test/locales/translationCoverage.test.js` are **baseline guards** here: they pass before and after, and confirm the new event constant changed no search behaviour and every new `t("routes.payload.…")` call resolves in every locale. Typecheck is clean (the `Record<PayloadPart, string>` literal in `routeCopy` fails typecheck if Task 1's `PayloadPart` gains or loses a part). `i18n:check` is clean.
+Expected: PASS. `test/helpers/bedrockEnterpriseIpc.test.js` is a **baseline guard** that the new handler leaves the existing enterprise channels alone; `enterpriseRouteFactsIpc.test.js` runs the production `setupHandlers` with an injected environment. `test/lib/providerSearch.test.js` and `test/locales/translationCoverage.test.js` are **baseline guards** here: they pass before and after, and confirm the new event constant changed no search behaviour and every new `t("routes.payload.…")` call resolves in every locale. Typecheck is clean (the `Record<PayloadPart, string>` literal in `routeCopy` fails typecheck if Task 1's `PayloadPart` gains or loses a part). `i18n:check` is clean.
 
-Then run `npx prettier --write src/lib/routes.ts src/stores/routeFactsStore.ts src/stores/sealedStore.ts src/utils/providerSearch.ts src/components/settings/InferenceConfigEditor.tsx src/types/electron.ts && npm run lint`. Lint reports no new warnings (the one `exhaustive-deps` suppression in `useResolvedRoutes` carries its reason).
+Then run `npx prettier --write src/lib/routes.ts src/stores/routeFactsStore.ts src/stores/sealedStore.ts src/stores/settingsStore.ts src/utils/providerSearch.ts src/components/settings/InferenceConfigEditor.tsx src/types/electron.ts src/helpers/ipcHandlers.js preload.js test/helpers/enterpriseRouteFactsIpc.test.js && npm run lint`. Lint reports no new warnings (the one `exhaustive-deps` suppression in `useResolvedRoutes` carries its reason).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/stores/routeFactsStore.ts src/stores/sealedStore.ts src/lib/routes.ts src/utils/providerSearch.ts src/components/settings/InferenceConfigEditor.tsx src/types/electron.ts scripts/merge-locale-keys.js src/locales test/lib/i18nTestMock.js test/stores/routeFactsStore.test.js test/stores/sealedStore.test.js test/lib/routesSnapshot.test.js test/lib/routesHooks.test.js test/locales/routeCopy.test.js test/scripts/mergeLocaleKeys.test.js
-git commit -m "feat(routes): Resolve routes from settings, local facts and one sealed store"
+git add src/stores/routeFactsStore.ts src/stores/sealedStore.ts src/lib/routes.ts src/utils/providerSearch.ts src/components/settings/InferenceConfigEditor.tsx src/types/electron.ts src/helpers/ipcHandlers.js preload.js src/stores/settingsStore.ts test/helpers/enterpriseRouteFactsIpc.test.js scripts/merge-locale-keys.js src/locales test/lib/i18nTestMock.js test/stores/routeFactsStore.test.js test/stores/sealedStore.test.js test/lib/routesSnapshot.test.js test/lib/routesHooks.test.js test/locales/routeCopy.test.js test/scripts/mergeLocaleKeys.test.js
+git commit -m "feat(routes): Resolve routes from settings, local facts and one sealed store" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -6767,7 +8578,8 @@ Then manually check: open Settings → Language Models. The "On-device support" 
 
 ```bash
 git add src/lib/settingsPaths.ts src/components/SettingsModal.tsx src/components/SettingsPage.tsx src/components/settings/LocalSupportModels.tsx src/utils/formatBytes.ts src/locales test/lib/settingsPaths.test.js test/utils/formatDecimalBytes.test.js test/components/localSupportModels.test.js test/components/settingsModalPaths.test.js test/components/settingsSupportModelsTab.test.js
-git commit -m "feat(settings): Route deep links and on-device support models tab"
+git commit -m "feat(settings): Route deep links and on-device support models tab" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -7885,7 +9697,8 @@ Then manually check, in light and Plum Night: in Settings → Speech-to-Text, Ta
 
 ```bash
 git add test/components/plumNight.test.js test/components/rovingNav.test.js test/components/routeChips.test.js test/components/inferenceModeSelector.test.js test/components/settingsContrast.test.js test/components/settingsTextRoles.test.js src/components/ui/rovingNav.ts src/components/settings/routing/RouteChips.tsx src/components/ui/SettingsSection.tsx src/components/ui/ModelCardList.tsx src/components/icons/index.ts src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx src/components/settings/InferenceConfigEditor.tsx src/locales
-git commit -m "feat(settings): Route state chips, a radio-group mode selector and contrast tests"
+git commit -m "feat(settings): Route state chips, a radio-group mode selector and contrast tests" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -7899,6 +9712,8 @@ There is one computation, and nothing else may write a route:
 - **The planner.** `src/lib/routePlanner.ts` turns a target into the exact raw store writes (the patch). It simulates the patch on a copy of the state and resolves all 11 routes before and after. It lists every route whose destination, model, payload or state changes, including coupled ones: Note recording or Upload inheriting dictation, and assistant vision following the assistant. It also records the prior raw value of every written key (the Undo patch).
 - **One patch for everything.** Preview is the after-resolution of that patch. Commit is `applyRoutePatch(patch)`. Undo is `applyRoutePatch(undoPatch)`. They cannot disagree.
 - **Switches and options are planned too (I1 follow-up).** The enable switches (`useCleanupModel`, `useDictationTranslation`, `useDictationAgent`, `voiceAgentScreenContext`, `useDictationAgentVisionModel`), the Corti region and tenant (`cortiEnvironment`, `cortiTenant`) and the provider web-search preference (patch key `providerSearch:<scope>`, stored in localStorage as `personalWebSearch:<scope>`) are route-patch keys. Turning a route on counts as a new recipient when it ends off the device, so it stages. Switching a route off (or configuring a route that is off) sends nothing new, so it is instant. The vision override is the one switch that is not an on/off: either direction can move screenshots to another provider, and the planner stages that like any recipient change. A Corti region switch changes the speech host (`api.us.corti.app` ↔ `api.eu.corti.app`) and stages when a speech route uses Corti (Corti text always calls `ai.eu.corti.app`, Task 1's `providerHosts["corti:text"]`, so a text-only profile switches instantly); the tenant keeps the host and is instant. Web search on adds the `webSearch` payload part and stages; off is instant.
+- **Enterprise recipient settings are planned too (R2-1).** `bedrockRegion`, `azureEndpoint`, `vertexProject` and `vertexLocation` (`ROUTE_ENTERPRISE_KEYS`) were direct setter writes (`src/components/EnterpriseProviderConfig.tsx:114-118,145-148,166-174`), each persisting to main at once (`src/stores/settingsStore.ts:2033-2097`). They are now route-patch keys. Task 1 derives each enterprise route's host from them, so the planner's all-route comparison sees an Azure endpoint, Bedrock region or Vertex location change as a recipient change on every route that uses that provider (staged, coupled routes listed), and a change nobody uses is instant. `azureApiVersion` (query parameter only) and `bedrockProfile` (a credential source on the same host, refreshed through Task 2's presence) stay outside: neither changes the host. `planPatch` adds coupled writes to the same patch before diffing: a `bedrockRegion` write rewrites every Bedrock scope's own geo-scoped model with `adjustBedrockModelForRegion` (`src/utils/bedrockRegions.ts:13-17`, the call `EnterpriseProviderConfig.tsx:117` made), so preview, commit and Undo all carry it. `applyRoutePatch` writes the four keys to main through the same preload savers the setters used. While the graph cannot name a route's recipient (host `null` or state `unknown`: `facts.enterpriseMain` not yet synced, or Vertex's key presence still `null`), any change to that route, including an edit of its provider's enterprise fields, counts as a recipient change: it stages, and Apply stays blocked (`unknown`) until the facts load.
+- **Apply readiness (R2-9, ROUTE side).** `routeBlocker` blocks every changed, enabled, off-device route that is not `ready`: `needsKey` blocks for Codex and the enterprise clouds too, and `needsModel` blocks with or without a size. Device and off routes never block. `SETUP_AFTER_APPLY` stays exported for copy only (Task 8's "sign in here first"); it no longer unblocks Apply.
 
 **Files:**
 - Create: `src/lib/providerSwitchPlans.ts`
@@ -7914,6 +9729,7 @@ There is one computation, and nothing else may write a route:
   - **Task 1** (`src/lib/routeGraph.ts`, re-exported by `src/lib/routes.ts`): `resolveRoutes(snapshot)` and `routePayloadParts(id, snapshot)` (Appendix B). Also the types `RouteId`, `ResolvedRoute`, `RouteFacts`, `RouteCopy`, `RouteSettingsSnapshot`, `SttContext` and `LlmRouteScope`.
   - **Task 3** (`src/lib/routes.ts`): `buildRouteSnapshot(settings, facts, copy, sealed)`, whose `capabilities.providerHosts.corti` follows `settings.cortiEnvironment` (`api.<region>.corti.app`); `PROVIDER_SEARCH_CHANGED_EVENT` (`src/utils/providerSearch.ts`).
   - **Existing code:** `supportsProviderSearch(scope, provider, mode)` (`src/utils/providerSearch.ts:2-8`).
+  - **Existing code (R2-1):** `adjustBedrockModelForRegion(modelId, region)` (`src/utils/bedrockRegions.ts:13-17`; import-free, so `providerSwitchPlans.ts` stays store-free); the preload savers `saveBedrockRegion`, `saveAzureEndpoint`, `saveVertexProject`, `saveVertexLocation` (`preload.js:585,595,603,605`; typed optional at `src/types/electron.ts:1576-1596`) and `debouncedPersistToEnv` (`src/stores/settingsStore.ts:1235-1247`), exactly as the four setters call them (`:2033-2097`). **Task 1/3 (R2-1):** `snapshot.enterprise` and enterprise `host`/readiness from `enterpriseRequestHost`; Task 3's builder fills the slice from these four store fields. Task 3's `noteEnterpriseLocalWrite()` (same module, `settingsStore.ts`), which `applyRoutePatch` calls once per patch that writes an enterprise key, so Task 3's one-time sync from main never overwrites a newer committed value; `facts.enterpriseMain` (Task 1/3) must be non-null for an enterprise route to resolve, so `testFacts` carries a synced default.
   - **Existing code:**
     - `INFERENCE_SCOPES` from `src/config/inferenceScopes.ts`;
     - `isProviderValidForMode(provider, mode)` at `src/models/ModelRegistry.ts:272` (planner only, because ModelRegistry imports the store);
@@ -7927,6 +9743,10 @@ There is one computation, and nothing else may write a route:
   export const ROUTE_SWITCH_KEYS: readonly ["useCleanupModel", "useDictationTranslation", "useDictationAgent", "voiceAgentScreenContext", "useDictationAgentVisionModel"]; // NEW (I1 follow-up)
   export type RouteSwitchKey = (typeof ROUTE_SWITCH_KEYS)[number];
   export const ROUTE_OPTION_KEYS: readonly ["cortiEnvironment", "cortiTenant"];               // NEW (I1 follow-up)
+  export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"]; // NEW (R2-1)
+  export type RouteEnterpriseKey = (typeof ROUTE_ENTERPRISE_KEYS)[number];                   // NEW (R2-1)
+  export function planEnterpriseCoupling(state: SettingsState, patch: SettingsPatch): SettingsPatch; // NEW (R2-1): writes that must join `patch`
+  export function bedrockCoupledModelKeys(state: SettingsState): (keyof SettingsState)[];          // NEW (R2-1): model keys a region change can rewrite
   export type ProviderSearchScope = "chatIntelligence" | "dictationAgent";
   export const PROVIDER_SEARCH_PATCH_KEYS: readonly ["providerSearch:chatIntelligence", "providerSearch:dictationAgent"]; // NEW: localStorage, not store fields
   export type ProviderSearchPatchKey = (typeof PROVIDER_SEARCH_PATCH_KEYS)[number];
@@ -7946,12 +9766,12 @@ There is one computation, and nothing else may write a route:
   export function planTranscriptionProviderSwitch(state: SettingsState, context: TranscriptionPolicyContext, providerId: string): SettingsPatch;
   export function planReasoningProviderSwitch(state: SettingsState, scope: InferenceScope, providerId: string, fallbackModel?: string): SettingsPatch;
   // settingsStore.ts (store action)
-  applyRoutePatch: (patch: SettingsPatch) => void;  // one setState; persists every key; throws on secret or non-route keys before writing anything
+  applyRoutePatch: (patch: SettingsPatch) => void;  // one setState; persists every key (enterprise keys also to main); throws on secret or non-route keys before writing anything; never expands coupling, so an undoPatch applies verbatim
   // src/lib/routePlanner.ts
   export type RouteTarget, RouteChange, ApplyBlocker, RoutePlan, PlanContext;  // exactly as Appendix A
-  export const SETUP_AFTER_APPLY: ReadonlySet<string>;          // NEW: codex + enterprise
+  export const SETUP_AFTER_APPLY: ReadonlySet<string>;          // codex + enterprise; R2-9: copy only, never unblocks Apply
   export function planRouteChange(state: SettingsState, ctx: PlanContext, id: RouteId, target: RouteTarget): RoutePlan;
-  export function planPatch(state: SettingsState, ctx: PlanContext, routeId: RouteId, patch: SettingsPatch): RoutePlan;
+  export function planPatch(state: SettingsState, ctx: PlanContext, routeId: RouteId, patch: SettingsPatch): RoutePlan; // adds planEnterpriseCoupling(state, patch) before diffing
   ```
 
   `InferenceScope` and `TranscriptionPolicyContext` are the same string unions as `LlmRouteScope` and `SttContext`. `providerSwitchPlans.ts` uses the existing names, so the store never imports the route graph.
@@ -8046,6 +9866,11 @@ function routeBaseState() {
     speakerDiarizationEnabled: true,
     cortiEnvironment: "us",
     cortiTenant: "base",
+    // R2-1: the enterprise route keys, at the store defaults (settingsStore.ts:1442-1453).
+    bedrockRegion: "us-east-1",
+    azureEndpoint: "",
+    vertexProject: "",
+    vertexLocation: "us-central1",
     customDictionary: [],
     snippets: [],
   };
@@ -8062,6 +9887,15 @@ function testFacts(overrides = {}) {
       ["anthropic", true],
       ["deepgram", true],
     ]),
+    // Task 2's per-field presence (R2-1); only Vertex's `key` changes a host.
+    credentialFields: new Map([
+      ["openai", { key: true }],
+      ["groq", { key: true }],
+      ["anthropic", { key: true }],
+      ["deepgram", { key: true }],
+    ]),
+    // Task 3's sync from main has landed, with no environment override (R2-1).
+    enterpriseMain: { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false },
     rejected: new Set(),
     speakerIdModelsReady: true,
     searchModelReady: true,
@@ -8199,6 +10033,99 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
     assert.equal(storage.getItem("cortiTenant"), "acme");
   });
 
+  // Change-driving (R2-1): the enterprise fields were written only by their setters,
+  // which also saved them to main (settingsStore.ts:2033-2097); v2's allowlist refused them.
+  await t.test("applyRoutePatch writes enterprise fields to the store, localStorage and main like their old setters", async () => {
+    reset();
+    const saved = [];
+    const previous = globalThis.window.electronAPI;
+    globalThis.window.electronAPI = {
+      saveBedrockRegion: async (value) => saved.push(["bedrockRegion", value]),
+      saveAzureEndpoint: async (value) => saved.push(["azureEndpoint", value]),
+      saveVertexProject: async (value) => saved.push(["vertexProject", value]),
+      saveVertexLocation: async (value) => saved.push(["vertexLocation", value]),
+    };
+    let notifications = 0;
+    const unsubscribe = useSettingsStore.subscribe(() => notifications++);
+    const { enterpriseLocalWriteCount } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+    const writesBefore = enterpriseLocalWriteCount();
+    try {
+      live().applyRoutePatch({
+        bedrockRegion: "eu-west-1",
+        azureEndpoint: "https://myres.openai.azure.com/openai",
+        vertexProject: "acme-prod",
+        vertexLocation: "europe-west4",
+        chatAgentModel: "eu.anthropic.claude-fable-5",
+      });
+    } finally {
+      unsubscribe();
+      globalThis.window.electronAPI = previous;
+    }
+    assert.equal(notifications, 1, "one setState");
+    assert.equal(enterpriseLocalWriteCount(), writesBefore + 1, "Task 3's main sync keeps this newer write");
+    assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai");
+    assert.equal(live().chatAgentModel, "eu.anthropic.claude-fable-5", "applyRoutePatch never adds coupled writes");
+    for (const [key, value] of [
+      ["bedrockRegion", "eu-west-1"],
+      ["azureEndpoint", "https://myres.openai.azure.com/openai"],
+      ["vertexProject", "acme-prod"],
+      ["vertexLocation", "europe-west4"],
+    ]) {
+      assert.equal(storage.getItem(key), value, key);
+    }
+    assert.deepEqual(
+      saved.sort(),
+      [
+        ["azureEndpoint", "https://myres.openai.azure.com/openai"],
+        ["bedrockRegion", "eu-west-1"],
+        ["vertexLocation", "europe-west4"],
+        ["vertexProject", "acme-prod"],
+      ],
+      "main receives exactly the enterprise keys, once each"
+    );
+    assert.deepEqual([...plans.ROUTE_ENTERPRISE_KEYS], ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"]);
+    assert.throws(() => live().applyRoutePatch({ azureApiVersion: "2025-01-01" }), /not a route setting/, "the API version keeps the host");
+    assert.throws(() => live().applyRoutePatch({ azureApiKey: "x" }), /secret/);
+  });
+
+  // Change-driving (R2-1): the region's model rewrite lived only in EnterpriseProviderConfig.tsx:115-118.
+  await t.test("planEnterpriseCoupling rewrites every Bedrock scope's own geo-scoped model, and nothing else", () => {
+    const state = {
+      ...routeBaseState(),
+      bedrockRegion: "us-east-1",
+      chatAgentMode: "enterprise",
+      chatAgentProvider: "bedrock",
+      chatAgentModel: "us.anthropic.claude-fable-5",
+      noteFormattingMode: "enterprise",
+      noteFormattingProvider: "bedrock",
+      noteFormattingModel: "anthropic.claude-3-haiku", // on-demand id: valid in any region
+      dictationAgentMode: "enterprise",
+      dictationAgentProvider: "bedrock",
+      dictationAgentModel: "us.anthropic.claude-fable-5",
+      dictationAgentVisionProvider: "", // inherits the assistant, which is adjusted itself
+      dictationAgentVisionModel: "",
+      translationMode: "providers",
+      translationProvider: "openai",
+      translationModel: "gpt-6-astra",
+    };
+    assert.deepEqual(plans.planEnterpriseCoupling(state, { bedrockRegion: "eu-west-1" }), {
+      chatAgentModel: "eu.anthropic.claude-fable-5",
+      dictationAgentModel: "eu.anthropic.claude-fable-5",
+    });
+    assert.deepEqual(plans.planEnterpriseCoupling(state, { azureEndpoint: "https://x.example.com" }), {}, "only the region couples");
+    assert.deepEqual(
+      plans.planEnterpriseCoupling(state, { bedrockRegion: "eu-west-1", chatAgentModel: "us.anthropic.claude-fable-5" }),
+      { dictationAgentModel: "eu.anthropic.claude-fable-5" },
+      "a model the same patch writes is kept verbatim, so a re-planned Undo patch adds nothing"
+    );
+    assert.deepEqual(plans.planEnterpriseCoupling(state, { bedrockRegion: "us-west-2" }), {}, "same geography");
+    assert.deepEqual(
+      plans.planEnterpriseCoupling({ ...state, chatAgentModel: "eu.anthropic.claude-fable-5" }, { bedrockRegion: "us-east-1" }),
+      {},
+      "re-typing the current region writes nothing"
+    );
+  });
+
   // Change-driving (I1 follow-up): the preference lived only in the toggle's useLocalStorage.
   await t.test("a web-search patch writes the localStorage preference and announces it", () => {
     reset();
@@ -8231,6 +10158,7 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    import { pickDefaultModelId, pickProviderDefaultModel } from "../models/providerDefaultModel";
    import { INFERENCE_SCOPES, type InferenceScope } from "../config/inferenceScopes";
    import type { SettingsState } from "../stores/settingsStore";
+   import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
    import type { TranscriptionPolicyContext } from "../utils/providerSelection";
 
    // Provider-switch patches shared by the settings store's own switch actions
@@ -8331,6 +10259,20 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    // cortiStreaming.js:48); the tenant picks the auth realm on the same host.
    export const ROUTE_OPTION_KEYS = ["cortiEnvironment", "cortiTenant"] as const satisfies readonly (keyof SettingsState)[];
 
+   // Enterprise settings that pick the receiving host (R2-1): the Bedrock region
+   // (bedrock-runtime.<region>…), the Azure endpoint (its own host), and Vertex's
+   // project and location (<location>-aiplatform…; the project scopes the ADC
+   // request and decides readiness). Main hands them to enterpriseAiProviders.js
+   // (main.js:447-457). azureApiVersion (a query parameter) and bedrockProfile (a
+   // credential source on the same host) are deliberately not route keys.
+   export const ROUTE_ENTERPRISE_KEYS = [
+     "bedrockRegion",
+     "azureEndpoint",
+     "vertexProject",
+     "vertexLocation",
+   ] as const satisfies readonly (keyof SettingsState)[];
+   export type RouteEnterpriseKey = (typeof ROUTE_ENTERPRISE_KEYS)[number];
+
    // The provider web-search preference lives in localStorage as
    // personalWebSearch:<scope> (src/utils/providerSearch.ts), not in the store.
    // A patch carries it as providerSearch:<scope>; only these scopes support it
@@ -8357,6 +10299,7 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
      "reasoningModelByProvider",
      ...ROUTE_SWITCH_KEYS,
      ...ROUTE_OPTION_KEYS,
+     ...ROUTE_ENTERPRISE_KEYS,
    ] as const;
 
    export type NonSecretKeys = (typeof ROUTE_PATCH_KEYS)[number];
@@ -8480,6 +10423,47 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
      (patch as Record<string, unknown>)[key as string] = value;
    }
 
+   // Writes that must travel with `patch` so the routes it moves still run (R2-1).
+   // Bedrock cross-region inference profile ids are geo-scoped (us./eu./apac.,
+   // bedrockRegions.ts:1-3): a region in another geography needs the matching
+   // prefix, which EnterpriseProviderConfig.tsx:115-118 wrote with the region.
+   // Every scope that resolves to Bedrock and stores its own model is adjusted
+   // (the old handler adjusted only the scope on screen); inheriting scopes
+   // follow their parent. A model key the patch itself writes is kept verbatim:
+   // that is the caller's explicit choice, and it makes a re-planned undoPatch
+   // (Task 7's Undo) add nothing. Called by planPatch only; applyRoutePatch never
+   // expands a patch.
+   // The model keys a region change can rewrite in `state`: every scope that
+   // resolves to Bedrock and stores its own model. The planner also pins these
+   // in the undoPatch, so a re-planned Undo restores the region and rewrites no model.
+   export function bedrockCoupledModelKeys(state: SettingsState): (keyof SettingsState)[] {
+     const found: (keyof SettingsState)[] = [];
+     for (const scope of Object.keys(INFERENCE_SCOPES) as InferenceScope[]) {
+       const keys = INFERENCE_SCOPES[scope].storeKeys;
+       // The vision scope's mode is never persisted (settingsStore.ts:1757-1758); it is provider-only.
+       const mode = state[keys.mode] as string | undefined;
+       if (scope !== "dictationAgentVision" && mode !== "enterprise" && mode !== "providers") continue;
+       if (resolvedScopeField(state, scope, "provider") !== "bedrock") continue;
+       if ((state[keys.model] as string | undefined) ?? "") found.push(keys.model);
+     }
+     return found;
+   }
+
+   export function planEnterpriseCoupling(state: SettingsState, patch: SettingsPatch): SettingsPatch {
+     const coupled: SettingsPatch = {};
+     const region = patch.bedrockRegion;
+     // Only a real region change couples; re-typing the current region writes nothing.
+     if (region === undefined || region === state.bedrockRegion) return coupled;
+     const after = { ...state, ...patch } as SettingsState;
+     for (const key of bedrockCoupledModelKeys(after)) {
+       if (key in patch) continue;
+       const own = after[key] as string;
+       const adjusted = adjustBedrockModelForRegion(own, region);
+       if (adjusted !== own) write(coupled, key, adjusted);
+     }
+     return coupled;
+   }
+
    // Every provider shares one model slot per scope, so a plain provider write
    // destroys the outgoing provider's model (the "Parasail" wipe). This plan
    // remembers the outgoing model and restores the incoming provider's last one.
@@ -8565,6 +10549,7 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    import {
      ROUTE_PATCH_KEY_SET,
      TRANSCRIPTION_CONTEXT_KEYS,
+     type RouteEnterpriseKey,
      planReasoningProviderSwitch,
      planTranscriptionProviderSwitch,
      providerSearchScope,
@@ -8574,11 +10559,23 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    import { writeProviderSearchPreference } from "../utils/providerSearch";
    ```
 
-   After `const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";` (`:55`), add the re-export that keeps `OnboardingFlow.tsx:14` working:
+   After `const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";` (`:55`), add the re-export that keeps `OnboardingFlow.tsx:14` working, and the preload savers `applyRoutePatch` calls for enterprise keys (R2-1; the same methods the setters at `:2033-2097` call):
 
    ```ts
    export { reasoningModelBelongsToProvider };
+
+   const ENTERPRISE_MAIN_SAVERS: Record<
+     RouteEnterpriseKey,
+     "saveBedrockRegion" | "saveAzureEndpoint" | "saveVertexProject" | "saveVertexLocation"
+   > = {
+     bedrockRegion: "saveBedrockRegion",
+     azureEndpoint: "saveAzureEndpoint",
+     vertexProject: "saveVertexProject",
+     vertexLocation: "saveVertexLocation",
+   };
    ```
+
+   The four setters (`setBedrockRegion`, `setAzureEndpoint`, `setVertexProject`, `setVertexLocation`) stay for non-route callers. Task 9 moves `EnterpriseProviderConfig`'s calls to `requestRoutePatch`, and Task 18's guard forbids them in Settings components.
 
    `TRANSCRIPTION_CONTEXT_KEYS` is still used by `setCloudTranscriptionForAllScopes` (`:2429`), and `reasoningModelBelongsToProvider` by `reconcileRetiredCloudModelSelections` (`:2749`). Both now resolve to the import.
 
@@ -8644,6 +10641,21 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
          }
        }
        if (storeEntries.length > 0) set(Object.fromEntries(storeEntries) as Partial<SettingsState>);
+       // R2-1: main hands the enterprise fields to the executor (main.js:447-457),
+       // so they go to main through the same savers their setters called
+       // (:2033-2097). Errors are logged like debouncedPersistToEnv's.
+       let enterpriseWritten = false;
+       for (const [key, value] of storeEntries) {
+         const saver = ENTERPRISE_MAIN_SAVERS[key as RouteEnterpriseKey];
+         if (!saver || !isBrowser) continue;
+         // Task 3's startup sync from main must not overwrite this newer write.
+         if (!enterpriseWritten) noteEnterpriseLocalWrite();
+         enterpriseWritten = true;
+         Promise.resolve(window.electronAPI?.[saver]?.(value as string)).catch((err) => {
+           logger.warn("Failed to save an enterprise setting", { key, error: (err as Error).message }, "settings");
+         });
+       }
+       if (enterpriseWritten) debouncedPersistToEnv();
        // The web-search preference is not a store field. Written after the store,
        // so listeners of its change event read the patched settings.
        for (const [key, value] of entries) {
@@ -8687,7 +10699,8 @@ Expected: PASS.
 npx prettier --write src/lib/providerSwitchPlans.ts src/stores/settingsStore.ts src/utils/providerSearch.ts test/lib/providerSwitchPlans.test.js test/lib/routeStateFixture.js
 npm run lint
 git add src/lib/providerSwitchPlans.ts src/stores/settingsStore.ts src/utils/providerSearch.ts test/lib/providerSwitchPlans.test.js test/lib/routeStateFixture.js
-git commit -m "refactor(settings): Share provider-switch patches between store and planner"
+git commit -m "refactor(settings): Share provider-switch patches between store and planner" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 6: Write the failing planner tests**
@@ -8888,16 +10901,24 @@ test("route planner", async (t) => {
   });
 
   // Change-driving: blockers are computed over every changed off-device route.
+  // R2-9 reversed two v2 exemptions: Codex/enterprise sign-in and the remote
+  // model are chosen in the staged editor before Apply, so both now block.
   await t.test("blockers", () => {
     reset();
     const noOpenAiKey = { facts: { credentials: new Map([["openai", false]]) } };
     assert.equal(plan("dictationStt", { mode: "providers", provider: "openai" }, noOpenAiKey).blocker, "needsKey");
-    assert.equal(plan("chat", { mode: "providers", provider: "codex" }).blocker, null, "Codex signs in after switching");
+    assert.equal(plan("chat", { mode: "providers", provider: "codex" }).blocker, "needsKey", "R2-9: Codex signs in before Apply");
+    assert.equal(plan("chat", { mode: "providers", provider: "bedrock" }).blocker, "needsKey", "R2-9: no enterprise exemption");
     assert.equal(plan("chat", { mode: "providers", provider: "" }).blocker, "chooseProvider");
     assert.equal(plan("chat", { mode: "self-hosted", remoteUrl: "", model: "llama3" }).blocker, "needsUrl");
     assert.equal(plan("dictationStt", { mode: "providers", provider: "groq" }, { sealed: true }).blocker, "sealed");
     assert.equal(plan("dictationStt", { mode: "providers", provider: "groq" }, { facts: { credentials: null } }).blocker, "unknown");
-    assert.equal(plan("chat", { mode: "providers", provider: "openai", model: "" }).blocker, null, "a remote text route chooses its model after switching");
+    assert.equal(plan("chat", { mode: "providers", provider: "openai", model: "" }).blocker, "needsModel", "R2-9: the model is chosen before Apply");
+    const azureNoEndpoint = plan("chat", { mode: "providers", provider: "azure", model: "gpt-4o-deploy" }, {
+      facts: { credentials: new Map([["azure", true]]) },
+    });
+    assert.equal(azureNoEndpoint.blocker, "needsUrl", "R2-1: a saved Azure key without an endpoint cannot apply");
+    assert.equal(plan("chat", { mode: "providers", provider: "openai" }).blocker, null, "ready routes never block");
     reset(OPENAI_CHAT);
     const home = plan("chat", { mode: "local" }, { sealed: true });
     assert.equal(home.blocker, null, "moving onto the device is never blocked");
@@ -8907,7 +10928,203 @@ test("route planner", async (t) => {
   await t.test("planPatch refuses keys outside the route settings", () => {
     reset();
     assert.throws(() => planner.planPatch(live(), ctx(), "chat", { openaiApiKey: "sk-x" }), /cannot write/);
+    assert.throws(() => planner.planPatch(live(), ctx(), "chat", { azureApiVersion: "2025-01-01" }), /cannot write/);
   });
+
+  // R2-1: the enterprise fields were direct setter writes (EnterpriseProviderConfig.tsx:114-118,
+  // 145-148,166-174) that settingsStore.ts:2060-2063 persisted to main at once.
+  const AZURE = { mode: "enterprise", provider: "azure", model: "gpt-4o-deploy" };
+  const azureScope = (prefix) => ({
+    [`${prefix}Mode`]: AZURE.mode,
+    [`${prefix}Provider`]: AZURE.provider,
+    [`${prefix}Model`]: AZURE.model,
+  });
+  const azureKey = {
+    facts: { credentials: new Map([["azure", true]]), credentialFields: new Map([["azure", { key: true }]]) },
+  };
+
+  // Change-driving (R2-1): v2's allowlist refused azureEndpoint and the graph gave Azure no host.
+  await t.test("an Azure endpoint change on the active route is an off-device recipient change: it stages", () => {
+    reset({ ...azureScope("chatAgent"), azureEndpoint: "https://myres.openai.azure.com/openai" });
+    const p = planner.planPatch(live(), ctx(azureKey), "chat", { azureEndpoint: "https://other.example.com/openai" });
+    assert.equal(p.kind, "staged");
+    assert.deepEqual(p.changes.map((c) => c.id), ["chat"]);
+    assert.equal(change(p, "chat").before.host, "myres.openai.azure.com");
+    assert.equal(change(p, "chat").after.host, "other.example.com");
+    assert.equal(p.blocker, null, "the new endpoint is valid and the key is saved");
+    assert.deepEqual(p.patch, { azureEndpoint: "https://other.example.com/openai" });
+    assert.deepEqual(p.undoPatch, { azureEndpoint: "https://myres.openai.azure.com/openai" });
+    assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai", "planning commits nothing");
+
+    const refused = planner.planPatch(live(), ctx(azureKey), "chat", { azureEndpoint: "http://myres.openai.azure.com/openai" });
+    assert.equal(change(refused, "chat").after.host, null);
+    assert.equal(refused.blocker, "needsUrl", "Apply waits for an endpoint the executor accepts");
+
+    const samePlace = planner.planPatch(live(), ctx(azureKey), "chat", { azureEndpoint: "https://myres.openai.azure.com/openai/" });
+    assert.equal(samePlace.kind, "instant", "a path-only edit keeps the recipient");
+    assert.deepEqual(samePlace.changes, []);
+
+    live().applyRoutePatch(p.patch);
+    assert.equal(resolveLive().find((r) => r.id === "chat").host, "other.example.com", "commit is the preview");
+    live().applyRoutePatch(p.undoPatch);
+    assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai", "Undo restores the endpoint exactly");
+
+    reset({ azureEndpoint: "https://myres.openai.azure.com/openai" });
+    const unused = planner.planPatch(live(), ctx(azureKey), "chat", { azureEndpoint: "https://other.example.com/openai" });
+    assert.equal(unused.kind, "instant", "no route uses Azure, so nothing new is sent");
+    assert.deepEqual(unused.changes, []);
+  });
+
+  // Change-driving (R2-1 staging gap): until Task 3 has synced facts.enterpriseMain, or while
+  // Vertex's key presence is still null, enterprise routes resolve `unknown` with host null on
+  // both sides. The v2 planner compared null === null (and the fingerprints were equal), so an
+  // endpoint, region or location edit was instant and committed without review.
+  await t.test("an enterprise recipient edit stages while the graph cannot name the host", () => {
+    const unsynced = { facts: { ...azureKey.facts, enterpriseMain: null } };
+    reset({ ...azureScope("chatAgent"), azureEndpoint: "https://myres.openai.azure.com/openai" });
+    const p = planner.planPatch(live(), ctx(unsynced), "chat", { azureEndpoint: "https://other.example.com/openai" });
+    assert.equal(p.kind, "staged", "an unnamed recipient is never assumed to be the same one");
+    assert.deepEqual(p.changes.map((c) => c.id), ["chat"]);
+    assert.equal(change(p, "chat").before.host, null);
+    assert.equal(change(p, "chat").after.host, null);
+    assert.equal(change(p, "chat").after.state.status, "unknown");
+    assert.equal(p.blocker, "unknown", "Apply waits until main's facts are synced");
+    assert.deepEqual(p.patch, { azureEndpoint: "https://other.example.com/openai" });
+    assert.deepEqual(p.undoPatch, { azureEndpoint: "https://myres.openai.azure.com/openai" });
+    assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai", "planning commits nothing");
+
+    // A Bedrock region edit, with its coupled model rewrite, stages too.
+    reset({ bedrockRegion: "us-east-1", chatAgentMode: "enterprise", chatAgentProvider: "bedrock", chatAgentModel: "us.anthropic.claude-fable-5" });
+    const region = planner.planPatch(
+      live(),
+      ctx({ facts: { credentials: new Map([["bedrock", true]]), enterpriseMain: null } }),
+      "chat",
+      { bedrockRegion: "eu-west-1" }
+    );
+    assert.equal(region.kind, "staged");
+    assert.equal(region.blocker, "unknown");
+    assert.deepEqual(region.patch, { bedrockRegion: "eu-west-1", chatAgentModel: "eu.anthropic.claude-fable-5" });
+
+    // Baseline guards: what was instant stays instant while the facts load.
+    reset({ azureEndpoint: "https://myres.openai.azure.com/openai" });
+    const unused = planner.planPatch(live(), ctx(unsynced), "chat", { azureEndpoint: "https://other.example.com/openai" });
+    assert.equal(unused.kind, "instant", "no route uses Azure, so nothing is sent whatever the facts");
+    assert.deepEqual(unused.changes, []);
+    reset(OPENAI_CHAT);
+    assert.equal(
+      plan("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" }, { facts: { enterpriseMain: null } }).kind,
+      "instant",
+      "a model change at the same provider and host does not wait for enterprise facts"
+    );
+    reset({ ...azureScope("chatAgent"), azureEndpoint: "https://myres.openai.azure.com/openai" });
+    assert.equal(plan("chat", { mode: "local" }, unsynced).kind, "instant", "moving onto the device is instant");
+  });
+
+  // Change-driving (R2-1 staging gap): Vertex's host depends on whether a key is stored, so
+  // with credentials still null the route is `unknown`, host null, before and after.
+  await t.test("a Vertex location edit stages while Vertex's key presence is unknown", () => {
+    const vertex = {
+      chatAgentMode: "enterprise",
+      chatAgentProvider: "vertex",
+      chatAgentModel: "gemini-2.5-flash",
+      vertexProject: "acme-prod",
+      vertexLocation: "us-central1",
+    };
+    reset(vertex);
+    const loading = { facts: { credentials: null, credentialFields: null } };
+    const p = planner.planPatch(live(), ctx(loading), "chat", { vertexLocation: "europe-west4" });
+    assert.equal(p.kind, "staged");
+    assert.equal(change(p, "chat").before.host, null);
+    assert.equal(change(p, "chat").after.state.status, "unknown");
+    assert.equal(p.blocker, "unknown");
+    const project = planner.planPatch(live(), ctx(loading), "chat", { vertexProject: "acme-staging" });
+    assert.equal(project.kind, "staged", "the project names the recipient account");
+
+    // Once presence is known (no key, so ADC), the same edit is an ordinary host change.
+    const known = planner.planPatch(
+      live(),
+      ctx({ facts: { credentials: new Map([["vertex", false]]), credentialFields: new Map([["vertex", { key: false }]]) } }),
+      "chat",
+      { vertexLocation: "europe-west4" }
+    );
+    assert.equal(change(known, "chat").before.host, "us-central1-aiplatform.googleapis.com");
+    assert.equal(change(known, "chat").after.host, "europe-west4-aiplatform.googleapis.com");
+    assert.equal(known.kind, "staged");
+  });
+
+  // Change-driving (I6 for R2-1): one enterprise field moves every route on that provider.
+  await t.test("coupled-route review lists every route an enterprise field moves", () => {
+    reset({
+      ...azureScope("chatAgent"),
+      ...azureScope("noteFormatting"),
+      ...azureScope("dictationAgent"),
+      cleanupMode: "providers",
+      cleanupProvider: "openai",
+      cleanupModel: "gpt-6-astra",
+      azureEndpoint: "https://myres.openai.azure.com/openai",
+    });
+    const p = planner.planPatch(live(), ctx(azureKey), "chat", { azureEndpoint: "https://other.example.com/openai" });
+    assert.deepEqual(
+      p.changes.map((c) => [c.id, c.coupled]).sort(),
+      [["assistantVision", true], ["chat", false], ["noteFormatting", true], ["voiceAssistant", true]],
+      "vision follows the assistant; cleanup on OpenAI is untouched"
+    );
+    assert.equal(p.changes[0].id, "chat", "the requested route comes first");
+    for (const c of p.changes) assert.equal(c.after.host, "other.example.com", c.id);
+    assert.equal(p.kind, "staged");
+  });
+
+  // Change-driving (R2-1): the region's model rewrite lived only in EnterpriseProviderConfig.tsx:115-118.
+  await t.test("a Bedrock region change adds the model adjustment to the same patch, and Undo is exact", () => {
+    const bedrockKey = { facts: { credentials: new Map([["bedrock", true]]) } };
+    reset({
+      bedrockRegion: "us-east-1",
+      chatAgentMode: "enterprise",
+      chatAgentProvider: "bedrock",
+      chatAgentModel: "us.anthropic.claude-fable-5",
+      noteFormattingMode: "enterprise",
+      noteFormattingProvider: "bedrock",
+      noteFormattingModel: "anthropic.claude-3-haiku", // on-demand id: valid in every region
+    });
+    const before = routeKeys();
+    const p = planner.planPatch(live(), ctx(bedrockKey), "chat", { bedrockRegion: "eu-west-1" });
+    assert.deepEqual(p.patch, { bedrockRegion: "eu-west-1", chatAgentModel: "eu.anthropic.claude-fable-5" });
+    assert.deepEqual(p.undoPatch, {
+      bedrockRegion: "us-east-1",
+      chatAgentModel: "us.anthropic.claude-fable-5",
+      noteFormattingModel: "anthropic.claude-3-haiku", // pinned: a re-planned Undo must not rewrite it
+    });
+    assert.equal(p.kind, "staged");
+    const chat = change(p, "chat");
+    assert.equal(chat.coupled, false);
+    assert.equal(chat.before.host, "bedrock-runtime.us-east-1.amazonaws.com");
+    assert.equal(chat.after.host, "bedrock-runtime.eu-west-1.amazonaws.com");
+    assert.equal(chat.after.model, "eu.anthropic.claude-fable-5", "the preview shows the adjusted model");
+    assert.equal(change(p, "noteFormatting").coupled, true, "the other Bedrock route changes region too");
+    assert.equal(change(p, "noteFormatting").after.host, "bedrock-runtime.eu-west-1.amazonaws.com");
+
+    live().applyRoutePatch(p.patch);
+    assert.equal(live().chatAgentModel, "eu.anthropic.claude-fable-5");
+    // Task 7's Undo re-plans the undoPatch against the live state.
+    const back = planner.planPatch(live(), ctx(bedrockKey), "chat", p.undoPatch);
+    assert.deepEqual(back.patch, { bedrockRegion: "us-east-1", chatAgentModel: "us.anthropic.claude-fable-5" });
+    live().applyRoutePatch(back.patch);
+    assert.deepEqual(routeKeys(), before, "every key restored");
+
+    // A profile id that never matched its region is restored too, not "fixed" by the Undo.
+    reset({ bedrockRegion: "us-east-1", chatAgentMode: "enterprise", chatAgentProvider: "bedrock", chatAgentModel: "eu.anthropic.claude-fable-5" });
+    const mismatched = routeKeys();
+    const forward = planner.planPatch(live(), ctx(bedrockKey), "chat", { bedrockRegion: "eu-west-1" });
+    assert.deepEqual(forward.patch, { bedrockRegion: "eu-west-1" }, "already an eu.* id");
+    live().applyRoutePatch(forward.patch);
+    live().applyRoutePatch(planner.planPatch(live(), ctx(bedrockKey), "chat", forward.undoPatch).patch);
+    assert.deepEqual(routeKeys(), mismatched);
+
+    // Switching to Bedrock picks the profile id for the region the state holds.
+    reset({ bedrockRegion: "eu-west-1" });
+    assert.equal(plan("chat", { mode: "providers", provider: "bedrock" }, bedrockKey).patch.chatAgentModel, "eu.anthropic.claude-fable-5");
+  });
+
 
   // Change-driving (I1 follow-up): v1's allowlist refused the enable switches,
   // so the editors wrote them directly and turning a cloud route on sent data unreviewed.
@@ -9072,7 +11289,7 @@ test("route planner", async (t) => {
 - [ ] **Step 7: Run the tests to verify they fail**
 
 Run: `npm test -- test/lib/routePlanner.test.js`
-Expected: FAIL, because `/lib/routePlanner.ts` does not exist. Every subtest above is change-driving, and the reason is stated on each. The four I1 follow-up subtests (enable switches, assistant switches, Corti region, provider web search) also depend on Step 3's allowlist and on Task 3's builder deriving `providerHosts.corti` from `cortiEnvironment`.
+Expected: FAIL, because `/lib/routePlanner.ts` does not exist. Every subtest above is change-driving, and the reason is stated on each. The four I1 follow-up subtests (enable switches, assistant switches, Corti region, provider web search) also depend on Step 3's allowlist and on Task 3's builder deriving `providerHosts.corti` from `cortiEnvironment`. The three R2-1 subtests (Azure endpoint staging, coupled-route review, Bedrock region coupling with exact Undo) depend on Step 3's `ROUTE_ENTERPRISE_KEYS`/`planEnterpriseCoupling` and on Tasks 1 and 3 deriving enterprise hosts from `snapshot.enterprise`; the reversed `blockers` assertions (Codex/Bedrock `needsKey`, remote `needsModel`, Azure `needsUrl`) are R2-9/R2-1 change-driving against v2's exemptions. The two R2-1 staging-gap subtests ("an enterprise recipient edit stages while the graph cannot name the host", "a Vertex location edit stages while Vertex's key presence is unknown") fail against the c912d19 planner even once the module exists: with `enterpriseMain: null` or Vertex presence `null` the before and after fingerprints are equal, `changes` is empty and the plan is `instant`. Their baseline-guard lines (unused Azure field, same-host model change, on-device move) pass on both.
 
 - [ ] **Step 8: Implement the planner**
 
@@ -9083,11 +11300,14 @@ import { INFERENCE_SCOPES } from "../config/inferenceScopes";
 import { isProviderValidForMode } from "../models/ModelRegistry";
 import type { SettingsState } from "../stores/settingsStore";
 import type { InferenceMode, LocalTranscriptionProvider } from "../types/electron";
+import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
 import { readProviderSearchPreference, supportsProviderSearch } from "../utils/providerSearch";
 import {
   ENTERPRISE_PROVIDER_IDS,
   ROUTE_PATCH_KEY_SET,
+  bedrockCoupledModelKeys,
   defaultCloudModel,
+  planEnterpriseCoupling,
   planReasoningProviderSwitch,
   planTranscriptionProviderSwitch,
   providerSearchScope,
@@ -9148,9 +11368,10 @@ export interface PlanContext {
   sealed: boolean;
 }
 
-// Codex and the enterprise clouds sign in inside the provider editor, which
-// appears only after the switch. Applying first sends nothing: there are no
-// credentials yet.
+// Providers whose setup (Codex sign-in; enterprise endpoint, region, project
+// and credentials) happens in the provider editor, which the staged editor
+// shows before Apply (R2-9). Copy only ("sign in here first", Task 8): it
+// never unblocks Apply.
 export const SETUP_AFTER_APPLY: ReadonlySet<string> = new Set(["codex", ...ENTERPRISE_PROVIDER_IDS]);
 
 type Patch = Record<string, unknown>;
@@ -9284,7 +11505,15 @@ function providerPatch(
       patch[keys.model] = "";
     }
   }
-  if (target.model !== undefined) patch[keys.model] = target.model;
+  if (target.model !== undefined) {
+    patch[keys.model] = target.model;
+  } else if (target.provider === "bedrock" && typeof patch[keys.model] === "string") {
+    // R2-1: a remembered or default Bedrock profile id follows the region the
+    // state holds (bedrockRegions.ts), so switching to Bedrock in eu-west-1 never
+    // previews or commits a us.* profile. A caller that stages a region together
+    // with a target plans the target against the state with that region applied.
+    patch[keys.model] = adjustBedrockModelForRegion(patch[keys.model] as string, state.bedrockRegion || "us-east-1");
+  }
   if (target.baseUrl !== undefined && keys.cloudBaseUrl) patch[keys.cloudBaseUrl] = target.baseUrl;
   return patch;
 }
@@ -9391,8 +11620,8 @@ function withPatchedSearch(snapshot: RouteSettingsSnapshot, written: Patch): Rou
 // Instant when nothing new leaves the device: the route is off or ends on the
 // device, or it keeps the same recipient (locality, provider and host) and
 // its payload did not grow. Turning on a route that leaves the device adds a
-// recipient. An off-device endpoint without a known host is never assumed to
-// be the same one.
+// recipient. An off-device recipient the graph cannot name (host null, or
+// state `unknown`) is never assumed to be the same one (R2-1 staging gap).
 function addsNoRecipientOrPayload(
   change: RouteChange,
   beforeSnapshot: RouteSettingsSnapshot,
@@ -9403,6 +11632,14 @@ function addsNoRecipientOrPayload(
   if (after.state.status === "off") return true;
   if (after.locality === "device") return true;
   if (before.state.status === "off") return false;
+  // R2-1 staging gap: until Task 3 syncs facts.enterpriseMain, and while
+  // Vertex's key presence is null, enterprise routes resolve `unknown` with
+  // host null on both sides, so null === null let an Azure endpoint, Bedrock
+  // region or Vertex location edit commit unreviewed. An unnamed recipient is
+  // a recipient change: the edit stages, and Apply's `unknown` blocker holds
+  // it until the facts load.
+  if (before.host === null || after.host === null) return false;
+  if (before.state.status === "unknown" || after.state.status === "unknown") return false;
   if (
     after.locality !== before.locality ||
     after.providerId !== before.providerId ||
@@ -9410,9 +11647,39 @@ function addsNoRecipientOrPayload(
   ) {
     return false;
   }
-  if (after.host === null && (after.providerId === null || after.providerId === "custom")) return false;
   const had = new Set<string>(routePayloadParts(change.id, beforeSnapshot));
   return routePayloadParts(change.id, afterSnapshot).every((part) => had.has(part));
+}
+
+// R2-1 staging gap: the enterprise settings each provider's host is derived
+// from (Task 1's enterpriseRequestHost). While a route's recipient is unnamed,
+// both fingerprints read `unknown`/null whatever these hold, so a write to one
+// of them is listed as a change explicitly; otherwise it would never reach
+// addsNoRecipientOrPayload and the empty change list would read as instant.
+const ENTERPRISE_RECIPIENT_KEYS: Readonly<Record<string, readonly string[]>> = {
+  bedrock: ["bedrockRegion"],
+  azure: ["azureEndpoint"],
+  vertex: ["vertexProject", "vertexLocation"],
+};
+
+function recipientUnnamed(route: ResolvedRoute): boolean {
+  return (
+    route.locality !== "device" &&
+    route.state.status !== "off" &&
+    (route.host === null || route.state.status === "unknown")
+  );
+}
+
+function writesRecipientInput(route: ResolvedRoute, written: Patch): boolean {
+  const keys = route.providerId ? ENTERPRISE_RECIPIENT_KEYS[route.providerId] : undefined;
+  return keys !== undefined && keys.some((key) => key in written);
+}
+
+function unnamedRecipientEdit(before: ResolvedRoute, after: ResolvedRoute, written: Patch): boolean {
+  return (
+    (recipientUnnamed(before) || recipientUnnamed(after)) &&
+    (writesRecipientInput(before, written) || writesRecipientInput(after, written))
+  );
 }
 
 const BLOCKER_PRIORITY: ApplyBlocker[] = [
@@ -9425,19 +11692,31 @@ const BLOCKER_PRIORITY: ApplyBlocker[] = [
   "needsModel",
 ];
 
+// R2-9: Apply waits until every changed, enabled, off-device route would run.
+// Device routes (on-device changes stay instant) and off routes never block.
+// Model choice and provider setup (Codex sign-in, enterprise fields, keys,
+// Corti fields) are reachable in the staged editor before Apply, so no
+// provider is exempt.
 function routeBlocker(route: ResolvedRoute): ApplyBlocker | null {
   if (route.locality === "device") return null;
   const state = route.state;
-  if (state.status === "unknown") return "unknown";
-  if (state.status === "needsUrl") return "needsUrl";
-  if (state.status === "unreachable") return state.detail === "sealed" ? "sealed" : "unsupported";
-  if (state.status === "needsKey") {
-    if (state.provider === "") return "chooseProvider";
-    return route.providerId && SETUP_AFTER_APPLY.has(route.providerId) ? null : "needsKey";
+  switch (state.status) {
+    case "ready":
+    case "off":
+      return null;
+    case "unknown":
+      return "unknown";
+    case "needsUrl":
+      return "needsUrl";
+    case "unreachable":
+      return state.detail === "sealed" ? "sealed" : "unsupported";
+    case "needsKey":
+      return state.provider === "" ? "chooseProvider" : "needsKey";
+    case "needsModel":
+      return "needsModel";
+    default:
+      return "unsupported";
   }
-  // A remote text route picks its model in the provider editor after switching.
-  if (state.status === "needsModel") return state.sizeBytes !== undefined ? "needsModel" : null;
-  return null;
 }
 
 export function planPatch(
@@ -9446,15 +11725,26 @@ export function planPatch(
   routeId: RouteId,
   patch: SettingsPatch
 ): RoutePlan {
+  // R2-1: coupled writes (a Bedrock region's model rewrite) join the patch
+  // before diffing, so the preview, the commit and the undoPatch all carry them.
+  const expanded: SettingsPatch = { ...patch, ...planEnterpriseCoupling(state, patch) };
   const written: Patch = {};
   const undo: Patch = {};
-  for (const [key, value] of Object.entries(patch)) {
+  for (const [key, value] of Object.entries(expanded)) {
     if (value === undefined) continue;
     if (!ROUTE_PATCH_KEY_SET.has(key)) throw new Error(`Route patches cannot write ${key}`);
     const now = currentValue(state, key);
     if (sameValue(now, value)) continue;
     written[key] = value;
     undo[key] = now;
+  }
+  // A region change pins every Bedrock model it could rewrite into the Undo
+  // (at its current value), so re-planning undoPatch couples nothing new and
+  // restores exactly the starting keys, even a profile id that never matched.
+  if ("bedrockRegion" in written) {
+    for (const key of bedrockCoupledModelKeys(merged(state, written))) {
+      if (!(key in undo)) undo[key as string] = state[key];
+    }
   }
   if (Object.keys(written).length === 0) {
     return { routeId, patch: {}, undoPatch: {}, changes: [], kind: "noop", blocker: null };
@@ -9469,7 +11759,10 @@ export function planPatch(
   const changes: RouteChange[] = [];
   for (const before of resolveRoutes(beforeSnapshot)) {
     const after = afterById.get(before.id);
-    if (after && fingerprint(after) !== fingerprint(before)) {
+    if (!after) continue;
+    // R2-1 staging gap: an enterprise field edit on a route whose host is not
+    // known yet leaves both fingerprints equal; it is still a recipient edit.
+    if (fingerprint(after) !== fingerprint(before) || unnamedRecipientEdit(before, after, written)) {
       changes.push({ id: before.id, before, after, coupled: before.id !== routeId });
     }
   }
@@ -9508,11 +11801,14 @@ export function planRouteChange(
 ```
 
 Notes for the implementer:
-- `routeBlocker` returns null for `off` routes because their state is `off`, so an off route never blocks (Appendix A: "every non-off changed route").
+- `routeBlocker` returns null for `off` routes because their state is `off`, so an off route never blocks (Appendix A: "every non-off changed route"). R2-9 removed both exemptions (Codex/enterprise `needsKey`, size-less `needsModel`): the staged editor exposes the model picker and provider setup before Apply (Tasks 7-9).
+- `planEnterpriseCoupling` runs before the key check, so a coupled model key is validated like any other. It skips model keys the patch already writes, so `planPatch(live, ctx, id, plan.undoPatch)` (Task 7's Undo) re-plans exactly the undoPatch. A caller that stages a region together with a provider target plans the target against `{ ...state, ...setup }`, so `providerPatch` picks the profile id for the new region.
+- `planEnterpriseCoupling` returns nothing when `bedrockRegion` equals the current region, so re-typing the region is still `noop`.
+- R2-1 staging gap. Any changed, enabled, off-device route whose before or after `host` is `null`, or whose before or after state is `unknown`, is a recipient change, so the edit stages and Apply's `unknown` (or `needsUrl`) blocker holds it until it is ready. This subsumes v2's narrower custom-endpoint rule. Because an unsynced enterprise route resolves to the same `unknown`/`null` fingerprint whatever its fields hold, `planPatch` also lists a route as changed when its recipient is unnamed and the patch writes one of its provider's `ENTERPRISE_RECIPIENT_KEYS` (Azure `azureEndpoint`, Bedrock `bedrockRegion`, Vertex `vertexProject`/`vertexLocation`). A field nobody uses still changes no route and stays instant. A model change at a known host, on-device moves and switching a route off are untouched.
 - Switch semantics come out of `addsNoRecipientOrPayload` with no switch-specific code: a route that ends `off` is instant; a route that goes from `off` to on and leaves the device is staged (the resolver keeps an off route's locality, provider and host, so without the `before.state` check an enable switch would look like "same recipient"). The vision override is not an off switch: turning it either way can hand screenshots to another provider, and the planner stages that like any other recipient change.
 - `providerSearch:<scope>` keys read their current value from localStorage (`currentValue`) so `undoPatch` restores the stored preference, and `withPatchedSearch` puts the patched value into the after-snapshot, gated by `supportsProviderSearch` exactly like `isProviderSearchEnabled`.
 - The `state.status === …` comparisons narrow explicitly, because `src/tsconfig.json` is not strict.
-- `planPatch` drops keys whose value already matches. Re-selecting where a route already runs is therefore `noop`, and `undoPatch` holds exactly the keys that change.
+- `planPatch` drops keys whose value already matches. Re-selecting where a route already runs is therefore `noop`, and `undoPatch` holds exactly the keys that change, plus (R2-1) after a region change every Bedrock model key at its unchanged value, which pins it against coupling when Task 7 re-plans the Undo. Applying such a pinned key writes the value it already has.
 - `undoPatch` holds the raw prior value. For inherited meeting and upload fields, that is `""` (inheritance restored). For the vision flags, it is the prior `useDictationAgentVisionModel` and the prior vision provider and model.
 
 - [ ] **Step 9: Run the tests to verify they pass**
@@ -9526,7 +11822,8 @@ Expected: PASS.
 npx prettier --write src/lib/routePlanner.ts test/lib/routePlanner.test.js
 npm run lint
 git add src/lib/routePlanner.ts test/lib/routePlanner.test.js
-git commit -m "feat(routes): Plan route changes as one patch for preview, commit and Undo"
+git commit -m "feat(routes): Plan route changes as one patch for preview, commit and Undo" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -9542,9 +11839,15 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
   - `noop`: nothing is written, and any draft for that route is dropped.
   - `instant`: the plan's patch is committed, and an Undo is returned. Every changed route either ends on this device, or keeps the same recipient and payload.
   - `staged`: the request becomes the single draft, and nothing is written.
-- **Apply.** It awaits pending key saves, then re-plans the draft from the live state at click time. It refuses with a blocker and keeps the draft, or commits.
-- **Undo.** It re-plans the prior raw values. A move back onto the device (or to the same recipient) applies at once; anything else is staged as a patch draft. Undo never moves work off the device without review.
-- **Closing Settings** discards the draft (`withDraftDiscard`).
+- **Apply.** It awaits pending key saves, then re-plans the draft from the live state at click time. It refuses with a blocker and keeps the draft, or commits. The planner blocks Apply until every changed, enabled, off-device route is `ready` (Task 6, R2-9). Codex sign-in, enterprise setup, keys and a model choice are therefore finished inside the staged editor (Task 8) before Apply.
+- **Staged setup (R2-9, R2-1).** A `kind: "target"` draft can carry `setup`: the non-secret enterprise route fields (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`, BRIEF item 2) typed in the staged editor. `stageDraftSetup(id, patch)` merges them into the draft and writes nothing. `planDraft` plans the target's patch plus `setup` as one patch, so review, Apply and Undo cover both. Picking another model keeps `setup`; picking another provider drops it.
+- **Request epochs (R2-8).** The store keeps two kinds of epoch.
+  - `routeEpochs[routeId]`, one per route. Every `requestRouteChange(id, …)` and `requestRoutePatch(id, …)` call bumps `routeEpochs[id]` at call time. Every Undo bumps the epoch of its plan's route and of every route in its `changes`.
+  - `requestEpoch`, the session epoch. Only the public `discard()` (the user's Discard) and `endSettingsSession()` bump it. Internal draft drops (a no-op request, an instant commit on the draft's route, an Apply that finds nothing to do) bump nothing.
+  - A request settles only if both its route epoch and the session epoch are still current after its waits. Otherwise it returns `"superseded"` and writes and stages nothing. So a request can't outlive Settings closing or a Discard, and an older request can't replace a newer selection on the same route. A request on another route is not superseded: two routes requested concurrently both settle (the single-draft rule still applies to what they stage).
+  - `applyDraft` reads the draft route's epoch and the session epoch without bumping them, and applies only if both, and the draft itself, are unchanged after its wait.
+  - Undo is synchronous and runs no wait, so it is never gated, and a toast's Undo still works after Settings closes.
+- **Closing Settings** calls `endSettingsSession()`. It discards the draft and bumps the session epoch. `withDraftDiscard` wraps `SettingsModal`'s `onOpenChange` with it (Task 8).
 
 **Files:**
 - Create: `src/stores/routeDraftStore.ts`
@@ -9556,7 +11859,8 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
 - Consumes:
   - **Task 6:**
     - `planRouteChange`, `planPatch`, `RouteTarget`, `RoutePlan`, `RouteChange`, `ApplyBlocker` and `PlanContext` (`src/lib/routePlanner.ts`);
-    - `SettingsPatch` (`src/lib/providerSwitchPlans.ts`);
+    - `SettingsPatch` and `ROUTE_ENTERPRISE_KEYS` (`src/lib/providerSwitchPlans.ts`; the four enterprise route fields, R2-1);
+    - `routeBlocker`'s R2-9 rule: every changed, enabled, off-device route that is not `ready` blocks, including Codex and enterprise `needsKey` and remote `needsModel`;
     - the store action `applyRoutePatch`;
     - `test/lib/routeStateFixture.js`.
   - **Task 2:** `flushSecretSaves(): Promise<void>`, exported by `src/stores/settingsStore.ts`, and the ack-based secret setters (`setOpenaiApiKey`).
@@ -9572,16 +11876,26 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
   ```ts
   // src/stores/routeDraftStore.ts
   export type RouteDraft =
-    | { routeId: RouteId; kind: "target"; target: RouteTarget }
+    | { routeId: RouteId; kind: "target"; target: RouteTarget; setup?: SettingsPatch } // setup: R2-9/R2-1
     | { routeId: RouteId; kind: "patch"; patch: SettingsPatch };
-  export const useRouteDraftStore: UseBoundStore<StoreApi<{ draft: RouteDraft | null; stage(d: RouteDraft): void; discard(): void }>>;
+  export const useRouteDraftStore: UseBoundStore<StoreApi<{
+    draft: RouteDraft | null;
+    requestEpoch: number;                // R2-8 session epoch: bumped only by discard() and endSettingsSession()
+    routeEpochs: Partial<Record<RouteId, number>>; // R2-8 per-route request epochs: bumped by requests and Undo
+    stage(d: RouteDraft): void;
+    discard(): void;                     // drops the draft and bumps requestEpoch (every waiting request is superseded)
+  }>>;
+  export const DRAFT_SETUP_KEYS: ReadonlySet<string>;                         // bedrockRegion, azureEndpoint, vertexProject, vertexLocation
   export function currentPlanContext(copy: RouteCopy): PlanContext;           // facts store + getSealed()
-  export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan;   // NEW: the live plan the Apply bar renders
+  export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan;   // the live plan the Apply bar renders (target patch + setup)
   export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => RouteChangeOutcome | "staged" }
-  export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteChangeOutcome | "staged">;
-  export async function requestRoutePatch(id: RouteId, patch: SettingsPatch, copy: RouteCopy): Promise<RouteChangeOutcome | "staged">; // NEW (I1 follow-up)
+  export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"; // R2-8
+  export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>;
+  export async function requestRoutePatch(id: RouteId, patch: SettingsPatch, copy: RouteCopy): Promise<RouteRequestResult>;
+  export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null; // R2-9: null when the route has no target draft
   export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null>;
-  export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void;
+  export function endSettingsSession(): void;                                 // R2-8: SettingsModal close
+  export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void; // calls endSettingsSession on close
   // src/lib/routeChangeMessage.ts (NEW module)
   export type Translate = (key: string, options?: Record<string, unknown>) => string;
   export interface RouteChangeMessage { title: string; description?: string }
@@ -9592,6 +11906,7 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
   - `applied: true` always carries `blocker: null` and an `undo`. Follow-up copy ("Choose a model", "Sign in to X") comes from the route's state through `routeChangeMessage`.
   - `applied: false` with a blocker means Apply was refused and the draft was kept.
   - `applied: false` with `blocker: null` means the request was a no-op.
+  - `"superseded"` means that, before the request's waits finished, Settings closed or the draft was discarded (session epoch), or a newer request or an Undo on the same route began (route epoch). Nothing was written or staged, and callers neither toast nor report it. A request on another route never supersedes it.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -9618,12 +11933,20 @@ test("route draft store", async (t) => {
   // leaves the facts each test sets untouched (Task 3 merges rows).
   const mainPresence = new Map();
   let listGeneration = 0;
+  // R2-8: while holdLists is on, each presence read waits until the test
+  // releases it, so a request's fact wait can be held and resolved out of order.
+  let holdLists = false;
+  const heldLists = [];
   const listCredentials = async () => {
     log.push("list");
+    if (holdLists) await new Promise((resolve) => heldLists.push(resolve));
     return [...mainPresence].map(([id, present]) => ({ id, present, generation: ++listGeneration }));
   };
   let llamaStops = 0;
   const screenContextCalls = [];
+  // R2-1: setAzureEndpoint persisted to main on every keystroke (settingsStore.ts:2060-2063).
+  // Main may hear about a new endpoint only from a committed patch.
+  const azureEndpointWrites = [];
   installBrowserGlobals(t, {
     initialStorage: MIGRATED_STORAGE,
     window: {
@@ -9637,6 +11960,10 @@ test("route draft store", async (t) => {
         },
         setScreenContextEnabled: async (enabled) => {
           screenContextCalls.push(enabled);
+          return { success: true };
+        },
+        saveAzureEndpoint: async (value) => {
+          azureEndpointWrites.push(value);
           return { success: true };
         },
       },
@@ -9660,7 +11987,18 @@ test("route draft store", async (t) => {
     if (pendingSaves.length) log.push("ack");
     while (pendingSaves.length) pendingSaves.shift()({ ok: true, success: true, generation: 1 });
   };
+  // Resolves held presence reads in the given order (indexes into heldLists).
+  const releaseLists = async (...order) => {
+    const held = [...heldLists];
+    heldLists.length = 0;
+    for (const index of order) {
+      held[index]();
+      await tick();
+    }
+  };
   const reset = (overrides = {}) => {
+    holdLists = false;
+    heldLists.length = 0;
     mainPresence.clear();
     useSettingsStore.setState({ ...routeBaseState(), ...overrides });
     drafts.useRouteDraftStore.getState().discard();
@@ -9868,8 +12206,10 @@ test("route draft store", async (t) => {
     const onOpenChange = drafts.withDraftDiscard((open) => seen.push(open));
     onOpenChange(true);
     assert.ok(draft());
+    const epoch = drafts.useRouteDraftStore.getState().requestEpoch;
     onOpenChange(false);
     assert.equal(draft(), null);
+    assert.ok(drafts.useRouteDraftStore.getState().requestEpoch > epoch, "closing ends the session (R2-8)");
     assert.deepEqual(seen, [true, false]);
   });
 
@@ -9980,6 +12320,266 @@ test("route draft store", async (t) => {
     assert.equal(off.applied, true);
     assert.deepEqual(screenContextCalls, [true, false]);
   });
+
+  // ---- R2-8: request epoch. Each case is change-driving: v2 settled every request after its
+  // waits (the Codex probe reproduced a remote Chat draft after close, and an older request
+  // replacing a newer selection).
+
+  await t.test("closing Settings during a key save: the request settles to nothing", async () => {
+    reset();
+    live().setOpenaiApiKey("sk-test-0005");
+    const pending = request("chat", { mode: "providers", provider: "anthropic" });
+    await tick();
+    assert.ok(pendingSaves.length > 0, "the request is waiting for main's acknowledgement");
+    drafts.endSettingsSession();
+    releaseSaves();
+    assert.equal(await pending, "superseded");
+    assert.equal(draft(), null, "no draft appears after close");
+    assert.equal(live().chatAgentMode, "local", "nothing was committed");
+  });
+
+  await t.test("closing Settings during the presence read: no draft, no commit", async () => {
+    reset();
+    holdLists = true;
+    const pending = request("dictationStt", { mode: "providers", provider: "groq" });
+    await tick();
+    assert.equal(heldLists.length, 1, "the request is waiting for credentials.list");
+    drafts.endSettingsSession();
+    await releaseLists(0);
+    assert.equal(await pending, "superseded");
+    assert.equal(draft(), null);
+    assert.equal(live().transcriptionMode, "local");
+  });
+
+  await t.test("an instant on-device change still waiting when Settings closes does not commit", async () => {
+    reset(OPENAI_CHAT);
+    holdLists = true;
+    const pending = request("chat", { mode: "local" });
+    await tick();
+    drafts.endSettingsSession();
+    await releaseLists(0);
+    assert.equal(await pending, "superseded");
+    assert.equal(live().chatAgentMode, "providers", "the Local pick made before close was not applied after it");
+    assert.equal(live().chatAgentProvider, "openai");
+  });
+
+  await t.test("out of order: the newer route selection wins whichever wait finishes first", async () => {
+    // Newer finishes first.
+    reset();
+    holdLists = true;
+    const older = request("chat", { mode: "providers", provider: "anthropic" });
+    await tick();
+    const newer = request("chat", { mode: "local", provider: "qwen", model: "qwen3.5-9b-q4_k_m" });
+    await tick();
+    assert.equal(heldLists.length, 2);
+    await releaseLists(1, 0);
+    assert.equal((await newer).applied, true);
+    assert.equal(await older, "superseded");
+    assert.equal(draft(), null, "the obsolete remote draft never appears");
+    assert.equal(live().chatAgentModel, "qwen3.5-9b-q4_k_m");
+
+    // Older finishes first.
+    reset();
+    holdLists = true;
+    const first = request("chat", { mode: "providers", provider: "anthropic" });
+    await tick();
+    const second = request("chat", { mode: "providers", provider: "groq" });
+    await tick();
+    await releaseLists(0, 1);
+    assert.equal(await first, "superseded");
+    assert.equal(await second, "staged");
+    assert.deepEqual(draft(), { routeId: "chat", kind: "target", target: { mode: "providers", provider: "groq" } });
+  });
+
+  await t.test("out of order: a newer route request supersedes an older patch request", async () => {
+    reset({ cleanupMode: "providers", cleanupProvider: "openai", cleanupModel: "gpt-6-astra", useCleanupModel: false });
+    holdLists = true;
+    const older = patch("dictationCleanup", { useCleanupModel: true }); // would be staged
+    await tick();
+    const newer = request("dictationCleanup", { mode: "local", provider: "qwen", model: QWEN });
+    await tick();
+    await releaseLists(1, 0);
+    assert.equal((await newer).applied, true);
+    assert.equal(await older, "superseded");
+    assert.equal(draft(), null);
+    assert.equal(live().useCleanupModel, false, "the older switch request wrote nothing");
+    assert.equal(live().cleanupMode, "local");
+  });
+
+  await t.test("Discard cancels a request that is still waiting", async () => {
+    reset();
+    holdLists = true;
+    const pending = request("dictationStt", { mode: "providers", provider: "groq" });
+    await tick();
+    drafts.useRouteDraftStore.getState().discard();
+    await releaseLists(0);
+    assert.equal(await pending, "superseded");
+    assert.equal(draft(), null);
+  });
+
+  await t.test("Apply in flight when Settings closes applies nothing", async () => {
+    reset();
+    assert.equal(await request("dictationStt", { mode: "providers", provider: "groq" }), "staged");
+    holdLists = true;
+    const pending = apply();
+    await tick();
+    drafts.endSettingsSession();
+    await releaseLists(0);
+    assert.equal(await pending, null);
+    assert.equal(live().transcriptionMode, "local");
+  });
+
+  // Change-driving (R2-8 follow-up): v2's epoch was global, so a request on one route
+  // silently superseded a request still waiting on another. Epochs are per route now.
+  await t.test("requests on two different routes during a held key save both settle", async () => {
+    reset(OPENAI_CHAT);
+    live().setOpenaiApiKey("sk-test-0006");
+    const chat = request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" }); // instant
+    await tick();
+    const stt = request("dictationStt", { mode: "providers", provider: "groq" }); // staged
+    await tick();
+    assert.ok(pendingSaves.length > 0, "both requests are waiting for main's acknowledgement");
+    releaseSaves();
+    const chatOut = await chat;
+    assert.notEqual(chatOut, "superseded", "a request on another route does not supersede it");
+    assert.equal(chatOut.applied, true);
+    assert.equal(live().chatAgentModel, "gpt-5.6-sol");
+    assert.equal(await stt, "staged");
+    assert.deepEqual(draft(), { routeId: "dictationStt", kind: "target", target: { mode: "providers", provider: "groq" } });
+
+    // Whichever presence read finishes first, both still settle.
+    reset(OPENAI_CHAT);
+    holdLists = true;
+    const first = request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" });
+    await tick();
+    const second = request("dictationStt", { mode: "providers", provider: "groq" });
+    await tick();
+    assert.equal(heldLists.length, 2);
+    await releaseLists(1, 0);
+    assert.equal(await second, "staged");
+    assert.equal((await first).applied, true);
+    assert.equal(draft().routeId, "dictationStt", "the instant chat commit leaves another route's draft alone");
+  });
+
+  // Change-driving (R2-8 follow-up): an internal draft drop is not the user's Discard.
+  await t.test("a no-op request that drops its route's draft does not cancel a request on another route", async () => {
+    reset();
+    stage({ routeId: "chat", kind: "target", target: { mode: "providers", provider: "groq" } });
+    holdLists = true;
+    const waiting = request("dictationStt", { mode: "providers", provider: "groq" });
+    await tick();
+    const noop = request("chat", { mode: "local" });
+    await tick();
+    await releaseLists(1, 0);
+    assert.equal((await noop).plan.kind, "noop");
+    assert.equal(await waiting, "staged", "dropping chat's draft did not supersede dictation's request");
+    assert.equal(draft().routeId, "dictationStt");
+  });
+
+  // Change-driving (R2-8 follow-up): Undo is the newest intent for the routes it moves.
+  await t.test("Undo supersedes a waiting request on its own route only", async () => {
+    reset(OPENAI_CHAT);
+    const out = await request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" });
+    assert.equal(out.applied, true);
+    holdLists = true;
+    const sameRoute = request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-terra" });
+    await tick();
+    const otherRoute = request("dictationStt", { mode: "providers", provider: "groq" });
+    await tick();
+    assert.equal(out.undo().applied, true, "Undo is not gated");
+    assert.equal(live().chatAgentModel, "gpt-6-astra");
+    await releaseLists(0, 1);
+    assert.equal(await sameRoute, "superseded", "the Undo is newer than the waiting pick");
+    assert.equal(live().chatAgentModel, "gpt-6-astra", "the older pick did not land on top of the Undo");
+    assert.equal(await otherRoute, "staged", "a request on another route still settles");
+  });
+
+  // Baseline guard for the intentional post-close path: Undo is synchronous and is not epoch-bound.
+  await t.test("a toast's Undo still works after Settings closes", async () => {
+    reset(OPENAI_CHAT);
+    const out = await request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" });
+    assert.equal(out.applied, true);
+    drafts.endSettingsSession();
+    const back = out.undo();
+    assert.equal(back.applied, true, "a same-recipient Undo applies at once after close");
+    assert.equal(live().chatAgentModel, "gpt-6-astra");
+
+    reset(OPENAI_CHAT);
+    const home = await request("chat", { mode: "local", provider: "qwen", model: QWEN });
+    drafts.endSettingsSession();
+    assert.equal(home.undo(), "staged", "an Undo back to OpenAI waits for review, even after close");
+    assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: home.plan.undoPatch });
+    assert.equal(live().chatAgentMode, "local");
+  });
+
+  // ---- R2-9 / R2-1: setup inside the staged editor. Change-driving: v2 had no setup on a draft,
+  // so Azure could be applied only before its endpoint existed, and the endpoint field wrote
+  // main directly.
+
+  await t.test("enterprise setup joins the draft, writes nothing, and applies and undoes with it", async () => {
+    const ENDPOINT = "https://contoso.openai.azure.com/openai";
+    reset({ ...OPENAI_CHAT, azureEndpoint: "" });
+    setFacts({ credentials: new Map([["openai", true], ["azure", true]]) });
+    azureEndpointWrites.length = 0;
+    const azure = { mode: "providers", provider: "azure", model: "gpt-4o-deploy" };
+    assert.equal(await request("chat", azure), "staged");
+    assert.equal((await apply()).blocker, "needsUrl", "Apply waits until Azure has an endpoint (R2-9)");
+
+    assert.equal(drafts.stageDraftSetup("translation", { azureEndpoint: ENDPOINT }), null, "only the draft's own route");
+    assert.throws(() => drafts.stageDraftSetup("chat", { openaiApiKey: "sk-x" }), /setup/);
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+    assert.deepEqual(draft(), { routeId: "chat", kind: "target", target: azure, setup: { azureEndpoint: ENDPOINT } });
+    assert.equal(live().azureEndpoint, "", "typing the endpoint commits nothing");
+    assert.deepEqual(azureEndpointWrites, [], "and tells main nothing");
+    const preview = drafts.planDraft(draft(), TEST_COPY);
+    assert.equal(preview.patch.azureEndpoint, ENDPOINT);
+    assert.equal(preview.changes.find((c) => c.id === "chat").after.host, "contoso.openai.azure.com", "the bar shows the real host");
+
+    // Another model keeps the setup; another provider drops it.
+    assert.equal(await request("chat", { ...azure, model: "gpt-4o-mini-deploy" }), "staged");
+    assert.deepEqual(draft().setup, { azureEndpoint: ENDPOINT });
+    assert.equal(await request("chat", { mode: "providers", provider: "anthropic" }), "staged");
+    assert.equal(draft().setup, undefined);
+
+    assert.equal(await request("chat", azure), "staged");
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+    const out = await apply();
+    assert.equal(out.applied, true);
+    assert.equal(live().chatAgentProvider, "azure");
+    assert.equal(live().azureEndpoint, ENDPOINT);
+    assert.deepEqual(azureEndpointWrites, [ENDPOINT], "the commit tells main once (Task 6's applyRoutePatch)");
+    assert.equal(out.undo(), "staged", "back to OpenAI is a new recipient: reviewed");
+    assert.equal((await apply()).applied, true);
+    assert.equal(live().chatAgentProvider, "openai");
+    assert.equal(live().azureEndpoint, "", "Undo restores the endpoint exactly");
+  });
+
+  // Change-driving (R2-1 staging gap): before Task 3 syncs facts.enterpriseMain the Azure route
+  // is `unknown` with host null on both sides. v2's planner called the edit instant, so
+  // settle() committed it and main was told the new endpoint without review.
+  await t.test("an Azure endpoint edit before main's facts sync is staged, not committed", async () => {
+    const EAST = "https://contoso.openai.azure.com/openai";
+    const WEST = "https://other.example.com/openai";
+    const azureFacts = { credentials: new Map([["azure", true]]), credentialFields: new Map([["azure", { key: true }]]) };
+    reset({ chatAgentMode: "enterprise", chatAgentProvider: "azure", chatAgentModel: "gpt-4o-deploy", azureEndpoint: EAST });
+    setFacts({ ...azureFacts, enterpriseMain: null });
+    azureEndpointWrites.length = 0;
+    assert.equal(await patch("chat", { azureEndpoint: WEST }), "staged", "settle() staged it");
+    assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { azureEndpoint: WEST } });
+    assert.equal(live().azureEndpoint, EAST, "nothing was committed");
+    assert.deepEqual(azureEndpointWrites, [], "main heard nothing");
+    const blocked = await apply();
+    assert.equal(blocked.applied, false);
+    assert.equal(blocked.blocker, "unknown", "Apply waits until main's facts are synced");
+    assert.ok(draft(), "the draft is kept");
+    assert.equal(live().azureEndpoint, EAST);
+
+    setFacts(azureFacts); // Task 3's sync landed (testFacts' default enterpriseMain)
+    const out = await apply();
+    assert.equal(out.applied, true);
+    assert.equal(live().azureEndpoint, WEST);
+    assert.deepEqual(azureEndpointWrites, [WEST], "main is told once, on Apply");
+  });
 });
 ```
 
@@ -10082,6 +12682,8 @@ Expected: FAIL, because `/stores/routeDraftStore.ts` and `/lib/routeChangeMessag
 - "applyDraft with no draft does nothing";
 - "withDraftDiscard…".
 
+The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 defects named in their comments. The three R2-8 follow-up subtests (two routes during a held save, an internal draft drop, Undo on its own route) fail against a single global epoch: the older request on the other route resolves `"superseded"`. The R2-1 staging-gap subtest fails against the c912d19 planner: the Azure edit commits instantly and `azureEndpointWrites` is `[WEST]` before any Apply. The post-close Undo subtest is a baseline guard for the intentional path. With the v2 module from c912d19 they fail as follows: the close and out-of-order cases leave a draft or commit (`"superseded"` does not exist), and `stageDraftSetup`/`endSettingsSession` are not exported.
+
 - [ ] **Step 3: Implement**
 
 1. Create `src/stores/routeDraftStore.ts`:
@@ -10089,7 +12691,7 @@ Expected: FAIL, because `/stores/routeDraftStore.ts` and `/lib/routeChangeMessag
    ```ts
    import { create } from "zustand";
    import { INFERENCE_SCOPES } from "../config/inferenceScopes";
-   import type { SettingsPatch } from "../lib/providerSwitchPlans";
+   import { ROUTE_ENTERPRISE_KEYS, type SettingsPatch } from "../lib/providerSwitchPlans";
    import {
      planPatch,
      planRouteChange,
@@ -10109,19 +12711,33 @@ Expected: FAIL, because `/stores/routeDraftStore.ts` and `/lib/routeChangeMessag
    // adds an off-device recipient or payload waits as the one draft until Apply.
 
    export type RouteDraft =
-     | { routeId: RouteId; kind: "target"; target: RouteTarget }
+     | { routeId: RouteId; kind: "target"; target: RouteTarget; setup?: SettingsPatch }
      | { routeId: RouteId; kind: "patch"; patch: SettingsPatch };
 
    interface RouteDraftState {
      draft: RouteDraft | null;
+     // R2-8, the session epoch. Only the user's Discard and Settings closing
+     // (endSettingsSession) bump it, so every request still waiting, on any
+     // route, settles to "superseded". Internal draft drops never bump it.
+     requestEpoch: number;
+     // R2-8, one request epoch per route. A request or an Undo bumps only the
+     // routes it is about, so a newer intent supersedes an older request on the
+     // same route and leaves requests on other routes alone.
+     routeEpochs: Partial<Record<RouteId, number>>;
      stage: (draft: RouteDraft) => void;
      discard: () => void;
    }
 
    export const useRouteDraftStore = create<RouteDraftState>()((set) => ({
      draft: null,
+     requestEpoch: 0,
+     routeEpochs: {},
      stage: (draft) => set({ draft }),
-     discard: () => set({ draft: null }),
+     // The user's Discard (and Settings closing): drop the draft and cancel every
+     // request still waiting, on every route, so none can recreate a draft or
+     // commit. The draft is the session's only pending change, so discarding it
+     // is the end of that change, whichever route a waiting request is for.
+     discard: () => set((s) => ({ draft: null, requestEpoch: s.requestEpoch + 1 })),
    }));
 
    export interface RouteChangeOutcome {
@@ -10131,28 +12747,85 @@ Expected: FAIL, because `/stores/routeDraftStore.ts` and `/lib/routeChangeMessag
      undo?: () => RouteChangeOutcome | "staged";
    }
 
+   // "superseded": while this one waited, Settings closed or the draft was
+   // discarded (session epoch), or a newer request or an Undo on the same route
+   // began (route epoch). Nothing was written or staged.
+   export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded";
+
+   // Non-secret provider setup the staged editor may add to a target draft
+   // (BRIEF item 2; Task 6's ROUTE_ENTERPRISE_KEYS).
+   export const DRAFT_SETUP_KEYS: ReadonlySet<string> = new Set<string>(ROUTE_ENTERPRISE_KEYS);
+
+   // R2-8. A request holds its route's epoch and the session epoch it began in.
+   interface RequestTicket {
+     routeId: RouteId;
+     route: number;
+     session: number;
+   }
+
+   // Bumps the epoch of each route: the newest intent for those routes.
+   function bumpRoutes(ids: Iterable<RouteId>): void {
+     const routeEpochs = { ...useRouteDraftStore.getState().routeEpochs };
+     for (const id of new Set(ids)) routeEpochs[id] = (routeEpochs[id] ?? 0) + 1;
+     useRouteDraftStore.setState({ routeEpochs });
+   }
+
+   // A request takes a ticket at call time: it bumps its own route's epoch only.
+   function takeTicket(routeId: RouteId): RequestTicket {
+     bumpRoutes([routeId]);
+     return peekTicket(routeId);
+   }
+
+   // Apply's ticket: the current epochs, without bumping anything.
+   function peekTicket(routeId: RouteId): RequestTicket {
+     const s = useRouteDraftStore.getState();
+     return { routeId, route: s.routeEpochs[routeId] ?? 0, session: s.requestEpoch };
+   }
+
+   // Settles only if no Discard or close (session) and no newer request or Undo
+   // on the same route (route) happened since the ticket was taken.
+   function isCurrent(ticket: RequestTicket): boolean {
+     const s = useRouteDraftStore.getState();
+     return s.requestEpoch === ticket.session && (s.routeEpochs[ticket.routeId] ?? 0) === ticket.route;
+   }
+
    // Readiness facts confirmed by main, and the single sealed authority (I14).
    export function currentPlanContext(copy: RouteCopy): PlanContext {
      return { facts: useRouteFactsStore.getState().facts, copy, sealed: getSealed() };
    }
 
+   // A target plus its staged setup is planned as one patch, so the review
+   // lists every route either changes, and Apply and Undo cover both. The
+   // target is resolved against the state with the setup applied, so Task 6's
+   // providerPatch fits a remembered or default Bedrock model to the staged
+   // region (an explicit target.model is kept verbatim). planPatch then adds
+   // the coupled model updates of other routes on the same provider.
+   function planTarget(id: RouteId, target: RouteTarget, setup: SettingsPatch | undefined, copy: RouteCopy): RoutePlan {
+     const state = useSettingsStore.getState();
+     const ctx = currentPlanContext(copy);
+     if (!setup || Object.keys(setup).length === 0) return planRouteChange(state, ctx, id, target);
+     const targetPatch = planRouteChange({ ...state, ...setup } as typeof state, ctx, id, target).patch;
+     return planPatch(state, ctx, id, { ...setup, ...targetPatch } as SettingsPatch);
+   }
+
    // What a draft would commit against the live state right now. The Apply bar
    // renders this; Apply re-runs it at click time.
    export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan {
-     const state = useSettingsStore.getState();
-     const ctx = currentPlanContext(copy);
      return draft.kind === "target"
-       ? planRouteChange(state, ctx, draft.routeId, draft.target)
-       : planPatch(state, ctx, draft.routeId, draft.patch);
+       ? planTarget(draft.routeId, draft.target, draft.setup, copy)
+       : planPatch(useSettingsStore.getState(), currentPlanContext(copy), draft.routeId, draft.patch);
    }
 
    const LLM_MODE_KEYS: ReadonlySet<string> = new Set(
      Object.values(INFERENCE_SCOPES).map((def) => def.storeKeys.mode as string)
    );
 
-   function discardDraftFor(routeId: RouteId): void {
-     const { draft, discard } = useRouteDraftStore.getState();
-     if (draft?.routeId === routeId) discard();
+   // Internal: a settled change supersedes its route's draft. Not the user's
+   // Discard, so it does not cancel a newer request still waiting.
+   function clearDraftFor(routeId: RouteId): void {
+     if (useRouteDraftStore.getState().draft?.routeId === routeId) {
+       useRouteDraftStore.setState({ draft: null });
+     }
    }
 
    function commit(plan: RoutePlan, copy: RouteCopy): RouteChangeOutcome {
@@ -10169,15 +12842,19 @@ Expected: FAIL, because `/stores/routeDraftStore.ts` and `/lib/routeChangeMessag
      if (typeof plan.patch.voiceAgentScreenContext === "boolean") {
        window.electronAPI?.setScreenContextEnabled?.(plan.patch.voiceAgentScreenContext)?.catch(() => {});
      }
-     // A change on this route supersedes any draft for it.
-     discardDraftFor(plan.routeId);
+     clearDraftFor(plan.routeId);
      return { applied: true, blocker: null, plan, undo: () => undo(plan, copy) };
    }
 
    // Undo re-plans the prior raw values against the live state. Back onto the
    // device, or to the same recipient, is instant. Anything that would send
    // data somewhere new is staged for review, never applied by Undo itself.
+   // Undo has no wait, so it is not epoch-gated and still works from a toast
+   // after Settings closes. It is the newest intent for every route it moves,
+   // so it bumps those routes' epochs (never the session epoch): an older
+   // request still waiting on one of them is superseded, others settle.
    function undo(plan: RoutePlan, copy: RouteCopy): RouteChangeOutcome | "staged" {
+     bumpRoutes([plan.routeId, ...plan.changes.map((change) => change.id)]);
      const reverse = planPatch(
        useSettingsStore.getState(),
        currentPlanContext(copy),
@@ -10202,10 +12879,10 @@ Expected: FAIL, because `/stores/routeDraftStore.ts` and `/lib/routeChangeMessag
 
    // Shared by both request paths: noop drops the route's draft, instant
    // commits with Undo, staged becomes the single draft.
-   function settle(plan: RoutePlan, draft: RouteDraft, copy: RouteCopy): RouteChangeOutcome | "staged" {
+   function settle(plan: RoutePlan, draft: RouteDraft, copy: RouteCopy): RouteRequestResult {
      if (plan.kind === "noop") {
        // Re-selecting where the task already runs changes nothing and cancels its draft.
-       discardDraftFor(plan.routeId);
+       clearDraftFor(plan.routeId);
        return { applied: false, blocker: null, plan };
      }
      if (plan.kind === "instant") return commit(plan, copy);
@@ -10213,52 +12890,97 @@ Expected: FAIL, because `/stores/routeDraftStore.ts` and `/lib/routeChangeMessag
      return "staged";
    }
 
+   function providerOf(target: RouteTarget): string {
+     return target.mode === "providers" ? target.provider : target.mode;
+   }
+
    export async function requestRouteChange(
      id: RouteId,
      target: RouteTarget,
      copy: RouteCopy
-   ): Promise<RouteChangeOutcome | "staged"> {
+   ): Promise<RouteRequestResult> {
+     const ticket = takeTicket(id);
      await readyToPlan();
-     const plan = planRouteChange(useSettingsStore.getState(), currentPlanContext(copy), id, target);
-     return settle(plan, { routeId: id, kind: "target", target }, copy);
+     if (!isCurrent(ticket)) return "superseded"; // R2-8
+     // A model pick in the staged editor keeps the setup typed for the same
+     // provider; a different provider starts without it.
+     const prior = useRouteDraftStore.getState().draft;
+     const setup =
+       prior && prior.routeId === id && prior.kind === "target" && providerOf(prior.target) === providerOf(target)
+         ? prior.setup
+         : undefined;
+     const plan = planTarget(id, target, setup, copy);
+     const draft: RouteDraft = setup ? { routeId: id, kind: "target", target, setup } : { routeId: id, kind: "target", target };
+     return settle(plan, draft, copy);
    }
 
    // Raw route keys that are not a destination: the enable switches, Corti's
-   // region and tenant, and providerSearch:<scope>. Turning a route on toward
-   // an off-device recipient, or adding a payload part, is staged; turning a
-   // route off is instant.
+   // region and tenant, providerSearch:<scope> and the enterprise fields of a
+   // route that is already active (Task 9). Turning a route on toward an
+   // off-device recipient, adding a payload part or changing a host is staged;
+   // turning a route off is instant.
    export async function requestRoutePatch(
      id: RouteId,
      patch: SettingsPatch,
      copy: RouteCopy
-   ): Promise<RouteChangeOutcome | "staged"> {
+   ): Promise<RouteRequestResult> {
+     const ticket = takeTicket(id);
      await readyToPlan();
+     if (!isCurrent(ticket)) return "superseded"; // R2-8
      const plan = planPatch(useSettingsStore.getState(), currentPlanContext(copy), id, patch);
      return settle(plan, { routeId: id, kind: "patch", patch }, copy);
+   }
+
+   // The staged editor's provider setup (R2-9, R2-1): enterprise region,
+   // endpoint, project, location. It joins the route's pending target draft,
+   // writes nothing and tells main nothing. It takes no ticket: a model pick
+   // still waiting re-reads the setup when it settles (requestRouteChange).
+   export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null {
+     for (const key of Object.keys(patch)) {
+       if (!DRAFT_SETUP_KEYS.has(key)) throw new Error(`${key} is not draft setup`);
+     }
+     const draft = useRouteDraftStore.getState().draft;
+     if (!draft || draft.routeId !== id || draft.kind !== "target") return null;
+     const next: RouteDraft = { ...draft, setup: { ...(draft.setup ?? {}), ...patch } as SettingsPatch };
+     useRouteDraftStore.getState().stage(next);
+     return next;
    }
 
    export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null> {
      const draft = useRouteDraftStore.getState().draft;
      if (!draft) return null;
+     // Apply bumps nothing (a Discard, a close or a newer request on the draft's
+     // route cancels it, not the other way round).
+     const ticket = peekTicket(draft.routeId);
      await readyToPlan();
-     // The user applied this draft. If it was discarded or replaced while saves
-     // finished, apply nothing.
-     if (useRouteDraftStore.getState().draft !== draft) return null;
+     // The user applied this draft. If Settings closed, the draft was discarded
+     // or replaced, or a newer request on its route began while saves finished,
+     // apply nothing. A request on another route that staged meanwhile replaced
+     // the single draft, so the identity check catches it.
+     if (!isCurrent(ticket) || useRouteDraftStore.getState().draft !== draft) return null;
      const plan = planDraft(draft, copy); // live state, at click time
      if (plan.kind === "noop") {
-       useRouteDraftStore.getState().discard();
+       useRouteDraftStore.setState({ draft: null });
        return { applied: false, blocker: null, plan };
      }
+     // Task 6 blocks every changed, enabled, off-device route that is not ready (R2-9).
      if (plan.blocker) return { applied: false, blocker: plan.blocker, plan }; // draft kept
      return commit(plan, copy);
    }
 
-   // Closing Settings discards the draft without applying it.
+   // R2-8: the Settings session ends (SettingsModal close, Task 8). The draft is
+   // dropped and the session epoch moves, so every request still waiting, on any
+   // route, settles to "superseded". A toast's Undo keeps working (it has no wait).
+   export function endSettingsSession(): void {
+     useRouteDraftStore.getState().discard();
+   }
+
+   // Closing Settings ends the session without applying anything.
    export function withDraftDiscard(
      onOpenChange: (open: boolean) => void
    ): (open: boolean) => void {
      return (open) => {
-       if (!open) useRouteDraftStore.getState().discard();
+       if (!open) endSettingsSession();
        onOpenChange(open);
      };
    }
@@ -10363,7 +13085,8 @@ Expected: PASS.
 npx prettier --write src/stores/routeDraftStore.ts src/lib/routeChangeMessage.ts test/stores/routeDraftStore.test.js test/lib/routeChangeMessage.test.js src/locales
 npm run lint
 git add src/stores/routeDraftStore.ts src/lib/routeChangeMessage.ts src/locales test/stores/routeDraftStore.test.js test/lib/routeChangeMessage.test.js
-git commit -m "feat(routes): Apply on-device route changes instantly and stage the rest"
+git commit -m "feat(routes): Apply on-device route changes instantly and stage the rest" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -10375,7 +13098,8 @@ Closes the editor half of **I1** (all four mode selectors go through `requestRou
 What the user sees:
 - Picking Cloud or Self-hosted for a route no longer changes it. The radio shows "Staged, not active" (Task 5's `stagedMode`), a dashed panel below it asks which provider or server, and a sticky bar at the bottom of Settings lists every task that would change, where each one's data would go (provider, host) and what it would send. Apply is the bar's only primary button. Nothing is sent until Apply.
 - Anything the planner resolves to this device (Local, or a self-hosted or custom endpoint on loopback) applies at once with a toast naming the destination and an Undo.
-- ⌘↵ (Ctrl ↵) applies only while focus is inside the Settings dialog. Closing Settings discards the draft.
+- ⌘↵ (Ctrl ↵) applies only while focus is inside the Settings dialog. Closing Settings ends the session (`endSettingsSession()`, Task 7): the draft is discarded, and a request still waiting for a key save or a fact read settles to nothing (R2-8).
+- Apply stays disabled until every changed, enabled, off-device route is Ready (R2-9; the acceptance reference is `design-explorations/loqui-uiux-review/parts/05-settings.html:867,878`). Whatever readiness still needs is reachable inside the staged panel without committing the route: the key fields (this task), a model choice (this task), and Codex sign-in and the enterprise fields (Task 9 adds both to this panel). The bar says what is missing ("Choose a model first", "Sign in to ChatGPT first"). On-device changes stay instant.
 
 **Files:**
 - Create: `src/components/settings/routing/providerCatalog.ts` (which providers can run a route, and which credential each route asks for)
@@ -10385,7 +13109,7 @@ What the user sees:
 - Create: `src/components/settings/routing/StagedRouteBar.tsx`
 - Create: `src/components/settings/routing/StagedRoutePanel.tsx`
 - Modify: `src/components/ui/SidebarModal.tsx` — add a `footer` slot after `{children}` in the content column (`:247-259`) and mark the dialog content `data-settings-dialog` (`:115`).
-- Modify: `src/components/SettingsModal.tsx` — `withDraftDiscard(onOpenChange)` and `footer={<StagedRouteBar />}` (`:126-139`).
+- Modify: `src/components/SettingsModal.tsx` — `withDraftDiscard(onOpenChange)`, which calls Task 7's `endSettingsSession()` on close (R2-8), and `footer={<StagedRouteBar />}` (the real open/close boundary is `<SidebarModal … onOpenChange={onOpenChange}>` at `:125-139`).
 - Modify the four mode handlers:
   - `src/components/SettingsPage.tsx`: `handleTranscriptionModeSelect` (`:526-548`), the selector at `:638-642`; remove `toast` from `TranscriptionSectionProps` (`:458-463`), its destructuring (`:494`) and the call site (`:3136`); delete `CLEANUP_MODE_TOAST_KEY` (`:677-681`), `toast` in `AiModelsSectionProps` (`:669-674`), `handleCleanupModeChange` (`:708-716`), `onModeChange={handleCleanupModeChange}` (`:733`) and `toast={toast}` at the `<AiModelsSection` call site (`:3173`).
   - `src/components/settings/MeetingSettings.tsx:87-95` (and the selector at `:145-149`)
@@ -10406,12 +13130,12 @@ What the user sees:
 
 **Interfaces:**
 - Consumes:
-  - Task 2: `saveSecret(storeKey: SecretStoreKey, value): Promise<SecretSaveResult>` and `type SecretStoreKey`, exported from `src/stores/settingsStore.ts` (main-acknowledged save through `credentials.save`; the field becomes `"__stored__"`/`""` only after the ack); `ApiKeyInput`'s `setApiKey` may return that promise (error kept with the draft). `flushSecretSaves` is awaited inside Task 7's `requestRouteChange`/`applyDraft`. (Task 12 adds `ApiKeyInput`'s `credentialId` prop; this task passes the identity in its view props only.)
+  - Task 2: `saveSecret(storeKey: SecretStoreKey, value): Promise<SecretSaveResult>` and `type SecretStoreKey`, exported from `src/stores/settingsStore.ts` (main-acknowledged save through `credentials.save`; the field becomes `"__stored__"`/`""` only after the ack); `type AcknowledgedSecretSave = (value: string) => Promise<SecretSaveResult>`, exported from `src/components/ui/ApiKeyInput.tsx` (R2-3), which is the exact type of `ApiKeyInput`'s `setApiKey` (error kept with the draft). `flushSecretSaves` is awaited inside Task 7's `requestRouteChange`/`applyDraft`. (Task 12 adds `ApiKeyInput`'s `credentialId` prop; this task passes the identity in its view props only.)
   - Task 1, re-exported by Task 3's `src/lib/routes.ts`: `RouteId`, `ResolvedRoute`, `CredentialId`, `LlmRouteScope`, `RouteCopy`, `SCOPE_ROUTE`, `routeCredentialId(id, providerId)` (the single credential-identity rule) and `TEXT_PROVIDER_IDS` (test only). Task 3: from `src/lib/routes.ts` — `useResolvedRoutes()`, `useRouteCopy(): RouteCopy`; from `src/stores/sealedStore.ts` — `useSealedStore`, `ensureSealedSubscribed`; from `src/stores/routeFactsStore.ts` — `loadRouteFacts(api)` (tests only); `test/lib/i18nTestMock.js` `withI18nMock`; `scripts/merge-locale-keys.js`; locale keys `routes.names.<RouteId>` and `routes.payload.metadataNote`.
   - Task 5: `InferenceModeSelector` prop `stagedMode?: InferenceMode | null`; `RouteDestinationChip({ route })` from `src/components/settings/routing/RouteChips.tsx`.
-  - Task 6: `RoutePlan`, `RouteTarget`, `SETUP_AFTER_APPLY` from `src/lib/routePlanner.ts`.
+  - Task 6: `RoutePlan`, `RouteTarget`, `SETUP_AFTER_APPLY` from `src/lib/routePlanner.ts`. `SETUP_AFTER_APPLY` only chooses copy. It never unblocks Apply: `routeBlocker` blocks every changed, enabled, off-device route that is not `ready`, including Codex and enterprise `needsKey` and remote `needsModel` (R2-9).
   - Task 6: `SettingsPatch`, `RouteSwitchKey`, `ProviderSearchScope` (`src/lib/providerSwitchPlans.ts`); `readProviderSearchPreference` and Task 3's `PROVIDER_SEARCH_CHANGED_EVENT` (`src/utils/providerSearch.ts`).
-  - Task 7: `useRouteDraftStore` (`draft`, `stage`, `discard`), `requestRouteChange`, `requestRoutePatch`, `applyDraft`, `planDraft(draft, copy)`, `withDraftDiscard`, `RouteChangeOutcome` from `src/stores/routeDraftStore.ts`; `routeChangeMessage(plan, t, list)` from `src/lib/routeChangeMessage.ts` and its `routes.toast.*` keys (including `routes.toast.undo` and `routes.toast.undoStaged`).
+  - Task 7: `useRouteDraftStore` (`draft`, `requestEpoch` (the session epoch), `routeEpochs` (per-route request epochs), `stage`, `discard`), `requestRouteChange`, `requestRoutePatch`, `applyDraft`, `planDraft(draft, copy)`, `endSettingsSession`, `withDraftDiscard`, `RouteChangeOutcome` and `RouteRequestResult` (adds `"superseded"`, R2-8) from `src/stores/routeDraftStore.ts`; `routeChangeMessage(plan, t, list)` from `src/lib/routeChangeMessage.ts` and its `routes.toast.*` keys (including `routes.toast.undo` and `routes.toast.undoStaged`).
   - `useToast().toast` (`src/components/ui/useToast.ts:44`) with `actions: ToastActionConfig[]`.
 - Produces:
 
@@ -10421,22 +13145,24 @@ What the user sees:
   export const TEXT_PROVIDER_TABS: readonly string[];                // ReasoningModelSelector's tab order (:47-60); a subset of Task 1's TEXT_PROVIDER_IDS
   export function capabilityOf(id: RouteId): ProviderCapability | null;
   export function providersForRoute(id: RouteId): string[];         // per context: meeting = streaming providers main runs; upload drops realtime-only
+  export interface StagedModelOption { id: string; name: string }
+  export function modelsForRoute(id: RouteId, providerId: string): StagedModelOption[]; // R2-9: registry models; [] = typed model id
   export interface CredentialFieldSpec { storeKey: SecretStoreKey; labelKey: string }
   export interface CredentialSpec { credentialId: CredentialId; fields: CredentialFieldSpec[] }
   export function credentialFor(routeId: RouteId, providerId: string): CredentialSpec | null; // identity from Task 1's routeCredentialId; corti speech → client id + secret; corti text → API key
   export function hasSavedCredential(spec: CredentialSpec, settings: SettingsState): boolean;
-  export function signsInAfterApply(providerId: string): boolean;   // SETUP_AFTER_APPLY (codex, bedrock, azure, vertex)
+  export function setsUpInEditor(providerId: string): boolean;      // SETUP_AFTER_APPLY (codex, bedrock, azure, vertex): copy only, never unblocks Apply
   // stagedTarget.ts
   export function scopeForRoute(id: RouteId): LlmRouteScope | null;
   export function stagedTargetForMode(mode: InferenceMode, id: RouteId, state: SettingsState): RouteTarget;
   // useRouteChange.ts
   export function useRouteChange(): {
-    request(id: RouteId, target: RouteTarget): Promise<RouteChangeOutcome | "staged">;
-    requestPatch(id: RouteId, patch: SettingsPatch): Promise<RouteChangeOutcome | "staged">; // I1 follow-up
+    request(id: RouteId, target: RouteTarget): Promise<RouteRequestResult>;
+    requestPatch(id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult>; // I1 follow-up
     apply(): Promise<RouteChangeOutcome | null>;
     copy: RouteCopy;
   };
-  export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteChangeOutcome | "staged">;
+  export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteRequestResult>;
   // EndpointDraft.tsx
   export type EndpointHint = "empty" | "invalid" | "insecure" | "http" | "ok";
   export function endpointHint(url: string): EndpointHint;
@@ -10446,6 +13172,15 @@ What the user sees:
   export function StagedRouteBarView(props: { plan: RoutePlan; onApply(): void; onDiscard(): void; shortcutHint: string | null; placement?: "modal" | "inline" }): JSX.Element;
   export function StagedRouteBar(props: { placement?: "modal" | "inline"; shortcut?: boolean }): JSX.Element | null;
   // StagedRoutePanel.tsx
+  export interface StagedCredentialInput { storeKey: string; label: string; value: string; save: AcknowledgedSecretSave } // R2-3
+  export interface StagedRoutePanelViewProps {
+    routeId: RouteId; target: RouteTarget; providers: StagedProviderOption[];
+    credential: { credentialId: CredentialId; inputs: StagedCredentialInput[] } | null;
+    models: StagedModelOption[];        // R2-9
+    sharedServerUrl: string | null;
+    onTarget: (target: RouteTarget) => void;
+    setup?: ReactNode;                  // R2-9: Task 9 fills it with Codex sign-in or the enterprise fields
+  }
   export function StagedRoutePanelView(props: StagedRoutePanelViewProps): JSX.Element | null;
   export function StagedRoutePanel(props: { routeId: RouteId }): JSX.Element | null;
   // SidebarModal.tsx (additive): footer?: React.ReactNode; DialogPrimitive.Content carries data-settings-dialog
@@ -10670,8 +13405,25 @@ test("provider catalog", async (t) => {
     assert.equal(c.credentialFor("dictationStt", "deepgram").fields[0].storeKey, "deepgramApiKey");
     assert.equal(c.credentialFor("chat", "custom"), null);
     assert.equal(c.credentialFor("chat", "codex"), null);
-    assert.equal(c.signsInAfterApply("vertex"), true);
-    assert.equal(c.signsInAfterApply("openai"), false);
+    assert.equal(c.setsUpInEditor("vertex"), true);
+    assert.equal(c.setsUpInEditor("openai"), false);
+  });
+
+  // Change-driving (R2-9): the staged panel had no model choice, so a remote text route could only
+  // be applied without a model.
+  await t.test("the staged panel offers the registry's models, or a typed id where there is no list", async () => {
+    const { REASONING_PROVIDERS, getTranscriptionModels } = await vite.ssrLoadModule("/models/ModelRegistry.ts");
+    assert.deepEqual(
+      c.modelsForRoute("chat", "openai").map((m) => m.id),
+      REASONING_PROVIDERS.openai.models.map((m) => m.value)
+    );
+    assert.deepEqual(
+      c.modelsForRoute("dictationStt", "openai").map((m) => m.id),
+      getTranscriptionModels("openai").map((m) => m.id)
+    );
+    for (const typed of ["custom", "openrouter", "codex", "azure", "bedrock", "vertex"]) {
+      assert.deepEqual(c.modelsForRoute("chat", typed), [], `${typed} takes a typed or listed id`);
+    }
   });
 });
 ```
@@ -10751,6 +13503,34 @@ test("the Apply bar shows every route the plan changes", async (t) => {
     const html = render(blocked);
     assert.match(html, /disabled=""/);
     assert.match(html, /role="status"[^>]*>[^<]*staging\.blocked\.needsKey\{&quot;provider&quot;:&quot;OpenAI&quot;\}/);
+  });
+
+  // Change-driving (R2-9): v2's routeBlocker let Codex and enterprise needsKey through, and the
+  // bar promised "Sign in to X after applying". Apply now stays disabled until the route is Ready.
+  await t.test("Codex without a sign-in disables Apply and asks for the sign-in first", () => {
+    const codex = stagedPlan({ blocker: "needsKey" });
+    codex.changes = [
+      {
+        id: "chat",
+        coupled: false,
+        before: onDevice("chat"),
+        after: route({ id: "chat", kind: "text", providerId: "codex", provider: "ChatGPT (Codex)", host: "chatgpt.com", state: { status: "needsKey", provider: "ChatGPT (Codex)" } }),
+      },
+    ];
+    const html = render(codex);
+    assert.match(html, /disabled=""/);
+    assert.match(html, /role="status"[^>]*>[^<]*staging\.blocked\.signIn\{&quot;provider&quot;:&quot;[^&]+&quot;\}/);
+    assert.doesNotMatch(html, /staging\.setupAfterApply/, "no promise to sign in after applying");
+  });
+
+  // Change-driving (R2-9): v2 returned no blocker for a remote route with no model.
+  await t.test("a remote route with no model disables Apply and asks for a model", () => {
+    const noModel = stagedPlan({ blocker: "needsModel" });
+    noModel.changes[0].after = route({ model: null, state: { status: "needsModel" } });
+    const html = render(noModel);
+    assert.match(html, /disabled=""/);
+    assert.match(html, /staging\.blocked\.chooseModel/);
+    assert.doesNotMatch(html, /staging\.blocked\.needsModel/, "nothing to download for a remote model");
   });
 
   // Change-driving: the bar does not exist; device results must name no host.
@@ -10837,6 +13617,41 @@ test("closing Settings discards the draft", async (t) => {
   assert.equal(useRouteDraftStore.getState().draft, null);
   assert.deepEqual(seen, [true, false]);
 });
+
+// Change-driving (R2-8): v2's close cleared only the current draft, so a request still waiting
+// for its presence read staged a remote draft after Settings had closed. The real boundary is
+// SettingsModal's onOpenChange (SettingsModal.tsx:125-139).
+test("closing Settings while a route request waits leaves no draft and commits nothing", async (t) => {
+  const heldLists = [];
+  const api = routeTestApi({ present: ["groq", "openai"] });
+  const list = api.credentials.list;
+  api.credentials.list = () => new Promise((resolve) => heldLists.push(() => resolve(list())));
+  installBrowserGlobals(t, { window: { electronAPI: api } });
+  const vite = await rendererServer(t, "loqui-staged-bar-close-pending-", {
+    mockModules: { "/SettingsPage": "export default function SettingsPage() { return null; }" },
+  });
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { TEST_COPY } = require("../lib/routeStateFixture");
+  const SettingsModal = (await vite.ssrLoadModule("/components/SettingsModal.tsx")).default;
+  const probes = createProbeRoot(t);
+  const tree = await probes.mount("modal", () => SettingsModal({ open: true, onOpenChange() {} }));
+  useSettingsStore.setState({ chatAgentMode: "providers", chatAgentProvider: "openai", chatAgentModel: "gpt-6-astra" });
+
+  // A remote pick and an on-device pick, both still waiting when Settings closes.
+  const remote = drafts.requestRouteChange("chat", { mode: "providers", provider: "groq" }, TEST_COPY);
+  const local = drafts.requestRouteChange("translation", { mode: "local" }, TEST_COPY);
+  await probes.settle();
+  assert.equal(heldLists.length, 2, "both requests are waiting for credentials.list");
+  await probes.act(() => tree().props.onOpenChange(false));
+  await probes.act(async () => {
+    for (const release of heldLists.splice(0)) release();
+  });
+  assert.equal(await remote, "superseded");
+  assert.equal(await local, "superseded");
+  assert.equal(drafts.useRouteDraftStore.getState().draft, null, "no draft after close");
+  assert.equal(useSettingsStore.getState().chatAgentProvider, "openai", "nothing committed after close");
+});
 ```
 
 Create `test/components/stagedRoutePanel.test.js`:
@@ -10862,6 +13677,7 @@ test("staged panel markup", async (t) => {
       { id: "custom", name: "locality.customEndpoint", key: "none" },
     ],
     credential: null,
+    models: [],
     sharedServerUrl: null,
     onTarget() {},
   };
@@ -10883,14 +13699,36 @@ test("staged panel markup", async (t) => {
       credential: {
         credentialId: "corti:speech",
         inputs: [
-          { storeKey: "cortiClientId", label: "transcription.corti.clientId", value: "", save() {} },
-          { storeKey: "cortiClientSecret", label: "transcription.corti.clientSecret", value: "", save() {} },
+          { storeKey: "cortiClientId", label: "transcription.corti.clientId", value: "", save: async () => ({ ok: true }) },
+          { storeKey: "cortiClientSecret", label: "transcription.corti.clientSecret", value: "", save: async () => ({ ok: true }) },
         ],
       },
     });
     assert.match(html, /transcription\.corti\.clientId/);
     assert.match(html, /transcription\.corti\.clientSecret/);
     assert.doesNotMatch(html, /common\.apiKey/);
+  });
+
+  // Change-driving (R2-9): no model choice existed in the staged panel.
+  await t.test("a chosen provider lists its models as a labelled single choice", () => {
+    const html = render({
+      routeId: "chat",
+      target: { mode: "providers", provider: "openai", model: "gpt-5.6-luna" },
+      models: [
+        { id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+        { id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+      ],
+    });
+    assert.match(html, /role="radiogroup"[^>]*aria-label="staging\.model"/);
+    assert.equal((html.match(/role="radio"/g) ?? []).length, 2);
+    assert.equal((html.match(/aria-checked="true"/g) ?? []).length, 1);
+  });
+
+  await t.test("a provider without a model list takes a labelled model id", () => {
+    const html = render({ routeId: "chat", target: { mode: "providers", provider: "openrouter" } });
+    const id = html.match(/<label[^>]*for="([^"]+)"[^>]*>staging\.modelId</)?.[1];
+    assert.ok(id && html.includes(`id="${id}"`));
+    assert.match(html, /staging\.useModel/);
   });
 
   // Change-driving (I5): v1 let upload edit the shared dictation URL.
@@ -10972,6 +13810,34 @@ test("staged panel behaviour", async (t) => {
       kind: "target",
       target: { mode: "self-hosted", remoteUrl: "https://llm.example.test/v1" },
     });
+  });
+
+  // Change-driving (R2-9): v2 applied a remote text route with no model and left the choice for
+  // after Apply. The model is now chosen inside the staged panel and nothing is committed.
+  await t.test("Apply stays blocked until a model is chosen in the panel; choosing one commits nothing", async () => {
+    const { planDraft } = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+    const { TEST_COPY } = require("../lib/routeStateFixture");
+    useSettingsStore.setState({ chatAgentMode: "local", chatAgentProvider: "qwen", chatAgentModel: "qwen3-4b" });
+    useRouteDraftStore.getState().stage({ routeId: "chat", kind: "target", target: { mode: "providers", provider: "openai", model: "" } });
+    assert.equal(planDraft(useRouteDraftStore.getState().draft, TEST_COPY).blocker, "needsModel");
+    const panel = await probes.mount("model-panel", () => StagedRoutePanel({ routeId: "chat" }));
+    const view = viewOf(panel());
+    assert.ok(view.props.models.length > 0, "the registry's OpenAI models are offered");
+    const pick = view.props.models[0].id;
+    await probes.act(() => view.props.onTarget({ mode: "providers", provider: "openai", model: pick }));
+    await probes.settle();
+    assert.deepEqual(useRouteDraftStore.getState().draft.target, { mode: "providers", provider: "openai", model: pick });
+    assert.equal(planDraft(useRouteDraftStore.getState().draft, TEST_COPY).blocker, null, "ready: Apply is enabled");
+    assert.equal(useSettingsStore.getState().chatAgentMode, "local", "nothing was committed");
+  });
+
+  // Change-driving (R2-9): Codex used to be applied before any sign-in.
+  await t.test("Codex without a stored sign-in stays blocked", async () => {
+    const { planDraft } = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+    const { TEST_COPY } = require("../lib/routeStateFixture");
+    useSettingsStore.setState({ chatAgentMode: "local", chatAgentProvider: "qwen", chatAgentModel: "qwen3-4b" });
+    useRouteDraftStore.getState().stage({ routeId: "chat", kind: "target", target: { mode: "providers", provider: "codex", model: "gpt-5.6-codex" } });
+    assert.equal(planDraft(useRouteDraftStore.getState().draft, TEST_COPY).blocker, "needsKey");
   });
 });
 ```
@@ -11068,7 +13934,7 @@ test("mode selectors go through the route planner (I1)", async (t) => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `npm test -- test/components/providerCatalog.test.js test/components/stagedRouteBar.test.js test/components/stagedRoutePanel.test.js test/components/routeModeEditors.test.js`
-Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel.tsx` do not exist; `SettingsModal` has no footer; the Meeting handler writes `meetingTranscriptionMode`, the chat handler writes the store without Undo, and the dictation handler still calls `setTranscriptionMode`.
+Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel.tsx` do not exist; `SettingsModal` has no footer and does not end the session (the pending-request close test gets a draft or a commit back instead of `"superseded"`); the Meeting handler writes `meetingTranscriptionMode`, the chat handler writes the store without Undo, and the dictation handler still calls `setTranscriptionMode`.
 
 - [ ] **Step 3: Implement**
 
@@ -11080,7 +13946,9 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
    import { SETUP_AFTER_APPLY } from "../../../lib/routePlanner";
    import { routeCredentialId, type CredentialId, type RouteId } from "../../../lib/routes";
    import {
+     REASONING_PROVIDERS,
      getMeetingStreamingTranscriptionProviders,
+     getTranscriptionModels,
      getTranscriptionProviders,
    } from "../../../models/ModelRegistry";
    import { providerSupports } from "../../../services/ai/inferenceProviders";
@@ -11138,7 +14006,8 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
    // The fields the staged panel asks for, per credential identity. Corti
    // authenticates speech with a client id and secret and text with an API key
    // (ipcHandlers.js:1105-1121), so each route asks for its own (I10). Codex and
-   // the enterprise clouds have no entry: they sign in after Apply.
+   // the enterprise clouds have no entry here: the staged panel renders their
+   // own sign-in and setup (Task 9) before Apply, never after it (R2-9).
    const CREDENTIAL_FIELDS: Partial<Record<CredentialId, CredentialFieldSpec[]>> = {
      openai: apiKey("openaiApiKey"),
      anthropic: apiKey("anthropicApiKey"),
@@ -11170,9 +14039,33 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      return spec.fields.every((field) => String(settings[field.storeKey as keyof SettingsState] ?? "") !== "");
    }
 
-   // Codex and enterprise sign in inside their editor after the route is applied.
-   export function signsInAfterApply(providerId: string): boolean {
+   // Codex and the enterprise clouds are set up inside the staged panel
+   // (Task 9's setup slot). Copy only: Apply stays blocked until the route is
+   // ready (Task 6's routeBlocker, R2-9).
+   export function setsUpInEditor(providerId: string): boolean {
      return SETUP_AFTER_APPLY.has(providerId);
+   }
+
+   export interface StagedModelOption {
+     id: string;
+     name: string;
+   }
+
+   // Free-form ids: custom endpoints, OpenRouter, Codex (listed only on request,
+   // Task 9) and the enterprise deployments take a typed model id.
+   const TYPED_MODEL_PROVIDERS: ReadonlySet<string> = new Set([
+     "custom", "openrouter", "codex", "bedrock", "azure", "vertex",
+   ]);
+
+   // R2-9: the staged panel's model choice. Registry lists only; nothing is
+   // discovered over the network here.
+   export function modelsForRoute(id: RouteId, providerId: string): StagedModelOption[] {
+     if (!providerId || TYPED_MODEL_PROVIDERS.has(providerId)) return [];
+     if (capabilityOf(id) === "speech") {
+       return getTranscriptionModels(providerId).map((model) => ({ id: model.id, name: model.name }));
+     }
+     const provider = REASONING_PROVIDERS[providerId as keyof typeof REASONING_PROVIDERS];
+     return (provider?.models ?? []).map((model) => ({ id: model.value, name: model.label }));
    }
    ```
 
@@ -11224,6 +14117,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      requestRouteChange,
      requestRoutePatch,
      type RouteChangeOutcome,
+     type RouteRequestResult,
    } from "../../../stores/routeDraftStore";
    import { useToast } from "../../ui/useToast";
 
@@ -11267,20 +14161,22 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
        [t, toast, copy]
      );
 
+     // "superseded" (R2-8): Settings closed, Discard ran, or a newer pick or an
+     // Undo on the same route won while this one waited. Nothing happened, so nothing is announced.
      const request = useCallback(
-       async (id: RouteId, target: RouteTarget): Promise<RouteChangeOutcome | "staged"> => {
+       async (id: RouteId, target: RouteTarget): Promise<RouteRequestResult> => {
          const result = await requestRouteChange(id, target, copy);
-         if (result !== "staged") announce(result);
+         if (result !== "staged" && result !== "superseded") announce(result);
          return result;
        },
        [copy, announce]
      );
 
-     // Switches, Corti options and providerSearch:<scope> (Steps 6–10, Task 9).
+     // Switches, Corti options, providerSearch:<scope> and the enterprise fields of an active route (Steps 6–10, Task 9).
      const requestPatch = useCallback(
-       async (id: RouteId, patch: SettingsPatch): Promise<RouteChangeOutcome | "staged"> => {
+       async (id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult> => {
          const result = await requestRoutePatch(id, patch, copy);
-         if (result !== "staged") announce(result);
+         if (result !== "staged" && result !== "superseded") announce(result);
          return result;
        },
        [copy, announce]
@@ -11296,7 +14192,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
    }
 
    // The one commit callback every picker receives (Task 9).
-   export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteChangeOutcome | "staged"> {
+   export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteRequestResult> {
      const { request } = useRouteChange();
      return useCallback((target: RouteTarget) => request(id, target), [request, id]);
    }
@@ -11438,7 +14334,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
    import { useTranslation } from "react-i18next";
    import { providerDisplayLabel } from "../../../lib/locality";
    import { useResolvedRoutes } from "../../../lib/routes";
-   import type { RoutePlan } from "../../../lib/routePlanner";
+   import { SETUP_AFTER_APPLY, type ApplyBlocker, type RoutePlan } from "../../../lib/routePlanner";
    import { planDraft, useRouteDraftStore } from "../../../stores/routeDraftStore";
    import { ensureSealedSubscribed, useSealedStore } from "../../../stores/sealedStore";
    import { Button } from "../../ui/button";
@@ -11462,6 +14358,19 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      const leaves = plan.changes.some((c) => c.after.locality !== "device" && c.after.state.status !== "off");
      const keyRoute = plan.changes.find((c) => c.after.state.status === "needsKey")?.after ?? null;
      const keyProvider = keyRoute?.providerId ? providerDisplayLabel(keyRoute.providerId, t) : "";
+     // R2-9: what the blocker still needs. Codex and the enterprise clouds sign
+     // in inside the staged panel; a remote model is chosen, not downloaded.
+     const blockerKey = (blocker: ApplyBlocker): string => {
+       if (blocker === "needsKey" && keyRoute?.providerId && SETUP_AFTER_APPLY.has(keyRoute.providerId)) {
+         return "staging.blocked.signIn";
+       }
+       if (blocker === "needsModel") {
+         const modelRoute = plan.changes.find((c) => c.after.state.status === "needsModel")?.after;
+         const download = modelRoute?.state.status === "needsModel" && modelRoute.state.sizeBytes !== undefined;
+         return download ? "staging.blocked.needsModel" : "staging.blocked.chooseModel";
+       }
+       return `staging.blocked.${blocker}`;
+     };
      return (
        <div
          role="region"
@@ -11502,11 +14411,9 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
            ))}
          </ul>
          {leaves && <p className="mt-2 text-[11px] text-muted-foreground">{t("routes.payload.metadataNote")}</p>}
-         {plan.blocker === null && keyRoute && keyProvider && (
-           <p className="mt-1 text-muted-foreground">{t("staging.setupAfterApply", { provider: keyProvider })}</p>
-         )}
+         {/* R2-9: Apply is disabled until every changed, enabled, off-device route is ready. */}
          <p role="status" aria-live="polite" className="mt-1 font-medium text-foreground">
-           {plan.blocker ? t(`staging.blocked.${plan.blocker}`, { provider: keyProvider }) : ""}
+           {plan.blocker ? t(blockerKey(plan.blocker), { provider: keyProvider }) : ""}
          </p>
          <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
            <Button size="sm" variant="outline" onClick={onDiscard}>
@@ -11583,15 +14490,26 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
 7. Create `src/components/settings/routing/StagedRoutePanel.tsx`:
 
    ```tsx
+   import { useEffect, useId, useState, type ReactNode } from "react";
    import { useTranslation } from "react-i18next";
    import { providerDisplayLabel } from "../../../lib/locality";
    import type { CredentialId, RouteId } from "../../../lib/routes";
    import type { RouteTarget } from "../../../lib/routePlanner";
    import { useRouteDraftStore } from "../../../stores/routeDraftStore";
    import { saveSecret, useSettingsStore, type SettingsState } from "../../../stores/settingsStore";
-   import ApiKeyInput from "../../ui/ApiKeyInput";
+   import ApiKeyInput, { type AcknowledgedSecretSave } from "../../ui/ApiKeyInput";
+   import { Button } from "../../ui/button";
+   import { Input } from "../../ui/input";
    import { EndpointDraft } from "./EndpointDraft";
-   import { capabilityOf, credentialFor, hasSavedCredential, providersForRoute, signsInAfterApply } from "./providerCatalog";
+   import {
+     capabilityOf,
+     credentialFor,
+     hasSavedCredential,
+     modelsForRoute,
+     providersForRoute,
+     setsUpInEditor,
+     type StagedModelOption,
+   } from "./providerCatalog";
    import { useRouteChange } from "./useRouteChange";
 
    export interface StagedProviderOption {
@@ -11603,22 +14521,66 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      storeKey: string;
      label: string;
      value: string;
-     save: (value: string) => unknown;
+     // R2-3: the exact ApiKeyInput callback type. Never cast, never dropped.
+     save: AcknowledgedSecretSave;
    }
    export interface StagedRoutePanelViewProps {
      routeId: RouteId;
      target: RouteTarget;
      providers: StagedProviderOption[];
      credential: { credentialId: CredentialId; inputs: StagedCredentialInput[] } | null;
+     models: StagedModelOption[];
      sharedServerUrl: string | null;
      onTarget: (target: RouteTarget) => void;
+     // R2-9: provider setup that readiness needs (Task 9: Codex sign-in, enterprise fields).
+     setup?: ReactNode;
    }
 
-   export function StagedRoutePanelView({ routeId, target, providers, credential, sharedServerUrl, onTarget }: StagedRoutePanelViewProps) {
+   // A typed model id for providers without a registry list (OpenRouter, Codex,
+   // enterprise deployments). A local draft until "Use this model".
+   function ModelIdDraft({ value, onUse }: { value: string; onUse: (model: string) => void }) {
+     const { t } = useTranslation();
+     const id = useId();
+     const [draft, setDraft] = useState(value);
+     useEffect(() => setDraft(value), [value]);
+     return (
+       <div className="space-y-1.5">
+         <label htmlFor={id} className="block text-xs font-medium text-foreground">
+           {t("staging.modelId")}
+         </label>
+         <div className="flex flex-wrap items-center gap-2">
+           <Input id={id} dir="ltr" value={draft} onChange={(e) => setDraft(e.target.value)} className="h-8 max-w-xs text-sm" />
+           <Button
+             type="button"
+             size="sm"
+             variant="outline"
+             data-action="use-model"
+             disabled={!draft.trim() || draft.trim() === value}
+             onClick={() => onUse(draft.trim())}
+           >
+             {t("staging.useModel")}
+           </Button>
+         </div>
+       </div>
+     );
+   }
+
+   export function StagedRoutePanelView({
+     routeId,
+     target,
+     providers,
+     credential,
+     models,
+     sharedServerUrl,
+     onTarget,
+     setup,
+   }: StagedRoutePanelViewProps) {
      const { t } = useTranslation();
      if (target.mode === "local") return null;
      const task = t(`routes.names.${routeId}`);
      const chosen = target.mode === "providers" ? target.provider : "";
+     const text = capabilityOf(routeId) !== "speech";
+     const model = target.model ?? "";
      return (
        <section
          aria-label={t("staging.region")}
@@ -11654,11 +14616,12 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
              ))}
            </div>
          )}
-         {target.mode === "providers" && signsInAfterApply(chosen) && (
+         {target.mode === "providers" && setsUpInEditor(chosen) && (
            <p className="text-muted-foreground">
-             {t("staging.setupAfterApply", { provider: providerDisplayLabel(chosen, t) })}
+             {t("staging.setupHere", { provider: providerDisplayLabel(chosen, t) })}
            </p>
          )}
+         {setup}
          {credential?.inputs.map((input) => (
            <ApiKeyInput
              key={input.storeKey}
@@ -11667,13 +14630,41 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
              label={input.label}
            />
          ))}
+         {/* R2-9: the model is chosen here, before Apply; picking one re-plans the draft and commits nothing. */}
+         {target.mode === "providers" && chosen && chosen !== "custom" && models.length > 0 && (
+           <div role="radiogroup" aria-label={t("staging.model")} className="flex flex-wrap gap-1.5">
+             {models.map((option) => (
+               <button
+                 key={option.id}
+                 type="button"
+                 role="radio"
+                 aria-checked={model === option.id}
+                 onClick={() => onTarget({ mode: "providers", provider: chosen, model: option.id })}
+                 className={`inline-flex h-7 items-center rounded-full border px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
+                   model === option.id ? "border-ring bg-background ring-1 ring-ring" : "border-border bg-background"
+                 }`}
+               >
+                 {option.name}
+               </button>
+             ))}
+           </div>
+         )}
+         {/* The enterprise clouds take their deployment or model id in Task 9's setup slot. */}
+         {target.mode === "providers" && chosen && chosen !== "custom" && models.length === 0 && (chosen === "codex" || !setsUpInEditor(chosen)) && (
+           <ModelIdDraft value={model} onUse={(next) => onTarget({ mode: "providers", provider: chosen, model: next })} />
+         )}
          {target.mode === "providers" && chosen === "custom" && (
            <EndpointDraft
              label={t("staging.endpointUrl")}
              url={target.baseUrl ?? ""}
              urlPlaceholder="https://your-endpoint.example/v1"
+             model={model}
+             modelLabel={t("staging.modelId")}
+             modelPlaceholder={text ? "gpt-4o-mini" : "whisper-1"}
              useLabel={t("staging.useEndpoint")}
-             onUse={({ url }) => onTarget({ mode: "providers", provider: "custom", baseUrl: url })}
+             onUse={({ url, model: next }) =>
+               onTarget({ mode: "providers", provider: "custom", baseUrl: url, ...(next ? { model: next } : {}) })
+             }
            />
          )}
          {target.mode === "self-hosted" && sharedServerUrl !== null && (
@@ -11684,8 +14675,13 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
              label={t("staging.serverUrl")}
              url={target.remoteUrl}
              urlPlaceholder={capabilityOf(routeId) === "speech" ? "http://localhost:8178" : "http://localhost:11434/v1"}
+             model={model}
+             modelLabel={t("staging.modelId")}
+             modelPlaceholder={text ? "llama3" : "whisper-large-v3-turbo"}
              useLabel={t("staging.useServer")}
-             onUse={({ url }) => onTarget({ mode: "self-hosted", remoteUrl: url })}
+             onUse={({ url, model: next }) =>
+               onTarget({ mode: "self-hosted", remoteUrl: url, ...(next ? { model: next } : {}) })
+             }
            />
          )}
        </section>
@@ -11707,7 +14703,8 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
          key: spec === null ? "none" : hasSavedCredential(spec, settings as SettingsState) ? "saved" : "missing",
        };
      });
-     const spec = target.mode === "providers" && target.provider ? credentialFor(routeId, target.provider) : null;
+     const chosen = target.mode === "providers" ? target.provider : "";
+     const spec = chosen ? credentialFor(routeId, chosen) : null;
      return (
        <StagedRoutePanelView
          routeId={routeId}
@@ -11721,21 +14718,23 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
                    storeKey: field.storeKey as string,
                    label: t(field.labelKey),
                    value: String(settings[field.storeKey as keyof SettingsState] ?? ""),
-                   // I3: an acknowledged save; the store keeps only the main-confirmed sentinel.
+                   // I3, R2-3: the acknowledged save's promise is returned to ApiKeyInput unchanged.
                    save: (value: string) => saveSecret(field.storeKey, value),
                  })),
                }
              : null
          }
+         models={modelsForRoute(routeId, chosen)}
          sharedServerUrl={routeId === "uploadStt" ? settings.remoteTranscriptionUrl : null}
-         // Every choice re-plans: a device result applies now, anything else re-stages.
+         // Every choice re-plans: a device result applies now, anything else re-stages
+         // (keeping setup typed for the same provider, Task 7).
          onTarget={(next) => void request(routeId, next)}
        />
      );
    }
    ```
 
-   Saving a key here never changes a route. When main acknowledges it, Task 3's facts refresh and the bar's blocker clears; Apply still awaits `flushSecretSaves` (Task 7).
+   Saving a key here never changes a route. When main acknowledges it, Task 3's facts refresh and the bar's blocker clears; Apply still awaits `flushSecretSaves` (Task 7). Choosing a model re-stages the draft with that model (R2-9); the bar's `needsModel` blocker clears without committing. Task 9 fills the `setup` slot for Codex and the enterprise clouds.
 
 8. In `src/components/ui/SidebarModal.tsx`:
    - Add to `SidebarModalProps` (`:20-34`): `/** Sticky content-column footer, e.g. the route Apply bar. */ footer?: React.ReactNode;` and destructure `footer` in the component (`:36-48`).
@@ -11755,8 +14754,8 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
      ```
 
-   - Before `return (` add `const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);`
-   - On `<SidebarModal<SettingsSectionType>`, replace `onOpenChange={onOpenChange}` with `onOpenChange={handleOpenChange}` and add `footer={<StagedRouteBar />}`.
+   - Before `return (` (`:125`) add `const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);`. On close, `withDraftDiscard` calls Task 7's `endSettingsSession()`, which discards the draft and bumps the session epoch `requestEpoch`. A route request still waiting, on any route, for a key save or a presence read then settles to `"superseded"`: no draft and no commit after close (R2-8). A toast's Undo is synchronous and keeps working after close.
+   - On `<SidebarModal<SettingsSectionType>` (`:126-133`), replace `onOpenChange={onOpenChange}` (`:128`) with `onOpenChange={handleOpenChange}` and add `footer={<StagedRouteBar />}`.
 
 10. `src/components/SettingsPage.tsx`, `TranscriptionSection`:
     - Add imports next to the other settings imports:
@@ -11908,7 +14907,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
             }
             // Task 7's commit frees llama-server when a scope moves to a server.
             const outcome = await request(routeId, stagedTargetForMode(mode, routeId, useSettingsStore.getState()));
-            if (outcome === "staged" || !outcome.applied) return;
+            if (outcome === "staged" || outcome === "superseded" || !outcome.applied) return;
             onModeChange?.(mode);
           },
           [routeId, request, stagedMode, effectiveMode, onModeChange, isModeAllowed]
@@ -11948,7 +14947,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
         "sends": "Sends {{payload}}",
         "staysOnDevice": "Stays on this device",
         "offNote": "Off. Used when you turn it on.",
-        "setupAfterApply": "Sign in to {{provider}} after applying. Nothing is sent until you do.",
+        "setupHere": "Set up {{provider}} here before applying. Nothing is sent until you apply.",
         "discard": "Discard",
         "apply": "Apply",
         "blocked": {
@@ -11956,11 +14955,16 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
           "chooseProvider": "Choose a provider to see what will be sent.",
           "needsUrl": "Enter a valid server address.",
           "needsModel": "Download the model first.",
+          "chooseModel": "Choose a model first.",
+          "signIn": "Sign in to {{provider}} first. Nothing is sent until you apply.",
           "sealed": "Sealed mode is on. Routes that leave this device are paused.",
           "unknown": "Still checking saved keys and models. Try again in a moment.",
           "unsupported": "This provider can't run this task."
         },
         "provider": "Provider",
+        "model": "Model",
+        "modelId": "Model ID",
+        "useModel": "Use this model",
         "keySaved": "key saved",
         "noKey": "no key",
         "cloud": {
@@ -12000,13 +15004,16 @@ Then check in the app (`npm run native:electron && npm run dev`):
 - Apply: the toast reads "Dictation now sends your audio … to Corti." with Undo. If Note recording and Upload inherit dictation, the bar listed them under "Also changes" first.
 - Choose Local: it applies at once and toasts "Dictation now runs on this device."
 - ⌘↵ in the notes editor does nothing; inside Settings it applies. Esc closes Settings and reopening shows no draft.
+- LLMs › Chat → Cloud → OpenAI: the bar reads "Choose a model first." with Apply disabled; pick a model in the panel and Apply enables, with nothing applied yet. Pick ChatGPT (Codex) while signed out: "Sign in to … first." and Apply stays disabled (Task 9 adds the sign-in button to this panel).
+- Type a key into a staged Cloud panel and close Settings before main acknowledges it: reopening shows no draft, and the route did not change.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 npx prettier --write src/components/settings/routing src/components/ui/SidebarModal.tsx src/components/SettingsModal.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx src/components/settings/InferenceConfigEditor.tsx
 git add src/components/settings/routing src/components/ui/SidebarModal.tsx src/components/SettingsModal.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx src/components/settings/InferenceConfigEditor.tsx src/locales test/lib/probeRoot.js test/lib/routeTestApi.js test/components/providerCatalog.test.js test/components/stagedRouteBar.test.js test/components/stagedRoutePanel.test.js test/components/routeModeEditors.test.js test/components/fieldDirectionPolicy.test.js
-git commit -m "feat(settings): Stage off-device route changes behind a review bar"
+git commit -m "feat(settings): Stage off-device route changes behind a review bar" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 #### Enable switches through the planner (I1 follow-up)
@@ -12236,7 +15243,7 @@ Expected: FAIL. `RouteSwitch.tsx` does not exist (Vite reports `Failed to load u
          disabled={disabled}
          onChange={async (next) => {
            const outcome = await requestPatch(routeId, { [settingKey]: next } as SettingsPatch);
-           if (outcome !== "staged" && outcome.applied) onApplied?.(next);
+           if (outcome !== "staged" && outcome !== "superseded" && outcome.applied) onApplied?.(next);
          }}
        />
      );
@@ -12352,7 +15359,8 @@ Then check in the app: with cleanup set to OpenAI and turned off, switch it on. 
 ```bash
 npx prettier --write src/components/settings/routing/RouteSwitch.tsx src/components/settings/routing/useRouteChange.ts src/components/SettingsPage.tsx src/components/settings/DictationAgentSettings.tsx src/components/settings/DictationTranslationSettings.tsx src/components/settings/InferenceConfigEditor.tsx test/components/routeSwitches.test.js test/lib/routesHooks.test.js
 git add src/components/settings/routing/RouteSwitch.tsx src/components/settings/routing/useRouteChange.ts src/components/SettingsPage.tsx src/components/settings/DictationAgentSettings.tsx src/components/settings/DictationTranslationSettings.tsx src/components/settings/InferenceConfigEditor.tsx test/components/routeSwitches.test.js test/lib/routesHooks.test.js
-git commit -m "feat(settings): Send route switches and web search through the planner"
+git commit -m "feat(settings): Send route switches and web search through the planner" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -12364,6 +15372,13 @@ Closes **C1** and the picker half of **I1**.
 - **I1 (pickers).** Every committed provider, model and endpoint change in `TranscriptionModelPicker` (`handleCloudModelSelect` `:863-878`, the custom base-URL blur that switched provider `:900-927`, per-keystroke URL writes `:1190-1194`, the policy-reconcile write `:636-659`), `ReasoningModelSelector` (`handleModelSelect` `:480-491`, `handleModeChange` `:493-506`) and `SelfHostedPanel` (Settings `:648-656`, Upload `:132-139`) goes through one `onCommit(target)` → `requestRouteChange`. On-device results apply at once with Undo; a new recipient is staged behind Apply. An invalid persisted selection is shown and left for the resolver to report as not ready; the picker no longer rewrites it.
 - **Corti region (I1 follow-up).** The region `Select` and tenant field in `TranscriptionModelPicker`'s Corti credentials (`:301-315`, rendered at `:1249-1272`) called `setCortiEnvironment`/`setCortiTenant`. The region picks the receiving host (`api.<region>.corti.app`, `cortiTranscription.js:39`, `cortiStreaming.js:48`), so both now commit through Task 8's `useRouteChange().requestPatch` (Task 7's `requestRoutePatch`): a region switch is staged when a speech route uses Corti (Corti text always calls `ai.eu.corti.app`, Task 1's `providerHosts["corti:text"]`, so it is not moved), and the tenant (same host) applies at once. The tenant is a local draft committed on leave or Enter, never per keystroke.
 - **C1/I2 (Codex connection).** `CodexConnection` (`src/components/CodexConnection.tsx:60-62`) runs `refresh()` on mount. That calls `codexStatus()`, which starts the Codex app server (`src/helpers/codexAppServer.js:359-367` → `start()` `:116-181`). The first start in a session may also ask GitHub to verify the release (`verifyOfficialCodex`, `src/helpers/codexCli.js:309-340`). When the account is signed in, it then calls `codexRateLimits()` (`:35`, `:44-48`). `CodexModelPicker` renders it (`ReasoningModelSelector.tsx:789`), so opening the Codex tab started Codex. In Settings it now runs nothing on mount. Signed-in presence comes from Task 2's main-confirmed `credentials.list` row for `"codex"`, a stat of `auth.json` with no process and no network, read through Task 3's `useRouteFactsStore`. Status and quota are read only by an explicit **Check ChatGPT status** button whose tooltip names ChatGPT via the Codex app. Account events still refresh, because they follow an explicit sign-in or sign-out. Onboarding (`OnboardingFlow.tsx:546`) is Plan 05's concern. It opts into the old mount read with `checkStatusOnMount`, so its behaviour and tests stay as they are, and Plan 05 decides whether to keep it.
+- **R2-1 (enterprise recipients, UI side).** `EnterpriseProviderConfig` wrote its route fields directly. That covered the Bedrock region (`:114-118`, `settings.setBedrockRegion` plus a per-keystroke model rewrite), the Azure endpoint (`:145-148`, `settings.setAzureEndpoint`, which `settingsStore.ts:2060-2063` persists to main at once through `saveAzureEndpoint`) and the Vertex project and location (`:166-174`). Main reads exactly these for requests (`main.js:447-457` → `enterpriseAiProviders.js:26,73-81,90-91`), so typing an Azure endpoint could redirect content and its key without review. Each field is now a local draft committed on leave or Enter:
+  - for the route being edited: through `requestRoutePatch({ <field>: value })` (Task 8's `requestPatch`), which Task 6 plans with its coupled changes (Bedrock's `adjustBedrockModelForRegion` model update) and stages when a host changes;
+  - inside the staged panel: through Task 7's `stageDraftSetup`, which writes nothing.
+  The component no longer calls any store setter for these fields. Task 6's `applyRoutePatch` is the only writer, and it tells main.
+- **R2-9 (staged editor setup).** Task 8's staged panel gets Codex sign-in (`CodexConnection`, explicit Connect) and the enterprise fields and credentials in its `setup` slot. The route is not committed, and Apply stays blocked until the route is ready.
+- **R2-6 (enterprise Test connection).** Before, the button (`:195-206`) sent a credential-bearing `textGenerate` (`:86-100`) behind a generic label. Its label now names the host and the credential fields from main's `keyring.describeVerify(provider)` (Task 11), which main computes from the same committed configuration the request uses. The panel re-queries whenever the committed endpoint, region, project or location changes, and on `credentials-changed`. It is disabled while main names no host.
+- **R2-3 / R2-5.** `OpenAICompatiblePanel.saveApiKey` and `ReasoningModelSelector.saveCustomReasoningApiKey` have the exact type `AcknowledgedSecretSave` (Task 2). The panel passes `credentialId={credentialSlotForRef(credentialRef)}` to `ApiKeyInput`, so OpenRouter's identity (`credentialRef="openrouter"`, `ReasoningModelSelector.tsx:577-590`) and each custom slot reach `ApiKeyInput`. Task 12 turns that identity into an undoable token removal with a toast and tests it.
 - **SET-Q19.** Self-hosted inputs are labelled (`htmlFor`/`useId` via Task 8's `EndpointDraft`) and get an unauthenticated **Test** that calls a new main probe, `src/helpers/selfHostedProbe.js` (no headers; `GET <base>/models`; plain http only for private hosts using the now-exported `isPrivateHost`), exposed as `window.electronAPI.probeSelfHosted`. Upload's panel is read-only, because it shares dictation's URL.
 
 **Files:**
@@ -12373,6 +15388,8 @@ Closes **C1** and the picker half of **I1**.
 - Rewrite: `src/components/OpenAICompatiblePanel.tsx`
 - Rewrite: `src/components/SelfHostedPanel.tsx`
 - Rewrite: `src/components/CodexConnection.tsx` (`:1-148`)
+- Rewrite: `src/components/EnterpriseProviderConfig.tsx` (`:1-215`; R2-1, R2-6)
+- Modify: `src/components/settings/routing/StagedRoutePanel.tsx` (Task 8; fills the `setup` slot, R2-9)
 - Modify: `src/components/OnboardingFlow.tsx:546` (opt into the mount read; behaviour unchanged, Plan 05 owns it)
 - Modify: `src/components/ReasoningModelSelector.tsx` (`:47-75`, `:338-351`, `:475-506`, `:577-608`, `:783-788`, `:790-792`)
 - Modify: `src/components/TranscriptionModelPicker.tsx` (`:214-237`, `:376-397`, `:412-415`, `:476-576`, `:636-659`, `:843-947`, `:970-983`, `:1184-1225`, `:1266-1272`)
@@ -12383,7 +15400,7 @@ Closes **C1** and the picker half of **I1**.
 - Modify: `docs/PRIVACY.md:49`, `:51`
 - Modify tests: `test/components/personalWorkspace.test.js` (delete the mount-discovery case `:162-189`; update the selector case's props `:192-203`), `test/components/orukeetOrganization.test.js:92-131`, `test/components/fieldDirectionPolicy.test.js:58-73`, `test/components/codexConnectionSignIn.test.js:69` (these cases pin onboarding's opt-in mount read)
 - Modify: `src/locales/*/translation.json`
-- Test: `test/helpers/selfHostedProbe.test.js`, `test/components/endpointDiscovery.test.js`, `test/components/routePickers.test.js`
+- Test: `test/helpers/selfHostedProbe.test.js`, `test/components/endpointDiscovery.test.js`, `test/components/routePickers.test.js`, `test/components/enterpriseRoutes.test.js` (R2-1, R2-6, R2-9)
 
 **Interfaces:**
 - Consumes:
@@ -12392,6 +15409,11 @@ Closes **C1** and the picker half of **I1**.
   - `BidiInterpolatedText`/`BIDI_VALUE_TOKEN` (`src/components/ui/BidiInterpolatedText.tsx`).
   - Task 5: the `routes.state.sealed` copy, shown when the self-hosted probe answers `{ ok: false, code: "sealed" }` (spec §5.4: main gates `probe-self-hosted` as `providerCheck`, loopback only while sealed; Plan 07 adds the gate).
   - Main's discovery handler resolves the credential slot it sends: `custom:<scope>` for custom endpoints and `openrouter` for OpenRouter (`src/helpers/personalInference.js:136-138`, `:286-301`).
+  - Task 2: `AcknowledgedSecretSave`, `unavailableSecretSave` (`src/components/ui/ApiKeyInput.tsx`), `ApiKeyInput`'s `credentialId?: CredentialSlot`, and `credentialSlotForRef(ref): CredentialSlot | undefined` (`src/lib/credentialSlots.ts`). Also Task 2's `InferenceConfigEditor` `saveCustomKey: AcknowledgedSecretSave`, which is reused here.
+  - Task 6: `ROUTE_ENTERPRISE_KEYS` (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`) are route patch keys. `planPatch` adds Bedrock's region model coupling to the same patch and its Undo. `applyRoutePatch` mirrors the old setters for the four keys (localStorage, `window.electronAPI.save{BedrockRegion,AzureEndpoint,VertexProject,VertexLocation}`, `.env`), and the graph's `enterprise` slice gives each enterprise route its `host` and readiness.
+  - Task 7: `stageDraftSetup(id, patch)` and `RouteDraft.setup`.
+  - Task 8: the staged panel's `setup?: ReactNode` slot.
+  - Task 11: `window.electronAPI.keyring.describeVerify(identity): Promise<VerifyTargetDescription>` (`{ hosts: string[]; fields: string[] }`, declared by this task in `src/types/electron.ts`) for `"bedrock" | "azure" | "vertex"`, computed by main from `getEnterpriseConfig` (`main.js:447-457`), the configuration `textGenerate` uses.
 - Produces:
 
   ```ts
@@ -12402,13 +15424,21 @@ Closes **C1** and the picker half of **I1**.
   // src/helpers/providerConnectionTest.js
   module.exports.isPrivateHost(hostname: string): boolean;
   // OpenAICompatiblePanel props (replaces setBaseUrl / setApiKey / setModel)
-  { credentialRef?: string; baseUrl: string; onUseEndpoint?: (url: string) => void; apiKey: string; saveApiKey: (key: string) => unknown;
+  { credentialRef?: string; baseUrl: string; onUseEndpoint?: (url: string) => void; apiKey: string; saveApiKey: AcknowledgedSecretSave; // R2-3
     model: string; onSelectModel: (model: string) => void; defaultBaseUrl?: string; baseUrlPlaceholder?: string; helpExamples?: ReactNode;
     lockedBaseUrl?: boolean; apiKeyRequired?: boolean; getKeyUrl?: string }
   // ReasoningModelSelector props (replaces setReasoningModel / setLocalReasoningProvider / setCloudReasoningBaseUrl / setCustomReasoningApiKey / setReasoningMode)
   { reasoningModel: string; localReasoningProvider: string; cloudReasoningBaseUrl: string; customReasoningApiKey?: string;
-    saveCustomReasoningApiKey?: (key: string) => unknown; onCommit: (target: RouteTarget) => void; mode?: "cloud" | "local";
-    credentialRef?: string; requireImages?: boolean }
+    saveCustomReasoningApiKey?: AcknowledgedSecretSave; onCommit: (target: RouteTarget) => void;
+    onRoutePatch: (patch: SettingsPatch) => void; // R2-1: enterprise route fields → requestRoutePatch(routeId, patch)
+    mode?: "cloud" | "local"; credentialRef?: string; requireImages?: boolean }
+  // EnterpriseProviderConfig props (replaces setReasoningModel; R2-1, R2-6, R2-9)
+  { provider: "bedrock" | "azure" | "vertex"; reasoningModel: string; onSelectModel: (model: string) => void;
+    onRoutePatch: (patch: SettingsPatch) => void;  // active editor: requestPatch; staged panel: stageDraftSetup
+    pending?: SettingsPatch;                       // staged setup shown over the live values
+    testConnection?: boolean }                     // default true; false in the staged panel (nothing committed to test)
+  export interface VerifyTarget { hosts: string[]; fields: string[] } // structurally VerifyTargetDescription
+  export function enterpriseTestDisclosure(target: VerifyTarget | null, t: Translate): string;
   // TranscriptionModelPicker props (replaces onCloudProviderSelect / onCloudModelSelect / onLocalModelSelect / onLocalProviderSelect / onModeChange / setCloudTranscriptionBaseUrl)
   { transcriptionContext?: TranscriptionPolicyContext; selectedCloudProvider: string; selectedCloudModel: string; selectedLocalModel: string;
     selectedLocalProvider?: string; onCommit: (target: RouteTarget) => void; useLocalWhisper: boolean; cloudTranscriptionBaseUrl?: string;
@@ -12604,6 +15634,42 @@ test("browsing ReasoningModelSelector's custom, OpenRouter and Codex tabs sends 
   await probes.act(() => tabs.props.onSelect("codex"));
   await mountChild((node) => node.type?.name === "CodexModelPicker");
   assert.equal(calls.length, 0);
+});
+
+// Change-driving (R2-5): ReasoningModelSelector rendered OpenRouter through OpenAICompatiblePanel
+// (ReasoningModelSelector.tsx:577-590), whose ApiKeyInput got no identity, so its Remove fell back to the
+// permanent empty save (ApiKeyInput.tsx:164-171). Task 12 tests the Remove → toast → Undo on top of this.
+test("OpenRouter and custom slots reach ApiKeyInput as credential identities", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: discoveryApi([]) } });
+  const vite = await rendererServer(t, "loqui-endpoint-identity-");
+  const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
+  const probes = createProbeRoot(t);
+  const tree = await probes.mount("selector", () =>
+    Selector({
+      mode: "cloud",
+      credentialRef: "custom:chatIntelligence",
+      reasoningModel: "",
+      localReasoningProvider: "custom",
+      cloudReasoningBaseUrl: "https://models.example.test/v1",
+      customReasoningApiKey: "__stored__",
+      onCommit() {},
+      onRoutePatch() {},
+    })
+  );
+  const keyInput = async (credentialRef) => {
+    const panel = await probes.mount(`panel-${credentialRef}`, () => {
+      const element = findElement(tree(), (node) => node.props?.credentialRef === credentialRef);
+      return element.type(element.props);
+    });
+    return findElement(panel(), (node) => typeof node.props?.setApiKey === "function");
+  };
+  const custom = await keyInput("custom:chatIntelligence");
+  assert.equal(custom.props.credentialId, "custom:chatIntelligence");
+  // R2-3: without a caller-supplied saver the fallback still answers with an acknowledgement.
+  assert.deepEqual(await custom.props.setApiKey("sk-test"), { ok: false, error: "unavailable" });
+  const tabs = findElement(tree(), (node) => node.props?.providers?.some?.((provider) => provider.id === "openrouter"));
+  await probes.act(() => tabs.props.onSelect("openrouter"));
+  assert.equal((await keyInput("openrouter")).props.credentialId, "openrouter");
 });
 
 // Change-driving (C1/I2): CodexConnection called codexStatus() on mount (CodexConnection.tsx:60-62).
@@ -13004,8 +16070,12 @@ test("pickers no longer write provider, model or endpoint fields themselves", ()
     // C1/I2: the unconditional mount read (:60-62), the double read behind Refresh (action(refresh)
     // reads twice) and Connect gated on a status read that never ran.
     "components/CodexConnection.tsx": [/useEffect\(\(\) => \{\s*void refresh\(\)/, /action\(refresh\)/, /!status\?\.available/],
+    // R2-3: no dropped acknowledgement; R2-1: no direct enterprise writer.
+    "components/ReasoningModelSelector.tsx#saves": [/saveApiKey=\{[^}]*\(\) => (undefined|\{\})/, /\|\| \(\(\) => \{\}\)/],
+    "components/EnterpriseProviderConfig.tsx": [/settings\.set(BedrockRegion|AzureEndpoint|VertexProject|VertexLocation)/],
   };
-  for (const [file, patterns] of Object.entries(banned)) {
+  for (const [entry, patterns] of Object.entries(banned)) {
+    const file = entry.split("#")[0];
     const source = fs.readFileSync(path.join(SRC, file), "utf8");
     for (const pattern of patterns) assert.doesNotMatch(source, pattern, `${file} still matches ${pattern}`);
   }
@@ -13018,10 +16088,323 @@ test("pickers no longer write provider, model or endpoint fields themselves", ()
 });
 ```
 
+Create `test/components/enterpriseRoutes.test.js` (R2-1, R2-6, R2-9). It mounts the production wiring that `InferenceConfigEditor` uses (`ReasoningModelSelector` → `EnterpriseProviderConfig`, with `onCommit = useRouteCommit(routeId)` and `onRoutePatch = (patch) => void requestPatch(routeId, patch)`, pinned by the source guard at the end), the real stores and planner, and a fake main whose committed enterprise configuration is written only through the preload savers that Task 6's `applyRoutePatch` calls:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const React = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const { installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { createProbeRoot, findElement } = require("../lib/probeRoot");
+const { SRC, primeRouteFacts, rendererServer, routeTestApi, toastCapture } = require("../lib/routeTestApi");
+const { TEST_COPY } = require("../lib/routeStateFixture");
+
+const EAST = "https://east.openai.azure.com/openai";
+const WEST = "https://west.openai.azure.com/openai";
+
+test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t) => {
+  // Main's committed enterprise configuration (main.js:447-457). Only the preload savers change it.
+  const main = { azureEndpoint: EAST, bedrockRegion: "us-east-1", vertexProject: "", vertexLocation: "" };
+  const writes = [];
+  const saver = (key) => async (value) => {
+    writes.push([key, value]);
+    main[key] = value;
+    return { success: true };
+  };
+  // One host rule for both the disclosure and the request, as main uses one configuration for both.
+  const hostsFor = (provider) => {
+    if (provider === "bedrock") return [`bedrock-runtime.${main.bedrockRegion || "us-east-1"}.amazonaws.com`];
+    if (provider !== "azure") return [];
+    try {
+      const url = new URL(main.azureEndpoint);
+      return url.protocol === "https:" && !url.username && !url.password ? [url.host] : [];
+    } catch {
+      return [];
+    }
+  };
+  const describeCalls = [];
+  const captured = [];
+  const codexCalls = [];
+  const codex = (name, value) => async () => {
+    codexCalls.push(name);
+    return value;
+  };
+  installBrowserGlobals(t, {
+    window: {
+      location: { search: "" },
+      electronAPI: routeTestApi({
+        present: ["openai", "azure", "bedrock"],
+        extra: {
+          saveAzureEndpoint: saver("azureEndpoint"),
+          saveBedrockRegion: saver("bedrockRegion"),
+          saveVertexProject: saver("vertexProject"),
+          saveVertexLocation: saver("vertexLocation"),
+          keyring: {
+            describeVerify: async (identity) => {
+              describeCalls.push(identity);
+              return { hosts: hostsFor(identity), fields: identity === "azure" ? ["key"] : ["accessKeyId", "secretAccessKey"] };
+            },
+          },
+          personalInference: {
+            // The fake transport: the host this request would reach, from main's committed config.
+            textGenerate: async (request) => {
+              captured.push(hostsFor(request.provider)[0] ?? null);
+              return { text: "hello" };
+            },
+            codexStatus: codex("codexStatus", { available: true, account: null }),
+            codexRateLimits: codex("codexRateLimits", {}),
+            codexModels: codex("codexModels", { data: [], nextCursor: null }),
+            codexLogin: codex("codexLogin", { loginId: "fixture" }),
+            onTextEvent: () => () => {},
+          },
+        },
+      }),
+    },
+  });
+  const vite = await rendererServer(t, "loqui-enterprise-routes-");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { useRouteChange, useRouteCommit } = await vite.ssrLoadModule("/components/settings/routing/useRouteChange.ts");
+  const { StagedRouteBarView } = await vite.ssrLoadModule("/components/settings/routing/StagedRouteBar.tsx");
+  const { StagedRoutePanel } = await vite.ssrLoadModule("/components/settings/routing/StagedRoutePanel.tsx");
+  const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
+  await primeRouteFacts(vite);
+  const { wrap } = await toastCapture(vite);
+  const probes = createProbeRoot(t, { wrap });
+
+  const live = () => useSettingsStore.getState();
+  const draft = () => drafts.useRouteDraftStore.getState().draft;
+  const reset = (state) => {
+    drafts.useRouteDraftStore.getState().discard();
+    Object.assign(main, { azureEndpoint: state.azureEndpoint ?? "", bedrockRegion: state.bedrockRegion ?? "us-east-1" });
+    useSettingsStore.setState({ azureEndpoint: "", bedrockRegion: "us-east-1", useCleanupModel: false, ...state });
+    writes.length = 0;
+    captured.length = 0;
+    describeCalls.length = 0;
+    codexCalls.length = 0;
+  };
+  let mounts = 0;
+  // The editor exactly as InferenceConfigEditor wires it.
+  const mountEnterprise = async (routeId, provider, model) => {
+    const selector = await probes.mount("selector", () => {
+      const { requestPatch } = useRouteChange();
+      const commit = useRouteCommit(routeId);
+      return Selector({
+        mode: "cloud",
+        reasoningModel: model,
+        localReasoningProvider: provider,
+        cloudReasoningBaseUrl: "",
+        onCommit: commit,
+        onRoutePatch: (patch) => void requestPatch(routeId, patch),
+      });
+    });
+    return probes.mount("enterprise", () => {
+      const element = findElement(selector(), (node) => node.type?.name === "EnterpriseProviderConfig");
+      return element.type(element.props);
+    });
+  };
+  const field = (tree, label) => findElement(tree, (node) => node.type?.name === "DraftField" && node.props.label === label);
+  // Types into a DraftField, checks nothing was written per keystroke, then leaves the field.
+  const typeAndLeave = async (element, text) => {
+    const view = await probes.mount(`field-${++mounts}`, () => element.type(element.props));
+    const input = () => findElement(view(), (node) => typeof node.props?.onBlur === "function");
+    await probes.act(() => input().props.onChange({ target: { value: text } }));
+    assert.deepEqual(writes, [], "typing writes nothing and tells main nothing");
+    await probes.act(() => input().props.onBlur());
+    await probes.settle();
+  };
+  const reviewHtml = () =>
+    renderToStaticMarkup(
+      React.createElement(StagedRouteBarView, {
+        plan: drafts.planDraft(draft(), TEST_COPY),
+        onApply() {},
+        onDiscard() {},
+        shortcutHint: null,
+      })
+    );
+  const testButton = (tree) => findElement(tree, (node) => node.props?.["data-action"] === "enterprise-test");
+
+  // Change-driving: the endpoint Field called settings.setAzureEndpoint per keystroke
+  // (EnterpriseProviderConfig.tsx:145-148), which persisted to main at once (settingsStore.ts:2060-2063).
+  await t.test("an active Azure endpoint edit changes no committed destination before Apply", async () => {
+    reset({
+      chatAgentMode: "enterprise",
+      chatAgentProvider: "azure",
+      chatAgentModel: "gpt-4o-deploy",
+      cleanupMode: "enterprise",
+      cleanupProvider: "azure",
+      cleanupModel: "gpt-4o-mini-deploy",
+      useCleanupModel: true,
+      azureEndpoint: EAST,
+    });
+    const config = await mountEnterprise("chat", "azure", "gpt-4o-deploy");
+    await typeAndLeave(field(config(), "reasoning.enterprise.endpoint"), WEST);
+    assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { azureEndpoint: WEST } });
+    assert.equal(live().azureEndpoint, EAST, "the store is unchanged");
+    assert.deepEqual(writes, [], "main still sends to the old endpoint");
+    assert.equal(main.azureEndpoint, EAST);
+
+    // The review is accurate: both routes that share the endpoint, the second marked coupled.
+    const plan = drafts.planDraft(draft(), TEST_COPY);
+    const byId = Object.fromEntries(plan.changes.map((change) => [change.id, change]));
+    assert.equal(byId.chat.coupled, false);
+    assert.equal(byId.dictationCleanup.coupled, true);
+    for (const change of [byId.chat, byId.dictationCleanup]) {
+      assert.equal(change.before.host, "east.openai.azure.com");
+      assert.equal(change.after.host, "west.openai.azure.com");
+    }
+    const html = reviewHtml();
+    assert.match(html, /data-route="chat"/);
+    assert.match(html, /data-route="dictationCleanup"/);
+    assert.equal((html.match(/>west\.openai\.azure\.com</g) ?? []).length, 2);
+
+    // Apply commits through Task 6's applyRoutePatch, which alone tells main.
+    const out = await drafts.applyDraft(TEST_COPY);
+    assert.equal(out.applied, true);
+    assert.equal(live().azureEndpoint, WEST);
+    assert.deepEqual(writes, [["azureEndpoint", WEST]]);
+
+    // Undo is exact: the old host is a recipient change, so it is reviewed, then restores the old value.
+    assert.equal(out.undo(), "staged");
+    assert.equal(live().azureEndpoint, WEST);
+    assert.equal((await drafts.applyDraft(TEST_COPY)).applied, true);
+    assert.equal(live().azureEndpoint, EAST);
+    assert.deepEqual(writes, [["azureEndpoint", WEST], ["azureEndpoint", EAST]]);
+  });
+
+  // Change-driving: the region Field called setBedrockRegion and rewrote the model per keystroke
+  // (EnterpriseProviderConfig.tsx:114-118), outside review and Undo.
+  await t.test("a Bedrock region edit is staged with the model's region prefix, and Undo restores both", async () => {
+    reset({ chatAgentMode: "enterprise", chatAgentProvider: "bedrock", chatAgentModel: "us.anthropic.claude-sonnet-4-5", bedrockRegion: "us-east-1" });
+    const config = await mountEnterprise("chat", "bedrock", "us.anthropic.claude-sonnet-4-5");
+    await typeAndLeave(field(config(), "reasoning.enterprise.region"), "eu-west-1");
+    assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { bedrockRegion: "eu-west-1" } });
+    assert.equal(live().bedrockRegion, "us-east-1");
+    assert.equal(live().chatAgentModel, "us.anthropic.claude-sonnet-4-5", "the model is not rewritten before Apply");
+    const plan = drafts.planDraft(draft(), TEST_COPY);
+    assert.equal(plan.patch.chatAgentModel, "eu.anthropic.claude-sonnet-4-5", "Task 6 couples the model update");
+    assert.match(plan.changes.find((change) => change.id === "chat").after.host, /eu-west-1/);
+
+    const out = await drafts.applyDraft(TEST_COPY);
+    assert.equal(out.applied, true);
+    assert.equal(live().bedrockRegion, "eu-west-1");
+    assert.equal(live().chatAgentModel, "eu.anthropic.claude-sonnet-4-5");
+    assert.deepEqual(writes, [["bedrockRegion", "eu-west-1"]]);
+    assert.equal(out.undo(), "staged");
+    await drafts.applyDraft(TEST_COPY);
+    assert.equal(live().bedrockRegion, "us-east-1");
+    assert.equal(live().chatAgentModel, "us.anthropic.claude-sonnet-4-5");
+  });
+
+  // Change-driving (R2-6): Test connection sent a credential-bearing request behind a generic label
+  // (EnterpriseProviderConfig.tsx:86-100, :195-206).
+  await t.test("Test connection names main's host and fields, and the request goes to that host", async () => {
+    reset({ chatAgentMode: "enterprise", chatAgentProvider: "azure", chatAgentModel: "gpt-4o-deploy", azureEndpoint: EAST });
+    const config = await mountEnterprise("chat", "azure", "gpt-4o-deploy");
+    await probes.settle();
+    let button = testButton(config());
+    assert.equal(button.props["data-host"], "east.openai.azure.com");
+    assert.match(button.props.title, /reasoning\.enterprise\.testSends/);
+    assert.match(button.props.title, /east\.openai\.azure\.com/);
+    assert.match(button.props.title, /reasoning\.enterprise\.field\.key/);
+    await probes.act(() => button.props.onClick());
+    await probes.settle();
+    assert.deepEqual(captured, [button.props["data-host"]], "displayed host == requested host");
+
+    // A staged endpoint does not move Test: main still sends to the committed one.
+    await probes.act(() => field(config(), "reasoning.enterprise.endpoint").props.onCommit(WEST));
+    await probes.settle();
+    assert.equal(testButton(config()).props["data-host"], "east.openai.azure.com");
+
+    // Applied while mounted: the label re-queries main (never frozen at mount).
+    await drafts.applyDraft(TEST_COPY);
+    await probes.settle();
+    button = testButton(config());
+    assert.equal(button.props["data-host"], "west.openai.azure.com");
+    assert.ok(describeCalls.length >= 2, "describeVerify ran again after the committed change");
+    await probes.act(() => button.props.onClick());
+    await probes.settle();
+    assert.deepEqual(captured, ["east.openai.azure.com", "west.openai.azure.com"]);
+
+    // No host, no test: nothing can be sent without a named recipient.
+    main.azureEndpoint = "";
+    await probes.act(() => useSettingsStore.setState({ azureEndpoint: "" }));
+    await probes.settle();
+    button = testButton(config());
+    assert.equal(button.props.disabled, true);
+    assert.match(button.props.title, /reasoning\.enterprise\.testHostUnknown/);
+  });
+
+  // Change-driving (R2-9): enterprise setup existed only after Apply, so Azure was applied first.
+  await t.test("staged Azure: endpoint and deployment are set up inside the panel without committing", async () => {
+    reset({ chatAgentMode: "providers", chatAgentProvider: "openai", chatAgentModel: "gpt-5.6-luna", azureEndpoint: "" });
+    assert.equal(await drafts.requestRouteChange("chat", { mode: "providers", provider: "azure", model: "gpt-4o-deploy" }, TEST_COPY), "staged");
+    assert.equal(drafts.planDraft(draft(), TEST_COPY).blocker, "needsUrl", "Apply is disabled until the endpoint exists");
+    const panel = await probes.mount("panel", () => StagedRoutePanel({ routeId: "chat" }));
+    const setup = () => findElement(panel(), (node) => typeof node.props?.onTarget === "function").props.setup;
+    assert.equal(setup().type.name, "EnterpriseProviderConfig");
+    assert.equal(setup().props.testConnection, false, "nothing is committed, so there is nothing to test");
+    let config = await probes.mount("panel-setup", () => setup().type(setup().props));
+    await typeAndLeave(field(config(), "reasoning.enterprise.endpoint"), WEST);
+    assert.deepEqual(draft().setup, { azureEndpoint: WEST });
+    assert.equal(live().azureEndpoint, "");
+    assert.deepEqual(writes, []);
+    assert.equal(drafts.planDraft(draft(), TEST_COPY).blocker, null, "ready: Apply is enabled");
+    assert.equal(live().chatAgentProvider, "openai", "the route is not committed");
+
+    config = await probes.mount("panel-setup", () => setup().type(setup().props));
+    await typeAndLeave(field(config(), "reasoning.enterprise.deploymentName"), "gpt-4o-mini-deploy");
+    assert.equal(draft().target.model, "gpt-4o-mini-deploy");
+    assert.deepEqual(draft().setup, { azureEndpoint: WEST }, "the setup stays with the draft");
+    assert.equal(live().chatAgentProvider, "openai");
+  });
+
+  // Change-driving (R2-9): Codex was applied before any sign-in ("Sign in after applying").
+  await t.test("staged Codex: Connect is inside the panel; mounting starts nothing and the route stays staged", async () => {
+    reset({ chatAgentMode: "providers", chatAgentProvider: "openai", chatAgentModel: "gpt-5.6-luna" });
+    assert.equal(await drafts.requestRouteChange("chat", { mode: "providers", provider: "codex", model: "gpt-5.6-codex" }, TEST_COPY), "staged");
+    assert.equal(drafts.planDraft(draft(), TEST_COPY).blocker, "needsKey");
+    const panel = await probes.mount("codex-panel", () => StagedRoutePanel({ routeId: "chat" }));
+    const setup = findElement(panel(), (node) => typeof node.props?.onTarget === "function").props.setup;
+    assert.equal(setup.type.name, "CodexConnection");
+    const connection = await probes.mount("codex-setup", () => setup.type(setup.props));
+    await probes.settle();
+    assert.deepEqual(codexCalls, [], "the panel starts no Codex process on mount");
+    const connect = findElement(
+      connection(),
+      (node) => typeof node.props?.onClick === "function" && /codexConnection\.connect/.test(String(node.props.children))
+    );
+    assert.equal(connect.props.disabled, false);
+    await probes.act(() => connect.props.onClick());
+    await probes.settle();
+    assert.ok(codexCalls.includes("codexLogin"), "sign-in is the explicit action");
+    assert.equal(live().chatAgentProvider, "openai", "signing in commits no route");
+    assert.equal(draft().target.provider, "codex");
+  });
+});
+
+// Source guard, change-driving: each pattern is a direct write today.
+test("enterprise route fields have no direct writer in the UI", () => {
+  const config = fs.readFileSync(path.join(SRC, "components/EnterpriseProviderConfig.tsx"), "utf8");
+  for (const pattern of [/setBedrockRegion/, /setAzureEndpoint/, /setVertexProject/, /setVertexLocation/, /adjustBedrockModelForRegion/, /onChange=\{settings\./]) {
+    assert.doesNotMatch(config, pattern);
+  }
+  assert.match(config, /describeVerify\(provider\)/);
+  const editor = fs.readFileSync(path.join(SRC, "components/settings/InferenceConfigEditor.tsx"), "utf8");
+  assert.match(editor, /const routePatch = \(patch: SettingsPatch\) => void requestPatch\(routeId, patch\)/);
+  assert.match(editor, /onRoutePatch=\{routePatch\}/);
+  const onboarding = fs.readFileSync(path.join(SRC, "components/notes/NotesOnboarding.tsx"), "utf8");
+  assert.match(onboarding, /onRoutePatch=\{\(patch\) => void requestPatch\("dictationCleanup", patch\)\}/);
+});
+```
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/helpers/selfHostedProbe.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js`
-Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not exported; the panel calls `personalInference.models` on mount and has no List models button; the custom and OpenRouter tabs and Codex discover when browsed; `CodexConnection` calls `codexStatus` and `codexRateLimits` on mount, has no `codex-check-status` button and disables Connect until a status read; the pickers have no `onCommit`/`onUse`, write the store directly (the Corti region and tenant included) and the meeting picker rewrites the invalid `groq` pair on mount.
+Run: `npm test -- test/helpers/selfHostedProbe.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/enterpriseRoutes.test.js`
+Expected: FAIL. In `enterpriseRoutes.test.js`, typing an Azure endpoint or a Bedrock region writes main at once (`writes` is non-empty after the first keystroke), there is no `DraftField`, `onRoutePatch` or `data-action="enterprise-test"`, and the staged panel has no `setup`. The panel's `ApiKeyInput` has no `credentialId`. `selfHostedProbe.js` is missing and `isPrivateHost` is not exported; the panel calls `personalInference.models` on mount and has no List models button; the custom and OpenRouter tabs and Codex discover when browsed; `CodexConnection` calls `codexStatus` and `codexRateLimits` on mount, has no `codex-check-status` button and disables Connect until a status read; the pickers have no `onCommit`/`onUse`, write the store directly (the Corti region and tenant included) and the meeting picker rewrites the invalid `groq` pair on mount.
 
 - [ ] **Step 3: Implement**
 
@@ -13072,9 +16455,25 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
      ```
 
    - `preload.js`, after `testProviderConnection` (`:118`): `probeSelfHosted: (baseUrl) => ipcRenderer.invoke("probe-self-hosted", baseUrl),`
-   - `src/types/electron.ts`, after the `testProviderConnection?` member (`:702-711`):
+   - `src/types/electron.ts`, two edits. First, at top level directly before `declare global {` (`:671`), next to the other exported types and outside `electronAPI`, add the shared result type. Task 11 keeps this declaration and its `KeyringAPI.describeVerify` returns it:
 
      ```ts
+     /** R2-6: hosts and credential slot names (never values) a verification would send to. Task 11's KeyringAPI returns it. */
+     export interface VerifyTargetDescription {
+       hosts: string[];
+       fields: string[];
+     }
+     ```
+
+     Second, inside `electronAPI`, after the `testProviderConnection?` member (`:702-711`), add the members below. The `keyring?` member is a forward declaration for step 5a. Task 11 runs later, deletes it, adds `keyring: KeyringAPI;` (whose `describeVerify(identity: CredentialIdentity, options?: KeyringVerifyOptions)` returns `VerifyTargetDescription`) and adds the preload and main handler. Until then `keyring` is undefined at runtime, so the enterprise Test button stays disabled and nothing is sent without a named host. This task adds no `keyring` stub to `src/preview/browserPreview.ts`; Task 11 Step 3.7 adds the only one:
+
+     ```ts
+           // R2-6 forward declaration. Task 11 deletes this member and adds `keyring: KeyringAPI;`,
+           // whose describeVerify(identity: CredentialIdentity, options?: KeyringVerifyOptions)
+           // returns VerifyTargetDescription.
+           keyring?: {
+             describeVerify(identity: "bedrock" | "azure" | "vertex"): Promise<VerifyTargetDescription>;
+           };
            probeSelfHosted?: (
              baseUrl: string
            ) => Promise<
@@ -13094,12 +16493,13 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
    import { useState, type ReactNode } from "react";
    import { useTranslation } from "react-i18next";
    import { normalizeBaseUrl } from "../config/constants";
+   import { credentialSlotForRef } from "../lib/credentialSlots";
    import { providerDisplayLabel } from "../lib/locality";
    import { SCOPE_ROUTE, type LlmRouteScope } from "../lib/routes";
    import { useSealedStore } from "../stores/sealedStore";
    import { isSecureHttpEndpoint } from "../utils/urlUtils";
    import { EndpointDraft } from "./settings/routing/EndpointDraft";
-   import ApiKeyInput from "./ui/ApiKeyInput";
+   import ApiKeyInput, { type AcknowledgedSecretSave } from "./ui/ApiKeyInput";
    import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
    import { Button } from "./ui/button";
    import { GetApiKeyLink } from "./ui/GetApiKeyLink";
@@ -13121,7 +16521,8 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
      onUseEndpoint?: (url: string) => void;
      /** Main-confirmed presence sentinel, never a raw key. */
      apiKey: string;
-     saveApiKey: (key: string) => unknown;
+     /** R2-3: Task 2's exact acknowledged-save type, handed to ApiKeyInput unchanged. */
+     saveApiKey: AcknowledgedSecretSave;
      model: string;
      onSelectModel: (model: string) => void;
      defaultBaseUrl?: string;
@@ -13284,8 +16685,10 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
              </h4>
              {getKeyUrl && <GetApiKeyLink url={getKeyUrl} />}
            </div>
+           {/* R2-5: the slot identity ("openrouter" or "custom:<scope>") reaches ApiKeyInput; Task 12 makes its Remove undoable. */}
            <ApiKeyInput
              apiKey={apiKey}
+             credentialId={credentialSlotForRef(credentialRef)}
              setApiKey={saveApiKey}
              label=""
              helpText={apiKeyRequired ? "" : t("reasoning.custom.apiKeyHelp")}
@@ -13357,7 +16760,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
    Removed with this rewrite: the mount effect, blur commit, Apply & Refresh, Reset-as-write and the sibling-base loop (`getModelListBaseCandidates`), which both made extra credentialed calls and silently adopted a different base URL.
 
 3. **`src/components/ReasoningModelSelector.tsx`.**
-   - Imports: add `import type { RouteTarget } from "../lib/routePlanner";`, `import { TEXT_PROVIDER_TABS } from "./settings/routing/providerCatalog";` and `import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";`.
+   - Imports: add `import type { RouteTarget } from "../lib/routePlanner";`, `import type { SettingsPatch } from "../lib/providerSwitchPlans";`, `import { TEXT_PROVIDER_TABS } from "./settings/routing/providerCatalog";` and `import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";`. Keep Task 2's imports exactly as they are: `import ApiKeyInput from "./ui/ApiKeyInput";` (`:28`), `import type { AcknowledgedSecretSave } from "./ui/ApiKeyInput";` and `import { unavailableSecretSave } from "../lib/credentialSlots";` (Task 2 Step 3.13b). Do not add `AcknowledgedSecretSave` or `unavailableSecretSave` to the `ApiKeyInput` import or import either name a second time: a duplicate binding of `unavailableSecretSave` does not compile.
    - Replace `CLOUD_PROVIDER_IDS` (`:47-60`) with `const CLOUD_PROVIDER_IDS: readonly string[] = TEXT_PROVIDER_TABS;`.
    - Replace `ReasoningModelSelectorProps` (`:62-75`) with:
 
@@ -13367,9 +16770,12 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
        localReasoningProvider: string;
        cloudReasoningBaseUrl: string;
        customReasoningApiKey?: string;
-       saveCustomReasoningApiKey?: (key: string) => unknown;
+       /** R2-3: Task 2's exact type; unavailableSecretSave when the caller has no slot. */
+       saveCustomReasoningApiKey?: AcknowledgedSecretSave;
        /** Every provider, model, endpoint and mode commit goes to the route planner. */
        onCommit: (target: RouteTarget) => void;
+       /** R2-1: enterprise route fields of this route → requestRoutePatch(routeId, patch). */
+       onRoutePatch: (patch: SettingsPatch) => void;
        mode?: "cloud" | "local";
        credentialRef?: string;
        requireImages?: boolean;
@@ -13384,8 +16790,9 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
        localReasoningProvider,
        cloudReasoningBaseUrl,
        customReasoningApiKey = "",
-       saveCustomReasoningApiKey,
+       saveCustomReasoningApiKey = unavailableSecretSave,
        onCommit,
+       onRoutePatch,
        mode,
        credentialRef = "custom:dictationCleanup",
        requireImages = false,
@@ -13435,6 +16842,18 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
        };
      ```
 
+   - Replace the enterprise branch (`:564-571`) with the following. `EnterpriseProviderConfig` no longer writes its route fields itself; this route's planner does (R2-1, step 5a).
+
+     ```tsx
+                   {["bedrock", "azure", "vertex"].includes(displayedCloudProvider) ? (
+                     <EnterpriseProviderConfig
+                       provider={displayedCloudProvider as "bedrock" | "azure" | "vertex"}
+                       reasoningModel={localReasoningProvider === displayedCloudProvider ? reasoningModel : ""}
+                       onSelectModel={(model) => onCommit({ mode: "providers", provider: displayedCloudProvider, model })}
+                       onRoutePatch={onRoutePatch}
+                     />
+     ```
+
    - Replace the OpenRouter and custom branches (`:577-608`) with:
 
      ```tsx
@@ -13465,7 +16884,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
                          })
                        }
                        apiKey={customReasoningApiKey}
-                       saveApiKey={saveCustomReasoningApiKey ?? (() => undefined)}
+                       saveApiKey={saveCustomReasoningApiKey}
                        model={localReasoningProvider === "custom" ? reasoningModel : ""}
                        onSelectModel={(model) => onCommit(cloudTarget("custom", model))}
                        defaultBaseUrl={API_ENDPOINTS.OPENAI_BASE}
@@ -13691,15 +17110,14 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
    - `src/components/OnboardingFlow.tsx:546`: change `<CodexConnection onSignedInChange={() => onChoice("codex")} />` to `<CodexConnection checkStatusOnMount onSignedInChange={() => onChoice("codex")} />`. Onboarding keeps today's mount read, its first-read baseline for `onSignedInChange`, and `onboardingCleanupWiring.test.js`. Whether the first-run step should also wait for a click is Plan 05's call.
 
 5. **`src/components/settings/InferenceConfigEditor.tsx`** (after Task 8):
-   - Merge `type InferenceScopeStoreKeys` into the existing `INFERENCE_SCOPES` import (`:19-23`), add `saveSecret` and `type SecretStoreKey` to the `settingsStore` import (`:8-13`), and change `import { useRouteChange } from "./routing/useRouteChange";` to `import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";`.
-   - Replace `const setMode = setField("mode"); const setProvider = setField("provider"); const setModel = setField("model");` (`:124-126`) with:
+   - Change `import { useRouteChange } from "./routing/useRouteChange";` to `import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";`.
+   - Replace `const setMode = setField("mode"); const setProvider = setField("provider"); const setModel = setField("model");` (`:124-126`) with the lines below. Keep Task 2's `const saveCustomKey: AcknowledgedSecretSave` (it saves through `saveSecret(customKeyField, value)` and falls back to `unavailableSecretSave`). R2-3: an `undefined` branch would not typecheck.
 
      ```tsx
        const commit = useRouteCommit(routeId);
-       const customKeyField = (INFERENCE_SCOPES[scope].storeKeys as InferenceScopeStoreKeys).customApiKey;
-       // Acknowledged save (Task 2); the store keeps only main's sentinel.
-       const saveCustomKey = (value: string) =>
-         customKeyField ? saveSecret(customKeyField as SecretStoreKey, value) : undefined;
+       // Step 8's `const { request } = useRouteChange();` becomes:
+       // const { request, requestPatch } = useRouteChange();
+       const routePatch = (patch: SettingsPatch) => void requestPatch(routeId, patch); // R2-1
      ```
 
    - Replace `renderModelSelector` (`:128-143`) with:
@@ -13715,10 +17133,13 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
            customReasoningApiKey={config.customApiKey ?? ""}
            saveCustomReasoningApiKey={saveCustomKey}
            onCommit={commit}
+           onRoutePatch={routePatch}
            mode={mode}
          />
        );
      ```
+
+     In Task 8's `handleModeSelect` block, change `const { request } = useRouteChange();` to `const { request, requestPatch } = useRouteChange();`. `SettingsPatch` is already imported by Task 8's Step 8.5.
 
    - Replace the self-hosted `<OpenAICompatiblePanel …/>` (`:166-182`) with:
 
@@ -13740,13 +17161,308 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
 
    `setField` remains only for `disableThinking`.
 
+5a. **`src/components/EnterpriseProviderConfig.tsx`** (R2-1, R2-6, R2-9). Replace the whole file. Task 2's acknowledged `saveSecret` and its five `setApiKey={(value) => saveSecret(…)}` call sites are kept as they are; Task 12 adds `credentialId` under the Azure and Vertex `apiKey` lines.
+
+   ```tsx
+   import { useEffect, useId, useState } from "react";
+   import { useTranslation } from "react-i18next";
+   import type { SettingsPatch } from "../lib/providerSwitchPlans";
+   import { saveSecret as saveStoredSecret, useSettingsStore } from "../stores/settingsStore";
+   import ApiKeyInput from "./ui/ApiKeyInput";
+   import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
+   import { Button } from "./ui/button";
+   import { Input } from "./ui/input";
+
+   type EnterpriseProvider = "bedrock" | "azure" | "vertex";
+   type RouteField = "bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation";
+   type Translate = (key: string, options?: Record<string, unknown>) => string;
+   export interface VerifyTarget {
+     hosts: string[];
+     fields: string[];
+   }
+
+   interface EnterpriseProviderConfigProps {
+     provider: EnterpriseProvider;
+     reasoningModel: string;
+     /** The deployment or model id, committed through the route planner (onCommit / the staged draft). */
+     onSelectModel: (model: string) => void;
+     /**
+      * R2-1: the route fields main sends requests with (main.js:447-457). The active
+      * editor passes requestRoutePatch for its route; the staged panel passes
+      * stageDraftSetup. This component never writes them itself.
+      */
+     onRoutePatch: (patch: SettingsPatch) => void;
+     /** Staged setup shown over the live values (staged panel only). */
+     pending?: SettingsPatch;
+     /** Default true. The staged panel hides it: nothing is committed there to test. */
+     testConnection?: boolean;
+   }
+
+   // Typed text stays local until the field is left or Enter is pressed; then
+   // it commits once. Never a write per keystroke.
+   function DraftField({ label, value, onCommit }: { label: string; value: string; onCommit: (value: string) => void }) {
+     const id = useId();
+     const [draft, setDraft] = useState(value);
+     useEffect(() => setDraft(value), [value]);
+     const commit = () => {
+       if (draft.trim() !== value) onCommit(draft.trim());
+     };
+     return (
+       <div className="space-y-1">
+         <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+           {label}
+         </label>
+         <Input
+           id={id}
+           dir="ltr"
+           value={draft}
+           onChange={(event) => setDraft(event.target.value)}
+           onBlur={commit}
+           onKeyDown={(event) => {
+             if (event.key === "Enter") commit();
+           }}
+           className="h-8 text-sm"
+           autoComplete="off"
+         />
+       </div>
+     );
+   }
+
+   // R2-6: the button names the host main will send to and the credential
+   // fields it sends, both from main's describeVerify (Task 11). Main computes
+   // them from the committed configuration the test request reads.
+   export function enterpriseTestDisclosure(target: VerifyTarget | null, t: Translate): string {
+     const host = target?.hosts[0];
+     if (!host) return t("reasoning.enterprise.testHostUnknown");
+     if (target.fields.length === 0) return t("reasoning.enterprise.testSendsNoKey", { host });
+     const fields = target.fields.map((field) => t(`reasoning.enterprise.field.${field}`)).join(", ");
+     return t("reasoning.enterprise.testSends", { host, fields });
+   }
+
+   /** Direct credentials are saved in main; renderer state contains only presence markers. */
+   export default function EnterpriseProviderConfig({
+     provider,
+     reasoningModel,
+     onSelectModel,
+     onRoutePatch,
+     pending,
+     testConnection = true,
+   }: EnterpriseProviderConfigProps) {
+     const { t } = useTranslation();
+     const settings = useSettingsStore();
+     const [busy, setBusy] = useState(false);
+     const [error, setError] = useState("");
+     const [connected, setConnected] = useState(false);
+     const [target, setTarget] = useState<VerifyTarget | null>(null);
+     const [credentialEvents, setCredentialEvents] = useState(0);
+     const value = (field: RouteField): string => String((pending as Record<string, unknown> | undefined)?.[field] ?? settings[field] ?? "");
+     const routeField = (field: RouteField) => (next: string) => onRoutePatch({ [field]: next } as SettingsPatch);
+
+     // Main stores the credential and acknowledges it; ApiKeyInput shows the
+     // outcome, and renderer state only ever holds the presence sentinel.
+     const saveSecret = (
+       field: "bedrockAccessKeyId" | "bedrockSecretAccessKey" | "bedrockSessionToken" | "azureApiKey" | "vertexApiKey",
+       value: string
+     ) => {
+       setError("");
+       setConnected(false);
+       return saveStoredSecret(field, value);
+     };
+
+     // Re-query whenever the committed configuration the test reads changes
+     // (a staged edit does not change it until Apply), and on credentials-changed.
+     const committed =
+       provider === "azure"
+         ? settings.azureEndpoint
+         : provider === "bedrock"
+           ? `${settings.bedrockRegion}|${settings.bedrockProfile}`
+           : `${settings.vertexProject}|${settings.vertexLocation}`;
+     useEffect(
+       () => window.electronAPI?.credentials?.onChanged?.(() => setCredentialEvents((n) => n + 1)),
+       []
+     );
+     useEffect(() => {
+       if (!testConnection) return;
+       let current = true;
+       setTarget(null);
+       const describe = window.electronAPI?.keyring?.describeVerify;
+       if (!describe) return;
+       window.electronAPI.keyring
+         .describeVerify(provider)
+         .then((next) => {
+           if (current) setTarget(next);
+         })
+         .catch(() => {
+           if (current) setTarget({ hosts: [], fields: [] });
+         });
+       return () => {
+         current = false;
+       };
+     }, [provider, committed, credentialEvents, testConnection]);
+
+     const host = target?.hosts[0] ?? null;
+     const testConnectionNow = async () => {
+       setBusy(true);
+       setError("");
+       setConnected(false);
+       try {
+         await window.electronAPI.personalInference.textGenerate({
+           requestId: crypto.randomUUID(),
+           provider,
+           model: reasoningModel,
+           credentialRef: provider,
+           inferenceScope: "noteFormatting",
+           messages: [{ role: "user", content: "Reply with hello." }],
+           maxTokens: 32,
+           timeoutMs: 30000,
+         });
+         setConnected(true);
+       } catch (error) {
+         setError((error as Error).message);
+       } finally {
+         setBusy(false);
+       }
+     };
+
+     return (
+       <div className="space-y-3">
+         {provider === "bedrock" && (
+           <>
+             {/* The region picks the receiving host; Task 6 adjusts the model's geo prefix in the same patch. */}
+             <DraftField label={t("reasoning.enterprise.region")} value={value("bedrockRegion")} onCommit={routeField("bedrockRegion")} />
+             <DraftField
+               label={t("reasoning.enterprise.profile")}
+               value={settings.bedrockProfile}
+               onCommit={settings.setBedrockProfile}
+             />
+             <p className="text-xs text-muted-foreground">{t("personal.directAwsCredentials")}</p>
+             <ApiKeyInput
+               label={t("reasoning.enterprise.accessKeyId")}
+               apiKey={settings.bedrockAccessKeyId}
+               setApiKey={(value) => saveSecret("bedrockAccessKeyId", value)}
+             />
+             <ApiKeyInput
+               label={t("reasoning.enterprise.secretAccessKey")}
+               apiKey={settings.bedrockSecretAccessKey}
+               setApiKey={(value) => saveSecret("bedrockSecretAccessKey", value)}
+             />
+             <ApiKeyInput
+               label={t("reasoning.enterprise.sessionToken")}
+               apiKey={settings.bedrockSessionToken}
+               setApiKey={(value) => saveSecret("bedrockSessionToken", value)}
+             />
+           </>
+         )}
+         {provider === "azure" && (
+           <>
+             <DraftField label={t("reasoning.enterprise.endpoint")} value={value("azureEndpoint")} onCommit={routeField("azureEndpoint")} />
+             <p className="text-xs text-muted-foreground">{t("reasoning.enterprise.azure.endpointHelp")}</p>
+             <DraftField
+               label={t("reasoning.enterprise.apiVersion")}
+               value={settings.azureApiVersion}
+               onCommit={settings.setAzureApiVersion}
+             />
+             <ApiKeyInput
+               apiKey={settings.azureApiKey}
+               setApiKey={(value) => saveSecret("azureApiKey", value)}
+             />
+           </>
+         )}
+         {provider === "vertex" && (
+           <>
+             <DraftField label={t("reasoning.enterprise.projectId")} value={value("vertexProject")} onCommit={routeField("vertexProject")} />
+             <DraftField label={t("reasoning.enterprise.location")} value={value("vertexLocation")} onCommit={routeField("vertexLocation")} />
+             <p className="text-xs text-muted-foreground">{t("reasoning.enterprise.vertex.adcHelp")}</p>
+             <ApiKeyInput
+               apiKey={settings.vertexApiKey}
+               setApiKey={(value) => saveSecret("vertexApiKey", value)}
+               helpText={t("reasoning.enterprise.vertex.apikeyHelp")}
+             />
+           </>
+         )}
+         <DraftField
+           label={t(provider === "azure" ? "reasoning.enterprise.deploymentName" : "reasoning.enterprise.customModelId")}
+           value={reasoningModel}
+           onCommit={onSelectModel}
+         />
+         {testConnection && (
+           <>
+             <Button
+               variant="outline"
+               data-action="enterprise-test"
+               data-host={host ?? ""}
+               title={enterpriseTestDisclosure(target, t)}
+               disabled={busy || !reasoningModel.trim() || !host}
+               onClick={() => void testConnectionNow()}
+             >
+               {busy ? (
+                 t("reasoning.enterprise.testing")
+               ) : connected ? (
+                 t("reasoning.enterprise.testSuccess")
+               ) : host ? (
+                 <BidiInterpolatedText text={t("reasoning.enterprise.testConnectionAt", { host: BIDI_VALUE_TOKEN })} value={host} />
+               ) : (
+                 t("reasoning.enterprise.testConnection")
+               )}
+             </Button>
+             <p className="text-xs text-muted-foreground">{enterpriseTestDisclosure(target, t)}</p>
+           </>
+         )}
+         {error && (
+           <p role="alert" className="text-xs text-destructive">
+             {error}
+           </p>
+         )}
+       </div>
+     );
+   }
+   ```
+
+   - `settingsStore`'s `setBedrockRegion`, `setAzureEndpoint`, `setVertexProject` and `setVertexLocation` (`src/stores/settingsStore.ts:2033-2038`, `:2060-2065`, `:2087-2098`) each persist to main at once (`saveBedrockRegion`/`saveAzureEndpoint`/`saveVertexProject`/`saveVertexLocation`). No UI calls them any more. The only writer of these four keys is Task 6's `applyRoutePatch`, which mirrors their storage and main calls for a committed patch. This task's source guard (the last test in `enterpriseRoutes.test.js`) pins that for this component. Task 18's route-write guard should also list the four setters (NOTES-draft), so no new caller anywhere can come back.
+   - `adjustBedrockModelForRegion` is no longer imported here. Task 6's `planPatch` (`planEnterpriseCoupling`) adds the model update to the same patch, so the review shows it and Undo restores it.
+   - The disclosure and button host come from main. The renderer never derives a host from the endpoint field: a staged edit doesn't change where Test sends until Apply commits it.
+
+5b. **`src/components/settings/routing/StagedRoutePanel.tsx`** (Task 8; R2-9). Fill the `setup` slot, so Codex sign-in and the enterprise fields and credentials are reachable before Apply without committing the route.
+   - Add imports:
+
+     ```tsx
+     import { isEnterpriseProvider } from "../../../models/ModelRegistry";
+     import { stageDraftSetup } from "../../../stores/routeDraftStore";
+     import { refreshRouteFacts } from "../../../stores/routeFactsStore";
+     import CodexConnection from "../../CodexConnection";
+     import EnterpriseProviderConfig from "../../EnterpriseProviderConfig";
+     ```
+
+   - In `StagedRoutePanel`, pass `setup` to `StagedRoutePanelView`, directly after `models={…}`:
+
+     ```tsx
+         setup={
+           chosen === "codex" ? (
+             // Connect is the explicit action (no status read on mount). A completed sign-in
+             // re-reads main's presence so the bar's needsKey clears; the route stays staged.
+             <CodexConnection onSignedInChange={() => void refreshRouteFacts(["credentials"])} />
+           ) : isEnterpriseProvider(chosen) ? (
+             <EnterpriseProviderConfig
+               provider={chosen}
+               reasoningModel={target.model ?? ""}
+               onSelectModel={(model) => void request(routeId, { mode: "providers", provider: chosen, model })}
+               // Joins the draft; nothing is written or sent to main until Apply (Task 7).
+               onRoutePatch={(patch) => void stageDraftSetup(routeId, patch)}
+               pending={draft.setup}
+               testConnection={false}
+             />
+           ) : undefined
+         }
+     ```
+
 6. **`src/components/notes/NotesOnboarding.tsx`.** Replace the five setter selectors (`:41-45`) with:
 
    ```tsx
      const commitCleanup = useRouteCommit("dictationCleanup");
+     const { requestPatch } = useRouteChange();
    ```
 
-   change the store import (`:13`) to `import { saveSecret, selectResolvedLLMConfig, useSettingsStore } from "../../stores/settingsStore";`, add imports `import { StagedRouteBar } from "../settings/routing/StagedRouteBar";` and `import { useRouteCommit } from "../settings/routing/useRouteChange";`, and replace the `<ReasoningModelSelector … />` (`:161-171`) with:
+   change the store import (`:13`) to `import { saveSecret, selectResolvedLLMConfig, useSettingsStore } from "../../stores/settingsStore";`, add imports `import { StagedRouteBar } from "../settings/routing/StagedRouteBar";` and `import { useRouteChange, useRouteCommit } from "../settings/routing/useRouteChange";`, and replace the `<ReasoningModelSelector … />` (`:161-171`) with:
 
    ```tsx
                    <ReasoningModelSelector
@@ -13756,6 +17472,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
                      customReasoningApiKey={cleanupConfig.customApiKey ?? ""}
                      saveCustomReasoningApiKey={(key) => saveSecret("cleanupCustomApiKey", key)}
                      onCommit={commitCleanup}
+                     onRoutePatch={(patch) => void requestPatch("dictationCleanup", patch)}
                    />
                    {/* Off-device picks wait here for Apply; ⌘↵ belongs to the Settings dialog only. */}
                    <StagedRouteBar placement="inline" shortcut={false} />
@@ -14278,7 +17995,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
     ```
 
 12. **Tests that pinned the old behaviour.**
-    - `test/components/personalWorkspace.test.js`: delete the case "custom model discovery sends only its task-scoped credential reference" (`:162-189`); `endpointDiscovery.test.js` replaces it with the click-only version. In the "provider choices support the task" case (`:192-203`) replace the props `setReasoningModel() {}, setLocalReasoningProvider() {}, setCloudReasoningBaseUrl() {},` with `onCommit() {},`.
+    - `test/components/personalWorkspace.test.js`: delete the case "custom model discovery sends only its task-scoped credential reference" (`:162-189`); `endpointDiscovery.test.js` replaces it with the click-only version. In the "provider choices support the task" case (`:192-203`) replace the props `setReasoningModel() {}, setLocalReasoningProvider() {}, setCloudReasoningBaseUrl() {},` with `onCommit() {}, onRoutePatch() {},`.
     - `test/components/orukeetOrganization.test.js`: in the first two cases replace `onLocalModelSelect: noop, onModeChange: noop,` with `onCommit: noop,`. In the unsupported-macOS case (`:92-131`) rename `selectedProviders` to `commits`, replace `onLocalModelSelect: noop, onLocalProviderSelect: (provider) => selectedProviders.push(provider), onModeChange: noop,` with `onCommit: (target) => commits.push(target),`, and replace `assert.ok(selectedProviders.includes("whisper"));` with `assert.deepEqual(commits, [{ mode: "local", provider: "whisper" }]);`.
     - `test/components/fieldDirectionPolicy.test.js` (`EXPECTED_SHARED_FIELD_DIRECTIONS`): delete the `OpenAICompatiblePanel.tsx` and `SelfHostedPanel.tsx` entries and change `"src/components/TranscriptionModelPicker.tsx": ["ltr", "ltr", "ltr"]` to `["ltr"]` (only the Corti tenant field remains; the URL and model fields now live in `EndpointDraft.tsx`).
     - `test/components/codexConnectionSignIn.test.js`: these cases describe onboarding's first-read baseline. At `:69` change `React.createElement(CodexConnection, { onSignedInChange })` to `React.createElement(CodexConnection, { onSignedInChange, checkStatusOnMount: true })`, and add the comment `// Onboarding's opt-in mount read (OnboardingFlow.tsx:546); Settings never reads on mount (endpointDiscovery.test.js).` above it.
@@ -14301,6 +18018,19 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
           "slotProvider": "your saved {{provider}} key",
           "currentModel": "Current model: {{model}}",
           "useDefault": "Use the default endpoint"
+        },
+        "enterprise": {
+          "testConnectionAt": "Test connection to {{host}}",
+          "testSends": "Sends {{fields}} and a short test prompt to {{host}}.",
+          "testSendsNoKey": "Sends a short test prompt to {{host}} using your cloud sign-in. No saved key is sent.",
+          "testHostUnknown": "Enter a valid endpoint or region, then test.",
+          "field": {
+            "key": "your saved API key",
+            "accessKeyId": "your access key ID",
+            "secretAccessKey": "your secret access key",
+            "sessionToken": "your session token",
+            "profile": "your AWS profile's credentials"
+          }
         },
         "codex": {
           "listModels": "List models from ChatGPT (via the Codex app)",
@@ -14330,21 +18060,26 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/helpers/selfHostedProbe.test.js test/helpers/providerConnectionTest.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/personalWorkspace.test.js test/components/orukeetOrganization.test.js test/components/fieldDirectionPolicy.test.js test/components/stagedRoutePanel.test.js test/components/routeModeEditors.test.js test/components/codexConnectionSignIn.test.js test/components/onboardingCleanupWiring.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Run: `npm test -- test/helpers/selfHostedProbe.test.js test/helpers/providerConnectionTest.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/enterpriseRoutes.test.js test/stores/routeDraftStore.test.js test/components/stagedRouteBar.test.js test/components/personalWorkspace.test.js test/components/orukeetOrganization.test.js test/components/fieldDirectionPolicy.test.js test/components/stagedRoutePanel.test.js test/components/routeModeEditors.test.js test/components/codexConnectionSignIn.test.js test/components/onboardingCleanupWiring.test.js && npm run typecheck && npm run lint && npm run i18n:check`
 Expected: PASS. `providerConnectionTest.test.js`, `stagedRoutePanel.test.js`, `routeModeEditors.test.js`, `codexConnectionSignIn.test.js` (with the opt-in prop) and `onboardingCleanupWiring.test.js` (unchanged; onboarding opts in) are baseline guards.
 
 Then check in the app (`npm run native:electron && npm run dev`), with a local Ollama on `http://localhost:11434/v1` and a fake key saved for Chat's custom endpoint:
 - LLMs › Chat → Cloud tab → Custom: nothing appears in the main log's network lines. Type a new URL and click elsewhere: still nothing. "Use this endpoint" with a LAN or public host shows the Apply bar; with `localhost` it applies at once with Undo.
 - The button reads "List models from localhost:11434" and the caption names "the custom-endpoint key saved for Chat". One click makes one request.
 - Speech-to-Text › Dictation → Self-hosted: the address and model fields are labelled; Test reports "Connected · N models"; Upload shows the same server read-only.
+- LLMs › Chat on Azure: type a new endpoint. Nothing changes until you leave the field; then the Apply bar lists Chat and every other task on Azure with the new host, and main's log shows no new endpoint. Apply, then Undo: the Apply bar returns with the old host. "Test connection to <host>" names the committed host. After Apply it names the new one.
+- LLMs › Chat → Cloud → Azure while Chat runs elsewhere: the staged panel shows the endpoint, key and deployment fields; Apply stays disabled ("Enter a valid server address.") until all three are set, and nothing is committed until Apply. Codex shows Connect inside the panel.
 - LLMs › Chat → Cloud tab → ChatGPT, after signing in once and restarting Loqui: no `codex` process starts and no request goes to GitHub or ChatGPT when the tab opens. The card reads "Signed in to ChatGPT on this device". "Check ChatGPT status" shows the account and remaining usage after one status read.
 
 - [ ] **Step 5: Commit**
 
 ```bash
+npx prettier --write src/components/EnterpriseProviderConfig.tsx src/components/settings/routing/StagedRoutePanel.tsx test/components/enterpriseRoutes.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js
 npx prettier --write src/helpers/selfHostedProbe.js src/helpers/providerConnectionTest.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/components/OpenAICompatiblePanel.tsx src/components/SelfHostedPanel.tsx src/components/CodexConnection.tsx src/components/OnboardingFlow.tsx src/components/ReasoningModelSelector.tsx src/components/TranscriptionModelPicker.tsx src/components/settings/InferenceConfigEditor.tsx src/components/notes/NotesOnboarding.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx
+git add src/components/EnterpriseProviderConfig.tsx src/components/settings/routing/StagedRoutePanel.tsx test/components/enterpriseRoutes.test.js
 git add src/helpers/selfHostedProbe.js src/helpers/providerConnectionTest.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/components/OpenAICompatiblePanel.tsx src/components/SelfHostedPanel.tsx src/components/CodexConnection.tsx src/components/OnboardingFlow.tsx src/components/ReasoningModelSelector.tsx src/components/TranscriptionModelPicker.tsx src/components/settings/InferenceConfigEditor.tsx src/components/notes/NotesOnboarding.tsx src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx docs/PRIVACY.md src/locales test/helpers/selfHostedProbe.test.js test/components/endpointDiscovery.test.js test/components/routePickers.test.js test/components/personalWorkspace.test.js test/components/orukeetOrganization.test.js test/components/fieldDirectionPolicy.test.js test/components/codexConnectionSignIn.test.js
-git commit -m "fix(settings): Route picker commits through the planner and make discovery explicit"
+git commit -m "fix(settings): Route picker commits through the planner and make discovery explicit" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -14383,7 +18118,7 @@ The page shows 11 task jacks on the left and destinations on the right.
   - from Task 4: `src/lib/settingsPaths.ts` (`SETTINGS_SECTIONS`, `SECTION_ALIASES`, `parseSettingsPath`) and the `SettingsPage` prop `onNavigateToPath?: (path: string) => void` (declared by Task 4, destructured here);
   - from Task 5: `RouteStateChip({ state, className? })` and `RouteDestinationChip({ route: Pick<ResolvedRoute, "locality" | "providerId" | "model">, className? })` in `./RouteChips`;
   - from Task 6: the `RouteTarget` and `RoutePlan` types (`src/lib/routePlanner.ts`; `RoutePlan.kind` is `"noop" | "instant" | "staged"`);
-  - from Task 7: `requestRouteChange(id, target, copy): Promise<RouteChangeOutcome | "staged">`, `RouteChangeOutcome { applied; blocker; plan; undo?: () => RouteChangeOutcome | "staged" }` and `useRouteDraftStore` (`src/stores/routeDraftStore.ts`). `requestRouteChange` returns `"staged"` for a draft, `{ applied: true, blocker: null, undo }` for an instant commit and `{ applied: false, blocker: null, plan: { kind: "noop" } }` for a no-op;
+  - from Task 7: `requestRouteChange(id, target, copy): Promise<RouteRequestResult>` (`RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"`; `"superseded"` means Settings closed, Discard ran, or a newer request or an Undo on the same route began while it waited (Task 7's per-route epochs), R2-8), `RouteChangeOutcome { applied; blocker; plan; undo?: () => RouteChangeOutcome | "staged" }` and `useRouteDraftStore` (`src/stores/routeDraftStore.ts`). `requestRouteChange` returns `"staged"` for a draft, `{ applied: true, blocker: null, undo }` for an instant commit and `{ applied: false, blocker: null, plan: { kind: "noop" } }` for a no-op;
   - from Task 8: `providersForRoute(id: RouteId): string[]` (`src/components/settings/routing/providerCatalog.ts`, imported as `./providerCatalog`) and `StagedRoutePanel({ routeId }: { routeId: RouteId })` (`./StagedRoutePanel`);
   - from Plan 01: `providerDisplayName` (sorting only), `providerDisplayLabel(id, t)` for every name shown, `LocalityRing`, the `locality.device` / `locality.network` / `locality.remote` / `locality.customEndpoint` keys, the `--motion-*` and `--color-locality-*` tokens.
 - Owner rule (Task 6): the Patchbay changes a route only through `requestRouteChange`. It writes no provider, model, endpoint or enable-switch field, and renders no enable switch (an off task says "Turn it on in its settings" and links there).
@@ -15062,6 +18797,24 @@ test("patchbay", async (t) => {
     assert.equal(b.current().message, 'patchbay.hint.already{"task":"routes.names.chat","place":"patchbay.place.device"}');
   });
 
+  await t.test("the board: a superseded request settles silently and frees the board (R2-8)", async (st) => {
+    // change-driving: before R2-8 the board read `.plan` of every non-"staged" result and threw on a string.
+    const { deps, state, calls } = makeDeps();
+    state.next = "superseded";
+    const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
+    await b.render();
+    await selectTask(b, "chat");
+    await pick(b, "openai");
+    assert.equal(calls.length, 1);
+    assert.equal(b.current().selectedId, null);
+    assert.equal(b.current().message, null);
+    assert.equal(b.current().undo, null);
+    state.next = "staged";
+    await selectTask(b, "chat");
+    await pick(b, "openai");
+    assert.equal(calls.length, 2, "busy was released, so a later pick still reaches the planner");
+  });
+
   await t.test("the board: sealed mode refuses off-device picks and still allows this device (I14)", async (st) => {
     // change-driving: usePatchbayBoard does not exist yet.
     const { deps, calls } = makeDeps({ sealed: true });
@@ -15589,7 +19342,7 @@ Expected: FAIL.
    ```ts
    import { useCallback, useMemo, useRef, useState } from "react";
    import type { ResolvedRoute, RouteCopy, RouteId, RouteSettingsSnapshot } from "../../../lib/routeGraph.ts";
-   import type { RouteChangeOutcome } from "../../../stores/routeDraftStore.ts";
+   import type { RouteChangeOutcome, RouteRequestResult } from "../../../stores/routeDraftStore.ts";
    import type { RouteTarget } from "../../../lib/routePlanner.ts";
    import {
      buildDestinations,
@@ -15615,7 +19368,7 @@ Expected: FAIL.
      snapshot: RouteSettingsSnapshot;
      sealed: boolean;
      providersFor: (id: RouteId) => readonly string[];
-     request: (id: RouteId, target: RouteTarget) => Promise<RouteChangeOutcome | "staged">;
+     request: (id: RouteId, target: RouteTarget) => Promise<RouteRequestResult>;
      copy: RouteCopy;
      t: Translate;
    }
@@ -15733,6 +19486,10 @@ Expected: FAIL.
          try {
            const outcome = await request(selected.id, targetForDestination(selected.id, dest));
            setSelectedId(null);
+           // Settings closed, Discard ran, or a newer request or an Undo on this route won
+           // while this one waited (R2-8):
+           // nothing was staged or committed, so say nothing.
+           if (outcome === "superseded") return;
            if (outcome === "staged") {
              setMessage(t("patchbay.hint.staged", { task, destination: destinationLabel(dest, t) }));
            } else {
@@ -16491,7 +20248,8 @@ Then check manually in the app, light and Plum Night, against card R1 B (`05-set
 
 ```bash
 git add src/components/settings/routing src/components/ui/escapeClaim.ts src/components/SettingsPage.tsx src/components/SettingsModal.tsx src/components/ui/SidebarModal.tsx src/lib/settingsPaths.ts src/components/icons/index.ts src/index.css src/locales test/components/patchbayDestinations.test.js test/components/patchbay.test.js test/components/escapeClaim.test.js test/lib/settingsPathsRouting.test.js
-git commit -m "feat(settings): Routing page with the Patchbay switchboard"
+git commit -m "feat(settings): Routing page with the Patchbay switchboard" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -16500,28 +20258,38 @@ git commit -m "feat(settings): Routing page with the Patchbay switchboard"
 
 Closes I11 (a verdict is recorded only if the credential generation it tested is still current; save, removal, undo and reset invalidate in-flight results; concurrent Verify of one identity is coalesced) and the keyring half of I10 (health rows are keyed by authentication identity, so `corti:text` and `corti:speech` have independent verdicts; Corti speech is verified as `transcription` with `clientId/clientSecret: "__stored__"` through the extracted `_runProviderConnectionTest`, Corti text as `reasoning`). It also completes I3's "prior rejected verdict" case: replacing a rejected key resets its row to unverified in main, and main broadcasts `keyring-changed` so every window refreshes.
 
+Round-2 revisions (Codex R2-4, R2-6, R2-7):
+- **The value tested is the committed one (R2-4).** Verify calls the authority's `captureCommitted(id)` (Task 2). It is queued behind every save, removal and Undo already requested for that credential. It returns the committed value together with the generation it belongs to, and `_runProviderConnectionTest` tests exactly those values; it never reads `process.env`, which already holds an unacknowledged write (`src/helpers/environment.js:155`). A concurrent replacement therefore either commits first and is tested under its own generation, or commits later and supersedes the verdict. A replacement that fails never moves the generation, but the value tested was the committed one, so no rollback can leave a verdict for the attempted key on the restored key. Tests run over the real `EnvironmentManager` bodies with a deferred filesystem.
+- **Verify discloses its real recipient (R2-6).** `keyring.describeVerify(identity, options?)` returns `{ hosts, fields }`, computed from the same config and the same URL builders the request uses. For Corti speech, that is `cortiTokenUrl`, now the single builder `getCortiToken` fetches (`src/helpers/cortiAuth.js:43-52`), so it names `auth.<region>.corti.app`. Every other identity goes through `resolveProviderRequest`. It also answers for `bedrock`/`azure`/`vertex` from main's committed enterprise config and main's environment overrides (Task 1's `enterpriseRouteFacts(process.env)`: `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`/`AWS_ENDPOINT_URL` replace the Bedrock host, and `GOOGLE_VERTEX_API_KEY` puts Vertex in express mode), for Task 9's Test connection label. Tests check that the described host equals the host the fake transport captured, including after a region change.
+- **Main's seal predicate (R2-7, owner's ruling).** The production `IPCHandlers` constructor reads `managers.isSealed`, which defaults to `() => false` until Plan 07, and passes it to `createKeyring`. Verify checks it after the save wait (the capture). A sealed refusal thrown by the transport (Plan 07's `SealedModeError` shape) also maps to outcome `sealed`, with health unchanged, so the renderer's sequential Verify all stops (Task 12). The tests drive the registered `keyring-verify` handler of a really constructed `IPCHandlers`.
+
 Verifying a key sends it to the provider, which is a network event (`docs/PRIVACY.md:51`). So verification is always an explicit request from the renderer, runs in main with the stored credential and returns only a verdict. A save never verifies, and a rejected key is never deleted (preserve content). The renderer awaits `flushSecretSaves()` (Task 2) before it asks main to verify, so Verify always tests what main has stored.
 
 **Files:**
 - Modify: `src/helpers/localDatabaseSchema.js`. Append the `provider_key_health` table before the closing backtick (`:329`).
 - Modify: `src/helpers/database.js`. Add `getKeyHealth`, `saveKeyHealth` and `deleteKeyHealth` after `getAction` (`:1504-1512`).
 - Create: `src/helpers/keyring.js`
+- Modify: `src/helpers/cortiAuth.js`. Extract `cortiTokenUrl` from `getCortiToken` (`:43-52`) and export it.
 - Modify: `src/helpers/ipcHandlers.js`:
   - add `Notification` to the electron import (`:1`) and require `./keyring` next to the credential authority (Task 2, after `:14`);
   - create `this.keyring` and start reminders in the constructor, right after `this.credentials` (Task 2, before `this.setupHandlers();` at `:338`);
   - add `_runProviderConnectionTest(config)` and `_notifyKeyRotation(identity)` after `_acknowledgedSave` (Task 2), moving the body of the `test-provider-connection` handler (`:1081-1152`) into the former;
-  - register `keyring-list`, `keyring-verify` and `keyring-set-reminder` next to `test-provider-connection`.
+  - read `managers.isSealed` in the constructor (default `() => false`) and pass it, plus `enterpriseConfig` (which includes `routeFacts: enterpriseRouteFacts(process.env)` from Task 1's `./enterpriseRouteFacts`), to `createKeyring`;
+  - register `keyring-list`, `keyring-verify`, `keyring-describe-verify` and `keyring-set-reminder` next to `test-provider-connection`.
 - Modify: `preload.js`. Add a `keyring` namespace after the `credentials` block (Task 2).
 - Modify: `src/types/electron.ts`. Keyring types after the credential types (Task 2, after `:18`); `keyring: KeyringAPI;` after `credentials: CredentialsAPI;`.
 - Modify: `src/preview/browserPreview.ts`. A `keyring` stub next to `credentials` (Task 2).
 - Modify: `docs/PRIVACY.md`. Replace the connection-check row (`:51`).
 - Modify: `src/locales/*/translation.json`. `keyring.reminder.title`, `keyring.reminder.body` (used by main through `i18nMain`).
-- Test: `test/helpers/keyring.test.js`, `test/helpers/keyringIpc.test.js`, `test/helpers/keyHealthDatabase.test.js`
+- Test: `test/helpers/keyring.test.js`, `test/helpers/keyringRealEnv.test.js` (R2-4, real persistence bodies), `test/helpers/keyringProduction.test.js` (R2-6/R2-7 through the real `IPCHandlers` constructor and registered handlers), `test/helpers/keyringIpc.test.js` (handler and preload channel wiring), `test/helpers/keyHealthDatabase.test.js`
 
 **Interfaces:**
 - Consumes:
-  - the credential authority from Task 2: `present(id)`, `generation(id)`, `subscribe(listener)` with `cause`, `save`/`remove`/`undoRemove`/`reset` (tests);
-  - `test/helpers/harness/fakeCredentialEnv.js` (Task 2);
+  - the credential authority from Task 2: `present(id)`, `generation(id)`, `captureCommitted(id)`, `list()` (field presence), `subscribe(listener)` with `cause`, `save`/`remove`/`undoRemove`/`reset` (tests);
+  - `test/helpers/harness/fakeCredentialEnv.js` and `test/helpers/harness/realCredentialEnv.js` (Task 2);
+  - `cortiTokenUrl` (this task, `src/helpers/cortiAuth.js`) and `resolveProviderRequest` (`src/helpers/providerConnectionTest.js:154`);
+  - Task 1's `enterpriseRouteFacts(env): EnterpriseMainFacts` (`src/helpers/enterpriseRouteFacts.js`; `{ bedrockEndpoint: { set: boolean; host: string | null }; vertexApiKeyEnv: boolean; vertexProjectEnv: boolean }`), which the production `enterpriseConfig` passes as `routeFacts`;
+  - Task 9's `VerifyTargetDescription` and its forward `keyring?` member in `src/types/electron.ts`, which this task replaces;
   - the existing connection test (`src/helpers/providerConnectionTest.js:282-333`) and Corti token minting (`src/helpers/cortiAuth.js:23-77`) via the extracted `_runProviderConnectionTest`;
   - `i18nMain` (`src/helpers/ipcHandlers.js:48`, `const { i18nMain, changeLanguage } = require("./i18nMain")`) and Electron's `Notification`;
   - Task 3's `src/stores/routeFactsStore.ts`, which already reads `keyring?.list?.()` into `RouteFacts.rejected` (by `id`) and subscribes `api?.keyring?.onChanged?.(() => void refreshRouteFacts(["rejected"]))`; this task makes those optional calls real.
@@ -16530,12 +20298,19 @@ Verifying a key sends it to the provider, which is a network event (`docs/PRIVAC
   ```js
   const KEYRING_IDS; // ["openai","anthropic","gemini","groq","xai","mistral","openrouter","tinfoil","deepgram","assemblyai","corti:text","corti:speech"]
   const ROTATION_DAYS = 90;
+  const ENTERPRISE_IDS; // ["bedrock","azure","vertex"]: describeVerify only
   function testConfigFor(identity, options?): object | null; // the config _runProviderConnectionTest receives; null when Corti options are invalid
+  function verifyHostsFor(config): string[];                 // hosts of the URLs that config's request fetches (cortiTokenUrl / resolveProviderRequest)
+  function enterpriseVerifyTarget(identity, enterprise /* EnterpriseVerifyConfig */, fields): { hosts: string[]; fields: string[] };
+  // EnterpriseVerifyConfig = { bedrockRegion, bedrockProfile, azureEndpoint, vertexProject, vertexLocation: string;
+  //   routeFacts?: EnterpriseMainFacts }  // Task 1's enterpriseRouteFacts(process.env); absent = no overrides
+  function isSealedRefusal(error): boolean;                   // Plan 07 SealedModeError shape: code "SEALED_MODE" or "[SEALED_MODE" in message/cause
   function classifyResult(result): { status, errorCode, httpStatus };
   function keyringDisplayName(identity): string;              // English brand name for native notifications
-  function createKeyring({ store, credentials, runTest, now, broadcast, isSealed }) → {
+  function createKeyring({ store, credentials, runTest /* (config, capturedValues) */, now, broadcast, isSealed, enterpriseConfig }) → {
     list(): KeyringEntry[];                                     // stored identities only, in KEYRING_IDS order
-    verify(identity, options?): Promise<KeyringVerifyResult>;    // generation-bound, coalesced per identity+generation
+    verify(identity, options?): Promise<KeyringVerifyResult>;    // committed value + generation via captureCommitted; coalesced per identity+generation+host
+    describeVerify(identity: CredentialIdentity, options?): Promise<{ hosts: string[]; fields: string[] }>; // names only
     setReminder(identity, enabled): KeyringEntry | null;
     takeDueReminders(): string[];
     dispose(): void;                                            // unsubscribes from the authority
@@ -16545,7 +20320,7 @@ Verifying a key sends it to the provider, which is a network event (`docs/PRIVAC
 
   `notify` here is an injected main-process callback (`_notifyKeyRotation`, an Electron `Notification`), not spec §5.3's renderer `notify()`. Plan 03 runs before Plan 04, so every renderer message in this plan keeps the existing toast API (`useToast`); Plan 04 migrates those call sites.
 
-  Health follows the authority: a `save` or `undo` that leaves the identity present resets its row to `unverified` (clearing the error, and restarting the 90-day clock when a reminder is on); any change that leaves it absent deletes the row. Every row change broadcasts `keyring-changed` `{ id }`. `isSealed` defaults to `() => false`; Plan 07 passes main's sealed state so Verify refuses with `outcome: "sealed"` and makes no request.
+  Health follows the authority: a `save` or `undo` that leaves the identity present resets its row to `unverified` (clearing the error, and restarting the 90-day clock when a reminder is on); any change that leaves it absent deletes the row. Every row change broadcasts `keyring-changed` `{ id }`. `isSealed` defaults to `() => false`. The production constructor passes `() => this.isSealed()`, where `this.isSealed` is `managers.isSealed` or `() => false`. Plan 07 supplies main's authoritative predicate as `new IPCHandlers({ …, isSealed })` in `main.js`; that is the Task 18 handoff. Verify checks the predicate after the capture (the save wait). A sealed refusal thrown by `runTest` also resolves `{ outcome: "sealed", entry: <unchanged row> }` and writes no row.
 - Produces (`src/types/electron.ts`, `window.electronAPI.keyring`):
 
   ```ts
@@ -16565,15 +20340,32 @@ Verifying a key sends it to the provider, which is a network event (`docs/PRIVAC
   export type KeyringVerifyOutcome = "recorded" | "superseded" | "missing" | "sealed" | "invalidOptions";
   export interface KeyringVerifyResult { outcome: KeyringVerifyOutcome; entry: KeyringEntry | null }
   export interface KeyringVerifyOptions { cortiEnvironment?: string; cortiTenant?: string }
+  /** Keyring identities plus the enterprise credentials whose Test connection names its recipient (Task 9). */
+  export type CredentialIdentity = KeyringIdentity | "bedrock" | "azure" | "vertex";
+  export interface VerifyTargetDescription { hosts: string[]; fields: string[] } // declared by Task 9's forward declaration; this task keeps it
   export interface KeyringAPI {
     list: () => Promise<KeyringEntry[]>;
     verify: (identity: KeyringIdentity, options?: KeyringVerifyOptions) => Promise<KeyringVerifyResult>;
+    /** R2-6: hosts and credential slot names (never values) the request would send to, from main. */
+    describeVerify: (identity: CredentialIdentity, options?: KeyringVerifyOptions) => Promise<VerifyTargetDescription>;
     setReminder: (identity: KeyringIdentity, enabled: boolean) => Promise<KeyringEntry | null>;
     onChanged: (callback: (change: { id: KeyringIdentity }) => void) => () => void;
   }
   ```
 
-  IPC channels: `keyring-list`, `keyring-verify`, `keyring-set-reminder`; broadcast `keyring-changed`.
+  IPC channels: `keyring-list`, `keyring-verify`, `keyring-describe-verify`, `keyring-set-reminder`; broadcast `keyring-changed`.
+
+  **`describeVerify` contract (R2-6).** `options` matters only for `corti:speech`, whose region and tenant live only in the renderer (`src/stores/settingsStore.ts:1034`, `:1404`). Its keys are the ones `keyring.verify` takes, and a caller must pass the same object to both.
+  - `corti:speech` gives `{ hosts: ["auth.<env>.corti.app"], fields: ["clientId", "clientSecret"] }`.
+  - With invalid Corti options it gives `hosts: []`, and Verify answers `invalidOptions`.
+  - Every other keyring identity gives the hosts of `resolveProviderRequest(config).endpoints` with `fields: ["key"]`. For example, `corti:text` gives `ai.eu.corti.app` (`providerConnectionTest.js:9`), and `openai` honours `LOQUI_OPENAI_BASE_URL`.
+  - Enterprise identities ignore `options` and read main's committed enterprise config plus `routeFacts`, Task 1's `enterpriseRouteFacts(process.env)` (`src/helpers/enterpriseRouteFacts.js`, re-read on every call). The rules are Task 1's `enterpriseRequestHost`, and `hosts` is `[]` wherever that gives `null`.
+    - azure: `[endpoint host]`; `[]` when the endpoint is empty, invalid, not HTTPS or carries credentials (`enterpriseAiProviders.js:73-77`). No environment variable redirects Azure.
+    - bedrock: when `routeFacts.bedrockEndpoint.set` (main has `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, else `AWS_ENDPOINT_URL`), `[bedrockEndpoint.host]`, or `[]` when that host is `null`. Otherwise `bedrock-runtime.<region||us-east-1>.<partition suffix>`, following `@ai-sdk/amazon-bedrock` 5.0.94 (`[]` if that URL does not parse). Fields are `["profile"]`, or else the stored key fields.
+    - vertex: `aiplatform.googleapis.com` with `["key"]` when a key is stored. Otherwise, when `routeFacts.vertexApiKeyEnv` (main has `GOOGLE_VERTEX_API_KEY`), `aiplatform.googleapis.com` with `["environmentKey"]`: express mode, and the environment's key is sent. Otherwise the host is derived from the location: `global`, `eu`/`us` `.rep`, or `<loc>-aiplatform`, following `@ai-sdk/google-vertex` 5.0.93, with `[]` (`hosts: []` if the URL does not parse).
+    - `environmentKey` is a disclosure name, not a credential slot. This task adds its locale strings `keyring.fields.environmentKey` and `reasoning.enterprise.field.environmentKey` (Step 3.10), so Task 9's `enterpriseTestDisclosure` and Task 12's `verifyTargetText` translate it unchanged.
+  - An unknown identity rejects.
+  - Renderers re-query it on `credentials.onChanged`, on `keyring.onChanged`, and whenever the option or setting it depends on changes. They never memoize it once (Task 12; Task 9 for enterprise).
 
   **`verify` result contract (Task 12 consumes it).** `keyring.verify` always resolves to `{ outcome, entry }`; it never carries a `superseded` flag or any other field, and it rejects only for an identity outside `KEYRING_IDS`. `entry` is main's row for that identity *after* the call, or `null` when no credential is stored for it now:
 
@@ -16582,11 +20374,11 @@ Verifying a key sends it to the provider, which is a network event (`docs/PRIVAC
   | `"recorded"` | yes | yes, the verdict | the row carrying the new verdict |
   | `"superseded"` | yes | no (the key changed while the request was out) | the current row (the replacement's, normally `unverified`), or `null` if the key was removed or reset |
   | `"missing"` | no | no | `null` |
-  | `"sealed"` | no | no | the current row, unchanged |
+  | `"sealed"` | no, or refused by the gated transport (Plan 07) | no | the current row, unchanged |
   | `"invalidOptions"` | no | no (Corti region or tenant malformed) | the current row, unchanged |
 
   Only `"recorded"` is a verdict. A consumer tests `result.outcome === "superseded"` to explain a discarded check and keeps taking row content from `list()`.
-- For Task 12 (Keyring panel): before every `keyring.verify` call the panel must `await flushSecretSaves()` (Task 2), so a just-typed key is in main before it is tested. Pass `{ cortiEnvironment, cortiTenant }` from settings for `corti:speech`. **Verify all** is a sequential loop over `keyring.list()` in the renderer (one IPC call per identity, so it can show progress); main makes each call safe on its own, so a key changed mid-loop yields `superseded` for that identity and `missing` for one removed before its turn. Show `superseded` as "Key changed while checking — verify again", never as a verdict. Verify buttons stay disabled while `getSealed()` is true.
+- For Task 12 (Keyring panel): before every `keyring.verify` call the panel must `await flushSecretSaves()` (Task 2), so a just-typed key is in main before it is tested. Pass `{ cortiEnvironment, cortiTenant }` from settings for `corti:speech`, the same object to `describeVerify` and `verify`. Display `describeVerify`'s hosts and fields, re-queried when the region or tenant changes, on `keyring-changed` and on `credentials-changed`. **Verify all** is a sequential loop over `keyring.list()` in the renderer (one IPC call per identity, so it can show progress); main makes each call safe on its own, so a key changed mid-loop yields `superseded` for that identity and `missing` for one removed before its turn. Show `superseded` as "Key changed while checking — verify again", never as a verdict. Verify buttons stay disabled while `getSealed()` is true.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -16603,6 +20395,7 @@ const {
   ROTATION_DAYS,
   classifyResult,
   createKeyring,
+  enterpriseVerifyTarget,
   keyringDisplayName,
   startRotationReminders,
   testConfigFor,
@@ -16628,6 +20421,7 @@ function setup({
   initial = { OPENAI_API_KEY: "sk-a", GROQ_API_KEY: "gsk-a" },
   runTest,
   isSealed,
+  enterprise = {},
 } = {}) {
   const env = fakeCredentialEnv(initial);
   let clock = 1_000_000;
@@ -16640,6 +20434,7 @@ function setup({
   });
   const store = fakeStore();
   const calls = [];
+  const captured = [];
   const pending = [];
   const changes = [];
   const keyring = createKeyring({
@@ -16647,8 +20442,9 @@ function setup({
     credentials,
     runTest:
       runTest ||
-      ((config) => {
+      ((config, values) => {
         calls.push(config);
+        captured.push(values);
         const gate = deferred();
         pending.push(gate);
         return gate.promise;
@@ -16656,6 +20452,7 @@ function setup({
     now: () => clock,
     broadcast: (channel, payload) => changes.push({ channel, payload }),
     isSealed,
+    enterpriseConfig: () => enterprise,
   });
   const status = (identity) => keyring.list().find((e) => e.id === identity)?.status;
   return {
@@ -16664,6 +20461,7 @@ function setup({
     env,
     store,
     calls,
+    captured,
     pending,
     changes,
     status,
@@ -16704,9 +20502,11 @@ test("the keyring lists stored identities only, unverified until checked", () =>
 
 // change-driving.
 test("verify records the verdict in main and broadcasts the change, never the key", async () => {
-  const { keyring, store, calls, pending, changes, now } = setup();
+  const { keyring, store, calls, captured, pending, changes, now } = setup();
   const running = keyring.verify("openai");
+  await tick(); // the committed value is captured in the credential's queue first
   assert.deepEqual(calls, [{ scope: "reasoning", provider: "openai" }]);
+  assert.deepEqual(captured, [{ key: "sk-a" }], "the request carries the committed key, from main");
   pending[0].resolve({ success: true });
   const result = await running;
   assert.equal(result.outcome, "recorded");
@@ -16781,11 +20581,13 @@ test("a removal during Verify leaves no health row behind", async () => {
 
 // change-driving (I11): two verifications that finish in the wrong order.
 test("out-of-order verifications keep the newest credential's verdict", async () => {
-  const { keyring, credentials, calls, pending, status } = setup();
+  const { keyring, credentials, calls, captured, pending, status } = setup();
   const older = keyring.verify("openai");
   await credentials.save("openai", "key", "sk-new");
   const newer = keyring.verify("openai");
+  await tick();
   assert.equal(calls.length, 2, "a new generation is a new test, not coalesced");
+  assert.deepEqual(captured, [{ key: "sk-a" }, { key: "sk-new" }], "each test carries its own committed key");
   pending[1].resolve({ success: true });
   assert.equal((await newer).outcome, "recorded");
   pending[0].resolve(REJECTED);
@@ -16798,10 +20600,12 @@ test("concurrent Verify of the same credential is coalesced into one request", a
   const { keyring, calls, pending } = setup();
   const a = keyring.verify("groq");
   const b = keyring.verify("groq");
+  await tick();
   assert.equal(calls.length, 1);
   pending[0].resolve({ success: true });
   assert.equal(await a, await b);
   const again = keyring.verify("groq");
+  await tick();
   assert.equal(calls.length, 2, "a later Verify runs again");
   pending[1].resolve({ success: true });
   await again;
@@ -16855,12 +20659,14 @@ test("replacing a rejected key resets it to unverified and tells every window", 
 test("reset drops health rows and discards in-flight verdicts", async () => {
   const { keyring, credentials, pending, store, env } = setup();
   const first = keyring.verify("groq");
+  await tick();
   pending[0].resolve({ success: true });
   await first;
   assert.equal(store.rows.has("groq"), true);
   const running = keyring.verify("openai");
-  env.values.clear(); // cleanup-app clears the credential store, then resets the authority
-  credentials.reset();
+  await tick();
+  // cleanup-app erases the credential store inside the authority's reset barrier.
+  await credentials.reset(async () => env.values.clear());
   pending[1].resolve({ success: true });
   assert.deepEqual(await running, { outcome: "superseded", entry: null });
   assert.equal(store.rows.size, 0);
@@ -16876,6 +20682,138 @@ test("unknown identities, missing credentials and sealed mode make no request", 
   const sealed = setup({ isSealed: () => true });
   assert.equal((await sealed.keyring.verify("openai")).outcome, "sealed");
   assert.equal(sealed.calls.length, 0);
+});
+
+// change-driving (R2-7): Plan 07's gated transport throws a sealed refusal;
+// v1 caught it as "network" and recorded the key unreachable.
+test("a sealed refusal thrown by the transport is outcome sealed and leaves health unchanged", async () => {
+  let mode = "ok";
+  const { keyring, store } = setup({
+    runTest: async () => {
+      if (mode === "sealed") {
+        throw Object.assign(new Error("[SEALED_MODE] Sealed mode is on"), { code: "SEALED_MODE" });
+      }
+      if (mode === "wrapped") {
+        throw new Error("fetch failed", { cause: new Error("[SEALED_MODE:interrupted] stopped") });
+      }
+      return { success: true };
+    },
+  });
+  await keyring.verify("groq");
+  const before = { ...store.rows.get("groq") };
+  for (mode of ["sealed", "wrapped"]) {
+    const result = await keyring.verify("groq");
+    assert.equal(result.outcome, "sealed", mode);
+    assert.equal(result.entry.status, "verified");
+    assert.deepEqual(store.rows.get("groq"), before, `${mode}: no row write`);
+  }
+});
+
+// change-driving (R2-7): sealing while the save wait is pending still refuses.
+test("isSealed is checked after the save wait", async () => {
+  let sealedNow = false;
+  const { keyring, credentials, env, calls } = setup({ isSealed: () => sealedNow });
+  const gate = deferred();
+  env.persistImpl = () => gate.promise;
+  const saving = credentials.save("groq", "key", "gsk-new");
+  const verifying = keyring.verify("groq"); // queued behind the save
+  sealedNow = true;
+  gate.resolve();
+  await saving;
+  assert.equal((await verifying).outcome, "sealed");
+  assert.equal(calls.length, 0);
+});
+
+// change-driving (R2-6): the disclosure comes from the request's own builders.
+test("describeVerify names the hosts and slot names each Verify sends to", async () => {
+  const { keyring } = setup({
+    initial: { BEDROCK_ACCESS_KEY_ID: "AKIA", BEDROCK_SECRET_ACCESS_KEY: "s", VERTEX_API_KEY: "" },
+    enterprise: { bedrockRegion: "cn-north-1", azureEndpoint: "https://acme.openai.azure.com/openai", vertexLocation: "eu" },
+  });
+  assert.deepEqual(
+    await keyring.describeVerify("corti:speech", { cortiEnvironment: "eu", cortiTenant: "acme" }),
+    { hosts: ["auth.eu.corti.app"], fields: ["clientId", "clientSecret"] },
+    "the token endpoint, not the speech API host"
+  );
+  assert.deepEqual(await keyring.describeVerify("corti:speech"), {
+    hosts: ["auth.us.corti.app"],
+    fields: ["clientId", "clientSecret"],
+  });
+  assert.deepEqual(await keyring.describeVerify("corti:speech", { cortiEnvironment: "mars" }), {
+    hosts: [],
+    fields: ["clientId", "clientSecret"],
+  });
+  assert.deepEqual(await keyring.describeVerify("corti:text"), { hosts: ["ai.eu.corti.app"], fields: ["key"] });
+  assert.deepEqual(await keyring.describeVerify("groq"), { hosts: ["api.groq.com"], fields: ["key"] });
+  assert.deepEqual(await keyring.describeVerify("deepgram"), { hosts: ["api.deepgram.com"], fields: ["key"] });
+  assert.deepEqual(await keyring.describeVerify("azure"), { hosts: ["acme.openai.azure.com"], fields: ["key"] });
+  assert.deepEqual(await keyring.describeVerify("bedrock"), {
+    hosts: ["bedrock-runtime.cn-north-1.amazonaws.com.cn"],
+    fields: ["accessKeyId", "secretAccessKey"],
+  });
+  assert.deepEqual(await keyring.describeVerify("vertex"), {
+    hosts: ["aiplatform.eu.rep.googleapis.com"],
+    fields: [],
+  });
+  await assert.rejects(keyring.describeVerify("codex"), /Unknown credential identity/);
+});
+
+test("enterprise disclosure follows the enterprise SDK rules", () => {
+  assert.deepEqual(enterpriseVerifyTarget("azure", { azureEndpoint: "http://acme.example" }, {}), {
+    hosts: [],
+    fields: ["key"],
+  });
+  assert.deepEqual(enterpriseVerifyTarget("azure", { azureEndpoint: "https://u:p@acme.example" }, {}).hosts, []);
+  assert.deepEqual(enterpriseVerifyTarget("bedrock", { bedrockProfile: "work" }, { accessKeyId: true }), {
+    hosts: ["bedrock-runtime.us-east-1.amazonaws.com"],
+    fields: ["profile"],
+  });
+  assert.deepEqual(enterpriseVerifyTarget("vertex", {}, { key: true }), {
+    hosts: ["aiplatform.googleapis.com"],
+    fields: ["key"],
+  });
+  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexLocation: "global" }, {}).hosts, ["aiplatform.googleapis.com"]);
+  assert.deepEqual(enterpriseVerifyTarget("vertex", {}, {}).hosts, ["us-central1-aiplatform.googleapis.com"]);
+  // Hosts no request can reach are not named (Task 1's requestHost rule).
+  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexLocation: "bad location" }, {}).hosts, []);
+  assert.deepEqual(enterpriseVerifyTarget("bedrock", { bedrockRegion: "us east" }, {}).hosts, []);
+});
+
+// change-driving (R2-6 enterprise): main's environment overrides, as Task 1's
+// enterpriseRouteFacts reports them, move the host the same way enterpriseRequestHost does.
+test("enterprise disclosure follows main's environment overrides", () => {
+  const facts = (over) => ({
+    bedrockEndpoint: { set: false, host: null },
+    vertexApiKeyEnv: false,
+    vertexProjectEnv: false,
+    ...over,
+  });
+  const proxy = facts({ bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" } });
+  assert.deepEqual(
+    enterpriseVerifyTarget("bedrock", { bedrockRegion: "eu-west-1", routeFacts: proxy }, { accessKeyId: true, secretAccessKey: true }),
+    { hosts: ["bedrock-proxy.corp.example:8443"], fields: ["accessKeyId", "secretAccessKey"] },
+    "the endpoint override wins over the region"
+  );
+  assert.deepEqual(
+    enterpriseVerifyTarget("bedrock", { bedrockRegion: "eu-west-1", routeFacts: facts({ bedrockEndpoint: { set: true, host: null } }) }, {}),
+    { hosts: [], fields: [] },
+    "set but unusable: no request can be made"
+  );
+  assert.deepEqual(
+    enterpriseVerifyTarget("vertex", { vertexProject: "acme", vertexLocation: "europe-west4", routeFacts: facts({ vertexApiKeyEnv: true }) }, {}),
+    { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] },
+    "GOOGLE_VERTEX_API_KEY selects express mode and that key is sent"
+  );
+  assert.deepEqual(
+    enterpriseVerifyTarget("vertex", { routeFacts: facts({ vertexApiKeyEnv: true }) }, { key: true }),
+    { hosts: ["aiplatform.googleapis.com"], fields: ["key"] },
+    "a stored key is passed explicitly and is the one sent"
+  );
+  assert.deepEqual(
+    enterpriseVerifyTarget("azure", { azureEndpoint: "https://acme.openai.azure.com/openai", routeFacts: proxy }, {}).hosts,
+    ["acme.openai.azure.com"],
+    "no environment variable redirects Azure"
+  );
 });
 
 // baseline semantics carried over from v1 (change-driving only because the module is new).
@@ -16952,6 +20890,490 @@ test("the reminder loop notifies per due identity, survives a failing check and 
   stop();
 });
 ```
+
+Create `test/helpers/keyringRealEnv.test.js`. These are the R2-4 sequences, run over the real `EnvironmentManager` persistence bodies (Task 2's `realCredentialEnv`). In the real code, `process.env` already holds a value whose write is still pending or about to fail (`src/helpers/environment.js:155`).
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { deferred } = require("./harness/deferred");
+const { realCredentialEnv } = require("./harness/realCredentialEnv");
+const { fakeCodexFs } = require("./harness/fakeCredentialEnv");
+const { createCredentialAuthority } = require("../../src/helpers/credentialAuthority.js");
+const { createKeyring } = require("../../src/helpers/keyring.js");
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const isRename = (name) => (op, file) => op === "rename" && file === name;
+
+function setup(t, initial) {
+  const real = realCredentialEnv(t, initial);
+  const credentials = createCredentialAuthority({
+    env: real.env,
+    fs: fakeCodexFs(),
+    codexHome: "/profile/codex",
+    setTimer: () => {},
+  });
+  const rows = new Map();
+  const tested = []; // the key value each request carried (test-local only)
+  const gates = [];
+  const keyring = createKeyring({
+    store: {
+      all: () => [...rows.values()],
+      save: (row) => rows.set(row.identity, { ...row }),
+      remove: (identity) => rows.delete(identity),
+    },
+    credentials,
+    runTest: (_config, values) => {
+      tested.push(values.key);
+      const gate = deferred();
+      gates.push(gate);
+      return gate.promise;
+    },
+  });
+  const status = (id) => keyring.list().find((entry) => entry.id === id)?.status;
+  return { ...real, credentials, keyring, rows, tested, gates, status };
+}
+
+// change-driving (R2-4): presence read process.env, which the real save sets first.
+test("a first save still being written is not in the keyring, and Verify waits for it", async (t) => {
+  const { credentials, keyring, fs, tested, gates } = setup(t);
+  fs.holdNext(isRename("GROQ_API_KEY.enc"));
+  const saving = credentials.save("groq", "key", "gsk-first");
+  const hold = await fs.nextHold();
+  assert.deepEqual(keyring.list(), [], "not listed until main acknowledges it");
+  const verifying = keyring.verify("groq");
+  await tick();
+  assert.deepEqual(tested, [], "nothing is sent while the save is pending");
+  hold.release();
+  await saving;
+  await tick();
+  assert.deepEqual(tested, ["gsk-first"]);
+  gates[0].resolve({ success: true });
+  assert.equal((await verifying).outcome, "recorded");
+});
+
+// change-driving (R2-4): Verify was not serialized with the replacement.
+test("a replacement committed while Verify is out supersedes the old key's verdict", async (t) => {
+  const { credentials, keyring, tested, gates, status } = setup(t, { GROQ_API_KEY: "gsk-old" });
+  const verifying = keyring.verify("groq");
+  await tick();
+  assert.deepEqual(tested, ["gsk-old"]);
+  assert.deepEqual(await credentials.save("groq", "key", "gsk-new"), { ok: true, generation: 1 });
+  gates[0].resolve({ success: false, errorCode: "credentialsRejected", status: 401 });
+  assert.equal((await verifying).outcome, "superseded");
+  assert.equal(status("groq"), "unverified", "the old key's 401 never lands on the new key");
+});
+
+// change-driving (R2-4): the failed replacement is restored without a
+// generation change, so the tested value must be the one that stays stored.
+test("a replacement that fails while Verify is out leaves a verdict about the restored key", async (t) => {
+  const { credentials, keyring, fs, tested, gates, env, status } = setup(t, { GROQ_API_KEY: "gsk-old" });
+  const verifying = keyring.verify("groq");
+  await tick();
+  fs.holdNext(isRename("GROQ_API_KEY.enc"));
+  const replacing = credentials.save("groq", "key", "gsk-attempt");
+  const hold = await fs.nextHold();
+  assert.equal(env.getGroqKey(), "gsk-attempt", "the real window: process.env holds the attempt");
+  hold.fail(Object.assign(new Error("EIO"), { code: "EIO" }));
+  assert.deepEqual(await replacing, { ok: false, error: "persistFailed" });
+  gates[0].resolve({ success: true });
+  assert.equal((await verifying).outcome, "recorded");
+  assert.deepEqual(tested, ["gsk-old"], "the request carried the committed key");
+  assert.equal(env.getGroqKey(), "gsk-old");
+  assert.equal(status("groq"), "verified");
+});
+
+// change-driving (R2-4): v1 tested process.env, i.e. the attempt, and then
+// recorded the attempt's verdict on the restored key.
+test("Verify requested during a replacement that then fails tests the restored key", async (t) => {
+  const { credentials, keyring, fs, tested, gates, status } = setup(t, { GROQ_API_KEY: "gsk-old" });
+  fs.holdNext(isRename("GROQ_API_KEY.enc"));
+  const replacing = credentials.save("groq", "key", "gsk-attempt");
+  const hold = await fs.nextHold();
+  const verifying = keyring.verify("groq");
+  await tick();
+  assert.deepEqual(tested, [], "Verify waits for the pending write");
+  hold.fail(Object.assign(new Error("EIO"), { code: "EIO" }));
+  await replacing;
+  await tick();
+  assert.deepEqual(tested, ["gsk-old"]);
+  gates[0].resolve({ success: false, errorCode: "credentialsRejected", status: 401 });
+  assert.equal((await verifying).outcome, "recorded");
+  assert.equal(status("groq"), "rejected", "the 401 is about gsk-old, which is what is stored");
+});
+
+// change-driving (R2-2 × I11): reset invalidates verifications in flight.
+test("reset while Verify is out discards the verdict and leaves no row", async (t) => {
+  const { credentials, keyring, gates, rows, erase } = setup(t, { GROQ_API_KEY: "gsk-old" });
+  const verifying = keyring.verify("groq");
+  await tick();
+  await credentials.reset(erase);
+  gates[0].resolve({ success: true });
+  assert.deepEqual(await verifying, { outcome: "superseded", entry: null });
+  assert.equal(rows.size, 0);
+});
+```
+
+Create `test/helpers/keyringProduction.test.js`. It covers R2-6 and R2-7 through the production construction path. It really constructs `IPCHandlers` (`src/helpers/ipcHandlers.js:264`) and calls the handlers that `setupHandlers` registered.
+- The managers are the real-persistence credential env, an in-memory key-health store and `isSealed`; every other manager is an inert proxy.
+- Only `electron`, `./debugLogger` and `./systemDefaultMicrophone` are stubbed, plus three constructor side effects on the prototype: the text-edit monitor, the retention timer and GPU logging (`:338-345`).
+- `app.getPath` points at a fresh temp directory, never a real profile.
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const Module = require("node:module");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { realCredentialEnv } = require("./harness/realCredentialEnv");
+
+const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-keyring-production-"));
+const originalLoad = Module._load;
+const handlers = new Map();
+const netUrls = []; // Electron net.fetch: Corti's token endpoint
+const fetchUrls = []; // global fetch: providerConnectionTest
+let netImpl = async () => ({ ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 300 }) });
+const electronStub = {
+  app: {
+    getPath: () => userData,
+    getName: () => "test",
+    getVersion: () => "0.0.0",
+    getLocale: () => "en",
+    isPackaged: false,
+    on: () => {},
+    requestSingleInstanceLock: () => true,
+  },
+  ipcMain: { handle: (channel, fn) => handlers.set(channel, fn), on: () => {}, removeHandler: () => {} },
+  net: {
+    fetch: async (url, init) => {
+      netUrls.push(String(url));
+      return netImpl(url, init);
+    },
+  },
+  BrowserWindow: class BrowserWindow {
+    static getAllWindows() {
+      return [];
+    }
+    static fromWebContents() {
+      return null;
+    }
+  },
+  Notification: class Notification {
+    static isSupported() {
+      return false;
+    }
+  },
+  shell: {},
+  dialog: {},
+  screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
+  systemPreferences: { getMediaAccessStatus: () => "granted" },
+  session: { fromPartition: () => ({}) },
+  clipboard: {},
+  nativeImage: {},
+  globalShortcut: {},
+  utilityProcess: {},
+  MessageChannelMain: class {},
+};
+Module._load = function loadWithElectronStub(request, parent, isMain) {
+  if (request === "electron") return electronStub;
+  if (parent?.filename === handlersModulePath && request === "./debugLogger") {
+    return new Proxy({}, { get: () => () => {} });
+  }
+  if (parent?.filename === handlersModulePath && request === "./systemDefaultMicrophone") {
+    return { resolveSystemDefaultMicrophone: () => {} };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+function anything() {
+  return new Proxy(function () {}, {
+    get: (_target, property) => {
+      if (property === Symbol.toPrimitive || property === "toString") return () => "";
+      if (property === "then") return undefined;
+      return anything();
+    },
+    apply: () => anything(),
+  });
+}
+
+let sealed = false;
+let ipc;
+let real;
+const rows = new Map();
+const originalFetch = globalThis.fetch;
+
+test.before(() => {
+  real = realCredentialEnv(
+    { after: (fn) => test.after(fn) },
+    { GROQ_API_KEY: "gsk-prod-SECRET", CORTI_CLIENT_ID: "cid-prod", CORTI_CLIENT_SECRET: "csec-prod" }
+  );
+  globalThis.fetch = async (url) => {
+    fetchUrls.push(String(url));
+    return { ok: true, status: 200, json: async () => ({ data: [] }) };
+  };
+  delete require.cache[handlersModulePath];
+  const IPCHandlers = require(handlersModulePath);
+  const Ctor = IPCHandlers.default || IPCHandlers;
+  for (const name of ["_setupTextEditMonitor", "_setupRetentionCleanup", "_logDetectedGpus"]) {
+    Ctor.prototype[name] = () => {};
+  }
+  const managers = {
+    environmentManager: real.env,
+    databaseManager: {
+      getKeyHealth: () => [...rows.values()],
+      saveKeyHealth: (row) => rows.set(row.identity, { ...row }),
+      deleteKeyHealth: (identity) => rows.delete(identity),
+    },
+    isSealed: () => sealed,
+  };
+  ipc = new Ctor(new Proxy(managers, { get: (t, p) => (p in t ? t[p] : anything()) }));
+});
+
+test.after(() => {
+  ipc?._stopKeyReminders?.();
+  ipc?.keyring?.dispose();
+  globalThis.fetch = originalFetch;
+  Module._load = originalLoad;
+  delete require.cache[handlersModulePath];
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+const verify = (identity, options) => handlers.get("keyring-verify")({}, identity, options);
+const describe = (identity, options) => handlers.get("keyring-describe-verify")({}, identity, options);
+const hostOf = (url) => new URL(url).host;
+
+// change-driving (R2-7): production construction left isSealed at its default.
+test("the constructed IPCHandlers passes managers.isSealed to the keyring", async () => {
+  sealed = true;
+  const refused = await verify("groq");
+  assert.equal(refused.outcome, "sealed");
+  assert.deepEqual(fetchUrls, [], "nothing is sent while sealed");
+  sealed = false;
+  const recorded = await verify("groq");
+  assert.equal(recorded.outcome, "recorded");
+  assert.equal(recorded.entry.status, "verified");
+});
+
+// change-driving (R2-7): a sealed refusal thrown by the gated transport was
+// caught as "network" and recorded the credential unreachable.
+test("a sealed refusal thrown by Corti's token request is outcome sealed, health unchanged", async () => {
+  const ok = await verify("corti:speech", { cortiEnvironment: "eu", cortiTenant: "sealedA" });
+  assert.equal(ok.outcome, "recorded");
+  const before = { ...rows.get("corti:speech") };
+  netImpl = async () => {
+    throw Object.assign(new Error("[SEALED_MODE] Sealed mode is on"), { code: "SEALED_MODE" });
+  };
+  try {
+    const refused = await verify("corti:speech", { cortiEnvironment: "eu", cortiTenant: "sealedB" });
+    assert.equal(refused.outcome, "sealed");
+    assert.deepEqual(rows.get("corti:speech"), before, "no row write");
+  } finally {
+    netImpl = async () => ({ ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 300 }) });
+  }
+});
+
+// change-driving (R2-7): the predicate is read after the save wait.
+test("sealing while a key save is still being written refuses the Verify queued behind it", async () => {
+  real.fs.holdNext((op, file) => op === "rename" && file === "GROQ_API_KEY.enc");
+  const saving = ipc.credentials.save("groq", "key", "gsk-prod-next-SECRET");
+  const hold = await real.fs.nextHold();
+  const sent = fetchUrls.length;
+  const verifying = verify("groq");
+  sealed = true;
+  hold.release();
+  await saving;
+  try {
+    assert.equal((await verifying).outcome, "sealed");
+    assert.equal(fetchUrls.length, sent);
+  } finally {
+    sealed = false;
+  }
+});
+
+// change-driving (R2-6): the disclosed host is the host the request reached,
+// including after the region changes.
+test("describeVerify names the host the request is sent to, before and after a region change", async () => {
+  for (const [cortiEnvironment, cortiTenant] of [
+    ["eu", "regionA"],
+    ["us", "regionA"],
+  ]) {
+    const options = { cortiEnvironment, cortiTenant };
+    const disclosed = await describe("corti:speech", options);
+    assert.deepEqual(disclosed.fields, ["clientId", "clientSecret"]);
+    const sent = netUrls.length;
+    assert.equal((await verify("corti:speech", options)).outcome, "recorded");
+    assert.equal(netUrls.length, sent + 1);
+    assert.deepEqual(disclosed.hosts, [hostOf(netUrls.at(-1))]);
+    assert.equal(disclosed.hosts[0], `auth.${cortiEnvironment}.corti.app`);
+  }
+  const groq = await describe("groq");
+  const sent = fetchUrls.length;
+  assert.equal((await verify("groq")).outcome, "recorded");
+  assert.deepEqual(groq.hosts, [hostOf(fetchUrls[sent])]);
+});
+
+// change-driving (R2-6, Task 9): enterprise identities read main's committed config.
+test("describeVerify answers for the enterprise Test connection from main's config", async () => {
+  process.env.AZURE_OPENAI_ENDPOINT = "https://acme.openai.azure.com/openai";
+  process.env.BEDROCK_REGION = "eu-west-1";
+  assert.deepEqual(await describe("azure"), { hosts: ["acme.openai.azure.com"], fields: ["key"] });
+  assert.deepEqual((await describe("bedrock")).hosts, ["bedrock-runtime.eu-west-1.amazonaws.com"]);
+  process.env.AZURE_OPENAI_ENDPOINT = "https://other.openai.azure.com";
+  assert.deepEqual((await describe("azure")).hosts, ["other.openai.azure.com"], "re-read, never cached");
+});
+
+// change-driving (R2-6 enterprise): describeVerify ignored main's environment
+// overrides. @ai-sdk/amazon-bedrock sends to AWS_ENDPOINT_URL_BEDROCK_RUNTIME,
+// else AWS_ENDPOINT_URL, and @ai-sdk/google-vertex switches to express mode
+// with GOOGLE_VERTEX_API_KEY, so the Test connection label named a host the
+// request never reached. Like Task 1's agreement test, the described host must
+// equal the host the real helper's SDK request reaches.
+test("enterprise describeVerify names the host the SDK request reaches under main's environment overrides", async (t) => {
+  const { getEnterpriseAIModel } = require("../../src/helpers/enterpriseAiProviders.js");
+  const ENV = [
+    "AWS_ENDPOINT_URL",
+    "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
+    "AWS_REGION",
+    "AWS_PROFILE",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "GOOGLE_VERTEX_API_KEY",
+    "GOOGLE_VERTEX_PROJECT",
+    "GOOGLE_VERTEX_LOCATION",
+    "BEDROCK_REGION",
+    "BEDROCK_PROFILE",
+    "VERTEX_API_KEY",
+    "VERTEX_PROJECT",
+    "VERTEX_LOCATION",
+  ];
+  const savedEnv = new Map(ENV.map((name) => [name, process.env[name]]));
+  const recordingFetch = globalThis.fetch; // this file's stub from test.before
+  t.after(() => {
+    globalThis.fetch = recordingFetch;
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  const prompt = [{ role: "user", content: [{ type: "text", text: "Hello" }] }];
+  // Fixture keys only let Bedrock sign locally, so no AWS profile, shared config
+  // or credential chain is read; the stubbed fetch answers every request.
+  const AWS = { bedrockAccessKeyId: "AKIAFIXTURE", bedrockSecretAccessKey: "fixture-secret" };
+
+  // The host the real executor's request goes to, with the configuration main
+  // hands it (main.js getEnterpriseConfig, :447-457, read through the same
+  // EnvironmentManager getters); null when it refuses or no request can be made.
+  async function requestedHost(provider) {
+    const config = {
+      ...AWS,
+      bedrockRegion: real.env.getBedrockRegion(),
+      bedrockProfile: real.env.getBedrockProfile(),
+      vertexProject: real.env.getVertexProject(),
+      vertexLocation: real.env.getVertexLocation(),
+    };
+    const apiKey = provider === "vertex" ? real.env.getVertexApiKey() : "";
+    let model;
+    try {
+      model = await getEnterpriseAIModel(provider, "fixture-model", apiKey, config);
+    } catch {
+      return null;
+    }
+    if (provider === "vertex" && !apiKey && !process.env.GOOGLE_VERTEX_API_KEY) {
+      // ADC would first ask Google for a token (a real network call), so read the
+      // base URL the SDK will call instead (@ai-sdk/google-vertex loadBaseURL).
+      assert.equal(typeof model.config?.baseURL, "string", "re-read @ai-sdk/google-vertex loadBaseURL");
+      try {
+        return new URL(model.config.baseURL).host;
+      } catch {
+        return null;
+      }
+    }
+    let requested = null;
+    globalThis.fetch = async (url) => {
+      new Request(String(url)); // refuses relative and credential-bearing URLs, as fetch does
+      requested = String(url);
+      return new Response('{"error":{"message":"stub"}}', {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    try {
+      await model.doGenerate({ prompt });
+    } catch {
+      // The stub fails every request; an unusable URL fails before or inside fetch.
+    } finally {
+      globalThis.fetch = recordingFetch;
+    }
+    if (requested === null) return null;
+    try {
+      return new URL(requested).host;
+    } catch {
+      return null;
+    }
+  }
+
+  // [injected environment, expected Bedrock hosts, expected Vertex description].
+  // Injected only; the developer's own environment is cleared first.
+  const scenarios = [
+    [{}, ["bedrock-runtime.eu-west-1.amazonaws.com"], { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] }],
+    [
+      { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://bedrock-proxy.corp.example:8443/" },
+      ["bedrock-proxy.corp.example:8443"],
+      { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] },
+    ],
+    [{ AWS_ENDPOINT_URL: "https://aws-gateway.corp.example" }, ["aws-gateway.corp.example"], null],
+    [
+      { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://runtime.corp.example", AWS_ENDPOINT_URL: "https://ignored.corp.example" },
+      ["runtime.corp.example"],
+      null,
+    ],
+    [{ AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "" }, [], null], // set, so it wins, and no request URL can be built
+    [{ AWS_ENDPOINT_URL: "https://user:pw@aws-gateway.corp.example" }, [], null], // fetch refuses credentials
+    [
+      { GOOGLE_VERTEX_API_KEY: "fixture-env-key" },
+      ["bedrock-runtime.eu-west-1.amazonaws.com"],
+      { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] },
+    ],
+    [{ GOOGLE_VERTEX_API_KEY: "" }, null, { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] }],
+    [
+      { VERTEX_LOCATION: "global", GOOGLE_VERTEX_PROJECT: "env-project", GOOGLE_VERTEX_LOCATION: "asia-east1", AWS_REGION: "ap-south-1" },
+      ["bedrock-runtime.eu-west-1.amazonaws.com"],
+      { hosts: ["aiplatform.googleapis.com"], fields: [] },
+    ], // the SDK variables the helper overrides never apply
+  ];
+  for (const [scenario, bedrockHosts, vertex] of scenarios) {
+    for (const name of ENV) delete process.env[name];
+    Object.assign(
+      process.env,
+      { BEDROCK_REGION: "eu-west-1", VERTEX_PROJECT: "acme-prod", VERTEX_LOCATION: "europe-west4" },
+      scenario
+    );
+    const label = JSON.stringify(scenario);
+    for (const provider of ["bedrock", "vertex"]) {
+      const described = await describe(provider); // the registered keyring-describe-verify handler
+      const host = await requestedHost(provider);
+      assert.deepEqual(described.hosts, host === null ? [] : [host], `${label} ${provider}: described = requested`);
+      assert.equal(
+        /fixture-env-key|user:pw|AKIAFIXTURE|fixture-secret/.test(JSON.stringify(described)),
+        false,
+        "names only, never a value"
+      );
+      if (provider === "bedrock" && bedrockHosts) assert.deepEqual(described.hosts, bedrockHosts, label);
+      if (provider === "vertex" && vertex) assert.deepEqual(described, vertex, label);
+    }
+  }
+});
+
+// R2-7 handoff guard: main.js does not pass isSealed yet (Plan 07 does).
+test("the seal predicate is a constructor input with a false default", () => {
+  const source = fs.readFileSync(handlersModulePath, "utf8");
+  assert.match(source, /this\.isSealed = typeof managers\.isSealed === "function" \? managers\.isSealed : \(\) => false;/);
+  assert.match(source, /isSealed: \(\) => this\.isSealed\(\)/);
+});
+```
+
+The process-env changes in the last test are restored by `realCredentialEnv`'s snapshot. That snapshot covers the whole of `process.env`.
 
 Create `test/helpers/keyringIpc.test.js`:
 
@@ -17043,6 +21465,10 @@ test.before(() => {
         keyringCalls.push(["setReminder", identity, enabled]);
         return null;
       },
+      describeVerify: async (identity, options) => {
+        keyringCalls.push(["describeVerify", identity, options]);
+        return { hosts: ["auth.eu.corti.app"], fields: ["clientId", "clientSecret"] };
+      },
     },
     _runProviderConnectionTest: async (config) => {
       testCalls.push(config);
@@ -17093,9 +21519,14 @@ test("keyring channels delegate to main's keyring and the connection test is sha
     apiKey: "smuggled",
   });
   await handlers.get("keyring-set-reminder")({}, "groq", "yes");
+  assert.deepEqual(
+    await handlers.get("keyring-describe-verify")({}, "corti:speech", { cortiEnvironment: "eu", apiKey: "x" }),
+    { hosts: ["auth.eu.corti.app"], fields: ["clientId", "clientSecret"] }
+  );
   assert.deepEqual(keyringCalls, [
     ["verify", "corti:speech", { cortiEnvironment: "eu", cortiTenant: undefined }],
     ["setReminder", "groq", false],
+    ["describeVerify", "corti:speech", { cortiEnvironment: "eu", cortiTenant: undefined }],
   ]);
   assert.deepEqual(await handlers.get("test-provider-connection")({}, { provider: "groq" }), {
     success: true,
@@ -17108,7 +21539,13 @@ test("keyring channels delegate to main's keyring and the connection test is sha
 test("preload and route facts are wired to the keyring", () => {
   const root = path.join(__dirname, "../..");
   const preload = fs.readFileSync(path.join(root, "preload.js"), "utf8");
-  for (const channel of ["keyring-list", "keyring-verify", "keyring-set-reminder", "keyring-changed"]) {
+  for (const channel of [
+    "keyring-list",
+    "keyring-verify",
+    "keyring-describe-verify",
+    "keyring-set-reminder",
+    "keyring-changed",
+  ]) {
     assert.ok(preload.includes(`"${channel}"`), `preload ${channel}`);
   }
   const facts = fs.readFileSync(path.join(root, "src/stores/routeFactsStore.ts"), "utf8");
@@ -17164,9 +21601,13 @@ test("the schema refuses unknown health states", (t) => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm run native:node && npm test -- test/helpers/keyring.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js`
+Run: `npm run native:node && npm test -- test/helpers/keyring.test.js test/helpers/keyringRealEnv.test.js test/helpers/keyringProduction.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js`
 Expected: FAIL.
-- `keyring.test.js`: `Cannot find module '../../src/helpers/keyring.js'`.
+- `keyring.test.js` and `keyringRealEnv.test.js`: `Cannot find module '../../src/helpers/keyring.js'`.
+  - A keyring that reads the live getters, instead of `captureCommitted`, must still fail the four R2-4 sequences: it would test `gsk-attempt`, or verify before the save landed.
+  - One that maps every throw to `network` fails the sealed-refusal test.
+  - An `enterpriseVerifyTarget` that ignores `enterprise.routeFacts` fails "enterprise disclosure follows main's environment overrides" (it names the region host under an endpoint override, and `fields: []` under `GOOGLE_VERTEX_API_KEY`).
+- `keyringProduction.test.js`: `handlers.get("keyring-verify")` is `undefined`. With only the channels added, the `isSealed` test still fails, because the constructor ignores `managers.isSealed`. The disclosure test fails because `cortiTokenUrl` is not exported. The enterprise override test fails if `enterpriseConfig` omits `routeFacts: enterpriseRouteFacts(process.env)`: the described host stays `bedrock-runtime.eu-west-1.amazonaws.com` while the SDK request reaches `bedrock-proxy.corp.example:8443`.
 - `keyringIpc.test.js`: `Ctor.prototype._runProviderConnectionTest` is `undefined`; `handlers.get("keyring-list")` is `undefined`; preload has no `keyring-*` channels. (The `routeFactsStore.ts` assertion in the same test is a **baseline guard**: Task 3 already subscribes.)
 - `keyHealthDatabase.test.js`: `db.getKeyHealth is not a function`.
 
@@ -17229,6 +21670,9 @@ Expected: FAIL.
    // (credentialAuthority.js), and a result for an older generation is dropped.
    // Rows hold metadata only, keyed by authentication identity.
 
+   const { cortiTokenUrl } = require("./cortiAuth");
+   const { resolveProviderRequest } = require("./providerConnectionTest");
+
    const KEYRING_IDS = [
      "openai",
      "anthropic",
@@ -17243,6 +21687,9 @@ Expected: FAIL.
      "corti:text",
      "corti:speech",
    ];
+   // describeVerify also names the recipient of the enterprise "Test connection"
+   // (Task 9). Those identities have no keyring row and no keyring Verify.
+   const ENTERPRISE_IDS = ["bedrock", "azure", "vertex"];
    const SPEECH_ONLY = new Set(["deepgram", "assemblyai"]);
    const ROTATION_DAYS = 90;
    const DAY_MS = 86_400_000;
@@ -17270,8 +21717,18 @@ Expected: FAIL.
    const providerOf = (identity) => identity.split(":")[0];
    const keyringDisplayName = (identity) => PROVIDER_NAMES[providerOf(identity)] || identity;
 
+   // R2-7. Plan 07's SealedModeError (code "SEALED_MODE", message tagged
+   // "[SEALED_MODE" or "[SEALED_MODE:interrupted]", possibly as a cause).
+   // Plan 07 may swap this for its egressPolicy.isSealedModeError; the rule is the same.
+   function isSealedRefusal(error, depth = 0) {
+     if (!error || depth > 3) return false;
+     if (error.code === "SEALED_MODE") return true;
+     if (typeof error.message === "string" && error.message.includes("[SEALED_MODE")) return true;
+     return isSealedRefusal(error.cause, depth + 1);
+   }
+
    // The config _runProviderConnectionTest receives. "__stored__" makes main
-   // substitute the stored Corti client pair (ipcHandlers.js test handler).
+   // substitute the Corti client pair Verify captured (ipcHandlers.js test method).
    function testConfigFor(identity, options = {}) {
      if (identity === "corti:speech") {
        const environment = options.cortiEnvironment || "us";
@@ -17288,6 +21745,113 @@ Expected: FAIL.
      }
      if (SPEECH_ONLY.has(identity)) return { scope: "transcription", provider: identity };
      return { scope: "reasoning", provider: providerOf(identity) };
+   }
+
+   const hostOf = (url) => {
+     try {
+       return new URL(url).host;
+     } catch {
+       return null;
+     }
+   };
+
+   // R2-6. The hosts a keyring Verify sends the credential to, computed from the
+   // same config and the same URL builders as the request itself: cortiTokenUrl
+   // is what getCortiToken fetches, resolveProviderRequest is what
+   // testProviderConnection fetches. The placeholder key only satisfies
+   // resolveProviderRequest's key check; its headers are discarded.
+   function verifyHostsFor(config) {
+     if (!config) return [];
+     if (config.provider === "corti" && config.scope === "transcription") {
+       return [hostOf(cortiTokenUrl({ environment: config.environment, tenant: config.tenant }))];
+     }
+     try {
+       const { endpoints } = resolveProviderRequest({ ...config, apiKey: "describe-only" });
+       return [...new Set(endpoints.map(hostOf).filter(Boolean))];
+     } catch {
+       return [];
+     }
+   }
+
+   // Mirrors @ai-sdk/amazon-bedrock 5.0.94 resolveAmazonBedrockBaseURL.
+   const AWS_PARTITION_DNS_SUFFIXES = [
+     ["cn-", "amazonaws.com.cn"],
+     ["us-iso-", "c2s.ic.gov"],
+     ["us-isob-", "sc2s.sgov.gov"],
+     ["eu-isoe-", "cloud.adc-e.uk"],
+     ["us-isof-", "csp.hci.ic.gov"],
+     ["eusc-", "amazonaws.eu"],
+   ];
+
+   // The host a URL built like the SDK's really reaches; null when it cannot be
+   // parsed or carries credentials (fetch refuses both). Same rule as Task 1's
+   // routeGraph requestHost and src/helpers/enterpriseRouteFacts.js.
+   function requestHost(url) {
+     try {
+       const parsed = new URL(url);
+       return parsed.username || parsed.password ? null : parsed.host || null;
+     } catch {
+       return null;
+     }
+   }
+   const hostList = (host) => (host ? [host] : []);
+
+   // enterpriseRouteFacts({}): main's environment redirects nothing.
+   const NO_ENVIRONMENT_OVERRIDES = {
+     bedrockEndpoint: { set: false, host: null },
+     vertexApiKeyEnv: false,
+     vertexProjectEnv: false,
+   };
+
+   // The enterprise Test connection's recipient (Task 9), from main's committed
+   // enterprise config, the same object personalInference sends with
+   // (main.js getEnterpriseConfig, :447-457), plus `routeFacts`, Task 1's
+   // enterpriseRouteFacts(process.env): the environment overrides the SDKs honour.
+   // The rules are Task 1's enterpriseRequestHost, so this names the host the
+   // request really reaches; `hosts` is [] wherever that function gives null.
+   function enterpriseVerifyTarget(identity, enterprise, fields) {
+     const env = enterprise.routeFacts || NO_ENVIRONMENT_OVERRIDES;
+     if (identity === "azure") {
+       try {
+         const url = new URL(String(enterprise.azureEndpoint || ""));
+         // createAzureModel refuses these (enterpriseAiProviders.js:73-77).
+         if (url.protocol !== "https:" || url.username || url.password) return { hosts: [], fields: ["key"] };
+         return { hosts: [url.host], fields: ["key"] };
+       } catch {
+         return { hosts: [], fields: ["key"] };
+       }
+     }
+     if (identity === "bedrock") {
+       const sent = enterprise.bedrockProfile
+         ? ["profile"]
+         : ["accessKeyId", "secretAccessKey", "sessionToken"].filter((name) => fields[name]);
+       // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL, wins over the
+       // region (resolveAmazonBedrockBaseURL, dist/index.js:3120-3129). host null:
+       // set but unusable, so no request can be made and no host is named.
+       if (env.bedrockEndpoint.set) return { hosts: hostList(env.bedrockEndpoint.host), fields: sent };
+       const region = enterprise.bedrockRegion || "us-east-1"; // enterpriseAiProviders.js:26
+       const suffix =
+         AWS_PARTITION_DNS_SUFFIXES.find(([prefix]) => region.startsWith(prefix))?.[1] || "amazonaws.com";
+       return { hosts: hostList(requestHost(`https://bedrock-runtime.${region}.${suffix}`)), fields: sent };
+     }
+     // vertex: a stored API key uses express mode (enterpriseAiProviders.js:87-88).
+     if (fields.key) return { hosts: ["aiplatform.googleapis.com"], fields: ["key"] };
+     // Without one, GOOGLE_VERTEX_API_KEY in main's environment selects express
+     // mode as well (@ai-sdk/google-vertex dist/index.js:1637-1640), and that key
+     // is sent. Named "environmentKey": it is not a saved slot.
+     if (env.vertexApiKeyEnv) return { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] };
+     const location = enterprise.vertexLocation || "us-central1"; // :92
+     const host =
+       location === "global"
+         ? "aiplatform.googleapis.com"
+         : location === "eu" || location === "us"
+           ? `aiplatform.${location}.rep.googleapis.com`
+           : `${location}-aiplatform.googleapis.com`;
+     const project = enterprise.vertexProject || "";
+     return {
+       hosts: hostList(requestHost(`https://${host}/v1beta1/projects/${project}/locations/${location}/publishers/google`)),
+       fields: [],
+     };
    }
 
    function classifyResult(result) {
@@ -17320,8 +21884,9 @@ Expected: FAIL.
      now = Date.now,
      broadcast = () => {},
      isSealed = () => false,
+     enterpriseConfig = () => ({}),
    }) {
-     const inflight = new Map(); // `${identity}@${generation}` → Promise<KeyringVerifyResult>
+     const inflight = new Map(); // `${identity}@${generation}@${target}` → Promise<KeyringVerifyResult>
      const rowFor = (identity) => store.all().find((r) => r.identity === identity) || null;
      const entryFor = (identity) =>
        credentials.present(identity) ? toEntry(identity, rowFor(identity)) : null;
@@ -17344,6 +21909,8 @@ Expected: FAIL.
      const assertKnown = (identity) => {
        if (!KEYRING_IDS.includes(identity)) throw new Error(`Unknown keyring identity: ${identity}`);
      };
+     // R2-7: a sealed refusal is never a verdict; the row stays as it was.
+     const sealedResult = (identity) => ({ outcome: "sealed", entry: entryFor(identity) });
 
      // Health follows the credential: a new or restored key starts unverified
      // (and restarts the rotation clock); a key that is gone has no health.
@@ -17370,29 +21937,34 @@ Expected: FAIL.
        changed(change.id);
      });
 
-     // async so an unknown identity rejects instead of throwing synchronously;
-     // everything up to runTest still runs synchronously, so a second call made
-     // in the same tick finds the first in `inflight`.
      async function verify(identity, options = {}) {
        assertKnown(identity);
-       if (!credentials.present(identity)) return { outcome: "missing", entry: null };
-       if (isSealed()) return { outcome: "sealed", entry: entryFor(identity) };
+       // R2-4. Queued behind every save, removal and Undo already requested for
+       // this credential: the value tested and its generation are main's
+       // committed pair, never a write still in flight or one that rolled back.
+       const captured = await credentials.captureCommitted(identity);
+       if (!captured || !captured.present) return { outcome: "missing", entry: null };
+       // R2-7. Checked after the save wait, so sealing during it still refuses.
+       if (isSealed()) return sealedResult(identity);
        const config = testConfigFor(identity, options);
        if (!config) return { outcome: "invalidOptions", entry: entryFor(identity) };
-       const generation = credentials.generation(identity);
-       const key = `${identity}@${generation}`;
+       // Same credential generation and same target: one request (coalesced).
+       const key = `${identity}@${captured.generation}@${verifyHostsFor(config).join(",")}`;
        const running = inflight.get(key);
        if (running) return running;
        const run = (async () => {
          let result;
          try {
-           result = await runTest(config);
-         } catch {
+           result = await runTest(config, captured.values);
+         } catch (error) {
+           if (isSealedRefusal(error)) return sealedResult(identity);
            result = { success: false, errorCode: "network" };
          }
          // The credential changed (replaced, removed, restored or reset) while
-         // the request was out: this verdict is about a key that is gone.
-         if (credentials.generation(identity) !== generation) {
+         // the request was out: this verdict is about a key that is gone. A
+         // replacement that failed never moved the generation, and the value
+         // tested was the committed one, so its verdict still belongs to it.
+         if (credentials.generation(identity) !== captured.generation) {
            return { outcome: "superseded", entry: entryFor(identity) };
          }
          const verdict = classifyResult(result);
@@ -17410,6 +21982,20 @@ Expected: FAIL.
        return run;
      }
 
+     // R2-6. Who receives which credential slots if Verify (or Task 9's
+     // enterprise Test connection) runs now. Names only: never a value.
+     async function describeVerify(identity, options = {}) {
+       if (ENTERPRISE_IDS.includes(identity)) {
+         const stored = credentials.list().find((entry) => entry.id === identity);
+         return enterpriseVerifyTarget(identity, enterpriseConfig(), stored ? stored.fields : {});
+       }
+       if (!KEYRING_IDS.includes(identity)) throw new Error(`Unknown credential identity: ${identity}`);
+       return {
+         hosts: verifyHostsFor(testConfigFor(identity, options)),
+         fields: identity === "corti:speech" ? ["clientId", "clientSecret"] : ["key"],
+       };
+     }
+
      return {
        list() {
          return KEYRING_IDS.filter((identity) => credentials.present(identity)).map((identity) =>
@@ -17417,6 +22003,7 @@ Expected: FAIL.
          );
        },
        verify,
+       describeVerify,
        setReminder(identity, enabled) {
          assertKnown(identity);
          if (!credentials.present(identity)) return null;
@@ -17476,8 +22063,12 @@ Expected: FAIL.
 
    module.exports = {
      KEYRING_IDS,
+     ENTERPRISE_IDS,
      ROTATION_DAYS,
      testConfigFor,
+     verifyHostsFor,
+     enterpriseVerifyTarget,
+     isSealedRefusal,
      classifyResult,
      keyringDisplayName,
      createKeyring,
@@ -17496,7 +22087,14 @@ Expected: FAIL.
      and after the credential authority require (Task 2), add:
 
      ```js
-     const { createKeyring, startRotationReminders, keyringDisplayName } = require("./keyring");
+     const {
+       createKeyring,
+       isSealedRefusal,
+       keyringDisplayName,
+       startRotationReminders,
+     } = require("./keyring");
+     // Task 1: main's enterprise environment overrides, as hosts and booleans.
+     const { enterpriseRouteFacts } = require("./enterpriseRouteFacts");
      ```
 
    - In the constructor, directly after the `this.credentials = createCredentialAuthority({ … });` statement (Task 2) and before `this.setupHandlers();`, add:
@@ -17505,6 +22103,9 @@ Expected: FAIL.
          // Key health (Task 11). Bound to the authority so a verdict only lands on
          // the credential generation it tested. Reminders start here, not in
          // setupHandlers, because handler tests call setupHandlers on a fake `this`.
+         // R2-7: main's authoritative seal predicate. Plan 07 passes it as
+         // `managers.isSealed`; until then nothing is sealed in main.
+         this.isSealed = typeof managers.isSealed === "function" ? managers.isSealed : () => false;
          this.keyring = createKeyring({
            store: {
              all: () => this.databaseManager.getKeyHealth(),
@@ -17512,8 +22113,21 @@ Expected: FAIL.
              remove: (identity) => this.databaseManager.deleteKeyHealth(identity),
            },
            credentials: this.credentials,
-           runTest: (config) => this._runProviderConnectionTest(config),
+           // `captured` is the committed value Verify tests (R2-4); never the live getters.
+           runTest: (config, captured) => this._runProviderConnectionTest(config, captured),
            broadcast: broadcastToWindows,
+           isSealed: () => this.isSealed(),
+           // Same object main.js getEnterpriseConfig builds (:447-457), non-secret
+           // fields only, plus main's environment overrides (R2-6), re-read on every
+           // call: Task 1's enterpriseRouteFacts returns hosts and booleans, never a value.
+           enterpriseConfig: () => ({
+             bedrockRegion: this.environmentManager.getBedrockRegion(),
+             bedrockProfile: this.environmentManager.getBedrockProfile(),
+             azureEndpoint: this.environmentManager.getAzureEndpoint(),
+             vertexProject: this.environmentManager.getVertexProject(),
+             vertexLocation: this.environmentManager.getVertexLocation(),
+             routeFacts: enterpriseRouteFacts(process.env),
+           }),
          });
          this._stopKeyReminders = startRotationReminders({
            keyring: this.keyring,
@@ -17521,14 +22135,18 @@ Expected: FAIL.
          });
      ```
 
-   - **Extract the connection test.** Add these methods after `_acknowledgedSave` (Task 2). `_runProviderConnectionTest` is the current handler body (`:1082-1151`) moved verbatim, re-indented for a method:
+   - **Extract the connection test.** Add these methods after `_acknowledgedSave` (Task 2). `_runProviderConnectionTest` is the current handler body (`:1082-1151`) moved and re-indented for a method. It has exactly three changes. First, a second parameter `captured`, which keyring Verify passes (R2-4). Second, the three stored-credential reads go through `stored(...)`. Third, a sealed refusal in the Corti branch is rethrown, not reported as `network` (R2-7):
 
      ```js
        // Shared by the renderer's connection test and keyring Verify, so both
-       // resolve stored credentials in main the same way. Body moved verbatim
-       // from the former test-provider-connection handler (:1082-1151).
-       async _runProviderConnectionTest(config) {
+       // resolve stored credentials in main the same way. Body moved from the
+       // former test-provider-connection handler (:1082-1151). Keyring Verify
+       // passes `captured`, the committed values credentialAuthority.captureCommitted
+       // read in the slot's queue (R2-4), so a save still being written (whose
+       // value is already in process.env, environment.js:155) is never tested.
+       async _runProviderConnectionTest(config, captured = null) {
          config = { ...config };
+         const stored = (field, read) => (captured ? captured[field] || "" : read());
          const customSlots = {
            dictationCleanup: "getCleanupCustomKey",
            noteFormatting: "getNoteFormattingCustomKey",
@@ -17546,11 +22164,13 @@ Expected: FAIL.
                ? "getCustomTranscriptionKey"
                : customSlots[customScope || "dictationCleanup"]
              : BYOK_API_KEYS.find((k) => k.base === config.provider)?.get;
-         config.apiKey = getter ? this.environmentManager[getter]() : "";
+         config.apiKey = getter ? stored("key", () => this.environmentManager[getter]()) : "";
          if (config.clientId === "__stored__")
-           config.clientId = this.environmentManager.getCortiClientId();
+           config.clientId = stored("clientId", () => this.environmentManager.getCortiClientId());
          if (config.clientSecret === "__stored__")
-           config.clientSecret = this.environmentManager.getCortiClientSecret();
+           config.clientSecret = stored("clientSecret", () =>
+             this.environmentManager.getCortiClientSecret()
+           );
          if (config?.provider === "corti" && config?.scope === "transcription") {
            try {
              const clientId = String(config.clientId || "").trim();
@@ -17562,6 +22182,9 @@ Expected: FAIL.
                  clientId,
                  clientSecret,
                });
+             } else if (captured) {
+               // Verify captured an incomplete pair: never fall back to process.env.
+               throw new Error("Invalid Corti client credentials");
              } else {
                await this._mintStoredCortiToken({
                  environment: config.environment,
@@ -17570,6 +22193,9 @@ Expected: FAIL.
              }
              return { success: true };
            } catch (error) {
+             // R2-7: Plan 07's gated fetch throws a sealed refusal; it is not a
+             // network failure, and keyring Verify maps it to outcome "sealed".
+             if (isSealedRefusal(error)) throw error;
              // errorCode is the machine-readable field the renderer maps to i18n;
              // the English string stays for logs/back-compat. Only a response
              // Corti actually sent counts as a rejection (getCortiToken prefixes
@@ -17630,7 +22256,29 @@ Expected: FAIL.
          ipcMain.handle("keyring-set-reminder", (_event, identity, enabled) =>
            this.keyring.setReminder(String(identity), enabled === true)
          );
+         // R2-6: the hosts and slot names Verify (or the enterprise Test
+         // connection) would send to, from the same config as the request.
+         ipcMain.handle("keyring-describe-verify", (_event, identity, options) =>
+           this.keyring.describeVerify(String(identity), {
+             cortiEnvironment:
+               typeof options?.cortiEnvironment === "string" ? options.cortiEnvironment : undefined,
+             cortiTenant: typeof options?.cortiTenant === "string" ? options.cortiTenant : undefined,
+           })
+         );
      ```
+
+4a. In `src/helpers/cortiAuth.js`, give the token URL one builder, so Verify's disclosure and the request cannot disagree (R2-6). Add this function above `getCortiToken` (`:23`):
+
+   ```js
+   // The client-credentials endpoint for a region and tenant. getCortiToken
+   // fetches exactly this URL; keyring.describeVerify names its host.
+   function cortiTokenUrl({ environment, tenant }) {
+     assertValidTarget(environment, tenant);
+     return `https://auth.${environment}.corti.app/realms/${tenant}/protocol/openid-connect/token`;
+   }
+   ```
+
+   In `getCortiToken`, change the `doFetch` URL argument (`:43-44`, the template string) to `cortiTokenUrl({ environment, tenant })`, and change the export (`:77`) to `module.exports = { getCortiToken, cortiTokenUrl };`. `assertValidTarget` still runs first in `getCortiToken` (`:24`), so behaviour is unchanged. `test/helpers/cortiAuth.test.js` is the baseline guard.
 
 5. In `preload.js`, after the `credentials: { … },` block (Task 2), add:
 
@@ -17638,13 +22286,15 @@ Expected: FAIL.
      keyring: {
        list: () => ipcRenderer.invoke("keyring-list"),
        verify: (identity, options) => ipcRenderer.invoke("keyring-verify", identity, options),
+       describeVerify: (identity, options) =>
+         ipcRenderer.invoke("keyring-describe-verify", identity, options),
        setReminder: (identity, enabled) =>
          ipcRenderer.invoke("keyring-set-reminder", identity, enabled),
        onChanged: registerListener("keyring-changed", (cb) => (_event, change) => cb(change)),
      },
    ```
 
-6. In `src/types/electron.ts`, after the credential types (Task 2), add the `KeyringIdentity`, `KeyHealthStatus`, `KeyringEntry`, `KeyringVerifyOutcome`, `KeyringVerifyResult`, `KeyringVerifyOptions` and `KeyringAPI` declarations exactly as listed under Interfaces (exported), and add `keyring: KeyringAPI;` after `credentials: CredentialsAPI;` in `electronAPI`.
+6. In `src/types/electron.ts`, after the credential types (Task 2), add these declarations exactly as listed under Interfaces, all exported: `KeyringIdentity`, `CredentialIdentity`, `KeyHealthStatus`, `KeyringEntry`, `KeyringVerifyOutcome`, `KeyringVerifyResult`, `KeyringVerifyOptions` and `KeyringAPI`. `KeyringAPI.describeVerify` returns `VerifyTargetDescription`. Task 9's forward declaration exports it as `export interface VerifyTargetDescription { hosts: string[]; fields: string[] }`; keep that declaration, or add exactly that line if it is missing. Delete Task 9's forward member `keyring?: { describeVerify(identity: "bedrock" | "azure" | "vertex"): Promise<VerifyTargetDescription> };`, which sits next to `probeSelfHosted`. Then add `keyring: KeyringAPI;` after `credentials: CredentialsAPI;` in `electronAPI`. Task 9's renderer call `window.electronAPI?.keyring?.describeVerify?.(provider)` still typechecks, because `CredentialIdentity` includes the three enterprise ids and `options` is optional.
 
 7. In `src/preview/browserPreview.ts`, after the `credentials` stub (Task 2), add:
 
@@ -17652,6 +22302,7 @@ Expected: FAIL.
      const keyring: Window["electronAPI"]["keyring"] = {
        list: async () => [],
        verify: unavailable,
+       describeVerify: async () => ({ hosts: [], fields: [] }),
        setReminder: unavailable,
        onChanged: unsubscribe,
      };
@@ -17669,7 +22320,7 @@ Expected: FAIL.
 
    Then run `npx prettier --write docs/PRIVACY.md` to re-pad the table.
 
-10. Write `/tmp/loqui-i18n-task-11.json` shaped `{ "en": {…}, "ar": {…}, …, "zh-TW": {…} }` with this `en` block verbatim and real translations for the other 10 locales (keep `{{provider}}`):
+10. Write `/tmp/loqui-i18n-task-11.json` shaped `{ "en": {…}, "ar": {…}, …, "zh-TW": {…} }` with this `en` block verbatim and real translations for the other 10 locales (keep `{{provider}}` and the literal `GOOGLE_VERTEX_API_KEY`):
 
     ```json
     {
@@ -17677,61 +22328,83 @@ Expected: FAIL.
         "reminder": {
           "title": "Time to rotate your {{provider}} key",
           "body": "You asked Loqui to remind you 90 days after saving this key. Replace it in Settings."
+        },
+        "fields": {
+          "environmentKey": "API key from Loqui's environment (GOOGLE_VERTEX_API_KEY)"
+        }
+      },
+      "reasoning": {
+        "enterprise": {
+          "field": {
+            "environmentKey": "the Vertex API key set in Loqui's environment (GOOGLE_VERTEX_API_KEY)"
+          }
         }
       }
     }
     ```
 
+    `environmentKey` is the field name `describeVerify` returns when Vertex runs in express mode on main's `GOOGLE_VERTEX_API_KEY` (R2-6). Task 9's `enterpriseTestDisclosure` translates it as `reasoning.enterprise.field.environmentKey` and Task 12's `verifyTargetText` as `keyring.fields.environmentKey`; `merge-locale-keys.js` deep-merges, so Task 9's existing `reasoning.enterprise.field.*` keys and Task 12's later `keyring.fields.*` keys sit beside these.
+
     Run `node scripts/merge-locale-keys.js /tmp/loqui-i18n-task-11.json && npm run i18n:check`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/helpers/keyring.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js test/helpers/credentialAuthority.test.js test/helpers/credentialIpc.test.js test/helpers/providerConnectionTest.test.js test/helpers/cortiAuth.test.js test/helpers/retryTranscriptionHandler.test.js test/helpers/granolaImportIpc.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Run: `npm test -- test/helpers/keyring.test.js test/helpers/keyringRealEnv.test.js test/helpers/keyringProduction.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js test/helpers/credentialAuthority.test.js test/helpers/credentialAuthorityRealEnv.test.js test/helpers/credentialIpc.test.js test/helpers/providerConnectionTest.test.js test/helpers/cortiAuth.test.js test/helpers/retryTranscriptionHandler.test.js test/helpers/granolaImportIpc.test.js && npm run typecheck && npm run lint && npm run i18n:check`
 Expected: PASS. `providerConnectionTest`, `cortiAuth`, the two handler-registration tests and Task 2's authority tests are **baseline guards**: the extraction changed no behaviour, and creating the keyring in the constructor keeps `setupHandlers` free of timers.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-npx prettier --write src/helpers/localDatabaseSchema.js src/helpers/database.js src/helpers/keyring.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts docs/PRIVACY.md test/helpers/keyring.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js
-git add src/helpers/localDatabaseSchema.js src/helpers/database.js src/helpers/keyring.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts docs/PRIVACY.md src/locales test/helpers/keyring.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js
-git commit -m "feat(keyring): Verify keys in main and keep only verdicts for the current key"
+npx prettier --write src/helpers/localDatabaseSchema.js src/helpers/database.js src/helpers/keyring.js src/helpers/cortiAuth.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts docs/PRIVACY.md test/helpers/keyring.test.js test/helpers/keyringRealEnv.test.js test/helpers/keyringProduction.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js
+git add src/helpers/localDatabaseSchema.js src/helpers/database.js src/helpers/keyring.js src/helpers/cortiAuth.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/preview/browserPreview.ts docs/PRIVACY.md src/locales test/helpers/keyring.test.js test/helpers/keyringRealEnv.test.js test/helpers/keyringProduction.test.js test/helpers/keyringIpc.test.js test/helpers/keyHealthDatabase.test.js
+git commit -m "feat(keyring): Verify committed keys in main, disclose the recipient and honour the seal" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ### Task 12: Keyring panel and undoable key removal (SET-R5 C UI)
 
-Closes I4 (UI half: Remove on a stored credential goes through main's undoable removal and shows an inline "Removed · Undo" for 8 seconds, and the renderer never touches secret material), I11 (UI half: Verify and Verify all wait for pending key saves, and rows are always what `keyring.list` says, so a verdict that arrived for a replaced key cannot paint the new key), I10 (one row per credential identity, with `corti:text` and `corti:speech` labelled distinctly), I13 (status dots use locality tokens, never `bg-warning`) and the Keyring half of I14 (sealed state comes from the shared store).
+Closes I4 and R2-5 (UI half: every key field's Remove goes through main's undoable token removal and raises a toast with Undo for 8 seconds, two-field credentials are removed whole, no field keeps the permanent empty-save Remove, and the renderer never touches secret material), R2-6 (each row discloses the hosts and fields its Verify sends to, from main), I11 (UI half: Verify and Verify all wait for pending key saves, and rows are always what `keyring.list` says, so a verdict that arrived for a replaced key cannot paint the new key), I10 (one row per credential identity, with `corti:text` and `corti:speech` labelled distinctly), I13 (status dots use locality tokens, never `bg-warning`) and the Keyring half of I14 (sealed state comes from the shared store).
 
 The Routing page gains a **Keyring** below the Patchbay. It has one row per credential identity, and each row shows:
 - a status dot that is never colour alone (a labelled `role="img"`), or a spinner while checking;
 - "Last verified 3 days ago" or "Never verified", the last error, and which tasks are paused because of it;
-- a per-row **Verify** whose tooltip names the credential and the host that receives it;
+- a per-row **Verify**, with a visible line and a tooltip naming the credential fields it sends and the host that receives them (main's `describeVerify`);
 - a "Remind in 90 days" switch.
 
 **Verify all** runs the credentials one after another with a visible per-row spinner. Verification is always a button press: nothing verifies on mount, on a list refresh or on a keyring change. A rejected credential feeds `rejected` in the route facts (Task 3, from `keyring.list`), so the routes that use it read "Add API key" everywhere.
 
-`ApiKeyInput` changes in this task too, on top of Task 2's version of the file (awaited save, draft kept with a `role="alert"` on a refused save, draft cleared on success): with a `credentialId`, Remove on a stored credential is undoable (main keeps the removed value in memory for 8 s; the renderer holds only an opaque token). Task 2's save behaviour is not changed here and is tested in Task 2.
+`ApiKeyInput` changes in this task too, on top of Task 2's version of the file. Task 2 gives it an awaited save, keeps the draft with a `role="alert"` on a refused save, clears the draft on success, and declares the `credentialId?: CredentialSlot` prop.
+- Every key field now passes its slot (R2-5), and Remove goes only through main's opaque-token removal (`credentials.remove`, Task 2). Main keeps the removed value in memory for 8 s; the renderer holds only the token.
+- Undo is a toast action. It captures the token at removal time, so it still works after the field unmounts.
+- A field with no slot, or with no main api (browser preview), offers no Remove at all. The permanent empty-save fallback (`src/components/ui/ApiKeyInput.tsx:164-171`) is deleted.
+- Two-field credentials (`corti:speech`, `bedrock`; `MULTI_FIELD_CREDENTIALS`, Task 2) are removed and restored whole. Their Remove says so.
+- OpenRouter and the custom-endpoint slots get their identity from Task 9's `OpenAICompatiblePanel` (`credentialId={credentialSlotForRef(credentialRef)}`), and this task tests them mounted.
+- Task 2's save behaviour is not changed here.
+
+Round-2 (R2-6): each Keyring row shows, and its Verify tooltip names, the hosts and credential fields from main's `keyring.describeVerify` (Task 11). Main computes that list from the same config the request uses. The panel re-queries it when the Corti region or tenant changes, on `keyring-changed` and on `credentials-changed`. The v1 `useMemo([])` host map is gone. A mounted test drives the real main keyring and checks that the displayed host is the host the fake transport received, before and after a region change.
 
 **Files:**
 - Create: `src/components/ui/useUndoableRemoval.ts`
 - Modify: `src/components/ui/ApiKeyInput.tsx` (edits on top of Task 2's Step 3.9; the anchors below quote Task 2's code)
-- Modify the `ApiKeyInput` call sites that edit a single-secret credential. Tasks 2 and 9 rewrite regions of these files first, so every anchor is text, not a line number (the pre-Task-9 lines are given only as orientation):
-  - `src/components/TranscriptionModelPicker.tsx` (the `const PROVIDER_CREDENTIALS` table, today `:272`, and the secret-field `<ApiKeyInput apiKey={credentialValues[field.key]}`, today `:1243`);
-  - `src/components/ReasoningModelSelector.tsx` (the six `apiKey={openaiApiKey}` … `apiKey={cortiApiKey}` props, today `:618-694`);
-  - `src/components/EnterpriseProviderConfig.tsx` (the `apiKey={settings.azureApiKey}` and `apiKey={settings.vertexApiKey}` elements, today `:158` and `:179`; Task 2 already returns the acknowledgement from its `saveSecret`, so only the `credentialId` prop is added);
-  - `src/components/settings/routing/StagedRoutePanel.tsx` (Task 8: the `credential?.inputs.map((input) => (<ApiKeyInput …` element in `StagedRoutePanelView`).
+- Modify every `ApiKeyInput` call site that Task 9 does not already wire (Task 9 passes `credentialId={credentialSlotForRef(credentialRef)}` in `OpenAICompatiblePanel`). Tasks 2, 8 and 9 rewrite regions of these files first, so every anchor is text, not a line number. Pre-Task-9 lines are given only for orientation.
+  - `src/components/TranscriptionModelPicker.tsx`: the secret-field `<ApiKeyInput apiKey={credentialValues[field.key]}`, today `:1243`, and the custom STT field `apiKey={customTranscriptionApiKey}`, today `:1200`.
+  - `src/components/ReasoningModelSelector.tsx`: the six `apiKey={openaiApiKey}` … `apiKey={cortiApiKey}` props, today `:618-694`.
+  - `src/components/EnterpriseProviderConfig.tsx`: Task 9's whole-file version, at its five `apiKey={settings.…}` lines (three Bedrock, Azure and Vertex).
+  - `src/components/settings/routing/StagedRoutePanel.tsx`: Task 8's `credential?.inputs.map((input) => (<ApiKeyInput …` element in `StagedRoutePanelView`.
 - Create: `src/components/settings/routing/KeyringPanel.tsx`
 - Modify: `src/components/settings/routing/RoutingSection.tsx` (Task 10): render `<KeyringPanel />` after the Patchbay block.
 - Modify: `src/locales/*/translation.json`
-- Modify: `test/components/personalWorkspace.test.js` (the save-button finders move from the `text-success` class to `data-action="save-key"`, because this task recolours that button; see Step 3.2)
+- Modify: `test/components/personalWorkspace.test.js`. The save-button finders move from the `text-success` class to `data-action="save-key"`, because this task recolours that button. The existing test's last block is **reversed**: without a `credentialId` there is no Remove, and nothing is saved empty. See Step 3.2h.
 - Test: `test/components/apiKeyInputRemoval.test.js`, `test/components/keyringPanel.test.js`
 
 **Interfaces:**
 - Consumes:
-  - from Task 2 (`window.electronAPI.credentials`, types `CredentialRemoveResult` / `CredentialUndoResult` in `src/types/electron.ts`): `remove(id): Promise<{ ok: true; undoToken: string; expiresAt: number; generation: number } | { ok: false; error: CredentialError }>` and `undoRemove(token): Promise<{ ok: true; generation: number } | { ok: false; reason: "expired" | "replaced" | "unknown" | "persistFailed" }>` (on `persistFailed` main keeps the removed value and the token, so Undo can be retried until the window ends); Task 2's `ApiKeyInput` (`setApiKey: (key: string) => void | Promise<SecretSaveResult | void>`, `failure: "save" | "remove" | null`, i18n `apiKeyInput.saveFailed` / `apiKeyInput.removeFailed`); `flushSecretSaves(): Promise<void>`, a named export of `src/stores/settingsStore.ts`; the store sentinel flips to `""` on removal and back on a successful undo through the `credentials-changed` event, so this task never writes the sentinel;
-  - from Task 11 (`window.electronAPI.keyring`, types in `src/types/electron.ts`): `KeyringIdentity` (12 ids: openai anthropic gemini groq xai mistral openrouter tinfoil deepgram assemblyai corti:text corti:speech), `KeyHealthStatus`, `KeyringEntry { id: KeyringIdentity; providerId: string; status; lastVerifiedAt; lastErrorCode; lastErrorStatus; reminderDueAt }`, `KeyringVerifyOptions { cortiEnvironment?; cortiTenant? }`, `KeyringVerifyResult { outcome: "recorded" | "superseded" | "missing" | "sealed" | "invalidOptions"; entry: KeyringEntry | null }`, `KeyringAPI` (`list()`, `verify(identity, options?)`, `setReminder(identity, enabled): Promise<KeyringEntry | null>`, `onChanged(cb: (change: { id }) => void): () => void`); only `corti:speech` takes options (`testConfigFor`, Task 11), read from the settings store fields `cortiEnvironment` / `cortiTenant` (`src/stores/settingsStore.ts:1034-1035`); i18n `keyring.reminder.*` is Task 11's;
-  - from Task 1/3: `CredentialId`, `ResolvedRoute`, `RouteId`, `useResolvedRoutes()`, `routeSnapshotFromSettings()` (for `capabilities.providerHosts`), `getSealed()` and `useSealedStore` from `src/stores/sealedStore.ts`, `routes.names.<RouteId>`;
+  - from Task 2 (`window.electronAPI.credentials`, types `CredentialRemoveResult` / `CredentialUndoResult` in `src/types/electron.ts`): `remove(id: CredentialSlot): Promise<{ ok: true; undoToken: string; expiresAt: number; generation: number } | { ok: false; error: CredentialError }>`, which removes every field of the slot, and `undoRemove(token): Promise<{ ok: true; generation: number } | { ok: false; reason: "expired" | "replaced" | "unknown" | "persistFailed" }>`. On `persistFailed`, main keeps the removed value and the token, so Undo can be retried until the window ends. Also Task 2's `ApiKeyInput`: `setApiKey: AcknowledgedSecretSave`, `credentialId?: CredentialSlot` (declared, inert), `failure: "save" | "remove" | null`, i18n `apiKeyInput.saveFailed` / `apiKeyInput.removeFailed`. Also `CredentialSlot`, `MULTI_FIELD_CREDENTIALS` and `credentialSlotForStoreKey` from `src/lib/credentialSlots.ts`, and the test harnesses `fakeCredentialEnv` and `createCredentialAuthority`;
+  - from Task 8: `toastCapture`/`rendererServer` (`test/lib/routeTestApi.js`) and `useToast().toast` with `actions: ToastActionConfig[]` (`src/components/ui/useToast.ts:12-17,33-39`); from Task 9: `OpenAICompatiblePanel` props `{ credentialRef, baseUrl, apiKey, saveApiKey, model, onSelectModel, lockedBaseUrl?, apiKeyRequired? }`; `flushSecretSaves(): Promise<void>`, a named export of `src/stores/settingsStore.ts`; the store sentinel flips to `""` on removal and back on a successful undo through the `credentials-changed` event, so this task never writes the sentinel;
+  - from Task 11 (`window.electronAPI.keyring`, types in `src/types/electron.ts`): `describeVerify(identity: CredentialIdentity, options?: KeyringVerifyOptions): Promise<VerifyTargetDescription>` (`{ hosts: string[]; fields: string[] }`, R2-6); `createKeyring` and `createCredentialAuthority` (tests drive the real main keyring); `KeyringIdentity` (12 ids: openai anthropic gemini groq xai mistral openrouter tinfoil deepgram assemblyai corti:text corti:speech), `KeyHealthStatus`, `KeyringEntry { id: KeyringIdentity; providerId: string; status; lastVerifiedAt; lastErrorCode; lastErrorStatus; reminderDueAt }`, `KeyringVerifyOptions { cortiEnvironment?; cortiTenant? }`, `KeyringVerifyResult { outcome: "recorded" | "superseded" | "missing" | "sealed" | "invalidOptions"; entry: KeyringEntry | null }`, `KeyringAPI` (`list()`, `verify(identity, options?)`, `setReminder(identity, enabled): Promise<KeyringEntry | null>`, `onChanged(cb: (change: { id }) => void): () => void`); only `corti:speech` takes options (`testConfigFor`, Task 11), read from the settings store fields `cortiEnvironment` / `cortiTenant` (`src/stores/settingsStore.ts:1034-1035`); i18n `keyring.reminder.*` is Task 11's;
+  - from Task 1/3: `CredentialId`, `ResolvedRoute`, `RouteId`, `useResolvedRoutes()`, `getSealed()` and `useSealedStore` from `src/stores/sealedStore.ts`, `routes.names.<RouteId>`. Inference-route hosts (`providerHosts`) are no longer used here: a verification host is not an inference host (R2-6);
   - from Task 10: `credentialIdFor(providerId: string | null, kind: ResolvedRoute["kind"] | TaskKind): CredentialId | null` exported from `src/components/settings/routing/destinations.ts`, and `RoutingSection`;
   - from Plan 01: `providerDisplayLabel(id, t)`, the `--color-locality-*` and `--color-destructive` tokens, `Button`; and `formatRelativeTime(dateStr, t, locale)` (`src/utils/dateFormatting.ts:41`), `Toggle` (`src/components/ui/toggle.tsx`, props `{ checked, onChange, disabled?, "aria-label"? }`).
 - Produces:
@@ -17744,23 +22417,28 @@ The Routing page gains a **Keyring** below the Patchbay. It has one row per cred
     | { kind: "removed"; token: string; expiresAt: number; restoreFailed: boolean }
     | { kind: "undoFailed"; reason: Exclude<UndoFailureReason, "persistFailed"> }
     | { kind: "error"; message: string };
-  export function useUndoableRemoval(credentialId: CredentialId | undefined, deps?: RemovalDeps): {
-    available: boolean;                 // credentialId given and main's credentials api present
-    notice: RemovalNotice | null;
+  export const UNDO_FAILURE_KEY: { expired: string; replaced: string; unknown: string };
+  export type UndoOutcome = { kind: "restored" } | { kind: "retry" } | { kind: "failed"; reason: "expired" | "replaced" | "unknown" } | { kind: "error"; message: string };
+  export function undoRemoval(api: Pick<CredentialsRemovalApi, "undoRemove">, token: string, expiresAt: number, now: () => number): Promise<UndoOutcome>;
+  export interface RemovalDeps { api?: CredentialsRemovalApi; toast?: ToastContextType["toast"] | null; now?: () => number; schedule?: (fn: () => void, ms: number) => unknown; cancel?: (handle: unknown) => void }
+  export function useUndoableRemoval(credentialId: CredentialSlot | undefined, deps?: RemovalDeps): {
+    available: boolean;                 // credentialId given and main's credentials api present; otherwise no Remove is rendered
+    notice: RemovalNotice | null;       // inline fallback only (no ToastContext); with a toast host the Undo is a toast action
     busy: boolean;
     remove: () => Promise<void>;
-    undo: () => Promise<void>;
+    undo: () => Promise<void>;          // inline fallback's Undo
     clear: () => void;                  // stable; also cancels the expiry timer
   };
-  // ApiKeyInput.tsx: new optional prop  credentialId?: CredentialId;  the save button gains data-action="save-key"
+  // ApiKeyInput.tsx: uses Task 2's credentialId?: CredentialSlot; Remove only through useUndoableRemoval (no empty save);
+  //   save button data-action="save-key", Remove data-action="remove-key" (label apiKeyInput.removeCredential for MULTI_FIELD_CREDENTIALS)
   // KeyringPanel.tsx
   export const STATUS_DOT: Record<KeyHealthStatus, string>;
   export function keyringIdentityLabel(entry: Pick<KeyringEntry, "id" | "providerId">, t: Tr): string;
-  export function credentialHost(entry: Pick<KeyringEntry, "id">, hosts: Readonly<Record<string, string>>): string | null; // corti:speech -> hosts.corti, corti:text -> hosts["corti:text"], else hosts[id]
+  export function verifyTargetText(disclosure: VerifyTargetDescription | null, t: Tr): { host: string | null; fields: string }; // hosts joined with ", "; fields translated (keyring.fields.*)
   export function keyringVerifyOptions(id: KeyringIdentity, settings: { cortiEnvironment: string; cortiTenant: string }): KeyringVerifyOptions | undefined;
   export function pausedTasksByCredential(routes: Pick<ResolvedRoute, "id" | "kind" | "providerId" | "state">[]): Partial<Record<CredentialId, RouteId[]>>;
   export function keyringStatusLine(entry: KeyringEntry, pausedTaskNames: string[], t: Tr, locale: string, host: string | null): { text: string; tone: "muted" | "error" };
-  export function useKeyringController(deps: { api: KeyringApi | undefined; flush: () => Promise<void>; getSealed: () => boolean; verifyOptions?: (id: KeyringIdentity) => KeyringVerifyOptions | undefined }): KeyringController;
+  export function useKeyringController(deps: { api: KeyringApi | undefined; flush: () => Promise<void>; getSealed: () => boolean; verifyOptions?: (id: KeyringIdentity) => KeyringVerifyOptions | undefined; optionsKey?: string; onCredentialsChanged?: (cb: () => void) => () => void }): KeyringController; // KeyringController gains disclosures: Partial<Record<KeyringIdentity, VerifyTargetDescription>>
   export function KeyringPanelView(props: KeyringPanelViewProps): JSX.Element;
   export function KeyringPanel(): JSX.Element;
   ```
@@ -17769,7 +22447,9 @@ The Routing page gains a **Keyring** below the Patchbay. It has one row per cred
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `test/components/apiKeyInputRemoval.test.js`. It mounts the real `ApiKeyInput` (Task 2's version plus this task's edits) with the repo's harness pattern (the component is called as a function inside a probe that returns `null`, so no host element is ever committed) and a fake `credentials` api. It tests only what this task adds: the `credentialId` path, Remove, Undo and the undo window. Task 2's save behaviour (awaited save, draft kept on refusal, draft cleared on success) is tested by Task 2's two `personalWorkspace.test.js` tests and is not repeated here.
+Create `test/components/apiKeyInputRemoval.test.js`. It mounts the real `ApiKeyInput` (Task 2's version plus this task's edits). It uses the repo's harness pattern: the component is called as a function inside a probe that returns `null`, so no host element is ever committed. The probe sits under a capturing `ToastContext` (Task 8's `toastCapture`).
+
+`window.electronAPI.credentials` bridges to a **real** `createCredentialAuthority` (Task 2) over `fakeCredentialEnv`, exactly as the `credentials-*` IPC handlers do. Every IPC result and every toast can therefore be checked for secrets, and a removal really clears and restores the stored fields. Task 2's save behaviour is tested by Task 2 and is not repeated here.
 
 ```js
 const assert = require("node:assert/strict");
@@ -17778,9 +22458,13 @@ const path = require("node:path");
 const test = require("node:test");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
-const { withI18nMock } = require("../lib/i18nTestMock");
+const { installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
+const { rendererServer, toastCapture } = require("../lib/routeTestApi");
 const { deferred } = require("../helpers/harness/deferred");
+const { fakeCredentialEnv, fakeCodexFs } = require("../helpers/harness/fakeCredentialEnv");
+const { createCredentialAuthority } = require("../../src/helpers/credentialAuthority.js");
+
+const SECRETS = ["sk-or-SECRET", "note-key-SECRET", "cid-SECRET", "csec-SECRET", "sk-oai-SECRET", "sk-new-SECRET"];
 
 function find(node, predicate) {
   if (Array.isArray(node)) return node.map((item) => find(item, predicate)).find(Boolean);
@@ -17796,305 +22480,437 @@ function textOf(node) {
 const byAction = (action) => (n) => n.type === "button" && n.props?.["data-action"] === action;
 const editButton = (n) => n.type === "button" && n.props?.className?.includes("cursor-pointer");
 const input = (n) => n.props?.type === "password";
-const settle = () => React.act(async () => { await new Promise((r) => setImmediate(r)); });
+const settle = () =>
+  React.act(async () => {
+    await new Promise((r) => setImmediate(r));
+  });
 
-function fakeCredentials() {
+// The credentials-* IPC surface over main's real authority (what Task 2's
+// handlers return), recording every call and result. Tokens are recorded as
+// "<token>"; a test proves they never reach a toast.
+function mainCredentials(initial = {}, { now = () => Date.now() } = {}) {
+  const env = fakeCredentialEnv(initial);
+  const listeners = new Set();
+  const authority = createCredentialAuthority({
+    env,
+    fs: fakeCodexFs(),
+    codexHome: "/profile/codex",
+    now,
+    setTimer: () => {},
+    broadcast: (_channel, change) => listeners.forEach((listener) => listener(change)),
+  });
   const calls = [];
-  const state = { token: null, mode: "ok", n: 0, removeResult: null };
+  const results = [];
+  const tokens = [];
+  const record = async (call, promise) => {
+    calls.push(call);
+    const result = await promise;
+    results.push(result);
+    if (result?.undoToken) tokens.push(result.undoToken);
+    return result;
+  };
   return {
+    env,
     calls,
-    state,
-    async remove(id) {
-      calls.push(["remove", id]);
-      if (state.removeResult) return state.removeResult;
-      state.token = `tok-${++state.n}`;
-      state.mode = "ok";
-      return { ok: true, undoToken: state.token, expiresAt: Date.now() + 8000, generation: state.n };
-    },
-    async undoRemove(token) {
-      calls.push(["undoRemove", token]);
-      if (token !== state.token) return { ok: false, reason: "unknown" };
-      if (state.mode !== "ok") return { ok: false, reason: state.mode };
-      return { ok: true, generation: state.n + 1 };
+    results,
+    tokens,
+    api: {
+      list: async () => authority.list(),
+      save: (id, field, value) => record(["save", id, field], authority.save(id, field, value)),
+      remove: (id) => record(["remove", id], authority.remove(id)),
+      undoRemove: (token) => record(["undoRemove", tokens.includes(token) ? "<token>" : "?"], authority.undoRemove(token)),
+      onChanged: (callback) => {
+        listeners.add(callback);
+        return () => listeners.delete(callback);
+      },
     },
   };
 }
 
-test("api key input and undoable removal", async (t) => {
-  const fake = fakeCredentials();
-  installBrowserGlobals(t, { window: { electronAPI: { credentials: fake } } });
-  installHookDom(t);
-  const vite = await createRendererServer(t, withI18nMock({ cachePrefix: "loqui-api-key-removal-test-" }, { withOptions: true }));
-  const ApiKeyInput = (await vite.ssrLoadModule("/components/ui/ApiKeyInput.tsx")).default;
-  const removalModule = await vite.ssrLoadModule("/components/ui/useUndoableRemoval.ts");
+function assertSecretFree(surface) {
+  const text = JSON.stringify(surface);
+  for (const secret of SECRETS) assert.ok(!text.includes(secret), `leaked ${secret}`);
+}
 
-  function mount(st, props) {
+test("api key input: undoable removal through main", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: {} } });
+  installHookDom(t);
+  const vite = await rendererServer(t, "loqui-api-key-removal-test-", {
+    mockModules: { "/services/ReasoningService": "export default { clearApiKeyCache() {} };" },
+  });
+  const ApiKeyInput = (await vite.ssrLoadModule("/components/ui/ApiKeyInput.tsx")).default;
+  const OpenAICompatiblePanel = (await vite.ssrLoadModule("/components/OpenAICompatiblePanel.tsx")).default;
+  const removalModule = await vite.ssrLoadModule("/components/ui/useUndoableRemoval.ts");
+  const useCredentials = (st, main) => {
+    const original = globalThis.window.electronAPI;
+    globalThis.window.electronAPI = { credentials: main.api };
+    st.after(() => {
+      globalThis.window.electronAPI = original;
+    });
+  };
+
+  // Mounts `render(props)` (a component called as a function) under a capturing toast context.
+  async function mount(st, render, props, { withToasts = true } = {}) {
+    const capture = await toastCapture(vite);
     let tree;
+    let current = props;
     function Probe() {
-      tree = ApiKeyInput(props);
+      tree = render(current);
       return null;
     }
     const root = createRoot(globalThis.document.documentElement);
-    st.after(async () => React.act(async () => root.unmount()));
+    let mounted = true;
+    const unmount = async () => {
+      if (!mounted) return;
+      mounted = false;
+      await React.act(async () => root.unmount());
+    };
+    st.after(unmount);
+    const draw = () =>
+      React.act(async () =>
+        root.render(withToasts ? capture.wrap(React.createElement(Probe)) : React.createElement(Probe))
+      );
+    await draw();
     return {
       tree: () => tree,
-      render: () => React.act(async () => root.render(React.createElement(Probe))),
+      toasts: capture.toasts,
+      unmount,
+      rerender: async (next) => {
+        current = { ...current, ...next };
+        await draw();
+      },
       click: async (predicate) => {
         const node = find(tree, predicate);
         assert.ok(node, "the control is rendered");
-        await React.act(async () => { await node.props.onClick(); });
+        await React.act(async () => {
+          await node.props.onClick();
+        });
       },
     };
   }
-  const reset = () => {
-    fake.calls.length = 0;
-    fake.state.removeResult = null;
-  };
+  const field = (st, props, options) => mount(st, ApiKeyInput, props, options);
+  // The ApiKeyInput element a real OpenAICompatiblePanel (Task 9) renders, mounted with exactly its props.
+  async function panelKeyField(st, panelProps) {
+    const panel = await mount(st, OpenAICompatiblePanel, panelProps);
+    const element = find(panel.tree(), (n) => n.type === ApiKeyInput);
+    assert.ok(element, "the panel renders an ApiKeyInput");
+    await panel.unmount();
+    return { element, field: await field(st, element.props) };
+  }
+  const runToastAction = async (toast) =>
+    React.act(async () => {
+      await toast.actions[0].onClick();
+    });
 
-  await t.test("removal: without a credentialId, Remove saves an empty value and never calls the credentials api", async (st) => {
-    // baseline guard: Task 2's plain Remove is kept for custom-endpoint keys and multi-field credentials.
-    // It fails before Step 3 only because the module under test does not load yet.
-    reset();
+  await t.test("reversed guard (R2-5): a field without a credential identity offers no Remove, so nothing is ever erased by an empty save", async (st) => {
+    // Before this task: Remove called setApiKey("") — a permanent delete with no Undo (ApiKeyInput.tsx:164-171).
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] });
+    useCredentials(st, main);
     const saved = [];
-    const c = mount(st, { apiKey: "__stored__", setApiKey: (key) => { saved.push(key); return { ok: true }; } });
-    await c.render();
-    await c.click(byAction("remove-key"));
-    assert.deepEqual(saved, [""]);
-    assert.deepEqual(fake.calls, []);
+    const c = await field(st, { apiKey: "__stored__", setApiKey: async (key) => (saved.push(key), { ok: true }) });
+    assert.equal(find(c.tree(), byAction("remove-key")), undefined);
+    assert.equal(find(c.tree(), (n) => n.type === "button" && n.props?.className?.includes("hover:text-destructive")), undefined);
+    assert.deepEqual(saved, []);
+    assert.deepEqual(main.calls, []);
   });
 
-  await t.test("removal: with a credentialId, Remove calls credentials.remove, shows Removed · Undo, and never touches the secret", async (st) => {
-    // change-driving: after Task 2, Remove calls setApiKey("") and there is no undo.
-    reset();
+  await t.test("reversed guard (R2-5): without main's credentials api (browser preview) there is no Remove either", async (st) => {
     const saved = [];
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: (key) => { saved.push(key); return { ok: true }; } });
-    await c.render();
-    await c.click(byAction("remove-key"));
-    await settle();
-    assert.deepEqual(fake.calls, [["remove", "openai"]]);
-    assert.deepEqual(saved, [], "removal does not go through the secret setter");
-    const text = textOf(c.tree());
-    assert.match(text, /apiKeyInput\.removed/);
-    assert.match(text, /apiKeyInput\.undo/);
-    assert.ok(!text.includes("tok-"), "the undo token is never rendered");
-    assert.equal(find(c.tree(), byAction("remove-key")), undefined, "the Remove link is replaced by the notice");
-    assert.ok(find(c.tree(), byAction("undo-remove")));
-    assert.ok(!JSON.stringify(fake.calls).includes("__stored__"), "no secret material crosses the removal api");
+    const c = await field(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async (key) => (saved.push(key), { ok: true }) });
+    assert.equal(find(c.tree(), byAction("remove-key")), undefined);
+    assert.deepEqual(saved, []);
   });
 
-  await t.test("removal: Undo within the window restores through the token and clears the notice", async (st) => {
-    // change-driving: there is no Undo before this task.
-    reset();
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
-    await c.render();
-    await c.click(byAction("remove-key"));
-    await settle();
-    await c.click(byAction("undo-remove"));
-    await settle();
-    assert.deepEqual(fake.calls, [["remove", "openai"], ["undoRemove", "tok-1"]]);
-    assert.doesNotMatch(textOf(c.tree()), /apiKeyInput\.removed|apiKeyInput\.undoExpired/);
-    assert.equal(find(c.tree(), byAction("undo-remove")), undefined);
-  });
-
-  await t.test("removal: Undo after main says the window closed explains it and offers no second attempt", async (st) => {
-    // change-driving: there is no Undo before this task.
-    reset();
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
-    await c.render();
-    await c.click(byAction("remove-key"));
-    await settle();
-    fake.state.mode = "expired";
-    await c.click(byAction("undo-remove"));
-    await settle();
-    assert.match(textOf(c.tree()), /apiKeyInput\.undoExpired/);
-    assert.equal(find(c.tree(), byAction("undo-remove")), undefined);
-    assert.equal(fake.calls.filter(([name]) => name === "undoRemove").length, 1);
-  });
-
-  await t.test("removal: Undo after the key was replaced elsewhere says the newer key was kept", async (st) => {
-    // change-driving: there is no Undo before this task.
-    reset();
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
-    await c.render();
-    await c.click(byAction("remove-key"));
-    await settle();
-    fake.state.mode = "replaced";
-    await c.click(byAction("undo-remove"));
-    await settle();
-    assert.match(textOf(c.tree()), /apiKeyInput\.undoReplaced/);
-  });
-
-  await t.test("removal: an Undo that main could not persist says so and keeps Undo available for a retry", async (st) => {
-    // change-driving: main answers persistFailed and keeps the removed value for the rest of the window (Task 2).
-    reset();
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
-    await c.render();
-    await c.click(byAction("remove-key"));
-    await settle();
-    fake.state.mode = "persistFailed";
-    await c.click(byAction("undo-remove"));
-    await settle();
-    assert.match(textOf(c.tree()), /apiKeyInput\.undoRetry/);
-    assert.ok(find(c.tree(), byAction("undo-remove")), "Undo is still offered");
-    fake.state.mode = "ok";
-    await c.click(byAction("undo-remove"));
-    await settle();
-    assert.deepEqual(fake.calls, [["remove", "openai"], ["undoRemove", "tok-1"], ["undoRemove", "tok-1"]]);
-    assert.doesNotMatch(textOf(c.tree()), /apiKeyInput\.removed|apiKeyInput\.undoRetry/);
-  });
-
-  await t.test("removal: saving a new key here drops the pending Undo, because it could only restore a stale key", async (st) => {
-    // change-driving: there is no Undo before this task.
-    reset();
+  await t.test("OpenRouter (R2-5): Remove in the compatible panel removes by token, toasts Undo, and Undo restores the key after the field unmounted", async (st) => {
+    // change-driving: OpenRouter's panel passed no identity, so Remove permanently erased the key.
+    const main = mainCredentials({ OPENROUTER_API_KEY: SECRETS[0] });
+    useCredentials(st, main);
     const saved = [];
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async (key) => { saved.push(key); return { ok: true }; } });
-    await c.render();
+    const { element, field: c } = await panelKeyField(st, {
+      credentialRef: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "__stored__",
+      saveApiKey: async (key) => (saved.push(key), { ok: true }),
+      model: "",
+      onSelectModel() {},
+      lockedBaseUrl: true,
+      apiKeyRequired: true,
+    });
+    assert.equal(element.props.credentialId, "openrouter");
     await c.click(byAction("remove-key"));
     await settle();
+    assert.deepEqual(main.calls, [["remove", "openrouter"]]);
+    assert.deepEqual(saved, [], "removal never goes through the secret setter");
+    assert.equal(main.env.values.has("OPENROUTER_API_KEY"), false);
+    const [removedToast] = c.toasts;
+    assert.equal(removedToast.title, "apiKeyInput.removed");
+    assert.equal(removedToast.actions[0].label, "apiKeyInput.undo");
+    assert.equal(removedToast.actions[0].dismissOnClick, true);
+    assert.ok(removedToast.duration > 7000 && removedToast.duration <= 8000, "the toast lives exactly as long as main's window");
+    await c.unmount(); // switching provider tabs unmounts the field; the toast keeps the Undo
+    await runToastAction(removedToast);
+    assert.deepEqual(main.calls, [["remove", "openrouter"], ["undoRemove", "<token>"]]);
+    assert.equal(main.env.values.get("OPENROUTER_API_KEY"), SECRETS[0]);
+    assert.equal(c.toasts.at(-1).title, "apiKeyInput.restored");
+    assertSecretFree({ results: main.results, toasts: c.toasts });
+    assert.ok(!JSON.stringify(c.toasts).includes(main.tokens[0]), "the undo token never reaches a toast");
+  });
+
+  await t.test("hydrated custom slot (R2-5): Remove reaches custom:noteFormatting, the store sentinel follows main, and Undo brings it back", async (st) => {
+    // change-driving: custom-endpoint keys kept the permanent empty-save Remove.
+    const main = mainCredentials({ NOTE_FORMATTING_CUSTOM_API_KEY: SECRETS[1] });
+    useCredentials(st, main);
+    const { useSettingsStore, subscribeCredentialChanges } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+    useSettingsStore.setState({ noteFormattingCustomApiKey: "__stored__" }); // hydrated from main's presence
+    const stop = subscribeCredentialChanges();
+    st.after(stop);
+    const { element, field: c } = await panelKeyField(st, {
+      credentialRef: "custom:noteFormatting",
+      baseUrl: "http://localhost:1234/v1",
+      apiKey: useSettingsStore.getState().noteFormattingCustomApiKey,
+      saveApiKey: async () => ({ ok: true }),
+      model: "",
+      onSelectModel() {},
+    });
+    assert.equal(element.props.credentialId, "custom:noteFormatting");
+    await c.click(byAction("remove-key"));
+    await settle();
+    assert.deepEqual(main.calls, [["remove", "custom:noteFormatting"]]);
+    assert.equal(useSettingsStore.getState().noteFormattingCustomApiKey, "", "credentials-changed cleared the sentinel");
+    await runToastAction(c.toasts[0]);
+    assert.equal(useSettingsStore.getState().noteFormattingCustomApiKey, "__stored__");
+    assert.equal(main.env.values.get("NOTE_FORMATTING_CUSTOM_API_KEY"), SECRETS[1]);
+    assertSecretFree({ results: main.results, toasts: c.toasts, store: useSettingsStore.getState() });
+  });
+
+  await t.test("pair removal (R2-5): Remove on either Corti speech field removes the whole client pair, and one Undo restores both", async (st) => {
+    // change-driving: pair fields had only the per-field empty save, which left half a credential.
+    const main = mainCredentials({ CORTI_CLIENT_ID: SECRETS[2], CORTI_CLIENT_SECRET: SECRETS[3] });
+    useCredentials(st, main);
+    const c = await field(st, { apiKey: "__stored__", credentialId: "corti:speech", setApiKey: async () => ({ ok: true }) });
+    const remove = find(c.tree(), byAction("remove-key"));
+    assert.equal(textOf(remove), "apiKeyInput.removeCredential", "the label says the whole credential goes");
+    await c.click(byAction("remove-key"));
+    await settle();
+    assert.deepEqual(main.calls, [["remove", "corti:speech"]]);
+    assert.equal(main.env.values.has("CORTI_CLIENT_ID"), false);
+    assert.equal(main.env.values.has("CORTI_CLIENT_SECRET"), false);
+    assert.equal(c.toasts[0].title, "apiKeyInput.removedCredential");
+    await runToastAction(c.toasts[0]);
+    assert.equal(main.env.values.get("CORTI_CLIENT_ID"), SECRETS[2]);
+    assert.equal(main.env.values.get("CORTI_CLIENT_SECRET"), SECRETS[3]);
+    assertSecretFree({ results: main.results, toasts: c.toasts });
+  });
+
+  await t.test("a key saved after the removal wins: the toast's Undo says the newer key was kept", async (st) => {
+    // change-driving.
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] });
+    useCredentials(st, main);
+    const c = await field(st, {
+      apiKey: "__stored__",
+      credentialId: "openai",
+      setApiKey: (value) => main.api.save("openai", "key", value).then((r) => ({ ok: r.ok })),
+    });
+    await c.click(byAction("remove-key"));
+    await settle();
+    await c.rerender({ apiKey: "" });
     await c.click(editButton);
-    await React.act(async () => find(c.tree(), input).props.onChange({ target: { value: " sk-new " } }));
+    await React.act(async () => find(c.tree(), input).props.onChange({ target: { value: SECRETS[5] } }));
     await c.click(byAction("save-key"));
     await settle();
-    assert.deepEqual(saved, ["sk-new"]);
-    assert.equal(find(c.tree(), byAction("undo-remove")), undefined);
-    assert.doesNotMatch(textOf(c.tree()), /apiKeyInput\.removed/);
+    await runToastAction(c.toasts[0]);
+    assert.equal(c.toasts.at(-1).title, "apiKeyInput.undoReplaced");
+    assert.equal(c.toasts.at(-1).actions, undefined, "no second attempt is offered");
+    assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[5]);
+    assertSecretFree({ results: main.results, toasts: c.toasts });
   });
 
-  await t.test("removal: a refused removal keeps the key and shows Task 2's removeFailed alert", async (st) => {
-    // change-driving: the credentials.remove refusal path does not exist before this task.
-    reset();
-    fake.state.removeResult = { ok: false, error: "persistFailed" };
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
-    await c.render();
+  await t.test("an Undo after main's window closed says it is too late", async (st) => {
+    // change-driving.
+    let clock = 1_000_000;
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] }, { now: () => clock });
+    useCredentials(st, main);
+    const c = await field(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
     await c.click(byAction("remove-key"));
     await settle();
-    const alert = find(c.tree(), (n) => n.props?.role === "alert");
-    assert.ok(alert);
-    assert.equal(textOf(alert), "apiKeyInput.removeFailed");
-    assert.equal(find(c.tree(), byAction("undo-remove")), undefined);
-    assert.ok(find(c.tree(), byAction("remove-key")), "the key is still there to remove again");
+    clock += 8_000;
+    await runToastAction(c.toasts[0]);
+    assert.equal(c.toasts.at(-1).title, "apiKeyInput.undoExpired");
+    assert.equal(main.env.values.has("OPENAI_API_KEY"), false);
   });
 
-  await t.test("removal: a credentialId without main's credentials api falls back to the plain Remove", async (st) => {
-    // baseline guard: the browser preview has no credentials api; fails before Step 3 only because the module does not load.
-    reset();
-    const original = globalThis.window.electronAPI;
-    globalThis.window.electronAPI = {};
-    st.after(() => { globalThis.window.electronAPI = original; });
-    const saved = [];
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: (key) => { saved.push(key); return { ok: true }; } });
-    await c.render();
+  await t.test("an Undo main could not persist offers Undo again for the rest of the window", async (st) => {
+    // change-driving: main keeps the value and the token on persistFailed (Task 2).
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] });
+    useCredentials(st, main);
+    const c = await field(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
     await c.click(byAction("remove-key"));
-    assert.deepEqual(saved, [""]);
+    await settle();
+    let failOnce = true;
+    main.env.persistImpl = async (_name, value) => {
+      if (value && failOnce) {
+        failOnce = false;
+        throw new Error("locked");
+      }
+    };
+    await runToastAction(c.toasts[0]);
+    const retry = c.toasts.at(-1);
+    assert.equal(retry.title, "apiKeyInput.undoRetry");
+    assert.equal(retry.actions[0].label, "apiKeyInput.undo");
+    await runToastAction(retry);
+    assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
+    assert.equal(c.toasts.at(-1).title, "apiKeyInput.restored");
   });
 
-  await t.test("removal: Remove is not offered while a key save is pending, so a late save cannot resurrect a removed key", async (st) => {
-    // baseline guard: Task 2's editor stays open until main acknowledges the save; this task's undoable Remove relies on that.
-    reset();
+  await t.test("a refused removal keeps the key and shows Task 2's removeFailed alert", async (st) => {
+    // change-driving: the credentials.remove refusal path does not exist before this task.
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] });
+    useCredentials(st, main);
+    main.env.persistImpl = async (_name, value) => {
+      if (value === "") throw new Error("locked");
+    };
+    const c = await field(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) });
+    await c.click(byAction("remove-key"));
+    await settle();
+    assert.equal(textOf(find(c.tree(), (n) => n.props?.role === "alert")), "apiKeyInput.removeFailed");
+    assert.deepEqual(c.toasts, []);
+    assert.ok(find(c.tree(), byAction("remove-key")), "the key is still there to remove again");
+    assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
+  });
+
+  await t.test("without a toast host the field shows the inline Removed · Undo, and Undo restores through the token", async (st) => {
+    // change-driving: fallback for a field rendered outside the app's ToastProvider.
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] });
+    useCredentials(st, main);
+    const c = await field(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: async () => ({ ok: true }) }, { withToasts: false });
+    await c.click(byAction("remove-key"));
+    await settle();
+    assert.match(textOf(c.tree()), /apiKeyInput\.removed/);
+    assert.ok(!textOf(c.tree()).includes(main.tokens[0]), "the token is never rendered");
+    await c.click(byAction("undo-remove"));
+    await settle();
+    assert.equal(main.env.values.get("OPENAI_API_KEY"), SECRETS[4]);
+    assert.equal(find(c.tree(), byAction("undo-remove")), undefined);
+  });
+
+  await t.test("Remove is not offered while a key save is pending, so a late save cannot resurrect a removed key", async (st) => {
+    // baseline guard: Task 2's editor stays open until main acknowledges the save; this task's Remove relies on that.
+    const main = mainCredentials({ OPENAI_API_KEY: SECRETS[4] });
+    useCredentials(st, main);
     const gate = deferred();
-    const c = mount(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: () => gate.promise });
-    await c.render();
+    const c = await field(st, { apiKey: "__stored__", credentialId: "openai", setApiKey: () => gate.promise });
     await c.click(editButton);
     await React.act(async () => find(c.tree(), input).props.onChange({ target: { value: "sk-slow" } }));
-    await React.act(async () => { void find(c.tree(), byAction("save-key")).props.onClick(); });
+    await React.act(async () => {
+      void find(c.tree(), byAction("save-key")).props.onClick();
+    });
     assert.equal(find(c.tree(), byAction("remove-key")), undefined, "no Remove while main persists the key");
-    await React.act(async () => { gate.resolve({ ok: true }); await gate.promise; });
+    await React.act(async () => {
+      gate.resolve({ ok: true });
+      await gate.promise;
+    });
     await settle();
     assert.ok(find(c.tree(), byAction("remove-key")), "Remove returns once the save is acknowledged");
-    assert.deepEqual(fake.calls, []);
+    assert.deepEqual(main.calls, []);
   });
 
-  await t.test("removal: the undo window ends after 8 seconds, clamped to what main granted", async (st) => {
-    // change-driving (hook level, injected clock: no real timers).
+  await t.test("hook: the inline undo window ends after 8 seconds, clamped to what main granted", async (st) => {
+    // change-driving (hook level, injected clock, no toast host: the inline fallback).
     const scheduled = [];
     const cancelled = [];
     let latest;
     const api = {
-      async remove() { return { ok: true, undoToken: "tok-x", expiresAt: 9000, generation: 1 }; },
-      async undoRemove() { return { ok: true, generation: 2 }; },
+      async remove() {
+        return { ok: true, undoToken: "tok-x", expiresAt: 9000, generation: 1 };
+      },
+      async undoRemove() {
+        return { ok: true, generation: 2 };
+      },
     };
     const root = createRoot(globalThis.document.documentElement);
     st.after(async () => React.act(async () => root.unmount()));
     function Probe() {
       latest = removalModule.useUndoableRemoval("groq", {
         api,
+        toast: null,
         now: () => 1000,
-        schedule: (fn, ms) => { scheduled.push({ fn, ms }); return scheduled.length; },
+        schedule: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length;
+        },
         cancel: (handle) => cancelled.push(handle),
       });
       return null;
     }
     await React.act(async () => root.render(React.createElement(Probe)));
     assert.equal(latest.available, true);
-    await React.act(async () => { await latest.remove(); });
+    await React.act(async () => {
+      await latest.remove();
+    });
     assert.equal(removalModule.UNDO_WINDOW_MS, 8000);
-    assert.equal(scheduled.length, 1);
     assert.equal(scheduled[0].ms, 8000, "expiresAt - now is exactly the window");
     assert.equal(latest.notice.kind, "removed");
-    await React.act(async () => { scheduled[0].fn(); });
+    await React.act(async () => {
+      scheduled[0].fn();
+    });
     assert.equal(latest.notice, null, "the notice disappears when the window ends");
-    await React.act(async () => { await latest.remove(); });
-    await React.act(async () => { latest.clear(); });
-    assert.equal(cancelled.length >= 1, true, "clear() cancels the pending expiry");
+    await React.act(async () => {
+      await latest.remove();
+    });
+    await React.act(async () => {
+      latest.clear();
+    });
+    assert.ok(cancelled.length >= 1, "clear() cancels the pending expiry");
   });
 
-  await t.test("removal: a persistFailed Undo re-arms the timer for the rest of the window", async (st) => {
-    // change-driving (hook level): the retry must end when main's window ends, not 8 s after the failed attempt.
-    const scheduled = [];
-    let clock = 1000;
-    let latest;
-    const api = {
-      async remove() { return { ok: true, undoToken: "tok-y", expiresAt: 9000, generation: 1 }; },
-      async undoRemove() { return { ok: false, reason: "persistFailed" }; },
-    };
-    const root = createRoot(globalThis.document.documentElement);
-    st.after(async () => React.act(async () => root.unmount()));
-    function Probe() {
-      latest = removalModule.useUndoableRemoval("groq", {
-        api,
-        now: () => clock,
-        schedule: (fn, ms) => { scheduled.push({ fn, ms }); return scheduled.length; },
-        cancel: () => {},
-      });
-      return null;
-    }
-    await React.act(async () => root.render(React.createElement(Probe)));
-    await React.act(async () => { await latest.remove(); });
-    clock = 5000;
-    await React.act(async () => { await latest.undo(); });
-    assert.deepEqual(latest.notice, { kind: "removed", token: "tok-y", expiresAt: 9000, restoreFailed: true });
-    assert.equal(scheduled.at(-1).ms, 4000);
-    clock = 9500;
-    await React.act(async () => { await latest.undo(); });
-    assert.deepEqual(latest.notice, { kind: "undoFailed", reason: "expired" }, "a failure after the window says it is too late");
+  await t.test("hook: undoRemoval maps main's answers, and a persistFailed after the window is too late", async () => {
+    // change-driving (pure helper the toast action runs after the field unmounted).
+    const api = (answer) => ({ undoRemove: async () => answer });
+    assert.deepEqual(await removalModule.undoRemoval(api({ ok: true, generation: 2 }), "t", 9000, () => 1000), { kind: "restored" });
+    assert.deepEqual(await removalModule.undoRemoval(api({ ok: false, reason: "persistFailed" }), "t", 9000, () => 5000), { kind: "retry" });
+    assert.deepEqual(await removalModule.undoRemoval(api({ ok: false, reason: "persistFailed" }), "t", 9000, () => 9500), {
+      kind: "failed",
+      reason: "expired",
+    });
+    assert.deepEqual(await removalModule.undoRemoval(api({ ok: false, reason: "replaced" }), "t", 9000, () => 1000), {
+      kind: "failed",
+      reason: "replaced",
+    });
+    const thrown = { undoRemove: async () => Promise.reject(new Error("ipc down")) };
+    assert.deepEqual(await removalModule.undoRemoval(thrown, "t", 9000, () => 1000), { kind: "error", message: "ipc down" });
   });
 
-  await t.test("removal: every stored-credential field passes its credential identity (source guard)", () => {
-    // change-driving until Step 3.3 lands (no field passes credentialId today); a baseline guard afterwards.
-    const src = (file) => fs.readFileSync(path.join(__dirname, "../../src/components", file), "utf8");
-    const reasoning = src("ReasoningModelSelector.tsx");
-    for (const [field, id] of [
-      ["openaiApiKey", "openai"], ["anthropicApiKey", "anthropic"], ["geminiApiKey", "gemini"],
-      ["groqApiKey", "groq"], ["tinfoilApiKey", "tinfoil"], ["cortiApiKey", "corti:text"],
-    ]) {
-      assert.match(reasoning, new RegExp(`apiKey=\\{${field}\\}\\s+credentialId="${id}"`), `${field} -> ${id}`);
+  await t.test("source guard (R2-5): every ApiKeyInput passes a credential identity, and the empty-save Remove is gone", () => {
+    // change-driving until Step 3.3 lands; a baseline guard afterwards.
+    const srcRoot = path.join(__dirname, "../../src");
+    const files = fs.globSync("**/*.tsx", { cwd: srcRoot }).map((file) => path.join(srcRoot, file));
+    let elements = 0;
+    for (const file of files) {
+      const source = fs.readFileSync(file, "utf8");
+      let at = source.indexOf("<ApiKeyInput");
+      while (at !== -1) {
+        const element = source.slice(at, source.indexOf("/>", at));
+        elements++;
+        assert.match(element, /credentialId=/, `${path.relative(srcRoot, file)}: ${element.split("\n")[0]}`);
+        at = source.indexOf("<ApiKeyInput", at + 1);
+      }
     }
-    const enterprise = src("EnterpriseProviderConfig.tsx");
-    assert.match(enterprise, /apiKey=\{settings\.azureApiKey\}\s+credentialId="azure"/);
-    assert.match(enterprise, /apiKey=\{settings\.vertexApiKey\}\s+credentialId="vertex"/);
-    assert.doesNotMatch(enterprise, /credentialId="bedrock"/, "Bedrock's three fields are one credential, so they keep the plain Remove");
-    const transcription = src("TranscriptionModelPicker.tsx");
-    assert.match(transcription, /credentialId=\{SINGLE_FIELD_CREDENTIAL_IDS\[field\.key\]\}/);
-    assert.doesNotMatch(transcription, /cortiClientId:\s*"corti/, "Corti's client pair keeps the plain Remove");
-    const staged = src("settings/routing/StagedRoutePanel.tsx");
-    assert.match(
-      staged,
-      /credentialId=\{credential\.inputs\.length === 1 \? credential\.credentialId : undefined\}/,
-      "the staged panel's single-field keys get the undoable Remove; multi-field credentials keep the plain one"
-    );
+    assert.ok(elements >= 15, `found ${elements} ApiKeyInput elements`);
+    const apiKeyInput = fs.readFileSync(path.join(srcRoot, "components/ui/ApiKeyInput.tsx"), "utf8");
+    assert.doesNotMatch(apiKeyInput, /commit\(""\)|setApiKey\(""\)/, "no permanent empty-save Remove");
+    const enterprise = fs.readFileSync(path.join(srcRoot, "components/EnterpriseProviderConfig.tsx"), "utf8");
+    assert.equal((enterprise.match(/credentialId="bedrock"/g) ?? []).length, 3, "Bedrock's three fields are one credential");
   });
 });
 ```
+
+The `elements >= 15` floor is the real call sites:
+- six in `ReasoningModelSelector` (`:617-695`);
+- five in `EnterpriseProviderConfig` (`:126-181`);
+- two in `TranscriptionModelPicker` (`:1200`, `:1243`);
+- one each in `OpenAICompatiblePanel` (Task 9) and `StagedRoutePanel` (Task 8).
+
+`InferenceConfigEditor` and `NotesOnboarding` render keys only through `OpenAICompatiblePanel`/`ReasoningModelSelector`.
 
 Create `test/components/keyringPanel.test.js`:
 
@@ -18109,6 +22925,67 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
 const { withI18nMock } = require("../lib/i18nTestMock");
 const { resolveTokens } = require("../helpers/harness/cssTokens");
+const Module = require("node:module");
+
+// R2-6's fake transport. Main's cortiAuth.js sends Corti's token request
+// through Electron's net.fetch; this stub records the URL it reaches.
+const transportUrls = [];
+const originalLoad = Module._load;
+Module._load = function loadWithNetStub(request, parent, isMain) {
+  if (request === "electron") {
+    return {
+      net: {
+        fetch: async (url) => {
+          transportUrls.push(String(url));
+          return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 300 }) };
+        },
+      },
+    };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+test.after(() => {
+  Module._load = originalLoad;
+});
+const { fakeCredentialEnv, fakeCodexFs } = require("../helpers/harness/fakeCredentialEnv");
+const { createCredentialAuthority } = require("../../src/helpers/credentialAuthority.js");
+const { createKeyring } = require("../../src/helpers/keyring.js");
+const { getCortiToken } = require("../../src/helpers/cortiAuth.js");
+
+// Main's real authority and keyring behind the keyring-* IPC surface. The
+// transport is the real getCortiToken (the request URL builder Verify uses).
+function mainKeyring(initial) {
+  const credentials = createCredentialAuthority({
+    env: fakeCredentialEnv(initial),
+    fs: fakeCodexFs(),
+    codexHome: "/profile/codex",
+    setTimer: () => {},
+  });
+  const rows = new Map();
+  const keyring = createKeyring({
+    store: {
+      all: () => [...rows.values()],
+      save: (row) => rows.set(row.identity, { ...row }),
+      remove: (identity) => rows.delete(identity),
+    },
+    credentials,
+    runTest: async (config, captured) => {
+      await getCortiToken({
+        environment: config.environment,
+        tenant: config.tenant,
+        clientId: captured.clientId,
+        clientSecret: captured.clientSecret,
+      });
+      return { success: true };
+    },
+  });
+  return {
+    list: async () => keyring.list(),
+    verify: (id, options) => keyring.verify(id, options),
+    describeVerify: (id, options) => keyring.describeVerify(id, options),
+    setReminder: async (id, enabled) => keyring.setReminder(id, enabled),
+  };
+}
 
 const tr = (key, options) => (options ? `${key}${JSON.stringify(options)}` : key);
 // Task 11's KeyringEntry: keyed by KeyringIdentity, with the provider id for display.
@@ -18178,12 +23055,13 @@ test("keyring panel", async (t) => {
     assert.equal(k.keyringIdentityLabel(entry("groq"), tr), "Groq");
     assert.equal(k.keyringIdentityLabel(entry("corti:text"), tr), 'keyring.identity.cortiText{"provider":"Corti"}');
     assert.equal(k.keyringIdentityLabel(entry("corti:speech"), tr), 'keyring.identity.cortiSpeech{"provider":"Corti"}');
-    const hosts = { openai: "api.openai.com", corti: "api.eu.corti.app", "corti:text": "ai.eu.corti.app" };
-    assert.equal(k.credentialHost(entry("openai"), hosts), "api.openai.com");
-    assert.equal(k.credentialHost(entry("corti:speech"), hosts), "api.eu.corti.app", "speech: the region-bound host");
-    assert.equal(k.credentialHost(entry("corti:text"), hosts), "ai.eu.corti.app", "text: Corti's fixed text host");
-    assert.equal(k.credentialHost(entry("mistral"), hosts), null, "no known host");
-    assert.equal(k.credentialHost({ id: "constructor" }, hosts), null, "ids never reach inherited keys");
+    // R2-6: the target text is main's disclosure, verbatim; there is no renderer host map.
+    assert.deepEqual(k.verifyTargetText({ hosts: ["auth.eu.corti.app"], fields: ["clientId", "clientSecret"] }, tr), {
+      host: "auth.eu.corti.app",
+      fields: "keyring.fields.clientId, keyring.fields.clientSecret",
+    });
+    assert.deepEqual(k.verifyTargetText({ hosts: [], fields: ["key"] }, tr), { host: null, fields: "keyring.fields.key" });
+    assert.deepEqual(k.verifyTargetText(null, tr), { host: null, fields: "" });
   });
 
   await t.test("keyring verify options: only Corti speech carries the region and tenant from settings", () => {
@@ -18461,7 +23339,8 @@ test("keyring panel", async (t) => {
   });
 
   const viewProps = (over = {}) => ({
-    entries: [], paused: {}, notices: {}, hostOf: (e) => (e.id === "groq" ? "api.groq.com" : null),
+    entries: [], paused: {}, notices: {},
+    disclosureOf: (e) => (e.id === "groq" ? { hosts: ["api.groq.com"], fields: ["key"] } : null),
     checking: null, progress: null, sealed: false, loadError: false,
     onVerify() {}, onVerifyAll() {}, onReminder() {}, ...over,
   });
@@ -18483,7 +23362,12 @@ test("keyring panel", async (t) => {
     const [groq, openai, cortiText, cortiSpeech] = rows(html);
     assert.match(groq, /role="img"[^>]*aria-label="keyring\.status\.rejected"/);
     assert.match(groq, /aria-label="keyring\.remindLabel\{&quot;identity&quot;:&quot;Groq&quot;\}"/);
-    assert.match(groq, /title="keyring\.verifyTooltip\{&quot;identity&quot;:&quot;Groq&quot;,&quot;host&quot;:&quot;api\.groq\.com&quot;\}"/);
+    assert.match(
+      groq,
+      /title="keyring\.verifyTooltip\{&quot;identity&quot;:&quot;Groq&quot;,&quot;host&quot;:&quot;api\.groq\.com&quot;,&quot;fields&quot;:&quot;keyring\.fields\.key&quot;\}"/
+    );
+    assert.match(groq, /data-verify-target="api\.groq\.com"/);
+    assert.match(openai, /keyring\.verifyTargetUnknown/);
     assert.match(groq, /aria-label="keyring\.verifyLabel\{&quot;identity&quot;:&quot;Groq&quot;\}"/);
     assert.match(openai, /data-checking="true"/);
     assert.match(openai, /aria-label="keyring\.checking"/);
@@ -18584,6 +23468,91 @@ test("keyring panel", async (t) => {
     assert.match(source, /getSealed/);
     assert.match(source, /flushSecretSaves/);
     assert.doesNotMatch(source, /\.setState\(|applyRoutePatch|requestRoute(Change|Patch)|setCorti(Environment|Tenant)/, "the keyring writes no settings");
+    // R2-6: no renderer-side host map, frozen or otherwise.
+    assert.doesNotMatch(source, /providerHosts|routeSnapshotFromSettings|credentialHost/);
+    assert.match(source, /useSettingsStore\(\(s\) => s\.cortiEnvironment\)/);
+    assert.match(source, /describeVerify/);
+  });
+
+  await t.test("keyring R2-6: disclosures are asked again on a list refresh, an options change and credentials-changed", async (st) => {
+    // change-driving: v1 froze the host map at mount (useMemo with []).
+    const api = fakeKeyring([entry("corti:speech")]);
+    const described = [];
+    api.describeVerify = async (id, options) => {
+      described.push([id, options]);
+      return { hosts: [`auth.${options.cortiEnvironment}.corti.app`], fields: ["clientId", "clientSecret"] };
+    };
+    let credentialsListener = null;
+    const settings = { cortiEnvironment: "eu", cortiTenant: "acme" };
+    let optionsKey = "eu|acme";
+    const c = mountController(st, () => ({
+      api,
+      flush: async () => {},
+      getSealed: () => false,
+      verifyOptions: (id) => k.keyringVerifyOptions(id, settings),
+      optionsKey,
+      onCredentialsChanged: (cb) => {
+        credentialsListener = cb;
+        return () => (credentialsListener = null);
+      },
+    }));
+    await c.render();
+    await tick();
+    assert.deepEqual(c.current().disclosures["corti:speech"].hosts, ["auth.eu.corti.app"]);
+    settings.cortiEnvironment = "us";
+    optionsKey = "us|acme";
+    await c.render();
+    await tick();
+    assert.deepEqual(c.current().disclosures["corti:speech"].hosts, ["auth.us.corti.app"], "re-asked after the region changed");
+    const before = described.length;
+    credentialsListener();
+    await tick();
+    assert.equal(described.length, before + 1, "credentials-changed asks again");
+    api.emit("corti:speech");
+    await tick();
+    assert.equal(described.length, before + 2, "keyring-changed (a list refresh) asks again");
+    await c.unmount();
+    assert.equal(credentialsListener, null, "the credentials subscription is released");
+  });
+
+  await t.test("keyring R2-6 (mounted): the host the Keyring shows is the host the request reaches, also after a region change", async (st) => {
+    // change-driving: the panel showed api.<region>.corti.app while Verify sent the
+    // client pair to auth.<region>.corti.app, and kept the mount-time region.
+    const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+    await React.act(async () => useSettingsStore.setState({ cortiEnvironment: "eu", cortiTenant: "acmePanel" }));
+    const original = globalThis.window.electronAPI;
+    globalThis.window.electronAPI = { keyring: mainKeyring({ CORTI_CLIENT_ID: "cid-panel", CORTI_CLIENT_SECRET: "csec-panel" }) };
+    st.after(() => {
+      globalThis.window.electronAPI = original;
+    });
+    let tree;
+    function Probe() {
+      tree = k.KeyringPanel();
+      return null;
+    }
+    const root = createRoot(globalThis.document.documentElement);
+    st.after(async () => React.act(async () => root.unmount()));
+    await React.act(async () => root.render(React.createElement(Probe)));
+    await tick();
+    await tick();
+    const shownHost = () => renderToStaticMarkup(tree).match(/data-verify-target="([^"]*)"/)[1];
+    for (const region of ["eu", "us"]) {
+      if (region === "us") {
+        await React.act(async () => useSettingsStore.setState({ cortiEnvironment: "us" }));
+        await tick();
+        await tick();
+      }
+      const displayed = shownHost();
+      assert.equal(displayed, `auth.${region}.corti.app`);
+      const sent = transportUrls.length;
+      await React.act(async () => {
+        tree.props.onVerify("corti:speech");
+      });
+      await tick();
+      await tick();
+      assert.equal(transportUrls.length, sent + 1, "Verify sent one request");
+      assert.equal(new URL(transportUrls.at(-1)).host, displayed, "the displayed host is the host the request reached");
+    }
   });
 });
 ```
@@ -18592,16 +23561,24 @@ test("keyring panel", async (t) => {
 
 Run: `npm test -- test/components/apiKeyInputRemoval.test.js test/components/keyringPanel.test.js`
 Expected: FAIL.
-- `apiKeyInputRemoval.test.js`: `Failed to load url /components/ui/useUndoableRemoval.ts`. The SSR load of that module throws before any subtest runs, so every subtest is reported as failed; the three baseline guards (plain Remove without `credentialId`, the preview fallback, and no Remove while a save is pending) pin Task 2's behaviour and pass as soon as Step 3 lands.
-- `keyringPanel.test.js`: `Failed to load url /components/settings/routing/KeyringPanel.tsx`. The token test and the source guard are baseline guards that pass once the module exists.
+- `apiKeyInputRemoval.test.js`: `Failed to load url /components/ui/useUndoableRemoval.ts`. The SSR load of that module throws before any subtest runs, so every subtest is reported failed.
+  - Against Task 2's file alone, the two **reversed** guards fail. Without a slot, or without main's api, a `hover:text-destructive` Remove is still rendered and saves `""`.
+  - The OpenRouter, custom-slot and pair tests fail: Remove saves an empty value, `credentials.remove` is never called, and no toast is raised.
+  - The source guard fails, because no `ApiKeyInput` outside `OpenAICompatiblePanel` passes `credentialId=`.
+  - "No Remove while a save is pending" is a baseline guard.
+- `keyringPanel.test.js`: `Failed to load url /components/settings/routing/KeyringPanel.tsx`. The token test is a baseline guard.
+  - The source guard and both R2-6 tests are change-driving against the v1 panel. v1 had `routeSnapshotFromSettings(...).providerHosts` in a `useMemo(..., [])` and showed `api.eu.corti.app`, while the fake transport received `auth.eu.corti.app`. v1 also kept that host after the region changed.
+- `personalWorkspace.test.js`: the reversed last block fails until Step 3.2 deletes the empty-save Remove.
 
 - [ ] **Step 3: Implement**
 
-1. Create `src/components/ui/useUndoableRemoval.ts`. The removed value lives only in main; this hook holds an opaque token, the expiry and a timer.
+1. Create `src/components/ui/useUndoableRemoval.ts`. The removed value lives only in main. The renderer holds an opaque token, the expiry and, without a toast host, a timer. With the app's `ToastProvider`, the Undo lives in a toast whose action captures the token and the api at removal time, so it keeps working after the field unmounts (for example, after a provider-tab switch).
 
    ```ts
-   import { useCallback, useEffect, useRef, useState } from "react";
-   import type { CredentialId } from "../../lib/routes";
+   import { useCallback, useContext, useEffect, useRef, useState } from "react";
+   import { useTranslation } from "react-i18next";
+   import { MULTI_FIELD_CREDENTIALS, type CredentialSlot } from "../../lib/credentialSlots";
+   import { ToastContext, type ToastContextType } from "./useToast";
 
    // Main keeps a removed credential in memory for this long (Task 2). The
    // renderer never sees the value, only a token that can ask for it back.
@@ -18616,9 +23593,15 @@ Expected: FAIL.
      | { kind: "undoFailed"; reason: Exclude<UndoFailureReason, "persistFailed"> }
      | { kind: "error"; message: string };
 
+   export const UNDO_FAILURE_KEY = {
+     expired: "apiKeyInput.undoExpired",
+     replaced: "apiKeyInput.undoReplaced",
+     unknown: "apiKeyInput.undoUnknown",
+   } as const;
+
    // The subset of window.electronAPI.credentials this hook needs (Task 2).
    export interface CredentialsRemovalApi {
-     remove(id: CredentialId): Promise<
+     remove(id: CredentialSlot): Promise<
        | { ok: true; undoToken: string; expiresAt: number; generation: number }
        | { ok: false; error: string }
      >;
@@ -18629,15 +23612,45 @@ Expected: FAIL.
 
    export interface RemovalDeps {
      api?: CredentialsRemovalApi;
+     /** Overrides the ToastContext; null forces the inline notice. */
+     toast?: ToastContextType["toast"] | null;
      now?: () => number;
      schedule?: (fn: () => void, ms: number) => unknown;
      cancel?: (handle: unknown) => void;
    }
 
+   export type UndoOutcome =
+     | { kind: "restored" }
+     | { kind: "retry" }
+     | { kind: "failed"; reason: Exclude<UndoFailureReason, "persistFailed"> }
+     | { kind: "error"; message: string };
+
+   // One Undo attempt through main. Pure, so a toast action can run it after
+   // the field that offered it is gone.
+   export async function undoRemoval(
+     api: Pick<CredentialsRemovalApi, "undoRemove">,
+     token: string,
+     expiresAt: number,
+     now: () => number
+   ): Promise<UndoOutcome> {
+     try {
+       const result = await api.undoRemove(token);
+       if (result.ok === true) return { kind: "restored" };
+       if (result.reason === "persistFailed") {
+         return expiresAt - now() > 0 ? { kind: "retry" } : { kind: "failed", reason: "expired" };
+       }
+       return { kind: "failed", reason: result.reason };
+     } catch (error) {
+       return { kind: "error", message: (error as Error).message };
+     }
+   }
+
    const defaultSchedule = (fn: () => void, ms: number): unknown => setTimeout(fn, ms);
    const defaultCancel = (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>);
 
-   export function useUndoableRemoval(credentialId: CredentialId | undefined, deps: RemovalDeps = {}) {
+   export function useUndoableRemoval(credentialId: CredentialSlot | undefined, deps: RemovalDeps = {}) {
+     const { t } = useTranslation();
+     const toastContext = useContext(ToastContext);
      const [notice, setNotice] = useState<RemovalNotice | null>(null);
      const [busy, setBusy] = useState(false);
      const timer = useRef<unknown>(null);
@@ -18649,8 +23662,13 @@ Expected: FAIL.
        (typeof window === "undefined"
          ? undefined
          : (window.electronAPI?.credentials as CredentialsRemovalApi | undefined));
+     const resolveToast = () =>
+       live.current.toast !== undefined ? live.current.toast : (toastContext?.toast ?? null);
+     // No identity or no main api (browser preview): no Remove at all. There is
+     // no empty-save fallback any more (R2-5).
      const available = !!credentialId && !!resolveApi()?.remove;
      const now = () => (live.current.now ?? Date.now)();
+     const remaining = (expiresAt: number) => Math.max(0, Math.min(UNDO_WINDOW_MS, expiresAt - now()));
 
      const clearTimer = useCallback(() => {
        if (timer.current === null) return;
@@ -18664,17 +23682,52 @@ Expected: FAIL.
        setNotice(null);
      }, [clearTimer]);
 
-     // Show "Removed · Undo" until main's window ends (never longer than 8 s).
+     // Inline fallback (no toast host): show "Removed · Undo" until main's
+     // window ends (never longer than 8 s).
      const arm = (token: string, expiresAt: number, restoreFailed: boolean) => {
        clearTimer();
-       const remaining = Math.max(0, Math.min(UNDO_WINDOW_MS, expiresAt - now()));
        setNotice({ kind: "removed", token, expiresAt, restoreFailed });
        timer.current = (live.current.schedule ?? defaultSchedule)(() => {
          timer.current = null;
          setNotice((current) =>
            current?.kind === "removed" && current.token === token ? null : current
          );
-       }, remaining);
+       }, remaining(expiresAt));
+     };
+
+     // Toast path: everything the action needs is captured here, so the Undo
+     // outlives this field. The token never appears in the toast.
+     const offerUndo = (
+       toast: ToastContextType["toast"],
+       api: CredentialsRemovalApi,
+       token: string,
+       expiresAt: number,
+       retry: boolean
+     ) => {
+       const whole = !!credentialId && MULTI_FIELD_CREDENTIALS.has(credentialId);
+       toast({
+         title: t(
+           retry ? "apiKeyInput.undoRetry" : whole ? "apiKeyInput.removedCredential" : "apiKeyInput.removed"
+         ),
+         duration: remaining(expiresAt),
+         actions: [
+           {
+             label: t("apiKeyInput.undo"),
+             dismissOnClick: true,
+             onClick: async () => {
+               const outcome = await undoRemoval(api, token, expiresAt, now);
+               if (outcome.kind === "restored") toast({ title: t("apiKeyInput.restored") });
+               else if (outcome.kind === "retry") offerUndo(toast, api, token, expiresAt, true);
+               else
+                 toast({
+                   title: t(
+                     outcome.kind === "failed" ? UNDO_FAILURE_KEY[outcome.reason] : "apiKeyInput.undoUnknown"
+                   ),
+                 });
+             },
+           },
+         ],
+       });
      };
 
      const remove = async (): Promise<void> => {
@@ -18689,7 +23742,9 @@ Expected: FAIL.
            setNotice({ kind: "error", message: result.error });
            return;
          }
-         arm(result.undoToken, result.expiresAt, false);
+         const toast = resolveToast();
+         if (toast) offerUndo(toast, api, result.undoToken, result.expiresAt, false);
+         else arm(result.undoToken, result.expiresAt, false);
        } catch (error) {
          setNotice({ kind: "error", message: (error as Error).message });
        } finally {
@@ -18697,6 +23752,7 @@ Expected: FAIL.
        }
      };
 
+     // Inline fallback's Undo button.
      const undo = async (): Promise<void> => {
        const api = resolveApi();
        if (!api || notice?.kind !== "removed") return;
@@ -18704,19 +23760,11 @@ Expected: FAIL.
        clearTimer();
        setBusy(true);
        try {
-         const result = await api.undoRemove(token);
-         if (result.ok === true) {
-           setNotice(null);
-         } else if (result.reason === "persistFailed") {
-           // Main could not write the key back but still holds it: keep Undo
-           // for the rest of the window, or say it is too late.
-           if (expiresAt - now() > 0) arm(token, expiresAt, true);
-           else setNotice({ kind: "undoFailed", reason: "expired" });
-         } else {
-           setNotice({ kind: "undoFailed", reason: result.reason });
-         }
-       } catch (error) {
-         setNotice({ kind: "error", message: (error as Error).message });
+         const outcome = await undoRemoval(api, token, expiresAt, now);
+         if (outcome.kind === "restored") setNotice(null);
+         else if (outcome.kind === "retry") arm(token, expiresAt, true);
+         else if (outcome.kind === "failed") setNotice({ kind: "undoFailed", reason: outcome.reason });
+         else setNotice({ kind: "error", message: outcome.message });
        } finally {
          setBusy(false);
        }
@@ -18728,28 +23776,22 @@ Expected: FAIL.
 
 2. Edit `src/components/ui/ApiKeyInput.tsx` **on top of Task 2's Step 3.9** (do not replace the file; Task 2's awaited save, `failure` state and alert stay as they are). Each anchor below quotes Task 2's resulting code.
 
-   a. Imports. After Task 2's `import type { SecretSaveResult } from "../../stores/settingsStore";` add:
+   a. Imports. Change Task 2's `import type { CredentialSlot } from "../../lib/credentialSlots";` to a value import, and add the hook:
 
    ```ts
-   import type { CredentialId } from "../../lib/routes";
-   import { useUndoableRemoval } from "./useUndoableRemoval";
+   import { MULTI_FIELD_CREDENTIALS, type CredentialSlot } from "../../lib/credentialSlots";
+   import { UNDO_FAILURE_KEY, useUndoableRemoval } from "./useUndoableRemoval";
    ```
 
-   b. Props. After Task 2's prop
+   b. Props. Task 2 already declares `credentialId?: CredentialSlot`. Replace its JSDoc with:
 
    ```ts
-     /** Secret setters resolve with main's acknowledgement; other setters may return nothing. */
-     setApiKey: (key: string) => void | Promise<SecretSaveResult | void>;
-   ```
-
-   add
-
-   ```ts
-     // The credential identity this field edits. With it, Remove goes through
-     // main's undoable removal and offers Undo for a few seconds. Without it
-     // (custom-endpoint keys, one credential spread over several fields) Remove
-     // saves an empty value, as Task 2 does.
-     credentialId?: CredentialId;
+     /**
+      * The main credential slot this field edits. Remove goes only through main's
+      * undoable token removal (R2-5); without a slot, or without main's
+      * credentials api, no Remove is offered. A two-field credential
+      * (MULTI_FIELD_CREDENTIALS) is removed and restored whole.
+      */
    ```
 
    and add `credentialId,` after `setApiKey,` in the destructured parameters.
@@ -18796,14 +23838,11 @@ Expected: FAIL.
    ```ts
      // Task 2's editor stays open until main acknowledges a save, so Remove is
      // never offered while a save is pending and a late save cannot resurrect
-     // the removed key.
+     // the removed key. There is no empty-save path: an empty save is a
+     // permanent delete with no Undo (R2-5).
      const remove = async () => {
        setFailure(null);
-       if (removal.available) {
-         await removal.remove();
-         return;
-       }
-       if (!(await commit(""))) setFailure("remove");
+       await removal.remove();
      };
    ```
 
@@ -18852,7 +23891,7 @@ Expected: FAIL.
    with
 
    ```tsx
-         {hasKey && !isEditing && notice?.kind !== "removed" && (
+         {hasKey && !isEditing && removal.available && notice?.kind !== "removed" && (
            <button
              type="button"
              data-action="remove-key"
@@ -18860,7 +23899,11 @@ Expected: FAIL.
              className="mt-1 text-xs text-muted-foreground hover:text-destructive"
              onClick={remove}
            >
-             {t("personal.removeKey")}
+             {t(
+               credentialId && MULTI_FIELD_CREDENTIALS.has(credentialId)
+                 ? "apiKeyInput.removeCredential"
+                 : "personal.removeKey"
+             )}
            </button>
          )}
          {/* One persistent live region: the notice is inserted into it, so it is announced. */}
@@ -18890,19 +23933,11 @@ Expected: FAIL.
          )}
    ```
 
-   and add above `export default function ApiKeyInput(`:
-
-   ```ts
-   const UNDO_FAILURE_KEY = {
-     expired: "apiKeyInput.undoExpired",
-     replaced: "apiKeyInput.undoReplaced",
-     unknown: "apiKeyInput.undoUnknown",
-   } as const;
-   ```
+   (`UNDO_FAILURE_KEY` comes from `useUndoableRemoval.ts`; the toast path uses the same map.)
 
    A refused `credentials.remove` reuses Task 2's `apiKeyInput.removeFailed` ("Couldn't remove this key. It is still saved."); main's `CredentialError` code is not user copy, so it is not shown. The alert keeps Task 2's `text-foreground` (I13).
 
-   The undo window lives in this component. Switching to another provider tab unmounts the field and drops the Undo, but main still restores nothing after 8 s; that is the accepted trade for not keeping a global notice store.
+   Inside the app, `ToastProvider` is present, so the Undo is a toast whose action captured the token at removal time. Switching provider tabs unmounts the field but keeps the Undo; the mounted OpenRouter test unmounts the field before pressing Undo. The inline "Removed · Undo" above appears only when no toast host exists. Main restores nothing after 8 s in either case.
 
    h. In `test/components/personalWorkspace.test.js`, the save button is no longer `text-success`. Change the finder in the existing test "saved credential presence is never revealed or erased by opening its editor" (`:146-149`)
 
@@ -18936,40 +23971,44 @@ Expected: FAIL.
        find(h.tree(), (node) => node.type === "button" && node.props?.["data-action"] === "save-key"),
    ```
 
-   No assertion changes; the tests keep their meaning and labels.
+   Then **reverse** that test's last block (`:150-155`), which clicked the `hover:text-destructive` Remove and asserted `saved` is `[""]`, the permanent empty-save delete R2-5 removes. Replace it with:
 
-3. Wire the credential identities. Each edit adds one prop next to `apiKey`; nothing else in these files changes.
-   - `src/components/TranscriptionModelPicker.tsx`: add `import type { CredentialId } from "../lib/routes";` after the file's last `import` statement (today `import { Select, … } from "./ui/select";`), and add the table directly above the line `const PROVIDER_CREDENTIALS: Record<`:
+   ```js
+     // Reversed (R2-5): a field without a credential slot offers no Remove, so
+     // nothing can be erased by an empty save.
+     assert.equal(
+       find(h.tree(), (node) => node.type === "button" && node.props?.className?.includes("hover:text-destructive")),
+       undefined
+     );
+     assert.deepEqual(saved, []);
+   ```
 
-     ```ts
-     // Providers whose only secret is one API key can remove it through main's
-     // undoable removal. Corti's client id and secret are one credential in two
-     // fields, so they keep the plain Remove.
-     const SINGLE_FIELD_CREDENTIAL_IDS: Partial<Record<ProviderCredentialField["key"], CredentialId>> = {
-       openaiApiKey: "openai",
-       groqApiKey: "groq",
-       xaiApiKey: "xai",
-       mistralApiKey: "mistral",
-       geminiApiKey: "gemini",
-       tinfoilApiKey: "tinfoil",
-       deepgramApiKey: "deepgram",
-       assemblyaiApiKey: "assemblyai",
-     };
-     ```
+   The rest of the test, and Task 2's two save tests, keep their meaning and labels.
 
-     and at the secret field (the `field.input === "secret"` branch's `<ApiKeyInput apiKey={credentialValues[field.key]} setApiKey={credentialSetters[field.key]} label="" helpText="" />`, which Task 9 leaves unchanged), so it reads:
+3. Wire the credential identities (R2-5). Each edit adds one `credentialId` prop directly under the `apiKey` line; nothing else in these files changes. Task 9 already passes `credentialId={credentialSlotForRef(credentialRef)}` in `OpenAICompatiblePanel` (OpenRouter and every custom LLM slot), and the source guard in Step 1 checks every `<ApiKeyInput` in `src/`.
+   - `src/components/TranscriptionModelPicker.tsx`: add `import { credentialSlotForStoreKey } from "../lib/credentialSlots";` after the file's last `import`. The secret field (the `field.input === "secret"` branch, Task 2's `setApiKey={credentialSecretSavers[field.key] ?? unavailableSecretSave}`) becomes:
 
      ```tsx
      <ApiKeyInput
        apiKey={credentialValues[field.key]}
-       credentialId={SINGLE_FIELD_CREDENTIAL_IDS[field.key]}
-       setApiKey={credentialSetters[field.key]}
+       credentialId={credentialSlotForStoreKey(field.key)}
+       setApiKey={credentialSecretSavers[field.key] ?? unavailableSecretSave}
        label=""
        helpText=""
      />
      ```
 
-     Leave the custom-endpoint `ApiKeyInput` (`apiKey={customTranscriptionApiKey}`) alone: a custom endpoint's key is not a credential identity.
+     Corti's `cortiClientId` and `cortiClientSecret` both map to `corti:speech`, so either field's Remove removes the pair, and the label says so. The custom STT field becomes:
+
+     ```tsx
+     <ApiKeyInput
+       apiKey={customTranscriptionApiKey}
+       credentialId="custom:transcription"
+       setApiKey={setCustomTranscriptionApiKey}
+       label={t("transcription.apiKeyOptional")}
+       helpText=""
+     />
+     ```
    - `src/components/ReasoningModelSelector.tsx` (locate each prop by its text; Task 9 shifts the lines): add the line after each `apiKey` prop:
 
      | Existing `apiKey` prop | Added line |
@@ -18981,35 +24020,31 @@ Expected: FAIL.
      | `apiKey={tinfoilApiKey}` | `credentialId="tinfoil"` |
      | `apiKey={cortiApiKey}` | `credentialId="corti:text"` |
 
-     The added line must sit directly under the `apiKey` line (the source guard matches `apiKey={x}\s+credentialId="…"`).
-   - `src/components/EnterpriseProviderConfig.tsx` (Task 2 already changed these call sites to return the acknowledgement, Task 2 Step 3.10c): Azure becomes `<ApiKeyInput apiKey={settings.azureApiKey} credentialId="azure" setApiKey={(value) => saveSecret("azureApiKey", value)} />` and Vertex becomes `<ApiKeyInput apiKey={settings.vertexApiKey} credentialId="vertex" setApiKey={(value) => saveSecret("vertexApiKey", value)} helpText={t("reasoning.enterprise.vertex.apikeyHelp")} />` (each `credentialId` line directly under its `apiKey` line). The three Bedrock fields are one credential, so they get no `credentialId`. Task 2 owns `EnterpriseProviderConfig.saveSecret` (it already delegates to the store and returns the ack); this task does not change it.
-   - `src/components/settings/routing/StagedRoutePanel.tsx` (Task 8): in `StagedRoutePanelView`, Task 8 renders
+     The OpenRouter tab and the custom tab render `OpenAICompatiblePanel`, which Task 9 wires.
+   - `src/components/EnterpriseProviderConfig.tsx` (Task 9's whole-file version, Step 5a): add a line under each of its five `apiKey` lines.
+
+     | Existing `apiKey` prop | Added line |
+     |---|---|
+     | `apiKey={settings.bedrockAccessKeyId}` | `credentialId="bedrock"` |
+     | `apiKey={settings.bedrockSecretAccessKey}` | `credentialId="bedrock"` |
+     | `apiKey={settings.bedrockSessionToken}` | `credentialId="bedrock"` |
+     | `apiKey={settings.azureApiKey}` | `credentialId="azure"` |
+     | `apiKey={settings.vertexApiKey}` | `credentialId="vertex"` |
+
+     The three Bedrock fields are one credential: any of their Remove buttons removes the access key id, the secret and the session token together, and Undo restores all three. There is no per-field Remove. A non-secret Bedrock profile is not touched, so Bedrock can stay present through its profile (`credentialAuthority` presence rule, Task 2).
+   - `src/components/settings/routing/StagedRoutePanel.tsx` (Task 8): in `StagedRoutePanelView`, add one line so every staged key field has its slot. For Corti speech's client pair this is whole-credential removal.
 
      ```tsx
          {credential?.inputs.map((input) => (
            <ApiKeyInput
              key={input.storeKey}
              apiKey={input.value}
+             credentialId={credential.credentialId}
              setApiKey={input.save}
              label={input.label}
            />
          ))}
      ```
-
-     Add one line so a single-field credential gets the undoable Remove, while Corti speech's client pair and Bedrock's fields keep the plain Remove (the same rule as the editors above):
-
-     ```tsx
-         {credential?.inputs.map((input) => (
-           <ApiKeyInput
-             key={input.storeKey}
-             apiKey={input.value}
-             credentialId={credential.inputs.length === 1 ? credential.credentialId : undefined}
-             setApiKey={input.save}
-             label={input.label}
-           />
-         ))}
-     ```
-   - `src/components/OpenAICompatiblePanel.tsx` is unchanged.
 
 4. Create `src/components/settings/routing/KeyringPanel.tsx`:
 
@@ -19017,13 +24052,7 @@ Expected: FAIL.
    import { useCallback, useEffect, useMemo, useRef, useState } from "react";
    import { useTranslation } from "react-i18next";
    import { providerDisplayLabel } from "../../../lib/locality";
-   import {
-     routeSnapshotFromSettings,
-     useResolvedRoutes,
-     type CredentialId,
-     type ResolvedRoute,
-     type RouteId,
-   } from "../../../lib/routes";
+   import { useResolvedRoutes, type CredentialId, type ResolvedRoute, type RouteId } from "../../../lib/routes";
    import { getSealed, useSealedStore } from "../../../stores/sealedStore";
    import { flushSecretSaves, useSettingsStore } from "../../../stores/settingsStore";
    import type {
@@ -19033,6 +24062,7 @@ Expected: FAIL.
      KeyringIdentity,
      KeyringVerifyOptions,
      KeyringVerifyOutcome,
+     VerifyTargetDescription,
    } from "../../../types/electron";
    import { formatRelativeTime } from "../../../utils/dateFormatting";
    import { Loader2 } from "../../icons";
@@ -19060,14 +24090,19 @@ Expected: FAIL.
      return provider;
    }
 
-   // Host convention from Tasks 1/3: providerHosts.corti is the region-bound
-   // speech host; Corti text always calls providerHosts["corti:text"].
-   export function credentialHost(
-     entry: Pick<KeyringEntry, "id">,
-     hosts: Readonly<Record<string, string>>
-   ): string | null {
-     const key = entry.id === "corti:speech" ? "corti" : entry.id;
-     return Object.hasOwn(hosts, key) ? hosts[key] : null;
+   // R2-6: what Verify sends and to whom, exactly as main's describeVerify
+   // computed it from the request's own config (Task 11). Never derived from
+   // inference-route hosts: Corti speech verifies at auth.<region>.corti.app,
+   // not at its speech API host.
+   export function verifyTargetText(
+     disclosure: VerifyTargetDescription | null,
+     t: Tr
+   ): { host: string | null; fields: string } {
+     const hosts = disclosure?.hosts ?? [];
+     return {
+       host: hosts.length > 0 ? hosts.join(", ") : null,
+       fields: (disclosure?.fields ?? []).map((field) => t(`keyring.fields.${field}`)).join(", "),
+     };
    }
 
    // Task 11's testConfigFor reads options only for Corti speech (the auth
@@ -19124,7 +24159,7 @@ Expected: FAIL.
    // Task 11's KeyringAPI; onChanged is optional so the browser preview and
    // tests can omit it.
    export type KeyringApi = Pick<KeyringAPI, "list" | "verify" | "setReminder"> &
-     Partial<Pick<KeyringAPI, "onChanged">>;
+     Partial<Pick<KeyringAPI, "onChanged" | "describeVerify">>;
 
    export type KeyringNotice =
      | { kind: "superseded" }
@@ -19138,6 +24173,7 @@ Expected: FAIL.
      checking: KeyringIdentity | null;
      progress: { current: number; total: number } | null;
      notices: Partial<Record<KeyringIdentity, KeyringNotice>>;
+     disclosures: Partial<Record<KeyringIdentity, VerifyTargetDescription>>;
      verify: (id: KeyringIdentity) => Promise<void>;
      verifyAll: () => Promise<void>;
      setReminder: (id: KeyringIdentity, enabled: boolean) => Promise<void>;
@@ -19148,12 +24184,20 @@ Expected: FAIL.
      flush: () => Promise<void>;
      getSealed: () => boolean;
      verifyOptions?: (id: KeyringIdentity) => KeyringVerifyOptions | undefined;
+     /** Changes whenever a setting verifyOptions reads changes (Corti region/tenant). */
+     optionsKey?: string;
+     /** Main's credentials-changed subscription (Task 2). */
+     onCredentialsChanged?: (callback: () => void) => () => void;
    }): KeyringController {
      const [entries, setEntries] = useState<KeyringEntry[]>([]);
      const [loadError, setLoadError] = useState(false);
      const [checking, setChecking] = useState<KeyringIdentity | null>(null);
      const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
      const [notices, setNotices] = useState<Partial<Record<KeyringIdentity, KeyringNotice>>>({});
+     const [disclosures, setDisclosures] = useState<
+       Partial<Record<KeyringIdentity, VerifyTargetDescription>>
+     >({});
+     const describeSeq = useRef(0);
      const live = useRef(deps);
      live.current = deps;
      const entriesRef = useRef<KeyringEntry[]>([]);
@@ -19189,6 +24233,37 @@ Expected: FAIL.
          unsubscribe?.();
        };
      }, [api, refresh]);
+
+     // R2-6: ask main who each row's Verify would reach, with the same options
+     // verify() will send. Re-run on every list refresh (keyring-changed), on
+     // credentials-changed and when an option changes; the latest answer wins.
+     const describeAll = useCallback(async () => {
+       const current = live.current.api;
+       if (!current?.describeVerify) return;
+       const seq = ++describeSeq.current;
+       const pairs = await Promise.all(
+         entriesRef.current.map(async (entry) => {
+           try {
+             return [entry.id, await current.describeVerify!(entry.id, live.current.verifyOptions?.(entry.id))] as const;
+           } catch {
+             return [entry.id, null] as const;
+           }
+         })
+       );
+       if (!alive.current || seq !== describeSeq.current) return;
+       setDisclosures(
+         Object.fromEntries(pairs.filter(([, disclosure]) => disclosure !== null)) as Partial<
+           Record<KeyringIdentity, VerifyTargetDescription>
+         >
+       );
+     }, []);
+
+     useEffect(() => {
+       void describeAll();
+     }, [entries, deps.optionsKey, describeAll]);
+
+     const onCredentialsChanged = deps.onCredentialsChanged;
+     useEffect(() => onCredentialsChanged?.(() => void describeAll()), [onCredentialsChanged, describeAll]);
 
      const setNotice = (id: KeyringIdentity, notice: KeyringNotice | null) =>
        setNotices((current) => {
@@ -19268,7 +24343,7 @@ Expected: FAIL.
        }
      };
 
-     return { entries, loadError, checking, progress, notices, verify, verifyAll, setReminder };
+     return { entries, loadError, checking, progress, notices, disclosures, verify, verifyAll, setReminder };
    }
 
    // ---- view -------------------------------------------------------------
@@ -19277,7 +24352,7 @@ Expected: FAIL.
      entries: KeyringEntry[];
      paused: Partial<Record<CredentialId, string[]>>; // translated task names
      notices: Partial<Record<KeyringIdentity, KeyringNotice>>;
-     hostOf: (entry: KeyringEntry) => string | null;
+     disclosureOf: (entry: KeyringEntry) => VerifyTargetDescription | null;
      checking: KeyringIdentity | null;
      progress: { current: number; total: number } | null;
      sealed: boolean;
@@ -19317,7 +24392,8 @@ Expected: FAIL.
            <ul>
              {props.entries.map((entry) => {
                const identity = keyringIdentityLabel(entry, t);
-               const host = props.hostOf(entry);
+               const target = verifyTargetText(props.disclosureOf(entry), t);
+               const host = target.host;
                const isChecking = props.checking === entry.id;
                const notice = props.notices[entry.id];
                const line = keyringStatusLine(entry, props.paused[entry.id] ?? [], t, i18n.language, host);
@@ -19344,6 +24420,11 @@ Expected: FAIL.
                      <p className={`text-xs ${line.tone === "error" ? "text-destructive" : "text-muted-foreground"}`}>
                        {isChecking ? t("keyring.checking") : line.text}
                      </p>
+                     <p data-verify-target={host ?? ""} className="text-xs text-muted-foreground">
+                       {host
+                         ? t("keyring.verifyTarget", { host, fields: target.fields })
+                         : t("keyring.verifyTargetUnknown")}
+                     </p>
                      {notice && (
                        <p role="status" className="text-xs text-muted-foreground">
                          {notice.kind === "superseded"
@@ -19368,7 +24449,7 @@ Expected: FAIL.
                        aria-label={t("keyring.verifyLabel", { identity })}
                        title={
                          host
-                           ? t("keyring.verifyTooltip", { identity, host })
+                           ? t("keyring.verifyTooltip", { identity, host, fields: target.fields })
                            : t("keyring.verifyTooltipNoHost", { identity })
                        }
                      >
@@ -19396,17 +24477,20 @@ Expected: FAIL.
      const { t } = useTranslation();
      const routes = useResolvedRoutes();
      const sealed = useSealedStore((s) => s.sealed);
-     const providerHosts = useMemo(
-       () => routeSnapshotFromSettings(useSettingsStore.getState()).capabilities.providerHosts,
-       []
-     );
+     // R2-6: Corti speech's verification host depends on these, so a change
+     // re-asks main (never a host map frozen at mount).
+     const cortiEnvironment = useSettingsStore((s) => s.cortiEnvironment);
+     const cortiTenant = useSettingsStore((s) => s.cortiTenant);
      const controller = useKeyringController({
        api: window.electronAPI?.keyring as KeyringApi | undefined,
        flush: flushSecretSaves,
        getSealed,
        // Read-only: the keyring never writes provider/model/endpoint or Corti
-       // region fields; those change only through the route planner.
+       // region fields; those change only through the route planner. The same
+       // options go to describeVerify and to verify.
        verifyOptions: (id) => keyringVerifyOptions(id, useSettingsStore.getState()),
+       optionsKey: `${cortiEnvironment}|${cortiTenant}`,
+       onCredentialsChanged: window.electronAPI?.credentials?.onChanged,
      });
      const paused = useMemo(() => {
        const byCredential = pausedTasksByCredential(routes);
@@ -19419,7 +24503,7 @@ Expected: FAIL.
          entries={controller.entries}
          paused={paused}
          notices={controller.notices}
-         hostOf={(entry) => credentialHost(entry, providerHosts)}
+         disclosureOf={(entry) => controller.disclosures[entry.id] ?? null}
          checking={controller.checking}
          progress={controller.progress}
          sealed={sealed}
@@ -19459,7 +24543,10 @@ Expected: FAIL.
    ```json
    {
      "apiKeyInput": {
-       "removed": "Removed",
+       "removed": "Key removed.",
+       "removedCredential": "Credential removed (all of its fields).",
+       "removeCredential": "Remove credential (all fields)",
+       "restored": "Key restored.",
        "undo": "Undo",
        "undoLabel": "Undo removing the key",
        "undoExpired": "Too late to undo. Add the key again.",
@@ -19474,7 +24561,18 @@ Expected: FAIL.
        "verifyLabel": "Verify {{identity}}",
        "verifyAll": "Verify all",
        "verifyingAll": "Verifying {{current}} of {{total}}…",
-       "verifyTooltip": "Sends the saved credential “{{identity}}” to {{host}} to check it.",
+       "verifyTooltip": "Sends the saved {{fields}} of “{{identity}}” to {{host}} to check it.",
+       "verifyTarget": "Verify sends {{fields}} to {{host}}",
+       "verifyTargetUnknown": "Verify target not known yet",
+       "fields": {
+         "key": "API key",
+         "clientId": "client ID",
+         "clientSecret": "client secret",
+         "accessKeyId": "access key ID",
+         "secretAccessKey": "secret access key",
+         "sessionToken": "session token",
+         "profile": "AWS profile credentials"
+       },
        "verifyTooltipNoHost": "Sends the saved credential “{{identity}}” to its provider to check it.",
        "verifyAllTooltip": "Sends each saved credential below to its own provider, one at a time.",
        "checking": "Checking…",
@@ -19509,7 +24607,7 @@ Expected: FAIL.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/components/apiKeyInputRemoval.test.js test/components/keyringPanel.test.js test/components/personalWorkspace.test.js test/components/patchbay.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Run: `npm test -- test/components/apiKeyInputRemoval.test.js test/components/keyringPanel.test.js test/components/personalWorkspace.test.js test/components/patchbay.test.js test/components/routePickers.test.js test/components/endpointDiscovery.test.js && npm run typecheck && npm run lint && npm run i18n:check`
 Expected: PASS. `personalWorkspace.test.js` (its existing `ApiKeyInput` test and Task 2's two save tests) and `patchbay.test.js` (Task 10's file; run here, not created) are **baseline guards**: Task 2's save behaviour and Task 10's Routing page must be unchanged apart from the save-button finder edited in Step 3.2h.
 
 Then check manually against card R5 C (`05-settings.html:1351-1359`):
@@ -19517,15 +24615,19 @@ Then check manually against card R5 C (`05-settings.html:1351-1359`):
 - Verify all walks through the rows one by one; turning sealed mode on mid-run stops it.
 - With only a Corti text key saved, the Keyring shows one Corti row, "Corti · text API key"; add the client pair and a second row, "Corti · speech client ID and secret", appears. Rejecting one does not mark the other.
 - With the Corti region set to EU in Speech settings, Verify on the speech row checks against Corti's EU authentication server for the configured tenant; the Keyring itself never changes the region.
-- In the OpenAI key editor, press Remove: the field returns to "Add" and "Removed · Undo" appears. Undo inside 8 seconds brings the key back (the field reads "Key configured" again with no retyping). Wait 9 seconds and the notice disappears with no Undo left. Remove, then save a different key: the notice disappears at once.
+- In the OpenAI key editor, press Remove: the field returns to "Add" and a "Key removed." toast with **Undo** appears. Undo inside 8 seconds brings the key back (the field reads "Key configured" again with no retyping). Wait 9 seconds and the toast is gone. Remove, switch to another provider tab, then press the toast's Undo: the key comes back. Remove, save a different key, then Undo: "A newer key was saved…".
+- Remove the OpenRouter key and a custom endpoint key: both offer the same toast Undo. In Speech settings, Remove on either Corti client field reads "Remove credential (all fields)", clears both, and one Undo restores both. The same applies to the Bedrock fields.
+- With the Corti region on EU, the speech row reads "Verify sends client ID, client secret to auth.eu.corti.app". Switch the region to US with the Keyring open: it reads `auth.us.corti.app`, and Verify goes there.
 - Toggling "Remind in 90 days" survives an app restart.
 - Open the app's network log while browsing the Keyring and the provider tabs: no request is made until a Verify button is pressed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
+npx prettier --write src/components/ui/useUndoableRemoval.ts src/components/ui/ApiKeyInput.tsx src/components/TranscriptionModelPicker.tsx src/components/ReasoningModelSelector.tsx src/components/EnterpriseProviderConfig.tsx src/components/settings/routing/KeyringPanel.tsx src/components/settings/routing/RoutingSection.tsx src/components/settings/routing/StagedRoutePanel.tsx test/components/apiKeyInputRemoval.test.js test/components/keyringPanel.test.js test/components/personalWorkspace.test.js
 git add src/components/ui/useUndoableRemoval.ts src/components/ui/ApiKeyInput.tsx src/components/TranscriptionModelPicker.tsx src/components/ReasoningModelSelector.tsx src/components/EnterpriseProviderConfig.tsx src/components/settings/routing/KeyringPanel.tsx src/components/settings/routing/RoutingSection.tsx src/components/settings/routing/StagedRoutePanel.tsx src/locales test/components/apiKeyInputRemoval.test.js test/components/keyringPanel.test.js test/components/personalWorkspace.test.js
-git commit -m "feat(keyring): Keyring panel and undoable key removal"
+git commit -m "feat(keyring): Keyring panel with disclosed verify targets and undoable key removal" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -21205,14 +26307,15 @@ Then check manually against card R4 B (`05-settings.html:1086-1097`), in light, 
 
 ```bash
 git add src/components/ui/rovingNav.ts src/components/ui/cartridgeMath.ts src/components/ui/ModelCartridgeGrid.tsx src/hooks/useTotalMemory.ts src/utils/localProviders.ts src/models/ModelRegistry.ts src/components/ReasoningModelSelector.tsx src/components/LocalModelPicker.tsx src/components/TranscriptionModelPicker.tsx src/helpers/ipcHandlers.js preload.js src/types/electron.ts src/locales test/components/rovingNav.test.js test/components/cartridgeMath.test.js test/components/modelCartridgeGrid.test.js test/components/cartridgeContrast.test.js test/components/cartridgeWiring.test.js test/hooks/useTotalMemory.test.js test/utils/localProviders.test.js
-git commit -m "feat(settings): Cartridge model cards with radio semantics"
+git commit -m "feat(settings): Cartridge model cards with radio semantics" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ### Task 14: Storage list with main-owned counts and typed outcomes (SET-R7 A)
 
-Closes **C2** (history and audio confirmations count exactly what is deleted, because main owns one predicate per deletion and refuses a delete whose set changed after review), **I12** (typed `{ ok, deleted, remaining, errors }` outcomes from main; unreadable counts are errors, never zero; the dialog keeps the reviewed snapshot while it runs; success is never inferred from a recount; reset checks `cleanupApp()`'s `success` and keeps its errors visible; main's reset keeps Task 2's `this.credentials.reset()` call), **I13** for Storage (destructive outline triggers sit on and hover to `bg-background`, never `#f5f5f5`) and **M4** (the partial-failure check is an automated test with a main fake returning a partial result; there is no manual `tail -f` step).
+Closes **C2** (history and audio confirmations count exactly what is deleted, because main owns one predicate per deletion and refuses a delete whose set changed after review), **I12** (typed `{ ok, deleted, remaining, errors }` outcomes from main; unreadable counts are errors, never zero; the dialog keeps the reviewed snapshot while it runs; success is never inferred from a recount; reset checks `cleanupApp()`'s `success` and keeps its errors visible; main's reset leaves Task 2's reset-barrier call `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())` untouched and adds no second reset), **I13** for Storage (destructive outline triggers sit on and hover to `bg-background`, never `#f5f5f5`) and **M4** (the partial-failure check is an automated test with a main fake returning a partial result; there is no manual `tail -f` step).
 
 Privacy & Data gains one **Storage** list:
 
@@ -21231,7 +26334,7 @@ What changes from v1 (old Task 11), and why:
 - v1 counted visible transcripts (`deleted_at IS NULL AND status != 'discarded'`) but deleted every row and every recording (C2). v2 moves the count and the delete into `src/helpers/storageOps.js` in main, uses the same predicate for both, checks the reviewed counts inside the delete transaction and rolls back if `clearTranscriptions` ever removes a different number of rows than the count.
 - v1 decided success from a recount that turned unreadable state into zero and ignored resolved failure results (I12). Plan 02 (spec §5.6, its Task 19) already fixed the base for the single "Clear All Audio" row: `getStorageUsage()` returns `{ fileCount, totalBytes, readable }`, `deleteAllAudio()` returns `{ deleted, failed, readable }`, main has `remainingAudioIds()` and `clearFlagsForDeletedAudio()` (`src/helpers/audioFlagReconcile.js`), and the renderer has `resolveClearAudioOutcome` (`src/utils/audioDeletion.ts`) and `useAudioStorageUsage`. v2 builds on that contract instead of a parallel one: the new `listStoredAudio()` is the by-name form of `getStorageUsage()` with the same `readable` flag (it never throws; `getStorageUsage()` is derived from it, so Plan 02's shape and tests are unchanged), `storageOps` maps `readable: false` to a typed `count-failed`/`recount-failed` error, flag reconciliation is Plan 02's `clearFlagsForDeletedAudio`, every audio result carries Plan 02's `failed` and `readable`, the Storage list's audio row takes its count, bytes and unavailable state from Plan 02's `useAudioStorageUsage` hook (unchanged), and the renderer grants audio success only when `resolveClearAudioOutcome` says `"cleared"` (plus `ok`, no errors and `remaining === 0`). An unreadable zero is never shown as "cleared".
 - v1's dialog read live row state, so a retry lost the reviewed count. v2 stores the snapshot in the dialog state; row refreshes never touch it.
-- v1's reset toasted success after any resolved `cleanupApp()` and relaunched, although main returns `{ success: false, errors }` instead of throwing (`src/helpers/ipcHandlers.js:3277-3281`). v2 keeps the reset dialog open with the errors and never relaunches on failure. Main's reset also stopped swallowing per-file audio failures (`deleteAllAudio` catches each unlink at `src/helpers/audioStorage.js:171-179`, so its `try` at `ipcHandlers.js:3164-3168` never fired). The credential reset in `cleanup-app` is Task 2's (`this.credentials.reset();`, added after the `clearAllPersistedData` try/catch); this task leaves it in place.
+- v1's reset toasted success after any resolved `cleanupApp()` and relaunched, although main returns `{ success: false, errors }` instead of throwing (`src/helpers/ipcHandlers.js:3277-3281`). v2 keeps the reset dialog open with the errors and never relaunches on failure. Main's reset also stopped swallowing per-file audio failures (`deleteAllAudio` catches each unlink at `src/helpers/audioStorage.js:171-179`, so its `try` at `ipcHandlers.js:3164-3168` never fired). The credential reset in `cleanup-app` is Task 2's reset barrier (`await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());`, which replaced the `clearAllPersistedData` try/catch body, R2-2); this task leaves that call untouched and must not add another reset.
 - v1's triggers used the outline variant, which hovers to `bg-muted` (`src/components/ui/button.tsx:49-59`), where `--color-destructive` `#dc2626` is 4.43:1 (I13). v2's `DESTRUCTIVE_OUTLINE` keeps them on `bg-background` (4.83:1).
 - Model deletion stays renderer-orchestrated (three existing family IPCs), but each family returns a typed outcome, success needs every family's `success === true` and a recount of zero, and local selections are cleared only when the recount proves every model file is gone.
 
@@ -21246,7 +26349,7 @@ Model-cache clearing and reset move here from System. Plan 02's one-click "Clear
   - require `createStorageOps` next to the `./windowBroadcast` require (`:11`);
   - construct `this.storageOps` after `this.audioStorageManager = new AudioStorageManager();` (`:316`);
   - register `storage-preview`, `storage-delete-audio`, `storage-delete-history` after the `get-audio-storage-usage` handler (`:1378-1380`);
-  - in `cleanup-app` (`:3094`), replace the audio block (`:3163-3168`, anchor `// Delete audio files`) so it reads Plan 02's `deleteAllAudio()` result (`readable`, `failed`) instead of ignoring it. Do not add a credential reset: Task 2 already put `this.credentials.reset();` after the `clearAllPersistedData` try/catch, and this task does not touch that part of the handler.
+  - in `cleanup-app` (`:3094`), replace the audio block (`:3163-3168`, anchor `// Delete audio files`) so it reads Plan 02's `deleteAllAudio()` result (`readable`, `failed`) instead of ignoring it. Do not add a credential reset: Task 2 already replaced the `clearAllPersistedData` try/catch body with the reset barrier `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());`, and this task does not touch that part of the handler. A second `this.credentials.reset()` call would erase outside the barrier's ordering and is wrong.
   - leave Plan 02's `delete-all-audio` handler (it calls `clearFlagsForDeletedAudio`) and `get-audio-storage-usage` as they are.
 - Modify: `preload.js`: add a `storage` object after `deleteAllAudio` (`:192`).
 - Modify: `src/types/electron.ts`: export the storage result types after `AnalyticsSummary` (`:137-147`); add `storage?` after `deleteAllAudio` (`:858`).
@@ -21264,7 +26367,7 @@ Model-cache clearing and reset move here from System. Plan 02's one-click "Clear
 
 **Interfaces:**
 - Consumes:
-  - Task 2: the credential authority instance on `IPCHandlers` is `this.credentials` (Task 2 Step 3, constructed before `this.setupHandlers();`), and Task 2 already calls `this.credentials.reset();` in `cleanup-app` directly after the `clearAllPersistedData` try/catch, asserted by `test/helpers/credentialIpc.test.js` (`/this\.credentials\.reset\(\)/`). This task keeps that line untouched; its appended contract test re-checks it as a baseline guard.
+  - Task 2: the credential authority instance on `IPCHandlers` is `this.credentials` (Task 2 Step 3, constructed before `this.setupHandlers();`), and Task 2 already replaced `cleanup-app`'s `clearAllPersistedData` try/catch body with the reset barrier `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());`, asserted by `test/helpers/credentialIpc.test.js` (`/await this\.credentials\.reset\(\(\) => this\.environmentManager\?\.clearAllPersistedData\(\)\)/`). This task leaves that call untouched and adds no other reset; its appended contract test re-checks the barrier form, and that it is the handler's only `this.credentials.reset(` call, as a baseline guard.
   - Task 3: `withI18nMock` (`test/lib/i18nTestMock.js`); the route facts store refreshes on `openwhispr-models-cleared` (Appendix A "Facts store"), so this task dispatches that event instead of importing the store.
   - Task 4: `formatDecimalBytes(bytes, decimals = 1)` in `src/utils/formatBytes.ts` (1000-based, at most one decimal with trailing zeros dropped: `1_200_000_000` → "1.2 GB", `9_800_000_000` → "9.8 GB", `1_329_766_560` → "1.3 GB"; `0`, negative or non-finite → "0 MB"). Empty rows never call it (they show `storage.<kind>.empty`); a history confirm with transcripts but no recordings reads "0 audio files (0 MB)".
   - Plan 01: `test/helpers/harness/cssTokens.js` `resolveTokens`, `src/utils/contrast.ts` `contrastRatio`.
@@ -21675,17 +26778,29 @@ test("device reset reports audio erase failures from Plan 02's result", () => {
   assert.match(source, /audioErase\.failed > 0/);
 });
 
-// baseline guard (Task 2 added the call): rewriting the audio block keeps the credential reset.
+// baseline guard (Task 2 added the call): rewriting the audio block keeps the credential
+// reset barrier (R2-2), and no second, unfenced reset or bare erase is added.
 test("device reset still retires every credential token", () => {
   assert.ok(cleanupHandler, "cleanup-app handler is present");
-  assert.ok(cleanupHandler[1].includes("this.credentials.reset()"));
+  const source = cleanupHandler[1];
+  assert.match(
+    source,
+    /await this\.credentials\.reset\(\(\) => this\.environmentManager\?\.clearAllPersistedData\(\)\)/,
+    "the erase runs inside Task 2's reset barrier"
+  );
+  assert.equal((source.match(/this\.credentials\.reset\(/g) || []).length, 1, "exactly one credential reset");
+  assert.equal(
+    (source.match(/clearAllPersistedData\(/g) || []).length,
+    1,
+    "the barrier's erase is the only clearAllPersistedData call"
+  );
 });
 ```
 
 - [ ] **Step 2: Run the main tests to verify they fail**
 
 Run: `npm run native:node && npm test -- test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js`
-Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device reset reports audio erase failures from Plan 02's result" fails on `const audioErase`. "device reset still retires every credential token" passes (baseline guard; Task 2's line is already there).
+Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device reset reports audio erase failures from Plan 02's result" fails on `const audioErase`. "device reset still retires every credential token" passes (baseline guard; Task 2's reset-barrier call is already there, and it is the handler's only `this.credentials.reset(` and only `clearAllPersistedData(` call).
 
 - [ ] **Step 3: Implement main**
 
@@ -21994,7 +27109,7 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
              errors.push(`Audio delete: ${audioErase.failed} file(s) could not be deleted`);
      ```
 
-   - Leave the rest of `cleanup-app` as Task 2 left it, in particular `this.credentials.reset();` directly after the `clearAllPersistedData` try/catch (the `// Delete device-wide settings and encrypted credentials.` block). Task 2's `credentialIpc.test.js` and this task's baseline guard both check it.
+   - Leave the rest of `cleanup-app` as Task 2 left it, in particular Task 2's reset barrier `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData());` inside the `// Delete device-wide settings and encrypted credentials inside the credential authority's reset barrier (R2-2)` try/catch. Do not add another `this.credentials.reset()` call or a bare `clearAllPersistedData()`. Task 2's `credentialIpc.test.js` and this task's baseline guard both check it.
    - Leave `db-clear-transcriptions` (`:1287-1298`) and Plan 02's `delete-all-audio` (`:1400-1416`; it already reconciles flags through `clearFlagsForDeletedAudio`) as they are. Their callers (ControlPanel's "Clear All Transcriptions", which says "All transcriptions, audio files, and Insights counters", `src/locales/en/translation.json:660-661`) do not show counts.
 
 4. `preload.js`, after `deleteAllAudio: () => ipcRenderer.invoke("delete-all-audio"),` (`:192`):
@@ -22026,7 +27141,7 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
 - [ ] **Step 4: Run the main tests to verify they pass**
 
 Run: `npm test -- test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js test/helpers/audioStorageClear.test.js test/helpers/credentialIpc.test.js test/helpers/audioStorageTraversal.test.js test/helpers/personalIpcContract.test.js test/helpers/analyticsDatabase.test.js test/helpers/personalDatabase.test.js`
-Expected: PASS. (`audioStorageClear` (Plan 02, spec §5.6) proves `getStorageUsage`, `deleteAllAudio`, `remainingAudioIds` and `clearFlagsForDeletedAudio` kept their contract; `credentialIpc` (Task 2), `audioStorageTraversal`, `personalIpcContract`, `analyticsDatabase` and `personalDatabase` are baseline guards for the touched modules; `credentialIpc` proves the `cleanup-app` edit kept `this.credentials.reset()`.) If `createDb` reports the native binding missing, run `npm run native:node` first; never skip these tests.
+Expected: PASS. (`audioStorageClear` (Plan 02, spec §5.6) proves `getStorageUsage`, `deleteAllAudio`, `remainingAudioIds` and `clearFlagsForDeletedAudio` kept their contract; `credentialIpc` (Task 2), `audioStorageTraversal`, `personalIpcContract`, `analyticsDatabase` and `personalDatabase` are baseline guards for the touched modules; `credentialIpc` proves the `cleanup-app` edit kept Task 2's barrier call `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())`.) If `createDb` reports the native binding missing, run `npm run native:node` first; never skip these tests.
 
 - [ ] **Step 5: Commit**
 
@@ -22034,7 +27149,8 @@ Expected: PASS. (`audioStorageClear` (Plan 02, spec §5.6) proves `getStorageUsa
 npx prettier --write src/helpers/storageOps.js src/helpers/audioStorage.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js
 npm run lint
 git add src/helpers/storageOps.js src/helpers/audioStorage.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js
-git commit -m "feat(storage): Count and delete storage in main with one predicate each"
+git commit -m "feat(storage): Count and delete storage in main with one predicate each" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 #### Part B: the Storage list in Settings
@@ -23835,7 +28951,8 @@ There is no manual partial-failure step (M4): the partial cases are pinned by `s
 npx prettier --write src/components/settings/storageMath.ts src/components/settings/StorageList.tsx src/components/SettingsPage.tsx test/components/storageMath.test.js test/components/storageList.test.js test/components/clearAllAudio.test.js
 npm run lint
 git add src/components/settings/storageMath.ts src/components/settings/StorageList.tsx src/components/SettingsPage.tsx src/locales test/components/storageMath.test.js test/components/storageList.test.js test/components/clearAllAudio.test.js
-git commit -m "feat(settings): Storage list with counted confirms and typed outcomes"
+git commit -m "feat(settings): Storage list with counted confirms and typed outcomes" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -24528,7 +29645,8 @@ Then check by eye with `npm run dev`, at 1280px and at 760px, in `en`, `de` (lon
 
 ```bash
 git add src/components/ui/SettingsNav.tsx src/components/ui/SettingsTitleBar.tsx src/components/ui/SidebarModal.tsx src/components/ui/SettingsSection.tsx src/components/SettingsPage.tsx src/components/settings/routing/RoutingSection.tsx src/locales test/components/settingsNav.test.js test/components/settingsRehoming.test.js test/components/settingsNavigation.test.js
-git commit -m "feat(settings): Re-home dictation settings, show nav descriptions, sticky title"
+git commit -m "feat(settings): Re-home dictation settings, show nav descriptions, sticky title" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -26260,7 +31378,8 @@ Then check by eye in `npm run dev`, light and Plum Night, against card R2 A (`05
 
 ```bash
 git add src/components/settings/settingsRegistry.ts src/components/settings/settingsSearchKeys.ts src/components/settings/settingFlash.ts src/components/settings/useSettingsSearch.ts src/components/settings/SettingsSearchResults.tsx src/components/settings/SettingsSearchField.tsx src/components/ui/SettingsSection.tsx src/components/ui/SidebarModal.tsx src/components/SettingsModal.tsx src/components/SettingsPage.tsx src/components/settings src/components/DeveloperSection.tsx src/index.css src/locales test/components/settingsRegistry.test.js test/components/settingsSearchKeys.test.js test/components/settingFlash.test.js test/components/useSettingsSearch.test.js test/components/settingsSearchResults.test.js test/components/settingsModalPaths.test.js
-git commit -m "feat(settings): Search settings with live controls"
+git commit -m "feat(settings): Search settings with live controls" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -26454,6 +31573,20 @@ test("dictionary actions have visible words and auto-learn is inline", async (t)
     const toggle = findAll(tree, (n) => n.props?.["aria-label"] === "settingsPage.dictionary.autoLearnTitle" && n.props.onChange)[0];
     await React.act(async () => toggle.props.onChange(false));
     assert.deepEqual(calls, ["import", "export", "clear", "autoLearn:false"]);
+  });
+
+  await t.test("[source guard] every transition uses a shared --motion token (M3, R2-10)", () => {
+    // Plan 01's index.css does not remap Tailwind's default transition duration (150ms) to a token,
+    // so a bare `transition-*` class bypasses §4's shared motion tokens.
+    const source = require("node:fs").readFileSync(
+      require("node:path").join(__dirname, "../../src/components/DictionaryHeaderActions.tsx"),
+      "utf8"
+    );
+    const transitions = source.match(/\btransition(?:-[a-z]+)?\b/g) ?? [];
+    assert.ok(transitions.length > 0);
+    const tokened = source.match(/duration-\[var\(--motion-(?:fast|base)\)\]/g) ?? [];
+    assert.equal(tokened.length, transitions.length, "each transition carries a --motion duration");
+    assert.doesNotMatch(source, /\bduration-\d+\b/);
   });
 });
 ```
@@ -26730,7 +31863,7 @@ Expected: FAIL. The new modules are missing, the copy still says "Fully private"
    }) {
      const { t } = useTranslation();
      const action =
-       "inline-flex items-center gap-1 rounded-sm text-xs text-foreground/60 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+       "inline-flex items-center gap-1 rounded-sm text-xs text-foreground/60 outline-none transition-colors duration-[var(--motion-fast)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
      return (
        <div className="flex flex-wrap items-center gap-3">
          <label className="inline-flex items-center gap-2 text-xs text-foreground/60">
@@ -26752,7 +31885,7 @@ Expected: FAIL. The new modules are missing, the copy still says "Fully private"
          <button
            type="button"
            onClick={props.onClearAll}
-           className="rounded-sm text-xs text-foreground/60 outline-none transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
+           className="rounded-sm text-xs text-foreground/60 outline-none transition-colors duration-[var(--motion-fast)] hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
          >
            {t("dictionary.clearAll")}
          </button>
@@ -26828,7 +31961,8 @@ Then check by eye in `npm run dev` (`en` and `de`): Settings → Language Models
 
 ```bash
 git add src/components/settings/screenContextCopy.ts src/components/settings/DictationAgentSettings.tsx src/helpers/localASROrganization.ts src/components/TranscriptionModelPicker.tsx src/components/DictionaryHeaderActions.tsx src/components/DictionaryView.tsx src/hooks/useAutoLearnCorrections.ts src/hooks/useSettings.ts src/components/SettingsPage.tsx src/locales test/components/screenContextCopy.test.js test/components/dictionaryHeaderActions.test.js test/components/honestCopy.test.js test/hooks/useAutoLearnCorrections.test.js test/components/settingsCopy.test.js
-git commit -m "fix(settings): Name destinations, label actions and soften privacy claims"
+git commit -m "fix(settings): Name destinations, label actions and soften privacy claims" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -26836,6 +31970,21 @@ git commit -m "fix(settings): Name destinations, label actions and soften privac
 ### Task 18: DESIGN.md, guards and whole-plan verification
 
 Closes I13 (guards for every changed Settings component, including inherited Button hover surfaces), M1 (hard preflight), M4 (no manual `tail -f`; the partial-delete check is Task 14's test), M5 (baseline guards and change-driving tests are labelled, and a command finds unlabelled ones) and the tracked spec §5.1 update. It also hardens **I1**: a repo-wide source guard fails if any file outside the planner, the store and an explicit allowlist references a route-affecting setter or writes `personalWebSearch:`. And it extends the **C1/I2** network guard to `codexRateLimits`/`codexModels` and to the mount path of Settings' Codex views (`CodexConnection`, `CodexModelPicker`). It also hands the finished contract to Plan 07.
+
+Round 2 adds the repo-wide nets for the round-2 fixes, in the same two guard files:
+- **R2-1 (enterprise recipients).** `routeWriteGuard.test.js` lists the four enterprise route setters (`setBedrockRegion`, `setAzureEndpoint`, `setVertexProject`, `setVertexLocation`). Only `settingsStore.ts` (Task 6's `applyRoutePatch`) sends those fields to main. `adjustBedrockModelForRegion` runs only inside the planner (`providerSwitchPlans.ts`, `routePlanner.ts`). Task 3's startup sync from main never writes main back. `routeFactsNoNetwork.test.js` checks that Task 1's `enterpriseRouteFacts.js` is import-free and returns hosts and booleans only. It also checks that only `routeFactsStore.ts` reads main's enterprise getters.
+- **R2-2 and R2-5 (credential writes).** `routeWriteGuard.test.js` checks three things:
+  - `ApiKeyInput` has no empty-save Remove;
+  - every `<ApiKeyInput` passes `credentialId=`;
+  - `cleanup-app` erases credentials only inside `this.credentials.reset(…)`.
+- **R2-8 (route request epochs).** `routeWriteGuard.test.js` checks that `routeDraftStore.ts` bumps the session epoch only in `discard()` and that requests take per-route tickets, so a request on one route never supersedes another route's.
+- **R2-4, R2-6 and R2-7 (keyring).** `routeFactsNoNetwork.test.js` checks five things:
+  - `KeyringPanel` keeps no renderer-side host map;
+  - enterprise `describeVerify` reads Task 1's `enterpriseRouteFacts(process.env)` (Bedrock endpoint override, Vertex `GOOGLE_VERTEX_API_KEY` express mode);
+  - keyring Verify captures the committed value before it checks the seal and before it sends;
+  - the `IPCHandlers` constructor reads `managers.isSealed` with a `() => false` default;
+  - Plan 07's anchor (`new IPCHandlers({` in `main.js`) still exists.
+- Step 8 records the Plan 07 handoff for the seal predicate and the enterprise `describeVerify` targets.
 
 **Step 0 below is a hard preflight for the whole plan. Run it before Task 1.** It lives here only because this is the last task of the plan; the plan header points to it.
 
@@ -26881,7 +32030,13 @@ Expected: ends with `PREFLIGHT OK`, and the six test files pass. **If any line f
 
 - [ ] **Step 1: Write the guards**
 
-**Classification.** Every test below is a **baseline guard** (it passes when written and protects against regressions) except `settingsDesignDoc.test.js`, which is **change-driving** (DESIGN.md does not document Settings yet). The baseline guards are still useful: they run over files that earlier tasks changed, so they fail if any task left a low-contrast pairing, an English provider name, a network call or a direct route write behind. `routeWriteGuard.test.js` and the Codex mount-path case in `routeFactsNoNetwork.test.js` are **baseline guards after Tasks 6–9 land**. Both fail at the base commit, because pickers, editors and `CodexConnection` write or call directly there, and both pass once Tasks 6–9 are in. If a guard fails when first run, that is a finding in an earlier task's output; fix the code (Step 3), not the guard.
+**Classification.** Every test below is a **baseline guard** (it passes when written and protects against regressions) except `settingsDesignDoc.test.js`, which is **change-driving** (DESIGN.md does not document Settings yet). The baseline guards are still useful: they run over files that earlier tasks changed, so they fail if any task left a low-contrast pairing, an English provider name, a network call or a direct route write behind. `routeWriteGuard.test.js` and the Codex mount-path case in `routeFactsNoNetwork.test.js` are **baseline guards after Tasks 6–9 land**. Both fail at the base commit, because pickers, editors and `CodexConnection` write or call directly there, and both pass once Tasks 6–9 are in. The round-2 cases are labelled with the task after which they hold:
+- The enterprise setter and `adjustBedrockModelForRegion` cases hold after Task 9. At the base commit, `EnterpriseProviderConfig.tsx:114-118,145-148,166-174` calls them.
+- The credential cases hold after Tasks 2 and 12. At the base commit, `ApiKeyInput.tsx:164-171` saves `""` and no `<ApiKeyInput` passes `credentialId=`.
+- The keyring cases hold after Tasks 11 and 12, because `keyring.js` and `KeyringPanel.tsx` do not exist before them.
+- The enterprise-facts cases hold after Tasks 1 and 3.
+
+If a guard fails when first run, that is a finding in an earlier task's output; fix the code (Step 3), not the guard.
 
 Create `test/components/settingsColorRoles.test.js`:
 
@@ -27122,6 +32277,8 @@ const FORBIDDEN = [
 test("[source guard, baseline] route facts, the resolver, the planner and the route views make no network call", () => {
   for (const file of [
     "src/lib/routeGraph.ts", // Task 1
+    "src/helpers/enterpriseRouteFacts.js", // Task 1 (main; reads process.env only)
+    "src/lib/credentialSlots.ts", // Task 2
     "src/stores/routeFactsStore.ts", // Task 3
     "src/stores/sealedStore.ts", // Task 3
     "src/lib/routes.ts", // Task 3
@@ -27209,6 +32366,105 @@ test("[source guard, baseline] only src/stores/sealedStore.ts reads the privacy 
   }
   assert.deepEqual(offenders, [], "read sealed state through src/stores/sealedStore.ts");
 });
+
+const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+
+// The text of the first `function name(…) { … }`: skip the parameter list by paren depth (defaults
+// such as `options = {}` contain braces), then match braces from the body's "{".
+function functionBody(src, signature) {
+  const start = src.indexOf(signature);
+  assert.ok(start !== -1, `${signature} found`);
+  let parens = 1;
+  let i = start + signature.length;
+  for (; i < src.length && parens > 0; i++) {
+    if (src[i] === "(") parens++;
+    else if (src[i] === ")") parens--;
+  }
+  let depth = 0;
+  for (let j = src.indexOf("{", i); j < src.length; j++) {
+    if (src[j] === "{") depth++;
+    else if (src[j] === "}" && --depth === 0) return src.slice(start, j + 1);
+  }
+  assert.fail(`${signature}: unbalanced braces`);
+}
+
+test("[source guard, baseline after Task 1] enterpriseRouteFacts.js is import-free and returns hosts and booleans only (R2-1)", () => {
+  const file = "src/helpers/enterpriseRouteFacts.js";
+  assert.doesNotMatch(stripComments(read(file)), /\brequire\s*\(|^\s*import\b|\bimport\s*\(/m, `${file} stays import-free`);
+  const { enterpriseRouteFacts } = require(path.join(root, file));
+  // An injected environment full of secrets: none of them may come back, only the shape below.
+  const env = {
+    AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://guard-user:guard-pass@bedrock.guard.example/",
+    GOOGLE_VERTEX_API_KEY: "guard-vertex-key",
+    GOOGLE_VERTEX_PROJECT: "guard-project",
+  };
+  for (const scenario of [env, { AWS_ENDPOINT_URL: "https://bedrock.guard.example/" }, {}]) {
+    const facts = enterpriseRouteFacts(scenario);
+    assert.deepEqual(Object.keys(facts).sort(), ["bedrockEndpoint", "vertexApiKeyEnv", "vertexProjectEnv"]);
+    assert.deepEqual(Object.keys(facts.bedrockEndpoint).sort(), ["host", "set"]);
+    assert.equal(typeof facts.bedrockEndpoint.set, "boolean");
+    assert.ok(facts.bedrockEndpoint.host === null || /^[\w.-]+(?::\d+)?$/.test(facts.bedrockEndpoint.host), "a bare host");
+    assert.equal(typeof facts.vertexApiKeyEnv, "boolean");
+    assert.equal(typeof facts.vertexProjectEnv, "boolean");
+    const text = JSON.stringify(facts);
+    for (const secret of ["guard-user", "guard-pass", "guard-vertex-key", "guard-project"]) {
+      assert.ok(!text.includes(secret), `no environment value in the result (${secret})`);
+    }
+  }
+});
+
+test("[source guard, baseline after Task 3] only routeFactsStore.ts reads main's enterprise configuration (R2-1)", () => {
+  // Main-side files define or register these (environment.js, ipcHandlers.js) or are the reader itself.
+  const MAIN_SIDE = new Set(["src/helpers/environment.js", "src/helpers/ipcHandlers.js", "src/helpers/enterpriseRouteFacts.js"]);
+  const READS = /\b(?:getBedrockRegion|getAzureEndpoint|getVertexProject|getVertexLocation|enterpriseRouteFacts)\b/;
+  const offenders = [];
+  for (const full of sourceFiles(path.join(root, "src"))) {
+    const rel = path.relative(root, full).split(path.sep).join("/");
+    if (rel === "src/stores/routeFactsStore.ts" || MAIN_SIDE.has(rel)) continue;
+    if (rel.startsWith("src/types/") || rel.startsWith("src/preview/") || rel.endsWith(".d.ts")) continue;
+    if (READS.test(stripComments(fs.readFileSync(full, "utf8")))) offenders.push(rel);
+  }
+  assert.deepEqual(offenders, [], "one network-free loader syncs the enterprise slice and reads main's overrides");
+});
+
+test("[source guard, baseline after Task 12] KeyringPanel keeps no renderer-side host map (R2-6)", () => {
+  // Verify hosts come from main's keyring.describeVerify, re-asked on every change; an inference host is
+  // not a verification host (Corti speech verifies at auth.<region>.corti.app).
+  const panel = stripComments(read("src/components/settings/routing/KeyringPanel.tsx"));
+  assert.doesNotMatch(panel, /\bproviderHosts\b|\brouteSnapshotFromSettings\b|\bcredentialHost\b/);
+  assert.match(panel, /\bdescribeVerify\b/);
+});
+
+test("[source guard, baseline after Task 11] keyring Verify tests the committed value, after the seal check (R2-4, R2-7)", () => {
+  const verify = functionBody(stripComments(read("src/helpers/keyring.js")), "async function verify(");
+  const capture = verify.indexOf("credentials.captureCommitted(");
+  const sealed = verify.indexOf("isSealed()");
+  const send = verify.indexOf("runTest(");
+  assert.ok(capture !== -1 && sealed !== -1 && send !== -1, "verify captures, checks the seal and sends");
+  assert.ok(capture < sealed, "the seal is checked after the save wait (the capture)");
+  assert.ok(sealed < send, "nothing is sent while sealed");
+  assert.match(verify, /runTest\(config, captured\.values\)/, "the request carries the captured committed values");
+  assert.doesNotMatch(verify, /process\.env/, "Verify never reads the live environment");
+});
+
+test("[source guard, baseline after Task 11] the production IPCHandlers reads the seal predicate, default () => false (R2-7)", () => {
+  const ipc = read("src/helpers/ipcHandlers.js");
+  assert.match(ipc, /this\.isSealed = typeof managers\.isSealed === "function" \? managers\.isSealed : \(\) => false;/);
+  assert.match(ipc, /isSealed: \(\) => this\.isSealed\(\)/);
+  // Plan 07's handoff anchor (Step 8): main constructs IPCHandlers with one managers object.
+  assert.match(read("main.js"), /ipcHandlers = new IPCHandlers\(\{/);
+});
+
+test("[source guard, baseline after Task 11] enterprise describeVerify follows main's environment overrides (R2-6)", () => {
+  // The SDKs honour AWS_ENDPOINT_URL_BEDROCK_RUNTIME/AWS_ENDPOINT_URL and GOOGLE_VERTEX_API_KEY in main's
+  // environment, so the Test connection label must name the host those overrides send to.
+  const ipc = stripComments(read("src/helpers/ipcHandlers.js"));
+  assert.match(ipc, /routeFacts: enterpriseRouteFacts\(process\.env\)/, "the keyring's enterpriseConfig carries Task 1's facts");
+  const target = functionBody(stripComments(read("src/helpers/keyring.js")), "function enterpriseVerifyTarget(");
+  assert.match(target, /enterprise\.routeFacts/);
+  assert.match(target, /bedrockEndpoint\.set/, "a Bedrock endpoint override replaces the region host");
+  assert.match(target, /vertexApiKeyEnv/, "GOOGLE_VERTEX_API_KEY selects Vertex express mode");
+});
 ```
 
 Create `test/components/routeWriteGuard.test.js`. Rule 3 of the plan: every provider, model, endpoint, mode, enable switch, Corti region and web-search change goes through the route planner (Tasks 6–9). Task 9's `routePickers.test.js` bans named setters in named files. This is the repo-wide net: any other file that references a route-affecting setter fails, so a new component cannot reintroduce a direct write. It matches any reference, not only calls, so destructuring a setter from `useSettings()` or selecting it from the store is caught too. The allowlist was built by grepping the base commit (`grep -rnoE` over `src/components src/hooks src/services src/utils src/helpers src/lib src/stores` for the names below). Every file that the grep reports and the allowlist does not name is one that Tasks 6–9 rewrite, or a Step 3 row.
@@ -27236,8 +32492,9 @@ function sourceFiles(dir, out = []) {
 const SCANNED = ["src/components", "src/hooks", "src/services", "src/utils", "src/helpers", "src/lib", "src/stores"];
 
 // Store actions (src/stores/settingsStore.ts) that change a route's provider, model, host, mode or on/off state.
-// Not listed: the secret-key setters (Task 2 owns keys), the *CloudMode setters, *DisableThinking and the
-// translation language and target setters, which do not change who receives what.
+// Not listed: the secret-key setters (Task 2 owns keys), the *CloudMode setters, *DisableThinking, the
+// translation language and target setters, the Azure API version and the Bedrock profile, which do not
+// change who receives what (NOTES-route: same host).
 const ROUTE_SETTERS = [
   // speech: dictation, meeting, upload
   "setTranscriptionMode", "setMeetingTranscriptionMode", "setUploadTranscriptionMode",
@@ -27262,6 +32519,9 @@ const ROUTE_SETTERS = [
   // switches that turn a route on, and the Corti host and tenant
   "setUseCleanupModel", "setUseDictationTranslation", "setUseDictationAgent", "setVoiceAgentScreenContext",
   "setUseDictationAgentVisionModel", "setCortiEnvironment", "setCortiTenant",
+  // R2-1: the enterprise route fields (Task 6's ROUTE_ENTERPRISE_KEYS). Each setter persists to main at once
+  // (settingsStore.ts:2033-2038, :2060-2065, :2087-2098); UI edits go through requestRoutePatch (Task 9).
+  "setBedrockRegion", "setAzureEndpoint", "setVertexProject", "setVertexLocation",
 ];
 const SETTER_RE = new RegExp(`\\b(?:${ROUTE_SETTERS.join("|")})\\b`, "g");
 // setResolvedLLMConfig(scope, patch) is a route write when the patch can carry a route key.
@@ -27348,6 +32608,114 @@ test("[baseline guard after Tasks 6–9] only providerSearch.ts touches personal
   }
   assert.deepEqual(offenders, []);
 });
+
+const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const everyScannedFile = () => [...new Set(SCANNED.flatMap((dir) => sourceFiles(dir)))].sort();
+
+// R2-1. Main-side files that define (environment.js) or register (ipcHandlers.js) the enterprise savers.
+const ENTERPRISE_SAVER_HOSTS = new Set(["src/helpers/environment.js", "src/helpers/ipcHandlers.js"]);
+const ENTERPRISE_SAVERS = /\bsave(?:BedrockRegion|AzureEndpoint|VertexProject|VertexLocation)\b/;
+
+test("[baseline guard] only settingsStore.ts sends enterprise route fields to main (R2-1)", () => {
+  // The four store setters and Task 6's applyRoutePatch (ENTERPRISE_MAIN_SAVERS) are the only renderer callers.
+  const offenders = [];
+  for (const file of everyScannedFile()) {
+    if (file === "src/stores/settingsStore.ts" || ENTERPRISE_SAVER_HOSTS.has(file)) continue;
+    if (ENTERPRISE_SAVERS.test(stripComments(read(file)))) offenders.push(file);
+  }
+  assert.deepEqual(offenders, [], "a committed enterprise field reaches main only through applyRoutePatch");
+});
+
+// Files that may call adjustBedrockModelForRegion, each with the reason.
+const BEDROCK_COUPLING = {
+  "src/utils/bedrockRegions.ts": "defines it (import-free)",
+  "src/lib/providerSwitchPlans.ts": "Task 6: planEnterpriseCoupling puts a region's model update in the same patch and Undo",
+  "src/lib/routePlanner.ts": "Task 6: providerPatch moves a remembered Bedrock model to the state's region",
+};
+
+test("[baseline guard after Task 9] adjustBedrockModelForRegion runs only inside the route planner (R2-1)", () => {
+  for (const file of Object.keys(BEDROCK_COUPLING)) assert.ok(fs.existsSync(path.join(root, file)), `${file} (${BEDROCK_COUPLING[file]})`);
+  assert.match(read("src/lib/providerSwitchPlans.ts"), /\badjustBedrockModelForRegion\(/, "the coupling lives in the planner");
+  const offenders = [];
+  for (const file of everyScannedFile()) {
+    if (file in BEDROCK_COUPLING) continue;
+    if (/\badjustBedrockModelForRegion\b/.test(stripComments(read(file)))) offenders.push(file);
+  }
+  assert.deepEqual(offenders, [], "a region edit is a requestRoutePatch; the planner adds the model update");
+});
+
+test("[source guard, baseline after Task 3] the startup sync from main never writes main back (R2-1)", () => {
+  // reconcileEnterpriseSettingsFromMain writes the store and localStorage only. Main is the source.
+  const store = stripComments(read("src/stores/settingsStore.ts"));
+  const start = store.indexOf("export function reconcileEnterpriseSettingsFromMain(");
+  assert.ok(start !== -1, "Task 3's reconciler exists");
+  let parens = 1;
+  let i = start + "export function reconcileEnterpriseSettingsFromMain(".length;
+  for (; i < store.length && parens > 0; i++) {
+    if (store[i] === "(") parens++;
+    else if (store[i] === ")") parens--;
+  }
+  let depth = 0;
+  let end = store.indexOf("{", i);
+  for (; end < store.length; end++) {
+    if (store[end] === "{") depth++;
+    else if (store[end] === "}" && --depth === 0) break;
+  }
+  const body = store.slice(start, end + 1);
+  assert.doesNotMatch(body, ENTERPRISE_SAVERS);
+  assert.doesNotMatch(body, /\bdebouncedPersistToEnv\b|\belectronAPI\b|\bnoteEnterpriseLocalWrite\b/);
+});
+
+// R2-2 and R2-5: credential writes.
+
+test("[baseline guard after Task 12] ApiKeyInput has no empty-save Remove (R2-5)", () => {
+  // An empty save is a permanent delete with no Undo; Remove goes through credentials.remove (useUndoableRemoval).
+  const input = stripComments(read("src/components/ui/ApiKeyInput.tsx"));
+  assert.doesNotMatch(input, /\bsetApiKey\(\s*""\s*\)|\bcommit\(\s*""\s*\)/);
+  assert.match(input, /\buseUndoableRemoval\(/, "Remove is Task 12's undoable removal");
+});
+
+test("[baseline guard after Task 12] every <ApiKeyInput in src/ passes a credential identity (R2-5)", () => {
+  let elements = 0;
+  const offenders = [];
+  for (const file of sourceFiles("src").filter((f) => f.endsWith(".tsx"))) {
+    const src = stripComments(read(file));
+    for (let at = src.indexOf("<ApiKeyInput"); at !== -1; at = src.indexOf("<ApiKeyInput", at + 1)) {
+      if (!/[\s/>]/.test(src[at + "<ApiKeyInput".length])) continue;
+      const element = src.slice(at, src.indexOf("/>", at));
+      elements++;
+      if (!/\bcredentialId=/.test(element)) offenders.push(`${file}: ${element.split("\n")[0].trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, [], "Remove needs the slot; Task 12's useUndoableRemoval has no fallback");
+  // Six in ReasoningModelSelector, five in EnterpriseProviderConfig, two in TranscriptionModelPicker,
+  // one each in OpenAICompatiblePanel and StagedRoutePanel (Task 12's count).
+  assert.ok(elements >= 15, `found ${elements} ApiKeyInput elements`);
+});
+
+test("[baseline guard after Task 2] the app reset erases credentials only inside the authority's reset barrier (R2-2)", () => {
+  const ipc = read("src/helpers/ipcHandlers.js");
+  const cleanup = ipc.match(/ipcMain\.handle\("cleanup-app"[\s\S]*?ipcMain\.handle\("update-hotkey"/);
+  assert.ok(cleanup, "the cleanup-app handler is found");
+  assert.match(cleanup[0], /await this\.credentials\.reset\(\(\) => this\.environmentManager\?\.clearAllPersistedData\(\)\)/);
+  assert.equal((ipc.match(/\bclearAllPersistedData\b/g) ?? []).length, 1, "ipcHandlers.js erases in one place");
+  const offenders = [];
+  for (const file of [...everyScannedFile(), "main.js", "preload.js"]) {
+    if (file === "src/helpers/ipcHandlers.js" || file === "src/helpers/environment.js") continue;
+    if (/\bclearAllPersistedData\b/.test(stripComments(read(file)))) offenders.push(file);
+  }
+  assert.deepEqual(offenders, [], "no other caller can erase outside the barrier");
+});
+
+test("[baseline guard after Task 7] route requests are superseded per route; only Discard and close end the session (R2-8)", () => {
+  const store = stripComments(read("src/stores/routeDraftStore.ts"));
+  // The session epoch moves in exactly one place, the store's discard(), which endSettingsSession() calls.
+  assert.equal((store.match(/requestEpoch:\s*s\.requestEpoch \+ 1/g) ?? []).length, 1, "only discard() bumps requestEpoch");
+  assert.match(store, /discard: \(\) => set\(\(s\) => \(\{ draft: null, requestEpoch: s\.requestEpoch \+ 1 \}\)\)/);
+  // Requests bump their own route's epoch, never a global one (a request on route A must not supersede route B).
+  assert.match(store, /const ticket = takeTicket\(id\);/);
+  assert.doesNotMatch(store, /\btakeEpoch\b/, "no global request epoch");
+});
 ```
 
 Create `test/components/settingsDesignDoc.test.js` (**change-driving**: DESIGN.md has no Settings section and no `--motion-flash` row yet):
@@ -27394,7 +32762,11 @@ test("DESIGN.md documents Settings: routing, planner, keys, storage, search and 
 ```
 
 Run: `npm test -- test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js test/components/routeWriteGuard.test.js test/components/settingsDesignDoc.test.js`
-Expected: `settingsDesignDoc.test.js` FAILS (change-driving). The others should pass. `routeWriteGuard.test.js` may list leftover sites from Step 3's table. If a colour-role test reports offenders, that is expected only for the sites in Step 3's table (earlier tasks may already have removed some); fix them there.
+Expected: `settingsDesignDoc.test.js` FAILS (change-driving). The others should pass, including the round-2 cases:
+- in `routeWriteGuard.test.js`, enterprise savers, Bedrock coupling, the startup sync, the empty-save Remove, `credentialId` on every `ApiKeyInput`, the reset barrier, and per-route request epochs (Task 7);
+- in `routeFactsNoNetwork.test.js`, `enterpriseRouteFacts.js`, the enterprise getters, `KeyringPanel` hosts, Verify order, the seal predicate, and the enterprise `describeVerify` environment overrides (Task 11).
+
+A round-2 case that fails means an earlier task's step was skipped. Fix that task's output, using the Step 3 rows. `routeWriteGuard.test.js` may list leftover sites from Step 3's table. If a colour-role test reports offenders, that is expected only for the sites in Step 3's table (earlier tasks may already have removed some); fix them there.
 
 - [ ] **Step 2: Update `DESIGN.md`**
 
@@ -27445,6 +32817,9 @@ At the base commit these sites violate the rules in files this plan edits. Earli
 | `SettingsPage.tsx` (`routeWriteGuard`) | setters left in the `useSettings()` destructuring (`:1081`) or `TranscriptionSection` after Tasks 8–9 replaced their uses (for example `setWhisperModel`, `setCohereModel`, `setLocalTranscriptionProvider` at base `:442-483`) | delete the unused names; any remaining use commits through `useRouteCommit`/`RouteSwitch` |
 | `notes/UploadAudioView.tsx` (`routeWriteGuard`) | `setUploadTranscriptionMode` (`:288`) and `setUploadUseLocalWhisper` (`:292`) are selected and never called | delete both selectors |
 | `settings/InferenceConfigEditor.tsx` (`routeWriteGuard`) | `setField` (`:91-97`) calls `setResolvedLLMConfig(scope, { [field]: value })`, a computed key; after Task 9 only `disableThinking` (`:196`) uses it | replace `setField` with `const setDisableThinking = useCallback((value: boolean) => setResolvedLLMConfig(scope, { disableThinking: value }), [scope]);` and use `onChange={setDisableThinking}` |
+| `EnterpriseProviderConfig.tsx` (`routeWriteGuard`, R2-1) | `settings.setBedrockRegion` plus `adjustBedrockModelForRegion` (`:116-117`), `settings.setAzureEndpoint` (`:148`), `settings.setVertexProject`/`setVertexLocation` (`:169`, `:174`) | Task 9 Step 3 (5a) rewrites the file: route fields go through `onRoutePatch`. If any name is still reported, Task 9 was not applied; apply it, do not add an allowlist entry |
+| any file (`routeWriteGuard`, R2-5) | `<ApiKeyInput` without `credentialId=`, or `setApiKey("")` in `ApiKeyInput.tsx` | Task 12 Step 3.3 wires every call site and Step 3.2 (e) removes the empty save. A new call site passes its slot (`credentialSlotForStoreKey`, `credentialSlotForRef` or a literal `CredentialSlot`) |
+| `ipcHandlers.js` (`routeWriteGuard`, R2-2) | bare `await this.environmentManager?.clearAllPersistedData()` in `cleanup-app` (`:3221-3226`) | Task 2 Step 3.3 puts it inside `this.credentials.reset(() => …)`; apply that replacement |
 | `ui/SidebarModal.tsx`, `settings/DictationAgentSettings.tsx`, `DictionaryView.tsx` | nav badge `bg-warning/10 text-warning`; screen-context hint `text-warning/80`; "{n} words ready" `text-success` | Task 15 moves the badge into `SettingsNav.tsx` as `bg-foreground/10 text-foreground`; Task 17 changes the other two to `text-muted-foreground` and `text-foreground`. Nothing to do unless the guard still reports them |
 
 Status glyphs (`<CircleAlert … text-warning />`, `<Check … text-success />`) stay as they are: they are graphics and the guard exempts them.
@@ -27473,6 +32848,10 @@ if (missing.length) { console.log(missing.join("\n")); process.exit(1); }
 console.log("SPEC OK");
 '
 ```
+
+The round-2 additions need no new §5 text, and the command does not check for them:
+- **Snapshot additions.** `RouteSettingsSnapshot.enterprise`, `RouteFacts.credentialFields` and `RouteFacts.enterpriseMain` are Plan 03's own snapshot choice. Spec §5.1 says "`RouteSettingsSnapshot` is Plan 03's choice, with one fixed field: `sealed` is a required `boolean`". The 11 ids, `RouteState`, `ResolvedRoute` and `sealed` are unchanged.
+- **Main-side seams.** The keyring seal seam (`managers.isSealed`) and `keyring-describe-verify` are main-side seams that Step 8 hands to Plan 07, not §5 contract shapes.
 
 Expected: `SPEC OK`. **If it prints missing items, stop and report.** Say that the owner must apply the plan's "Contract change requests" text to spec §5.1 and §5.4 in this PR. Do not push or open the PR until the command prints `SPEC OK`; this step is the tracked form of the PR-body note in the first draft of the plan.
 
@@ -27533,13 +32912,18 @@ Screenshot each check for the PR. Compare against the picked cards in `design-ex
    - no provider is pre-chosen;
    - an inline key field appears for a provider without a key, and Corti shows the speech client fields;
    - the http warning appears;
-   - closing Settings drops the draft.
+   - closing Settings drops the draft;
+   - Chat → Azure without an endpoint keeps Apply disabled with "Enter a valid server address". Entering the endpoint in the staged panel writes nothing until Apply (R2-9);
+   - with Chat on Azure, editing the endpoint and leaving the field stages a review that names the new host. Apply commits it, and Undo restores it. Editing the Bedrock region stages the region and the matching `eu.`/`us.` model together (R2-1);
+   - the enterprise "Test connection" button names the host from main, and it changes after an applied endpoint change (R2-6).
 3. **Cartridges (R4 B).**
    - Keyboard-only selection and download.
    - Arabic arrow keys.
    - The "Too large" reason on an 8 GB device, if one is available. Otherwise stub `getTotalMemory` to `8e9` in DevTools.
 4. **Keyring (R5 C).**
    - Verify names the receiving host. A bad key gives Rejected and the dependent task pauses.
+   - Corti speech names `auth.eu.corti.app`. After you switch the Corti region to US, without reopening Settings, it names `auth.us.corti.app` (R2-6).
+   - Removing a Corti speech or Bedrock key removes the whole credential, and Undo in the toast restores every field (R2-5).
    - Verify all walks through the rows.
    - Remove a key, then Undo within 8 seconds; after 8 seconds Undo is gone.
    - The reminder switch persists across a restart.
@@ -27570,7 +32954,8 @@ Screenshot each check for the PR. Compare against the picked cards in `design-ex
 ```bash
 git add DESIGN.md test/components/settingsColorRoles.test.js test/components/destructiveRemedy.test.js test/components/routeFactsNoNetwork.test.js test/components/routeWriteGuard.test.js test/components/settingsDesignDoc.test.js
 git add -u
-git commit -m "docs(design): Settings routing, planner, keyring, storage and search"
+git commit -m "docs(design): Settings routing, planner, keyring, storage and search" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 Write `/tmp/plan03-pr-body.md` (not committed):
@@ -27588,7 +32973,20 @@ Write `/tmp/plan03-pr-body.md` (not committed):
   > - `RouteSettingsSnapshot.sealed` is a required `boolean`. Do not redeclare it optional.
   > - `src/lib/routeGraph.ts` is the Node-loadable pure resolver (imports only `./locality.ts`, `../helpers/transcriptionRoute.ts` and `../utils/urlUtils.ts`; explicit extensions; no React, store or JSON). Import it directly in Plan 07's Node test, or load `routes.ts` through the renderer harness. `test/lib/routeFixtures.js` exports `makeSnapshot` and `makeRoute`.
   > - While sealed, every non-device route (LAN servers included) resolves `unreachable/sealed`; routes that are off stay `off`.
-  > - Egress inventory additions: the self-hosted probe (`selfHostedProbe.js`, unauthenticated, user-initiated), keyring Verify and "List models" (explicit buttons that name the receiving host), and the Codex buttons (Connect ChatGPT, Check ChatGPT status, List models from ChatGPT). Each starts the Codex app server, whose first start per session may verify the release with GitHub; Settings never starts it on mount.
+  > - Egress inventory additions: the self-hosted probe (`selfHostedProbe.js`, unauthenticated, user-initiated), keyring Verify and "List models" (explicit buttons that name the receiving host), the enterprise "Test connection" button (Task 9; it sends the stored enterprise credential to the host `describeVerify` names), and the Codex buttons (Connect ChatGPT, Check ChatGPT status, List models from ChatGPT). Each Codex button starts the Codex app server, whose first start per session may verify the release with GitHub; Settings never starts it on mount.
+  > - **Seal predicate seam (R2-7).** Plan 03 wires the predicate through the production construction path, and it is always unsealed until Plan 07:
+  >   - `IPCHandlers` reads `managers.isSealed` in its constructor and defaults it to `() => false` (`this.isSealed = typeof managers.isSealed === "function" ? managers.isSealed : () => false;`);
+  >   - it passes `isSealed: () => this.isSealed()` to `createKeyring` (Task 11).
+  >
+  >   Plan 07 must:
+  >   1. Pass main's authoritative seal predicate into that seam at `main.js:397`, as `ipcHandlers = new IPCHandlers({ …, isSealed })`. Task 2 edits `main.js` only at `:442-446`, below that line, so the line is unchanged by Plan 03. Task 18's `routeFactsNoNetwork.test.js` pins the constructor default and that anchor. Keyring Verify checks the predicate after the save wait (`captureCommitted`) and before anything is sent. Task 12's sequential Verify all stops at the first `sealed` outcome. A sealed refusal leaves the key's health row unchanged.
+  >   2. Optionally, replace `keyring.js`'s `isSealedRefusal` with `egressPolicy.isSealedModeError`. The rule is the same: `code === "SEALED_MODE"`, or `"[SEALED_MODE"` in the message or cause, matching Plan 07's `SealedModeError` shape (P07 plan lines 903-936).
+  >   3. Know that Plan 07's rethrow in `providerConnectionTest.js` (P07:6355) is what makes a thrown sealed refusal reach the keyring for the BYOK providers. In Plan 03 that file still maps every transport throw to `network` (`:316-333`). Only Corti's branch of `_runProviderConnectionTest` rethrows today. The keyring already maps a thrown refusal to outcome `sealed`.
+  > - **`describeVerify` covers the enterprise identities (R2-6).** `keyring.describeVerify(identity: CredentialIdentity, options?: KeyringVerifyOptions)` (IPC `keyring-describe-verify`) returns `{ hosts, fields }`. The result holds names only, never values.
+  >   - For `"bedrock" | "azure" | "vertex"`, main ignores `options`. It reads its committed enterprise configuration through the same `EnvironmentManager` getters that `main.js` `getEnterpriseConfig` uses (`:447-457`), plus Task 1's `enterpriseRouteFacts(process.env)`: `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`/`AWS_ENDPOINT_URL` replace the Bedrock host (`hosts: []` when unusable), and `GOOGLE_VERTEX_API_KEY` puts Vertex in express mode (`aiplatform.googleapis.com`, `fields: ["environmentKey"]`) when no key is stored.
+  >   - Task 9's enterprise "Test connection" button takes its host label from this call. It re-asks when the committed endpoint, region, profile, project or location changes, and on `credentials-changed`. The button is disabled while main names no host.
+  >   - When Plan 07 gates these sends, the host the button names must stay the host the gated request reaches.
+  > - **Enterprise route facts (R2-1).** Bedrock, Azure and Vertex routes resolve `unknown` until `RouteFacts.enterpriseMain` is non-null. Task 3's loader fills it after syncing the four settings from main and reading the `enterprise-route-facts` IPC, which returns hosts and booleans only. A Node test that builds `RouteFacts` or a snapshot by hand must supply `enterprise`, `credentialFields` and `enterpriseMain`. Use `makeSnapshot` (`test/lib/routeFixtures.js`), which already does.
 
 Get the owner's explicit OK before `git push` or `gh pr create`. Publishing is outward-facing.
 
@@ -27602,7 +33000,7 @@ The design every task codes against. Task sections are authoritative where they 
 
 1. Authenticated discovery or verification NEVER sends a stored credential without an explicit user action (a button whose label/tooltip names the receiving host and the credential slot). No discovery on mount, tab browsing, blur, typing or URL commit.
 2. Every history/audio deletion deletes EXACTLY what its confirmation counts; counts and deletions use the same main-owned predicate.
-3. Every committed provider/model/endpoint change goes through the route planner. Changes whose effective result is on-device are instant (with Undo); changes that add a new off-device recipient or new payload are staged behind Apply. No component writes provider/model/endpoint store fields directly (except via `applyRoutePatch` from the planner).
+3. Every committed provider/model/endpoint change goes through the route planner. Changes whose effective result is on-device are instant (with Undo); changes that add a new off-device recipient or new payload are staged behind Apply. No component writes provider/model/endpoint store fields directly (except via `applyRoutePatch` from the planner). This includes the enterprise recipient fields `bedrockRegion`, `azureEndpoint`, `vertexProject` and `vertexLocation` (R2-1).
 4. Route-fact loading makes NO automatic network calls (no `codexStatus`, no discovery, no verification).
 5. Key readiness comes only from main-confirmed persistence (credential presence reported by main after an acknowledged save). The raw secret never lives in renderer state.
 
@@ -27612,13 +33010,16 @@ The design every task codes against. Task sections are authoritative where they 
 |---|---|---|
 | `src/lib/routeGraph.ts` | PURE, Node-loadable under `node --import tsx` without Vite: erasable TS, explicit `.ts`/`.js` import extensions, imports only `./locality.ts`, `../helpers/transcriptionRoute.ts`, `../utils/urlUtils.ts`. No React, no store, no JSON registry import. | T1 |
 | `src/lib/routes.ts` | §5.1 contract module: `export * from "./routeGraph.ts"`, plus `buildRouteSnapshot`, `routeSnapshotFromSettings`, `routeCopy`, hooks. Imports store/facts/sealed stores. | T3 |
-| main `src/helpers/credentialAuthority.js` | Main-owned credential presence, acknowledged saves, change events, generations, undo-remove tokens, Codex presence (file stat only). | T2 |
-| `src/stores/routeFactsStore.ts` | Renderer facts: per-family model inventories, support models, credential presence, rejected identities. Network-free. Retains last-known values across errors. | T3 |
+| main `src/helpers/enterpriseRouteFacts.js` | R2-1: main's environment overrides for enterprise requests (`AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, `AWS_ENDPOINT_URL`, `GOOGLE_VERTEX_API_KEY`, `GOOGLE_VERTEX_PROJECT`), returned as hosts and booleans only. CommonJS, import-free, reads `process.env` only, no network. Task 3 registers it as the `enterprise-route-facts` IPC. | T1 |
+| main `src/helpers/credentialAuthority.js` | Main-owned credential presence (committed state only), acknowledged saves, change events with field presence, generations, undo-remove tokens, the async reset barrier, `captureCommitted` for Verify, and Codex presence (file stat only). | T2 |
+| `src/lib/credentialSlots.ts` | Pure (type-only imports). The renderer's slot vocabulary shared with main: `CredentialSlot`, the seven custom slots, pair credentials, the 25 secret store fields and `unavailableSecretSave`. | T2 |
+| `src/stores/routeFactsStore.ts` | Renderer facts: per-family model inventories, support models, credential presence and field presence, rejected identities, and the enterprise main facts (after a one-time sync of the four enterprise settings from main). Network-free. Retains last-known values across errors. | T3 |
 | `src/stores/sealedStore.ts` | THE single renderer sealed authority (hooks, imperative snapshots, Apply bar, Keyring), spec §5.4. No other renderer module calls `privacy.getSealed`/`privacy.onSealedChange` (Task 18 guard). Plan 07 Task 13 replaces its internals and adds `getSealedSnapshot()`/`subscribeSealed(cb)`. | T3 |
 | `src/lib/providerSwitchPlans.ts` | Pure-ish (imports registry JSON) provider-switch patch planners shared by store and planner. | T6 |
 | `src/lib/routePlanner.ts` | `planRouteChange` / `planPatch`: one simulated patch used for preview, commit and Undo; lists coupled changes across all 11 routes. | T6 |
-| `src/stores/routeDraftStore.ts` | Draft (target or patch), `requestRouteChange`, `applyDraft`, Undo. | T7 |
-| main `src/helpers/keyring.js` | Health rows (SQLite), generation-bound Verify, reminders. | T11 |
+| `src/stores/routeDraftStore.ts` | Draft (target with optional enterprise `setup`, or patch), `requestEpoch`, `requestRouteChange`/`requestRoutePatch` (`RouteRequestResult`), `stageDraftSetup`, `applyDraft`, `endSettingsSession`, Undo. | T7 |
+| main `src/helpers/keyring.js` | Health rows (SQLite) and Verify bound to the generation, which tests the committed value from `captureCommitted` and checks the `isSealed` predicate after the save wait. `describeVerify` names the hosts and fields of keyring and enterprise identities (names only). Reminders. | T11 |
+| `src/components/ui/useUndoableRemoval.ts` | Remove through main's opaque-token `credentials.remove` with a toast Undo (inline fallback without a toast host). No empty-save fallback. | T12 |
 | main `src/helpers/storageOps.js` | Main-owned storage preview + typed deletions with identical predicates, on Plan 02's stored-audio contract (spec §5.6: `readable`, `failed`, `clearFlagsForDeletedAudio`). | T14 |
 | main `src/helpers/selfHostedProbe.js` | Unauthenticated model-list probe (no headers). Result codes include `"sealed"`: main gates `probe-self-hosted` as `providerCheck` (spec §5.4; the gate ships in Plan 07), and the panel shows `routes.state.sealed`. | T9 |
 | `src/components/settings/routing/RouteChips.tsx` | §5.1 published components, exactly `RouteDestinationChip(props: { route: Pick<ResolvedRoute, "locality" \| "providerId" \| "model">; className?: string })` and `RouteStateChip(props: { state: RouteState; className?: string })`. Every surface that discloses a route uses them; Plan 08 consumes them. | T5 |
@@ -27663,7 +33064,7 @@ export function routeSnapshotFromSettings(settings: SettingsState): RouteSetting
 export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot;
 ```
 
-Also exported from routeGraph.ts (additive): `ROUTE_IDS`, `ROUTE_KIND`, `ROUTE_SETTINGS_PATH`, `SCOPE_ROUTE`, `STT_CONTEXT_ROUTE`, `SUPPORT_MODEL_NAMES`, `localSttModelKey`, `isSealedLocality` (locality !== "device"), types below.
+Also exported from routeGraph.ts (additive): `ROUTE_IDS`, `ROUTE_KIND`, `ROUTE_SETTINGS_PATH`, `SCOPE_ROUTE`, `STT_CONTEXT_ROUTE`, `SUPPORT_MODEL_NAMES`, `PAYLOAD_PARTS`, `TEXT_PROVIDER_IDS`, `localSttModelKey`, `isSealedLocality` (locality !== "device"), `routeCredentialId`, `isValidTextEndpoint`, `enterpriseRequestHost` (R2-1, below), `routePayloadParts`, types below.
 
 ### Snapshot (Plan 03's choice; all inputs pure data)
 
@@ -27676,9 +33077,24 @@ export type CredentialId =
 export interface SttRouteInput { mode: string; localProvider: string; localModel: string; cloudProvider: string; cloudModel: string; cloudBaseUrl: string; remoteUrl: string; remoteModel: string; }
 export interface LlmRouteInput { mode: string; provider: string; model: string; remoteUrl: string; cloudBaseUrl: string; providerSearch: boolean; }
 export interface ModelInfo { name: string; sizeBytes?: number }
+// R2-1 (Plan 03's own snapshot types; §5.1 fixes only `sealed`)
+export type EnterpriseProviderId = "bedrock" | "azure" | "vertex";
+export interface EnterpriseRouteSettings {          // raw settings-store strings, untrimmed; non-secret; main feeds the same four to the executor
+  bedrockRegion: string;
+  azureEndpoint: string;
+  vertexProject: string;
+  vertexLocation: string;
+}
+export interface EnterpriseMainFacts {              // main's environment overrides; hosts and booleans only (src/helpers/enterpriseRouteFacts.js)
+  bedrockEndpoint: { set: boolean; host: string | null }; // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL; host null = set but unusable
+  vertexApiKeyEnv: boolean;                          // non-empty GOOGLE_VERTEX_API_KEY: Vertex runs in express mode
+  vertexProjectEnv: boolean;                         // GOOGLE_VERTEX_PROJECT set; reported only (never makes a blank project ready)
+}
 export interface RouteFacts {                       // produced by routeFactsStore (T3)
   installed: { whisper: ReadonlySet<string> | null; sherpa: ReadonlySet<string> | null; llm: ReadonlySet<string> | null }; // per family; null = unknown
   credentials: ReadonlyMap<CredentialId, boolean> | null;   // main-confirmed presence; null = not loaded yet
+  credentialFields: ReadonlyMap<CredentialId, Readonly<Record<string, boolean>>> | null; // R2-1: per-field presence from credentials.list/onChanged `fields` (never values); null until the list first answers
+  enterpriseMain: EnterpriseMainFacts | null;               // R2-1: null until T3 synced the four enterprise settings from main and main answered enterprise-route-facts
   rejected: ReadonlySet<CredentialId>;                       // last verification rejected (keyring health)
   speakerIdModelsReady: boolean | null;
   searchModelReady: boolean | null;
@@ -27686,8 +33102,11 @@ export interface RouteFacts {                       // produced by routeFactsSto
 export interface RouteCapabilities {                // static data passed in by the builder so routeGraph stays JSON-free
   meetingProviders: readonly string[];              // MEETING_STREAMING_PROVIDER_IDS
   transcriptionProviderBaseUrls: readonly { id: string; baseUrl: string }[]; // for transcriptionRoute Tinfoil detection
-  providerHosts: Readonly<Record<string, string>>;  // provider id → API host (registry baseUrl host; anthropic/gemini/openrouter/codex known hosts); "corti" follows cortiEnvironment (speech), "corti:text" is the fixed text host (src/config/constants.ts:123)
+  providerHosts: Readonly<Record<string, string>>;  // provider id → API host (registry baseUrl host; anthropic/gemini/openrouter/codex known hosts); "corti" follows cortiEnvironment (speech), "corti:text" is the fixed text host (src/config/constants.ts:123). Enterprise providers have no entry: their host comes from `enterprise` (R2-1). Inference hosts only; never a Verify host (R2-6)
 }
+// R2-1: the host[:port] enterpriseAiProviders.js plus the installed AI SDK would contact; null when the executor
+// refuses the configuration or the URL cannot be built. vertexApiKey = main-confirmed presence of the Vertex `key` field.
+export function enterpriseRequestHost(providerId: EnterpriseProviderId, enterprise: EnterpriseRouteSettings, vertexApiKey: boolean, main: EnterpriseMainFacts): string | null;
 export type PayloadPart = /* see Payload section */ string;
 export interface RouteCopy { parts: Readonly<Record<PayloadPart, string>>; list: (items: string[]) => string } // translated; list = Intl.ListFormat conjunction
 export interface RouteSettingsSnapshot {
@@ -27695,6 +33114,7 @@ export interface RouteSettingsSnapshot {
   llm: Record<LlmRouteScope, LlmRouteInput>;
   enabled: { cleanup: boolean; voiceAssistant: boolean; screenContext: boolean; visionOverride: boolean; translation: boolean; speakerId: boolean };
   dictionaryInUse: boolean;                          // the user has dictionary words/snippets that join prompts
+  enterprise: EnterpriseRouteSettings;               // R2-1: required; T3 fills it from the four store fields (`?? ""`)
   facts: RouteFacts;
   models: Readonly<Record<string, ModelInfo>>;
   capabilities: RouteCapabilities;
@@ -27715,30 +33135,132 @@ export interface RouteSettingsSnapshot {
 - openwhispr mode → remote, providerId = configured provider || "openwhispr", state unreachable "retired".
 - Text routes off-device without a model → needsModel (no size).
 - Sealed: `isSealedLocality(locality)` (non-device) and not off → unreachable "sealed".
-- `host`: providers → `capabilities.providerHosts[providerId] ?? null`; custom/self-hosted → `new URL(url).host` of the effective URL; device or invalid → null.
+- Enterprise (R2-1; any mode whose provider is `bedrock`, `azure` or `vertex`, the providers-mode vision override included). Locality is `remote` and `providerId` is the enterprise id. `providerHosts` is never read. The rules apply in this order:
+  1. `facts.enterpriseMain` null → `unknown`, `host: null`. The route has not been synced from main yet.
+  2. Vertex with `credentials` or `credentialFields` null → `unknown`, `host: null`. The key decides the host.
+  3. Otherwise `host = enterpriseRequestHost(…)`. A null host gives `needsUrl`; this is a settings fact, decided before key facts. A null host covers:
+     - Azure with a missing, blank, malformed, HTTP or credential-bearing endpoint;
+     - a region or location that cannot be built into a URL;
+     - a Bedrock endpoint override that is set but unusable.
+  4. Then the credential state applies (`unknown`, `needsKey`, `ready`), with two exceptions:
+     - Vertex with `vertexApiKeyEnv` uses the express host and is `ready` unless its key was rejected;
+     - Vertex with neither key and a blank project is `needsKey`.
+  5. Then an empty model or deployment gives `needsModel`.
+
+  The hosts:
+  - Bedrock: `bedrock-runtime.<region || "us-east-1">.<partition suffix>`, unless main's endpoint override replaces it.
+  - Azure: the endpoint's host.
+  - Vertex: `aiplatform.googleapis.com` with an API key (express mode). Otherwise the host comes from the location: `aiplatform.googleapis.com` for `global`, `aiplatform.<loc>.rep.googleapis.com` for `eu`/`us`, or `<loc>-aiplatform.googleapis.com`; the default location is `us-central1`.
+
+  An agreement test (T1) runs the real `enterpriseAiProviders.js` and SDK under injected environments.
+- `host`: providers → `capabilities.providerHosts[providerId] ?? null`; enterprise → `enterpriseRequestHost(…)`; custom/self-hosted → `new URL(url).host` of the effective URL; device or invalid → null.
 
 ### Payload parts (I15) — T1 defines `PayloadPart` and per-route conditional composition; T3 supplies translations. See Appendix B (written after research) for the exact list and evidence.
 
 ### Credential authority
 
 ```js
-// src/helpers/credentialAuthority.js
-createCredentialAuthority({ env /* environmentManager */, getCredential, codexHome, fs, broadcast, now }) → {
-  list(): Array<{ id: CredentialId; present: boolean; generation: number }>;   // no network; codex = fs.stat(<codexHome>/auth.json) isFile && size > 2
-  save(id, field, value): Promise<{ ok: true; generation: number } | { ok: false; error: string }>; // field: "key" | "clientId" | "clientSecret" | enterprise fields
-  remove(id): Promise<{ ok: true; undoToken: string; expiresAt: number; generation } | { ok: false; error }>; // removed value kept ONLY in main memory for 8s
-  undoRemove(token): Promise<{ ok: true; generation } | { ok: false; reason: "expired" | "replaced" | "unknown" }>;
+// src/helpers/credentialAuthority.js (main)
+const UNDO_MS = 8000;
+createCredentialAuthority({ env /* environmentManager */, codexHome, fs, broadcast, now, undoMs, setTimer, randomToken }) → {
+  list(): Array<{ id: CredentialId; present: boolean; generation: number; fields: Record<string, boolean> }>; // committed state only; no network; codex = fs.statSync(<codexHome>/auth.json) isFile && size > 2
+  present(id): boolean;        // committed: never true for a write main has not acknowledged (R2-4)
   generation(id): number;      // bumped on save/remove/undo/reset
-  reset(): void;               // invalidates all tokens, bumps all generations (called by cleanup-app)
+  save(id, field, value): Promise<{ ok: true; generation: number } | { ok: false; error: CredentialError }>;
+  remove(id): Promise<{ ok: true; undoToken: string; expiresAt: number; generation: number } | { ok: false; error: CredentialError }>; // every field of the slot; removed values kept ONLY in main memory for 8 s
+  undoRemove(token): Promise<{ ok: true; generation: number } | { ok: false; reason: "expired" | "replaced" | "unknown" | "persistFailed" }>; // persistFailed keeps the token for a retry
+  captureCommitted(id): Promise<{ generation: number; present: boolean; values: Record<string, string> } | null>; // MAIN ONLY (T11 Verify), never sent over IPC; queued in the slot's queue; null for an unknown slot or during a reset (R2-4)
+  reset(erase?: () => Promise<unknown>): Promise<void>; // R2-2 barrier: fence + epoch bump, drop every undo token, bump every generation, drain the slot queues, then erase; unfence and emit "reset"; rethrows erase's error
+  refresh(id): void;           // re-broadcast presence after a non-secret input (Bedrock profile, Vertex project) changed
+  subscribe(listener: (change: CredentialChange & { cause: "save" | "remove" | "undo" | "reset" | "refresh" }) => void): () => void;
 }
+// CredentialError = "unknownCredential" | "unknownField" | "invalidValue" | "persistFailed" | "unsupported" | "notStored" | "reset"
 ```
-IPC (preload `window.electronAPI.credentials`): `list()`, `save(id, field, value)`, `remove(id)`, `undoRemove(token)`, `onChanged(cb) → unsubscribe`. Main broadcasts `credentials-changed` `{ id, present, generation }` after every successful save/remove/undo. Existing per-provider `save*Key` IPC channels are rewired to the authority and now return `{ success: boolean; error?: string }` (ack). No IPC result ever contains secret material.
+- **Reset contract (R2-2).** Once `reset` starts, any `save`/`remove` resolves `{ ok: false, error: "reset" }`, and any `undoRemove` resolves `{ ok: false, reason: "unknown" }`. That holds for calls made during the reset and for calls queued or running when it began. A save, removal or Undo whose write completes after the reset began resolves as a failure, never as a success. `cleanup-app` calls `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())`, and that is the only erase (Task 18 guard).
+- **Committed-state contract (R2-4).** While a slot is being written, `present`, `list`, `fields` and broadcasts use the snapshot taken just before the write. A broadcast happens only after a successful write. A failed write restores `process.env` (`persistSecret`).
+- **Slots.** The 16 `CredentialId`s plus the seven custom slots (`CustomCredentialSlot`). `list()` reports only the 16 ids, and events are broadcast for every slot. Pair credentials (`corti:speech`: `clientId` + `clientSecret`; `bedrock`: `accessKeyId` + `secretAccessKey` + `sessionToken`) are removed and restored whole. No field can be removed on its own.
 
-Renderer (T2): `settingsStore` secret setters become ack-based: `saveSecret(storeKey, value): Promise<{ ok: boolean; error?: string }>` — raw value never put into zustand; on ack the store field becomes `"__stored__"` (present) or `""` (removed); `flushSecretSaves(): Promise<void>` awaits all pending saves (Apply and Verify call it). `credentials-changed` events update the matching store sentinel in every window. `ApiKeyInput` clears its draft after a successful save and shows the save error otherwise; with prop `credentialId` its Remove uses `credentials.remove` and shows inline "Removed · Undo" for 8 s.
+IPC (preload `window.electronAPI.credentials`): `list()`, `save(id: CredentialSlot, field, value)`, `remove(id: CredentialSlot)`, `undoRemove(token)` and `onChanged(cb) → unsubscribe`, over channels `credentials-list`, `credentials-save`, `credentials-remove` and `credentials-undo-remove`. Main broadcasts `credentials-changed` `{ id, present, generation, fields }` after every successful save, remove or undo. Existing per-provider `save*Key` IPC channels are rewired to the authority. They now return `{ success: boolean; error?: CredentialError }` (an acknowledgement). No IPC result or event ever contains secret material.
+
+```ts
+// src/lib/credentialSlots.ts (T2; pure, type-only imports)
+export type CustomCredentialSlot =
+  | "custom:transcription" | "custom:dictationCleanup" | "custom:noteFormatting" | "custom:dictationTranslation"
+  | "custom:dictationAgent" | "custom:dictationAgentVision" | "custom:chatIntelligence";
+export type CredentialSlot = CredentialId | CustomCredentialSlot;   // renamed from v2's CredentialSlotId and narrowed from `custom:${string}`
+export type CredentialField = "key" | "clientId" | "clientSecret" | "accessKeyId" | "secretAccessKey" | "sessionToken";
+export interface SecretSaveResult { ok: boolean; error?: string }
+export const CUSTOM_CREDENTIAL_SLOTS: readonly CustomCredentialSlot[];
+export const MULTI_FIELD_CREDENTIALS: ReadonlySet<CredentialSlot>;  // "corti:speech", "bedrock"
+export const SECRET_STORE_SLOTS: { readonly [K in SecretStoreKey]: readonly [CredentialSlot, CredentialField] }; // the 25 secret store fields
+export type SecretStoreKey = keyof typeof SECRET_STORE_SLOTS;
+export function credentialSlotForStoreKey(storeKey: string): CredentialSlot | undefined;
+export function isSecretStoreKey(key: string): key is SecretStoreKey;
+export function credentialSlotForRef(ref: string | undefined): CredentialSlot | undefined; // "corti" → "corti:text"; unknown → undefined
+export const unavailableSecretSave: (value: string) => Promise<SecretSaveResult>;         // { ok: false, error: "unavailable" }; never writes
+
+// src/types/electron.ts (T2)
+export type CredentialSlot = import("../lib/credentialSlots").CredentialSlot;
+export type CredentialField = import("../lib/credentialSlots").CredentialField;
+export type CredentialError = "unknownCredential" | "unknownField" | "invalidValue" | "persistFailed" | "unsupported" | "notStored" | "reset";
+
+// src/stores/settingsStore.ts (T2)
+export type { SecretStoreKey, SecretSaveResult } from "../lib/credentialSlots";
+export function saveSecret(storeKey: SecretStoreKey, value: string): Promise<SecretSaveResult>;
+export function flushSecretSaves(): Promise<void>;          // T7 requestRouteChange/requestRoutePatch/applyDraft and T12 Verify await it first
+export function subscribeCredentialChanges(): () => void;   // once, from initializeSettings
+
+// src/components/ui/ApiKeyInput.tsx (T2; Remove behaviour T12)
+export type { SecretSaveResult } from "../../stores/settingsStore";
+export type AcknowledgedSecretSave = (value: string) => Promise<SecretSaveResult>; // R2-3: the one acknowledged-save type
+export { unavailableSecretSave } from "../../lib/credentialSlots";
+// props: setApiKey: AcknowledgedSecretSave; credentialId?: CredentialSlot
+// data-action="save-key" | "remove-key" | "undo-remove" (inline fallback only)
+```
+Renderer rules (T2, T12):
+- The raw secret is never put into zustand. On an acknowledgement, the store field becomes `"__stored__"` (present) or `""` (removed). `credentials-changed` events update the matching store sentinel in every window.
+- `ApiKeyInput` clears its draft after a successful save (`result?.ok === true`). Otherwise it keeps the draft and shows the error.
+- **One save type (R2-3).** `ApiKeyInput.setApiKey`, `StagedCredentialInput.save` (T8), `OpenAICompatiblePanel.saveApiKey` (T9) and `ReasoningModelSelector.saveCustomReasoningApiKey` (T9; default `unavailableSecretSave`) are all `AcknowledgedSecretSave`. None of them casts the type or drops the promise.
+- **Remove (R2-5, T12).** Every Remove goes through `useUndoableRemoval(credentialId)`, which calls `credentials.remove` and offers a toast Undo. There is no empty-save fallback. Without a `credentialId`, or without main's API, no Remove is offered. Every `<ApiKeyInput` in `src/` passes `credentialId=` (Task 18 guard).
 
 ### Facts store (T3) — network-free
 
-`loadRouteFacts(api)` calls, each independently (publish as each resolves; per-key generation so an older response never overwrites a newer one; on failure KEEP the previous value, null only if never loaded): `listWhisperModels`, `listParakeetModels`, `modelGetAll`, `getDiarizationModelStatus`, `getSearchModelStatus`, `credentials.list`, `keyring.list` (health → `rejected`). NEVER `codexStatus` or any discovery. Refresh triggers: focus, `openwhispr-models-cleared`, `openwhispr-local-models-changed`, `credentials.onChanged`, `keyring.onChanged` (T11 adds).
+`loadRouteFacts(api)` makes each call independently. It publishes each result as it resolves and uses a generation per key, so an older response never overwrites a newer one. On failure it KEEPS the previous value; a fact is null only if it was never loaded. The calls:
+- `listWhisperModels`, `listParakeetModels`, `modelGetAll`, `getDiarizationModelStatus` and `getSearchModelStatus`;
+- `credentials.list`, which supplies presence → `credentials` and `fields` → `credentialFields` (booleans only, under the same per-id generation);
+- `keyring.list` (health → `rejected`);
+- for the `enterprise` fact key (R2-1), once per window, `getBedrockRegion`, `getAzureEndpoint`, `getVertexProject` and `getVertexLocation`. These are main's existing getters, and each returns `process.env.X || ""`. Their answers go to `reconcileEnterpriseSettingsFromMain`, then `enterpriseRouteFacts()` runs on every load.
+
+It NEVER calls `codexStatus` or any discovery. Refresh triggers: focus, `openwhispr-models-cleared`, `openwhispr-local-models-changed`, `credentials.onChanged` and `keyring.onChanged` (T11 adds it).
+
+```ts
+// src/stores/routeFactsStore.ts (T3)
+export type RouteFactKey = "whisper" | "sherpa" | "llm" | "speakerId" | "search" | "credentials" | "rejected" | "enterprise";
+export const ROUTE_FACT_KEYS: readonly RouteFactKey[];
+export const EMPTY_ROUTE_FACTS: RouteFacts;   // every fact unknown (null, including credentialFields and enterpriseMain); rejected empty
+// CredentialRow gains fields?: Record<string, boolean>; RouteFactsApi gains getBedrockRegion, getAzureEndpoint,
+// getVertexProject, getVertexLocation and enterpriseRouteFacts (all optional; a build without them stays unknown)
+export function loadRouteFacts(api: RouteFactsApi | undefined, keys?: readonly RouteFactKey[]): Promise<void>;
+export function refreshRouteFacts(keys?: readonly RouteFactKey[]): Promise<void>;
+export function ensureRouteFactsSubscribed(): void;
+
+// src/stores/settingsStore.ts (T3, R2-1)
+export function noteEnterpriseLocalWrite(): void;   // the four enterprise setters and T6's applyRoutePatch call it
+export function enterpriseLocalWriteCount(): number;
+export function reconcileEnterpriseSettingsFromMain(
+  main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string>,
+  since: number
+): boolean; // main wins over localStorage: writes the store and localStorage only, never main; false = a newer local write was kept
+
+// IPC (main, T3) + preload
+// "enterprise-route-facts" → window.electronAPI.enterpriseRouteFacts(): Promise<EnterpriseMainFacts>
+//   handler: require("./enterpriseRouteFacts").enterpriseRouteFacts(process.env); hosts and booleans only
+// src/helpers/enterpriseRouteFacts.js (T1, main): function enterpriseRouteFacts(env: NodeJS.ProcessEnv): EnterpriseMainFacts
+```
+Rules:
+- An enterprise route is `unknown` until `facts.enterpriseMain` is non-null. A failed getter, a malformed answer or a build without the calls all stay unknown, and the next refresh retries.
+- `routeSnapshotFromSettings` still makes no IPC call.
+- Only `routeFactsStore.ts` reads these getters in the renderer. `reconcileEnterpriseSettingsFromMain` never calls a `save*` preload method. Both rules are Task 18 guards.
 
 ### Sealed store
 
@@ -27754,11 +33276,18 @@ Spec §5.4. Every renderer reader of sealed state uses this module and nothing e
 
 ```ts
 // src/lib/providerSwitchPlans.ts  (store's switchCloudTranscriptionProvider / switchReasoningProvider are refactored to call these, then applyRoutePatch)
-export type SettingsPatch = Partial<Pick<SettingsState, NonSecretKeys>>; // never secret fields
-export function planTranscriptionProviderSwitch(state: SettingsState, context: SttContext, providerId: string): SettingsPatch; // includes transcriptionModelByProvider memory update
-export function planReasoningProviderSwitch(state: SettingsState, scope: LlmRouteScope, providerId: string, fallbackModel: string): SettingsPatch; // includes reasoningModelByProvider memory update
+export type NonSecretKeys = (typeof ROUTE_PATCH_KEYS)[number];
+export type SettingsPatch = Partial<Pick<SettingsState, NonSecretKeys>> & Partial<Record<ProviderSearchPatchKey, boolean>>; // never secret fields
+export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"]; // R2-1: part of ROUTE_PATCH_KEYS
+export type RouteEnterpriseKey = (typeof ROUTE_ENTERPRISE_KEYS)[number];
+export function bedrockCoupledModelKeys(state: SettingsState): (keyof SettingsState)[];          // R2-1: model keys a region change can rewrite
+export function planEnterpriseCoupling(state: SettingsState, patch: SettingsPatch): SettingsPatch; // R2-1: writes that must join `patch` (adjustBedrockModelForRegion on Bedrock scopes' own geo-scoped models; skips keys the patch already writes; nothing when the region is unchanged)
+export function planTranscriptionProviderSwitch(state: SettingsState, context: TranscriptionPolicyContext, providerId: string): SettingsPatch; // includes transcriptionModelByProvider memory update
+export function planReasoningProviderSwitch(state: SettingsState, scope: InferenceScope, providerId: string, fallbackModel?: string): SettingsPatch; // includes reasoningModelByProvider memory update
+// (T6 also exports ROUTE_PATCH_KEYS, ROUTE_SWITCH_KEYS, ROUTE_OPTION_KEYS, PROVIDER_SEARCH_PATCH_KEYS, ROUTE_PATCH_KEY_SET and ENTERPRISE_PROVIDER_IDS; see Task 6)
 // settingsStore.ts
-applyRoutePatch(patch: SettingsPatch): void;   // ONE setState; persists strings/booleans to localStorage under the field name and memory objects via persistTranscriptionModelMemory/persistReasoningModelMemory; throws on any secret key
+applyRoutePatch(patch: SettingsPatch): void;   // ONE setState; persists strings/booleans to localStorage under the field name and memory objects via persistTranscriptionModelMemory/persistReasoningModelMemory; R2-1: enterprise keys also go to main once each (saveBedrockRegion/saveAzureEndpoint/saveVertexProject/saveVertexLocation, then debouncedPersistToEnv) and call noteEnterpriseLocalWrite(); throws on any secret or non-route key before writing; never expands coupling, so an undoPatch applies verbatim
+// The four setters setBedrockRegion/setAzureEndpoint/setVertexProject/setVertexLocation stay for non-route callers; no component calls them (Task 18 guard)
 
 // src/lib/routePlanner.ts
 export type RouteTarget =
@@ -27770,29 +33299,179 @@ export type ApplyBlocker = "needsKey" | "chooseProvider" | "needsUrl" | "needsMo
 export interface RoutePlan {
   routeId: RouteId;
   patch: SettingsPatch;          // exact raw store writes; preview is computed by resolving the patched state, so preview == commit by construction
-  undoPatch: SettingsPatch;      // prior raw values of every key in patch (inheritance blanks and vision flags included)
-  changes: RouteChange[];        // every route among the 11 whose locality/providerId/host/model/sends/state changed
+  undoPatch: SettingsPatch;      // prior raw values of every key in patch (inheritance blanks and vision flags included); after a Bedrock region change it also pins every Bedrock model key at its current value (R2-1)
+  changes: RouteChange[];        // every route among the 11 whose locality/providerId/host/model/sends/state changed, plus (R2-1 staging gap) every route whose recipient is unnamed (off-device, enabled, host null or state unknown) when the patch writes its provider's enterprise field (azure: azureEndpoint; bedrock: bedrockRegion; vertex: vertexProject, vertexLocation)
   kind: "noop" | "instant" | "staged";
   blocker: ApplyBlocker | null;
 }
 export function planRouteChange(state: SettingsState, ctx: PlanContext, id: RouteId, target: RouteTarget): RoutePlan;
-export function planPatch(state: SettingsState, ctx: PlanContext, routeId: RouteId, patch: SettingsPatch): RoutePlan; // used for Undo and patch drafts
+export function planPatch(state: SettingsState, ctx: PlanContext, routeId: RouteId, patch: SettingsPatch): RoutePlan; // used for Undo and patch drafts; R2-1: expands planEnterpriseCoupling(state, patch) before diffing, so preview, commit and undoPatch all carry the coupled writes
 export interface PlanContext { facts: RouteFacts; copy: RouteCopy; sealed: boolean }
+export const SETUP_AFTER_APPLY: ReadonlySet<string>; // codex, bedrock, azure, vertex. R2-9: copy only ("Sign in to X first"); it never unblocks Apply
 ```
-kind rules: noop when patch is empty; instant when every changed route is either device after, or keeps the same providerId+host and its `sends` did not grow (same recipient, same payload — e.g. model change at the same provider); otherwise staged. Blocker: computed over every non-off changed route whose after-locality is off-device: sealed → "sealed"; unknown → "unknown"; needsKey with provider "" → "chooseProvider"; needsKey → "needsKey" unless provider in SETUP_AFTER_APPLY (codex, bedrock, azure, vertex); needsUrl; unreachable unsupported → "unsupported"; needsModel with sizeBytes (local download) → "needsModel"; needsModel without size on an off-device text route → allowed (model chosen after switching).
+- **Kind rules.**
+  - `noop` when the patch is empty.
+  - `instant` when every changed route either ends `off` or on the device, or keeps the same providerId and host and its `sends` did not grow. That covers the same recipient with the same payload, for example a model change at the same provider.
+  - A changed off-device route whose before or after `host` is `null`, or whose before or after state is `unknown`, never counts as the same recipient (R2-1 staging gap). Until `facts.enterpriseMain` syncs, or while Vertex's key presence is `null`, an Azure endpoint, Bedrock region or Vertex project/location edit therefore stages, and Apply's `unknown` blocker holds it until the facts load.
+  - `staged` otherwise. An Azure endpoint host change on an active route is staged and names both hosts. A path-only edit is instant once the host is known. A change no enabled route uses is instant.
+- **Blocker (R2-9, readiness-based; replaces v2's SETUP_AFTER_APPLY exemption).**
+  - It is computed over every changed route whose after-state is enabled and off-device. Device routes and `off` routes never block.
+  - Every such route that is not `ready` blocks Apply, mapped to the first match in `BLOCKER_PRIORITY` = `sealed`, `unknown`, `chooseProvider`, `needsKey`, `needsUrl`, `unsupported`, `needsModel`.
+  - The mapping: `unreachable` `sealed` → `"sealed"`; any other `unreachable` → `"unsupported"`; `unknown` → `"unknown"`; `needsKey` with provider `""` → `"chooseProvider"`; `needsKey` → `"needsKey"` for every provider, Codex and the enterprise clouds included; `needsUrl` → `"needsUrl"`; `needsModel` → `"needsModel"` with or without `sizeBytes`.
+  - Model choice and provider setup (Codex sign-in, enterprise fields, keys, Corti fields) are reachable in the staged editor before Apply (T8, T9).
 Writer semantics mirrored inside the planner simulation (single source): dictation mode flags (`transcriptionMode`, `useLocalWhisper`, `cloudTranscriptionMode:"byok"`), meeting/upload equivalents; provider switch via providerSwitchPlans; explicit `target.model` overrides memory; upload never writes the shared dictation URL (self-hosted upload uses dictation's URL read-only); cloud→self-hosted clears a foreign model unless `target.model` given; LLM mode change clears provider/model invalid for the new mode (isProviderValidForMode, src/models/ModelRegistry.ts:272); vision target sets `useDictationAgentVisionModel=true` and vision scope provider/model/cloudBaseUrl only (never touches `voiceAgentScreenContext`, never writes vision mode).
 
 ```ts
-// src/stores/routeDraftStore.ts
-export type RouteDraft = { routeId: RouteId; kind: "target"; target: RouteTarget } | { routeId: RouteId; kind: "patch"; patch: SettingsPatch };
-export const useRouteDraftStore: …{ draft: RouteDraft | null; stage(d): void; discard(): void };
-export function currentPlanContext(copy: RouteCopy): PlanContext;   // facts store + getSealed()
+// src/stores/routeDraftStore.ts (T7)
+export type RouteDraft =
+  | { routeId: RouteId; kind: "target"; target: RouteTarget; setup?: SettingsPatch } // setup: R2-9/R2-1, enterprise route fields only
+  | { routeId: RouteId; kind: "patch"; patch: SettingsPatch };
+export const useRouteDraftStore: UseBoundStore<StoreApi<{
+  draft: RouteDraft | null;
+  requestEpoch: number;              // R2-8 session epoch: bumped only by discard() and endSettingsSession()
+  routeEpochs: Partial<Record<RouteId, number>>; // R2-8 per-route request epochs: bumped by requestRouteChange/requestRoutePatch (own route) and Undo (its plan's route and every changed route)
+  stage(d: RouteDraft): void;
+  discard(): void;                   // the user's Discard: drops the draft and bumps requestEpoch, so every waiting request on any route is superseded
+}>>;
+export const DRAFT_SETUP_KEYS: ReadonlySet<string>;                       // = new Set(ROUTE_ENTERPRISE_KEYS)
+export function currentPlanContext(copy: RouteCopy): PlanContext;         // facts store + getSealed()
+export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan; // target + setup: planRouteChange({ ...state, ...setup }).patch, then planPatch(state, ctx, id, { ...setup, ...thatPatch })
 export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => RouteChangeOutcome | "staged" }
-export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteChangeOutcome | "staged">; // awaits flushSecretSaves(); noop → discard same-route draft; instant → commit; staged → stage
-export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null>;   // awaits flushSecretSaves(); re-plans from LIVE state at click time; refuses on blocker (draft kept)
-// Undo: planPatch(live, undoPatch): instant → apply; else stage a patch draft (never applies a remote move without review)
-export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void;
+export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"; // R2-8
+export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>; // bumps routeEpochs[id] and records it with requestEpoch, awaits flushSecretSaves() + credential refresh, re-checks both; noop → clear the same route's draft (internal: bumps nothing); instant → commit; staged → stage
+export async function requestRoutePatch(id: RouteId, patch: SettingsPatch, copy: RouteCopy): Promise<RouteRequestResult>; // same epoch rule; used by switches, options and enterprise route fields (R2-1)
+export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null; // R2-9: merges enterprise keys into the route's target draft and writes nothing; throws for a key outside DRAFT_SETUP_KEYS; null when the route has no target draft
+export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null>; // reads routeEpochs[draft.routeId] and requestEpoch without bumping them; awaits flushSecretSaves(); re-plans from LIVE state at click time; null when either epoch or the draft changed during the wait; refuses on blocker (draft kept)
+export function endSettingsSession(): void;                                // R2-8: discard(): drops the draft and bumps the session epoch requestEpoch; SettingsModal close calls it through withDraftDiscard
+export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void; // on close: discard the draft and endSettingsSession()
+// Undo: bumps routeEpochs for its plan's routeId and every route in plan.changes (never requestEpoch), then planPatch(live, undoPatch): instant → apply; else stage a patch draft (never applies a remote move without review). Undo has no wait and is not epoch-gated, so a toast Undo still works after Settings closed.
 ```
+- **Request epochs (R2-8).**
+  - Per route: `requestRouteChange(id, …)` and `requestRoutePatch(id, …)` bump `routeEpochs[id]` at call time. Every Undo, synchronously, bumps `routeEpochs` for its plan's `routeId` and for every route in its `changes`, because it is the newest intent for those routes.
+  - Session: only the public `discard()` (the user's Discard) and `endSettingsSession()` (Settings close) bump `requestEpoch`. Internal draft clears (a no-op request, an instant commit on the draft's route, an Apply that finds nothing to do) bump nothing.
+  - A request settles only if both its route epoch and the session epoch are still current after its waits. Otherwise it resolves `"superseded"`, writes and stages nothing, and the caller neither toasts nor announces it. A newer request or an Undo on the same route, a Discard, or Settings closing supersedes it; a request on another route does not, so two routes requested concurrently both settle (what they stage still obeys the single-draft rule).
+  - `applyDraft` reads the draft route's epoch and the session epoch without bumping them, and applies only if both, and the draft itself, are unchanged after its wait.
+  - Undo itself is never gated, so a toast's Undo works after Settings closed.
+- **Callers (T8–T10).**
+  - `useRouteChange().request`/`requestPatch` and `useRouteCommit(id)` return `Promise<RouteRequestResult>`.
+  - `RouteSwitch`, `InferenceConfigEditor.handleModeSelect` and the Patchbay's `pickDestination` return early on `"superseded"`.
+
+### Staged editor and pickers (T8, T9)
+
+```ts
+// src/components/settings/routing/useRouteChange.ts (T8)
+export function useRouteChange(): {
+  request(id: RouteId, target: RouteTarget): Promise<RouteRequestResult>;
+  requestPatch(id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult>;
+  apply(): Promise<RouteChangeOutcome | null>;
+  copy: RouteCopy;
+};
+export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteRequestResult>;
+
+// src/components/settings/routing/providerCatalog.ts (T8)
+export function setsUpInEditor(providerId: string): boolean;      // renamed from signsInAfterApply; SETUP_AFTER_APPLY, copy only
+export interface StagedModelOption { id: string; name: string }
+export function modelsForRoute(id: RouteId, providerId: string): StagedModelOption[]; // R2-9: registry models only, never network discovery; [] = typed model id
+
+// src/components/settings/routing/StagedRoutePanel.tsx (T8)
+export interface StagedCredentialInput { storeKey: string; label: string; value: string; save: AcknowledgedSecretSave } // R2-3
+// StagedRoutePanelViewProps gains: models: StagedModelOption[]; setup?: ReactNode (T9 fills it with CodexConnection or EnterpriseProviderConfig)
+// credential: { credentialId: CredentialId; inputs: StagedCredentialInput[] } | null; T12 passes credentialId to every ApiKeyInput
+
+// T9 component props
+// OpenAICompatiblePanel: { credentialRef?; baseUrl; onUseEndpoint?; apiKey; saveApiKey: AcknowledgedSecretSave; model; onSelectModel; defaultBaseUrl?; baseUrlPlaceholder?; helpExamples?; lockedBaseUrl?; apiKeyRequired?; getKeyUrl? }
+//   renders <ApiKeyInput credentialId={credentialSlotForRef(credentialRef)} …/> (OpenRouter → "openrouter", custom → "custom:<scope>")
+// ReasoningModelSelector: { …; saveCustomReasoningApiKey?: AcknowledgedSecretSave /* default unavailableSecretSave */; onCommit: (target: RouteTarget) => void; onRoutePatch: (patch: SettingsPatch) => void }
+// EnterpriseProviderConfig: { provider: "bedrock" | "azure" | "vertex"; reasoningModel: string; onSelectModel: (model: string) => void;
+//   onRoutePatch: (patch: SettingsPatch) => void;  // active editor: requestPatch(routeId, patch); staged panel: stageDraftSetup
+//   pending?: SettingsPatch; testConnection?: boolean /* default true; false in the staged panel */ }
+//   the four route fields are DraftFields committed on leave or Enter through onRoutePatch only; never a setter or adjustBedrockModelForRegion
+export interface VerifyTarget { hosts: string[]; fields: string[] }                 // structurally VerifyTargetDescription
+export function enterpriseTestDisclosure(target: VerifyTarget | null, t: Translate): string;
+```
+Wiring (R2-1):
+- `InferenceConfigEditor` passes `onRoutePatch={routePatch}`, where `const routePatch = (patch: SettingsPatch) => void requestPatch(routeId, patch)`.
+- `NotesOnboarding` passes `onRoutePatch={(patch) => void requestPatch("dictationCleanup", patch)}`.
+- The enterprise "Test connection" button reads its label from `keyring.describeVerify(provider)`. It asks again when the committed endpoint, region, profile, project or location changes, and on `credentials-changed`. It carries `data-host` and is disabled while main names no host. A staged, uncommitted endpoint does not change the label.
+
+### Keyring (T11) and undoable removal (T12)
+
+```ts
+// src/types/electron.ts. VerifyTargetDescription is declared by T9 at top level; T11 keeps it.
+export interface VerifyTargetDescription { hosts: string[]; fields: string[] } // names only, never values
+export type KeyringIdentity =
+  | "openai" | "anthropic" | "gemini" | "groq" | "xai" | "mistral" | "openrouter" | "tinfoil"
+  | "deepgram" | "assemblyai" | "corti:text" | "corti:speech";
+export type CredentialIdentity = KeyringIdentity | "bedrock" | "azure" | "vertex";
+export type KeyHealthStatus = "unverified" | "verified" | "rejected" | "unreachable";
+export interface KeyringEntry { id: KeyringIdentity; providerId: string; status: KeyHealthStatus; lastVerifiedAt: number | null; lastErrorCode: string | null; lastErrorStatus: number | null; reminderDueAt: number | null }
+export type KeyringVerifyOutcome = "recorded" | "superseded" | "missing" | "sealed" | "invalidOptions";
+export interface KeyringVerifyResult { outcome: KeyringVerifyOutcome; entry: KeyringEntry | null }
+export interface KeyringVerifyOptions { cortiEnvironment?: string; cortiTenant?: string }
+export interface KeyringAPI {
+  list: () => Promise<KeyringEntry[]>;
+  verify: (identity: KeyringIdentity, options?: KeyringVerifyOptions) => Promise<KeyringVerifyResult>;
+  describeVerify: (identity: CredentialIdentity, options?: KeyringVerifyOptions) => Promise<VerifyTargetDescription>; // R2-6
+  setReminder: (identity: KeyringIdentity, enabled: boolean) => Promise<KeyringEntry | null>;
+  onChanged: (callback: (change: { id: KeyringIdentity }) => void) => () => void;
+}
+// electronAPI: keyring: KeyringAPI (T11 deletes T9's forward `keyring?: { describeVerify(identity: "bedrock" | "azure" | "vertex"): Promise<VerifyTargetDescription> }`)
+// IPC: keyring-list, keyring-verify, keyring-describe-verify (R2-6), keyring-set-reminder; broadcast keyring-changed
+
+// src/helpers/keyring.js (T11, main)
+createKeyring({ store, credentials, runTest /* (config, capturedValues) */, now, broadcast, isSealed /* default () => false */, enterpriseConfig }) → {
+  list(): KeyringEntry[];
+  verify(identity, options?): Promise<KeyringVerifyResult>;  // awaits credentials.captureCommitted(identity), then checks isSealed(), then runTest(config, captured.values); coalesced per identity@generation@host
+  describeVerify(identity: CredentialIdentity, options?): Promise<{ hosts: string[]; fields: string[] }>;
+  setReminder(identity, enabled): KeyringEntry | null;
+  takeDueReminders(): string[];
+  dispose(): void;
+}
+// also exported: KEYRING_IDS, ENTERPRISE_IDS, ROTATION_DAYS, testConfigFor, verifyHostsFor, enterpriseVerifyTarget, isSealedRefusal, classifyResult, keyringDisplayName, startRotationReminders
+// src/helpers/cortiAuth.js: module.exports = { getCortiToken, cortiTokenUrl }  // getCortiToken fetches exactly cortiTokenUrl({ environment, tenant })
+// IPCHandlers constructor (T11): this.isSealed = typeof managers.isSealed === "function" ? managers.isSealed : () => false;
+//   createKeyring({ …, isSealed: () => this.isSealed(), enterpriseConfig: () => ({ bedrockRegion, bedrockProfile, azureEndpoint, vertexProject, vertexLocation, routeFacts: enterpriseRouteFacts(process.env) }) /* EnvironmentManager getters, as main.js getEnterpriseConfig :447-457, plus T1's src/helpers/enterpriseRouteFacts.js (hosts and booleans), re-read on every call */ })
+// enterpriseVerifyTarget(identity: "bedrock" | "azure" | "vertex", enterprise: { bedrockRegion, bedrockProfile, azureEndpoint, vertexProject, vertexLocation: string; routeFacts?: EnterpriseMainFacts }, fields: Record<string, boolean>): { hosts: string[]; fields: string[] }  // routeFacts absent = no overrides
+//   Plan 07 passes main's authoritative predicate: new IPCHandlers({ …, isSealed }) at main.js:397 (Task 18 handoff)
+```
+**`describeVerify` (R2-6).** Main computes the answer from the same configuration the request uses. `options` matters only for `corti:speech`, whose region and tenant live only in the renderer; callers pass the same object to `verify`. Enterprise identities ignore `options`. The answers:
+- `corti:speech`: `{ hosts: ["auth.<env>.corti.app"], fields: ["clientId", "clientSecret"] }`, or `hosts: []` with invalid options;
+- every other keyring identity: the hosts of `resolveProviderRequest(config).endpoints` with `["key"]`. `corti:text` gives `ai.eu.corti.app`, and `openai` honours `LOQUI_OPENAI_BASE_URL`;
+- `azure`: the endpoint's host, or `[]` when the endpoint is invalid, not HTTPS or carries credentials;
+- Enterprise answers follow T1's `enterpriseRequestHost`, including main's environment overrides from `enterpriseRouteFacts(process.env)`; `hosts` is `[]` wherever that gives `null`.
+- `bedrock`: when main's environment sets `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` (else `AWS_ENDPOINT_URL`), `[routeFacts.bedrockEndpoint.host]`, or `[]` when that host is `null`. Otherwise `bedrock-runtime.<region || us-east-1>.<partition suffix>`. Fields are `["profile"]` or else the stored key fields;
+- `vertex`: `aiplatform.googleapis.com` with `["key"]` when a key is stored. Otherwise, when main's environment has `GOOGLE_VERTEX_API_KEY` (`routeFacts.vertexApiKeyEnv`), `aiplatform.googleapis.com` with `["environmentKey"]` (express mode; locale keys `keyring.fields.environmentKey` and `reasoning.enterprise.field.environmentKey`, T11). Otherwise the location host with `[]`.
+
+An unknown identity rejects. Renderers ask again on `credentials-changed`, on `keyring-changed`, and whenever an option or setting the answer depends on changes. They never memoize it once.
+
+**Verify (R2-4, R2-7).**
+- The value tested is the committed one from `captureCommitted`. A replacement that commits during Verify gives `superseded`. A failed replacement leaves the generation unchanged, so the verdict belongs to the restored key.
+- A sealed predicate, checked after the capture, gives `{ outcome: "sealed", entry: <unchanged row> }`, and so does a thrown refusal in Plan 07's `SealedModeError` shape (`isSealedRefusal`). Neither writes a row. T12's Verify all stops at `sealed`, and it checks `getSealed()` between steps.
+
+```ts
+// src/components/ui/useUndoableRemoval.ts (T12)
+export const UNDO_WINDOW_MS = 8000;
+export type UndoFailureReason = "expired" | "replaced" | "unknown" | "persistFailed";
+export type RemovalNotice =
+  | { kind: "removed"; token: string; expiresAt: number; restoreFailed: boolean }
+  | { kind: "undoFailed"; reason: Exclude<UndoFailureReason, "persistFailed"> }
+  | { kind: "error"; message: string };
+export const UNDO_FAILURE_KEY: { expired: string; replaced: string; unknown: string };
+export type UndoOutcome = { kind: "restored" } | { kind: "retry" } | { kind: "failed"; reason: "expired" | "replaced" | "unknown" } | { kind: "error"; message: string };
+export function undoRemoval(api: Pick<CredentialsRemovalApi, "undoRemove">, token: string, expiresAt: number, now: () => number): Promise<UndoOutcome>;
+export interface RemovalDeps { api?: CredentialsRemovalApi; toast?: ToastContextType["toast"] | null; now?: () => number; schedule?: (fn: () => void, ms: number) => unknown; cancel?: (handle: unknown) => void }
+export function useUndoableRemoval(credentialId: CredentialSlot | undefined, deps?: RemovalDeps): {
+  available: boolean; notice: RemovalNotice | null; busy: boolean;
+  remove: () => Promise<void>; undo: () => Promise<void>; clear: () => void;
+};
+
+// src/components/settings/routing/KeyringPanel.tsx (T12; R2-6 changes)
+export function verifyTargetText(disclosure: VerifyTargetDescription | null, t: Tr): { host: string | null; fields: string };
+export function keyringVerifyOptions(id: KeyringIdentity, settings: { cortiEnvironment: string; cortiTenant: string }): KeyringVerifyOptions | undefined;
+export function useKeyringController(deps: { api: KeyringApi | undefined; flush: () => Promise<void>; getSealed: () => boolean; verifyOptions?: (id: KeyringIdentity) => KeyringVerifyOptions | undefined; optionsKey?: string; onCredentialsChanged?: (cb: () => void) => () => void }): KeyringController; // gains disclosures: Partial<Record<KeyringIdentity, VerifyTargetDescription>>
+// KeyringPanelViewProps.hostOf → disclosureOf(entry): VerifyTargetDescription | null; credentialHost is removed; no providerHosts/routeSnapshotFromSettings (Task 18 guard)
+```
+Undo is a toast action when a `ToastContext` exists. The action captures the token, the API, `t` and the toast at removal time, so it survives unmount. The inline "Removed · Undo" appears only when there is no toast host. `MULTI_FIELD_CREDENTIALS` slots use `apiKeyInput.removeCredential` and `apiKeyInput.removedCredential`.
 
 ### Storage ops
 
@@ -27801,6 +33480,18 @@ export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: 
 ### Tokens (CCR to Plan 01 tokens, implemented by T5)
 
 Light `--color-ring` `#ff5a1f` → `#E84E16` (spec's light nav marker): ≥ 3.33:1 on every light surface. Plum Night ring unchanged. Settings never puts `text-destructive` on #f5f5f5 surfaces and destructive outline buttons use `hover:bg-background`; keyring amber dots use `bg-locality-remote` (≥ 4.4:1) not `bg-warning`; support-model "Downloaded" uses `text-locality-device`, never `text-success`.
+
+### Locale keys added or changed in round 2
+
+Every key is merged into all 11 locales with `scripts/merge-locale-keys.js`, and `npm run i18n:check` passes after each task.
+- **Task 8.**
+  - `staging.setupAfterApply` is renamed `staging.setupHere` ("Set up {{provider}} here before applying. Nothing is sent until you apply.").
+  - New keys: `staging.blocked.chooseModel`, `staging.blocked.signIn`, `staging.model`, `staging.modelId` and `staging.useModel`.
+- **Task 9.** New keys `reasoning.enterprise.testConnectionAt`, `.testSends`, `.testSendsNoKey`, `.testHostUnknown` and `.field.{key,accessKeyId,secretAccessKey,sessionToken,profile}`.
+- **Task 12.**
+  - `apiKeyInput.removed` now reads "Key removed.", and `keyring.verifyTooltip` now has a `{{fields}}` placeholder.
+  - New `apiKeyInput.*` keys: `removedCredential`, `removeCredential` and `restored`. The `undo*` keys are unchanged from round 1.
+  - New `keyring.*` keys: `verifyTarget`, `verifyTargetUnknown` and `fields.{key,clientId,clientSecret,accessKeyId,secretAccessKey,sessionToken,profile}`.
 
 ### Test conventions (all tasks)
 

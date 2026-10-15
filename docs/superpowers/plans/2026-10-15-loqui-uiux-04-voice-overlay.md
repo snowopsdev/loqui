@@ -5257,7 +5257,7 @@ Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and ca
   ```ts
   // src/components/dictation/pillLocality.ts
   export interface PillLocality { locality: Locality; provider: string | null; blocked: boolean; label: string; routeLine: string }
-  export function routeProviderLabel(route: ResolvedRoute, t: T): string; // providerDisplayLabel(route.providerId, t), else route.provider (CCR-5)
+  export function routeProviderLabel(route: ResolvedRoute, t: T): string; // providerDisplayLabel(route.providerId, t), else route.provider (CCR-7)
   export function combinePillLocality(routes: ResolvedRoute[], t: T): PillLocality;
   export function usePillLocality(): PillLocality;
   ```
@@ -5301,7 +5301,7 @@ test("a cleanup step that is turned off does not colour the ring", async () => {
   assert.match(off.routeLine, /pill\.route\.cleanupOff/);
 });
 
-test("provider names go through providerDisplayLabel when the route carries an id (CCR-5)", async () => {
+test("provider names go through providerDisplayLabel when the route carries an id (CCR-7)", async () => {
   const { combinePillLocality } = await load();
   const custom = combinePillLocality(
     [route("dictationStt", "device", null), { ...route("dictationCleanup", "remote", "Custom endpoint"), providerId: "custom" }],
@@ -5426,7 +5426,7 @@ const RANK: Record<Locality, number> = { device: 0, network: 1, remote: 2 };
  * Display name for a route's provider. Plan 01: names shown in the pill come
  * from providerDisplayLabel so "Custom endpoint" / "Unknown provider" are
  * localised. Falls back to the resolver's display string until Plan 03 adds
- * ResolvedRoute.providerId (CCR-5).
+ * ResolvedRoute.providerId (CCR-7).
  */
 export function routeProviderLabel(route: ResolvedRoute, t: T): string {
   const id = (route as ResolvedRoute & { providerId?: string | null }).providerId;
@@ -7467,57 +7467,77 @@ git commit -m "feat(voice): soft sound family for start, stop, success, cancel, 
 ```
 
 ---
-### Task 16: Meeting presence relay, tray recording state and the Linux notification (D2)
+### Task 16: Meeting presence, meeting outcome, the tray state and the Linux Stop notification (D2)
 
-Meeting capture runs in the control-panel renderer. Main relays a small presence record to the pill window and the tray. On Linux it also shows a persistent notification with a Stop action.
+Closes review findings I8 and I14 for the main-process side.
 
-Electron 44 supports `Notification` actions only on macOS and Windows (`electron.d.ts`: `actions` is `@platform darwin,win32`; `timeoutType` is `linux,win32`). So the Linux Stop action goes through the freedesktop notification service via `gdbus`, which ships with GLib on GNOME and KDE. If `gdbus` is missing, it falls back to an Electron notification with `timeoutType: "never"`, and clicking it opens the control panel.
+Meeting capture runs in the control-panel renderer. That renderer reports two separate things:
+- **presence**, which is liveness only: is a meeting recording right now, since when, and is a source lost;
+- an explicit **outcome**, sent after the stop has actually finished: saved, failed to save, or failed to stop.
+
+Main relays both to the pill window and the tray. It turns owner loss (crash, reload, close) into a `failed` outcome with reason `ownerLost`, and never into "saved".
+
+On Linux, main posts a persistent notification with a Stop button through the freedesktop notification service. It uses the D-Bus library the app already ships (`@homebridge/dbus-native`, `package.json:129`, used lazily by `kdeShortcut.js`, `gnomeShortcut.js` and others), not a host CLI. The notification's lifetime is serialised by generation:
+- a notification posted after its session ended is closed as soon as its id arrives;
+- signals are subscribed before posting;
+- `NotificationClosed`, service loss and app teardown are all handled;
+- Stop is bound to the meeting session it was posted for.
+
+Where the service is missing or does not support actions, the tray menu's "Stop meeting recording" item is the Stop control. A never-expiring notification without a button tells the user so (see Open question 5).
 
 **Files:**
-- Create: `src/helpers/meetingPresence.js` (main process, CommonJS like `tray.js`)
-- Create: `src/helpers/linuxRecordingNotification.js` (main process)
-- Create: `src/helpers/trayRecordingIcon.js` (main process; paints the recording dot)
-- Modify: `src/helpers/ipcHandlers.js`. Add `meeting-recording-presence`, `get-meeting-recording-presence` and `request-stop-meeting-recording`.
-- Modify: `src/helpers/windowManager.js`. Own the presence instance, broadcast to `mainWindow`, and expose `getMeetingPresence()`.
-- Modify: `src/helpers/tray.js`. Add `setMeetingPresence(presence)`, menu items at the top of `buildContextMenuTemplate()` (line 254), the tooltip, and the Linux icon.
-- Modify: `main.js:883-889`. Wire `windowManager.onMeetingPresenceChanged` to the tray.
-- Modify: `preload.js` and `src/types/electron.ts`:
-  - `reportMeetingRecordingPresence`
-  - `getMeetingRecordingPresence`
-  - `onMeetingRecordingPresenceChanged`
-  - `requestStopMeetingRecording`
-  - `onMeetingRecordingStopRequested`
-- Modify: `src/components/MeetingRecordingMount.tsx`. Report presence, and listen for stop requests.
-- Modify: `src/locales/*/translation.json` (`tray.*`, `meetingRecorder.*`)
+- Create: `src/helpers/meetingPresence.js` (main, CommonJS)
+- Create: `src/helpers/linuxRecordingNotification.js` (main)
+- Create: `src/helpers/freedesktopNotifications.js` (main; the thin `@homebridge/dbus-native` adapter)
+- Create: `src/helpers/trayRecordingIcon.js` (main)
+- Modify: `src/stores/meetingRecordingStore.ts`:
+  - `stopRecording` (1503–1615) learns whether persistence and the main stop succeeded, and reports an outcome;
+  - `StopRecordingResult` (1495–1501) gains `persisted` and `stopError`.
+- Modify: `src/helpers/ipcHandlers.js`. Add `meeting-recording-presence`, `meeting-recording-outcome`, `get-meeting-recording-presence` and `request-stop-meeting-recording`.
+- Modify: `src/helpers/windowManager.js`. Own the presence, relay to `mainWindow`, and add `requestStopMeetingRecording(sessionId)`.
+- Modify: `src/helpers/tray.js`. Add `setMeetingPresence`, the recording items at the top of `buildContextMenuTemplate()` (254), the tooltip, and the Linux icon and notification.
+- Modify: `main.js:883-889`. Wire presence and outcome to the tray. On `before-quit`, close the notification.
+- Modify: `preload.js`, `src/types/electron.ts`, `src/preview/browserPreview.ts`
+- Modify: `src/components/MeetingRecordingMount.tsx`. Report presence; stop on request, bound to the session.
 - Test: `test/helpers/meetingPresence.test.js`
 - Test: `test/helpers/linuxRecordingNotification.test.js`
+- Test: `test/helpers/meetingStopOutcome.test.js`
 
 **Interfaces:**
-- Produces (CCR-2 shape):
+- Consumes `MeetingPresence` and `MeetingOutcome` (`src/types/dictation.ts`, Task 7).
+- Produces:
 
   ```js
   // src/helpers/meetingPresence.js
-  normalizePresence(input): { startedAt: number; interruption: "systemAudio" | "mic" | null; quiet: boolean } | null
-  createMeetingPresence({ onChange }): { set(ownerId: number, input): void; clearIfOwner(ownerId: number): void; get(): Presence | null }
-  buildTrayRecordingItems(presence, { t, now }): Array<{ label: string; enabled?: boolean; action?: "stop" }>
+  normalizePresence(input): MeetingPresence | null;  // { sessionId, startedAt, interruption, quiet }
+  createMeetingPresence({ onChange, onOwnerLost }): { set(ownerId, input): void; clearIfOwner(ownerId): void; get(): MeetingPresence | null };
+  buildTrayRecordingItems(presence, { t, now }): Array<{ label: string; enabled?: boolean; action?: "stop" }>;
   ```
 
   ```js
   // src/helpers/linuxRecordingNotification.js
-  gvariantString(text): string
-  buildNotifyArgs({ title, body, stopLabel }): string[]
-  parseNotifyReply(stdout): number | null
-  parseSignalLine(line, id): { kind: "action"; action: string } | { kind: "closed" } | null
-  class LinuxRecordingNotification { constructor({ onStop, onOpen, execFile?, spawn?, ElectronNotification? }); show({ title, body, stopLabel }): Promise<void>; close(): Promise<void> }
+  class LinuxRecordingNotification {
+    constructor({ client, ElectronNotification, onStop: (sessionId) => void, onOpen: () => void });
+    show({ sessionId, title, body, stopLabel, fallbackBody }): Promise<void>;  // serialised; replaces any earlier one
+    close(): Promise<void>;                                                     // idempotent; also closes a late id
+  }
+  // src/helpers/freedesktopNotifications.js
+  createFreedesktopClient({ getDBus? }): Promise<{
+    capabilities(): Promise<string[]>; notify(o): Promise<number>; close(id): Promise<void>;
+    onAction(cb: (id: number, key: string) => void): void; onClosed(cb: (id: number) => void): void;
+    onDisconnect(cb: () => void): void;
+  } | null>;  // null when D-Bus or the service is unavailable
   ```
 
   ```ts
   // electronAPI
-  reportMeetingRecordingPresence(p: { recording: boolean; startedAt?: number; interruption?: "systemAudio" | "mic" | null; quiet?: boolean }): void;
-  getMeetingRecordingPresence(): Promise<MeetingPresence | null>;
-  onMeetingRecordingPresenceChanged(cb: (p: MeetingPresence | null) => void): () => void;
-  requestStopMeetingRecording(): Promise<void>;
-  onMeetingRecordingStopRequested(cb: () => void): () => void;
+  reportMeetingRecordingPresence?: (p: { recording: boolean; sessionId?: string; startedAt?: number; interruption?: "systemAudio" | "mic" | null; quiet?: boolean }) => void;
+  reportMeetingRecordingOutcome?: (o: MeetingOutcome) => void;
+  getMeetingRecordingPresence?: () => Promise<MeetingPresence | null>;
+  onMeetingRecordingPresenceChanged?: (cb: (p: MeetingPresence | null) => void) => () => void;
+  onMeetingRecordingOutcome?: (cb: (o: MeetingOutcome) => void) => () => void;
+  requestStopMeetingRecording?: (sessionId: string) => Promise<void>;
+  onMeetingRecordingStopRequested?: (cb: (sessionId: string) => void) => () => void;
   ```
 
 - [ ] **Step 1: Write the failing tests**
@@ -7527,171 +7547,275 @@ Create `test/helpers/meetingPresence.test.js`:
 ```js
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { installElectronStub } = require("./harness/electronStub");
+
+installElectronStub();
 const { normalizePresence, createMeetingPresence, buildTrayRecordingItems } = require("../../src/helpers/meetingPresence.js");
 
-test("presence is normalised and rejects junk", () => {
+test("presence is liveness only, keyed by session, and rejects junk", () => {
   assert.equal(normalizePresence(null), null);
-  assert.equal(normalizePresence({ recording: false, startedAt: 5 }), null);
-  assert.equal(normalizePresence({ recording: true, startedAt: "x" }), null);
-  assert.deepEqual(normalizePresence({ recording: true, startedAt: 1000, interruption: "nope", quiet: 1 }), {
-    startedAt: 1000,
-    interruption: null,
-    quiet: true,
-  });
-  assert.deepEqual(normalizePresence({ recording: true, startedAt: 1000, interruption: "systemAudio" }), {
-    startedAt: 1000,
-    interruption: "systemAudio",
-    quiet: false,
+  assert.equal(normalizePresence({ recording: false, sessionId: "m1", startedAt: 5 }), null);
+  assert.equal(normalizePresence({ recording: true, startedAt: 5 }), null, "no session id");
+  assert.equal(normalizePresence({ recording: true, sessionId: "m1", startedAt: "x" }), null);
+  assert.deepEqual(normalizePresence({ recording: true, sessionId: "m1", startedAt: 1000, interruption: "nope", quiet: 1 }), {
+    sessionId: "m1", startedAt: 1000, interruption: null, quiet: true,
   });
 });
 
 test("changes are emitted once per real change", () => {
   const seen = [];
   const presence = createMeetingPresence({ onChange: (p) => seen.push(p) });
-  presence.set(7, { recording: true, startedAt: 1000 });
-  presence.set(7, { recording: true, startedAt: 1000 });
-  presence.set(7, { recording: true, startedAt: 1000, quiet: true });
+  presence.set(7, { recording: true, sessionId: "m1", startedAt: 1000 });
+  presence.set(7, { recording: true, sessionId: "m1", startedAt: 1000 });
+  presence.set(7, { recording: true, sessionId: "m1", startedAt: 1000, quiet: true });
   presence.set(7, { recording: false });
   assert.equal(seen.length, 3);
   assert.equal(seen.at(-1), null);
 });
 
-test("presence clears when the owner goes away", () => {
-  const seen = [];
-  const presence = createMeetingPresence({ onChange: (p) => seen.push(p) });
-  presence.set(7, { recording: true, startedAt: 1000 });
+test("presence clears when the owner goes away, and that is reported as ownerLost, never saved", () => {
+  const lost = [];
+  const presence = createMeetingPresence({ onChange: () => {}, onOwnerLost: (sessionId) => lost.push(sessionId) });
+  presence.set(7, { recording: true, sessionId: "m1", startedAt: 1000 });
   presence.clearIfOwner(8);
   assert.notEqual(presence.get(), null);
   presence.clearIfOwner(7);
   assert.equal(presence.get(), null);
-  assert.equal(seen.at(-1), null);
+  assert.deepEqual(lost, ["m1"]);
+  presence.clearIfOwner(7);
+  assert.deepEqual(lost, ["m1"], "exactly once");
+});
+
+test("a normal stop clears presence without an ownerLost report", () => {
+  const lost = [];
+  const presence = createMeetingPresence({ onChange: () => {}, onOwnerLost: (id) => lost.push(id) });
+  presence.set(7, { recording: true, sessionId: "m1", startedAt: 1000 });
+  presence.set(7, { recording: false });
+  presence.clearIfOwner(7);
+  assert.deepEqual(lost, []);
 });
 
 test("the tray leads with a recording line and a Stop item while recording", () => {
   const t = (key, opts) => (opts ? `${key}:${opts.elapsed}` : key);
   assert.deepEqual(buildTrayRecordingItems(null, { t, now: 0 }), []);
-  assert.deepEqual(buildTrayRecordingItems({ startedAt: 0, interruption: null, quiet: false }, { t, now: 761_000 }), [
+  assert.deepEqual(buildTrayRecordingItems({ sessionId: "m1", startedAt: 0, interruption: null, quiet: false }, { t, now: 761_000 }), [
     { label: "tray.meetingRecording:12:41", enabled: false },
     { label: "tray.stopMeetingRecording", action: "stop" },
   ]);
-  assert.equal(
-    buildTrayRecordingItems({ startedAt: 0, interruption: "systemAudio", quiet: false }, { t, now: 0 })[0].label,
-    "tray.meetingRecordingSystemLost"
-  );
+});
+
+test("the recording dot lands in the bottom-right corner in Signal orange", () => {
+  const { paintRecordingDot } = require("../../src/helpers/trayRecordingIcon.js");
+  const out = paintRecordingDot(Buffer.alloc(16 * 16 * 4), 16, 16);
+  const px = (x, y) => [...out.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4)];
+  assert.deepEqual(px(12, 12), [0x1f, 0x5a, 0xff, 0xff]);
+  assert.deepEqual(px(1, 1), [0, 0, 0, 0]);
 });
 ```
 
-Create `test/helpers/linuxRecordingNotification.test.js`:
+Create `test/helpers/linuxRecordingNotification.test.js`. The fake client stands in for the D-Bus service, so these tests run anywhere and never touch the host:
+
+```js
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const test = require("node:test");
+const { deferred } = require("./harness/deferred");
+const { LinuxRecordingNotification } = require("../../src/helpers/linuxRecordingNotification.js");
+
+function fakeClient({ caps = ["actions", "body"] } = {}) {
+  const bus = new EventEmitter();
+  const calls = [];
+  const pendingNotify = [];
+  let nextId = 41;
+  return {
+    calls,
+    bus,
+    pendingNotify,
+    capabilities: async () => caps,
+    notify: (o) => {
+      calls.push(["notify", o.actions]);
+      const d = deferred();
+      pendingNotify.push(() => d.resolve(++nextId));
+      return d.promise;
+    },
+    close: async (id) => calls.push(["close", id]),
+    onAction: (cb) => bus.on("action", cb),
+    onClosed: (cb) => bus.on("closed", cb),
+    onDisconnect: (cb) => bus.on("disconnect", cb),
+  };
+}
+
+class FakeElectronNotification extends EventEmitter {
+  static shown = [];
+  constructor(opts) {
+    super();
+    this.opts = opts;
+    FakeElectronNotification.shown.push(this);
+  }
+  show() {}
+  close() {
+    this.closed = true;
+  }
+}
+
+const tick = () => new Promise((r) => setImmediate(r));
+const until = async (cond) => {
+  for (let i = 0; i < 100 && !cond(); i += 1) await tick();
+  assert.ok(cond(), "condition reached");
+};
+const opts = { title: "Loqui is recording", body: "b", stopLabel: "Stop", fallbackBody: "Stop it from the tray menu." };
+
+test("stop pressed in the notification stops that meeting session", async () => {
+  const client = fakeClient();
+  const stops = [];
+  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop: (id) => stops.push(id), onOpen() {} });
+  const shown = n.show({ ...opts, sessionId: "m1" });
+  await until(() => client.pendingNotify.length > 0);
+  client.pendingNotify.shift()();
+  await shown;
+  assert.deepEqual(client.calls[0], ["notify", ["default", "", "stop", "Stop"]]);
+  client.bus.emit("action", 99, "stop"); // someone else's notification
+  client.bus.emit("action", 42, "stop");
+  assert.deepEqual(stops, ["m1"]);
+});
+
+test("close() while Notify is pending closes the late id when it arrives (I8)", async () => {
+  const client = fakeClient();
+  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen() {} });
+  const shown = n.show({ ...opts, sessionId: "m1" });
+  await until(() => client.pendingNotify.length > 0);
+  const closing = n.close(); // the meeting stopped before the service answered
+  client.pendingNotify.shift()(); // id 42 arrives late
+  await Promise.all([shown, closing]);
+  assert.deepEqual(client.calls.filter(([c]) => c === "close"), [["close", 42]]);
+  client.bus.emit("action", 42, "stop");
+});
+
+test("a new meeting replaces the old notification; the old one's late id is closed", async () => {
+  const client = fakeClient();
+  const stops = [];
+  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop: (id) => stops.push(id), onOpen() {} });
+  const first = n.show({ ...opts, sessionId: "m1" });
+  await until(() => client.pendingNotify.length > 0);
+  const second = n.show({ ...opts, sessionId: "m2" });
+  client.pendingNotify.shift()(); // 42 for m1, now obsolete
+  await until(() => client.pendingNotify.length > 0);
+  client.pendingNotify.shift()(); // 43 for m2
+  await Promise.all([first, second]);
+  assert.deepEqual(client.calls.filter(([c]) => c === "close"), [["close", 42]]);
+  client.bus.emit("action", 43, "stop");
+  assert.deepEqual(stops, ["m2"]);
+});
+
+test("a notification the user dismissed is forgotten; service loss falls back next time", async () => {
+  const client = fakeClient();
+  const n = new LinuxRecordingNotification({ client, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen() {} });
+  const shown = n.show({ ...opts, sessionId: "m1" });
+  await until(() => client.pendingNotify.length > 0);
+  client.pendingNotify.shift()();
+  await shown;
+  client.bus.emit("closed", 42);
+  await n.close();
+  assert.equal(client.calls.some(([c, id]) => c === "close" && id === 42), false, "nothing left to close");
+  client.bus.emit("disconnect");
+  FakeElectronNotification.shown.length = 0;
+  await n.show({ ...opts, sessionId: "m2" });
+  assert.equal(FakeElectronNotification.shown.length, 1, "fell back after the service went away");
+});
+
+test("no service, or no action support: a never-expiring notification that says where Stop is", async () => {
+  FakeElectronNotification.shown.length = 0;
+  let opened = 0;
+  const none = new LinuxRecordingNotification({ client: null, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen: () => opened++ });
+  await none.show({ ...opts, sessionId: "m1" });
+  const [fallback] = FakeElectronNotification.shown;
+  assert.equal(fallback.opts.timeoutType, "never");
+  assert.equal(fallback.opts.body, "Stop it from the tray menu.");
+  fallback.emit("click");
+  assert.equal(opened, 1);
+  await none.close();
+  assert.equal(fallback.closed, true);
+
+  const noActions = fakeClient({ caps: ["body"] });
+  const n = new LinuxRecordingNotification({ client: noActions, ElectronNotification: FakeElectronNotification, onStop() {}, onOpen() {} });
+  await n.show({ ...opts, sessionId: "m2" });
+  assert.equal(noActions.calls.length, 0, "never posts a Stop the server cannot show");
+});
+```
+
+Create `test/helpers/meetingStopOutcome.test.js`. It drives the real `stopRecording` through the renderer harness:
 
 ```js
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { EventEmitter } = require("node:events");
-const {
-  gvariantString,
-  buildNotifyArgs,
-  parseNotifyReply,
-  parseSignalLine,
-  LinuxRecordingNotification,
-} = require("../../src/helpers/linuxRecordingNotification.js");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-test("strings are quoted as GVariant literals", () => {
-  assert.equal(gvariantString("Loqui"), "'Loqui'");
-  assert.equal(gvariantString("it's \\ here"), "'it\\'s \\\\ here'");
-});
+async function load(t, electronAPI) {
+  const outcomes = [];
+  installBrowserGlobals(t, { window: { electronAPI: { ...electronAPI, reportMeetingRecordingOutcome: (o) => outcomes.push(o) } } });
+  const vite = await createRendererServer(t, { cachePrefix: "openwhispr-meeting-outcome-" });
+  const store = await vite.ssrLoadModule("/stores/meetingRecordingStore.ts");
+  return { store, outcomes };
+}
 
-test("Notify is called with a stop action and a resident hint", () => {
-  const args = buildNotifyArgs({ title: "Loqui is recording", body: "Weekly sync", stopLabel: "Stop" });
-  assert.deepEqual(args.slice(0, 8), [
-    "call", "--session", "--dest", "org.freedesktop.Notifications",
-    "--object-path", "/org/freedesktop/Notifications", "--method", "org.freedesktop.Notifications.Notify",
-  ]);
-  // "default" makes a click on the body open Loqui; "stop" is the button.
-  assert.ok(args.includes("['default', '', 'stop', 'Stop']"));
-  assert.ok(args.some((a) => a.includes("'resident': <true>")));
-  assert.equal(args.at(-1), "0");
-});
-
-test("the Notify reply and monitor lines are parsed", () => {
-  assert.equal(parseNotifyReply("(uint32 42,)\n"), 42);
-  assert.equal(parseNotifyReply("garbage"), null);
-  const line = "/org/freedesktop/Notifications: org.freedesktop.Notifications.ActionInvoked (uint32 42, 'stop')";
-  assert.deepEqual(parseSignalLine(line, 42), { kind: "action", action: "stop" });
-  assert.equal(parseSignalLine(line, 41), null);
-  assert.deepEqual(
-    parseSignalLine("/org/freedesktop/Notifications: org.freedesktop.Notifications.NotificationClosed (uint32 42, uint32 2)", 42),
-    { kind: "closed" }
-  );
-});
-
-test("Stop in the notification calls onStop; close() closes it and stops monitoring", async () => {
-  const calls = [];
-  const monitor = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), kill: () => calls.push("kill") });
-  let stopped = 0;
-  const n = new LinuxRecordingNotification({
-    onStop: () => stopped++,
-    onOpen: () => {},
-    ElectronNotification: class {}, // never require("electron") in plain Node
-    execFile: (cmd, args, cb) => {
-      calls.push(args.includes("org.freedesktop.Notifications.Notify") ? "notify" : "close");
-      cb(null, "(uint32 42,)\n", "");
-    },
-    spawn: () => monitor,
+test("a saved meeting reports saved only after the transcript write succeeded", async (t) => {
+  const { store, outcomes } = await load(t, {
+    updateNote: async () => ({ success: true }),
+    meetingTranscriptionStop: async () => ({ success: true }),
   });
-  await n.show({ title: "t", body: "b", stopLabel: "Stop" });
-  monitor.stdout.emit("data", Buffer.from("/org/freedesktop/Notifications: org.freedesktop.Notifications.ActionInvoked (uint32 42, 'stop')\n"));
-  assert.equal(stopped, 1);
-  await n.close();
-  assert.deepEqual(calls, ["notify", "close", "kill"]);
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now() - 1000, segments: [{ text: "hi" }] });
+  const result = await store.stopRecording("m1");
+  assert.equal(result.persisted, true);
+  assert.equal(outcomes.at(-1).kind, "saved");
+  assert.equal(outcomes.at(-1).sessionId, "m1");
 });
 
-test("without gdbus it falls back to a never-expiring Electron notification", async () => {
-  const shown = [];
-  let opened = 0;
-  class FakeNotification extends EventEmitter {
-    constructor(opts) {
-      super();
-      shown.push(opts);
-    }
-    show() {}
-    close() {}
-  }
-  const n = new LinuxRecordingNotification({
-    onStop: () => {},
-    onOpen: () => opened++,
-    execFile: (_c, _a, cb) => cb(Object.assign(new Error("not found"), { code: "ENOENT" })),
-    spawn: () => {
-      throw new Error("unused");
+test("a failed transcript write is a failed outcome, never 'saved' (I14)", async (t) => {
+  const { store, outcomes } = await load(t, {
+    updateNote: async () => {
+      throw new Error("disk full");
     },
-    ElectronNotification: FakeNotification,
+    meetingTranscriptionStop: async () => ({ success: true }),
   });
-  await n.show({ title: "t", body: "b", stopLabel: "Stop" });
-  assert.equal(shown[0].timeoutType, "never");
-  n._fallback.emit("click");
-  assert.equal(opened, 1);
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now(), segments: [{ text: "hi" }] });
+  const result = await store.stopRecording("m1");
+  assert.equal(result.persisted, false);
+  assert.deepEqual(outcomes.at(-1), { sessionId: "m1", kind: "failed", reason: "save" });
+});
+
+test("a stop for another session is ignored, and duplicate stops report once", async (t) => {
+  const { store, outcomes } = await load(t, { updateNote: async () => ({}), meetingTranscriptionStop: async () => ({ success: true }) });
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now(), segments: [] });
+  assert.equal((await store.stopRecording("m-other")).stopped, false);
+  await Promise.all([store.stopRecording("m1"), store.stopRecording("m1")]);
+  assert.equal(outcomes.length, 1);
 });
 ```
 
+`__primeRecordingForTests` is a test seam you add to `meetingRecordingStore.ts`. It sets the module flags (`activeRecordingSessionId`, `isRecordingFlag`) and the store fields `stopRecording` reads (`recordingNoteId`, `segments`, `recordingStartedAt`, `isRecording`), without starting capture. If `stopRecording` calls the cleanup closure set by `startRecording`, have the seam set it to a no-op. Mock `"/utils/logger"` in `createRendererServer` if the store's logger import needs it, the way `test/helpers/harness/audioManager.js` does.
+
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js`
+Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js test/helpers/meetingStopOutcome.test.js`
 Expected: FAIL with `Cannot find module '…/meetingPresence.js'`.
 
-- [ ] **Step 3: Implement the pure modules**
+- [ ] **Step 3: Presence and the tray icon**
 
 `src/helpers/meetingPresence.js`:
 
 ```js
-// D2: the pill window is the ambient meeting recorder. Meeting capture runs in
-// the control-panel renderer, so main relays this small record to the pill
-// and the tray, and clears it if that renderer goes away.
+// D2: the pill window is the ambient meeting recorder. Presence is liveness
+// only; whether a meeting was saved is a separate, explicit outcome
+// (meeting-recording-outcome). Owner loss is reported as a failure.
 const INTERRUPTIONS = new Set(["systemAudio", "mic"]);
 
 function normalizePresence(input) {
   if (!input || input.recording === false) return null;
   const startedAt = Number(input.startedAt);
-  if (!Number.isFinite(startedAt) || startedAt <= 0) return null;
+  const sessionId = typeof input.sessionId === "string" && input.sessionId.length <= 128 ? input.sessionId : null;
+  if (!sessionId || !Number.isFinite(startedAt) || startedAt <= 0) return null;
   return {
+    sessionId,
     startedAt,
     interruption: INTERRUPTIONS.has(input.interruption) ? input.interruption : null,
     quiet: Boolean(input.quiet),
@@ -7700,9 +7824,9 @@ function normalizePresence(input) {
 
 const same = (a, b) =>
   a === b ||
-  (a && b && a.startedAt === b.startedAt && a.interruption === b.interruption && a.quiet === b.quiet);
+  (a && b && a.sessionId === b.sessionId && a.startedAt === b.startedAt && a.interruption === b.interruption && a.quiet === b.quiet);
 
-function createMeetingPresence({ onChange }) {
+function createMeetingPresence({ onChange, onOwnerLost } = {}) {
   let state = null;
   let ownerId = null;
   const commit = (next, owner) => {
@@ -7716,7 +7840,10 @@ function createMeetingPresence({ onChange }) {
       commit(normalizePresence(input), owner);
     },
     clearIfOwner(owner) {
-      if (ownerId !== null && ownerId === owner) commit(null, null);
+      if (ownerId === null || ownerId !== owner || !state) return;
+      const lost = state.sessionId;
+      commit(null, null);
+      onOwnerLost?.(lost);
     },
     get: () => state,
   };
@@ -7724,9 +7851,7 @@ function createMeetingPresence({ onChange }) {
 
 function formatElapsed(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = String(total % 60).padStart(2, "0");
-  return `${m}:${s}`;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function buildTrayRecordingItems(presence, { t, now = Date.now() }) {
@@ -7746,280 +7871,369 @@ function buildTrayRecordingItems(presence, { t, now = Date.now() }) {
 module.exports = { normalizePresence, createMeetingPresence, buildTrayRecordingItems, formatElapsed };
 ```
 
+`src/helpers/trayRecordingIcon.js`:
+
+```js
+const { nativeImage } = require("electron");
+
+// Paint a filled circle into a BGRA bitmap (Electron's toBitmap() order).
+function paintRecordingDot(bitmap, width, height) {
+  const out = Buffer.from(bitmap);
+  const r = Math.max(2, Math.round(Math.min(width, height) * 0.3));
+  const cx = width - r - 1;
+  const cy = height - r - 1;
+  for (let y = cy - r; y <= cy + r; y += 1) {
+    for (let x = cx - r; x <= cx + r; x += 1) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 > r * r || x < 0 || y < 0 || x >= width || y >= height) continue;
+      const i = (y * width + x) * 4;
+      out[i] = 0x1f;
+      out[i + 1] = 0x5a;
+      out[i + 2] = 0xff;
+      out[i + 3] = 0xff;
+    }
+  }
+  return out;
+}
+
+function createRecordingTrayIcon(baseIcon) {
+  const { width, height } = baseIcon.getSize();
+  return nativeImage.createFromBitmap(paintRecordingDot(baseIcon.toBitmap(), width, height), { width, height });
+}
+
+module.exports = { paintRecordingDot, createRecordingTrayIcon };
+```
+
+- [ ] **Step 4: The notification and its D-Bus adapter**
+
 `src/helpers/linuxRecordingNotification.js`:
 
 ```js
-const childProcess = require("child_process");
-
-// Electron's Notification has no actions on Linux (electron.d.ts: actions is
-// darwin,win32). The freedesktop service does, so we speak to it with gdbus.
-const DEST = ["--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications"];
-
-function gvariantString(text) {
-  return `'${String(text).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-}
-
-function buildNotifyArgs({ title, body, stopLabel }) {
-  return [
-    "call", "--session", ...DEST, "--method", "org.freedesktop.Notifications.Notify",
-    gvariantString("Loqui"), "0", gvariantString("media-record"), gvariantString(title), gvariantString(body),
-    `['default', '', 'stop', ${gvariantString(stopLabel)}]`,
-    "{'resident': <true>, 'urgency': <byte 1>, 'category': <'device'>}",
-    "0",
-  ];
-}
-
-function parseNotifyReply(stdout) {
-  const match = /uint32 (\d+)/.exec(String(stdout));
-  return match ? Number(match[1]) : null;
-}
-
-function parseSignalLine(line, id) {
-  const action = /ActionInvoked \(uint32 (\d+), '([^']*)'\)/.exec(line);
-  if (action && Number(action[1]) === id) return { kind: "action", action: action[2] };
-  const closed = /NotificationClosed \(uint32 (\d+),/.exec(line);
-  if (closed && Number(closed[1]) === id) return { kind: "closed" };
-  return null;
-}
-
+// The resident "recording" notification on Linux, with a Stop action. One
+// lifetime at a time, serialised by generation: a Notify answer that arrives
+// after its session ended is closed immediately, and signals are subscribed
+// before anything is posted.
 class LinuxRecordingNotification {
-  constructor({ onStop, onOpen, execFile = childProcess.execFile, spawn = childProcess.spawn, ElectronNotification } = {}) {
+  constructor({ client, ElectronNotification, onStop, onOpen }) {
+    this.client = client;
+    this.ElectronNotification = ElectronNotification;
     this.onStop = onStop;
     this.onOpen = onOpen;
-    this.execFile = execFile;
-    this.spawn = spawn;
-    this.ElectronNotification = ElectronNotification ?? require("electron").Notification;
-    this.id = null;
-    this.monitor = null;
-    this._fallback = null;
+    this.generation = 0;
+    this.current = null; // { id, sessionId, generation }
+    this.fallback = null;
+    this.queue = Promise.resolve();
+    this.serviceAlive = Boolean(client);
+    if (client) {
+      client.onAction((id, key) => {
+        if (!this.current || id !== this.current.id) return;
+        if (key === "stop") this.onStop?.(this.current.sessionId);
+        else if (key === "default") this.onOpen?.();
+      });
+      client.onClosed((id) => {
+        if (this.current?.id === id) this.current = null; // dismissed by the user; the tray Stop remains
+      });
+      client.onDisconnect(() => {
+        this.serviceAlive = false;
+        this.current = null;
+      });
+    }
   }
 
-  _exec(args) {
-    return new Promise((resolve, reject) => {
-      this.execFile("gdbus", args, (error, stdout) => (error ? reject(error) : resolve(stdout)));
-    });
+  _enqueue(job) {
+    this.queue = this.queue.then(job, job);
+    return this.queue;
   }
 
-  async show({ title, body, stopLabel }) {
-    await this.close();
-    try {
-      this.id = parseNotifyReply(await this._exec(buildNotifyArgs({ title, body, stopLabel })));
-    } catch {
-      this.id = null;
-    }
-    if (this.id === null) {
-      this._fallback = new this.ElectronNotification({ title, body, timeoutType: "never", silent: true });
-      this._fallback.on("click", () => this.onOpen?.());
-      this._fallback.show();
-      return;
-    }
-    this.monitor = this.spawn("gdbus", ["monitor", "--session", ...DEST]);
-    let buffer = "";
-    this.monitor.stdout.on("data", (chunk) => {
-      buffer += chunk.toString();
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-      for (const line of lines) {
-        const signal = parseSignalLine(line, this.id);
-        if (signal?.kind === "action" && signal.action === "stop") this.onStop?.();
-        if (signal?.kind === "action" && signal.action === "default") this.onOpen?.();
+  show({ sessionId, title, body, stopLabel, fallbackBody }) {
+    const generation = ++this.generation;
+    return this._enqueue(async () => {
+      await this._closeNow();
+      if (generation !== this.generation) return;
+      const caps = this.serviceAlive ? await this.client.capabilities().catch(() => []) : [];
+      if (!caps.includes("actions")) {
+        this.fallback = new this.ElectronNotification({ title, body: fallbackBody, timeoutType: "never", silent: true });
+        this.fallback.on("click", () => this.onOpen?.());
+        this.fallback.show();
+        return;
       }
+      let id;
+      try {
+        id = await this.client.notify({
+          title, body, actions: ["default", "", "stop", stopLabel],
+          hints: { resident: true, urgency: 1, category: "device" },
+        });
+      } catch {
+        return;
+      }
+      if (generation !== this.generation) {
+        await this.client.close(id).catch(() => {}); // obsolete before it was posted
+        return;
+      }
+      this.current = { id, sessionId, generation };
     });
-    this.monitor.on?.("error", () => {});
   }
 
-  async close() {
-    if (this.id !== null) {
-      const id = this.id;
-      this.id = null;
-      await this._exec(["call", "--session", ...DEST, "--method", "org.freedesktop.Notifications.CloseNotification", String(id)]).catch(() => {});
-    }
-    if (this.monitor) {
-      this.monitor.kill();
-      this.monitor = null;
-    }
-    if (this._fallback) {
-      this._fallback.close();
-      this._fallback = null;
+  close() {
+    ++this.generation;
+    return this._enqueue(() => this._closeNow());
+  }
+
+  async _closeNow() {
+    const current = this.current;
+    this.current = null;
+    if (current && this.serviceAlive) await this.client.close(current.id).catch(() => {});
+    if (this.fallback) {
+      this.fallback.close();
+      this.fallback = null;
     }
   }
 }
 
-module.exports = { gvariantString, buildNotifyArgs, parseNotifyReply, parseSignalLine, LinuxRecordingNotification };
+module.exports = { LinuxRecordingNotification };
 ```
 
-- [ ] **Step 4: Wire main, tray and preload**
+`close()` bumps the generation before queueing, so an in-flight `show()` sees the mismatch when its Notify answer arrives, and closes the late id. That is the probe the review reproduced.
 
-1. `src/helpers/trayRecordingIcon.js` paints a 30%-radius dot in Signal orange (`#FF5A1F`) at the bottom-right of a copy of the tray icon. On Linux, `tray.js` uses that copy while recording. The paint step is pure, so a unit test covers it.
+`src/helpers/freedesktopNotifications.js`. This is the thin adapter over the bundled D-Bus library. It is lazy, like `kdeShortcut.js:8`:
 
-   ```js
-   const { nativeImage } = require("electron");
+```js
+const debugLogger = require("./debugLogger");
 
-   // Paint a filled circle into a BGRA bitmap (Electron's toBitmap() order).
-   function paintRecordingDot(bitmap, width, height) {
-     const out = Buffer.from(bitmap);
-     const r = Math.max(2, Math.round(Math.min(width, height) * 0.3));
-     const cx = width - r - 1;
-     const cy = height - r - 1;
-     for (let y = cy - r; y <= cy + r; y += 1) {
-       for (let x = cx - r; x <= cx + r; x += 1) {
-         if ((x - cx) ** 2 + (y - cy) ** 2 > r * r || x < 0 || y < 0 || x >= width || y >= height) continue;
-         const i = (y * width + x) * 4;
-         out[i] = 0x1f; // B
-         out[i + 1] = 0x5a; // G
-         out[i + 2] = 0xff; // R
-         out[i + 3] = 0xff; // A
-       }
-     }
-     return out;
-   }
+let dbusModule;
+function getDBus() {
+  if (dbusModule !== undefined) return dbusModule;
+  try {
+    dbusModule = require("@homebridge/dbus-native");
+  } catch {
+    dbusModule = null;
+  }
+  return dbusModule;
+}
 
-   function createRecordingTrayIcon(baseIcon) {
-     const { width, height } = baseIcon.getSize();
-     return nativeImage.createFromBitmap(paintRecordingDot(baseIcon.toBitmap(), width, height), { width, height });
-   }
+const PATH = "/org/freedesktop/Notifications";
+const NAME = "org.freedesktop.Notifications";
 
-   module.exports = { paintRecordingDot, createRecordingTrayIcon };
-   ```
+async function createFreedesktopClient({ getDBus: loadDBus = getDBus } = {}) {
+  const dbus = loadDBus();
+  if (!dbus) return null;
+  let bus;
+  try {
+    bus = dbus.sessionBus();
+  } catch {
+    return null;
+  }
+  const iface = await new Promise((resolve) =>
+    bus.getService(NAME).getInterface(PATH, NAME, (err, value) => resolve(err ? null : value))
+  );
+  if (!iface) return null;
+  const call = (method, ...args) =>
+    new Promise((resolve, reject) => iface[method](...args, (err, value) => (err ? reject(err) : resolve(value))));
+  const hint = (key, value) => [key, typeof value === "boolean" ? ["b", value] : typeof value === "number" ? ["y", value] : ["s", value]];
+  return {
+    capabilities: () => call("GetCapabilities"),
+    notify: ({ title, body, actions, hints }) =>
+      call("Notify", "Loqui", 0, "media-record", title, body, actions, Object.entries(hints).map(([k, v]) => hint(k, v)), 0),
+    close: (id) => call("CloseNotification", id),
+    onAction: (cb) => iface.on("ActionInvoked", (id, key) => cb(Number(id), String(key))),
+    onClosed: (cb) => iface.on("NotificationClosed", (id) => cb(Number(id))),
+    onDisconnect: (cb) => {
+      bus.connection?.on?.("end", cb);
+      bus.connection?.on?.("error", (error) => {
+        debugLogger.debug("Notification bus error", { error: error?.message }, "meeting");
+        cb();
+      });
+    },
+  };
+}
 
-   Add this test to `test/helpers/meetingPresence.test.js`. It needs the electron stub: `require("./harness/electronStub").installElectronStub()` before the `require` (see `test/helpers/harness/electronStub.js` for the call shape).
+module.exports = { createFreedesktopClient };
+```
 
-   ```js
-   test("the recording dot lands in the bottom-right corner in Signal orange", () => {
-     const { paintRecordingDot } = require("../../src/helpers/trayRecordingIcon.js");
-     const out = paintRecordingDot(Buffer.alloc(16 * 16 * 4), 16, 16);
-     const px = (x, y) => [...out.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4)];
-     assert.deepEqual(px(12, 12), [0x1f, 0x5a, 0xff, 0xff]);
-     assert.deepEqual(px(1, 1), [0, 0, 0, 0]);
-   });
-   ```
+The hint encoding (`[key, [signature, value]]`) and the signal subscription (`iface.on`) follow the forms the existing D-Bus users in this repo already use. Before relying on them, check `src/helpers/gnomeShortcut.js:211-219` and `kdeShortcut.js` for the exact call shapes, and match them. The adapter is not unit-tested, because it needs a session bus. Task 20's Linux matrix exercises it on a real desktop.
 
-2. `windowManager.js`:
-   - In the constructor (lines 48–108), add `this.meetingPresence = createMeetingPresence({ onChange: (p) => this._onMeetingPresenceChanged(p) }); this.onMeetingPresenceChanged = null;`.
-   - Add these methods:
+- [ ] **Step 5: The meeting outcome in the store**
 
-     ```js
-       getMeetingPresence() {
-         return this.meetingPresence.get();
-       }
+In `src/stores/meetingRecordingStore.ts`:
+1. Extend `StopRecordingResult` (1495–1501) with `persisted: boolean; stopError: boolean;`. Early-return paths report `persisted: false, stopError: false`.
+2. Inside `runStop`:
+   - Before line 1545, capture `const startedAt = useMeetingRecordingStore.getState().recordingStartedAt;`.
+   - Make `persistTranscript` record its result: `let persisted = recordingNoteId == null;`. On success set `persisted = true`. The `catch` keeps logging and leaves `persisted = false`. For a segment-less recording with no fallback transcript, the existing code writes nothing, so treat that as `persisted = true`, because there was nothing to save.
+   - In `stop()`, set `stopError = true` in both the `result?.error` branch and the `catch`.
+   - After `persistFinalTranscriptAroundStop` returns, report the outcome:
 
-       _onMeetingPresenceChanged(presence) {
-         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-           this.mainWindow.webContents.send("meeting-recording-presence-changed", presence);
-         }
-         this.onMeetingPresenceChanged?.(presence);
-       }
-
-       requestStopMeetingRecording() {
-         this.sendToControlPanel("meeting-recording-stop-requested");
-       }
+     ```ts
+         const outcome: MeetingOutcome = persisted && !stopError
+           ? { sessionId, kind: "saved", durationMs: startedAt ? Date.now() - startedAt : 0, noteId: recordingNoteId ?? null }
+           : { sessionId, kind: "failed", reason: persisted ? "stop" : "save" };
+         window.electronAPI?.reportMeetingRecordingOutcome?.(outcome);
      ```
 
-3. `ipcHandlers.js`. Add these next to the `meeting-transcription-*` handlers (around line 7700):
+   - Return `{ diarizationSessionId, stopped: true, persisted, stopError }`.
+
+   `meetingRecordingStopBarrier.runStop` already dedupes concurrent stops (1525–1533), so the outcome is reported once.
+3. Add the `__primeRecordingForTests` seam described in Step 1. Name it with the double underscore so it reads as test-only, and export it.
+
+- [ ] **Step 6: Main relay, tray and preload**
+
+1. **`windowManager.js` constructor:**
 
    ```js
-       ipcMain.on("meeting-recording-presence", (event, payload) => {
-         const panel = this.windowManager.controlPanelWindow;
-         if (!panel || event.sender !== panel.webContents) return;
-         const owner = event.sender.id;
-         this.windowManager.meetingPresence.set(owner, payload);
-         if (!event.sender.__loquiPresenceWatch) {
-           event.sender.__loquiPresenceWatch = true;
-           const clear = () => this.windowManager.meetingPresence.clearIfOwner(owner);
-           event.sender.once("destroyed", clear);
-           event.sender.on("render-process-gone", clear);
-           // Electron passes a details event; the positional (url, isInPlace,
-           // isMainFrame) arguments are deprecated.
-           event.sender.on("did-start-navigation", (details) => {
-             if (details.isMainFrame && !details.isSameDocument) clear();
-           });
-         }
+       this.meetingPresence = createMeetingPresence({
+         onChange: (p) => this._onMeetingPresenceChanged(p),
+         onOwnerLost: (sessionId) => this._onMeetingOutcome({ sessionId, kind: "failed", reason: "ownerLost" }),
        });
+       this.onMeetingPresenceChanged = null;
+       this.onMeetingOutcome = null;
+   ```
 
+   Add these methods:
+
+   ```js
+     getMeetingPresence() {
+       return this.meetingPresence.get();
+     }
+
+     _onMeetingPresenceChanged(presence) {
+       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+         this.mainWindow.webContents.send("meeting-recording-presence-changed", presence);
+       }
+       this.onMeetingPresenceChanged?.(presence);
+     }
+
+     _onMeetingOutcome(outcome) {
+       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+         this.mainWindow.webContents.send("meeting-recording-outcome", outcome);
+       }
+       this.onMeetingOutcome?.(outcome);
+     }
+
+     requestStopMeetingRecording(sessionId) {
+       if (!sessionId || this.meetingPresence.get()?.sessionId !== sessionId) return; // stale button
+       this.sendToControlPanel("meeting-recording-stop-requested", sessionId);
+     }
+   ```
+
+2. **`ipcHandlers.js`**, next to the `meeting-transcription-*` handlers (≈7700). Only the control panel may report. The owner watch uses the `details` form of `did-start-navigation` (`meetingTranscriptionLifecycle.js:17-28`):
+
+   ```js
+       const fromControlPanel = (event) => {
+         const panel = this.windowManager.controlPanelWindow;
+         return Boolean(panel && !panel.isDestroyed() && event.sender === panel.webContents);
+       };
+       const watchedMeetingOwners = new WeakSet();
+       ipcMain.on("meeting-recording-presence", (event, payload) => {
+         if (!fromControlPanel(event)) return;
+         const contents = event.sender;
+         this.windowManager.meetingPresence.set(contents.id, payload);
+         if (watchedMeetingOwners.has(contents)) return;
+         watchedMeetingOwners.add(contents);
+         const lost = () => this.windowManager.meetingPresence.clearIfOwner(contents.id);
+         contents.once("destroyed", lost);
+         contents.on("render-process-gone", lost);
+         contents.on("did-start-navigation", (details) => {
+           if (details.isMainFrame && !details.isSameDocument) lost();
+         });
+       });
+       ipcMain.on("meeting-recording-outcome", (event, outcome) => {
+         if (!fromControlPanel(event)) return;
+         if (typeof outcome?.sessionId !== "string" || !["saved", "failed"].includes(outcome.kind)) return;
+         this.windowManager._onMeetingOutcome(outcome);
+       });
        ipcMain.handle("get-meeting-recording-presence", () => this.windowManager.getMeetingPresence());
-
-       ipcMain.handle("request-stop-meeting-recording", () => {
-         this.windowManager.requestStopMeetingRecording();
+       ipcMain.handle("request-stop-meeting-recording", (_event, sessionId) => {
+         this.windowManager.requestStopMeetingRecording(sessionId);
        });
    ```
 
-4. `tray.js`:
-   - In the constructor, add `this.meetingPresence = null; this.linuxNotification = null; this.baseIcon = null;`. Store the loaded icon in `createTray()` (line 141) as `this.baseIcon`.
-   - Add:
+3. **`tray.js`.** In the constructor, add `this.meetingPresence = null; this.linuxNotification = null; this.baseIcon = null;`, and store the loaded icon in `createTray()` (141) as `this.baseIcon`.
 
-     ```js
-       setMeetingPresence(presence) {
-         const was = this.meetingPresence;
-         this.meetingPresence = presence;
-         if (process.platform === "linux" && this.tray && this.baseIcon) {
+   ```js
+     async _linuxNotification() {
+       if (this.linuxNotification) return this.linuxNotification;
+       const client = await createFreedesktopClient();
+       this.linuxNotification = new LinuxRecordingNotification({
+         client,
+         ElectronNotification: require("electron").Notification,
+         onStop: (sessionId) => this.windowManager?.requestStopMeetingRecording(sessionId),
+         onOpen: () => this.showControlPanelFromTray(),
+       });
+       return this.linuxNotification;
+     }
+
+     setMeetingPresence(presence) {
+       const previous = this.meetingPresence;
+       this.meetingPresence = presence;
+       if (process.platform === "linux") {
+         if (this.tray && this.baseIcon) {
            this.tray.setImage(presence ? createRecordingTrayIcon(this.baseIcon) : this.baseIcon);
          }
-         if (process.platform === "linux") {
-           this.linuxNotification ??= new LinuxRecordingNotification({
-             onStop: () => this.windowManager?.requestStopMeetingRecording(),
-             onOpen: () => this.showControlPanelFromTray(),
-           });
-           if (presence && !was) {
-             void this.linuxNotification.show({
+         if (presence && presence.sessionId !== previous?.sessionId) {
+           void this._linuxNotification().then((n) =>
+             n.show({
+               sessionId: presence.sessionId,
                title: i18nMain.t("meetingRecorder.notificationTitle"),
                body: i18nMain.t("meetingRecorder.notificationBody"),
                stopLabel: i18nMain.t("meetingRecorder.stop"),
-             });
-           } else if (!presence && was) {
-             void this.linuxNotification.close();
-           }
+               fallbackBody: i18nMain.t("meetingRecorder.notificationFallbackBody"),
+             })
+           );
+         } else if (!presence && previous) {
+           void this.linuxNotification?.close();
          }
-         this.updateTrayMenu();
        }
-     ```
+       this.updateTrayMenu();
+     }
 
-   - In `buildContextMenuTemplate()` (line 254), prepend the recording items, followed by a separator when there are any:
-
-     ```js
-         const recording = buildTrayRecordingItems(this.meetingPresence, { t: (k, o) => i18nMain.t(k, o) }).map((item) =>
-           item.action === "stop"
-             ? { label: item.label, click: () => this.windowManager?.requestStopMeetingRecording() }
-             : { label: item.label, enabled: false }
-         );
-         const lead = recording.length ? [...recording, { type: "separator" }] : [];
-     ```
-
-     Return `[...lead, ...<existing items>]`.
-   - In `updateTrayMenu()` (line 312), set the tooltip to `i18nMain.t(this.meetingPresence ? "tray.tooltipRecording" : "tray.tooltip")`.
-5. `main.js:887`. Next to `windowManager.onDictationStateChanged = …`, add `windowManager.onMeetingPresenceChanged = (p) => trayManager.setMeetingPresence(p);`.
-6. `preload.js`:
-
-   ```js
-     reportMeetingRecordingPresence: (payload) => ipcRenderer.send("meeting-recording-presence", payload),
-     getMeetingRecordingPresence: () => ipcRenderer.invoke("get-meeting-recording-presence"),
-     onMeetingRecordingPresenceChanged: registerListener("meeting-recording-presence-changed", (cb) => (_e, p) => cb(p)),
-     requestStopMeetingRecording: () => ipcRenderer.invoke("request-stop-meeting-recording"),
-     onMeetingRecordingStopRequested: registerListener("meeting-recording-stop-requested", (cb) => () => cb()),
+     teardownMeetingNotification() {
+       return this.linuxNotification?.close() ?? Promise.resolve();
+     }
    ```
 
-   Add matching optional method types to `electron.ts` inside the `electronAPI` interface, near the meeting APIs (lines 2278–2289). Put `export type MeetingPresence = { startedAt: number; interruption: "systemAudio" | "mic" | null; quiet: boolean };` at top level, next to `MeetingNotificationData` (line 66), not inside the interface.
-7. `MeetingRecordingMount.tsx` (control panel):
+   In `buildContextMenuTemplate()` (254), prepend the recording items, followed by a separator when there are any:
+
+   ```js
+       const recording = buildTrayRecordingItems(this.meetingPresence, { t: (k, o) => i18nMain.t(k, o) }).map((item) =>
+         item.action === "stop"
+           ? { label: item.label, click: () => this.windowManager?.requestStopMeetingRecording(this.meetingPresence?.sessionId) }
+           : { label: item.label, enabled: false }
+       );
+       const lead = recording.length ? [...recording, { type: "separator" }] : [];
+   ```
+
+   Return `[...lead, ...<existing items>]`. In `updateTrayMenu()` (312), set the tooltip to `i18nMain.t(this.meetingPresence ? "tray.tooltipRecording" : "tray.tooltip")`.
+4. **`main.js`.**
+   - Next to `windowManager.onDictationStateChanged` (887), add `windowManager.onMeetingPresenceChanged = (p) => trayManager.setMeetingPresence(p);`.
+   - In `performSyncTeardown`, call `void trayManager.teardownMeetingNotification();`, so a resident notification never outlives the app.
+5. **`preload.js`.** Add the APIs from the Interfaces block:
+   - `reportMeetingRecordingPresence` and `reportMeetingRecordingOutcome` use `ipcRenderer.send`;
+   - `getMeetingRecordingPresence` and `requestStopMeetingRecording` use `invoke`;
+   - the three `on…` listeners use `registerListener`.
+
+   Add the types to the `electronAPI` interface in `src/types/electron.ts`, importing `MeetingPresence` and `MeetingOutcome` from `./dictation`. Add no-op stubs to `browserPreview.ts`.
+6. **`MeetingRecordingMount.tsx`:**
 
    ```tsx
      const recordingStartedAt = useMeetingRecordingStore((s) => s.recordingStartedAt);
+     const micQuiet = useMeetingRecordingStore((s) => s.micQuiet ?? false);
      useEffect(() => {
        window.electronAPI?.reportMeetingRecordingPresence?.({
          recording: isRecording,
+         sessionId: getActiveRecordingSessionId() ?? undefined,
          startedAt: recordingStartedAt ?? undefined,
          interruption: systemAudioInterrupted ? "systemAudio" : micCaptureStatus === "unavailable" ? "mic" : null,
-         quiet: false, // Task 17 derives this from the mic level
+         quiet: micQuiet,
        });
-     }, [isRecording, recordingStartedAt, systemAudioInterrupted, micCaptureStatus]);
+     }, [isRecording, recordingStartedAt, systemAudioInterrupted, micCaptureStatus, micQuiet]);
 
      useEffect(
-       () => window.electronAPI?.onMeetingRecordingStopRequested?.(() => void stopRecording()),
+       () => window.electronAPI?.onMeetingRecordingStopRequested?.((sessionId) => void stopRecording(sessionId)),
        []
      );
    ```
 
-   `stopRecording(expectedSessionId?: string)` is exported from `src/stores/meetingRecordingStore.ts:1503`. Calling it with no id stops whichever session is active, which is what the pill and tray Stop mean.
+   `stopRecording(expectedSessionId)` already ignores a stop for another session (`canStopMeetingRecordingSession`, store 1526–1531). `micQuiet` arrives in Task 19.
 
-Locale keys (`en`, mirrored to all 12; the main process reads them through `i18nMain`):
+Locale keys (`en`, mirrored to all 12; the main process reads them through `i18nMain`). Merge the `tray` keys into the existing `tray` object (`translation.json:60-68`):
 
 ```json
 "tray": {
@@ -8032,24 +8246,23 @@ Locale keys (`en`, mirrored to all 12; the main process reads them through `i18n
 "meetingRecorder": {
   "notificationTitle": "Loqui is recording this meeting",
   "notificationBody": "Stop it here, from the tray, or from the Loqui pill.",
+  "notificationFallbackBody": "Stop it from the Loqui tray menu or the Loqui pill.",
   "stop": "Stop"
 }
 ```
 
-Merge the `tray` keys into the existing `tray` object (`translation.json:60-68`).
+The notification makes no claim about where meeting audio goes, because the meeting transcription route can be remote. Locality is disclosed where the route is shown.
 
-The notification body says only how to stop. It deliberately makes no claim about where meeting audio goes, because the meeting transcription route can be remote. Locality is disclosed where the route is shown (Plan 03's switchboard, and the meeting note).
+- [ ] **Step 7: Run tests to verify they pass**
 
-- [ ] **Step 5: Run tests to verify they pass**
-
-Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js test/helpers/trayQuickActions.test.js test/helpers/trayActionPolicy.test.js`
+Run: `npm test -- test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js test/helpers/meetingStopOutcome.test.js test/helpers/trayQuickActions.test.js test/helpers/trayActionPolicy.test.js "test/helpers/meeting*.test.js"`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/helpers/meetingPresence.js src/helpers/linuxRecordingNotification.js src/helpers/trayRecordingIcon.js src/helpers/windowManager.js src/helpers/ipcHandlers.js src/helpers/tray.js main.js preload.js src/types/electron.ts src/components/MeetingRecordingMount.tsx src/locales test/helpers/meetingPresence.test.js test/helpers/linuxRecordingNotification.test.js
-git commit -m "feat(meeting): relay recording presence to the pill and tray; Linux stop notification"
+git add src/helpers/meetingPresence.js src/helpers/linuxRecordingNotification.js src/helpers/freedesktopNotifications.js src/helpers/trayRecordingIcon.js src/stores/meetingRecordingStore.ts src/helpers/windowManager.js src/helpers/ipcHandlers.js src/helpers/tray.js main.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/components/MeetingRecordingMount.tsx src/locales test
+git commit -m "feat(meeting): presence, explicit outcome, tray state and a serialised Linux Stop notification"
 ```
 
 ---
@@ -8062,9 +8275,9 @@ git commit -m "feat(meeting): relay recording presence to the pill and tray; Lin
 - Modify: `src/hooks/useAudioRecording.js`. Return `meetingRecording` (§5.2).
 - Modify: `src/components/dictation/VoicePill.tsx`. Treat `meeting` as a labelled state, add a `meetingInterrupted` prop, and use `role="group"`.
 - Modify: `src/App.jsx`:
-  - feed `resolvePillStage` the real presence and setting (Task 9 left placeholders);
+  - feed `resolvePillStage` the real presence and setting (Task 11 left placeholders);
   - auto-hide (lines 403–434);
-  - the saved receipt.
+  - the meeting outcome notices, which come from the explicit outcome event, never from presence disappearing (I14).
 - Modify: `src/stores/settingsStore.ts`, `src/hooks/useSettings.ts` and `src/components/SettingsPage.tsx`. Add `showMeetingRecorderOnScreen`, default `true`.
 - Modify: `src/styles/dictation-panel.css`
 - Modify: `src/locales/*/translation.json`
@@ -8072,7 +8285,7 @@ git commit -m "feat(meeting): relay recording presence to the pill and tray; Lin
 - Test: `test/components/meetingCapsule.test.js`
 
 **Interfaces:**
-- Consumes the Task 14 IPC and `VOICE_PILL_FOOTPRINT.meeting` / `.meetingInterrupted` (Task 8).
+- Consumes the Task 16 IPC (presence and outcome), `MeetingPresence` and `MeetingOutcome` (Task 7), `VOICE_PILL_FOOTPRINT.meeting` / `.meetingInterrupted` and `resolvePillOwnership` (Task 10).
 - Produces:
 
   ```ts
@@ -8102,7 +8315,7 @@ const load = () => import("../../src/components/dictation/MeetingCapsule.tsx");
 test("the capsule shows a dot, mm:ss and a labelled Stop", async () => {
   const { MeetingCapsule } = await load();
   const html = renderStatic(MeetingCapsule, {
-    presence: { startedAt: 1_000, interruption: null, quiet: false },
+    presence: { sessionId: "m1", startedAt: 1_000, interruption: null, quiet: false },
     now: 1_000 + 761_000,
     onStop() {},
   });
@@ -8116,7 +8329,7 @@ test("quiet pales the dot; a lost source is labelled and amber", async () => {
   const { meetingCapsuleState, MeetingCapsule } = await load();
   assert.equal(meetingCapsuleState({ startedAt: 1, interruption: null, quiet: true }), "quiet");
   assert.equal(meetingCapsuleState({ startedAt: 1, interruption: "systemAudio", quiet: true }), "lost");
-  const lost = renderStatic(MeetingCapsule, { presence: { startedAt: 1, interruption: "systemAudio", quiet: false }, now: 2, onStop() {} });
+  const lost = renderStatic(MeetingCapsule, { presence: { sessionId: "m1", startedAt: 1, interruption: "systemAudio", quiet: false }, now: 2, onStop() {} });
   assert.match(lost, /data-rs="lost"/);
   assert.match(lost, /meeting-capsule__note/);
 });
@@ -8160,7 +8373,7 @@ Expected: FAIL with `Cannot find module '…/MeetingCapsule.tsx'`.
 
 ```ts
 import { useEffect, useState } from "react";
-import type { MeetingPresence } from "../types/electron";
+import type { MeetingPresence } from "../types/dictation";
 
 export function useMeetingRecordingPresence(): MeetingPresence | null {
   const [presence, setPresence] = useState<MeetingPresence | null>(null);
@@ -8181,7 +8394,7 @@ export function useMeetingRecordingPresence(): MeetingPresence | null {
 
 ```tsx
 import { useTranslation } from "react-i18next";
-import type { MeetingPresence } from "../../types/electron";
+import type { MeetingPresence } from "../../types/dictation";
 import { formatMmSs } from "../../utils/formatDuration";
 
 export function meetingCapsuleState(p: MeetingPresence): "recording" | "quiet" | "lost" {
@@ -8266,21 +8479,55 @@ Pass it through in `useSettings.ts`.
 
 - In the `resolvePillStage` call, replace `meetingRecording: null` and `showMeetingRecorder: true` with the real `meetingRecording` and `showMeetingRecorder`.
 - When `pillStage === "meeting"`, pass to `VoicePill`:
-  - `label={<MeetingCapsule presence={meetingRecording} now={meetingNow} onStop={() => void window.electronAPI?.requestStopMeetingRecording?.()} />}`
+  - `label={<MeetingCapsule presence={meetingRecording} now={meetingNow} onStop={() => void window.electronAPI?.requestStopMeetingRecording?.(meetingRecording.sessionId)} />}`
   - `meetingInterrupted={Boolean(meetingRecording.interruption)}`
   - `role="group"`
   - `aria-label={t("meetingRecorder.groupAria")}`
 
   A click on the pill body still starts dictation ("dictation still works from it", D2). The Stop button stops propagation.
-- In the auto-hide effect (lines 403–434), add `!meetingRecorderVisible &&` to the hide condition. Add a branch so a hidden pill shows itself when a meeting starts:
+- Auto-hide, footer suppression, click-through and the Linux input region need no meeting-specific code. The `meeting` stage's ownership (Task 10: holds the window, interactive, outranks the footer) already reaches all four through Task 11's wiring. Stop is an in-flow child of the pill, so it lies inside the Linux input rect.
+- **Outcome notices (I14).** Presence disappearing proves nothing: it also happens when the control panel crashes. The pill reacts only to the explicit outcome from Task 16:
 
   ```js
-      } else if (meetingRecorderVisible && floatingIconAutoHide) {
-        window.electronAPI?.showDictationPanel?.();
+    useEffect(
+      () =>
+        window.electronAPI?.onMeetingRecordingOutcome?.((outcome) => {
+          if (outcome.kind === "saved") {
+            notify({
+              id: `meeting-${outcome.sessionId}`,
+              kind: "receipt",
+              title: t("meetingRecorder.saved", { elapsed: formatMmSs(Math.round(outcome.durationMs / 1000)) }),
+            });
+          } else {
+            notify({
+              id: `meeting-${outcome.sessionId}`,
+              kind: "alert",
+              persistent: true,
+              title: t(`meetingRecorder.failed.${outcome.reason}`),
+              actions: [{ label: t("meetingRecorder.openNotes"), primary: true, onClick: () => void window.electronAPI?.showControlPanel?.() }],
+            });
+          }
+        }),
+      [t]
+    );
   ```
 
-  Add `meetingRecorderVisible` to the dependency list.
-- Saved receipt (the R12 A "stopped" state). When `meetingRecording` goes from non-null to null, compute the elapsed time from the previous `startedAt` and call `notify({ kind: "receipt", title: t("meetingRecorder.saved", { elapsed }) })`. Track the previous value in a ref.
+  "Open notes" needs an IPC that shows the control panel from the pill window. Check with `grep -n "showControlPanel\|openControlPanel" preload.js`. If none exists, add one in this task:
+  - preload: `showControlPanel: () => ipcRenderer.invoke("show-control-panel")`;
+  - main: `ipcMain.handle("show-control-panel", () => this.windowManager._showControlPanel())`;
+  - a type and a preview stub.
+
+  The control panel already navigates to the meeting note after a stop (`queueMeetingNoteNavigation`).
+
+  Add a test to `test/components/meetingCapsule.test.js`:
+
+  ```js
+  test("the pill never announces 'saved' because presence vanished (I14)", () => {
+    const app = fs.readFileSync(path.join(repoRoot, "src/App.jsx"), "utf8");
+    assert.match(app, /onMeetingRecordingOutcome\?\.\(\(outcome\) =>/);
+    assert.doesNotMatch(app, /meetingRecorder\.saved[\s\S]{0,200}meetingRecording\b[^O]*null/);
+  });
+  ```
 
 CSS (append before the reduced-motion block):
 
@@ -8357,6 +8604,10 @@ Locale keys:
 - `meetingRecorder.stopAria`: "Stop meeting recording"
 - `meetingRecorder.groupAria`: "Meeting recorder"
 - `meetingRecorder.saved`: "Meeting saved · {{elapsed}}"
+- `meetingRecorder.openNotes`: "Open notes"
+- `meetingRecorder.failed.save`: "The meeting stopped, but its transcript could not be saved. Open the note to check what was kept."
+- `meetingRecorder.failed.stop`: "The meeting recording did not stop cleanly. Open the note to check it."
+- `meetingRecorder.failed.ownerLost`: "The meeting recorder stopped unexpectedly. Open the note to check what was kept."
 - `settingsPage.general.notifications.meetingRecorderOnScreen`: "Show meeting recorder on screen"
 - `settingsPage.general.notifications.meetingRecorderOnScreenDescription`: "While a meeting records, the dictation pill shows a timer and a Stop button."
 
@@ -8476,7 +8727,8 @@ test("the prompt is placed top-centre on the active display (VO-Q10)", () => {
   assert.match(block, /_resolveActiveDisplay\(/);
   assert.match(block, /getNotchDropPosition\(/);
   assert.doesNotMatch(block, /getPrimaryDisplay\(\)/);
-  assert.match(block, /registerSlot\("meetingAccept"/);
+  assert.match(block, /hotkeyLeases\.acquire\(\{ slot: "meetingAccept"/);
+  assert.doesNotMatch(block, /registerSlot\(/, "temporary shortcuts go through main's leases (I7)");
 });
 ```
 
@@ -8511,24 +8763,35 @@ Expected: FAIL. `bodyKey` is `meetingNotification.body.detected` for Zoom, and `
      ```
 
      `_resolveActiveDisplay(targetPidPromise)` (line 1469) falls back to the display under the cursor when no pid is given.
-   - Before the window is created, register the accept hotkey:
+   - Before the window is created, lease the accept shortcut from Task 2's `hotkeyLeases` (I7). The lease owner is the prompt itself, so a replacing prompt releases the older lease before acquiring, and a late registration for a dismissed prompt is undone by the lease module:
 
      ```js
-         const accelerator = "CommandOrControl+Alt+M";
-         const registered = await this.hotkeyManager
-           .registerSlot("meetingAccept", accelerator, () =>
-             this.meetingDetectionEngine?.handleNotificationResponse(promptData.detectionId, "start")
-           )
-           .then((r) => r?.success !== false)
-           .catch(() => false);
-         promptData = {
+         if (this._meetingAcceptLease) this.hotkeyLeases.release(this._meetingAcceptLease, "main:meeting-prompt");
+         const detectionId = promptData.detectionId;
+         const lease = await this.hotkeyLeases.acquire({
+           slot: "meetingAccept",
+           ownerId: "main:meeting-prompt",
+           onPress: () => this.meetingDetectionEngine?.handleNotificationResponse(detectionId, "start"),
+         });
+         this._meetingAcceptLease = lease.leaseId;
+         const data = {
            ...promptData,
-           acceptHotkeyLabel: registered ? (process.platform === "darwin" ? "⌥⌘M" : "Ctrl+Alt+M") : null,
+           // Shown only when main actually holds the shortcut (another app may own it).
+           acceptHotkeyLabel: lease.held ? (process.platform === "darwin" ? "⌥⌘M" : "Ctrl+Alt+M") : null,
          };
      ```
 
-     `promptData` is a parameter. Rebind it with `let` or use a new `const data` and send `data` at line 2114.
-   - In `dismissMeetingNotification` (line 2144), add `this.hotkeyManager?.unregisterSlot("meetingAccept");`.
+     Send `data` instead of `promptData` at line 2114.
+   - In `dismissMeetingNotification` (line 2144), add:
+
+     ```js
+         if (this._meetingAcceptLease) {
+           this.hotkeyLeases.release(this._meetingAcceptLease, "main:meeting-prompt");
+           this._meetingAcceptLease = null;
+         }
+     ```
+
+     Leases also expire on their own after `LEASE_MAX_TTL_MS.meetingAccept` (120 s), which covers the calendar prompt's 2 min auto-dismiss.
    - Callers of `showMeetingNotification` (`meetingDetectionEngine.js:421`) can stay fire-and-forget.
 3. **`meetingDetectionEngine.js:421-428`.** Audio-activity detections carry no app name (`audioActivityDetector.js` emits `{ durationMs, detectedAt, attributed }`). Take it from the process detector, which already tracks running meeting apps:
 
@@ -8674,7 +8937,7 @@ Covers FND-R5 adoption on meeting and chat surfaces, plus VO-Q11, VO-Q13 and VO-
   - it holds `readLevel` in a ref, so pass plain inline readers and never wrap them in `useCallback` to "stabilise" them;
   - it treats non-finite or sub-`LEVEL_BARS_SILENCE_FLOOR` input as silence, so readers need no clamping;
   - it uses a flat phase under reduced motion.
-- Also consumes `resolveTokens` and `contrastRatio` (Plan 01 Task 2), and `reportMeetingRecordingPresence` (Task 14).
+- Also consumes `resolveTokens` and `contrastRatio` (Plan 01 Task 2), and `reportMeetingRecordingPresence` (Task 16).
 - Produces:
 
   ```ts
@@ -8852,12 +9115,12 @@ Expected: FAIL with `Cannot find module '…/meetingQuiet.ts'`.
    ```
 
    - Add `micQuiet: boolean` (initial `false`) to the store state type (`meetingRecordingStore.ts:84-116`) and to the initial values (lines 431–456).
-   - In the Task 14 presence effect, change `quiet: false` to `quiet: micQuiet` (select it from the store) and add it to the dependencies.
+   - Task 16's presence effect already reports `quiet: micQuiet`; this step provides the store field it reads.
 6. **`ChatInput.tsx:150-154`.** Use `<LevelBars readLevel={voice.readLevel} height={16} className="flex-1 justify-center overflow-hidden" />` and swap the import.
-7. Delete `LiveWaveform.tsx`, `liveWaveformMath.ts` and `test/components/liveWaveform.test.js` **only if** this returns nothing:
+7. Delete `LiveWaveform.tsx`, `liveWaveformMath.ts` and `test/components/liveWaveform.test.js` once no other module imports them. The gate searches for **imports and re-exports** only, quoted for zsh, and excludes the three files being removed and this task's own test (M3):
 
    ```bash
-   grep -rn "LiveWaveform\|liveWaveformMath" src test --include=*.ts --include=*.tsx --include=*.js --include=*.jsx
+   rg -n "(from|import\(|require\()\s*['\"][^'\"]*(LiveWaveform|liveWaveformMath)['\"]" src test -g '!src/components/ui/LiveWaveform.tsx' -g '!src/components/ui/liveWaveformMath.ts' -g '!test/components/liveWaveform.test.js' -g '!test/components/meetingMeters.test.js'
    ```
 
    No file imports them today: only `ChatInput.tsx` and `NoteRecordControl.tsx` do, and this task migrates both. If the grep finds another importer (for example, a Plan 05 branch merged first), migrate it to `LevelBars` in this task too. The `meetingMeters` test asserts the file is gone.
@@ -8924,7 +9187,7 @@ git commit -m "feat(voice): LevelBars on every voice surface, 12Hz meeting meter
 ---
 ### Task 20: Whole-plan verification
 
-**Files:** none new. This task runs every check and fixes what they surface.
+**Files:** none new. This task runs every check, records what it ran and where, and fixes what the checks surface.
 
 - [ ] **Step 1: Run the full suite and static checks**
 
@@ -8935,10 +9198,15 @@ npm run lint
 npm run typecheck
 npm run i18n:check
 npm run format:check
-grep -rnE "cubic-bezier\(\s*0\.4\s*,\s*0\s*,\s*1\s*,\s*1\s*\)" src && echo "ease-in exit found" || true
+rg -n "cubic-bezier\(\s*0\.4\s*,\s*0\s*,\s*1\s*,\s*1\s*\)" src && echo "ease-in exit found" || true
+rg -n "mergeAudioSegments|merge-audio-segments" src/helpers/audioManager.js
 ```
 
-Expected: everything passes and the grep prints nothing.
+Expected: everything passes, and the cubic-bezier search prints nothing.
+
+The `mergeAudioSegments` search lists the merge call sites. Check each by hand:
+- none of them runs while a cancel buffer is held;
+- the only cancel-time caller is `_closeCancelled`, behind `shouldSaveDiscardedRecording`.
 
 A pre-existing test that fails because it asserts something this plan intentionally changed must be updated in this branch. Name it in the PR description. These are the intentional changes:
 - the 260 ms press hold;
@@ -8948,76 +9216,78 @@ A pre-existing test that fails because it asserts something this plan intentiona
 - `PillWaveform`;
 - the Agent beam;
 - the blue meeting prompt position;
-- `LiveWaveform`.
+- `LiveWaveform`;
+- discarded audio saved at window close instead of at cancel;
+- Esc registered by lifecycle instead of at recording start.
 
 Any other failure is a regression; fix the code.
 
-- [ ] **Step 2: Visual verification in the desktop app (light and Plum Night)**
+- [ ] **Step 2: Plan 02's behaviours survived the migration**
+
+Plan 02 fixed the toast and error UI that Task 5 deletes. Confirm each fix is still true in the merged tree. Each check names the test that pins it after this plan:
+
+| Plan 02 item | Still true when | Pinned by |
+|---|---|---|
+| VO-Q6: no auto-dismiss while words exist; longer timers | An alert with `words` never expires; notices and alerts last 10 s | `notices.test.js`: "persistent notices and alerts that carry words…", "content on any kind is never allowed to expire" |
+| VO-Q8: Esc armed until idle | Esc is registered for recording and processing, including Undo-started processing | `useAudioRecordingLifecycle.test.js`: "Esc is owned by the lifecycle…" |
+| VO-Q9: live regions, visible close | Chips are `role="status"` or `role="alert"`; close is always visible | `noticeStack.test.js`: "every chip has a visible, labelled close button" |
+| VO-Q16: interruption alerts regardless of focus | Plan 02's native notification module (`rg -n "new Notification\(" src/helpers main.js`) still fires on system-audio loss. This plan's resident notification (Task 16) is separate and must not replace it | Plan 02's own test (`rg -ln "systemNotification" test`); run it |
+
+If Plan 02's module or test cannot be found, Plan 02 has not merged. Stop and report: this plan depends on it (see "Before you start").
+
+- [ ] **Step 3: D3 audit on a real recording**
+
+D3 is a privacy promise, so check it end to end once, on a development profile, never a personal one.
+
+1. Turn **Save discarded transcriptions off**. Start a dictation, unplug or switch the microphone mid-recording so a second segment exists, then press Esc.
+2. While the pill shows "Discarded · Undo", and for 15 s after it closes, list Loqui's temp directories:
+
+   ```bash
+   ls -d "${TMPDIR:-/tmp}"/openwhispr-audio-merge-* 2>/dev/null; echo "exit=$?"
+   ```
+
+   Expected: no directory.
+3. Repeat step 1. This time press ⌥Z within the window, and confirm the restored dictation uses the route it was recorded with:
+   - Switch STT from local to a provider during the window.
+   - Then undo. The result must come back with no request to the provider. With Plan 07 merged, the flight recorder shows no `dictationStt` egress.
+4. Repeat with a streaming provider: cancel mid-sentence, then undo. The same provider transcribes the restored audio.
+5. Turn **Save discarded** on. Cancel and let the window expire: exactly one discarded history row appears.
+
+- [ ] **Step 4: Desktop checks and the platform matrix**
 
 ```bash
 npm run native:electron
 npm run dev
 ```
 
-Check each item, screenshot each one, and attach them to the PR.
+Record each check below for each platform in the PR description, as one row per platform:
+- **macOS**: version, Apple silicon or Intel, Spaces on or off, one or two displays.
+- **Linux X11**: distribution, desktop, X11.
+- **Linux Wayland**: distribution, desktop (GNOME / KDE / Hyprland), Wayland.
 
-1. **Press and listen.** Hold the hotkey. The soft start cue sounds at once. The pill grows to the 98 px capsule with orange `LevelBars` about 300 ms after the press.
-   - With a streaming provider, words condense into the row **above** the pill, and the bars are never covered.
-2. **Stages.**
-   - After release: "Transcribing…" with an all-orange comet.
-   - If cleanup is on: "Cleaning up" with an orange-to-magenta comet.
-   - Then "Pasted · N words" with a green edge and the drawn check for 700 ms.
-   - The success tick sounds.
-3. **Locality ring.**
-   - With local STT and cleanup off, the ring is solid green.
-   - Switch cleanup to a remote provider: the ring is dashed with the provider monogram, and it orbits while processing.
-   - The tooltip reads "Hold ⌥Space to talk" (push) or "Press ⌥Space to start" (tap), with the route line under it at 12 px.
-4. **Cancel and undo.**
-   - Cancel mid-recording with Esc: "Discarded · Undo" with a shrinking underline.
-   - Hover: the underline freezes. Press ⌥Z: it restores and transcribes.
-   - Cancel during processing with a remote STT: the caption reads "OpenAI already received the audio."
-   - Let a window expire, then confirm ⌥Z types normally again.
-   - With a streaming provider, cancel shows "Cancelled" with the caption and no Undo.
-5. **Words-first card.** Force a paste failure, for example by focusing a non-text window with accessibility skipped.
-   - The pill stays visible with a red edge and one nudge.
-   - The card shows the words, which can be dragged into a text field.
-   - ⌥↵ pastes again.
-   - The card does not time out.
-6. **Notices.**
-   - Disconnect the mic mid-dictation: an amber chip with the existing `hooks.audioRecording.micDisconnected.title` text appears. Reconnect: the `micRestored` receipt and the mic-back cue.
-   - Break cleanup (a bad key): "Pasted without cleanup" with Retry cleanup and Settings.
-   - Retry cleanup copies the cleaned text and leaves a receipt.
-7. **Agent Mode.**
-   - Agent listening is a 40 px circle with violet radial ticks.
-   - Agent thinking is a 2.4 s orbit with two satellites.
-   - On the first token, it spins up and dissolves.
-   - With screen context on, the caption names where the screenshot goes.
-   - No frame glyph appears anywhere.
-8. **Meeting.**
-   - Start a meeting recording: the pill becomes the capsule (dot, mm:ss, Stop) even with the control panel hidden.
-   - Dictation still works from the pill, and the capsule returns afterwards.
-   - Turn off "Show meeting recorder on screen": the pill stays idle.
-   - Stop from the pill: "Meeting saved · mm:ss".
-9. **Meeting prompt.**
-   - With two displays, open Zoom on the secondary. The prompt drops from the top centre of **that** display.
-   - It reads "Meeting in Zoom detected. Detected on this device. Nothing recorded yet."
-   - After 8 s it folds to "Meeting? Start notes ⌥⌘M", and ⌥⌘M accepts.
-10. **Linux (desktop-omarchy, see `~/.agents/ssh-access.md`).**
-    - During a meeting, the tray icon shows the orange dot, and the menu leads with "Recording meeting · m:ss" and "Stop meeting recording".
-    - A persistent notification has Stop, and Stop ends the recording.
-    - Then uninstall or rename `gdbus` and confirm the fallback notification never expires and opens the control panel.
-11. **Reduced motion** (System Settings → Accessibility → Reduce motion):
-    - no orbit, spark, spring or nudge;
-    - the meters still update;
-    - the countdown steps in fifths;
-    - every state is still readable from its label and ring shape.
-12. **RTL** (Arabic):
-    - Pill chips, captions and the tooltip stay beside the pill's physical dock.
-    - Text inside them reads right to left.
-    - The countdown shrinks toward the inline start.
-    - Panel chips sit at the inline end.
+Use the machines in `~/.agents/ssh-access.md` for Linux. Mark a check "not run" with the reason, rather than skipping it silently.
 
-- [ ] **Step 3: Commit any fixes**
+| # | Check | Expected |
+|---|---|---|
+| 1 | Hold the hotkey | The soft start cue sounds at the press. The capsule shows orange `LevelBars` about 300 ms later. With a streaming provider, words condense **above** the pill. |
+| 2 | Release | "Transcribing…" (all-orange comet), then "Cleaning up" if on (orange→magenta), then "Pasted · N words" with the check for 700 ms. Auto-hide on: the beat still finishes. |
+| 3 | Locality ring | Local: solid. Remote cleanup: dashed plus a monogram that orbits while processing. Tooltip: "Hold/Press ⌥Space" plus the route line at 12 px. |
+| 4 | Cancel and Undo | Esc mid-recording: "Discarded · Undo" with a shrinking underline. Hover freezes it. ⌥Z restores. Cancel during processing with remote STT: "OpenAI already received the audio." (attested with Plan 07; "may have received" without). After expiry, ⌥Z types normally in another app. |
+| 5 | Undo with the panel open | Open the Agent panel's final actions, then cancel a dictation: the Undo capsule stays visible and clickable. |
+| 6 | Esc after Undo | Undo, then press Esc during the restored "Transcribing…": it cancels again. |
+| 7 | Words-first card | Force a paste failure. The pill stays visible with a red edge. The card shows draggable words. ⌥↵ pastes again while the label is shown. The card does not time out. |
+| 8 | Notices | Mic loss and restore chips. "Pasted without cleanup" shows Retry cleanup, and "More" reveals Settings, which opens Settings at the cleanup route's section. A second cleanup failure stays on screen. |
+| 9 | Agent Mode | Radial ticks while listening, a 2.4 s orbit while thinking, a dissolve on the first token, a caption naming the destination, no frame glyph. |
+| 10 | Meeting recorder | The pill becomes the capsule while a meeting records, including over the Assistant panel's final actions and with auto-hide on. Stop works from the pill. A save failure shows the failed alert, not "saved". Killing the control panel (`kill -9` on its renderer pid) shows "stopped unexpectedly". |
+| 11 | Meeting prompt | It drops from the top centre of the display that has the meeting window. It folds after 8 s. ⌥⌘M accepts only while its label is shown. A second prompt replaces the first and the old shortcut is released. |
+| 12 | Linux only | The tray shows an orange dot and leads with "Recording meeting · m:ss" and Stop. The resident notification's Stop ends that meeting. Stopping from the pill removes the notification. On a desktop whose notification server lacks actions, the never-expiring notification says to use the tray, and the tray Stop works. |
+| 13 | Focus | In every check above, typing in the target app keeps focus. The pill and prompt never take keyboard focus. |
+| 14 | Reduced motion | No orbit, spark, spring or nudge. The meters still update. The countdown steps in fifths. Every state reads from label and ring shape. |
+| 15 | RTL (Arabic) | Pill chips and captions stay beside the physical dock. Panel chips sit at the inline end. |
+
+The "notification server lacks actions" case in row 12 is covered by the unit test with an injected client (`linuxRecordingNotification.test.js`). On a real desktop, test it only where such a server already exists. Never uninstall or rename system binaries to simulate it.
+
+- [ ] **Step 5: Commit any fixes**
 
 ```bash
 git add -A
@@ -9031,25 +9301,25 @@ git commit -m "fix(voice): verification fixes for the voice overlay plan"
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` §5.2 and §5.3. Do this **only after the owner approves the contract change requests** at the top of this plan.
 
-- [ ] **Step 1: Apply the approved CCRs to the spec**
+- [ ] **Step 1: Confirm the spec matches what shipped**
 
-Plan 04 owns §5.2 and §5.3. For each approved CCR, update the spec text to the shape this plan shipped:
-- `cancelled` with `remotePayload`, the `undoUntil: 0` sentinel, and `remoteAlreadySent` as a target id (a provider id or `"host:<host>"`, rendered with `dispatchTargetLabel`);
-- `meetingRecording` with `interruption` and `quiet`;
-- `processingStage` and `outcome`;
-- the `notify()` additions and `dismissNotice`/`useNotices`.
+The owner applies the contract change requests at the top of this plan to the spec, and notifies Plans 05 and 07 (owner instruction, this thread). Before opening the PR, compare the merged spec's §5.2 and §5.3 with what this branch exports. If the spec already carries the CCR shapes, there is nothing to edit. If a CCR was rejected or changed, change the code to the spec's shape before this step.
 
-If a CCR was rejected, change the code to the spec's shape before this step.
+- `src/types/dictation.ts` (CCR-1, CCR-2, CCR-3, CCR-6): `CancelledState`, `RemoteDisclosure`, `UndoResult`, `DictationOutcome`, `MeetingPresence` and `MeetingOutcome`.
+- `useAudioRecording` return fields (CCR-3): `cancelled`, `undoCancel`, `pauseUndo`, `resumeUndo`, `processingStage`, `outcome` and `meetingRecording`.
+- The onboarding demo statuses and the Undo bridge (CCR-5): `cancelled`, `cancelClosed`, `sendUndoCancelDictation`, `lastCancelledDictation`, and `sanitizeCancelledDemoFields`.
+- `notices.ts` (CCR-4): the discriminated `NoticeInput`, `NoticeRemoval`, `revision`, `busy`, `dismissNotice(id, reason)`, and the 7 s receipt-with-action lifetime.
+- `dictationDisclosure.js` (CCR-6): `dispatchTargetLabel`, `disclosureCopy` and `attachEgressEvidence`.
 
-CCR-5 (`ResolvedRoute.providerId`) belongs to §5.1, which Plan 03 owns. Do not edit §5.1 here. Raise it with the owner or Plan 03, and keep `routeProviderLabel`'s fallback until it lands.
+CCR-7 (`ResolvedRoute.providerId`) is §5.1 and Plan 03's; Plan 03 has accepted it. Do not edit §5.1 here.
 
 - [ ] **Step 2: Prepare the PR body (do not push yet)**
 
 Write `pr-body.md` with:
-- one line per Task 1–17 commit;
+- one line per Task 1–19 commit;
 - links to the spec and this plan;
-- the Task 18 screenshots;
-- every pre-existing test intentionally updated (Task 18 Step 1);
+- the Task 20 screenshots and the platform matrix;
+- every pre-existing test intentionally updated (Task 20 Step 1);
 - the Linux check results.
 
 Pushing and opening the PR are outward-facing, so get the owner's explicit OK first. Then run:

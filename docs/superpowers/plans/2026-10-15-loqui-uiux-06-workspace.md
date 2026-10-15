@@ -7016,6 +7016,11 @@ This covers WS-R6 B (`/` opens blocks, AI actions and inserts) and interpretatio
   // unknown (§5.1): not available, reason "Checking…", needsSetup false. Never treated as ready.
   export function buildSlashItems(input: { actions: ActionItem[]; aiAvailable: boolean; aiUnavailableReason?: string; aiNeedsSetup?: boolean; t: (key: string) => string }): SlashItem[];
   // Not available: AI items are disabled with the reason, and "Set up notes AI…" leads the group when aiNeedsSetup (default: !aiAvailable).
+  export interface SlashReadiness { aiAvailable: boolean; aiUnavailableReason?: string; aiNeedsSetup: boolean }
+  export function slashReadiness(state: RouteState, t: (key: string) => string): SlashReadiness; // Notes → slash prop
+  export function slashItemsFromProp(slash: { actions: ActionItem[] } & SlashReadiness, t: (key: string) => string): SlashItem[]; // slash prop → items
+  // The two halves of the Notes → editor boundary. RichTextEditor and PersonalNotesView call these instead of
+  // listing readiness fields by hand, so a field cannot be dropped in between (review I09-R2).
   export function filterSlashItems(items: SlashItem[], query: string): SlashItem[];
   export function groupSlashItems(items: SlashItem[]): Array<{ group: SlashGroup; items: SlashItem[] }>;
   export function applySlashItem(item: SlashItem, chain: SlashChain, ctx: SlashContext): boolean; // false when disabled
@@ -7023,7 +7028,7 @@ This covers WS-R6 B (`/` opens blocks, AI actions and inserts) and interpretatio
   ```
 
 - Produces `SlashCommand.ts`: `createSlashCommand(getContext: () => SlashContext): Extension`. It is a `@tiptap/suggestion` extension with `char: "/"`, `startOfLine: false` and the default space prefix, so URLs and dates don't trigger it. It is inert inside code blocks.
-- `RichTextEditor` prop `slash?: { actions: ActionItem[]; aiAvailable: boolean; aiUnavailableReason?: string; onRunAction(actionId: number): void; onManageActions(): void; onSetupAi(): void; onDictateHere(): void }`. The slash extension is enabled only when `slash` is provided at mount and the editor is editable.
+- `RichTextEditor` prop `slash?: { actions: ActionItem[]; aiAvailable: boolean; aiUnavailableReason?: string; aiNeedsSetup: boolean; onRunAction(actionId: number): void; onManageActions(): void; onSetupAi(): void; onDictateHere(): void }`. The slash extension is enabled only when `slash` is provided at mount and the editor is editable.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7087,6 +7092,34 @@ test("PersonalNotesView takes readiness from the route", () => {
   const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/components/notes/PersonalNotesView.tsx"), "utf8");
   assert.match(src, /useResolvedRoute\("noteFormatting"\)/);
   assert.doesNotMatch(src, /aiAvailable:\s*isLLMConfigured/);
+  assert.match(src, /\.\.\.slashReadiness\(noteRoute\.state, t\)/, "all readiness fields cross in one spread");
+  assert.match(src, /onSetupAi: \(\) => onOpenSettings\?\.\(noteRoute\.settingsPath\)/);
+  const editor = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/components/ui/RichTextEditor.tsx"), "utf8");
+  assert.match(editor, /items: slashItemsFromProp\(current, t\)/, "the editor forwards the prop whole");
+  assert.doesNotMatch(editor, /buildSlashItems\(/, "and never rebuilds the argument list by hand");
+});
+
+test("route readiness survives the Notes → editor boundary: unknown, then needsKey, then ready (I09-R2)", async () => {
+  const { slashReadiness, slashItemsFromProp, applySlashItem } = await load();
+  // The exact path production takes: PersonalNotesView's slash prop, then RichTextEditor's items.
+  const itemsFor = (state) => slashItemsFromProp({ actions, ...slashReadiness(state, t) }, t);
+  const runnable = (items) => items.filter((i) => i.actionId != null);
+
+  const checking = itemsFor({ status: "unknown" });
+  assert.equal(checking.some((i) => i.id === "setupAi"), false, "no setup prompt while main is checking");
+  for (const item of runnable(checking)) assert.equal(item.disabledReason, "t(notes.slash.ai.unknown)");
+
+  const missingKey = itemsFor({ status: "needsKey", provider: "openai" });
+  const setup = missingKey.filter((i) => i.group === "ai")[0];
+  assert.equal(setup.id, "setupAi", "a confirmed failure leads with the fix");
+  const opened = [];
+  assert.equal(applySlashItem(setup, { run: () => true }, { onSetupAi: () => opened.push("settings") }), true);
+  assert.deepEqual(opened, ["settings"], "it runs onSetupAi, which Notes wires to onOpenSettings(noteRoute.settingsPath)");
+  for (const item of runnable(missingKey)) assert.equal(item.disabledReason, "t(notes.slash.ai.needsKey)");
+
+  const ready = itemsFor({ status: "ready" });
+  assert.equal(ready.some((i) => i.id === "setupAi"), false);
+  for (const item of runnable(ready)) assert.equal(item.disabledReason, undefined, "actions are enabled");
 });
 
 test("typing filters by label or keyword, case-insensitively", async () => {
@@ -7420,6 +7453,29 @@ Expected: FAIL with `Cannot find module` for all three.
      return { available: false, reasonKey: `notes.slash.ai.${state.status}`, needsSetup: true };
    }
 
+   export interface SlashReadiness {
+     aiAvailable: boolean;
+     aiUnavailableReason?: string;
+     aiNeedsSetup: boolean;
+   }
+
+   // Notes side of the boundary: the slash prop's readiness fields for a route state.
+   export function slashReadiness(state: RouteState, t: (key: string) => string): SlashReadiness {
+     const ready = noteAiReadiness(state);
+     return {
+       aiAvailable: ready.available,
+       aiUnavailableReason: ready.reasonKey ? t(ready.reasonKey) : undefined,
+       aiNeedsSetup: ready.needsSetup,
+     };
+   }
+
+   // Editor side of the boundary: the slash prop's readiness reaches
+   // buildSlashItems whole, so `unknown` never grows a setup item (I09-R2).
+   export function slashItemsFromProp(slash: { actions: ActionItem[] } & SlashReadiness, t: (key: string) => string): SlashItem[] {
+     const { actions, aiAvailable, aiUnavailableReason, aiNeedsSetup } = slash;
+     return buildSlashItems({ actions, aiAvailable, aiUnavailableReason, aiNeedsSetup, t });
+   }
+
    export function applySlashItem(item: SlashItem, chain: SlashChain, ctx: Pick<SlashContext, "onRunAction" | "onManageActions" | "onSetupAi" | "onDictateHere" | "formatTimestamp">): boolean {
      if (item.disabledReason) return false;
      switch (item.id) {
@@ -7594,6 +7650,7 @@ Expected: FAIL with `Cannot find module` for all three.
        actions: ActionItem[];
        aiAvailable: boolean;
        aiUnavailableReason?: string;
+       aiNeedsSetup: boolean; // false while the route is unknown (§5.1): AI is disabled with no setup item
        onRunAction: (actionId: number) => void;
        onSetupAi: () => void;
        onManageActions: () => void;
@@ -7610,7 +7667,7 @@ Expected: FAIL with `Cannot find module` for all three.
            createSlashCommand(() => {
              const current = slashRef.current!;
              return {
-               items: buildSlashItems({ actions: current.actions, aiAvailable: current.aiAvailable, aiUnavailableReason: current.aiUnavailableReason, t }),
+               items: slashItemsFromProp(current, t),
                onSetupAi: current.onSetupAi,
                onRunAction: current.onRunAction,
                onManageActions: current.onManageActions,
@@ -7623,13 +7680,13 @@ Expected: FAIL with `Cannot find module` for all three.
        : []),
      ```
 
-     Take `t` and `i18n` from `useTranslation()`.
+     Take `t` and `i18n` from `useTranslation()`. Import `createSlashCommand` from `./editor/SlashCommand` and `slashItemsFromProp` from `./editor/slashItems`; the editor never calls `buildSlashItems` directly.
 
 6. In `src/components/notes/NoteEditor.tsx`, add `slash?: RichTextEditorProps["slash"]` to `NoteEditorProps`. Export `RichTextEditorProps` from `RichTextEditor.tsx` if it is not exported. Pass `slash={slash}` to the raw-notes `<RichTextEditor>` only (`:965-973`). It is not passed to the transcript or enhanced editors.
 
 7. In `src/components/notes/PersonalNotesView.tsx`:
    - Reuse the existing `const actions = useActions();` (`:265`).
-   - Add `const noteRoute = useResolvedRoute("noteFormatting");` and `const aiReady = noteAiReadiness(noteRoute.state);`. Import them from `../../lib/routes` and `../ui/editor/slashItems`.
+   - Add `const noteRoute = useResolvedRoute("noteFormatting");`. Import it from `../../lib/routes`, and `slashReadiness` from `../ui/editor/slashItems`.
      - Do not read `isLLMConfigured`; it reports a selection, not readiness (I09).
      - Plan 02's Actions hint (WS-Q7) moves onto this same `noteRoute` in Task 26 (§5.1 Notes readiness handoff).
    - After `runNoteAction` (`:618`), add:
@@ -7638,9 +7695,8 @@ Expected: FAIL with `Cannot find module` for all three.
    const slash = useMemo(
      () => ({
        actions,
-       aiAvailable: aiReady.available,
-       aiUnavailableReason: aiReady.reasonKey ? t(aiReady.reasonKey) : undefined,
-       aiNeedsSetup: aiReady.needsSetup,
+       // All three readiness fields, from one helper (I09-R2).
+       ...slashReadiness(noteRoute.state, t),
        onSetupAi: () => onOpenSettings?.(noteRoute.settingsPath),
        onRunAction: (actionId: number) => {
          const action = actions.find((candidate) => candidate.id === actionId);
@@ -7651,7 +7707,7 @@ Expected: FAIL with `Cannot find module` for all three.
        // Loqui's window is focused with the caret in the note, so dictation pastes here.
        onDictateHere: () => void window.electronAPI?.toggleDictationFromControlPanel?.(),
      }),
-     [actions, aiReady.available, aiReady.reasonKey, aiReady.needsSetup, noteRoute.settingsPath, onOpenSettings, openActions, runNoteAction, t]
+     [actions, noteRoute.state, noteRoute.settingsPath, onOpenSettings, openActions, runNoteAction, t]
    );
    ```
 

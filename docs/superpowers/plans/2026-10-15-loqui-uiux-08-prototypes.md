@@ -89,8 +89,8 @@ Loqui has no migration system. `initDatabase` (`src/helpers/database.js:100-107`
 | Table | Purpose | Lifecycle |
 |---|---|---|
 | `transcription_confidence(transcription_id PK → transcriptions(id) ON DELETE CASCADE, engine, words_json, created_at)` | One row per transcription that has word confidence. `words_json` holds `[{s, e, p, t?}]`, where `s`/`e` are UTF-16 offsets into `raw_text`, `p` is 0..1 and `t` is the start in seconds. | Hard deletes cascade (`deleteTranscription`, `clearTranscriptions`, retention all `DELETE`; `foreign_keys = ON` at `database.js:106`). `updateTranscriptionText` drops the row when `raw_text` changes (edit or retry). |
-| `note_layout(space_id, entity_type ∈ note/dictation/chat, entity_id, x, y, w, h, z, hidden, updated_at; PK(space_id, entity_type, entity_id))` | Card positions. The name and columns follow the acceptance reference; `hidden` was added so that "Remove from table" works for notes, which otherwise auto-appear. | Polymorphic, so no FK. `getTableBoard` prunes rows whose entity is gone in the same transaction. |
-| `note_layout_links(space_id, a_type, a_id, b_type, b_id, created_at; PK on all five)` | User-made connectors (Group into note, Summarise). | Filtered on read to links whose two ends are on the board or in the Inbox. |
+| `note_layout(space_id, entity_type ∈ note/dictation/chat, entity_id, x, y, w, h, z, hidden, updated_at; PK(space_id, entity_type, entity_id))` | Card positions. The name and columns follow the acceptance reference. `hidden` was added so that "Remove from table" never deletes anything: a removed card of any kind returns to the Inbox, whatever its age. | Polymorphic, so no FK. Every read and write prunes rows whose entity is gone, in the same transaction. |
+| `note_layout_links(space_id, a_type, a_id, b_type, b_id, created_at; PK on all five)` | User-made connectors (Group into note, Summarise). | Both ends are validated on insert. Links to deleted entities are pruned with the layout, and reads return only links whose two ends are on the board or in the Inbox. |
 | `note_layout_viewport(space_id PK, x, y, scale, updated_at)` | Last pan and zoom per Space. | Overwritten on change. |
 
 Upgrade: an existing profile gains all four tables on next launch, and Task 6 and Task 11 test this by dropping the tables and reopening. Downgrade: older builds ignore unknown tables. History reads stay `SELECT *`-sized: rows gain only `has_confidence` (0/1, computed with `EXISTS`), and the words load lazily per row through `db-get-transcription-confidence`.
@@ -128,15 +128,15 @@ WS-M5 (Tasks 11–17) does not depend on the gate.
 
 1. **Alignment drift.** The engine's token text differs from the saved `raw_text` (inverse text normalisation "twenty" → "20", dictionary-echo recovery swapping in a retry result, whitespace normalisation, CJK without spaces, leading punctuation).
    - A reasonable person expects a wrong underline to be impossible. A word with no exact, word-bounded match at or after the previous match is simply drawn plain.
-   - Pinned in Task 3 (`wordConfidence.test.js`: "words align… skip what changed", "CJK tokens are words of their own", the boundary test) and Task 7 (the retry result carries the retry's own confidence).
+   - Pinned in Task 3 (`wordConfidence.test.js`: "words align… skip what changed", "a repeated word never jumps to a later occurrence", "CJK tokens are words of their own", the boundary test) and Task 7 (the retry result carries the retry's own confidence).
 2. **Stale confidence after an edit or retry.** Retry rewrites `raw_text` (the `retry-transcription` handler at `ipcHandlers.js:5083` calls `updateTranscriptionText(id, result.text, result.text)` at `:5290`), and so does a manual edit (`update-transcription-text`, `:7929`). A user expects the old underlines to vanish, not to sit on the new words.
-   - Pinned in Task 6: "confidence follows the raw text".
+   - Pinned in Task 6: "confidence follows the raw text" and "a retry clears confidence even when it returns identical text".
 3. **Hostile or garbage payloads over IPC.** The renderer sends the words to `db-save-transcription`. Non-arrays, `NaN` or out-of-range probabilities, 64+ character "words", an unknown engine, or 20 001 words must never fail the save or bloat the DB.
    - Pinned in Task 3 (`buildStoredConfidence` refusals) and Task 6 ("a malformed payload never blocks saving").
 4. **Keyboard focus on a virtualised canvas.** Arrowing to a card that is outside the rendered 1.5× viewport must still move focus there and bring it into view. Selected and focused cards must never be culled.
    - Pinned in Task 12 (`visibleIds` always keeps `always`, and `ensureVisible` pans) and Task 15 (the component keeps the focused id in the render set).
 5. **Notes removed or deleted while the board is open, or between sessions.** A note deleted in the editor, a dictation purged by retention, or a chat deleted must not leave a ghost card or a dangling connector. "Remove from table" on a note must not delete the note.
-   - Pinned in Task 11 ("deleted entities are pruned", "removing a note hides it and keeps the note") and Task 13 (edges drop endpoints that are not on the board).
+   - Pinned in Task 11 ("deleted entities are pruned", "removing a note hides it and keeps the note", "deleting an entity frees its capacity", "links and hides to missing entities … are refused") and Task 13 (edges drop endpoints that are not on the board). Task 16's board hook reloads on note and transcription lifecycle events and applies only the placements main accepted.
 
 ---
 
@@ -721,6 +721,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
+  ENGINES,
   MAX_WORDS,
   alignWordsToText,
   buildStoredConfidence,
@@ -729,6 +730,9 @@ const {
   tokensFromSherpaOffline,
   tokensFromWhisperVerbose,
 } = require("../../src/helpers/wordConfidence");
+
+// The first GO engine from the Task 1 gate; NO-GO engines are tested as refusals.
+const ENGINE = [...ENGINES][0];
 
 test("whisper tokens merge into words at leading-space boundaries", () => {
   const words = mergeTokensToWords([
@@ -789,6 +793,8 @@ test("special, byte-fallback and invalid tokens never become words", () => {
 test("CJK tokens are words of their own and keep trailing punctuation", () => {
   const words = mergeTokensToWords([{ text: "定价", p: 0.9 }, { text: "周四", p: 0.6 }, { text: "。", p: 0.3 }]);
   assert.deepEqual(words.map((w) => [w.w, w.p]), [["定价", 0.9], ["周四。", 0.6]]);
+  const raw = "定价周四。";
+  assert.deepEqual(alignWordsToText(words, raw).map((a) => raw.slice(a.s, a.e)), ["定价", "周四。"]);
 });
 
 test("leading punctuation opens a word but does not score it", () => {
@@ -816,36 +822,49 @@ test("words align to the saved raw text by offset and skip what changed", () => 
   assert.equal(aligned[7].p, 0.84, "a case-insensitive match keeps the engine score");
 });
 
-test("alignment never matches inside another word or far ahead", () => {
+test("alignment never matches inside another word, past skipped words, or far ahead", () => {
   const raw = "Monday on the mountain";
-  assert.deepEqual(alignWordsToText([{ w: "on", p: 0.5 }], raw).map((a) => raw.slice(a.s, a.e)), ["on"]);
-  assert.equal(alignWordsToText([{ w: "on", p: 0.5 }], raw)[0].s, 7, "not the 'on' inside Monday");
+  const aligned = alignWordsToText([{ w: "Monday", p: 0.9 }, { w: "on", p: 0.5 }], raw);
+  assert.deepEqual(aligned.map((a) => raw.slice(a.s, a.e)), ["Monday", "on"]);
+  assert.equal(aligned[1].s, 7, "not the 'on' inside Monday");
+  assert.deepEqual(alignWordsToText([{ w: "mountain", p: 0.5 }], raw), [], "three unsaid words cannot be skipped");
+  assert.deepEqual(alignWordsToText([{ w: "so", p: 0.5 }, { w: "the", p: 0.5 }], "Um so the").map((a) => a.s), [3, 6], "one extra saved word is tolerated");
   const far = `${"x ".repeat(40)}target`;
   assert.deepEqual(alignWordsToText([{ w: "target", p: 0.5 }], far), [], "beyond the 48-char lookahead");
+});
+
+test("a repeated word never jumps to a later occurrence when the first was rewritten", () => {
+  const raw = "20 and twenty";
+  const aligned = alignWordsToText([{ w: "twenty", p: 0.3 }, { w: "and", p: 0.9 }, { w: "twenty", p: 0.8 }], raw);
+  assert.deepEqual(aligned.map((a) => [raw.slice(a.s, a.e), a.p]), [["and", 0.9], ["twenty", 0.8]]);
 });
 
 test("stored payload is validated, aligned and versioned", () => {
   const raw = "Maria wants the tier names.";
   const stored = buildStoredConfidence(
-    { engine: "whisper.cpp", words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }, { w: "", p: 0.5 }, { w: "tier", p: 2 }, { w: "names.", p: 0.88 }] },
+    { engine: ENGINE, words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }, { w: "", p: 0.5 }, { w: "tier", p: 2 }, { w: "names.", p: 0.88 }] },
     raw
   );
   assert.deepEqual(stored, {
     v: 1,
-    engine: "whisper.cpp",
+    engine: ENGINE,
     words: [{ s: 0, e: 5, p: 0.58, t: 1.2 }, { s: 6, e: 11, p: 0.91 }, { s: 21, e: 27, p: 0.88 }],
   });
   assert.equal(buildStoredConfidence({ engine: "deepgram", words: [{ w: "Maria", p: 0.5 }] }, raw), null, "unknown engine");
-  assert.equal(buildStoredConfidence({ engine: "whisper.cpp", words: [{ w: "zebra", p: 0.5 }] }, raw), null, "nothing aligned");
-  assert.equal(buildStoredConfidence({ engine: "whisper.cpp", words: "nope" }, raw), null, "not an array");
+  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "zebra", p: 0.5 }] }, raw), null, "nothing aligned");
+  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "Maria", p: Number.NaN }] }, raw), null, "no usable score");
+  assert.equal(buildStoredConfidence({ engine: ENGINE, words: "nope" }, raw), null, "not an array");
   assert.equal(
-    buildStoredConfidence({ engine: "whisper.cpp", words: new Array(MAX_WORDS + 1).fill({ w: "Maria", p: 1 }) }, raw),
+    buildStoredConfidence({ engine: ENGINE, words: new Array(MAX_WORDS + 1).fill({ w: "Maria", p: 1 }) }, raw),
     null,
     "oversized payloads are refused whole"
   );
-  assert.equal(buildStoredConfidence({ engine: "whisper.cpp", words: [{ w: "M".repeat(65), p: 1 }] }, raw), null);
+  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "M".repeat(65), p: 1 }] }, raw), null);
   assert.equal(buildStoredConfidence(null, raw), null);
-  assert.equal(buildStoredConfidence({ engine: "whisper.cpp", words: [{ w: "Maria", p: 1 }] }, null), null);
+  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "Maria", p: 1 }] }, null), null);
+  for (const nogo of ["whisper.cpp", "sherpa-onnx"].filter((e) => !ENGINES.has(e))) {
+    assert.equal(buildStoredConfidence({ engine: nogo, words: [{ w: "Maria", p: 0.5 }] }, raw), null, `${nogo} is NO-GO`);
+  }
 });
 
 for (const [file, toTokens] of [
@@ -896,6 +915,7 @@ const SPECIAL_TOKEN = /^\s*(\[_[A-Z]+_?\d*\]|<\|[^|]*\|>|<unk>|<blk>|<s>|<\/s>)\
 const BYTE_TOKEN = /^<0x[0-9A-Fa-f]{2}>$/;
 const PUNCT_ONLY = /^[\p{P}\p{S}]+$/u;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+const CJK_GLOBAL = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
 const WORD_CHAR = /[\p{L}\p{N}]/u;
 
 const round3 = (n) => Math.round(n * 1000) / 1000;
@@ -991,17 +1011,42 @@ function findWord(text, lowerText, word, from) {
   return -1;
 }
 
+// Word count of a stretch of saved text. A CJK character counts as one unit,
+// matching how CJK tokens become words in mergeTokensToWords.
+function wordUnits(text) {
+  let units = 0;
+  for (const run of text.match(/[\p{L}\p{N}]+/gu) ?? []) {
+    const cjk = run.match(CJK_GLOBAL)?.length ?? 0;
+    units += cjk + (run.replace(CJK_GLOBAL, "").length ? 1 : 0);
+  }
+  return units;
+}
+
+const engineUnits = (word) => (CJK.test(word) ? (word.match(CJK_GLOBAL)?.length ?? 1) : 1);
+
 function alignWordsToText(words, text) {
   if (typeof text !== "string" || !text) return [];
   const lower = text.toLowerCase();
   const lowerText = lower.length === text.length ? lower : null;
   const out = [];
   let cursor = 0;
+  // Engine words not found since the last match. A match is accepted only if
+  // the saved text skipped at most one word more than the engine did (slack
+  // for a split or inserted token), so "twenty and twenty" saved as
+  // "20 and twenty" can never pin the first word's score on the second "twenty".
+  let skipped = 0;
   for (const word of words) {
     const at = findWord(text, lowerText, word.w, cursor);
-    if (at === -1) continue;
-    out.push({ s: at, e: at + word.w.length, p: word.p, ...(word.t !== undefined ? { t: word.t } : {}) });
+    if (at === -1 || wordUnits(text.slice(cursor, at)) > skipped + 1) {
+      skipped += engineUnits(word.w);
+      continue;
+    }
+    // Words with an unusable score still anchor the walk; they are never drawn.
+    if (isProbability(word.p)) {
+      out.push({ s: at, e: at + word.w.length, p: word.p, ...(word.t !== undefined ? { t: word.t } : {}) });
+    }
     cursor = at + word.w.length;
+    skipped = 0;
   }
   return out;
 }
@@ -1012,14 +1057,15 @@ function sanitizeWords(words) {
   for (const word of words) {
     if (!word || typeof word.w !== "string") continue;
     if (word.w.length > MAX_WORD_LENGTH) return null;
-    if (!word.w.trim() || !isProbability(word.p)) continue;
+    const w = word.w.trim();
+    if (!w) continue;
     clean.push({
-      w: word.w.trim(),
-      p: round3(word.p),
+      w,
+      p: isProbability(word.p) ? round3(word.p) : Number.NaN,
       ...(Number.isFinite(word.t) && word.t >= 0 ? { t: round3(word.t) } : {}),
     });
   }
-  return clean.length ? clean : null;
+  return clean.some((word) => isProbability(word.p)) ? clean : null;
 }
 
 function buildStoredConfidence(input, rawText) {
@@ -1440,7 +1486,7 @@ git commit -m "feat(stt): Parakeet word confidence from sherpa-onnx token log-pr
   - `updateTranscriptionText` (`:605-623`);
   - `getTranscriptionById` (`:649-658`);
   - a new `getTranscriptionConfidence` after `getTranscriptionById`.
-- Modify: `src/helpers/ipcHandlers.js` (register `db-get-transcription-confidence` after `db-get-transcriptions` at `:1263-1265`)
+- Modify: `src/helpers/ipcHandlers.js` (register `db-get-transcription-confidence` after `db-get-transcriptions` at `:1263-1265`; clear confidence in `retry-transcription` at `:5290`)
 - Modify: `preload.js` (after `getTranscriptionById` at `:197`)
 - Modify: `src/types/electron.ts`:
   - new exported types above `TranscriptionItem` (`:97`);
@@ -1454,6 +1500,7 @@ git commit -m "feat(stt): Parakeet word confidence from sherpa-onnx token log-pr
 - Produces:
   - `DatabaseManager#saveTranscription(text, rawText, { …, confidence?: Candidate | null })`;
   - `DatabaseManager#getTranscriptionConfidence(id): TranscriptionConfidence | null`;
+  - `DatabaseManager#clearTranscriptionConfidence(id): { success: true }`, called by `retry-transcription`;
   - every transcription row from `getTranscriptions`, `getTranscriptionById` and `saveTranscription().transcription` carries `has_confidence: 0 | 1`.
   - Preload: `window.electronAPI.getTranscriptionConfidence(id)`.
   - Types in `src/types/electron.ts`:
@@ -1473,10 +1520,14 @@ Create `test/helpers/transcriptionConfidenceDatabase.test.js`:
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createDb } = require("./harness/db");
+const fs = require("node:fs");
+const path = require("node:path");
 const DatabaseManager = require("../../src/helpers/database");
+const { ENGINES } = require("../../src/helpers/wordConfidence");
 
-const INPUT = { engine: "whisper.cpp", words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }] };
-const STORED = { v: 1, engine: "whisper.cpp", words: [{ s: 0, e: 5, p: 0.58, t: 1.2 }, { s: 6, e: 11, p: 0.91 }] };
+const ENGINE = [...ENGINES][0]; // a GO engine from the Task 1 gate
+const INPUT = { engine: ENGINE, words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }] };
+const STORED = { v: 1, engine: ENGINE, words: [{ s: 0, e: 5, p: 0.58, t: 1.2 }, { s: 6, e: 11, p: 0.91 }] };
 const confidenceRows = (db) => db.db.prepare("SELECT COUNT(*) AS n FROM transcription_confidence").get().n;
 
 test("a transcription saved with confidence round-trips and flags history rows", (t) => {
@@ -1508,7 +1559,7 @@ test("rows without confidence cost nothing and read as 0", (t) => {
 test("a malformed payload never blocks saving the transcription", (t) => {
   const db = createDb(t);
   if (!db) return;
-  for (const confidence of [{ engine: "whisper.cpp", words: "nope" }, { engine: "evil", words: INPUT.words }, 42]) {
+  for (const confidence of [{ engine: ENGINE, words: "nope" }, { engine: "evil", words: INPUT.words }, 42]) {
     const { id, success, transcription } = db.saveTranscription("keep me", "keep me", { confidence });
     assert.equal(success, true);
     assert.equal(transcription.text, "keep me");
@@ -1525,6 +1576,21 @@ test("confidence follows the raw text: editing or retrying it drops the stale wo
   db.updateTranscriptionText(id, "Retried text", "Retried text");
   assert.equal(db.getTranscriptionConfidence(id), null);
   assert.equal(db.getTranscriptionById(id).has_confidence, 0);
+});
+
+test("a retry clears confidence even when it returns identical text", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const { id } = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT });
+  db.clearTranscriptionConfidence(id);
+  db.updateTranscriptionText(id, "Maria wants it.", "Maria wants it.");
+  assert.equal(db.getTranscriptionConfidence(id), null);
+  const handlers = fs.readFileSync(path.join(__dirname, "../../src/helpers/ipcHandlers.js"), "utf8");
+  assert.match(
+    handlers,
+    /clearTranscriptionConfidence\(id\);\s*\n\s*this\.databaseManager\.updateTranscriptionText\(id, result\.text, result\.text\)/,
+    "retry-transcription drops old scores before writing the new text"
+  );
 });
 
 test("deleting, clearing and retention purge confidence with the transcription", (t) => {
@@ -1655,6 +1721,14 @@ Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTransc
    - Add after `getTranscriptionById`:
 
      ```js
+       // Retry re-decodes the audio, possibly with another engine: old scores never
+       // carry over, even when the new text is identical.
+       clearTranscriptionConfidence(id) {
+         if (!this.db) throw new Error("Database not initialized");
+         this.db.prepare("DELETE FROM transcription_confidence WHERE transcription_id = ?").run(id);
+         return { success: true };
+       }
+
        getTranscriptionConfidence(id) {
          if (!this.db) throw new Error("Database not initialized");
          const row = this.db
@@ -1670,7 +1744,9 @@ Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTransc
        }
      ```
 
-3. `src/helpers/ipcHandlers.js`. After the `db-get-transcriptions` handler (`:1263-1265`):
+3. `src/helpers/ipcHandlers.js`:
+   - In `retry-transcription`, insert `this.databaseManager.clearTranscriptionConfidence(id);` on the line directly before `this.databaseManager.updateTranscriptionText(id, result.text, result.text);` (`:5290`).
+   - After the `db-get-transcriptions` handler (`:1263-1265`), add:
 
    ```js
        ipcMain.handle("db-get-transcription-confidence", async (_event, id) => {
@@ -2462,6 +2538,8 @@ export function ConfidenceWordPopover({
           onMouseEnter={keepOpen}
           onMouseLeave={closeSoon}
           onFocus={keepOpen}
+          // Plan 06's row copies on click; a word click opens this popover instead.
+          onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
             const key = event.key.toLowerCase();
             if (key === "a") {
@@ -2483,6 +2561,8 @@ export function ConfidenceWordPopover({
         className="w-56 p-2 text-xs"
         onMouseEnter={keepOpen}
         onMouseLeave={closeSoon}
+        // Portalled content still bubbles through the React tree to the row.
+        onClick={(event) => event.stopPropagation()}
         onOpenAutoFocus={(event: Event) => event.preventDefault()}
       >
         <p className="px-2 pb-1 font-medium text-muted-foreground">
@@ -2907,8 +2987,8 @@ git commit -m "feat(history): Labs confidence typography in history rows and raw
   export interface TableViewport { x: number; y: number; scale: number }
   export interface TableBoardData {
     spaceId: number;
-    cards: TableEntity[];      // placed and visible first, then unplaced space notes; ≤ 500
-    inbox: TableEntity[];      // hidden notes, unplaced dictations (7 days, ≤ 20), unplaced answered chats (≤ 10)
+    cards: TableEntity[];      // all placed, visible cards, then the newest unplaced space notes up to 500 in total
+    inbox: TableEntity[];      // removed cards of any kind or age (≤ 50 each), new dictations (7 days, ≤ 20), new answered chats (≤ 10)
     links: TableLink[];        // only links whose two ends are in cards ∪ inbox
     viewport: TableViewport | null;
     truncated: boolean;
@@ -2918,9 +2998,10 @@ git commit -m "feat(history): Labs confidence typography in history rows and raw
 
 - Produces `DatabaseManager` methods:
   - `getTableBoard(spaceId): TableBoardData`. It prunes stale rows first.
-  - `placeTableCards(spaceId, placements: TablePlacement[]): { success: true; placed: number } | { success: false; code: "TABLE_FULL" }`
-  - `hideTableCards(spaceId, refs: TableEntityRef[]): { success: true; hidden: number }`. A note row becomes `hidden = 1`, and the note is kept. Dictation and chat rows are deleted.
-  - `linkTableCards(spaceId, a, b): { success: boolean }`. Links are undirected and deduplicated.
+  - `placeTableCards(spaceId, placements: TablePlacement[]): { success: true; placed: number; placedKeys: string[] } | { success: false; code: "TABLE_FULL" | "INVALID" }`. Only entities that exist in the Space are placed; `placedKeys` lists them.
+  - `hideTableCards(spaceId, refs: TableEntityRef[]): { success: boolean; hidden: number }`. Every kind gets `hidden = 1`: nothing is deleted, the card returns to the inbox whatever its age, and its last position is kept.
+  - `linkTableCards(spaceId, a, b): { success: boolean }`. Both ends must exist in the Space. Links are undirected and deduplicated, and are pruned when an end is deleted.
+  - Every method refuses an unknown or non-private Space, non-positive or unsafe ids, and batches over 500.
   - `setTableViewport(spaceId, { x, y, scale }): { success: boolean }`. Scale is clamped to [0.25, 2].
 - Produces the IPC channels `db-get-table-board`, `db-place-table-cards`, `db-hide-table-cards`, `db-link-table-cards` and `db-set-table-viewport`, and the matching preload methods `getTableBoard`, `placeTableCards`, `hideTableCards`, `linkTableCards` and `setTableViewport`.
 
@@ -2974,7 +3055,7 @@ test("placements persist across a reopen and only real entities can be placed", 
     { type: "bogus", id: 1, x: 0, y: 0 },
     { type: "dictation", id: dictation, x: Number.NaN, y: 0 },
   ]);
-  assert.deepEqual(res, { success: true, placed: 2 });
+  assert.deepEqual(res, { success: true, placed: 2, placedKeys: [`note:${note.id}`, `dictation:${dictation}`] });
   db.setTableViewport(spaceId, { x: -40, y: 12, scale: 9 });
   db.db.close();
   const reopened = new DatabaseManager();
@@ -2996,7 +3077,7 @@ test("removing a note hides it and keeps the note; placing it again brings it ba
   assert.ok(db.getNote(note.id), "the note itself is untouched");
   assert.ok(board.inbox.some((e) => e.ref.type === "note" && e.ref.id === note.id));
   assert.ok(!board.cards.some((c) => c.ref.type === "note" && c.ref.id === note.id));
-  assert.ok(board.inbox.some((e) => e.ref.type === "dictation"), "a removed dictation goes back to the inbox");
+  assert.ok(board.inbox.some((e) => e.ref.type === "dictation" && e.layout?.hidden), "a removed dictation goes back to the inbox");
   db.placeTableCards(spaceId, [{ type: "note", id: note.id, x: 80, y: 80 }]);
   board = db.getTableBoard(spaceId);
   assert.equal(board.cards.find((c) => c.ref.type === "note" && c.ref.id === note.id).layout.hidden, false);
@@ -3036,9 +3117,57 @@ test("the table refuses a 501st placed card and keeps the first 500", (t) => {
   const spaceId = db.getPrivateSpaceId();
   const ids = Array.from({ length: 501 }, (_, i) => db.saveTranscription(`d${i}`, `d${i}`).id);
   const first = db.placeTableCards(spaceId, ids.slice(0, 500).map((id, i) => ({ type: "dictation", id, x: i * 8, y: 0 })));
-  assert.deepEqual(first, { success: true, placed: 500 });
+  assert.equal(first.placed, 500);
   assert.deepEqual(db.placeTableCards(spaceId, [{ type: "dictation", id: ids[500], x: 0, y: 0 }]), { success: false, code: "TABLE_FULL" });
   assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM note_layout").get().n, 500);
+});
+
+test("an arranged old note survives 500 newer notes, and truncation is reported", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const spaceId = db.getPrivateSpaceId();
+  const old = db.saveNote("Old but arranged", "", "personal", null, null, null, spaceId).note;
+  db.placeTableCards(spaceId, [{ type: "note", id: old.id, x: 0, y: 0 }]);
+  for (let i = 0; i < 500; i++) db.saveNote(`n${i}`, "", "personal", null, null, null, spaceId);
+  const board = db.getTableBoard(spaceId);
+  assert.equal(board.cards.length, 500);
+  assert.ok(board.cards.some((c) => c.ref.id === old.id && c.layout), "the arranged card is kept");
+  assert.equal(board.truncated, true);
+});
+
+test("deleting an entity frees its capacity without a board read in between", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const spaceId = db.getPrivateSpaceId();
+  const ids = Array.from({ length: 501 }, (_, i) => db.saveTranscription(`d${i}`, `d${i}`).id);
+  db.placeTableCards(spaceId, ids.slice(0, 500).map((id) => ({ type: "dictation", id, x: 0, y: 0 })));
+  db.deleteTranscription(ids[0]);
+  assert.equal(db.placeTableCards(spaceId, [{ type: "dictation", id: ids[500], x: 0, y: 0 }]).success, true);
+});
+
+test("links and hides to missing entities or Spaces are refused, and dead links are pruned", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const { spaceId, note, dictation } = seed(db);
+  assert.equal(db.linkTableCards(spaceId, { type: "note", id: note.id }, { type: "note", id: 424242 }).success, false);
+  assert.equal(db.hideTableCards(spaceId, [{ type: "note", id: 424242 }]).hidden, 0);
+  assert.equal(db.getTableBoard(9999).cards.length, 0, "unknown Space reads empty");
+  assert.deepEqual(db.placeTableCards(9999, [{ type: "note", id: note.id, x: 0, y: 0 }]), { success: false, code: "INVALID" });
+  db.linkTableCards(spaceId, { type: "note", id: note.id }, { type: "dictation", id: dictation });
+  db.deleteTranscription(dictation);
+  db.getTableBoard(spaceId);
+  assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM note_layout_links").get().n, 0);
+});
+
+test("a removed old dictation stays in the inbox", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const spaceId = db.getPrivateSpaceId();
+  const id = db.saveTranscription("from last month", "from last month").id;
+  db.db.prepare("UPDATE transcriptions SET timestamp = datetime('now', '-30 days') WHERE id = ?").run(id);
+  db.placeTableCards(spaceId, [{ type: "dictation", id, x: 0, y: 0 }]);
+  db.hideTableCards(spaceId, [{ type: "dictation", id }]);
+  assert.ok(db.getTableBoard(spaceId).inbox.some((e) => e.ref.type === "dictation" && e.ref.id === id));
 });
 
 test("a profile created before Plan 08 gains the table tables on open", (t) => {
@@ -3113,6 +3242,8 @@ Expected: FAIL with `db.getTableBoard is not a function`.
      const TABLE_EXCERPT_CHARS = 600;
      const TABLE_INBOX_DICTATIONS = 20;
      const TABLE_INBOX_CHATS = 10;
+     const TABLE_INBOX_HIDDEN = 50;
+     const TABLE_BATCH_LIMIT = 500;
      const TABLE_COORD_LIMIT = 1e6;
      const MARKDOWN_HREF = /\]\(([^)\s]+)\)/g;
      const NON_ENTITY_HREF = /^(https?:|mailto:|mention:)/i;
@@ -3120,7 +3251,8 @@ Expected: FAIL with `db.getTableBoard is not a function`.
      const tableKey = (type, id) => `${type}:${id}`;
      const clampCoord = (n) => Math.max(-TABLE_COORD_LIMIT, Math.min(TABLE_COORD_LIMIT, n));
      const finiteOrNull = (n) => (Number.isFinite(n) && n > 0 ? Math.min(n, 4000) : null);
-     const isTableRef = (ref) => !!ref && TABLE_ENTITY_TYPES.has(ref.type) && Number.isInteger(ref.id);
+     const isTableRef = (ref) =>
+       !!ref && TABLE_ENTITY_TYPES.has(ref.type) && Number.isSafeInteger(ref.id) && ref.id > 0;
 
      function extractEntityHrefs(markdown) {
        const hrefs = new Set();
@@ -3149,7 +3281,33 @@ Expected: FAIL with `db.getTableBoard is not a function`.
 
      ```js
        // ---- The Table (Plan 08, WS-M5, Labs) -------------------------------
+       // Every entry point validates the Space and every entity, because the
+       // renderer is not trusted to send ids that exist.
 
+       _isTableSpace(spaceId) {
+         return (
+           Number.isSafeInteger(spaceId) &&
+           spaceId > 0 &&
+           !!this.db
+             .prepare("SELECT 1 FROM spaces WHERE id = ? AND kind = 'private' AND deleted_at IS NULL")
+             .get(spaceId)
+         );
+       }
+
+       _tableEntityExists(spaceId, type, id) {
+         const sql = {
+           note: "SELECT 1 FROM notes WHERE id = ? AND space_id = ? AND deleted_at IS NULL",
+           dictation: "SELECT 1 FROM transcriptions WHERE id = ? AND deleted_at IS NULL AND status = 'completed'",
+           chat: "SELECT 1 FROM agent_conversations WHERE id = ? AND space_id = ? AND deleted_at IS NULL",
+         }[type];
+         if (!sql) return false;
+         const params = type === "dictation" ? [id] : [id, spaceId];
+         return !!this.db.prepare(sql).get(...params);
+       }
+
+       // Deleting a note, conversation or transcription never touches these
+       // tables (no FK is possible across three entity tables), so every read
+       // and write prunes first.
        _pruneTableLayout(spaceId) {
          this.db
            .prepare(
@@ -3162,123 +3320,128 @@ Expected: FAIL with `db.getTableBoard is not a function`.
                    WHERE c.id = note_layout.entity_id AND c.space_id = note_layout.space_id AND c.deleted_at IS NULL)))`
            )
            .run(spaceId);
-       }
-
-       _tableEntityExists(spaceId, type, id) {
-         const sql = {
-           note: "SELECT 1 FROM notes WHERE id = ? AND space_id = ? AND deleted_at IS NULL",
-           dictation: "SELECT 1 FROM transcriptions WHERE id = ? AND deleted_at IS NULL AND status = 'completed'",
-           chat: "SELECT 1 FROM agent_conversations WHERE id = ? AND space_id = ? AND deleted_at IS NULL",
-         }[type];
-         const params = type === "dictation" ? [id] : [id, spaceId];
-         return !!this.db.prepare(sql).get(...params);
+         const drop = this.db.prepare("DELETE FROM note_layout_links WHERE rowid = ?");
+         for (const l of this.db
+           .prepare("SELECT rowid, a_type, a_id, b_type, b_id FROM note_layout_links WHERE space_id = ?")
+           .all(spaceId)) {
+           if (!this._tableEntityExists(spaceId, l.a_type, l.a_id) || !this._tableEntityExists(spaceId, l.b_type, l.b_id)) {
+             drop.run(l.rowid);
+           }
+         }
        }
 
        getTableBoard(spaceId) {
          if (!this.db) throw new Error("Database not initialized");
+         const empty = { spaceId, cards: [], inbox: [], links: [], viewport: null, truncated: false };
+         if (!this._isTableSpace(spaceId)) return empty;
          return this.db.transaction(() => {
            this._pruneTableLayout(spaceId);
-           const layoutByKey = new Map(
+           const layoutOf = (row) =>
+             row.l_x == null
+               ? null
+               : { x: row.l_x, y: row.l_y, w: row.l_w, h: row.l_h, z: row.l_z, hidden: row.l_hidden === 1 };
+           const LAYOUT_COLUMNS = "l.x AS l_x, l.y AS l_y, l.w AS l_w, l.h AS l_h, l.z AS l_z, l.hidden AS l_hidden";
+           const layoutJoin = (type, alias) =>
+             `LEFT JOIN note_layout l ON l.space_id = ${Number(spaceId)} AND l.entity_type = '${type}' AND l.entity_id = ${alias}.id`;
+           const scope = this._personalScopeCondition("n");
+
+           const noteRows = (layoutClause, limit) =>
              this.db
-               .prepare("SELECT entity_type, entity_id, x, y, w, h, z, hidden FROM note_layout WHERE space_id = ?")
-               .all(spaceId)
-               .map((row) => [tableKey(row.entity_type, row.entity_id), row])
-           );
-           const layoutOf = (type, id) => {
-             const row = layoutByKey.get(tableKey(type, id));
-             return row ? { x: row.x, y: row.y, w: row.w, h: row.h, z: row.z, hidden: row.hidden === 1 } : null;
+               .prepare(
+                 `SELECT n.id, n.title, n.note_type, n.content, n.enhanced_content, n.participants, n.updated_at,
+                         n.audio_duration_seconds, ${LAYOUT_COLUMNS}
+                  FROM notes n ${layoutJoin("note", "n")}
+                  WHERE n.space_id = ? AND n.deleted_at IS NULL AND ${scope.sql} AND ${layoutClause}
+                  ORDER BY n.updated_at DESC, n.id DESC LIMIT ?`
+               )
+               .all(spaceId, ...scope.params, limit);
+           const dictationRows = (layoutClause, extra, limit) =>
+             this.db
+               .prepare(
+                 `SELECT t.id, t.text, t.timestamp, t.audio_duration_ms, ${LAYOUT_COLUMNS}
+                  FROM transcriptions t ${layoutJoin("dictation", "t")}
+                  WHERE t.deleted_at IS NULL AND t.status = 'completed' AND ${layoutClause} ${extra}
+                  ORDER BY t.timestamp DESC, t.id DESC LIMIT ?`
+               )
+               .all(limit);
+           const chatRows = (layoutClause, extra, limit) =>
+             this.db
+               .prepare(
+                 `SELECT c.id, c.title, c.note_id, c.updated_at, ${LAYOUT_COLUMNS},
+                    (SELECT substr(m.content, 1, ${TABLE_EXCERPT_CHARS}) FROM agent_messages m
+                      WHERE m.conversation_id = c.id AND m.role = 'assistant'
+                      ORDER BY m.id DESC LIMIT 1) AS answer
+                  FROM agent_conversations c ${layoutJoin("chat", "c")}
+                  WHERE c.space_id = ? AND c.deleted_at IS NULL AND c.archived_at IS NULL AND ${layoutClause} ${extra}
+                  ORDER BY c.updated_at DESC LIMIT ?`
+               )
+               .all(spaceId, limit);
+
+           const noteEntity = (n) => {
+             const body = n.enhanced_content && n.enhanced_content.trim() ? n.enhanced_content : n.content || "";
+             return {
+               ref: { type: "note", id: n.id },
+               kind: n.note_type === "meeting" ? "meeting" : "note",
+               title: n.title,
+               excerpt: body.slice(0, TABLE_EXCERPT_CHARS),
+               at: n.updated_at,
+               durationMs: n.audio_duration_seconds != null ? Math.round(n.audio_duration_seconds * 1000) : null,
+               participants: parseParticipantNames(n.participants),
+               hrefs: extractEntityHrefs(body),
+               noteId: null,
+               layout: layoutOf(n),
+             };
            };
-           const entity = (ref, fields) => ({
-             ref,
+           const dictationEntity = (d) => ({
+             ref: { type: "dictation", id: d.id },
+             kind: "dictation",
              title: null,
-             durationMs: null,
+             excerpt: String(d.text || "").slice(0, TABLE_EXCERPT_CHARS),
+             at: d.timestamp,
+             durationMs: d.audio_duration_ms ?? null,
              participants: [],
              hrefs: [],
              noteId: null,
-             ...fields,
-             layout: layoutOf(ref.type, ref.id),
+             layout: layoutOf(d),
+           });
+           const chatEntity = (c) => ({
+             ref: { type: "chat", id: c.id },
+             kind: "chat",
+             title: c.title,
+             excerpt: c.answer || "",
+             at: c.updated_at,
+             durationMs: null,
+             participants: [],
+             hrefs: [],
+             noteId: c.note_id ?? null,
+             layout: layoutOf(c),
            });
 
-           const scope = this._personalScopeCondition("notes");
-           const notes = this.db
-             .prepare(
-               `SELECT id, title, note_type, content, enhanced_content, participants, updated_at, audio_duration_seconds
-                FROM notes WHERE space_id = ? AND deleted_at IS NULL AND ${scope.sql}
-                ORDER BY updated_at DESC, id DESC LIMIT ?`
-             )
-             .all(spaceId, ...scope.params, TABLE_CARD_CAP);
-           const dictationFields = (row) => ({
-             kind: "dictation",
-             excerpt: String(row.text || "").slice(0, TABLE_EXCERPT_CHARS),
-             at: row.timestamp,
-             durationMs: row.audio_duration_ms ?? null,
-           });
-           const placedDictations = this.db
-             .prepare(
-               `SELECT t.id, t.text, t.timestamp, t.audio_duration_ms FROM transcriptions t
-                JOIN note_layout l ON l.space_id = ? AND l.entity_type = 'dictation' AND l.entity_id = t.id
-                WHERE t.deleted_at IS NULL AND t.status = 'completed'`
-             )
-             .all(spaceId);
-           const inboxDictations = this.db
-             .prepare(
-               `SELECT t.id, t.text, t.timestamp, t.audio_duration_ms FROM transcriptions t
-                WHERE t.deleted_at IS NULL AND t.status = 'completed' AND t.text != ''
-                  AND t.timestamp >= datetime('now', '-7 days')
-                  AND NOT EXISTS (SELECT 1 FROM note_layout l
-                    WHERE l.space_id = ? AND l.entity_type = 'dictation' AND l.entity_id = t.id)
-                ORDER BY t.timestamp DESC, t.id DESC LIMIT ?`
-             )
-             .all(spaceId, TABLE_INBOX_DICTATIONS);
-           const chats = this.db
-             .prepare(
-               `SELECT c.id, c.title, c.note_id, c.updated_at,
-                  (SELECT substr(m.content, 1, ?) FROM agent_messages m
-                    WHERE m.conversation_id = c.id AND m.role = 'assistant'
-                    ORDER BY m.id DESC LIMIT 1) AS answer
-                FROM agent_conversations c
-                WHERE c.space_id = ? AND c.deleted_at IS NULL AND c.archived_at IS NULL
-                ORDER BY c.updated_at DESC LIMIT ?`
-             )
-             .all(TABLE_EXCERPT_CHARS, spaceId, TABLE_CARD_CAP);
+           // Arranged cards first and in full (placement caps them at 500), so
+           // an old arranged note can never be pushed out by newer ones.
+           const placed = [
+             ...noteRows("l.hidden = 0", TABLE_CARD_CAP).map(noteEntity),
+             ...dictationRows("l.hidden = 0", "", TABLE_CARD_CAP).map(dictationEntity),
+             ...chatRows("l.hidden = 0", "", TABLE_CARD_CAP).map(chatEntity),
+           ];
+           const room = Math.max(0, TABLE_CARD_CAP - placed.length);
+           const unplacedNotes = noteRows("l.entity_id IS NULL", room + 1).map(noteEntity);
+           const cards = [...placed, ...unplacedNotes.slice(0, room)];
 
-           const cards = [];
-           const inbox = [];
-           for (const n of notes) {
-             const body = n.enhanced_content && n.enhanced_content.trim() ? n.enhanced_content : n.content || "";
-             const e = entity(
-               { type: "note", id: n.id },
-               {
-                 kind: n.note_type === "meeting" ? "meeting" : "note",
-                 title: n.title,
-                 excerpt: body.slice(0, TABLE_EXCERPT_CHARS),
-                 at: n.updated_at,
-                 durationMs: n.audio_duration_seconds != null ? Math.round(n.audio_duration_seconds * 1000) : null,
-                 participants: parseParticipantNames(n.participants),
-                 hrefs: extractEntityHrefs(body),
-               }
-             );
-             (e.layout?.hidden ? inbox : cards).push(e);
-           }
-           for (const d of placedDictations) cards.push(entity({ type: "dictation", id: d.id }, dictationFields(d)));
-           for (const d of inboxDictations) inbox.push(entity({ type: "dictation", id: d.id }, dictationFields(d)));
-           let inboxChats = 0;
-           for (const c of chats) {
-             const e = entity(
-               { type: "chat", id: c.id },
-               { kind: "chat", title: c.title, excerpt: c.answer || "", at: c.updated_at, noteId: c.note_id ?? null }
-             );
-             if (e.layout && !e.layout.hidden) cards.push(e);
-             else if (c.answer && inboxChats < TABLE_INBOX_CHATS) {
-               inbox.push(e);
-               inboxChats += 1;
-             }
-           }
+           // Removed cards stay in the inbox regardless of age; new captures are recent only.
+           const inbox = [
+             ...noteRows("l.hidden = 1", TABLE_INBOX_HIDDEN).map(noteEntity),
+             ...dictationRows("l.hidden = 1", "", TABLE_INBOX_HIDDEN).map(dictationEntity),
+             ...chatRows("l.hidden = 1", "", TABLE_INBOX_HIDDEN).map(chatEntity),
+             ...dictationRows(
+               "l.entity_id IS NULL",
+               "AND t.text != '' AND t.timestamp >= datetime('now', '-7 days')",
+               TABLE_INBOX_DICTATIONS
+             ).map(dictationEntity),
+             ...chatRows("l.entity_id IS NULL", "AND answer IS NOT NULL", TABLE_INBOX_CHATS).map(chatEntity),
+           ];
 
-           // Placed cards first so the cap never drops something the user arranged.
-           cards.sort((a, b) => (a.layout ? 0 : 1) - (b.layout ? 0 : 1));
-           const shown = cards.slice(0, TABLE_CARD_CAP);
-           const present = new Set([...shown, ...inbox].map((e) => tableKey(e.ref.type, e.ref.id)));
+           const present = new Set([...cards, ...inbox].map((e) => tableKey(e.ref.type, e.ref.id)));
            const links = this.db
              .prepare("SELECT a_type, a_id, b_type, b_id FROM note_layout_links WHERE space_id = ?")
              .all(spaceId)
@@ -3290,18 +3453,20 @@ Expected: FAIL with `db.getTableBoard is not a function`.
 
            return {
              spaceId,
-             cards: shown,
+             cards,
              inbox,
              links,
              viewport: viewport ? { x: viewport.x, y: viewport.y, scale: viewport.scale } : null,
-             truncated: cards.length > TABLE_CARD_CAP,
+             truncated: unplacedNotes.length > room,
            };
          })();
        }
 
        placeTableCards(spaceId, placements) {
          if (!this.db) throw new Error("Database not initialized");
-         if (!Array.isArray(placements) || placements.length === 0) return { success: true, placed: 0 };
+         if (!this._isTableSpace(spaceId) || !Array.isArray(placements) || placements.length > TABLE_BATCH_LIMIT) {
+           return { success: false, code: "INVALID" };
+         }
          const upsert = this.db.prepare(
            `INSERT INTO note_layout (space_id, entity_type, entity_id, x, y, w, h, z, hidden, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
@@ -3311,18 +3476,20 @@ Expected: FAIL with `db.getTableBoard is not a function`.
          );
          try {
            return this.db.transaction(() => {
-             let placed = 0;
+             // Prune before counting so deleted entities never hold capacity.
+             this._pruneTableLayout(spaceId);
+             const placedKeys = [];
              for (const p of placements) {
                if (!isTableRef(p) || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
                if (!this._tableEntityExists(spaceId, p.type, p.id)) continue;
                upsert.run(spaceId, p.type, p.id, clampCoord(p.x), clampCoord(p.y), finiteOrNull(p.w), finiteOrNull(p.h), Number.isInteger(p.z) ? p.z : 0);
-               placed += 1;
+               placedKeys.push(tableKey(p.type, p.id));
              }
              const visible = this.db
                .prepare("SELECT COUNT(*) AS n FROM note_layout WHERE space_id = ? AND hidden = 0")
                .get(spaceId).n;
              if (visible > TABLE_CARD_CAP) throw Object.assign(new Error("table full"), { code: "TABLE_FULL" });
-             return { success: true, placed };
+             return { success: true, placed: placedKeys.length, placedKeys };
            })();
          } catch (error) {
            if (error.code === "TABLE_FULL") return { success: false, code: "TABLE_FULL" };
@@ -3332,23 +3499,20 @@ Expected: FAIL with `db.getTableBoard is not a function`.
 
        hideTableCards(spaceId, refs) {
          if (!this.db) throw new Error("Database not initialized");
+         if (!this._isTableSpace(spaceId) || !Array.isArray(refs) || refs.length > TABLE_BATCH_LIMIT) {
+           return { success: false, hidden: 0 };
+         }
+         const hide = this.db.prepare(
+           `INSERT INTO note_layout (space_id, entity_type, entity_id, x, y, hidden) VALUES (?, ?, ?, 0, 0, 1)
+            ON CONFLICT(space_id, entity_type, entity_id) DO UPDATE SET hidden = 1, updated_at = CURRENT_TIMESTAMP`
+         );
          return this.db.transaction(() => {
            let hidden = 0;
-           for (const ref of Array.isArray(refs) ? refs : []) {
-             if (!isTableRef(ref)) continue;
-             if (ref.type === "note") {
-               // A space's notes auto-appear; hiding keeps the note and its last spot.
-               hidden += this.db
-                 .prepare(
-                   `INSERT INTO note_layout (space_id, entity_type, entity_id, x, y, hidden) VALUES (?, 'note', ?, 0, 0, 1)
-                    ON CONFLICT(space_id, entity_type, entity_id) DO UPDATE SET hidden = 1, updated_at = CURRENT_TIMESTAMP`
-                 )
-                 .run(spaceId, ref.id).changes;
-             } else {
-               hidden += this.db
-                 .prepare("DELETE FROM note_layout WHERE space_id = ? AND entity_type = ? AND entity_id = ?")
-                 .run(spaceId, ref.type, ref.id).changes;
-             }
+           for (const ref of refs) {
+             // Hidden, never deleted: the card returns to the inbox whatever its age,
+             // and its last spot is kept for when it comes back.
+             if (!isTableRef(ref) || !this._tableEntityExists(spaceId, ref.type, ref.id)) continue;
+             hidden += hide.run(spaceId, ref.type, ref.id).changes;
            }
            return { success: true, hidden };
          })();
@@ -3356,10 +3520,13 @@ Expected: FAIL with `db.getTableBoard is not a function`.
 
        linkTableCards(spaceId, a, b) {
          if (!this.db) throw new Error("Database not initialized");
-         if (!isTableRef(a) || !isTableRef(b)) return { success: false };
+         if (!this._isTableSpace(spaceId) || !isTableRef(a) || !isTableRef(b)) return { success: false };
          const ka = tableKey(a.type, a.id);
          const kb = tableKey(b.type, b.id);
          if (ka === kb) return { success: false };
+         if (!this._tableEntityExists(spaceId, a.type, a.id) || !this._tableEntityExists(spaceId, b.type, b.id)) {
+           return { success: false };
+         }
          const [first, second] = ka < kb ? [a, b] : [b, a];
          this.db
            .prepare(
@@ -3372,7 +3539,7 @@ Expected: FAIL with `db.getTableBoard is not a function`.
        setTableViewport(spaceId, viewport) {
          if (!this.db) throw new Error("Database not initialized");
          const { x, y, scale } = viewport || {};
-         if (![x, y, scale].every(Number.isFinite)) return { success: false };
+         if (!this._isTableSpace(spaceId) || ![x, y, scale].every(Number.isFinite)) return { success: false };
          this.db
            .prepare(
              `INSERT INTO note_layout_viewport (space_id, x, y, scale, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -3420,7 +3587,10 @@ Expected: FAIL with `db.getTableBoard is not a function`.
          placeTableCards?: (
            spaceId: number,
            placements: TablePlacement[]
-         ) => Promise<{ success: true; placed: number } | { success: false; code: "TABLE_FULL" }>;
+         ) => Promise<
+           | { success: true; placed: number; placedKeys: string[] }
+           | { success: false; code: "TABLE_FULL" | "INVALID" }
+         >;
          hideTableCards?: (spaceId: number, refs: TableEntityRef[]) => Promise<{ success: boolean; hidden: number }>;
          linkTableCards?: (spaceId: number, a: TableEntityRef, b: TableEntityRef) => Promise<{ success: boolean }>;
          setTableViewport?: (spaceId: number, viewport: TableViewport) => Promise<{ success: boolean }>;
@@ -4318,7 +4488,8 @@ git commit -m "feat(table): card model, connectors from links and mentions, boar
   export type KeyAction =
     | { type: "focusMove"; dir: Direction } | { type: "nudge"; dx: number; dy: number } | { type: "open" }
     | { type: "toggleSelect" } | { type: "clearSelection" } | { type: "remove" }
-    | { type: "zoomIn" } | { type: "zoomOut" } | { type: "resetView" };
+    | { type: "zoomIn" } | { type: "zoomOut" } | { type: "resetView" } | { type: "enterCards" };
+  export function cancel(gesture: Gesture): MoveEffect;   // pointercancel / lost capture: undo, never commit
   export function keyAction(e: { key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }, onCard: boolean): KeyAction | null;
   ```
 
@@ -4379,6 +4550,15 @@ test("lasso reports a normalised screen rectangle", async () => {
   assert.deepEqual(release(r.gesture, { x: 10, y: 80 }), { type: "lasso-end", rect: { x: 10, y: 50, w: 40, h: 30 } });
 });
 
+test("a cancelled pointer restores positions and viewport instead of committing", async () => {
+  const { press, move, cancel } = await load();
+  const drag = move(press({ ...base, point: { x: 0, y: 0 }, cardKey: "note:1" }), { x: 40, y: 0 }).gesture;
+  assert.deepEqual(cancel(drag), { type: "positions", positions: { "note:1": { x: 10, y: 10 } } });
+  const pan = move(press({ ...base, point: { x: 0, y: 0 }, cardKey: null }), { x: 40, y: 0 }).gesture;
+  assert.deepEqual(cancel(pan), { type: "viewport", viewport: V });
+  assert.equal(cancel(press({ ...base, point: { x: 0, y: 0 }, cardKey: "note:1" })), null, "an unmoved press has nothing to undo");
+});
+
 test("the wheel pans; with Ctrl or ⌘ (and trackpad pinch) it zooms around the pointer", async () => {
   const { wheel } = await load();
   const v = { x: 0, y: 0, scale: 1 };
@@ -4396,6 +4576,7 @@ test("keyboard: arrows move focus, shift-arrows nudge 8px, and the rest map to a
   assert.deepEqual([k("+"), k("="), k("-"), k("0")].map((a) => a.type), ["zoomIn", "zoomIn", "zoomOut", "resetView"]);
   assert.equal(k("a", { metaKey: true }), null, "app shortcuts pass through");
   assert.equal(keyAction({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false }, false), null, "Enter on the background does nothing");
+  assert.deepEqual(keyAction({ key: "ArrowRight", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false }, false), { type: "enterCards" });
 });
 ```
 
@@ -4539,6 +4720,13 @@ export function release(gesture: Gesture, point: Point): ReleaseEffect {
   }
 }
 
+// A cancelled pointer (system gesture, lost capture) restores where things were.
+export function cancel(gesture: Gesture): MoveEffect {
+  if (gesture.kind === "drag" && gesture.moved) return { type: "positions", positions: { ...gesture.origins } };
+  if (gesture.kind === "pan" && gesture.moved) return { type: "viewport", viewport: gesture.origin };
+  return null;
+}
+
 export function wheel(
   v: Viewport,
   e: { deltaX: number; deltaY: number; ctrlKey: boolean; metaKey: boolean; point: Point }
@@ -4557,7 +4745,8 @@ export type KeyAction =
   | { type: "remove" }
   | { type: "zoomIn" }
   | { type: "zoomOut" }
-  | { type: "resetView" };
+  | { type: "resetView" }
+  | { type: "enterCards" };
 
 const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 const STEP: Record<Direction, [number, number]> = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
@@ -4572,6 +4761,8 @@ export function keyAction(
     if (e.shiftKey) return { type: "nudge", dx: STEP[dir][0] * GRID, dy: STEP[dir][1] * GRID };
     return { type: "focusMove", dir };
   }
+  // From the canvas itself, an arrow steps into the cards.
+  if (dir) return { type: "enterCards" };
   if (e.key === "+" || e.key === "=") return { type: "zoomIn" };
   if (e.key === "-") return { type: "zoomOut" };
   if (e.key === "0") return { type: "resetView" };
@@ -4589,7 +4780,7 @@ Expected values in the drag test: the scale is 2, so a 21 px move is 10.5 world 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- test/components/tableGestures.test.js`
-Expected: PASS (8 tests).
+Expected: PASS (9 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -4712,6 +4903,12 @@ test("cards far outside 1.5x the viewport are not rendered unless focused", asyn
   assert.match(renderStatic(TableCanvas, props({ focused: "note:3" })), /data-card-key="note:3"/);
 });
 
+test("when the first card is off screen, the tab stop moves to a rendered card", async () => {
+  const { TableCanvas } = await load();
+  const html = renderStatic(TableCanvas, props({ cards: [card("note:9", "note", 9000, 9000), card("note:1", "note", 32, 32)], selection: [] }));
+  assert.match(html, /tabindex="0"[^>]*data-card-key="note:1"/);
+});
+
 test("connectors are drawn between rendered cards only", async () => {
   const { TableCanvas } = await load();
   const html = renderStatic(TableCanvas, props({ edges: [{ a: "chat:2", b: "note:1" }, { a: "note:1", b: "note:3" }] }));
@@ -4735,11 +4932,15 @@ test("CSS: physical world, reduced motion drops the spring, tokens meet 3:1", as
   assert.match(css, /\.table-card\[data-snapping="true"\]\s*\{[^}]*var\(--motion-spring-snap\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.table-card\[data-snapping="true"\]\s*\{\s*transition:\s*none;/);
   assert.match(css, /\.table-card\[data-kind="chat"\]\s*\{[^}]*border-inline-start:[^}]*var\(--color-agent-brand\)/);
+  assert.match(css, /\.table-card\s*\{[^}]*border:\s*1px solid var\(--color-table-card-border\)/);
   const { contrastRatio } = await import("../../src/utils/contrast.ts");
   const { light, dark } = resolveTokens(css);
   for (const [theme, t] of [["light", light], ["dark", dark]]) {
     for (const fg of ["--color-table-connector", "--color-agent-brand"]) {
       assert.ok(contrastRatio(t[fg], t["--color-background"]) >= 3, `${theme} ${fg}`);
+    }
+    for (const bg of ["--color-background", "--color-card"]) {
+      assert.ok(contrastRatio(t["--color-table-card-border"], t[bg]) >= 3, `${theme} card border on ${bg}`);
     }
   }
 });
@@ -4869,7 +5070,7 @@ import {
   type Size,
   type Viewport,
 } from "./tableGeometry";
-import { keyAction, move, press, release, wheel, type Gesture } from "./tableGestures";
+import { cancel, keyAction, move, press, release, wheel, type Gesture } from "./tableGestures";
 import { TableCard } from "./TableCard";
 import type { TableCardModel } from "./tableModel";
 
@@ -4911,12 +5112,16 @@ export function TableCanvas(props: TableCanvasProps) {
   const [snapping, setSnapping] = useState<string[]>([]);
   const onResizeRef = useRef(props.onResize);
   onResizeRef.current = props.onResize;
+  // One pointer owns a gesture; a second touch never hijacks it.
+  const pointerIdRef = useRef<number | null>(null);
 
   const placed = useMemo(() => cards.map((c) => ({ id: c.key, rect: c.rect })), [cards]);
   const byKey = useMemo(() => new Map(cards.map((c) => [c.key, c])), [cards]);
   const always = useMemo(() => [...selection, ...(focused ? [focused] : []), ...dragging], [selection, focused, dragging]);
   const visible = useMemo(() => visibleIds(placed, viewport, size, always), [placed, viewport, size, always]);
-  const tabStop = focused && byKey.has(focused) ? focused : (cards[0]?.key ?? null);
+  const rendered = cards.filter((c) => visible.has(c.key));
+  // The tab stop is always a rendered card, so a restored viewport can never strand keyboard users.
+  const tabStop = focused && visible.has(focused) ? focused : (rendered[0]?.key ?? null);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -4952,12 +5157,15 @@ export function TableCanvas(props: TableCanvasProps) {
     return () => el.removeEventListener("wheel", onWheel);
   }, [viewport, props]);
 
-  // Keep DOM focus on the focused card; it is always in the render set.
+  // Move DOM focus to the focused card, but only when focus is already inside
+  // the canvas: reloads, zooms and resizes must never pull it out of the Ask
+  // box, the toolbar or the inbox.
   useEffect(() => {
-    if (!focused) return;
-    const el = rootRef.current?.querySelector<HTMLElement>(`[data-card-key="${focused}"]`);
+    const root = rootRef.current;
+    if (!focused || !root || !root.contains(document.activeElement)) return;
+    const el = root.querySelector<HTMLElement>(`[data-card-key="${focused}"]`);
     if (el && document.activeElement !== el) el.focus({ preventScroll: true });
-  }, [focused, visible]);
+  }, [focused]);
 
   const local = (event: { clientX: number; clientY: number }): Point => {
     const r = rootRef.current?.getBoundingClientRect();
@@ -4965,7 +5173,8 @@ export function TableCanvas(props: TableCanvasProps) {
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || pointerIdRef.current !== null) return;
+    pointerIdRef.current = event.pointerId;
     const cardEl = (event.target as HTMLElement).closest<HTMLElement>("[data-card-key]");
     const positions: Record<string, Point> = {};
     for (const c of cards) positions[c.key] = { x: c.rect.x, y: c.rect.y };
@@ -4982,6 +5191,7 @@ export function TableCanvas(props: TableCanvasProps) {
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== pointerIdRef.current) return;
     const { gesture, effect } = move(gestureRef.current, local(event));
     gestureRef.current = gesture;
     if (!effect) return;
@@ -4997,6 +5207,8 @@ export function TableCanvas(props: TableCanvasProps) {
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== pointerIdRef.current) return;
+    pointerIdRef.current = null;
     const effect = release(gestureRef.current, local(event));
     gestureRef.current = { kind: "idle" };
     setDragging([]);
@@ -5011,6 +5223,17 @@ export function TableCanvas(props: TableCanvasProps) {
     if (effect.type === "click-card") props.onClickCard(effect.key, effect.additive);
     if (effect.type === "click-background") props.onSelect([]);
     if (effect.type === "pan-end") props.onViewport(effect.viewport, true);
+  };
+
+  const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== pointerIdRef.current) return;
+    pointerIdRef.current = null;
+    const effect = cancel(gestureRef.current);
+    gestureRef.current = { kind: "idle" };
+    setDragging([]);
+    setLasso(null);
+    if (effect?.type === "positions") props.onMove(effect.positions);
+    if (effect?.type === "viewport") props.onViewport(effect.viewport, false);
   };
 
   const zoomBy = useCallback(
@@ -5053,6 +5276,8 @@ export function TableCanvas(props: TableCanvasProps) {
         return zoomBy(1 / ZOOM_STEP);
       case "resetView":
         return props.onViewport(DEFAULT_VIEWPORT, true);
+      case "enterCards":
+        return tabStop ? props.onFocus(tabStop) : undefined;
     }
   };
 
@@ -5065,8 +5290,6 @@ export function TableCanvas(props: TableCanvasProps) {
     event.preventDefault();
     props.onDropRef(key, screenToWorld(local(event), viewport));
   };
-
-  const rendered = cards.filter((c) => visible.has(c.key));
 
   return (
     <div
@@ -5085,7 +5308,8 @@ export function TableCanvas(props: TableCanvasProps) {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onLostPointerCapture={onPointerCancel}
       onKeyDown={onKeyDown}
       onKeyUp={(event) => {
         if (event.key === " ") spaceHeld.current = false;
@@ -5148,6 +5372,8 @@ In `src/index.css`:
     /* The Table (WS-M5): decorative dot grid; connectors are non-text UI (≥3:1). */
     --color-table-dot: #dcd7d9;
     --color-table-connector: #8a8a8a;
+    /* Cards sit on a same-coloured canvas, so their border is what identifies them (≥3:1). */
+    --color-table-card-border: #949494;
   ```
 
 - Add to `.dark`:
@@ -5155,6 +5381,7 @@ In `src/index.css`:
   ```css
     --color-table-dot: #3a2832;
     --color-table-connector: #8f7d87;
+    --color-table-card-border: #7d6672;
   ```
 
 - Append at the end of the file:
@@ -5204,7 +5431,7 @@ In `src/index.css`:
   .table-card {
     position: absolute;
     padding: 12px 14px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--color-table-card-border);
     border-radius: 10px;
     background: var(--color-card);
     color: var(--color-card-foreground);
@@ -5451,9 +5678,10 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
    import type { TableEntityRef, TablePlacement } from "../../types/table";
    import type { Viewport } from "./tableGeometry";
    import { parseEntityHref } from "./tableEdges";
-   import { cardsFor, deriveEdges, dictationEntityFromItem, initialTableState, tableReducer } from "./tableModel";
+   import { cardsFor, deriveEdges, dictationEntityFromItem, initialTableState, refKey, tableReducer } from "./tableModel";
 
    const VIEWPORT_SAVE_MS = 400;
+   const LIFECYCLE_RELOAD_MS = 250;
 
    // All persistence for The Table goes through main (CLAUDE.md). Failures never
    // touch content: a failed placement reloads the board from SQLite.
@@ -5481,15 +5709,44 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        []
      );
 
+     // Notes and dictations change elsewhere (editor, history, retention). A
+     // short-debounced reload keeps ghost cards from lingering; conversation
+     // deletions are caught by the next placement, which main refuses.
+     useEffect(() => {
+       const api = window.electronAPI;
+       let timer: ReturnType<typeof setTimeout> | undefined;
+       const soon = () => {
+         clearTimeout(timer);
+         timer = setTimeout(() => void reload(), LIFECYCLE_RELOAD_MS);
+       };
+       const offs = [
+         api?.onNoteAdded?.(soon),
+         api?.onNoteUpdated?.(soon),
+         api?.onNoteDeleted?.(soon),
+         api?.onTranscriptionUpdated?.(soon),
+         api?.onTranscriptionDeleted?.(soon),
+         api?.onTranscriptionsCleared?.(soon),
+       ];
+       return () => {
+         clearTimeout(timer);
+         offs.forEach((off) => off?.());
+       };
+     }, [reload]);
+
      const place = useCallback(
        async (placements: TablePlacement[]) => {
          if (placements.length === 0) return true;
          try {
            const result = await window.electronAPI?.placeTableCards?.(spaceId, placements);
            if (result?.success) {
-             dispatch({ type: "placed", placements });
+             // Apply only what main accepted; anything refused (deleted meanwhile) reloads.
+             const accepted = new Set(result.placedKeys);
+             const applied = placements.filter((p) => accepted.has(refKey(p)));
+             dispatch({ type: "placed", placements: applied });
              setStatus("idle");
-             return true;
+             if (applied.length === placements.length) return true;
+             await reload();
+             return false;
            }
            setStatus(result && "code" in result && result.code === "TABLE_FULL" ? "full" : "saveFailed");
          } catch {
@@ -5687,7 +5944,35 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
      );
      const chat = useContainerChat({ space, folder: null, notes: NO_NOTES, contextOverride: context });
 
-     // An answer created from the table becomes a card below its sources, linked to them.
+     // Summarise and Ask both start a fresh conversation. The prompt is sent
+     // only after the reset has rendered, so the sender never reuses the old
+     // conversation id or history (useChatMessageSender captures them per render).
+     const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
+     const startFromSelection = (prompt: string | null) => {
+       pending.current = { sources: [...state.selection], at: belowSelection() };
+       setAskOpen(true);
+       chat.startNewChat();
+       if (prompt) setQueuedPrompt(prompt);
+     };
+     useEffect(() => {
+       if (!queuedPrompt || chat.activeConversationId !== null || chat.messages.length > 0) return;
+       const prompt = queuedPrompt;
+       setQueuedPrompt(null);
+       setBusy(true);
+       void chat.sendMessage(prompt).finally(() => setBusy(false));
+     }, [chat.activeConversationId, chat.messages.length, chat.sendMessage, queuedPrompt]);
+     // Switching to another conversation abandons a pending table answer.
+     const switchConversation = (id: number) => {
+       pending.current = null;
+       return chat.switchConversation(id);
+     };
+     const newChat = () => {
+       pending.current = null;
+       chat.startNewChat();
+     };
+
+     // An answer created from the table (Summarise or Ask) becomes a card below
+     // its sources, linked to them, as soon as its conversation exists.
      useEffect(() => {
        const result = pending.current;
        if (!result || chat.activeConversationId == null) return;
@@ -5715,18 +6000,6 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        const cx = rects.reduce((sum, r) => sum + r.x + r.w / 2, 0) / rects.length;
        const bottom = Math.max(...rects.map((r) => r.y + r.h));
        return { x: snapToGrid(cx - 140), y: snapToGrid(bottom + 40) };
-     };
-
-     const summarise = async () => {
-       setBusy(true);
-       pending.current = { sources: [...state.selection], at: belowSelection() };
-       setAskOpen(true);
-       chat.startNewChat();
-       try {
-         await chat.sendMessage(t("table.selection.summarisePrompt"));
-       } finally {
-         setBusy(false);
-       }
      };
 
      const group = async () => {
@@ -5761,7 +6034,7 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        if (ref.type === "note") onOpenNote(ref.id);
        else if (ref.type === "chat") {
          setAskOpen(true);
-         void chat.switchConversation(ref.id);
+         void switchConversation(ref.id);
        } else setExpanded((current) => (current === key ? null : key));
      };
 
@@ -5840,8 +6113,8 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
                  onCancel={chat.cancelStream}
                  conversations={chat.conversations}
                  activeConversationId={chat.activeConversationId}
-                 onSwitchConversation={chat.switchConversation}
-                 onNewChat={chat.startNewChat}
+                 onSwitchConversation={switchConversation}
+                 onNewChat={newChat}
                  onOpenNote={onOpenNote}
                />
              </aside>
@@ -5851,8 +6124,8 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
            <TableSelectionBar
              count={state.selection.length}
              busy={busy}
-             onSummarise={() => void summarise()}
-             onAsk={() => setAskOpen(true)}
+             onSummarise={() => startFromSelection(t("table.selection.summarisePrompt"))}
+             onAsk={() => startFromSelection(null)}
              onGroup={() => void group()}
              onRemove={() => void board.hide(state.selection)}
            />
@@ -5935,7 +6208,7 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
      gap: 2px;
      width: 100%;
      padding: 8px;
-     border: 1px dashed var(--color-border);
+     border: 1px dashed var(--color-table-card-border);
      border-radius: 8px;
      background: var(--color-background);
      font-size: 12.5px;
@@ -6246,7 +6519,7 @@ Expected: FAIL. With Labs on, there is no `table.view.label` group.
    - **Cards** are DOM: note 280px, meeting 320px (initials + duration), dictation 220px (neutral mic glyph: orange is live voice only, D1), answer 340px with a `--color-agent-brand` inline-start rail. Selection and focus use `--color-ring`.
    - **Connectors**: 1.5px `--color-table-connector` curves from user links, chat-about-note, and note mentions.
    - **A11y**: a spatial listbox. One tab stop; arrows move to the nearest card; Shift+arrows nudge 8px; Space selects; Enter opens; Delete removes from the table (never deletes content).
-   - **Inbox**: hidden notes and recent unplaced dictations/answers; drag in or press Enter.
+   - **Inbox**: removed cards of any kind or age, plus recent unplaced dictations and answers; drag in or press Enter.
    ```
 
 5. `docs/PRIVACY.md`. Add one sentence to the local-storage section: "With Labs → The Table on, card positions, links and the last view of each space's canvas are stored in the local database. They contain no note text, and removing a card never deletes the note."
@@ -6316,11 +6589,14 @@ Screenshot each of these for the PR:
    - Notes auto-flow. Drag one: it springs to the grid. Reload the app: it stays.
    - Shift-drag lasso three cards, then:
      - **Group into note:** a new note appears linked to all three.
-     - **Summarise:** the Ask panel opens. Its model chip shows the route's locality (Plan 03 and Plan 06), and the answer becomes a linked Answer card.
+     - **Summarise:** the Ask panel opens. Its model chip shows the route's locality (Plan 03 and Plan 06), and the answer becomes a linked Answer card. Repeat it after opening an older conversation in the panel: the summary must start a new conversation, without the old history.
+     - **Ask about these:** type a question and send it. The answer also becomes an Answer card linked to the selection.
      - **Remove from table:** the cards move to the Inbox, and the notes still exist in List.
    - Drag an Inbox dictation in. Arrow between cards, Shift+arrow to nudge, Enter to open a note.
    - Zoom with Ctrl or ⌘ plus the wheel and with a pinch; Reset view fits everything.
-   - Dictate while the Table is open: the new capture appears in the Inbox.
+   - Dictate while the Table is open: the new capture appears in the Inbox. Delete a placed note from List view in a second window: its card disappears within a second.
+   - Click into the Ask box, then pan or zoom with the wheel: focus stays in the Ask box.
+   - Reopen the Table with its first card scrolled off screen, then Tab into the canvas and press an arrow: focus lands on a visible card.
 8. **RTL** (UI language Arabic). The Inbox sits at the inline start (right), the selection bar is centred, and the canvas world is not mirrored.
 9. **Sealed mode** (if Plan 07 has merged). Turn Sealed on with a remote chat route: Summarise or Ask is blocked by main exactly as the Space's Ask box is, and no new path bypasses it.
 

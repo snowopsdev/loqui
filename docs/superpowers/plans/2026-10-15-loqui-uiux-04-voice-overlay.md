@@ -31,7 +31,7 @@
 - Visual reference: `design-explorations/loqui-uiux-review.html#ch-voice`. Source: `design-explorations/loqui-uiux-review/parts/03-voice.html` (sibling worktree `t3-5038e8e6`). The picked variant cards are R1 C (lines 207–217), R6 B (412–422), R8 B (502–512), R10 A (859–868), R11 B (667–677), R12 A (708–718) and R14 B (810–820).
 - Audit: `.omc/research/ui-review/audit-voice.md` in the same sibling worktree.
 - Independent reviews this revision answers: `.omc/research/ui-review/reviews/plan-04-codex.md` (round 1), `plan-04-codex-r2.md` (round 2, at ff423fb) and `plan-04-codex-r3.md` (round 3, at 39822ba), all in the sibling worktree.
-- Spec state: §5 consolidated at 091d198, with the §5.2 clarifications at ff8c9cd and the D2 Linux clarification at 7f31ece.
+- Spec state: §5 consolidated at 091d198, with the §5.2 clarifications at ff8c9cd, the D2 Linux clarification at 7f31ece, and §5.2 "Audio ownership" and "Cancel stops further egress" at aad5284.
 
 ---
 
@@ -56,6 +56,12 @@ _setOwnedAudio(blob: Blob | null, options?: { sessionId?: string | null; private
 ```
 
 Plan 05 Task 5's two stamps become `this._setOwnedAudio(audioBlob);` and `this._setOwnedAudio(fallbackBlob);`. Its `releasePrivateAudio`, and the release inside its guards in `saveTranscription` and `saveFailedTranscription`, use `this._setOwnedAudio(null)`. The guards keep reading `lastAudioBlobPrivate`. Its source test checks for the setter calls instead of the bare assignments. Plan 04's "only writer" test fails on any bare `this.lastAudioBlob =` or `this.lastAudioBlobPrivate =` left outside the setter. An early return from the failed-save guard reads as `{ audioKept: false }`, which re-holds a private restored failure in RAM only.
+
+**Spec decisions applied after round 3 (aad5284).**
+- **§5.2 "Audio ownership".** The spec now carries `_setOwnedAudio` exactly as above.
+- **§5.2 "Cancel stops further egress".** This resolves Open question 11. Each streaming adapter gets `setEgressGate` and `discardPendingAudio`, and main a cancel channel per provider. The renderer calls the cancel synchronously on Esc, before any await (Task 7), and a cancelled replay calls it too (Task 8).
+  - Task 7's main-side tests: for every buffering provider, a cancel during the token fetch or the socket connect, after which the connect completes, forwards zero audio frames and sends no `dispatched` hand-off. The next start, an Undo replay, sends again.
+  - Task 8's renderer test: for every provider, the cancel reaches main first, nothing is sent after it, the audio is held, and Undo re-sends both held frames from the hold.
 
 **What was run.** The Task 4 delivery tests ran against the plan's code in a scratch copy of the app: all six pass, and both new scenarios fail on the round-2 code. The other new tests need the code from earlier tasks, which does not exist yet, so they have not been run. Each task's Step "Run tests to verify they pass" runs them once the preceding tasks are applied.
 
@@ -320,7 +326,7 @@ Each question has a default that the plan implements. A different answer changes
 8. **Crash inside the undo window.** With "Save discarded" on, the audio is saved when the window closes. A normal quit flushes it (Task 9), but a crash inside the 5–10 s window loses that one recording. A crash-proof save would mean writing to disk at cancel, which D3 forbids.
 9. **Streaming Undo pacing (Task 8).** The replay sends at 4× real time. A provider that rejects faster-than-real-time input fails that Undo. The audio goes back into its window, so the words are not lost, but that Undo cannot succeed. Should the replay drop to 1× (slower Undo for long dictations)?
 10. **A cancel while a step is already writing a temp file (Task 8).** If Esc lands while main is already merging segments, or while a local engine is already reading its input, that step's temp file exists until the step ends, usually under a second. The plan documents this in PRIVACY.md rather than killing FFmpeg or the engine mid-write. Is that acceptable, or should the merge IPC become abortable?
-11. **Gemini and Corti upload what they buffered while connecting (Task 7, R1-I5).** Both adapters flush their connection buffer when the provider accepts the session (`geminiLiveStreaming.js:279-281`, `cortiStreaming.js:348`). A dictation cancelled while they connect therefore still uploads the buffered audio. That is existing behaviour; the plan now reports it truthfully as "may have received the audio". Should a cancel during connect discard those buffers instead? That would change privacy behaviour, so it needs your decision.
+11. *(Decided in spec §5.2, aad5284: "Cancel stops further egress".)* **Audio buffered while connecting (Task 7).** A cancel discards any audio a streaming adapter is still holding, so nothing more is uploaded after it. The Undo hold keeps that audio in RAM, and a restore re-sends it from there. `remoteAlreadySent` reports only frames that left before the cancel. Task 7 implements this with a per-provider egress gate and cancel channel, tested for every buffering provider.
 
 ## Plan 01 review hand-offs (shipped at `172f9df` on `snowopsdev/feat/uiux-foundations`)
 
@@ -6125,6 +6131,7 @@ const realtime = (provider, model) => ({
   send: "dictation-realtime-send",
   warmup: "dictation-realtime-warmup",
   stop: "dictation-realtime-stop",
+  cancel: "dictation-realtime-cancel",
   options: { provider, model },
   accept: (socket) => {
     socket.emit("message", json({ type: "session.created" }));
@@ -6136,6 +6143,7 @@ const channels = (prefix) => ({
   send: `${prefix}-streaming-send`,
   warmup: `${prefix}-streaming-warmup`,
   stop: `${prefix}-streaming-stop`,
+  cancel: `${prefix}-streaming-cancel`,
   options: {},
 });
 
@@ -6269,23 +6277,52 @@ for (const row of PROVIDERS) {
     assertHandOff(false);
   });
 
-  test(`${row.name}: a cancel before any frame leaves discloses nothing`, async () => {
+  test(`${row.name}: a cancel during the token fetch discards the buffered audio, and nothing leaves (§5.2)`, async () => {
     const token = held();
     realtimeToken = () => token.promise;
     const started = invoke(row.start, startOptions(row));
     await tick();
-    send(row); // the only frame: the user cancels and capture stops while the token is fetched (audioManager.js:3801)
+    send(row); // buffered while the token is fetched
+    assert.equal((await invoke(row.cancel)).success, true); // the renderer cancels before the start settles
     const index = sockets.length;
     token.resolve("token");
     const socket = await socketAt(index);
     open(socket);
+    row.accept(socket); // Gemini and Corti would drain here; the gate is closed
+    await started.catch(() => {});
+    send(row); // a late worklet frame after the cancel
+    assert.equal((await invoke(row.stop)).success, true);
+    assertHandOff(false); // zero content frames on the socket, and no dispatched hand-off
+  });
+
+  test(`${row.name}: a cancel while the socket connects discards the buffered audio, and nothing leaves (§5.2)`, async () => {
+    const { started, socket } = await startCold(row);
+    send(row); // buffered while the socket connects
+    send(row);
+    assert.equal((await invoke(row.cancel)).success, true);
+    open(socket); // OpenAI, Tinfoil and Deepgram would drain here
+    row.accept(socket); // Gemini and Corti would drain here
+    await started.catch(() => {});
+    assert.equal((await invoke(row.stop)).success, true); // Gemini's disconnect flush finds nothing
+    assertHandOff(false);
+  });
+
+  test(`${row.name}: after a cancel, the next start (an Undo replay) sends again`, async () => {
+    const first = await startCold(row);
+    send(row);
+    await invoke(row.cancel);
+    open(first.socket);
+    row.accept(first.socket);
+    await first.started.catch(() => {});
+    await invoke(row.stop);
+    assertHandOff(false);
+    // Task 8 replays the held frames through a new start with the same correlation id.
+    const { started, socket } = await startCold(row);
+    open(socket);
     row.accept(socket);
     assert.equal((await started).success, true);
-    // cancelStreamingRecording stops the provider once the start settles (audioManager.js:3806-3814).
-    assert.equal((await invoke(row.stop)).success, true);
-    // Gemini drains what it buffered during the token fetch at setupComplete
-    // (geminiLiveStreaming.js:279-281). That frame really left, so it is disclosed.
-    assertHandOff(Boolean(row.drainsAtAccept));
+    send(row);
+    assertHandOff(true); // the gate reopened for the new start, and the replayed frame left
   });
 
   test(`${row.name}: each session is handed off once, and a stopped session never discloses the next`, async () => {
@@ -6791,7 +6828,52 @@ In `captureDictationSession`, add `routes: resolveSessionRoutes(settings, snapsh
 
    - The stop handlers whose adapter outlives the session: after `result = await this.deepgramStreaming.disconnect(true);` (`:8790`), add `disarmFirstFrame(this.deepgramStreaming);`. Do the same after the Gemini disconnect (`:8939`) and the Corti disconnect (`:9031`). The disarm comes after the disconnect, because Gemini's `disconnect` flushes its buffer (`geminiLiveStreaming.js:421`) and those frames belong to the session. The AssemblyAI and realtime stops discard their adapter (`:8577-8578`, `:7754`).
 
-   Gemini and Corti drain their handshake buffers when the provider accepts the session (`geminiLiveStreaming.js:279-281`, `cortiStreaming.js:348`). A dictation cancelled during their connect therefore still uploads the frames it buffered. The hand-off reports that truthfully: the cancel case pins it for Gemini, and the held-handshake case pins Corti's drain. Whether a cancel should discard those buffers is a separate behaviour change, outside this task.
+   **Cancel stops further egress (spec §5.2, aad5284).** A cancel discards any audio an adapter is still holding for its socket, so nothing more is uploaded after the cancel. Today Gemini and Corti drain their handshake buffers when the provider accepts the session (`geminiLiveStreaming.js:279-281`, `cortiStreaming.js:348`), and OpenAI, Tinfoil and Deepgram drain theirs when the socket opens. A dictation cancelled while connecting would therefore still upload what it buffered. The Undo hold keeps that audio in RAM (Task 8), and a restore re-sends it from there, so no content is lost. `remoteAlreadySent` reports only frames that actually left before the cancel: the gate below also stops the first-frame hand-off.
+
+   - **A per-provider egress gate in main.** In the `IpcHandlers` constructor, add `this._streamingEgressStopped = new Set();`. Each start handler, as its first statement, calls `this._streamingEgressStopped.delete(provider)`. Right where it obtains or creates its adapter (the same line that arms the first-frame hand-off above), it calls `adapter.setEgressGate(() => !this._streamingEgressStopped.has(provider))`. The gate is read live, so an adapter created after a cancel, or a token fetch that finishes after it, is still closed.
+   - **Each adapter** (`openaiRealtimeStreaming.js`, which also serves Tinfoil, plus `deepgramStreaming.js`, `assemblyAiStreaming.js`, `geminiLiveStreaming.js` and `cortiStreaming.js`) gains:
+
+     ```js
+       /** §5.2 "Cancel stops further egress": main's per-provider gate (Plan 04 Task 7). */
+       setEgressGate(gate) {
+         this._egressGate = gate;
+       }
+
+       _egressOpen() {
+         return this._egressGate?.() !== false;
+       }
+
+       /** Drops every frame still held for the socket. Nothing buffered leaves after a cancel. */
+       discardPendingAudio() {
+         // Each adapter clears its own holding fields; the comments name them.
+         this.coldStartBuffer = []; // OpenAI/Tinfoil :88, Gemini :79, Deepgram :115
+         this.coldStartBufferSize = 0; // OpenAI/Tinfoil, Deepgram
+         this.replayBuffer = []; // Deepgram :124 (audio saved across a reconnect)
+         this.preConfigBuffer = []; // Corti :30
+         this.pendingAudio = []; // AssemblyAI :54 (the sub-50 ms remainder)
+         this.pendingAudioBytes = 0; // AssemblyAI
+       }
+     ```
+
+     Keep only the lines for the fields that adapter has. Then make `if (!this._egressOpen()) { this.discardPendingAudio(); return false; }` the first statement of every path that writes audio to the socket:
+     - `sendAudio` in all five adapters (`openaiRealtimeStreaming.js:533`, which also holds the cold-start drain at `:545-561`; `deepgramStreaming.js:836`; `assemblyAiStreaming.js:608`; `geminiLiveStreaming.js:364`; `cortiStreaming.js:411`);
+     - Gemini's `_flushColdStartBuffer` (`:384`) and Corti's `flushPreConfigBuffer` (`:397`);
+     - wherever Deepgram writes `coldStartBuffer` or `replayBuffer` to the socket (`grep -n "coldStartBuffer\|replayBuffer" src/helpers/deepgramStreaming.js`).
+
+     Control messages (commit, `Terminate`, `CloseStream`, keep-alive) are not audio and are unaffected. A stop after a cancel still closes the session, and finds nothing left to flush.
+   - **The cancel channels.** Next to each stop handler, add a cancel handler: `dictation-realtime-cancel` (after `:7748`), `assemblyai-streaming-cancel` (`:8572`), `deepgram-streaming-cancel` (`:8784`), `gemini-streaming-cancel` (`:8933`) and `corti-streaming-cancel` (`:9025`). For example:
+
+     ```js
+         ipcMain.handle("gemini-streaming-cancel", () => {
+           this._streamingEgressStopped.add("gemini");
+           this.geminiStreaming?.discardPendingAudio();
+           disarmFirstFrame(this.geminiStreaming); // no hand-off for frames that never leave
+           return { success: true };
+         });
+     ```
+
+     The realtime handler uses the active provider id (`openai-realtime` or `tinfoil-realtime`) and `this._dictationStreaming`. Preload gains `dictationRealtimeCancel`, `assemblyAiStreamingCancel`, `deepgramStreamingCancel`, `geminiStreamingCancel` and `cortiStreamingCancel`, each an `ipcRenderer.invoke` of its channel, with types in `src/types/electron.ts`.
+   - **The renderer.** Each `STREAMING_PROVIDERS` entry (`audioManager.js:314-371`) and `makeDictationRealtimeProvider` (`:302-312`) gains `cancel: () => window.electronAPI.<name>Cancel?.()`. Call `this.getStreamingProvider()?.cancel?.();` synchronously, before any await, in three places: in `cancelStreamingRecording` (`:3781`) right after `_requestStreamingCancellation()`; in `cancelProcessing` (`:1745`) when a streaming session is finalizing; and in Task 8's replay cancellation path. In the first two it must come **before** Task 8's `_holdStreamingSession()`: the hold ends the session, and the provider name comes from the session. Main runs the cancel before the start's pending connect completes, because IPC from one renderer is handled in order and the cancel never waits for the start to settle.
 6. **Preload and types.**
    - `preload.js`, after `transcribeAudioFileByok` (`:703`):
 
@@ -7337,8 +7419,8 @@ test("Sealed mode refuses a non-device Undo and keeps the recording held", async
   assert.equal(manager.isProcessing, false);
 });
 
-function streamingManager(manager) {
-  manager.beginDictationSession({ streaming: true, streamingProviderName: "openai-realtime" });
+function streamingManager(manager, streamingProviderName = "openai-realtime") {
+  manager.beginDictationSession({ streaming: true, streamingProviderName });
   manager._sessionAudio = {
     session: manager.activeSession, kind: "streaming",
     frames: [new Int16Array([1, 2]), new Int16Array([3])],
@@ -7351,6 +7433,47 @@ function streamingManager(manager) {
   manager.cleanupStreamingListeners = () => {};
   manager.getStreamingProvider = () => ({ stop: async () => ({}) });
 }
+
+// §5.2 "Cancel stops further egress": each buffering provider's IPC names (preload, Task 7).
+const STREAMING_IPC = {
+  "openai-realtime": "dictationRealtime",
+  "tinfoil-realtime": "dictationRealtime",
+  deepgram: "deepgramStreaming",
+  assemblyai: "assemblyAiStreaming",
+  gemini: "geminiStreaming",
+  corti: "cortiStreaming",
+};
+
+test("a streaming cancel tells the provider to drop its buffer at once, and Undo re-sends from the hold (§5.2)", async (t) => {
+  for (const [providerName, ipc] of Object.entries(STREAMING_IPC)) {
+    const { manager, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false });
+    const calls = [];
+    for (const verb of ["Start", "Send", "Stop", "Cancel", "Finalize"]) {
+      win.electronAPI[`${ipc}${verb}`] = (...args) => {
+        calls.push(verb);
+        return verb === "Start" ? Promise.resolve({ success: true }) : Promise.resolve({});
+      };
+    }
+    streamingManager(manager, providerName);
+    delete manager.getStreamingProvider; // the real provider map, so the real cancel runs
+    manager.isRecording = true;
+    const cancelling = manager.cancelStreamingRecording();
+    assert.equal(calls[0], "Cancel", `${providerName}: the cancel reaches main before anything else, without waiting for the start`);
+    await cancelling;
+    await advance(0);
+    const held = manager._undo.peek();
+    assert.equal(held.frames().length, 2, `${providerName}: the audio is held in RAM`);
+    assert.equal(calls.includes("Send"), false, `${providerName}: nothing is sent after the cancel`);
+
+    manager._attachStreamingListeners = () => {};
+    manager._finalizeStreamingRecording = async () => {};
+    calls.length = 0;
+    assert.equal((await manager.restoreCancelled()).restored, true);
+    await manager._restoreRun;
+    assert.deepEqual(calls.filter((c) => c === "Send").length, 2, `${providerName}: Undo re-sends both held frames`);
+    assert.equal(calls.indexOf("Start") < calls.indexOf("Send"), true);
+  }
+});
 
 test("a streaming cancel while recording holds the frames, with the long window for >30 s", async (t) => {
   const { manager, io, advance } = await setup(t, { ...LOCAL, useLocalWhisper: false });
@@ -8343,8 +8466,8 @@ export function createUndoWindow({
      }
    ```
 
-   - **Recording path.** In `cancelStreamingRecording` (3781), call `this._holdStreamingSession();` as the first statement after `_requestStreamingCancellation()`. That is before `this.recordingStartTime = null` (`:3792`) and before `_streamingFallbackSegments` is reset (`:3803`).
-   - **Finalization path.** In `cancelProcessing` (1745), the hook's Esc while a streaming dictation finalises. Before `if (this._streamingStopPromise) return true;`, call `this._holdStreamingSession();`. `_finalizeStreamingRecording` computes its own duration before clearing the start time (`:3871-3874`). Keep `recordingStartTime` until after this call.
+   - **Recording path.** In `cancelStreamingRecording` (3781), call `this._holdStreamingSession();` directly after `_requestStreamingCancellation()` and Task 7's `this.getStreamingProvider()?.cancel?.()`. That is before `this.recordingStartTime = null` (`:3792`) and before `_streamingFallbackSegments` is reset (`:3803`).
+   - **Finalization path.** In `cancelProcessing` (1745), the hook's Esc while a streaming dictation finalises. Before `if (this._streamingStopPromise) return true;`, call `this.getStreamingProvider()?.cancel?.();` (Task 7, §5.2) and then `this._holdStreamingSession();`. `_finalizeStreamingRecording` computes its own duration before clearing the start time (`:3871-3874`). Keep `recordingStartTime` until after this call.
 
    A streaming session with no frames yet (cancelled during startup) has nothing to hold and opens no window.
 8. **Batch hold in `cancelProcessing`.** After the streaming call above, and after the generation bump:
@@ -8671,6 +8794,8 @@ Streaming replay. It owns its streaming state from start to finish, so a failure
       this._streamingStopPromise = this._finalizeStreamingRecording(sessionId, { replay: true });
       await this._streamingStopPromise;
     } catch (error) {
+      // §5.2: a cancelled replay stops further egress at once (Task 7's cancel channel).
+      if (error?.code === "TRANSCRIPTION_CANCELLED") provider?.cancel?.();
       if (started) await provider?.stop?.().catch(() => {});
       // Nothing was transcribed: offer the same audio for Undo again.
       if (!started || error?.code === "TRANSCRIPTION_CANCELLED") this._holdStreamingSession();
@@ -8698,7 +8823,7 @@ Streaming replay. It owns its streaming state from start to finish, so a failure
 Add this as its own paragraph after the paragraph at line 16 ("Change retention in **Privacy & Data**…"):
 
 ```markdown
-When you cancel a dictation, Loqui keeps that recording in memory for 5 seconds (10 seconds for recordings over 30 seconds) so you can undo the cancel. It is never written to disk, not even as a temporary file, unless you have turned on saving discarded transcriptions. When the window ends, Loqui overwrites its copy of the audio and releases the recording. Undo sends the audio along the same route it was recorded for, never to a provider you chose afterwards. If a provider had already received the audio or text before you cancelled, Loqui says so. One case predates the cancel: if Loqui was already combining a recording's parts, or a local engine was already reading it, when you cancelled, that step's temporary file is removed when the step finishes, as it would be for any dictation.
+When you cancel a dictation, Loqui keeps that recording in memory for 5 seconds (10 seconds for recordings over 30 seconds) so you can undo the cancel. It is never written to disk, not even as a temporary file, unless you have turned on saving discarded transcriptions. When the window ends, Loqui overwrites its copy of the audio and releases the recording. Undo sends the audio along the same route it was recorded for, never to a provider you chose afterwards. Cancelling also stops any audio still waiting to be sent while a connection opens: nothing more leaves after the cancel. If a provider had already received the audio or text before you cancelled, Loqui says so. One case predates the cancel: if Loqui was already combining a recording's parts, or a local engine was already reading it, when you cancelled, that step's temporary file is removed when the step finishes, as it would be for any dictation.
 ```
 
 - [ ] **Step 7: Run tests to verify they pass**

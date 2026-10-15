@@ -140,6 +140,70 @@ test("default button is the ink CTA with a leading brand dot; live is orange", a
   assert.doesNotMatch(link, /text-link\//);
 });
 
+// A CSS filter (or opacity) on the button recolours its box-shadow focus ring.
+// For every variant, a hover/press rule that changes the filter must either be
+// neutralised while focus-visible, or leave the ring at 3:1 on every surface.
+test("the focus ring keeps 3:1 when a focused Button is hovered or pressed", async () => {
+  const { Button } = await loadButton();
+  const { contrastRatio } = await loadContrast();
+  const { light, dark } = resolveTokens(css);
+  const variants = [
+    "default",
+    "live",
+    "success",
+    "destructive",
+    "outline",
+    "outline-flat",
+    "secondary",
+    "ghost",
+    "link",
+    "social",
+  ];
+  const scaleHex = (hex, factor) =>
+    "#" +
+    [1, 3, 5]
+      .map((i) => Math.min(255, Math.round(parseInt(hex.slice(i, i + 2), 16) * factor)))
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("");
+  for (const variant of variants) {
+    const html = renderStatic(Button, { variant }, "Label");
+    const classes = html.match(/class="([^"]*)"/)[1].split(/\s+/);
+    assert.ok(classes.includes("focus-visible:ring-ring"), `${variant} has an opaque focus ring`);
+    for (const state of ["hover", "active"]) {
+      const rules = classes.filter(
+        (c) =>
+          c.startsWith(`${state}:`) &&
+          /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|opacity|filter|drop-shadow)/.test(
+            c.slice(state.length + 1)
+          )
+      );
+      for (const rule of rules) {
+        const neutral = classes.some(
+          (c) => c.startsWith(`focus-visible:${state}:`) && /-100$/.test(c)
+        );
+        const brightness = rule.match(/brightness-(\d+)$/);
+        for (const [theme, tokens] of [
+          ["light", light],
+          ["dark", dark],
+        ])
+          for (const surface of SURFACE_TOKENS) {
+            if (neutral) continue;
+            assert.ok(
+              brightness,
+              `${variant} ${rule} alters the focus ring and is not neutralised while focused`
+            );
+            const ring = scaleHex(tokens["--color-ring"], Number(brightness[1]) / 100);
+            const ratio = contrastRatio(ring, tokens[surface]);
+            assert.ok(
+              ratio >= 3,
+              `${variant} ${theme} focused+${state} ring on ${surface} is ${ratio}:1`
+            );
+          }
+      }
+    }
+  }
+});
+
 test("sidebar active marker uses the nav-marker role", () => {
   const source = fs.readFileSync(
     path.join(repoRoot, "src/components/ControlPanelSidebar.tsx"),

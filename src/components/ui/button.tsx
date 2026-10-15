@@ -24,6 +24,9 @@ const buttonVariants = cva(
           "before:content-[''] before:size-1.5 before:rounded-full before:bg-live before:shadow-[0_0_0_3px_rgb(255_90_31/0.25)]",
           "hover:brightness-110",
           "active:brightness-95 active:scale-[0.985]",
+          // A filter recolours the focus ring (a box-shadow on this element), so a
+          // focused button keeps its unfiltered ring through hover and press.
+          "focus-visible:hover:brightness-100 focus-visible:active:brightness-100",
           "transition-[filter,transform] duration-200 ease-out",
         ].join(" "),
 
@@ -33,6 +36,9 @@ const buttonVariants = cva(
           BRAND_GLASS_SURFACE,
           "hover:brightness-110",
           "active:brightness-95 active:scale-[0.985]",
+          // A filter recolours the focus ring (a box-shadow on this element), so a
+          // focused button keeps its unfiltered ring through hover and press.
+          "focus-visible:hover:brightness-100 focus-visible:active:brightness-100",
           "transition-[filter,transform] duration-200 ease-out",
         ].join(" "),
 

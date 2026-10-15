@@ -434,7 +434,7 @@ Its report may support a future implementation design only after the acceptance 
 What this means for the executor:
 - The current macOS design has already failed: a sandboxed child reached a host-LAN listener while its report was accepted. Task 0 remains blocked until a replacement design has real, independently reviewed evidence for D16. Do not start application implementation tasks while this blocker is open.
 - A negative self-test, an errno-only probe, Seatbelt's `localhost` alias, explicit bind arguments, a listener watcher, or a main-process API fallback is not strict-loopback proof.
-- No task may treat a `launchControlled` child as finished work. No task may quietly drop a platform. Running a child unconfined while sealed is a fallback, and only the owner can choose it.
+- No task may treat a `launchControlled` child as finished work, quietly drop a platform, or run a native child unconfined while sealed. If the required boundary cannot be proven, Linux may use only an acknowledged D15 refusal or whole-tree stop; macOS remains blocked under D16.
 
 **Preliminary evidence.** This was gathered while writing this plan on 2026-10-15. The spike must re-measure it on the release targets, from a packaged build.
 

@@ -89,6 +89,9 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
 - **D8, ONB-R3 C "Detected for you" uses hardware and OS locale only.** It reads RAM, GPU and disk plus the system language. ONB-M1 (speech language ID) was skipped.
 - **D9, VO-R1 C words render outside the waveform's box.** The words sit on a separate row or layer above the bars, so condensation never clips the bars (owner note). VO-R8 B ships without the frame glyph.
 - **D10, `DESIGN.md` is the source of truth.** Each plan updates the sections it changes in the same commits.
+- **D11, WS-M4 (confidence typography) is on hold** (owner decision, 2026-10-15). No engine Loqui runs exposes per-word alternatives: the pinned whisper.cpp fork and sherpa-onnx 1.13.8 don't, and Deepgram's are unconfirmed for streaming. The owner chose to hold the feature until alternatives exist rather than ship it without them. Plan 08 delivers WS-M5 only. Restoring WS-M4 needs decoder top-k work in the whisper.cpp fork, which is a separate engine project.
+- **D12, The Table never deletes content** (owner decision, 2026-10-15). Its selection action is "Remove from table": the card returns to the Inbox tray and nothing is deleted. Summarise and Ask reuse the Space's existing chat, so Sealed mode covers them without changes.
+- **D13, manual update checks stay available when automatic updates are off** (owner decision, 2026-10-15, SET-Q16). A manual check that finds a newer version reports it as `available`. Nothing downloads without an explicit click. This replaces the rule pinned at `test/helpers/updateManager.test.js:187`.
 
 ## 3. Plans and dependencies
 

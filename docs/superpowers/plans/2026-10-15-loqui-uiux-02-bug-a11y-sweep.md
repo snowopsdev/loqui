@@ -10,19 +10,27 @@
 - Plan 01 review: full-opacity focus rings, 3:1 form-control edges, and light status-fill text.
 
 **Base:** execute on a branch cut from `snowopsdev/feat/uiux-foundations` at `172f9df` (Plan 01, finished), or from `main` once Plan 01 merges.
-- Every line number in this plan was checked against that commit.
+- Line numbers were checked against that commit when this revision was written. If an anchor has moved, find the quoted code; do not trust the number over the code.
 - Plan 01 shifted `src/components/OnboardingFlow.tsx` by one line after line 820. It also rewrote `src/index.css`, `src/components/ui/button.tsx` and `src/components/ControlPanelSidebar.tsx`.
 
-**Architecture:** Tasks 1–3 adjust Plan 01's colour tokens and the shared primitives that consume them. Every later fix stays inside the component, hook or main-process module that owns the bug. Where the logic is non-trivial, the task extracts a small pure helper next to its caller so `node:test` can pin it without a DOM:
-- `chatInputKeys.ts`, `providerTabsKeys.ts`, `upcomingEventGroups.ts`, `audioDeletion.ts`, `noteActionsReadiness.ts`;
-- the main-process `systemNotification.js`.
+**Order:** Plan 02 merges before Plans 03, 04, 05 and 06 (CCR 4). Each of those plans rewrites surfaces this plan fixes, and must keep the fixes and their tests.
 
-Only one new channel crosses the IPC boundary. VO-Q16 adds a main-owned native notification (`show-system-notification`) behind a typed preload method. Two existing IPC results gain fields: Clear All Audio reports failures, and the download cancel reports confirmation. Toast fixes stay on the existing toast API so Plan 04 can migrate them to `notify()` (§5.3).
+**Architecture:** Tasks 1–3 adjust Plan 01's colour tokens and the global field rules that consume them. Every later fix stays inside the component, hook or main-process module that owns the bug. Where the logic is non-trivial, the task extracts a small pure helper next to its caller so `node:test` can pin it without a DOM:
+- `chatInputKeys.ts`, `chatRouteKey.ts`, `providerTabsKeys.ts`, `upcomingEventGroups.ts`, `audioDeletion.ts`, `noteActionsReadiness.ts`;
+- the main-process `systemNotification.js` and `audioFlagReconcile.js`.
+
+One new IPC channel is added. VO-Q16 adds a main-owned native notification (`show-system-notification`) behind a typed preload method. Three existing IPC results change:
+- Clear All Audio reports failures and unreadable storage.
+- `delete-all-audio` keeps the audio flags of recordings whose file survived.
+- The download cancel reports confirmation.
+
+Toast fixes stay on the existing toast API so Plan 04 can migrate them to `notify()` (§5.3).
 
 **Tech Stack:** React 19, TypeScript, Tailwind CSS 4, Electron (main + preload), i18next, Node `node:test`.
 - Renderer tests use Vite SSR (`test/lib/rendererTestHarness.js`) plus `react-dom/server` or `react-dom/client`.
 - Source-text assertions follow `test/components/rtlMotion.test.js`.
 - Contrast tests use Plan 01's `test/helpers/harness/cssTokens.js` (`resolveTokens`) and `src/utils/contrast.ts` (`contrastRatio`).
+- Cascade tests use this plan's `test/helpers/harness/cssRules.js` (Task 2).
 
 **Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`:
 - §3, the Plan 02 row;
@@ -32,64 +40,140 @@ Only one new channel crosses the IPC boundary. VO-Q16 adds a main-owned native n
 
 Item text: `.omc/research/ui-review/approved-todo.md` in the research worktree. The format reference is `docs/superpowers/plans/2026-10-15-loqui-uiux-01-foundations.md`.
 
+## Review response
+
+This revision answers the independent Codex review in `.omc/research/ui-review/reviews/plan-02-codex.md` (0 Critical, 8 Important, 5 Minor). Every finding is closed in the plan; none is disputed.
+
+| Finding | Disposition | Where |
+|---|---|---|
+| I1 A queued message can move to another conversation | **Closed.** `ChatInput` takes a `queueKey`: conversation or context, plus a route fingerprint from `chatRouteKey`, which never includes the API key. A draft is sent on idle only if the key is unchanged. If the conversation, context or route changes, the draft is unqueued, its words stay in the box, and a notice asks for a deliberate Enter. All four callers pass a key. Tests mount the composer, queue in A, then switch to B, open New Chat, or change the route. | Task 13 |
+| I2 Failure recovery discards the original words | **Closed.** A failed send refills an empty box. If a newer draft exists, the failed text is held in an "unsent" slot beside it, with Put it back (which keeps both) and Discard. Tests cover a deferred `false` and a deferred rejection while a newer draft exists. | Task 13 |
+| I3 Global CSS overrides the input rings | **Closed.** `@layer base` closes at `index.css:376`, so the native-field rules (1089–1115) are unlayered. Under CSS Cascade 5 an unlayered normal declaration beats any `@layer utilities` declaration, whatever its specificity. Task 2 therefore puts the full-opacity ring in those unlayered rules as `:focus-visible`, and removes the dead ring utilities from `Input` and `Textarea`. A test parses the stylesheet and asserts that the rule is unlayered, that no translucent ring remains, and that no plain `:focus` rule competes. Task 3 records why `Button`'s ring is safe: no unlayered rule touches `button` focus. Task 21 adds a computed-style check in DevTools. | Tasks 2, 3, 21 |
+| I4 The held-start Esc test deadlocks | **Closed.** `beginHeldStart` returns `{ pending }`, so the async helper no longer adopts the held promise. The test asserts the stop is deferred before release and applied after, and has a 10 s timeout. | Task 9 |
+| I5 Audio usage treats unreadable storage as empty, and does not typecheck | **Closed.** A new `useAudioStorageUsage` hook models `loading`, `known` and `unavailable`, with its type inferred from `electron.ts`; the hand-written annotation at `SettingsPage.tsx:1125` is deleted with the old state. `AudioStorageRow` shows "couldn't read" with Retry, never "no audio". Clear All re-reads first and opens no confirmation on a failed read, so a stale count is never shown as current. Mounted hook tests cover an unreadable first read, a rejected read, and a failed refresh after a good count. Step 4 runs typecheck. | Task 19 |
+| I6 The failed-send test assumes a contract the sender lacks | **Closed.** The sender's `true` now means "the message reached the conversation", which is where restoring would start to duplicate. A failure before the save resolves `false` and removes the optimistic message; after the save it resolves `true`; it never rejects. Provider errors are rendered in the thread and resolve normally, as before. The factual claim is corrected. Integration tests run the real sender behind the real composer, failing both before and after persistence. | Task 13 |
+| I7 A partial delete clears every row's audio flag | **Closed.** A new `clearFlagsForDeletedAudio` unflags only the rows whose file is gone, using `remainingAudioIds()`, and unflags nothing when the folder is unreadable. The IPC handler calls it. It is tested with the real `AudioStorageManager`. | Task 19 |
+| I8 Plan 03 would overwrite the storage failure contract | **Closed on this side, pending Plan 03's owner.** The contract is in the interface table and in CCR 5 (02 before 03). Plan 03's storage task must keep `readable` and `failed`, `resolveClearAudioOutcome`, the flag reconciliation and their tests while adding `directory`. This thread cannot edit Plan 03. | CCR 4, CCR 5 |
+| M1 `useNow` test does not prove time advances | **Closed.** An injectable `readClock`. The test moves the clock exactly 30 s across local midnight and asserts the exact timestamps and the date change, as well as the cleanup. | Task 11 |
+| M2 Un-tokenized progress animation | **Closed.** The indeterminate loop becomes `calc(var(--motion-slow)*4) var(--motion-ease-std)`; the spinner becomes `motion-safe:animate-spin`. `animate-pulse` stays: it is an opacity loop, which the reduced-motion policy keeps, and it runs only in its active state. No new token is needed. | Task 4 |
+| M3 Literal English download labels | **Closed.** `onboarding.download.start` and `inProgress` in all 11 locales; the test selectors use the keys. | Task 6 |
+| M4 DESIGN and contract updates not executable | **Closed.** DESIGN steps added to Tasks 5, 8, 15 and 16, alongside those already in Tasks 1–4. The stale ring value (Task 15) and the `index.css` min-height anchor (Task 5) are corrected, and the line-number claim is softened. Task 21 adds a gated spec-update step that records each CCR's disposition. | Tasks 5, 8, 15, 16, 21 |
+| M5 Remote Notes readiness has no owner | **Closed as a documented partial, with a handoff (CCR 6).** Task 14 ships local and self-hosted readiness; remote providers report "unknown" and show no hint. Plan 03's owner adds a consumer task that maps the route states, keeps dismissal, and tests a remote provider with no key. | Task 14, CCR 6 |
+| Cross-plan: native notification vs Linux recorder Stop | **Resolved: interruption-only.** `showSystemNotification` carries no actions, and Plan 04 keeps its own Linux action path. | CCR 1 |
+| Cross-plan: D3 undo gap | Plan 04's to close or amend. Plan 02's Esc change is bounded and does not certify D3. | Notes for Plan 04 |
+| Cross-plan: midnight wording, IME guard order | `useNow` guarantees rollover within one tick (≤30 s). Plan 06 should say the same, and run its mention interceptor after the IME guard (including keyCode 229). | Notes for Plan 06 |
+
+One disagreement from the first review round still stands. Provider tabs keep the tab stop on the selected tab, as the WAI-ARIA tabs pattern specifies, rather than on the last-focused tab (Task 15).
+
 ## Contract change requests
 
-These need the spec owner's sign-off. The plan is written as if they are accepted. If one is rejected, the named task changes as noted.
+These need the spec owner's sign-off. Each has a recorded disposition. Task 21 updates the spec only for approved CCRs, so none of them becomes a contract just because implementation began.
 
-1. **Add §5.5 System notifications (owner: Plan 02, then Plan 04; consumers: 04).** Task 10 adds:
+1. **Add §5.5 Interruption notifications (owner: Plan 02; consumer: Plan 04).** Task 10 adds:
    ```ts
    window.electronAPI.showSystemNotification(payload: { title: string; body?: string }):
      Promise<{ success: boolean; reason?: "disabled" | "unsupported" | "invalid" }>
    ```
    - Main shows an Electron `Notification`.
-   - It honours the existing master `notificationsEnabled` preference.
-   - Clicking the notification focuses the window that sent it.
+   - It honours the master `notificationsEnabled` preference.
+   - Clicking it focuses the sending window.
+   - **It is interruption-only and carries no actions.** D2's Linux recorder notice needs a Stop action. Plan 04 keeps its own Linux (freedesktop/gdbus) action path for that, because Electron's action support differs on Linux. This contract does not claim to cover it.
 
-   D2's Linux fallback needs "a persistent notification with a Stop action", and D2 says Plan 04 owns that state. Plan 04 should extend this method with `actions` rather than add a second notification path. **If rejected:** Task 10 still ships, but the method is documented as internal to `MeetingRecordingMount`.
-2. **Extend Plan 01's colour-token contract (§5, "Motion and colour tokens").** The changes come from Plan 01's final review.
+   *Disposition: pending owner approval. If rejected, Task 10 still ships, and the method is documented as internal to `MeetingRecordingMount`.*
+2. **Extend Plan 01's colour-token contract (§5, "Motion and colour tokens"),** from Plan 01's final review.
    - **New token:** `--color-input-border` (light `#858585`, Plum Night `#8c6b7b`; Task 2).
    - **Changed light values:**
      - `--color-ring` `#ff5a1f` becomes `#e84e16` (Task 3). Plum Night keeps `#ff5a1f`.
      - `--color-warning-foreground` and `--color-success-foreground` change from `#ffffff` to `#171717` (Task 1).
 
-   **If rejected:** Tasks 1–3 move to a Plan 01 follow-up, and Task 4 uses `ring-foreground/40` for the progress track instead of `ring-input-border`.
-3. **FYI, no spec change: `UpdateStatus.phase` gains `"available"`** (Task 16). It means a manual check found a newer version while automatic updates are off. Plan 03 moves `UpdateSettings` into its new IA and must keep rendering this phase. This reverses a deliberate earlier rule pinned in `test/helpers/updateManager.test.js:187` ("the off switch also blocks manual checks"); SET-Q16 is the owner's pick.
+   *Disposition: requested by the owner's review; pending Plan 01 owner sign-off. If rejected, Tasks 1–3 move to a Plan 01 follow-up, and Task 4 uses `ring-foreground/40` for the track.*
+3. **FYI, `UpdateStatus.phase` gains `"available"`** (Task 17). It means a manual check found a newer version while automatic updates are off. Plan 03 moves `UpdateSettings` and must keep rendering it. This reverses a deliberate rule pinned at `test/helpers/updateManager.test.js:187` ("the off switch also blocks manual checks"); SET-Q16 is the owner's pick. *Disposition: needs the owner to confirm the reversal.*
+4. **Record the execution order in §3:** 01 → 02 → {03, 04, 05, 06}. The spec's graph shows 02 in parallel with 01 and nothing downstream of it. In fact Plans 03, 04, 05 and 06 all rewrite surfaces Plan 02 fixes:
+   - Plan 03: settings storage, model cards, navigation and the setup card;
+   - Plan 04: toasts and Esc;
+   - Plan 05: the onboarding shell and download;
+   - Plan 06: the clock, the composer and Notes.
+
+   Each needs Plan 02's tests in place. *Disposition: pending owner approval.*
+5. **Stored-audio contract (owner: Plan 02; consumer: Plan 03).**
+   - `getStorageUsage()` returns `{ fileCount, totalBytes, readable }`.
+   - `deleteAllAudio()` returns `{ deleted, failed, readable }`.
+   - `remainingAudioIds()` and `clearFlagsForDeletedAudio()` exist.
+   - The renderer gets `resolveClearAudioOutcome` and `useAudioStorageUsage`.
+   - Plan 03 Task 11 replaces this UI. Its current text drops `readable`/`failed` and treats an unreadable zero as cleared, so it must keep the fields, the unavailable state and the tests. *Disposition: pending; Plan 03's owner updates their task.*
+6. **Notes readiness handoff (owner of the consumer task: Plan 03).** Plan 03 adds a task that replaces `useNoteActionsReady` with `useResolvedRoute("noteFormatting")`.
+   - It maps `ready` to no hint, and `needsModel`, `needsKey`, `needsUrl` and `unreachable` to the hint with the right action. `off` means Actions are disabled.
+   - It keeps the dismissal key `notesActionsModelHintDismissed`.
+   - It tests a remote provider with no saved key.
+
+   Until then, WS-Q7's hint covers local and self-hosted routes only. *Disposition: pending.*
 
 ## Interfaces this plan produces for later plans
 
 | Item | Where | Consumer |
 |---|---|---|
 | `--color-input-border`, light `--color-ring` `#e84e16` (CCR 2) | `src/index.css` | every plan's form controls and focus rings |
-| `showSystemNotification` (CCR 1) | `preload.js`, `src/types/electron.ts`, `src/helpers/systemNotification.js` | Plan 04 (D2 recorder alerts) |
-| `useNow(intervalMs?)` | `src/hooks/useNow.ts` | Plan 06 (Ready strip, sessions) |
-| `ChatInputProps.onTextSubmit` returns `void \| boolean \| Promise<void \| boolean>`; `false` or a rejection keeps the draft | `src/components/chat/ChatInput.tsx` | Plan 06 (WS-R8 chat) |
-| `useModelDownload().cancelDownload` resolves `true` only when main confirmed the cancel | `src/hooks/useModelDownload.ts` | Plan 05 (ONB-R4) |
-| `useNoteActionsReady(): boolean \| null` | `src/hooks/useNoteActionsReady.ts` | replaced by Plan 03's `useResolvedRoute("noteFormatting")` |
-| `ProviderTabItem.keySaved` | `src/components/ui/ProviderTabs.tsx` | Plan 03 (SET-R5 keyring wires real key status) |
-| `ModelCard` `selectionRole`, `ModelCardList` `ariaLabel` | `src/components/ui/ModelCardList.tsx` | Plan 03 (SET-R4 cartridge cards) |
+| Native-field focus is drawn by the unlayered `:focus-visible` rules; components must not rely on ring utilities for `<input>`/`<textarea>` | `src/index.css` | every plan with form fields |
+| `showSystemNotification` (CCR 1, interruption-only) | `preload.js`, `src/types/electron.ts`, `src/helpers/systemNotification.js` | Plan 04 |
+| `useNow(intervalMs?, readClock?)`; rollover within one tick (≤30 s) | `src/hooks/useNow.ts` | Plan 06 |
+| `ChatInputProps.queueKey`; `onTextSubmit` returns `void \| boolean \| Promise<void \| boolean>` (`false` or a rejection means not sent); the unsent slot | `src/components/chat/ChatInput.tsx` | Plan 06 (WS-R8) |
+| `useChatMessageSender` resolves `true` once the message reached the conversation, `false` otherwise, and never rejects | `src/components/chat/useChatMessageSender.ts` | Plan 06 |
+| `chatRouteKey` / `useChatRouteKey` | `src/components/chat/chatRouteKey.ts` | Plan 06 |
+| `useModelDownload().cancelDownload` resolves `true` only when main confirmed | `src/hooks/useModelDownload.ts` | Plan 05 (ONB-R4) |
+| Stored-audio contract (CCR 5) | `src/helpers/audioStorage.js`, `audioFlagReconcile.js`, `src/utils/audioDeletion.ts`, `src/hooks/useAudioStorageUsage.ts`, `src/components/settings/AudioStorageRow.tsx` | Plan 03 (SET-R7) |
+| `useNoteActionsReady(): boolean \| null` (temporary, CCR 6) | `src/hooks/useNoteActionsReady.ts` | replaced by a Plan 03 consumer task |
+| `ProviderTabItem.keySaved` | `src/components/ui/ProviderTabs.tsx` | Plan 03 (SET-R5) |
+| `ModelCard` `selectionRole`, `ModelCardList` `ariaLabel`; Learn more never selects | `src/components/ui/ModelCardList.tsx` | Plan 03 (SET-R4) |
 | `rendererOptions`, `I18N_KEYS_MOCK`, `TOAST_MOCK` | `test/helpers/harness/rendererMocks.js` | every later plan's renderer tests |
 | `installTree` (with `find`, `props`) | `test/helpers/harness/fakeDomTree.js` | renderer tests that click or type |
+| `parseRules`, `isLayered` | `test/helpers/harness/cssRules.js` | any cascade test |
+
+**Notes for Plan 03:**
+- Keep the stored-audio contract (CCR 5) and add the Notes readiness consumer task (CCR 6).
+- When local model cards and the settings nav are replaced, keep the following and their tests:
+  - explicit activation (arrows never select);
+  - accessible names;
+  - full-opacity focus rings;
+  - the Learn-more propagation fix.
 
 **Notes for Plan 04:**
-- **Esc (D3).** Task 9 arms Esc as soon as a recording exists, including a stop that lands mid-start. It releases Esc only on the idle edge in `useAudioRecording`'s `onStateChange`, and on unmount. When Plan 04 adds the `cancelled` state, that state counts as idle for Esc. The undo uses ⌥Z, not Esc.
-- **Dictation-error cards (VO-Q6).** Task 7 makes a card with a recoverable transcript persistent (`duration: 0`). `notify({ kind: "alert" })` must keep that rule: an alert never auto-dismisses while user content is at stake.
+- **Esc (D3).** Task 9 arms Esc as soon as a recording exists, including a stop that lands mid-start. It releases Esc only on the idle edge in `useAudioRecording`'s `onStateChange`, and on unmount.
+  - When Plan 04 adds the `cancelled` state, that state counts as idle for Esc. The undo uses ⌥Z, not Esc.
+  - Do not reintroduce the removed stop-time unregister.
+  - Plan 02 does not close D3's undo gaps for streaming or batch finalization. Plan 04 owns them, or an explicit spec amendment does.
+- **Dictation-error cards (VO-Q6).** Task 7 makes a card with a recoverable transcript persistent (`duration: 0`). `notify({ kind: "alert" })` must keep that rule.
+- **Notifications.** `showSystemNotification` stays action-less (CCR 1).
+
+**Notes for Plan 05:** Keep these from Task 6, along with their tests:
+- the cancel-confirmation flow;
+- refusal during extraction;
+- terminal settlement before a retry;
+- the translated labels.
+
+**Notes for Plan 06:**
+- **Composer.** Keep Task 13's `queueKey` binding, the unsent slot and the sender contract when adding draft seeding or mirroring.
+- **Mentions.** Run any mention interceptor after `resolveComposerKey`'s IME guard (`isComposing` and keyCode 229).
+- **Clock.** State `useNow`'s guarantee as "within one tick (≤30 s) of local midnight".
 
 ## Global Constraints
 
-- Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md).
+- Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md). A queued chat send still goes through main's provider checks; no renderer shortcut is added.
 - Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure. In this plan:
-  - arrow keys move focus but never select a provider or model (Tasks 14–15);
-  - a chat draft that is refused or fails to send comes back into the composer (Task 12);
-  - a download cancel that main refuses leaves the download visible (Task 6).
+  - arrow keys move focus but never select a provider or model (Tasks 15–16);
+  - a queued chat draft never sends to a conversation, context or route it was not queued for (Task 13);
+  - a chat draft that is refused or fails to send is never lost, even when a newer draft exists (Task 13);
+  - a download cancel that main refuses leaves the download visible (Task 6);
+  - an unreadable audio folder is never shown as empty, and surviving recordings keep playback (Task 19).
 - Text contrast is at least 4.5:1 and non-text UI at least 3:1, in light and Plum Night.
   - Focus rings are full opacity.
   - A contrast claim is pinned by a test that scores the real tokens with `resolveTokens` and `contrastRatio`, not by class names alone.
+  - Where a global rule could override a class, a cascade test pins which rule wins (Task 2).
 - Motion uses Plan 01's `--motion-*` tokens only. Every loop is gated to its active state. Reduced motion keeps opacity and colour feedback and drops transforms (the existing policy in `src/index.css`; do not weaken it).
 - Every visible string goes through i18n with keys in all 11 locales: `ar de en es fr it ja pt ru zh-CN zh-TW`. Interpolation placeholders must match across locales. `npm run i18n:check` passes, and `test/locales/translationCoverage.test.js` passes.
 - RTL: use logical properties (`ms-`, `me-`, `ps-`, `pe-`, `start`, `end`). The one deliberate exception is the macOS traffic-light clearance in Task 5, which is physical because the traffic lights are.
 - `src/index.css` is edited only by Tasks 1–3, the token and form-control changes. Onboarding CSS goes in `src/styles/onboarding-welcome.css`.
-- New locale keys go inside existing namespaces, never as new top-level keys. That keeps each locale diff inside one object. `updates` is the last top-level object before Plan 01's `locality`, so Task 16 inserts its key mid-object.
-- `DESIGN.md` is the source of truth (D10). Tasks 1–3 and 4 update the sections they change in the same commit.
+- New locale keys go inside existing namespaces, never as new top-level keys. `updates` is the last top-level object before Plan 01's `locality`, so Task 17 inserts its key mid-object.
+- `DESIGN.md` is the source of truth (D10). Every task that changes a documented surface updates its section in the same commit: Tasks 1–5, 8, 15 and 16.
 - Tests run with Node `node:test`.
   - Setup: `npm run native:node` once, then `npm test -- <files>`.
     - `scripts/run-tests.js` takes files or quoted globs, not directories.
@@ -105,15 +189,22 @@ These need the spec owner's sign-off. The plan is written as if they are accepte
    - "Esc is released on the idle edge";
    - "unmounting releases Esc even mid-processing";
    - "a stop that lands mid-start still arms Esc for processing".
-2. **Cancel during the onboarding download.** Main refuses to cancel once extraction starts. If the click races that transition, the download must stay visible and its success must still mark the model ready. A retry must wait until main has settled the cancelled request. Pinned in Task 6 by:
+2. **A queued chat draft and its destination.** A user queues a follow-up while conversation A streams, then switches to B, opens New Chat, or changes the model. The draft must not be sent anywhere; it waits for a deliberate Enter. A refused or failed send must never lose words, including when a newer draft is already in the box. Pinned in Task 13 by:
+   - the "a queued draft is not sent after …" tests;
+   - "a refusal while a newer draft exists keeps both drafts" and "a rejection while a newer draft exists keeps both drafts";
+   - the two "with the real sender" tests.
+3. **Cancel during the onboarding download.** Main refuses to cancel once extraction starts. If the click races that transition, the download must stay visible and its success must still count. Pinned in Task 6 by:
    - "a cancel main refuses keeps the download and its result";
    - "a confirmed cancel returns to idle and a late result cannot mark it interrupted";
    - "Download stays disabled until the cancelled request settles".
-3. **A chat send that is refused or fails.** The sender resolves `false` when another send holds the lock, and rejects on errors. The draft, whether typed or queued, must come back into the box, never vanish. Pinned in Task 12 by "a refused send puts the draft back", "a failed send puts the draft back" and "a queued draft sends on idle and Stop cancels the queue".
-4. **IME composition in the chat composer.** A Japanese or Chinese user who presses Enter to accept a candidate must not send or queue the message. Pinned in Task 12 by "Enter during IME composition does nothing", which covers both `isComposing` and `keyCode` 229.
-5. **Arrow keys must not switch a provider or model.** Some tabs switch between local and remote (`ReasoningModelSelector` mode tabs), and some model cards are remote. Arrow keys move focus only; Enter, Space or a click selects.
-   - Task 14 pins this with "arrow keys only move focus" (a source assertion that the key handler calls `.focus()` and never `onSelect`).
-   - Task 15 pins it with "arrow keys are not a selection path". Opening a model's documentation never selects it ("Learn more never selects the model").
+4. **Unreadable storage and partial deletes.** A locked or missing audio folder must read as "unavailable", not "no audio". A partial delete must say so, and keep playback for the surviving recordings. Pinned in Task 19 by:
+   - "an unreadable first read is unavailable, not empty" and "a failed refresh after a good count does not keep the stale count";
+   - "after a partial delete, only recordings whose file is gone lose their audio flag";
+   - "an unreadable store clears no audio flags".
+5. **Arrow keys and IME must not trigger an action.** Arrow keys move focus only, and never select a provider or model, because some of them are remote. Enter during IME composition must not send or queue. Pinned by:
+   - Task 15: "arrow keys only move focus";
+   - Task 16: "arrow keys are not a selection path" and "Learn more never selects the model";
+   - Task 12: "Enter during IME composition does nothing".
 
 ---
 
@@ -231,7 +322,9 @@ Plan 01 review, item 2. Plum Night `--color-border` `#3d2733` on `#1c1218` is 1.
 - Modify: `src/index.css`:
   - in `@theme`, add `--color-input-border` after `--color-input` (line 23);
   - in `.dark`, add it after `--color-input` (line 240);
-  - in the native-field rules, `:root input:not(.input-inline), :root textarea:not(.input-inline)` (lines 1089–1094) and `.dark input:not(.input-inline), .dark textarea:not(.input-inline)` (lines 1104–1110).
+  - in the native-field resting rules, `:root input:not(.input-inline), :root textarea:not(.input-inline)` (lines 1089–1094) and `.dark input:not(.input-inline), .dark textarea:not(.input-inline)` (lines 1104–1110);
+  - in the native-field focus rules (lines 1096–1101 and 1112–1115).
+- Create: `test/helpers/harness/cssRules.js`
 - Modify: `src/components/ui/input.tsx:11-19`
 - Modify: `src/components/ui/textarea.tsx:12-15`
 - Modify: `DESIGN.md`, `### Inputs / Fields` (lines 243–246)
@@ -240,6 +333,10 @@ Plan 01 review, item 2. Plum Night `--color-border` `#3d2733` on `#1c1218` is 1.
 **Interfaces:**
 - Consumes `resolveTokens` and `contrastRatio` (Plan 01).
 - Produces `--color-input-border` (light `#858585`, Plum Night `#8c6b7b`) and the Tailwind utilities `border-input-border` and `ring-input-border`. Task 4 uses `ring-input-border` for the progress track.
+- Produces `test/helpers/harness/cssRules.js`:
+  - `parseRules(cssText)` returns `{ selector, body, atRules }[]`, one entry per style rule, where `atRules` lists its enclosing at-rule preludes;
+  - `isLayered(rule)` returns `true` when any enclosing at-rule is an `@layer`.
+  Task 3 uses both.
 
 | Edge | Measured contrast |
 |---|---|
@@ -248,9 +345,62 @@ Plan 01 review, item 2. Plum Night `--color-border` `#3d2733` on `#1c1218` is 1.
 
 Hover no longer lightens the edge. `hover:border-border-hover` (`#d4d4d4`) would drop below 3:1 while the pointer is over the field.
 
-The `Input` and `Textarea` focus rings move to the full-opacity ring with an offset, the same pattern Task 3 gives `Button`. `Textarea` was hard-coded to light-only neutrals and an indigo focus ring in both themes, so it moves onto tokens.
+**Which rule paints a focused field: the cascade.** `src/index.css` starts with `@import "tailwindcss";` (line 1). Tailwind 4 emits every utility, `focus-visible:ring-*` included, inside `@layer utilities`. The native-field rules at lines 1089–1115 sit at the top level of the file: `@layer base` (line 290) closes at line 376, and nothing else wraps them.
+
+Under CSS Cascade Level 5, a normal (non-`!important`) declaration outside any layer beats a normal declaration in any layer. Specificity is not consulted. So for any `<input>` or `<textarea>` without `.input-inline`, the global focus rules decide `box-shadow` and `border-color`. A ring utility on the component can never show.
+
+Today those rules paint `box-shadow: 0 0 0 2px oklch(from var(--color-ring) l c h / 0.15)`, a 15% ring, plus an orange border. Changing only the component classes would leave that 15% ring on screen. This task therefore:
+- moves the full-opacity ring into the unlayered rules;
+- switches them to `:focus-visible`;
+- removes the ring utilities from `Input` and `Textarea`, so no class pretends to control something the cascade overrides.
+
+The same rule covers raw `<input>` and `<textarea>` elements that do not use the primitives. `.input-inline` fields, such as the chat composer, keep their own focus styling.
+
+`Textarea` was hard-coded to light-only neutrals and an indigo focus ring in both themes, so it moves onto tokens. The `.onboarding-canvas .onboarding-light-input:focus-visible` rule (line 993) has its own translucent ring under `!important`. That selector belongs to the orphaned onboarding canvas that Plan 05 removes (ONB-Q15), so it is out of scope here.
 
 - [ ] **Step 1: Write the failing test**
+
+Create `test/helpers/harness/cssRules.js`:
+
+```js
+// Splits a stylesheet into style rules and records the at-rules around each
+// one, so tests can ask whether a rule is layered. Unlayered normal
+// declarations beat every @layer (CSS Cascade 5), which decides whether a
+// Tailwind utility can override a global rule. Comments are stripped; the
+// stylesheets this reads contain no braces inside strings.
+function parseRules(cssText) {
+  const css = cssText.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [];
+  const stack = [];
+  let prelude = "";
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i];
+    if (ch === "{") {
+      stack.push({ head: prelude.trim(), start: i + 1 });
+      prelude = "";
+    } else if (ch === "}") {
+      const open = stack.pop();
+      if (open && open.head && !open.head.startsWith("@")) {
+        rules.push({
+          selector: open.head.replace(/\s+/g, " "),
+          body: css.slice(open.start, i),
+          atRules: stack.map((entry) => entry.head).filter((head) => head.startsWith("@")),
+        });
+      }
+      prelude = "";
+    } else if (ch === ";") {
+      prelude = "";
+    } else {
+      prelude += ch;
+    }
+  }
+  return rules;
+}
+
+const isLayered = (rule) => rule.atRules.some((head) => head.startsWith("@layer"));
+
+module.exports = { parseRules, isLayered };
+```
 
 Create `test/components/formControlBorders.test.js`:
 
@@ -260,6 +410,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { resolveTokens } = require("../helpers/harness/cssTokens");
+const { parseRules, isLayered } = require("../helpers/harness/cssRules");
 
 const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");
 const css = read("src/index.css");
@@ -308,24 +459,41 @@ test("native inputs and textareas draw their edge with the input border token", 
   }
 });
 
-test("the Input and Textarea primitives use the token and a full-opacity focus ring", () => {
-  const ring = /focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background/;
+test("a focused native field gets a full-opacity ring from an unlayered rule, which no utility can override", () => {
+  const rules = parseRules(css);
+  for (const scope of [":root", ".dark"]) {
+    const selector = `${scope} input:not(.input-inline):focus-visible, ${scope} textarea:not(.input-inline):focus-visible`;
+    const rule = rules.find((r) => r.selector === selector);
+    assert.ok(rule, `${scope} focus-visible rule exists`);
+    assert.equal(isLayered(rule), false, `${scope}: unlayered, so it beats @layer utilities`);
+    assert.match(rule.body, /border-color: var\(--color-ring\);/);
+    assert.match(rule.body, /box-shadow: 0 0 0 1px var\(--color-background\), 0 0 0 3px var\(--color-ring\);/);
+  }
+  const translucent = rules.filter(
+    (r) => /:focus/.test(r.selector) && /var\(--color-ring\) l c h \/ 0\.\d+/.test(r.body)
+  );
+  assert.deepEqual(translucent.map((r) => r.selector), [], "no translucent ring is left");
+  const plainFocus = rules.filter((r) => /input:not\(\.input-inline\):focus(?!-visible)/.test(r.selector));
+  assert.deepEqual(plainFocus.map((r) => r.selector), [], "no :focus rule competes with :focus-visible");
+});
+
+test("the Input and Textarea primitives use the token and leave focus to the global rule", () => {
   const input = read("src/components/ui/input.tsx");
   assert.match(input, /\bborder-input-border\b/);
   assert.doesNotMatch(input, /border-border\/70|dark:border-border-subtle|hover:border-border-hover/);
-  assert.doesNotMatch(input, /ring-primary\/10|ring-ring\/10/);
-  assert.match(input, ring);
+  // A ring utility here would be dead code: the unlayered field rule wins.
+  assert.doesNotMatch(input, /focus(-visible)?:ring|focus-visible:border-primary/);
   const textarea = read("src/components/ui/textarea.tsx");
   assert.match(textarea, /\bborder-input-border\b/);
   assert.doesNotMatch(textarea, /neutral-|indigo-|bg-white/);
-  assert.match(textarea, ring);
+  assert.doesNotMatch(textarea, /focus(-visible)?:ring|focus:border/);
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- test/components/formControlBorders.test.js`
-Expected: FAIL. `light["--color-input-border"]` is `undefined`.
+Expected: FAIL. `light["--color-input-border"]` is `undefined`, no `:focus-visible` field rule exists, and the 15% ring is still there.
 
 - [ ] **Step 3: Implement**
 
@@ -344,6 +512,53 @@ Expected: FAIL. `light["--color-input-border"]` is `undefined`.
    ```
 
 2. In the light native-field rule (`:root input:not(.input-inline), :root textarea:not(.input-inline) { … }`), change `border: 1px solid var(--color-border);` to `border: 1px solid var(--color-input-border);`. Make the same change in the `.dark input:not(.input-inline), .dark textarea:not(.input-inline) { … }` rule. Leave every other `var(--color-border)` alone, because cards and dividers keep the quiet border.
+
+   Then replace the two focus rules. The light one (lines 1096–1101):
+
+   ```css
+   :root input:not(.input-inline):focus,
+   :root textarea:not(.input-inline):focus {
+     border-color: var(--color-border-active);
+     box-shadow: 0 0 0 2px oklch(from var(--color-ring) l c h / 0.15);
+     background-color: var(--color-background);
+   }
+   ```
+
+   becomes:
+
+   ```css
+   /* Unlayered on purpose: it outranks every Tailwind utility (@layer
+      utilities), so this is the one place a focused field's ring is drawn.
+      1px gap in the page colour, then a 2px full-opacity ring. */
+   :root input:not(.input-inline):focus-visible,
+   :root textarea:not(.input-inline):focus-visible {
+     border-color: var(--color-ring);
+     box-shadow: 0 0 0 1px var(--color-background), 0 0 0 3px var(--color-ring);
+     background-color: var(--color-background);
+   }
+   ```
+
+   The dark one (lines 1112–1115):
+
+   ```css
+   .dark input:not(.input-inline):focus,
+   .dark textarea:not(.input-inline):focus {
+     border-color: var(--color-border-active);
+     box-shadow: 0 0 0 2px oklch(from var(--color-ring) l c h / 0.15);
+   }
+   ```
+
+   becomes:
+
+   ```css
+   .dark input:not(.input-inline):focus-visible,
+   .dark textarea:not(.input-inline):focus-visible {
+     border-color: var(--color-ring);
+     box-shadow: 0 0 0 1px var(--color-background), 0 0 0 3px var(--color-ring);
+   }
+   ```
+
+   Text fields match `:focus-visible` on mouse focus as well as keyboard focus, so pointer users still see where they are typing.
 
 3. In `src/components/ui/input.tsx`, replace lines 11 and 16–19:
 
@@ -364,8 +579,9 @@ Expected: FAIL. `light["--color-input-border"]` is `undefined`.
    ```
    ```tsx
            "dark:bg-surface-1",
-           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
    ```
+
+   Add this as the first line inside the `cn(` call (a JS comment inside the argument list is valid there): `// Focus ring: drawn by the unlayered native-field rule in index.css, which wins over any utility here.`
 
 4. In `src/components/ui/textarea.tsx`, replace lines 12–15:
 
@@ -381,7 +597,6 @@ Expected: FAIL. `light["--color-input-border"]` is `undefined`.
    ```tsx
              "flex min-h-[80px] w-full rounded-xl border border-input-border bg-input px-3.5 py-3 text-sm text-foreground shadow-sm transition-colors duration-200 outline-none resize-y cursor-text",
              "placeholder:text-muted-foreground",
-             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
    ```
 
    Also change `disabled:bg-neutral-50` on the next line to `disabled:bg-muted`.
@@ -390,7 +605,7 @@ Expected: FAIL. `light["--color-input-border"]` is `undefined`.
 
    ```markdown
    - **Style:** Full-width 40px fields with 6px corners, compact sans text, and a one-pixel `--color-input-border` edge (#858585 light, #8C6B7B Plum Night) that clears 3:1 on every surface a field sits on. Hover does not lighten the edge.
-   - **Focus:** A full-opacity 2px `--color-ring` ring with a 1px offset, as on buttons.
+   - **Focus:** A full-opacity 2px `--color-ring` ring with a 1px gap, drawn by the unlayered native-field rule in `src/index.css` so no utility can weaken it. The border turns `--color-ring` too.
    ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -401,8 +616,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/index.css src/components/ui/input.tsx src/components/ui/textarea.tsx DESIGN.md test/components/formControlBorders.test.js
-git commit -m "fix(a11y): form-control edges clear 3:1 in light and Plum Night"
+git add src/index.css src/components/ui/input.tsx src/components/ui/textarea.tsx DESIGN.md test/helpers/harness/cssRules.js test/components/formControlBorders.test.js
+git commit -m "fix(a11y): form-control edges and focus rings clear 3:1 in light and Plum Night"
 ```
 
 ---
@@ -422,8 +637,17 @@ Full opacity alone is not enough in light. `#ff5a1f` clears 3:1 only on pure whi
 - Modify: `DESIGN.md`, `### Roles`
 - Test: `test/components/focusRings.test.js`
 
+**Why these rings actually render.** `Button`'s ring is a Tailwind utility in `@layer utilities`, and so are the sidebar's. A utility loses to any unlayered rule (Task 2), so this task must show that none touches them.
+- At `172f9df`, the only unlayered `:focus` / `:focus-visible` rules in `src/index.css` are:
+  - the native-field rules (Task 2 rewrites them);
+  - the onboarding-canvas input rules (lines 986–1020), which match `input` elements only.
+- No unlayered rule sets `box-shadow` or `outline` on `button`.
+- Plan 01's `:where(button, …)` rule lives in `@layer base` and sets only `transition`.
+
+The test pins that with `parseRules`, so a later global rule cannot silently weaken these rings.
+
 **Interfaces:**
-- Consumes `resolveTokens` and `contrastRatio` (Plan 01).
+- Consumes `resolveTokens` and `contrastRatio` (Plan 01), plus `parseRules` and `isLayered` (Task 2).
 - Produces light `--color-ring` `#e84e16`. Every later task that adds a focus style uses `focus-visible:ring-2 focus-visible:ring-ring`, never an opacity suffix.
 
 - [ ] **Step 1: Write the failing test**
@@ -436,6 +660,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { resolveTokens } = require("../helpers/harness/cssTokens");
+const { parseRules, isLayered } = require("../helpers/harness/cssRules");
 
 const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");
 const css = read("src/index.css");
@@ -484,6 +709,17 @@ test("the workspace sidebar draws a full-opacity ring on both nav buttons", () =
   );
 });
 
+test("no unlayered rule can override a button's focus ring", () => {
+  const offenders = parseRules(css).filter(
+    (rule) =>
+      !isLayered(rule) &&
+      /\bbutton\b|\[role="(button|tab)"\]/.test(rule.selector) &&
+      /:focus/.test(rule.selector) &&
+      /\b(box-shadow|outline)\s*:/.test(rule.body)
+  );
+  assert.deepEqual(offenders.map((rule) => rule.selector), []);
+});
+
 test("HotkeyInput keeps Plan 01's full-opacity ring", () => {
   assert.match(read("src/components/ui/HotkeyInput.tsx"), /focus-visible:ring-2 focus-visible:ring-ring"/);
 });
@@ -530,6 +766,8 @@ git commit -m "fix(a11y): full-opacity focus rings that clear 3:1 in light"
 ### Task 4: Accessible, translated download progress bar
 
 Covers SET-Q25 and the "Downloading" part of SET-Q6. This task also creates the shared renderer-test mocks that later tasks use.
+
+**Motion.** The indeterminate loop moves onto the motion tokens: 4 × `--motion-slow` is 1440 ms, close to the old 1.5 s, with `--motion-ease-std`. The installing spinner becomes `motion-safe:animate-spin`. `animate-pulse` stays; it is an opacity-only loop, which the reduced-motion policy keeps, and it runs only while installing or indeterminate. Plan 01 defines no loop-duration token, so this plan composes from the existing ones rather than adding one.
 
 The bar also stops using orange. D1 reserves orange for live voice, and the measured light pairs fail §4: orange text on white is 3.12:1, the orange fill on the muted track is 2.86:1, and the old border on the track is 1.16:1. The bar becomes an ink fill on a muted track edged with `--color-input-border` (Task 2). Secondary text drops its `/70` opacity.
 
@@ -709,9 +947,17 @@ test("the bar is built from those tokens, with no orange and no faded text", () 
   assert.match(source, /\bbg-foreground\b/);
 });
 
-test("the fill uses the shared motion tokens", () => {
+test("the fill and the indeterminate loop use the shared motion tokens", () => {
   assert.match(source, /width var\(--motion-base\) var\(--motion-ease-std\)/);
   assert.doesNotMatch(source, /width 300ms ease-out/);
+  assert.match(
+    source,
+    /animate-\[indeterminate_calc\(var\(--motion-slow\)\*4\)_var\(--motion-ease-std\)_infinite\]/
+  );
+  assert.doesNotMatch(source, /1\.5s|ease-in-out/);
+  // A spinner is a transform loop: it only runs when motion is allowed.
+  assert.match(source, /motion-safe:animate-spin/);
+  assert.doesNotMatch(source, /(?<!motion-safe:)animate-spin/);
 });
 ```
 
@@ -767,7 +1013,7 @@ export function DownloadProgressBar({
             className={`absolute inset-0 rounded-md bg-muted ${isInstalling || indeterminate ? "animate-pulse" : ""}`}
           />
           {isInstalling ? (
-            <Loader2 className="relative w-3.5 h-3.5 text-foreground animate-spin" />
+            <Loader2 className="relative w-3.5 h-3.5 text-foreground motion-safe:animate-spin" />
           ) : (
             <span className="relative text-xs font-bold text-foreground tabular-nums">
               {indeterminate ? "···" : `${pct}%`}
@@ -813,7 +1059,7 @@ export function DownloadProgressBar({
         style={{ height: 4 }}
       >
         {indeterminate ? (
-          <div className="h-full w-1/3 rounded-full bg-foreground animate-[indeterminate_1.5s_ease-in-out_infinite]" />
+          <div className="h-full w-1/3 rounded-full bg-foreground animate-[indeterminate_calc(var(--motion-slow)*4)_var(--motion-ease-std)_infinite]" />
         ) : (
           <div
             className={`${isInstalling ? "animate-pulse" : ""} bg-foreground`}
@@ -895,6 +1141,7 @@ Covers ONB-Q1.
 - Modify: `src/styles/onboarding-welcome.css`. Add rules after `.onboarding-welcome-header` (lines 41–51), and inside `@media (max-width: 760px)` (from line 361).
 - Modify: `src/components/OnboardingFlow.tsx`. `StepShell` (lines 143–243) gets a `platform` prop. Its call site (around line 1417) and the `WelcomeScreen` call site (around line 1402) pass `platform`.
 - Modify: `src/components/onboarding/WelcomeScreen.tsx`. Add `platform?: string` to `WelcomeScreenProps` (line 7) and put it on the root `.onboarding-welcome`.
+- Modify: `DESIGN.md` (D10)
 - Test: `test/components/onboardingShell.test.js`
 
 **Interfaces:**
@@ -902,7 +1149,7 @@ Covers ONB-Q1.
 - Produces a `data-platform` attribute (`"darwin" | "win32" | "linux"`) on every `.onboarding-welcome` root. The value comes from the existing `platform` const in `OnboardingFlow` (lines 1070–1075), which already honours the preview config.
 
 Why this works:
-- `src/index.css:195-203` sets only `min-height: 100vh` on `html`, `body` and `#root`. `.onboarding-welcome { height: 100% }` therefore resolves to `auto`, and the footer scrolls away with the content.
+- `src/index.css:330-338` (inside `@layer base` at `172f9df`) sets only `min-height: 100vh` on `html`, `body` and `#root`. `.onboarding-welcome { height: 100% }` therefore resolves to `auto`, and the footer scrolls away with the content.
 - `.onboarding-welcome-split` already scrolls (`overflow-y: auto`, `min-height: 0`, `flex: 1`). Once the shell is pinned, only the middle scrolls.
 - On macOS the control panel is frameless with `trafficLightPosition: { x: 20, y: 20 }` (`src/helpers/windowConfig.js:241-245`). The lights cover about 20–72px from the window's left edge.
 
@@ -1034,6 +1281,8 @@ Expected: FAIL. No `html:has(.onboarding-welcome)` rule exists, and there is no 
    - destructure `platform` in the component signature;
    - change the root `<div className="onboarding-welcome">` to `<div className="onboarding-welcome" data-platform={platform}>`.
 
+**DESIGN.md (D10).** In `## Layout`, after the sentence "Onboarding uses a narrower 48rem content column, wider side padding at larger window sizes, and a persistent progress header and footer.", add: "The onboarding shell pins `html`, `body` and `#root` to the window, so only the middle scrolls. On macOS the header keeps 84px of physical left padding (also in RTL) to clear the traffic lights."
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- test/components/onboardingShell.test.js test/components/onboardingCleanupWiring.test.js test/components/personalWorkspace.test.js`
@@ -1042,7 +1291,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/styles/onboarding-welcome.css src/components/OnboardingFlow.tsx src/components/onboarding/WelcomeScreen.tsx test/components/onboardingShell.test.js
+git add src/styles/onboarding-welcome.css src/components/OnboardingFlow.tsx src/components/onboarding/WelcomeScreen.tsx DESIGN.md test/components/onboardingShell.test.js
 git commit -m "fix(onboarding): pin the shell and clear the macOS traffic lights"
 ```
 
@@ -1066,7 +1315,7 @@ Covers ONB-Q2.
   - `OnboardingFlow` state and `downloadModel` (lines 1037–1051, 1154–1188);
   - the `SpeechStep` and `StepShell` call sites (around lines 1339 and 1417).
 - Modify: `src/styles/onboarding-welcome.css`. Add `.onboarding-download-chip`.
-- Modify: `src/locales/*/translation.json`. Add `onboarding.download.chip` and `onboarding.download.chipInstalling`.
+- Modify: `src/locales/*/translation.json`. Add `onboarding.download.chip`, `onboarding.download.chipInstalling`, `onboarding.download.start` and `onboarding.download.inProgress`. The two button labels are touched here anyway, so they stop being literal English. Plan 05 still owns the rest of the onboarding copy.
 - Test: `test/components/onboardingDownloadProgress.test.js`
 
 **Interfaces:**
@@ -1214,13 +1463,13 @@ async function mountSpeechStep(t, { cancelResult = { success: true } } = {}) {
     React.act(async () => listeners.progress({}, { model, ...data }));
   const progressbar = () => tree.find((node) => node.attributes?.role === "progressbar");
   const downloadButton = () =>
-    tree.find((node) => node.tagName === "BUTTON" && node.textContent.includes("Download model"));
+    tree.find((node) => node.tagName === "BUTTON" && node.textContent.includes("onboarding.download.start"));
   return { ...tree, calls, pending, progress, settle, progressbar, downloadButton };
 }
 
 test("the speech step shows the real download percentage", async (t) => {
   const flow = await mountSpeechStep(t);
-  await flow.click("Download model");
+  await flow.click("onboarding.download.start");
   assert.equal(flow.calls.downloads.length, 1);
   await flow.progress(flow.calls.downloads[0], 42);
   const bar = flow.progressbar();
@@ -1234,7 +1483,7 @@ test("the speech step shows the real download percentage", async (t) => {
 
 test("a download in flight follows the user to later steps as a footer chip", async (t) => {
   const flow = await mountSpeechStep(t);
-  await flow.click("Download model");
+  await flow.click("onboarding.download.start");
   await flow.progress(flow.calls.downloads[0], 42);
   await flow.click("Continue");
   assert.match(flow.text(), /onboarding\.download\.chip\(percent=42\)/);
@@ -1242,7 +1491,7 @@ test("a download in flight follows the user to later steps as a footer chip", as
 
 test("a confirmed cancel returns to idle and a late result cannot mark it interrupted", async (t) => {
   const flow = await mountSpeechStep(t);
-  await flow.click("Download model");
+  await flow.click("onboarding.download.start");
   await flow.progress(flow.calls.downloads[0], 42);
   await flow.click("common.cancel");
   assert.equal(flow.calls.cancels, 1);
@@ -1257,7 +1506,7 @@ test("a cancel main refuses keeps the download and its result", async (t) => {
   const flow = await mountSpeechStep(t, {
     cancelResult: { success: false, code: "INSTALLATION_IN_PROGRESS" },
   });
-  await flow.click("Download model");
+  await flow.click("onboarding.download.start");
   await flow.progress(flow.calls.downloads[0], 99);
   await flow.click("common.cancel");
   assert.equal(flow.calls.cancels, 1);
@@ -1268,7 +1517,7 @@ test("a cancel main refuses keeps the download and its result", async (t) => {
 
 test("Download stays disabled until the cancelled request settles", async (t) => {
   const flow = await mountSpeechStep(t);
-  await flow.click("Download model");
+  await flow.click("onboarding.download.start");
   const model = flow.calls.downloads[0];
   await flow.progress(model, 42);
   await flow.click("common.cancel");
@@ -1379,7 +1628,9 @@ Expected: FAIL on "a progressbar replaces the pulsing placeholder", because `pro
                  }
                >
                  <Download className="me-2 h-4 w-4" />
-                 {downloadState === "downloading" ? "Downloading…" : "Download model"}
+                 {downloadState === "downloading"
+                   ? t("onboarding.download.inProgress")
+                   : t("onboarding.download.start")}
                </Button>
    ```
 
@@ -1563,6 +1814,16 @@ Expected: FAIL on "a progressbar replaces the pulsing placeholder", because `pro
         ru: "Загрузка голосовой модели · {{percent}}%", "zh-CN": "正在下载语音模型 · {{percent}}%",
         "zh-TW": "正在下載語音模型 · {{percent}}%",
       },
+      "onboarding.download.start": {
+        en: "Download model", ar: "تنزيل النموذج", de: "Modell herunterladen", es: "Descargar modelo",
+        fr: "Télécharger le modèle", it: "Scarica modello", ja: "モデルをダウンロード", pt: "Baixar modelo",
+        ru: "Скачать модель", "zh-CN": "下载模型", "zh-TW": "下載模型",
+      },
+      "onboarding.download.inProgress": {
+        en: "Downloading…", ar: "جارٍ التنزيل…", de: "Wird heruntergeladen…", es: "Descargando…",
+        fr: "Téléchargement…", it: "Download in corso…", ja: "ダウンロード中…", pt: "Baixando…",
+        ru: "Загрузка…", "zh-CN": "正在下载…", "zh-TW": "正在下載…",
+      },
       "onboarding.download.chipInstalling": {
         en: "Installing voice model", ar: "جارٍ تثبيت نموذج الصوت", de: "Sprachmodell wird installiert",
         es: "Instalando el modelo de voz", fr: "Installation du modèle vocal",
@@ -1720,6 +1981,7 @@ Covers VO-Q9. This is a minimal change to the existing toast. Plan 04 owns the r
   - the root `<div>` opening tag (lines 353–364; the element closes at line 456);
   - the copy button `aria-label` (line 394);
   - the close button (lines 427–443).
+- Modify: `DESIGN.md` (D10)
 - Test: `test/components/toastLiveRegion.test.js`
 
 **Interfaces:**
@@ -1847,6 +2109,15 @@ Expected: FAIL. `Toast` is `undefined` (not exported), so `createElement` throws
 
 `common.close` ("Close") and `common.copy` ("Copy") already exist in every locale.
 
+**DESIGN.md (D10).** Under `## Components`, add a `### Toasts` subsection after `### Chips`:
+
+```markdown
+### Toasts
+- **Announcement:** standard toasts are polite status regions (`role="status"`); destructive toasts are assertive alerts (`role="alert"`). Dictation-error cards already announce as alerts.
+- **Close:** always visible at 50% opacity, full strength on hover or keyboard focus, with a 2px `--color-ring` focus ring and a translated name.
+- **Timing:** dictation errors stay 6, 8 or 10 seconds by length; a card that holds the user's only copy of a transcript stays until the user acts. Plan 04 replaces this surface with `notify()` and keeps both rules.
+```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- test/components/toastLiveRegion.test.js test/components/rtlMotion.test.js test/locales/translationCoverage.test.js`
@@ -1855,7 +2126,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/ui/Toast.tsx test/components/toastLiveRegion.test.js
+git add src/components/ui/Toast.tsx DESIGN.md test/components/toastLiveRegion.test.js
 git commit -m "fix(a11y): live regions on toasts and a visible, named close button"
 ```
 
@@ -1943,7 +2214,11 @@ export default class FakeAudioManager {
     });
   }
   getRecordingAudioLevel() { return 0; }
-  stopRecording() { this.emit({ isRecording: false, isProcessing: true }); return true; }
+  stopRecording() {
+    this.stopCalls = (this.stopCalls ?? 0) + 1;
+    this.emit({ isRecording: false, isProcessing: true });
+    return true;
+  }
   cancelProcessing() { this.emit({ isProcessing: false }); return true; }
   cancelRecording() { this.emit({ isRecording: false }); return true; }
   cancelPreparedMicCapture() {}
@@ -2035,14 +2310,18 @@ async function mountHarness(t) {
     start: () => React.act(async () => api.startRecording()),
     stop: () => React.act(async () => api.stopRecording()),
     emit: (next) => React.act(async () => manager().emit(next)),
+    manager,
     // Starts a recording that waits in the mic-open phase until released.
+    // Returns { pending } rather than the promise itself: an async function
+    // that returned the held promise would adopt it, and awaiting the helper
+    // would then wait for a start that only the test can release.
     beginHeldStart: async () => {
       let pending;
       await React.act(async () => {
         pending = api.startRecording();
         await waitFor(() => typeof manager().releaseStart === "function");
       });
-      return pending;
+      return { pending };
     },
     releaseStart: (pending) =>
       React.act(async () => {
@@ -2078,13 +2357,15 @@ test("stopping a recording does not release Esc before processing ends", async (
   assert.deepEqual(sinceStart(h.hotkey), ["register:Escape"]);
 });
 
-test("a stop that lands mid-start still arms Esc for processing", async (t) => {
+test("a stop that lands mid-start still arms Esc for processing", { timeout: 10_000 }, async (t) => {
   globalThis.__holdStart = true;
   t.after(() => delete globalThis.__holdStart);
   const h = await mountHarness(t);
-  const pending = await h.beginHeldStart();
+  const { pending } = await h.beginHeldStart();
   await h.stop(); // lands while the start still holds the lock
+  assert.equal(h.manager().stopCalls ?? 0, 0, "the stop is deferred, not yet applied");
   await h.releaseStart(pending); // the mic opens; the hook honours the stop
+  assert.equal(h.manager().stopCalls, 1, "the deferred stop ran after the release");
   assert.deepEqual(sinceStart(h.hotkey), ["register:Escape"], "processing can be cancelled");
   await h.emit({ isProcessing: false });
   assert.deepEqual(sinceStart(h.hotkey), ["register:Escape", "unregister"]);
@@ -2539,7 +2820,7 @@ Covers WS-Q1.
 
 **Interfaces:**
 - Produces:
-  - `useNow(intervalMs?: number): Date`, with default `NOW_TICK_MS = 30_000`;
+  - `useNow(intervalMs?: number, readClock?: () => Date): Date`, with default `NOW_TICK_MS = 30_000` and `readClock = () => new Date()`. The clock parameter exists so tests can advance time exactly. The guarantee is that "today" rolls over within one tick (≤30 s) of local midnight; Plan 06 should state the same guarantee, not "at midnight";
   - `groupEventsByDay(events: CalendarEvent[], now: Date): DayGroup[]`;
   - `isEventLive(event: Pick<CalendarEvent, "start_time" | "end_time">, now: Date): boolean`;
   - `type DayGroup`.
@@ -2654,9 +2935,12 @@ test("useNow re-renders once per tick and clears its interval on unmount", async
     globalThis.clearInterval = realClearInterval;
   });
 
+  // A clock the test moves by hand, starting 30 s before local midnight.
+  let clock = new Date(2026, 9, 15, 23, 59, 30).getTime();
+  const readClock = () => new Date(clock);
   const seen = [];
   function Harness() {
-    seen.push(useNow().getTime());
+    seen.push(useNow(NOW_TICK_MS, readClock));
     return null;
   }
   root = createRoot(container);
@@ -2665,12 +2949,18 @@ test("useNow re-renders once per tick and clears its interval on unmount", async
   const [[id, interval]] = [...intervals];
   assert.equal(interval.ms, NOW_TICK_MS);
 
+  assert.equal(seen.at(-1).getTime(), new Date(2026, 9, 15, 23, 59, 30).getTime());
+
   const before = seen.length;
+  clock += NOW_TICK_MS;
   await React.act(async () => interval.callback());
   assert.equal(seen.length, before + 1, "one render per tick");
+  assert.equal(seen.at(-1).getTime(), new Date(2026, 9, 16, 0, 0, 0).getTime(), "exactly 30 s later");
+  assert.equal(seen.at(-1).getDate(), 16, "the date rolled over at midnight");
+  clock += NOW_TICK_MS;
   await React.act(async () => interval.callback());
   assert.equal(seen.length, before + 2);
-  assert.ok(seen.at(-1) >= seen[0], "time never runs backwards");
+  assert.equal(seen.at(-1).getTime(), new Date(2026, 9, 16, 0, 0, 30).getTime());
 
   await React.act(async () => root.unmount());
   root = null;
@@ -2694,14 +2984,17 @@ import { useEffect, useState } from "react";
  * within 30 s of local midnight, at the cost of one cheap re-render. */
 export const NOW_TICK_MS = 30_000;
 
-/** A clock for time-relative UI ("Now", "today"). */
-export function useNow(intervalMs: number = NOW_TICK_MS): Date {
-  const [now, setNow] = useState(() => new Date());
+const systemClock = () => new Date();
+
+/** A clock for time-relative UI ("Now", "today"). `readClock` exists so tests
+ * can move time exactly; callers leave it at the system clock. */
+export function useNow(intervalMs: number = NOW_TICK_MS, readClock: () => Date = systemClock): Date {
+  const [now, setNow] = useState(readClock);
   useEffect(() => {
-    setNow(new Date());
-    const id = setInterval(() => setNow(new Date()), intervalMs);
+    setNow(readClock());
+    const id = setInterval(() => setNow(readClock()), intervalMs);
     return () => clearInterval(id);
-  }, [intervalMs]);
+  }, [intervalMs, readClock]);
   return now;
 }
 ```
@@ -2796,23 +3089,17 @@ git commit -m "fix(workspace): Coming up keeps \"Now\" and \"today\" current"
 
 ### Task 12: A real chat composer
 
-Covers WS-Q5.
+Covers WS-Q5, part 1: an auto-growing textarea, the IME guard, staying typeable while the agent works, and full-opacity focus rings. Task 13 adds the queue and lossless sends on top.
 
 **Files:**
 - Create: `src/components/chat/chatInputKeys.ts`
 - Modify: `src/components/chat/ChatInput.tsx`:
   - imports (line 1);
   - `inputRef` (line 68);
-  - `onTextSubmit` prop type (line 17);
-  - `handleSubmit` and `handleKeyDown` (lines 86–102);
+  - `handleKeyDown` (lines 94–102), with the state lines 104–108 moved above it;
   - the container (lines 118–127);
-  - the `<input>` and the button row (lines 200–273);
-  - every `focus-visible:ring-1 focus-visible:ring-ring/30` (lines 167, 182, 228, 242, 264);
-  - a queued hint after the container.
-- Modify: `src/hooks/useEmbeddedChat.ts:26` and `:145-150`, `src/hooks/useContainerChat.ts:30` and `:134-139`. Return the sender's result instead of discarding it.
-- Modify: `src/components/notes/EmbeddedChat.tsx:20`, `src/components/notes/overview/OverviewAskSection.tsx:18` and `:72`. Widen the prop type.
-- Modify: `src/components/dictation/AssistantPanel.tsx:323-331` (`handleTextSubmit`). Report a refusal and return the send.
-- Modify: `src/locales/*/translation.json`. Add `agentMode.input.queued` and `agentMode.input.unqueue`.
+  - the `<input>` and its row (lines 200–218);
+  - every `focus-visible:ring-1 focus-visible:ring-ring/30` (lines 167, 182, 228, 242, 264).
 - Test: `test/components/chatComposer.test.js`
 
 **Interfaces:**
@@ -2821,24 +3108,12 @@ Covers WS-Q5.
   - `resolveComposerKey(input: { key: string; shiftKey: boolean; isComposing: boolean; keyCode?: number; isBusy: boolean; isQueued: boolean; hasText: boolean }): ComposerKeyAction`;
   - `COMPOSER_MAX_HEIGHT_PX = 160`;
   - `composerHeight(scrollHeight: number, maxHeight?: number): { height: number; overflowY: "hidden" | "auto" }`.
-- `ChatInputProps.onTextSubmit` becomes `(text: string) => void | boolean | Promise<void | boolean>`. `false`, or a rejection, means "not sent", and the composer puts the draft back. `void` and `true` mean sent, so a callback that returns nothing keeps today's behaviour. The callers:
-  - `ChatView.tsx:177` already passes the sender, which is `Promise<boolean>`;
-  - `EmbeddedChat.tsx:140` and `OverviewAskSection.tsx:63` pass `useEmbeddedChat` and `useContainerChat`'s `sendMessage`, which now return the boolean;
-  - `AssistantPanel.tsx:536` returns `false` before history is ready, and the send otherwise.
-- Consumes `rendererOptions` and `TOAST_MOCK` (Task 4), and `installTree` with `find` and `props` (Task 6).
+- `ChatInput` is a named export (`ChatInput.tsx:55`). All four callers import `{ ChatInput }`, and their props do not change in this task.
+- Consumes `rendererOptions` and `TOAST_MOCK` (Task 4).
 
-Facts from the code:
-- `useChatMessageSender` (`src/components/chat/useChatMessageSender.ts:51-79`) resolves `true` only after the whole reply has streamed.
-  - It resolves `false` at once when another send holds its lock.
-  - It rejects on any error.
-- Waiting for it before clearing would leave the sent text in the box for the entire reply. The composer therefore clears at once and puts the text back on `false` or a rejection.
-- `ChatInput` is a named export (`ChatInput.tsx:55`), and all four callers import `{ ChatInput }`.
-
-Behaviour:
-- **While the agent is busy (`thinking | streaming | tool-executing`),** the textarea stays editable. Enter marks the draft as queued, and the draft stays visible in the box. The draft is sent on the next idle.
-- **A refused or failed send puts the draft back.** If the user has already started a new draft, that new text is kept instead.
-- **Unqueuing:** Esc, the "Don't send when done" button, Stop, or clearing the text all unqueue. Pressing Stop never sends a queued draft.
-- **Line breaks and IME:** Shift+Enter inserts a newline. Enter during IME composition does nothing.
+Behaviour after this task:
+- **While the agent is busy (`thinking | streaming | tool-executing`),** the textarea stays editable. Enter does nothing yet, so the draft just stays in the box. Task 13 turns that Enter into a queue.
+- **Line breaks and IME:** Shift+Enter inserts a newline, and Enter during IME composition does nothing.
 - **Tests:** `fieldDirectionPolicy.test.js:78` expects exactly one `dir="auto"` native field in this file. The `<textarea … />` replaces the `<input … />` one for one.
 
 - [ ] **Step 1: Write the failing test**
@@ -2850,28 +3125,20 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const React = require("react");
-const { createElement } = React;
-const { createRoot } = require("react-dom/client");
+const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
-const {
-  createRendererServer,
-  installBrowserGlobals,
-  installHookDom,
-} = require("../lib/rendererTestHarness");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
-const { installTree } = require("../helpers/harness/fakeDomTree");
-
-const COMPOSER_MOCKS = {
-  "/ui/useToast": TOAST_MOCK,
-  "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
-};
 
 const loadKeys = () => import("../../src/components/chat/chatInputKeys.ts");
 const source = fs.readFileSync(
   path.join(__dirname, "../../src/components/chat/ChatInput.tsx"),
   "utf8"
 );
+const COMPOSER_MOCKS = {
+  "/ui/useToast": TOAST_MOCK,
+  "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
+};
 const base = { shiftKey: false, isComposing: false, isBusy: false, isQueued: false, hasText: true };
 
 test("Enter submits when idle and queues while the agent is busy", async () => {
@@ -2905,17 +3172,18 @@ test("the textarea grows to a cap and then scrolls", async () => {
   assert.deepEqual(composerHeight(Number.NaN), { height: 0, overflowY: "hidden" });
 });
 
-async function renderInput(t, props) {
+test("the composer stays typeable while the agent is busy", async (t) => {
   installBrowserGlobals(t);
   const vite = await createRendererServer(t, rendererOptions("loqui-chat-composer-", COMPOSER_MOCKS));
   const { ChatInput } = await vite.ssrLoadModule("/components/chat/ChatInput.tsx");
-  return renderToStaticMarkup(
-    createElement(ChatInput, { partialTranscript: "", onTextSubmit() {}, ...props })
+  const html = renderToStaticMarkup(
+    createElement(ChatInput, {
+      partialTranscript: "",
+      agentState: "thinking",
+      onTextSubmit() {},
+      onCancel() {},
+    })
   );
-}
-
-test("the composer stays typeable while the agent is busy", async (t) => {
-  const html = await renderInput(t, { agentState: "thinking", onCancel() {} });
   const textarea = html.match(/<textarea[^>]*>/);
   assert.ok(textarea, "the composer is a textarea");
   assert.doesNotMatch(textarea[0], /disabled/);
@@ -2928,111 +3196,13 @@ test("the busy state is not a disabled field, and every focus ring is full opaci
   assert.doesNotMatch(source, /disabled=\{isBusy\}/);
   assert.doesNotMatch(source, /cursor-not-allowed/);
   assert.doesNotMatch(source, /ring-(ring|primary)\/\d+/);
-  assert.match(source, /onClick=\{\(\) => \{\s*setQueued\(false\);\s*onCancel\?\.\(\);/);
-});
-
-// Mounts the real composer on the fake tree and drives its handlers directly.
-async function mountInput(t, onTextSubmit) {
-  let root = null;
-  t.after(async () => {
-    if (root) await React.act(async () => root.unmount());
-  });
-  installBrowserGlobals(t);
-  installHookDom(t);
-  const tree = installTree();
-  const vite = await createRendererServer(
-    t,
-    rendererOptions("loqui-chat-composer-mounted-", COMPOSER_MOCKS)
-  );
-  const { ChatInput } = await vite.ssrLoadModule("/components/chat/ChatInput.tsx");
-  let props = { partialTranscript: "", agentState: "idle", onTextSubmit, onCancel() {} };
-  const render = (next = {}) => {
-    props = { ...props, ...next };
-    return React.act(async () => {
-      root.render(createElement(ChatInput, props));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-  };
-  root = createRoot(tree.container);
-  await render();
-  const textarea = () => tree.find((node) => node.tagName === "TEXTAREA");
-  const type = (value) =>
-    React.act(async () => tree.props(textarea()).onChange({ target: { value } }));
-  // Yields a macrotask inside act so an async send settles (and a refused
-  // draft is restored) before the test reads the box.
-  const press = (key) =>
-    React.act(async () => {
-      tree.props(textarea()).onKeyDown({
-        key,
-        shiftKey: false,
-        nativeEvent: { isComposing: false, keyCode: key === "Enter" ? 13 : 27 },
-        preventDefault() {},
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-  const stop = () =>
-    React.act(async () =>
-      tree
-        .props(tree.find((node) => node.attributes?.["aria-label"] === "common.cancel"))
-        .onClick()
-    );
-  const value = () => tree.props(textarea()).value;
-  return { ...tree, render, type, press, stop, value };
-}
-
-test("an accepted send clears the box", async (t) => {
-  const composer = await mountInput(t, async () => true);
-  await composer.type("hello");
-  await composer.press("Enter");
-  assert.equal(composer.value(), "");
-});
-
-test("a refused send puts the draft back", async (t) => {
-  const composer = await mountInput(t, async () => false);
-  await composer.type("hello");
-  await composer.press("Enter");
-  assert.equal(composer.value(), "hello");
-});
-
-test("a failed send puts the draft back", async (t) => {
-  const composer = await mountInput(t, async () => {
-    throw new Error("offline");
-  });
-  await composer.type("hello");
-  await composer.press("Enter");
-  assert.equal(composer.value(), "hello");
-});
-
-test("a queued draft sends on idle and Stop cancels the queue", async (t) => {
-  const sent = [];
-  const composer = await mountInput(t, async (text) => {
-    sent.push(text);
-    return true;
-  });
-  await composer.render({ agentState: "thinking" });
-  await composer.type("next question");
-  await composer.press("Enter");
-  assert.deepEqual(sent, [], "nothing is sent while the agent is busy");
-  assert.match(composer.text(), /agentMode\.input\.queued/);
-  assert.equal(composer.value(), "next question", "the queued draft stays visible");
-  await composer.render({ agentState: "idle" });
-  assert.deepEqual(sent, ["next question"]);
-  assert.equal(composer.value(), "");
-
-  await composer.render({ agentState: "streaming" });
-  await composer.type("never mind");
-  await composer.press("Enter");
-  await composer.stop();
-  await composer.render({ agentState: "idle" });
-  assert.deepEqual(sent, ["next question"], "Stop never sends the queued draft");
-  assert.equal(composer.value(), "never mind", "and the draft stays in the box");
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- test/components/chatComposer.test.js`
-Expected: FAIL with `Cannot find module '…/chatInputKeys.ts'`. The mounted tests also fail today: there is no textarea, and a refused send loses the text.
+Expected: FAIL with `Cannot find module '…/chatInputKeys.ts'`.
 
 - [ ] **Step 3: Implement**
 
@@ -3076,43 +3246,9 @@ export function composerHeight(
 
 In `src/components/chat/ChatInput.tsx`:
 
-1. Line 1 becomes `import { useState, useRef, useCallback, useEffect, useId, useLayoutEffect } from "react";`, and add `import { composerHeight, resolveComposerKey } from "./chatInputKeys";`. Line 17 becomes:
-
-   ```ts
-     /** Return false, or reject, when the text was not sent; the draft comes back. */
-     onTextSubmit?: (text: string) => void | boolean | Promise<void | boolean>;
-   ```
-2. Line 68 becomes `const inputRef = useRef<HTMLTextAreaElement>(null);`. Directly after it, add:
-
-   ```tsx
-     const [queued, setQueued] = useState(false);
-     const queuedHintId = useId();
-   ```
-
-3. Replace `handleSubmit` (lines 86–92) with:
-
-   ```tsx
-     const handleSubmit = useCallback(async () => {
-       const text = inputText.trim();
-       if (!text || !onTextSubmit) return;
-       // Clear at once: the sender resolves only after the whole reply streams.
-       setInputText("");
-       requestAnimationFrame(() => inputRef.current?.focus());
-       let accepted: void | boolean = true;
-       try {
-         accepted = await onTextSubmit(text);
-       } catch {
-         accepted = false;
-       }
-       // Refused (another send held the lock, history not ready) or failed:
-       // give the words back, unless the user has already started a new draft.
-       // A failure after the message was saved also comes back; resending is
-       // the user's call, and nothing is lost.
-       if (accepted === false) setInputText((current) => (current.trim() ? current : text));
-     }, [inputText, onTextSubmit]);
-   ```
-
-   Then replace `handleKeyDown` (lines 94–102) with the code below, and add the resize and auto-send effects after the existing `isIdle` focus effect (line 114):
+1. Line 1 becomes `import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";`, and add `import { composerHeight, resolveComposerKey } from "./chatInputKeys";`.
+2. Line 68 becomes `const inputRef = useRef<HTMLTextAreaElement>(null);`.
+3. Move the four `const isIdle / isListening / isTranscribing / isBusy` lines (104–108) above `handleSubmit` (line 86), so the key handler can read them. Replace `handleKeyDown` (lines 94–102) with:
 
    ```tsx
      const handleKeyDown = useCallback(
@@ -3123,22 +3259,16 @@ In `src/components/chat/ChatInput.tsx`:
            isComposing: e.nativeEvent.isComposing,
            keyCode: e.nativeEvent.keyCode,
            isBusy,
-           isQueued: queued,
+           isQueued: false,
            hasText: Boolean(inputText.trim()),
          });
-         if (action === "none") return;
+         if (action !== "submit") return;
          e.preventDefault();
-         if (action === "submit") void handleSubmit();
-         else if (action === "queue") setQueued(true);
-         else setQueued(false);
+         handleSubmit();
        },
-       [handleSubmit, inputText, isBusy, queued]
+       [handleSubmit, inputText, isBusy]
      );
-   ```
 
-   `isBusy` is declared below the current `handleKeyDown`. Move the four `const isIdle / isListening / isTranscribing / isBusy` lines (104–108) above `handleSubmit` so both callbacks can read them.
-
-   ```tsx
      // Grow with the text up to the cap, then scroll inside the box.
      useLayoutEffect(() => {
        const el = inputRef.current;
@@ -3148,22 +3278,26 @@ In `src/components/chat/ChatInput.tsx`:
        el.style.height = `${height}px`;
        el.style.overflowY = overflowY;
      }, [inputText]);
-
-     // A draft queued while the agent was busy goes out on the next idle; a
-     // refused or failed send puts it back (handleSubmit).
-     useEffect(() => {
-       if (isIdle && queued) {
-         setQueued(false);
-         void handleSubmit();
-       }
-     }, [isIdle, queued, handleSubmit]);
    ```
 
-4. Container (lines 120–126): replace `"flex items-center gap-2 min-h-11 ps-4 pe-1.5 rounded-full",` with `"flex items-end gap-2 min-h-11 ps-4 pe-1.5 py-1.5 rounded-[22px]",`. Then replace the focus line, `isIdle &&
-            "focus-within:border-black/15 dark:focus-within:border-white/22 focus-within:ring-[3px] focus-within:ring-primary/8"`, with `(isIdle || isBusy) &&
-            "focus-within:ring-2 focus-within:ring-ring"`. The busy composer still shows focus, and the old 8%-orange ring was invisible.
+4. Container (lines 120–126):
+   - Replace `"flex items-center gap-2 min-h-11 ps-4 pe-1.5 rounded-full",` with `"flex items-end gap-2 min-h-11 ps-4 pe-1.5 py-1.5 rounded-[22px]",`.
+   - Replace the focus line:
 
-5. Replace the `<input … />` element (lines 202–218) and the row's opening `<div className="flex items-center gap-2 w-full">` with:
+     ```tsx
+               isIdle &&
+                 "focus-within:border-black/15 dark:focus-within:border-white/22 focus-within:ring-[3px] focus-within:ring-primary/8"
+     ```
+
+     with:
+
+     ```tsx
+               (isIdle || isBusy) && "focus-within:ring-2 focus-within:ring-ring"
+     ```
+
+     The busy composer still shows focus. The old ring was 8% orange, which is effectively invisible.
+
+5. Replace the row's opening `<div className="flex items-center gap-2 w-full">` and the `<input … />` element (lines 201–218) with:
 
    ```tsx
              <div className="flex items-end gap-2 w-full">
@@ -3172,13 +3306,9 @@ In `src/components/chat/ChatInput.tsx`:
                  ref={inputRef}
                  rows={1}
                  value={inputText}
-                 onChange={(e) => {
-                   setInputText(e.target.value);
-                   if (!e.target.value.trim()) setQueued(false);
-                 }}
+                 onChange={(e) => setInputText(e.target.value)}
                  onKeyDown={handleKeyDown}
                  autoFocus={autoFocus}
-                 aria-describedby={queued ? queuedHintId : undefined}
                  placeholder={placeholder ?? t("agentMode.input.typeMessage")}
                  className={cn(
                    "input-inline flex-1 resize-none outline-none bg-transparent caret-primary",
@@ -3188,18 +3318,630 @@ In `src/components/chat/ChatInput.tsx`:
                />
    ```
 
-6. Stop button `onClick` (line 222): change `onClick={onCancel}` to:
+   `.input-inline` keeps the textarea out of the global native-field rules (Task 2), and the container's `focus-within` ring shows focus instead.
 
-   ```tsx
-                   onClick={() => {
-                     setQueued(false);
-                     onCancel?.();
-                   }}
+6. Replace every `focus-visible:ring-1 focus-visible:ring-ring/30` in the file (lines 167, 182, 228, 242 and 264) with `focus-visible:ring-2 focus-visible:ring-ring`, the full-opacity ring from Task 3.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npm test -- test/components/chatComposer.test.js test/components/fieldDirectionPolicy.test.js test/helpers/assistantPanel.test.js`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/components/chat/chatInputKeys.ts src/components/chat/ChatInput.tsx test/components/chatComposer.test.js
+git commit -m "feat(chat): auto-growing composer that stays typeable while the agent works"
+```
+
+---
+
+### Task 13: Chat sends never lose words or change destination
+
+Covers WS-Q5, part 2: queue a draft while the agent works, keep it bound to where it was queued, and never lose a draft that was not sent.
+
+**Files:**
+- Create: `src/components/chat/chatRouteKey.ts`
+- Modify: `src/components/chat/useChatMessageSender.ts:57-86`. This makes the result an honest "did the message reach the conversation" answer.
+- Modify: `src/components/chat/ChatInput.tsx`:
+  - `onTextSubmit` type (line 17), plus a new `queueKey` prop;
+  - `handleSubmit` and `handleKeyDown`;
+  - queue, drop and unsent state, and their effects;
+  - Stop (line 222) and Send (line 236);
+  - hints after the container.
+- Modify: `src/hooks/useEmbeddedChat.ts:26` and `:145-150`, and `src/hooks/useContainerChat.ts:30` and `:134-139`. Return the sender's result.
+- Modify: `src/components/notes/EmbeddedChat.tsx`. Widen the `onTextSubmit` type (line 20), and add and forward `queueKey` to `ChatInput` (line ~137).
+- Modify: `src/components/notes/overview/OverviewAskSection.tsx`:
+  - widen the `onTextSubmit` type (line 18);
+  - add and forward `queueKey` to `ChatInput` (line ~60);
+  - make the chip `onClick` explicit (line 72).
+- Modify: `src/components/notes/NoteEditor.tsx`. Compute `queueKey` and pass it to both `<EmbeddedChat>` (lines 1013 and 1030).
+- Modify: `src/components/notes/overview/ContainerOverview.tsx`. Compute `queueKey` and pass it to `<OverviewAskSection>` (line ~129).
+- Modify: `src/components/chat/ChatView.tsx`. Compute `queueKey` and pass it to `<ChatInput>` (line ~173).
+- Modify: `src/components/dictation/AssistantPanel.tsx`. Change `handleTextSubmit` (lines 323–331), and compute and pass `queueKey` to `<ChatInput>` (line ~533).
+- Modify: `src/locales/*/translation.json`:
+  - add `agentMode.input.queued`, `unqueue`, `queueDropped`, `unsent`, `restoreUnsent` and `discardUnsent`.
+- Test: `test/helpers/chatSendOutcome.test.js` (the real sender), and `test/components/chatSends.test.js` (the mounted composer, including the real sender).
+
+**Interfaces:**
+- **`useChatMessageSender`** still returns `(text, options?) => Promise<boolean>`, with a precise meaning.
+  - **`true`:** the user's message reached the conversation (shown and saved), even if the reply then failed. `useChatStreaming` renders reply failures in the thread.
+  - **`false`:** nothing reached the conversation, so the caller still owns the words. That happens when another send holds the lock, or when creating the conversation or saving the message failed.
+  - **No rejection.** It never rejects. A failure before the save also removes the optimistic message it had added.
+- `ChatInputProps.onTextSubmit` becomes `(text: string) => void | boolean | Promise<void | boolean>`. `false`, or a rejection, means "not sent". A callback that returns nothing keeps today's behaviour.
+- `ChatInputProps.queueKey?: string` is the destination identity of a send: conversation or context, plus the route. A draft queues only when `queueKey` is set. It is sent only if the key at the moment the agent goes idle equals the key at queue time.
+- Produces `src/components/chat/chatRouteKey.ts`:
+  - `chatRouteKey(state: SettingsState, scope: "chatIntelligence" | "dictationAgent"): string`, built from scope, mode, provider, model, cloudMode, cloudBaseUrl and remoteUrl. It never includes `customApiKey`.
+  - `useChatRouteKey(scope): string`.
+- Consumes `installTree` with `find` and `props` (Task 6), plus `rendererOptions` and `TOAST_MOCK` (Task 4).
+
+Facts from the code:
+- **The sender's real failure modes** (`src/components/chat/useChatMessageSender.ts:57-86`):
+  - **Lock busy:** it resolves `false` at once when another send holds the lock (`:31`).
+  - **Before persistence:** it rejects when `onBeforeSend`, `createConversation` (`:63`) or `saveUserMessage` (`:73`) throws.
+  - **Streaming errors:** `useChatStreaming.sendToAI` catches provider and stream errors, renders them as an assistant message, and returns normally (`useChatStreaming.ts:~505-555`). So `true` today means "the operation ran", not "the reply succeeded".
+  - The new contract makes `true` mean "the message is in the conversation". That is the line that matters for the words: past it, restoring them would duplicate a message the thread already shows.
+- **The route is read live.** `sendToAI` reads routing at dispatch (`useChatStreaming.ts:233`, `getSettings()`, then `resolveChatStreamingInference`).
+  - ChatView, EmbeddedChat and OverviewAskSection use scope `chatIntelligence`.
+  - AssistantPanel uses `dictationAgent` (`AssistantPanel.tsx:119`). Its typed text carries no screenshot, so the vision override never applies.
+- **ChatView keeps one composer across conversations.** It switches `activeConversationId` (`ChatView.tsx:34`, `:~57`, New Chat sets `null`) without remounting `ChatInput`. A queue that only checked "is anything queued" would send A's follow-up into B, or into a new chat. `queueKey` closes that.
+- **AssistantPanel attaches `selectedContext` at send time** (`:322-330`). Its key includes that context, so a queued draft never leaves with a different attachment than the one on screen when it was queued.
+- **A conversation's id flips from `null` to its new id while its first message is created.**
+  - In ChatView, Embedded and Container, the agent only turns busy after that flip, so no queue can exist across it.
+  - In AssistantPanel, `agentState` reads `"thinking"` during the flip. A draft queued in that window is dropped with the notice rather than sent. That errs on the safe side.
+
+Behaviour:
+- **Queueing.**
+  - With a `queueKey`, Enter while busy queues the draft. It stays visible with "Sends when the reply finishes" and a "Don't send when done" button.
+  - Esc, that button, Stop, or clearing the text all unqueue it. Stop never sends a queued draft.
+- **The destination changes.**
+  - If the conversation, context or route changes before the reply ends, the draft is unqueued, not sent. The words stay in the box with "Not sent: the conversation or model changed. Press Enter to send it here."
+  - Sending it to the new destination takes a deliberate Enter.
+- **A send fails.** A refused or failed send never loses words.
+  - If the box is empty, the text comes back into it.
+  - If the user has already started a newer draft, the failed text is held beside it as "Your earlier message wasn't sent", with "Put it back" (which places it above the newer draft) and "Discard".
+  - Further failures append to the held text.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/helpers/chatSendOutcome.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+
+async function makeSender(t, { createConversation, saveUserMessage, sendToAI }) {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-chat-send-outcome-" });
+  const { useChatMessageSender } = await vite.ssrLoadModule(
+    "/components/chat/useChatMessageSender.ts"
+  );
+  const thread = [];
+  const persistence = {
+    messages: [],
+    setMessages(update) {
+      thread.splice(0, thread.length, ...update(thread.slice()));
+    },
+    saveUserMessage: saveUserMessage ?? (async () => {}),
+  };
+  let send;
+  function Harness() {
+    send = useChatMessageSender({
+      conversationId: null,
+      persistence,
+      streaming: { sendToAI: sendToAI ?? (async () => {}) },
+      createConversation: createConversation ?? (async () => 1),
+    });
+    return null;
+  }
+  renderToStaticMarkup(React.createElement(Harness));
+  return { send: (text) => send(text), thread };
+}
+
+test("a failure before the conversation exists reports not sent", async (t) => {
+  const s = await makeSender(t, {
+    createConversation: async () => {
+      throw new Error("Conversation scope is no longer available");
+    },
+  });
+  assert.equal(await s.send("hello"), false);
+  assert.deepEqual(s.thread, []);
+});
+
+test("a failed save reports not sent and takes the optimistic message back out", async (t) => {
+  const s = await makeSender(t, {
+    saveUserMessage: async () => {
+      throw new Error("disk full");
+    },
+  });
+  assert.equal(await s.send("hello"), false);
+  assert.deepEqual(s.thread, [], "the words live only in the composer now");
+});
+
+test("once the message is saved, a later failure still reports it as sent", async (t) => {
+  const s = await makeSender(t, {
+    sendToAI: async () => {
+      throw new Error("stream setup failed");
+    },
+  });
+  assert.equal(await s.send("hello"), true);
+  assert.equal(s.thread.length, 1, "the thread shows it, so the composer must not offer it again");
+});
+
+test("a provider error rendered in the thread counts as sent", async (t) => {
+  const s = await makeSender(t, { sendToAI: async () => {} });
+  assert.equal(await s.send("hello"), true);
+});
+```
+
+Create `test/components/chatSends.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { createElement } = React;
+const { createRoot } = require("react-dom/client");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
+const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { installTree } = require("../helpers/harness/fakeDomTree");
+
+const COMPOSER_MOCKS = {
+  "/ui/useToast": TOAST_MOCK,
+  "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
+};
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+// Mounts render(modules, props) on the fake tree and drives the composer's
+// handlers directly. Every helper yields a macrotask inside act, so async
+// sends settle before the test reads the box.
+async function mount(t, render, initialProps) {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  installHookDom(t);
+  const tree = installTree();
+  const vite = await createRendererServer(t, rendererOptions("loqui-chat-sends-", COMPOSER_MOCKS));
+  const modules = {
+    ChatInput: (await vite.ssrLoadModule("/components/chat/ChatInput.tsx")).ChatInput,
+    useChatMessageSender: (await vite.ssrLoadModule("/components/chat/useChatMessageSender.ts"))
+      .useChatMessageSender,
+  };
+  let props = initialProps;
+  const act = (fn) =>
+    React.act(async () => {
+      await fn();
+      await settle();
+    });
+  const rerender = (next = {}) => {
+    props = { ...props, ...next };
+    return act(() => root.render(render(modules, props)));
+  };
+  root = createRoot(tree.container);
+  await rerender();
+  const textarea = () => tree.find((node) => node.tagName === "TEXTAREA");
+  return {
+    ...tree,
+    rerender,
+    run: act,
+    type: (value) => act(() => tree.props(textarea()).onChange({ target: { value } })),
+    press: (key) =>
+      act(() =>
+        tree.props(textarea()).onKeyDown({
+          key,
+          shiftKey: false,
+          nativeEvent: { isComposing: false, keyCode: key === "Enter" ? 13 : 27 },
+          preventDefault() {},
+        })
+      ),
+    clickText: (label) =>
+      act(() =>
+        tree
+          .props(tree.find((node) => node.tagName === "BUTTON" && node.textContent.includes(label)))
+          .onClick()
+      ),
+    stop: () =>
+      act(() =>
+        tree.props(tree.find((node) => node.attributes?.["aria-label"] === "common.cancel")).onClick()
+      ),
+    value: () => tree.props(textarea()).value,
+  };
+}
+
+const composer = ({ ChatInput }, props) =>
+  createElement(ChatInput, { partialTranscript: "", onCancel() {}, ...props });
+
+test("a queued draft sends on idle and Stop cancels the queue", async (t) => {
+  const sent = [];
+  const c = await mount(t, composer, {
+    agentState: "thinking",
+    queueKey: "chat|1|route-a",
+    onTextSubmit: async (text) => {
+      sent.push(text);
+      return true;
+    },
+  });
+  await c.type("next question");
+  await c.press("Enter");
+  assert.deepEqual(sent, [], "nothing is sent while the agent is busy");
+  assert.match(c.text(), /agentMode\.input\.queued/);
+  assert.equal(c.value(), "next question", "the queued draft stays visible");
+  await c.rerender({ agentState: "idle" });
+  assert.deepEqual(sent, ["next question"]);
+  assert.equal(c.value(), "");
+
+  await c.rerender({ agentState: "streaming" });
+  await c.type("never mind");
+  await c.press("Enter");
+  await c.stop();
+  await c.rerender({ agentState: "idle" });
+  assert.deepEqual(sent, ["next question"], "Stop never sends the queued draft");
+  assert.equal(c.value(), "never mind", "and the draft stays in the box");
+});
+
+for (const [change, nextKey] of [
+  ["another conversation is selected", "chat|2|route-a"],
+  ["New Chat is opened", "chat|new|route-a"],
+  ["the route changes", "chat|1|route-b"],
+]) {
+  test(`a queued draft is not sent after ${change}`, async (t) => {
+    const sent = [];
+    const c = await mount(t, composer, {
+      agentState: "thinking",
+      queueKey: "chat|1|route-a",
+      onTextSubmit: async (text) => {
+        sent.push(text);
+        return true;
+      },
+    });
+    await c.type("follow-up for A");
+    await c.press("Enter");
+    await c.rerender({ queueKey: nextKey });
+    await c.rerender({ agentState: "idle" });
+    assert.deepEqual(sent, [], "never sent to a destination it was not queued for");
+    assert.equal(c.value(), "follow-up for A", "the words stay for a deliberate send");
+    assert.match(c.text(), /agentMode\.input\.queueDropped/);
+  });
+}
+
+test("without a queue key, Enter while busy keeps the draft and queues nothing", async (t) => {
+  const sent = [];
+  const c = await mount(t, composer, {
+    agentState: "thinking",
+    onTextSubmit: async (text) => {
+      sent.push(text);
+      return true;
+    },
+  });
+  await c.type("held");
+  await c.press("Enter");
+  await c.rerender({ agentState: "idle" });
+  assert.deepEqual(sent, []);
+  assert.equal(c.value(), "held");
+});
+
+test("a refused send puts the draft back into an empty box", async (t) => {
+  const c = await mount(t, composer, { agentState: "idle", queueKey: "k", onTextSubmit: async () => false });
+  await c.type("hello");
+  await c.press("Enter");
+  assert.equal(c.value(), "hello");
+});
+
+for (const [outcome, settleSend] of [
+  ["refusal", (pending) => pending.resolve(false)],
+  ["rejection", (pending) => pending.reject(new Error("offline"))],
+]) {
+  test(`a ${outcome} while a newer draft exists keeps both drafts`, async (t) => {
+    const pending = deferred();
+    const c = await mount(t, composer, {
+      agentState: "idle",
+      queueKey: "k",
+      onTextSubmit: () => pending.promise,
+    });
+    await c.type("original words");
+    await c.press("Enter");
+    assert.equal(c.value(), "", "the box clears while the send is in flight");
+    await c.type("new words");
+    await c.run(() => settleSend(pending));
+    assert.equal(c.value(), "new words", "the newer draft is untouched");
+    assert.match(c.text(), /agentMode\.input\.unsent/);
+    await c.clickText("agentMode.input.restoreUnsent");
+    assert.equal(c.value(), "original words\n\nnew words", "nothing was lost");
+  });
+}
+
+// The real sender behind the real composer: the failure contract end to end.
+function SenderHost({ modules, createConversation, sendToAI, thread }) {
+  const persistence = {
+    messages: [],
+    setMessages(update) {
+      thread.splice(0, thread.length, ...update(thread.slice()));
+    },
+    async saveUserMessage() {},
+  };
+  const send = modules.useChatMessageSender({
+    conversationId: null,
+    persistence,
+    streaming: { sendToAI },
+    createConversation,
+  });
+  return createElement(modules.ChatInput, {
+    partialTranscript: "",
+    agentState: "idle",
+    onTextSubmit: send,
+    queueKey: "chat|new|route-a",
+  });
+}
+const senderHost = (modules, props) => createElement(SenderHost, { modules, ...props });
+
+test("with the real sender, a failure before the save restores the draft", async (t) => {
+  const thread = [];
+  const c = await mount(t, senderHost, {
+    thread,
+    createConversation: async () => {
+      throw new Error("Conversation scope is no longer available");
+    },
+    sendToAI: async () => {},
+  });
+  await c.type("hello");
+  await c.press("Enter");
+  assert.equal(c.value(), "hello");
+  assert.deepEqual(thread, []);
+});
+
+test("with the real sender, a failure after the save keeps the box clear and the message in the thread", async (t) => {
+  const thread = [];
+  const c = await mount(t, senderHost, {
+    thread,
+    createConversation: async () => 7,
+    sendToAI: async () => {
+      throw new Error("stream setup failed");
+    },
+  });
+  await c.type("hello");
+  await c.press("Enter");
+  assert.equal(c.value(), "", "no duplicate offered");
+  assert.equal(thread.length, 1);
+  assert.equal(thread[0].content, "hello");
+});
+```
+
+Add to `test/components/chatComposer.test.js` (Task 12's file):
+
+```js
+test("every caller passes a queue key built from its destination and route", () => {
+  const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");
+  assert.match(read("src/components/chat/ChatView.tsx"), /queueKey=\{`chat\|\$\{activeConversationId \?\? "new"\}\|\$\{routeKey\}`\}/);
+  assert.match(read("src/components/notes/NoteEditor.tsx"), /const embeddedQueueKey = `note\|\$\{note\.id\}\|/);
+  assert.equal(read("src/components/notes/NoteEditor.tsx").match(/queueKey=\{embeddedQueueKey\}/g)?.length, 2);
+  assert.match(read("src/components/notes/overview/ContainerOverview.tsx"), /queueKey=\{`container\|\$\{space\.id\}\|/);
+  assert.match(read("src/components/dictation/AssistantPanel.tsx"), /queueKey=\{`assistant\|\$\{persistence\.conversationId \?\? "new"\}\|\$\{routeKey\}\|/);
+  assert.match(read("src/components/notes/EmbeddedChat.tsx"), /queueKey=\{queueKey\}/);
+  assert.match(read("src/components/notes/overview/OverviewAskSection.tsx"), /queueKey=\{queueKey\}/);
+});
+
+test("the route key changes with the route and never carries a secret", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, rendererOptions("loqui-chat-route-key-"));
+  const { chatRouteKey } = await vite.ssrLoadModule("/components/chat/chatRouteKey.ts");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const state = {
+    ...useSettingsStore.getState(),
+    chatAgentMode: "providers",
+    chatAgentProvider: "openai",
+    chatAgentModel: "model-a",
+  };
+  const a = chatRouteKey(state, "chatIntelligence");
+  assert.notEqual(chatRouteKey({ ...state, chatAgentModel: "model-b" }, "chatIntelligence"), a);
+  assert.notEqual(chatRouteKey(state, "dictationAgent"), a);
+  const withKey = chatRouteKey({ ...state, chatAgentCustomApiKey: "sk-secret" }, "chatIntelligence");
+  assert.equal(withKey, a);
+  assert.doesNotMatch(withKey, /sk-secret/);
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npm test -- test/helpers/chatSendOutcome.test.js test/components/chatSends.test.js test/components/chatComposer.test.js`
+Expected: FAIL.
+- The sender rejects instead of resolving `false`, and a post-save failure rejects instead of resolving `true`.
+- No queue exists yet.
+- `chatRouteKey.ts` is missing.
+
+- [ ] **Step 3: Implement**
+
+1. `src/components/chat/useChatMessageSender.ts`. Replace the returned `useCallback` (lines 57–86) with the version below. The dependency array is unchanged.
+
+   ```ts
+     return useCallback(
+       async (text: string, options?: SendToAIOptions) => {
+         // true: the user's message reached the conversation (shown and saved),
+         // even if the reply then failed; useChatStreaming renders reply errors
+         // in the thread. false: nothing reached it (another send held the
+         // lock, or creating the conversation or saving failed), so the caller
+         // still owns the words. Never rejects.
+         let reachedConversation = false;
+         let optimisticId: string | null = null;
+         try {
+           return await submissionLockRef.current!.run(async () => {
+             onSendingChange?.(true);
+             try {
+               onBeforeSend?.();
+               const convId = conversationId ?? (await createConversation(text));
+               const previousMessages = persistence.messages;
+               const userMessage: Message = {
+                 id: crypto.randomUUID(),
+                 role: "user",
+                 content: text,
+                 isStreaming: false,
+               };
+
+               persistence.setMessages((messages) => [...messages, userMessage]);
+               optimisticId = userMessage.id;
+               await persistence.saveUserMessage(text);
+               reachedConversation = true;
+               await onMessagePersisted?.({
+                 conversationId: convId,
+                 text,
+                 isFirstMessage: previousMessages.length === 0,
+               });
+               await streaming.sendToAI(text, [...previousMessages, userMessage], options);
+             } finally {
+               onSendingChange?.(false);
+             }
+           });
+         } catch (error) {
+           console.error("Chat send failed", error);
+           if (!reachedConversation && optimisticId) {
+             const id = optimisticId;
+             persistence.setMessages((messages) => messages.filter((m) => m.id !== id));
+           }
+           return reachedConversation;
+         }
+       },
    ```
 
-7. After the container's closing `</div>` (the one opened at line 119), and before the outer wrapper's closing `</div>`, add:
+   The existing tests in `test/helpers/chatMessageSubmissionLock.test.js` keep passing: the lock and the busy `false` are unchanged.
 
-   ```tsx
+2. Create `src/components/chat/chatRouteKey.ts`:
+
+   ```ts
+   import {
+     selectResolvedLLMConfig,
+     useSettingsStore,
+     type SettingsState,
+   } from "../../stores/settingsStore";
+
+   export type ChatRouteScope = "chatIntelligence" | "dictationAgent";
+
+   /** Fingerprint of where a typed chat message goes: scope, mode, provider,
+    * model and endpoint. The secret (customApiKey) and tuning
+    * (disableThinking) are left out on purpose. */
+   export function chatRouteKey(state: SettingsState, scope: ChatRouteScope): string {
+     const c = selectResolvedLLMConfig(state, scope);
+     return [c.scope, c.mode, c.provider, c.model, c.cloudMode ?? "", c.cloudBaseUrl ?? "", c.remoteUrl ?? ""].join("|");
+   }
+
+   export function useChatRouteKey(scope: ChatRouteScope): string {
+     return useSettingsStore((state) => chatRouteKey(state, scope));
+   }
+   ```
+
+3. `src/components/chat/ChatInput.tsx`:
+   - Line 1 adds `useId` to the React import.
+   - Line 17 becomes the two props below. Add `queueKey,` to the destructuring.
+
+     ```ts
+       /** Return false, or reject, when the text was not sent; the words are kept. */
+       onTextSubmit?: (text: string) => void | boolean | Promise<void | boolean>;
+       /** Where a send from here goes (conversation or context, plus route). A
+        * draft can be queued only with a key, and is sent only if the key is
+        * unchanged when the agent goes idle. */
+       queueKey?: string;
+     ```
+
+   - After `const inputRef = …` add:
+
+     ```tsx
+       // The queueKey a draft was queued for; null when nothing is queued.
+       const [queuedFor, setQueuedFor] = useState<string | null>(null);
+       const [queueDropped, setQueueDropped] = useState(false);
+       // A draft that was not sent while a newer one was already in the box.
+       const [unsent, setUnsent] = useState<string | null>(null);
+       const queued = queuedFor !== null;
+       const queuedHintId = useId();
+       const inputTextRef = useRef(inputText);
+       useLayoutEffect(() => {
+         inputTextRef.current = inputText;
+       }, [inputText]);
+     ```
+
+   - Replace `handleSubmit` (lines 86–92) with:
+
+     ```tsx
+       const handleSubmit = useCallback(async () => {
+         const text = inputText.trim();
+         if (!text || !onTextSubmit) return;
+         setQueueDropped(false);
+         // Clear at once: a send resolves only after the whole reply streams.
+         setInputText("");
+         requestAnimationFrame(() => inputRef.current?.focus());
+         let sent: void | boolean = true;
+         try {
+           sent = await onTextSubmit(text);
+         } catch {
+           sent = false;
+         }
+         if (sent !== false) return;
+         // Not sent, so nothing reached the conversation. Never lose the words:
+         // refill an empty box, or hold them beside a newer draft.
+         if (!inputTextRef.current.trim()) setInputText(text);
+         else setUnsent((held) => (held ? `${held}\n\n${text}` : text));
+       }, [inputText, onTextSubmit]);
+     ```
+
+   - In `handleKeyDown`, pass `isQueued: queued`, and replace the tail `if (action !== "submit") return; e.preventDefault(); handleSubmit();` with:
+
+     ```tsx
+           if (action === "none") return;
+           if (action === "queue" && !queueKey) return; // no destination identity: keep the draft
+           e.preventDefault();
+           if (action === "submit") void handleSubmit();
+           else if (action === "queue") {
+             setQueuedFor(queueKey ?? null);
+             setQueueDropped(false);
+           } else setQueuedFor(null);
+     ```
+
+     Add `queued` and `queueKey` to its dependency list.
+
+   - After the resize effect, add:
+
+     ```tsx
+       // A queued draft belongs to the destination it was queued for. If the
+       // conversation, context or route changes first, unqueue it and say so;
+       // the words stay for the user to send here on purpose.
+       useEffect(() => {
+         if (queuedFor !== null && queuedFor !== queueKey) {
+           setQueuedFor(null);
+           setQueueDropped(true);
+         }
+       }, [queueKey, queuedFor]);
+
+       useEffect(() => {
+         if (isIdle && queuedFor !== null && queuedFor === queueKey) {
+           setQueuedFor(null);
+           void handleSubmit();
+         }
+       }, [isIdle, queuedFor, queueKey, handleSubmit]);
+     ```
+
+   - The textarea gets `onChange={(e) => { setInputText(e.target.value); setQueueDropped(false); if (!e.target.value.trim()) setQueuedFor(null); }}` and `aria-describedby={queued ? queuedHintId : undefined}`.
+   - Stop (line 222): `onClick={() => { setQueuedFor(null); onCancel?.(); }}`.
+   - Send (line 236): `onClick={() => void handleSubmit()}`.
+   - After the container's closing `</div>`, before the outer wrapper's closing `</div>`, add:
+
+     ```tsx
          {queued && (
            <p
              id={queuedHintId}
@@ -3208,18 +3950,44 @@ In `src/components/chat/ChatInput.tsx`:
              {t("agentMode.input.queued")}
              <button
                type="button"
-               onClick={() => setQueued(false)}
+               onClick={() => setQueuedFor(null)}
                className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
              >
                {t("agentMode.input.unqueue")}
              </button>
            </p>
          )}
-   ```
+         {queueDropped && (
+           <p role="status" className="mt-1 ps-4 text-[11px] text-muted-foreground">
+             {t("agentMode.input.queueDropped")}
+           </p>
+         )}
+         {unsent !== null && (
+           <div role="alert" className="mt-1 flex flex-wrap items-center gap-2 ps-4 text-[11px] text-muted-foreground">
+             {t("agentMode.input.unsent")}
+             <button
+               type="button"
+               onClick={() => {
+                 const held = unsent;
+                 setInputText((current) => (current.trim() ? `${held}\n\n${current}` : held));
+                 setUnsent(null);
+               }}
+               className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+             >
+               {t("agentMode.input.restoreUnsent")}
+             </button>
+             <button
+               type="button"
+               onClick={() => setUnsent(null)}
+               className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+             >
+               {t("agentMode.input.discardUnsent")}
+             </button>
+           </div>
+         )}
+     ```
 
-8. Send button (line 236): change `onClick={handleSubmit}` to `onClick={() => void handleSubmit()}`. Then replace every `focus-visible:ring-1 focus-visible:ring-ring/30` in the file (lines 167, 182, 228, 242 and 264) with `focus-visible:ring-2 focus-visible:ring-ring`, the full-opacity ring from Task 3.
-
-9. Return the send result from the callers:
+4. Return the send result, and pass a queue key from every caller:
    - **`src/hooks/useEmbeddedChat.ts`:** change line 26 to `sendMessage: (text: string) => Promise<boolean>;`, and lines 145–150 to:
 
      ```ts
@@ -3229,15 +3997,43 @@ In `src/components/chat/ChatInput.tsx`:
        );
      ```
 
-   - **`src/hooks/useContainerChat.ts`:** the same change, at line 30 and lines 134–139.
-   - **Prop types:** in `src/components/notes/EmbeddedChat.tsx:20` and `src/components/notes/overview/OverviewAskSection.tsx:18`, change `onTextSubmit: (text: string) => void;` to `onTextSubmit: (text: string) => void | boolean | Promise<void | boolean>;`.
-   - **Prompt chips:** in `OverviewAskSection.tsx:72`, change `onClick={() => onTextSubmit(t(key))}` to `onClick={() => void onTextSubmit(t(key))}`.
-   - **`src/components/dictation/AssistantPanel.tsx`:** replace `handleTextSubmit` (lines 323–331) with:
+     Make the same change in `src/hooks/useContainerChat.ts` (line 30 and lines 134–139).
+   - **`src/components/notes/EmbeddedChat.tsx`:**
+     - line 20 becomes `onTextSubmit: (text: string) => void | boolean | Promise<void | boolean>;`;
+     - add `queueKey?: string;` to the props type and to the destructuring;
+     - add `queueKey={queueKey}` to its `<ChatInput>`.
+   - **`src/components/notes/overview/OverviewAskSection.tsx`:**
+     - line 18 gets the same type;
+     - add the same `queueKey` prop and forward it to its `<ChatInput>`;
+     - the chip at line 72 becomes `onClick={() => void onTextSubmit(t(key))}`.
+   - **`src/components/notes/NoteEditor.tsx`:**
+     - import `useChatRouteKey` from `../chat/chatRouteKey`;
+     - after the `useEmbeddedChat(...)` call (lines 239–245), add:
+
+       ```tsx
+         const chatRouteKeyValue = useChatRouteKey("chatIntelligence");
+         const embeddedQueueKey = `note|${note.id}|${embeddedChat.activeConversationId ?? "new"}|${chatRouteKeyValue}`;
+       ```
+
+     - add `queueKey={embeddedQueueKey}` to both `<EmbeddedChat>` elements (lines 1013 and 1030).
+   - **`src/components/notes/overview/ContainerOverview.tsx`:**
+     - import `useChatRouteKey`;
+     - after `const chat = useContainerChat(...)` (line 70), add `const routeKey = useChatRouteKey("chatIntelligence");`;
+     - pass `queueKey={`container|${space.id}|${folder?.id ?? "root"}|${chat.activeConversationId ?? "new"}|${routeKey}`}` to `<OverviewAskSection>`.
+   - **`src/components/chat/ChatView.tsx`:**
+     - import `useChatRouteKey`;
+     - add `const routeKey = useChatRouteKey("chatIntelligence");`;
+     - pass `queueKey={`chat|${activeConversationId ?? "new"}|${routeKey}`}` to `<ChatInput>`.
+   - **`src/components/dictation/AssistantPanel.tsx`:**
+     - import `useChatRouteKey`;
+     - add `const routeKey = useChatRouteKey("dictationAgent");`;
+     - pass `queueKey={`assistant|${persistence.conversationId ?? "new"}|${routeKey}|${selectedContext ? JSON.stringify(selectedContext) : ""}`}` to `<ChatInput>` (line ~533);
+     - replace `handleTextSubmit` (lines 323–331) with:
 
      ```tsx
        const handleTextSubmit = useCallback(
          (text: string): boolean | Promise<boolean> => {
-           // Not ready yet: report the refusal so ChatInput keeps the draft.
+           // Not ready yet: report the refusal so ChatInput keeps the words.
            if (!historyReady) return false;
            const context = selectedContext;
            if (context) clearSelectedContext();
@@ -3249,25 +4045,54 @@ In `src/components/chat/ChatInput.tsx`:
 
      It is also passed to `onSelectSuggestion` (line 527). A function that returns a value is assignable to a `void`-returning prop, so that call site compiles unchanged.
 
-10. Add the locale keys:
+5. Add the locale keys:
 
    ```bash
    node - <<'EOF'
    const fs = require("node:fs");
    const path = require("node:path");
+   const P = "agentMode.input.";
    const ADD = {
-     "agentMode.input.queued": {
+     [P + "queued"]: {
        en: "Sends when the reply finishes", ar: "سيُرسل عند انتهاء الرد",
        de: "Wird gesendet, sobald die Antwort fertig ist", es: "Se enviará cuando termine la respuesta",
        fr: "Sera envoyé à la fin de la réponse", it: "Verrà inviato al termine della risposta",
        ja: "返信が終わると送信されます", pt: "Será enviado quando a resposta terminar",
        ru: "Отправится, когда ответ будет готов", "zh-CN": "回复结束后发送", "zh-TW": "回覆結束後傳送",
      },
-     "agentMode.input.unqueue": {
+     [P + "unqueue"]: {
        en: "Don't send when done", ar: "عدم الإرسال عند الانتهاء", de: "Nicht automatisch senden",
        es: "No enviar al terminar", fr: "Ne pas envoyer à la fin", it: "Non inviare al termine",
        ja: "完了時に送信しない", pt: "Não enviar ao terminar", ru: "Не отправлять автоматически",
        "zh-CN": "完成后不发送", "zh-TW": "完成後不傳送",
+     },
+     [P + "queueDropped"]: {
+       en: "Not sent: the conversation or model changed. Press Enter to send it here.",
+       ar: "لم يُرسل: تغيّرت المحادثة أو النموذج. اضغط Enter لإرساله هنا.",
+       de: "Nicht gesendet: Unterhaltung oder Modell hat sich geändert. Drücke Enter, um es hier zu senden.",
+       es: "No se envió: cambió la conversación o el modelo. Pulsa Intro para enviarlo aquí.",
+       fr: "Non envoyé : la conversation ou le modèle a changé. Appuyez sur Entrée pour l'envoyer ici.",
+       it: "Non inviato: la conversazione o il modello sono cambiati. Premi Invio per inviarlo qui.",
+       ja: "送信されていません: 会話またはモデルが変わりました。ここに送るには Enter を押してください。",
+       pt: "Não enviado: a conversa ou o modelo mudou. Pressione Enter para enviar aqui.",
+       ru: "Не отправлено: изменился разговор или модель. Нажмите Enter, чтобы отправить сюда.",
+       "zh-CN": "未发送：对话或模型已更改。按 Enter 发送到这里。",
+       "zh-TW": "未傳送：對話或模型已變更。按 Enter 傳送到這裡。",
+     },
+     [P + "unsent"]: {
+       en: "Your earlier message wasn't sent.", ar: "لم تُرسل رسالتك السابقة.",
+       de: "Deine vorherige Nachricht wurde nicht gesendet.", es: "Tu mensaje anterior no se envió.",
+       fr: "Votre message précédent n'a pas été envoyé.", it: "Il messaggio precedente non è stato inviato.",
+       ja: "前のメッセージは送信されませんでした。", pt: "Sua mensagem anterior não foi enviada.",
+       ru: "Предыдущее сообщение не отправлено.", "zh-CN": "你之前的消息未发送。", "zh-TW": "你先前的訊息未傳送。",
+     },
+     [P + "restoreUnsent"]: {
+       en: "Put it back", ar: "إعادته", de: "Zurückholen", es: "Recuperarlo", fr: "Le remettre",
+       it: "Ripristina", ja: "戻す", pt: "Recuperar", ru: "Вернуть", "zh-CN": "放回", "zh-TW": "放回",
+     },
+     [P + "discardUnsent"]: {
+       en: "Discard", ar: "تجاهل", de: "Verwerfen", es: "Descartar", fr: "Ignorer", it: "Scarta",
+       ja: "破棄", pt: "Descartar", ru: "Удалить", "zh-CN": "丢弃", "zh-TW": "捨棄",
      },
    };
    for (const lang of fs.readdirSync("src/locales")) {
@@ -3288,19 +4113,19 @@ In `src/components/chat/ChatInput.tsx`:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/chatComposer.test.js test/components/fieldDirectionPolicy.test.js test/helpers/assistantPanel.test.js 'test/**/*Chat*.test.js' test/locales/translationCoverage.test.js`
+Run: `npm test -- test/helpers/chatSendOutcome.test.js test/components/chatSends.test.js test/components/chatComposer.test.js test/helpers/chatMessageSubmissionLock.test.js test/helpers/assistantPanel.test.js test/locales/translationCoverage.test.js`, then `npm run typecheck`.
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/chat/chatInputKeys.ts src/components/chat/ChatInput.tsx src/hooks/useEmbeddedChat.ts src/hooks/useContainerChat.ts src/components/notes/EmbeddedChat.tsx src/components/notes/overview/OverviewAskSection.tsx src/components/dictation/AssistantPanel.tsx src/locales test/components/chatComposer.test.js
-git commit -m "feat(chat): auto-growing composer that stays typeable while the agent works"
+git add src/components/chat src/hooks/useEmbeddedChat.ts src/hooks/useContainerChat.ts src/components/notes/EmbeddedChat.tsx src/components/notes/overview/OverviewAskSection.tsx src/components/notes/overview/ContainerOverview.tsx src/components/notes/NoteEditor.tsx src/components/dictation/AssistantPanel.tsx src/locales test/helpers/chatSendOutcome.test.js test/components/chatSends.test.js test/components/chatComposer.test.js
+git commit -m "fix(chat): queued drafts stay in their conversation; unsent words are never lost"
 ```
 
 ---
 
-### Task 13: Notes open without the Actions gate
+### Task 14: Notes open without the Actions gate
 
 Covers WS-Q7.
 
@@ -3325,7 +4150,7 @@ Covers WS-Q7.
   - `NOTES_ACTIONS_MODEL_HINT_KEY = "notesActionsModelHintDismissed"`;
   - `shouldShowActionsModelHint(ready: boolean | null, dismissed: boolean): boolean`;
   - `noteActionsReadiness(config: { mode: string; model: string; remoteUrl?: string }, downloadedModelIds: ReadonlySet<string> | null): boolean | null`;
-  - `useNoteActionsReady(): boolean | null`, where `null` means "unknown": still checking, or a remote provider. Plan 03's `useResolvedRoute("noteFormatting")` (§5.1) replaces this hook. It reports `needsKey` for remote providers too.
+  - `useNoteActionsReady(): boolean | null`, where `null` means "unknown": still checking, or a remote provider. Plan 03's `useResolvedRoute("noteFormatting")` (§5.1) replaces this hook through a consumer task that CCR 6 asks Plan 03's owner to add. Until then this is a documented partial delivery of WS-Q7's hint: local and self-hosted routes get it, and remote providers show none.
 - Consumes:
   - `useNotesOnboarding()` (`src/hooks/useNotesOnboarding.ts`);
   - `NotesOnboarding` (`{ onComplete }`);
@@ -3660,7 +4485,7 @@ git commit -m "fix(notes): render notes without the Actions gate; first run move
 
 ---
 
-### Task 14: Settings navigation semantics and real provider tabs
+### Task 15: Settings navigation semantics and real provider tabs
 
 Covers SET-Q1 and SET-Q20.
 
@@ -3668,6 +4493,7 @@ Covers SET-Q1 and SET-Q20.
 - Create: `src/components/ui/providerTabsKeys.ts`
 - Modify: `src/components/ui/SidebarModal.tsx`. Change the close button's ring (line 135), the `<nav>` (line 151) and the nav item `<button>` (lines 171–183).
 - Modify: `src/components/ui/ProviderTabs.tsx`. Change the imports (line 1), `ProviderTabItem` (lines 7–13) and the render (lines 72–123).
+- Modify: `DESIGN.md` (D10)
 - Test: `test/components/settingsNavigation.test.js`
 
 **Interfaces:**
@@ -3683,7 +4509,7 @@ Behaviour:
   - Home and End jump to the first and last enabled tab.
   - Disabled tabs are skipped. They keep the native `disabled` attribute, so they cannot take focus.
 - **Manual activation.** Enter, Space or a click selects. Some callers switch local and remote (`ReasoningModelSelector.tsx:527` mode tabs), so focus alone must never select.
-- **The settings sidebar nav** gets `aria-current="page"`, a visible 2px orange focus ring (`--color-ring` is `#ff5a1f` in both themes), an accessible name in compact mode, and an `aria-label` on `<nav>`. The ring is inset, because the nav scrolls (`overflow-y-auto`) and would clip an outset ring.
+- **The settings sidebar nav** gets `aria-current="page"`, a visible 2px orange focus ring (`--color-ring`: `#e84e16` in light after Task 3, `#ff5a1f` in Plum Night), an accessible name in compact mode, and an `aria-label` on `<nav>`. The ring is inset, because the nav scrolls (`overflow-y-auto`) and would clip an outset ring.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3866,6 +4692,13 @@ In `src/components/ui/ProviderTabs.tsx`:
                )}
    ```
 
+**DESIGN.md (D10).** In `### Navigation`, append:
+
+```markdown
+- **Settings sidebar:** the current section carries `aria-current="page"`; every item shows a 2px full-opacity `--color-ring` focus ring, inset because the list scrolls. Compact (icon-only) items are named by their label.
+- **Provider tabs:** a real tablist. Arrow keys (reversed in RTL), Home and End move focus across enabled tabs; Enter, Space or a click selects. Focus alone never switches provider, local or remote. Tabbing into the list lands on the selected tab (WAI-ARIA tabs pattern). A saved key shows as a small dot with screen-reader text.
+```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- test/components/settingsNavigation.test.js test/components/directionalContentPolicy.test.js`
@@ -3874,13 +4707,13 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/ui/providerTabsKeys.ts src/components/ui/ProviderTabs.tsx src/components/ui/SidebarModal.tsx test/components/settingsNavigation.test.js
+git add src/components/ui/providerTabsKeys.ts src/components/ui/ProviderTabs.tsx src/components/ui/SidebarModal.tsx DESIGN.md test/components/settingsNavigation.test.js
 git commit -m "fix(a11y): settings nav semantics and real provider tabs"
 ```
 
 ---
 
-### Task 15: Keyboard-selectable model cards
+### Task 16: Keyboard-selectable model cards
 
 Covers SET-Q2.
 
@@ -3891,6 +4724,7 @@ Covers SET-Q2.
   - the `ModelCardList` render (lines 258–273).
 - Modify: `src/components/ui/SearchableModelList.tsx:244`. Pass `selectionRole="none"`.
 - Modify: `src/locales/*/translation.json`. Add `models.deleteNamed` and `models.listLabel`.
+- Modify: `DESIGN.md` (D10)
 - Test: `test/components/modelCardKeyboard.test.js`
 
 **Interfaces:**
@@ -4143,6 +4977,8 @@ Expected: FAIL on the `role="radiogroup"` match.
    EOF
    ```
 
+**DESIGN.md (D10).** In `### Chips`, append to the **State** bullet: "Model cards are radios in a labelled radiogroup: the whole card is the hit area, Enter or Space selects, arrow keys never do (a card can be remote), and a not-yet-downloaded local model is `aria-disabled` but still focusable. Card actions (delete, download, cancel, Learn more) keep their own names; delete appears on hover or keyboard focus."
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- test/components/modelCardKeyboard.test.js test/components/directionalContentPolicy.test.js test/components/orukeetOrganization.test.js test/locales/translationCoverage.test.js`
@@ -4151,13 +4987,13 @@ Expected: PASS. If an existing test clicks the card root via `__reactProps$…on
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/ui/ModelCardList.tsx src/components/ui/SearchableModelList.tsx src/locales test/components/modelCardKeyboard.test.js
+git add src/components/ui/ModelCardList.tsx src/components/ui/SearchableModelList.tsx src/locales DESIGN.md test/components/modelCardKeyboard.test.js
 git commit -m "fix(a11y): keyboard-selectable model cards with a named delete"
 ```
 
 ---
 
-### Task 16: Manual update check works with automatic updates off
+### Task 17: Manual update check works with automatic updates off
 
 Covers SET-Q16, plus the `ml-2` RTL leak in the same file (part of SET-Q6).
 
@@ -4410,7 +5246,7 @@ git commit -m "fix(updates): manual check works with automatic updates off"
 
 ---
 
-### Task 17: Honest settings copy
+### Task 18: Honest settings copy
 
 Covers:
 - SET-Q6 (the rest): the setup card strings and CodexConnection's `ml-2`;
@@ -4673,43 +5509,69 @@ git commit -m "fix(settings): translated setup card, honest Bedrock fields, neut
 
 ---
 
-### Task 18: Clear All Audio confirms with counts and reports failures
+### Task 19: Clear All Audio confirms with counts and reports failures honestly
 
 Covers SET-Q5.
 
 **Files:**
-- Create: `src/utils/audioDeletion.ts`
-- Modify: `src/helpers/audioStorage.js`. `deleteAllAudio()` (lines 167–187) and `getStorageUsage()` (lines 189–206) report failures instead of swallowing them.
-- Modify: `src/types/electron.ts:857-858`, and `src/preview/browserPreview.ts:276`.
+- Create: `src/utils/audioDeletion.ts` (pure outcome)
+- Create: `src/helpers/audioFlagReconcile.js` (main-process flag reconciliation)
+- Create: `src/hooks/useAudioStorageUsage.ts`
+- Create: `src/components/settings/AudioStorageRow.tsx`
+- Modify: `src/helpers/audioStorage.js`:
+  - `deleteAllAudio()` and `getStorageUsage()` (lines 167–206) report failures;
+  - add `remainingAudioIds()`.
+- Modify: `src/helpers/ipcHandlers.js:1400-1417` (`delete-all-audio`). Unflag only recordings whose file is really gone.
+- Modify: `src/types/electron.ts:857-858` and `src/preview/browserPreview.ts:276`.
 - Modify: `src/components/SettingsPage.tsx`:
   - imports (near line 102);
-  - state and the usage fetch (lines 1116–1129);
-  - the `handleClearAllAudio` handler (lines 1146–1155);
-  - the Clear All Audio row (lines 2793–2815).
+  - remove the usage state and effect (lines 1116–1129);
+  - replace `handleClearAllAudio` (lines 1146–1155);
+  - replace the row (lines 2794–2814).
 - Modify: `src/locales/*/translation.json`:
-  - add `settingsPage.privacy.clearAllAudioTitle`, `clearAllAudioCounted`, `clearAllAudioAction`, `clearAllAudioDone` and `clearAllAudioFailed`;
+  - add `settingsPage.privacy.clearAllAudioTitle`, `clearAllAudioCounted`, `clearAllAudioAction`, `clearAllAudioDone`, `clearAllAudioFailed`, `audioStorageChecking` and `audioStorageUnavailable`;
   - delete the unused `clearAllAudioConfirm`.
-- Test: `test/helpers/audioStorageClear.test.js` (the real main helper) and `test/components/clearAllAudio.test.js`
+- Test:
+  - `test/helpers/audioStorageClear.test.js`: the real main helper, plus flag reconciliation;
+  - `test/hooks/useAudioStorageUsage.test.js`;
+  - `test/components/audioStorageRow.test.js`;
+  - `test/components/clearAllAudio.test.js`.
 
-**Interfaces:**
-- Produces, in main (`AudioStorageManager`):
-  - `deleteAllAudio(): { deleted: number; failed: number; readable: boolean }`. `deleted` counts files actually unlinked; `failed` counts files that could not be. When the audio directory cannot be read, the result is `{ deleted: 0, failed: 0, readable: false }`.
-  - `getStorageUsage(): { fileCount: number; totalBytes: number; readable: boolean }`. When the directory cannot be read, the result is `{ fileCount: 0, totalBytes: 0, readable: false }`. Before this change it returned zeros that looked like an empty store.
-  - The IPC channels (`delete-all-audio`, `get-audio-storage-usage`) and preload methods are unchanged and pass these through. The other `deleteAllAudio()` callers (`ipcHandlers.js:1288` and `:3165`) ignore the result, so they are unaffected.
-- Produces `resolveClearAudioOutcome(deleted: { failed: number; readable: boolean } | null, after: { fileCount: number; readable: boolean } | null): "cleared" | "partial"`.
-- Consumes:
-  - `showConfirmDialog` from `useDialogs` (destructured in `SettingsPage.tsx:970-976`);
-  - `formatBytes` (`SettingsPage.tsx:102`);
-  - the electron stub harness (`test/helpers/harness/electronStub.js`: `installElectronStub`, `setUserDataDir`), the same one `test/helpers/audioStorageTraversal.test.js` uses.
+**Interfaces (CCR 5; Plan 03 must preserve them):**
+- **Main, `AudioStorageManager`:**
+  - `deleteAllAudio(): { deleted: number; failed: number; readable: boolean }`. `deleted` counts files actually unlinked, and `failed` counts files that could not be. An unreadable folder returns `{ deleted: 0, failed: 0, readable: false }`.
+  - `getStorageUsage(): { fileCount: number; totalBytes: number; readable: boolean }`. An unreadable folder returns `readable: false`, never a zero that looks empty.
+  - `remainingAudioIds(): Set<string> | null` returns the transcription ids that still have a file, or `null` when the folder cannot be read.
+- **Main, `clearFlagsForDeletedAudio({ audioStorage, database }): number[]`** (`src/helpers/audioFlagReconcile.js`). It clears `has_audio` only for rows whose file is gone, and returns the cleared ids. With an unreadable folder it clears nothing.
+- The IPC channels and preload methods are unchanged and pass the new fields through. The other `deleteAllAudio()` callers (`ipcHandlers.js:1288` and `:3165`) ignore the result.
+- **Renderer:**
+  - `resolveClearAudioOutcome(deleted: { failed: number; readable: boolean } | null, after: { fileCount: number; readable: boolean } | null): "cleared" | "partial"`.
+  - `type AudioUsage = { status: "loading" } | { status: "known"; fileCount: number; totalBytes: number } | { status: "unavailable" }`.
+  - `useAudioStorageUsage(active: boolean): { usage: AudioUsage; refresh(): Promise<AudioUsage>; clearAll(): Promise<"cleared" | "partial"> }`.
+  - `AudioStorageRow({ usage, clearError, onClear, onRetry })`.
+- **Consumes:**
+  - `showConfirmDialog` from `useDialogs` (`SettingsPage.tsx:970-976`);
+  - `formatBytes` (`src/utils/formatBytes`);
+  - `SettingsRow` from `src/components/ui/SettingsSection.tsx`;
+  - `installElectronStub` and `setUserDataDir` (`test/helpers/harness/electronStub.js`);
+  - `rendererOptions` (Task 4).
 
 Facts from the code:
-- **`deleteAllAudio` never reports a failure today.**
-  - Per-file unlink errors are only logged (`src/helpers/audioStorage.js:171-178`).
-  - It returns `{ deleted: files.length }` even when some unlinks failed.
-  - An unreadable directory returns `{ deleted: 0 }`.
-- **`getStorageUsage` hides an unreadable directory.** It catches the read error and returns `{ fileCount: 0, totalBytes: 0 }` (lines 202–204). Reading usage back after a delete could therefore "confirm" an empty store that was never read. Both helpers now carry `readable`, and only a readable, zero-file store with zero failures counts as cleared.
+- **`deleteAllAudio` never reports a failure today.** Unlink errors are only logged (`audioStorage.js:171-178`). It returns `{ deleted: files.length }` even when unlinks failed, and `{ deleted: 0 }` for an unreadable folder.
+- **`getStorageUsage` hides an unreadable folder.** It catches the read error and returns zeros (lines 202–204). The Settings row then says "No audio files stored" and disables Clear.
+- **`delete-all-audio` clears `has_audio` on every row afterwards** (`ipcHandlers.js:1400-1417`). It does so even when files survived. `TranscriptionItem.tsx:97` uses that flag to offer playback, so surviving recordings would lose their history access.
+  - Audio files are named `OpenWhispr-…-<id>.webm` or `<id>.webm` (`audioStorage.js:38-46`, lookup at 75–86). That is enough to tell which ids still have a file.
+- **The usage fetch's callback is annotated** `(usage: { fileCount: number; totalBytes: number })` (`SettingsPage.tsx:1125`). Adding `readable` without removing that annotation fails typecheck. The new hook drops the annotation and takes its type from `src/types/electron.ts`.
 - **`ConfirmDialog` does not await `onConfirm`** (`src/components/ui/dialog.tsx:108-190`), so the async work handles its own errors.
-- **`delete-all-audio` clears every row's `has_audio` flag** (`ipcHandlers.js:1400-1417`), even when some files survive. That is out of scope here. The alert tells the user that files remain, and the row's count, read from disk, shows how many.
+
+Behaviour:
+- **States.** Usage is "checking", a known count, or "unavailable". The unavailable state reads "Loqui couldn't read its audio folder, so it can't show or clear stored audio right now." In place of Clear it shows Retry.
+- **Fresh count before confirming.** Clear All re-reads the folder first.
+  - If that read fails, the row turns unavailable and no confirmation opens. A stale count is never presented as current.
+  - Otherwise the confirmation names the fresh count and size.
+- **Outcome.** After deleting, the row re-reads the folder.
+  - "Cleared" is shown only when main deleted everything it could read and the folder reads back readable and empty.
+  - Anything else shows an alert below the row. The row shows what remains, or "unavailable".
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4726,6 +5588,7 @@ const { installElectronStub, setUserDataDir } = require("./harness/electronStub.
 
 installElectronStub();
 const AudioStorageManager = require("../../src/helpers/audioStorage.js");
+const { clearFlagsForDeletedAudio } = require("../../src/helpers/audioFlagReconcile.js");
 
 function makeManager(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-audio-clear-"));
@@ -4734,9 +5597,22 @@ function makeManager(t) {
   return { manager: new AudioStorageManager(), root };
 }
 
+// The slice of DatabaseManager the reconciliation uses.
+function fakeDatabase(ids) {
+  const cleared = [];
+  return {
+    cleared,
+    db: { prepare: () => ({ all: () => ids.map((id) => ({ id })) }) },
+    clearAudioFlags(list) {
+      cleared.push(...list);
+      return { success: true };
+    },
+  };
+}
+
 test("a clean delete reports every file and leaves a readable, empty store", (t) => {
   const { manager } = makeManager(t);
-  fs.writeFileSync(path.join(manager.audioDir, "1.webm"), "a");
+  fs.writeFileSync(path.join(manager.audioDir, "OpenWhispr-2026-10-15-09-00-00-1.webm"), "a");
   fs.writeFileSync(path.join(manager.audioDir, "2.webm"), "bb");
   assert.deepEqual(manager.getStorageUsage(), { fileCount: 2, totalBytes: 3, readable: true });
   assert.deepEqual(manager.deleteAllAudio(), { deleted: 2, failed: 0, readable: true });
@@ -4747,8 +5623,9 @@ test("a file that cannot be deleted is counted as a failure, not as deleted", (t
   const { manager } = makeManager(t);
   fs.writeFileSync(path.join(manager.audioDir, "1.webm"), "a");
   // A directory with the .webm suffix: unlinkSync refuses it on every platform.
-  fs.mkdirSync(path.join(manager.audioDir, "2.webm"));
+  fs.mkdirSync(path.join(manager.audioDir, "OpenWhispr-2026-10-15-09-00-00-2.webm"));
   assert.deepEqual(manager.deleteAllAudio(), { deleted: 1, failed: 1, readable: true });
+  assert.deepEqual([...manager.remainingAudioIds()], ["2"]);
 });
 
 test("an unreadable store is reported, never counted as empty", (t) => {
@@ -4756,6 +5633,161 @@ test("an unreadable store is reported, never counted as empty", (t) => {
   manager.audioDir = path.join(root, "missing");
   assert.deepEqual(manager.getStorageUsage(), { fileCount: 0, totalBytes: 0, readable: false });
   assert.deepEqual(manager.deleteAllAudio(), { deleted: 0, failed: 0, readable: false });
+  assert.equal(manager.remainingAudioIds(), null);
+});
+
+test("after a partial delete, only recordings whose file is gone lose their audio flag", (t) => {
+  const { manager } = makeManager(t);
+  fs.writeFileSync(path.join(manager.audioDir, "1.webm"), "a");
+  fs.mkdirSync(path.join(manager.audioDir, "2.webm")); // survives the delete
+  manager.deleteAllAudio();
+  const database = fakeDatabase([1, 2, 3]);
+  assert.deepEqual(clearFlagsForDeletedAudio({ audioStorage: manager, database }), [1, 3]);
+  assert.deepEqual(database.cleared, [1, 3], "recording 2 keeps history playback");
+});
+
+test("an unreadable store clears no audio flags", (t) => {
+  const { manager, root } = makeManager(t);
+  manager.audioDir = path.join(root, "missing");
+  const database = fakeDatabase([1, 2]);
+  assert.deepEqual(clearFlagsForDeletedAudio({ audioStorage: manager, database }), []);
+  assert.deepEqual(database.cleared, []);
+});
+
+test("the delete-all IPC handler reconciles flags through the helper", () => {
+  const ipc = fs.readFileSync(path.join(__dirname, "../../src/helpers/ipcHandlers.js"), "utf8");
+  const handler = ipc.match(/ipcMain\.handle\("delete-all-audio"[\s\S]*?\n {4}\}\);/)[0];
+  assert.match(handler, /clearFlagsForDeletedAudio\(\{/);
+  assert.doesNotMatch(handler, /rows\.map\(\(r\) => r\.id\)\)/, "no blanket unflagging");
+});
+```
+
+Create `test/hooks/useAudioStorageUsage.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
+
+async function mountUsage(t, electronAPI) {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t, { window: { electronAPI } });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-audio-usage-" });
+  const { useAudioStorageUsage } = await vite.ssrLoadModule("/hooks/useAudioStorageUsage.ts");
+  const api = {};
+  function Harness() {
+    Object.assign(api, useAudioStorageUsage(true));
+    return null;
+  }
+  // Each act yields a macrotask so the async IPC reads settle before asserting.
+  const run = (fn) =>
+    React.act(async () => {
+      await fn();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  root = createRoot(container);
+  await run(() => root.render(React.createElement(Harness)));
+  return { api, run };
+}
+
+test("an unreadable first read is unavailable, not empty", async (t) => {
+  const h = await mountUsage(t, {
+    getAudioStorageUsage: async () => ({ fileCount: 0, totalBytes: 0, readable: false }),
+  });
+  assert.deepEqual(h.api.usage, { status: "unavailable" });
+});
+
+test("a rejected read is unavailable", async (t) => {
+  const h = await mountUsage(t, {
+    getAudioStorageUsage: async () => {
+      throw new Error("ipc down");
+    },
+  });
+  assert.deepEqual(h.api.usage, { status: "unavailable" });
+});
+
+test("a failed refresh after a good count does not keep the stale count", async (t) => {
+  let readable = true;
+  const h = await mountUsage(t, {
+    getAudioStorageUsage: async () =>
+      readable ? { fileCount: 4, totalBytes: 900, readable: true } : { fileCount: 0, totalBytes: 0, readable: false },
+  });
+  assert.deepEqual(h.api.usage, { status: "known", fileCount: 4, totalBytes: 900 });
+  readable = false;
+  await h.run(() => h.api.refresh());
+  assert.deepEqual(h.api.usage, { status: "unavailable" });
+});
+
+test("clearing reports partial when files survive or the store cannot be re-read", async (t) => {
+  let after = { fileCount: 0, totalBytes: 0, readable: true };
+  const h = await mountUsage(t, {
+    getAudioStorageUsage: async () => after,
+    deleteAllAudio: async () => ({ deleted: 2, failed: 1, readable: true }),
+  });
+  let outcome;
+  await h.run(async () => {
+    outcome = await h.api.clearAll();
+  });
+  assert.equal(outcome, "partial", "a failed unlink is never 'cleared'");
+  after = { fileCount: 0, totalBytes: 0, readable: false };
+  await h.run(async () => {
+    outcome = await h.api.clearAll();
+  });
+  assert.equal(outcome, "partial");
+  assert.deepEqual(h.api.usage, { status: "unavailable" });
+});
+```
+
+Create `test/components/audioStorageRow.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { createElement } = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
+
+async function render(t, props) {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, rendererOptions("loqui-audio-storage-row-"));
+  const { AudioStorageRow } = await vite.ssrLoadModule("/components/settings/AudioStorageRow.tsx");
+  return renderToStaticMarkup(
+    createElement(AudioStorageRow, { clearError: false, onClear() {}, onRetry() {}, ...props })
+  );
+}
+
+test("an unreadable store says so and offers Retry, never 'no audio'", async (t) => {
+  const html = await render(t, { usage: { status: "unavailable" } });
+  assert.match(html, /settingsPage\.privacy\.audioStorageUnavailable/);
+  assert.doesNotMatch(html, /settingsPage\.privacy\.audioStorageEmpty/);
+  assert.match(html, />common\.retry</);
+  assert.doesNotMatch(html, /settingsPage\.privacy\.clearAllAudio</);
+});
+
+test("while checking, Clear is disabled and nothing claims the store is empty", async (t) => {
+  const html = await render(t, { usage: { status: "loading" } });
+  assert.match(html, /settingsPage\.privacy\.audioStorageChecking/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*>settingsPage\.privacy\.clearAllAudio</);
+});
+
+test("a known count is shown and a failed clear raises an alert", async (t) => {
+  const html = await render(t, {
+    usage: { status: "known", fileCount: 3, totalBytes: 2_000_000 },
+    clearError: true,
+  });
+  assert.match(html, /settingsPage\.privacy\.audioStorageFiles\(count=3,size=/);
+  assert.match(html, /role="alert"[^>]*>settingsPage\.privacy\.clearAllAudioFailed/);
 });
 ```
 
@@ -4784,40 +5816,33 @@ test("only a clean delete of a readable store that reads back empty counts as cl
   assert.equal(resolveClearAudioOutcome(null, null), "partial");
 });
 
-test("clearing audio asks first, with a fresh count and size", () => {
+test("Clear All re-reads before confirming and never confirms a stale count", () => {
   const handler = page.match(/const handleClearAllAudio = async \(\) => \{[\s\S]*?\n {2}\};/)[0];
-  assert.match(handler, /getAudioStorageUsage/);
+  assert.match(handler, /const current = await audioStorage\.refresh\(\);/);
+  assert.match(handler, /if \(current\.status !== "known"\) return;/);
   assert.match(handler, /showConfirmDialog\(\{/);
   assert.match(handler, /variant: "destructive"/);
   assert.match(handler, /t\("settingsPage\.privacy\.clearAllAudioCounted"/);
-  assert.match(handler, /t\("settingsPage\.privacy\.audioStorageFiles"/);
-});
-
-test("a partial or unverifiable delete is reported in an alert, never swallowed", () => {
   assert.doesNotMatch(page, /\/\/ silent fail/);
-  assert.match(page, /resolveClearAudioOutcome\(deleted, after\)/);
-  assert.match(
-    page,
-    /\{clearAudioError && \(\s*<p role="alert" className="mt-2 text-xs text-destructive">\s*\{t\("settingsPage\.privacy\.clearAllAudioFailed"\)\}/
-  );
+  assert.doesNotMatch(page, /audioStorageUsage\b/, "the old zero-default state is gone");
 });
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/helpers/audioStorageClear.test.js test/components/clearAllAudio.test.js`
+Run: `npm test -- test/helpers/audioStorageClear.test.js test/hooks/useAudioStorageUsage.test.js test/components/audioStorageRow.test.js test/components/clearAllAudio.test.js`
 Expected: FAIL.
 - `getStorageUsage()` lacks `readable`.
-- The undeletable directory is counted in `deleted: 2`.
-- `audioDeletion.ts` is missing.
+- The undeletable directory counts as deleted.
+- The new modules are missing.
 
 - [ ] **Step 3: Implement**
 
-1. `src/helpers/audioStorage.js`. Replace `deleteAllAudio()` and `getStorageUsage()` (lines 167–206) with:
+1. **`src/helpers/audioStorage.js`.** Replace `deleteAllAudio()` and `getStorageUsage()` (lines 167–206) with the three methods below.
 
    ```js
      // Reports what actually happened: an unlink failure is counted, and an
-     // unreadable directory is never reported as an empty store.
+     // unreadable folder is never reported as an empty store.
      deleteAllAudio() {
        let files;
        try {
@@ -4863,18 +5888,75 @@ Expected: FAIL.
          return { fileCount: 0, totalBytes: 0, readable: false };
        }
      }
+
+     // Transcription ids that still have an audio file, or null when the folder
+     // cannot be read. Filenames end in "-<id>.webm" or are "<id>.webm"
+     // (_buildFilename).
+     remainingAudioIds() {
+       try {
+         const ids = new Set();
+         for (const file of fs.readdirSync(this.audioDir)) {
+           const match = /(?:^|-)(\d+)\.webm$/.exec(file);
+           if (match) ids.add(match[1]);
+         }
+         return ids;
+       } catch {
+         return null;
+       }
+     }
    ```
 
-2. `src/types/electron.ts:857-858` become:
+2. **Create `src/helpers/audioFlagReconcile.js`:**
+
+   ```js
+   // After "delete all audio", unflag only the recordings whose file is really
+   // gone. A file that survived a failed delete keeps its history playback; an
+   // unreadable folder unflags nothing, because nothing can be confirmed gone.
+   function clearFlagsForDeletedAudio({ audioStorage, database }) {
+     const remaining = audioStorage.remainingAudioIds();
+     if (remaining === null) return [];
+     const rows = database.db.prepare("SELECT id FROM transcriptions WHERE has_audio = 1").all();
+     const gone = rows.map((row) => row.id).filter((id) => !remaining.has(String(id)));
+     if (gone.length > 0) database.clearAudioFlags(gone);
+     return gone;
+   }
+
+   module.exports = { clearFlagsForDeletedAudio };
+   ```
+
+3. **`src/helpers/ipcHandlers.js`.**
+   - Add `const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");` with the other local requires.
+   - Replace the `delete-all-audio` handler (lines 1400–1417) with:
+
+   ```js
+       ipcMain.handle("delete-all-audio", async () => {
+         const result = this.audioStorageManager.deleteAllAudio();
+         try {
+           clearFlagsForDeletedAudio({
+             audioStorage: this.audioStorageManager,
+             database: this.databaseManager,
+           });
+         } catch (error) {
+           debugLogger.error(
+             "Failed to clear audio flags after delete-all",
+             { error: error.message },
+             "audio-storage"
+           );
+         }
+         return result;
+       });
+   ```
+
+4. **`src/types/electron.ts:857-858`** become:
 
    ```ts
          getAudioStorageUsage: () => Promise<{ fileCount: number; totalBytes: number; readable: boolean }>;
          deleteAllAudio: () => Promise<{ deleted: number; failed: number; readable: boolean }>;
    ```
 
-   In `src/preview/browserPreview.ts:276`, add `readable: true` to the stub's result: `getAudioStorageUsage: async () => ({ fileCount: 0, totalBytes: 0, readable: true }),`.
+   In `src/preview/browserPreview.ts:276`, the stub becomes `getAudioStorageUsage: async () => ({ fileCount: 0, totalBytes: 0, readable: true }),`.
 
-3. Create `src/utils/audioDeletion.ts`:
+5. **Create `src/utils/audioDeletion.ts`:**
 
    ```ts
    export type ClearAudioOutcome = "cleared" | "partial";
@@ -4892,66 +5974,185 @@ Expected: FAIL.
    }
    ```
 
-4. `src/components/SettingsPage.tsx`:
-   - Add `import { resolveClearAudioOutcome } from "../utils/audioDeletion";` next to the `formatBytes` import.
-   - After the `audioStorageUsage` state (line 1119), add `const [clearAudioError, setClearAudioError] = useState(false);`.
-   - In the usage fetch effect (lines 1121–1128), change `if (usage) setAudioStorageUsage(usage);` to `if (usage?.readable) setAudioStorageUsage(usage);`. An unreadable store must not show "no stored audio".
+6. **Create `src/hooks/useAudioStorageUsage.ts`:**
+
+   ```ts
+   import { useCallback, useEffect, useState } from "react";
+   import { resolveClearAudioOutcome, type ClearAudioOutcome } from "../utils/audioDeletion";
+
+   export type AudioUsage =
+     | { status: "loading" }
+     | { status: "known"; fileCount: number; totalBytes: number }
+     | { status: "unavailable" };
+
+   /** Stored-audio usage for Settings. An unreadable folder or a failed read is
+    * "unavailable", never zero, and a failed refresh replaces an older count
+    * instead of leaving it on screen as if it were current. */
+   export function useAudioStorageUsage(active: boolean) {
+     const [usage, setUsage] = useState<AudioUsage>({ status: "loading" });
+
+     const refresh = useCallback(async (): Promise<AudioUsage> => {
+       let next: AudioUsage = { status: "unavailable" };
+       try {
+         const read = await window.electronAPI?.getAudioStorageUsage?.();
+         if (read?.readable) {
+           next = { status: "known", fileCount: read.fileCount, totalBytes: read.totalBytes };
+         }
+       } catch {
+         // stays unavailable
+       }
+       setUsage(next);
+       return next;
+     }, []);
+
+     useEffect(() => {
+       if (active) void refresh();
+     }, [active, refresh]);
+
+     const clearAll = useCallback(async (): Promise<ClearAudioOutcome> => {
+       let deleted: { failed: number; readable: boolean } | null = null;
+       try {
+         deleted = (await window.electronAPI?.deleteAllAudio?.()) ?? null;
+       } catch {
+         deleted = null;
+       }
+       const after = await refresh();
+       return resolveClearAudioOutcome(
+         deleted,
+         after.status === "known" ? { fileCount: after.fileCount, readable: true } : null
+       );
+     }, [refresh]);
+
+     return { usage, refresh, clearAll };
+   }
+   ```
+
+7. **Create `src/components/settings/AudioStorageRow.tsx`:**
+
+   ```tsx
+   import { useTranslation } from "react-i18next";
+   import type { AudioUsage } from "../../hooks/useAudioStorageUsage";
+   import { formatBytes } from "../../utils/formatBytes";
+   import { Button } from "../ui/button";
+   import { SettingsRow } from "../ui/SettingsSection";
+
+   interface AudioStorageRowProps {
+     usage: AudioUsage;
+     clearError: boolean;
+     onClear: () => void;
+     onRetry: () => void;
+   }
+
+   export function AudioStorageRow({ usage, clearError, onClear, onRetry }: AudioStorageRowProps) {
+     const { t } = useTranslation();
+     const description =
+       usage.status === "loading"
+         ? t("settingsPage.privacy.audioStorageChecking")
+         : usage.status === "unavailable"
+           ? t("settingsPage.privacy.audioStorageUnavailable")
+           : usage.fileCount > 0
+             ? t("settingsPage.privacy.audioStorageFiles", {
+                 count: usage.fileCount,
+                 size: formatBytes(usage.totalBytes),
+               })
+             : t("settingsPage.privacy.audioStorageEmpty");
+     return (
+       <>
+         <SettingsRow label={t("settingsPage.privacy.audioStorageUsage")} description={description}>
+           {usage.status === "unavailable" ? (
+             <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onRetry}>
+               {t("common.retry")}
+             </Button>
+           ) : (
+             <Button
+               variant="outline"
+               size="sm"
+               className="h-7 text-xs"
+               disabled={usage.status !== "known" || usage.fileCount === 0}
+               onClick={onClear}
+             >
+               {t("settingsPage.privacy.clearAllAudio")}
+             </Button>
+           )}
+         </SettingsRow>
+         {clearError && (
+           <p role="alert" className="mt-2 text-xs text-destructive">
+             {t("settingsPage.privacy.clearAllAudioFailed")}
+           </p>
+         )}
+       </>
+     );
+   }
+   ```
+
+8. **`src/components/SettingsPage.tsx`:**
+   - Add these imports:
+
+     ```ts
+     import { useAudioStorageUsage } from "../hooks/useAudioStorageUsage";
+     import { AudioStorageRow } from "./settings/AudioStorageRow";
+     ```
+
+   - Delete the `audioStorageUsage` state and its fetch effect (lines 1116–1129). Put this in their place:
+
+     ```tsx
+       const audioStorage = useAudioStorageUsage(activeSection === "privacyData");
+       const [clearAudioError, setClearAudioError] = useState(false);
+     ```
+
    - Replace `handleClearAllAudio` (lines 1146–1155) with:
 
-   ```tsx
-     const clearAllAudio = async () => {
-       setClearAudioError(false);
-       let deleted: { deleted: number; failed: number; readable: boolean } | null = null;
-       let after: { fileCount: number; totalBytes: number; readable: boolean } | null = null;
-       try {
-         deleted = await window.electronAPI.deleteAllAudio();
-         after = (await window.electronAPI.getAudioStorageUsage?.()) ?? null;
-       } catch {
-         // Leave whatever we learned; an unknown result is reported as partial.
-       }
-       if (after?.readable) setAudioStorageUsage(after);
-       if (resolveClearAudioOutcome(deleted, after) === "cleared") {
-         toast({ title: t("settingsPage.privacy.clearAllAudioDone"), variant: "default" });
-       } else {
-         setClearAudioError(true);
-       }
-     };
-
-     const handleClearAllAudio = async () => {
-       if (!window.electronAPI?.deleteAllAudio) return;
-       // Count what is on disk now, not when the section opened.
-       const usage = await window.electronAPI
-         .getAudioStorageUsage?.()
-         .catch(() => null);
-       const current = usage?.readable ? usage : audioStorageUsage;
-       if (usage?.readable) setAudioStorageUsage(usage);
-       showConfirmDialog({
-         title: t("settingsPage.privacy.clearAllAudioTitle"),
-         description: t("settingsPage.privacy.clearAllAudioCounted", {
-           summary: t("settingsPage.privacy.audioStorageFiles", {
-             count: current.fileCount,
-             size: formatBytes(current.totalBytes),
+     ```tsx
+       const handleClearAllAudio = async () => {
+         setClearAudioError(false);
+         // Count what is on disk now. A failed read turns the row "unavailable"
+         // and opens no confirmation: a stale count is never shown as current.
+         const current = await audioStorage.refresh();
+         if (current.status !== "known") return;
+         showConfirmDialog({
+           title: t("settingsPage.privacy.clearAllAudioTitle"),
+           description: t("settingsPage.privacy.clearAllAudioCounted", {
+             summary: t("settingsPage.privacy.audioStorageFiles", {
+               count: current.fileCount,
+               size: formatBytes(current.totalBytes),
+             }),
            }),
-         }),
-         confirmText: t("settingsPage.privacy.clearAllAudioAction"),
-         cancelText: t("common.cancel"),
-         variant: "destructive",
-         onConfirm: () => void clearAllAudio(),
-       });
-     };
+           confirmText: t("settingsPage.privacy.clearAllAudioAction"),
+           cancelText: t("common.cancel"),
+           variant: "destructive",
+           onConfirm: () =>
+             void (async () => {
+               const outcome = await audioStorage.clearAll();
+               if (outcome === "cleared") {
+                 toast({ title: t("settingsPage.privacy.clearAllAudioDone"), variant: "default" });
+               } else {
+                 setClearAudioError(true);
+               }
+             })(),
+         });
+       };
+     ```
+
+   - Replace the row's `<SettingsRow …>…</SettingsRow>` (lines 2794–2814, inside its existing `<SettingsPanelRow>`) with:
+
+     ```tsx
+                     <AudioStorageRow
+                       usage={audioStorage.usage}
+                       clearError={clearAudioError}
+                       onClear={() => void handleClearAllAudio()}
+                       onRetry={() => void audioStorage.refresh()}
+                     />
+     ```
+
+   - Keep `formatBytes`, which the handler still uses.
+
+9. Locale changes. Run this from the repo root first, and confirm nothing reads the key being deleted; it must print nothing:
+
+   ```bash
+   grep -rn "clearAllAudioConfirm" src --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx'
    ```
 
-   - In the Clear All Audio row, change `onClick={handleClearAllAudio}` to `onClick={() => void handleClearAllAudio()}`. After its closing `</SettingsRow>` (line 2814), still inside `<SettingsPanelRow>`, add:
-
-   ```tsx
-                     {clearAudioError && (
-                       <p role="alert" className="mt-2 text-xs text-destructive">
-                         {t("settingsPage.privacy.clearAllAudioFailed")}
-                       </p>
-                     )}
-   ```
-
-5. Locale changes:
+   Then apply the changes:
 
    ```bash
    node - <<'EOF'
@@ -4990,17 +6191,37 @@ Expected: FAIL.
        "zh-CN": "已删除存储的音频", "zh-TW": "已刪除儲存的音訊",
      },
      [P + "clearAllAudioFailed"]: {
-       en: "Some audio files could not be deleted. The count above shows what remains. Try again, or check that no other app is using them.",
-       ar: "تعذّر حذف بعض الملفات الصوتية. يوضّح العدد أعلاه ما تبقّى. حاول مرة أخرى، أو تأكد من أن أي تطبيق آخر لا يستخدمها.",
-       de: "Einige Audiodateien konnten nicht gelöscht werden. Die Anzahl oben zeigt, was übrig ist. Versuche es erneut oder prüfe, ob eine andere App sie verwendet.",
-       es: "No se pudieron eliminar algunos archivos de audio. El recuento de arriba muestra lo que queda. Inténtalo de nuevo o comprueba que ninguna otra app los esté usando.",
-       fr: "Certains fichiers audio n'ont pas pu être supprimés. Le total ci-dessus indique ce qui reste. Réessayez ou vérifiez qu'aucune autre app ne les utilise.",
-       it: "Alcuni file audio non sono stati eliminati. Il conteggio qui sopra indica cosa rimane. Riprova o verifica che nessun'altra app li stia usando.",
-       ja: "一部の音声ファイルを削除できませんでした。残りは上の件数で確認できます。もう一度試すか、他のアプリが使用していないか確認してください。",
-       pt: "Alguns arquivos de áudio não puderam ser excluídos. A contagem acima mostra o que resta. Tente novamente ou verifique se outro app está usando-os.",
-       ru: "Не удалось удалить некоторые аудиофайлы. Счётчик выше показывает, что осталось. Повторите попытку или проверьте, не использует ли их другое приложение.",
-       "zh-CN": "部分音频文件无法删除。上方的数量显示剩余文件。请重试，或检查是否有其他应用正在使用它们。",
-       "zh-TW": "部分音訊檔案無法刪除。上方的數量顯示剩餘檔案。請再試一次，或確認沒有其他應用程式正在使用它們。",
+       en: "Not all stored audio was deleted. Try again, or check that no other app is using the files.",
+       ar: "لم يُحذف كل الصوت المخزّن. حاول مرة أخرى، أو تأكد من أن أي تطبيق آخر لا يستخدم الملفات.",
+       de: "Nicht alle gespeicherten Audiodateien wurden gelöscht. Versuche es erneut oder prüfe, ob eine andere App die Dateien verwendet.",
+       es: "No se eliminó todo el audio almacenado. Inténtalo de nuevo o comprueba que ninguna otra app esté usando los archivos.",
+       fr: "Tout l'audio stocké n'a pas été supprimé. Réessayez ou vérifiez qu'aucune autre app n'utilise les fichiers.",
+       it: "Non tutto l'audio salvato è stato eliminato. Riprova o verifica che nessun'altra app stia usando i file.",
+       ja: "保存済みの音声の一部を削除できませんでした。もう一度試すか、他のアプリがファイルを使用していないか確認してください。",
+       pt: "Nem todo o áudio armazenado foi excluído. Tente novamente ou verifique se outro app está usando os arquivos.",
+       ru: "Не всё сохранённое аудио удалено. Повторите попытку или проверьте, не использует ли файлы другое приложение.",
+       "zh-CN": "并非所有存储的音频都已删除。请重试，或检查是否有其他应用正在使用这些文件。",
+       "zh-TW": "並非所有儲存的音訊都已刪除。請再試一次，或確認沒有其他應用程式正在使用這些檔案。",
+     },
+     [P + "audioStorageChecking"]: {
+       en: "Checking stored audio…", ar: "جارٍ التحقق من الصوت المخزّن…", de: "Gespeichertes Audio wird geprüft…",
+       es: "Comprobando el audio almacenado…", fr: "Vérification de l'audio stocké…",
+       it: "Controllo dell'audio salvato…", ja: "保存済みの音声を確認しています…",
+       pt: "Verificando o áudio armazenado…", ru: "Проверка сохранённого аудио…",
+       "zh-CN": "正在检查存储的音频…", "zh-TW": "正在檢查儲存的音訊…",
+     },
+     [P + "audioStorageUnavailable"]: {
+       en: "Loqui couldn't read its audio folder, so it can't show or clear stored audio right now.",
+       ar: "تعذّر على Loqui قراءة مجلد الصوت، لذا لا يمكنه عرض الصوت المخزّن أو مسحه الآن.",
+       de: "Loqui konnte seinen Audioordner nicht lesen und kann gespeichertes Audio gerade weder anzeigen noch löschen.",
+       es: "Loqui no pudo leer su carpeta de audio, así que ahora no puede mostrar ni borrar el audio almacenado.",
+       fr: "Loqui n'a pas pu lire son dossier audio et ne peut donc pas afficher ni effacer l'audio stocké pour le moment.",
+       it: "Loqui non è riuscito a leggere la cartella audio, quindi ora non può mostrare né cancellare l'audio salvato.",
+       ja: "Loqui が音声フォルダーを読み取れなかったため、現在は保存済みの音声を表示または削除できません。",
+       pt: "O Loqui não conseguiu ler a pasta de áudio, então não pode mostrar nem apagar o áudio armazenado agora.",
+       ru: "Loqui не удалось прочитать папку с аудио, поэтому сейчас нельзя показать или удалить сохранённое аудио.",
+       "zh-CN": "Loqui 无法读取其音频文件夹，因此现在无法显示或清除存储的音频。",
+       "zh-TW": "Loqui 無法讀取其音訊資料夾，因此目前無法顯示或清除儲存的音訊。",
      },
    };
    for (const lang of fs.readdirSync("src/locales")) {
@@ -5020,23 +6241,21 @@ Expected: FAIL.
    EOF
    ```
 
-   Before deleting `clearAllAudioConfirm`, confirm nothing reads it: `grep -rn "clearAllAudioConfirm" src --include='*.ts*' --include='*.js*'` must print nothing.
+- [ ] **Step 4: Run tests and typecheck**
 
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/helpers/audioStorageClear.test.js test/helpers/audioStorageTraversal.test.js test/components/clearAllAudio.test.js test/locales/translationCoverage.test.js`
-Expected: PASS.
+Run: `npm test -- test/helpers/audioStorageClear.test.js test/helpers/audioStorageTraversal.test.js test/hooks/useAudioStorageUsage.test.js test/components/audioStorageRow.test.js test/components/clearAllAudio.test.js test/locales/translationCoverage.test.js`, then `npm run typecheck`.
+Expected: PASS, with no type errors in `SettingsPage.tsx`, `useAudioStorageUsage.ts` or `electron.ts`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/helpers/audioStorage.js src/types/electron.ts src/preview/browserPreview.ts src/utils/audioDeletion.ts src/components/SettingsPage.tsx src/locales test/helpers/audioStorageClear.test.js test/components/clearAllAudio.test.js
-git commit -m "fix(privacy): confirm Clear All Audio with counts and report partial deletes"
+git add src/helpers/audioStorage.js src/helpers/audioFlagReconcile.js src/helpers/ipcHandlers.js src/types/electron.ts src/preview/browserPreview.ts src/utils/audioDeletion.ts src/hooks/useAudioStorageUsage.ts src/components/settings/AudioStorageRow.tsx src/components/SettingsPage.tsx src/locales test/helpers/audioStorageClear.test.js test/hooks/useAudioStorageUsage.test.js test/components/audioStorageRow.test.js test/components/clearAllAudio.test.js
+git commit -m "fix(privacy): honest Clear All Audio: counted confirm, unreadable state, surviving files keep playback"
 ```
 
 ---
 
-### Task 19: Privacy description and dead locale keys
+### Task 20: Privacy description and dead locale keys
 
 Covers SET-Q13.
 
@@ -5207,7 +6426,7 @@ git commit -m "chore(i18n): honest privacy description; delete dead account, bil
 
 ---
 
-### Task 20: Whole-plan verification
+### Task 21: Whole-plan verification
 
 **Files:** none new. This task runs every check and fixes what they surface.
 
@@ -5228,6 +6447,7 @@ Expected: everything passes.
   - "disabled never checks" and "the off switch also blocks manual checks" (`updateManager.test.js`);
   - Plan 01 token values this plan changes on purpose (light `--color-ring`, light success and warning foregrounds);
   - a card root `onClick`;
+  - a `useChatMessageSender` test that expected a rejection (the sender now resolves `false` before persistence and `true` after);
   - the `installTree` location;
   - deleted locale fixtures.
 - Name every such edit in the PR description.
@@ -5244,6 +6464,10 @@ Check each of these, and screenshot the starred ones for the PR:
 - ★ **Focus and fields (Tasks 1–3).**
   - Tab through Settings and the workspace sidebar: every focused control shows a solid orange ring, `#e84e16` in light and `#ff5a1f` in Plum Night, never a faint one.
   - Every text field has a clearly visible edge in both themes.
+  - Computed-style check (I3). In DevTools, focus with the keyboard each of: an `Input` (Settings → a custom endpoint URL), a `Textarea` (Dictionary or Snippets), and a raw native field.
+    - Each must show `box-shadow: rgb(…) 0px 0px 0px 1px, rgb(232, 78, 22) 0px 0px 0px 3px` in light, and the same with `rgb(255, 90, 31)` in Plum Night.
+    - Each must show `border-color` equal to the ring.
+    - Record a screenshot of the Computed panel.
   - Warning and success badges and buttons in light show dark text.
 - ★ **Onboarding, macOS at 900×640.**
   - The footer stays pinned while the middle scrolls.
@@ -5263,20 +6487,34 @@ Check each of these, and screenshot the starred ones for the PR:
   - In Settings, the sidebar announces "current page".
   - The provider tabs announce "tab, selected, 1 of N".
   - Model cards announce "radio button, checked".
-- **Chat.**
+- ★ **Chat.**
   - Send a message, then type and press Enter while it streams. "Sends when the reply finishes" appears, and the draft sends once the reply ends.
+  - Queue a draft, then switch to another conversation, or open New Chat, before the reply ends. Nothing is sent; the words stay with the "Not sent" notice.
   - Press Stop with a queued draft: the draft stays in the box, unsent.
+  - With the network off, send from a brand-new chat (conversation creation fails). The words come back into the box.
 - **Coming up.** With a meeting starting within a minute, "Now" appears within 30 s of the start, without reloading.
 - **Notes.** On a fresh profile, notes render immediately. "Actions" opens the first-run dialog once, then the manager, even with no note open.
 - ★ **Settings.**
   - Privacy → Clear All Audio shows the count and size and asks first.
+  - Make the audio folder unreadable (`chmod 000` on `<userData>/audio`). The row reads "couldn't read" with Retry, not "No audio files stored". Restore the permissions afterwards.
   - System → updates: with automatic off, Check for Updates works and shows "available" plus the GitHub link.
   - Custom endpoint: with an empty URL, there is no "We'll query" line.
 
-- [ ] **Step 3: Commit any fixes, then prepare the PR (owner approval first)**
+- [ ] **Step 3: Record contract dispositions, and update the spec only for approved CCRs**
+
+For each Contract change request (1–6), record the owner's decision (approved, rejected, or deferred) in `pr-body.md`. Then, only for the approved ones, edit `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` in this PR, as §5 requires:
+- **CCR 1:** add "§5.5 Interruption notifications (owner: Plan 02; consumer: Plan 04)" with the signature, and note that it is action-less.
+- **CCR 2:** add `--color-input-border` to the "Motion and colour tokens" row, and note the light ring and status-foreground values.
+- **CCR 4:** replace the §3 graph with `01 → 02 → {03, 04, 05, 06}`, and change "Plans 01 and 02 can run in parallel worktrees" to say that 02 follows 01's merge.
+- **CCR 5:** add "§5.6 Stored audio (owner: Plan 02; consumer: Plan 03)" with the four signatures.
+
+Rejected or deferred CCRs leave the spec untouched; the PR description says so. Verify with `git diff --stat docs/superpowers/specs`, which should list only the spec file, and only when at least one CCR is approved.
+
+- [ ] **Step 4: Commit any fixes, then prepare the PR (owner approval first)**
 
 `pr-body.md`:
-- lists one line per Tasks 1–19 commit;
+- lists one line per Tasks 1–20 commit;
+- records each CCR's disposition (Step 3);
 - links the spec and this plan;
 - carries the Contract change requests section verbatim;
 - embeds the Step 2 screenshots;

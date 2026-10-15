@@ -11108,16 +11108,17 @@ git commit -m "fix(upload): always show the drop zone and say how to enable it"
 This covers WS-Q4 (adoption, per D1), WS-Q10, the WS-R11 B ramp adoption, WS-29, WS-30, WS-31 and WS-35. It runs last so it covers every file the earlier tasks touched.
 
 **Files:**
-- Create: `src/components/ui/DataRetentionNotice.tsx`
+- Create: `src/components/ui/DataRetentionNotice.tsx`, `test/helpers/workspaceTokenGuard.js`
 - Modify:
   - `src/components/HistoryView.tsx:134-141` and `src/components/InsightsView.tsx:286-293`, which switch to the notice;
-  - every file the guard test reports.
+  - every file the guard test reports. `DictionaryView.tsx` and `SnippetsView.tsx` take token edits only; Plan 03's header and import changes in those files stay as they are.
 - Modify: `DESIGN.md`. In `## Do's and Don'ts`, add the workspace rules below.
 - Test: `test/components/workspaceTokenAdoption.test.js`, `test/components/dataRetentionNotice.test.js`
 
 **Interfaces:**
 - Produces `DataRetentionNotice({ messageKey: string; className?: string })`, which renders an `AlertTriangle` in `text-warning`, a `border-warning/30 bg-warning/5` frame, and foreground text.
-- Produces the guard's scope, `WORKSPACE_FILES`, which the test defines inline. These are the files the spec assigns to Plan 06 plus the files this plan created.
+- Produces the workspace token guard (CR-06-6): `test/helpers/workspaceTokenGuard.js` exports `LINE_RULES`, `LIVE_GLASS_ALLOWED`, `WORKSPACE_GUARDED_FILES`, `scanText(file, text)` and `scanFiles(files)`. Each violation is a string `<file>:<line> <match> — <rule-id>: <why>`. Rule ids: `arbitrary-size`, `faded-muted`, `faded-foreground`, `orange-text`, `orange-fill`, `raw-amber`, `glyph-icon`, `provider-name`, `faded-ring`, `live-glass`, `icon-cta`.
+- Produces the opt-out syntax: a same-line comment `token-guard: allow <rule-id> — <reason>`. The reason is required; an opt-out without one does not count.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -11140,22 +11141,46 @@ test("the retention notice uses the warning icon and tokens, not a text glyph or
 });
 ```
 
-Create `test/components/workspaceTokenAdoption.test.js`:
+Create `test/helpers/workspaceTokenGuard.js`. This is the guard itself. It is a published contract (CR-06-6): Plan 06 owns the rules and the file list, and other plans call `scanFiles` on their own files.
 
 ```js
-const assert = require("node:assert/strict");
+// Workspace token guard (Plan 06, CR-06-6). One rule set for D1 (orange means
+// live voice), the WS-R11 B type ramp and the spec §4 contrast floors.
+// Opt-out for a justified line: a trailing comment
+//   // token-guard: allow <rule-id> — <reason>
+// on the same line. The reason is required, and reviewers read it.
 const fs = require("node:fs");
 const path = require("node:path");
-const test = require("node:test");
 
-const root = path.join(__dirname, "../..");
-const list = (dir) =>
-  fs.existsSync(path.join(root, dir))
-    ? fs.readdirSync(path.join(root, dir)).filter((f) => f.endsWith(".tsx")).map((f) => `${dir}/${f}`)
+const ROOT = path.join(__dirname, "../..");
+
+const LINE_RULES = [
+  { id: "arbitrary-size", why: "arbitrary pixel font size; use the ramp (text-micro … text-display)", re: /\btext-\[\d+(?:\.\d+)?px\]/g },
+  { id: "faded-muted", why: "faded metadata; use full text-muted-foreground", re: /\btext-muted-foreground\/\d+/g },
+  { id: "faded-foreground", why: "foreground below 70% falls under 4.5:1; use text-muted-foreground", re: /\btext-foreground\/(?:[0-6]?\d)\b(?!\d)/g },
+  { id: "orange-text", why: "orange text on light; use text-link", re: /\btext-primary\b(?!-foreground)/g },
+  { id: "orange-fill", why: "orange fill outside live voice (D1); neutral, or bg-live on voice controls", re: /\bbg-primary\b/g },
+  { id: "raw-amber", why: "raw amber; use the warning tokens", re: /\b(?:text|bg|border)-amber-\d+/g },
+  { id: "glyph-icon", why: "text glyph used as an icon; use a Lucide icon and a word", re: /⊘/g },
+  { id: "provider-name", why: "providerDisplayName is for logs; use providerDisplayLabel(providerId, t)", re: /\bproviderDisplayName\s*\(/g },
+  { id: "faded-ring", why: "translucent focus ring is under 3:1; use ring-2 ring-ring (Plan 02)", re: /\bring-(?:ring|primary)\/\d+/g },
+  { id: "live-glass", why: "orange glass outside a voice control (D1)", re: /\b(?:GRADIENT_CIRCLE|BRAND_GLASS_SURFACE)\b|gradient-brand-glass/g },
+];
+
+// Files whose glass is on voice controls only (mic, voice stop).
+const LIVE_GLASS_ALLOWED = new Set(["src/components/chat/ChatInput.tsx"]);
+
+// Default (ink) Buttons are text only: Plan 01's brand dot already leads.
+const BUTTON_WITH_LEADING_ICON = /<Button\b((?:[^>{]|\{[^}]*\})*)>\s*<([A-Z][A-Za-z0-9]*)\b/g;
+
+const dir = (d) =>
+  fs.existsSync(path.join(ROOT, d))
+    ? fs.readdirSync(path.join(ROOT, d)).filter((f) => f.endsWith(".tsx")).map((f) => `${d}/${f}`)
     : [];
 
-// Plan 06 scope (spec §3) plus the files this plan created.
-const WORKSPACE_FILES = [
+// Every workspace screen and the components they own. Dictionary and Snippets
+// are in scope for tokens only; Plan 03 owns their header and import changes.
+const WORKSPACE_GUARDED_FILES = [
   "src/components/ControlPanel.tsx",
   "src/components/ControlPanelSidebar.tsx",
   "src/components/ControlPanelTopBar.tsx",
@@ -11163,7 +11188,11 @@ const WORKSPACE_FILES = [
   "src/components/CommandSearch.tsx",
   "src/components/UpcomingMeetings.tsx",
   "src/components/InsightsView.tsx",
+  "src/components/IntegrationsView.tsx",
+  "src/components/DictionaryView.tsx",
+  "src/components/SnippetsView.tsx",
   "src/components/CaptureMenu.tsx",
+  "src/components/CaptureControl.tsx",
   "src/components/MicStatusCard.tsx",
   "src/components/ui/TranscriptionItem.tsx",
   "src/components/ui/EmptyStateCard.tsx",
@@ -11175,82 +11204,82 @@ const WORKSPACE_FILES = [
   "src/components/notes/NoteBottomBar.tsx",
   "src/components/notes/PersonalNotesView.tsx",
   "src/components/notes/SpacesTree.tsx",
+  "src/components/notes/UploadAudioView.tsx",
   "src/components/notes/UploadDropZone.tsx",
-  ...list("src/components/chat"),
-  ...list("src/components/home"),
-  ...list("src/components/insights"),
-  ...list("src/components/ui/editor"),
+  ...dir("src/components/chat"),
+  ...dir("src/components/home"),
+  ...dir("src/components/insights"),
+  ...dir("src/components/ui/editor"),
 ];
 
-const RULES = [
-  ["arbitrary pixel font size (use the ramp: text-micro/caption/ui/body/heading/title/display)", /\btext-\[\d+(\.\d+)?px\]/g],
-  ["faded metadata (use full text-muted-foreground)", /\btext-muted-foreground\/\d+/g],
-  ["orange text on light (use text-link)", /\btext-primary\b(?!-foreground)/g],
-  ["orange fill outside live voice (D1: use neutral or bg-live on voice controls)", /\bbg-primary\b/g],
-  ["raw amber (use the warning tokens)", /\b(?:text|bg|border)-amber-\d+/g],
-  ["text glyph used as an icon", /⊘/g],
-  ["provider name helper meant for logs (use providerDisplayLabel(providerId, t))", /\bproviderDisplayName\s*\(/g],
-];
+const ALLOW = /token-guard:\s*allow\s+([\w-]+)\s+—\s+\S/;
 
-// D1: the orange glass belongs to voice controls only. ChatInput's mic and
-// voice-stop buttons are the one workspace use (NoteRecordControl is outside
-// this scope and is a voice control too).
-const LIVE_GLASS = /\b(?:GRADIENT_CIRCLE|BRAND_GLASS_SURFACE)\b|gradient-brand-glass/g;
-const LIVE_GLASS_ALLOWED = new Set(["src/components/chat/ChatInput.tsx"]);
-
-// Plan 01 gave the default Button a leading brand dot; a leading icon next to
-// it is two markers. Opening tag (one level of {…} allowed) followed by a
-// capitalised child component.
-const BUTTON_WITH_LEADING_ICON = /<Button\b((?:[^>{]|\{[^}]*\})*)>\s*<([A-Z][A-Za-z0-9]*)\b/g;
-
-test("workspace files use the ramp and the D1 colour roles", () => {
-  const offenders = [];
-  for (const file of WORKSPACE_FILES) {
-    const full = path.join(root, file);
-    if (!fs.existsSync(full)) continue;
-    const lines = fs.readFileSync(full, "utf8").split("\n");
-    lines.forEach((line, index) => {
-      for (const [rule, pattern] of RULES) {
-        for (const match of line.matchAll(pattern)) offenders.push(`${file}:${index + 1} ${match[0]} — ${rule}`);
-      }
-    });
+function scanText(file, text) {
+  const out = [];
+  const lines = text.split("\n");
+  lines.forEach((line, index) => {
+    const allowed = line.match(ALLOW)?.[1];
+    for (const rule of LINE_RULES) {
+      if (rule.id === allowed) continue;
+      if (rule.id === "live-glass" && LIVE_GLASS_ALLOWED.has(file)) continue;
+      for (const match of line.matchAll(rule.re)) out.push(`${file}:${index + 1} ${match[0]} — ${rule.id}: ${rule.why}`);
+    }
+  });
+  for (const match of text.matchAll(BUTTON_WITH_LEADING_ICON)) {
+    const attrs = match[1];
+    if (/\bvariant=/.test(attrs) && !/variant="default"/.test(attrs)) continue;
+    const lineNo = text.slice(0, match.index).split("\n").length;
+    if (ALLOW.exec(lines[lineNo - 1])?.[1] === "icon-cta") continue;
+    out.push(`${file}:${lineNo} <Button> + <${match[2]}> — icon-cta: default Buttons are text only; use variant="live" (voice) or "secondary"/"outline"`);
   }
-  assert.deepEqual(offenders, []);
+  return out;
+}
+
+/** Scan repo-relative files; missing files are skipped. Returns violations. */
+function scanFiles(files) {
+  return files.flatMap((file) => {
+    const full = path.join(ROOT, file);
+    return fs.existsSync(full) ? scanText(file, fs.readFileSync(full, "utf8")) : [];
+  });
+}
+
+module.exports = { LINE_RULES, LIVE_GLASS_ALLOWED, WORKSPACE_GUARDED_FILES, scanText, scanFiles };
+```
+
+Create `test/components/workspaceTokenAdoption.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const { WORKSPACE_GUARDED_FILES, scanFiles, scanText } = require("../helpers/workspaceTokenGuard");
+
+test("workspace files use the ramp, the D1 colour roles and full-opacity focus rings", () => {
+  assert.deepEqual(scanFiles(WORKSPACE_GUARDED_FILES), []);
 });
 
-test("orange glass appears only on voice controls (D1)", () => {
-  const offenders = [];
-  for (const file of WORKSPACE_FILES) {
-    const full = path.join(root, file);
-    if (!fs.existsSync(full) || LIVE_GLASS_ALLOWED.has(file)) continue;
-    const text = fs.readFileSync(full, "utf8");
-    for (const match of text.matchAll(LIVE_GLASS)) {
-      offenders.push(`${file}:${text.slice(0, match.index).split("\n").length} ${match[0]}`);
-    }
-  }
-  assert.deepEqual(offenders, []);
+test("the guard catches what it promises, and honours a reasoned opt-out", () => {
+  const hits = (src) => scanText("x.tsx", src).map((v) => v.split(" — ")[1].split(":")[0]);
+  assert.deepEqual(hits('<p className="text-[10px] text-muted-foreground/70 text-foreground/55">'), ["arbitrary-size", "faded-muted", "faded-foreground"]);
+  assert.deepEqual(hits('<p className="text-foreground/80 text-foreground">'), [], "70% and above passes");
+  assert.deepEqual(hits('<div className="focus-visible:ring-ring/40 bg-primary/10 text-primary">').sort(), ["faded-ring", "orange-fill", "orange-text"]);
+  assert.deepEqual(hits("<Button onClick={() => go()}>\n  <AlignLeft size={16} />"), ["icon-cta"]);
+  assert.deepEqual(hits('<Button variant="secondary">\n  <AlignLeft />'), []);
+  assert.deepEqual(hits('<p className="text-foreground/50"> {/* token-guard: allow faded-foreground — confidence typography (Plan 08) */}'), []);
+  assert.deepEqual(hits('<p className="text-foreground/50"> {/* token-guard: allow faded-foreground */}'), ["faded-foreground"], "an opt-out needs a reason");
 });
 
-test("default (ink) Buttons are text only; buttons with a leading icon choose live, secondary or outline", () => {
-  const offenders = [];
-  for (const file of WORKSPACE_FILES) {
-    const full = path.join(root, file);
-    if (!fs.existsSync(full)) continue;
-    const text = fs.readFileSync(full, "utf8");
-    for (const match of text.matchAll(BUTTON_WITH_LEADING_ICON)) {
-      const attrs = match[1];
-      if (/\bvariant=/.test(attrs) && !/variant="default"/.test(attrs)) continue;
-      offenders.push(`${file}:${text.slice(0, match.index).split("\n").length} <Button> + <${match[2]}>`);
-    }
-  }
-  assert.deepEqual(offenders, []);
+test("the ramp adds sizes; it never redefines Tailwind's standard ones", () => {
+  const css = fs.readFileSync(path.join(__dirname, "../../src/index.css"), "utf8");
+  assert.doesNotMatch(css, /--text-(?:xs|sm|base|lg|xl|[2-9]xl):/);
 });
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `npm test -- test/components/dataRetentionNotice.test.js test/components/workspaceTokenAdoption.test.js`
-Expected: FAIL. The module is missing. The guard prints a list of offenders, for example `HistoryView.tsx … ⊘`, `CommandSearch.tsx … text-[10px]`, `TranscriptionItem.tsx … text-[10px]` and `ChatMessage.tsx … text-[11px]`. Save that list; it is the worklist for Step 3.
+Expected: FAIL. The module is missing, and the first guard test lists offenders grouped by rule id. On the tree at 0e581d6 it reports about 390 (`faded-foreground` 118, `arbitrary-size` 68, `faded-muted` 67, `orange-fill` 52, `orange-text` 38, `faded-ring` 23, `raw-amber` 18, `icon-cta` 4, `glyph-icon` 2, `live-glass` 2). The largest files are `UploadAudioView.tsx` (76), `CommandSearch.tsx` (46), `DictionaryView.tsx` (29), `ChatMessage.tsx` (29) and `SnippetsView.tsx` (25). Earlier tasks remove some of these, so the count when you reach this task will be lower. The self-test and the CSS test pass already. Save the list; it is the worklist for Step 3.
 
 - [ ] **Step 3: Implement**
 
@@ -11286,6 +11315,8 @@ Expected: FAIL. The module is missing. The guard prints a list of offenders, for
    | `text-[13px]` | `text-ui` |
    | `text-[14px]`, `text-[15px]` | `text-body` |
    | `text-muted-foreground/NN` | `text-muted-foreground` |
+| `text-foreground/NN` below 70 | `text-muted-foreground` (70 and above passes and may stay) |
+| `ring-ring/NN` or `ring-primary/NN` | `ring-2 ring-ring` (Plan 02's focus rule) |
    | `text-primary` used as text colour | `text-link` (or `text-nav-marker` on an active nav icon) |
    | `bg-primary/NN` tint on a non-voice surface (for example the chat `NoteCard` at `ChatMessage.tsx:123-163`, or the AI CTA in `HistoryView.tsx:96`) | `bg-foreground/5` with `border-border` |
    | `bg-primary` on a voice control | `bg-live` |
@@ -11307,10 +11338,11 @@ Expected: FAIL. The module is missing. The guard prints a list of offenders, for
    - **`ControlPanelSidebar` section labels** (WS-35) are now `text-caption font-semibold text-muted-foreground`, from Task 9. If any `uppercase` 10px label is left, it becomes `text-micro` at full colour.
    - **`AI` sparkle tiles** (WS-31) use `text-ai` on `bg-ai/12` with a 1px `border-ai/30`, in every place the guard flags them. The orange sparkle at `HistoryView.tsx:109` is one of them.
 
+   If a line genuinely needs a flagged class (for example a translucent decorative stroke that carries no meaning), keep it and add `{/* token-guard: allow <rule-id> — <reason> */}` on the same line. Use this rarely; the PR body lists every opt-out.
 4. In `DESIGN.md` under `### Do:`, add:
 
    ```markdown
-   - **Do** use the UI ramp utilities (`text-micro` through `text-display`) in workspace components; arbitrary `text-[Npx]` sizes fail `workspaceTokenAdoption.test.js`.
+   - **Do** use the UI ramp utilities (`text-micro` through `text-display`) in workspace components. Arbitrary `text-[Npx]` sizes fail `workspaceTokenAdoption.test.js`; Tailwind's standard sizes (`text-sm`, `text-xs`) are not flagged and migrate to the ramp when a file is touched.
    - **Do** show metadata at full `text-muted-foreground`; hierarchy comes from size and weight, not opacity.
    ```
 
@@ -11331,7 +11363,7 @@ Expected: PASS. The guard reports `[]`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components DESIGN.md test/components/dataRetentionNotice.test.js test/components/workspaceTokenAdoption.test.js
+git add src/components DESIGN.md test/components/dataRetentionNotice.test.js test/components/workspaceTokenAdoption.test.js test/helpers/workspaceTokenGuard.js
 git commit -m "fix(ui): adopt the type ramp and colour roles across the workspace"
 ```
 

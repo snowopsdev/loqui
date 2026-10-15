@@ -46,7 +46,7 @@ This revision answers the independent review (`plan-04-codex.md`: 2 Critical, 14
 | **I2** streaming and merge-time cancels lacked Undo | Closed | Task 8 | Streaming Undo replays the held PCM frames through the **same** streaming provider at 4× real time, then runs the normal finalization. This works for Deepgram and AssemblyAI too, which have no batch endpoint. Merge-time and processing-time batch cancels hold the raw segments registered before the merge. There are tests per path. A startup cancel, before any audio exists, has nothing to restore. **Different fix:** the report suggested re-transcribing through a batch endpoint; that would change the route (and does not exist for two providers), so replay stays on the streaming route. |
 | **I3** restore not atomic; no Esc in restored processing | Closed | Tasks 8, 9 | `restoreCancelled` claims the buffer and enters `isProcessing` synchronously, before any await. Esc bumps a restore generation that every await checks, so an Esc before the pipeline starts puts the recording back in its window, and an Esc during it re-holds the audio. Every failure settles idle. Esc is registered from lifecycle transitions (busy ↔ idle), not from a successful mic start. Tests: a start during a pending restore, byte rejection, and Undo→processing→Esc. |
 | **I4** stage selection ignores native visibility and ownership | Closed | Tasks 10, 11, 17 | `resolvePillOwnership(stage)` returns `holdsWindow`, `interactive` and `outranksFooter`. That one policy feeds auto-hide (`shouldAutoHidePill`), Assistant footer suppression, `resolveVoicePillInteraction` (mac and Windows click-through, and the Linux input region), and the show-when-hidden branch. Tested with auto-hide on, Assistant final actions, and Live Transcript or Assistant mounted. |
-| **I5** "already received" is not egress evidence | Closed | Task 7 | With Plan 07, only main's `EgressNotice { phase: "sent" }` for this session's `correlationId` and a content payload counts (`attested`). Without Plan 07, evidence is recorded only after the transport hand-off (`dispatched`), and the copy then says "may have received". Startup failures, main rejections (`dispatched: false`) and Sealed blocks record nothing. Translation, cleanup, Agent and vision are instrumented. Loopback custom endpoints resolve to the device through Plan 03's resolver. |
+| **I5** "already received" is not egress evidence | Closed | Task 7 | With Plan 07, evidence comes only from main's `EgressNotice`s for this session's `correlationId` with a content payload: `delivered` is `attested`, `dispatched` is `dispatched`, and `undelivered` withdraws its ticket (spec §5.4). Without Plan 07, evidence is recorded only after the transport hand-off (`dispatched`), and the copy then says "may have received". Startup failures, main rejections (`dispatched: false`) and Sealed blocks record nothing. Translation, cleanup, Agent and vision are instrumented. Loopback custom endpoints resolve to the device through Plan 03's resolver. |
 | **I6** no cross-window Undo for Plan 05; disclosure shapes disagree | Closed | Tasks 7, 9; CCR-5, CCR-6 | There are `cancelled` and `cancelClosed` demo statuses with sanitised fields, `windowManager.sendUndoCancelDictation(sessionId)` (a request/reply to the overlay that returns `UndoResult`), and `lastCancelledDictation`. One `RemoteDisclosure` type (target id + payload + evidence) and one label helper serve Plans 04, 05 and 07. A two-window contract test covers the round trip. |
 | **I7** temporary hotkeys lack main ownership | Closed | Tasks 2, 9, 18 | `hotkeyLeases.js` gives each temporary shortcut a main-owned lease. It is released on release, TTL, owner destruction, renderer crash and navigation. Registration is serialised per slot, so a late registration after release is undone and a newer lease is never unregistered by an older result. The UI shows a shortcut only when main reports `held`. Temporary slots never go to KGlobalAccel. The meeting prompt uses a lease too. |
 | **I8** Linux notification races; fallback without Stop | Closed (fallback Stop moves to the tray) | Task 16 | The notification uses the bundled `@homebridge/dbus-native`, not a host CLI. Its lifetime is serialised by generation: a late id is closed, signals are subscribed first, and `NotificationClosed`, service loss and teardown are handled. Stop is bound to the meeting session. Where the server has no `actions` capability or no service, the tray's "Stop meeting recording" is the Stop, and a never-expiring notification says so. **Different fix:** Electron cannot add buttons on Linux, so a fallback notification with a Stop button is impossible. The platform question is Open question 4. |
@@ -94,16 +94,27 @@ The three weak tests it named are rewritten: the other-session `lastAudioBlob` t
 **Cross-plan items from the review's conflict table:**
 - **03.** Route-change receipts with Undo keep 7 s (`NOTICE_DURATION_MS.receiptWithAction`). `openSettingsAt` uses Plan 03's `settingsPath` grammar and its `SettingsModal` parser. `providerId` (CCR-7) is accepted in Plan 03's revision.
 - **05.** Plan 04 owns and tests the bridge (CCR-5). Plan 05 keeps its new demo events when it rebases onto this plan's hook changes.
-- **06.** Cancellation is **not** a broadcast dictation-lifecycle edge. It is a separate hook field (`cancelled`) plus the demo/bridge events, so Plan 06's lifecycle forwarding is untouched. Any toast Plan 06 adds is migrated by the guard test in Task 5, which runs on the final combined tree.
-- **07.** One disclosure shape and one correlation id (CCR-6). Main's Sealed enforcement stays authoritative, and Undo pre-checks it but never bypasses it.
+- **06.** *(Superseded by §5.7 at 091d198.)* An open cancel window reaches the control panel as the lifecycle state `cancelled`, on Plan 06's existing channel, with no second relay (Task 9). Any toast Plan 06 adds is migrated by the guard test in Task 5, which runs on the final combined tree.
+- **07.** One disclosure shape and one correlation id (CCR-6). Main's Sealed enforcement stays authoritative, and Undo pre-checks it but never bypasses it. Sealed state is read only from `src/stores/sealedStore.ts`. Plan 07's pre-flight, `_noteSealedFailure` and recovery notices are kept in both merge orders (Tasks 4, 5, 8, 10, 11).
+
+**Spec alignment (091d198).** The spec's §5 now holds these contracts. This revision aligns the plan with it; where the two disagreed, the spec won:
+- **§5.4 egress.** Task 7 maps `delivered`, `dispatched` and `undelivered` per ticket. The tickets live in the tracker, so a restored dictation keeps them. `host:` targets use the bare hostname, the same encoding as `EgressNotice.targetId`.
+- **§5.4 pre-flight.** Task 8 keeps Plan 07's `startRecording` refusal and `_noteSealedFailure` in both merge orders. Tasks 10 and 11 render the refusal as the `sealedPaused` pill state: a blocked ring and "Dictation paused: Sealed mode is on".
+- **§5.4 sealed reads.** Undo's Sealed pre-check reads `sealedStore` (`getSealedSnapshot()`, or Plan 03's `getSealed()` before Plan 07 merges). Unknown never blocks.
+- **§5.3 Plan 07 notices.** The recovery prompt is a persistent `notice` with Transcribe and Discard. A sealed refusal that holds audio is a persistent `alert` whose Transcribe sits in the pill's notice slot (Tasks 4, 5).
+- **§5.2 private holds.** A hold keeps `private`, an expired private hold is never persisted, and a restore re-applies the flag (Task 8).
+- **§5.7.** `cancelled` travels on Plan 06's lifecycle channel. `reportCancelledDictation` is removed; `lastCancelledDictation` is set from the sanitised demo events (Task 9).
+- **§5.5.** The resident Linux notification keeps its own freedesktop path, because `showSystemNotification` carries no actions (Task 16).
 
 ---
 
 ## Contract change requests
 
+All seven are consolidated into the spec at 091d198. Each is marked below with where it now lives. The spec text is binding, and the shapes below match it.
+
 Plan 04 owns §5.2 and §5.3. These are the exact shapes this plan ships. The owner applies them to the spec and notifies Plans 05 and 07. Task 21 confirms the merged spec matches before the PR. Shared types live in `src/types/dictation.ts`, created in Task 7, so consumers import them instead of restating them.
 
-**CCR-1 (§5.2), the `cancelled` state.** Every cancel that captured audio has an Undo window, including streaming and merge-time cancels. A cancel before any audio exists produces no `cancelled` state.
+**CCR-1 (§5.2), the `cancelled` state.** *Applied in spec §5.2 (091d198).* Every cancel that captured audio has an Undo window, including streaming and merge-time cancels. A cancel before any audio exists produces no `cancelled` state.
 
 ```ts
 export interface CancelledState {
@@ -131,7 +142,7 @@ export type UndoResult =
 
 On `busy` and `sealed` the recording goes back into its window, and a fresh `cancelled` state is emitted, so the user can try again.
 
-**CCR-2 (§5.2), the meeting recorder.** The `meetingRecording` pill state carries liveness only. Saving is a separate, explicit outcome.
+**CCR-2 (§5.2), the meeting recorder.** *Applied in spec §5.2 (091d198).* The `meetingRecording` pill state carries liveness only. Saving is a separate, explicit outcome.
 
 ```ts
 export interface MeetingPresence { sessionId: string; startedAt: number; interruption: "systemAudio" | "mic" | null; quiet: boolean }
@@ -140,7 +151,7 @@ export type MeetingOutcome =
   | { sessionId: string; kind: "failed"; reason: "save" | "stop" | "ownerLost" };
 ```
 
-**CCR-3 (§5.2), `useAudioRecording` return additions.** These are read-only:
+**CCR-3 (§5.2), `useAudioRecording` return additions.** *Applied in spec §5.2 (091d198), "`useAudioRecording` additions".* These are read-only:
 
 ```ts
 cancelled: CancelledState | null;
@@ -152,7 +163,7 @@ outcome: { sessionId: string; kind: "pasted"; words: number; at: number } | { se
 meetingRecording: MeetingPresence | null;
 ```
 
-**CCR-4 (§5.3), `notify()`.**
+**CCR-4 (§5.3), `notify()`.** *Applied in spec §5.3 (091d198), with Plan 07's two fixed notices added there.*
 
 ```ts
 export type NoticeKind = "receipt" | "notice" | "alert";
@@ -175,7 +186,7 @@ The semantics:
 - **`onDismiss`.** It fires exactly once per revision, with the removal reason.
 - **Cap.** At most three notices are visible.
 
-**CCR-5 (§5.2), the cross-window Undo bridge for Plan 05.** The trial records in the overlay window, and the control panel drives it.
+**CCR-5 (§5.2), the cross-window Undo bridge for Plan 05.** *Applied in spec §5.2 (091d198), "Cross-window Undo bridge". How the control panel learns of an open window is superseded by §5.7: Plan 06's lifecycle channel, with no separate report.* The trial records in the overlay window, and the control panel drives it.
 - **Overlay → main → control panel.** These go on `onboarding-demo-event`. Main sanitises them with `sanitizeCancelledDemoFields`:
 
   ```ts
@@ -196,7 +207,7 @@ The semantics:
 
 - **For Plan 05.** Its `onboarding-demo-undo-cancel` handler calls `windowManager.sendUndoCancelDictation(windowManager.lastCancelledDictation?.sessionId)`, and returns `result.restored`. Its `OnboardingDemoEvent` uses `cancelled: CancelledState`, not the earlier `undoUntil` / `remoteAlreadySent?: string` pair. Its copy renders `cancelled.remoteAlreadySent` with `disclosureCopy` (CCR-6), so local speech with remote cleanup reads "…received the text".
 
-**CCR-6 (§5.2 / §5.4), one disclosure shape, settled with Plan 07.**
+**CCR-6 (§5.2 / §5.4), one disclosure shape, settled with Plan 07.** *The shape and the copy are applied in spec §5.2 (091d198). The evidence rule is superseded by §5.4, "Egress evidence → `RemoteDisclosure`".*
 
 ```ts
 export type DisclosurePayload = "audio" | "text" | "image";
@@ -213,11 +224,17 @@ disclosureCopy(disclosure, t): string;    // "{{provider}} already received the 
 ```
 
 - **Correlation.** The `correlationId` Plan 07 asked for (its CCR-3) is the dictation session id. It is carried on the BYOK transcription payload, the realtime and per-provider streaming start options, and every cleanup, Agent, vision and translation text request of that recording.
-- **Evidence.** When Plan 07's `privacy.onEgress` exists, only a `{ phase: "sent" }` notice with this session's `correlationId` and payload `audio`, `text` or `image` sets `evidence: "attested"`. `metadata` (token fetches) never counts. Without Plan 07, evidence is recorded only after the transport hand-off.
+- **Evidence (§5.4).** When Plan 07's `privacy.onEgress` exists, evidence comes only from main's notices for this session's `correlationId` with payload `audio`, `text` or `image`:
+  - `delivered` sets `evidence: "attested"`;
+  - `dispatched` sets `"dispatched"`;
+  - `undelivered` withdraws that ticket's evidence, unless another ticket of the session has dispatched or delivered;
+  - `metadata` (token fetches) and `recorded` rows never count.
+
+  There is no `sent` phase. Without Plan 07, the renderer records `dispatched` only after the transport hand-off, never `attested`.
 - **Amendment to Plan 07's CCR-3.** `remoteAlreadySent` is a `RemoteDisclosure`, not a display-name string. Main has no user-locale `t()`, and Plan 01's review requires `providerDisplayLabel(providerId, t)` for every shown provider name. The flight recorder keeps its own `EgressEvent` rows unchanged.
 - **Naming.** Plan 07's `EgressNotice` is an IPC event type, unrelated to the §5.3 notice tier. Any user-facing egress message is shown through `notify({ kind: "receipt" | "notice" })`, with text from `disclosureCopy`.
 
-**CCR-7 (§5.1, owner Plan 03): `ResolvedRoute.providerId: string | null`.** Plan 03's revision has accepted this. `routeProviderLabel` (Task 11) uses it unconditionally once present. Until then, it falls back to `route.provider`.
+**CCR-7 (§5.1, owner Plan 03): `ResolvedRoute.providerId: string | null`.** *Applied in spec §5.1 (091d198).* Plan 03's revision has accepted this. `routeProviderLabel` (Task 11) uses it unconditionally once present. Until then, it falls back to `route.provider`.
 
 ## Open questions for the owner
 
@@ -270,7 +287,12 @@ Expected:
 - `routes.ts` exports `useResolvedRoute`, `resolveRoute` and `buildRouteSnapshot`, and carries `providerId`;
 - Plan 02's native notification module is present.
 
-If `routes.ts` or Plan 02's module is missing, the dependency has not merged. Stop and report. If Plan 07's `window.electronAPI.privacy` is absent, nothing breaks: disclosure falls back to `dispatched` evidence, and Undo's Sealed pre-check is skipped (main still enforces Sealed mode once Plan 07 ships).
+If `routes.ts` or Plan 02's module is missing, the dependency has not merged. Stop and report. Check that `src/stores/sealedStore.ts` exists (Plan 03, §5.4). If Plan 07's `window.electronAPI.privacy` is absent, nothing breaks: disclosure falls back to `dispatched` evidence, and Undo's Sealed pre-check reads Plan 03's `getSealed()` (main still enforces Sealed mode once Plan 07 ships).
+
+**Merge order with 05, 06 and 07 (§3).** These four plans run in parallel after Plan 03, and whichever merges second wires the shared contract. Each meeting point names both orders in its task:
+- the Undo bridge with 05 (Task 9);
+- the disclosure, pre-flight and notices with 07 (Tasks 4, 5, 7, 8, 10, 11);
+- the capture status bridge with 06 (Task 9).
 
 **Plan 02 overlap.** Plan 02 owns VO-Q6, VO-Q8, VO-Q9 and VO-Q16. This plan deletes `Toast.tsx`, `toastPresentation.js` and `DictationErrorCard.tsx` (Task 5), and carries their rules forward:
 - Q6: words alerts never expire (Task 1).
@@ -2211,7 +2233,13 @@ Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3
   type T = (key: string, options?: Record<string, unknown>) => string;
   export function buildCleanupFailureNotice(failure: CleanupFailure, t: T, actions: { retry: () => Promise<void>; openSettings: () => void }): NoticeInput;
   export function buildModelSwitchNotice(change: { from: string; to: string }, t: T, actions: { openSettings: () => void }): NoticeInput;
-  export function buildDictationErrorNotice(input: { title: string; description?: string; words?: string }, t: T, actions: { retry: () => void; pasteAgain: (words: string) => Promise<void> }): NoticeInput;
+  export function buildDictationErrorNotice(
+    input: { title: string; description?: string; words?: string; recoveryHeld?: boolean },  // recoveryHeld: Plan 07 holds the audio
+    t: T,
+    actions: { retry: () => void; pasteAgain: (words: string) => Promise<void>; extraActions?: NoticeAction[] }
+  ): NoticeInput;
+  // §5.3, Plan 07's recovery prompt after unsealing:
+  export function buildSealedRecoveryNotice(t: T, actions: { transcribe: () => Promise<unknown>; discard: () => void }): NoticeInput;
   ```
 
   ```js
@@ -2285,6 +2313,25 @@ test("a dictation error with recovered words becomes the words-first card", asyn
   const noWords = buildDictationErrorNotice({ title: "We didn't hear anything" }, t, { retry: () => {}, pasteAgain: async () => {} });
   assert.equal(noWords.words, undefined);
   assert.equal(noWords.actions[0].label, "common.retry");
+});
+
+test("Plan 07's notices keep their §5.3 shapes", async () => {
+  const { buildDictationErrorNotice, buildSealedRecoveryNotice } = await load();
+  const transcribe = { label: "sealedMode.recovery.transcribe", onClick: () => {} };
+  // A sealed refusal that holds audio in memory is an alert that never times out.
+  const held = buildDictationErrorNotice(
+    { title: "sealedMode.blocked.dictationPreflight", recoveryHeld: true },
+    t,
+    { retry: () => {}, pasteAgain: async () => {}, extraActions: [transcribe] }
+  );
+  assert.equal(held.kind, "alert");
+  assert.equal(held.persistent, true);
+  assert.ok(held.actions.includes(transcribe), "Transcribe is reachable from the pill's notice slot");
+
+  const recovery = buildSealedRecoveryNotice(t, { transcribe: async () => true, discard: () => {} });
+  assert.equal(recovery.kind, "notice");
+  assert.equal(recovery.persistent, true);
+  assert.deepEqual(recovery.actions.map((a) => a.label), ["sealedMode.recovery.transcribe", "sealedMode.recovery.discard"]);
 });
 
 test("a failed Retry cleanup leaves its explanation on screen (I10, real store)", async (t) => {
@@ -2421,27 +2468,49 @@ export function buildModelSwitchNotice(
 
 /** VO-R6 B: words first. Without words it is a plain alert with Retry. */
 export function buildDictationErrorNotice(
-  input: { title: string; description?: string; words?: string },
+  input: { title: string; description?: string; words?: string; recoveryHeld?: boolean },
   t: T,
-  actions: { retry: () => void; pasteAgain: (words: string) => Promise<void> }
+  actions: { retry: () => void; pasteAgain: (words: string) => Promise<void>; extraActions?: NoticeAction[] }
 ): NoticeInput {
   const words = input.words?.trim() || undefined;
+  const primary: NoticeAction[] = words
+    ? [
+        {
+          label: t("notices.actions.pasteAgain"),
+          primary: true,
+          keepOpen: true,
+          onClick: () => actions.pasteAgain(words),
+        },
+      ]
+    : input.recoveryHeld
+      ? [] // Retry would hit the same seal; Plan 07's Transcribe (extraActions) is the way back
+      : [{ label: t("common.retry"), primary: true, onClick: actions.retry }];
   return {
     id: "dictation-error",
     kind: "alert",
     title: input.title,
     ...(input.description ? { body: input.description } : {}),
     ...(words ? { words } : {}),
-    actions: words
-      ? [
-          {
-            label: t("notices.actions.pasteAgain"),
-            primary: true,
-            keepOpen: true,
-            onClick: () => actions.pasteAgain(words),
-          },
-        ]
-      : [{ label: t("common.retry"), primary: true, onClick: actions.retry }],
+    // §5.3: audio held in memory is user content at stake, so the alert never times out.
+    ...(input.recoveryHeld ? { persistent: true } : {}),
+    actions: [...primary, ...(actions.extraActions ?? [])],
+  };
+}
+
+/** §5.3: Plan 07's recovery prompt once Sealed mode is off and recordings are held. */
+export function buildSealedRecoveryNotice(
+  t: T,
+  actions: { transcribe: () => Promise<unknown>; discard: () => void }
+): NoticeInput {
+  return {
+    id: "sealed-recovery",
+    kind: "notice",
+    persistent: true,
+    title: t("sealedMode.recovery.availableTitle"),
+    actions: [
+      { label: t("sealedMode.recovery.transcribe"), primary: true, onClick: actions.transcribe },
+      { label: t("sealedMode.recovery.discard"), onClick: actions.discard },
+    ],
   };
 }
 ```
@@ -2663,14 +2732,15 @@ On top of that, `SettingsModal` applies `initialSection` only on the closed→op
    - `showDictationError` (lines 300–331) becomes:
 
      ```js
-     const showDictationError = ({ title, description, transcript = "" }) => {
+     const showDictationError = ({ title, description, transcript = "", recoveryHeld = false }, extraActions = []) => {
        const recoverAssistant = Boolean(audioManagerRef.current?.voiceAgentRequested);
        onDictationError?.({ recoverAssistant });
        notify(
          buildDictationErrorNotice(
-           { title, description, words: getRecoverableTranscript(transcript) },
+           { title, description, words: getRecoverableTranscript(transcript), recoveryHeld },
            t,
            {
+             extraActions,
              retry: () => performStartRecording(lastStartOptionsRef.current),
              pasteAgain: async (words) => {
                const pasted = await audioManagerRef.current?.safePaste(words, {
@@ -2906,7 +2976,22 @@ Expected: FAIL. The first test lists about ten files, including `ControlPanel.ts
 4. In `src/helpers/windowConfig.js`, delete `WITH_TOAST` and `DICTATION_ERROR` from `WINDOW_SIZES`, and remove both from the `resizeMainWindow` union in `src/types/electron.ts`. Then run `grep -rn "WITH_TOAST\|\"DICTATION_ERROR\"" src test` and fix every hit: `windowManager.js` size checks and `voiceSurfaceGeometry.test.js`.
 5. Delete every toast rule and keyframe in `src/index.css`, starting around line 1083: `.toast-surface`, `.toast-enter`, `@keyframes toast-enter`, `toast-progress`, `toast-border-progress`, and the reduced-motion toast rules. Use `grep -n "toast" src/index.css` to find them all; do not stop at line 1130.
 6. `test/components/rtlMotion.test.js` reads the `Toast.tsx` source and the toast CSS. Rewrite those assertions against the notice equivalents: `.notice-stack[data-placement="panel"]` uses `inset-inline-end`, and `@keyframes notice-in` rises on the Y axis only. Do not just delete them.
-7. For each listed test that imported toast modules: if it mounted `ToastProvider` only to satisfy `useToast`, delete the provider wrapper. If it asserted a toast, load `notices.ts` through the same module system and assert on `getNotices()`. Use `await import("../../src/components/ui/notices.ts")` for SSR tests and `vite.ssrLoadModule("/components/ui/notices.ts")` for Vite-harness tests.
+7. **Plan 07's two notices (§5.3).** They must survive this migration, whichever plan merges second:
+   - **07 merged first.** Its `showDictationError(…, extraActions)` and its `recoveryHeld` flag map onto Task 4's builder. Pass `recoveryHeld: error.recoveryHeld === true`, and pass its Transcribe action through `extraActions`. That makes the held-audio refusal a persistent `alert` in the pill's notice slot, so Transcribe stays reachable from the pill.
+     Its unseal `toast({ duration: Infinity, actions: [Transcribe, Discard] })` in the hook's `subscribeSealed` effect becomes:
+
+     ```js
+     notify(buildSealedRecoveryNotice(t, {
+       transcribe: () => audioManagerRef.current?.transcribeRecovered(),
+       discard: () => discardRecovery(),
+     }));
+     ```
+
+     Keep its `wasSealed === true && sealed === false && recoveryCount() > 0` condition, and its `subscribeSealed` source (`src/stores/sealedStore.ts`, §5.4).
+   - **04 merged first.** No toast system remains, so Plan 07 calls `notify(buildSealedRecoveryNotice(…))` and `showDictationError({ …, recoveryHeld }, [transcribe])` directly. Its CCR-3 and CCR-4 text already says so.
+
+   The `noToastLeft` guard catches a missed toast in either order.
+8. For each listed test that imported toast modules: if it mounted `ToastProvider` only to satisfy `useToast`, delete the provider wrapper. If it asserted a toast, load `notices.ts` through the same module system and assert on `getNotices()`. Use `await import("../../src/components/ui/notices.ts")` for SSR tests and `vite.ssrLoadModule("/components/ui/notices.ts")` for Vite-harness tests.
 
 - [ ] **Step 4: Run the full suite**
 
@@ -3369,7 +3454,13 @@ git commit -m "feat(voice): dictation sessions pin their route at recording star
 
 Closes review finding I5, and settles the disclosure shape with Plan 07 (CCR-6).
 
-"OpenAI already received the audio" is a claim about egress, so main must attest it. When Plan 07's egress gate is present, a disclosure is recorded only when main emits a `{ phase: "sent" }` `EgressNotice` with this session's `correlationId` and a content payload. When it is absent, which happens only if Plan 07 has not merged, the renderer records evidence only **after** a request has actually been handed to the transport. That means after `provider.start()` succeeded, or after a transcription or text request returned or failed *after* dispatch. The copy then says "may have received", never "already received".
+"OpenAI already received the audio" is a claim about egress, so main must attest it. When Plan 07's egress gate is present, evidence comes **only** from main's `EgressNotice`s for this session's `correlationId` with a content payload (spec §5.4):
+- `delivered` means `attested` ("already received");
+- `dispatched` means `dispatched` ("may have received");
+- `undelivered` withdraws that ticket's evidence; other tickets of the session still count;
+- `metadata` never counts.
+
+Renderer-side records are then ignored. When the gate is absent, which happens only if Plan 07 has not merged, the renderer records evidence only **after** a request has actually been handed to the transport. That means after `provider.start()` succeeded, or after a transcription or text request returned or failed *after* dispatch. The copy then says "may have received", never "already received".
 
 Startup failures, main-side validation rejections and Sealed-mode blocks record nothing. Translation, cleanup, Agent and vision requests are covered, not only speech. Provider-mode custom endpoints on loopback resolve to the device through Plan 03's resolver (clarification 9), so they never produce a disclosure.
 
@@ -3424,10 +3515,14 @@ Startup failures, main-side validation rejections and Sealed-mode blocks record 
   export function disclosureTargetFor(route, settingsView): string | null; // null = stays on this device
   export function dispatchTargetLabel(target, t): string;                  // providerDisplayLabel, or the bare host
   export function disclosureCopy(d, t): string;                            // the caption text
-  export function createDisclosureTracker({ session, onChange }): {
-    record({ task, payload, evidence }): void; get(): RemoteDisclosure | null; attested(): boolean;
-    setOnChange(fn): void; dispose(): void;
+  export function createDisclosureTracker({ session, onChange, privacyApi? }): {
+    record({ task, payload, evidence }): void;      // renderer-side; ignored once main's feed is attached
+    applyEgress(notice: EgressNotice): void;        // main's feed (§5.4); keeps per-ticket state
+    get(): RemoteDisclosure | null; attested(): boolean;
+    setOnChange(fn): void; dispose(): void;         // dispose also detaches main's feed
   };
+  // The tracker attaches itself at creation (privacyApi defaults to window.electronAPI.privacy).
+  // Its tickets live as long as the tracker, so a restored session keeps them (Task 8).
   export function attachEgressEvidence(tracker, sessionId, privacyApi?): () => void; // no-op when Plan 07 is absent
   ```
 
@@ -3448,8 +3543,8 @@ test("targets come from the session's resolved route: device is silent, network 
   const { disclosureTargetFor } = await load();
   const s = session({});
   assert.equal(disclosureTargetFor(route("dictationStt", "device"), s.settings), null);
-  assert.equal(disclosureTargetFor(route("dictationStt", "network"), s.settings), "host:gpu-box.lan:8080");
-  assert.equal(disclosureTargetFor(route("dictationCleanup", "network"), s.settings), "host:10.0.0.5:11434");
+  assert.equal(disclosureTargetFor(route("dictationStt", "network"), s.settings), "host:gpu-box.lan");
+  assert.equal(disclosureTargetFor(route("dictationCleanup", "network"), s.settings), "host:10.0.0.5");
   assert.equal(disclosureTargetFor(route("dictationStt", "remote", "openai"), s.settings), "openai");
   assert.equal(disclosureTargetFor(route("dictationStt", "remote", null), s.settings), "", "unknown remote still discloses");
 });
@@ -3464,7 +3559,7 @@ test("labels are localised through providerDisplayLabel", async () => {
   const { dispatchTargetLabel, disclosureCopy } = await load();
   const t = (k, o) => (o ? `${k}|${o.provider}` : k);
   assert.equal(dispatchTargetLabel("openai", t), "OpenAI");
-  assert.equal(dispatchTargetLabel("host:gpu-box.lan:8080", t), "gpu-box.lan:8080");
+  assert.equal(dispatchTargetLabel("host:gpu-box.lan", t), "gpu-box.lan");
   assert.equal(dispatchTargetLabel("custom", t), "locality.customEndpoint");
   assert.equal(dispatchTargetLabel("", t), "locality.unknownProvider");
   assert.equal(disclosureCopy({ target: "openai", payload: "audio", evidence: "attested", alsoSentTo: [] }, t), "pill.caption.remoteAudio|OpenAI");
@@ -3513,20 +3608,42 @@ test("setOnChange redirects later evidence to a new listener (cancel window upda
   assert.deepEqual(seen, ["dispatched", "attested"]);
 });
 
-test("main's egress feed records only this session's content payloads", async () => {
+test("main's egress feed (§5.4): delivered attests, dispatched may-have, undelivered withdraws its ticket", async () => {
   const { createDisclosureTracker, attachEgressEvidence } = await load();
   const s = session({ dictationStt: route("dictationStt", "remote", "openai") });
-  const tracker = createDisclosureTracker({ session: s });
   const bus = new EventEmitter();
   const privacy = { onEgress: (cb) => (bus.on("n", cb), () => bus.off("n", cb)) };
-  const off = attachEgressEvidence(tracker, "rec-1", privacy);
-  bus.emit("n", { phase: "sent", task: "dictationStt", host: "api.openai.com", payload: "metadata", correlationId: "rec-1", ts: 1, ticketId: 1 });
-  bus.emit("n", { phase: "sent", task: "dictationStt", host: "api.openai.com", payload: "audio", correlationId: "rec-2", ts: 1, ticketId: 2 });
-  assert.equal(tracker.get(), null, "token fetches and other sessions do not count");
-  bus.emit("n", { phase: "sent", task: "dictationStt", host: "api.openai.com", payload: "audio", correlationId: "rec-1", ts: 1, ticketId: 3 });
+  const tracker = createDisclosureTracker({ session: s, privacyApi: privacy });
+  const n = (o) =>
+    bus.emit("n", { task: "dictationStt", targetId: "openai", host: "api.openai.com", payload: "audio", correlationId: "rec-1", ts: 1, ...o });
+
+  n({ phase: "delivered", ticketId: 1, payload: "metadata" });
+  n({ phase: "delivered", ticketId: 2, correlationId: "rec-2" });
+  bus.emit("n", { phase: "recorded", event: { id: 1 } });
+  assert.equal(tracker.get(), null, "token fetches, other sessions and flight-recorder rows do not count");
+  tracker.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" });
+  assert.equal(tracker.get(), null, "with Plan 07 present, only main's notices count");
+
+  n({ phase: "dispatched", ticketId: 3 });
+  assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
+  n({ phase: "undelivered", ticketId: 3 });
+  assert.equal(tracker.get(), null, "an undelivered ticket withdraws its own dispatched evidence");
+
+  n({ phase: "dispatched", ticketId: 4 });
+  n({ phase: "dispatched", ticketId: 5 });
+  n({ phase: "undelivered", ticketId: 5 });
+  assert.equal(tracker.get().evidence, "dispatched", "another ticket of the session still counts");
+  n({ phase: "delivered", ticketId: 4 });
   assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: [] });
   assert.equal(tracker.attested(), true);
-  off();
+  n({ phase: "undelivered", ticketId: 4 });
+  assert.equal(tracker.get().evidence, "attested", "delivered is final");
+
+  n({ phase: "dispatched", ticketId: 6, task: "dictationCleanup", targetId: "host:gpu-box.lan", payload: "text" });
+  assert.deepEqual(tracker.get().alsoSentTo, ["host:gpu-box.lan"]);
+
+  tracker.dispose();
+  assert.equal(bus.listenerCount("n"), 0, "dispose detaches main's feed");
   assert.equal(attachEgressEvidence(tracker, "rec-1", undefined)(), undefined, "absent Plan 07 is a no-op");
 });
 ```
@@ -3590,7 +3707,8 @@ export function disclosureTargetFor(route, settingsView = {}) {
   if (!route || route.locality === "device") return null;
   if (route.locality === "network") {
     try {
-      return `host:${new URL(settingsView[NETWORK_URL_KEY[route.id]]).host}`;
+      // "host:<hostname>", the same encoding as main's EgressNotice.targetId (§5.4).
+      return `host:${new URL(settingsView[NETWORK_URL_KEY[route.id]]).hostname}`;
     } catch {
       return "host:";
     }
@@ -3616,9 +3734,12 @@ export function disclosureCopy(d, t) {
 
 const EVIDENCE_RANK = { dispatched: 1, attested: 2 };
 
-export function createDisclosureTracker({ session, onChange } = {}) {
+export function createDisclosureTracker({ session, onChange, privacyApi } = {}) {
   let listener = onChange;
   const byTarget = new Map(); // target -> { payload, evidence }
+  const tickets = new Map(); // main's ticketId -> { target, payload, phase }
+  let mainFed = false;
+  let detach = () => undefined;
   let attested = false;
   let current = null;
   const settingsView = session?.settings ?? {};
@@ -3631,21 +3752,32 @@ export function createDisclosureTracker({ session, onChange } = {}) {
     const [[target, top], ...rest] = entries;
     return { target, payload: top.payload, evidence: top.evidence, alsoSentTo: rest.map(([t]) => t) };
   };
-  return {
+  const tracker = {
     record({ task, payload, evidence }) {
+      if (mainFed) return; // Plan 07 present: main's notices are the only evidence (§5.2)
       if (!PAYLOAD_RANK[payload]) return; // "metadata" never counts
       const target = disclosureTargetFor(session?.routes?.[task], settingsView);
       if (target === null) return;
-      if (evidence === "attested") attested = true;
-      const prev = byTarget.get(target);
-      const next = {
-        payload: prev && PAYLOAD_RANK[prev.payload] > PAYLOAD_RANK[payload] ? prev.payload : payload,
-        evidence: prev?.evidence === "attested" ? "attested" : evidence,
-      };
-      if (prev && prev.payload === next.payload && prev.evidence === next.evidence) return;
-      byTarget.set(target, next);
-      current = summarize();
-      listener?.(current);
+      merge(target, payload, evidence);
+    },
+    applyEgress(notice) {
+      if (!PAYLOAD_RANK[notice?.payload] || !EGRESS_EVIDENCE[notice.phase]) return;
+      const prev = tickets.get(notice.ticketId);
+      if (prev?.phase === "delivered") return; // delivered is final
+      tickets.set(notice.ticketId, { target: notice.targetId, payload: notice.payload, phase: notice.phase });
+      // Rebuild from the tickets, so an undelivered ticket withdraws only its own evidence.
+      byTarget.clear();
+      attested = false;
+      for (const t of tickets.values()) if (t.phase !== "undelivered") merge(t.target, t.payload, EGRESS_EVIDENCE[t.phase], { quiet: true });
+      const next = summarize();
+      if (JSON.stringify(next) !== JSON.stringify(current)) {
+        current = next;
+        listener?.(current);
+      }
+    },
+    _startMainFeed(off) {
+      mainFed = true;
+      detach = off;
     },
     get: () => current,
     attested: () => attested,
@@ -3653,20 +3785,42 @@ export function createDisclosureTracker({ session, onChange } = {}) {
       listener = fn;
     },
     dispose() {
+      detach();
       byTarget.clear();
+      tickets.clear();
       current = null;
       listener = undefined;
     },
   };
+  if (session?.id) attachEgressEvidence(tracker, session.id, privacyApi);
+  return tracker;
+
+  function merge(target, payload, evidence, { quiet = false } = {}) {
+    if (evidence === "attested") attested = true;
+    const prev = byTarget.get(target);
+    const next = {
+      payload: prev && PAYLOAD_RANK[prev.payload] > PAYLOAD_RANK[payload] ? prev.payload : payload,
+      evidence: prev?.evidence === "attested" ? "attested" : evidence,
+    };
+    if (prev && prev.payload === next.payload && prev.evidence === next.evidence) return;
+    byTarget.set(target, next);
+    if (quiet) return;
+    current = summarize();
+    listener?.(current);
+  }
 }
 
-/** Plan 07's main-attested egress: `sent` notices for this session's correlation id. */
+const EGRESS_EVIDENCE = { dispatched: "dispatched", delivered: "attested", undelivered: "dispatched" };
+
+/** Plan 07's egress feed (§5.4) for this session's correlation id. `recorded` rows are not evidence. */
 export function attachEgressEvidence(tracker, sessionId, privacyApi = globalThis.window?.electronAPI?.privacy) {
   if (!privacyApi?.onEgress) return () => undefined;
-  return privacyApi.onEgress((notice) => {
-    if (notice?.phase !== "sent" || notice.correlationId !== sessionId) return;
-    tracker.record({ task: notice.task, payload: notice.payload, evidence: "attested" });
+  const off = privacyApi.onEgress((notice) => {
+    if (notice?.correlationId !== sessionId) return;
+    tracker.applyEgress(notice);
   });
+  tracker._startMainFeed?.(off);
+  return off;
 }
 ```
 
@@ -3690,13 +3844,13 @@ const routes = Object.fromEntries(DISCLOSURE_TASKS.map((id) => [id, resolveRoute
 1. **Tracker per session.** In `beginDictationSession` (Task 6), and in `applySessionIntents(session, { tracker } = {})`:
 
    ```js
-     this._detachEgress?.();
-     // A restored session keeps the evidence gathered before its cancel (Task 8 passes buffer.tracker).
+     // A restored session keeps the evidence and main's egress tickets gathered before its cancel
+     // (Task 8 passes buffer.tracker). The tracker attaches main's feed itself.
+     if (this._disclosure && this._disclosure !== tracker) this._disclosure.dispose();
      this._disclosure = tracker ?? createDisclosureTracker({ session: this._activeSession });
-     this._detachEgress = attachEgressEvidence(this._disclosure, this._activeSession.id);
    ```
 
-   Never dispose a tracker here: a cancel buffer may own it (Task 8). The buffer disposes it when its window closes.
+   A tracker a cancel buffer owns is no longer `this._disclosure` (Task 8 moves it at cancel), so this never disposes it. The buffer disposes it when its window closes, which also detaches main's feed.
 
    Add `getDisclosure() { return this._disclosure?.get() ?? null; }`. Cancel paths (Task 8) read it when they build `CancelledState`.
 2. **Route evidence.** These record only when no attested feed exists; the tracker enforces that.
@@ -3989,10 +4143,10 @@ async function setup(t, settings = LOCAL) {
     transcribeAudioFileByok: async (p) => (io.byok.push(p), { success: true, text: "hi" }),
     cancelUploadTranscription: () => {},
     dismissDictationPreview: () => {},
-    privacy: { getSealed: async () => false },
   };
   const manager = Object.assign(Object.create(loaded.AudioManager.prototype), {
     _undoWindowFactory: (opts) => createUndoWindow({ ...clock, ...opts }),
+    _readSealed: () => false, // the sealedStore seam (§5.4); the Sealed test overrides it
     _processingCancellationGeneration: 0,
     _streamingCancellationGeneration: 0,
     _streamingSessionGeneration: 0,
@@ -4196,7 +4350,7 @@ test("a restore whose bytes fail settles idle and says so", async (t) => {
 
 test("Sealed mode refuses a non-device Undo and keeps the recording held", async (t) => {
   const { manager, window: win, advance } = await setup(t, { ...LOCAL, useLocalWhisper: false });
-  win.electronAPI.privacy = { getSealed: async () => true };
+  manager._readSealed = () => true;
   startBatch(manager, [], 3);
   manager.cancelRecording();
   await advance(0);
@@ -4285,6 +4439,25 @@ test("a replay whose provider refuses to start leaves the manager usable and re-
   assert.equal(manager.isProcessing, false);
   assert.equal(manager._undo.peek()?.kind, "streaming", "the audio is offered for Undo again");
   assert.equal(io.streamSends, 0);
+});
+
+test("a private hold is never persisted, and its restore stays private (§5.2)", async (t) => {
+  const { manager, io, advance, setSettings } = await setup(t, { ...LOCAL, ...RETAIN });
+  setSettings({ ...LOCAL, ...RETAIN });
+  startBatch(manager, [], 3);
+  manager._recordingPrivate = true;
+  manager.cancelRecording();
+  await advance(5000);
+  assert.equal(io.saves, 0, "retention on, but private");
+
+  startBatch(manager, [], 4);
+  manager._recordingPrivate = true;
+  manager.cancelRecording();
+  await advance(0);
+  manager._recordingPrivate = false; // a later, non-private recording changed the flag
+  await manager.restoreCancelled();
+  assert.equal(manager._recordingPrivate, true);
+  await manager._restoreRun;
 });
 
 test("flush persists once when retention allows; with retention off it only zeroes", async (t) => {
@@ -4469,6 +4642,7 @@ export function createUndoWindow({
        buffer.tracker?.dispose();
        if (reason === "replaced" && this._undo?.peek()) this._emitCancelled(this._undo.peek());
        await buffer.ready();
+       if (buffer.private) return; // an expired private hold is never persisted (§5.2)
        if (!shouldSaveDiscardedRecording(getSettings(), buffer.durationSeconds)) return; // zeroed by the window
        const role = buffer.kind === "streaming" ? "fallback" : "segment";
        const blobs = buffer.bytes(role).map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
@@ -4489,6 +4663,8 @@ export function createUndoWindow({
          session, kind, mimeType: mimeType || this.recordingMimeType,
          durationSeconds, analyticsOccurredAt, tracker: this._disclosure,
        });
+       // §5.2 private holds: Plan 05's per-recording flag; absent before 05 merges, so false.
+       buffer.private = this._recordingPrivate === true;
        this._disclosure = null; // the buffer owns the tracker now
        if (this._lastAudioSessionId === session.id) {
          this.lastAudioBlob = null;
@@ -4623,7 +4799,15 @@ export function createUndoWindow({
        }
    ```
 
-9. **A new recording finalizes any open window first.** At the very start of `startRecording()` and `startStreamingRecording()`, before the guards: `if (this._undo?.peek()) void this._undo.expireNow();`.
+9. **A new recording finalizes any open window first.** In `startRecording()` and `startStreamingRecording()`, add `if (this._undo?.peek()) void this._undo.expireNow();` **after** the busy guard (`:1145-1153`) and after Plan 07's sealed pre-flight (§5.4), and before the microphone is prepared (`:1156`). A refused start therefore never costs the user their held recording.
+
+   **Plan 07's pre-flight and recovery stay intact (§5.4, CCR-4).** This task must not move or drop either of these:
+   - the `isDictationSealed(settings, getSealedSnapshot().sealed)` refusal in `startRecording`;
+   - the `_noteSealedFailure(error)` call that runs before `saveFailedTranscription` in the pipeline `catch` (`:1903-1928`).
+
+   Whichever plan merges second wires them together:
+   - **07 merged first.** Rebase onto it, and put the `expireNow` line after its pre-flight. `_noteSealedFailure` reads `this.lastAudioBlob`. Step 4.1 nulls that blob only for a session this task cancels, and a cancelled session never reaches the pipeline `catch`, so the two never meet.
+   - **04 merged first.** Plan 07 inserts its pre-flight directly after the busy guard, which is above the `expireNow` line, and its `_noteSealedFailure` call where its CCR-4 says. Nothing in this task needs to change.
 
 **Known limit (also in PRIVACY.md and Task 20).** These cases predate the cancel, so the buffer cannot unwrite them:
 - A cancel can land while main is already merging segments (`merge-audio-segments` writes an FFmpeg temp directory, removed in its `finally`, `ffmpegUtils.js:474-552`).
@@ -4679,6 +4863,7 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
     }
 
     this.applySessionIntents(buffer.session, { tracker: buffer.tracker }); // Task 7 keeps the evidence
+    this._recordingPrivate = buffer.private === true; // §5.2: re-applied before processing
     this._restoreRun = (buffer.kind === "streaming" ? this._replayStreamingSession(buffer, generation) : this._restoreBatch(buffer))
       .catch((error) => {
         logger.warn("Undo could not run the original route", { error: error?.message }, "audio");
@@ -4706,8 +4891,7 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
   }
 
   async _sealedBlocks(session) {
-    const sealed = await window.electronAPI?.privacy?.getSealed?.().catch(() => true);
-    if (!sealed) return false;
+    if (!this._readSealed()) return false;
     const routes = session.routes ?? {};
     const { intents, settings } = session;
     const used = [
@@ -4740,7 +4924,18 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
 ```
 
 - `processAudio(audio, metadata, pipeline)` returns early when `_activeProcessingPipeline !== pipeline` (`:1773-1774`), and `wasCancelled()` is true once `cancelProcessing` bumps the generation. An Esc during a batch restore therefore stops the pipeline, and Step 4.8 re-holds `_sessionAudio`.
-- `getSealed` failing is treated as sealed, failing closed like Plan 07's own `getSealed`. When Plan 07 has not merged, `privacy` is `undefined` and nothing is blocked.
+- Sealed state comes only from `src/stores/sealedStore.ts` (§5.4), never from `privacy.getSealed` directly:
+
+  ```js
+  import * as sealedStore from "../stores/sealedStore";
+    /** Only `true` blocks; unknown (`null`) never does, because main enforces the seal either way (§5.4). */
+    _readSealed() {
+      const snapshot = sealedStore.getSealedSnapshot?.(); // Plan 07
+      return snapshot ? snapshot.sealed === true : sealedStore.getSealed?.() === true; // Plan 03 alone
+    }
+  ```
+
+  This works whichever of 04 and 07 merges first. `_sealedBlocks` stays `async` so the call site does not change.
 
 Streaming replay. It owns its streaming state from start to finish, so a failure can never leave `isStreaming` set:
 
@@ -4836,7 +5031,10 @@ This task closes four review findings:
 - I9: the cancel window is flushed on a normal quit, through a bounded main→renderer handshake;
 - the ⌥Z lease from Task 2.
 
+It also wires §5.7: an open cancel window reaches the control panel as the lifecycle state `cancelled`, on Plan 06's existing `dictation-lifecycle-state-changed` → `dictation-lifecycle-changed` channel. No second relay is added. Plan 06 maps the state to "Ready".
+
 **Files:**
+- Modify: `src/helpers/dictationLifecycle.js`. Add `CANCELLED: "cancelled"` to `DICTATION_LIFECYCLE`. Main normalises every unknown state to `idle` (`normalizeDictationLifecycle`, line 17), so without this, §5.7's "future states pass through" would not hold for `cancelled`. `resolveAgentDictationPillState` treats `cancelled` as `idle`. `shouldIgnoreDictationHotkey` is unchanged, so a new dictation can start during the window.
 - Create: `src/helpers/rendererRequest.js` (main). A token, sender and timeout request/reply helper, generalised from `_prepareRendererForMainWindowResize` (`windowManager.js:345-370`).
 - Modify: `src/helpers/windowManager.js`. Add `sendUndoCancelDictation(sessionId?)`, `flushDictationBeforeQuit({ timeoutMs })` and `lastCancelledDictation`.
 - Modify: `main.js:1472-1479`. `before-quit` flushes the dictation window before teardown.
@@ -4873,7 +5071,7 @@ This task closes four review findings:
   ```js
   // main
   windowManager.sendUndoCancelDictation(sessionId?: string): Promise<UndoResult>;  // 2 s round trip to the overlay
-  windowManager.lastCancelledDictation: { sessionId: string } | null;              // from the demo/pill events
+  windowManager.lastCancelledDictation: { sessionId: string } | null;              // set by onboarding-demo-publish from the sanitised events
   windowManager.flushDictationBeforeQuit({ timeoutMs }): Promise<boolean>;         // true when the overlay acknowledged
   // src/helpers/rendererRequest.js
   requestFromRenderer({ ipcMain, webContents, channel, replyChannel, payload, timeoutMs, fallback }): Promise<unknown>;
@@ -4885,7 +5083,6 @@ This task closes four review findings:
   replyUndoCancel?: (token: number, result: UndoResult) => void;
   onDictationFlushRequest?: (cb: (req: { token: number }) => void) => () => void;
   replyDictationFlush?: (token: number) => void;
-  reportCancelledDictation?: (event: { sessionId: string; open: boolean }) => void;
   ```
 
   Plan 05 calls `windowManager.sendUndoCancelDictation(windowManager.lastCancelledDictation?.sessionId)` from its `onboarding-demo-undo-cancel` handler, and maps `UndoResult.restored === false` to hiding Undo.
@@ -5034,7 +5231,7 @@ async function mount(t, electronAPI = {}) {
       electronAPI: {
         onToggleDictation: noop, onToggleVoiceAgent: noop, onToggleTranslation: noop, onStartDictation: noop,
         onPrepareDictation: noop, onCancelDictationPreparation: noop, onStopDictation: noop,
-        dictationLifecycleStateChanged: () => {}, captureDictationTarget: async () => ({}),
+        dictationLifecycleStateChanged: (state) => log.push(["lifecycle", state]), captureDictationTarget: async () => ({}),
         registerCancelHotkey: (k) => log.push(`+${k}`),
         unregisterCancelHotkey: () => log.push("-esc"),
         acquirePillHotkey: async (slot) => (log.push(`+${slot}`), { leaseId: 1, held: true }),
@@ -5044,7 +5241,6 @@ async function mount(t, electronAPI = {}) {
         replyUndoCancel: (token, result) => log.push(["undo-reply", token, result]),
         onDictationFlushRequest: on("flush"),
         replyDictationFlush: (token) => log.push(["flush-reply", token]),
-        reportCancelledDictation: (e) => log.push(["report", e]),
         ...electronAPI,
       },
     },
@@ -5138,6 +5334,28 @@ test("⌥Z is leased while a window is open and released when it closes", async 
   await fire("onCancelledChange", null, { sessionId: "rec-1", reason: "expired" });
   assert.deepEqual(log.filter((e) => e === "+undoCancel" || e === "-lease"), ["+undoCancel", "-lease"]);
 });
+
+test("the control panel learns of the window through Plan 06's lifecycle channel only (§5.7)", async (t) => {
+  const { log } = await mount(t);
+  await fire("onCancelledChange", STATE);
+  await fire("onCancelledChange", null, { sessionId: "rec-1", reason: "expired" });
+  const states = log.filter((e) => Array.isArray(e) && e[0] === "lifecycle").map((e) => e[1]);
+  assert.deepEqual(states.slice(-2), ["cancelled", "idle"]);
+});
+```
+
+Add to `test/helpers/dictationLifecycle.test.js` (create it if absent):
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const lifecycle = require("../../src/helpers/dictationLifecycle.js");
+
+test("cancelled passes main's normaliser, never blocks a new dictation, and is idle to the Agent pill", () => {
+  assert.equal(lifecycle.normalizeDictationLifecycle("cancelled"), "cancelled");
+  assert.equal(lifecycle.shouldIgnoreDictationHotkey("cancelled"), false);
+  assert.equal(lifecycle.resolveAgentDictationPillState("cancelled", "assistant").lifecycle, "idle");
+});
 ```
 
 
@@ -5145,7 +5363,7 @@ That asserts on the same instance the hook used.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/helpers/rendererRequest.test.js test/helpers/undoBridge.test.js test/helpers/useAudioRecordingLifecycle.test.js`
+Run: `npm test -- test/helpers/dictationLifecycle.test.js test/helpers/rendererRequest.test.js test/helpers/undoBridge.test.js test/helpers/useAudioRecordingLifecycle.test.js`
 Expected: FAIL with `Cannot find module '…/rendererRequest.js'`.
 
 - [ ] **Step 3: Main side**
@@ -5208,7 +5426,7 @@ module.exports = { requestFromRenderer };
   }
 ```
 
-Import `ipcMain` from `electron` if `windowManager.js` does not already. Add `this.lastCancelledDictation = null;` in the constructor. Set it from a new `ipcMain.on("report-cancelled-dictation", (event, { sessionId, open }))` in `ipcHandlers.js`, which accepts only `mainWindow.webContents` as the sender and stores `open ? { sessionId } : null`.
+Import `ipcMain` from `electron` if `windowManager.js` does not already. Add `this.lastCancelledDictation = null;` in the constructor. The `onboarding-demo-publish` handler sets it (below). Its only consumer is Plan 05's trial, and demo events flow only during a trial. There is no separate report channel (§5.7: no second relay).
 
 `main.js:1472-1479`:
 
@@ -5260,7 +5478,15 @@ function sanitizeCancelledDemoFields(event = {}) {
 }
 ```
 
-In `ipcHandlers.js:1059-1080` (`onboarding-demo-publish`), spread `...sanitizeCancelledDemoFields(event)` into the broadcast object. Plan 05 extends the same handler (its CCR 1) and must keep this sanitiser.
+In `ipcHandlers.js:1059-1080` (`onboarding-demo-publish`), spread `...sanitizeCancelledDemoFields(event)` into the broadcast object. Then record the open window:
+
+```js
+      const cancelFields = sanitizeCancelledDemoFields(event);
+      if (event.status === "cancelled" && cancelFields.sessionId) this.windowManager.lastCancelledDictation = { sessionId: cancelFields.sessionId };
+      if (event.status === "cancelClosed") this.windowManager.lastCancelledDictation = null;
+```
+
+Plan 05 extends the same handler (its CCR 1) and must keep this sanitiser.
 
 `preload.js` (overlay APIs):
 
@@ -5269,7 +5495,6 @@ In `ipcHandlers.js:1059-1080` (`onboarding-demo-publish`), spread `...sanitizeCa
   replyUndoCancel: (token, result) => ipcRenderer.send("undo-cancel-reply", token, result),
   onDictationFlushRequest: registerListener("dictation-flush-request", (cb) => (_e, req) => cb(req)),
   replyDictationFlush: (token) => ipcRenderer.send("dictation-flush-reply", token, true),
-  reportCancelledDictation: (event) => ipcRenderer.send("report-cancelled-dictation", event),
 ```
 
 Add the types from the Interfaces block, and no-op stubs in `browserPreview.ts`.
@@ -5292,12 +5517,15 @@ In `src/hooks/useAudioRecording.js`:
    ```js
        onCancelledChange: (state, closed) => {
          setCancelled(state);
+         cancelledRef.current = state;
+         // §5.7: the control panel sees the window on Plan 06's lifecycle channel. A busy
+         // lifecycle (a new recording, a restore) owns the report instead.
+         const am = audioManagerRef.current;
+         if (!am?.isRecording && !am?.isProcessing) reportLifecycle(state ? "cancelled" : "idle");
          if (state) {
            onDemoEventRef.current?.({ kind: demoKindRef.current, status: "cancelled", sessionId: state.sessionId, cancelled: state });
-           window.electronAPI?.reportCancelledDictation?.({ sessionId: state.sessionId, open: true });
          } else if (closed) {
            onDemoEventRef.current?.({ kind: demoKindRef.current, status: "cancelClosed", sessionId: closed.sessionId, reason: closed.reason });
-           window.electronAPI?.reportCancelledDictation?.({ sessionId: closed.sessionId, open: false });
          }
        },
        onProcessingStage: (stage) => setProcessingStage(stage),
@@ -5317,6 +5545,8 @@ In `src/hooks/useAudioRecording.js`:
            setProcessingStage(null);
          }
    ```
+
+   In the existing report at `:335`, the idle case becomes `cancelledRef.current ? "cancelled" : "idle"`, so a cancel that settles idle while its window is open reports `cancelled` (§5.7).
 
    On unmount, the existing cleanup releases it: add `if (escHeldRef.current) window.electronAPI?.unregisterCancelHotkey?.();` to the effect cleanup at `:786-800`. Main also releases the `cancel` slot if the renderer goes away: Task 2's owner watch covers it, installed from `register-cancel-hotkey` itself.
 4. **Outcome.**
@@ -5405,13 +5635,13 @@ Locale keys (`notices.undo`, all 12 locales):
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/rendererRequest.test.js test/helpers/undoBridge.test.js test/helpers/useAudioRecordingLifecycle.test.js "test/helpers/useAudioRecording*.test.js" test/helpers/preloadOnboardingBridge.test.js`
+Run: `npm test -- test/helpers/dictationLifecycle.test.js test/helpers/rendererRequest.test.js test/helpers/undoBridge.test.js test/helpers/useAudioRecordingLifecycle.test.js "test/helpers/useAudioRecording*.test.js" test/helpers/preloadOnboardingBridge.test.js`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/helpers/rendererRequest.js src/helpers/windowManager.js main.js src/helpers/onboardingInputPolicy.js src/helpers/ipcHandlers.js src/helpers/audioManager.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/hooks/useAudioRecording.js src/hooks/useUndoCancelHotkey.ts src/App.jsx src/locales test
+git add src/helpers/dictationLifecycle.js src/helpers/rendererRequest.js src/helpers/windowManager.js main.js src/helpers/onboardingInputPolicy.js src/helpers/ipcHandlers.js src/helpers/audioManager.js preload.js src/types/electron.ts src/preview/browserPreview.ts src/hooks/useAudioRecording.js src/hooks/useUndoCancelHotkey.ts src/App.jsx src/locales test
 git commit -m "feat(voice): lifecycle-owned Esc, cross-window Undo bridge and a quit flush"
 ```
 
@@ -5439,16 +5669,18 @@ Covers the VO-R1 C state model, VO-Q5, VO-Q12 (timing) and VO-Q18. It also close
   ```js
   export const VOICE_PILL_FOOTPRINT: {
     idle: {40,40}; recording: {98,36}; transcribing: {144,36}; cleaning: {144,36};
-    pasted: {164,36}; cancelled: {160,36}; meeting: {124,36}; meetingInterrupted: {184,36};
+    pasted: {164,36}; cancelled: {160,36}; meeting: {124,36}; meetingInterrupted: {184,36}; sealedPaused: {124,36};
   };
   export const VOICE_PILL_MAX_WIDTH = 184;
   export const PILL_OUTCOME_BEAT_MS = 700;
-  export type PillStage = "recording" | "unavailable" | "thinking" | "transcribing" | "cleaning" | "cancelled" | "pasted" | "failed" | "meeting";
+  export const PILL_SEALED_PAUSED_MS = 4000;   // long enough to read the caption
+  export type PillStage = "recording" | "unavailable" | "thinking" | "transcribing" | "cleaning" | "cancelled" | "pasted" | "failed" | "sealedPaused" | "meeting";
   export function resolvePillStage(input: {
     isRecording: boolean; micUnavailable: boolean; isProcessing: boolean;
     processingStage: "transcribing" | "cleaning" | null; agentMode: boolean;
     cancelled: { undoUntil: number } | null; recentOutcome: { kind: "pasted" | "failed" } | null;
     meetingRecording: object | null; showMeetingRecorder: boolean;
+    dictationSealed?: boolean;   // the dictation route is blocked by Sealed mode (pillLocality.blocked)
   }): PillStage | null;
   ```
 
@@ -5467,6 +5699,7 @@ Covers the VO-R1 C state model, VO-Q5, VO-Q12 (timing) and VO-Q18. It also close
   |---|---|---|---|---|
   | `cancelled` | yes | yes | yes | Undo must stay reachable for the whole 5–10 s window (D3) |
   | `pasted`, `failed` | yes | no | no | The 700 ms beat must not be cut by the 500 ms auto-hide |
+  | `sealedPaused` | yes | no | no | §5.4: the pre-flight refusal reads as a pill state. The held-audio alert, with its Transcribe action, sits in the pill's notice slot, which has its own interaction rules (Task 3) |
   | `meeting` | yes | yes | yes | Stop must be visible and clickable while a meeting records (D2) |
   | everything else | no | no | no | Existing rules apply unchanged |
 
@@ -5518,6 +5751,9 @@ test("pill stage priority: live work, then cancel, then outcome, then meeting", 
   assert.equal(resolvePillStage({ ...base, cancelled: { undoUntil: 5 }, recentOutcome: { kind: "pasted" } }), "cancelled");
   assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "pasted" }, meetingRecording: meeting }), "pasted");
   assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "failed" } }), "failed");
+  // §5.4: a failure while Sealed mode blocks the dictation route is the pre-flight refusal.
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "failed" }, dictationSealed: true }), "sealedPaused");
+  assert.equal(resolvePillStage({ ...base, recentOutcome: { kind: "pasted" }, dictationSealed: true }), "pasted");
 });
 
 test("regular dictation processing is a transcribing capsule, Agent keeps thinking", async () => {
@@ -5609,7 +5845,9 @@ Expected: FAIL in five places:
      cancelled: Object.freeze({ width: 160, height: 36 }),
      meeting: Object.freeze({ width: 124, height: 36 }),
      meetingInterrupted: Object.freeze({ width: 184, height: 36 }),
+     sealedPaused: Object.freeze({ width: 124, height: 36 }), // "Paused"; the sentence is the caption
    });
+   export const PILL_SEALED_PAUSED_MS = 4000;
    ```
 
 2. In `LISTENING_ENTRANCE_TIMING` (line 21), set `thinkingMs: 0` and `waveformDelayMs: 0`. Leave `assistantFooterThinkingMs: 420` and `expansionMs: 300` alone. Update the comment above it: the press-ack hold is gone, and the first bar lands one expansion after the press.
@@ -5671,6 +5909,7 @@ Expected: FAIL in five places:
      recentOutcome,
      meetingRecording,
      showMeetingRecorder,
+     dictationSealed = false,
    }) {
      if (isRecording) return micUnavailable ? "unavailable" : "recording";
      if (isProcessing) {
@@ -5678,7 +5917,10 @@ Expected: FAIL in five places:
        return processingStage === "cleaning" ? "cleaning" : "transcribing";
      }
      if (cancelled) return "cancelled";
-     if (recentOutcome) return recentOutcome.kind === "pasted" ? "pasted" : "failed";
+     if (recentOutcome) {
+       if (recentOutcome.kind === "pasted") return "pasted";
+       return dictationSealed ? "sealedPaused" : "failed";
+     }
      if (meetingRecording && showMeetingRecorder) return "meeting";
      return null;
    }
@@ -5688,6 +5930,7 @@ Expected: FAIL in five places:
      meeting: { holdsWindow: true, interactive: true, outranksFooter: true },
      pasted: { holdsWindow: true, interactive: false, outranksFooter: false },
      failed: { holdsWindow: true, interactive: false, outranksFooter: false },
+     sealedPaused: { holdsWindow: true, interactive: false, outranksFooter: false },
    };
    const NO_OWNERSHIP = { holdsWindow: false, interactive: false, outranksFooter: false };
 
@@ -6453,7 +6696,7 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
 1. Add these imports:
    - `resolvePillStage` (same `../helpers/voicePillPresentation` path App already uses);
    - `usePillLocality`, `PillCaption` and `useRecentOutcome`;
-   - `resolvePillOwnership` and `shouldAutoHidePill` (same module as `resolvePillStage`);
+   - `resolvePillOwnership`, `shouldAutoHidePill` and `PILL_SEALED_PAUSED_MS` (same module as `resolvePillStage`);
    - `disclosureCopy` from `./helpers/dictationDisclosure`.
 
    `useSettingsStore` is already imported. `disclosureCopy` renders the `RemoteDisclosure` in `cancelled.remoteAlreadySent`. It names the receiver through `providerDisplayLabel` (Plan 01 review item 1), and says "may have received" when only the renderer saw the dispatch (Task 7).
@@ -6461,7 +6704,9 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
 
    ```js
      const pillLocality = usePillLocality();
-     const recentOutcome = useRecentOutcome(outcome);
+     // §5.4: while Sealed mode blocks the dictation route, a failure is Plan 07's pre-flight
+     // refusal, and it stays readable for PILL_SEALED_PAUSED_MS instead of the 700 ms beat.
+     const recentOutcome = useRecentOutcome(outcome, pillLocality.blocked ? PILL_SEALED_PAUSED_MS : undefined);
      const pillStage = resolvePillStage({
        isRecording: voicePillIsRecording,
        micUnavailable: micState === "unavailable",
@@ -6472,6 +6717,7 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
        recentOutcome,
        meetingRecording: null, // Task 17
        showMeetingRecorder: true, // Task 17
+       dictationSealed: pillLocality.blocked,
      });
      const pillOwnership = resolvePillOwnership(pillStage);
      // The underline's length is sampled once per cancel session, so pause and
@@ -6487,11 +6733,14 @@ Check that `draw-check` exists (`grep -n "@keyframes draw-check" src/index.css s
        : pillStage === "cleaning" ? t("pill.stage.cleaning")
        : pillStage === "pasted" && recentOutcome?.kind === "pasted" ? t("pill.stage.pasted", { count: recentOutcome.words })
        : pillStage === "cancelled" ? t("pill.stage.discardedUndo")
+       : pillStage === "sealedPaused" ? t("pill.stage.paused")
        : undefined;
      const pillCaption =
        pillStage === "cancelled" && cancelled.remoteAlreadySent
          ? disclosureCopy(cancelled.remoteAlreadySent, t)
-         : null;
+         : pillStage === "sealedPaused"
+           ? t("pill.caption.sealedPaused")
+           : null;
    ```
 
    `agentModeActive` is computed at line 512, after `micState`. Move the `pillStage` block below line 517 so it can read `agentModeActive`.
@@ -6564,7 +6813,8 @@ Add this to `en/translation.json` and mirror it to all 12 locales. For `ar`, `ru
     "cleaning": "Cleaning up",
     "pasted_one": "Pasted · {{count}} word",
     "pasted_other": "Pasted · {{count}} words",
-    "discardedUndo": "Discarded · Undo"
+    "discardedUndo": "Discarded · Undo",
+    "paused": "Paused"
   },
   "caption": {
     "remoteAudio": "{{provider}} already received the audio.",
@@ -6574,7 +6824,8 @@ Add this to `en/translation.json` and mirror it to all 12 locales. For `ar`, `ru
     "mayHaveText": "{{provider}} may have received the text.",
     "mayHaveImage": "{{provider}} may have received the screenshot.",
     "remoteSeveral": "{{provider}} already received parts of this dictation.",
-    "mayHaveSeveral": "{{provider}} may have received parts of this dictation."
+    "mayHaveSeveral": "{{provider}} may have received parts of this dictation.",
+    "sealedPaused": "Dictation paused: Sealed mode is on"
   },
   "locality": { "sealed": "Blocked by Sealed mode" },
   "route": {
@@ -7982,6 +8233,8 @@ git commit -m "feat(voice): soft sound family for start, stop, success, cancel, 
 ### Task 16: Meeting presence, meeting outcome, the tray state and the Linux Stop notification (D2)
 
 Closes review findings I8 and I14 for the main-process side.
+
+Plan 02's `showSystemNotification` (§5.5) is for interruptions and carries no actions. The resident Linux recorder notification needs a Stop action, so it keeps its own freedesktop path: the bundled `@homebridge/dbus-native` client below, never a host CLI. It does not route through `showSystemNotification`.
 
 Meeting capture runs in the control-panel renderer. That renderer reports two separate things:
 - **presence**, which is liveness only: is a meeting recording right now, since when, and is a source lost;
@@ -9825,17 +10078,19 @@ git commit -m "fix(voice): verification fixes for the voice overlay plan"
 ### Task 21: Contract update and PR preparation
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` §5.2 and §5.3. Do this **only after the owner approves the contract change requests** at the top of this plan.
+- None. The spec owner consolidated every CCR into §5 at 091d198. This task only checks that the code matches it.
 
 - [ ] **Step 1: Confirm the spec matches what shipped**
 
-The owner applies the contract change requests at the top of this plan to the spec, and notifies Plans 05 and 07 (owner instruction, this thread). Before opening the PR, compare the merged spec's §5.2 and §5.3 with what this branch exports. If the spec already carries the CCR shapes, there is nothing to edit. If a CCR was rejected or changed, change the code to the spec's shape before this step.
+Compare the spec's §5.2, §5.3, §5.4 and §5.7 (consolidated at 091d198, or any later owner revision) with what this branch exports. The spec wins: if a shape differs, change the code to the spec's shape. Then check each item below.
 
 - `src/types/dictation.ts` (CCR-1, CCR-2, CCR-3, CCR-6): `CancelledState`, `RemoteDisclosure`, `UndoResult`, `DictationOutcome`, `MeetingPresence` and `MeetingOutcome`.
 - `useAudioRecording` return fields (CCR-3): `cancelled`, `undoCancel`, `pauseUndo`, `resumeUndo`, `processingStage`, `outcome` and `meetingRecording`.
 - The onboarding demo statuses and the Undo bridge (CCR-5): `cancelled`, `cancelClosed`, `sendUndoCancelDictation`, `lastCancelledDictation`, and `sanitizeCancelledDemoFields`.
 - `notices.ts` (CCR-4): the discriminated `NoticeInput`, `NoticeRemoval`, `revision`, `busy`, `dismissNotice(id, reason)`, and the 7 s receipt-with-action lifetime.
-- `dictationDisclosure.js` (CCR-6): `dispatchTargetLabel`, `disclosureCopy` and `attachEgressEvidence`.
+- `dictationDisclosure.js` (CCR-6, §5.4): `dispatchTargetLabel`, `disclosureCopy`, `attachEgressEvidence`, and the `delivered`, `dispatched` and `undelivered` mapping.
+- §5.4: Plan 07's pre-flight and `_noteSealedFailure` are still in place, the `sealedPaused` pill state renders, and no renderer module except `sealedStore.ts` calls `privacy.getSealed` or `privacy.onSealedChange`. Check with `rg -n "privacy\.(getSealed|onSealedChange)" src --glob '!src/stores/sealedStore.ts'`, which must print nothing.
+- §5.7: `cancelled` reaches the control panel only through `dictation-lifecycle-changed`, and `rg -n "report-cancelled-dictation" src preload.js` prints nothing.
 
 CCR-7 (`ResolvedRoute.providerId`) is §5.1 and Plan 03's; Plan 03 has accepted it. Do not edit §5.1 here.
 
@@ -9872,7 +10127,10 @@ gh pr create --title "feat(voice): voice overlay — notices, undoable cancel, c
 | §5.3 `notify()` and migrating every toast | 1, 3, 4, 5 |
 | §5.2 lifecycle additions, including the Plan 05 Undo bridge | 7, 8, 9, 17 |
 | §5.1 `useResolvedRoute` for the pill ring and tooltip; session routes | 6, 7, 11, 13, 14 |
-| §5.4 Sealed mode: blocked ring, and Sealed pre-check on Undo | 8, 11 |
+| §5.4 Sealed mode: blocked ring; Sealed pre-check on Undo through `sealedStore`; the pre-flight kept, and rendered as the `sealedPaused` pill state; egress phases mapped to evidence | 7, 8, 10, 11 |
+| §5.3 Plan 07's recovery notice and held-audio alert | 4, 5 |
+| §5.5 resident Linux notification on its own freedesktop path | 16 |
+| §5.7 `cancelled` on Plan 06's lifecycle channel | 9 |
 | LevelBars on every voice surface | 11, 13, 19 |
 | VO-Q5 | 10 |
 | VO-Q7 | 4 |

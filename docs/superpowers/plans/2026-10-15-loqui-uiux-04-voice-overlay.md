@@ -63,6 +63,20 @@ This revision answers `plan-04-codex-r5.md`, reviewed at `a47935c`. Its two rema
 
 **Verification and limits.** A structural scan found 160 balanced Markdown fences and passed nine targeted assertions for the handoff, privacy snapshot, conditional release and streaming regression text. Node 24 `--check` passed on the extracted Task 8 test fence, and `git diff --check` passed. These checks validate document structure and JavaScript syntax only. The Task 8 cases are proposed test prescriptions; this plan checkout has no implementation to execute them against. The earlier round-4 scratch results do not verify the round-5 behavior, and no combined Plan 04/05 implementation suite was run.
 
+## Round-6 enterprise recipient response
+
+This revision answers **R6-I1** from `plan-04-astra-r6.md`. A dictation's enterprise destination is now part of its press-time route facts and follows the existing immutable session through cleanup, translation, Agent mode and Undo. Plan 04 extends Plan 03's facts/types after that dependency merges; it does not ask the Plan 03 worker to implement this feature.
+
+| Finding | Severity | Where | Resolution and regression evidence |
+|---|---|---|---|
+| **R6-I1** A dictation could use an enterprise destination applied after it began | Important | Tasks 6–8 | Main publishes opaque, credential-free recipient tags in the network-free route facts. The renderer freezes selected tags with the session at the press; a selected unknown tag blocks synchronously before microphone acquisition. Each session-bound enterprise request carries a separate `dictationSessionId` and its press-time expected tag. After credential waits, main captures one effective executor projection and refuses with `recipientChanged` / `recipientUnknown` before factory construction if the tag differs; it passes that exact projection to the factory. A known optional wake-word Agent tag is carried without blocking ordinary dictation. The regression is specified against the real main handler boundary; session, Agent, translation and Undo tests are specified to assert the captured tag reaches each request and that held audio/context survive refusal. |
+
+**Tag and lifecycle contract.** Each tag is an opaque main-generated digest of the effective non-secret inputs the factory uses: Azure endpoint and API version; Bedrock region, profile/auth source and the SDK-verified `AWS_ENDPOINT_URL_BEDROCK_RUNTIME ?? AWS_ENDPOINT_URL` override; Vertex project, location and persisted `adc | apiKey` source. Credentials are excluded, while non-secret auth source is included where it changes the selected execution path. Main derives the tag from the same normalized executor projection passed to the factory. It applies only Plan 03's documented defaults, rejects an empty-but-set Bedrock runtime override as unknown, and passes explicit configuration to the SDK rather than allowing environment fallback after validation. Plan 03 defines no Azure or Vertex endpoint environment override. An unresolved recipient is `unknown`; if a selected enterprise stage has an unknown tag, recording is visibly refused before microphone acquisition. Unselected enterprise tags do not block a session.
+
+The session carries only opaque tags, never enterprise settings or credentials. Every dictation enterprise request supplies both `dictationSessionId` and the tag for its selected provider; generic `correlationId` alone is not authority. After credential resolution, main captures the normalized executor config once, compares its tag to the request's expected tag, then passes that exact object to the model factory without another config read, await or environment fallback. A missing/unknown expected tag or a changed recipient returns stable `recipientUnknown` / `recipientChanged` before the factory. Untagged unrelated enterprise calls (typed chat, settings probes) keep their existing behavior; an inconsistent partial dictation tag fails closed. If config changes after the press, audio may be captured locally under the frozen operation, but the request is refused and existing audio, Undo and context remain available. Because that session remains pinned to the original recipient, recovery requires restoring the original destination and retrying, or discarding it and starting a new recording. No sender/session registry is needed.
+
+**Verification and limits.** The revised plan includes a deferred credential plus Apply case at the real `personalInference` handler, synchronous unknown-tag start refusal, a press-candidate supersession case, and route/operation tests for cleanup, translation, Agent, privacy recovery and Undo. Scratch probes validate extracted contract snippets with controlled provider/config leaves; they do not execute the app handler, cancellation buffer, or Undo integration. Full Plan 04/05 suites and real enterprise requests remain implementation-time checks.
+
 ## Round-4 review response
 
 This revision answers `plan-04-codex-r4.md`, Codex's round-4 check at 9cb9be7. It found 2 Critical and 2 Important, and its ledger closes R3-C1, R1-I5, R1-I12 and R3-I2. All four are fixed here, and none is disputed.
@@ -4222,12 +4236,13 @@ git commit -m "refactor(ui): migrate every toast to notify() and remove the toas
 ---
 ### Task 6: Dictation sessions, the route snapshot and the whole operation
 
-Closes review finding C2 and, in round 2, R1-C2. It lays the groundwork for C1, I2 and I5. Every recording becomes a **dictation session**, with:
-- an id, which is also the `correlationId` Plan 07 asked for (its CCR-3);
+Closes review finding C2 and, in round 2, R1-C2. It lays the groundwork for C1, I2 and I5, and closes R6-I1. Every recording becomes a **dictation session**, with:
+- an id, used as the generic Plan 07 `correlationId` and separately as `dictationSessionId` when a text request belongs to this operation;
 - an immutable, credential-free snapshot of every setting that decides where the audio and text go, taken when recording starts;
+- the opaque main-owned recipient tag for each selected enterprise stage, plus a ready optional wake-word Agent tag, captured synchronously from Plan 03's route facts with that route snapshot;
 - the recording's intents (Agent, translation, screen context, selection).
 
-The processing pipeline reads routing settings **only** from the session. A settings change during processing, during the undo window, or between cancel and Undo can therefore never move the audio to a different provider, and local audio can never go remote. Credentials are not in the snapshot. Main resolves API keys live by provider id (`ipcHandlers.js:8069-8075`), and the renderer-held keys are read live, so revoking a key makes the request fail explicitly instead of silently switching.
+The processing pipeline reads routing settings **only** from the session. A settings change during processing, during the undo window, or between cancel and Undo can therefore never move the audio to a different provider, and local audio can never go remote. A selected enterprise route also keeps its press-time recipient tag: if its main-owned config changes, main refuses that request before model construction rather than redirecting the session. Credentials are not in the snapshot. Main resolves API keys live by provider id (`ipcHandlers.js:8069-8075`), and the renderer-held keys are read live, so revoking a key makes the request fail explicitly instead of silently switching.
 
 **The whole operation, not only the speech (R1-C2).** A standalone Agent command does not end in the dictation pipeline:
 - It is banked for the assistant panel (`audioManager.js:2262-2275`, `:2295-2313`).
@@ -4236,32 +4251,429 @@ The processing pipeline reads routing settings **only** from the session. A sett
 
 Record with a local Voice Assistant, cancel, switch it to a provider, then Undo: the speech stayed local, but the command went to the new provider. This task closes that path in two parts.
 
-- **The operation.** The banked command carries the session's credential-free **operation**, `{ sessionId, settings }`, the same frozen snapshot. The hook, `useAssistantPanel`, `AssistantPanel`, the onboarding demo and `useChatStreaming` pass it on. The panel's request resolves its route, prompt inputs and `correlationId` from it. A typed follow-up in the panel is a new request and uses live settings.
+- **The operation.** The banked command carries the session's credential-free **operation**, `{ sessionId, settings, enterpriseRecipientTags }`, from the same frozen snapshot. The hook, `useAssistantPanel`, `AssistantPanel`, the onboarding demo and `useChatStreaming` pass it on. The panel's request resolves its route, prompt inputs, `correlationId`, `dictationSessionId` and selected recipient tag from it. A typed follow-up in the panel is a new request and uses live settings without the dictation-session tag.
 - **The context.** What the user pointed at belongs to the session too. The hook requests the OS selection read and the screenshot at press time (`useAudioRecording.js:170-179`). Today a processing cancel clears both promises (`audioManager.js:3776-3778`), and `consumeSelectionCapture` (`:768-777`) then reads whatever is selected *now*. A per-session **context** (`createSessionContext`) now owns both reads:
   - It moves with the session into the cancel buffer and back on Undo (Task 8). A restored command quotes or edits the original selection and carries the original screenshot.
   - A restored session never reads the OS selection again. If it never had a read, its command runs as a standalone panel command, which types nothing.
   - Main still re-validates the original target and text before it replaces anything (`selectionManager.js:213-235`). Its capture sessions live 5 minutes (`selectionManager.js:5`), longer than any undo window.
 
+**Enterprise recipient pinning (R6-I1).** Extend Plan 03's network-free route facts with an opaque tag for each enterprise recipient. Main computes each tag from one normalized, effective non-secret executor projection, including Azure endpoint/API version; Bedrock region, profile/source and the SDK-verified endpoint override; and Vertex project/location/auth source. Credential values are excluded. Resolve only Plan 03's effective inputs and documented defaults into this projection once. Hash a canonical allowlisted projection to make the tag; the same frozen projection object is the only destination/config input passed to the SDK factory, with credentials carried separately. The factory must not fall back to mutable settings or environment values after validation.
+
+Create main-only `src/helpers/enterpriseRecipientIdentity.js` and use the same normalizer/tagger when publishing Plan 03 route facts and when handling `personal-inference:text-*`. It returns `{ status: "ready", executor, tag }` only when the selected recipient can be resolved; otherwise it returns `{ status: "unknown" }`. `executor` is a frozen, allowlisted projection: Azure `{ endpoint, apiVersion, authSource }`; Bedrock `{ region, profile, authSource, endpointOverride }`; Vertex `{ project, location, authSource }`. Resolve only Plan 03's effective inputs: Azure's committed endpoint/API-version settings; Bedrock's committed region/profile plus the SDK-verified `AWS_ENDPOINT_URL_BEDROCK_RUNTIME ?? AWS_ENDPOINT_URL` override; and Vertex's committed project/location and persisted auth source. Use only Plan 03's documented defaults (`us-east-1`, `us-central1`, and the Azure API version); do not infer auth source from ambient key presence or add environment fallbacks. Validate and normalize URLs/region/project values and use stable key ordering for the digest. Read credential values through the existing secure credential path after this non-secret projection is resolved; they are never in the projection or tag. Route-fact publication refreshes on each committed main-side non-secret config change, including the Bedrock endpoint override at startup/config reload. If refresh cannot resolve a provider, publish `unknown`, never the last ready tag. The SDK adapter consumes only the explicit executor projection plus separately supplied credential material; it must not choose endpoint, region, project, profile or auth source from live settings or ambient SDK environment fallbacks after validation.
+
+The helper's identity path is explicit and deterministic:
+
+```js
+const { createHash } = require("node:crypto");
+const RECIPIENT_FIELDS = Object.freeze({
+  azure: ["endpoint", "apiVersion", "authSource"],
+  bedrock: ["region", "profile", "authSource", "endpointOverride"],
+  vertex: ["project", "location", "authSource"],
+});
+const AUTH_SOURCES = Object.freeze({
+  azure: new Set(["credential-store"]),
+  bedrock: new Set(["profile", "static"]),
+  vertex: new Set(["adc", "apiKey"]),
+});
+
+function normalizeEndpoint(value, { httpsOnly = false } = {}) {
+  if (value == null) return null;
+  if (String(value).trim() === "") return undefined;
+  try {
+    const url = new URL(String(value).trim());
+    if (!(httpsOnly ? url.protocol === "https:" : ["https:", "http:"].includes(url.protocol)) || url.username || url.password)
+      return undefined;
+    return url.href.replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function defaultBedrockEndpoint(region) {
+  const suffix = region.startsWith("cn-") ? "amazonaws.com.cn"
+    : region.startsWith("us-iso-") ? "c2s.ic.gov"
+    : region.startsWith("us-isob-") ? "sc2s.sgov.gov"
+    : region.startsWith("eu-isoe-") ? "cloud.adc-e.uk"
+    : region.startsWith("us-isof-") ? "csp.hci.ic.gov"
+    : region.startsWith("eusc-") ? "amazonaws.eu"
+    : "amazonaws.com";
+  return normalizeEndpoint(`https://bedrock-runtime.${region}.${suffix}`);
+}
+
+function captureEnterpriseEnvironment(provider, env = process.env) {
+  if (provider === "bedrock") return Object.freeze({
+    AWS_ENDPOINT_URL_BEDROCK_RUNTIME: env.AWS_ENDPOINT_URL_BEDROCK_RUNTIME,
+    AWS_ENDPOINT_URL: env.AWS_ENDPOINT_URL,
+  });
+  if (provider === "vertex") return Object.freeze({
+    // Secret; main keeps this snapshot only long enough to resolve explicit
+    // credential material. It is never returned by the route-fact publisher.
+    GOOGLE_VERTEX_API_KEY: env.GOOGLE_VERTEX_API_KEY,
+  });
+  return Object.freeze({});
+}
+
+function resolveEnterpriseCredentialMaterial(provider, source = {}, storedApiKey = "", env = {}) {
+  if (provider === "vertex") {
+    if (source.vertexAuthSource === "adc") return Object.freeze({ vertexApiKey: "" });
+    if (source.vertexAuthSource === "apiKey") {
+      // The stored VERTEX_API_KEY wins; the legacy SDK env key is captured
+      // before the recipient check and passed explicitly as credential only.
+      const vertexApiKey = storedApiKey || env.GOOGLE_VERTEX_API_KEY || "";
+      if (!vertexApiKey) throw new Error("Configure the Vertex API key in Settings.");
+      return Object.freeze({ vertexApiKey });
+    }
+    return undefined;
+  }
+  if (provider === "bedrock") {
+    const profile = typeof source.bedrockProfile === "string" ? source.bedrockProfile.trim() : "";
+    if (profile) return Object.freeze({ authSource: "profile", profile });
+    if (!source.bedrockAccessKeyId || !source.bedrockSecretAccessKey)
+      throw new Error("Configure both Bedrock access-key fields in Settings.");
+    return Object.freeze({
+      authSource: "static",
+      accessKeyId: source.bedrockAccessKeyId,
+      secretAccessKey: source.bedrockSecretAccessKey,
+      // STS session credentials travel only as credential material, never as
+      // part of recipient identity or renderer-visible route facts.
+      ...(source.bedrockSessionToken ? { sessionToken: source.bedrockSessionToken } : {}),
+    });
+  }
+  return undefined;
+}
+
+function resolveEnterpriseExecutor(provider, source = {}, env = process.env) {
+  let executor;
+  if (provider === "azure") {
+    executor = {
+      endpoint: normalizeEndpoint(source.azureEndpoint ?? null, { httpsOnly: true }),
+      apiVersion: source.azureApiVersion || "2024-10-21",
+      authSource: "credential-store",
+    };
+  } else if (provider === "bedrock") {
+    const profileValue = source.bedrockProfile ?? null;
+    const profile = typeof profileValue === "string" && profileValue.trim() ? profileValue.trim() : null;
+    // The SDK gives the runtime-specific variable priority even when it is
+    // empty. Treat that empty-but-set override as unusable instead of falling
+    // through to AWS_ENDPOINT_URL or to the SDK's ambient config chain.
+    const rawEndpointOverride = env.AWS_ENDPOINT_URL_BEDROCK_RUNTIME ?? env.AWS_ENDPOINT_URL;
+    const region = source.bedrockRegion || "us-east-1";
+    executor = {
+      region,
+      profile,
+      // Profile wins exactly as in Plan 03. Otherwise static is the intended
+      // source; its live credential pair is validated separately, not tagged.
+      authSource: profile ? "profile" : "static",
+      // Freeze the full effective base URL, even on the default path, so the
+      // SDK cannot observe a later environment override after comparison.
+      endpointOverride: rawEndpointOverride === undefined
+        ? defaultBedrockEndpoint(region)
+        : normalizeEndpoint(rawEndpointOverride),
+    };
+  } else if (provider === "vertex") {
+    executor = {
+      project: String(source.vertexProject ?? "").trim() || null,
+      location: source.vertexLocation || "us-central1",
+      // Plan 03's migrated, persisted enum is authoritative. Never infer it
+      // from key presence, including GOOGLE_VERTEX_API_KEY.
+      authSource: source.vertexAuthSource,
+    };
+  } else {
+    return { status: "unknown" };
+  }
+
+  if (Object.values(executor).some((value) => typeof value !== "string" && value !== null))
+    return { status: "unknown" };
+  if (provider === "azure" && (!executor.endpoint || !executor.apiVersion)) return { status: "unknown" };
+  if (provider === "bedrock" && !executor.endpointOverride) return { status: "unknown" };
+  if (provider === "vertex" && executor.authSource === "adc" && !executor.project) return { status: "unknown" };
+  if (!AUTH_SOURCES[provider].has(executor.authSource)) return { status: "unknown" };
+  if (provider === "bedrock" && !/^[a-z0-9-]+$/i.test(executor.region)) return { status: "unknown" };
+  if (provider === "vertex" && executor.project && /[\\/\s?#]/.test(executor.project)) return { status: "unknown" };
+  if (provider === "vertex" && !/^[a-z0-9-]+$/i.test(executor.location)) return { status: "unknown" };
+  // Validate any URL overrides here; return unknown instead of publishing an invalid tag.
+  const canonical = JSON.stringify([provider, ...RECIPIENT_FIELDS[provider].map((key) => [key, executor[key] ?? null])]);
+  const tag = `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
+  return { status: "ready", executor: Object.freeze(executor), tag };
+}
+
+function buildEnterpriseRecipientFacts(source, env = process.env) {
+  return Object.freeze(Object.fromEntries(
+    Object.keys(RECIPIENT_FIELDS).map((provider) => {
+      const resolved = resolveEnterpriseExecutor(provider, source, env);
+      return [provider, resolved.status === "ready"
+        ? Object.freeze({ status: "ready", tag: resolved.tag })
+        : Object.freeze({ status: "unknown" })];
+    })
+  ));
+}
+
+module.exports = {
+  captureEnterpriseEnvironment,
+  resolveEnterpriseCredentialMaterial,
+  resolveEnterpriseExecutor,
+  buildEnterpriseRecipientFacts,
+};
+```
+
+Add focused tests against Plan 03's actual source values and SDK precedence, not inferred aliases:
+
+```js
+test("enterprise recipient identity follows Plan 03 auth enums and effective SDK inputs", () => {
+  const {
+    captureEnterpriseEnvironment,
+    resolveEnterpriseCredentialMaterial,
+    resolveEnterpriseExecutor,
+  } = require("../../src/helpers/enterpriseRecipientIdentity");
+  const vertexApiKey = resolveEnterpriseExecutor("vertex", {
+    vertexProject: "",
+    vertexLocation: "europe-west4",
+    vertexAuthSource: "apiKey",
+  }, { GOOGLE_VERTEX_API_KEY: "ambient-key", GOOGLE_VERTEX_PROJECT: "ignored-project" });
+  assert.equal(vertexApiKey.status, "ready", "apiKey express mode does not require project");
+  assert.equal(vertexApiKey.executor.authSource, "apiKey");
+  assert.equal(vertexApiKey.executor.project, null);
+  assert.equal(vertexApiKey.executor.location, "europe-west4");
+  const envOnlyVertexKey = resolveEnterpriseCredentialMaterial("vertex", {
+    vertexAuthSource: "apiKey",
+  }, "", captureEnterpriseEnvironment("vertex", { GOOGLE_VERTEX_API_KEY: "legacy-env-key" }));
+  assert.ok(envOnlyVertexKey.vertexApiKey === "legacy-env-key", "captured legacy key supports an environment-only API-key setup");
+  const storedVertexKey = resolveEnterpriseCredentialMaterial("vertex", {
+    vertexAuthSource: "apiKey",
+  }, "stored-vertex-key", captureEnterpriseEnvironment("vertex", { GOOGLE_VERTEX_API_KEY: "legacy-env-key" }));
+  assert.ok(storedVertexKey.vertexApiKey === "stored-vertex-key", "the stored VERTEX_API_KEY wins over its legacy environment fallback");
+  const adcVertex = resolveEnterpriseCredentialMaterial("vertex", {
+    vertexAuthSource: "adc",
+  }, "stored-vertex-key", captureEnterpriseEnvironment("vertex", { GOOGLE_VERTEX_API_KEY: "legacy-env-key" }));
+  assert.equal(adcVertex.vertexApiKey, "", "ADC suppresses both API-key sources");
+  assert.equal(resolveEnterpriseExecutor("vertex", {
+    vertexProject: "",
+    vertexLocation: "europe-west4",
+    vertexAuthSource: "adc",
+  }, { GOOGLE_VERTEX_PROJECT: "ignored-project" }).status, "unknown", "ADC requires the committed project");
+  assert.equal(resolveEnterpriseExecutor("vertex", {
+    vertexProject: "acme-prod",
+    vertexLocation: "europe-west4",
+    vertexAuthSource: "api-key",
+  }, {}).status, "unknown", "do not translate or infer auth-source spellings");
+
+  const bedrockProfile = resolveEnterpriseExecutor("bedrock", {
+    bedrockRegion: "eu-west-1",
+    bedrockProfile: "team-profile",
+  }, { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://gateway.example:8443/bedrock/runtime" });
+  assert.equal(bedrockProfile.status, "ready");
+  assert.equal(bedrockProfile.executor.authSource, "profile");
+  assert.equal(bedrockProfile.executor.profile, "team-profile");
+  assert.equal(bedrockProfile.executor.endpointOverride, "https://gateway.example:8443/bedrock/runtime");
+  assert.notEqual(bedrockProfile.tag, resolveEnterpriseExecutor("bedrock", {
+    bedrockRegion: "eu-west-1",
+    bedrockProfile: "team-profile",
+  }, { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://gateway.example:8443/bedrock/other" }).tag);
+  const defaultBedrock = resolveEnterpriseExecutor("bedrock", { bedrockRegion: "cn-northwest-1" }, {});
+  assert.equal(defaultBedrock.executor.endpointOverride, "https://bedrock-runtime.cn-northwest-1.amazonaws.com.cn");
+  const emptyRuntimeOverride = resolveEnterpriseExecutor("bedrock", { bedrockRegion: "eu-west-1" }, {
+    AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "",
+    AWS_ENDPOINT_URL: "https://must-not-win.example",
+  });
+  assert.equal(emptyRuntimeOverride.status, "unknown", "an empty runtime-specific override wins and is unusable");
+
+  const azureV1 = resolveEnterpriseExecutor("azure", {
+    azureEndpoint: "https://azure.example/openai",
+    azureApiVersion: "2024-10-21",
+  }, {});
+  const azureV2 = resolveEnterpriseExecutor("azure", {
+    azureEndpoint: "https://azure.example/openai",
+    azureApiVersion: "2025-01-01",
+  }, {});
+  assert.notEqual(azureV1.tag, azureV2.tag);
+  const vertexChangedLocation = resolveEnterpriseExecutor("vertex", {
+    vertexProject: "acme-prod",
+    vertexLocation: "us-central1",
+    vertexAuthSource: "apiKey",
+  }, {});
+  assert.notEqual(vertexApiKey.tag, vertexChangedLocation.tag);
+
+  const staticA = resolveEnterpriseExecutor("bedrock", {
+    bedrockRegion: "us-west-2",
+    bedrockAccessKeyId: "old-id",
+    bedrockSecretAccessKey: "old-secret",
+  }, {});
+  const staticB = resolveEnterpriseExecutor("bedrock", {
+    bedrockRegion: "us-west-2",
+    bedrockAccessKeyId: "rotated-id",
+    bedrockSecretAccessKey: "rotated-secret",
+  }, {});
+  const staticSessionA = resolveEnterpriseExecutor("bedrock", {
+    bedrockRegion: "us-west-2",
+    bedrockAccessKeyId: "same-id",
+    bedrockSecretAccessKey: "same-secret",
+    bedrockSessionToken: "fixture-session-a",
+  }, {});
+  const staticSessionB = resolveEnterpriseExecutor("bedrock", {
+    bedrockRegion: "us-west-2",
+    bedrockAccessKeyId: "same-id",
+    bedrockSecretAccessKey: "same-secret",
+    bedrockSessionToken: "fixture-session-b",
+  }, {});
+  const staticSessionMaterial = resolveEnterpriseCredentialMaterial("bedrock", {
+    bedrockAccessKeyId: "same-id",
+    bedrockSecretAccessKey: "same-secret",
+    bedrockSessionToken: "fixture-session-a",
+  });
+  assert.equal(staticA.status, "ready");
+  assert.equal(staticA.executor.authSource, "static");
+  assert.equal(staticA.tag, staticB.tag, "credential rotation does not change the recipient tag");
+  assert.ok(staticSessionMaterial.sessionToken === "fixture-session-a", "Bedrock STS session token is forwarded as credential material");
+  assert.equal(staticSessionA.tag, staticSessionB.tag, "STS token rotation does not change the recipient tag");
+  assert.ok(!staticSessionA.tag.includes("fixture-session-a"), "STS token is excluded from the recipient tag");
+  assert.notEqual(staticA.tag, resolveEnterpriseExecutor("bedrock", {
+    bedrockRegion: "us-west-2",
+    bedrockProfile: "other-profile",
+  }, {}).tag);
+  assert(!staticA.tag.includes("us-west-2"));
+  assert(!staticA.tag.includes("old-id"));
+  assert(!bedrockProfile.tag.includes("gateway.example"));
+});
+```
+
+The implementation should source `vertexAuthSource` and Bedrock profile/region from main's committed config; do not infer auth mode from key presence. Bedrock's static credential pair and Vertex's API key are resolved separately, so rotating them does not change a tag. `buildEnterpriseRecipientFacts` publishes only statuses and tags in Plan 03's existing network-free facts channel. Bedrock's supported endpoint override must be included in the factory's explicit SDK input; Plan 03 defines no additional Azure or Vertex endpoint override.
+
+The main text boundary keeps unrelated requests backwards compatible while making a dictation marker unambiguous. In `personalInference.js`, validate the separate fields before returning the normalized request:
+
+```js
+const ENTERPRISE_PROVIDERS = new Set(["azure", "bedrock", "vertex"]);
+const isEnterpriseProvider = (provider) => ENTERPRISE_PROVIDERS.has(provider);
+
+function recipientFailure(code) {
+  const error = new Error(
+    code === "recipientChanged"
+      ? "This recording is still pinned to its original enterprise destination. Restore that destination to retry, or discard this recording and start a new one."
+      : "The original recording is preserved, but its enterprise destination could not be verified. Restore the original destination to retry, or discard this recording and start a new one."
+  );
+  error.code = code;
+  return error;
+}
+
+function validateDictationRecipientFields(input) {
+  const hasSessionField = input.dictationSessionId != null;
+  const hasTagField = input.enterpriseRecipientTag != null;
+  const hasSessionId = typeof input.dictationSessionId === "string" && input.dictationSessionId.length > 0;
+  const hasTag = typeof input.enterpriseRecipientTag === "string" && input.enterpriseRecipientTag.length > 0;
+  if (input.dictationOperation !== undefined && input.dictationOperation !== true)
+    throw recipientFailure("recipientUnknown");
+  if (hasSessionField && !hasSessionId) throw recipientFailure("recipientUnknown");
+  if (hasTagField && !hasTag) throw recipientFailure("recipientUnknown");
+  if (hasSessionId && (input.dictationSessionId.length > 100 || !input.dictationSessionId.trim()))
+    throw recipientFailure("recipientUnknown");
+  if (hasTag && !/^sha256:[a-f0-9]{64}$/.test(input.enterpriseRecipientTag))
+    throw recipientFailure("recipientUnknown");
+  if (input.dictationOperation === true) {
+    if (!hasSessionId) throw recipientFailure("recipientUnknown");
+    return;
+  }
+  // A tag or id without the explicit operation marker is a malformed partial handoff.
+  if (hasSessionId || hasTag) throw recipientFailure("recipientUnknown");
+  // `correlationId` by itself remains generic and is not checked here.
+}
+```
+
+Call `validateDictationRecipientFields(input)` inside `validateRequest`. `dictationOperation: true` plus a valid session id is mandatory for every text request owned by a dictation. The expected recipient tag is additionally mandatory for enterprise providers, but not for on-device/non-enterprise providers. A marked request routed to an enterprise provider with no well-formed tag fails `recipientUnknown`; a request with only `correlationId` retains its existing typed-chat/settings-probe behavior. Keep these errors' safe `code` through `text-generate`, `text-stream` and ReasoningService so retry UI preserves the original transcript/audio.
+
+At the `execute` boundary, capture the executor only after all awaits that may affect credentials or configuration, compare once, and pass the same object to the factory with no intervening await or live reread:
+
+```js
+const apiKey = ["local", "bedrock"].includes(request.provider)
+  ? ""
+  : await getCredential(request.credentialRef);
+if (!apiKey && !["local", "lan", "custom", "bedrock", "vertex"].includes(request.provider))
+  throw new Error(`Configure the ${request.provider} API key in Settings.`);
+
+const enterpriseConfigSnapshot = isEnterpriseProvider(request.provider)
+  ? await getEnterpriseConfig()
+  : undefined;
+// Snapshot only the provider-specific ambient values once, after awaits but
+// before comparison. Bedrock endpoint fields affect identity; Vertex's legacy
+// API key is credential material only and never contributes to the tag.
+const enterpriseEnvironmentSnapshot = isEnterpriseProvider(request.provider)
+  ? captureEnterpriseEnvironment(request.provider, process.env)
+  : undefined;
+const enterprise = isEnterpriseProvider(request.provider)
+  ? resolveEnterpriseExecutor(request.provider, enterpriseConfigSnapshot, enterpriseEnvironmentSnapshot)
+  : undefined;
+if (request.dictationOperation === true && isEnterpriseProvider(request.provider)) {
+  if (enterprise?.status !== "ready" || !request.enterpriseRecipientTag)
+    throw recipientFailure("recipientUnknown");
+  if (enterprise.tag !== request.enterpriseRecipientTag)
+    throw recipientFailure("recipientChanged");
+}
+// Credential material uses only already-captured inputs. Resolve it after the
+// recipient comparison so a changed destination stays the stable failure.
+const enterpriseCredentialMaterial = isEnterpriseProvider(request.provider)
+  ? resolveEnterpriseCredentialMaterial(
+      request.provider, enterpriseConfigSnapshot, apiKey, enterpriseEnvironmentSnapshot
+    )
+  : undefined;
+// No await, settings read, environment read, or provider selection between the
+// comparison and this call. `enterprise.executor` is the exact normalized object
+// the factory/adapter uses for endpoint, region, profile, project and auth source.
+const model = await modelFactory(
+  request.provider,
+  request.model,
+  apiKey,
+  request.baseUrl,
+  request.disableThinking,
+  enterprise?.executor,
+  enterpriseCredentialMaterial
+);
+```
+
+`resolveEnterpriseExecutor(provider, config, envSnapshot)` is the one main-owned entry point for route-fact publication and request execution. It reads the effective non-secret provider fields once, including only Plan 03's verified Bedrock endpoint override, then returns `{ status: "ready", executor, tag }` or `unknown`. `captureEnterpriseEnvironment` snapshots only Bedrock's verified endpoint variables and Vertex's legacy `GOOGLE_VERTEX_API_KEY` fallback before comparison. After a matching tag, `resolveEnterpriseCredentialMaterial` runs synchronously from the already captured settings, stored key and environment snapshot: stored `VERTEX_API_KEY` wins, an env-only legacy key remains supported, and ADC ignores both by passing an explicit empty key. It performs no new environment/settings read. The Vertex key is credential material only and never enters the recipient tag. For Azure the adapter uses the explicit endpoint and API version; Bedrock uses the explicit region/profile/endpoint override and captured auth source; Vertex uses the explicit project/location and persisted auth source. Vertex API-key mode does not require a project. If any SDK adapter cannot honor an explicit field without re-reading mutable environment state, move that field into an explicit factory argument before shipping this task. A rotated key can keep the same recipient tag because credentials are not destination identity.
+
+Update the full factory chain in `personalInference.js` and `enterpriseAiProviders.js`, not only the injected handler seam. The default `createModel` currently accepts six arguments; extend it to accept and forward the seventh `enterpriseCredentialMaterial` argument to `getEnterpriseAIModel(provider, model, apiKey, executor, enterpriseCredentialMaterial, fetchImpl)`. Keep Plan 07's optional injected `fetchImpl` eighth at `createModel` and sixth at the enterprise wrapper; it must never occupy or displace the credential-material slot. The request handler's `modelFactory` call, default `createModel`, exported enterprise wrapper and provider-specific factory must all preserve the exact seventh argument. Add a wrapper test that captures it unchanged and confirms the eighth argument remains in its separate slot.
+
+```js
+async function createModel(provider, model, apiKey, baseURL, disableThinking, enterpriseExecutor, enterpriseCredentialMaterial, fetchImpl) {
+  if (isEnterpriseProvider(provider)) {
+    return require("./enterpriseAiProviders").getEnterpriseAIModel(
+      provider, model, apiKey, enterpriseExecutor, enterpriseCredentialMaterial, fetchImpl
+    );
+  }
+  // Keep the existing non-enterprise provider branches below this boundary.
+}
+```
+
+For the wrapper test, use the production default `modelFactory` path with a temporary module stub for `enterpriseAiProviders.getEnterpriseAIModel`; injecting a custom factory would bypass the regression. The stub asserts it receives the same frozen executor and the exact separate credential-material object as arguments four and five, and the optional `fetchImpl` in argument six when supplied.
+
+In `enterpriseAiProviders.js`, consume the captured executor object unchanged. Azure passes its endpoint as `baseURL` and its captured `apiVersion`; Bedrock always passes captured `endpointOverride` as explicit SDK `baseURL` (including the region-derived default URL when no env override is set), plus captured `region`, and selects profile or static auth explicitly. This prevents a later `AWS_ENDPOINT_URL*` read inside the SDK. Vertex passes captured `project` and `location`, and chooses API-key versus ADC only from captured `authSource` (`apiKey` uses the explicit `enterpriseCredentialMaterial.vertexApiKey`, chosen from stored `VERTEX_API_KEY` before the captured legacy `GOOGLE_VERTEX_API_KEY`; `adc` must pass `apiKey: ""` to suppress both sources and any SDK environment fallback). Resolve Bedrock static credentials from the same already-read secure config snapshot and Vertex's legacy key from the pre-comparison environment snapshot; pass both only in the separate `enterpriseCredentialMaterial` argument. No adapter may call `process.env`, reread the settings store, infer a different auth source from credential truthiness, or apply an implicit SDK endpoint override after the main comparison. Keep credential material in the separate secure argument and never attach it to route facts, the session, operation object or test failure message.
+
+At the recording press, synchronously freeze settings, intents and resolved routes before any visual-frame, target-capture or microphone await. The hook passes that exact candidate through preparation and the actual start; direct AudioManager callers create it at method entry. A prepared assistant start uses the incoming `inputKind`, not manager flags left by the previous recording. Resolve selected stages with the existing frozen-locality rules: STT always; cleanup only when `useCleanupModel`; translation only for `intents.translationRequested`; Agent only for `intents.voiceAgentRequested`; vision only for Agent plus `voiceAgentScreenContext`. The candidate carries the selected enterprise route tags. An unknown tag on a selected enterprise route shows a blocked-start notice synchronously and does not acquire the microphone; unknown facts for unselected stages/providers do not block. No async admission IPC or main session registry is needed. A known press-time tag that becomes stale after Apply may continue recording locally, but each later enterprise request is checked against current main config and refuses before factory/transport; the active or held session retains its audio and context for retry or discard.
+
+`sessionOperation(session)` carries the immutable opaque tags beside `sessionId` and credential-free settings. It includes a known optional wake-word Agent tag even when the user did not start in Agent mode, so a later Agent handoff retains the press-time destination. This optional tag never blocks ordinary recording; an unknown optional Agent recipient fails visibly only if the transcript invokes that stage. Cleanup, translation, vision and Agent request configs mark the request with `dictationOperation: true`, set the distinct `dictationSessionId`, and attach the expected tag for the selected enterprise provider. `correlationId` remains generic; its presence never activates this check. Main validates the explicit operation discriminator, then after every credential/config await captures one normalized current executor projection, compares its tag to the request's press-time expected tag, and passes that same projection to `modelFactory` with no further await or live environment fallback. A marked dictation request with a missing session id, or with a missing enterprise tag for an enterprise provider, fails with `recipientUnknown`; a tag or session id without the operation marker is inconsistent and also fails closed. Requests without operation metadata keep their existing unrelated-call behavior (typed chat, settings probes). A mismatched expected tag returns `recipientChanged` before model construction/transport and uses the existing content-preserving failure path. Cancel moves only the immutable session and context into the hold; Undo reuses them and repeats the same check.
+
 **Files:**
 - Create: `src/helpers/dictationSession.js`
+- Modify after Plan 03 merges: `src/lib/routes.ts`, `src/stores/routeFactsStore.ts`. Add the main-published enterprise-recipient facts and expose them on every resolved route; refresh tags from committed non-secret executor config on Apply, marking unavailable facts `unknown` instead of retaining stale tags. This is a Plan 04 additive contract and is not work for the Plan 03 implementation owner.
 - Modify: `src/helpers/audioManager.js`:
-  - start the session in `startRecording` (≈1141) and `startStreamingRecording` (≈3430);
+  - synchronously capture the candidate before the hook's first await and carry it through `prepareMicCapture` (the pre-roll path), `startRecording` (≈1141) and `startStreamingRecording` (≈3430);
+  - reject a selected unknown enterprise tag synchronously before microphone acquisition; later main-request checks handle config changes after press;
   - add `settings()` and the `_activeSession` / `_sessionContext` plumbing;
   - make every read site listed in Step 4 take its routing settings from the session;
   - read the selection and the screenshot through the session context (`:768-795`), and bank the operation with a panel command (`:2262-2275`).
 - Modify: `src/services/ReasoningService.ts:38-141`. An explicit `config.provider` / `baseUrl` / `lanUrl` is always honoured, and dictation now always passes them. Add `config.settingsView`, which local-provider prompts read instead of live settings.
-- Modify: `src/services/BaseReasoningService.ts:8-58`. `ReasoningConfig` gains `settingsView` and `correlationId`. The `get*` helpers prefer `config.settingsView`.
+- Modify: `src/services/BaseReasoningService.ts:8-58`. `ReasoningConfig` gains `settingsView`, generic `correlationId`, `dictationOperation`, `dictationSessionId` and `enterpriseRecipientTag`. The `get*` helpers prefer `config.settingsView`.
 - Modify: `src/config/prompts/index.ts:17-21`. `resolvePrompt(kind, opts)` accepts `opts.customPrompts`.
 - Modify: `src/hooks/useAudioRecording.js:474-504`. The Agent command carries `operation`.
 - Modify: `src/hooks/useAssistantPanel.js:135-151`. The pending command keeps it.
 - Modify: `src/components/dictation/AssistantPanel.tsx:46-52`, `:205-209`. The panel sends it.
 - Modify: `src/components/chat/useChatStreaming.ts:13-15`, `:84-97`, `:233`, `:380-397`. `sendToAI` resolves its route from it.
 - Modify: `src/hooks/useOnboardingAssistantDemo.ts:8-11`, `:58-60`. The onboarding demo sends it too.
-- Modify: `src/helpers/ipcHandlers.js`, `src/helpers/personalInference.js`, `src/services/ai/personalInferenceTypes.ts`, `src/helpers/dictationStreamingRouting.js` (the correlation id, Step 4.6).
+- Modify: `src/types/electron.ts`, `src/helpers/personalInference.js`, `src/helpers/enterpriseAiProviders.js`, `src/services/ai/personalInferenceTypes.ts`, `src/helpers/dictationStreamingRouting.js` (the correlation id, Step 4.6). Add internal `dictationOperation: true`, `dictationSessionId` and `enterpriseRecipientTag` fields to session-bound requests; this adds no IPC channel. Do not use generic `correlationId` as the enterprise-operation discriminator, add renderer settings keys or expose executor config.
+- Create main-only `src/helpers/enterpriseRecipientIdentity.js`; share its single config normalizer/tagger between main route-fact publication and the `personalInference` request boundary.
 - Modify: `test/helpers/harness/audioManager.js`. Export `realSettingsStoreSource`.
 - Test: `test/helpers/dictationSession.test.js`
 - Test: `test/helpers/audioManagerSessionRoute.test.js`
 - Test: `test/helpers/dictationOperationHandoff.test.js`
+- Test: `test/helpers/enterpriseRecipientPinning.test.js` (main route-fact tags, selected unknown blocking, deferred credential plus Apply at the real main handler, credential rotation, and exact factory snapshot)
 - Modify: `test/helpers/useAudioRecordingClipboardPersistence.test.js`, `test/helpers/assistantPanel.test.js`
 
 **Interfaces:**
@@ -4274,11 +4686,16 @@ Record with a local Voice Assistant, cancel, switch it to a provider, then Undo:
   export function isCredentialKey(key: string): boolean; // /apikey|secret|token|clientid|password|credential/i
   export function captureDictationSession({ settings, intents, agentName, private?, id?, now? }): DictationSession;
   export function sessionSettings(session: DictationSession, live: object): object; // live, overlaid with the snapshot
-  export function sessionOperation(session: DictationSession): DictationOperation;  // frozen { sessionId, settings: session.settings }
+  export function sessionOperation(session: DictationSession): DictationOperation;  // frozen { sessionId, settings, enterpriseRecipientTags }
   export function createSessionContext({ sessionId, selection?, screen? }): SessionContext;
+  export function selectedEnterpriseRecipients(session: DictationSession): Array<{ provider: EnterpriseProviderId; tag: EnterpriseRecipientTag }>;
+  export function operationEnterpriseRecipients(session: DictationSession): Array<{ provider: EnterpriseProviderId; tag: EnterpriseRecipientTag }>; // selected stages plus a known wake-word Agent route; unknown optional routes never block startup
+  export function hasUnknownSelectedEnterpriseRecipient(session: DictationSession): boolean;
   // DictationSession (frozen):
   // { id: string; startedAt: number; settings: Readonly<Record<string, unknown>>; agentName: string;
   //   private: boolean; // captured with the operation; survives delayed save callbacks
+  //   routes: Readonly<Record<RouteId, ResolvedRoute>> | null; // includes main's recipient fact at press when resolvable
+  //   enterpriseRecipientTags: Readonly<Partial<Record<EnterpriseProviderId, EnterpriseRecipientTag>>>;
   //   intents: { voiceAgentRequested: boolean; translationRequested: boolean; streaming: boolean;
   //              streamingProviderName: string | null; assistantSelectionContext: unknown } }
   // SessionContext (owned by one session; it moves into the cancel buffer and back on Undo):
@@ -4287,18 +4704,55 @@ Record with a local Voice Assistant, cancel, switch it to a provider, then Undo:
   //   screen(): Promise<ScreenContextImage | null> | null; markRestored(): void; release(): void }
   ```
 
+  ```ts
+  // Add to Plan 03's §5.1 route facts/types after that dependency merges.
+  export type EnterpriseProviderId = "azure" | "bedrock" | "vertex";
+  export type EnterpriseRecipientTag = string; // opaque main-generated digest; never a credential or config value
+  export type EnterpriseRecipientFact =
+    | { status: "ready"; tag: EnterpriseRecipientTag }
+    | { status: "unknown" };
+  // RouteFacts adds enterpriseRecipients keyed by EnterpriseProviderId. EMPTY_ROUTE_FACTS
+  // sets every provider to { status: "unknown" }; no renderer/default/fixture may invent
+  // { status: "ready" }. ResolvedRoute requires `recipient`: the matching main fact for an
+  // enterprise providerId (missing fact also becomes unknown) and null for every non-enterprise
+  // route. `buildRouteSnapshot`/`resolveRoute` attach it before returning. Update all P03
+  // producers and fixtures (`makeRoute`, `makeSnapshot`, `buildRouteSnapshot`, `resolveRoute`, tests)
+  // to satisfy this required field. A selected enterprise route with `unknown` blocks start;
+  // an unknown fact for an unselected route/provider does not.
+  // The shared route selector exposes this non-secret identity even when a fact is unknown,
+  // so a missing tag cannot be mistaken for an on-device route:
+  export function selectRouteProvider(settings: SettingsState, id: RouteId):
+    | { status: "known"; providerId: string | null }
+    | { status: "unknown" };
+
+  export interface DictationOperation {
+    sessionId: string;
+    settings: Readonly<Record<string, unknown>>;
+    enterpriseRecipientTags: Readonly<Partial<Record<EnterpriseProviderId, EnterpriseRecipientTag>>>;
+  }
+  ```
+
   ```js
   // AudioManager
-  beginDictationSession(intents): DictationSession;   // both start paths; adopts the press-time reads into a new SessionContext
+  createDictationSession(intents): DictationSession;  // synchronous settings + route-fact capture at press
+  getOrCreatePressCandidate(intents, { newPress? }): DictationSession; // shared by prepare + start for one press
+  releasePressCandidate(session): boolean;             // clear only this pending press on cancel/failure
+  prepareMicCapture({ candidate }): Promise<PreparedCapture | null>; // refuses selected unknown tags before opening the mic
+  cancelPreparedMicCapture(candidate?): void;         // cancel/release by candidate identity
+  beginDictationSession(intents, candidate?): DictationSession; // adopts the press-time candidate and its reads
   settings(): object;                                 // sessionSettings(this._activeSession, getSettings()) or getSettings()
   get activeSession(): DictationSession | null;
   applySessionIntents(session, { context }?): void;   // Undo's entry point (Task 8)
-  _detachSessionOperation(): { session, context };    // cancel's exit point (Task 8): ends the session, keeps its reads
+  _detachSessionOperation(): { session, context };    // cancel's exit point (Task 8): transfers owners without releasing reads
   ```
 
   ```ts
   // src/components/chat/useChatStreaming.ts
-  export interface DictationOperation { sessionId: string; settings: Readonly<Record<string, unknown>> }
+  export interface DictationOperation {
+    sessionId: string;
+    settings: Readonly<Record<string, unknown>>;
+    enterpriseRecipientTags: Readonly<Partial<Record<EnterpriseProviderId, EnterpriseRecipientTag>>>;
+  }
   SendToAIOptions.operation?: DictationOperation;     // resolve this request's route from the dictation, not live Settings
   ```
 
@@ -4388,13 +4842,14 @@ test("every inference scope the dictation pipeline uses is covered", async (t) =
   assert.equal(SESSION_ROUTE_KEYS.includes("dictationAgent"), false, "fallbackScope is not a settings key");
 });
 
-test("the operation is the session's own credential-free snapshot", async (t) => {
+test("the operation is the session's own credential-free snapshot and tags", async (t) => {
   const { captureDictationSession, sessionOperation, isCredentialKey } = await load(t);
   const session = captureDictationSession({ settings: live, intents: {}, agentName: "Loqui", id: "rec-2" });
   const operation = sessionOperation(session);
-  assert.deepEqual(operation, { sessionId: "rec-2", settings: session.settings });
+  assert.deepEqual(operation, { sessionId: "rec-2", settings: session.settings, enterpriseRecipientTags: {} });
   assert.equal(operation.settings, session.settings, "no copy that could drift");
   assert.equal(Object.isFrozen(operation), true);
+  assert.equal(Object.isFrozen(operation.enterpriseRecipientTags), true);
   for (const key of Object.keys(operation.settings)) assert.equal(isCredentialKey(key), false, key);
 });
 
@@ -4738,10 +5193,13 @@ test("the panel answers a voice command on its dictation's route, with its corre
   assert.equal(requests[0].model, "qwen3.5-2b-q4_k_m");
   assert.equal(requests[0].baseUrl, "http://127.0.0.1:8123/v1");
   assert.equal(requests[0].correlationId, "rec-9");
+  assert.equal(requests[0].dictationOperation, true);
+  assert.equal(requests[0].dictationSessionId, "rec-9");
 
   await streaming.sendToAI("and a typed follow-up", [user]);
   assert.equal(requests[1].provider, "openai", "a typed follow-up is a new request on live Settings");
   assert.equal(requests[1].correlationId, null);
+  assert.equal(requests[1].dictationOperation, undefined);
 });
 ```
 
@@ -4762,6 +5220,7 @@ for (const [destination, onboardingCompleted] of [
     const operation = Object.freeze({
       sessionId: "rec-4",
       settings: Object.freeze({ snippets: [], dictationAgentMode: "local" }),
+      enterpriseRecipientTags: Object.freeze({}),
     });
     const harness = await mountCompletionHarness(t, {
       settings: {},
@@ -4805,7 +5264,7 @@ test("a voice command keeps its dictation operation until the panel sends it", a
   }
   root = createRoot(container);
   await React.act(async () => root.render(React.createElement(Harness)));
-  const operation = { sessionId: "rec-5", settings: { dictationAgentMode: "local" } };
+  const operation = { sessionId: "rec-5", settings: { dictationAgentMode: "local" }, enterpriseRecipientTags: {} };
   await React.act(async () => {
     assistant.handleCommand({ text: "draft a reply", attachment: null, selectedContext: null, delivery: null, operation });
   });
@@ -4922,7 +5381,7 @@ test("the panel sends a voice command with its dictation operation", async (t) =
   });
   const { AssistantPanel } = await vite.ssrLoadModule("/components/dictation/AssistantPanel.tsx");
   const { createRoot } = require("react-dom/client");
-  const operation = { sessionId: "rec-6", settings: { dictationAgentMode: "local" } };
+  const operation = { sessionId: "rec-6", settings: { dictationAgentMode: "local" }, enterpriseRecipientTags: {} };
   root = createRoot(container);
   await React.act(async () =>
     root.render(
@@ -4952,6 +5411,104 @@ test("the panel sends a voice command with its dictation operation", async (t) =
   assert.equal(sent[0].options.operation, operation);
 });
 ```
+
+Create `test/helpers/enterpriseRecipientPinning.test.js` around the real `registerPersonalInferenceIPC` handler (the harness shape in `personalInferenceTransport.test.js` already supplies an `EventEmitter` sender, handler map and fake AI model). Inject only the credential/config readers, `modelFactory` and transport leaves. Use `resolveEnterpriseExecutor(...).tag` from the new main-only helper to make the exact tag that Plan 03 publishes; do not substitute a renderer-generated route tag. Import `test`, `assert`, `EventEmitter` and `registerPersonalInferenceIPC` from the same modules as the transport suite, and use its `deferred` helper.
+
+The first test is the deferred Apply regression. Capture tag A, start a marked Azure text request whose credential read is deferred, then commit config B before releasing the credential. The request must reject with `code === "recipientChanged"` before `modelFactory` and before the fake transport. Put the same session/audio/context into the real `createCancelBuffer` + `createUndoWindow` objects used by Task 8 before releasing the gate; after refusal assert `undo.peek()` is the identical buffer, its segment bytes are unchanged, `buffer.context` is the identical unreleased context, and `restoreCancelled` can still claim it. This checks the refusal at the real main handler boundary while proving the already-held Undo value remains intact.
+
+Use this exact core in that test; `deferred()` is the local three-line helper already used by the neighboring suites:
+
+```js
+test("Apply during credential resolution refuses before factory and preserves the Undo buffer", async (t) => {
+  const handlers = new Map();
+  const codex = new EventEmitter();
+  codex.stop = () => {};
+  const credentialGate = deferred();
+  const credentialEntered = deferred();
+  const configA = { azureEndpoint: "https://a.example/v1", azureApiVersion: "2024-10-21" };
+  const configB = { azureEndpoint: "https://b.example/v1", azureApiVersion: "2024-10-21" };
+  let currentConfig = configA;
+  const factoryCalls = [];
+  let transportCalls = 0;
+  const sender = new EventEmitter();
+  sender.id = 1;
+  sender.isDestroyed = () => false;
+  sender.send = () => {};
+  const service = registerPersonalInferenceIPC({
+    ipcMain: {
+      handle: (name, fn) => handlers.set(name, fn),
+      removeHandler: (name) => handlers.delete(name),
+    },
+    codex,
+    userDataPath: "/tmp/unused",
+    getCredential: async () => {
+      credentialEntered.resolve();
+      await credentialGate.promise;
+      return "rotated-key";
+    },
+    saveCredential: async () => {},
+    getEnterpriseConfig: async () => currentConfig,
+    modelFactory: async (...args) => {
+      factoryCalls.push(args);
+      return {
+        specificationVersion: "v3",
+        provider: "fixture",
+        modelId: "fixture",
+        supportedUrls: {},
+        doGenerate: async () => {
+          transportCalls += 1;
+          throw new Error("transport must not run");
+        },
+      };
+    },
+  });
+  t.after(() => service.dispose());
+
+  const { resolveEnterpriseExecutor } = require("../../src/helpers/enterpriseRecipientIdentity");
+  const expected = resolveEnterpriseExecutor("azure", configA, {}).tag;
+  const session = { id: "rec-pin-1", settings: {}, intents: {}, routes: {} };
+  const context = { sessionId: session.id, released: false, release() { this.released = true; } };
+  const { createCancelBuffer, createUndoWindow } = await import("../../src/helpers/cancelBuffer.js");
+  const buffer = createCancelBuffer({ session, kind: "batch", mimeType: "audio/webm", durationSeconds: 2, context });
+  buffer.adoptBlob(new Blob([Uint8Array.of(7, 8, 9)], { type: "audio/webm" }), "segment");
+  const undo = createUndoWindow({ now: () => 0, setTimer: () => 1, clearTimer: () => {}, onClose: async () => {} });
+  undo.open(buffer);
+  await buffer.ready();
+
+  const pending = handlers.get("personal-inference:text-generate")(
+    { sender },
+    {
+      requestId: "req-pin-1",
+      provider: "azure",
+      model: "deployment",
+      messages: [{ role: "user", content: "draft a reply" }],
+      dictationOperation: true,
+      dictationSessionId: session.id,
+      enterpriseRecipientTag: expected,
+    }
+  );
+  await credentialEntered.promise;
+  currentConfig = configB; // the main-owned Apply commits while the key lookup is suspended
+  credentialGate.resolve();
+  await assert.rejects(pending, (error) => error.code === "recipientChanged");
+  assert.equal(factoryCalls.length, 0);
+  assert.equal(transportCalls, 0);
+  assert.equal(undo.peek(), buffer);
+  assert.deepEqual(buffer.bytes("segment").map((bytes) => Array.from(bytes)), [[7, 8, 9]]);
+  assert.equal(buffer.context, context);
+  assert.equal(context.released, false);
+  assert.equal(undo.take(), buffer, "the same audio/context remains claimable by Undo");
+});
+```
+
+Add the paired boundary cases in that same file:
+
+- An unchanged executor projection with a rotated Azure API credential succeeds; the factory receives the rotated credential separately and the *same frozen executor object* whose tag matched. Assert no endpoint/config reread occurs after comparison.
+- A marked enterprise request missing `dictationSessionId`, a marked enterprise request missing/unknown `enterpriseRecipientTag`, an unknown current executor, and a tag/session id without `dictationOperation: true` all fail with the allowlisted `recipientUnknown` code and never call the factory. Also assert `correlationId` alone is accepted for a typed enterprise chat request and uses its current live executor.
+- Exercise the production default model-factory path (without injecting `modelFactory`) with a temporary stub of `enterpriseAiProviders.getEnterpriseAIModel`; assert the seventh `enterpriseCredentialMaterial` argument survives `personalInference.createModel` and reaches the enterprise wrapper unchanged. This catches the old six-argument wrapper silently dropping it.
+- The main fact publisher returns `{ status: "unknown" }` when a route cannot resolve. Apply publishes the new tag for new presses; a previously captured tag remains immutable and fails closed at request time. Tag tests vary Azure endpoint/API version, Bedrock region/profile/effective base URL/auth source and Vertex project/location/persisted auth source; each recipient field changes the digest, while credential rotation does not. Assert tag serialization contains no endpoint, project, profile, auth key, token or credential value.
+- A renderer route/session test supplies `EMPTY_ROUTE_FACTS` and a selected enterprise Agent stage; invoking the actual prepare/start path shows the blocked-start notice synchronously and makes zero `PreparedMicCapture.prepare`/`getUserMedia` calls. Repeat with an unrelated unselected enterprise provider marked unknown and prove it does not block.
+- Extend `dictationOperationHandoff.test.js` to assert the captured provider tag and `dictationOperation: true`/`dictationSessionId` survive cleanup, translation, vision and Agent request construction, `_detachSessionOperation()` into the cancel hold, `restoreCancelled`, and the cross-window AssistantPanel/Undo route. Run cleanup through the real `processTranscriptionCore` → exported `resolveReasoningRoute` path with a frozen `capturedRoutes` argument; assert it neither throws from an unbound `this` nor loses its tag. Add the ordinary-dictation wake-word case with `voiceAgentRequested: false`: a transcript that invokes the Agent still has the press-time `voiceAssistant` tag in its operation and the real panel request carries the marker/session/tag. An unknown optional Agent fact does not block normal dictation start; if that session later invokes the Agent, its untagged enterprise request fails visibly with `recipientUnknown` and preserves the same operation/audio/context. Generic chat with a `correlationId` but no operation keeps the marker absent.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -5011,20 +5568,29 @@ export function captureDictationSession({ settings, intents = {}, agentName = ""
   for (const key of SESSION_ROUTE_KEYS) {
     if (settings[key] !== undefined) snapshot[key] = structuredClone(settings[key]);
   }
-  return deepFreeze({
+  const capturedIntents = {
+    voiceAgentRequested: Boolean(intents.voiceAgentRequested),
+    translationRequested: Boolean(intents.translationRequested),
+    streaming: Boolean(intents.streaming),
+    streamingProviderName: intents.streamingProviderName ?? null,
+    assistantSelectionContext: intents.assistantSelectionContext ?? null,
+  };
+  // This is synchronous: route facts and the exact user's requested stage set
+  // are captured before any UI, target-capture or microphone await.
+  const routes = resolveSessionRoutes(settings, snapshot);
+  const session = {
     id: id ?? crypto.randomUUID(),
     startedAt: now,
     private: isPrivate === true,
     settings: snapshot,
     agentName,
-    intents: {
-      voiceAgentRequested: Boolean(intents.voiceAgentRequested),
-      translationRequested: Boolean(intents.translationRequested),
-      streaming: Boolean(intents.streaming),
-      streamingProviderName: intents.streamingProviderName ?? null,
-      assistantSelectionContext: intents.assistantSelectionContext ?? null,
-    },
-  });
+    intents: capturedIntents,
+    routes,
+  };
+  const enterpriseRecipientTags = Object.fromEntries(
+    operationEnterpriseRecipients(session).map(({ provider, tag }) => [provider, tag])
+  );
+  return deepFreeze({ ...session, enterpriseRecipientTags });
 }
 
 /** Live settings with every route key pinned to the session's snapshot. */
@@ -5038,7 +5604,66 @@ export function sessionSettings(session, live) {
  * `session.settings` is.
  */
 export function sessionOperation(session) {
-  return Object.freeze({ sessionId: session.id, settings: session.settings });
+  return Object.freeze({
+    sessionId: session.id,
+    settings: session.settings,
+    // Copy the immutable press-time set, including the optional wake-word
+    // Agent route when it was known. Do not resolve facts again in the panel.
+    enterpriseRecipientTags: Object.freeze({ ...session.enterpriseRecipientTags }),
+  });
+}
+
+const ENTERPRISE_PROVIDERS = new Set(["azure", "bedrock", "vertex"]);
+
+function selectedEnterpriseRouteIds(session) {
+  const settings = session.settings;
+  const routeIds = ["dictationStt"];
+  if (settings.useCleanupModel) routeIds.push("dictationCleanup");
+  if (session.intents.translationRequested) routeIds.push("translation");
+  if (session.intents.voiceAgentRequested) routeIds.push("voiceAssistant");
+  if (session.intents.voiceAgentRequested && settings.voiceAgentScreenContext)
+    routeIds.push("assistantVision");
+  return routeIds;
+}
+
+function operationEnterpriseRecipients(session) {
+  // A normal dictation can invoke an Agent later when its transcript contains
+  // the wake word. Capture that known route now, but do not make an unknown
+  // optional Agent fact block ordinary dictation startup.
+  const routeIds = new Set(selectedEnterpriseRouteIds(session));
+  if (session.agentName) routeIds.add("voiceAssistant");
+  const recipients = new Map();
+  for (const routeId of routeIds) {
+    const route = session.routes?.[routeId];
+    const fact = route?.recipient;
+    if (!ENTERPRISE_PROVIDERS.has(route?.providerId) || fact?.status !== "ready") continue;
+    recipients.set(route.providerId, fact.tag);
+  }
+  return [...recipients].map(([provider, tag]) => ({ provider, tag }));
+}
+
+export function selectedEnterpriseRecipients(session) {
+  const recipients = new Map();
+  for (const routeId of selectedEnterpriseRouteIds(session)) {
+    const route = session.routes?.[routeId];
+    const fact = route?.recipient;
+    if (!ENTERPRISE_PROVIDERS.has(route?.providerId)) continue;
+    if (fact?.status === "ready") recipients.set(route.providerId, fact.tag);
+  }
+  return [...recipients].map(([provider, tag]) => ({ provider, tag }));
+}
+
+export function hasUnknownSelectedEnterpriseRecipient(session) {
+  const selected = selectedEnterpriseRouteIds(session);
+  return selected.some((routeId) => {
+    const route = session.routes?.[routeId];
+    // The selector is the same one `resolveRoute` uses. It still identifies a
+    // local/non-enterprise stage when route facts are unavailable; an unresolved
+    // route selection itself fails closed.
+    const selection = route ? { status: "known", providerId: route.providerId } : selectRouteProvider(session.settings, routeId);
+    if (selection.status === "unknown") return true;
+    return ENTERPRISE_PROVIDERS.has(selection.providerId) && route?.recipient?.status !== "ready";
+  });
 }
 
 /**
@@ -5103,9 +5728,9 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
 1. **Plumbing.** Add `import { captureDictationSession, createSessionContext, sessionOperation, sessionSettings } from "./dictationSession";`, then add these methods near `getStreamingProviderName` (`:821`):
 
    ```js
-     beginDictationSession(intents = {}) {
+     createDictationSession(intents = {}) {
        const live = getSettings();
-       this._activeSession = captureDictationSession({
+       return captureDictationSession({
          settings: live,
          private: this._recordingPrivate === true,
          intents: {
@@ -5116,6 +5741,41 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
          },
          agentName: typeof window !== "undefined" && window.localStorage ? getAgentName() : "OpenWhispr",
        });
+     }
+
+     getOrCreatePressCandidate(intents = {}, { newPress = false } = {}) {
+       const key = JSON.stringify({
+         voiceAgentRequested: Boolean(intents.voiceAgentRequested),
+         translationRequested: Boolean(intents.translationRequested),
+         streaming: Boolean(intents.streaming),
+         streamingProviderName: intents.streamingProviderName ?? null,
+       });
+       const prior = this._pressCandidate;
+       // The main prepare notification and the renderer start notification for
+       // one press share a candidate. A new press always replaces the pending
+       // candidate; an older visual-frame continuation cannot start it.
+       if (!newPress && prior?.key === key) return prior.session;
+       this._captureRecordingPrivacy?.(); // capture once, in the immutable session
+       const session = this.createDictationSession(intents);
+       const generation = (this._pressCandidateGeneration ?? 0) + 1;
+       this._pressCandidateGeneration = generation;
+       this._pressCandidate = { key, session, generation };
+       return session;
+     }
+
+     releasePressCandidate(session) {
+       // A delayed cancel/failure owns only the exact press it captured. It
+       // cannot clear a later candidate that happens to have the same intents.
+       if (!session || this._pressCandidate?.session !== session) return false;
+       this._pressCandidate = null;
+       return true;
+     }
+
+     beginDictationSession(intents = {}, candidate = null) {
+       // Start paths pass the candidate captured before their first await.
+       this._activeSession = candidate ?? this.createDictationSession(intents);
+       if (this._pressCandidate?.session === this._activeSession) this._pressCandidate = null;
+       if (this._preparedCaptureCandidate === this._activeSession) this._preparedCaptureCandidate = null;
        // The hook requested both reads at press time (useAudioRecording.js:170-179), before this start.
        this._sessionContext?.release();
        this._sessionContext = createSessionContext({
@@ -5150,16 +5810,95 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
    ```
 
    The `applySessionIntents` assignments must not go through `setVoiceAgentRequested`, because that setter (`:707-720`) also clears pending selection and screen state.
-2. **Start points.**
-   - In `startRecording`, after the guard at `:1144-1153` passes and before starting any asynchronous microphone work, call `this._captureRecordingPrivacy?.();` and then `this.beginDictationSession({ streaming: false, streamingProviderName: null });`. The session freezes this per-recording privacy with its route.
-   - In `startStreamingRecording`, after its guard (`:3422-3430`), resolve the provider from **live** settings before the new session exists, then begin it:
+2. **Start points.** The hook captures the candidate synchronously before its first await and threads it through both prepare and start. `onPrepareDictation` receives only the current press's `inputKind`, so map that payload to intents instead of reading the previous recording's AudioManager flags:
 
-     ```js
-         this._activeSession = null; // never let the previous session's pin leak into a new start
-         const streamingProviderName = resolveStreamingProviderName({ settings: getSettings(), context: "dictation" });
-         this._captureRecordingPrivacy?.();
-         this.beginDictationSession({ streaming: true, streamingProviderName });
-     ```
+   ```js
+   // useAudioRecording.js: before waitForVisualFrames() in performStartRecording
+   const pendingCandidate = pressCandidateRef.current;
+   // Preparation and start are one press. Once preparation froze its session,
+   // do not recalculate streaming/provider/intents from settings that may have
+   // changed while painting or capturing the target.
+   const candidate = pendingCandidate ?? (() => {
+     const streaming = audioManagerRef.current.shouldUseStreaming();
+     const intents = {
+       voiceAgentRequested,
+       translationRequested,
+       assistantSelectionContext,
+       streaming,
+       streamingProviderName: streaming ? audioManagerRef.current.getStreamingProviderName() : null,
+     };
+     return audioManagerRef.current.getOrCreatePressCandidate(intents, { newPress: true });
+   })();
+   pressCandidateRef.current = candidate;
+
+   // onPrepareDictation, before waitForVisualFrames():
+   const inputKind = options?.inputKind;
+   const intents = {
+     voiceAgentRequested: inputKind === "assistant",
+     translationRequested: inputKind === "translation",
+     assistantSelectionContext: inputKind === "assistant"
+       ? (getAssistantSelectionContextRef.current?.() ?? null)
+       : null,
+     streaming: audioManagerRef.current.shouldUseStreaming(),
+   };
+   intents.streamingProviderName = intents.streaming
+     ? audioManagerRef.current.getStreamingProviderName()
+     : null;
+   const candidate = audioManagerRef.current.getOrCreatePressCandidate(intents, { newPress: true });
+   pressCandidateRef.current = candidate;
+   ```
+
+   Use the candidate at every boundary in both hook paths; never let the manager create a replacement after the first await:
+
+   ```js
+   if (preparationGeneration !== preparationGenerationRef.current) {
+     audioManagerRef.current.cancelPreparedMicCapture?.(candidate);
+     if (pressCandidateRef.current === candidate) pressCandidateRef.current = null;
+     return false;
+   }
+   void audioManagerRef.current.prepareMicCapture?.({ candidate });
+   // After target capture and flag setup, use the same candidate:
+   const didStart = candidate.intents.streaming
+     ? await audioManagerRef.current.startStreamingRecording(false, candidate)
+     : await audioManagerRef.current.startRecording(false, candidate);
+   if (didStart && pressCandidateRef.current === candidate) pressCandidateRef.current = null;
+   ```
+
+   The user-cancel handler captures `const candidate = pressCandidateRef.current`, calls `cancelPreparedMicCapture(candidate)`, and clears the ref only when it still equals that candidate. `performStartRecording` also keeps the candidate in scope and runs the same identity-guarded cancel/release in `finally` whenever `didStart` is false, including a mic-open failure.
+
+   Initialize `const pressCandidateRef = useRef(null)` beside `preparationGenerationRef`. The manager stores a holder with a monotonically increasing press generation and returns the immutable session as the candidate; reuse is allowed only while that exact candidate remains pending for this press. `performStartRecording` and `onPrepareDictation` pass it to `prepareMicCapture({ candidate })` and then to `startRecording(forceDefaultMic, candidate)` or `startStreamingRecording(forceDefaultMic, candidate)`. `pressCandidateRef` owns the hook's pending candidate, and cancellation/failure clears both references by session identity. The hook's existing `preparationGenerationRef` remains the owner of superseded visual-frame work; a stale continuation calls `cancelPreparedMicCapture(candidate)` to release only its candidate and returns before preparing or starting. A later `onPrepareDictation` is a new press and replaces the pending candidate, even when its input kind matches. Capture the streaming choice/provider at the same synchronous point and branch on `candidate.intents.streaming` after awaits; never re-run `shouldUseStreaming()` against changed live settings mid-start.
+
+   In `prepareMicCapture({ candidate })`, default the candidate synchronously for direct callers, then set `this._preparedCaptureCandidate = candidate` and call `hasUnknownSelectedEnterpriseRecipient(candidate)` before `preparedMicCapture.prepare(...)`, `_startPcmTap()` or `_acquireCaptureStream()`. On true, show the stable unknown-recipient blocked-start notice, clear `_preparedCaptureCandidate` only if it still equals this candidate, call `releasePressCandidate(candidate)`, and return `null`, leaving the current hold/recovery context alone. Store the candidate on the prepared value. If device acquisition rejects or the prepared capture is cancelled, clear the candidate by identity; a late failure from A cannot clear a newer B. Implement cancellation as:
+
+   ```js
+   cancelPreparedMicCapture(candidate = null) {
+     const ownedCandidate = candidate ?? this._preparedCaptureCandidate ?? this._pressCandidate?.session ?? null;
+     if (candidate && this._preparedCaptureCandidate && this._preparedCaptureCandidate !== candidate) return;
+     this.preparedMicCapture.cancel();
+     if (this._preparedCaptureCandidate === ownedCandidate) this._preparedCaptureCandidate = null;
+     this.releasePressCandidate(ownedCandidate);
+   }
+   ```
+
+   The hook passes its candidate on cancellation and clears `pressCandidateRef` only if that ref still names the same object.
+
+   In `startRecording(forceDefaultMic = false, candidate = null)` and `startStreamingRecording(forceDefaultMic = false, candidate = null)`, create/reuse the candidate and run the same unknown-tag check synchronously before any await, prepared-capture take or device acquisition. On refusal, clear that exact pending candidate. Keep `_startInProgress`, streaming start/cancel generations and existing stop/cancel ownership guards. If the selected tags are known, adopt the candidate only after the device start path succeeds; never reread route facts after any await. If the mic open or start fails, release the exact pending candidate in `finally`; a known tag that became stale after the press is not replaced at recording start, and the main request boundary refuses that enterprise stage later. These identity-guarded terminal edges ensure the next same-intent press captures current settings/privacy/tags while preserving any existing hold and its context. No async admission IPC or new session-registration state is added.
+
+   In the hook, both the current preparation-generation mismatch and the user cancel path call `cancelPreparedMicCapture(candidate)`; pass `candidate` into `prepareMicCapture` from both `performStartRecording` and `onPrepareDictation`. A `finally` in `performStartRecording` releases that exact candidate and clears its ref when recording never starts. Add focused `audioManagerSessionRoute.test.js` cases with previous manager state `voiceAgentRequested: false`, then invoke the real hook prepare handler with `inputKind: "assistant"` and an enterprise Agent tag of `unknown`. Assert the candidate has the current press's Agent intent, the blocked-start notice appears, and neither `PreparedMicCapture.prepare` nor `getUserMedia` runs. Add a delayed-visual-frame supersession case: press A pauses, press B replaces it, then A's visual wait resolves; A must neither prepare nor start, and releasing A must not clear B. Add a prepare/start continuity case: prepare A, Apply changes the streaming provider and privacy before the same press reaches `performStartRecording`, then assert start uses candidate A by identity with A's frozen streaming/provider/privacy values. After cancelling A, a genuinely new same-intent press must capture B's updated values. Also reject the device-open promise and verify a following same-intent start captures a fresh session. These tests use no async admission mock.
+
+   The batch candidate freezes this per-recording privacy and route facts. In direct streaming starts, resolve the provider from live settings before the new session exists, but within the same synchronous candidate capture:
+
+   ```js
+       const streamingProviderName = candidate?.intents.streamingProviderName ??
+         resolveStreamingProviderName({ settings: getSettings(), context: "dictation" });
+       candidate ??= this.getOrCreatePressCandidate({ streaming: true, streamingProviderName });
+       if (hasUnknownSelectedEnterpriseRecipient(candidate))
+         return this._showUnknownRecipientBlockedStart();
+       // Existing session/cancellation generations still guard every later await.
+       // When capture starts, beginDictationSession adopts `candidate` verbatim.
+   ```
+
+   Here `_showUnknownRecipientBlockedStart` is a user-visible local blocked-start path; it performs no IPC, no provider work and no hold mutation. If route facts fail but the selected route provider is still known non-enterprise, local/non-enterprise capture can proceed. Unknown route selection or an unknown tag for a selected enterprise provider fails closed; unselected unknown tags do not.
 
    - **A session ends at the idle edge, and its reads go with it.** Add:
 
@@ -5199,7 +5938,7 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
    | `processWithOpenAIAPI` `:2912` | `const settings = this.settings();`, and add `correlationId: this._activeSession?.id ?? null` to the payload (`:2934-2951`) |
    | `getTranscriptionModel` `:2992` | `const s = this.settings();` |
    | `getKeyterms` `:2907` | `this.settings().customDictionary` |
-   | `processTranscriptionCore` `:2593-2600` | `const settings = this.settings();`, `const cleanupModel = selectResolvedLLMConfig(settings, "dictationCleanup").model;`, `const agentName = this._activeSession?.agentName ?? getAgentName();` (import `selectResolvedLLMConfig` from the settings store) |
+   | `processTranscriptionCore` `:2593-2600` | `const settings = this.settings();`, `const cleanupModel = selectResolvedLLMConfig(settings, "dictationCleanup").model;`, `const agentName = this._activeSession?.agentName ?? getAgentName();` (import `selectResolvedLLMConfig` from the settings store); pass `this._activeSession?.routes ?? null` as `resolveReasoningRoute`'s final `capturedRoutes` argument |
    | `isReasoningAvailable` `:2443` | `const s = this.settings();` and `ReasoningService.isAvailable(s)` (see 5) |
    | `processWithReasoningModel` `:2248` | `dictationAgentPrompt(this.settings(), agentName)` |
    | `_bankPanelAgentCommand` `:2301` | `this.settings()` |
@@ -5218,6 +5957,21 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
 
    Do the same in `warmupStreamingConnection`. `test/helpers/audioManagerStreamingFinalization.test.js` must stay green.
 4. **Explicit cleanup route.**
+   - `resolveReasoningRoute` is a module-level pure helper, not an `AudioManager` method. Add a final optional `capturedRoutes = null` parameter and derive tags only from that frozen input:
+
+     ```js
+     function resolveReasoningRoute(text, settings, agentName, voiceAgentRequested,
+       translationRequested, screenContext, detectedLanguage, capturedRoutes = null) {
+       const recipientTag = (routeId) => {
+         const fact = capturedRoutes?.[routeId]?.recipient;
+         return fact?.status === "ready" ? fact.tag : null;
+       };
+       // ... existing route selection
+     }
+     ```
+
+     At the `processTranscriptionCore` call site, pass `this._activeSession?.routes ?? null` as the final argument. Do not use `this` in the free helper. This preserves cleanup's operation tag without throwing during ordinary transcription.
+
    - In `resolveReasoningRoute` (`:214-220`), give `cleanupConfig` the provider and endpoint that `ReasoningService.processText` used to fill in implicitly (`ReasoningService.ts:70-87`). Compute them from the `settings` argument, which is now the session view:
 
      ```js
@@ -5233,30 +5987,38 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
          baseUrl: settings.cleanupCloudBaseUrl,
          lanUrl: settings.cleanupMode === "self-hosted" ? settings.cleanupRemoteUrl : undefined,
          settingsView: settings,
+         enterpriseRecipientTag: recipientTag("dictationCleanup"),
        };
      ```
 
-   - Agent and translation configs already carry `provider` / `lanUrl` / `baseUrl` / `credentialRef` (`dictationAgentInference.js:47-54`, `dictationTranslationInference.js:30-41`). Add `settingsView: settings` to each in `resolveReasoningRoute`.
+   - Agent and translation configs already carry `provider` / `lanUrl` / `baseUrl` / `credentialRef` (`dictationAgentInference.js:47-54`, `dictationTranslationInference.js:30-41`). Add `settingsView: settings` to each in `resolveReasoningRoute`, plus `enterpriseRecipientTag: recipientTag("voiceAssistant")` for the Agent and `recipientTag("translation")` for translation. When `useVisionOverride` selects the Vision route, attach `recipientTag("assistantVision")`; otherwise attach the Agent route tag. All tags come from `capturedRoutes`, never from a free helper's `this` or a second route-fact read.
    - Every text request of the dictation goes through `processWithReasoningModel` (`:2199`): cleanup, both translation steps (`:2507`, `:2518`) and the selection edit (`:2419`). Stamp the correlation id there once, directly after the `CALLING_REASONING_SERVICE` log (`:2200-2205`):
 
      ```js
          // Every text request of this dictation names it (§5.4). The text-only
          // retry below spreads the same config, so it carries the id too.
-         config = { ...config, correlationId: config?.correlationId ?? this._activeSession?.id ?? null };
+         config = {
+           ...config,
+           correlationId: config?.correlationId ?? this._activeSession?.id ?? null,
+           dictationSessionId: config?.dictationSessionId ?? this._activeSession?.id ?? null,
+           dictationOperation: true,
+         };
      ```
+
+     The tag already attached to `config` is passed through unchanged by retries. The `recipientTag(routeId)` closure reads only the `capturedRoutes` argument supplied by `processTranscriptionCore`; it returns the ready tag from that frozen route or `null` for a non-enterprise route. It has no manager receiver and never reads route facts again.
 
 5. **ReasoningService and prompts.**
    - `ReasoningService.processText` (`:64-141`): replace `const settings = getSettings();` with `const settings = config.settingsView ?? getSettings();`. The implicit branch stays for non-dictation callers.
    - `isAvailable(settingsView?)`: read `settingsView ?? getSettings()`.
-   - `requestConfig` (`:38-62`): add `correlationId: config.correlationId ?? null` to the request object.
-   - `ReasoningConfig` (`BaseReasoningService.ts:8-30`): add `settingsView?: Record<string, unknown>;` and `correlationId?: string | null;`.
+   - `requestConfig` (`:38-62`): add `correlationId: config.correlationId ?? null`, `dictationSessionId: config.dictationSessionId ?? null`, `dictationOperation: config.dictationOperation === true ? true : undefined` and `enterpriseRecipientTag: config.enterpriseRecipientTag ?? null` to the request object. `correlationId` is generic Plan 07 metadata; only the explicit operation marker activates dictation validation.
+   - `ReasoningConfig` (`BaseReasoningService.ts:8-30`): add `settingsView?: Record<string, unknown>;`, `correlationId?: string | null;`, `dictationOperation?: true;`, `dictationSessionId?: string | null;` and `enterpriseRecipientTag?: string | null;`.
    - `BaseReasoningService.get*` (`:33-58`): each getter reads `this.config?.settingsView ?? getSettings()`. If the getters do not receive `config`, change their signatures to take it from `processText`, the only caller on this path.
    - `src/config/prompts/index.ts`: `resolvePrompt(kind, opts)` uses `opts.customPrompts ?? useSettingsStore.getState().customPrompts`.
    - `dictationAgentPrompt(settings, agentName)` (`audioManager.js:140-147`) and the translate prompt in `resolveReasoningRoute` (`:231-247`) pass `customPrompts: settings.customPrompts`.
 6. **Correlation id across IPC.**
    - `src/helpers/ipcHandlers.js:7963-7989`: add `correlationId` to the destructured `transcribe-audio-file-byok` arguments and pass it to the job registration and to any egress gate call Plan 07 has installed.
    - `src/helpers/personalInference.js` `validateRequest` (`:93-171`): accept an optional `correlationId` string of at most 100 characters (`throw new Error("Invalid correlation id.")` otherwise).
-   - `src/services/ai/personalInferenceTypes.ts` `TextRequest` (`:6-20`): add `correlationId?: string | null`.
+   - `src/services/ai/personalInferenceTypes.ts` `TextRequest` (`:6-20`): add `correlationId?: string | null`, `dictationOperation?: true`, `dictationSessionId?: string | null` and `enterpriseRecipientTag?: string | null`.
    - `buildStreamingSessionOptions` (`dictationStreamingRouting.js:49-71`) passes `correlationId` through. The `dictation-realtime-start` handler and the per-provider start channels (Deepgram, AssemblyAI, Gemini, Corti) receive the options object whole, with no field allowlist, so nothing else needs to admit it.
    - Extend `test/helpers/audioManagerStreamingRouting.test.js` to assert that `buildStreamingSessionOptions` carries `correlationId` for every streaming provider.
 7. **The whole operation (R1-C2).**
@@ -5334,6 +6096,7 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
      export interface DictationOperation {
        sessionId: string;
        settings: Readonly<Record<string, unknown>>;
+       enterpriseRecipientTags: Readonly<Partial<Record<EnterpriseProviderId, EnterpriseRecipientTag>>>;
      }
      ```
 
@@ -5352,7 +6115,9 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
            ) as SettingsState;
      ```
 
-     In the `processTextStreamingAI` config (`:380-397`), add `correlationId: options?.operation?.sessionId ?? null,`.
+     For an enterprise provider, resolve its tag from `options.operation.enterpriseRecipientTags[provider]` and pass it as `enterpriseRecipientTag` beside `correlationId`. Agent and vision requests after Undo use the captured tags; a typed follow-up without an operation remains an unrelated untagged call.
+
+     In the `processTextStreamingAI` config (`:380-397`), add `dictationOperation: options?.operation ? true : undefined`, `correlationId: options?.operation?.sessionId ?? null` and `dictationSessionId: options?.operation?.sessionId ?? null`. Resolve the selected route's opaque tag from `options.operation.enterpriseRecipientTags[provider]` and pass `enterpriseRecipientTag` too. A generic correlation id without a dictation operation never activates this enterprise gate.
    - **`useOnboardingAssistantDemo.ts`.** Add `operation?: DictationOperation | null;` to `OnboardingAssistantCommand` (`:8-11`), importing the type from `../components/chat/useChatStreaming`. Add `operation: command.operation ?? undefined,` to the `sendToAI` options (`:58-60`).
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -5388,7 +6153,9 @@ Renderer-side records are then ignored. The gate is absent only if Plan 07 has n
 
 Sealed-mode blocks record nothing either way. Provider-mode custom endpoints on loopback resolve to the device through Plan 03's resolver (§5.1 rule 10), so they never produce a disclosure.
 
-**Route capture (R2-I1).** Each session resolves its five disclosure routes once, at start, with Plan 03's published imperative reader `routeSnapshotFromSettings(settings)` (§5.1; Plan 03 Task 3). It builds the complete `RouteSettingsSnapshot` from the current route facts, the sealed store and i18n, with no IPC and no subscription. The session passes it the live settings overlaid with its own snapshot: the same view every pipeline read uses. Facts the overlay window has not loaded only make a route's `state` `unknown`, because `locality` and `providerId` come from settings. Those two fields are all the tracker and Task 8's sealed pre-check read. A reader failure must never block a dictation. The session then has `routes: null`, and the tracker discloses every hand-off as an unknown provider: it fails toward disclosure (D4).
+**Route capture (R2-I1, extended for R6-I1).** Each session resolves its five disclosure routes once, at the recording press, with Plan 03's published imperative reader `routeSnapshotFromSettings(settings)` (§5.1; Plan 03 Task 3). It builds the complete `RouteSettingsSnapshot` from current route facts, the sealed store and i18n, with no IPC and no subscription. Plan 04 adds `RouteFacts.enterpriseRecipients`, a main-published `{ status: "ready", tag } | { status: "unknown" }` fact for Azure, Bedrock and Vertex; each resolved enterprise route carries its selected provider's fact as `recipient`. No endpoint, project, profile or credential is added to renderer settings. The session freezes that route snapshot beside the settings snapshot; all pipeline and Undo reads use the same object. If a route-facts read fails, non-enterprise dictation can continue with `routes: null` and disclosure fails toward unknown (D4), but any selected enterprise stage is unknown and must block start before microphone acquisition. An unknown tag for a provider that this session does not select is nonblocking.
+
+Plan 04 owns the additive route-facts/type update after Plan 03 merges. Plan 03's owner only needs to publish its current network-free main facts interface; no Plan 03 task or renderer setting controls an authoritative tag. Main route facts refresh from one committed executor snapshot when config Apply changes a non-secret recipient field or effective auth source, and when startup/config reload changes environment-derived fields. Credential rotation within the same auth source does not change the tag. A session never rereads facts. At request time, main independently captures its current executor snapshot after credentials resolve and compares it with the press-time tag, so a delayed fact refresh cannot bless a stale session.
 
 **Files:**
 - Create: `src/types/dictation.ts`. These are the shared §5.2 types (CCR-1 to CCR-3, CCR-6) that Plans 05 and 07 import, plus the hand-off event.
@@ -5499,7 +6266,11 @@ const test = require("node:test");
 const { loadAudioManager, realSettingsStoreSource } = require("./harness/audioManager");
 
 const load = () => import("../../src/helpers/dictationDisclosure.js");
-const route = (id, locality, providerId = null) => ({ id, locality, providerId, provider: null, state: { status: "ready" } });
+const route = (id, locality, providerId = null) => ({
+  id, locality, providerId, provider: null,
+  recipient: ["azure", "bedrock", "vertex"].includes(providerId) ? { status: "unknown" } : null,
+  state: { status: "ready" },
+});
 const session = (routes) => ({ id: "rec-1", routes, settings: { remoteTranscriptionUrl: "http://gpu-box.lan:8080/v1", cleanupRemoteUrl: "http://10.0.0.5:11434/v1" } });
 const handOffBus = () => {
   const bus = new EventEmitter();
@@ -6644,15 +7415,15 @@ function resolveSessionRoutes(settings, snapshot) {
     const routeSnapshot = routeSnapshotFromSettings({ ...settings, ...snapshot });
     return Object.fromEntries(DISCLOSURE_TASKS.map((id) => [id, structuredClone(resolveRoute(routeSnapshot, id))]));
   } catch (error) {
-    // Never block a dictation on its disclosure routes. Without routes, the
-    // tracker discloses every hand-off as an unknown provider (D4).
+    // Disclosure still fails toward unknown (D4). Task 6 separately blocks
+    // a selected enterprise stage before mic acquisition when routes are unknown.
     logger.warn("Could not resolve the dictation's routes", { error: error?.message }, "audio");
     return null;
   }
 }
 ```
 
-In `captureDictationSession`, add `routes: resolveSessionRoutes(settings, snapshot),` to the object passed to `deepFreeze`. The routes are cloned, so freezing them never freezes Plan 03's shared constants. Suites whose settings-store stub lacks Plan 03's selectors get `routes: null` and keep working. Every route assertion runs on the real store (Step 1).
+In `captureDictationSession`, resolve `const routes = resolveSessionRoutes(settings, snapshot)` synchronously before building the frozen object. Include those cloned routes (never freeze Plan 03's shared constants), then compute `enterpriseRecipientTags` with `operationEnterpriseRecipients(session)`: the selected, ready route facts plus a ready `voiceAssistant` fact when a wake-word Agent may be invoked later. This optional tag is captured for the panel handoff but does not enter `hasUnknownSelectedEnterpriseRecipient`, so an unknown optional Agent does not block ordinary dictation. Never await or call an IPC from this factory. Suites whose settings-store stub lacks Plan 03's selectors get `routes: null`; local/non-enterprise sessions may continue, while a selected enterprise stage fails closed before mic acquisition.
 
 - [ ] **Step 4: Record evidence**
 
@@ -10568,7 +11339,7 @@ async function load(ctx, mockModules = {}) {
   return vite.ssrLoadModule("/components/dictation/pillLocality.ts");
 }
 const route = (id, locality, provider, state = { status: "ready" }) => ({
-  id, kind: "speech", locality, provider, model: null, state, sends: null, settingsPath: id,
+  id, kind: "speech", locality, provider, providerId: null, recipient: null, model: null, state, sends: null, settingsPath: id,
 });
 
 test("the pill discloses the most remote active stage", async (ctx) => {
@@ -11228,7 +11999,7 @@ export interface PillSession {
 // A failed snapshot reader cannot turn active work into an on-device claim (D4).
 const unknownRoute = (id: PillRouteId): ResolvedRoute => ({
   id, kind: id === "dictationStt" ? "speech" : "text", locality: "remote",
-  provider: null, providerId: null, host: null, model: null, state: { status: "unreachable" },
+  provider: null, providerId: null, recipient: null, host: null, model: null, state: { status: "unreachable" },
   sends: null, settingsPath: id,
 });
 

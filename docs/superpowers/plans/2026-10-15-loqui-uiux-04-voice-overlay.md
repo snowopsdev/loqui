@@ -4991,7 +4991,7 @@ const deepFreeze = (value) => {
   return value;
 };
 
-export function captureDictationSession({ settings, intents = {}, agentName = "", id, now = Date.now() }) {
+export function captureDictationSession({ settings, intents = {}, agentName = "", private: isPrivate = false, id, now = Date.now() }) {
   const snapshot = {};
   for (const key of SESSION_ROUTE_KEYS) {
     if (settings[key] !== undefined) snapshot[key] = structuredClone(settings[key]);
@@ -4999,6 +4999,7 @@ export function captureDictationSession({ settings, intents = {}, agentName = ""
   return deepFreeze({
     id: id ?? crypto.randomUUID(),
     startedAt: now,
+    private: isPrivate === true,
     settings: snapshot,
     agentName,
     intents: {

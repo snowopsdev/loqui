@@ -197,9 +197,9 @@ Each of these five failure modes is the kind a reviewer should try by hand. Each
 
 ---
 
-### Task 1: Threat model, network inventory and the egress-site ratchet
+### Task 1: Threat model, network inventory, and the egress-site and spawn-site ratchets
 
-This task comes first so every later task argues from one decided inventory. It decides, per outbound path, what Sealed mode blocks, which layer enforces it, and which task the ledger attributes it to.
+This task comes first so every later task argues from one decided inventory. It decides, per outbound path, what Sealed mode blocks, which layer enforces it, and which task the ledger attributes it to. It also states exactly what the guarantee covers (C2): Loqui's main process, its Chromium sessions and renderers, and the child processes it starts. Everything outside that boundary is either disabled while sealed or disclosed in the UI.
 
 **Files:**
 - Create: `docs/security/sealed-mode-threat-model.md`
@@ -208,8 +208,11 @@ This task comes first so every later task argues from one decided inventory. It 
 
 **Interfaces:**
 - Produces:
-  - The inventory table, with path ids `N1`–`N23`. Tasks 8–12 cite these ids, and the Task 12 matrix must cover every `blocked` row.
-  - A fenced ```` ```egress-sites ```` block listing every source file that can open an outbound connection. The ratchet test compares it with a grep of the code.
+  - The inventory table, with path ids `N1`–`N26`. Tasks 8–16 cite these ids. The Task 12 matrix must cover every `blocked` row, except the Chromium-only row N25, which Task 16 proves in Electron.
+  - A fenced ```` ```egress-sites ```` block, listing every source file that can open an outbound connection.
+  - A fenced ```` ```spawn-sites ```` block, listing every source file that can start a process.
+
+  The ratchet test compares both blocks with a scan of the code. The scan matches module imports as well as call shapes, so aliases (`const mod = require("https"); mod.request(…)`) and renderer files (`.tsx`, `.jsx`, `.mjs`) are caught.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -223,54 +226,106 @@ const test = require("node:test");
 
 const repoRoot = path.join(__dirname, "../..");
 const DOC = "docs/security/sealed-mode-threat-model.md";
-// Any of these in a main-process file means it can open an outbound connection.
-const NETWORK_PRIMITIVE =
-  /\bfetch\s*\(|\bnet\.request\s*\(|\bhttps?\.(?:request|get)\s*\(|new\s+WebSocket\s*\(|require\(["']ws["']\)|tinfoilSecureFetch\s*\(|checkForUpdates\s*\(/;
-const SCAN_ROOTS = ["main.js", "src/helpers", "src/services", "src/lib", "src/utils", "src/config", "src/workers"];
-// The privacy modules implement the guards themselves.
+
+// A file that imports a network module, or calls a network API, can open an
+// outbound connection. Matching the import catches aliases (mod.request, a
+// destructured get) that a call-shape regex would miss.
+const NETWORK_PRIMITIVE = new RegExp(
+  [
+    String.raw`\bfetch\s*\(`,
+    String.raw`\bnet\.(?:request|fetch)\s*\(`,
+    String.raw`require\(\s*["'](?:node:)?(?:https?|http2|tls|net|dgram|dns)["']\s*\)`,
+    String.raw`from\s+["'](?:node:)?(?:https?|http2|tls|net|dgram|dns)["']`,
+    String.raw`new\s+(?:WebSocket|EventSource|XMLHttpRequest)\s*\(`,
+    String.raw`require\(\s*["']ws["']\s*\)`,
+    String.raw`from\s+["']ws["']`,
+    String.raw`tinfoilSecureFetch\s*\(`,
+    String.raw`checkForUpdates\s*\(`,
+    String.raw`\.downloadURL\s*\(`,
+    String.raw`\bnavigator\.sendBeacon\s*\(`,
+  ].join("|")
+);
+// A file that can start a process: child_process in any form, utility processes
+// and workers (each has its own runtime, outside main's hooks).
+const SPAWN_PRIMITIVE = new RegExp(
+  [
+    String.raw`require\(\s*["'](?:node:)?child_process["']\s*\)`,
+    String.raw`from\s+["'](?:node:)?child_process["']`,
+    String.raw`\butilityProcess\.fork\s*\(`,
+    String.raw`new\s+Worker\s*\(`,
+  ].join("|")
+);
+// Main, preload, every helper and service, and the renderer.
+const SCAN_ROOTS = [
+  "main.js", "preload.js",
+  "src/helpers", "src/services", "src/lib", "src/utils", "src/config", "src/workers",
+  "src/components", "src/hooks", "src/stores", "src/preview",
+];
+const SOURCE = /\.(?:c?js|mjs|jsx?|tsx?)$/;
+// The privacy modules implement the guards themselves. egressPolicy.js imports
+// node:net only to parse IP literals (net.isIPv4/isIPv6).
 const EXEMPT = new Set([
   "src/helpers/privacy/egressGate.js",
   "src/helpers/privacy/egressBackstop.js",
+  "src/helpers/privacy/egressPolicy.js",
+  "src/helpers/privacy/childRegistry.js",
 ]);
 
 function walk(entry, out = []) {
   const full = path.join(repoRoot, entry);
   if (!fs.existsSync(full)) return out;
   if (fs.statSync(full).isFile()) {
-    if (/\.(c?js|ts)$/.test(entry)) out.push(entry);
+    if (SOURCE.test(entry) && !entry.endsWith(".d.ts")) out.push(entry);
     return out;
   }
   for (const child of fs.readdirSync(full)) walk(path.posix.join(entry, child), out);
   return out;
 }
+const sources = () => SCAN_ROOTS.flatMap((root) => walk(root)).filter((file) => !EXEMPT.has(file));
+const read = (file) => fs.readFileSync(path.join(repoRoot, file), "utf8");
 
-function documentedSites() {
-  const doc = fs.readFileSync(path.join(repoRoot, DOC), "utf8");
-  const block = doc.match(/```egress-sites\n([\s\S]*?)```/);
-  assert.ok(block, `${DOC} has an egress-sites block`);
-  return new Set(block[1].split("\n").map((l) => l.trim()).filter(Boolean));
+function block(name) {
+  const match = read(DOC).match(new RegExp("```" + name + "\\n([\\s\\S]*?)```"));
+  assert.ok(match, `${DOC} has a ${name} block`);
+  return new Set(match[1].split("\n").map((l) => l.trim()).filter(Boolean));
 }
 
-test("every file with a network primitive is in the sealed-mode inventory", () => {
-  const listed = documentedSites();
-  const found = SCAN_ROOTS.flatMap((root) => walk(root))
-    .filter((file) => !EXEMPT.has(file))
-    .filter((file) => NETWORK_PRIMITIVE.test(fs.readFileSync(path.join(repoRoot, file), "utf8")));
-  const missing = found.filter((file) => !listed.has(file));
+test("the scan recognises aliased and renderer-style network and spawn code", () => {
+  for (const code of [
+    'const mod = require("https"); mod.request(url)',
+    'import { get } from "node:http"',
+    'import WebSocket from "ws"',
+    "await fetch(url)",
+    "new EventSource(url)",
+  ]) assert.match(code, NETWORK_PRIMITIVE, code);
+  for (const code of ['const { execFile } = require("node:child_process")', "utilityProcess.fork(p)", "new Worker(u)"]) {
+    assert.match(code, SPAWN_PRIMITIVE, code);
+  }
+  assert.doesNotMatch("const map = new Map(); map.get(key)", NETWORK_PRIMITIVE);
+});
+
+test("every file that can open a connection is in the egress-sites block", () => {
+  const listed = block("egress-sites");
+  const missing = sources().filter((file) => NETWORK_PRIMITIVE.test(read(file)) && !listed.has(file));
   assert.deepEqual(missing, [], "add these to the egress-sites block and decide their sealed policy");
 });
 
+test("every file that can start a process is in the spawn-sites block", () => {
+  const listed = block("spawn-sites");
+  const missing = sources().filter((file) => SPAWN_PRIMITIVE.test(read(file)) && !listed.has(file));
+  assert.deepEqual(missing, [], "add these to the spawn-sites block and classify each program they start");
+});
+
 test("every inventoried file still exists", () => {
-  for (const file of documentedSites()) assert.ok(fs.existsSync(path.join(repoRoot, file)), file);
+  for (const file of [...block("egress-sites"), ...block("spawn-sites")]) assert.ok(fs.existsSync(path.join(repoRoot, file)), file);
 });
 
 test("every inventory row states a sealed decision and an enforcement layer", () => {
-  const doc = fs.readFileSync(path.join(repoRoot, DOC), "utf8");
-  const rows = doc.split("\n").filter((l) => /^\| N\d+ \|/.test(l));
-  assert.ok(rows.length >= 23, "N1–N23 present");
+  const rows = read(DOC).split("\n").filter((l) => /^\| N\d+ \|/.test(l));
+  assert.ok(rows.length >= 26, "N1–N26 present");
   for (const row of rows) {
-    assert.match(row, /\| (blocked|allowed: loopback|allowed: OS browser|n\/a: no network) \|/, row);
-    assert.match(row, /\| (A\+B|B|spawn|A\+spawn|n\/a) \|/, row);
+    assert.match(row, /\| (blocked|allowed: loopback|allowed after confirmation|local only: contained|n\/a: no network) \|/, row);
+    assert.match(row, /\| (A\+B|B|B: Chromium|spawn guard|A\+spawn guard|main dialog|n\/a) \|/, row);
   }
 });
 ```
@@ -278,20 +333,41 @@ test("every inventory row states a sealed decision and an enforcement layer", ()
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- test/helpers/egressInventory.test.js`
-Expected: FAIL with `ENOENT … sealed-mode-threat-model.md`.
+Expected: FAIL with `ENOENT … sealed-mode-threat-model.md`. The first test (the scan's self-check) passes.
 
 - [ ] **Step 3: Write the threat model**
 
-Create `docs/security/sealed-mode-threat-model.md` with exactly this content. Line numbers were verified against `8267276`; re-verify them with `grep -n` before committing.
+Create `docs/security/sealed-mode-threat-model.md` with exactly this content. Line numbers were verified against `0639eaf`; re-verify them with `grep -n` before committing. The two blocks were produced by running the test's scan over this checkout. Re-run it, and add any file it reports, with a decision.
 
 ````markdown
 # Sealed mode: threat model and network inventory
 
-Owner: Plan 07 (`docs/superpowers/plans/2026-10-15-loqui-uiux-07-sealed-mode.md`). Update this file in the same PR as any change that adds an outbound path; `test/helpers/egressInventory.test.js` fails until you do.
+Owner: Plan 07 (`docs/superpowers/plans/2026-10-15-loqui-uiux-07-sealed-mode.md`). Update this file in the same PR as any change that adds an outbound path or starts a process; `test/helpers/egressInventory.test.js` fails until you do.
 
 ## Promise
 
-While Sealed mode is on, no byte that Loqui's processes send leaves this computer, except to loopback (`localhost`, `127.0.0.0/8`, `::1`). Local routes keep working. The promise is enforced in Electron main; the renderer only reflects it.
+While Sealed mode is on, nothing that **Loqui's main process, its Chromium sessions and renderers, or the child processes Loqui starts** send reaches a host other than this computer's loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). Local routes keep working. The promise is enforced in Electron main; the renderer only reflects it.
+
+The panel says "verified" only when main attests all of this at that moment (Task 7). Main dates that claim from when it confirmed that everything had stopped, not from when the switch was flipped. If something cannot be confirmed (a child that will not exit, a Chromium request that will not end, a pending DNS lookup, an environment proxy), the panel says so and names it, and the verified line does not appear.
+
+## Boundary
+
+| Inside: enforced and attested | How |
+|---|---|
+| Main-process JavaScript: Node `http(s)`, undici `fetch`, `ws`, `net`, `tls`, `dns`, `dgram`, and SDKs built on them | Layer A (the gate) at each known site; Layer B (socket, DNS and UDP hooks) underneath, for code nobody gated |
+| Chromium networking: Electron `net`, electron-updater's session, renderer loads, redirects | Layer B on every session's `webRequest`, with per-request in-flight tracking |
+| Renderers | Only Loqui's own pages, sandboxed with web security on (Task 7a). Remote images render as placeholders while sealed (Task 13). WebRTC constructors are removed from every renderer's main world (Task 7a), and the IP-handling policy is kept as defence in depth. DNS prefetch is off. Preconnect hints are probed in Electron (Task 16). |
+| Child processes Loqui starts | The spawn guard (Task 6a) classifies every spawn. Network programs (Codex, yt-dlp, `curl`, …) and spawns from third-party code (for example an SDK credential helper) are refused while sealed. Running ones are stopped, and count as stopped only when the OS reports their exit. FFmpeg runs only with `-protocol_whitelist file,pipe`. Local helpers are listed in `spawn-sites` with what they run. |
+| Utility processes and workers | `utilityProcess.fork` only for `src/workers/`, which the ratchet keeps free of network code (N23) |
+
+| Outside, and how Sealed mode treats it | Treatment |
+|---|---|
+| The OS browser and mail client (links, meeting join links, OAuth consent pages) | Not opened without a main-owned confirmation that names the host and says the other app is not covered (Task 11). |
+| A calendar sign-in already waiting in the browser | Cancelled on seal; its loopback callback closes (Task 11). |
+| A proxy or port-forwarder the user runs on loopback | Trusted as loopback. A loopback `CONNECT` or absolute-form request naming a remote host is refused, and an environment proxy makes the seal unverified. A user-run forwarder that relays plain loopback traffic off the machine is the user's own configuration, and is documented in `docs/PRIVACY.md`. |
+| OS services (system DNS-over-HTTPS, iCloud for Apple Calendar, OS updates) and other apps | Not Loqui's traffic. Not claimed. |
+| Native code inside a local helper doing networking it was not asked to do (for example a sidecar binary that phones home) | Mitigated by launch arguments (loopback binds, no download flags, Qdrant `--disable-telemetry`), reviewed per spawn site. JavaScript hooks cannot see inside a native process, so this is listed as residual, and Task 18 re-checks the arguments. |
+| A malicious local process that reads the Loqui profile | Out of scope. |
 
 ## Assets
 
@@ -299,61 +375,59 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
 
 ## Adversaries and failure modes in scope
 
-1. **A forgotten code path.** A feature, new or old, sends a request without asking the gate. Mitigation: Layer B denies at the socket and session level regardless, and the egress-sites ratchet forces an inventory decision.
-2. **A library that connects on its own.** Examples are SDK telemetry, Tinfoil attestation and AWS credential discovery. Mitigation: Layer B; the request shows in the ledger as `unattributed`.
+1. **A forgotten code path.** A feature, new or old, sends a request without asking the gate. Mitigation: Layer B denies at the socket, DNS and session level regardless, and the egress-sites ratchet forces an inventory decision.
+2. **A library that connects on its own.** Examples are SDK telemetry, Tinfoil attestation and AWS credential discovery. Mitigation: Layer B, and the request shows in the ledger as `unattributed`. A credential *process* that an SDK spawns is refused by the spawn guard (third-party spawn).
 3. **In-flight work when the switch flips.** Mitigations:
    - `abortAllRemote()` interrupts every remote ticket, including response bodies still being read.
    - `severAll()` destroys open remote Node sockets but leaves loopback ones alone.
-   - The update download is cancelled, and Codex and yt-dlp are stopped and awaited.
-   - The sealing barrier waits until nothing remote is left. Only un-ticketed Chromium requests still in flight after the grace period trigger the last resort, `session.closeAllConnections()`, which is reported as `chromiumReset`.
-4. **A child process with its own network stack** (the Codex app-server and yt-dlp). Main's hooks cannot see these. Mitigations:
-   - Re-check just before spawn, and cancel a start that sealing overtook.
-   - Kill on seal, and wait for the actual exit, escalating to `SIGKILL`.
-   - Report them as `networkChildren` until they are gone, so `nothingLeaves` stays false.
-   - Record each run as one opaque ledger session.
+   - The update download is cancelled. Codex, yt-dlp and every other registered network child are stopped. The registry waits for the OS to report each exit, escalating from `SIGTERM` to `SIGKILL`.
+   - The sealing barrier waits until nothing remote is left: tickets, sockets, Chromium requests, pending DNS lookups and children.
+   - An un-ticketed Chromium request that does not end keeps the seal unverified, with the reason shown. Loqui never resets all Chromium connections, because that would also cut local work (I7). Evidence is never cleared to make the check pass (C3).
+4. **A child process with its own network stack.** Main's hooks cannot see inside one. Mitigations:
+   - The spawn guard refuses network programs and third-party spawns while sealed, and re-checks just before Codex starts.
+   - Running children are stopped on seal. A child is reported stopped only after its `exit` (and, for a detached download, after its process group is gone). A child that survives `SIGKILL` leaves `childStop` unresolved, so the seal is never verified while it runs (C1).
+   - Each run of Codex or yt-dlp is one opaque ledger session, written when the process exits.
+   - FFmpeg is restricted to `file` and `pipe` inputs, so a crafted local playlist cannot make it fetch remote resources.
 5. **A compromised or buggy renderer flips the switch off or wipes the ledger.** Mitigations:
    - `privacy:set-sealed` accepts only a boolean, and only from the *main frame* of the main window or control panel, while that frame shows Loqui's own page (`trustedSender.js`).
-   - Unsealing and clearing the ledger are confirmed in native dialogs owned by main, which a renderer cannot click.
-   - The control panel is sandboxed, with web security on (Task 7a).
+   - Unsealing, clearing the ledger, and opening a link while sealed are confirmed in native dialogs owned by main, which a renderer cannot click.
+   - The control panel is sandboxed, with web security on, and no renderer has WebRTC (Task 7a).
 
    Residual: a user tricked into pressing "Turn off Sealed mode" in that dialog.
 6. **A corrupt or unwritable settings file.** Mitigation: an unreadable file means sealed (fail closed), and a failed save is surfaced as `saveError`.
-7. **A utility process or worker** (`utilityProcess.fork`, `worker_threads`). Each has its own Node runtime, so the main-process hooks do not apply inside it. Mitigation: `src/workers` is in the ratchet's scan roots, so a network primitive added there fails the test until it is inventoried. Today the only one is the ONNX worker (N23), and it has no network code.
+7. **A utility process or worker** (`utilityProcess.fork`, `worker_threads`). Each has its own Node runtime, so the main-process hooks do not apply inside it. Mitigations: the spawn guard allows `utilityProcess.fork` only for `src/workers/`; the ratchet scans `src/workers`, so a network primitive added there fails the test until it is inventoried. Today the only one is the ONNX worker (N23), and it has no network code.
 8. **The ledger leaking content.** Mitigation: the schema has no content column, `record()` rejects anything that is not a bare hostname, and error *messages* are never stored, only codes and classes.
-
 9. **A local proxy that forwards off-machine.** A loopback socket is not proof that nothing leaves. Mitigations:
    - While sealed, a loopback `CONNECT` tunnel or absolute-form request naming a remote host is refused.
    - Undici `ProxyAgent`/`EnvHttpProxyAgent`/`setGlobalDispatcher` are banned by a ratchet test.
    - Node's environment proxy (`NODE_USE_ENV_PROXY`, `--use-env-proxy`) makes the attestation unverified.
    - Chromium decides on the original URL, so a system proxy is never contacted for a refused request.
-10. **Traffic that is not TCP.** DNS resolver queries (`dns.resolve*`, `Resolver`, `lookupService`) and UDP (`dgram`) are refused while sealed. Renderer WebRTC gets the `disable_non_proxied_udp` policy on every `webContents`, and no app code creates peer connections (ratchet). Renderer documents turn off DNS prefetching (`x-dns-prefetch-control`).
-
-## Out of scope (documented residual risk)
-
-- **The OS browser.** `shell.openExternal` (`externalUrlOpener.js:35`) opens links in the user's browser. Navigation there is the browser's egress, not Loqui's, so it is allowed while sealed.
-- **OS services.** These are DNS-over-HTTPS settings, iCloud calendar sync for Apple Calendar (EventKit is local to Loqui), and OS update checks.
-- **Chromium speculative networking beyond the document opt-out.** Preconnects that Chromium might make outside `x-dns-prefetch-control` are not visible to `webRequest`. Task 17 measures this with a packet capture or `chrome://net-export`.
-- **A malicious local process** that reads the Loqui profile.
+10. **Traffic that is not plain TCP.**
+    - DNS resolver queries (`dns.resolve*`, `Resolver`, `lookupService`) and UDP (`dgram`) are refused while sealed. Lookups already in flight are counted, and the seal is verified only after they finish.
+    - WebRTC: every renderer loads `preload.js`, which deletes `RTCPeerConnection` and its relatives from the page's main world before any page script runs (Task 7a). The `disable_non_proxied_udp` policy is kept as defence in depth, and a ratchet bans peer-connection code.
+    - Chromium speculation: renderer documents turn off DNS prefetching. Task 16 probes `<link rel="preconnect">` and `dns-prefetch` against a fixture that logs raw TCP connections, so a speculative connection fails the acceptance run.
 
 ## Enforcement layers
 
 | Layer | Where | Sees | Action while sealed |
 |---|---|---|---|
 | A, gate | `src/helpers/privacy/egressGate.js`, called at each site below | every known request, with its task | throws `SealedModeError` before any socket opens and records `blocked`, 0 bytes |
-| B, Node | `net.Socket.prototype.connect` (with `localhost` pinned to loopback), every `dns` API, `dgram` send/connect, and `http`/`https` request/get (loopback-proxy forwarding) in `egressBackstop.js` | every Node TCP/TLS connection (`http`, `https`, undici `fetch`, `ws`, AWS SDK, Tinfoil SDK), DNS queries, UDP | refuses with `SealedModeError` before DNS; a loopback CONNECT/absolute-form request to a remote host is destroyed before anything is written |
-| B, Chromium | `session.webRequest` on every session (`app.on("session-created")` plus `defaultSession`), with in-flight tracking; `setWebRTCIPHandlingPolicy("disable_non_proxied_udp")` on every `webContents`; `x-dns-prefetch-control: off` in `src/index.html` | Electron `net.fetch`/`net.request`, `electron-updater` (own partition), renderer loads, WebRTC | `callback({ cancel: true })`; no WebRTC UDP path |
-| spawn | `codexAppServer` (`beforeSpawn`, `stopAndWait`) and `urlAudioDownloader` (`ytDlpControl`) | child processes with their own network | not spawned; running ones are killed on seal and awaited until they exit; each run is one opaque ledger session |
+| B, Node | `net.Socket.prototype.connect` (with `localhost` and `*.localhost` pinned to loopback), every `dns` API, `dgram` send/connect, and `http`/`https` request/get (loopback-proxy forwarding) in `egressBackstop.js` | every Node TCP/TLS connection (`http`, `https`, undici `fetch`, `ws`, AWS SDK, Tinfoil SDK), DNS queries, UDP | refuses with `SealedModeError` before DNS; a loopback CONNECT/absolute-form request to a remote host is destroyed before anything is written |
+| B, Chromium | `session.webRequest` on every session (`app.on("session-created")` plus `defaultSession`), with per-request in-flight tracking and redirect checks; `setWebRTCIPHandlingPolicy("disable_non_proxied_udp")` on every `webContents`; `x-dns-prefetch-control: off` in `src/index.html` | Electron `net.fetch`/`net.request`, `electron-updater` (own partition), renderer loads | `callback({ cancel: true })` |
+| Renderer | `preload.js` (`contextBridge.executeInMainWorld`), Task 7a; `MarkdownRenderer` image placeholders, Task 13 | page scripts | no WebRTC constructors; no remote image loads while sealed or unknown |
+| Spawn guard | `src/helpers/privacy/childRegistry.js` (Task 6a): `child_process` and `utilityProcess.fork` | every process Loqui starts | network and third-party spawns refused; running ones stopped and awaited until the OS reports exit; FFmpeg restricted to local inputs |
+| Main dialogs | `privacyBoot.createConfirmations` (Tasks 7 and 11) | unseal, clear, opening a link while sealed | asks the user; the safe answer is the default |
 
 ## Inventory
 
-`A+B` means the site is gated, and the backstop also covers it. `B` means only the backstop covers it, because the site is loopback-only or not a request site. Tasks are the ledger `task` ids (`src/helpers/privacy/egressPolicy.js`).
+`A+B` means the site is gated, and the backstop also covers it. `B` means only the backstop covers it, because the site is loopback-only or not a request site. Tasks are the ledger `task` ids (`src/helpers/privacy/egressPolicy.js`). The "Test" column names the test that proves the row (Task 12 unless stated).
 
 | Id | Path | Code (verified) | Transport | Sealed | Layer | Ledger task |
 |---|---|---|---|---|---|---|
 | N1 | Provider text inference (cleanup, agent, vision, notes, translation, chat, provider web search) | `personalInference.js:347 execute`, `:173 createModel` | Node fetch (AI SDK) | blocked | A+B | from `inferenceScope` (`SCOPE_TO_TASK`) |
 | N2 | Enterprise inference and legacy enterprise handlers | `personalInference.js:174-180`; `ipcHandlers.js:3953, 4025, 4154, 4239` | AWS SDK / Node fetch | blocked | A+B | from scope, or `providerCheck` |
 | N3 | Model discovery (custom/LAN/OpenRouter) | `personalInference.js:286` | Node fetch | blocked | A+B | `providerCheck` |
-| N4 | Provider connection test | `providerConnectionTest.js:282`, IPC `ipcHandlers.js:1081` | Node fetch | blocked | A+B | `providerCheck` |
+| N4 | Provider connection test, and the self-hosted server probe (Plan 03) | `providerConnectionTest.js:282`, IPC `ipcHandlers.js:1081`; `selfHostedProbe.js` (Task 11a) | Node fetch | blocked | A+B | `providerCheck` |
 | N5 | Batch STT (BYOK and self-hosted) | `ipcHandlers.js:7963` → `postMultipart` (`:229`, moved to `sttTransport.js`) | Electron net | blocked | A+B | `dictationStt` (captured audio) or `uploadStt` (file) |
 | N6 | Batch STT via Gemini, Corti, Tinfoil | `geminiTranscription.js:29`, `cortiAuth.js:23`, `cortiTranscription.js:7`, `tinfoilTranscription.js` | Electron net / Tinfoil SDK | blocked | A+B | inherited task context |
 | N7 | Retry transcription | `ipcHandlers.js:5083` (`proxyFetch` `:5075`) | Electron net | blocked | A+B | `dictationStt` |
@@ -363,25 +437,30 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
 | N11 | Tinfoil model catalog | `tinfoilCatalog.js:41` | Tinfoil SDK | blocked | A+B | `providerCheck` |
 | N12 | Model downloads (Whisper, Parakeet, diarization, GGUF, MiniLM) | `downloadUtils.js:267 downloadFile`, `:250 fetchJson` | Electron net | blocked | A+B | `modelDownload` |
 | N13 | Runtime/GPU binary downloads | `gpuBinaryManager.js:109, 184` (via `downloadUtils`) | Electron net | blocked | A+B | `runtimeDownload` |
-| N14 | URL import (direct, proxy, YouTube) | `urlAudioDownloader.js:1525 download` | Node https / Electron net / yt-dlp child | blocked | A+spawn | `urlImport` |
-| N15 | yt-dlp self-update | `urlAudioDownloader.js:390 maybeUpdateYtDlp` | child process | blocked | spawn | `runtimeDownload` (opaque session; skipped while sealed, killed on seal) |
+| N14 | URL import (direct, proxy, YouTube) | `urlAudioDownloader.js:1525 download`; direct Node path `:1011` (`mod.request`) | Node https / Electron net / yt-dlp child | blocked | A+spawn guard | `urlImport` |
+| N15 | yt-dlp self-update | `urlAudioDownloader.js:390 maybeUpdateYtDlp` | child process | blocked | spawn guard | `runtimeDownload` (opaque session; skipped while sealed, stopped on seal, settled on exit) |
 | N16 | App update check and download (auto and manual) | `updateManager.js:124 check`, `:143`, `:156` | electron-updater (own session) | blocked | A+B | `appUpdate` |
 | N17 | Codex CLI verification | `codexCli.js:309 verifyOfficialCodex` | Node fetch | blocked | A+B | `codex` |
-| N18 | Codex app-server (ChatGPT) | `codexAppServer.js:116 start`, `:181 spawn`, `:396 generate` | child process | blocked | A+spawn | `codex` (one opaque session per process) |
-| N19 | Calendar OAuth and API (Google, Microsoft) | `googleCalendarOAuth.js:152`, `googleCalendarManager.js:357`, `microsoftCalendarOAuth.js:155, 168`, `microsoftCalendarManager.js:396` | Electron net | blocked | A+B | `calendar` |
-| N20 | Calendar background, focus and wake sync | `calendarSyncInterval.js`; `main.js:566-567, 781-794` | Electron net | blocked | A+B | `calendar` (stopped while sealed) |
-| N21 | Browser launch | `externalUrlOpener.js:69` (`shell.openExternal` in `openExternalUrl`, `:35`) | OS browser | allowed: OS browser | n/a | none |
-| N22 | Loopback sidecars and the dev server (llama-server, whisper-server, Qdrant, Parakeet WS, OAuth loopback page, CLI bridge, Vite) | `llamaServer.js`, `whisperServer.js`, `qdrantManager.js`, `parakeetWsServer.js`, `oauthLoopbackFlow.js`, `cliBridge.js`, `devServerManager.js` | Node http / ws on 127.0.0.1 | allowed: loopback | B | none (loopback is never recorded) |
+| N18 | Codex app-server (ChatGPT) | `codexAppServer.js:116 start`, `:181 spawn`, `:396 generate` | child process | blocked | A+spawn guard | `codex` (one opaque session per process, written on exit) |
+| N19 | Calendar OAuth and API (Google, Microsoft), including a sign-in still waiting in the browser | `googleCalendarOAuth.js:152`, `googleCalendarManager.js:357`, `microsoftCalendarOAuth.js:155, 168`, `microsoftCalendarManager.js:396`; `oauthLoopbackFlow.js:33` | Electron net | blocked | A+B | `calendar` (pending flows cancelled on seal) |
+| N20 | Calendar background, focus and wake sync | `calendarSyncInterval.js`; `main.js:566-567, 781-794` through `calendarGuard.js` (Task 11) | Electron net | blocked | A+B | `calendar` (stopped while sealed) |
+| N21 | Browser and mail links | `externalUrlOpener.js:35 openExternalUrl` (`shell.openExternal` `:69`, `explorer.exe` spawn `:48`) | OS browser / mail client | allowed after confirmation | main dialog | none (`externalLinkSealed.test.js`) |
+| N22 | Loopback sidecars and the dev server (llama-server, whisper-server, Qdrant, Parakeet WS, OAuth loopback page, CLI bridge, Vite) | `llamaServer.js`, `whisperServer.js`, `qdrantManager.js`, `parakeetWsServer.js`, `oauthLoopbackFlow.js`, `cliBridge.js`, `devServerManager.js`, `src/utils/serverUtils.js` (free-port probe) | Node http / ws on 127.0.0.1 | allowed: loopback | B | none (loopback is never recorded) |
 | N23 | ONNX utility process (local embeddings/diarization) | `onnxWorkerClient.js:59` `utilityProcess.fork` → `src/workers/onnxWorker.js` (fs, os, path, onnxruntime-node only) | none | n/a: no network | n/a | none |
+| N24 | FFmpeg conversions of recorded, imported and uploaded audio | `ffmpegUtils.js:132, 404, 511`; callers `ipcHandlers.js:2987`, `whisperServer.js:1110`, `providerUploadAudio.js:41` | child process | local only: contained | spawn guard | none (`ffmpegContainment.test.js`, Task 6a) |
+| N25 | Renderer documents: images, fetch, navigation, preconnect, WebRTC | `src/index.html`, `MarkdownRenderer.tsx`, every `BrowserWindow` (`windowManager.js:119, 1283, 1845, 2047`) | Chromium | blocked | B: Chromium | none, or `unattributed` (Task 16 acceptance run) |
+| N26 | Local helper processes (clipboard, key listeners, audio capture, media keys, `tar`/`unzip`, `nvidia-smi`, relaunch) | the `spawn-sites` block below | child process | local only: contained | spawn guard | none |
 
 No UI caller, but **reachable from any renderer through preload**, so gated and tested like live paths: `process-anthropic-reasoning`, `process-enterprise-reasoning`, `enterprise-stream-start`, `bedrock-list-models`, `test-provider-connection`, `test-enterprise-connection`, and the `proxy-{xai,mistral,gemini,corti,tinfoil}-transcription` channels. Dead code with no caller: `whisper.js:482 transcribeViaLan` and `whisperServer.js:454 connectRemote`. Layer B still covers both.
 
 ## Files that can open a connection
 
-`test/helpers/egressInventory.test.js` greps for network primitives and requires each hit to be listed here.
+`test/helpers/egressInventory.test.js` scans for network imports and calls, and requires each hit to be listed here. `main.js` is listed for `tls` (it adds the system CA store at `:28-37`, and opens nothing). The renderer roots (`src/components`, `src/hooks`, `src/stores`) have no hits: the renderer reaches providers only through IPC.
 
 ```egress-sites
+main.js
 src/helpers/assemblyAiStreaming.js
+src/helpers/cliBridge.js
 src/helpers/codexAppServer.js
 src/helpers/codexCli.js
 src/helpers/cortiAuth.js
@@ -400,6 +479,7 @@ src/helpers/ipcHandlers.js
 src/helpers/llamaServer.js
 src/helpers/microsoftCalendarManager.js
 src/helpers/microsoftCalendarOAuth.js
+src/helpers/oauthLoopbackFlow.js
 src/helpers/openaiRealtimeStreaming.js
 src/helpers/parakeetWsServer.js
 src/helpers/personalInference.js
@@ -413,29 +493,90 @@ src/helpers/tinfoilTranscription.js
 src/helpers/updateManager.js
 src/helpers/urlAudioDownloader.js
 src/helpers/whisperServer.js
+src/utils/serverUtils.js
+```
+
+## Processes Loqui starts
+
+Every file in the block below can start a process. The spawn guard (Task 6a) classifies each spawn at run time by its program and call stack, so a file listed here cannot start a network program while sealed, whatever it passes. The table records what each file is *meant* to start, which is what Task 18 re-checks.
+
+| File | Starts | Class |
+|---|---|---|
+| `codexAppServer.js` | Codex app-server | network (N18) |
+| `urlAudioDownloader.js` | yt-dlp (download, self-update) | network (N14, N15) |
+| `ffmpegUtils.js`, `ipcHandlers.js:2987` path | FFmpeg | ffmpeg (N24) |
+| `externalUrlOpener.js` | `explorer.exe` with a URL (Windows) | OS browser (N21, after confirmation) |
+| `llamaServer.js`, `whisperServer.js`, `qdrantManager.js`, `parakeetWsServer.js`, `diarization.js`, `meetingAecManager.js` | local inference sidecars, bound to 127.0.0.1 where they listen | local (N22) |
+| `audioTapManager.js`, `audioActivityDetector.js`, `linuxPortalAudioManager.js`, `windowsLoopbackAudioManager.js`, `systemDefaultMicrophone.js` | audio capture helpers | local |
+| `clipboard.js`, `selectionManager.js`, `textEditMonitor.js`, `globeKeyManager.js`, `linuxKeyManager.js`, `windowsKeyManager.js`, `linuxWindowInputRegion.js`, `hyprlandShortcut.js`, `gnomeShortcut.js`, `ensureYdotool.js`, `mediaPlayer.js` | paste, selection, hotkey and media-key helpers (`osascript`, `xdotool`, `ydotool`, `playerctl`, …) | local |
+| `appleCalendarManager.js` | the EventKit helper | local |
+| `downloadUtils.js`, `systemTar.js`, `llamaCppInstaller.js` | `unzip`, `tar`, PowerShell `Expand-Archive`, `which` | local (extraction of an already-downloaded file) |
+| `src/utils/gpuDetection.js` | `nvidia-smi` | local |
+| `src/utils/process.js` | the shared run-command helper, and `taskkill` | classified per call by the guard |
+| `sidecarReaper.js` | `ps` / `tasklist` | local |
+| `onnxWorkerClient.js` | `utilityProcess.fork` of `src/workers/onnxWorker.js` | worker (N23) |
+| `main.js:9`, `ipcHandlers.js:3082` | Loqui relaunching itself | local (the new process boots with the guards) |
+
+```spawn-sites
+main.js
+src/helpers/appleCalendarManager.js
+src/helpers/audioActivityDetector.js
+src/helpers/audioTapManager.js
+src/helpers/clipboard.js
+src/helpers/codexAppServer.js
+src/helpers/diarization.js
+src/helpers/downloadUtils.js
+src/helpers/ensureYdotool.js
+src/helpers/externalUrlOpener.js
+src/helpers/ffmpegUtils.js
+src/helpers/globeKeyManager.js
+src/helpers/gnomeShortcut.js
+src/helpers/hyprlandShortcut.js
+src/helpers/ipcHandlers.js
+src/helpers/linuxKeyManager.js
+src/helpers/linuxPortalAudioManager.js
+src/helpers/linuxWindowInputRegion.js
+src/helpers/llamaCppInstaller.js
+src/helpers/llamaServer.js
+src/helpers/mediaPlayer.js
+src/helpers/meetingAecManager.js
+src/helpers/onnxWorkerClient.js
+src/helpers/parakeetWsServer.js
+src/helpers/qdrantManager.js
+src/helpers/selectionManager.js
+src/helpers/sidecarReaper.js
+src/helpers/systemDefaultMicrophone.js
+src/helpers/systemTar.js
+src/helpers/textEditMonitor.js
+src/helpers/urlAudioDownloader.js
+src/helpers/whisperServer.js
+src/helpers/windowsKeyManager.js
+src/helpers/windowsLoopbackAudioManager.js
+src/utils/gpuDetection.js
+src/utils/process.js
 ```
 ````
 
-`src/helpers/sttTransport.js` does not exist yet, so it is not in the block. Task 9 creates it and adds it to the block in the same commit; the ratchet fails until it does.
+Later tasks extend the blocks in the same commit that adds the file: `sttTransport.js` (Task 9), `privacy/gatedFetch.js` (Task 8) and `selfHostedProbe.js` (Task 11a). The ratchet fails until they do.
 
 - [ ] **Step 4: Add the sealed column to the public inventory**
 
 In `docs/network-allowlist.md`, append a column `Sealed mode` to the table, with `Blocked` in every row. Then add this paragraph after the table:
 
 ```markdown
-**Sealed mode** (Settings › Privacy & Data) blocks every group above in the main process: provider requests, model and runtime downloads, update checks, Codex, calendars and URL import. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) stays reachable, so on-device models keep working. Links you open in your browser are not Loqui's traffic. The per-path decisions, and the test that keeps this list complete, are in [`docs/security/sealed-mode-threat-model.md`](security/sealed-mode-threat-model.md).
+**Sealed mode** (Settings › Privacy & Data) blocks every group above in Loqui's main process, its windows and the programs it starts: provider requests, model and runtime downloads, update checks, Codex, calendars and URL import. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) stays reachable, so on-device models keep working. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. The per-path decisions, and the tests that keep this list complete, are in [`docs/security/sealed-mode-threat-model.md`](security/sealed-mode-threat-model.md).
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test -- test/helpers/egressInventory.test.js`
-Expected: PASS (3 tests). If the first test lists a file, read it, decide its sealed policy, then add it to both the table and the block.
+Expected: PASS (5 tests). If a scan test lists a file, read it, decide its sealed policy or classify what it starts, then add it to the right table and block.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add docs/security/sealed-mode-threat-model.md docs/network-allowlist.md test/helpers/egressInventory.test.js
-git commit -m "docs(privacy): add Sealed mode threat model and egress inventory ratchet"
+git commit -m "docs(privacy): add Sealed mode threat model and the egress and spawn inventory ratchets"
 ```
 
 ---
@@ -4536,9 +4677,13 @@ The owner decided (2026-10-15) to harden the control panel in this plan. It ran 
 - Modify:
   - `src/helpers/windowConfig.js`, in `CONTROL_PANEL_CONFIG.webPreferences`. Use `sandbox: true` and remove `webSecurity: false`, together with their stale comments. The span runs from the comment `// sandbox: false is required because the preload script bridges IPC` through `webSecurity: false,` (currently `:227-234`). `preload`, `nodeIntegration` and `contextIsolation` above it stay unchanged.
   - `src/index.html:3-9`. Turn off DNS prefetching for every renderer document.
+  - `preload.js`. Before `contextBridge.exposeInMainWorld(...)` (`:65`), remove the WebRTC constructors from the page's main world.
+  - `test/helpers/preloadAuthBridge.test.js` and every other test that stubs `contextBridge` for `preload.js` (today `preloadOnboardingBridge.test.js`; find others with `grep -rln exposeInMainWorld test`): add `executeInMainWorld: () => {}` to the stub.
 - Test: `test/helpers/rendererHardening.test.js`
 
-**Interfaces:** none new. Task 6's `installWebContentsGuard` already applies the WebRTC policy to every `webContents`.
+**Interfaces:** none new. Task 6's `installWebContentsGuard` still applies the WebRTC IP policy to every `webContents`, as defence in depth.
+
+**Why remove WebRTC instead of relying on the policy (C2).** Chromium's `webRequest` does not see WebRTC, and `disable_non_proxied_udp` still allows TCP candidates (for example TURN over TCP). Loqui never uses WebRTC. Every Loqui window loads `preload.js` (`windowConfig.js:185, 224, 279`), and Electron 44 (`package.json`) runs `contextBridge.executeInMainWorld` synchronously, before any page script. So removing the constructors there disables the feature in every renderer, and nothing is left to enforce.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4570,6 +4715,31 @@ test("renderer documents turn off DNS prefetching", () => {
   const html = fs.readFileSync(path.join(repoRoot, "src/index.html"), "utf8");
   assert.match(html, /<meta http-equiv="x-dns-prefetch-control" content="off"\s*\/?>/);
 });
+
+test("every window loads the preload, and the preload removes WebRTC from the page", () => {
+  const configs = require("../../src/helpers/windowConfig");
+  for (const [name, config] of Object.entries(configs).filter(([, v]) => v?.webPreferences)) {
+    assert.match(String(config.webPreferences.preload), /preload\.js$/, `${name}.preload`);
+  }
+  const vm = require("node:vm");
+  let mainWorld;
+  const electron = {
+    contextBridge: { executeInMainWorld: ({ func }) => { mainWorld = func; }, exposeInMainWorld() {} },
+    ipcRenderer: { invoke: async () => {}, on() {}, removeListener() {}, send() {}, sendSync() {} },
+    webUtils: {},
+  };
+  const source = fs.readFileSync(path.join(repoRoot, "preload.js"), "utf8");
+  vm.runInNewContext(source, { require: (s) => (s === "electron" ? electron : require(s)), process });
+  assert.equal(typeof mainWorld, "function", "preload calls executeInMainWorld");
+  // Run it in a fresh "page" with the constructors a renderer would have.
+  const page = vm.createContext({ RTCPeerConnection: function () {}, webkitRTCPeerConnection: function () {}, RTCDataChannel: function () {} });
+  vm.runInContext(`(${mainWorld.toString()})()`, page);
+  for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel"]) {
+    assert.equal(vm.runInContext(`typeof ${name}`, page), "undefined", name);
+    vm.runInContext(`globalThis.${name} = function () {}`, page);
+    assert.equal(vm.runInContext(`typeof ${name}`, page), "undefined", `${name} cannot be put back`);
+  }
+});
 ```
 
 If `windowConfig.js` exports its configs under different names, adapt only the `Object.entries` filter so it finds every exported `webPreferences` object.
@@ -4596,10 +4766,31 @@ Expected: FAIL. `CONTROL_PANEL_CONFIG.sandbox` is `false`, and the meta tag is m
        <meta http-equiv="x-dns-prefetch-control" content="off" />
    ```
 
+3. In `preload.js`, directly before `contextBridge.exposeInMainWorld("electronAPI", {` (`:65`), add:
+
+   ```js
+   // Sealed mode (Plan 07): Loqui never uses WebRTC, and Chromium's webRequest
+   // cannot see its traffic, so the constructors are removed from the page
+   // before any page script runs. They cannot be redefined.
+   contextBridge.executeInMainWorld({
+     func: () => {
+       for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel", "RTCRtpSender", "RTCRtpReceiver", "RTCIceCandidate", "RTCSessionDescription"]) {
+         try {
+           Object.defineProperty(globalThis, name, { value: undefined, writable: false, configurable: false });
+         } catch {
+           // Already non-configurable in this context: leave it.
+         }
+       }
+     },
+   });
+   ```
+
+4. Add `executeInMainWorld: () => {}` to the `contextBridge` stub in `test/helpers/preloadAuthBridge.test.js` and in every other test that loads `preload.js` (`grep -rln exposeInMainWorld test`).
+
 - [ ] **Step 4: Run the tests, then check the control panel by hand**
 
 Run: `npm test -- test/helpers/rendererHardening.test.js test/helpers/preloadAuthBridge.test.js`
-Expected: PASS.
+Expected: PASS. In the running app's control panel, `typeof RTCPeerConnection` in DevTools is `"undefined"`; Task 16 asserts the same in Electron.
 
 Then run `npm run native:electron && npm run dev` with a disposable `LOQUI_PROFILE_DIR`, and exercise the control panel:
 - Settings in every section;
@@ -4612,8 +4803,8 @@ Anything that breaks because it relied on the sandbox or web security being rela
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/helpers/windowConfig.js src/index.html test/helpers/rendererHardening.test.js
-git commit -m "fix(security): sandbox the control panel and keep web security on"
+git add src/helpers/windowConfig.js src/index.html preload.js test/helpers/rendererHardening.test.js test/helpers/preloadAuthBridge.test.js test/helpers/preloadOnboardingBridge.test.js
+git commit -m "fix(security): sandbox the control panel, keep web security on, remove WebRTC from renderers"
 ```
 
 ---
@@ -7580,7 +7771,9 @@ test("every blocked inventory row is in this matrix", () => {
     .split("\n")
     .filter((l) => /^\| N\d+ \|/.test(l) && /\| blocked \|/.test(l))
     .map((l) => l.match(/^\| (N\d+) \|/)[1]);
-  const covered = new Set([...Object.keys(BLOCKED), ...Object.keys(PREVENTED)]);
+  // N25 (renderer documents) is Chromium-only; Task 16 proves it in Electron.
+  const ELECTRON_ONLY = ["N25"];
+  const covered = new Set([...Object.keys(BLOCKED), ...Object.keys(PREVENTED), ...ELECTRON_ONLY]);
   assert.deepEqual(blocked.filter((id) => !covered.has(id)), []);
 });
 
@@ -9509,7 +9702,9 @@ git commit -m "feat(privacy): add the flight recorder view and document Sealed m
 
 The unit tests and the matrix (Task 12) run in Node with fakes for Electron. This task runs the real app in Electron and attacks it with every transport it ships: Electron `net`, Node `http(s)`, `ws`, a renderer page (an image and `fetch`), a redirect out of loopback, and electron-updater. It runs with Sealed mode on and, as a control, with it off.
 
-The **observer is independent of the code under test.** A fixture HTTP server on 127.0.0.1 logs every request it receives. Remote-looking hostnames are mapped to it: by Chromium's `--host-resolver-rules` for Chromium traffic, and by a `lookup` option for Node sockets. If the fixture logs a request while sealed, something left. Loqui's own observer cannot say otherwise, and is not consulted.
+The **observer is independent of the code under test.** Two fixture HTTP servers listen on 127.0.0.1:
+- The **remote fixture** stands in for the internet. Remote-looking hostnames are mapped to it: by Chromium's `--host-resolver-rules` for Chromium traffic, and by a `lookup` option for Node sockets. It is never addressed as loopback. It logs every TCP connection as well as every request, so a speculative preconnect that sends no request is still seen. If it logs anything while sealed, something left. Loqui's own observer cannot say otherwise, and is not consulted.
+- The **local fixture** is addressed only as `127.0.0.1`. It proves local routes keep working, and it is where the redirect probe starts.
 
 The script has no offline blockers of its own. `scripts/smoke-electron.cjs:71-83` installs blockers that could hide a missing guard (I1); this script installs none. The backstop and the gate are the only things standing between the probes and the fixture.
 
@@ -9529,14 +9724,16 @@ Create `scripts/lib/egressFixture.cjs`:
 ```js
 const http = require("node:http");
 
-// Logs every request it receives. It is the independent observer: if it saw a
-// request while Loqui was sealed, that request left Loqui.
-function startEgressFixture() {
+// Logs every TCP connection and every request it receives. As the remote
+// fixture it is the independent observer: anything it saw while Loqui was
+// sealed left Loqui. `redirectTo` makes /redirect point at another origin.
+function startEgressFixture({ redirectTo = null } = {}) {
   const hits = [];
+  const connections = [];
   const server = http.createServer((req, res) => {
     hits.push({ at: Date.now(), host: String(req.headers.host || ""), path: req.url });
-    if (req.url === "/redirect") {
-      res.writeHead(302, { location: `http://api.loqui-fixture.test:${server.address().port}/after-redirect` });
+    if (req.url === "/redirect" && redirectTo) {
+      res.writeHead(302, { location: `${redirectTo}/after-redirect` });
       return res.end();
     }
     if (req.url.endsWith(".yml")) {
@@ -9550,12 +9747,17 @@ function startEgressFixture() {
     hits.push({ at: Date.now(), host: String(req.headers.host || ""), path: `${req.url} (upgrade)` });
     socket.destroy();
   });
+  server.on("connection", () => connections.push({ at: Date.now() }));
   return new Promise((resolve) =>
     server.listen(0, "127.0.0.1", () =>
       resolve({
         port: server.address().port,
         hits,
-        remoteHits: (since = 0) => hits.filter((h) => h.at >= since && /loqui-fixture\.test/.test(h.host)),
+        // Requests and bare connections (a preconnect sends no request).
+        seenSince: (since = 0) => ({
+          requests: hits.filter((h) => h.at >= since),
+          connections: connections.filter((c) => c.at >= since).length,
+        }),
         close: () => new Promise((r) => server.close(r)),
       })
     )
@@ -9587,8 +9789,9 @@ const repoRoot = path.resolve(__dirname, "..");
 function bootstrapElectron() {
   const electron = require("electron");
   const sandbox = process.env.LOQUI_ACCEPT_SANDBOX;
-  const port = Number(process.env.LOQUI_ACCEPT_PORT);
-  if (!sandbox || !process.env.LOQUI_PROFILE_DIR || !port) throw new Error("Acceptance bootstrap requires its sandbox.");
+  const port = Number(process.env.LOQUI_ACCEPT_PORT); // the remote fixture
+  const localPort = Number(process.env.LOQUI_ACCEPT_LOCAL_PORT); // the local fixture
+  if (!sandbox || !process.env.LOQUI_PROFILE_DIR || !port || !localPort) throw new Error("Acceptance bootstrap requires its sandbox.");
   const temporaryHome = path.join(sandbox, "home");
   fs.mkdirSync(temporaryHome, { recursive: true });
   os.homedir = () => temporaryHome;
@@ -9633,14 +9836,16 @@ function bootstrapElectron() {
         ws.on("close", resolve);
       })
     );
-    // Out of loopback by redirect: the first hop is local and allowed.
-    results.redirect = await settle(net.fetch(`http://127.0.0.1:${port}/redirect`));
+    // Out of loopback by redirect: the first hop is the local fixture and allowed.
+    results.redirect = await settle(net.fetch(`http://127.0.0.1:${localPort}/redirect`));
     // A renderer page: an image and a fetch, in a fresh window of the default session.
     const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
     await win.loadURL(
       "data:text/html," +
         encodeURIComponent(
-          `<img src="${url("img", `/img-${label}.png`)}"><script>fetch("${url("api", `/renderer-fetch-${label}`)}").catch(()=>{})</script>`
+          `<link rel="preconnect" href="${url("preconnect", "/")}"><link rel="dns-prefetch" href="${url("prefetch", "/")}">` +
+            `<a href="${url("link", `/link-${label}`)}">link</a>` +
+            `<img src="${url("img", `/img-${label}.png`)}"><script>fetch("${url("api", `/renderer-fetch-${label}`)}").catch(()=>{})</script>`
         )
     );
     await new Promise((r) => setTimeout(r, 1000));
@@ -9657,7 +9862,7 @@ function bootstrapElectron() {
       results.updater = `setup:${error.message}`;
     }
     // Loopback must keep working.
-    results.loopback = await settle(net.fetch(`http://127.0.0.1:${port}/loopback-${label}`).then((r) => r.text()));
+    results.loopback = await settle(net.fetch(`http://127.0.0.1:${localPort}/loopback-${label}`).then((r) => r.text()));
     return results;
   }
 
@@ -9700,8 +9905,11 @@ async function acceptance() {
   const outputIndex = args.indexOf("--output-dir");
   const output = outputIndex === -1 ? fs.mkdtempSync(path.join(os.tmpdir(), "loqui-sealed-accept-")) : path.resolve(args[outputIndex + 1]);
   fs.mkdirSync(output, { recursive: true });
-  const fixture = await startEgressFixture();
-  const report = { output, port: fixture.port, runs: {}, passed: [] };
+  const fixture = await startEgressFixture(); // remote: only ever reached through fake hostnames
+  const local = await startEgressFixture({ redirectTo: `http://api.loqui-fixture.test:${fixture.port}` });
+  const report = { output, port: fixture.port, localPort: local.port, runs: {}, passed: [] };
+  const leaked = (since) => fixture.seenSince(since);
+  const nothingLeft = (since) => leaked(since).requests.length === 0 && leaked(since).connections === 0;
   const verify = (name, condition, detail) => {
     assert.ok(condition, `${name}${detail ? `: ${JSON.stringify(detail)}` : ""}`);
     report.passed.push(name);
@@ -9729,6 +9937,7 @@ async function acceptance() {
       LOQUI_PROFILE_DIR: profile,
       LOQUI_ACCEPT_SANDBOX: sandbox,
       LOQUI_ACCEPT_PORT: String(fixture.port),
+      LOQUI_ACCEPT_LOCAL_PORT: String(local.port),
       LOQUI_CACHE_ROOT: path.join(sandbox, "cache"),
     };
     delete env.ELECTRON_RUN_AS_NODE;
@@ -9745,6 +9954,9 @@ async function acceptance() {
   const probe = (app, label) => app.evaluate((_electron, l) => globalThis.__loquiAcceptance.runProbes(l), label);
   const EXPECTED_REMOTE = ["net-fetch", "net-request", "node-http", "ws", "after-redirect", "img", "renderer-fetch", "updates"];
   const kinds = (hits) => EXPECTED_REMOTE.filter((k) => hits.some((h) => h.path.includes(k) || h.host.startsWith(`${k}.`)));
+  // Preconnect and dns-prefetch hints are not required to fire in the control
+  // run (Chromium may skip them); while sealed they must not reach the fixture,
+  // which the connection count covers.
 
   try {
     // Run 1: the control. Unsealed, every probe must reach the fixture, which
@@ -9753,8 +9965,9 @@ async function acceptance() {
       const { app, panel } = await launch("open", { bootSealed: false });
       const since = Date.now();
       report.runs.openProbes = await probe(app, "open");
-      const reached = kinds(fixture.remoteHits(since));
+      const reached = kinds(leaked(since).requests);
       verify("control: every remote probe reached the fixture while unsealed", reached.length === EXPECTED_REMOTE.length, { reached });
+      verify("renderer: WebRTC constructors are absent from the app's own page", await panel.evaluate(() => typeof RTCPeerConnection === "undefined"));
 
       // Seal from the renderer through the real preload and trusted IPC, with a
       // stubborn network-capable child running.
@@ -9765,7 +9978,8 @@ async function acceptance() {
       verify("toggle: the child was gone before the seal was verified", !(await app.evaluate((_e, p) => globalThis.__loquiAcceptance.pidAlive(p), pid)));
       verify("toggle: verification is dated after the toggle", verified.effectiveSince >= sealedAt - 1000);
       report.runs.toggledProbes = await probe(app, "toggled");
-      verify("toggle: the fixture saw nothing remote after sealing", fixture.remoteHits(sealedAt).length === 0, fixture.remoteHits(sealedAt));
+      await pause(1500); // let late renderer, preconnect and updater traffic surface
+      verify("toggle: the remote fixture saw no request and no connection after sealing", nothingLeft(sealedAt), leaked(sealedAt));
       verify("toggle: loopback still works", report.runs.toggledProbes.loopback === "reached");
       verify(
         "toggle: every remote probe was attempted and refused",
@@ -9783,7 +9997,7 @@ async function acceptance() {
       verify("boot: the app reports sealed", a.sealed === true);
       report.runs.bootProbes = await probe(app, "boot");
       await pause(1500); // let late renderer and updater requests surface
-      verify("boot: the fixture saw nothing remote during the whole sealed run", fixture.remoteHits(since).length === 0, fixture.remoteHits(since));
+      verify("boot: the remote fixture saw no request and no connection during the whole sealed run", nothingLeft(since), leaked(since));
       verify("boot: loopback works", report.runs.bootProbes.loopback === "reached");
       const ledger = await panel.evaluate(() => window.electronAPI.privacy.egressSummary({ since: 0 }));
       verify("boot: the refused attempts are in the flight recorder as blocked", ledger.blocked > 0, ledger);
@@ -9791,6 +10005,7 @@ async function acceptance() {
     }
   } finally {
     await fixture.close();
+    await local.close();
     fs.writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
     console.log(`Acceptance artifacts: ${output}`);
   }
@@ -9823,7 +10038,7 @@ Expected: every `PASS` line prints, and the script exits with code 0. `report.js
 
 - [ ] **Step 5: Prove the observer catches a leak**
 
-Temporarily comment out the `installNodeBackstop()` call in `privacyBoot.bootEgressGuards` and rebuild. Rerun: "toggle: the fixture saw nothing remote after sealing" must fail on `node-http` or `ws`. Restore the line. Record the failing output in the PR description.
+Temporarily comment out the `installNodeBackstop()` call in `privacyBoot.bootEgressGuards` and rebuild. Rerun: "toggle: the remote fixture saw no request and no connection after sealing" must fail on `node-http` or `ws`. Restore the line. Record the failing output in the PR description.
 
 - [ ] **Step 6: Commit**
 
@@ -9963,22 +10178,24 @@ Do not merge until the owner has filled in the sign-off.
 
 ## Open questions for the owner
 
-The owner answered three questions on 2026-10-15, and they are built into this plan:
-- harden the control panel and confirm unsealing in main's own dialog (Tasks 7 and 7a);
-- record Codex and yt-dlp as opaque sessions (Tasks 4, 8 and 10);
-- ship the dictation pre-flight in Plan 07 (Task 13).
+**Answered and built in.**
+- The owner answered three questions on 2026-10-15:
+  - harden the control panel and confirm unsealing in main's own dialog (Tasks 7 and 7a);
+  - record Codex and yt-dlp as opaque sessions (Tasks 4, 8 and 10);
+  - ship the dictation pre-flight in Plan 07 (Task 13).
+- The independent security review settled two more, so they are no longer open:
+  - **Recordings blocked while history is off** are held in memory only, never on disk, with a "Transcribe" action (Task 13, I6).
+  - **Browser and mail links while sealed** open only after a main-owned confirmation that names the host (Task 11). The OS browser is outside Loqui's boundary, and the dialog says so.
 
-Codex's plan review recommends the defaults below for questions 1–3 and 6–7. Plan 07 already follows them.
+**Still open.** Codex's plan review recommends the defaults below for questions 1–3. Plan 07 already follows them.
 
 1. **LAN servers while sealed.** This plan blocks `network` locality (a self-hosted server on another machine) as well as `remote`, because audio sent to it leaves this computer (CCR-1). Should LAN stay allowed instead?
 2. **Downloads and updates "you start."** The showcase copy for R6 C said "Block all network except model downloads and updates you start." D6 says main blocks model downloads. This plan follows D6 and also refuses manual update checks while sealed, so "sealed" has one meaning. Confirm, or name the exceptions.
-3. **Recorder retention.** The ledger follows `transcriptRetentionDays`; "Forever" is capped at 100,000 rows, and with local history off it is memory-only. The research proposed a fixed 30-day roll. Which do you want?
-4. **A recording made before sealing, with local history off.** When Sealed mode is turned on during a cloud-route recording, the transcription is refused or interrupted when the recording stops. With history off, the recording is not kept, and the copy says so. Should Loqui hold it in memory (never on disk) for a "Transcribe after unsealing" action? That needs a notice action from Plan 04.
-5. **Legacy network-capable IPC channels.** Ten channels have no UI caller, but are reachable from any renderer through preload:
+3. **Recorder retention.** The ledger follows `transcriptRetentionDays`; "Forever" is capped at 100,000 rows (checked on insert), and with local history off it is memory-only. The research proposed a fixed 30-day roll. Which do you want?
+4. **Legacy network-capable IPC channels.** Ten channels have no UI caller, but any renderer can reach them through preload:
    - `process-anthropic-reasoning`, `process-enterprise-reasoning`, `enterprise-stream-start` and `bedrock-list-models`;
    - `test-provider-connection` and `test-enterprise-connection`;
    - `proxy-{xai,mistral,gemini,corti,tinfoil}-transcription`.
 
-   This plan gates them and tests them through their real handlers. Codex recommends removing the unused preload bridges and handlers together, in a follow-up. Should we?
-6. **Browser links while sealed.** `shell.openExternal` still opens links in your browser. That is your browser's traffic, not Loqui's. Codex recommends requiring an explicit click, and saying the link opens outside Sealed mode. Should Loqui confirm before opening links while sealed?
-7. **A quick toggle.** Should Sealed mode also be available from the tray menu or the pill? This plan ships it in Settings only.
+   This plan gates them and tests them through their real handlers (Task 12). Codex recommends removing the unused preload bridges and handlers together, in a follow-up. Should we?
+5. **A quick toggle.** Should Sealed mode also be available from the tray menu or the pill? This plan ships it in Settings only.

@@ -65,6 +65,13 @@ The owner's decisions on the contract change requests are recorded under "Contra
 
 One disagreement from the first review round still stands. Provider tabs keep the tab stop on the selected tab, as the WAI-ARIA tabs pattern specifies, rather than on the last-focused tab (Task 15).
 
+The Codex review of PR #48 (commit `df7fbd3`) raised two P2 findings. Both are closed.
+
+| Finding | Disposition | Where |
+|---|---|---|
+| Preserve the selected context until the send succeeds | **Closed.** AssistantPanel cleared `selectedContext` before `sendMessage` returned `false`, and `ChatInput` gives back only the words, so a retry silently went without the attachment. A new `sendWithSelectedContext` still hides the chip as the message goes, but restores the context when the send resolves `false` or rejects. A selection made while the send was in flight wins. Unit tests cover a sent message, a refusal, a rejection, a newer selection, a refusal that resolves before React commits the clear, and no context. | Task 13 |
+| Implement radio-group keyboard behaviour or avoid radio roles | **Closed: roving tabindex and arrow-key focus, with selection kept explicit.** The list now has one tab stop: the selected card, or the first selectable card. Arrow keys move focus and wrap. Enter, Space or a click selects. Arrows do not also check, a deliberate departure from the WAI-ARIA radio pattern, because selecting can switch where audio goes. `TranscriptionModelPicker` shows a browsed provider's list with `selectedModel=""` (`:1281-1286`), and `handleCloudModelSelect` switches the cloud provider (`:863-870`). If selection followed focus, browsing that list would move audio to another provider. `role="radio"` stays, as SET-Q2 in the approved list specifies. A mounted test drives the arrow keys and asserts that focus moves and nothing is selected. | Task 16 |
+
 ## Contract change requests
 
 **Owner decisions (2026-10-15):**
@@ -130,7 +137,7 @@ The consolidated spec (091d198 on `snowopsdev/feat/uiux-foundations`) now carrie
 | Stored-audio contract (CCR 5) | `src/helpers/audioStorage.js`, `audioFlagReconcile.js`, `src/utils/audioDeletion.ts`, `src/hooks/useAudioStorageUsage.ts`, `src/components/settings/AudioStorageRow.tsx` | Plan 03 (SET-R7) |
 | `useNoteActionsReady(): boolean \| null` (temporary, CCR 6) | `src/hooks/useNoteActionsReady.ts` | replaced by Plan 06 (spec §5.1 handoff) |
 | `ProviderTabItem.keySaved` | `src/components/ui/ProviderTabs.tsx` | Plan 03 (SET-R5) |
-| `ModelCard` `selectionRole`, `ModelCardList` `ariaLabel`; Learn more never selects | `src/components/ui/ModelCardList.tsx` | Plan 03 (SET-R4) |
+| `ModelCard` `selectionRole` and `tabIndex`, `ModelCardList` `ariaLabel`; one tab stop, arrows move focus and never select; Learn more never selects | `src/components/ui/ModelCardList.tsx` | Plan 03 (SET-R4) |
 | `rendererOptions`, `I18N_KEYS_MOCK`, `TOAST_MOCK` | `test/helpers/harness/rendererMocks.js` | every later plan's renderer tests |
 | `installTree` (with `find`, `props`) | `test/helpers/harness/fakeDomTree.js` | renderer tests that click or type |
 | `parseRules`, `isLayered` | `test/helpers/harness/cssRules.js` | any cascade test |
@@ -200,7 +207,8 @@ The consolidated spec (091d198 on `snowopsdev/feat/uiux-foundations`) now carrie
 2. **A queued chat draft and its destination.** A user queues a follow-up while conversation A streams, then switches to B, opens New Chat, or changes the model. The draft must not be sent anywhere; it waits for a deliberate Enter. A refused or failed send must never lose words, including when a newer draft is already in the box. Pinned in Task 13 by:
    - the "a queued draft is not sent after …" tests;
    - "a refusal while a newer draft exists keeps both drafts" and "a rejection while a newer draft exists keeps both drafts";
-   - the two "with the real sender" tests.
+   - the two "with the real sender" tests;
+   - in `assistantTextSubmit.test.js`, "a send that was not made gives the context back with the words" and "a newer selection is never overwritten by a failed send".
 3. **Cancel during the onboarding download.** Main refuses to cancel once extraction starts. If the click races that transition, the download must stay visible and its success must still count. Pinned in Task 6 by:
    - "a cancel main refuses keeps the download and its result";
    - "a confirmed cancel returns to idle and a late result cannot mark it interrupted";
@@ -209,9 +217,9 @@ The consolidated spec (091d198 on `snowopsdev/feat/uiux-foundations`) now carrie
    - "an unreadable first read is unavailable, not empty" and "a failed refresh after a good count does not keep the stale count";
    - "after a partial delete, only recordings whose file is gone lose their audio flag";
    - "an unreadable store clears no audio flags".
-5. **Arrow keys and IME must not trigger an action.** Arrow keys move focus only, and never select a provider or model, because some of them are remote. Enter during IME composition must not send or queue. Pinned by:
+5. **Arrow keys and IME must not trigger an action.** Arrow keys move focus only, and never select a provider or model, because selecting can switch where audio or text goes. Enter during IME composition must not send or queue. Pinned by:
    - Task 15: "arrow keys only move focus";
-   - Task 16: "arrow keys are not a selection path" and "Learn more never selects the model";
+   - Task 16: "arrow keys move focus between cards and never select" and "Learn more never selects the model";
    - Task 12: "Enter during IME composition does nothing".
 
 ---
@@ -3381,10 +3389,11 @@ Covers WS-Q5, part 2: queue a draft while the agent works, keep it bound to wher
 - Modify: `src/components/notes/NoteEditor.tsx`. Compute `queueKey` and pass it to both `<EmbeddedChat>` (lines 1013 and 1030).
 - Modify: `src/components/notes/overview/ContainerOverview.tsx`. Compute `queueKey` and pass it to `<OverviewAskSection>` (line ~129).
 - Modify: `src/components/chat/ChatView.tsx`. Compute `queueKey` and pass it to `<ChatInput>` (line ~173).
-- Modify: `src/components/dictation/AssistantPanel.tsx`. Change `handleTextSubmit` (lines 323–331), and compute and pass `queueKey` to `<ChatInput>` (line ~533).
+- Create: `src/components/dictation/assistantTextSubmit.ts`. A failed send gives the selected context back.
+- Modify: `src/components/dictation/AssistantPanel.tsx`. Change `handleTextSubmit` (lines 323–331) to use it, and compute and pass `queueKey` to `<ChatInput>` (line ~533).
 - Modify: `src/locales/*/translation.json`:
   - add `agentMode.input.queued`, `unqueue`, `queueDropped`, `unsent`, `restoreUnsent` and `discardUnsent`.
-- Test: `test/helpers/chatSendOutcome.test.js` (the real sender), and `test/components/chatSends.test.js` (the mounted composer, including the real sender).
+- Test: `test/helpers/chatSendOutcome.test.js` (the real sender), `test/helpers/assistantTextSubmit.test.js` (the selected context on failure), and `test/components/chatSends.test.js` (the mounted composer, including the real sender).
 
 **Interfaces:**
 - **`useChatMessageSender`** still returns `(text, options?) => Promise<boolean>`, with a precise meaning.
@@ -3396,6 +3405,8 @@ Covers WS-Q5, part 2: queue a draft while the agent works, keep it bound to wher
 - Produces `src/components/chat/chatRouteKey.ts`:
   - `chatRouteKey(state: SettingsState, scope: "chatIntelligence" | "dictationAgent"): string`, built from scope, mode, provider, model, cloudMode, cloudBaseUrl and remoteUrl. It never includes `customApiKey`.
   - `useChatRouteKey(scope): string`.
+- Produces `src/components/dictation/assistantTextSubmit.ts`:
+  - `sendWithSelectedContext(text, context, { send, clear, current, restore }): Promise<boolean>`. It clears the context before the send. If the send resolves `false` or rejects, it restores the context, unless a different context has been selected since. It passes the result or the rejection through unchanged.
 - Consumes `installTree` with `find` and `props` (Task 6), plus `rendererOptions` and `TOAST_MOCK` (Task 4).
 
 Facts from the code:
@@ -3409,6 +3420,7 @@ Facts from the code:
   - AssistantPanel uses `dictationAgent` (`AssistantPanel.tsx:119`). Its typed text carries no screenshot, so the vision override never applies.
 - **ChatView keeps one composer across conversations.** It switches `activeConversationId` (`ChatView.tsx:34`, `:~57`, New Chat sets `null`) without remounting `ChatInput`. A queue that only checked "is anything queued" would send A's follow-up into B, or into a new chat. `queueKey` closes that.
 - **AssistantPanel attaches `selectedContext` at send time** (`:322-330`). Its key includes that context, so a queued draft never leaves with a different attachment than the one on screen when it was queued.
+- **AssistantPanel clears that context before it sends** (`:327`), so the chip disappears as the message goes. If the send then fails, `ChatInput` gives back only the words. A retry would silently go without the attachment, which is a materially different request. So a failed send must give the context back as well.
 - **A conversation's id flips from `null` to its new id while its first message is created.**
   - In ChatView, Embedded and Container, the agent only turns busy after that flip, so no queue can exist across it.
   - In AssistantPanel, `agentState` reads `"thinking"` during the flip. A draft queued in that window is dropped with the notice rather than sent. That errs on the safe side.
@@ -3424,6 +3436,7 @@ Behaviour:
   - If the box is empty, the text comes back into it.
   - If the user has already started a newer draft, the failed text is held beside it as "Your earlier message wasn't sent", with "Put it back" (which places it above the newer draft) and "Discard".
   - Further failures append to the held text.
+  - In AssistantPanel, the selected context comes back with the words. If the user has selected other text in the meantime, the newer selection stays.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3781,15 +3794,128 @@ test("the route key changes with the route and never carries a secret", async (t
   assert.equal(withKey, a);
   assert.doesNotMatch(withKey, /sk-secret/);
 });
+
+test("AssistantPanel submits through sendWithSelectedContext", () => {
+  const panel = fs.readFileSync(
+    path.join(__dirname, "../../src/components/dictation/AssistantPanel.tsx"),
+    "utf8"
+  );
+  assert.match(panel, /sendWithSelectedContext\(text, selectedContext, \{/);
+  assert.doesNotMatch(panel, /void sendMessage\(text, context/);
+});
+```
+
+Create `test/helpers/assistantTextSubmit.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { rendererOptions } = require("./harness/rendererMocks");
+
+async function load(t) {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(t, rendererOptions("loqui-assistant-text-submit-"));
+  return vite.ssrLoadModule("/components/dictation/assistantTextSubmit.ts");
+}
+
+// A stand-in for AssistantPanel's selection state and its sender.
+function panel(result) {
+  const log = [];
+  let selected = { text: "the quoted answer", sourceMessageId: "m1" };
+  const original = selected;
+  return {
+    log,
+    original,
+    get selected() {
+      return selected;
+    },
+    select(next) {
+      selected = next;
+    },
+    hooks: {
+      send: async (text, options) => {
+        log.push(["send", text, options?.selectedContext ?? null]);
+        if (result instanceof Error) throw result;
+        return result;
+      },
+      clear: () => {
+        log.push(["clear"]);
+        selected = null;
+      },
+      current: () => selected,
+      restore: (context) => {
+        log.push(["restore", context]);
+        selected = context;
+      },
+    },
+  };
+}
+
+test("a sent message takes its context with it, and the chip clears first", async (t) => {
+  const { sendWithSelectedContext } = await load(t);
+  const p = panel(true);
+  assert.equal(await sendWithSelectedContext("rewrite it", p.selected, p.hooks), true);
+  assert.deepEqual(p.log, [["clear"], ["send", "rewrite it", p.original]]);
+  assert.equal(p.selected, null);
+});
+
+test("a send that was not made gives the context back with the words", async (t) => {
+  const { sendWithSelectedContext } = await load(t);
+  const p = panel(false);
+  assert.equal(await sendWithSelectedContext("rewrite it", p.selected, p.hooks), false);
+  assert.deepEqual(p.log.at(-1), ["restore", p.original]);
+  assert.equal(p.selected, p.original, "a retry sends the same request");
+});
+
+test("a rejected send gives the context back and still rejects", async (t) => {
+  const { sendWithSelectedContext } = await load(t);
+  const p = panel(new Error("save failed"));
+  await assert.rejects(sendWithSelectedContext("rewrite it", p.selected, p.hooks), /save failed/);
+  assert.equal(p.selected, p.original);
+});
+
+test("a newer selection is never overwritten by a failed send", async (t) => {
+  const { sendWithSelectedContext } = await load(t);
+  const p = panel(false);
+  const newer = { text: "another passage", sourceMessageId: "m1" };
+  const send = p.hooks.send;
+  p.hooks.send = async (...args) => {
+    const result = await send(...args);
+    p.select(newer); // the user selects again while the send is in flight
+    return result;
+  };
+  assert.equal(await sendWithSelectedContext("rewrite it", p.selected, p.hooks), false);
+  assert.equal(p.selected, newer);
+  assert.equal(p.log.some(([kind]) => kind === "restore"), false);
+});
+
+test("a refusal that beats React's commit still gives the context back", async (t) => {
+  const { sendWithSelectedContext } = await load(t);
+  const p = panel(false);
+  const sent = p.selected;
+  // The panel's ref still holds the context: the clear has not committed yet.
+  p.hooks.current = () => sent;
+  assert.equal(await sendWithSelectedContext("rewrite it", sent, p.hooks), false);
+  assert.deepEqual(p.log.at(-1), ["restore", sent]);
+});
+
+test("without a context nothing is cleared or restored", async (t) => {
+  const { sendWithSelectedContext } = await load(t);
+  const p = panel(false);
+  p.select(null);
+  assert.equal(await sendWithSelectedContext("hello", null, p.hooks), false);
+  assert.deepEqual(p.log, [["send", "hello", null]]);
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/helpers/chatSendOutcome.test.js test/components/chatSends.test.js test/components/chatComposer.test.js`
+Run: `npm test -- test/helpers/chatSendOutcome.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js`
 Expected: FAIL.
 - The sender rejects instead of resolving `false`, and a post-save failure rejects instead of resolving `true`.
 - No queue exists yet.
-- `chatRouteKey.ts` is missing.
+- `chatRouteKey.ts` and `assistantTextSubmit.ts` are missing.
 
 - [ ] **Step 3: Implement**
 
@@ -4051,6 +4177,52 @@ Expected: FAIL.
      - import `useChatRouteKey`;
      - add `const routeKey = useChatRouteKey("dictationAgent");`;
      - pass `queueKey={`assistant|${persistence.conversationId ?? "new"}|${routeKey}|${selectedContext ? JSON.stringify(selectedContext) : ""}`}` to `<ChatInput>` (line ~533);
+     - create `src/components/dictation/assistantTextSubmit.ts`:
+
+       ```ts
+       export interface SelectedContextHooks<C> {
+         send: (text: string, options?: { selectedContext: C }) => Promise<boolean>;
+         /** Hides the chip as the message goes. */
+         clear: () => void;
+         /** The context selected now, which may be newer than the one sent. */
+         current: () => C | null;
+         restore: (context: C) => void;
+       }
+
+       /**
+        * Sends typed text with the selected context. When the send is not made
+        * (`false` or a rejection), ChatInput keeps the words, so the context
+        * comes back too: a retry must not silently drop the attachment. A
+        * selection made while the send was in flight wins.
+        */
+       export async function sendWithSelectedContext<C>(
+         text: string,
+         context: C | null,
+         hooks: SelectedContextHooks<C>
+       ): Promise<boolean> {
+         if (context) hooks.clear();
+         let sent = false;
+         try {
+           sent = await hooks.send(text, context ? { selectedContext: context } : undefined);
+           return sent;
+         } finally {
+           // `current()` may still read the context just sent: a refusal can
+           // resolve before React commits the clear. Only a different
+           // selection counts as newer.
+           const now = hooks.current();
+           if (!sent && context && (now === null || now === context)) hooks.restore(context);
+         }
+       }
+       ```
+
+     - import it, and add `const selectedContextRef = useRef<AgentSelectionContext | null>(null);` with an effect that keeps it current, after the `selectedContext` state (line 299):
+
+       ```tsx
+         useEffect(() => {
+           selectedContextRef.current = selectedContext;
+         }, [selectedContext]);
+       ```
+
      - replace `handleTextSubmit` (lines 323–331) with:
 
      ```tsx
@@ -4058,13 +4230,21 @@ Expected: FAIL.
          (text: string): boolean | Promise<boolean> => {
            // Not ready yet: report the refusal so ChatInput keeps the words.
            if (!historyReady) return false;
-           const context = selectedContext;
-           if (context) clearSelectedContext();
-           return sendMessage(text, context ? { selectedContext: context } : undefined);
+           return sendWithSelectedContext(text, selectedContext, {
+             send: sendMessage,
+             clear: clearSelectedContext,
+             current: () => selectedContextRef.current,
+             restore: (context) => {
+               setSelectedContext(context);
+               onSelectionContextChange(context);
+             },
+           });
          },
-         [clearSelectedContext, historyReady, selectedContext, sendMessage]
+         [clearSelectedContext, historyReady, onSelectionContextChange, selectedContext, sendMessage]
        );
      ```
+
+     `clearSelectedContext` also removes the window selection. The restored chip does not need it back: the chip, not the highlight, is what the send attaches. If the panel closed in the meantime, the existing effect at line 342 clears the restored context again.
 
      It is also passed to `onSelectSuggestion` (line 527). A function that returns a value is assignable to a `void`-returning prop, so that call site compiles unchanged.
 
@@ -4136,13 +4316,13 @@ Expected: FAIL.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/chatSendOutcome.test.js test/components/chatSends.test.js test/components/chatComposer.test.js test/helpers/chatMessageSubmissionLock.test.js test/helpers/assistantPanel.test.js test/locales/translationCoverage.test.js`, then `npm run typecheck`.
+Run: `npm test -- test/helpers/chatSendOutcome.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js test/helpers/chatMessageSubmissionLock.test.js test/helpers/assistantPanel.test.js test/locales/translationCoverage.test.js`, then `npm run typecheck`.
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/chat src/hooks/useEmbeddedChat.ts src/hooks/useContainerChat.ts src/components/notes/EmbeddedChat.tsx src/components/notes/overview/OverviewAskSection.tsx src/components/notes/overview/ContainerOverview.tsx src/components/notes/NoteEditor.tsx src/components/dictation/AssistantPanel.tsx src/locales test/helpers/chatSendOutcome.test.js test/components/chatSends.test.js test/components/chatComposer.test.js
+git add src/components/chat src/hooks/useEmbeddedChat.ts src/hooks/useContainerChat.ts src/components/notes/EmbeddedChat.tsx src/components/notes/overview/OverviewAskSection.tsx src/components/notes/overview/ContainerOverview.tsx src/components/notes/NoteEditor.tsx src/components/dictation/AssistantPanel.tsx src/components/dictation/assistantTextSubmit.ts src/locales test/helpers/chatSendOutcome.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js
 git commit -m "fix(chat): queued drafts stay in their conversation; unsent words are never lost"
 ```
 
@@ -4753,6 +4933,7 @@ Covers SET-Q2.
 **Interfaces:**
 - Produces:
   - `ModelCardProps.selectionRole?: "radio" | "none"` (default `"radio"`);
+  - `ModelCardProps.tabIndex?: number`, set on the radio (the list passes `0` or `-1`);
   - `ModelCardListProps.ariaLabel?: string` (default `t("models.listLabel")`).
 - Consumes `rendererOptions` (Task 4).
 
@@ -4762,7 +4943,11 @@ Design:
   - The real controls sit above it with `pointer-events-auto`.
   - The content row is `pointer-events-none`, so clicks on text reach the overlay.
   - **"Learn more" must never select the model**, in either mode. `createExternalLinkHandler` (`src/utils/externalLinks.ts:9-13`) only calls `preventDefault`. The click still bubbled to the card root, so opening a model's documentation selected it. That mattered most in `SearchableModelList`, which keeps the root `onClick`. The anchor now stops propagation in both modes. It also uses `text-link` (D1) instead of raw `text-primary/60`.
-- **Selection is explicit.** Enter, Space (native `<button>`) or a click selects. Arrow keys are not a selection path, because these cards include remote models and moving focus must never switch where audio goes.
+- **One tab stop, arrow keys move focus.** The list is a roving-tabindex radiogroup. Only one radio is in the tab order: the selected card, or the first selectable card when nothing in this list is selected. Down and Right move focus to the next card, Up and Left to the previous one, wrapping at the ends. Tab leaves the radio for the card's own actions and the next control.
+- **Selection is explicit: arrow keys do not select.** Enter, Space (native `<button>`) or a click selects. This departs from the WAI-ARIA radio pattern, where an arrow also checks, on purpose. Selecting a card can change where audio goes:
+  - In `TranscriptionModelPicker`, a list shows the browsed provider's models with `selectedModel=""` when that provider is not the active one (`:1281-1286`).
+  - Its `handleCloudModelSelect` then switches the cloud transcription provider (`:863-870`). `ReasoningModelSelector.handleModelSelect` likewise sets the provider (`:480-491`).
+  - If selection followed focus, browsing a provider's list with the arrow keys would move audio, or text, to that provider. Screen readers still announce each card as "radio, not selected", and Space selects it, as with the provider tabs' manual activation (Task 15).
 - **No nested radio.** `SearchableModelList` already wraps each card in `role="option"`, so it opts out with `selectionRole="none"`. That keeps the old root `onClick` and adds no radio.
 - **Unselectable cards stay focusable.** A local model that is not downloaded is `aria-disabled`, not `disabled`. Screen-reader users can still find it next to its Download button.
 
@@ -4775,10 +4960,17 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { createElement } = require("react");
+const React = require("react");
+const { createElement } = React;
+const { createRoot } = require("react-dom/client");
 const { renderToStaticMarkup } = require("react-dom/server");
-const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
 const { rendererOptions } = require("../helpers/harness/rendererMocks");
+const { installTree } = require("../helpers/harness/fakeDomTree");
 
 const source = fs.readFileSync(
   path.join(__dirname, "../../src/components/ui/ModelCardList.tsx"),
@@ -4817,6 +5009,28 @@ test("a model list is a labelled radiogroup of named, selectable radios", async 
   assert.match(radios[2], /aria-disabled="true"/, "not downloaded yet");
   assert.doesNotMatch(radios[2], /\sdisabled=""/, "still focusable");
   assert.match(radios[0], /type="button"/);
+  // One tab stop: the selected card.
+  assert.match(radios[0], /tabindex="0"/);
+  assert.match(radios[1], /tabindex="-1"/);
+  assert.match(radios[2], /tabindex="-1"/);
+});
+
+test("with nothing selected in this list, the first selectable card is the tab stop", async (t) => {
+  const { default: ModelCardList } = await load(t);
+  const html = renderToStaticMarkup(
+    createElement(ModelCardList, {
+      // Orukeet first: not downloaded, so it cannot be the tab stop.
+      models: [LOCAL_MODELS[2], LOCAL_MODELS[0], LOCAL_MODELS[1]],
+      selectedModel: "",
+      onModelSelect() {},
+      onDownload() {},
+      onDelete() {},
+    })
+  );
+  const stops = [...html.matchAll(/<button[^>]*role="radio"[^>]*>/g)].map((m) =>
+    /tabindex="0"/.test(m[0])
+  );
+  assert.deepEqual(stops, [false, true, false]);
 });
 
 test("the delete button is named and appears on keyboard focus, not only on hover", async (t) => {
@@ -4849,9 +5063,73 @@ test("a card inside a listbox option does not nest a radio", async (t) => {
   assert.doesNotMatch(html, /role="radio"/);
 });
 
-test("arrow keys are not a selection path", () => {
-  assert.doesNotMatch(source, /Arrow(Up|Down|Left|Right)/);
-  assert.doesNotMatch(source, /onKeyDown/);
+test("arrow keys move focus between cards and never select", async (t) => {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  installHookDom(t);
+  const tree = installTree();
+  const vite = await createRendererServer(t, rendererOptions("loqui-model-card-arrows-"));
+  const { default: ModelCardList } = await vite.ssrLoadModule("/components/ui/ModelCardList.tsx");
+  const selected = [];
+  root = createRoot(tree.container);
+  await React.act(async () =>
+    root.render(
+      createElement(ModelCardList, {
+        models: LOCAL_MODELS,
+        selectedModel: "parakeet",
+        onModelSelect: (value) => selected.push(value),
+        onDownload() {},
+        onDelete() {},
+      })
+    )
+  );
+  const radios = [];
+  const walk = (node) => {
+    if (node.attributes?.role === "radio") radios.push(node);
+    for (const child of node.childNodes ?? []) walk(child);
+  };
+  walk(tree.container);
+  assert.equal(radios.length, 3);
+  const focused = [];
+  radios.forEach((radio, index) => {
+    radio.focus = () => focused.push(index);
+  });
+  const group = tree.find((node) => node.attributes?.role === "radiogroup");
+  const press = (key, from) => {
+    let prevented = false;
+    tree.props(group).onKeyDown({
+      key,
+      target: radios[from],
+      currentTarget: { querySelectorAll: () => radios },
+      preventDefault() {
+        prevented = true;
+      },
+    });
+    return prevented;
+  };
+
+  assert.equal(press("ArrowDown", 0), true);
+  assert.equal(press("ArrowRight", 1), true, "reaches a card that is not downloaded yet");
+  assert.equal(press("ArrowDown", 2), true, "wraps to the first card");
+  assert.equal(press("ArrowUp", 0), true, "wraps to the last card");
+  assert.equal(press("ArrowLeft", 2), true);
+  assert.deepEqual(focused, [1, 2, 0, 2, 1]);
+  assert.deepEqual(selected, [], "moving focus never changes the model");
+
+  assert.equal(press("Tab", 0), false, "Tab is left to the browser");
+  const del = tree.find((node) => node.attributes?.["aria-label"]?.startsWith("models.deleteNamed"));
+  tree.props(group).onKeyDown({
+    key: "ArrowDown",
+    target: del,
+    currentTarget: { querySelectorAll: () => radios },
+    preventDefault() {
+      assert.fail("arrows on a card action are not intercepted");
+    },
+  });
+  assert.equal(focused.length, 5);
 });
 
 test("Learn more never selects the model, and reads as a link", async (t) => {
@@ -4885,8 +5163,8 @@ Expected: FAIL on the `role="radiogroup"` match.
 
 - [ ] **Step 3: Implement**
 
-1. Add `selectionRole?: "radio" | "none";` to `ModelCardProps` and `ariaLabel?: string;` to `ModelCardListProps`.
-2. `ModelCard`: destructure `selectionRole = "radio",`. After `handleCardClick`, add:
+1. Add `selectionRole?: "radio" | "none";` and `tabIndex?: number;` to `ModelCardProps`, and `ariaLabel?: string;` to `ModelCardListProps`.
+2. `ModelCard`: destructure `selectionRole = "radio",` and `tabIndex,`. After `handleCardClick`, add:
 
    ```tsx
      const isSelectable = isLocalMode ? Boolean(isDownloaded) : true;
@@ -4912,6 +5190,7 @@ Expected: FAIL on the `role="radiogroup"` match.
              aria-checked={isSelected}
              aria-disabled={isSelectable ? undefined : true}
              aria-label={model.label}
+             tabIndex={tabIndex}
              onClick={handleCardClick}
              className={cn(
                "absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -4965,7 +5244,43 @@ Expected: FAIL on the `role="radiogroup"` match.
 6. `ModelCardList`:
    - destructure `ariaLabel`;
    - reuse the `const { t } = useTranslation();` that the function already declares (line 252); do not add a second one;
-   - change the container to `<div role="radiogroup" aria-label={ariaLabel ?? t("models.listLabel")} className={`space-y-0.5 ${className}`}>`.
+   - add a module-level step table above `ModelCardList`:
+
+     ```tsx
+     const ARROW_STEP: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+     ```
+
+   - after the `models.length === 0` early return, add the tab stop and the key handler:
+
+     ```tsx
+       const isSelectable = (model: ModelCardOption) => (onDownload ? Boolean(model.isDownloaded) : true);
+       // Roving tabindex: one tab stop per list, on the selected card, else on
+       // the first card that can be selected.
+       const tabStop =
+         models.find((model) => model.value === selectedModel && isSelectable(model))?.value ??
+         models.find(isSelectable)?.value ??
+         models[0].value;
+
+       // Arrows move focus only. Selecting can switch the provider
+       // (TranscriptionModelPicker's handleCloudModelSelect), so it stays on
+       // Enter, Space or a click.
+       const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+         const step = ARROW_STEP[event.key];
+         if (!step) return;
+         const radios = Array.from(
+           event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+         );
+         const from = radios.indexOf(event.target as HTMLButtonElement);
+         if (from === -1) return; // a card action has focus: leave its keys alone
+         event.preventDefault();
+         radios[(from + step + radios.length) % radios.length].focus();
+       };
+     ```
+
+   - change the container to `<div role="radiogroup" aria-label={ariaLabel ?? t("models.listLabel")} onKeyDown={handleKeyDown} className={`space-y-0.5 ${className}`}>`;
+   - pass `tabIndex={model.value === tabStop ? 0 : -1}` to each `<ModelCard>`.
+
+   Focus moves, but the tab stop stays on the selected card, so Tab away and back returns to the selection. That matches the provider tabs (Task 15).
 7. `src/components/ui/SearchableModelList.tsx:244`: add `selectionRole="none"` to the `<ModelCard … />` inside the `role="option"` wrapper.
 8. Add the locale keys:
 
@@ -5000,7 +5315,7 @@ Expected: FAIL on the `role="radiogroup"` match.
    EOF
    ```
 
-**DESIGN.md (D10).** In `### Chips`, append to the **State** bullet: "Model cards are radios in a labelled radiogroup: the whole card is the hit area, Enter or Space selects, arrow keys never do (a card can be remote), and a not-yet-downloaded local model is `aria-disabled` but still focusable. Card actions (delete, download, cancel, Learn more) keep their own names; delete appears on hover or keyboard focus."
+**DESIGN.md (D10).** In `### Chips`, append to the **State** bullet: "Model cards are radios in a labelled radiogroup with one tab stop, on the selected card. The whole card is the hit area. Arrow keys move focus between cards; only Enter, Space or a click selects, because selecting can switch the provider. A not-yet-downloaded local model is `aria-disabled` but still focusable. Card actions (delete, download, cancel, Learn more) keep their own names; delete appears on hover or keyboard focus."
 
 - [ ] **Step 4: Run tests to verify they pass**
 

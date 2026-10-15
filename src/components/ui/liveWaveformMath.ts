@@ -1,9 +1,8 @@
 // Bars express loudness through scaleY + layer opacity, never height or
 // background-color: a per-sample layout or paint write every 150ms is the CPU
-// regression this replaces (an animated background-color also retriggers the
-// global `*` background-color transition in index.css). Each bar stacks a
-// uniform quiet layer under a gradient-hued active layer, and a sample
-// cross-fades between them to reproduce the old visuals exactly.
+// regression this replaces. Each bar stacks a uniform quiet layer under a
+// gradient-hued active layer, and a sample cross-fades between them to
+// reproduce the old visuals exactly.
 export const WAVE_MAX_PX = 20;
 const WAVE_MIN_PX = 2;
 const WAVE_QUIET_NORM = 0.14;

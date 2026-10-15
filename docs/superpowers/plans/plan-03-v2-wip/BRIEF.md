@@ -45,3 +45,7 @@ You are rewriting tasks of an implementation plan (planning only — do NOT edit
 - /Users/snow/.t3/worktrees/loqui/snowopsdev-plan-uiux-03-routes-settings/docs/superpowers/plans/plan-03-v2-wip/new/TNN.md (two-digit, e.g. T01.md) — the complete task in markdown, starting with `### Task N: …` and ending with `---`.
 - /Users/snow/.t3/worktrees/loqui/snowopsdev-plan-uiux-03-routes-settings/docs/superpowers/plans/plan-03-v2-wip/new/TNN.notes.md — (1) findings closed with one line each on how; (2) any interface you added beyond INTERFACES.md (exact signature); (3) anything you could not verify; (4) any finding you believe should be disputed, with evidence.
 - Reply with a ≤150-word summary (file names written, interface additions, open issues).
+
+## Hard limits
+- Do not run any git command. Do not edit any file outside your assigned output files.
+- Save your output file(s) early and update them as you go, so partial work survives an interruption.

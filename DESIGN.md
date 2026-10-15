@@ -142,7 +142,7 @@ The interface palette pairs a vivid orange action color with fuchsia highlights 
 - **Nav marker** (`--color-nav-marker`): orange in light, magenta #E6007A in Plum Night.
 
 ### Named Rules
-**The Two-Brand-Accent Rule.** Orange marks primary action and current state. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
+**The Two-Brand-Accent Rule.** Orange marks live voice and, in the light theme, the active navigation marker; the everyday primary action is the ink CTA, and Plum Night marks active navigation in magenta #E6007A. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
 
 ## Typography
 
@@ -232,7 +232,7 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 - **Error / Disabled:** Errors use the separate destructive color; disabled fields lower contrast and disable pointer interaction.
 
 ### Navigation
-- **Sidebar:** 208px wide, with 36px rows and 13px labels. The active item uses a quiet foreground-tinted surface and a 2px orange rail; icons shift to orange while inactive icons remain subdued.
+- **Sidebar:** 208px wide, with 36px rows and 13px labels. The active item uses a quiet foreground-tinted surface and a 2px rail in the nav-marker colour (orange in the light theme, magenta #E6007A in Plum Night); the active icon takes that same colour while inactive icons remain subdued.
 - **Top bar:** A 48px draggable Electron title area with centered capsule search and platform-appropriate window controls. macOS clears space for traffic lights when the sidebar is collapsed; Linux displays the app window controls.
 - **Narrow layout:** The sidebar collapses for focused note and meeting side panels; a back control replaces it.
 

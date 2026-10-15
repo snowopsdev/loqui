@@ -35,6 +35,21 @@
 
 ---
 
+## PR #44 inline review response
+
+All six inline conversations on the earlier `69b7e5b` review are addressed by the plan prescriptions. Three already had fixes in the current revision; this pass verifies them and closes the remaining recovery and locality gaps. No application code is implemented in this checkout.
+
+| Comment | Where | Resolution and regression evidence |
+|---|---|---|
+| [Re-hold every failed replay](https://github.com/snowopsdev/loqui/pull/44#discussion_r4285521243) | Task 8 | Send errors, thrown finalization and a `false` finalization result all transfer the complete PCM/fallback copy, context, tracker and privacy into a new hold before shutdown. Zero the original before awaiting shutdown; only successful replay releases its copy. Tests exercise a working second Undo and expiration while shutdown remains pending. |
+| [Preserve every disclosure target](https://github.com/snowopsdev/loqui/pull/44#discussion_r4285521250) | Task 9 | Existing sanitizer keeps the bounded, validated `alsoSentTo` array, and the real broadcaster forwards it. Tests cover multiple receivers, bad entries, missing arrays and the onboarding reducer handoff. |
+| [Use the active session's locality](https://github.com/snowopsdev/loqui/pull/44#discussion_r4285521254) | Tasks 8, 11 | Publish the frozen session to the hook and select its enabled STT, cleanup, translation, Agent and vision routes. Idle uses live settings; busy without a session fails toward disclosure. Undo republishes its original session after preflight. Sealed remains a live gate over frozen destinations. Tests cover mid-session setting changes, disabled intents, idle and Undo. |
+| [Ignore renderer evidence with the main feed](https://github.com/snowopsdev/loqui/pull/44#discussion_r4285521265) | Task 7 | Existing main-feed flag makes `record()` ignore both direct renderer records and the fallback hand-off feed. Only matching main `dispatched` / `delivered` notices count when Plan 07 is attached; withdrawal remains ticket-specific. |
+| [Cancel delayed recording notification creation](https://github.com/snowopsdev/loqui/pull/44#discussion_r4285521271) | Task 16 | Check both presence generation and session after client creation, before `show()`. End and teardown close the instance; an obsolete callback cannot close a replacement meeting's notification. Regression covers end, replacement and shutdown while the D-Bus client is pending. |
+| [Invalidate dismissed meeting prompts](https://github.com/snowopsdev/loqui/pull/44#discussion_r4285521281) | Tasks 2, 18 | Existing per-prompt generation is checked after display lookup and lease acquisition. Dismissal releases the old owner immediately; a late lease is released without reopening the prompt or touching a newer lease. Deferred-display and deferred-acquire regressions cover both awaits. |
+
+**Verification.** Targeted scratch execution extracts the current plan methods; provider, OS and predecessor leaves are controlled fakes. Seven recovery/notification/admission probes pass, including delayed shutdown with hold expiration and frozen-session publication after Undo preflight. Seven exact locality tests run through Vite/React SSR and the session-publication regression runs against the patched real hook in scratch; all pass with predecessor routing/provider leaves stubbed. Strict TypeScript checking passes against Plan 03's published route shape. Mutation checks detect live-only locality, omitted Agent routes and missing session publication. Four additional extracted-snippet checks pass for disclosure sanitizing/broadcasting, main-feed evidence exclusivity and prompt dismissal at each await (OS/window leaves stubbed). The new Task 8 suite and notification regression pass Node syntax checks. These checks verify the prescriptions, not the unimplemented combined application. The full Task 1–18 integration suites must run during implementation.
+
 ## Round-5 review response
 
 This revision answers `plan-04-codex-r5.md`, reviewed at `a47935c`. Its two remaining Important findings are addressed in the executable Task 8 prescriptions and tests below. The four round-4 closures remain intact. These revisions specify behavior; this plan checkout does not contain the application implementation.
@@ -7459,7 +7474,23 @@ test("Undo announces the closed window before processing starts (§5.2 order, R1
   manager.cancelRecording();
   await advance(0);
   await manager.restoreCancelled();
-  assert.deepEqual(order.slice(-2), ["closed:restored", "processing"]);
+  // Both the preflight claim and the admitted session publish processing.
+  assert.deepEqual(order.slice(-3), ["closed:restored", "processing", "processing"]);
+  await manager._restoreRun;
+});
+
+test("Undo publishes the frozen session after preflight and before dispatch", async (t) => {
+  const { manager, advance } = await setup(t);
+  startBatch(manager, [], 3);
+  manager.cancelRecording();
+  await advance(0);
+  const original = manager._undo.peek().session;
+  const published = [];
+  manager.onStateChange = (state) => {
+    if (state.isProcessing) published.push(manager.activeSession);
+  };
+  assert.equal((await manager.restoreCancelled()).restored, true);
+  assert.deepEqual(published.slice(0, 2), [null, original]);
   await manager._restoreRun;
 });
 
@@ -7670,6 +7701,89 @@ test("a replay whose provider refuses to start leaves the manager usable and re-
   assert.equal(manager.isProcessing, false);
   assert.equal(manager._undo.peek()?.kind, "streaming", "the audio is offered for Undo again");
   assert.equal(io.streamSends, 0);
+});
+
+test("every failed streaming replay re-holds its full copy and a second Undo works", async (t) => {
+  for (const failure of ["send", "finalizeThrows", "finalizeFalse"]) {
+    const { manager, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false });
+    streamingManager(manager);
+    const session = manager.activeSession;
+    const context = manager._sessionContext;
+    const tracker = manager._disclosure;
+    manager.isRecording = true;
+    await manager.cancelStreamingRecording();
+    await advance(0);
+    const original = manager._undo.peek();
+    let shutdownHeld;
+    win.electronAPI.dictationRealtimeStart = async () => ({ success: true });
+    win.electronAPI.dictationRealtimeCancel = () => {};
+    win.electronAPI.dictationRealtimeSend = () => {
+      if (failure === "send") throw new Error("send failed");
+    };
+    win.electronAPI.dictationRealtimeStop = async () => {
+      shutdownHeld = manager._undo.peek(); // recovery precedes even this await
+      assert.equal(original.isZeroed(), true, "provider shutdown retains no original PCM");
+      assert.equal(manager._sessionAudio, null, "the new hold is the sole owner");
+      return {};
+    };
+    manager._attachStreamingListeners = () => {};
+    manager._finalizeStreamingRecording = async () => {
+      if (failure === "finalizeThrows") throw new Error("finalize failed");
+      return false;
+    };
+    await manager.restoreCancelled();
+    await manager._restoreRun;
+    const retry = manager._undo.peek();
+    await retry.ready();
+    assert.equal(original.isZeroed(), true, failure);
+    assert.notEqual(retry, original, failure);
+    assert.equal(shutdownHeld, retry, failure);
+    assert.deepEqual(retry.frames().map((f) => [...f]), [[1, 2], [3]], failure);
+    assert.equal(retry.session, session, failure);
+    assert.equal(retry.context, context, failure);
+    assert.equal(retry.tracker, tracker, failure);
+    assert.equal(context.released, false, failure);
+    assert.equal(manager._sessionAudio, null, "the hold is now the sole owner");
+    assert.equal(manager.isStreaming, false, failure);
+    assert.equal(manager.isProcessing, false, failure);
+
+    const sent = [];
+    win.electronAPI.dictationRealtimeSend = (frame) => sent.push([...new Int16Array(frame)]);
+    manager._finalizeStreamingRecording = async () => true;
+    assert.equal((await manager.restoreCancelled()).restored, true, failure);
+    await manager._restoreRun;
+    assert.deepEqual(sent, [[1, 2], [3]], failure);
+    assert.equal(retry.isZeroed(), true, failure);
+    assert.equal(manager._sessionAudio, null, failure);
+    assert.equal(manager._undo.peek(), null, failure);
+  }
+});
+
+test("a slow provider shutdown retains no original PCM past the retry window", async (t) => {
+  const { manager, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false });
+  streamingManager(manager);
+  manager.isRecording = true;
+  await manager.cancelStreamingRecording();
+  await advance(0);
+  const original = manager._undo.peek();
+  const stopping = deferred();
+  win.electronAPI.dictationRealtimeStart = async () => ({ success: true });
+  win.electronAPI.dictationRealtimeCancel = () => {};
+  win.electronAPI.dictationRealtimeSend = () => { throw new Error("send failed"); };
+  win.electronAPI.dictationRealtimeStop = () => stopping.promise;
+  manager._attachStreamingListeners = () => {};
+  assert.equal((await manager.restoreCancelled()).restored, true);
+  await advance(0); // the failed send re-holds before stop settles
+  const retry = manager._undo.peek();
+  const frames = retry.frames();
+  assert.equal(original.isZeroed(), true);
+  assert.equal(manager._sessionAudio, null);
+  await advance(10_000); // >30s take, retention off, provider still hasn't stopped
+  assert.equal(retry.isZeroed(), true);
+  assert.ok(frames.every(allZero));
+  assert.equal(manager._undo.peek(), null);
+  stopping.resolve({});
+  await manager._restoreRun;
 });
 
 test("a private hold is never persisted, and its restore stays private (§5.2)", async (t) => {
@@ -8715,7 +8829,7 @@ export function createUndoWindow({
      The existing reset at `:3469` moves here.
    - In `startStreamingFallbackRecorder` (3335), after `this.streamingFallbackChunks = chunks;`, add `if (this._sessionAudio?.kind === "streaming") this._sessionAudio.fallbackChunks = chunks;`.
    - In the worklet handler (3500), after `provider.send(event.data);`, add `this._sessionAudio?.frames?.push(new Int16Array(event.data));`. `send` structured-clones the buffer across IPC, so the renderer keeps ownership of `event.data`.
-   - **A completed streaming dictation drops its copy.** At the end of `_finalizeStreamingRecording`, and in the `finally` of `stopStreamingRecording` (3745–3760), call `this._dropSessionAudio()`:
+   - **A completed streaming dictation drops its copy.** At the successful end of `_finalizeStreamingRecording`, call `if (!replay) this._dropSessionAudio();`; replay owns its copy until its success or recovery path (Step 5). In the `finally` of normal `stopStreamingRecording` (3745–3760), call `this._dropSessionAudio()`:
 
      ```js
        _dropSessionAudio() {
@@ -8852,6 +8966,9 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
 
     // Task 7 keeps the evidence; Task 6 hands back the press-time selection and screenshot (R1-C2).
     this.applySessionIntents(buffer.session, { tracker: buffer.tracker, context: buffer.context });
+    // Preflight claimed busy before a session was attached. Publish again now
+    // so useAudioRecording exposes the restored frozen routes to the pill (Task 11).
+    this.onStateChange?.({ isRecording: false, isProcessing: true });
     this._recordingPrivate = buffer.private === true; // §5.2: re-applied before processing
     this._restoreRun = (buffer.kind === "streaming" ? this._replayStreamingSession(buffer, generation) : this._restoreBatch(buffer, generation))
       .catch((error) => {
@@ -9119,18 +9236,26 @@ Streaming replay. It owns its streaming state from start to finish, so a failure
       }
       buffer.zero();
       this._streamingStopPromise = this._finalizeStreamingRecording(sessionId, { replay: true });
-      await this._streamingStopPromise;
+      const finalized = await this._streamingStopPromise;
+      if (finalized === false) throw new Error("Streaming finalization failed");
+      // Only a successful replay releases its PCM copy. Failed finalization must
+      // leave it available to the catch below, even if finalization returned false.
+      if (this._sessionAudio?.session === session) this._dropSessionAudio();
     } catch (error) {
-      // §5.2: a cancelled replay stops further egress at once (Task 7's cancel channel).
-      if (error?.code === "TRANSCRIPTION_CANCELLED") provider?.cancel?.();
+      // Every unsuccessful replay stops further egress and transfers its copy
+      // into a fresh Undo window BEFORE awaiting provider shutdown. Esc may
+      // already have done this; the session ownership check makes it idempotent.
+      provider?.cancel?.();
+      this._holdStreamingSession();
+      buffer.zero(); // the fresh hold owns the copy; a slow stop must not retain the original
       if (started) await provider?.stop?.().catch(() => {});
-      // Nothing was transcribed: offer the same audio for Undo again.
-      if (!started || error?.code === "TRANSCRIPTION_CANCELLED") this._holdStreamingSession();
       if (error?.code !== "TRANSCRIPTION_CANCELLED") throw error;
     } finally {
-      this._streamingStopPromise = null;
-      if (this._activeStreamingSessionId === sessionId) this._activeStreamingSessionId = null;
-      this.isStreaming = false; // no other streaming session can start while this one holds it
+      if (this._activeStreamingSessionId === sessionId) {
+        this._streamingStopPromise = null;
+        this._activeStreamingSessionId = null;
+        this.isStreaming = false;
+      }
       // Settle only a lifecycle this replay still owns: after Esc, a newer operation may run (R1-I3).
       if (generation === this._restoreGeneration && this.isProcessing) {
         this.isProcessing = false;
@@ -9143,7 +9268,7 @@ Streaming replay. It owns its streaming state from start to finish, so a failure
 
 - Extract the listener registration (`:3511-3556`) from `startStreamingRecording` into `_attachStreamingListeners(sessionId)`, and call it from both places.
 - Change `_finalizeStreamingRecording(sessionId)` to `_finalizeStreamingRecording(sessionId, { replay = false } = {})`. When `replay` is true, skip the mic-swap wait (`:3888`), the worklet flush (`:3894-3905`) and the fallback-recorder finish (`:3920-3921`). Each of those touches objects a replay never created. Null-guard the remaining reads of `this.streamingProcessor` / `this.streamingFallbackRecorder`.
-- `_holdStreamingSession` requires `this._activeSession === held.session`. `applySessionIntents` set it at restore, so a failed or cancelled replay re-holds. A buffer re-held this way is a fresh window over the copy taken above.
+- `_holdStreamingSession` requires `this._activeSession === held.session`. `applySessionIntents` set it at restore, so every failed or cancelled replay re-holds before any shutdown await or session settlement. Keep the PCM copy when `_finalizeStreamingRecording` returns `false` or throws in replay mode: only the replay's success path drops it. A buffer re-held this way is a fresh window over the copy taken above, with the same session, context, tracker and privacy.
 
 - [ ] **Step 6: `docs/PRIVACY.md`**
 
@@ -10336,12 +10461,13 @@ git commit -m "feat(voice): pill stage model, no press hold, words-first transcr
 
 ### Task 11: The Condensation pill: LevelBars, LocalityRing, stage labels and undo
 
-Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and caption, FND-R5 adoption on the pill, and §5.1/§5.4 consumption. It also closes R1-I4 (no read of `pillOwnership` before its declaration) and R2-M1 (the pill's motion uses the shared tokens).
+Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and caption, FND-R5 adoption on the pill, and §5.1/§5.4 consumption. Active work discloses the frozen session’s enabled routes; only idle uses live Settings. It also closes R1-I4 (no read of `pillOwnership` before its declaration) and R2-M1 (the pill's motion uses the shared tokens).
 
 **Files:**
 - Modify (rewrite): `src/components/dictation/VoicePill.tsx`
 - Create: `src/components/dictation/pillLocality.ts`. A pure combiner plus a `usePillLocality` hook.
 - Create: `src/components/dictation/PillCaption.tsx`. The layer above the pill; Task 12 renders words into it.
+- Modify: `src/hooks/useAudioRecording.js`. Publish the active frozen session with its recording/processing lifecycle (Step 3); no IPC or shared §5 type changes.
 - Create: `src/hooks/useRecentOutcome.ts`
 - Create: `src/hooks/usePillAutoHide.js`. App's auto-hide effect (`App.jsx:403–434`), moved so App calls it after the stage derivation it reads (R1-I4).
 - Delete: `src/components/dictation/PillWaveform.tsx`, `src/components/dictation/waveformMath.ts`
@@ -10360,6 +10486,7 @@ Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and ca
 - Modify: `DESIGN.md` `### Voice Pill` and the `## Motion` token table
 - Test: `test/helpers/voicePillStructure.test.js` (update)
 - Test: `test/components/pillLocality.test.js` (new)
+- Modify: `test/helpers/useAudioRecordingLifecycle.test.js` (Task 9). Assert session publication at start, processing, cancel, Undo and idle.
 - Test: `test/hooks/pillAutoHide.test.js` (new). The real hook, mounted with auto-hide on.
 - Test: `test/components/appPillOwnership.test.js` (new). The real `App.jsx`, rendered with auto-hide on (R1-I4).
 - Test: `test/components/pillMotionTokens.test.js` (new). Token adoption and the literal-timing scan (R2-M1).
@@ -10371,7 +10498,7 @@ Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and ca
   - `disclosureCopy` (Task 7);
   - `LevelBars` and `LOGO_BAR_SHAPE` (Plan 01 Task 8);
   - `LocalityRing` and `Locality` (Plan 01 Tasks 6–7);
-  - `useResolvedRoute` and `ResolvedRoute` (§5.1).
+  - `useResolvedRoute` and `ResolvedRoute` (§5.1), Task 7’s frozen `session.routes`, Task 6’s `session.intents` / `session.settings`, and Plan 03’s `useSealedStore`.
 - Produces:
 
   ```ts
@@ -10385,8 +10512,17 @@ Covers VO-R1 C (pill chrome), VO-Q12 (the beat), the D3 cancelled capsule and ca
   // src/components/dictation/pillLocality.ts
   export interface PillLocality { locality: Locality; provider: string | null; blocked: boolean; label: string; routeLine: string }
   export function routeProviderLabel(route: ResolvedRoute, t: T): string; // providerDisplayLabel(route.providerId, t), else route.provider (CCR-7)
-  export function combinePillLocality(routes: ResolvedRoute[], t: T): PillLocality;
-  export function usePillLocality(): PillLocality;
+  export type PillRouteId = "dictationStt" | "dictationCleanup" | "translation" | "voiceAssistant" | "assistantVision";
+  export interface PillSession {
+    readonly routes: Readonly<Partial<Record<PillRouteId, ResolvedRoute>>> | null;
+    readonly settings: Readonly<Record<string, unknown>>;
+    readonly intents: { readonly voiceAgentRequested: boolean; readonly translationRequested: boolean };
+  }
+  export function sessionPillRoutes(session: PillSession | null): ResolvedRoute[];
+  export function combinePillLocality(routes: ResolvedRoute[], t: T, sealed?: boolean): PillLocality;
+  export function usePillLocality(session: PillSession | null, busy: boolean): PillLocality;
+  // useAudioRecording return gains an internal, read-only field:
+  activeSession: PillSession | null; // the original frozen DictationSession object, never a live re-resolution
   ```
 
   ```tsx
@@ -10421,15 +10557,22 @@ Create `test/components/pillLocality.test.js`:
 ```js
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { createElement } = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
 const t = (key, opts) => (opts ? `${key}|${Object.values(opts).join("|")}` : key);
-const load = () => import("../../src/components/dictation/pillLocality.ts");
+async function load(ctx, mockModules = {}) {
+  installBrowserGlobals(ctx);
+  const vite = await createRendererServer(ctx, { cachePrefix: "loqui-pill-locality-", mockModules, noExternal: ["react-i18next"] });
+  return vite.ssrLoadModule("/components/dictation/pillLocality.ts");
+}
 const route = (id, locality, provider, state = { status: "ready" }) => ({
   id, kind: "speech", locality, provider, model: null, state, sends: null, settingsPath: id,
 });
 
-test("the pill discloses the most remote active stage", async () => {
-  const { combinePillLocality } = await load();
+test("the pill discloses the most remote active stage", async (ctx) => {
+  const { combinePillLocality } = await load(ctx);
   const both = combinePillLocality([route("dictationStt", "device", null), route("dictationCleanup", "remote", "OpenAI")], t);
   assert.equal(both.locality, "remote");
   assert.equal(both.provider, "OpenAI");
@@ -10438,8 +10581,8 @@ test("the pill discloses the most remote active stage", async () => {
   assert.equal(local.locality, "device");
 });
 
-test("a cleanup step that is turned off does not colour the ring", async () => {
-  const { combinePillLocality } = await load();
+test("a cleanup step that is turned off does not colour the ring", async (ctx) => {
+  const { combinePillLocality } = await load(ctx);
   const off = combinePillLocality(
     [route("dictationStt", "network", null), route("dictationCleanup", "remote", "Anthropic", { status: "off" })],
     t
@@ -10448,8 +10591,8 @@ test("a cleanup step that is turned off does not colour the ring", async () => {
   assert.match(off.routeLine, /pill\.route\.cleanupOff/);
 });
 
-test("provider names go through providerDisplayLabel when the route carries an id (CCR-7)", async () => {
-  const { combinePillLocality } = await load();
+test("provider names go through providerDisplayLabel when the route carries an id (CCR-7)", async (ctx) => {
+  const { combinePillLocality } = await load(ctx);
   const custom = combinePillLocality(
     [route("dictationStt", "device", null), { ...route("dictationCleanup", "remote", "Custom endpoint"), providerId: "custom" }],
     t
@@ -10459,14 +10602,109 @@ test("provider names go through providerDisplayLabel when the route carries an i
   assert.equal(openai.provider, "OpenAI");
 });
 
-test("Sealed mode marks a remote route as blocked (§5.4)", async () => {
-  const { combinePillLocality } = await load();
+test("Sealed mode marks a remote route as blocked (§5.4)", async (ctx) => {
+  const { combinePillLocality } = await load(ctx);
   const sealed = combinePillLocality(
     [route("dictationStt", "remote", "OpenAI", { status: "unreachable", detail: "sealed" }), route("dictationCleanup", "device", null)],
     t
   );
   assert.equal(sealed.blocked, true);
   assert.equal(sealed.label, "pill.locality.sealed");
+});
+
+const snapshot = ({ settings = {}, intents = {}, routes = {} } = {}) => Object.freeze({
+  settings: Object.freeze({ useCleanupModel: true, voiceAgentScreenContext: false, ...settings }),
+  intents: Object.freeze({ voiceAgentRequested: false, translationRequested: false, ...intents }),
+  routes: routes === null ? null : Object.freeze({
+    dictationStt: Object.freeze(route("dictationStt", "device", null)),
+    dictationCleanup: Object.freeze(route("dictationCleanup", "device", null)),
+    voiceAssistant: Object.freeze(route("voiceAssistant", "remote", "Anthropic")),
+    assistantVision: Object.freeze(route("assistantVision", "remote", "OpenAI")),
+    translation: Object.freeze(route("translation", "remote", "Gemini")),
+    ...routes,
+  }),
+});
+
+test("only the frozen session's enabled Agent, vision and translation intents colour the ring", async (ctx) => {
+  const { sessionPillRoutes, combinePillLocality } = await load(ctx);
+  const cases = [
+    [snapshot(), "device", null, ["dictationStt", "dictationCleanup"]],
+    [snapshot({ intents: { voiceAgentRequested: true } }), "remote", "Anthropic", ["dictationStt", "dictationCleanup", "voiceAssistant"]],
+    [snapshot({ settings: { voiceAgentScreenContext: true }, intents: { voiceAgentRequested: true },
+      routes: { voiceAssistant: route("voiceAssistant", "device", null) } }),
+      "remote", "OpenAI", ["dictationStt", "dictationCleanup", "voiceAssistant", "assistantVision"]],
+    [snapshot({ intents: { translationRequested: true } }), "remote", "Gemini", ["dictationStt", "dictationCleanup", "translation"]],
+    [snapshot({ settings: { voiceAgentScreenContext: true } }), "device", null, ["dictationStt", "dictationCleanup"]],
+  ];
+  for (const [session, locality, provider, ids] of cases) {
+    const routes = sessionPillRoutes(session);
+    assert.deepEqual(routes.map((r) => r.id), ids);
+    const pill = combinePillLocality(routes, t);
+    assert.equal(pill.locality, locality);
+    assert.equal(pill.provider, provider);
+    for (const [id, key] of [["voiceAssistant", "agent"], ["assistantVision", "vision"], ["translation", "translation"]]) {
+      assert.equal(pill.routeLine.includes(`pill.route.${key}|`), ids.includes(id));
+    }
+  }
+  const disabledCleanup = snapshot({ settings: { useCleanupModel: false },
+    routes: { dictationCleanup: route("dictationCleanup", "remote", "OpenAI") } });
+  assert.equal(combinePillLocality(sessionPillRoutes(disabledCleanup), t).locality, "device");
+});
+
+test("missing frozen routes fail toward disclosure and never claim on-device work", async (ctx) => {
+  const { sessionPillRoutes, combinePillLocality } = await load(ctx);
+  for (const session of [null, snapshot({ routes: null }), snapshot({
+    intents: { translationRequested: true }, routes: { translation: undefined },
+  })]) {
+    const pill = combinePillLocality(sessionPillRoutes(session), t);
+    assert.equal(pill.locality, "remote");
+    assert.equal(pill.provider, "locality.unknownProvider");
+  }
+});
+
+test("recording, processing and Undo use frozen routes; idle uses live routes; Sealed gates the same destination", async (ctx) => {
+  globalThis.__pillLiveRoutes = {
+    dictationStt: route("dictationStt", "remote", "OpenAI"),
+    dictationCleanup: route("dictationCleanup", "device", null),
+  };
+  globalThis.__pillSealed = false;
+  globalThis.__pillTranslate = t;
+  ctx.after(() => {
+    delete globalThis.__pillLiveRoutes;
+    delete globalThis.__pillSealed;
+    delete globalThis.__pillTranslate;
+  });
+  const { usePillLocality } = await load(ctx, {
+    "/lib/routes": "export const useResolvedRoute = (id) => globalThis.__pillLiveRoutes[id];",
+    "/stores/sealedStore": "export const useSealedStore = (select) => select({ sealed: globalThis.__pillSealed });",
+    "react-i18next": "export const useTranslation = () => ({ t: globalThis.__pillTranslate });",
+  });
+  let result;
+  function Harness({ session, busy }) {
+    result = usePillLocality(session, busy);
+    return null;
+  }
+  const sample = (session, busy) => {
+    renderToStaticMarkup(createElement(Harness, { session, busy }));
+    return result;
+  };
+  const local = snapshot();
+  assert.equal(sample(local, true).locality, "device", "recording stays local after live Settings move remote");
+  globalThis.__pillLiveRoutes.dictationStt = route("dictationStt", "remote", "Gemini");
+  assert.equal(sample(local, true).locality, "device", "processing uses the same snapshot");
+  assert.equal(sample(null, false).provider, "Gemini", "idle returns to live Settings");
+  assert.equal(sample(local, true).locality, "device", "Undo republishes that original session");
+  const remote = snapshot({ intents: { voiceAgentRequested: true } });
+  globalThis.__pillLiveRoutes.dictationStt = route("dictationStt", "device", null);
+  assert.equal(sample(remote, true).provider, "Anthropic", "remote Agent stays disclosed after live Settings move local");
+  globalThis.__pillSealed = true;
+  assert.equal(sample(remote, true).blocked, true);
+  assert.equal(sample(remote, true).provider, "Anthropic", "Sealed never substitutes the live destination");
+  assert.equal(sample(local, true).blocked, false);
+  globalThis.__pillSealed = false;
+  assert.equal(sample(remote, true).blocked, false);
+  assert.equal(sample(null, true).locality, "remote", "a missing busy session cannot fall back to live local routes");
+  assert.equal(sample(null, false).locality, "device");
 });
 ```
 
@@ -10713,6 +10951,7 @@ const pipeline = (state) => ({
   resumeUndo() {},
   processingStage: null,
   outcome: null,
+  activeSession: null,
   ...state,
 });
 
@@ -10759,6 +10998,25 @@ test("live work reaches auto-hide as live work, not as a held stage", async (t) 
   assert.match(html, /data-pill-state="transcribing"/);
   assert.equal(autoHide.isVisuallyProcessing, true);
   assert.equal(autoHide.ownership.holdsWindow, false);
+});
+
+test("App passes the frozen active session to locality while live Settings say on-device", async (t) => {
+  const frozenRoute = (id, locality, provider) => Object.freeze({
+    id, kind: id === "dictationStt" ? "speech" : "text", locality, provider,
+    providerId: locality === "remote" ? "anthropic" : null, host: null, model: null,
+    state: Object.freeze({ status: "ready" }), sends: null, settingsPath: id,
+  });
+  const activeSession = Object.freeze({
+    settings: Object.freeze({ useCleanupModel: true, voiceAgentScreenContext: false }),
+    intents: Object.freeze({ voiceAgentRequested: true, translationRequested: false }),
+    routes: Object.freeze({
+      dictationStt: frozenRoute("dictationStt", "device", null),
+      dictationCleanup: frozenRoute("dictationCleanup", "device", null),
+      voiceAssistant: frozenRoute("voiceAssistant", "remote", "Anthropic"),
+    }),
+  });
+  const { html } = await renderApp(t, { isProcessing: true, processingStage: "cleaning", activeSession });
+  assert.match(html, /data-locality="remote"/);
 });
 ```
 
@@ -10932,7 +11190,7 @@ test("reduced motion keeps the pill's opacity cues and drops its movement", () =
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/components/pillLocality.test.js test/helpers/voicePillStructure.test.js test/hooks/pillAutoHide.test.js test/components/appPillOwnership.test.js test/components/pillMotionTokens.test.js`
+Run: `npm test -- test/components/pillLocality.test.js test/helpers/useAudioRecordingLifecycle.test.js test/helpers/voicePillStructure.test.js test/hooks/pillAutoHide.test.js test/components/appPillOwnership.test.js test/components/pillMotionTokens.test.js`
 Expected: FAIL:
 - `pillLocality.ts` and `usePillAutoHide.js` are not found;
 - there is no `data-level-bar`, and there are no stage labels;
@@ -10947,6 +11205,7 @@ Expected: FAIL:
 import { useTranslation } from "react-i18next";
 import { providerDisplayLabel, type Locality } from "../../lib/locality";
 import { useResolvedRoute, type ResolvedRoute } from "../../lib/routes";
+import { useSealedStore } from "../../stores/sealedStore";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
@@ -10956,6 +11215,38 @@ export interface PillLocality {
   blocked: boolean;
   label: string;
   routeLine: string;
+}
+
+export type PillRouteId = "dictationStt" | "dictationCleanup" | "translation" | "voiceAssistant" | "assistantVision";
+
+export interface PillSession {
+  readonly routes: Readonly<Partial<Record<PillRouteId, ResolvedRoute>>> | null;
+  readonly settings: Readonly<Record<string, unknown>>;
+  readonly intents: { readonly voiceAgentRequested: boolean; readonly translationRequested: boolean };
+}
+
+// A failed snapshot reader cannot turn active work into an on-device claim (D4).
+const unknownRoute = (id: PillRouteId): ResolvedRoute => ({
+  id, kind: id === "dictationStt" ? "speech" : "text", locality: "remote",
+  provider: null, providerId: null, host: null, model: null, state: { status: "unreachable" },
+  sends: null, settingsPath: id,
+});
+
+/** The same enabled intents as Task 8's Sealed pre-check; never read live Settings. */
+export function sessionPillRoutes(session: PillSession | null): ResolvedRoute[] {
+  if (!session) return [unknownRoute("dictationStt")];
+  const read = (id: PillRouteId) => session.routes?.[id] ?? unknownRoute(id);
+  const cleanup = read("dictationCleanup");
+  const routes = [
+    read("dictationStt"),
+    session.settings.useCleanupModel ? cleanup : { ...cleanup, state: { status: "off" as const } },
+  ];
+  if (session.intents.translationRequested) routes.push(read("translation"));
+  if (session.intents.voiceAgentRequested) {
+    routes.push(read("voiceAssistant"));
+    if (session.settings.voiceAgentScreenContext) routes.push(read("assistantVision"));
+  }
+  return routes;
 }
 
 const RANK: Record<Locality, number> = { device: 0, network: 1, remote: 2 };
@@ -10972,7 +11263,7 @@ export function routeProviderLabel(route: ResolvedRoute, t: T): string {
   return route.provider ?? providerDisplayLabel(null, t);
 }
 
-function stageLine(route: ResolvedRoute | undefined, t: T, stageKey: "speech" | "cleanup"): string {
+function stageLine(route: ResolvedRoute | undefined, t: T, stageKey: "speech" | "cleanup" | "translation" | "agent" | "vision"): string {
   if (!route) return "";
   if (route.state.status === "off") return t(`pill.route.${stageKey}Off`);
   const where =
@@ -10983,7 +11274,7 @@ function stageLine(route: ResolvedRoute | undefined, t: T, stageKey: "speech" | 
 }
 
 /** The ring shows the most remote active stage (fail toward disclosure, D4). */
-export function combinePillLocality(routes: ResolvedRoute[], t: T): PillLocality {
+export function combinePillLocality(routes: ResolvedRoute[], t: T, sealed?: boolean): PillLocality {
   const active = routes.filter((r) => r.state.status !== "off");
   const top = active.reduce<ResolvedRoute | null>(
     (best, r) => (!best || RANK[r.locality] > RANK[best.locality] ? r : best),
@@ -10991,7 +11282,7 @@ export function combinePillLocality(routes: ResolvedRoute[], t: T): PillLocality
   );
   const locality: Locality = top?.locality ?? "device";
   const blocked = active.some(
-    (r) => r.locality !== "device" && r.state.status === "unreachable" && r.state.detail === "sealed"
+    (r) => r.locality !== "device" && (sealed ?? (r.state.status === "unreachable" && r.state.detail === "sealed"))
   );
   const provider = locality === "remote" && top ? routeProviderLabel(top, t) : null;
   const label = blocked
@@ -10999,18 +11290,67 @@ export function combinePillLocality(routes: ResolvedRoute[], t: T): PillLocality
     : locality === "remote"
       ? t("locality.remote", { provider: provider ?? "" })
       : t(`locality.${locality}`);
-  const stt = routes.find((r) => r.id === "dictationStt");
-  const cleanup = routes.find((r) => r.id === "dictationCleanup");
-  const routeLine = [stageLine(stt, t, "speech"), stageLine(cleanup, t, "cleanup")].filter(Boolean).join(" · ");
+  const stages = [
+    ["dictationStt", "speech"], ["dictationCleanup", "cleanup"],
+    ["translation", "translation"], ["voiceAssistant", "agent"], ["assistantVision", "vision"],
+  ] as const;
+  const routeLine = stages
+    .map(([id, key]) => stageLine(routes.find((r) => r.id === id), t, key))
+    .filter(Boolean).join(" · ");
   return { locality, provider, blocked, label, routeLine };
 }
 
-export function usePillLocality(): PillLocality {
+export function usePillLocality(session: PillSession | null, busy: boolean): PillLocality {
   const { t } = useTranslation();
+  // Keep hooks unconditional. Their live results are consumed only while idle.
   const stt = useResolvedRoute("dictationStt");
   const cleanup = useResolvedRoute("dictationCleanup");
-  return combinePillLocality([stt, cleanup], t);
+  const sealed = useSealedStore((s) => s.sealed);
+  // Sealed is a live gate over the frozen destinations, not permission to retarget them.
+  return combinePillLocality(busy ? sessionPillRoutes(session) : [stt, cleanup], t, sealed);
 }
+```
+
+**Publish the session in `src/hooks/useAudioRecording.js`.** Add `const [activeSession, setActiveSession] = useState(null);` beside Task 9’s lifecycle state, and return `activeSession`. In the existing `onStateChange` callback, directly after Task 9’s `const busy = Boolean(isRecording || isProcessing);`, add:
+
+```js
+        setActiveSession(busy ? (audioManagerRef.current?.activeSession ?? null) : null);
+```
+
+This is additive to Task 9’s Esc/reporting changes. Publish the original frozen object, not `manager.settings()` or re-resolved routes. Recording → processing retains it; cancel/idle clears it even if the manager ends its session after notifying; Undo first advertises processing while its preflight waits, when no session is active. Task 8 emits another processing callback immediately after `applySessionIntents` admits the held session; that callback republishes the original session. A busy lifecycle with no published session fails toward unknown-provider disclosure rather than using live Settings. A stale cancelled pipeline must not emit a later idle callback (Tasks 6/8 already enforce that).
+
+Append this regression to Task 9’s `test/helpers/useAudioRecordingLifecycle.test.js`, reusing its `mount`, `fire` and fake manager (a fake’s assigned `activeSession` property is enough):
+
+```js
+test("the hook publishes the frozen session through processing, cancel, Undo and idle", async (t) => {
+  const { ref } = await mount(t);
+  const original = Object.freeze({
+    id: "rec-pinned", routes: Object.freeze({}), settings: Object.freeze({}),
+    intents: Object.freeze({ voiceAgentRequested: true, translationRequested: false }),
+  });
+  const am = globalThis.__am;
+  am.getRecordingAudioLevel = () => null; // recording mounts the hook’s level-reporting effect
+  assert.equal(ref.api.activeSession, null);
+  am.activeSession = original;
+  await fire("onStateChange", { isRecording: true, isProcessing: false });
+  assert.equal(ref.api.activeSession, original);
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  assert.equal(ref.api.activeSession, original);
+  // The callback can precede AudioManager's final session cleanup.
+  await fire("onStateChange", { isRecording: false, isProcessing: false });
+  assert.equal(ref.api.activeSession, null);
+  am.activeSession = null;
+  // Undo advertises processing while preflight is pending, before it applies the hold.
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  assert.equal(ref.api.activeSession, null);
+  // Task 8 emits again after applySessionIntents admits that original session.
+  am.activeSession = original;
+  await fire("onStateChange", { isRecording: false, isProcessing: true });
+  assert.equal(ref.api.activeSession, original);
+  am.activeSession = null;
+  await fire("onStateChange", { isRecording: false, isProcessing: false });
+  assert.equal(ref.api.activeSession, null);
+});
 ```
 
 `src/hooks/useRecentOutcome.ts`:
@@ -11598,15 +11938,15 @@ Inside the existing reduced-motion block (lines 658–707), add:
    - `disclosureCopy` from `./helpers/dictationDisclosure`.
 
    App does not import `shouldAutoHidePill`; only `usePillAutoHide` calls it. `useSettingsStore` is already imported. `disclosureCopy` renders the `RemoteDisclosure` in `cancelled.remoteAlreadySent`. It names the receiver through `providerDisplayLabel` (Plan 01 review item 1), and says "may have received" when only the renderer saw the dispatch (Task 7).
-2. **Declaration order (R1-I4).** Insert this block directly after `agentModeActive` (`App.jsx:512–517`) and before `assistantFooter` (line 518). Everything it reads is declared above that point:
+2. **Declaration order (R1-I4).** Add `activeSession` to the `useAudioRecording` destructuring. Insert this block directly after `agentModeActive` (`App.jsx:512–517`) and before `assistantFooter` (line 518). Everything it reads is declared above that point:
    - `voicePillIsRecording` and `voicePillIsProcessing` (286–287);
-   - `isProcessing`, plus Task 9's `cancelled`, `processingStage` and `outcome`, from the `useAudioRecording` destructuring (198–227);
+   - `isRecording`, `isProcessing` and `activeSession`, plus Task 9's `cancelled`, `processingStage` and `outcome`, from the `useAudioRecording` destructuring (198–227);
    - `micState` (481) and `agentModeActive` (512–517).
 
    Everything that reads `pillStage` or `pillOwnership` comes after it: `resolveVoicePillInteraction` (519), `cancelPillFootprint` (537), `activateVoicePill` (540), `commonPillState` (576), footer suppression (599), `useLinuxPillInteractivity` (619) and the JSX. The only consumer that sits above this point is the auto-hide effect (403–434). Its dependency array is evaluated during render, so reading `pillOwnership` there would throw `ReferenceError: Cannot access 'pillOwnership' before initialization`. Item 9 moves it below. The block's hook calls (`usePillLocality`, `useRecentOutcome`, `useRef`) are unconditional, so the hook order is the same on every render.
 
    ```js
-     const pillLocality = usePillLocality();
+     const pillLocality = usePillLocality(activeSession, isRecording || isProcessing);
      // §5.4: while Sealed mode blocks the dictation route, a failure is Plan 07's pre-flight
      // refusal, and it stays readable for PILL_SEALED_PAUSED_MS instead of the 700 ms beat.
      const recentOutcome = useRecentOutcome(outcome, pillLocality.blocked ? PILL_SEALED_PAUSED_MS : undefined);
@@ -11749,8 +12089,14 @@ Add this to `en/translation.json` and mirror it to all 11 locales. For `ar`, `ru
   "route": {
     "speech": "Speech: {{where}}",
     "cleanup": "Cleanup: {{where}}",
+    "translation": "Translation: {{where}}",
+    "agent": "Agent: {{where}}",
+    "vision": "Screen context: {{where}}",
     "speechOff": "Speech: off",
-    "cleanupOff": "Cleanup: off"
+    "cleanupOff": "Cleanup: off",
+    "translationOff": "Translation: off",
+    "agentOff": "Agent: off",
+    "visionOff": "Screen context: off"
   }
 }
 ```
@@ -11789,13 +12135,13 @@ Under the table, add one line: "Literal timings are allowed only for loop period
 
 - [ ] **Step 8: Run tests to verify they pass**
 
-Run: `npm test -- test/components/pillLocality.test.js test/helpers/voicePillStructure.test.js test/helpers/voicePillPresentation.test.js test/helpers/liquidCancelFusion.test.js test/helpers/agentDictationPillIpc.test.js test/components/levelBars.test.js test/components/localityRing.test.js test/hooks/pillAutoHide.test.js test/components/appPillOwnership.test.js test/components/pillMotionTokens.test.js test/components/motionTokens.test.js`
+Run: `npm test -- test/components/pillLocality.test.js test/helpers/useAudioRecordingLifecycle.test.js test/helpers/voicePillStructure.test.js test/helpers/voicePillPresentation.test.js test/helpers/liquidCancelFusion.test.js test/helpers/agentDictationPillIpc.test.js test/components/levelBars.test.js test/components/localityRing.test.js test/hooks/pillAutoHide.test.js test/components/appPillOwnership.test.js test/components/pillMotionTokens.test.js test/components/motionTokens.test.js`
 Expected: PASS.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add -A src/components/dictation src/hooks/useRecentOutcome.ts src/hooks/usePillAutoHide.js src/App.jsx src/styles/dictation-panel.css src/index.css src/locales DESIGN.md test
+git add -A src/hooks/useAudioRecording.js src/components/dictation src/hooks/useRecentOutcome.ts src/hooks/usePillAutoHide.js src/App.jsx src/styles/dictation-panel.css src/index.css src/locales DESIGN.md test
 git commit -m "feat(voice): condensation pill with LevelBars, locality ring and undo capsule"
 ```
 
@@ -13711,6 +14057,45 @@ test("the Linux notification stops and reveals only the session it was posted fo
 });
 ```
 
+Also append the client-creation regression. This drives the real tray methods and the real notification class; the D-Bus and Electron leaves only collect posts:
+
+```js
+test("pending Linux client creation cannot post for an ended, replaced or shut-down meeting", async () => {
+  for (const transition of ["ended", "replaced", "shutdown"]) {
+    const clientReady = createDeferred();
+    const posted = [];
+    const tray = new TrayManager();
+    tray.platform = "linux";
+    tray.createNotificationClient = () => clientReady.promise;
+    tray.ElectronNotification = class extends EventEmitter {
+      show() { posted.push("fallback"); }
+      close() {}
+    };
+    tray.setMeetingPresence({ sessionId: "old", startedAt: 1000 });
+    let shutdown;
+    if (transition === "shutdown") shutdown = tray.teardownMeetingNotification();
+    else {
+      tray.setMeetingPresence(null);
+      if (transition === "replaced") tray.setMeetingPresence({ sessionId: "new", startedAt: 2000 });
+    }
+    clientReady.resolve({
+      capabilities: async () => ["actions"],
+      notify: async (o) => (posted.push(o), 42),
+      close: async () => {}, onAction() {}, onClosed() {}, onDisconnect() {},
+    });
+    await tray._linuxNotification();
+    if (shutdown) await shutdown;
+    await settle();
+    if (transition === "replaced") {
+      assert.equal(posted.length, 1, "only the current meeting posts");
+      const n = await tray._linuxNotification();
+      assert.equal(n.current?.sessionId, "new");
+    } else assert.deepEqual(posted, [], "not even a transient stale notification is posted");
+    await tray.teardownMeetingNotification();
+  }
+});
+```
+
 The last two actions arrive before the queued `close()` runs, so the notification still forwards them. `requestStopMeetingRecording` and `revealMeetingRecorder` drop them, because presence no longer names `m2`.
 
 Create `test/helpers/meetingStopOutcome.test.js`. It drives the real `stopRecording` through the renderer harness. The failure tests use the shapes the real handlers return, not only throws:
@@ -14379,6 +14764,7 @@ In `src/stores/meetingRecordingStore.ts`:
      ```js
          this.meetingPresence = null;
          this.linuxNotificationPromise = null;
+         this.meetingNotificationGeneration = 0;
          this.baseIcon = null;
          // Seams for tests, which drive the real tray on any host.
          this.platform = process.platform;
@@ -14390,10 +14776,9 @@ In `src/stores/meetingRecordingStore.ts`:
    - Add:
 
    ```js
-     // One instance, created once, even when presence changes before the D-Bus
-     // client answers. show() and close() both chain on this promise, so they
-     // run in the order presence changed: a meeting that ends while the client
-     // is still connecting never leaves its notification behind.
+     // One instance, created once. Presence generations also guard the wait
+     // for client creation: no stale callback may call show(), even briefly,
+     // after its meeting ended or a newer meeting replaced it.
      _linuxNotification() {
        this.linuxNotificationPromise ??= (async () => {
          const client = await this.createNotificationClient().catch(() => null);
@@ -14411,28 +14796,41 @@ In `src/stores/meetingRecordingStore.ts`:
      setMeetingPresence(presence) {
        const previous = this.meetingPresence;
        this.meetingPresence = presence;
+       const changed = (presence?.sessionId ?? null) !== (previous?.sessionId ?? null);
+       if (changed) this.meetingNotificationGeneration += 1;
+       const generation = this.meetingNotificationGeneration;
        if (this.platform === "linux") {
          if (this.tray && this.baseIcon) {
            this.tray.setImage(presence ? createRecordingTrayIcon(this.baseIcon) : this.baseIcon);
          }
          if (presence && presence.sessionId !== previous?.sessionId) {
-           void this._linuxNotification().then((n) =>
-             n.show({
+           void this._linuxNotification().then((n) => {
+             if (generation !== this.meetingNotificationGeneration || this.meetingPresence?.sessionId !== presence.sessionId) {
+               // Close the newly created instance if recording ended. A newer
+               // meeting owns its own callback; never close its notification.
+               if (!this.meetingPresence) return n.close();
+               return;
+             }
+             return n.show({
                sessionId: presence.sessionId,
                title: i18nMain.t("meetingRecorder.notificationTitle"),
                body: i18nMain.t("meetingRecorder.notificationBody"),
                stopLabel: i18nMain.t("meetingRecorder.stop"),
                fallbackBody: i18nMain.t("meetingRecorder.notificationFallbackBody"),
-             })
-           );
+             });
+           });
          } else if (!presence && previous) {
-           void this._linuxNotification().then((n) => n.close());
+           void this._linuxNotification().then((n) => {
+             if (generation === this.meetingNotificationGeneration && !this.meetingPresence) return n.close();
+           });
          }
        }
        this.updateTrayMenu();
      }
 
      teardownMeetingNotification() {
+       this.meetingNotificationGeneration += 1;
+       this.meetingPresence = null;
        return this.linuxNotificationPromise?.then((n) => n.close()) ?? Promise.resolve();
      }
    ```

@@ -305,10 +305,10 @@ git commit -m "feat(settings): Labs panel with an off-by-default Table flag"
 - Create: `src/types/table.ts`
 - Modify: `src/helpers/localDatabaseSchema.js` (append three tables before the closing backtick)
 - Modify: `src/helpers/database.js` (constants after `:26`; a new "The Table" method group after `getPrivateSpaceId`, `:1386-1395`)
-- Modify: `src/helpers/ipcHandlers.js` (register five `db-*` handlers after `db-get-spaces` at `:1780`)
-- Modify: `preload.js` (after `getSpaces`/`updateSpace` at `:264-265`)
-- Modify: `src/types/electron.ts` (import the table types at the top; add the methods after `getSpaces?:` at `:1006`)
-- Test: `test/helpers/tableLayoutDatabase.test.js`
+- Modify: `src/helpers/ipcHandlers.js`. Register five `db-*` handlers after `db-get-spaces` at `:1780`, and broadcast conversation deletion and archiving from `db-delete-agent-conversation` (`:1857-1863`) and `db-archive-agent-conversation` (`:1909-1911`).
+- Modify: `preload.js`. Add the Table calls after `getSpaces`/`updateSpace` (`:264-265`), and the conversation listeners after `onFolderDeleted` (`:323-327`).
+- Modify: `src/types/electron.ts`. Import the table types at the top, add the methods after `getSpaces?:` (`:1006`), and add the listeners after `onNoteDeleted?:` (`:1116`).
+- Test: `test/helpers/tableLayoutDatabase.test.js`, `test/helpers/conversationLifecycleBroadcast.test.js`
 
 **Interfaces:**
 - Produces `src/types/table.ts`:
@@ -347,9 +347,11 @@ git commit -m "feat(settings): Labs panel with an off-by-default Table flag"
   - `getTableBoard(spaceId): TableBoardData`. It prunes stale rows first.
   - `placeTableCards(spaceId, placements: TablePlacement[]): { success: true; placed: number; placedKeys: string[] } | { success: false; code: "TABLE_FULL" | "INVALID" }`. Only entities that exist in the Space are placed; `placedKeys` lists them.
   - `hideTableCards(spaceId, refs: TableEntityRef[]): { success: boolean; hidden: number }`. Every kind gets `hidden = 1`: nothing is deleted, the card returns to the inbox whatever its age, and its last position is kept.
+  - Archived conversations count as nonexistent everywhere: they are never placed or linked, and their rows and links are pruned.
   - `linkTableCards(spaceId, a, b): { success: boolean }`. Both ends must exist in the Space. Links are undirected and deduplicated, and are pruned when an end is deleted.
   - Every method refuses an unknown or non-private Space, non-positive or unsafe ids, and batches over 500.
   - `setTableViewport(spaceId, { x, y, scale }): { success: boolean }`. Scale is clamped to [0.25, 2].
+- Produces the broadcasts `agent-conversation-deleted` and `agent-conversation-archived`, with payload `{ id: number }`. They are sent only on success, following the `note-deleted` pattern (`ipcHandlers.js:10286`). The matching preload listeners are `onAgentConversationDeleted(cb)` and `onAgentConversationArchived(cb)`, and each returns an unsubscribe function.
 - Produces the IPC channels `db-get-table-board`, `db-place-table-cards`, `db-hide-table-cards`, `db-link-table-cards` and `db-set-table-viewport`, and the matching preload methods `getTableBoard`, `placeTableCards`, `hideTableCards`, `linkTableCards` and `setTableViewport`.
 
 - [ ] **Step 1: Write the failing test**
@@ -517,6 +519,33 @@ test("a removed old dictation stays in the inbox", (t) => {
   assert.ok(db.getTableBoard(spaceId).inbox.some((e) => e.ref.type === "dictation" && e.ref.id === id));
 });
 
+test("an archived chat leaves the board: its row, links and capacity are released", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const { spaceId, note, chatId } = seed(db);
+  db.placeTableCards(spaceId, [{ type: "chat", id: chatId, x: 0, y: 0 }, { type: "note", id: note.id, x: 320, y: 0 }]);
+  db.linkTableCards(spaceId, { type: "chat", id: chatId }, { type: "note", id: note.id });
+  db.archiveAgentConversation(chatId);
+  const board = db.getTableBoard(spaceId);
+  assert.ok(!board.cards.some((c) => c.ref.type === "chat") && !board.inbox.some((e) => e.ref.type === "chat"));
+  assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM note_layout WHERE entity_type = 'chat'").get().n, 0);
+  assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM note_layout_links").get().n, 0);
+  assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM note_layout WHERE hidden = 0").get().n, 1, "only the note counts toward the cap");
+  assert.equal(db.placeTableCards(spaceId, [{ type: "chat", id: chatId, x: 0, y: 0 }]).placed, 0, "an archived chat cannot be placed");
+  assert.equal(db.linkTableCards(spaceId, { type: "chat", id: chatId }, { type: "note", id: note.id }).success, false);
+});
+
+test("archiving frees capacity without a board read in between", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const spaceId = db.getPrivateSpaceId();
+  const chat = db.createAgentConversation("c", null, spaceId, null);
+  const ids = Array.from({ length: 500 }, (_, i) => db.saveTranscription(`d${i}`, `d${i}`).id);
+  db.placeTableCards(spaceId, [{ type: "chat", id: chat.id, x: 0, y: 0 }, ...ids.slice(0, 499).map((id) => ({ type: "dictation", id, x: 0, y: 0 }))]);
+  db.archiveAgentConversation(chat.id);
+  assert.equal(db.placeTableCards(spaceId, [{ type: "dictation", id: ids[499], x: 0, y: 0 }]).success, true);
+});
+
 test("a profile created before Plan 08 gains the table tables on open", (t) => {
   const db = createDb(t);
   if (!db) return;
@@ -532,9 +561,120 @@ test("a profile created before Plan 08 gains the table tables on open", (t) => {
 
 If `saveNote` with an explicit `spaceId` is not how notes join a Space after Plan 06, use the space-assignment call Plan 06 documents. The board query keys on `notes.space_id`.
 
+Create `test/helpers/conversationLifecycleBroadcast.test.js`. It follows the scaffolding in `test/helpers/agentDictationPillIpc.test.js` for the handlers and `test/helpers/preloadOnboardingBridge.test.js` for the preload. It drives the real handlers, captures what they broadcast, and replays that exact channel and payload into the real preload listener:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const Module = require("node:module");
+
+const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
+const originalLoad = Module._load;
+const handlers = new Map();
+const broadcasts = [];
+const electronStub = {
+  app: { getPath: () => "/tmp", getName: () => "test", getVersion: () => "0.0.0", isPackaged: false, on: () => {}, requestSingleInstanceLock: () => true },
+  ipcMain: { handle: (channel, fn) => handlers.set(channel, fn), on: () => {}, removeHandler: () => {} },
+  net: { fetch: async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => "{}" }) },
+  BrowserWindow: class { static getAllWindows() { return []; } static fromWebContents() { return null; } },
+  shell: {}, dialog: {}, screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
+  systemPreferences: { getMediaAccessStatus: () => "granted" }, session: { fromPartition: () => ({}) },
+  clipboard: {}, nativeImage: {}, globalShortcut: {}, utilityProcess: {}, MessageChannelMain: class {},
+};
+Module._load = function loadWithMocks(request, parent, isMain) {
+  if (request === "electron") return electronStub;
+  if (parent?.filename === handlersModulePath) {
+    if (request === "./cortiTranscription") return { transcribeAudio: async () => ({ text: "" }) };
+    if (request === "./tinfoilTranscription") return { transcribeWithTinfoil: async () => ({ text: "" }), getTinfoilChatModels: () => [] };
+    if (request === "./windowBroadcast") return { broadcastToWindows: (channel, data) => broadcasts.push([channel, data]) };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+function anything() {
+  return new Proxy(function () {}, {
+    get: (t, prop) => (prop === Symbol.toPrimitive || prop === "toString" ? () => "" : prop === "then" ? undefined : anything()),
+    apply: () => anything(),
+  });
+}
+const db = { deleteResult: { success: true }, archiveResult: { success: true } };
+const target = {
+  databaseManager: { deleteAgentConversation: () => db.deleteResult, archiveAgentConversation: () => db.archiveResult },
+  vectorIndex: null,
+};
+
+test.before(() => {
+  delete require.cache[handlersModulePath];
+  const IPCHandlers = require(handlersModulePath);
+  (IPCHandlers.default || IPCHandlers).prototype.setupHandlers.call(
+    new Proxy(target, { get: (t, prop) => (prop in t ? t[prop] : anything()) })
+  );
+});
+test.after(() => {
+  Module._load = originalLoad;
+});
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+function loadPreloadApi() {
+  let api;
+  const listeners = new Map();
+  const ipcRenderer = {
+    invoke: async () => true,
+    on: (channel, listener) => listeners.set(channel, listener),
+    removeListener: (channel, listener) => listeners.get(channel) === listener && listeners.delete(channel),
+    send: () => {},
+    sendSync: () => undefined,
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../../preload.js"), "utf8"), {
+    require: (s) => {
+      if (s === "electron") return { contextBridge: { exposeInMainWorld: (_n, a) => (api = a) }, ipcRenderer, webUtils: {} };
+      throw new Error(`Unexpected preload dependency: ${s}`);
+    },
+    process,
+  });
+  return { api, listeners };
+}
+
+for (const [action, handler, subscribe] of [
+  ["deleted", "db-delete-agent-conversation", "onAgentConversationDeleted"],
+  ["archived", "db-archive-agent-conversation", "onAgentConversationArchived"],
+]) {
+  test(`a ${action} conversation reaches the renderer through main's broadcast and the preload listener`, async () => {
+    broadcasts.length = 0;
+    await handlers.get(handler)({}, 7);
+    await flush();
+    assert.deepEqual(broadcasts, [[`agent-conversation-${action}`, { id: 7 }]]);
+    const { api, listeners } = loadPreloadApi();
+    const received = [];
+    const off = api[subscribe]((payload) => received.push(payload));
+    const [channel, payload] = broadcasts[0];
+    listeners.get(channel)({}, payload);
+    assert.deepEqual(received, [{ id: 7 }]);
+    off();
+    assert.equal(listeners.has(channel), false, "unsubscribe removes the listener");
+  });
+}
+
+test("nothing is broadcast when the delete or archive did not happen", async () => {
+  broadcasts.length = 0;
+  db.deleteResult = { success: false };
+  db.archiveResult = { success: false };
+  await handlers.get("db-delete-agent-conversation")({}, 8);
+  await handlers.get("db-archive-agent-conversation")({}, 8);
+  await flush();
+  assert.deepEqual(broadcasts, []);
+  db.deleteResult = { success: true };
+  db.archiveResult = { success: true };
+});
+```
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- test/helpers/tableLayoutDatabase.test.js`
+Run: `npm test -- test/helpers/tableLayoutDatabase.test.js test/helpers/conversationLifecycleBroadcast.test.js`
 Expected: FAIL with `db.getTableBoard is not a function`.
 
 - [ ] **Step 3: Implement**
@@ -645,7 +785,7 @@ Expected: FAIL with `db.getTableBoard is not a function`.
          const sql = {
            note: "SELECT 1 FROM notes WHERE id = ? AND space_id = ? AND deleted_at IS NULL",
            dictation: "SELECT 1 FROM transcriptions WHERE id = ? AND deleted_at IS NULL AND status = 'completed'",
-           chat: "SELECT 1 FROM agent_conversations WHERE id = ? AND space_id = ? AND deleted_at IS NULL",
+           chat: "SELECT 1 FROM agent_conversations WHERE id = ? AND space_id = ? AND deleted_at IS NULL AND archived_at IS NULL",
          }[type];
          if (!sql) return false;
          const params = type === "dictation" ? [id] : [id, spaceId];
@@ -654,7 +794,8 @@ Expected: FAIL with `db.getTableBoard is not a function`.
 
        // Deleting a note, conversation or transcription never touches these
        // tables (no FK is possible across three entity tables), so every read
-       // and write prunes first.
+       // and write prunes first. An archived chat counts as gone, matching the
+       // board read: it must not hold capacity or keep links.
        _pruneTableLayout(spaceId) {
          this.db
            .prepare(
@@ -664,7 +805,8 @@ Expected: FAIL with `db.getTableBoard is not a function`.
              OR (entity_type = 'dictation' AND NOT EXISTS (SELECT 1 FROM transcriptions t
                    WHERE t.id = note_layout.entity_id AND t.deleted_at IS NULL AND t.status = 'completed'))
              OR (entity_type = 'chat' AND NOT EXISTS (SELECT 1 FROM agent_conversations c
-                   WHERE c.id = note_layout.entity_id AND c.space_id = note_layout.space_id AND c.deleted_at IS NULL)))`
+                   WHERE c.id = note_layout.entity_id AND c.space_id = note_layout.space_id
+                     AND c.deleted_at IS NULL AND c.archived_at IS NULL)))`
            )
            .run(spaceId);
          const drop = this.db.prepare("DELETE FROM note_layout_links WHERE rowid = ?");
@@ -897,7 +1039,24 @@ Expected: FAIL with `db.getTableBoard is not a function`.
        }
      ```
 
-4. `src/helpers/ipcHandlers.js`. After the `db-get-spaces` handler (`:1780`):
+4. `src/helpers/ipcHandlers.js`. First, make deletion and archiving visible to every window, as `note-deleted` is (`:10286`).
+   - In `db-delete-agent-conversation` (`:1857-1863`), add before `return result;`:
+
+     ```js
+           if (result?.success) setImmediate(() => broadcastToWindows("agent-conversation-deleted", { id }));
+     ```
+
+   - Change `db-archive-agent-conversation` (`:1909-1911`) to:
+
+     ```js
+         ipcMain.handle("db-archive-agent-conversation", async (event, id) => {
+           const result = this.databaseManager.archiveAgentConversation(id);
+           if (result?.success) setImmediate(() => broadcastToWindows("agent-conversation-archived", { id }));
+           return result;
+         });
+     ```
+
+   Then, after the `db-get-spaces` handler (`:1780`), add:
 
    ```js
        ipcMain.handle("db-get-table-board", async (_event, spaceId) => {
@@ -917,7 +1076,22 @@ Expected: FAIL with `db.getTableBoard is not a function`.
        });
    ```
 
-5. `preload.js`. After `updateSpace` (`:265`):
+5. `preload.js`. After `onFolderDeleted` (`:323-327`), add the conversation listeners:
+
+   ```js
+     onAgentConversationDeleted: (callback) => {
+       const listener = (_event, data) => callback?.(data);
+       ipcRenderer.on("agent-conversation-deleted", listener);
+       return () => ipcRenderer.removeListener("agent-conversation-deleted", listener);
+     },
+     onAgentConversationArchived: (callback) => {
+       const listener = (_event, data) => callback?.(data);
+       ipcRenderer.on("agent-conversation-archived", listener);
+       return () => ipcRenderer.removeListener("agent-conversation-archived", listener);
+     },
+   ```
+
+   Then, after `updateSpace` (`:265`):
 
    ```js
      getTableBoard: (spaceId) => ipcRenderer.invoke("db-get-table-board", spaceId),
@@ -943,15 +1117,22 @@ Expected: FAIL with `db.getTableBoard is not a function`.
          setTableViewport?: (spaceId: number, viewport: TableViewport) => Promise<{ success: boolean }>;
    ```
 
+   After `onNoteDeleted?:` (`:1116`), add:
+
+   ```ts
+         onAgentConversationDeleted?: (callback: (payload: { id: number }) => void) => () => void;
+         onAgentConversationArchived?: (callback: (payload: { id: number }) => void) => () => void;
+   ```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/tableLayoutDatabase.test.js test/helpers/personalIpcContract.test.js test/helpers/personalDatabase.test.js && npm run typecheck`
+Run: `npm test -- test/helpers/tableLayoutDatabase.test.js test/helpers/conversationLifecycleBroadcast.test.js test/helpers/personalIpcContract.test.js test/helpers/personalDatabase.test.js test/helpers/agentDictationPillIpc.test.js && npm run typecheck`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/types/table.ts src/helpers/localDatabaseSchema.js src/helpers/database.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts test/helpers/tableLayoutDatabase.test.js
+git add src/types/table.ts src/helpers/localDatabaseSchema.js src/helpers/database.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts test/helpers/tableLayoutDatabase.test.js test/helpers/conversationLifecycleBroadcast.test.js
 git commit -m "feat(db): The Table layout, links and viewport in local SQLite"
 ```
 
@@ -1380,6 +1561,20 @@ test("measured heights replace estimates", async () => {
   assert.equal(c.rect.h, 230);
 });
 
+test("a resized height below the content height wins, and connectors follow it", async () => {
+  const { buildCards } = await load();
+  const { connectorPath } = await import("../../src/components/table/tableGeometry.ts");
+  const [small, below] = buildCards(
+    [
+      entity("note", 1, { layout: { x: 0, y: 0, w: 280, h: 80, z: 0, hidden: false } }),
+      entity("note", 2, { layout: { x: 0, y: 300, w: 280, h: null, z: 0, hidden: false } }),
+    ],
+    { "note:1": 230, "note:2": 152 }
+  );
+  assert.equal(small.rect.h, 80, "the stored h beats the measured 230");
+  assert.equal(connectorPath(small.rect, below.rect), "M140 80 C140 190 140 190 140 300");
+});
+
 test("edges merge stored links, chat-about-note and mention links, once each, on-board only", async () => {
   const { buildCards, deriveEdges } = await load();
   const { parseEntityHref } = await loadEdges();
@@ -1559,9 +1754,11 @@ export function parseRefKey(key: string): TableEntityRef | null {
 
 export interface TableCardModel { key: string; entity: TableEntity; rect: Rect; placed: boolean; z: number }
 
+// An explicit (resized, persisted) height wins over the measured content
+// height: a card shrunk below its content stays that size and clips.
 const sizeOf = (e: TableEntity, measured: Record<string, number>) => ({
   w: e.layout?.w ?? CARD_WIDTH[e.kind],
-  h: measured[refKey(e.ref)] ?? e.layout?.h ?? CARD_HEIGHT_ESTIMATE[e.kind],
+  h: e.layout?.h ?? measured[refKey(e.ref)] ?? CARD_HEIGHT_ESTIMATE[e.kind],
 });
 
 export function buildCards(entities: TableEntity[], measured: Record<string, number> = {}): TableCardModel[] {
@@ -3095,6 +3292,16 @@ test("TableView composes toolbar, canvas, inbox and a live status region", async
   assert.match(html, /role="status"[^>]*aria-live="polite"[^>]*>[^<]*table\.status\.truncated/);
 });
 
+test("the board reloads on every lifecycle event, chats included", () => {
+  const src = fs.readFileSync(path.join(repoRoot, "src/components/table/useTableBoard.ts"), "utf8");
+  for (const listener of [
+    "onNoteAdded", "onNoteUpdated", "onNoteDeleted", "onTranscriptionUpdated", "onTranscriptionDeleted",
+    "onTranscriptionsCleared", "onAgentConversationDeleted", "onAgentConversationArchived",
+  ]) {
+    assert.match(src, new RegExp(`api\\?\\.${listener}\\?\\.\\(soon\\)`), listener);
+  }
+});
+
 test("every locale carries the table strings with their placeholders", () => {
   const dir = path.join(repoRoot, "src/locales");
   for (const lang of fs.readdirSync(dir).filter((d) => fs.existsSync(path.join(dir, d, "translation.json")))) {
@@ -3162,9 +3369,9 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        []
      );
 
-     // Notes and dictations change elsewhere (editor, history, retention). A
-     // short-debounced reload keeps ghost cards from lingering; conversation
-     // deletions are caught by the next placement, which main refuses.
+     // Notes, dictations and chats change elsewhere (editor, history,
+     // retention, ChatView, other windows). A short-debounced reload keeps
+     // ghost cards and connectors from lingering.
      useEffect(() => {
        const api = window.electronAPI;
        let timer: ReturnType<typeof setTimeout> | undefined;
@@ -3179,6 +3386,9 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
          api?.onTranscriptionUpdated?.(soon),
          api?.onTranscriptionDeleted?.(soon),
          api?.onTranscriptionsCleared?.(soon),
+         // A chat deleted or archived in ChatView or another window (Task 2 broadcasts).
+         api?.onAgentConversationDeleted?.(soon),
+         api?.onAgentConversationArchived?.(soon),
        ];
        return () => {
          clearTimeout(timer);
@@ -4205,7 +4415,7 @@ This covers the M5 acceptance bullet "resize handle bottom-right". The width and
 **Files:**
 - Modify: `src/components/table/tableGestures.ts`. Add a `resize` gesture, `clampSize`, and Alt+arrow resizing.
 - Modify: `src/components/table/tableModel.ts`. Add `sizes` overrides, `fixedH` on cards, and sizes in `placementsFor`.
-- Modify: `src/components/table/TableCard.tsx` (the handle and `minHeight`)
+- Modify: `src/components/table/TableCard.tsx` (the handle, and a fixed, clipped height)
 - Modify: `src/components/table/TableCanvas.tsx` (route resize presses and effects; add the `onResizeCard` prop)
 - Modify: `src/components/table/TableView.tsx` (`onResizeCard`)
 - Modify: `src/index.css` (the handle)
@@ -4271,11 +4481,14 @@ test("reducer: a resize shows at once and persists its size with the placement",
 Append to `test/components/tableCanvas.test.js`:
 
 ```js
-test("cards carry a resize handle and keep a resized height as their minimum", async () => {
+test("cards carry a resize handle, and a resized card is exactly that tall and clips", async () => {
   const { TableCanvas } = await load();
-  const html = renderStatic(TableCanvas, props({ cards: [{ ...card("note:1", "note", 32, 32), fixedH: 220 }] }));
+  const html = renderStatic(TableCanvas, props({ cards: [{ ...card("note:1", "note", 32, 32), fixedH: 80 }] }));
   assert.match(html, /data-resize-handle=""[^>]*aria-hidden="true"/);
-  assert.match(html, /data-card-key="note:1"[^>]*style="[^"]*min-height:220px/);
+  assert.match(html, /data-card-key="note:1"[^>]*data-sized="true"[^>]*style="[^"]*[;"]height:80px;overflow:hidden/);
+  assert.doesNotMatch(html, /min-height/);
+  const plain = renderStatic(TableCanvas, props({ cards: [card("note:2", "note", 32, 32)] }));
+  assert.doesNotMatch(plain, /data-sized|overflow:hidden/, "unsized cards keep their natural height");
 });
 ```
 
@@ -4383,7 +4596,9 @@ Expected: FAIL. `g.kind` is `"drag"`, and `s.sizes` and `data-resize-handle` are
    - In `placementsFor`, write `w: state.sizes[card.key]?.w ?? card.entity.layout?.w ?? null` and `h: state.sizes[card.key]?.h ?? card.entity.layout?.h ?? null`.
 
 3. `TableCard.tsx`:
-   - Add `minHeight: card.fixedH ?? undefined` to the style.
+   - When `card.fixedH` is set, give the card that exact height and clip it: spread `...(card.fixedH != null ? { height: card.fixedH, overflow: "hidden" } : {})` at the end of the style object, and add `data-sized={card.fixedH != null ? "true" : undefined}` directly after the `data-snapping` attribute.
+     - `ResizeObserver` then reports the fixed height, so measurement, `sizeOf` and the connectors agree.
+     - Overflow is clipped rather than scrolled, because the wheel pans the canvas. The full text is a double-click (Enter) away.
    - Add a last child: `<span className="table-card__resize" data-resize-handle="" aria-hidden="true" />`. Keyboard users resize with Alt+arrows.
 
 4. `TableCanvas.tsx`:
@@ -4435,6 +4650,11 @@ Expected: FAIL. `g.kind` is `"drag"`, and `s.sizes` and `data-resize-handle` are
      border-bottom-right-radius: 4px;
      cursor: nwse-resize;
      opacity: 0;
+   }
+   /* A card resized below its content clips with a short fade at the bottom. */
+   .table-card[data-sized="true"] {
+     -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+     mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
    }
    .table-card:hover .table-card__resize,
    .table-card:focus-visible .table-card__resize,

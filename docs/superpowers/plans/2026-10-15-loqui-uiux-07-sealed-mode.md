@@ -16,11 +16,14 @@
   - While sealed, Layer B denies every non-loopback connection. While unsealed, it reports connections that no ticket explains, which surface as "unexplained" in the ledger.
 - **The spawn guard and child registry** (`src/helpers/privacy/childRegistry.js`).
   - Every `child_process` spawn and `utilityProcess.fork` is classified. While sealed, only allowlisted programs start (Loqui's own binaries and known sidecars with launch rules, named system tools with argument rules); network programs (Codex, yt-dlp, `curl`, …), spawns from third-party code and anything unclassified are refused.
-  - Running on-device model servers are not inspected; the attestation names them (CCR-6). The ONNX worker locks its own network at startup.
+  - **OS-level isolation (D14).** While sealed, every native child Loqui starts runs inside OS network isolation that allows loopback only: a Seatbelt profile on macOS, and user, network and mount namespaces on Linux, with a bridge so that main still reaches loopback servers. The ONNX worker is included.
+    - The launcher, `loqui-isolate`, probes the sandbox from inside, then `exec`s the program in the same process. If the probe fails, the program never starts.
+    - Main checks each probe report itself. A child counts toward `nothingLeaves` only when it is `isolated` or `networkFree`; a child that is only `launchControlled` never counts.
+    - Children that were running before the seal are restarted inside isolation once idle.
   - FFmpeg always runs with local inputs only.
   - A child counts as stopped only when the OS reports its exit. Codex and yt-dlp runs are recorded as *opaque sessions*, because main cannot see their individual requests (owner decision, 2026-10-15).
 
-Sealing passes through a main-owned barrier. The phase is `"sealing"` until every remote ticket, socket, in-flight Chromium request, pending DNS lookup and network-capable child has stopped. Only then is it `"sealed"`, with a verified `effectiveSince`. A failure to stop anything stays unresolved and keeps the seal unverified. Evidence is never cleared to make a check pass. Main *attests* this with a versioned `Attestation`, and the UI shows its verified line only when `attestation.nothingLeaves === true` and the attestation is fresh.
+Sealing passes through a main-owned barrier. The phase is `"sealing"` until every remote ticket, socket, in-flight Chromium request, pending DNS lookup and network-capable child has stopped. It also waits until every running native child is inside OS isolation. Only then is it `"sealed"`, with a verified `effectiveSince`. A failure to stop anything stays unresolved and keeps the seal unverified. Evidence is never cleared to make a check pass. Main *attests* this with a versioned `Attestation`, and the UI shows its verified line only when `attestation.nothingLeaves === true` and the attestation is fresh.
 
 The renderers sit inside the boundary:
 - The control panel is sandboxed, with web security on (owner decision, 2026-10-15).
@@ -47,6 +50,17 @@ Turning Sealed mode off and clearing the ledger are also confirmed in native dia
 - **Plan 03** (v2, PR #50), before Task 11a. Provides `src/lib/routes.ts` (`buildRouteSnapshot(settings, facts, copy, sealed)`, `currentRouteCopy`, `routeSnapshotFromSettings`, `resolveRoute`, `isSealedLocality`), `src/stores/sealedStore.ts` (which Task 13 migrates), `src/stores/routeFactsStore.ts`, `src/helpers/selfHostedProbe.js`, `test/lib/routeStateFixture.js`, and the optional `privacy?` declaration that Task 7 replaces.
 - **Execution order** (spec §3, 091d198): 01 → 02 → 03 → {04, 05, 06, 07}. This plan is rebased onto 03 before it starts.
 - **Plan 04** is **not** required. CCR-3 and CCR-4 are its side of the contract. Until it merges, Plan 07 uses the existing toast API (spec §5.3).
+- **Task 0 runs first, before Task 1.** It is a spike with an owner gate (D14). Nothing after it starts until its gate passes or the owner decides.
+
+**Merge gate (D14).** Plan 07 does not merge until OS-level isolation of native children ships on every release platform (macOS arm64 and Linux x64), or until the owner has decided otherwise at the Task 0 gate. Task 18's sign-off includes it.
+
+**Size, and a proposed split.** D14 takes the plan from 22 to 28 tasks. The proposal:
+- This document stays the single plan of record (PR #49).
+- Implementation goes into two stacked PRs that merge together:
+  - **07a:** Tasks 1–6a and 7–18, without the isolation edits;
+  - **07b:** Tasks 0 and 6b–6f, plus the isolation edits in Tasks 7, 14, 15, 16 and 18, stacked on 07a.
+- Task 0 still runs first.
+- 07a may be reviewed on its own, but it merges only with 07b, which keeps the merge gate intact.
 
 ---
 
@@ -75,11 +89,11 @@ This revision answers the independent security review of snapshot `18c0b4c…` (
 
 ## Round-2 review response
 
-This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-codex-r2.md`, pinned at `e473639`): 3 Critical and 6 Important findings, with 8 round-1 findings confirmed closed. It also takes the Keyring handoff from Plan 03's second review (R2-7, `.omc/research/ui-review/reviews/plan-03-codex-r2.md`). Every finding below is fixed in task steps *and* test code. One point is partly disputed, with evidence. One promise is narrowed and disclosed (CCR-6). Code anchors were rechecked against this worktree, and the spec is now `4980c81`.
+This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-codex-r2.md`, pinned at `e473639`): 3 Critical and 6 Important findings, with 8 round-1 findings confirmed closed. It also takes the Keyring handoff from Plan 03's second review (R2-7, `.omc/research/ui-review/reviews/plan-03-codex-r2.md`). Every finding below is fixed in task steps *and* test code. One point is partly disputed, with evidence. One promise was narrowed and disclosed (CCR-6). The owner has since rejected that narrowing, and D14 restores the promise (see "D14 response" below). Code anchors were rechecked against this worktree, and the spec is now `4980c81`.
 
 | Finding | Status | What changed, and the test that proves it |
 |---|---|---|
-| **C2-R2** DNS gaps; native and renderer boundary | Fixed; one promise narrowed (CCR-6) | **DNS (Task 6):** every entry point in `node:dns`, `node:dns/promises` and both `Resolver` prototypes goes through one wrapper. That includes `lookupService` and `dns.promises.lookupService`, which was never wrapped. Sealed: refused before the native resolver, with localhost names and loopback literals answered locally. Open: counted from call to settle exactly once, including a synchronous throw. Tests: `every resolver query issued before the seal is counted until it ends (callback, promise, Resolver)` (a silent loopback DNS server, no packet leaves), `sealed: lookupService (callback and promise) never reaches the native resolver for a remote address`, and `every DNS entry point … is wrapped`, checked against the live module. **Children (Task 6a):** the `local` default is gone. While sealed, only allowlisted programs start: known sidecars by name with launch rules (llama-server download flags, non-loopback `--host`, Qdrant without `--disable-telemetry`); named OS tools with argument rules (`open -a` only, `sh -c "command -v x"` only, no `powershell`); and Loqui itself. Anything unclassified is refused (`sealed: only allowlisted programs start, and only with allowed arguments`). **ONNX worker:** a runtime lock, not a ratchet. It installs the Node backstop with the seal forced on, proved in a separate Node runtime (`the lock refuses the network inside a separate Node runtime, and keeps loopback`). **Renderer frames (Task 7a):** the preload runs in every frame and removes WebRTC in each, and only the main frame gets `electronAPI`; a CSP adds `frame-src 'none'` and `object-src 'none'`. Unit-tested for main frame and subframe; Task 16 checks `about:blank` and `srcdoc` in Electron. **Narrowed:** running local model servers are launch-checked but cannot be inspected, so they are reported as `uninspectedChildren`, named in the panel and in PRIVACY.md, and excluded from "verified" (CCR-6, Task 1 Promise). |
+| **C2-R2** DNS gaps; native and renderer boundary | Fixed; the CCR-6 narrowing is withdrawn by D14 | **DNS (Task 6):** every entry point in `node:dns`, `node:dns/promises` and both `Resolver` prototypes goes through one wrapper. That includes `lookupService` and `dns.promises.lookupService`, which was never wrapped. Sealed: refused before the native resolver, with localhost names and loopback literals answered locally. Open: counted from call to settle exactly once, including a synchronous throw. Tests: `every resolver query issued before the seal is counted until it ends (callback, promise, Resolver)` (a silent loopback DNS server, no packet leaves), `sealed: lookupService (callback and promise) never reaches the native resolver for a remote address`, and `every DNS entry point … is wrapped`, checked against the live module. **Children (Task 6a):** the `local` default is gone. While sealed, only allowlisted programs start: known sidecars by name with launch rules (llama-server download flags, non-loopback `--host`, Qdrant without `--disable-telemetry`); named OS tools with argument rules (`open -a` only, `sh -c "command -v x"` only, no `powershell`); and Loqui itself. Anything unclassified is refused (`sealed: only allowlisted programs start, and only with allowed arguments`). **ONNX worker:** a runtime lock, not a ratchet. It installs the Node backstop with the seal forced on, proved in a separate Node runtime (`the lock refuses the network inside a separate Node runtime, and keeps loopback`). **Renderer frames (Task 7a):** the preload runs in every frame and removes WebRTC in each, and only the main frame gets `electronAPI`; a CSP adds `frame-src 'none'` and `object-src 'none'`. Unit-tested for main frame and subframe; Task 16 checks `about:blank` and `srcdoc` in Electron. **No longer narrowed (D14):** the owner rejected the round-2 narrowing (CCR-6). Every native child now runs inside OS network isolation while sealed, and counts only when main has checked its own probe report (Tasks 0 and 6b–6f). |
 | **I6-R2** (Critical) streaming loses audio; replay drops the only copy | Fixed | **Streaming (Task 13):** a seal that arrives during a stream is recorded, from the sealed store or a sealed provider error. With no text, the real finalizer goes through `_preserveSealedStream`: a hold with history off, a failed History entry with history on, and a sealed notice, never an empty success. Test: `streaming sealed mid-dictation with no text (…)` drives the real `_finalizeStreamingRecording`, in both retention modes. **Replay:** claim and release instead of take. `transcribeRecovered` runs only when idle with no other replay (`busy` otherwise), keeps the hold on failure, cancellation or an empty result, never duplicates it on a sealed re-failure, and keeps the metadata (session and `private`). Tests drive the real `processAudio`, faking only the transcription transport: `replay: a transcript removes the hold`, `replay: a non-sealed failure keeps the only copy…`, `replay: refused while busy, and only one replay at a time`. |
 | **N1** (Critical) free text in recorder rows | Fixed | **Recorder (Task 4):** `model` is stored only if it is an identifier (no `//`, no `user:secret@`, no key-shaped token, no query or whitespace); otherwise `null`. `errorClass` is one of `ERROR_CLASSES`, and the gate maps codes onto those categories. Test: `model ids and error classes are identifiers or nothing…` writes hostile values through SQLite and the CSV and asserts they are absent. The value sent to the provider is unchanged. |
 | **I1-R2** suite not executable; drills not isolating | Fixed | **Task 12:** the Whisper manager is constructed lazily, after the Electron stub exists. No model factory is injected: the real AI SDK runs, and only global `fetch` is counted. The ratchet allows the preload's marked WebRTC-removal block and the acceptance script, and nothing else. The Codex rows assert `codexCalls === 0`, so deleting the handler gate fails its row even though a later guard still refuses. Each drill states what it proves. **Task 16:** the leak probes run right after the seal barrier, before any attestation wait, so the leak-injection drill reaches the independent observer. **Updater test:** see the dispute row below. |
@@ -90,6 +104,36 @@ This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-cod
 | **N3** retired toasts when Plan 04 merges first | Fixed | Task 13, Step 6 has both branches. With Plan 04 merged: `notify(buildSealedRecoveryNotice(…))`, and `showDictationError({ …, recoveryHeld }, [Transcribe])`, which is Plan 04's persistent alert. Without it: the toast fallback uses `duration: 0`, which `Toast.tsx:97` never auto-dismisses, so it is persistent and not "the longest duration". Plan 04 removes the fallback when it merges second (P04 Task 5, Step 3, item 7). Test: `sealedRecoveryNotice.test.js` checks whichever API the branch has, and the integrated branch runs Plan 04's `noToastLeft` and `voiceNotices` suites. |
 | **P03 review R2-7** (handed to Plan 07) main's Keyring never learns the seal | Fixed | Task 11a, Step 5a: `main.js` passes `isSealed: () => egressGate.isSealed()` into the `IPCHandlers` → `createKeyring` seam that Plan 03 adds. The predicate fails closed, and the default is never left `false` in production. Plan 03's Keyring `verify` now returns `outcome: "sealed"` for a sealed refusal: one already in effect, one thrown mid-check (`isSealedModeError`), or a failed check that ended while sealed. It writes no health row, so the key is never marked `unreachable`, and Verify all stops at the first sealed result. Test (Task 12, through the real constructor and the registered `keyring-verify` handler): `keyring-verify through the constructed IPCHandlers: sealed is 'sealed', never a health verdict`. It covers sealed before the check, sealed during it (no health write), and an unsealed control that does record a verdict. |
 | **I1-R2 (updater test), partly disputed** | Test changed; one claim disputed | The review says D13 requires every manual check to stop at "available". **Evidence:** D13 (spec `4980c81`, §2) covers "manual update checks … when automatic updates are off". Plan 02's implementation downloads on a manual check when automatic updates are on (P02 Task 17: `if (!this.prefs.enabled) publish available else downloadUpdate`). The test's harness has `enabled: true`, so it matches D13. To remove any doubt, the test now starts the download through the automatic check (`check(false)`), which downloads before and after Plan 02. |
+
+## D14 response: OS-level isolation for native children
+
+The owner decided CCR-6 on 2026-10-15. Spec `bbab870` records it as D14, plus a line in §5.4. The full promise stays: the local model servers are not disclosed as uninspected, and they are not stopped while sealed. Instead, every native child Loqui starts while sealed runs inside OS network isolation that allows loopback only.
+
+What this revision changes:
+
+| Item | What changed |
+|---|---|
+| The CCR-6 narrowing | Withdrawn. Removed: `uninspectedChildren`, the panel's "not inspected" line, the narrowed `scope` and PRIVACY.md text, and the Task 1 "Disclosed, not claimed" row. |
+| Spike first (Task 0) | Measures each platform under the three constraints (no admin rights, no new entitlements, no signing change). It covers the mechanism, loopback servers, verification, delegated egress and cost. It carries the owner's stop-and-report gate verbatim. Measurements taken on this machine while writing the plan are included. |
+| Per-child states (Task 6b) | `isolated`, `networkFree`, `pending`, `launchControlled`, and a transient `failed`, never merged. Only `isolated` and `networkFree` count, and only once main has checked the stub's report itself. |
+| The launcher (Tasks 6c and 6d) | `loqui-isolate` is one C file. It probes from inside, writes its report on fd 3, closes fd 3, then `exec`s the program. macOS: `sandbox-exec` profiles. Linux: its own user, network and mount namespaces, with a Unix socket bridge. It was compiled and run on macOS 27.0.1 and in a Linux container while writing this plan, and the plan's own macOS and Linux tests pass against it there. One exception is expected: the macOS pasteboard test fails until Task 0 settles profiles per kind of child. |
+| The self-test (Tasks 6b and 7) | At boot, the stub runs under both profiles, plus a control run with no sandbox, which must *not* show the platform's signature. If the self-test fails, a sealed native spawn is refused (`ISOLATION_UNAVAILABLE`), and the panel says so. |
+| Children already running (Task 6e) | Restarted inside isolation once idle, measured by Layer B's count of local requests in flight. A busy child keeps the seal unverified, by name, and work in progress is never cut. One-job programs are waited for. |
+| The ONNX worker (Task 6f) | Moves from `utilityProcess` to Loqui in Node mode under the launcher. |
+| Attestation (Task 7) | `children: [{ kind, pid, isolation }]` and `isolation: { platform, mechanism, selfTest, checkedAt, reason }` replace `uninspectedChildren`. `nothingLeaves` requires every running native child to be `isolated` or `networkFree`. |
+| Panel and docs (Tasks 14 and 15) | The verified line covers the programs Loqui starts again. A child that is not isolated keeps the line off, and is named. PRIVACY.md describes the isolation. |
+| Tests per platform | The macOS and Linux native tests run in `platform.yml` (`macos-26` and `ubuntu-22.04`). A second run uses a real `sysctl` to restrict user namespaces, and an `ubuntu-24.04` job is added. Checks that need a packaged build or a second machine are documented acceptance steps (Task 16, Step 5a). |
+| Merge gate | Plan 07 does not merge until isolation ships on macOS arm64 and Linux x64 (header, Global Constraints, Task 18 sign-off). |
+
+**Platform risks already visible.** Each is a Task 0 question, decided at its gate; none falls back silently.
+1. **macOS: "localhost" in Seatbelt means every local address.** A sandboxed child can bind `0.0.0.0`. Whether another computer can then connect in has not been measured. If it can, Task 0 offers the options: a listener audit, port-pinned rules, a `(deny default)` profile.
+2. **macOS: one profile does not fit every child.** Denying all of LaunchServices closes the "open a URL in the browser" channel, but it makes `pbcopy` exit 0 and copy nothing. Denying only `launchservicesd` keeps the pasteboard working, but leaves LaunchServices reachable (measured). The fix is profiles per kind of child.
+3. **macOS: `sandbox-exec` is deprecated.** It still ships in macOS 27.0.1, and other tools use it, but Apple could remove it. The alternative is `sandbox_init_with_parameters`, called from the stub.
+4. **Linux: restricted user namespaces.** Ubuntu 23.10 and later restrict them through AppArmor, by default on 24.04. There the namespaces cannot be created without root, and the AppImage and tar.gz have no install step that could add an AppArmor profile. Loqui's own launcher already falls back to `--no-sandbox` for Chromium in that case. Isolation is then unavailable, and the gate decides what ships.
+5. **Linux: children that need the session bus** (playerctl, the portal audio helper) could ask a portal to open a URL. Their profile needs a filtered bus, or a decision.
+6. **Windows** is not a release target, and no candidate meets the constraints without admin. Sealed native spawns are refused there until the owner decides.
+
+---
 
 ## Contract change requests
 
@@ -159,20 +203,30 @@ This plan owns §5.4 and must not edit the spec. The spec owner consolidated eve
 **CCR-5 (owner Plan 01): one loopback rule.** *Status: applied in spec §5, Plan 01 contracts, Locality row (091d198).*
 - `isLoopbackUrl` in `src/lib/locality.ts` accepts exactly what main's `isLoopbackHost` accepts: `localhost` (including a trailing dot), `*.localhost`, `127.0.0.0/8`, `::1` in any spelling, and IPv4-mapped `127.x`. A hostname that only resolves to loopback is not loopback.
 - Loopback is not the same as valid. Plain-HTTP `*.localhost` is loopback but refused by the executors, so its route is `needsUrl` (§5.1 rule 10) and never sealed-blocked as remote.
-
-**CCR-6 (§5.4, owner Plan 07): narrow the scope for running local model servers.** *Status: requested; needs the spec owner. Raised by the round-2 security review (C2-R2).*
-- **The problem.** §5.4 says the seal covers "the child processes Loqui starts". Local routes need on-device sidecars to keep running: llama-server, whisper-server, Qdrant and the sherpa-onnx servers. Loqui can enforce *how they start*: an allowlist, no download flags, loopback binds, telemetry off, and refusal of anything unclassified. Once a native process runs, no JavaScript hook can see its network traffic. Claiming them as verified would be a promise Loqui cannot prove.
-- **Proposed §5.4 scope text.** "While sealed, nothing that Loqui's main process, its Chromium sessions and renderers, its worker processes, or the network-capable programs it starts sends reaches a host other than loopback. On-device model servers keep running so local routes work; Loqui enforces how they are launched, but cannot inspect their traffic, and says so."
-- **Proposed `Attestation` addition.** `uninspectedChildren: string[]`, the running on-device sidecars. `nothingLeaves` keeps its definition, and does not cover them. The UI names them beside any verified claim.
-- **What Plan 07 ships either way.** The launch enforcement, the field, the disclosure in the panel and in `docs/PRIVACY.md`, and the narrowed verified copy. If the owner wants the original scope instead, closing it needs OS-level containment for the sidecars (a per-process network sandbox on each platform). That would be a separate plan, and until it lands Sealed mode would have to stop local model servers, breaking local routes. D6 rules that out.
 - Both are tested against `test/fixtures/loopbackCases.json`. Plan 07 Task 11a makes the change and keeps Plan 01's existing cases passing.
+
+**CCR-6 (§5.4, owner Plan 07): narrow the scope for running local model servers.** *Status: decided as D14 (spec `bbab870`, 2026-10-15). The narrowing is withdrawn.*
+- The owner rejected both disclosing the gap and stopping the servers while sealed. Every native child Loqui starts while sealed runs inside OS network isolation that allows loopback only. `nothingLeaves` requires every running child to be isolated, or to be one that starts no network listener or client (§5.4, "Native children (D14)").
+- **What changed in this plan:**
+  - Task 0 is a spike with the owner's gate.
+  - Tasks 6b–6f build the launcher, the per-child states, the bridge, the restart at seal and the ONNX worker move.
+  - In the attestation, `children` and `isolation` replace `uninspectedChildren` (Task 7).
+  - The panel and PRIVACY.md describe the isolation, not a gap (Tasks 14 and 15).
+
 
 ---
 
 ## Global Constraints
 
 - **Ownership.** Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md). Sealed mode is enforced in main; a renderer check is UX only and never the guarantee (D6).
-- **The boundary.** The guarantee covers Loqui's main process, its Chromium sessions and renderers, its worker processes, and the network-capable programs it starts (Task 1). Running on-device model servers are launch-checked but not inspected, and are named as such (CCR-6). Anything outside the boundary is either disabled while sealed or disclosed in the UI. No copy claims more.
+- **The boundary.** The guarantee covers Loqui's main process, its Chromium sessions and renderers, its worker processes, and every program it starts (Task 1).
+  - While sealed, every native child runs inside OS network isolation that allows loopback only. It counts toward the verified claim only when its own probe has confirmed that (D14; Tasks 0 and 6b–6f).
+  - Anything outside the boundary is either disabled while sealed or disclosed in the UI. No copy claims more.
+- **No silent fallback (D14).**
+  - No code path marks a child `isolated` or `networkFree` without a probe report that main has checked.
+  - No code path runs a native child unconfined while sealed. If isolation is unavailable, a sealed spawn of a native child is refused (`ISOLATION_UNAVAILABLE`), and the panel says so.
+  - Any other behaviour on a platform needs the owner's decision at the Task 0 gate.
+- **Merge gate (D14).** Plan 07 does not merge until isolation ships on macOS arm64 and Linux x64, or until the owner has decided otherwise at the Task 0 gate (header, Task 18).
 - **No silent provider switches.** Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure, and a sealed block is a failure that keeps the user's message, recording or draft: in History when retention allows, otherwise in memory with a "Transcribe" action.
 - **What sealed blocks.** Main blocks every outbound provider, model-download, update, calendar and URL-import request while sealed, and local routes keep working. The UI never claims "0 bytes" or "verified" unless main attests it (D6).
 - **"Local" means loopback only.** That is `localhost`, `*.localhost`, `127.0.0.0/8`, `::1` and IPv4-mapped `127.x`, in main and in the renderer (CCR-5). A LAN address, a public IP, an unparseable target or a hostname that merely *resolves* to loopback is **not** local (CCR-1; D4 makes loopback self-hosted URLs `device`).
@@ -198,7 +252,7 @@ This plan owns §5.4 and must not edit the spec. The spec owner consolidated eve
 - **Motion and RTL.** Motion uses the shared `--motion-*` tokens. Reduced motion keeps opacity and colour feedback and drops transforms. Use logical properties (`ms-`, `me-`, `start`, `end`). Hostnames render `dir="ltr"`.
 - **Docs.** `DESIGN.md` is the source of truth for UI (D10). `docs/PRIVACY.md` and `docs/network-allowlist.md` must be updated by any change that adds a destination or a content category (the allowlist doc says so).
 - **Node.** Use `~/.nvm/versions/node/v24.21.0/bin` (`.nvmrc` 24.21.0).
-- **Before a PR:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run i18n:check` and `npm run test:sealed-electron`.
+- **Before a PR:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run i18n:check`, `npm run test:sealed-electron`, and `node scripts/build-loqui-isolate.js && LOQUI_ISOLATION_TESTS=required node --test "test/native/*.test.js"` on each release platform.
 
 ## Review Focus
 
@@ -263,6 +317,25 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
    - Task 6 (`every resolver query issued before the seal is counted until it ends…`, `sealed: lookupService (callback and promise) never reaches the native resolver…`, `every DNS entry point … is wrapped…`);
    - Task 6a (`sealed: only allowlisted programs start, and only with allowed arguments`, `the lock refuses the network inside a separate Node runtime, and keeps loopback`, `an asynchronous spawn failure settles the session…` in Task 10).
 9. **The ledger is metadata, one row per request.** A model id like `https://user:pass@host/v1?key=…` never reaches SQLite or the CSV. Two requests in one operation are two rows. A failed retry never withdraws an earlier delivery. An operation that never sent anything is not counted. Pinned in Task 4 (`model ids and error classes are identifiers or nothing…`) and Task 5 (`two requests in one operation are two rows…`, `an operation that fails before any transport is kept, but never counted…`).
+10. **A native child that is not really isolated (D14).** Try each of these:
+    - a child started before the seal, or one that is busy when the seal starts;
+    - a launcher that hangs before reporting, or exits early;
+    - a report that says `ok` but gives a wrong errno;
+    - a program that writes a fake report on fd 3. It can't: the stub closes fd 3 before `exec`;
+    - an offline Mac, where `ENETUNREACH` appears without any sandbox, so only `EPERM` counts there;
+    - a Linux report from the host's own namespace;
+    - a child that asks the resolver, `nsurlsessiond`, LaunchServices or D-Bus to send for it;
+    - a sandboxed listener on `0.0.0.0`.
+
+    Expected: only `isolated` and `networkFree` children count. Anything else keeps the seal unverified, with the child named, and a probe that fails never runs the program.
+
+    Pinned in:
+    - Task 6b (`main kills a child whose stub said ok with a wrong answer…`, `no report before the deadline…`, `verifyReport: on macOS only EPERM counts…`, `sealed with isolation unavailable: a native child is refused…`);
+    - Tasks 6c and 6d (`the program cannot write a report…`, `a probe that finds no sandbox never runs the program`, `the exec'd program and its own child stay inside…`, `restricted user namespaces: the stub reports why and runs nothing`);
+    - Task 6e (`a busy server is not restarted…`);
+    - Task 7 (`nothingLeaves needs every running native child isolated or network-free…`);
+    - Task 14 (`the panel never shows verified for a child main did not prove…`);
+    - Task 16, Step 5a, for the inbound and delegation checks that need a packaged build or a second machine.
 
 ---
 
@@ -274,7 +347,9 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
 - `src/helpers/privacy/flightRecorder.js`: the ledger store (pending, SQLite or memory-only), summary, prune and CSV.
 - `src/helpers/privacy/egressGate.js`: Layer A. Tickets, task context (`AsyncLocalStorage`), metering, notices, abort-on-seal and counters.
 - `src/helpers/privacy/egressBackstop.js`: Layer B. Node socket (with `localhost` pinning), DNS, UDP and proxy hooks; the Chromium session watcher with per-request tracking; the WebRTC policy; sever-all and observers.
-- `src/helpers/privacy/childRegistry.js`: the child registry (alive until exit) and the spawn guard (Task 6a).
+- `src/helpers/privacy/childRegistry.js`: the child registry (alive until exit) and the spawn guard (Task 6a), with per-child isolation states, the wrap and restart into isolation (Tasks 6b and 6e).
+- `src/helpers/privacy/nativeIsolation.js`: the launcher contract. It holds the isolation states, the report check, the wrap and the boot self-test (Task 6b).
+- `src/helpers/privacy/loopbackBridge.js`: Linux only. Main's end of the bridge to a sidecar in its own network namespace (Task 6d).
 - `src/helpers/privacy/privacyBoot.js`: boot order, the sealing barrier (transition), the attestor and main's confirmation dialogs (unseal, clear, open link).
 - `src/helpers/privacy/privacyIPC.js`: the `privacy:*` IPC channels and broadcasts.
 - `src/helpers/privacy/trustedSender.js`: the main-frame, app-URL and known-window check for privacy-changing IPC.
@@ -293,13 +368,16 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
 - `src/components/settings/SealedModePanel.tsx` and `src/components/settings/sealedModeCopy.ts`: the master switch, and the only place that decides what the panel may claim.
 - `src/components/settings/FlightRecorderPanel.tsx` and `src/components/settings/flightRecorderView.ts`: the ledger view and its pure view model.
 
-**Create (docs):** `docs/security/sealed-mode-threat-model.md` (Task 1) and `docs/security/sealed-mode-review-2026-10.md` (Task 18).
+**Create (native, D14):** `resources/loqui-isolate.c`, `resources/loqui-isolate-loopback.sb`, `resources/loqui-isolate-none.sb` and `scripts/build-loqui-isolate.js` (Task 6c).
+
+**Create (docs):** `docs/security/native-isolation-spike.md` (Task 0), `docs/security/sealed-mode-threat-model.md` (Task 1) and `docs/security/sealed-mode-review-2026-10.md` (Task 18).
 
 **Create (scripts and test helpers):**
 - `scripts/sealed-acceptance.cjs` and `scripts/lib/egressFixture.cjs` (Task 16).
 - `test/helpers/harness/ipcHandlersHarness.js` (Task 12), which registers the real `ipcHandlers.js` channels against fakes.
 - `test/fixtures/loopbackCases.json` (Task 11a).
 - `test/hooks/fakePrivacy.js` (Task 13).
+- `scripts/spike/isolation/` (Task 0); `test/fixtures/fakeIsolate.js` (Task 6b) and `test/fixtures/isolationProbe.js` (Task 6c); `test/native/isolation.darwin.test.js` and `test/native/isolation.linux.test.js` (Tasks 6c and 6d).
 
 **Modify:**
 - Main process:
@@ -312,7 +390,8 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
   - `src/helpers/updateManager.js`, `src/helpers/updateIPC.js`;
   - `src/helpers/googleCalendarOAuth.js`, `src/helpers/googleCalendarManager.js`, `src/helpers/microsoftCalendarOAuth.js`, `src/helpers/microsoftCalendarManager.js`;
   - `src/helpers/oauthLoopbackFlow.js` and `src/helpers/externalUrlOpener.js` (Task 11);
-  - `src/helpers/selfHostedProbe.js` (Plan 03; Task 11a).
+  - `src/helpers/selfHostedProbe.js` (Plan 03; Task 11a);
+  - `src/helpers/llamaServer.js`, `src/helpers/whisperServer.js`, `src/helpers/qdrantManager.js`, `src/helpers/parakeetWsServer.js`, `src/helpers/globeKeyManager.js` (Task 6e), `src/helpers/onnxWorkerClient.js` and `src/workers/onnxWorker.js` (Task 6f).
 - Renderer:
   - `src/index.html` (Task 7a), `src/types/electron.ts`, `src/types/updates.ts`;
   - `src/lib/locality.ts` (Plan 01; Task 11a), `src/lib/routes.ts` (a comment) and `src/stores/sealedStore.ts` (Plan 03; Task 13 replaces its internals);
@@ -321,7 +400,197 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
   - `src/utils/localInferenceError.ts`, `src/utils/recordingErrors.ts`;
   - `src/helpers/audioManager.js` (renderer code), `src/hooks/useAudioRecording.js` and `src/index.css`.
 - Locales and docs: `src/locales/*/translation.json`, `DESIGN.md`, `docs/PRIVACY.md` and `docs/network-allowlist.md`.
-- Scripts: `scripts/smoke-electron.cjs` (the Task 6 observer hook only) and `package.json` (`test:sealed-electron`).
+- Scripts and CI: `scripts/smoke-electron.cjs` (the Task 6 observer hook only), `package.json` (`test:sealed-electron`), `scripts/prepare-platform.cjs`, `electron-builder.json` and `.github/workflows/platform.yml` (Tasks 6c and 6d).
+
+---
+
+### Task 0: Spike: OS network isolation for every native child, per platform (D14), with a stop-and-report gate
+
+D14 (spec `bbab870`) keeps the full promise for the local model servers. The owner rejected disclosing the gap (the withdrawn CCR-6) and rejected stopping the servers while sealed. Every native child Loqui starts while sealed must run inside OS-level network isolation that allows loopback only.
+
+This spike comes before every other task. It establishes, by measurement on real machines, what each platform can do under three constraints:
+- no admin rights, at install or at run time;
+- no new entitlements;
+- no signing change.
+
+Its report decides how Tasks 6b–6f are built, or whether they can be.
+
+**The gate (owner, verbatim).** "If any platform can't meet the promise under those constraints, **stop and report to me** with the options. Do not fall back silently."
+
+What this means for the executor:
+- If a platform fails, stop after Step 8. Send the report to the owner, and start no later task until the owner answers.
+- No task may treat a `launchControlled` child as finished work. No task may quietly drop a platform. Running a child unconfined while sealed is a fallback, and only the owner can choose it.
+
+**Preliminary evidence.** This was gathered while writing this plan on 2026-10-15. The spike must re-measure it on the release targets, from a packaged build.
+
+| Check | macOS 27.0.1 arm64, `/usr/bin/sandbox-exec` with the profile below | Linux kernel 7.2 (OrbStack VM, Debian 12 container), `unshare --user --map-root-user --net` and `bwrap --unshare-net`, as an unprivileged user | No sandbox (control) |
+|---|---|---|---|
+| TCP connect to TEST-NET `192.0.2.1:80` | `EPERM` in 1 ms | `ENETUNREACH` in 1 ms | timed out after 1.5 s: a SYN left |
+| UDP `connect()` to `192.0.2.1:9` (sends no packet) | `EPERM` | `ENETUNREACH` | connected |
+| UDP `connect()` to `2001:db8::1` | `EPERM` | `EADDRNOTAVAIL` | `EHOSTUNREACH` |
+| UDP send to `192.0.2.1` | `EPERM` | `ENETUNREACH` | sent |
+| `dns.lookup("example.com")` (getaddrinfo) | `ENOTFOUND` | `EAI_AGAIN` | resolved |
+| `dns.resolve4("example.com")` (c-ares over UDP) | `ECONNREFUSED` | `ECONNREFUSED` | resolved |
+| listen and connect on `127.0.0.1` and `::1` | ok | ok, once `lo` is up | ok |
+| connect to the host's own LAN address | **allowed**: an open listener on the LAN address accepted 2 connections from inside | `ENETUNREACH` | allowed |
+| bind `0.0.0.0`, or the LAN address | **allowed** | allowed, but only inside the namespace | allowed |
+| a grandchild of the sandboxed process | inherits it (`EPERM`) | inherits it | n/a |
+| launcher overhead | under 10 ms for `/usr/bin/true`; about 30 ms more for a Node probe | not measured | n/a |
+| main reaching a server inside | direct, because loopback is shared | through a Unix socket bridge: a server on `127.0.0.1:18080` inside the namespace answered a client outside that connected to `/tmp/bridge.sock` | n/a |
+| Docker's default seccomp profile | n/a | `unshare: Operation not permitted`; bwrap: "No permissions to create new namespace" | n/a |
+
+The macOS profile measured:
+
+```scheme
+(version 1)
+(allow default)
+(deny network*)
+(allow network-outbound (remote ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-bind (local ip "localhost:*"))
+```
+
+`sandbox-exec` rejects a literal address (`host must be * or localhost in network address`), but it accepts a pinned port (`"localhost:18555"`).
+
+**What the evidence already raises.** Each item becomes a question the spike must answer:
+1. **macOS: "localhost" in the profile language means every local address, not loopback.** A sandboxed child can bind `0.0.0.0` and connect to the host's own LAN address. Whether a peer on another computer can connect in to such a listener was not measured, because OrbStack proxies its traffic and the listener saw only local peers. If a peer can connect in, a child could serve data to the network, and the promise fails on macOS.
+2. **Linux: user namespaces may be restricted.** Ubuntu 23.10 and later restrict unprivileged user namespaces through AppArmor. On 24.04, `kernel.apparmor_restrict_unprivileged_userns=1` is the default. The namespace is created without capabilities, so creating the network namespace, or bringing up `lo`, fails. Loqui's own launcher already detects this for Chromium and falls back to `--no-sandbox` (`scripts/lib/linux-launcher.js:18-24`). Loqui ships AppImage and tar.gz (`electron-builder.json`, `linux.target`). Neither has a root install step that could add an AppArmor profile.
+3. **Windows is not a release target.** `README.md:26` says so; `electron-builder.json` has no `win` block; `scripts/prepare-platform.cjs:5-6` throws for any target other than `linux-x64` and `darwin-arm64`. The known candidates do not fit the constraints:
+   - an AppContainer with no capabilities also cuts loopback to main, and a loopback exemption (`CheckNetIsolation`) is generally documented as needing admin;
+   - a Windows Firewall or WFP rule per program needs admin;
+   - a Job object has no network control.
+4. **Delegated egress.** A sandboxed process can ask a system service to reach the network for it. Socket rules alone don't stop this. Examples:
+   - DNS through mDNSResponder or systemd-resolved;
+   - `nsurlsessiond` background downloads;
+   - LaunchServices (`open https://…`) or the XDG OpenURI portal handing a URL to the browser;
+   - D-Bus calls to NetworkManager or resolved.
+5. **The ONNX utility process is a native child too.** It runs onnxruntime's native code. `utilityProcess.fork` has no sandbox option and cannot be wrapped by a launcher. Electron's RunAsNode fuse is not disabled (nothing in the repo flips fuses), and `scripts/package-smoke.cjs:31` already runs the packaged binary as Node with onnxruntime. So the worker can move to a `child_process` spawn under the launcher (Task 6f).
+
+**Files:**
+- Create: `docs/security/native-isolation-spike.md`, the report.
+- Create: `scripts/spike/isolation/`, holding the probe sources and per-platform runners. They stay in the repo and seed the native tests in Tasks 6c and 6d.
+- No app code.
+
+- [ ] **Step 1: Inventory every native child**
+
+Use the `spawn-sites` block and the "Processes Loqui starts" table in Task 1 (their content is fixed in this plan; Task 1 commits them). For each program, on each release platform, record:
+- whether it listens on loopback, and which ports (llama-server, whisper-server and the sherpa-onnx WebSocket server take `--port`; Qdrant takes `http_port` and `grpc_port` from the config that `qdrantManager._doStart` writes);
+- whether it connects to anything of main's on loopback;
+- which Unix sockets it needs (X11, Wayland, D-Bus session or system bus, PipeWire, `ydotoold`);
+- which macOS services it needs (TCC for the microphone and Accessibility, Metal, CoreAudio, the pasteboard, Apple Events);
+- whether it is long-lived (a server, a key listener) or runs one job (FFmpeg, `ps`, `tar`);
+- its proposed profile: `loopback` for a server, `none` for everything else.
+
+Include the ONNX utility process.
+
+- [ ] **Step 2: Write the probe**
+
+Write the probe in C (`scripts/spike/isolation/probe.c`), so it is the same code the stub in Tasks 6c and 6d runs. Also write a Node twin (`probe.js`) for quick runs. Each check reports `name=result`, where `result` is `ok`, `connected`, `denied`, `reachable` or an errno name:
+- `udp4`, `udp6`: `connect()` a UDP socket to `192.0.2.1:9` and `[2001:db8::1]:9`. This sends no packet, so a missing sandbox leaks nothing.
+- `tcp4`: a non-blocking TCP connect to `192.0.2.1:9`. Run it only after `udp4` has failed as expected.
+- `lan`: connect to each of the host's own non-loopback addresses. Main passes them in. This is recorded, not required, because the host is this computer.
+- `bindAny`: bind and listen on `0.0.0.0:0`. Recorded; the inbound test in Step 3 decides whether it matters.
+- `loop4`, `loop6`: listen on `127.0.0.1:0` and `[::1]:0`, then connect. These must be `ok` under the `loopback` profile, and closed under `none`.
+- `dnsSocket`:
+  - macOS: `connect()` to `/var/run/mDNSResponder`;
+  - Linux: `connect()` to `/run/systemd/resolve/io.systemd.Resolve` and `/run/dbus/system_bus_socket`.
+- macOS service lookups: `bootstrap_look_up` for `com.apple.dnssd.service`, `com.apple.nsurlsessiond` and `com.apple.coreservices.launchservicesd`, plus any others found with `log stream --predicate 'sender == "Sandbox"'` while children run.
+- Linux structure: `netns`, the inode from `/proc/self/ns/net`, which must differ from main's; and `ifaces`, the interface list from `if_nameindex()`, which must be `lo` only.
+
+- [ ] **Step 3: macOS**
+
+Test the packaged build that `npm run build:mac` produces, signed as shipped: `electron-builder.json` uses `mac.identity: "-"`, `hardenedRuntime: true` and `notarize: false`. If a notarized Developer ID build is available, test it too. If not, say so in the report.
+
+Run the probe and every child from Step 1 under two candidate profiles:
+- (a) `(allow default)` with `(deny network*)`, the three loopback allows, and a `mach-lookup` denylist;
+- (b) `(deny default)`, with the allows each child needs. Start from Chromium's utility-process profile.
+
+For each profile and child, record:
+- every probe result;
+- whether the child still does its job: a transcription through whisper-server, a reply through llama-server with Metal, a Qdrant search, a paste, a microphone capture whose TCC prompt names Loqui, and a media-key event;
+- the startup overhead, and the latency against an unsandboxed run (median of 5).
+
+Also record:
+- the deprecation status of `sandbox-exec` from `man sandbox-exec` on the current macOS;
+- whether `sandbox_init_with_parameters`, called from the stub, could replace `sandbox-exec`.
+
+**Inbound test, with a second computer.** Run a sandboxed listener on `0.0.0.0:P`, and connect from another machine on the LAN or the tailnet. Record whether the connection is accepted. If it is, test each mitigation and record exactly what happens:
+- a port-pinned `network-bind` and `network-inbound` rule (`localhost:P`): check whether `0.0.0.0:P` still binds, and whether a remote peer is refused;
+- a `remote` filter on `network-inbound`;
+- a runtime listener audit, where the stub, or main through `lsof -a -p <pid> -iTCP -sTCP:LISTEN -nP`, finds any non-loopback listener.
+
+- [ ] **Step 4: Linux**
+
+Run on Ubuntu 22.04 (the CI image), on a default Ubuntu 24.04, on current Fedora, and on Arch if available. Use both the AppImage and the tar.gz build. Test:
+- (a) A small static stub that calls `unshare(CLONE_NEWUSER | CLONE_NEWNET | CLONE_NEWNS)`, writes `setgroups`, `uid_map` and `gid_map` (identity mapping), and brings `lo` up with `ioctl(SIOCSIFFLAGS)`.
+- (b) bwrap, if the system has it. It is not bundled.
+- (c) Under the AppArmor restriction: record the failure mode. Then measure the closest alternative, seccomp plus Landlock. Seccomp denies:
+  - `socket(AF_INET*, SOCK_DGRAM | SOCK_RAW)`;
+  - `connect`;
+  - `sendto` and `sendmsg` with `MSG_FASTOPEN`;
+  - `io_uring_setup`.
+
+  Landlock ABI 4 or later limits `LANDLOCK_ACCESS_NET_BIND_TCP` to the assigned port. Record what this cannot do: it cannot restrict the bind *address*, so a `0.0.0.0` listener stays possible.
+- **Delegation.** A mount namespace that masks `/run/dbus`, `/run/systemd/resolve` and `$XDG_RUNTIME_DIR/bus` for children that don't need D-Bus. Then list the children that do need the session bus (playerctl, the portal audio helper, `gsettings`). Through that bus they could ask a portal to open a URL, so record what each could reach.
+- **Bridge cost.** Latency and throughput through the Unix socket bridge for whisper-server and the Parakeet WebSocket: p50 and p99 over 100 requests, against a direct connection.
+
+- [ ] **Step 5: Windows**
+
+Record the options, even though Windows is not a release target:
+- an AppContainer with no capabilities: confirm that loopback to main is blocked, and whether the exemption needs admin;
+- a WFP or Windows Firewall rule per program;
+- a Job object;
+- Win32 app isolation, which is a packaging change.
+
+Test on a Windows 11 VM if one is available. Otherwise, cite Microsoft's documentation and mark each result "not measured".
+
+- [ ] **Step 6: Design the verification**
+
+For each platform, state:
+- how the stub proves isolation from inside before `exec` (Tasks 6c and 6d);
+- the expected failure for each check. macOS accepts only `EPERM`. A timeout, or `ENETUNREACH`, is what an offline Mac gives without any sandbox. Linux needs the namespace check (a different `netns`, and only `lo`) as well as `ENETUNREACH`;
+- the control: the same probe, run without the sandbox, must *not* show the signature. Otherwise the probe proves nothing on that machine. One example is a third-party firewall that answers `EPERM`;
+- the boot self-test.
+
+Fill in `EXPECTED` and the delegation checks in Task 6b from these results.
+
+- [ ] **Step 7: Write the report**
+
+Write `docs/security/native-isolation-spike.md` with one table per platform. Each table covers:
+- the mechanism;
+- each constraint met (admin, entitlements, signing), with evidence;
+- how a loopback server still works;
+- how main verifies the isolation;
+- which delegated channels are closed, and how;
+- the cost, at startup and per request;
+- residual risks;
+- a verdict, **meets** or **does not meet** the promise.
+
+- [ ] **Step 8: The gate**
+
+**If every release platform (macOS arm64, Linux x64) meets the promise under the constraints:** commit the report, then continue to Task 1. Record Windows as "not a release target; sealed spawns of native children are refused there" (Task 6b's default). The owner confirms this at Task 18 sign-off.
+
+**Otherwise, stop.** Send the owner the report, plus the options below that apply, and start nothing else until they answer. The options known from the preliminary evidence:
+- **macOS, if a remote peer can connect in:**
+  - (a) a runtime listener audit, which kills a child holding a non-loopback listener and never counts it;
+  - (b) port-pinned rules plus the `--host 127.0.0.1` launch rule;
+  - (c) a `(deny default)` profile, if it closes the gap;
+  - (d) disclosure, which the owner has already rejected once.
+- **Linux, where user namespaces are restricted (Ubuntu 24.04 and later by default):**
+  - (a) ship a `.deb` or `.rpm` that installs an AppArmor profile for `loqui-isolate`. That needs root at install, and new packaging;
+  - (b) seccomp plus Landlock, plus the listener audit. Outbound traffic is blocked, but the bind address is not restricted;
+  - (c) a one-time privileged command that the user runs;
+  - (d) on those systems only, refuse native children while sealed, so local routes stop there. This is the code's default without a decision, but shipping it needs the owner's approval;
+  - (e) on those systems only, stop the servers when sealing. The owner rejected this as the general rule.
+- **Windows:**
+  - (a) keep it outside the release. While sealed, native children are refused there (the default);
+  - (b) an elevated install step that adds a WFP or firewall block per program;
+  - (c) an AppContainer, plus an admin loopback exemption.
+
+```bash
+git add docs/security/native-isolation-spike.md scripts/spike/isolation
+git commit -m "docs(security): native child isolation spike: per-platform measurements and verdict (D14)"
+```
 
 ---
 
@@ -473,7 +742,12 @@ Owner: Plan 07 (`docs/superpowers/plans/2026-10-15-loqui-uiux-07-sealed-mode.md`
 
 While Sealed mode is on, nothing that **Loqui's main process, its Chromium sessions and renderers, its worker processes, or the network-capable programs it starts** send reaches a host other than this computer's loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). Local routes keep working. The promise is enforced in Electron main; the renderer only reflects it.
 
-**Narrowed for local model servers (CCR-6).** Local routes need on-device sidecars to keep running: llama-server, whisper-server, Qdrant and the sherpa-onnx (Parakeet, diarization) servers. Loqui enforces *how they start*: only allowlisted binaries, no download options, loopback binds, telemetry off (Task 6a). It cannot observe their network traffic once they run; no JavaScript hook reaches inside a native process. So the attestation names every running sidecar as `uninspectedChildren`, and the panel and `docs/PRIVACY.md` say plainly that they are not inspected. "Verified" never covers them. Closing this fully needs OS-level containment (for example a per-process network sandbox), which is not in this plan.
+**Native children are isolated by the OS (D14).** Local routes need on-device sidecars to keep running: llama-server, whisper-server, Qdrant, and the sherpa-onnx servers (Parakeet and diarization). No JavaScript hook reaches inside a native process, so launch rules alone prove nothing about its traffic. While sealed, each one runs inside OS network isolation that allows loopback only, and so does every other native child Loqui starts, the ONNX worker included (Tasks 6b–6f):
+- macOS uses a Seatbelt profile; Linux uses user, network and mount namespaces.
+- The launcher stub probes the isolation from inside, and `exec`s the program only if every outbound check fails with the platform's signature. Main checks that report again.
+- The attestation lists each running child with its own state (`isolated`, `networkFree`, `pending`, `launchControlled` or `failed`). `nothingLeaves` requires every one to be `isolated` or `networkFree`.
+- Children started before the seal are restarted inside isolation once idle (Task 6e).
+- Where a platform cannot provide isolation under Task 0's constraints, the plan stops for the owner. Nothing falls back silently.
 
 The panel says "verified" only when main attests all of this at that moment (Task 7). Main dates that claim from when it confirmed that everything had stopped, not from when the switch was flipped. If something cannot be confirmed (a child that will not exit, a Chromium request that will not end, a pending DNS lookup, an environment proxy), the panel says so and names it, and the verified line does not appear.
 
@@ -484,8 +758,8 @@ The panel says "verified" only when main attests all of this at that moment (Tas
 | Main-process JavaScript: Node `http(s)`, undici `fetch`, `ws`, `net`, `tls`, `dns`, `dgram`, and SDKs built on them | Layer A (the gate) at each known site; Layer B (socket, DNS and UDP hooks) underneath, for code nobody gated |
 | Chromium networking: Electron `net`, electron-updater's session, renderer loads, redirects | Layer B on every session's `webRequest`, with per-request in-flight tracking |
 | Renderers | Only Loqui's own pages, sandboxed with web security on (Task 7a). Remote images render as placeholders while sealed (Task 13). WebRTC constructors are removed in every frame, `about:blank` and `srcdoc` included: the preload runs in each frame (`nodeIntegrationInSubFrames`, still sandboxed), and only the main frame gets `electronAPI`. A CSP forbids remote frames and plugins. The IP-handling policy is kept as defence in depth. DNS prefetch is off. Preconnect hints are probed in Electron (Task 16). |
-| Child processes Loqui starts | The spawn guard (Task 6a) allows, while sealed, only allowlisted programs: Loqui's own binaries and known sidecars (with launch rules), named system tools (with argument rules), and Loqui itself. Network programs, third-party spawns and anything unclassified are refused. Running network programs are stopped, and count as stopped only when the OS reports their exit. FFmpeg runs only with `-protocol_whitelist file,pipe`. |
-| Utility processes and workers | The ONNX worker installs the Node backstop with the seal forced on, as its first statement. It cannot reach the network in any mode, and a test proves this in a separate Node runtime (Task 6a). `utilityProcess.fork` is limited to `src/workers/`. |
+| Child processes Loqui starts | **OS isolation (D14):** while sealed, every native child runs under `loqui-isolate`, probed from inside before the program starts, and counts only as `isolated` or `networkFree` (Tasks 6b–6f). **The spawn guard** (Task 6a) allows, while sealed, only allowlisted programs: Loqui's own binaries and known sidecars (with launch rules), named system tools (with argument rules), and Loqui itself. Network programs, third-party spawns and anything unclassified are refused. Running network programs are stopped, and count as stopped only when the OS reports their exit. FFmpeg runs only with `-protocol_whitelist file,pipe`. |
+| Utility processes and workers | The ONNX worker runs as Loqui in Node mode under the launcher, with the `none` profile (Task 6f). As defence in depth, it also installs the Node backstop with the seal forced on, as its first statement. It cannot reach the network in any mode, and a test proves this in a separate Node runtime (Task 6a). `utilityProcess.fork` is limited to `src/workers/`. |
 
 | Outside, and how Sealed mode treats it | Treatment |
 |---|---|
@@ -493,7 +767,7 @@ The panel says "verified" only when main attests all of this at that moment (Tas
 | A calendar sign-in already waiting in the browser | Cancelled on seal; its loopback callback closes (Task 11). |
 | A proxy or port-forwarder the user runs on loopback | Trusted as loopback. A loopback `CONNECT` or absolute-form request naming a remote host is refused, and an environment proxy makes the seal unverified. A user-run forwarder that relays plain loopback traffic off the machine is the user's own configuration, and is documented in `docs/PRIVACY.md`. |
 | OS services (system DNS-over-HTTPS, iCloud for Apple Calendar, OS updates) and other apps | Not Loqui's traffic. Not claimed. |
-| Network traffic inside a running local model server (llama-server, whisper-server, Qdrant, sherpa-onnx) | **Disclosed, not claimed (CCR-6).** Their launch is enforced: allowlist, no download flags, loopback binds, Qdrant `--disable-telemetry`. Their runtime traffic is not observable from JavaScript. The attestation lists them as `uninspectedChildren`, and the panel names them beside the verified line. Loqui's own native helpers (key and mic listeners, paste and audio-capture tools) are built from this repository's source, launched only with the arguments in `spawn-sites`, and re-checked in Task 18. |
+| A platform gap that Task 0 finds (for example Linux with restricted user namespaces, or a macOS listener reachable from another machine) | Decided by the owner at the Task 0 gate, and recorded here with the decision. Until then, a sealed spawn of a native child is refused where isolation is unavailable, and the panel says so. |
 | A helper that a Windows yt-dlp process starts and orphans within one 250 ms refresh | Residual, Windows only: it is not waited for. yt-dlp waits for its post-processors, so this needs a misbehaving binary. POSIX uses process groups, which have no such window (Task 6a). |
 | Build and packaging scripts (`scripts/`, `cleanup.js`) | Not part of the shipped app; they run only on a developer or CI machine, so the ratchet does not scan them. |
 | A malicious local process that reads the Loqui profile | Out of scope. |
@@ -517,6 +791,7 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
    - Running children are stopped on seal. A child is reported stopped only after its `exit` (and, for a detached download, after its process group is gone). A child that survives `SIGKILL` leaves `childStop` unresolved, so the seal is never verified while it runs (C1).
    - Each run of Codex or yt-dlp is one opaque ledger session, written when the process exits.
    - FFmpeg is restricted to `file` and `pipe` inputs, so a crafted local playlist cannot make it fetch remote resources.
+   - **OS isolation (D14).** While sealed, each native child runs inside OS network isolation, and is `exec`ed only after a probe from inside proves it (Tasks 6b–6d). Children that were running before the seal are restarted inside it once idle (Task 6e). Only `isolated` and `networkFree` children count toward the verified claim.
 5. **A compromised or buggy renderer flips the switch off or wipes the ledger.** Mitigations:
    - `privacy:set-sealed` accepts only a boolean, and only from the *main frame* of the main window or control panel, while that frame shows Loqui's own page (`trustedSender.js`).
    - Unsealing, clearing the ledger, and opening a link while sealed are confirmed in native dialogs owned by main, which a renderer cannot click.
@@ -539,6 +814,12 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
     - DNS: every entry point in `node:dns` and `node:dns/promises` (lookup, lookupService, all `resolve*`, reverse, and the same on `Resolver` instances) is wrapped. A test checks the live module, so a new API cannot slip past. While sealed, a query is refused before the native resolver is called. Localhost names and loopback literals are answered locally. Every query issued while unsealed is counted from call to settle, exactly once, and the seal is verified only after the count reaches 0. UDP (`dgram`) to a remote address is refused.
     - WebRTC: the preload runs in every frame and deletes `RTCPeerConnection` and its relatives from each frame's main world before page script runs (Task 7a). Task 16 checks the top page, an `about:blank` iframe and a `srcdoc` iframe. The `disable_non_proxied_udp` policy is kept as defence in depth, and a ratchet bans peer-connection code outside the marked removal block.
     - Chromium speculation: renderer documents turn off DNS prefetching. Task 16 serves `<link rel="preconnect">`, `dns-prefetch` and plain links while sealed, against a fixture that logs raw TCP connections. Any speculative connection fails the acceptance run. Chromium may not act on these hints at all, so the control run does not require them to fire; the sealed run requires zero connections either way.
+11. **Delegated egress from a native child.** A sandboxed child asks a system service to reach the network for it. The services are the DNS resolver (mDNSResponder, systemd-resolved), a download daemon (`nsurlsessiond`), and LaunchServices or the XDG OpenURI portal, which hand a URL to the browser. Mitigations:
+    - the macOS profiles deny those services, and the Linux mount namespace hides the system and session buses (Tasks 6c and 6d);
+    - the stub probes the resolver channels before `exec`;
+    - Task 0 lists every such channel per child, and Task 16 checks them in the packaged app.
+
+    Residual, until Task 0 settles profiles per kind of child: denying all of LaunchServices also breaks `pbcopy`, so the paste helpers need a narrower profile.
 
 ## Enforcement layers
 
@@ -549,6 +830,7 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
 | B, Chromium | `session.webRequest` on every session (`app.on("session-created")` plus `defaultSession`), with per-request in-flight tracking and redirect checks; `setWebRTCIPHandlingPolicy("disable_non_proxied_udp")` on every `webContents`; `x-dns-prefetch-control: off` in `src/index.html` | Electron `net.fetch`/`net.request`, `electron-updater` (own partition), renderer loads | `callback({ cancel: true })` |
 | Renderer | `preload.js` (`contextBridge.executeInMainWorld`), Task 7a; `MarkdownRenderer` image placeholders, Task 13 | page scripts | no WebRTC constructors; no remote image loads while sealed or unknown |
 | Spawn guard | `src/helpers/privacy/childRegistry.js` (Task 6a): `child_process` and `utilityProcess.fork` | every process Loqui starts | network and third-party spawns refused; running ones stopped and awaited until the OS reports exit; FFmpeg restricted to local inputs |
+| OS isolation (D14) | `resources/loqui-isolate.c` with `nativeIsolation.js` (Tasks 6b–6f): Seatbelt profiles on macOS; user, network and mount namespaces on Linux | every native child Loqui starts while sealed, including the ONNX worker | loopback only (`loopback` profile) or no network (`none`). The program is `exec`ed only after a probe inside fails every outbound check with the platform's signature, and main checks the report again |
 | Main dialogs | `privacyBoot.createConfirmations` (Tasks 7 and 11) | unseal, clear, opening a link while sealed | asks the user; the safe answer is the default |
 
 ## Inventory
@@ -647,7 +929,7 @@ Every file in the block below can start a process. The spawn guard (Task 6a) cla
 | `src/utils/gpuDetection.js` | `nvidia-smi` | local |
 | `src/utils/process.js` | the shared run-command helper, and `taskkill` | classified per call by the guard |
 | `sidecarReaper.js` | `ps` / `tasklist` | local |
-| `onnxWorkerClient.js` | `utilityProcess.fork` of `src/workers/onnxWorker.js` | worker (N23) |
+| `onnxWorkerClient.js` | Loqui in Node mode (`ELECTRON_RUN_AS_NODE=1`) running `src/workers/onnxWorker.js`, under the launcher with the `none` profile. It used `utilityProcess.fork` before D14 (Task 6f) | worker (N23) |
 | `main.js:9`, `ipcHandlers.js:3082` | Loqui relaunching itself | local (the new process boots with the guards) |
 
 ```spawn-sites
@@ -3861,7 +4143,7 @@ git commit -m "feat(privacy): add socket, DNS, UDP, proxy and session backstop f
 
 ### Task 6a: Child processes: a registry that waits for exit, a spawn guard, and local-only FFmpeg
 
-Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes that gap for every child Loqui starts. There are two parts:
+Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task controls which children start and how. Tasks 6b–6f then put every native child that runs while sealed inside OS network isolation (D14). This task has two parts:
 - **Enforcement.** While sealed, only allowlisted programs start: Loqui's own binaries and known sidecars (with launch rules), named system tools (with argument rules), and Loqui itself. A network-capable program, a spawn from third-party code inside `node_modules` (an SDK credential helper, for example), and any unclassified program are refused before they start. FFmpeg is always restricted to local inputs. The ONNX utility process installs the Node backstop with the seal forced on, so it cannot reach the network at all.
 - **Evidence.** Every network-capable child that runs while unsealed is registered, and counts as *alive* until the OS reports its exit. For a detached process group, it stays alive until the whole group is gone. Sealing stops these children and waits for them; a child that survives `SIGKILL` keeps the attestation unverified (Task 7). A kill signal is never treated as proof of exit.
 
@@ -3918,7 +4200,7 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
     - **`self`:** `process.execPath`, Loqui relaunching itself.
 
     Anything else is **`unclassified`** and refused while sealed. Unsealed, it runs, and the spawn-sites ratchet (Task 1) keeps every call site listed.
-  - **What this does not cover.** The allowlist controls which programs start, and with which arguments. It cannot see network traffic inside a native program once it runs. Local sidecars are therefore reported as `uninspectedChildren` in the attestation, and the promise is narrowed accordingly (CCR-6, Task 1 Boundary).
+  - **What this does not cover, and where it is covered.** The allowlist controls which programs start, and with which arguments. It cannot see network traffic inside a native program once it runs. Tasks 6b–6f close that gap with OS-level isolation (D14). Every native child that runs while sealed is `exec`ed inside a sandbox that a probe has checked.
   - **`utilityProcess.fork`** is allowed only for modules under the app's `src/workers/` directory, which the inventory ratchet keeps free of network code. Anything else is refused while sealed.
   - **Process trees.** A child registered with `group: true` (a detached POSIX spawn) is alive until its whole process group is gone. A child registered with `tree: true` is alive until it and every descendant listed at stop time are gone, on every platform. The descendants come from `ps` on POSIX and `Get-CimInstance Win32_Process` on Windows. If that listing fails, the child is never reported stopped. Task 10 uses `group` for every yt-dlp process on POSIX (downloads and the self-update both spawn detached), and `tree` on Windows. While a tree's root runs, its descendant list is refreshed at most every 250 ms by the liveness checks.
 
@@ -4344,8 +4626,8 @@ function isAlive(entry) {
 }
 
 // local: a sidecar that serves on-device routes (llama-server, whisper-server,
-// Qdrant, sherpa-onnx). Sealing never stops it, and the attestation reports it
-// as uninspected instead of claiming to see its traffic (CCR-6).
+// Qdrant, sherpa-onnx). Sealing never stops it. Task 6b registers every native
+// child this way and adds its isolation state (D14).
 function register(child, { kind, group = false, tree = false, local = false }) {
   // descendants: [] until a stop lists them (a root that exits on its own has
   // waited for its children, as yt-dlp does for its post-processors).
@@ -4599,6 +4881,2174 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
 
 ---
 
+### Task 6b: Isolation core: per-child states, the launcher contract and the spawn-guard wrap (D14)
+
+Task 6a decides *which* programs may start while sealed. This task makes every one of them start inside OS network isolation, and makes the evidence for that per child.
+
+The platform-specific work happens in a small stub, `loqui-isolate` (Tasks 6c and 6d). Main does three things:
+- builds the stub's command line;
+- reads the one report line the stub writes on fd 3 before it `exec`s the program;
+- checks that report itself.
+
+A child counts only when main's own check of its report passes. The stub's own `status=ok` is not enough.
+
+**Four states, never merged (D14):**
+- **`isolated`.** Started by the stub with the `loopback` profile, and its report shows every outbound check failing with the platform's signature while loopback works.
+- **`networkFree`.** Started with the `none` profile, and its report also shows loopback closed.
+- **`pending`.** Started under the stub; its report has not arrived. The program has not been `exec`ed yet, but this still does not count.
+- **`launchControlled`.** Started through Task 6a's allowlist without OS isolation, for example before the seal. It never counts, whatever its kind, and no code path relabels it. Only a restart under the stub (Task 6e) replaces it.
+
+A fifth value, **`failed`**, is transient. The child's report failed main's check, or never arrived, and main has killed it. It never counts, and it disappears from the registry once the OS reports the exit.
+
+**Isolation unavailable means refused (no silent fallback).** While sealed, a native child is spawned only when the boot self-test passed. Otherwise the spawn throws `ISOLATION_UNAVAILABLE` before anything runs, and the ledger records a `blocked` row whose host is the program's kind. Any other policy for a platform needs the owner's decision at the Task 0 gate.
+
+**Files:**
+- Create: `src/helpers/privacy/nativeIsolation.js`
+- Modify: `src/helpers/privacy/childRegistry.js` (Task 6a)
+- Create: `test/helpers/nativeIsolation.test.js` and `test/fixtures/fakeIsolate.js`
+
+**Interfaces:**
+- Produces:
+
+  ```js
+  // src/helpers/privacy/nativeIsolation.js
+  ISOLATION_STATES                    // ["isolated", "networkFree", "pending", "launchControlled", "failed"]
+  REPORT_FD                           // 3
+  EXIT_PROBE_FAILED                   // 78: the stub's probe failed; the program never ran
+  verifyReport(line, { platform, profile, hostNetns? }): { state: "isolated" | "networkFree" | null, problems: string[] }
+  isolationRuntimeDir(): string        // $XDG_RUNTIME_DIR/loqui-isolate, or os.tmpdir()/loqui-isolate-<uid>; 0700
+  createIsolation({ platform?, stubCommand: string[] | null, sandboxExec?, profileDir, runtimeDir, hostNetns?, spawnRaw, spawnSyncRaw?, openBridge?, reportTimeoutMs? }): {
+    mechanism: "seatbelt" | "netns" | "none",
+    available(): boolean,                         // the boot self-test passed
+    selfTest(): Promise<Status>,                  // runs the stub under each profile, plus the control
+    selfTestSync(): Status,                       // the same, synchronously: used once at boot
+    wrap({ command, args, options, profile, ports }): Wrapped,  // throws ISOLATION_STDIO_CONFLICT
+    settle(child, wrapped): Promise<{ state: "isolated" | "networkFree" | null, problems: string[] }>,
+    status(): { platform, mechanism, selfTest: "pending" | "passed" | "failed" | "unavailable", checkedAt: number | null, reason: string | null },
+  }
+  ```
+
+  ```js
+  // src/helpers/privacy/childRegistry.js (additions)
+  installSpawnGuard({ childProcess?, utilityProcess?, isolation? })   // isolation: createIsolation(...)
+  alive(kind?) → Array<{ kind, pid, local, isolation }>   // local: a native child allowed while sealed; isolation: one of ISOLATION_STATES
+  isolationStatus(): ReturnType<isolation.status> | { …, mechanism: "none", selfTest: "unavailable", reason: "not installed" }
+  onIsolationChange(fn): () => void                       // fires when a child's state changes or it fails
+  ```
+
+- **Spawn options.** A spawn site may pass `loquiIsolation: { profile: "loopback" | "none", ports: number[] }` in its options. The guard removes it before calling Node. A site without it gets `{ profile: "none", ports: [] }`, so a server that forgets to declare its ports cannot listen while sealed. It fails visibly, not open. Task 6e adds the option to the four servers.
+- **fd 3 is reserved.** While sealed, the guard moves the caller's `stdio` to `[0, 1, 2, "pipe" (the report), …rest]`. Anything after fd 2 may only be `"ipc"`, which moves up one place; Node then sets `NODE_CHANNEL_FD` from the final array. Anything else throws `ISOLATION_STDIO_CONFLICT`.
+- **Classes that are native children:** `bundled`, `osTool` and `ffmpeg`. So is `self` when `options.env.ELECTRON_RUN_AS_NODE === "1"` and the script is under `src/workers/` (Task 6f). `network`, `thirdParty` and `unclassified` are still refused while sealed (Task 6a).
+
+- [ ] **Step 1: Write the fake stub used by the unit tests**
+
+Create `test/fixtures/fakeIsolate.js`. It follows the stub's contract without any sandbox, so the unit tests exercise main's side (wrap, read, verify, kill) for real, on any OS:
+
+```js
+// Test double for resources/loqui-isolate (Plan 07 Task 6b). It writes the
+// report given in FAKE_ISOLATE_REPORT to fd 3, closes fd 3, then either exits
+// with FAKE_ISOLATE_EXIT (the real stub exits 78 when its probe fails, before
+// running anything) or runs the program, as the real stub's exec would.
+// FAKE_ISOLATE_HOLD makes it hang before reporting.
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+
+function main() {
+  const argv = process.argv.slice(2);
+  const at = argv.indexOf("--");
+  const program = at === -1 ? [] : argv.slice(at + 1);
+  if (process.env.FAKE_ISOLATE_HOLD) {
+    setTimeout(() => process.exit(0), 10000);
+    return;
+  }
+  try {
+    fs.writeSync(3, `${process.env.FAKE_ISOLATE_REPORT ?? ""}\n`);
+    fs.closeSync(3);
+  } catch {
+    process.exit(70);
+  }
+  if (process.env.FAKE_ISOLATE_EXIT) process.exit(Number(process.env.FAKE_ISOLATE_EXIT));
+  if (program.length === 0) process.exit(0);
+  const r = spawnSync(program[0], program.slice(1), { stdio: "inherit" });
+  process.exit(r.status ?? 1);
+}
+main();
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+Create `test/helpers/nativeIsolation.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const realChildProcess = require("node:child_process");
+const gate = require("../../src/helpers/privacy/egressGate");
+const registry = require("../../src/helpers/privacy/childRegistry");
+const { createIsolation, verifyReport, ISOLATION_STATES } = require("../../src/helpers/privacy/nativeIsolation");
+
+const FAKE = path.join(__dirname, "..", "fixtures", "fakeIsolate.js");
+const HOST_NETNS = "net:[4026531840]";
+const LINUX_OK = "LOQUI-ISOLATE/1 profile=loopback status=ok udp4=ENETUNREACH udp6=EADDRNOTAVAIL tcp4=ENETUNREACH dnsSocket=ENOENT loop4=ok loop6=ok netns=net:[4026532999] ifaces=lo";
+const LINUX_NONE_OK = "LOQUI-ISOLATE/1 profile=none status=ok udp4=ENETUNREACH udp6=EADDRNOTAVAIL tcp4=ENETUNREACH dnsSocket=ENOENT loop4=ENETUNREACH loop6=EADDRNOTAVAIL netns=net:[4026532999] ifaces=lo:down";
+const DARWIN_OK = "LOQUI-ISOLATE/1 profile=loopback status=ok udp4=EPERM udp6=EPERM tcp4=EPERM dnsSocket=EPERM nsurlsessiond=denied launchservices=denied loop4=ok loop6=ok";
+
+const flags = { sealed: false };
+test.beforeEach(() => {
+  flags.sealed = false;
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => flags.sealed });
+  registry._resetForTests();
+});
+
+// A program inside a directory Loqui registers as its own binaries, so the
+// guard classifies it as "bundled". It sleeps, or writes a marker if it runs.
+function bundledProgram(t, body = "sleep 5") {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-bin-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  registry.registerLocalBinaryDir(dir);
+  const file = path.join(dir, "helper-tool");
+  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  return { dir, file };
+}
+
+// The guard wraps a copy of child_process, never the real module, so a failed
+// test cannot leave Node patched.
+function guarded(t, { available = true, reportTimeoutMs = 2000 } = {}) {
+  const childProcess = { ...realChildProcess };
+  const isolation = createIsolation({
+    platform: "linux",
+    stubCommand: [process.execPath, FAKE],
+    profileDir: os.tmpdir(),
+    runtimeDir: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-iso-")),
+    hostNetns: () => HOST_NETNS,
+    spawnRaw: realChildProcess.spawn,
+    reportTimeoutMs,
+  });
+  isolation._setSelfTestForTests(available ? "passed" : "failed");
+  registry.installSpawnGuard({ childProcess, isolation });
+  return { childProcess, isolation };
+}
+const settled = (pid) =>
+  new Promise((resolve) => {
+    const off = registry.onIsolationChange((e) => {
+      if (e.pid === pid && e.isolation !== "pending") {
+        off();
+        resolve(e);
+      }
+    });
+  });
+
+test("verifyReport: a Linux loopback report from another namespace proves 'isolated'", () => {
+  assert.deepEqual(verifyReport(LINUX_OK, { platform: "linux", profile: "loopback", hostNetns: HOST_NETNS }), { state: "isolated", problems: [] });
+  assert.deepEqual(verifyReport(LINUX_NONE_OK, { platform: "linux", profile: "none", hostNetns: HOST_NETNS }), { state: "networkFree", problems: [] });
+});
+
+test("verifyReport: main re-checks every answer and never trusts status=ok alone", () => {
+  const linux = { platform: "linux", profile: "loopback", hostNetns: HOST_NETNS };
+  assert.deepEqual(verifyReport(LINUX_OK.replace("udp4=ENETUNREACH", "udp4=connected"), linux).problems, ["udp4"]);
+  assert.deepEqual(verifyReport(LINUX_OK.replace("net:[4026532999]", HOST_NETNS), linux).problems, ["netns"]);
+  assert.deepEqual(verifyReport(LINUX_OK.replace("ifaces=lo", "ifaces=lo,eth0"), linux).problems, ["ifaces"]);
+  assert.deepEqual(verifyReport(LINUX_OK.replace("loop4=ok", "loop4=ECONNREFUSED"), linux).problems, ["loop4"]);
+  // The none profile must find loopback closed too.
+  assert.ok(verifyReport(LINUX_NONE_OK.replace("loop4=ENETUNREACH", "loop4=ok"), { ...linux, profile: "none" }).problems.includes("loop4"));
+  // A report for a different profile than the one requested never counts.
+  assert.ok(verifyReport(LINUX_NONE_OK, linux).problems.includes("profile"));
+});
+
+test("verifyReport: on macOS only EPERM counts; an offline machine's ENETUNREACH is not isolation", () => {
+  const darwin = { platform: "darwin", profile: "loopback" };
+  assert.deepEqual(verifyReport(DARWIN_OK, darwin), { state: "isolated", problems: [] });
+  assert.deepEqual(verifyReport(DARWIN_OK.replace("udp4=EPERM", "udp4=ENETUNREACH"), darwin).problems, ["udp4"]);
+  assert.deepEqual(verifyReport(DARWIN_OK.replace("tcp4=EPERM", "tcp4=ETIMEDOUT"), darwin).problems, ["tcp4"]);
+  assert.deepEqual(verifyReport(DARWIN_OK.replace("nsurlsessiond=denied", "nsurlsessiond=reachable"), darwin).problems, ["nsurlsessiond"]);
+});
+
+test("verifyReport: malformed, duplicated, unknown-version and unknown-platform reports are refused", () => {
+  const linux = { platform: "linux", profile: "loopback", hostNetns: HOST_NETNS };
+  for (const line of ["", "garbage", LINUX_OK.replace("LOQUI-ISOLATE/1", "LOQUI-ISOLATE/2"), `${LINUX_OK} udp4=ENETUNREACH`, `${LINUX_OK} extra`])
+    assert.equal(verifyReport(line, linux).state, null, line);
+  assert.deepEqual(verifyReport(LINUX_OK, { ...linux, platform: "win32" }), { state: null, problems: ["platform"] });
+  assert.deepEqual(verifyReport(LINUX_OK.replace(" dnsSocket=ENOENT", ""), linux).problems, ["dnsSocket"]);
+});
+
+test("the states are distinct values", () => {
+  assert.deepEqual(ISOLATION_STATES, ["isolated", "networkFree", "pending", "launchControlled", "failed"]);
+});
+
+test("sealed: a native child starts through the stub, is pending until its report, then isolated", async (t) => {
+  const { childProcess } = guarded(t);
+  const { file } = bundledProgram(t);
+  flags.sealed = true;
+  const child = childProcess.spawn(file, [], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, FAKE_ISOLATE_REPORT: LINUX_OK },
+    loquiIsolation: { profile: "loopback", ports: [18080] },
+  });
+  t.after(() => child.kill("SIGKILL"));
+  assert.equal(child.spawnargs[1], FAKE, "the stub runs first");
+  assert.deepEqual(child.spawnargs.slice(2, 6), ["--profile", "loopback", "--report-fd", "3"]);
+  assert.ok(child.spawnargs.includes("--bridge"), "Linux bridges each declared port");
+  assert.equal(child.spawnargs.at(-1), file);
+  const first = registry.alive().find((c) => c.pid === child.pid);
+  assert.equal(first.isolation, "pending");
+  assert.equal(first.local, true);
+  const done = await settled(child.pid);
+  assert.equal(done.isolation, "isolated");
+});
+
+test("a stub whose probe failed exits 78, the program never runs, and the child never counts", async (t) => {
+  const { childProcess } = guarded(t);
+  const marker = path.join(os.tmpdir(), `loqui-ran-${process.pid}-${Date.now()}`);
+  const { file } = bundledProgram(t, `touch ${marker}`);
+  flags.sealed = true;
+  const child = childProcess.spawn(file, [], {
+    env: { ...process.env, FAKE_ISOLATE_REPORT: LINUX_OK.replace("status=ok", "status=fail"), FAKE_ISOLATE_EXIT: "78" },
+  });
+  const done = await settled(child.pid);
+  assert.equal(done.isolation, "failed");
+  assert.deepEqual(done.problems.includes("status"), true);
+  await new Promise((r) => child.once("exit", r));
+  assert.equal(child.exitCode, 78);
+  assert.equal(fs.existsSync(marker), false, "the program must not run when the probe fails");
+});
+
+test("main kills a child whose stub said ok with a wrong answer, and never counts it", async (t) => {
+  const { childProcess } = guarded(t);
+  const { file } = bundledProgram(t);
+  flags.sealed = true;
+  const child = childProcess.spawn(file, [], { env: { ...process.env, FAKE_ISOLATE_REPORT: LINUX_OK.replace("tcp4=ENETUNREACH", "tcp4=connected") } });
+  const done = await settled(child.pid);
+  assert.equal(done.isolation, "failed");
+  await new Promise((r) => child.once("exit", r));
+  assert.equal(child.signalCode, "SIGKILL");
+  assert.equal(registry.alive().some((c) => c.pid === child.pid), false);
+});
+
+test("no report before the deadline: the child is killed and never counted", async (t) => {
+  const { childProcess } = guarded(t, { reportTimeoutMs: 200 });
+  const { file } = bundledProgram(t);
+  flags.sealed = true;
+  const child = childProcess.spawn(file, [], { env: { ...process.env, FAKE_ISOLATE_HOLD: "1" } });
+  const done = await settled(child.pid);
+  assert.equal(done.isolation, "failed");
+  assert.deepEqual(done.problems, ["timeout"]);
+  await new Promise((r) => child.once("exit", r));
+  assert.equal(child.signalCode, "SIGKILL");
+});
+
+test("a child started before the seal stays launchControlled after sealing", async (t) => {
+  const { childProcess } = guarded(t);
+  const { file } = bundledProgram(t);
+  const child = childProcess.spawn(file, []);
+  t.after(() => child.kill("SIGKILL"));
+  assert.equal(child.spawnargs[0], file, "not wrapped while unsealed");
+  flags.sealed = true;
+  gate.onSealChanged(true);
+  const entry = registry.alive().find((c) => c.pid === child.pid);
+  assert.equal(entry.isolation, "launchControlled");
+});
+
+test("sealed with isolation unavailable: a native child is refused before anything runs", (t) => {
+  const { childProcess } = guarded(t, { available: false });
+  const { file } = bundledProgram(t);
+  flags.sealed = true;
+  assert.throws(() => childProcess.spawn(file, []), (e) => e.code === "ISOLATION_UNAVAILABLE");
+  assert.deepEqual(registry.alive(), []);
+});
+
+test("sealed: fd 3 is reserved for the report; ipc moves to fd 4; anything else is refused", (t) => {
+  const { childProcess, isolation } = guarded(t);
+  const { file } = bundledProgram(t);
+  flags.sealed = true;
+  const w = isolation.wrap({ command: file, args: [], options: { stdio: ["ignore", "pipe", "pipe", "ipc"] }, profile: "none", ports: [] });
+  assert.deepEqual(w.options.stdio, ["ignore", "pipe", "pipe", "pipe", "ipc"]);
+  assert.deepEqual(isolation.wrap({ command: file, args: [], options: { stdio: "ignore" }, profile: "none", ports: [] }).options.stdio, ["ignore", "ignore", "ignore", "pipe"]);
+  assert.throws(() => childProcess.spawn(file, [], { stdio: ["ignore", "pipe", "pipe", "pipe"] }), (e) => e.code === "ISOLATION_STDIO_CONFLICT");
+});
+
+test("sealed: execFileSync runs through the stub and a failed probe throws ISOLATION_FAILED", (t) => {
+  const { childProcess } = guarded(t);
+  const { file } = bundledProgram(t, "echo ran");
+  flags.sealed = true;
+  const ok = childProcess.execFileSync(file, [], { env: { ...process.env, FAKE_ISOLATE_REPORT: LINUX_NONE_OK }, encoding: "utf8" });
+  assert.equal(ok.trim(), "ran");
+  assert.throws(
+    () => childProcess.execFileSync(file, [], { env: { ...process.env, FAKE_ISOLATE_REPORT: LINUX_NONE_OK.replace("status=ok", "status=fail"), FAKE_ISOLATE_EXIT: "78" } }),
+    (e) => e.code === "ISOLATION_FAILED"
+  );
+});
+
+test("sealed: an allowlisted OS tool runs inside the stub too, with the none profile", (t) => {
+  const { childProcess } = guarded(t);
+  flags.sealed = true;
+  // `sh -c "command -v <name>"` is the only shell form Task 6a allows while sealed.
+  const child = childProcess.execFile("/bin/sh", ["-c", "command -v ls"], { env: { ...process.env, FAKE_ISOLATE_REPORT: LINUX_NONE_OK } }, () => {});
+  t.after(() => child.kill("SIGKILL"));
+  assert.equal(child.spawnargs[1], FAKE);
+  assert.deepEqual(child.spawnargs.slice(2, 4), ["--profile", "none"]);
+  assert.deepEqual(child.spawnargs.slice(-3), ["/bin/sh", "-c", "command -v ls"]);
+});
+```
+
+The four `verifyReport` tests are pure. The guard tests spawn real processes on POSIX. On Windows they are skipped with `{ skip: process.platform === "win32" && "POSIX shell fixture" }`, which you add to each of them.
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `npm test -- test/helpers/nativeIsolation.test.js`
+Expected: FAIL with `Cannot find module '../../src/helpers/privacy/nativeIsolation'`.
+
+- [ ] **Step 4: Implement `nativeIsolation.js`**
+
+Create `src/helpers/privacy/nativeIsolation.js`:
+
+```js
+"use strict";
+// OS-level network isolation for native children (Plan 07, D14).
+//
+// The platform work happens in the loqui-isolate stub (resources/loqui-isolate.c,
+// Tasks 6c and 6d). It probes the sandbox from inside, writes one report line to
+// fd 3, closes fd 3, and only then execs the program in the same process, so
+// the program runs exactly where the probe ran. This module builds the stub's
+// command line, reads that line, and checks it again here: main never trusts
+// the stub's own status=ok.
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const VERSION = "LOQUI-ISOLATE/1";
+const REPORT_FD = 3;
+const EXIT_PROBE_FAILED = 78;
+const ISOLATION_STATES = Object.freeze(["isolated", "networkFree", "pending", "launchControlled", "failed"]);
+
+// The answers each check must give inside the sandbox. They come from Task 0's
+// measurements; the report (docs/security/native-isolation-spike.md) is the
+// source, and both change together. A timeout is never accepted. On macOS only
+// EPERM counts, because an offline Mac answers ENETUNREACH with no sandbox.
+const EXPECTED = {
+  darwin: {
+    outbound: { udp4: ["EPERM"], udp6: ["EPERM"], tcp4: ["EPERM"], dnsSocket: ["EPERM"], nsurlsessiond: ["denied"], launchservices: ["denied"] },
+    loopbackClosed: ["EPERM"],
+  },
+  linux: {
+    outbound: { udp4: ["ENETUNREACH"], udp6: ["ENETUNREACH", "EADDRNOTAVAIL"], tcp4: ["ENETUNREACH"], dnsSocket: ["ENOENT", "EACCES"] },
+    loopbackClosed: ["ENETUNREACH", "EADDRNOTAVAIL"],
+  },
+};
+const LOOPBACK_CHECKS = ["loop4", "loop6"];
+
+function parseReport(line) {
+  const parts = String(line ?? "").trim().split(/\s+/);
+  if (parts[0] !== VERSION) return null;
+  const fields = Object.create(null);
+  for (const part of parts.slice(1)) {
+    const m = /^([A-Za-z0-9]+)=([A-Za-z0-9:[\],._-]+)$/.exec(part);
+    if (!m || m[1] in fields) return null;
+    fields[m[1]] = m[2];
+  }
+  return fields;
+}
+
+function verifyReport(line, { platform, profile, hostNetns = null }) {
+  const expected = EXPECTED[platform];
+  if (!expected) return { state: null, problems: ["platform"] };
+  const f = parseReport(line);
+  if (!f) return { state: null, problems: ["malformed"] };
+  const problems = [];
+  if (f.status !== "ok") problems.push("status");
+  if (f.profile !== profile) problems.push("profile");
+  for (const [check, allowed] of Object.entries(expected.outbound)) if (!allowed.includes(f[check])) problems.push(check);
+  for (const check of LOOPBACK_CHECKS) {
+    const good = profile === "loopback" ? f[check] === "ok" : expected.loopbackClosed.includes(f[check]);
+    if (!good) problems.push(check);
+  }
+  if (platform === "linux") {
+    if (!f.netns || f.netns === hostNetns) problems.push("netns");
+    if (f.ifaces !== (profile === "loopback" ? "lo" : "lo:down")) problems.push("ifaces");
+  }
+  if (problems.length > 0) return { state: null, problems };
+  return { state: profile === "loopback" ? "isolated" : "networkFree", problems: [] };
+}
+
+function defaultHostNetns() {
+  try {
+    return fs.readlinkSync("/proc/self/ns/net");
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStdio(stdio) {
+  const base = stdio == null ? ["pipe", "pipe", "pipe"] : typeof stdio === "string" ? [stdio, stdio, stdio] : [...stdio];
+  while (base.length < 3) base.push("pipe");
+  const rest = base.slice(3);
+  if (rest.some((s) => s !== "ipc"))
+    throw Object.assign(new Error("ISOLATION_STDIO_CONFLICT: fd 3 is reserved for the isolation report"), { code: "ISOLATION_STDIO_CONFLICT" });
+  return [...base.slice(0, 3), "pipe", ...rest];
+}
+
+// Where Linux bridge sockets live: a 0700 directory of this user's.
+function isolationRuntimeDir() {
+  const base = process.env.XDG_RUNTIME_DIR
+    ? path.join(process.env.XDG_RUNTIME_DIR, "loqui-isolate")
+    : path.join(os.tmpdir(), `loqui-isolate-${process.getuid?.() ?? "user"}`);
+  fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+  fs.chmodSync(base, 0o700);
+  return base;
+}
+
+function createIsolation({
+  platform = process.platform,
+  stubCommand,
+  sandboxExec = "/usr/bin/sandbox-exec",
+  profileDir,
+  runtimeDir,
+  hostNetns = defaultHostNetns,
+  spawnRaw,
+  spawnSyncRaw = null,
+  openBridge = null,
+  reportTimeoutMs = 5000,
+}) {
+  const mechanism = platform === "darwin" ? "seatbelt" : platform === "linux" ? "netns" : "none";
+  const unavailable = mechanism === "none" ? "unsupported platform" : !stubCommand ? "launcher missing" : null;
+  let selfTest = { selfTest: unavailable ? "unavailable" : "pending", checkedAt: null, reason: unavailable };
+  let launches = 0;
+
+  function stubLine(profile, extra) {
+    const stub = [...stubCommand, "--profile", profile, "--report-fd", String(REPORT_FD), ...extra];
+    return platform === "darwin" ? [sandboxExec, "-f", path.join(profileDir, `loqui-isolate-${profile}.sb`), ...stub] : stub;
+  }
+
+  function wrap({ command, args = [], options = {}, profile = "none", ports = [] }) {
+    if (profile !== "loopback" && profile !== "none") throw new TypeError(`Unknown isolation profile: ${profile}`);
+    if (profile === "none" && ports.length > 0) throw new TypeError("A network-free child has no ports");
+    const launchId = `${process.pid}-${++launches}`;
+    const bridges =
+      platform === "linux"
+        ? ports.map((port) => ({ port: Number(port), socketPath: path.join(runtimeDir, launchId, `${Number(port)}.sock`) }))
+        : [];
+    if (bridges.length > 0) fs.mkdirSync(path.join(runtimeDir, launchId), { recursive: true, mode: 0o700 });
+    const line = stubLine(profile, [...bridges.flatMap((b) => ["--bridge", `${b.port}:${b.socketPath}`]), "--", command, ...args.map(String)]);
+    return { command: line[0], args: line.slice(1), options: { ...options, stdio: normalizeStdio(options.stdio) }, profile, ports, bridges, launchId };
+  }
+
+  // Reads the report until the stub closes fd 3 (it does so before exec, so
+  // the program can never write to it), then checks it. A child whose report
+  // fails the check, or never arrives, is killed.
+  function settle(child, wrapped) {
+    return new Promise((resolve) => {
+      const pipe = child?.stdio?.[REPORT_FD];
+      let text = "";
+      let done = false;
+      const finish = (state, problems) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (!state) {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Already gone: the registry decides from its exit.
+          }
+        } else if (wrapped.bridges.length > 0 && openBridge) {
+          const open = wrapped.bridges.map((b) => openBridge(b));
+          child.once("exit", () => open.forEach((bridge) => bridge.close()));
+        }
+        resolve({ state, problems });
+      };
+      const timer = setTimeout(() => finish(null, ["timeout"]), reportTimeoutMs);
+      if (!pipe) return finish(null, ["noReportPipe"]);
+      pipe.setEncoding("utf8");
+      pipe.on("data", (chunk) => {
+        text += chunk;
+        if (text.length > 4096) finish(null, ["oversize"]);
+      });
+      pipe.on("error", () => finish(null, ["reportError"]));
+      pipe.on("end", () => {
+        const result = verifyReport(text.split("\n")[0], { platform, profile: wrapped.profile, hostNetns: hostNetns() });
+        finish(result.state, result.problems);
+      });
+    });
+  }
+
+  // Runs the stub with no program under each profile, then the control: the
+  // same probe outside any sandbox must NOT show the signature, or the probe
+  // could not tell isolation from its absence on this machine.
+  function runStub(argv) {
+    return new Promise((resolve) => {
+      const child = spawnRaw(argv[0], argv.slice(1), { stdio: ["ignore", "ignore", "pipe", "pipe"] });
+      let report = "";
+      child.stdio[REPORT_FD].setEncoding("utf8");
+      child.stdio[REPORT_FD].on("data", (c) => (report += c));
+      const timer = setTimeout(() => child.kill("SIGKILL"), reportTimeoutMs);
+      child.once("error", () => resolve({ code: null, report: "" }));
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        resolve({ code, report: report.split("\n")[0] });
+      });
+    });
+  }
+
+  // Boot uses the synchronous form, so a sidecar that starts right after boot
+  // while sealed is never refused just because the check is still running.
+  function runStubSync(argv) {
+    const r = spawnSyncRaw(argv[0], argv.slice(1), { stdio: ["ignore", "ignore", "pipe", "pipe"], encoding: "utf8", timeout: reportTimeoutMs });
+    return { code: r.status, report: String(r.output?.[REPORT_FD] ?? "").split("\n")[0] };
+  }
+
+  function judge(results, control) {
+    if (unavailable) return status();
+    const problems = [];
+    for (const { profile, code, report } of results) {
+      const result = verifyReport(report, { platform, profile, hostNetns: hostNetns() });
+      if (code !== 0 || !result.state) problems.push(`${profile}:${result.problems.join(",") || `exit ${code}`}`);
+    }
+    if (verifyReport(control.report.replace("profile=control", "profile=loopback"), { platform, profile: "loopback", hostNetns: hostNetns() }).state)
+      problems.push("control:signature-without-sandbox");
+    selfTest = { selfTest: problems.length === 0 ? "passed" : "failed", checkedAt: Date.now(), reason: problems.join(" ") || null };
+    return status();
+  }
+  const controlLine = () => [...stubCommand, "--control", "--report-fd", String(REPORT_FD)];
+
+  async function runSelfTest() {
+    if (unavailable) return status();
+    const results = [];
+    for (const profile of ["loopback", "none"]) results.push({ profile, ...(await runStub(stubLine(profile, ["--self-test"]))) });
+    return judge(results, await runStub(controlLine()));
+  }
+
+  function runSelfTestSync() {
+    if (unavailable) return status();
+    const results = ["loopback", "none"].map((profile) => ({ profile, ...runStubSync(stubLine(profile, ["--self-test"])) }));
+    return judge(results, runStubSync(controlLine()));
+  }
+
+  function status() {
+    return { platform, mechanism, ...selfTest };
+  }
+
+  return {
+    mechanism,
+    available: () => selfTest.selfTest === "passed",
+    selfTest: runSelfTest,
+    selfTestSync: runSelfTestSync,
+    wrap,
+    settle,
+    status,
+    _setSelfTestForTests(value) {
+      selfTest = { selfTest: value, checkedAt: Date.now(), reason: value === "passed" ? null : "test" };
+    },
+  };
+}
+
+module.exports = { createIsolation, verifyReport, isolationRuntimeDir, ISOLATION_STATES, REPORT_FD, EXIT_PROBE_FAILED };
+```
+
+- [ ] **Step 5: Wire it into the spawn guard**
+
+In `src/helpers/privacy/childRegistry.js` (Task 6a):
+
+1. Replace the comment above `register` and its signature:
+
+   ```js
+   // local: a native child that may run while sealed (a bundled program or
+   // sidecar, an allowlisted OS tool, FFmpeg, or a Node worker; Task 6b).
+   // Sealing never stops it. isolation is one of ISOLATION_STATES; only
+   // "isolated" and "networkFree" count toward nothingLeaves (D14).
+   function register(child, { kind, group = false, tree = false, local = false, isolation = local ? "launchControlled" : null }) {
+     const entry = { child, kind, pid: child?.pid, group, tree, local, isolation, problems: [], descendants: [], exited: !child?.pid };
+   ```
+
+   The rest of `register` is unchanged.
+
+2. `alive()` returns `{ kind: entry.kind, pid: entry.pid, local: entry.local, isolation: entry.isolation }`.
+
+3. Add the isolation events, and the state setter. Only `settle()` calls the setter, so no other path can label a child:
+
+   ```js
+   const isolationListeners = new Set();
+   function onIsolationChange(fn) {
+     isolationListeners.add(fn);
+     return () => isolationListeners.delete(fn);
+   }
+   function setIsolation(entry, state, problems = []) {
+     entry.isolation = state;
+     entry.problems = problems;
+     for (const fn of isolationListeners) fn({ kind: entry.kind, pid: entry.pid, isolation: state, problems });
+   }
+   let isolation = null;
+   function isolationStatus() {
+     return isolation?.status() ?? { platform: process.platform, mechanism: "none", selfTest: "unavailable", checkedAt: null, reason: "not installed" };
+   }
+   ```
+
+4. Turn every call form into a file call, so `exec` and `execSync` run their whole shell inside the stub:
+
+   ```js
+   // Normalises the seven call forms to (file, args, options, callback).
+   function toFileCall(name, args) {
+     if (name === "exec" || name === "execSync") {
+       const [line, maybeOptions, maybeCallback] = args;
+       const options = typeof maybeOptions === "object" && maybeOptions ? maybeOptions : {};
+       const callback = typeof maybeOptions === "function" ? maybeOptions : maybeCallback;
+       return { fn: name === "exec" ? "execFile" : "execFileSync", command: "/bin/sh", args: ["-c", String(line)], options, callback };
+     }
+     const [command, maybeArgs, maybeOptions, maybeCallback] = args;
+     const hasArgs = Array.isArray(maybeArgs);
+     const options = (hasArgs ? maybeOptions : maybeArgs) ?? {};
+     const callback = [maybeArgs, maybeOptions, maybeCallback].find((a) => typeof a === "function");
+     return { fn: name === "fork" ? "spawn" : name, command, args: hasArgs ? maybeArgs : [], options: typeof options === "object" ? options : {}, callback };
+   }
+   const stripIsolation = ({ loquiIsolation, ...rest }) => rest;
+   const NATIVE = new Set(["bundled", "osTool", "ffmpeg"]);
+   const isNative = (kind, options) =>
+     NATIVE.has(kind) || (kind === "self" && options?.env?.ELECTRON_RUN_AS_NODE === "1");
+   ```
+
+5. In `installSpawnGuard`, accept `isolation` (`isolation = deps.isolation ?? null`), keep the originals, and replace the body of `guarded`:
+
+   ```js
+   const originals = {};
+   for (const name of ["spawn", "execFile", "exec", "fork", "spawnSync", "execFileSync", "execSync"]) originals[name] = childProcess[name];
+   // …inside the existing loop:
+   childProcess[name] = function guarded(...args) {
+     const command = programOf(name, args);
+     const call = toFileCall(name, args);
+     const kind = check(command, Array.isArray(args[1]) ? args[1] : [], new Error().stack); // unchanged from Task 6a
+     const sync = name.endsWith("Sync");
+     const native = isNative(kind, call.options);
+     const request = call.options.loquiIsolation ?? { profile: "none", ports: [] };
+     if (native && gate.isSealed()) {
+       if (!isolation?.available()) {
+         gate.recordBackstopBlock({ host: kindOf(command).replace(/[^a-z0-9._-]/g, "") || "unknown" });
+         throw Object.assign(new Error("ISOLATION_UNAVAILABLE: native programs cannot start while sealed on this computer"), { code: "ISOLATION_UNAVAILABLE" });
+       }
+       const wrapped = isolation.wrap({ command: call.command, args: call.args, options: stripIsolation(call.options), profile: request.profile, ports: request.ports ?? [] });
+       if (sync) return runSyncIsolated(originals, call.fn, wrapped);
+       const tail = call.callback ? [call.callback] : [];
+       const result = originals[call.fn].call(this, wrapped.command, wrapped.args, wrapped.options, ...tail);
+       const entry = register(result, { kind: nativeKindOf(command), group: call.options.detached === true, local: true, isolation: "pending" });
+       isolation.settle(result, wrapped).then(({ state, problems }) => setIsolation(entry, state ?? "failed", problems));
+       return result;
+     }
+     const passArgs = call.options.loquiIsolation ? args.map((a) => (a === call.options ? stripIsolation(a) : a)) : args;
+     const result = original.apply(this, passArgs);
+     if (!sync) {
+       if (kind === "network" || kind === "thirdParty" || kind === "unclassified") register(result, { kind: kindOf(command), group: call.options.detached === true });
+       else if (native) register(result, { kind: nativeKindOf(command), group: call.options.detached === true, local: true, isolation: "launchControlled" });
+     }
+     return result;
+   };
+   ```
+
+   `nativeKindOf` is the existing sidecar-name normalisation, moved into a function: `kindOf(command).replace(/[-_](darwin|linux|win32).*$/, "").replace(/\.exe$/, "")`.
+
+   The old `else if (kind === "bundled" && SIDECAR_RULES.some(…))` branch is removed. Every native child is now registered, not just sidecars, because every one must be isolated or network-free for the claim (D14).
+
+6. `runSyncIsolated` runs a sync call through `spawnSync`, so it can read the report from `output[3]`. It then reproduces the original call's return value and errors:
+
+   ```js
+   const { verifyReport, EXIT_PROBE_FAILED } = require("./nativeIsolation");
+   function runSyncIsolated(originals, fn, wrapped) {
+     const r = originals.spawnSync(wrapped.command, wrapped.args, { ...wrapped.options, encoding: "buffer" });
+     const report = r.output?.[3]?.toString("utf8").split("\n")[0] ?? "";
+     const verdict = verifyReport(report, { platform: process.platform, profile: wrapped.profile, hostNetns: isolationHostNetns() });
+     if (r.status === EXIT_PROBE_FAILED || !verdict.state)
+       throw Object.assign(new Error(`ISOLATION_FAILED: ${verdict.problems.join(", ") || "probe"}`), { code: "ISOLATION_FAILED", problems: verdict.problems });
+     if (fn === "spawnSync") return r;
+     const enc = wrapped.options.encoding && wrapped.options.encoding !== "buffer" ? wrapped.options.encoding : null;
+     const out = enc ? r.stdout.toString(enc) : r.stdout;
+     if (r.error) throw r.error;
+     if (r.status !== 0)
+       throw Object.assign(new Error(`Command failed: ${wrapped.args.slice(wrapped.args.indexOf("--") + 1).join(" ")}`), { status: r.status, signal: r.signal, stdout: out, stderr: enc ? r.stderr.toString(enc) : r.stderr });
+     return out;
+   }
+   const isolationHostNetns = () => {
+     try {
+       return require("node:fs").readlinkSync("/proc/self/ns/net");
+     } catch {
+       return null;
+     }
+   };
+   ```
+
+   In the unit tests, the platform is set on the `createIsolation` instance, not by `process.platform`. So `runSyncIsolated` takes the platform from `isolation.status().platform`: replace `process.platform` above with `isolation.status().platform`.
+
+7. Export `onIsolationChange` and `isolationStatus`, and make `_resetForTests` clear `isolationListeners` and set `isolation = null`.
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/nativeIsolation.test.js test/helpers/childRegistry.test.js`
+Expected: PASS. The existing Task 6a tests still pass, because unsealed spawns are unchanged apart from the registration of native children.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/helpers/privacy/nativeIsolation.js src/helpers/privacy/childRegistry.js test/helpers/nativeIsolation.test.js test/fixtures/fakeIsolate.js
+git commit -m "feat(privacy): per-child isolation states and the launcher contract in the spawn guard (D14)"
+```
+
+---
+
+### Task 6c: The `loqui-isolate` stub, macOS profiles, and the macOS tests (D14)
+
+The stub is one C file for both platforms. On macOS it runs under `/usr/bin/sandbox-exec` with a profile, so the sandbox is in force before `main()` starts, and `execvp()` keeps it. On Linux it creates its own namespaces (exercised in Task 6d).
+
+Either way, it probes from inside and writes one report line. It closes the report fd before `exec`, so the program can never forge a report. If any check fails, it exits 78 without running the program.
+
+**This code was compiled and run while writing the plan (2026-10-15):**
+- **macOS 27.0.1:**
+  - `--self-test` gives `status=ok` under both profiles.
+  - Unsandboxed, it exits 78 (`udp4=connected`).
+  - A program `exec`ed by the stub gets `EPERM` for TEST-NET over UDP and TCP, while loopback works.
+  - The program's fd 3 write fails (`ENXIO`).
+  - A failing probe never runs `touch`.
+- **Linux (Debian 12 container, user namespaces allowed):**
+  - Both profiles give `status=ok`, from a namespace different from the host's.
+  - A server on `127.0.0.1:18080` inside answered a client outside through `--bridge`.
+  - No forwarder survived the program.
+  - Under Docker's default seccomp profile, the stub reports `status=fail namespace=EPERM` and exits 78.
+- **`verifyReport` (Task 6b) on those real lines:** `isolated` and `networkFree` where expected, and `null` for the control and the unsandboxed runs.
+
+**A finding the spike must settle (Task 0, Step 3).** The profiles below deny `com.apple.coreservices.*` and `com.apple.lsd.*`, so LaunchServices cannot open a URL for the child. With only `launchservicesd` denied, an unregistered URL scheme got the same answer inside the sandbox as outside (`-10814`): LaunchServices was still reachable. But the wider denial silently breaks `pbcopy`: it exits 0 and writes nothing. So profiles must be chosen per kind of child. Task 0 names the services each kind needs. The pasteboard test below fails until the profile for the paste helpers is right.
+
+**Files:**
+- Create: `resources/loqui-isolate.c`, `resources/loqui-isolate-loopback.sb`, `resources/loqui-isolate-none.sb` and `scripts/build-loqui-isolate.js`
+- Modify:
+  - `scripts/prepare-platform.cjs`: build the stub on both platforms;
+  - `electron-builder.json`: ship it;
+  - `src/helpers/privacy/nativeIsolation.js`: find the stub;
+  - `.github/workflows/platform.yml`: run the native tests on `macos-26`.
+- Test: `test/native/isolation.darwin.test.js`, `test/fixtures/isolationProbe.js`
+
+- [ ] **Step 1: Write the probe a program runs from inside**
+
+Create `test/fixtures/isolationProbe.js`. The stub probes *before* `exec`; this checks that the program itself, and a child of the program, are still inside afterwards:
+
+```js
+// Run by a program that loqui-isolate exec'd (Plan 07 Task 6c/6d). Prints what
+// the program itself can reach. With --child, it also runs itself once more as
+// a child, to show the sandbox is inherited.
+const dgram = require("node:dgram");
+const dns = require("node:dns");
+const net = require("node:net");
+const { execFileSync } = require("node:child_process");
+
+const udp = (host, family) =>
+  new Promise((resolve) => {
+    const s = dgram.createSocket(family);
+    s.on("error", (e) => resolve(e.code));
+    s.connect(9, host, (e) => {
+      resolve(e ? e.code : "connected");
+      s.close();
+    });
+  });
+const tcp = (host) =>
+  new Promise((resolve) => {
+    const s = net.connect({ host, port: 9 });
+    s.setTimeout(1500, () => {
+      s.destroy();
+      resolve("timeout");
+    });
+    s.on("connect", () => {
+      s.destroy();
+      resolve("connected");
+    });
+    s.on("error", (e) => resolve(e.code));
+  });
+const lookup = () => new Promise((resolve) => dns.lookup("example.com", (e) => resolve(e ? e.code : "resolved")));
+const loop = () =>
+  new Promise((resolve) => {
+    const server = net.createServer((c) => c.end());
+    server.on("error", (e) => resolve(e.code));
+    server.listen(0, "127.0.0.1", () => {
+      const c = net.connect(server.address().port, "127.0.0.1", () => {
+        c.destroy();
+        server.close();
+        resolve("ok");
+      });
+      c.on("error", (e) => {
+        server.close();
+        resolve(e.code);
+      });
+    });
+  });
+
+(async () => {
+  const udp4 = await udp("192.0.2.1", "udp4");
+  const seen = { udp4, tcp4: udp4 === "connected" ? "skipped" : await tcp("192.0.2.1"), lookup: await lookup(), loop4: await loop() };
+  if (process.argv.includes("--child")) seen.child = JSON.parse(execFileSync(process.execPath, [__filename]).toString());
+  process.stdout.write(JSON.stringify(seen));
+})();
+```
+
+- [ ] **Step 2: Write the failing macOS tests**
+
+Create `test/native/isolation.darwin.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { spawn, spawnSync } = require("node:child_process");
+const { verifyReport, EXIT_PROBE_FAILED } = require("../../src/helpers/privacy/nativeIsolation");
+
+const BIN = path.join(__dirname, "..", "..", "resources", "bin");
+const STUB = path.join(BIN, "loqui-isolate");
+const PROBE = path.join(__dirname, "..", "fixtures", "isolationProbe.js");
+const profile = (name) => path.join(BIN, `loqui-isolate-${name}.sb`);
+// platform.yml sets LOQUI_ISOLATION_TESTS=required, so a missing stub fails
+// in CI instead of skipping. Locally: node scripts/build-loqui-isolate.js.
+const skip =
+  process.platform !== "darwin"
+    ? "macOS only"
+    : !fs.existsSync(STUB) && process.env.LOQUI_ISOLATION_TESTS !== "required"
+      ? "stub not built"
+      : false;
+
+function boxed(name, rest, { sandbox = true, input } = {}) {
+  const stub = [STUB, "--profile", name, "--report-fd", "3", ...rest];
+  const [cmd, argv] = sandbox ? ["/usr/bin/sandbox-exec", ["-f", profile(name), ...stub]] : [stub[0], stub.slice(1)];
+  const r = spawnSync(cmd, argv, { stdio: ["pipe", "pipe", "pipe", "pipe"], input, encoding: "utf8", timeout: 30000 });
+  return { status: r.status, report: (r.output[3] ?? "").trim(), stdout: r.stdout, stderr: r.stderr };
+}
+
+test("self-test: the loopback profile proves isolation and keeps loopback", { skip }, () => {
+  const r = boxed("loopback", ["--self-test"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(verifyReport(r.report, { platform: "darwin", profile: "loopback" }), { state: "isolated", problems: [] });
+});
+
+test("self-test: the none profile closes loopback as well", { skip }, () => {
+  const r = boxed("none", ["--self-test"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(verifyReport(r.report, { platform: "darwin", profile: "none" }), { state: "networkFree", problems: [] });
+});
+
+test("control: without the sandbox the stub refuses to run anything and reports why", { skip }, () => {
+  const r = boxed("loopback", ["--self-test"], { sandbox: false });
+  assert.equal(r.status, EXIT_PROBE_FAILED);
+  assert.match(r.report, /status=fail/);
+  assert.equal(verifyReport(r.report, { platform: "darwin", profile: "loopback" }).state, null);
+});
+
+test("the exec'd program and its own child stay inside: EPERM out, loopback works", { skip }, () => {
+  const r = boxed("loopback", ["--", process.execPath, PROBE, "--child"]);
+  assert.equal(r.status, 0, r.stderr);
+  const seen = JSON.parse(r.stdout);
+  assert.deepEqual({ udp4: seen.udp4, tcp4: seen.tcp4, lookup: seen.lookup, loop4: seen.loop4 }, { udp4: "EPERM", tcp4: "EPERM", lookup: "ENOTFOUND", loop4: "ok" });
+  assert.equal(seen.child.udp4, "EPERM");
+  assert.equal(seen.child.loop4, "ok");
+});
+
+test("the program cannot write a report: fd 3 is closed before exec", { skip }, () => {
+  const forge = "try { require('fs').writeSync(3, 'LOQUI-ISOLATE/1 forged\\n'); console.log('wrote') } catch (e) { console.log(e.code) }";
+  const r = boxed("loopback", ["--", process.execPath, "-e", forge]);
+  assert.notEqual(r.stdout.trim(), "wrote");
+  assert.equal(r.report.split("\n").length, 1);
+  assert.doesNotMatch(r.report, /forged/);
+});
+
+test("a probe that finds no sandbox never runs the program", { skip }, (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-iso-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const open = path.join(dir, "open.sb");
+  fs.writeFileSync(open, "(version 1)(allow default)");
+  const marker = path.join(dir, "ran");
+  const r = spawnSync("/usr/bin/sandbox-exec", ["-f", open, STUB, "--profile", "loopback", "--report-fd", "3", "--", "/usr/bin/touch", marker], { stdio: ["ignore", "pipe", "pipe", "pipe"], encoding: "utf8" });
+  assert.equal(r.status, EXIT_PROBE_FAILED);
+  assert.equal(fs.existsSync(marker), false);
+});
+
+test("a delegated URL open is refused inside: LaunchServices does not bind the scheme", { skip }, () => {
+  // An unregistered scheme opens nothing either way. Outside, LaunchServices
+  // answers -10814 (no application); that answer inside means it is reachable.
+  const outside = spawnSync("/usr/bin/open", ["-g", "loquiprobeunregistered://x"], { encoding: "utf8" });
+  assert.match(outside.stderr, /-10814/);
+  const r = boxed("loopback", ["--", "/usr/bin/open", "-g", "loquiprobeunregistered://x"]);
+  assert.doesNotMatch(r.stderr, /-10814/);
+});
+
+test("the paste helpers still work under their profile", { skip }, () => {
+  // Task 0 found that denying com.apple.coreservices.* makes pbcopy exit 0 and
+  // write nothing. This stays red until each kind has the profile it needs.
+  const before = spawnSync("/usr/bin/pbpaste", { encoding: "utf8" }).stdout;
+  try {
+    const marker = `loqui-isolation-${process.pid}`;
+    boxed("none", ["--", "/usr/bin/pbcopy"], { input: marker });
+    assert.equal(spawnSync("/usr/bin/pbpaste", { encoding: "utf8" }).stdout, marker);
+  } finally {
+    spawnSync("/usr/bin/pbcopy", { input: before });
+  }
+});
+
+test("a bundled sidecar serves loopback inside the sandbox (Qdrant /healthz)", { skip }, async (t) => {
+  const qdrant = path.join(BIN, `qdrant-${process.platform}-${process.arch}`);
+  if (!fs.existsSync(qdrant)) {
+    if (process.env.LOQUI_ISOLATION_TESTS === "required") assert.fail("qdrant not downloaded: run npm run prepare:platform");
+    return t.skip("qdrant not downloaded");
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-qdrant-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const port = 46333;
+  // The same config qdrantManager._doStart writes.
+  fs.writeFileSync(path.join(dir, "config.yaml"), ["storage:", `  storage_path: ${path.join(dir, "storage")}`, "service:", "  host: 127.0.0.1", `  http_port: ${port}`, `  grpc_port: ${port + 1}`, "log_level: warn", ""].join("\n"));
+  const child = spawn("/usr/bin/sandbox-exec", ["-f", profile("loopback"), STUB, "--profile", "loopback", "--report-fd", "3", "--", qdrant, "--disable-telemetry", "--config-path", path.join(dir, "config.yaml")], { cwd: dir, stdio: ["ignore", "ignore", "ignore", "pipe"] });
+  t.after(() => child.kill("SIGKILL"));
+  let healthy = false;
+  for (let i = 0; i < 100 && !healthy; i++) {
+    healthy = await fetch(`http://127.0.0.1:${port}/healthz`).then((r) => r.ok, () => false);
+    if (!healthy) await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(healthy, true, "Qdrant answered on loopback from inside the sandbox");
+});
+```
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `LOQUI_ISOLATION_TESTS=required node --test test/native/isolation.darwin.test.js`
+Expected: FAIL, because `resources/bin/loqui-isolate` does not exist.
+
+- [ ] **Step 4: Write the stub**
+
+Create `resources/loqui-isolate.c`:
+
+```c
+/*
+ * loqui-isolate: start a native child inside OS network isolation, prove the
+ * isolation from inside, then exec the program in this same process.
+ * Sealed mode, Plan 07 (D14). Main reads the report and checks it again
+ * (src/helpers/privacy/nativeIsolation.js); this file never decides alone.
+ *
+ *   loqui-isolate --profile loopback|none --report-fd N [--bridge PORT:SOCKET]... -- PROGRAM [ARGS...]
+ *   loqui-isolate --profile loopback|none --report-fd N --self-test
+ *   loqui-isolate --control --report-fd N
+ *
+ * macOS: main runs this under /usr/bin/sandbox-exec with the matching profile,
+ * so the sandbox is already in force when main() starts, and execv() keeps it.
+ * Linux: this program creates its own user, network and mount namespaces
+ * (Task 6d).
+ *
+ * It writes exactly one report line to the report fd and closes it before
+ * exec, so the program can never write to it. If any check fails it reports
+ * status=fail and exits 78 without running the program.
+ */
+#define _GNU_SOURCE
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#ifdef __linux__
+#include <net/if.h>
+#include <poll.h>
+#include <sched.h>
+#include <signal.h>
+#include <sys/ioctl.h>
+#include <sys/mount.h>
+#include <sys/prctl.h>
+#include <sys/stat.h>
+#endif
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <servers/bootstrap.h>
+#endif
+
+#define EXIT_PROBE_FAILED 78
+#define EXIT_USAGE 64
+
+static char report[2048];
+static size_t used;
+
+static void add(const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(report + used, sizeof report - used, fmt, ap);
+  va_end(ap);
+  if (n > 0 && (size_t)n < sizeof report - used) used += (size_t)n;
+}
+
+static const char *errname(int e) {
+  switch (e) {
+    case EPERM: return "EPERM";
+    case EACCES: return "EACCES";
+    case ENETUNREACH: return "ENETUNREACH";
+    case EHOSTUNREACH: return "EHOSTUNREACH";
+    case EADDRNOTAVAIL: return "EADDRNOTAVAIL";
+    case ECONNREFUSED: return "ECONNREFUSED";
+    case ENOENT: return "ENOENT";
+    case ETIMEDOUT: return "ETIMEDOUT";
+    case EINPROGRESS: return "EINPROGRESS";
+    default: return "OTHER";
+  }
+}
+
+static int fill(int family, const char *addr, int port, struct sockaddr_storage *ss, socklen_t *len) {
+  memset(ss, 0, sizeof *ss);
+  if (family == AF_INET) {
+    struct sockaddr_in *sa = (struct sockaddr_in *)ss;
+    sa->sin_family = AF_INET;
+    sa->sin_port = htons((unsigned short)port);
+    *len = sizeof *sa;
+    return inet_pton(AF_INET, addr, &sa->sin_addr) == 1 ? 0 : -1;
+  }
+  struct sockaddr_in6 *sa = (struct sockaddr_in6 *)ss;
+  sa->sin6_family = AF_INET6;
+  sa->sin6_port = htons((unsigned short)port);
+  *len = sizeof *sa;
+  return inet_pton(AF_INET6, addr, &sa->sin6_addr) == 1 ? 0 : -1;
+}
+
+/* UDP connect() sends no packet, so a missing sandbox leaks nothing here. */
+static const char *udp_connect(int family, const char *addr) {
+  struct sockaddr_storage ss;
+  socklen_t len;
+  if (fill(family, addr, 9, &ss, &len) != 0) return "OTHER";
+  int fd = socket(family, SOCK_DGRAM, 0);
+  if (fd < 0) return errname(errno);
+  int rc = connect(fd, (struct sockaddr *)&ss, len);
+  int e = errno;
+  close(fd);
+  return rc == 0 ? "connected" : errname(e);
+}
+
+/* Run only after udp4 failed as expected: an allowed TCP connect sends a SYN. */
+static const char *tcp_connect(const char *addr) {
+  struct sockaddr_storage ss;
+  socklen_t len;
+  if (fill(AF_INET, addr, 9, &ss, &len) != 0) return "OTHER";
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) return errname(errno);
+  fcntl(fd, F_SETFL, O_NONBLOCK);
+  int rc = connect(fd, (struct sockaddr *)&ss, len);
+  int e = errno;
+  close(fd);
+  return rc == 0 ? "connected" : errname(e);
+}
+
+/* Listen on an ephemeral loopback port and connect to it. */
+static const char *loopback(int family) {
+  const char *addr = family == AF_INET ? "127.0.0.1" : "::1";
+  struct sockaddr_storage ss;
+  socklen_t len;
+  fill(family, addr, 0, &ss, &len);
+  int srv = socket(family, SOCK_STREAM, 0);
+  if (srv < 0) return errname(errno);
+  if (bind(srv, (struct sockaddr *)&ss, len) != 0 || listen(srv, 1) != 0) {
+    int e = errno;
+    close(srv);
+    return errname(e);
+  }
+  getsockname(srv, (struct sockaddr *)&ss, &len);
+  int cli = socket(family, SOCK_STREAM, 0);
+  int rc = cli < 0 ? -1 : connect(cli, (struct sockaddr *)&ss, len);
+  int e = errno;
+  if (cli >= 0) close(cli);
+  close(srv);
+  return rc == 0 ? "ok" : errname(e);
+}
+
+static const char *unix_connect(const char *path) {
+  struct sockaddr_un sa;
+  memset(&sa, 0, sizeof sa);
+  sa.sun_family = AF_UNIX;
+  strncpy(sa.sun_path, path, sizeof sa.sun_path - 1);
+  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd < 0) return errname(errno);
+  int rc = connect(fd, (struct sockaddr *)&sa, sizeof sa);
+  int e = errno;
+  close(fd);
+  return rc == 0 ? "connected" : errname(e);
+}
+
+#ifdef __APPLE__
+/* A service that would reach the network on the child's behalf. */
+static const char *service(const char *name) {
+  mach_port_t port = MACH_PORT_NULL;
+  kern_return_t kr = bootstrap_look_up(bootstrap_port, name, &port);
+  if (kr == KERN_SUCCESS) {
+    mach_port_deallocate(mach_task_self(), port);
+    return "reachable";
+  }
+  return "denied";
+}
+#endif
+
+
+#ifdef __linux__
+static int write_file(const char *path, const char *text) {
+  int fd = open(path, O_WRONLY | O_CLOEXEC);
+  if (fd < 0) return -1;
+  ssize_t n = write(fd, text, strlen(text));
+  close(fd);
+  return n == (ssize_t)strlen(text) ? 0 : -1;
+}
+
+/* Hide a path that leads to a service able to reach the network for us. */
+static void mask(const char *path) {
+  struct stat st;
+  if (stat(path, &st) != 0) return;
+  if (S_ISDIR(st.st_mode)) mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "size=4k,mode=000");
+  else mount("/dev/null", path, NULL, MS_BIND, NULL);
+}
+
+/* New user, network and mount namespaces. The uid and gid map to themselves,
+ * so the program runs as the same user and loses every capability at exec.
+ * Returns 0 on success, or -1 with errno set by the step that failed. */
+static int enter_namespaces(int loopback_profile) {
+  uid_t uid = getuid();
+  gid_t gid = getgid();
+  char map[64];
+  if (unshare(CLONE_NEWUSER | CLONE_NEWNET | CLONE_NEWNS) != 0) return -1;
+  write_file("/proc/self/setgroups", "deny");
+  snprintf(map, sizeof map, "%u %u 1", (unsigned)uid, (unsigned)uid);
+  if (write_file("/proc/self/uid_map", map) != 0) return -1;
+  snprintf(map, sizeof map, "%u %u 1", (unsigned)gid, (unsigned)gid);
+  if (write_file("/proc/self/gid_map", map) != 0) return -1;
+  if (loopback_profile) {
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof ifr);
+    strncpy(ifr.ifr_name, "lo", IFNAMSIZ - 1);
+    if (s < 0 || ioctl(s, SIOCGIFFLAGS, &ifr) != 0) return -1;
+    ifr.ifr_flags |= IFF_UP;
+    int rc = ioctl(s, SIOCSIFFLAGS, &ifr);
+    close(s);
+    if (rc != 0) return -1;
+  }
+  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return -1;
+  mask("/run/dbus");
+  mask("/var/run/dbus");
+  mask("/run/systemd/resolve");
+  const char *xdg = getenv("XDG_RUNTIME_DIR");
+  if (xdg) {
+    char bus[512];
+    snprintf(bus, sizeof bus, "%s/bus", xdg);
+    mask(bus);
+  }
+  return 0;
+}
+
+static void add_structure(void) {
+  char ns[64] = "";
+  ssize_t n = readlink("/proc/self/ns/net", ns, sizeof ns - 1);
+  if (n > 0) ns[n] = 0;
+  add(" netns=%s", n > 0 ? ns : "unknown");
+  struct if_nameindex *list = if_nameindex();
+  char names[256] = "";
+  int only_lo = 1, up = 0;
+  for (struct if_nameindex *i = list; i && i->if_index; i++) {
+    if (strcmp(i->if_name, "lo") != 0) only_lo = 0;
+    if (names[0]) strncat(names, ",", sizeof names - strlen(names) - 1);
+    strncat(names, i->if_name, sizeof names - strlen(names) - 1);
+  }
+  if (list) if_freenameindex(list);
+  int s = socket(AF_INET, SOCK_DGRAM, 0);
+  struct ifreq ifr;
+  memset(&ifr, 0, sizeof ifr);
+  strncpy(ifr.ifr_name, "lo", IFNAMSIZ - 1);
+  if (s >= 0 && ioctl(s, SIOCGIFFLAGS, &ifr) == 0) up = (ifr.ifr_flags & IFF_UP) != 0;
+  if (s >= 0) close(s);
+  add(" ifaces=%s%s", only_lo ? "lo" : names, only_lo && !up ? ":down" : "");
+}
+
+/* One forwarder per --bridge, inside the namespace: a Unix socket that main
+ * reaches from outside, piped to 127.0.0.1:PORT here. It dies with the
+ * program (PR_SET_PDEATHSIG), because the program keeps this process's pid. */
+static void pump(int a, int b) {
+  char buf[65536];
+  struct pollfd p[2] = {{a, POLLIN, 0}, {b, POLLIN, 0}};
+  for (;;) {
+    if (poll(p, 2, -1) < 0) return;
+    for (int i = 0; i < 2; i++) {
+      if (!(p[i].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+      ssize_t n = read(p[i].fd, buf, sizeof buf);
+      if (n <= 0) return;
+      for (ssize_t off = 0; off < n;) {
+        ssize_t w = write(p[1 - i].fd, buf + off, (size_t)(n - off));
+        if (w <= 0) return;
+        off += w;
+      }
+    }
+  }
+}
+
+static int start_bridge(const char *spec, int report_fd) {
+  const char *colon = strchr(spec, ':');
+  if (!colon) return -1;
+  int port = atoi(spec);
+  const char *path = colon + 1;
+  struct sockaddr_un sa;
+  memset(&sa, 0, sizeof sa);
+  sa.sun_family = AF_UNIX;
+  if (strlen(path) >= sizeof sa.sun_path) return -1;
+  strcpy(sa.sun_path, path);
+  unlink(path);
+  int srv = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (srv < 0 || bind(srv, (struct sockaddr *)&sa, sizeof sa) != 0 || listen(srv, 64) != 0) return -1;
+  chmod(path, 0600);
+  pid_t parent = getpid();
+  pid_t pid = fork();
+  if (pid < 0) return -1;
+  if (pid > 0) {
+    close(srv);
+    return 0;
+  }
+  prctl(PR_SET_PDEATHSIG, SIGKILL);
+  if (getppid() != parent) _exit(0);
+  /* Hold nothing of the program's: not the report fd (main waits for it to
+   * close), and not its stdout or stderr pipes. */
+  close(report_fd);
+  int devnull = open("/dev/null", O_RDWR);
+  if (devnull >= 0) {
+    dup2(devnull, 0);
+    dup2(devnull, 1);
+    dup2(devnull, 2);
+    if (devnull > 2) close(devnull);
+  }
+  signal(SIGCHLD, SIG_IGN);
+  for (;;) {
+    int c = accept(srv, NULL, NULL);
+    if (c < 0) continue;
+    if (fork() == 0) {
+      struct sockaddr_storage ss;
+      socklen_t len;
+      fill(AF_INET, "127.0.0.1", port, &ss, &len);
+      int t = socket(AF_INET, SOCK_STREAM, 0);
+      if (t >= 0 && connect(t, (struct sockaddr *)&ss, len) == 0) pump(c, t);
+      _exit(0);
+    }
+    close(c);
+  }
+}
+#endif
+
+/* Every check, in a fixed order. Returns 0 when the expected-failure checks
+ * look right from here; main re-checks every value either way. */
+static int probe(int loopback_profile) {
+  const char *udp4 = udp_connect(AF_INET, "192.0.2.1");
+  add(" udp4=%s udp6=%s", udp4, udp_connect(AF_INET6, "2001:db8::1"));
+  int udp_blocked = strcmp(udp4, "connected") != 0;
+  add(" tcp4=%s", udp_blocked ? tcp_connect("192.0.2.1") : "skipped");
+#ifdef __APPLE__
+  add(" dnsSocket=%s", unix_connect("/var/run/mDNSResponder"));
+  add(" nsurlsessiond=%s", service("com.apple.nsurlsessiond"));
+  add(" launchservices=%s", service("com.apple.coreservices.launchservicesd"));
+#else
+  add(" dnsSocket=%s", unix_connect("/run/systemd/resolve/io.systemd.Resolve"));
+#endif
+  const char *l4 = loopback(AF_INET), *l6 = loopback(AF_INET6);
+  add(" loop4=%s loop6=%s", l4, l6);
+#ifdef __linux__
+  add_structure();
+#endif
+  int loop_ok = strcmp(l4, "ok") == 0 && strcmp(l6, "ok") == 0;
+  return udp_blocked && (loopback_profile ? loop_ok : !loop_ok) ? 0 : -1;
+}
+
+static void send_report(int fd) {
+  char line[2200];
+  int n = snprintf(line, sizeof line, "LOQUI-ISOLATE/1%s\n", report);
+  if (fd >= 0) {
+    ssize_t w = write(fd, line, (size_t)n);
+    (void)w;
+    close(fd);
+  }
+}
+
+int main(int argc, char **argv) {
+  const char *profile = NULL;
+  int report_fd = -1, self_test = 0, control = 0, program = -1, bridges = 0;
+  const char *bridge[16];
+  for (int i = 1; i < argc; i++) {
+    if (!strcmp(argv[i], "--profile") && i + 1 < argc) profile = argv[++i];
+    else if (!strcmp(argv[i], "--report-fd") && i + 1 < argc) report_fd = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--self-test")) self_test = 1;
+    else if (!strcmp(argv[i], "--control")) control = 1;
+    else if (!strcmp(argv[i], "--bridge") && i + 1 < argc && bridges < 16) bridge[bridges++] = argv[++i];
+    else if (!strcmp(argv[i], "--")) { program = i + 1; break; }
+    else return EXIT_USAGE;
+  }
+  if (report_fd < 3) return EXIT_USAGE;
+  /* The report fd must never reach the program. */
+  fcntl(report_fd, F_SETFD, FD_CLOEXEC);
+  if (control) {
+    add(" profile=control status=ok");
+    probe(1);
+    send_report(report_fd);
+    return 0;
+  }
+  if (!profile || (strcmp(profile, "loopback") && strcmp(profile, "none"))) return EXIT_USAGE;
+  if (!self_test && (program < 0 || program >= argc)) return EXIT_USAGE;
+  int loopback_profile = !strcmp(profile, "loopback");
+  if (bridges > 0 && !loopback_profile) return EXIT_USAGE;
+#ifdef __linux__
+  if (enter_namespaces(loopback_profile) != 0) {
+    add(" profile=%s status=fail namespace=%s", profile, errname(errno));
+    send_report(report_fd);
+    return EXIT_PROBE_FAILED;
+  }
+  prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+#endif
+
+  char probe_part[2048];
+  used = 0;
+  report[0] = 0;
+  int ok = probe(loopback_profile) == 0;
+  snprintf(probe_part, sizeof probe_part, "%s", report);
+  int bridge_errno = 0;
+#ifdef __linux__
+  /* A forwarder started before a later failure dies with this process. */
+  for (int b = 0; ok && b < bridges; b++)
+    if (start_bridge(bridge[b], report_fd) != 0) {
+      bridge_errno = errno ? errno : EINVAL;
+      ok = 0;
+    }
+#endif
+  used = 0;
+  report[0] = 0;
+  add(" profile=%s status=%s%s", profile, ok ? "ok" : "fail", probe_part);
+  if (bridge_errno) add(" bridge=%s", errname(bridge_errno));
+  send_report(report_fd);
+  if (!ok) return EXIT_PROBE_FAILED;
+  if (self_test) return 0;
+  execvp(argv[program], argv + program); /* a bare name (osascript) is looked up in PATH */
+  return 127; /* exec failed: nothing ran */
+}
+```
+
+- [ ] **Step 5: Write the macOS profiles**
+
+Create `resources/loqui-isolate-loopback.sb`:
+
+```scheme
+;; Sealed mode (Plan 07, D14): loopback-only networking for native children.
+;; docs/security/native-isolation-spike.md (Task 0) is the source for every
+;; rule here; change both together. "localhost" in this language means every
+;; address of this computer, not just loopback (Task 0, question 1).
+(version 1)
+(allow default)
+(deny network*)
+(allow network-bind (local ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-outbound (remote ip "localhost:*"))
+;; Services that would reach the network on the child's behalf: DNS,
+;; background downloads, and LaunchServices (opening a URL in the browser).
+(deny mach-lookup
+  (global-name "com.apple.dnssd.service")
+  (global-name "com.apple.nsurlsessiond")
+  (global-name-regex #"^com\.apple\.coreservices\.")
+  (global-name-regex #"^com\.apple\.lsd\."))
+```
+
+Create `resources/loqui-isolate-none.sb`:
+
+```scheme
+;; Sealed mode (Plan 07, D14): no networking at all, loopback included.
+;; docs/security/native-isolation-spike.md (Task 0) is the source for every rule.
+(version 1)
+(allow default)
+(deny network*)
+(deny mach-lookup
+  (global-name "com.apple.dnssd.service")
+  (global-name "com.apple.nsurlsessiond")
+  (global-name-regex #"^com\.apple\.coreservices\.")
+  (global-name-regex #"^com\.apple\.lsd\."))
+```
+
+- [ ] **Step 6: Build and ship the stub**
+
+Create `scripts/build-loqui-isolate.js`. It follows `scripts/build-linux-fast-paste.js`: it rebuilds only when the source is newer, and it copies the profiles beside the binary, so `nativeIsolation` finds them in `profileDir`:
+
+```js
+#!/usr/bin/env node
+// Builds resources/bin/loqui-isolate (Plan 07, D14) and copies the macOS
+// sandbox profiles beside it. Runs on macOS and Linux (release platforms).
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+
+if (!["darwin", "linux"].includes(process.platform)) process.exit(0);
+const root = path.resolve(__dirname, "..");
+const source = path.join(root, "resources", "loqui-isolate.c");
+const outDir = path.join(root, "resources", "bin");
+const output = path.join(outDir, "loqui-isolate");
+fs.mkdirSync(outDir, { recursive: true });
+
+const stale = !fs.existsSync(output) || fs.statSync(output).mtimeMs < fs.statSync(source).mtimeMs;
+if (stale) {
+  const flags = ["-O2", "-Wall", "-Wextra", "-Werror", "-o", output, source];
+  if (process.platform === "darwin") flags.unshift("-arch", process.env.TARGET_ARCH === "x64" ? "x86_64" : "arm64", "-mmacosx-version-min=14.2");
+  const r = spawnSync("cc", flags, { stdio: "inherit" });
+  if (r.status !== 0) {
+    console.error("[loqui-isolate] build failed");
+    process.exit(1);
+  }
+  console.log("[loqui-isolate] built", output);
+}
+if (process.platform === "darwin")
+  for (const name of ["loopback", "none"])
+    fs.copyFileSync(path.join(root, "resources", `loqui-isolate-${name}.sb`), path.join(outDir, `loqui-isolate-${name}.sb`));
+```
+
+Then:
+1. In `scripts/prepare-platform.cjs`, add `run("build-loqui-isolate");` directly before `for (const file of native) run(file);`. Sealed mode needs it on both release platforms. A failed build fails the release build; it is never skipped.
+2. In `electron-builder.json`, add `"loqui-isolate*"` to the `filter` list of the `resources/bin/` → `bin/` entry, beside `"meeting-aec-helper-*"`. electron-builder signs it with the app's identity and `entitlementsInherit`, like the other helpers. Task 0 confirms that this is no signing change.
+3. In `src/helpers/privacy/nativeIsolation.js`, export `findStub()`. It checks the same candidates as `binaryResolver.resolveBundledBinary` (`resources/bin` in development; `process.resourcesPath/bin` when packaged), without requiring `debugLogger`, because the boot module requires it before any helper. When `stubCommand` is null, `createIsolation` reports `selfTest: "unavailable"` with the reason `"launcher missing"`, and a sealed native spawn is refused.
+4. In `.github/workflows/platform.yml`, after `- run: npm run prepare:platform`, add:
+
+   ```yaml
+         - name: Native isolation tests (Sealed mode, D14)
+           run: node --test "test/native/*.test.js"
+           env:
+             LOQUI_ISOLATION_TESTS: required
+   ```
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `node scripts/build-loqui-isolate.js && LOQUI_ISOLATION_TESTS=required node --test test/native/isolation.darwin.test.js`
+Expected: PASS, except "the paste helpers still work under their profile" until Task 0's per-kind profiles land. If Task 0 has not settled them, stop. That is a gate item.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add resources/loqui-isolate.c resources/loqui-isolate-*.sb scripts/build-loqui-isolate.js scripts/prepare-platform.cjs electron-builder.json src/helpers/privacy/nativeIsolation.js .github/workflows/platform.yml test/native/isolation.darwin.test.js test/fixtures/isolationProbe.js
+git commit -m "feat(privacy): loqui-isolate stub and macOS sandbox profiles, tested on macOS (D14)"
+```
+
+---
+
+### Task 6d: Linux: the main-side loopback bridge, the Linux tests, and CI with restricted user namespaces (D14)
+
+On Linux, an isolated sidecar listens on `127.0.0.1:PORT` inside its own network namespace, where main cannot reach it. The stub forwards a Unix socket to that port from inside (Task 6c, `--bridge`). This task adds the other half: main listens on `127.0.0.1:PORT` in its own namespace and pipes each connection to that Unix socket. The managers keep using `http://127.0.0.1:PORT` and `ws://127.0.0.1:PORT` unchanged (`llamaServer.js:570`, `whisperServer.js:161`, `qdrantManager.js:212`, `parakeetWsServer.js:328`).
+
+The Unix sockets live in a `0700` directory per launch, under `$XDG_RUNTIME_DIR/loqui-isolate/`. When `XDG_RUNTIME_DIR` is unset, the fallback is `os.tmpdir()/loqui-isolate-<uid>/`, also `0700`. Each socket is `0600`, so another user cannot reach a sidecar through its bridge.
+
+Main opens a bridge only after the child's report has passed, so nothing connects to a child that is still `pending`.
+
+**Files:**
+- Create: `src/helpers/privacy/loopbackBridge.js`
+- Test: `test/helpers/loopbackBridge.test.js` and `test/native/isolation.linux.test.js`
+- Modify: `.github/workflows/platform.yml`, which runs the Linux tests with user namespaces allowed and again with them restricted.
+
+- [ ] **Step 1: Write the failing bridge tests**
+
+Create `test/helpers/loopbackBridge.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const net = require("node:net");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { openBridge } = require("../../src/helpers/privacy/loopbackBridge");
+
+const skip = process.platform === "win32" && "Unix sockets";
+const listening = (server) => new Promise((r) => server.once("listening", r));
+async function unixEcho(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-bridge-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const socketPath = path.join(dir, "18080.sock");
+  const server = net.createServer((c) => c.on("data", (d) => c.write(`echo:${d}`)));
+  server.listen(socketPath);
+  await listening(server);
+  t.after(() => server.close());
+  return socketPath;
+}
+const freePort = () =>
+  new Promise((resolve) => {
+    const s = net.createServer().listen(0, "127.0.0.1", () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
+  });
+
+test("forwards both ways between 127.0.0.1:PORT and the Unix socket", { skip }, async (t) => {
+  const socketPath = await unixEcho(t);
+  const port = await freePort();
+  const bridge = openBridge({ port, socketPath });
+  t.after(() => bridge.close());
+  await listening(bridge.server);
+  const reply = await new Promise((resolve, reject) => {
+    const c = net.connect(port, "127.0.0.1", () => c.write("hi"));
+    c.on("data", (d) => {
+      resolve(String(d));
+      c.destroy();
+    });
+    c.on("error", reject);
+  });
+  assert.equal(reply, "echo:hi");
+});
+
+test("listens on loopback only", { skip }, async (t) => {
+  const socketPath = await unixEcho(t);
+  const bridge = openBridge({ port: await freePort(), socketPath });
+  t.after(() => bridge.close());
+  await listening(bridge.server);
+  assert.equal(bridge.server.address().address, "127.0.0.1");
+});
+
+test("a missing socket closes the client and nothing throws", { skip }, async (t) => {
+  const bridge = openBridge({ port: await freePort(), socketPath: path.join(os.tmpdir(), `loqui-missing-${process.pid}.sock`) });
+  t.after(() => bridge.close());
+  await listening(bridge.server);
+  const closed = await new Promise((resolve) => {
+    const c = net.connect(bridge.server.address().port, "127.0.0.1");
+    c.on("close", () => resolve(true));
+    c.on("error", () => {});
+  });
+  assert.equal(closed, true);
+});
+
+test("close() ends open connections, so a stopped sidecar leaves no half-open socket", { skip }, async (t) => {
+  const socketPath = await unixEcho(t);
+  const bridge = openBridge({ port: await freePort(), socketPath });
+  await listening(bridge.server);
+  const c = net.connect(bridge.server.address().port, "127.0.0.1");
+  await new Promise((r) => c.once("connect", r));
+  const ended = new Promise((r) => c.once("close", r));
+  bridge.close();
+  await ended;
+});
+```
+
+- [ ] **Step 2: Implement the bridge**
+
+Create `src/helpers/privacy/loopbackBridge.js`:
+
+```js
+"use strict";
+// Linux only (Plan 07, D14). An isolated sidecar listens on 127.0.0.1:PORT
+// inside its own network namespace; loqui-isolate forwards a Unix socket to
+// it. This listens on 127.0.0.1:PORT in main's namespace and pipes each
+// connection to that socket, so the managers keep their loopback URLs.
+const net = require("node:net");
+
+function openBridge({ port, socketPath }) {
+  const open = new Set();
+  const server = net.createServer((client) => {
+    const upstream = net.connect(socketPath);
+    open.add(client);
+    open.add(upstream);
+    const done = () => {
+      client.destroy();
+      upstream.destroy();
+      open.delete(client);
+      open.delete(upstream);
+    };
+    for (const s of [client, upstream]) s.on("error", done).on("close", done);
+    client.pipe(upstream).pipe(client);
+  });
+  // A port already taken here means the manager's port scan raced another
+  // program; the manager's health check reports it, and nothing else listens.
+  server.on("error", () => server.close());
+  server.listen(port, "127.0.0.1");
+  return {
+    server,
+    close() {
+      server.close();
+      for (const s of open) s.destroy();
+      open.clear();
+    },
+  };
+}
+
+module.exports = { openBridge };
+```
+
+- [ ] **Step 3: Write the Linux native tests**
+
+Create `test/native/isolation.linux.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const net = require("node:net");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { spawn, spawnSync } = require("node:child_process");
+const { createIsolation, verifyReport, EXIT_PROBE_FAILED } = require("../../src/helpers/privacy/nativeIsolation");
+const { openBridge } = require("../../src/helpers/privacy/loopbackBridge");
+
+const STUB = path.join(__dirname, "..", "..", "resources", "bin", "loqui-isolate");
+const PROBE = path.join(__dirname, "..", "fixtures", "isolationProbe.js");
+const required = process.env.LOQUI_ISOLATION_TESTS === "required";
+// "allowed" (default) or "restricted": what this machine's user namespaces allow.
+const userns = process.env.LOQUI_EXPECT_USERNS ?? "allowed";
+const skip = process.platform !== "linux" ? "Linux only" : !fs.existsSync(STUB) && !required ? "stub not built" : false;
+const hostNetns = () => fs.readlinkSync("/proc/self/ns/net");
+
+function stub(args, opts = {}) {
+  const r = spawnSync(STUB, ["--report-fd", "3", ...args], { stdio: ["ignore", "pipe", "pipe", "pipe"], encoding: "utf8", timeout: 30000, ...opts });
+  return { status: r.status, report: (r.output[3] ?? "").trim(), stdout: r.stdout, stderr: r.stderr };
+}
+
+test("restricted user namespaces: the stub reports why and runs nothing", { skip: skip || (userns !== "restricted" && "user namespaces allowed here") }, async () => {
+  const r = stub(["--profile", "loopback", "--", "/bin/true"]);
+  assert.equal(r.status, EXIT_PROBE_FAILED);
+  assert.match(r.report, /status=fail namespace=E[A-Z]+/);
+  const isolation = createIsolation({ platform: "linux", stubCommand: [STUB], profileDir: path.dirname(STUB), runtimeDir: os.tmpdir(), spawnRaw: spawn });
+  const status = await isolation.selfTest();
+  assert.equal(status.selfTest, "failed");
+  assert.equal(isolation.available(), false);
+});
+
+const allowed = skip || (userns !== "allowed" && "user namespaces restricted here");
+
+test("self-test: both profiles prove isolation from a namespace of their own", { skip: allowed }, () => {
+  for (const [profile, state] of [["loopback", "isolated"], ["none", "networkFree"]]) {
+    const r = stub(["--profile", profile, "--self-test"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(verifyReport(r.report, { platform: "linux", profile, hostNetns: hostNetns() }), { state, problems: [] });
+  }
+});
+
+test("control: the probe outside a namespace shows the host's namespace and interfaces", { skip: allowed }, () => {
+  const r = stub(["--control"]);
+  assert.match(r.report, new RegExp(`netns=${hostNetns().replace(/[[\]]/g, "\\$&")}`));
+  assert.equal(verifyReport(r.report.replace("profile=control", "profile=loopback"), { platform: "linux", profile: "loopback", hostNetns: hostNetns() }).state, null);
+});
+
+test("the exec'd program and its child stay inside: no route out, no resolver, loopback works", { skip: allowed }, () => {
+  const r = stub(["--profile", "loopback", "--", process.execPath, PROBE, "--child"]);
+  assert.equal(r.status, 0, r.stderr);
+  const seen = JSON.parse(r.stdout);
+  assert.equal(seen.udp4, "ENETUNREACH");
+  assert.equal(seen.tcp4, "ENETUNREACH");
+  assert.ok(["EAI_AGAIN", "ENOTFOUND"].includes(seen.lookup), seen.lookup);
+  assert.equal(seen.loop4, "ok");
+  assert.equal(seen.child.udp4, "ENETUNREACH");
+});
+
+test("the program cannot write a report: fd 3 is closed before exec", { skip: allowed }, () => {
+  const forge = "try { require('fs').writeSync(3, 'LOQUI-ISOLATE/1 forged\\n'); console.log('wrote') } catch (e) { console.log(e.code) }";
+  const r = stub(["--profile", "loopback", "--", process.execPath, "-e", forge]);
+  assert.notEqual(r.stdout.trim(), "wrote");
+  assert.doesNotMatch(r.report, /forged/);
+});
+
+test("the system and session buses are hidden inside, so resolved and portals cannot act for the child", { skip: allowed }, () => {
+  const check = "const n=require('net');const p=process.argv[1];const s=n.connect(p);s.on('connect',()=>{console.log('connected');s.destroy()});s.on('error',e=>console.log(e.code))";
+  for (const bus of ["/run/dbus/system_bus_socket", process.env.XDG_RUNTIME_DIR && `${process.env.XDG_RUNTIME_DIR}/bus`].filter(Boolean)) {
+    if (!fs.existsSync(bus)) continue;
+    const r = stub(["--profile", "none", "--", process.execPath, "-e", check, bus]);
+    assert.notEqual(r.stdout.trim(), "connected", bus);
+  }
+});
+
+test("a server inside the namespace is reachable from main through the bridge, and only after its report", { skip: allowed }, async (t) => {
+  const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-rt-"));
+  fs.chmodSync(runtimeDir, 0o700);
+  t.after(() => fs.rmSync(runtimeDir, { recursive: true, force: true }));
+  const isolation = createIsolation({ platform: "linux", stubCommand: [STUB], profileDir: path.dirname(STUB), runtimeDir, spawnRaw: spawn, openBridge });
+  const port = 46480;
+  const server = `require("net").createServer((c) => c.end("inside")).listen(${port}, "127.0.0.1"); setTimeout(() => process.exit(0), 10000);`;
+  const wrapped = isolation.wrap({ command: process.execPath, args: ["-e", server], options: {}, profile: "loopback", ports: [port] });
+  const child = spawn(wrapped.command, wrapped.args, wrapped.options);
+  t.after(() => child.kill("SIGKILL"));
+  const { state, problems } = await isolation.settle(child, wrapped);
+  assert.equal(state, "isolated", problems.join(","));
+  assert.equal(fs.statSync(wrapped.bridges[0].socketPath).mode & 0o777, 0o600);
+  let reply = null;
+  for (let i = 0; i < 50 && reply === null; i++) {
+    reply = await new Promise((resolve) => {
+      // Until the program inside listens, the bridge accepts and then closes.
+      const c = net.connect(port, "127.0.0.1");
+      c.on("data", (d) => resolve(String(d)));
+      c.on("error", () => resolve(null));
+      c.on("close", () => resolve(null));
+    });
+    if (reply === null) await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(reply, "inside");
+});
+```
+
+- [ ] **Step 4: Run them, then wire CI**
+
+Run: `node scripts/build-loqui-isolate.js && LOQUI_ISOLATION_TESTS=required node --test test/helpers/loopbackBridge.test.js "test/native/*.test.js"`
+Expected on a Linux machine with user namespaces allowed: PASS, with the restricted-namespace test skipped. Before Step 2, the bridge tests fail with `Cannot find module '…/loopbackBridge'`.
+
+In `.github/workflows/platform.yml`, the step Task 6c added runs the native tests on both `macos-26` and `ubuntu-22.04`. For Linux, add two more steps after it. GitHub's runners have passwordless `sudo`, so the restricted case is a real kernel setting, not a mock:
+
+```yaml
+      - name: Native isolation tests with user namespaces restricted (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          before=$(sysctl -n user.max_user_namespaces)
+          sudo sysctl -w user.max_user_namespaces=0
+          LOQUI_EXPECT_USERNS=restricted LOQUI_ISOLATION_TESTS=required node --test "test/native/isolation.linux.test.js" || status=$?
+          sudo sysctl -w user.max_user_namespaces="$before"
+          exit ${status:-0}
+```
+
+Add a job `isolation-ubuntu-24` on `ubuntu-24.04`. It checks out the repo, runs `npm ci --ignore-scripts` and `node scripts/build-loqui-isolate.js`, then runs `node --test "test/native/isolation.linux.test.js"` with `LOQUI_ISOLATION_TESTS=required`. Set `LOQUI_EXPECT_USERNS` from `sysctl -n kernel.apparmor_restrict_unprivileged_userns`: `1` means `restricted`. This job records what the owner's Task 0 decision has to cover on the most common desktop distribution.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/helpers/privacy/loopbackBridge.js test/helpers/loopbackBridge.test.js test/native/isolation.linux.test.js .github/workflows/platform.yml
+git commit -m "feat(privacy): Linux loopback bridge and namespace isolation tests, with restricted user namespaces in CI (D14)"
+```
+
+---
+
+### Task 6e: Children already running when the user seals are restarted inside isolation, once idle (D14)
+
+A process cannot be moved into a sandbox or a namespace after it starts. On macOS the profile applies only from `exec`; on Linux, joining another namespace needs privileges Loqui does not have. So a native child that was running before the seal is `launchControlled`, and it stays that way until it is restarted under the stub.
+
+**The rule:**
+- **Long-lived children are restarted, but only when idle.** Each long-lived child registers a restart hook: the four model servers, and the key and media listeners from Task 0's inventory. When sealing, the registry restarts it once no local request to it is in flight. The new process is spawned while sealed, so it goes through the stub.
+- **Work in progress is never cut to make the seal verify.** A busy server is not restarted. The seal stays unverified (`isolation:<kind>`, shown by name) until it is idle; the 500 ms recheck retries the restart.
+- **One-job programs are not restarted.** FFmpeg, `tar`, a capture helper during a recording, and the diarization CLI have no hook. The seal stays unverified until they exit, and their next run is isolated.
+- **Unsealing changes nothing.** Isolated children keep running isolated.
+
+"In flight" is measured in main, not guessed. Layer B (Task 6) counts these, by port:
+- loopback `http`/`https` requests, until each closes;
+- upgraded sockets (the Parakeet WebSocket), until each closes;
+- undici requests, through Node's `undici:request:*` diagnostics channels.
+
+**Files:**
+- Modify:
+  - `src/helpers/privacy/childRegistry.js`: hooks and `reisolateAll`;
+  - `src/helpers/privacy/egressBackstop.js` (Task 6): `localInFlight(ports)`;
+  - `src/helpers/llamaServer.js`, `src/helpers/whisperServer.js`, `src/helpers/qdrantManager.js`, `src/helpers/parakeetWsServer.js` and `src/helpers/globeKeyManager.js`. Also every other long-lived helper that Task 0's inventory lists, with the same pattern.
+- Test: `test/helpers/reisolate.test.js`
+
+**Interfaces:**
+- `loquiIsolation` (Task 6b) gains two optional fields: `reisolate: () => Promise<void>` and `isIdle: () => boolean`. The guard stores both on the registry entry, whether the spawn was wrapped or not.
+- `childRegistry.reisolateAll({ drainMs = 30000, idle = backstop.localInFlight-based, sleep }): Promise<string[]>`. It returns failures: `busy:<kind>` or `reisolate:<kind>`.
+- `egressBackstop.localInFlight(ports: number[]): number`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/helpers/reisolate.test.js`. It uses the fake stub from Task 6b, so real processes start and stop:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const realChildProcess = require("node:child_process");
+const gate = require("../../src/helpers/privacy/egressGate");
+const backstop = require("../../src/helpers/privacy/egressBackstop");
+const registry = require("../../src/helpers/privacy/childRegistry");
+const { createIsolation } = require("../../src/helpers/privacy/nativeIsolation");
+
+const skip = process.platform === "win32" && "POSIX shell fixture";
+const FAKE = path.join(__dirname, "..", "fixtures", "fakeIsolate.js");
+const OK = "LOQUI-ISOLATE/1 profile=loopback status=ok udp4=ENETUNREACH udp6=ENETUNREACH tcp4=ENETUNREACH dnsSocket=ENOENT loop4=ok loop6=ok netns=net:[4026532999] ifaces=lo ";
+const flags = { sealed: false };
+
+function setup(t) {
+  flags.sealed = false;
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => flags.sealed });
+  registry._resetForTests();
+  const childProcess = { ...realChildProcess };
+  const isolation = createIsolation({ platform: "linux", stubCommand: [process.execPath, FAKE], profileDir: os.tmpdir(), runtimeDir: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-iso-")), hostNetns: () => "net:[1]", spawnRaw: realChildProcess.spawn });
+  isolation._setSelfTestForTests("passed");
+  registry.installSpawnGuard({ childProcess, isolation });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-bin-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  registry.registerLocalBinaryDir(dir);
+  const file = path.join(dir, "fake-server");
+  fs.writeFileSync(file, "#!/bin/sh\nsleep 30\n", { mode: 0o755 });
+  // A stand-in for a manager: start() spawns through the guard, reisolate()
+  // stops and starts again, exactly as the real managers do.
+  const manager = {
+    child: null,
+    starts: 0,
+    start() {
+      this.starts++;
+      this.child = childProcess.spawn(file, [], {
+        env: { ...process.env, FAKE_ISOLATE_REPORT: OK },
+        loquiIsolation: { profile: "loopback", ports: [18080], reisolate: () => this.reisolate() },
+      });
+      t.after(() => this.child?.kill("SIGKILL"));
+    },
+    async reisolate() {
+      const old = this.child;
+      old.kill("SIGTERM");
+      await new Promise((r) => old.once("exit", r));
+      this.start();
+    },
+  };
+  return { manager, childProcess, file };
+}
+const isolationOf = (pid) => registry.alive().find((c) => c.pid === pid)?.isolation;
+const until = async (fn) => {
+  for (let i = 0; i < 200 && !fn(); i++) await new Promise((r) => setTimeout(r, 10));
+  return fn();
+};
+
+test("sealing restarts an idle launchControlled server through its hook, and the new process is isolated", { skip }, async (t) => {
+  const { manager } = setup(t);
+  manager.start();
+  const first = manager.child.pid;
+  assert.equal(isolationOf(first), "launchControlled");
+  flags.sealed = true;
+  const failures = await registry.reisolateAll({ drainMs: 0, idle: () => true });
+  assert.deepEqual(failures, []);
+  assert.equal(manager.starts, 2);
+  assert.notEqual(manager.child.pid, first);
+  assert.ok(await until(() => isolationOf(manager.child.pid) === "isolated"));
+  assert.equal(registry.alive().some((c) => c.pid === first), false, "the old process has exited");
+});
+
+test("a busy server is not restarted: it stays launchControlled and is named, until it is idle", { skip }, async (t) => {
+  const { manager } = setup(t);
+  manager.start();
+  const pid = manager.child.pid;
+  flags.sealed = true;
+  let busy = true;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 30, idle: () => !busy }), ["busy:fake-server"]);
+  assert.equal(manager.starts, 1, "work in progress is never cut");
+  assert.equal(isolationOf(pid), "launchControlled");
+  busy = false;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 0, idle: () => !busy }), []);
+  assert.equal(manager.starts, 2);
+});
+
+test("a one-job program has no hook: it is never restarted and counts against the seal until it exits", { skip }, async (t) => {
+  const { childProcess, file } = setup(t);
+  const child = childProcess.spawn(file, []);
+  t.after(() => child.kill("SIGKILL"));
+  flags.sealed = true;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 0, idle: () => true }), []);
+  assert.equal(isolationOf(child.pid), "launchControlled");
+  child.kill("SIGTERM");
+  assert.ok(await until(() => isolationOf(child.pid) === undefined));
+});
+
+test("a hook that fails is a failure, never a relabel", { skip }, async (t) => {
+  const { manager } = setup(t);
+  manager.start();
+  manager.reisolate = async () => {
+    throw new Error("could not restart");
+  };
+  flags.sealed = true;
+  assert.deepEqual(await registry.reisolateAll({ drainMs: 0, idle: () => true }), ["reisolate:fake-server"]);
+  assert.equal(isolationOf(manager.child.pid), "launchControlled");
+});
+
+test("localInFlight counts a loopback request until it closes, and an upgraded socket until it closes", async (t) => {
+  backstop.installNodeBackstop();
+  let release;
+  const server = http.createServer((req, res) => {
+    release = () => res.end("ok");
+  });
+  server.on("upgrade", (req, socket) => {
+    socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: test\r\nConnection: Upgrade\r\n\r\n");
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const { port } = server.address();
+  assert.equal(backstop.localInFlight([port]), 0);
+  const req = http.get({ host: "127.0.0.1", port, agent: false });
+  await until(() => release);
+  assert.equal(backstop.localInFlight([port]), 1);
+  release();
+  await new Promise((r) => req.once("close", r));
+  assert.equal(backstop.localInFlight([port]), 0);
+  const up = http.request({ host: "127.0.0.1", port, headers: { Connection: "Upgrade", Upgrade: "test" } });
+  const socket = await new Promise((r) => up.once("upgrade", (res, s) => r(s)).end());
+  assert.equal(backstop.localInFlight([port]), 1, "an open upgraded socket is in flight");
+  socket.destroy();
+  await until(() => backstop.localInFlight([port]) === 0);
+  assert.equal(backstop.localInFlight([port + 1]), 0);
+});
+
+test("the four model servers declare loopback isolation, their port and a restart hook (ratchet beside the tests above)", () => {
+  const root = path.join(__dirname, "..", "..");
+  for (const file of ["llamaServer.js", "whisperServer.js", "qdrantManager.js", "parakeetWsServer.js"]) {
+    const source = fs.readFileSync(path.join(root, "src", "helpers", file), "utf8");
+    assert.match(source, /loquiIsolation: \{ profile: "loopback", ports: \[this\.port(, this\.port \+ 1)?\], reisolate: \(\) => this\.reisolate\(\) \}/, file);
+    assert.match(source, /async reisolate\(\) \{/, file);
+  }
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npm test -- test/helpers/reisolate.test.js`
+Expected: FAIL with `registry.reisolateAll is not a function` and `backstop.localInFlight is not a function`.
+
+- [ ] **Step 3: Count local requests in flight in Layer B**
+
+In `src/helpers/privacy/egressBackstop.js` (Task 6), inside the existing loopback branch of the `http`/`https` request hook (the one that checks loopback-proxy forwarding), count each loopback request by port:
+
+```js
+// Sealed mode (D14): how many local requests each port has in flight, so a
+// restart into isolation (Task 6e) never cuts work in progress.
+const localByPort = new Map();
+const bump = (port, delta) => localByPort.set(port, Math.max(0, (localByPort.get(port) ?? 0) + delta));
+function trackLocal(req, port) {
+  bump(port, 1);
+  let open = true;
+  const done = () => {
+    if (open) {
+      open = false;
+      bump(port, -1);
+    }
+  };
+  req.once("upgrade", (res, socket) => {
+    // The request is over; the upgraded socket now carries the session.
+    socket.once("close", () => bump(port, -1));
+    open = false;
+  });
+  req.once("close", done);
+}
+function localInFlight(ports) {
+  return ports.reduce((n, port) => n + (localByPort.get(Number(port)) ?? 0), 0);
+}
+```
+
+Call `trackLocal(req, Number(port))` where the hook already knows that the request's host is loopback. Count undici too, by subscribing once in `installNodeBackstop()`:
+
+```js
+const dc = require("node:diagnostics_channel");
+const undiciOpen = new WeakMap();
+dc.subscribe("undici:request:create", ({ request }) => {
+  const url = new URL(request.origin);
+  if (!isLoopbackHost(url.hostname)) return;
+  const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+  undiciOpen.set(request, port);
+  bump(port, 1);
+});
+for (const name of ["undici:request:trailers", "undici:request:error"])
+  dc.subscribe(name, ({ request }) => {
+    const port = undiciOpen.get(request);
+    if (port !== undefined) {
+      undiciOpen.delete(request);
+      bump(port, -1);
+    }
+  });
+```
+
+Export `localInFlight`, and clear `localByPort` in `_resetForTests`.
+
+- [ ] **Step 4: Restart hooks in the registry**
+
+In `src/helpers/privacy/childRegistry.js`:
+1. In `guarded`, when a native child is registered (wrapped or not), copy `request.reisolate`, `request.isIdle` and `request.ports ?? []` onto the entry.
+2. Add `reisolateAll`:
+
+```js
+// Sealed mode (D14): restart every long-lived native child that started
+// without isolation, once it is idle. A child with no hook is a one-job
+// program; the seal stays unverified until it exits. Work in progress is
+// never cut: a busy child is reported, and the next recheck tries again.
+let reisolating = false;
+async function reisolateAll({ drainMs = 30000, idle = (ports) => require("./egressBackstop").localInFlight(ports) === 0, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  if (reisolating) return [];
+  reisolating = true;
+  try {
+    const targets = [...entries].filter((e) => e.local && e.isolation === "launchControlled" && e.reisolate && isAlive(e));
+    const failures = [];
+    await Promise.all(
+      targets.map(async (entry) => {
+        const ready = () => (entry.isIdle ? entry.isIdle() : idle(entry.ports));
+        const deadline = Date.now() + drainMs;
+        while (!ready() && Date.now() < deadline) await sleep(50);
+        if (!ready()) return failures.push(`busy:${entry.kind}`);
+        try {
+          await entry.reisolate();
+        } catch {
+          failures.push(`reisolate:${entry.kind}`);
+        }
+      })
+    );
+    return failures;
+  } finally {
+    reisolating = false;
+  }
+}
+```
+
+Export it, and make `_resetForTests` reset `reisolating`.
+
+- [ ] **Step 5: Give each long-lived spawn its isolation request and hook**
+
+1. **`src/helpers/llamaServer.js`.** In `start(modelPath, options = {})` (`:174`), make the first statement `this._lastStart = [modelPath, options];`. In `_startWithBinary`'s spawn options (`:426-432`), add:
+
+   ```js
+           loquiIsolation: { profile: "loopback", ports: [this.port], reisolate: () => this.reisolate() },
+   ```
+
+   Then add the method:
+
+   ```js
+     // Sealed mode (Plan 07, D14): restart inside network isolation. The
+     // registry calls this only when no local request to this server is in
+     // flight, so nothing in progress is cut.
+     async reisolate() {
+       const last = this._lastStart;
+       if (!last) return;
+       await this.stop();
+       await this.start(...last);
+     }
+   ```
+
+2. **`src/helpers/whisperServer.js`.** The same pattern: `start(modelPath, options = {})` (`:503`) records `this._lastStart`; the spawn at `:634` gets the same `loquiIsolation` line; and the same `reisolate()`.
+3. **`src/helpers/parakeetWsServer.js`.** `start(modelName, modelDir, runtime = "offline", language = null)` (`:87`) records `this._lastStart = [modelName, modelDir, runtime, language]`; the spawn at `:160` gets the line; and the same `reisolate()`.
+4. **`src/helpers/qdrantManager.js`.** The spawn at `:128` gets `loquiIsolation: { profile: "loopback", ports: [this.port, this.port + 1], reisolate: () => this.reisolate() }`. That is HTTP and gRPC, from the config `_doStart` writes. Then add `async reisolate() { await this.stop(); this.stopRequested = false; await this.start(); }`. Read `stop()` (`:302`) first: if it does not set `stopRequested`, drop that line.
+5. **`src/helpers/globeKeyManager.js`.** The listener spawned by `start()` (`:187`) gets `loquiIsolation: { profile: "none", reisolate: async () => { this.stop(); this.start(); } }`. Apply the same pattern to every other long-lived helper in Task 0's inventory, and add each to the ratchet's file list.
+
+One-job spawns get no hook. FFmpeg's three sites, `diarization.js:342`, `meetingAecManager.js:79` and the extraction tools default to `{ profile: "none" }` with no ports, which is right for them.
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/reisolate.test.js test/helpers/nativeIsolation.test.js test/helpers/childRegistry.test.js test/helpers/egressBackstop.test.js`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/helpers/privacy/childRegistry.js src/helpers/privacy/egressBackstop.js src/helpers/llamaServer.js src/helpers/whisperServer.js src/helpers/qdrantManager.js src/helpers/parakeetWsServer.js src/helpers/globeKeyManager.js test/helpers/reisolate.test.js
+git commit -m "feat(privacy): restart running native children inside isolation once idle (D14)"
+```
+
+---
+
+### Task 6f: The ONNX worker runs under the launcher too (D14)
+
+The ONNX worker is a native child: onnxruntime's native code runs in it. Electron's `utilityProcess.fork` has no option to wrap the process in a launcher, and Linux cannot put an already-threaded process into a new namespace.
+
+So the worker moves to a `child_process.spawn` of Loqui's own binary in Node mode (`ELECTRON_RUN_AS_NODE=1`). The guard wraps that spawn with the `none` profile, like any other native child. The RunAsNode fuse is not disabled (nothing in the repo flips fuses), and `scripts/package-smoke.cjs:31` already runs the packaged binary this way with onnxruntime, so the module loads.
+
+The JavaScript lock from Task 6a stays as the worker's first statement, as defence in depth.
+
+**Files:**
+- Modify: `src/helpers/onnxWorkerClient.js`, `src/workers/onnxWorker.js` and `src/helpers/privacy/childRegistry.js` (classification)
+- Test: `test/helpers/onnxWorkerIsolation.test.js`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/helpers/onnxWorkerIsolation.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const test = require("node:test");
+const { fork } = require("node:child_process");
+const registry = require("../../src/helpers/privacy/childRegistry");
+
+const WORKER = path.join(__dirname, "..", "..", "src", "workers", "onnxWorker.js");
+
+test("Loqui in Node mode running a worker script is a native child; any other script is not", () => {
+  const env = { ELECTRON_RUN_AS_NODE: "1" };
+  assert.equal(registry.isNativeSpawn(process.execPath, [WORKER], { env }), true);
+  assert.equal(registry.isNativeSpawn(process.execPath, [path.join(__dirname, "elsewhere.js")], { env }), false);
+  assert.equal(registry.isNativeSpawn(process.execPath, [WORKER], { env: {} }), false, "a relaunch of Loqui is not a worker");
+});
+
+test("the worker answers over Node IPC with structured-clone messages", async (t) => {
+  const child = fork(WORKER, [], { serialization: "advanced", stdio: ["ignore", "ignore", "pipe", "ipc"], env: { ...process.env, LOQUI_ONNX_WORKER_TEST: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const reply = await new Promise((resolve) => {
+    child.once("message", resolve);
+    child.send({ id: 7, method: "ping", payload: { data: new Float32Array([1, 2]) } });
+  });
+  assert.equal(reply.id, 7);
+  assert.deepEqual(reply.result, { pong: true });
+});
+```
+
+`LOQUI_ONNX_WORKER_TEST=1` makes `dispatch` answer `ping` without loading onnxruntime, so the test runs in plain Node.
+
+- [ ] **Step 2: Move the worker to Node IPC**
+
+In `src/workers/onnxWorker.js`:
+- Replace the `process.parentPort` block (`:382-402`) with:
+
+  ```js
+  // Sealed mode (Plan 07, D14): the worker runs as Loqui in Node mode under
+  // loqui-isolate (child_process, not utilityProcess), so main talks to it
+  // over Node IPC with structured-clone serialization.
+  if (typeof process.send !== "function") {
+    process.stderr.write("onnx worker: no IPC channel\n");
+    process.exit(1);
+  }
+  process.on("message", async (message) => {
+    const { reply } = await dispatch(message);
+    process.send(reply);
+  });
+  process.on("disconnect", () => {
+    log("info", "parent disconnected");
+    process.exit(0);
+  });
+  log("info", "worker initialized", { intraOpNumThreads });
+  ```
+
+- In `dispatch`, add a first case: `if (process.env.LOQUI_ONNX_WORKER_TEST === "1" && message.method === "ping") return { reply: { id: message.id, result: { pong: true } } };`.
+- Move `ort = require("onnxruntime-node")` (`:62`) into the first `dispatch` call that needs it, so the test path never loads it. Keep the lock as the first two statements.
+
+In `src/helpers/onnxWorkerClient.js`, `_spawn()` (`:50-99`):
+- Replace `utilityProcess.fork(WORKER_SCRIPT, [], { serviceName, stdio: "pipe", env, execArgv })` with:
+
+  ```js
+        const child = spawn(process.execPath, ["--max-old-space-size=512", WORKER_SCRIPT], {
+          stdio: ["ignore", "pipe", "pipe", "ipc"],
+          serialization: "advanced",
+          env: { ...env, ELECTRON_RUN_AS_NODE: "1" },
+          loquiIsolation: { profile: "none", reisolate: () => this.reisolate(), isIdle: () => this.pending.size === 0 },
+        });
+  ```
+
+- Replace the `MessageChannelMain` lines (`:85-92`) with an adapter, so `request()` and `stop()` keep calling `this.port.postMessage(...)` and `this.port.close()`:
+
+  ```js
+        child.on("message", (reply) => this._onMessage(reply));
+        const port = { postMessage: (message) => child.send(message), close: () => child.connected && child.disconnect() };
+  ```
+
+  Then set `this.port = port`.
+- `transferList` is dropped (IPC copies), so `request()` passes only the message.
+- Add:
+
+  ```js
+    // Sealed mode (D14): restart inside isolation when idle; the next request
+    // spawns the worker again, and while sealed that spawn is isolated.
+    async reisolate() {
+      await this.stop();
+      this.shuttingDown = false;
+    }
+  ```
+
+- Remove the `utilityProcess` and `MessageChannelMain` imports.
+
+In `childRegistry.js`, export `isNativeSpawn(command, args, options)`. It is true for `bundled`, `osTool` and `ffmpeg`. It is also true for `process.execPath` when `options.env.ELECTRON_RUN_AS_NODE === "1"` and the first argument that ends in `.js` resolves under `WORKERS_DIR`. Use it in `isNative`. The `utilityProcess.fork` guard stays as it is: nothing calls `utilityProcess.fork` any more, and Task 1's inventory records that.
+
+- [ ] **Step 3: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/onnxWorkerIsolation.test.js test/helpers/workerEgressLock.test.js`
+Expected: PASS. Then run `node scripts/package-smoke.cjs` after `npm run build`: the packaged worker loads onnxruntime under `ELECTRON_RUN_AS_NODE`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/helpers/onnxWorkerClient.js src/workers/onnxWorker.js src/helpers/privacy/childRegistry.js test/helpers/onnxWorkerIsolation.test.js
+git commit -m "feat(privacy): run the ONNX worker as a native child under the launcher (D14)"
+```
+
+---
+
 ### Task 7: Boot order, the sealing barrier, attestation, trusted IPC, preload and types
 
 **Files:**
@@ -4616,10 +7066,11 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
   - `SealedState` (Task 3), `FlightRecorder` (Task 4), `egressGate` (Task 5) and `egressBackstop` (Task 6);
   - `inference.stopCodex(): Promise<void>` and `inference.codexRunning(): boolean` (Task 8);
   - `updateManager.pauseForSeal()` and `updateManager.resumeAfterSeal()` (Task 10);
-  - `childRegistry` (Task 6a): `alive()`, `stopAll()` and `installSpawnGuard()`;
+  - `childRegistry` (Tasks 6a, 6b and 6e): `alive()`, `stopAll()`, `installSpawnGuard()`, `isolationStatus()`, `onIsolationChange()` and `reisolateAll()`;
+  - `nativeIsolation` (Tasks 6b and 6c): `createIsolation`, `findStub` and `isolationRuntimeDir`; and `loopbackBridge.openBridge` (Task 6d);
   - the calendar managers' existing `stop()`/`start()`.
 - Produces:
-  - `bootEgressGuards({ app, profile, getDefaultSession, utilityProcess?, now? }): { state, recorder, bootedAt }`. It installs the Node backstop, the spawn guard (Task 6a), the webContents guard and the session watcher.
+  - `bootEgressGuards({ app, profile, getDefaultSession, utilityProcess?, now? }): { state, recorder, bootedAt, isolation }`. It installs the Node backstop, the spawn guard with OS isolation (Tasks 6a and 6b), the webContents guard and the session watcher. It runs the isolation self-test once, synchronously, so that a sidecar starting right after a sealed boot is never refused while the check is still running. On macOS this took about 80 ms, measured with the real stub while writing this plan.
   - `createSealTransition({ state, bootedAt, getUpdateManager, getInference, getCalendars, children, sleep, now?, waitMs?, onStopping? })`. It returns `{ apply(sealed): Promise<void>, recheck(): void, snapshot(): TransitionSnapshot, on("change", fn) }`.
     - `TransitionSnapshot` is `{ phase: "open"|"sealing"|"sealed", effectiveSince: number|null, failures: string[], notes: string[] }`.
     - `failures` are *unresolved* problems, and while any remain the seal is unverified.
@@ -4677,7 +7128,11 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
     loadError: "corrupt" | "unreadable" | null; saveError: string | null;
     guards: { node: boolean; dns: boolean; dgram: boolean; http: boolean; webContents: boolean;
               sessions: number; envProxy: boolean; openRemoteSockets: number; chromiumInFlightRemote: number; pendingDns: number };
-    networkChildren: string[]; uninspectedChildren: string[]; activeRemote: number;
+    networkChildren: string[]; activeRemote: number;
+    children: Array<{ kind: string; pid: number;         // every native child alive now (D14)
+                      isolation: "isolated" | "networkFree" | "pending" | "launchControlled" | "failed" }>;
+    isolation: { platform: string; mechanism: "seatbelt" | "netns" | "none";
+                 selfTest: "pending" | "passed" | "failed" | "unavailable"; checkedAt: number | null; reason: string | null };
     blockedSinceSealed: number; recordFailures: number;
     version: number; at: number;
     nothingLeaves: boolean;
@@ -4704,6 +7159,7 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
 - there are no open remote sockets, no Chromium remote requests in flight and no DNS lookups pending;
 - `failures` is empty: a failed stop, a child that survived `SIGKILL`, or a timeout never yields a verified seal, and evidence is never cleared to make a check pass;
 - no network-capable child is alive;
+- every native child alive is `isolated` or `networkFree`, and that comes from main's own check of its report (D14). `pending`, `launchControlled` and `failed` never count;
 - no remote ticket is active.
 
 The panel's historical claim is phrased from `effectiveSince` (the verified moment), never from `sealedSince` (the moment you flipped the switch).
@@ -4741,7 +7197,10 @@ function harness(t, { sealedAtBoot = false } = {}) {
   // A fake of childRegistry (Task 6a): children are alive until "exited".
   const children = {
     list: [],
-    alive() { return this.list.filter((c) => !c.exited).map((c) => ({ kind: c.kind })); },
+    alive() { return this.list.filter((c) => !c.exited).map((c) => ({ kind: c.kind, local: c.local, isolation: c.isolation })); },
+    isolationStatus: () => ({ platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null }),
+    // Task 6e's restart: only children marked restartable (idle, with a hook) come back isolated.
+    async reisolateAll() { log.push("children.reisolate"); for (const c of this.list) if (c.local && c.isolation === "launchControlled" && c.restartable) c.isolation = "isolated"; return []; },
     async stopAll() { log.push("children.stop"); for (const c of this.list) if (!c.stubborn) c.exited = true; if (this.list.some((c) => !c.exited)) throw Object.assign(new Error("x"), { code: "CHILD_STOP_FAILED" }); },
   };
   const calendar = { stop: () => log.push("calendar.stop"), start: () => log.push("calendar.start") };
@@ -4772,7 +7231,7 @@ test("sealing stops everything, waits for children, then becomes effective", asy
   h.state.set(true);
   await h.transition.apply(true);
   assert.equal(ticket.signal.aborted, true);
-  assert.deepEqual(h.log, ["updates.pause", "calendar.stop", "codex.stop", "children.stop"]);
+  assert.deepEqual(h.log, ["updates.pause", "calendar.stop", "codex.stop", "children.stop", "children.reisolate"]);
   assert.deepEqual(phases, ["sealing", "sealed"]);
   const snapshot = h.transition.snapshot();
   assert.equal(snapshot.phase, "sealed");
@@ -4804,6 +7263,53 @@ test("a child that will not exit keeps the seal unverified until it really exits
   assert.deepEqual(h.transition.snapshot().failures, []);
   assert.ok(h.transition.snapshot().notes.includes("childStop"));
   assert.equal(h.attest().nothingLeaves, true);
+});
+
+test("nothingLeaves needs every running native child isolated or network-free; pending, launchControlled and failed never count (D14)", (t) => {
+  const h = harness(t, { sealedAtBoot: true });
+  h.children.list.push({ kind: "llama-server", local: true, isolation: "isolated" }, { kind: "ffmpeg", local: true, isolation: "networkFree" });
+  const ok = h.attest();
+  assert.equal(ok.nothingLeaves, true);
+  assert.deepEqual(ok.children.map((c) => c.isolation), ["isolated", "networkFree"]);
+  for (const isolation of ["pending", "launchControlled", "failed", undefined]) {
+    h.children.list.push({ kind: "qdrant", local: true, isolation });
+    const a = h.attest();
+    assert.equal(a.nothingLeaves, false, String(isolation));
+    assert.equal(a.children.at(-1).isolation, isolation ?? "launchControlled", "a missing state is reported as launchControlled, never as isolated");
+    h.children.list.pop();
+  }
+});
+
+test("sealing restarts launchControlled children into isolation before the seal verifies (D14)", async (t) => {
+  const h = harness(t);
+  const server = { kind: "whisper-server", local: true, isolation: "launchControlled", restartable: true };
+  h.children.list.push(server);
+  h.state.set(true);
+  await h.transition.apply(true);
+  assert.ok(h.log.includes("children.reisolate"));
+  assert.equal(server.isolation, "isolated");
+  assert.equal(h.transition.snapshot().phase, "sealed");
+  assert.equal(h.attest().nothingLeaves, true);
+});
+
+test("a native child that is not isolated yet keeps the seal sealing, by name, until it is isolated or gone (D14)", async (t) => {
+  const h = harness(t);
+  const busy = { kind: "parakeet", local: true, isolation: "launchControlled" }; // busy: Task 6e does not restart it yet
+  h.children.list.push(busy);
+  h.state.set(true);
+  await h.transition.apply(true);
+  assert.equal(h.transition.snapshot().phase, "sealing");
+  assert.ok(h.transition.snapshot().failures.includes("timeout:isolation"));
+  assert.equal(h.attest().nothingLeaves, false);
+  busy.isolation = "isolated";
+  h.transition.recheck();
+  assert.equal(h.transition.snapshot().phase, "sealed");
+  assert.equal(h.attest().nothingLeaves, true);
+});
+
+test("the attestation carries the isolation self-test status", (t) => {
+  const h = harness(t, { sealedAtBoot: true });
+  assert.deepEqual(h.attest().isolation, { platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null });
 });
 
 test("an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared", async (t) => {
@@ -5130,6 +7636,8 @@ const backstop = require("./egressBackstop");
 const { SealedState } = require("./sealedState");
 const { FlightRecorder } = require("./flightRecorder");
 const childRegistry = require("./childRegistry");
+const { createIsolation, findStub, isolationRuntimeDir } = require("./nativeIsolation");
+const { openBridge } = require("./loopbackBridge");
 
 // Called from main.js before any helper that can open a connection is
 // required (test/helpers/privacyBootOrder.test.js). Order matters: read the
@@ -5139,11 +7647,25 @@ function bootEgressGuards({ app, profile, getDefaultSession, utilityProcess = nu
   const recorder = new FlightRecorder({ now });
   gate.configureEgress({ isSealed: () => state.isSealed(), recorder, now });
   backstop.installNodeBackstop();
-  childRegistry.installSpawnGuard({ utilityProcess });
+  // D14: every native child started while sealed runs under loqui-isolate. The
+  // raw spawn functions are captured here, before the guard patches them, so
+  // the self-test's own runs of the stub are never wrapped twice.
+  const childProcess = require("node:child_process");
+  const stub = findStub();
+  const isolation = createIsolation({
+    stubCommand: stub ? [stub] : null,
+    profileDir: stub ? require("node:path").dirname(stub) : null,
+    runtimeDir: process.platform === "linux" ? isolationRuntimeDir() : null,
+    spawnRaw: childProcess.spawn,
+    spawnSyncRaw: childProcess.spawnSync,
+    openBridge,
+  });
+  isolation.selfTestSync();
+  childRegistry.installSpawnGuard({ utilityProcess, isolation });
   backstop.installWebContentsGuard(app);
   app.on("session-created", (session) => backstop.watchSession(session));
   app.whenReady().then(() => backstop.watchSession(getDefaultSession()));
-  return { state, recorder, bootedAt: now() };
+  return { state, recorder, bootedAt: now(), isolation };
 }
 
 // The sealing barrier. "sealed" (with effectiveSince) is reached only after
@@ -5171,6 +7693,8 @@ function createSealTransition({ state, bootedAt, getUpdateManager, getInference,
     if (guards.chromiumInFlightRemote > 0) running.push("chromium");
     if (guards.pendingDns > 0) running.push("dns");
     if (getInference()?.codexRunning?.() || children.alive().some((c) => !c.local)) running.push("children");
+    // D14: a native child running without proven isolation keeps the seal unverified.
+    if (children.alive().some((c) => c.local && c.isolation !== "isolated" && c.isolation !== "networkFree")) running.push("isolation");
     return running;
   };
   async function waitQuiet(gen) {
@@ -5195,6 +7719,11 @@ function createSealTransition({ state, bootedAt, getUpdateManager, getInference,
     const [codex, rest] = await Promise.allSettled([getInference()?.stopCodex?.(), children.stopAll()]);
     if (codex.status === "rejected") failures.push("codexStop");
     if (rest.status === "rejected") failures.push("childStop");
+    // D14: children that started before the seal run without isolation.
+    // Restart each long-lived one inside it once idle (Task 6e); a busy one
+    // stays listed under "isolation" and the recheck tries again.
+    const reisolation = (await children.reisolateAll?.({ drainMs: waitMs })) ?? [];
+    if (reisolation.some((f) => f.startsWith("reisolate:"))) failures.push("reisolate");
     backstop.severAll();
     const running = await waitQuiet(gen);
     if (gen !== generation) return; // a later toggle owns the outcome
@@ -5205,6 +7734,9 @@ function createSealTransition({ state, bootedAt, getUpdateManager, getInference,
   // A failure is resolved only by the thing it names having actually stopped.
   function recheck() {
     if (snapshot.phase !== "sealing" || !state.isSealed()) return;
+    // A child that was busy may be idle now. reisolateAll does nothing while a
+    // run is already in progress.
+    if (children.alive().some((c) => c.local && c.isolation === "launchControlled")) void children.reisolateAll?.({ drainMs: 0 });
     const running = stillRunning();
     if (running.length > 0) {
       set({ ...snapshot, failures: [...snapshot.failures.filter((f) => !f.startsWith("timeout:")), ...running.map((r) => `timeout:${r}`)] });
@@ -5226,10 +7758,13 @@ function createAttestor({ state, transition, getInference, children }) {
     const networkChildren = [
       ...new Set([...(getInference()?.codexRunning?.() ? ["codex"] : []), ...children.alive().filter((c) => !c.local).map((c) => c.kind)]),
     ];
-    // On-device sidecars keep running while sealed (local routes must work).
-    // Their launch was checked; their runtime traffic is not visible, so they
-    // are named rather than counted as verified (CCR-6).
-    const uninspectedChildren = [...new Set(children.alive().filter((c) => c.local).map((c) => c.kind))];
+    // D14: every native child alive, with the state main proved for it. Only
+    // "isolated" and "networkFree" count; a missing state is launchControlled.
+    const nativeChildren = children
+      .alive()
+      .filter((c) => c.local)
+      .map((c) => ({ kind: c.kind, pid: c.pid, isolation: c.isolation ?? "launchControlled" }));
+    const isolation = children.isolationStatus?.() ?? { platform: process.platform, mechanism: "none", selfTest: "unavailable", checkedAt: null, reason: "not installed" };
     const activeRemote = gate.activeRemoteCount();
     const guardsUp = guards.node && guards.dns && guards.dgram && guards.http && guards.webContents && guards.sessions > 0;
     return {
@@ -5240,7 +7775,8 @@ function createAttestor({ state, transition, getInference, children }) {
       notes,
       guards,
       networkChildren,
-      uninspectedChildren,
+      children: nativeChildren,
+      isolation,
       activeRemote,
       blockedSinceSealed: tally.blockedSinceSealed,
       recordFailures: tally.recordFailures,
@@ -5257,6 +7793,7 @@ function createAttestor({ state, transition, getInference, children }) {
         guards.chromiumInFlightRemote === 0 &&
         guards.pendingDns === 0 &&
         networkChildren.length === 0 &&
+        nativeChildren.every((c) => c.isolation === "isolated" || c.isolation === "networkFree") &&
         activeRemote === 0,
     };
   };
@@ -10468,7 +13005,8 @@ const t = (key, params) => (params ? `${key}${JSON.stringify(params)}` : key);
 const time = (ms) => `T${ms}`;
 const attested = { sealed: true, sealedSince: 5, effectiveSince: 7, phase: "sealed", failures: [], notes: [], loadError: null, saveError: null,
   guards: { node: true, dns: true, dgram: true, http: true, webContents: true, sessions: 2, envProxy: false, openRemoteSockets: 0, chromiumInFlightRemote: 0, pendingDns: 0 },
-  networkChildren: [], uninspectedChildren: [], activeRemote: 0, blockedSinceSealed: 3, recordFailures: 0, version: 1, at: Date.now(), nothingLeaves: true };
+  networkChildren: [], activeRemote: 0, children: [], isolation: { platform: "darwin", mechanism: "seatbelt", selfTest: "passed", checkedAt: 1, reason: null },
+  blockedSinceSealed: 3, recordFailures: 0, version: 1, at: Date.now(), nothingLeaves: true };
 
 test("the verified claim appears only when main attests it", async () => {
   const { sealedStatusLines } = await copy();
@@ -10514,11 +13052,29 @@ test("each unverified reason names its cause", async () => {
   assert.equal(line({ ...sealing, failures: ["timeout:dns"], guards: { ...attested.guards, pendingDns: 1 } }).key, "settingsPage.privacy.sealed.unverified.dns");
 });
 
-test("running on-device sidecars are named beside the verified line, never folded into it", async () => {
+test("a native child without OS isolation keeps the verified line off and is named; isolated and network-free children are covered (D14)", async () => {
   const { sealedStatusLines } = await copy();
-  const lines = sealedStatusLines(true, { ...attested, uninspectedChildren: ["llama-server", "qdrant"] }, time);
-  assert.ok(lines.some((l) => l.key === "settingsPage.privacy.sealed.attested"));
-  assert.deepEqual(lines.find((l) => l.key === "settingsPage.privacy.sealed.uninspected").params, { names: "llama-server, qdrant" });
+  const covered = sealedStatusLines(true, { ...attested, children: [{ kind: "llama-server", pid: 10, isolation: "isolated" }, { kind: "ffmpeg", pid: 11, isolation: "networkFree" }] }, time);
+  assert.ok(covered.some((l) => l.key === "settingsPage.privacy.sealed.attested"));
+  for (const isolation of ["launchControlled", "failed"]) {
+    const lines = sealedStatusLines(true, { ...attested, nothingLeaves: false, children: [{ kind: "qdrant", pid: 12, isolation }] }, time);
+    assert.ok(!lines.some((l) => l.key === "settingsPage.privacy.sealed.attested"), isolation);
+    assert.deepEqual(lines.find((l) => l.key === "settingsPage.privacy.sealed.unverified.notIsolated").params, { names: "qdrant" });
+  }
+  const pending = sealedStatusLines(true, { ...attested, nothingLeaves: false, children: [{ kind: "qdrant", pid: 12, isolation: "pending" }] }, time);
+  assert.ok(pending.some((l) => l.key === "settingsPage.privacy.sealed.unverified.pending"));
+});
+
+test("the panel never shows verified for a child main did not prove, even if nothingLeaves says so", async () => {
+  const { sealedStatusLines } = await copy();
+  const lines = sealedStatusLines(true, { ...attested, nothingLeaves: true, children: [{ kind: "whisper-server", pid: 13, isolation: "launchControlled" }] }, time);
+  assert.ok(!lines.some((l) => l.key === "settingsPage.privacy.sealed.attested"));
+});
+
+test("where isolation is unavailable, the sealed panel says so", async () => {
+  const { sealedStatusLines } = await copy();
+  const lines = sealedStatusLines(true, { ...attested, isolation: { ...attested.isolation, selfTest: "failed", reason: "loopback:namespace" } }, time);
+  assert.ok(lines.some((l) => l.key === "settingsPage.privacy.sealed.isolationUnavailable" && l.tone === "warn"));
 });
 
 test("a delay that resolved before verification is disclosed beside the verified line", async () => {
@@ -10608,6 +13164,10 @@ function unverified(a: Attestation | null): StatusLine {
       : { key: `${P}.unverified.stopFailedUnnamed`, tone: "warn" };
   if (a.networkChildren.length > 0)
     return { key: `${P}.unverified.child`, params: { names: a.networkChildren.join(", ") }, tone: "warn" };
+  // D14: a native child that started before isolation, or failed its check.
+  const exposed = [...new Set((a.children ?? []).filter((c) => c.isolation === "launchControlled" || c.isolation === "failed").map((c) => c.kind))];
+  if (exposed.length > 0) return { key: `${P}.unverified.notIsolated`, params: { names: exposed.join(", ") }, tone: "warn" };
+  if ((a.children ?? []).some((c) => c.isolation === "pending")) return { key: `${P}.unverified.pending`, tone: "warn" };
   if (g.chromiumInFlightRemote > 0 || a.failures.includes("timeout:chromium"))
     return { key: `${P}.unverified.chromium`, tone: "warn" };
   if (g.pendingDns > 0 || a.failures.includes("timeout:dns")) return { key: `${P}.unverified.dns`, tone: "warn" };
@@ -10615,7 +13175,11 @@ function unverified(a: Attestation | null): StatusLine {
   return { key: `${P}.unverified.stopping`, tone: "warn" };
 }
 
-const NOTE_KEYS = new Set(["codexStop", "childStop"]);
+const NOTE_KEYS = new Set(["codexStop", "childStop", "reisolate"]);
+// Defence in depth (D14): even a malformed attestation that says nothingLeaves
+// is not shown as verified while any native child lacks a proven state.
+const PROVEN = new Set(["isolated", "networkFree"]);
+const everyChildProven = (a: Attestation) => (a.children ?? []).every((c) => PROVEN.has(c.isolation));
 
 // The only place the panel decides what it may claim. The verified line is
 // shown solely when main's attestation says so (D6), and it is dated from
@@ -10635,17 +13199,17 @@ export function sealedStatusLines(
     lines.push({ key: `${P}.description`, tone: "neutral" });
   } else {
     lines.push({ key: `${P}.on`, tone: "neutral" });
-    if (attestation?.nothingLeaves && attestation.effectiveSince != null) {
+    if (attestation?.nothingLeaves && attestation.effectiveSince != null && everyChildProven(attestation)) {
       lines.push({
         key: `${P}.attested`,
         params: { time: formatTime(attestation.effectiveSince), count: attestation.blockedSinceSealed },
         tone: "ok",
       });
       for (const note of attestation.notes) if (NOTE_KEYS.has(note)) lines.push({ key: `${P}.note.${note}`, tone: "neutral" });
-      // CCR-6: running on-device sidecars are named, not claimed as verified.
-      if (attestation.uninspectedChildren?.length)
-        lines.push({ key: `${P}.uninspected`, params: { names: attestation.uninspectedChildren.join(", ") }, tone: "neutral" });
     } else lines.push(unverified(attestation));
+    // D14: where isolation is unavailable, local model servers cannot start while sealed.
+    if (attestation?.isolation && ["failed", "unavailable"].includes(attestation.isolation.selfTest))
+      lines.push({ key: `${P}.isolationUnavailable`, tone: "warn" });
     // Always shown while sealed: what the guarantee covers, and its limits.
     lines.push({ key: `${P}.scope`, tone: "neutral" });
   }
@@ -10797,8 +13361,10 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.title": "Sealed mode",
   "settingsPage.privacy.sealed.description": "Blocks every request that would leave this computer. On-device models keep working.",
   "settingsPage.privacy.sealed.on": "Cloud routes are paused. Local routes keep working. Turn this off to resume them.",
-  "settingsPage.privacy.sealed.attested": "Sealed and verified since {{time}}: every connection that Loqui, its windows, downloads and Codex could make to another computer has been stopped. Blocked: {{count}}.",
-  "settingsPage.privacy.sealed.uninspected": "Running on this computer, not inspected: {{names}}. Loqui started them with network features off, listening only on this computer, but can't see inside them.",
+  "settingsPage.privacy.sealed.attested": "Sealed and verified since {{time}}: nothing Loqui, its windows or the programs it runs can reach another computer. Blocked: {{count}}.",
+  "settingsPage.privacy.sealed.unverified.notIsolated": "Sealed mode is on, but {{names}} started before network isolation was in place. Loqui restarts it inside isolation as soon as it's idle, then verifies the seal.",
+  "settingsPage.privacy.sealed.isolationUnavailable": "Loqui can't isolate local model servers on this computer, so they won't start while Sealed mode is on.",
+  "settingsPage.privacy.sealed.note.reisolate": "Verified after a delay: a local model server was restarted inside network isolation.",
   "settingsPage.privacy.sealed.unverified.pending": "Checking that nothing can leave this computer…",
   "settingsPage.privacy.sealed.unverified.guards": "Sealed mode is on, but Loqui can't confirm its network guards are active. Restart Loqui.",
   "settingsPage.privacy.sealed.unverified.child": "Sealed mode is on, but {{names}} is still running and may use the network. It stops shortly.",
@@ -10814,7 +13380,7 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.loadError": "Loqui couldn't read your Sealed mode setting, so it stayed sealed. Turn it off here if you meant to.",
   "settingsPage.privacy.sealed.saveError": "Sealed mode couldn't be saved. It will be off the next time Loqui starts.",
   "settingsPage.privacy.sealed.unknown": "Sealed mode status is unavailable.",
-  "settingsPage.privacy.sealed.scope": "Covers Loqui, its windows, and which programs it starts and how. Once a local model server is running, Loqui can't see inside it. Links open in your browser only after you confirm.",
+  "settingsPage.privacy.sealed.scope": "Covers Loqui, its windows and every program it starts. Local model servers run inside network isolation that only reaches this computer. Links open in your browser only after you confirm.",
   "settingsPage.privacy.sealed.toggleError": "Couldn't change Sealed mode: {{message}}",
   "updates.sealed": "Paused while Sealed mode is on."
 }
@@ -11439,7 +14005,7 @@ Add this section to `docs/PRIVACY.md`, after "When network requests occur" and b
 ```markdown
 ## Sealed mode and the flight recorder
 
-**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, nothing that Loqui, its windows or the programs it starts send leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. Local model servers that Loqui starts (llama-server, whisper-server, Parakeet, Qdrant) keep running so on-device routes work. Loqui refuses to start them with download options or a non-local address, and Qdrant only with telemetry off. But it cannot see inside them once they run, so the Sealed mode panel names them as "not inspected" instead of counting them as verified. A proxy or port-forwarder you run on this computer is treated as local. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, and no environment proxy is in use. It dates the claim from that moment.
+**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, nothing that Loqui, its windows or the programs it starts send leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. Local model servers that Loqui starts (llama-server, whisper-server, Parakeet, Qdrant) keep running so on-device routes work. While Sealed mode is on, they and every other program Loqui starts run inside the operating system's network isolation, which only reaches this computer's loopback: a sandbox profile on macOS, and a separate network namespace on Linux. Before each program starts, a check inside that isolation confirms that a connection to another computer fails; if it doesn't, the program doesn't start. A program that was already running when you turned Sealed mode on is restarted inside isolation once it's idle. Where the operating system can't provide this isolation, those programs don't start while Sealed mode is on, and the panel says so. A proxy or port-forwarder you run on this computer is treated as local. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, every program it started is running inside network isolation, and no environment proxy is in use. It dates the claim from that moment.
 
 When Sealed mode blocks a request, your content is kept: a chat message stays in the conversation, and a dictation recording is kept in History for retry when local history and audio retention allow it. While sealed, a dictation that would use a cloud speech-to-text route does not start at all. A request that was already under way when you turned Sealed mode on is stopped, and Loqui says the provider may have received part of it.
 
@@ -11830,6 +14396,54 @@ Expected: every `PASS` line prints, and the script exits with code 0. `report.js
 
 Temporarily comment out the `installNodeBackstop()` call in `privacyBoot.bootEgressGuards` and rebuild. Rerun: "toggle: the remote fixture saw no request and no connection after sealing" must fail on `node-http` or `ws`. It runs before any attestation wait, so the drill reaches it. (The attestation check that follows also fails, because `guardsUp` is false; that is a second, separate signal.) Restore the line. Record the failing output in the PR description.
 
+- [ ] **Step 5a: Isolation acceptance, per platform (D14)**
+
+CI runs the native tests from Tasks 6c and 6d on `macos-26` and `ubuntu-22.04`, with a second run where user namespaces are restricted, plus an `ubuntu-24.04` job. The checks below need a packaged build, a second network stack or a second computer, so you run them by hand on each release platform. Record their output in the PR, and under "Acceptance" in `docs/security/native-isolation-spike.md`.
+
+Use a disposable profile (`LOQUI_PROFILE_DIR=$(mktemp -d)`) and the packaged app (`npm run build:mac` or `npm run build:linux`). Install a small Whisper model and a small llama model, then seal.
+
+1. **Attested states.** In the control panel's DevTools, run `await window.electronAPI.privacy.getAttestation()`. Expect:
+   - `isolation.selfTest === "passed"`;
+   - every entry of `children` is `isolated` or `networkFree`;
+   - `nothingLeaves === true`.
+
+   Then run a local dictation, a llama cleanup, a note search and a Parakeet stream while sealed. Each works.
+2. **The packaged launcher, against an observer on another network stack.** Run `node scripts/lib/egressFixture.cjs` (Task 16, Step 1) somewhere that is a different computer from the sandbox's point of view:
+   - macOS: a second computer, or a Linux VM whose address is not one of this Mac's;
+   - Linux: a network namespace with a veth pair:
+
+     ```bash
+     sudo ip netns add observer
+     sudo ip link add veth-host type veth peer name veth-obs
+     sudo ip link set veth-obs netns observer
+     sudo ip addr add 10.77.0.1/24 dev veth-host
+     sudo ip link set veth-host up
+     sudo ip netns exec observer ip addr add 10.77.0.2/24 dev veth-obs
+     sudo ip netns exec observer ip link set veth-obs up
+     sudo ip netns exec observer ip link set lo up
+     ```
+
+   Then run the shipped stub and profile around a client aimed at the observer:
+   - macOS: `/usr/bin/sandbox-exec -f <App>/Contents/Resources/bin/loqui-isolate-loopback.sb <App>/Contents/Resources/bin/loqui-isolate --profile loopback --report-fd 3 -- /usr/bin/curl -m 3 http://<observer>:<port>/ 3>/dev/null`
+   - Linux: `<app>/resources/bin/loqui-isolate --profile loopback --report-fd 3 -- curl -m 3 http://10.77.0.2:<port>/ 3>/dev/null`
+
+   The observer logs nothing. As a control, run the same `curl` without the launcher: the observer logs one connection.
+3. **Inbound (macOS, needs a second computer).** While sealed, list each sidecar's listeners with `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid>`: each one is on `127.0.0.1` or `::1`. From the second computer, connect to each of those ports on the Mac's LAN address: each is refused. Then try the adversarial case. Run the shipped stub with the `loopback` profile around `node -e 'require("net").createServer((c) => c.end("leak")).listen(46555, "0.0.0.0")'`, and connect to `<mac-lan-ip>:46555` from the second computer. Record the result. If it connects, Task 0's question 1 is confirmed, and the gate's macOS options apply.
+4. **Linux with restricted user namespaces.** On a default Ubuntu 24.04, or after `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1`, start the AppImage sealed. Expect:
+   - `isolation.selfTest` is `failed`, with a reason;
+   - the local sidecars do not start, and the panel shows the isolation line. If the owner chose different behaviour at the Task 0 gate, expect that instead;
+   - `ps -ef` shows no sidecar running outside the launcher.
+5. **Restart at seal.**
+   - Unsealed, run a local dictation so whisper-server is running, then seal. The panel names whisper-server until it restarts, then verifies. `ps -o pid,lstart -p <pid>` shows a new process.
+   - Seal during a long Parakeet stream. The stream finishes, then the server restarts and the seal verifies.
+6. **Delegated egress.**
+   - macOS, inside the shipped stub with each profile:
+     - `/usr/bin/open -g loquiprobeunregistered://x` does not answer `-10814`;
+     - `dns-sd -G v4 example.com` gets no answer within 3 s;
+     - a paste helper still pastes.
+   - Linux, inside the stub: `busctl --user list` and `resolvectl query example.com` both fail.
+7. **Cost.** Record each sidecar's startup time, sealed against unsealed, and the median latency of 20 local dictations. Task 0's numbers are the reference.
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -11883,7 +14497,13 @@ Run `npm run dev` with a disposable profile: `LOQUI_PROFILE_DIR=$(mktemp -d)`. N
 - **Browser links while sealed.** Click a link in a chat answer, and a meeting join link. A system dialog names only the host and defaults to "Don't open". "Don't open" opens nothing and shows no error.
 - **Remote images while sealed.** A chat answer with a remote markdown image shows the "Image not loaded while Sealed mode is on" placeholder, and the flight recorder gains no unexplained row.
 - **Calendar sign-in while sealed.** "Connect Google Calendar" is refused before a browser opens. Start the sign-in unsealed, then seal before finishing it in the browser: the flow ends as interrupted, and finishing in the browser afterwards reaches nothing.
-- **Local sidecars through a seal.** With on-device models installed, start each workflow, seal in the middle of it, and confirm it finishes and the panel reaches verified: local Whisper dictation (whisper-server), Parakeet streaming dictation (WebSocket), llama-server cleanup, and a semantic note search (Qdrant). On macOS, also run `lsof -nP -iTCP -a -p <pid>` for each sidecar while sealed: every connection is to `127.0.0.1` or `::1`. Record the output in the PR.
+- **Local sidecars through a seal (D14).** With on-device models installed:
+  - Start each workflow, seal in the middle of it, and confirm that it finishes: local Whisper dictation (whisper-server), Parakeet streaming dictation (WebSocket), llama-server cleanup, and a semantic note search (Qdrant).
+  - While each is busy, the panel names the server as not yet isolated. Once it is idle, the server restarts inside isolation and the panel reaches verified.
+  - Then run each workflow again while sealed, and confirm it works.
+  - On macOS, run `lsof -nP -iTCP -a -p <pid>` for each sidecar while sealed: every connection and listener is on `127.0.0.1` or `::1`.
+  - Run Task 16, Step 5a on each release platform.
+  - Record the output in the PR.
 - **A stubborn child.** Seal while a URL import (yt-dlp) is downloading. The panel names yt-dlp until the process has exited, and only then says verified.
 - **Codex.** Sign in to ChatGPT, then seal. The Codex process exits, and the panel becomes verified only after it is gone. The recorder shows one "Session — its traffic is not visible to Loqui" row for that run.
 - **Dictate with a local model while sealed.** It works, and nothing is added to the recorder.
@@ -11936,6 +14556,18 @@ Review Loqui's Sealed mode for ways data can still leave the computer while seal
 12. Outside the boundary. Confirm each exception in the threat model is disabled or disclosed: browser and mail links ask first in a main-owned dialog that names only the host; pending calendar OAuth flows are cancelled on seal; remote markdown images are placeholders; loopback forwarders (a local proxy the user runs) are named as trusted.
 13. Content preservation. A dictation refused or interrupted while sealed with history off is held in renderer memory only (check that no file is written), offered for "Transcribe", and dropped on quit; a refused cleanup after local speech-to-text keeps the local transcript.
 14. Acceptance evidence. Read Task 16's report and netlog. Confirm the control run reached the fixture with every probe kind, and that the leak-injection check in Task 16, Step 5 failed as it should.
+15. Native child isolation (D14). On each release platform, check every item below:
+    - every native child Loqui starts while sealed runs under loqui-isolate (check the attestation and the process tree), the ONNX worker included;
+    - main checks the stub's report itself (nativeIsolation.verifyReport) and never trusts its status alone;
+    - fd 3 is closed before exec;
+    - a probe that fails never runs the program;
+    - pending, launchControlled and failed never count toward nothingLeaves;
+    - children running at seal time are restarted only when idle;
+    - the self-test's control run would catch a probe that cannot tell isolation from its absence;
+    - delegated egress (the DNS resolver, nsurlsessiond, LaunchServices, D-Bus and portals) is closed, as Task 0's report says;
+    - on macOS, whether a sandboxed listener can be reached from another machine.
+
+    Read Task 0's report and Task 16 Step 5a's evidence, and confirm that every platform risk was decided by the owner, not by a silent fallback.
 
 Report: a table of findings with severity (critical/high/medium/low), evidence, and a concrete fix. Mark each checklist item PASS/FAIL/NOT VERIFIED.
 ```
@@ -11949,6 +14581,7 @@ Write the reviewer's report to `docs/security/sealed-mode-review-2026-10.md`. Ad
 
 - [ ] All critical and high findings fixed and re-verified (link commits)
 - [ ] Medium/low findings fixed or accepted by the owner with a reason
+- [ ] Merge gate (D14): native child isolation ships on macOS arm64 and Linux x64, or the owner's Task 0 decision for each gap is recorded here
 - [ ] Owner approval to merge: ____________ (name, date)
 ```
 
@@ -11990,3 +14623,11 @@ Do not merge until the owner has filled in the sign-off.
 
    This plan gates them and tests them through their real handlers (Task 12). Codex recommends removing the unused preload bridges and handlers together, in a follow-up. Should we?
 5. **A quick toggle.** Should Sealed mode also be available from the tray menu or the pill? This plan ships it in Settings only.
+6. **The Task 0 gate (D14).** The preliminary evidence (Task 0) already shows gaps that need the owner's decision:
+   - Linux with restricted user namespaces, the default on Ubuntu 24.04;
+   - a macOS listener on `0.0.0.0`, if another computer can reach it;
+   - per-kind macOS profiles (the pasteboard against LaunchServices);
+   - Windows.
+
+   Task 0, Step 8 lists the options for each. Until the owner decides, sealed native spawns are refused where isolation is unavailable.
+7. **Isolate always, not only while sealed?** This plan isolates native children only while sealed, per D14's wording, so sealing restarts the ones already running (Task 6e). None of them needs the network in normal use. Isolating them always would make sealing instant, and would exercise the sandbox every day. The cost is that an isolation bug would also affect users who never seal. Recommended after one release of Sealed mode.

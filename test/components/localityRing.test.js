@@ -36,7 +36,7 @@ test("shape carries locality; orbit only runs while active and never under reduc
   const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
   assert.match(
     css,
-    /\.locality-ring\[data-locality="network"\] \.locality-ring__svg circle\s*\{[^}]*stroke-dasharray:\s*0\.6 3\.4/
+    /\.locality-ring\[data-locality="network"\] \.locality-ring__svg circle\s*\{[^}]*stroke-dasharray:\s*0\.25 6/
   );
   assert.match(
     css,
@@ -51,6 +51,21 @@ test("shape carries locality; orbit only runs while active and never under reduc
     /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.locality-ring__svg\s*\{\s*animation:\s*none !important;/
   );
   assert.match(css, /\.locality-ring__badge\s*\{[^}]*inset-inline-end:/);
+});
+
+test("the dotted network ring keeps a visible gap after round caps and closes the seam", () => {
+  const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
+  const rule = css.match(
+    /\.locality-ring\[data-locality="network"\] \.locality-ring__svg circle\s*\{([^}]*)\}/
+  )[1];
+  const [dash, gap] = rule.match(/stroke-dasharray:\s*([\d.]+) ([\d.]+)/).slice(1).map(Number);
+  const width = Number(rule.match(/stroke-width:\s*([\d.]+)/)[1]);
+  const unit = (2 * Math.PI * 10.75) / 100; // viewBox units per pathLength unit
+  // Round caps extend each dash by half the stroke width at both ends.
+  const visibleGap = gap * unit - width;
+  assert.ok(visibleGap >= 1, `visible gap is ${visibleGap.toFixed(3)} viewBox units`);
+  const periods = 100 / (dash + gap);
+  assert.equal(periods, Math.round(periods), "dash period divides the circle evenly");
 });
 
 test("every locale names all three localities", () => {

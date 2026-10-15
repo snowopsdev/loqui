@@ -2021,7 +2021,7 @@ a:hover {
   stroke-width: 2;
 }
 .locality-ring[data-locality="network"] .locality-ring__svg circle {
-  stroke-dasharray: 0.6 3.4;
+  stroke-dasharray: 0.25 6;
   stroke-linecap: round;
   stroke-width: 2.25;
 }

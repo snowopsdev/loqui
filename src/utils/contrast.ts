@@ -34,6 +34,11 @@ export function relativeLuminance(hex: string): number {
 export function contrastRatio(foreground: string, background: string): number {
   const a = relativeLuminance(foreground);
   const b = relativeLuminance(background);
-  const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+// For display only. Compare thresholds against the unrounded contrastRatio:
+// 4.49995 rounds to 4.5 but does not meet AA.
+export function roundContrastRatio(ratio: number): number {
   return Math.round(ratio * 100) / 100;
 }

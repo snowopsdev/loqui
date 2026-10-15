@@ -21,7 +21,7 @@
 
 **Tech Stack:** React 19, TypeScript, Tailwind CSS 4 tokens (shipped Plan 01), Electron 44 IPC, and Node `node:test` with `tsx`. Component tests use Plan 02's renderer harness (`test/helpers/harness/fakeDomTree.js`, `rendererMocks.js`), extended compatibly in Task 9.
 
-**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`. The latest copy is at `/Users/snow/.t3/worktrees/loqui/t3-5038e8e6/docs/superpowers/specs/`. The relevant parts are decisions D1, D5 and D8; §4; §5.1–§5.3; and the Plan 05 row.
+**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`, consolidated at `091d198` on `snowopsdev/feat/uiux-foundations`. The relevant parts are decisions D1, D5 and D8; §3 (execution order); §4; §5.1–§5.3 and §5.7; and the Plan 05 row.
 - Visual acceptance comes from `design-explorations/loqui-uiux-review/parts/02-onboarding.html`, using the picked card for each recommendation.
 - Supporting evidence is in `.omc/research/ui-review/audit-onboarding.md`. Both live untracked in the sibling worktree `/Users/snow/.t3/worktrees/loqui/t3-5038e8e6/`.
 
@@ -30,9 +30,9 @@
 | Plan | Status | What this plan uses |
 |---|---|---|
 | Plan 01 | Shipped (`d90792f..d5429c9`) | `--motion-*`, `--color-cta*`, `--color-live*`, `--color-nav-marker`, `Button variant="live"`, `LevelBars` (+ `nextLevelBarsFrame`), `LocalityRing`, `src/lib/locality.ts` (`providerDisplayLabel` for UI), `src/utils/contrast.ts`, `test/helpers/harness/cssTokens.js` |
-| Plan 02 | Prerequisite (CCR 3) | ONB-Q1 (pinned shell, physical 84px traffic-light inset); ONB-Q2 (`useModelDownload` wired into the speech step, `cancelDownload(): Promise<boolean>`, `DownloadProgressBar` with `role="progressbar"`, footer chip); `fakeDomTree.js`; `rendererMocks.js` (`I18N_KEYS_MOCK`, `TOAST_MOCK`, `rendererOptions`) |
-| Plan 03 | Prerequisite | `src/lib/routes.ts` (§5.1): `useResolvedRoute`, `ResolvedRoute` (with `providerId`), `ROUTE_SETTINGS_PATH`; route facts that already refresh on `openwhispr-local-models-changed` and `api-key-changed` (Plan 03 `routeFactsStore`); `SettingsModal` that accepts a `settingsPath` as its section |
-| Plan 04 | May merge before or after | §5.2 `cancelled` and `undoCancel()`; §5.3 `notify`. Task 5 and Task 7 handle both merge orders explicitly. |
+| Plan 02 | Prerequisite (spec §3) | ONB-Q1 (pinned shell, physical 84px traffic-light inset); ONB-Q2 (`useModelDownload` wired into the speech step, `cancelDownload(): Promise<boolean>`, `DownloadProgressBar` with `role="progressbar"`, footer chip); `fakeDomTree.js`; `rendererMocks.js` (`I18N_KEYS_MOCK`, `TOAST_MOCK`, `rendererOptions`) |
+| Plan 03 | Prerequisite | `src/lib/routes.ts` (§5.1): `useResolvedRoute`, `ResolvedRoute` (with `providerId`), the `unknown` state (rule 1), self-hosted notes as `unreachable`/`unsupported` (rule 9); route facts that already refresh on `openwhispr-local-models-changed` and `api-key-changed` (`routeFactsStore`); `getTotalMemory` (`get-total-memory`); `SettingsModal` that accepts a `settingsPath` as its section |
+| Plan 04 | Parallel; may merge before or after (§3) | §5.2 types (`src/types/dictation.ts`), the Undo bridge (`sendUndoCancelDictation`, `lastCancelledDictation`, `sanitizeCancelledDemoFields`), `disclosureCopy`, and private holds; §5.3 `notify`. Tasks 5 and 7 handle both merge orders, and whichever plan merges second runs Task 22. |
 
 ---
 
@@ -42,19 +42,19 @@
 
 | ID | Finding | Status | Where |
 |---|---|---|---|
-| C01 | Cancelled private trial can save audio | **Closed.** `AudioManager` captures a per-recording `private` flag at every recording start. The flag travels in the discarded snapshot, the processed blob and (via CCR 1) Plan 04's hold entry. All four writers refuse private recordings. Tests use the real `AudioManager` with retention on. | Task 5 |
+| C01 | Cancelled private trial can save audio | **Closed.** `AudioManager` captures a per-recording `private` flag at every recording start. The flag travels in the discarded snapshot, the processed blob and Plan 04's hold (§5.2 private holds). All four writers refuse private recordings. Tests use the real `AudioManager` with retention on. | Task 5 |
 | I01 | Hello leaks a late microphone; retry cannot reopen | **Closed.** A late stream is stopped in the cancelled branch, and setup failures dispose resources. An explicit `retryKey` reopens. Tests cover deferred `getUserMedia` after unmount and after a device change, plus recovery from a rejected open. | Task 12 |
 | I02 | Local voice commit leaves self-hosted routing | **Closed.** `commitVoice` sets `transcriptionMode: "local"` along with the local engine. The test runs the real `resolveTranscriptionRoute` from a self-hosted state. Meeting and upload routes are untouched. | Task 13 |
 | I03 | Language change can commit an incompatible model | **Closed.** `reconcileVoice` replaces or clears the model on every language change. The primary is disabled, with a stated reason, unless the model hears every spoken language. Language is locked while a transfer runs. Saved model IDs outside the onboarding catalog are ignored. | Tasks 3 and 13 |
 | I04 | Download readiness carried across model identities | **Closed.** Installation, samples, milestones, kept bytes and cancellation are stored with their model ID. Progress is read from `downloads[selectedModel]`. A deferred-status test covers the switch. | Task 7 |
 | I05 | Selected-but-unavailable cleanup shown as optional | **Closed.** Readiness and the Cleanup "Now" line take the user's `cleanupChoice` and `cleanupStatus` as well as the active route. They show the unmet prerequisite and a real Settings destination. A flow test uses the real `applyCleanupChoice`. | Tasks 16 and 18 |
-| I06 | "Dictate into a note" validates the wrong route | **Closed.** The action is gated on `noteRecordingStt` plus microphone access, and it discloses that route's locality and provider. Self-hosted note mode is blocked, because the current recorder throws `unsupportedSelfHosted` (`meetingTranscriptionRouting.js`). See CCR 5. | Task 18 |
+| I06 | "Dictate into a note" validates the wrong route | **Closed.** The action is gated on `noteRecordingStt` plus microphone access, and it discloses that route's locality and provider. Self-hosted note mode is blocked through the route (§5.1 rule 9, `unreachable`/`unsupported`), because the current recorder throws `unsupportedSelfHosted` (`meetingTranscriptionRouting.js`). An `unknown` route reads "Checking…". | Task 18 |
 | I07 | Ready claims success without evidence | **Closed.** The new `configured` status separates "set up" from "proven". "You're dictating." requires a successful trial. Unknown Accessibility reads as pending. A microphone counts as working only after it is heard. | Task 18 |
 | I08 | Cleanup retry bleeds into later takes | **Closed.** Retry results go through the reducer, keyed by `takeId`. Stale and failed results are handled and tested. | Tasks 6 and 15 |
-| I09 | Undo handoff absent from both plans | **Closed by contract and scope.** CCR 1 defines the exact cross-window bridge Plan 04 must ship. Plan 05 implements its own side: the IPC, the allowlist, and the UI that shows Undo only after delivery. Until Plan 04 lands, a cancel shows "Discarded" with no Undo. This is tested. | Tasks 4, 5 and 15 |
+| I09 | Undo handoff absent from both plans | **Closed by contract.** The bridge is now spec §5.2 (Plan 04 CCR-5, which superseded this plan's CCR 1). Plan 05's handler calls `sendUndoCancelDictation(lastCancelledDictation?.sessionId)` and returns `restored`. Until Plan 04 lands, a cancel shows "Discarded." with no Undo, and this is tested. Task 22 wires `CancelledState`, `cancelClosed`, `disclosureCopy` and Undo, and is run by whichever plan merges second. | Tasks 4, 5, 15 and 22 |
 | I10 | Notice branch cannot pass its tests | **Closed.** Pure builders return the exact §5.3 `NoticeInput` and are tested independently of merge order. One adapter file, `useOnboardingNotifier`, is the only merge-order-dependent code, and each variant has its own test. | Task 7 |
 | I11 | Typecheck blockers | **Closed.** Preview methods are typed against `ParakeetModelResult` (`downloaded: false` on failure). `OnboardingCompleteOptions` is defined once (Task 1) and used by both the prop and `finish`. | Tasks 1, 8 and 18 |
-| I12 | Preview lifecycle | **Closed.** Every terminal transition settles once and clears `active`. `reset()` settles a pending transfer. Undo requires a live cancellation inside its deadline. All are tested. | Task 8 |
+| I12 | Preview lifecycle | **Closed.** Every terminal transition settles once and clears `active`. `reset()` settles a pending transfer. A cancel is "Discarded." with no Undo, exactly as on desktop before Plan 04. Task 22 adds the preview's Undo, which requires a live cancellation inside its window. All are tested. | Tasks 8 and 22 |
 | I13 | Harness assumes pre-Plan-02 layout | **Closed.** Task 9 extends Plan 02's `fakeDomTree.js` compatibly, keeping `find` and `props`, and builds `mountComponent` on `rendererOptions`. No second harness. | Task 9 |
 | I14 | Speed never rendered; Plan 02 tests not migrated; stalls not aged | **Closed.** `VoiceDownloadPanel` wraps Plan 02's `DownloadProgressBar` (progressbar semantics, speed, ETA) with received/total, Cancel and restart. Plan 02's five `onboardingDownloadProgress` behaviours are migrated. A 1 s ageing tick turns a stall into "no estimate". | Tasks 7, 13 and 14 |
 | M01 | Connected remote cleanup never uses the user's words | **Closed, by a different route.** The review proposed running remote cleanup automatically after connection. Instead, after connection the user gets an explicit one-tap consent ("Try it on my sentence · sends N words to {provider}"). Nothing is sent without that tap (§4: choices stay explicit). Labels use `providerDisplayLabel(route.providerId)`. | Task 16 |
@@ -79,45 +79,30 @@
 
 ## Contract change requests
 
-Only the owning plan may change a §5 contract. Each request below states what this plan does until it is answered.
+The spec consolidated every plan's requests into §3 and §5 at `091d198` (`snowopsdev/feat/uiux-foundations`). Each request below now has a status. Where this plan's code and a spec shape differed, the plan was changed to match the spec.
 
-1. **§5.2, owner Plan 04: a cross-window Undo bridge, a cancelled demo event, and private holds.**
-   - **Why.** Setup's trial records in the overlay window (`mainWindow`), and Undo is pressed in the control panel. §5.2 defines `undoCancel()` only inside the overlay renderer. Plan 04 adds no main-to-overlay command (Plan 04 lines 1161-1181 and 4162-4167).
-   - **Shape this plan codes against:**
+1. **§5.2 cross-window Undo bridge, cancelled demo event, private holds (owner Plan 04).** *Superseded by §5.2 (Plan 04 CCR-5), applied at 091d198.* This plan's earlier `sendUndoCancelDictation(): boolean` and its `undo-cancel-dictation` channel are gone. The plan now uses the spec's shape:
+   - **Bridge.** `windowManager.sendUndoCancelDictation(sessionId?) → Promise<UndoResult>`, a request/reply on `undo-cancel-request` / `undo-cancel-reply` that returns `reason: "unavailable"` after 2 s, plus `windowManager.lastCancelledDictation`. Task 4's `onboarding-demo-undo-cancel` handler calls `sendUndoCancelDictation(lastCancelledDictation?.sessionId)` and returns `result.restored`.
+   - **Demo events.** `{ kind, status: "cancelled", sessionId, cancelled: CancelledState }` and `{ kind, status: "cancelClosed", sessionId, reason }`, sanitised by Plan 04's `sanitizeCancelledDemoFields`. The `undoUntil` / `remoteAlreadySent?: string` pair is dropped everywhere (Tasks 4, 5, 6, 8 and 15).
+   - **Types and copy.** These are imported from `src/types/dictation.ts`, never restated. The disclosure renders with `disclosureCopy` from `src/helpers/dictationDisclosure.js`.
+   - **Merge order (§3).** Before Plan 04, Plan 05 ships the fallback: "Discarded." with no Undo. Whichever plan merges second runs **Task 22**, which wires the fields, `canUndo`, the Undo button, the disclosure and the preview's Undo, and deletes the fallback.
+   - **Private holds.** These are Plan 04's contract under §5.2. Task 5's hold test runs whenever Plan 04's hold exists (`_closeCancelled`, or `_persistExpiredHold` in older drafts), and fails if an expired private hold is persisted.
+2. **(Withdrawn) §5.1 refresh.** Plan 03 already refreshes route facts on `openwhispr-local-models-changed` and `api-key-changed`.
+3. **§3 roadmap edge `02 → 05` (owner: spec).** *Applied in spec §3 (091d198).* The execution order is 01 → 02 → 03 → {04, 05, 06, 07}.
+4. **`LevelBars` `tone?: "brand" | "onLive"` (Plan 01 contract, extended by Plan 05).** *Applied in spec §5, Plan 01 table (091d198).* Plan 05 adds the prop itself in Task 11, with a `levelBars.test.js` case. The scoped `!important` override is deleted, and a test asserts that it does not return.
+5. **`noteRecordingStt` in self-hosted mode resolves `unreachable`/`unsupported` (owner Plan 03).** *Applied in spec §5.1 rule 9 (091d198).* Task 18's `noteActionState` now reads only the route. Its own `meetingTranscriptionMode` check and the `meetingMode` input are removed.
 
-     ```ts
-     // main — src/helpers/windowManager.js (Plan 04 adds)
-     sendUndoCancelDictation(): boolean;           // sends "undo-cancel-dictation" to mainWindow; false if no live overlay
-     // preload.js (Plan 04 adds)
-     onUndoCancelDictation(callback: () => void): () => void;   // channel "undo-cancel-dictation"
-     // overlay — src/App.jsx (Plan 04 adds)
-     useEffect(() => window.electronAPI?.onUndoCancelDictation?.(() => void undoCancel()), [undoCancel]);
-     // useAudioRecording (Plan 04 adds), when entering `cancelled`:
-     onDemoEventRef.current?.({ kind: demoKindRef.current, status: "cancelled", undoUntil, remoteAlreadySent });
-     //   a successful restore already re-emits "processing" through onStateChange.
-     // AudioManager (Plan 04 adds):
-     //   _cancelHold entries keep the snapshot's `private` flag (they are built from `{ ...discarded, bytes }`);
-     //   _persistExpiredHold(entry) returns before saving when entry.private === true;
-     //   restoreCancelled(entry) sets this._recordingPrivate = entry.private === true before processAudio().
-     ```
-
-   - **What Plan 05 implements now:**
-     - Task 4: the `onboarding-demo-undo-cancel` IPC, which calls `windowManager.sendUndoCancelDictation?.()` and returns its boolean; plus `cancelled` on the demo allowlist.
-     - Task 5: `private` on every discarded snapshot, and a test that exercises `_persistExpiredHold` whenever it exists, so either merge order is checked.
-     - Task 15: Undo is shown only when `undoUntil > now` and the last undo request was delivered.
-   - **Until Plan 04 merges:** cancel shows "Discarded." with no Undo (Task 5 emits `cancelled` with `undoUntil: 0`).
-2. **(Withdrawn) §5.1 refresh.** Plan 03 already refreshes route facts on `openwhispr-local-models-changed` and `api-key-changed` (`routeFactsStore`). `useModelDownload` dispatches the first on completion. Nothing more is needed.
-3. **§3 roadmap, owner: spec. Add the edge `02 → 05`.** Plan 05 extends Plan 02's harness, migrates its download tests and replaces the components it touched. The pre-flight stops if Plan 02 has not merged.
-4. **Plan 01 `LevelBars`, optional: a `tone?: "brand" | "onLive"` prop.** Until it exists, Task 11 keeps one scoped `!important` override.
-5. **§5.1, owner Plan 03: `noteRecordingStt` in self-hosted mode should resolve `unreachable` with `detail: "unsupported"`.**
-   - The note recorder throws `unsupportedSelfHosted` for that mode (`src/helpers/meetingTranscriptionRouting.js`), but Plan 03 resolves it `ready` when the URL parses.
-   - Until this is answered, Task 18's `noteActionState` blocks self-hosted note mode itself.
+**Spec items adopted without a request of this plan's:**
+- **§5.1 rule 1, `unknown` route state.** It is rendered as a neutral "Checking…" and never as ready. Ready's speech row, its cleanup row (through `cleanupSituation`) and the note action all wait for `ready` (Tasks 16 and 18).
+- **§5.1, total memory.** Plan 03's `get-total-memory` is the only memory channel. `get-system-profile` carries no memory, and `useSystemProfile` composes the two (Tasks 2 and 13).
+- **§5.7, capture status bridge.** Plan 05 adds no lifecycle relay. The trial's status rides the existing `onboarding-demo-event` (§5.2), and `dictation-hotkey-event` carries key presses only, not lifecycle state.
+- **Provider names.** Every provider name shown in UI comes from `providerDisplayLabel(route.providerId, t)` (Tasks 16 and 18), or from Plan 04's `disclosureCopy`, which uses the same helper (Task 22).
 
 **Cross-plan coordination (no contract change):**
 - **Plan 04 notices and recorder signature.**
   - Plan 04 deletes `useToast` and changes `useAudioRecording` to `useAudioRecording(options)`. Plan 05 touches the toast API in exactly one file (`useOnboardingNotifier.ts`, Task 7). Its `App.jsx` and hook tests accept both signatures.
   - Plan 04's panel `NoticeStack` already covers onboarding.
-- **Plan 03 Task 11 adds a `get-total-memory` IPC** and says to drop it if Plan 05 lands first. Plan 05's `getSystemProfile` provides `totalMemoryBytes`.
+- **Total memory.** Plan 03 ships `get-total-memory` (§5.1, Handoffs). Plan 05 merges after Plan 03, and `useSystemProfile` reads `getTotalMemory()`. `get-system-profile` carries no memory field.
 - **Plan 06 rewrites `ControlPanel`.** Plan 05's only contact is the after-setup intent effect next to `handleNewNote` (Task 18). Plan 06 must carry it, and the effect is covered by a source test.
 
 ## Owner decisions (2026-10-14)
@@ -157,7 +142,7 @@ Only the owning plan may change a §5 contract. Each request below states what t
 ## Review Focus
 
 1. **Privacy across every exit.** Cancel, leaving the step, a failed take, an empty take, and the expiry of Plan 04's undo hold must all write nothing while setup is incomplete. This holds with discarded-recording retention switched on.
-   - Pinned in Task 5: the real `AudioManager` tests, plus the hook test for `NO_AUDIO` and `cancelled`.
+   - Pinned in Task 5: the real `AudioManager` tests, the hook test for `NO_AUDIO` and `cancelled`, and the private-hold test, which runs once Plan 04's hold exists.
 2. **Microphone ownership.**
    - Leaving Hello while `getUserMedia` is pending must stop the late stream.
    - Changing devices must release the old stream first.
@@ -166,7 +151,7 @@ Only the owning plan may change a §5 contract. Each request below states what t
 3. **Route truth.**
    - A local voice commit makes dictation local even from self-hosted.
    - Language changes never commit an incompatible model.
-   - "Dictate into a note" is enabled only when the note route is ready.
+   - "Dictate into a note" is enabled only when the note route is ready. An `unknown` route (§5.1 rule 1) is "Checking…", never ready.
    - Ready never says "You're dictating." without a successful trial.
    - Pinned in Tasks 13 and 18.
 4. **Download identity and failure.**
@@ -196,8 +181,11 @@ grep -n 'role="progressbar"' src/components/ui/DownloadProgressBar.tsx  # Plan 0
 grep -n "padding-left: max(84px" src/styles/onboarding-welcome.css        # Plan 02 ONB-Q1
 grep -n "export function useResolvedRoute" src/lib/routes.ts             # Plan 03
 grep -n "providerId" src/lib/routes.ts                                   # Plan 03 (ResolvedRoute.providerId)
+grep -n "getTotalMemory" preload.js                                      # Plan 03 (§5.1 total memory)
+grep -n '"unknown"' src/lib/routeGraph.ts                                # Plan 03 (§5.1 rule 1)
 ls src/components/ui/notices.ts 2>/dev/null && echo "Plan 04 merged: use notifier variant B (Task 7)" || echo "Plan 04 not merged: use notifier variant A (Task 7)"
-grep -n "_persistExpiredHold" src/helpers/audioManager.js || echo "Plan 04 hold not present: Task 5 hold test skips itself"
+grep -n "_closeCancelled\|persistDiscardedBatchRecording" src/helpers/audioManager.js   # which cancel path exists: Plan 04's hold (_closeCancelled) or today's discard (Task 5)
+grep -n "sendUndoCancelDictation" src/helpers/windowManager.js || echo "Plan 04 bridge not present: skip Task 22 (whichever plan merges second runs it)"
 ```
 
 Record the baseline with `npm run native:node` and then `npm test`. Line numbers in this plan were taken at commit `8267276`, with Plan 02's shifts noted. When a line has moved, find it by the quoted code.
@@ -221,14 +209,14 @@ The authoritative signature lives in the task named in the table; other tasks co
 | `src/utils/onboardingState.ts` | `ONBOARDING_STEPS`, `ONBOARDING_SCENARIOS`, `OnboardingScenario`, `isOnboardingStep`, `OnboardingProgress.visited` | 1 |
 | `src/utils/onboardingFlow.ts` | `ONBOARDING_PHASES`, `phaseOf`, `nextStep`, `previousStep`, `phaseProgress`, `canNavigateTo`, `markVisited`, `AfterSetupIntent`, `OnboardingCompleteOptions` | 1 |
 | `scripts/dev/merge-locale-keys.cjs` | `run`, `expandPlurals`, `mergeInto`, `pluralCategories` | 1 |
-| `src/helpers/systemProfile.js` | `getSystemProfile`, `normalizeLocales`; IPC `get-system-profile`; `SystemProfile` type | 2 |
+| `src/helpers/systemProfile.js` | `getSystemProfile`, `normalizeLocales`; IPC `get-system-profile`; `SystemProfile`, `SystemFacts` types (memory comes from Plan 03's `getTotalMemory`) | 2 |
 | `src/utils/onboardingDetection.ts` | `detectVoice`, `VoicePick`, `VoiceOutcome`, `outcomeFor`, `modelDownloadBytes`, `baseLanguages`, `shouldApplyDetectedVoice`, `isOnboardingVoice`, `voiceSupportsAll`, `reconcileVoice`, `spokenLocalesFor` | 3 |
 | `src/helpers/onboardingInputPolicy.js` | `shouldReportDictationHotkey`, `sanitizeOnboardingDemoEvent`, `admitDemoEvent`; kinds incl. `shortcut`; statuses incl. `cancelled` | 4 |
 | WindowManager | `reportDictationHotkey`, `toggleOnboardingDemoRecording`, `cancelOnboardingDemoRecording`, `undoOnboardingDemoCancel`, `_cancelOnboardingTake` | 4 |
 | `src/helpers/audioManager.js` | `setPrivateSession`, `_captureRecordingPrivacy`, `releasePrivateAudio`; snapshot `private`; `lastAudioBlobPrivate` | 5 |
 | `src/hooks/useSetupIncomplete.ts` | `isSetupIncomplete`, `useSetupIncomplete` | 5 |
 | `src/utils/onboardingDemo.ts` | `buildDemoSuccessEvent`, `demoCleanupOutcome`, `demoErrorCode` | 5 |
-| `src/utils/onboardingTrial.ts` | `TrialState` (incl. `takeId`, `cleanupRetry`), `reduceTrial`, `TrialInput`, `isSilent`, `canUndo`, `trialCaption`, `VOICE_LEVEL_FLOOR`, `SILENCE_HINT_MS` | 6 |
+| `src/utils/onboardingTrial.ts` | `TrialState` (incl. `takeId`, `cleanupRetry`), `reduceTrial`, `TrialInput`, `isSilent`, `trialCaption`, `VOICE_LEVEL_FLOOR`, `SILENCE_HINT_MS` (6); `TrialState.cancelled`, `canUndo` (22) | 6, 22 |
 | `src/utils/onboardingDownload.ts` | `VoiceDownloadState`, `DownloadFacts`, `deriveVoiceDownloadState`, `pushSample`, `estimateRate`, `milestoneCrossed`, `clampPercent`, `byteParts`, `etaParts` | 7 |
 | `src/components/onboarding/useVoiceDownload.ts` | `useVoiceDownload(modelId)` → `{ state, milestone, start, cancel }` | 7 |
 | `src/components/onboarding/onboardingNotices.ts` / `useOnboardingNotifier.ts` | `voiceReadyNotice`, `voiceFailedNotice`, `shouldAnnounceOffStep`, `OnboardingNotice`; `useOnboardingNotifier` | 7 |
@@ -245,6 +233,7 @@ The authoritative signature lives in the task named in the table; other tasks co
 | `ShortcutStep`, `useShortcutDemo` | as named | 17 |
 | `src/utils/onboardingReadiness.ts`, `src/utils/afterSetupIntent.ts`, `ReadyStep` | `summarizeReadiness`, `ReadinessSummary`, `ReadinessRow` (`configured` status), `noteActionState`, `NoteActionState`; `setAfterSetupIntent`, `takeAfterSetupIntent` | 18 |
 | `src/hooks/useStartOnboarding.ts` | `START_ONBOARDING_EVENT`, `requestStartOnboarding`, `useStartOnboarding`, `useStartOnboardingListener` | 19 |
+| Undo wiring (§5.2, whichever plan merges second) | `OnboardingDemoEvent.{sessionId, cancelled, reason}`, `canUndo`, `useTrialSession().{undo, undoAvailable}`, `HotkeyTrial` `undoAvailable`/`onUndo` | 22 |
 
 ---
 
@@ -691,7 +680,7 @@ git commit -m "feat(onboarding): two-phase step graph, visited steps and new pre
 
 ### Task 2: System profile IPC (the D8 inputs)
 
-Covers the data half of ONB-R3 C under D8: hardware and OS locale only. Plan 03 (Task 11) adds a `get-total-memory` IPC that it drops when this lands first. If Plan 03 already shipped it, keep both, and do not remove theirs.
+Covers the data half of ONB-R3 C under D8: hardware and OS locale only. Total memory is not part of this channel. Plan 03 ships `get-total-memory` (`getTotalMemory(): Promise<number>`, `os.totalmem()`), and spec §5.1 says Plan 05 reads that same main-side value with no second channel. `useSystemProfile` (Task 13) composes the two.
 
 **Files:**
 - Create: `src/helpers/systemProfile.js`
@@ -709,17 +698,18 @@ Covers the data half of ONB-R3 C under D8: hardware and OS locale only. Plan 03 
   // src/types/electron.ts
   export interface SystemProfile {
     locales: string[];               // OS preferred languages, BCP 47, deduped, max 8
-    totalMemoryBytes: number | null;
+    totalMemoryBytes: number | null; // from Plan 03's getTotalMemory (§5.1), composed in the renderer
     freeDiskBytes: number | null;    // free space where models are stored
     gpu: { kind: "apple-silicon" | "nvidia" | "unknown"; name: string | null };
   }
+  export type SystemFacts = Omit<SystemProfile, "totalMemoryBytes">;
   // window.electronAPI
-  getSystemProfile?: () => Promise<SystemProfile>;
+  getSystemProfile?: () => Promise<SystemFacts>;
   ```
 
   ```js
   // src/helpers/systemProfile.js (CommonJS, dependency-injected for tests)
-  async function getSystemProfile(deps): Promise<SystemProfile>
+  async function getSystemProfile(deps): Promise<SystemFacts>
   function normalizeLocales(list, fallback): string[]
   ```
 
@@ -734,12 +724,11 @@ const { getSystemProfile, normalizeLocales } = require("../../src/helpers/system
 
 const enoent = () => Object.assign(new Error("missing"), { code: "ENOENT" });
 
-test("reads preferred languages, memory, free space and Apple silicon without probing NVIDIA", async () => {
+test("reads preferred languages, free space and Apple silicon without probing NVIDIA", async () => {
   const profile = await getSystemProfile({
     app: { getPreferredSystemLanguages: () => ["es-ES", "en-US", "es-ES"], getLocale: () => "en-US" },
     platform: "darwin",
     arch: "arm64",
-    totalmem: () => 17179869184,
     statfs: async (dir) => {
       assert.equal(dir, "/cache/loqui");
       return { bavail: 1000, bsize: 4096 };
@@ -751,10 +740,10 @@ test("reads preferred languages, memory, free space and Apple silicon without pr
   });
   assert.deepEqual(profile, {
     locales: ["es-ES", "en-US"],
-    totalMemoryBytes: 17179869184,
     freeDiskBytes: 4096000,
     gpu: { kind: "apple-silicon", name: null },
   });
+  assert.equal("totalMemoryBytes" in profile, false, "memory comes from Plan 03's get-total-memory (§5.1)");
 });
 
 test("free space is read from the nearest existing parent of the model cache", async () => {
@@ -763,7 +752,6 @@ test("free space is read from the nearest existing parent of the model cache", a
     app: { getLocale: () => "en-US" },
     platform: "linux",
     arch: "x64",
-    totalmem: () => 8e9,
     statfs: async (dir) => {
       seen.push(dir);
       if (dir !== "/home/u") throw enoent();
@@ -782,7 +770,6 @@ test("unknowns are null, never guesses; an NVIDIA card is named", async () => {
     app: { getLocale: () => "fr-FR" },
     platform: "win32",
     arch: "x64",
-    totalmem: () => Number.NaN,
     statfs: async () => {
       throw Object.assign(new Error("denied"), { code: "EACCES" });
     },
@@ -791,7 +778,6 @@ test("unknowns are null, never guesses; an NVIDIA card is named", async () => {
   });
   assert.deepEqual(profile, {
     locales: ["fr-FR"],
-    totalMemoryBytes: null,
     freeDiskBytes: null,
     gpu: { kind: "nvidia", name: "NVIDIA GeForce RTX 4070" },
   });
@@ -802,7 +788,6 @@ test("a failing GPU probe is unknown, not an error", async () => {
     app: {},
     platform: "linux",
     arch: "x64",
-    totalmem: () => 4e9,
     statfs: async () => ({ bavail: 1, bsize: 1 }),
     cacheRoot: "/c",
     detectGpu: async () => {
@@ -842,10 +827,10 @@ Expected: FAIL. `Cannot find module '../../src/helpers/systemProfile'`, and `api
 
    ```js
    "use strict";
-   // Facts setup uses to recommend a voice (spec D8): OS languages, memory, free
-   // space where models are stored, and the GPU. Read on this device, returned
-   // to the setup window, never stored or sent anywhere.
-   const os = require("os");
+   // Facts setup uses to recommend a voice (spec D8): OS languages, free space
+   // where models are stored, and the GPU. Total memory comes from Plan 03's
+   // get-total-memory (§5.1). Read on this device, returned to the setup window,
+   // never stored or sent anywhere.
    const path = require("path");
    const fsPromises = require("fs/promises");
 
@@ -896,15 +881,12 @@ Expected: FAIL. `Cannot find module '../../src/helpers/systemProfile'`, and `api
      app,
      platform = process.platform,
      arch = process.arch,
-     totalmem = os.totalmem,
      statfs = fsPromises.statfs,
      cacheRoot,
      detectGpu,
    } = {}) {
-     const memory = Number(totalmem());
      return {
        locales: normalizeLocales(app?.getPreferredSystemLanguages?.(), app?.getLocale?.()),
-       totalMemoryBytes: Number.isFinite(memory) && memory > 0 ? memory : null,
        freeDiskBytes: cacheRoot ? await freeBytesAt(cacheRoot, statfs) : null,
        gpu: await detectGpuKind({ platform, arch, detectGpu }),
      };
@@ -940,8 +922,8 @@ Expected: FAIL. `Cannot find module '../../src/helpers/systemProfile'`, and `api
    ```
 
 4. In `src/types/electron.ts`:
-   - Add the `SystemProfile` interface above `export type OnboardingDemoKind`.
-   - Add `getSystemProfile?: () => Promise<SystemProfile>;` after the `onOnboardingDemoEvent?` member (line 701).
+   - Add the `SystemProfile` interface and `SystemFacts` above `export type OnboardingDemoKind`.
+   - Add `getSystemProfile?: () => Promise<SystemFacts>;` after the `onOnboardingDemoEvent?` member (line 701). `getTotalMemory?` is Plan 03's member; do not add another.
 
 5. In `docs/PRIVACY.md`, append this bullet to `## Content and retention`:
 
@@ -958,7 +940,7 @@ Expected: PASS.
 
 ```bash
 git add src/helpers/systemProfile.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts docs/PRIVACY.md test/helpers/systemProfile.test.js test/helpers/preloadOnboardingBridge.test.js
-git commit -m "feat(onboarding): read OS languages, memory, free space and GPU for voice detection"
+git commit -m "feat(onboarding): read OS languages, free space and GPU for voice detection"
 ```
 
 ---
@@ -1265,10 +1247,10 @@ git commit -m "feat(onboarding): pick and reconcile a voice from OS languages an
 
 ### Task 4: Onboarding demo bridge v2
 
-The bridge gains a shortcut demo, a `cancelled` status, live hotkey presses, and trial toggle, cancel and undo. Covers the main-process half of ONB-R5 C and ONB-R7 B, and the §5.2 plumbing.
+The bridge gains a shortcut demo, the `cancelled` and `cancelClosed` statuses, live hotkey presses, and trial toggle, cancel and undo. Covers the main-process half of ONB-R5 C and ONB-R7 B, and Plan 05's side of the §5.2 Undo bridge. The bridge's cancelled *fields* (`sessionId`, `cancelled: CancelledState`, `reason`) are Plan 04's; Task 22 wires them once both plans have merged.
 
 **Files:**
-- Modify: `src/helpers/onboardingInputPolicy.js`. Rewrite the whole 17-line file.
+- Modify: `src/helpers/onboardingInputPolicy.js`. Edit it to the shape below. If Plan 04 has merged, the file already has `cancelClosed` and `sanitizeCancelledDemoFields`: keep both (Task 22 spreads the sanitiser).
 - Modify: `src/helpers/ipcHandlers.js`. Touch the import on line 54, `onboarding-demo-publish` (1059-1079), and add the new handlers after `onboarding-demo-stop` (1054-1057).
 - Modify: `src/helpers/windowManager.js`:
   - the import on line 44;
@@ -1282,7 +1264,7 @@ The bridge gains a shortcut demo, a `cancelled` status, live hotkey presses, and
 **Interfaces:**
 - Produces in `src/helpers/onboardingInputPolicy.js`:
   - `ONBOARDING_DEMO_KINDS` gains `"shortcut"`.
-  - `ONBOARDING_DEMO_STATUSES` gains `"cancelled"`.
+  - `ONBOARDING_DEMO_STATUSES` gains `"cancelled"` and `"cancelClosed"` (§5.2).
   - `shouldReportDictationHotkey(onboardingActive: boolean, demoKind: string | null): boolean`
   - `sanitizeOnboardingDemoEvent(event, session): OnboardingDemoEvent | null`
   - `admitDemoEvent(session: { sawListening?: boolean }, status: string): boolean`. A session admits nothing until its own `listening` arrives, so a late result from a take that began before the session (or in a previous one) never reaches setup (round 1, ONB-06).
@@ -1290,7 +1272,7 @@ The bridge gains a shortcut demo, a `cancelled` status, live hotkey presses, and
   - `reportDictationHotkey(phase: "down" | "up" | "tap"): boolean`
   - `toggleOnboardingDemoRecording(): boolean`
   - `cancelOnboardingDemoRecording(): boolean`
-  - `undoOnboardingDemoCancel(): boolean`. It calls Plan 04's `sendUndoCancelDictation`, per CCR 1.
+  - `undoOnboardingDemoCancel(): Promise<boolean>`. Per §5.2 it calls Plan 04's `sendUndoCancelDictation(this.lastCancelledDictation?.sessionId)` and returns `result.restored`. Until Plan 04 merges, the method does not exist and this returns `false`.
   - `_cancelOnboardingTake()`. It cancels preparation, recording *and* processing (`cancel-dictation-preparation` plus `cancel-dictation`). `endOnboardingDemo` and `cancelOnboardingDemoRecording` use it. Today's `sendCancelDictation()` only cancels a recording (`src/App.jsx:364-369`), so leaving mid-processing let the take finish.
 - Produces these IPC channels:
   - `onboarding-demo-toggle`, `onboarding-demo-cancel`, `onboarding-demo-undo-cancel`. Each takes the demo id.
@@ -1299,9 +1281,10 @@ The bridge gains a shortcut demo, a `cancelled` status, live hotkey presses, and
 
   ```ts
   export type OnboardingDemoKind = "dictation" | "assistant" | "shortcut";
-  // OnboardingDemoStatus adds "cancelled"; OnboardingDemoEvent adds:
+  // OnboardingDemoStatus adds "cancelled" | "cancelClosed"; OnboardingDemoEvent adds:
   //   rawText?: string; code?: string; cleanup?: "applied" | "skipped" | "failed";
-  //   undoUntil?: number; remoteAlreadySent?: string;
+  // The §5.2 cancelled fields (sessionId, cancelled: CancelledState, reason) come from
+  // src/types/dictation.ts (Plan 04) and are added by Task 22, not restated here.
   export interface DictationHotkeyEvent { phase: "down" | "up" | "tap"; at: number }
   toggleOnboardingDemo?: (id: string) => Promise<boolean>;
   cancelOnboardingDemo?: (id: string) => Promise<boolean>;
@@ -1339,8 +1322,9 @@ test("a shortcut demo observes presses but never starts a recording", () => {
   assert.equal(shouldReportDictationHotkey(false, "dictation"), false, "after setup, presses stay private");
 });
 
-test("the cancelled state can reach the setup window", () => {
+test("the cancelled and cancelClosed states can reach the setup window (§5.2)", () => {
   assert.ok(ONBOARDING_DEMO_STATUSES.has("cancelled"));
+  assert.ok(ONBOARDING_DEMO_STATUSES.has("cancelClosed"));
 });
 
 test("a session admits nothing until its own take starts listening", () => {
@@ -1363,8 +1347,6 @@ test("the publish sanitizer keeps trial fields, clamps them, and drops everythin
       cleanup: "applied",
       code: "X".repeat(100),
       level: 3,
-      undoUntil: 1700,
-      remoteAlreadySent: "OpenAI",
       demoId: "spoofed",
       secret: "nope",
     },
@@ -1381,19 +1363,18 @@ test("the publish sanitizer keeps trial fields, clamps them, and drops everythin
     tool: undefined,
     level: 1,
     cleanup: "applied",
-    undoUntil: 1700,
-    remoteAlreadySent: "OpenAI",
   });
   assert.equal(sanitizeOnboardingDemoEvent({ kind: "assistant", status: "success" }, session), null);
   assert.equal(sanitizeOnboardingDemoEvent({ kind: "dictation", status: "done" }, session), null);
   assert.equal(sanitizeOnboardingDemoEvent({ kind: "dictation", status: "success" }, null), null);
   const odd = sanitizeOnboardingDemoEvent(
-    { kind: "dictation", status: "cancelled", cleanup: "maybe", undoUntil: "soon", level: Number.NaN },
+    { kind: "dictation", status: "cancelled", cleanup: "maybe", undoUntil: 1700, remoteAlreadySent: "OpenAI", level: Number.NaN },
     session
   );
   assert.equal(odd.cleanup, undefined);
-  assert.equal(odd.undoUntil, undefined);
   assert.equal(odd.level, undefined);
+  assert.equal("undoUntil" in odd, false, "the retired pair never passes; §5.2 uses cancelled: CancelledState");
+  assert.equal("remoteAlreadySent" in odd, false);
 });
 ```
 
@@ -1446,6 +1427,7 @@ Expected: FAIL. `sanitizeOnboardingDemoEvent is not a function`, `"shortcut"` is
      "success",
      "error",
      "cancelled",
+     "cancelClosed",
    ]);
    const DEMO_CLEANUP_OUTCOMES = new Set(["applied", "skipped", "failed"]);
 
@@ -1479,8 +1461,7 @@ Expected: FAIL. `sanitizeOnboardingDemoEvent is not a function`, `"shortcut"` is
        tool: clip(event.tool, 64),
        level: Number.isFinite(event.level) ? Math.min(1, Math.max(0, event.level)) : undefined,
        cleanup: DEMO_CLEANUP_OUTCOMES.has(event.cleanup) ? event.cleanup : undefined,
-       undoUntil: Number.isFinite(event.undoUntil) ? event.undoUntil : undefined,
-       remoteAlreadySent: clip(event.remoteAlreadySent, 64),
+       // Task 22 adds ...sanitizeCancelledDemoFields(event) here (Plan 04, §5.2).
      };
    }
 
@@ -1597,13 +1578,13 @@ Expected: FAIL. `sanitizeOnboardingDemoEvent is not a function`, `"shortcut"` is
          this.sendCancelActiveDictation();
        }
 
-       // Spec §5.2: undo belongs to Plan 04. Until it adds sendUndoCancelDictation,
-       // setup reports false and hides its Undo button (contract change request 1).
-       undoOnboardingDemoCancel() {
+       // Spec §5.2: the bridge is Plan 04's. Before it merges there is no
+       // sendUndoCancelDictation, and setup shows "Discarded." with no Undo.
+       async undoOnboardingDemoCancel() {
          if (this._onboardingDemoKind !== "dictation") return false;
          if (typeof this.sendUndoCancelDictation !== "function") return false;
-         this.sendUndoCancelDictation();
-         return true;
+         const result = await this.sendUndoCancelDictation(this.lastCancelledDictation?.sessionId);
+         return result?.restored === true;
        }
      ```
 
@@ -1644,7 +1625,7 @@ Expected: FAIL. `sanitizeOnboardingDemoEvent is not a function`, `"shortcut"` is
 
 6. In `src/types/electron.ts`, make three changes:
    - Widen `OnboardingDemoKind` and `OnboardingDemoStatus`.
-   - Add the five optional fields to `OnboardingDemoEvent`, add `DictationHotkeyEvent`, and add the four API members, all exactly as listed under Interfaces.
+   - Add the three optional fields to `OnboardingDemoEvent`, add `DictationHotkeyEvent`, and add the four API members, all exactly as listed under Interfaces.
    - `getOnboardingDemoKind` (`src/utils/onboardingDemo.ts:3`) keeps returning `"assistant" | "dictation"`. Annotate its return type as `Exclude<OnboardingDemoKind, "shortcut">` if typecheck complains.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -1656,7 +1637,7 @@ Expected: PASS. The `windowManager*` suites run too, because they load the file.
 
 ```bash
 git add src/helpers/onboardingInputPolicy.js src/helpers/ipcHandlers.js src/helpers/windowManager.js main.js preload.js src/types/electron.ts test/helpers/onboardingInputPolicy.test.js test/helpers/preloadOnboardingBridge.test.js
-git commit -m "feat(onboarding): shortcut demo, cancelled status, live hotkey presses and trial controls"
+git commit -m "feat(onboarding): shortcut demo, cancel statuses, live hotkey presses and trial controls"
 ```
 
 ---
@@ -1668,7 +1649,9 @@ Covers the privacy boundary (Review Focus 1), ONB-Q7 event payloads, and the emp
 Today's trial gates only the successful-result save (`useAudioRecording.js:528-536`). `AudioManager` knows nothing about the trial, and three other writers stay open:
 - **Discarded audio on cancel:** `cancelRecording` and `discardBatchRecording` (1605-1645) call `persistDiscardedBatchRecording` (1675-1711), which saves audio and a `discarded` history row when the global retention settings allow it (`src/helpers/discardedRecording.js`).
 - **Failed takes:** 1903-1926 call `saveFailedTranscription` (3110-3164), which writes a `failed` row plus audio.
-- **Plan 04's undo hold:** `_persistExpiredHold` (Plan 04 lines 2695-2703) saves held audio on expiry, on the `beforeunload` flush, and when the next recording starts.
+- **Plan 04's undo hold:** Plan 04 replaces `persistDiscardedBatchRecording` with an in-memory cancel hold that saves on window close (`_closeCancelled`, on expiry, replacement or the quit flush). Spec §5.2 makes "an expired private hold is never persisted, and a restore re-applies `private`" Plan 04's contract. This task's hold test checks it from either merge order.
+
+**If Plan 04 merged first,** `takeDiscardedBatchSnapshot` and `persistDiscardedBatchRecording` no longer exist. Skip their guards and drop the three snapshot tests below ("a recording started during setup…", "after setup, the same discard…", "privacy belongs to the recording…"). The hold test then covers the cancel path. Every other guard in this task still applies.
 
 The fix makes privacy a property of **each recording**. It is captured when the recording starts and carried with every artefact that can outlive it.
 
@@ -1702,7 +1685,7 @@ The fix makes privacy a property of **each recording**. It is captured when the 
 - `useAudioRecording`:
   - it calls `setPrivateSession(trialMode)` on every manager it builds;
   - blank results publish `{ status: "error", code: "NO_AUDIO" }`;
-  - cancelling an active take publishes `{ status: "cancelled", undoUntil: 0 }`. Plan 04 later publishes its own `cancelled` with a real `undoUntil` (CCR 1), and the reducer keeps the latest.
+  - cancelling an active take publishes `{ status: "cancelled" }` with no fields: the §5.2 fallback, so setup says "Discarded." with no Undo. Plan 04's `onCancelledChange` publishes the full `{ status: "cancelled", sessionId, cancelled }` and `cancelClosed`; Task 22 deletes this fallback.
 - `useSetupIncomplete(): boolean` and `isSetupIncomplete(storage?): boolean`. The latter fails closed.
 - `onboardingDemo.ts`: `buildDemoSuccessEvent`, `demoCleanupOutcome`, `demoErrorCode`.
 
@@ -1811,25 +1794,40 @@ test("every recording start captures its privacy", () => {
   assert.equal(blobs.length, 2, "both audio-carrying assignments record privacy");
 });
 
-// Spec §5.2 / CCR 1: Plan 04 replaces the immediate discard with a RAM hold that
-// persists on expiry. Whichever plan merges first, an expired private hold must
-// save nothing. Skips itself honestly until the hold exists.
+// Spec §5.2 (private holds, Plan 04's contract): Plan 04 replaces the immediate
+// discard with a RAM hold that is saved when its window closes. An expired private
+// hold is never persisted. Runs whenever the hold exists, so either merge order is
+// checked; skips itself honestly before that. The seam is Plan 04's
+// _closeCancelled(buffer, reason) (or _persistExpiredHold in older drafts); its
+// buffer carries the recording's `private` flag.
 test("an expired private undo hold saves nothing (either merge order)", async (t) => {
-  const { AudioManager } = await load(t);
-  if (typeof AudioManager.prototype._persistExpiredHold !== "function") {
+  const { AudioManager, window } = await load(t);
+  const close = AudioManager.prototype._closeCancelled ?? AudioManager.prototype._persistExpiredHold;
+  if (typeof close !== "function") {
     t.skip("Plan 04's undo hold is not merged yet");
     return;
   }
   const saved = [];
-  const manager = recorder(AudioManager, { saveDiscardedTranscription: async (...args) => saved.push(args) });
-  await manager._persistExpiredHold({
+  window.electronAPI.saveTranscription = async (...args) => (saved.push(["row", ...args]), { id: 1 });
+  window.electronAPI.saveTranscriptionAudio = async (...args) => (saved.push(["audio", ...args]), {});
+  const manager = recorder(AudioManager, { saveDiscardedTranscription: async (...args) => saved.push(["discarded", ...args]) });
+  manager.setPrivateSession(true);
+  manager._captureRecordingPrivacy();
+  const hold = {
     private: true,
-    durationSeconds: 3,
-    bytes: new Uint8Array([1, 2, 3]),
+    session: { id: "rec-private", settings: {}, intents: {}, routes: {} },
+    kind: "batch",
     mimeType: "audio/webm",
+    durationSeconds: 3,
     analyticsOccurredAt: new Date().toISOString(),
-  });
-  assert.deepEqual(saved, []);
+    bytes: () => [new Uint8Array([1, 2, 3])],
+    ready: async () => {},
+    zero() {},
+    isZeroed: () => false,
+  };
+  await close.call(manager, hold, "expired");
+  await flushBackground();
+  assert.deepEqual(saved, [], "an expired private hold is never persisted (§5.2)");
 });
 ```
 
@@ -1915,14 +1913,14 @@ test("an empty result reaches setup as NO_AUDIO and releases the private audio",
   assert.equal(probe.released, 1);
 });
 
-test("cancelling an active take tells setup it was discarded", async (t) => {
+test("cancelling an active take tells setup it was discarded, with no Undo fields (§5.2 fallback)", async (t) => {
   const { probe, events, api } = await mountHook(t, true);
   probe.state = { isRecording: true };
   await React.act(async () => api().cancelRecording());
-  assert.deepEqual(
-    events.filter((event) => event.status === "cancelled").map((event) => event.undoUntil),
-    [0]
-  );
+  const cancelled = events.filter((event) => event.status === "cancelled");
+  assert.equal(cancelled.length, 1);
+  assert.equal("cancelled" in cancelled[0], false, "the CancelledState is Plan 04's to publish");
+  assert.equal("undoUntil" in cancelled[0], false, "the retired pair is gone");
   probe.state = {};
   await React.act(async () => api().cancelRecording());
   assert.equal(events.filter((event) => event.status === "cancelled").length, 1, "nothing to cancel, nothing said");
@@ -2106,8 +2104,9 @@ The hold test is skipped until Plan 04 merges.
      ```js
          const before = audioManagerRef.current?.getState?.() ?? {};
          if (before.isRecording || before.isProcessing || before.isStreaming) {
-           // Spec §5.2: Plan 04 republishes with a real undoUntil (CCR 1); 0 means no Undo.
-           onDemoEventRef.current?.({ kind: demoKindRef.current, status: "cancelled", undoUntil: 0 });
+           // §5.2 fallback until Plan 04: "Discarded." with no Undo. Plan 04's
+           // onCancelledChange publishes the real cancelled state; Task 22 deletes this.
+           onDemoEventRef.current?.({ kind: demoKindRef.current, status: "cancelled" });
          }
      ```
 
@@ -2190,7 +2189,7 @@ The hold test is skipped until Plan 04 merges.
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm test -- test/helpers/audioManagerPrivateTrial.test.js test/helpers/useAudioRecordingTrialEvents.test.js test/hooks/useSetupIncomplete.test.js test/utils/onboardingDemo.test.js "test/helpers/audioManager*.test.js" "test/helpers/useAudioRecording*.test.js" && npm run typecheck`
-Expected: PASS. Every existing `audioManager*` and `useAudioRecording*` suite still passes; none of them sets `_privateSession`, so their saves are unchanged. The hold test reports SKIP until Plan 04 merges. After Plan 04 merges, it must pass. If it fails, Plan 04 has not applied CCR 1, so stop and raise it.
+Expected: PASS. Every existing `audioManager*` and `useAudioRecording*` suite still passes; none of them sets `_privateSession`, so their saves are unchanged. The hold test reports SKIP until Plan 04 merges. After Plan 04 merges, it must pass. If it fails, Plan 04 has not implemented §5.2's private holds, so stop and raise it with Plan 04.
 
 - [ ] **Step 5: Commit**
 
@@ -2203,7 +2202,7 @@ git commit -m "fix(onboarding): recordings made during setup are private on ever
 
 ### Task 6: Trial state reducer
 
-Covers the logic of ONB-R5 C, ONB-Q3, ONB-Q5 and ONB-Q7, and consumes §5.2 `cancelled`. Cleanup retries are keyed to a take, so a retry can never write into a later take (I08).
+Covers the logic of ONB-R5 C, ONB-Q3, ONB-Q5 and ONB-Q7, and consumes §5.2 `cancelled` as the fallback ("Discarded.", no Undo). Task 22 adds the `CancelledState`, `cancelClosed` and `canUndo` once Plan 04 is present. Cleanup retries are keyed to a take, so a retry can never write into a later take (I08).
 
 **Files:**
 - Create: `src/utils/onboardingTrial.ts`
@@ -2221,12 +2220,12 @@ Covers the logic of ONB-R5 C, ONB-Q3, ONB-Q5 and ONB-Q7, and consumes §5.2 `can
     cleanup: "applied" | "skipped" | "failed" | null;
     level: number; heardVoice: boolean; recordingSinceMs: number | null;
     errorKind: TrialErrorKind | null; errorMessage: string | null;
-    undoUntil: number | null; remoteAlreadySent: string | null; successes: number;
+    successes: number;
     takeId: number;                                  // +1 on every "listening"
     cleanupRetry: "idle" | "running" | "failed";
   }
   export type TrialInput =
-    | (Pick<OnboardingDemoEvent, "status" | "text" | "rawText" | "message" | "code" | "level" | "cleanup" | "undoUntil" | "remoteAlreadySent"> & { atMs: number })
+    | (Pick<OnboardingDemoEvent, "status" | "text" | "rawText" | "message" | "code" | "level" | "cleanup"> & { atMs: number })
     | { status: "reset"; atMs: number }
     | { status: "cleanupRetry"; takeId: number; atMs: number }
     | { status: "cleanupResult"; takeId: number; text: string | null; atMs: number };
@@ -2236,7 +2235,6 @@ Covers the logic of ONB-R5 C, ONB-Q3, ONB-Q5 and ONB-Q7, and consumes §5.2 `can
   export function classifyTrialError(code?: string): TrialErrorKind;
   export function reduceTrial(state: TrialState, input: TrialInput): TrialState;
   export function isSilent(state: TrialState, nowMs: number): boolean;
-  export function canUndo(state: TrialState, nowMs: number): boolean;
   export type TrialCaption = "idle" | "goodLevel" | "waiting" | "processing" | "heard" | "discarded" | "error";
   export function trialCaption(state: TrialState): TrialCaption;
   ```
@@ -2308,19 +2306,14 @@ test("an empty or blank success means nothing was heard, not a win", async () =>
   }
 });
 
-test("a cancelled recording offers undo until its deadline (spec §5.2)", async () => {
-  const { canUndo, trialCaption } = await load();
+test("a cancelled recording is discarded and stops the meter (spec §5.2 fallback)", async () => {
+  const { trialCaption } = await load();
   const state = await play([
     { status: "listening", atMs: 0 },
-    { status: "cancelled", undoUntil: 6000, remoteAlreadySent: null, atMs: 1000 },
+    { status: "level", level: 0.4, atMs: 500 },
+    { status: "cancelled", atMs: 1000 },
   ]);
-  assert.equal(state.phase, "cancelled");
-  assert.equal(trialCaption(state), "discarded");
-  assert.equal(canUndo(state, 5999), true);
-  assert.equal(canUndo(state, 6000), false);
-  const odd = await play([{ status: "cancelled", undoUntil: Number.NaN, atMs: 0 }]);
-  assert.equal(odd.undoUntil, null);
-  assert.equal(canUndo(odd, 0), false);
+  assert.deepEqual([state.phase, state.level, trialCaption(state)], ["cancelled", 0, "discarded"]);
 });
 
 test("a new take clears the last result but keeps the success count", async () => {
@@ -2392,8 +2385,6 @@ export interface TrialState {
   recordingSinceMs: number | null;
   errorKind: TrialErrorKind | null;
   errorMessage: string | null;
-  undoUntil: number | null;
-  remoteAlreadySent: string | null;
   successes: number;
   takeId: number;
   cleanupRetry: "idle" | "running" | "failed";
@@ -2402,7 +2393,7 @@ export interface TrialState {
 export type TrialInput =
   | (Pick<
       OnboardingDemoEvent,
-      "status" | "text" | "rawText" | "message" | "code" | "level" | "cleanup" | "undoUntil" | "remoteAlreadySent"
+      "status" | "text" | "rawText" | "message" | "code" | "level" | "cleanup"
     > & { atMs: number })
   | { status: "reset"; atMs: number }
   | { status: "cleanupRetry"; takeId: number; atMs: number }
@@ -2423,8 +2414,6 @@ export const INITIAL_TRIAL_STATE: TrialState = {
   recordingSinceMs: null,
   errorKind: null,
   errorMessage: null,
-  undoUntil: null,
-  remoteAlreadySent: null,
   successes: 0,
   takeId: 0,
   cleanupRetry: "idle",
@@ -2505,8 +2494,6 @@ export function reduceTrial(state: TrialState, input: TrialInput): TrialState {
         ...state,
         phase: "cancelled",
         level: 0,
-        undoUntil: Number.isFinite(input.undoUntil) ? (input.undoUntil as number) : null,
-        remoteAlreadySent: input.remoteAlreadySent ?? null,
       };
     default:
       // "replying" belongs to the assistant demo.
@@ -2521,10 +2508,6 @@ export function isSilent(state: TrialState, nowMs: number): boolean {
     state.recordingSinceMs !== null &&
     nowMs - state.recordingSinceMs >= SILENCE_HINT_MS
   );
-}
-
-export function canUndo(state: TrialState, nowMs: number): boolean {
-  return state.phase === "cancelled" && state.undoUntil !== null && state.undoUntil > nowMs;
 }
 
 export type TrialCaption = "idle" | "goodLevel" | "waiting" | "processing" | "heard" | "discarded" | "error";
@@ -3362,7 +3345,7 @@ ONB-Q18 groundwork. Every new state is previewable, and no production component 
 - a transfer settles exactly once;
 - `reset()` settles a pending transfer;
 - cancel clears the active entry;
-- Undo needs a live cancellation inside its deadline.
+- a trial cancel says "Discarded." with no Undo, exactly like desktop before Plan 04 (§5.2 fallback). Task 22 adds the preview's Undo with the §5.2 shapes.
 
 **Files:**
 - Create: `src/preview/onboardingScenarioBridge.ts`
@@ -3566,7 +3549,7 @@ test("without Accessibility on macOS, presses never arrive", async () => {
 test("the system profile follows the scenario", async () => {
   assert.deepEqual((await (await bridgeFor("multilingual")).api.getSystemProfile()).locales, ["es-ES", "en-US"]);
   assert.equal((await (await bridgeFor("low-disk")).api.getSystemProfile()).freeDiskBytes, 412000000);
-  assert.equal((await (await bridgeFor("insufficient-memory")).api.getSystemProfile()).totalMemoryBytes, 4 * 1024 ** 3);
+  assert.equal(await (await bridgeFor("insufficient-memory")).api.getTotalMemory(), 4 * 1024 ** 3);
 });
 
 test("reset settles a pending transfer and cancel never leaves stale active work (I12)", async () => {
@@ -3594,20 +3577,15 @@ test("reset settles a pending transfer and cancel never leaves stale active work
   assert.equal((await retry).success, true);
 });
 
-test("Undo needs a live cancellation inside its window (I12)", async () => {
+test("a cancel is discarded with no Undo, like desktop before Plan 04 (§5.2 fallback, I12)", async () => {
   const { api, time, events } = await trial("ready");
-  assert.equal(await api.undoOnboardingDemoCancel("demo-1"), false, "nothing was cancelled");
   await api.toggleOnboardingDemo("demo-1");
   time.advance(200);
   assert.equal(await api.cancelOnboardingDemo("demo-1"), true);
-  time.advance(6000);
-  assert.equal(await api.undoOnboardingDemoCancel("demo-1"), false, "the window has expired");
-  await api.toggleOnboardingDemo("demo-1");
-  time.advance(200);
-  await api.cancelOnboardingDemo("demo-1");
-  assert.equal(await api.undoOnboardingDemoCancel("demo-1"), true);
-  time.advance(400);
-  assert.equal(events.at(-1).status, "success");
+  assert.deepEqual(events.at(-1), { demoId: "demo-1", kind: "dictation", status: "cancelled" });
+  assert.equal(await api.undoOnboardingDemoCancel("demo-1"), false);
+  time.advance(1000);
+  assert.equal(events.at(-1).status, "cancelled", "nothing resumes");
 });
 
 test("ending a session silences it and reset forgets downloads", async () => {
@@ -3637,7 +3615,7 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      DictationHotkeyEvent,
      OnboardingDemoEvent,
      OnboardingDemoKind,
-     SystemProfile,
+     SystemFacts,
    } from "../types/electron";
    import type { OnboardingPreviewConfig } from "../utils/onboardingState";
    import { DEFAULT_ONBOARDING_SPEECH_MODEL_ID } from "../utils/onboardingSpeechModels";
@@ -3665,7 +3643,6 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
    const INTERRUPT_AT = 42;
    const LEVEL_MS = 80;
    const PROCESS_MS = 350;
-   const UNDO_MS = 5000;
 
    // ParakeetModelResult (src/types/electron.ts:486-500) requires `downloaded`.
    type DownloadResult = {
@@ -3693,7 +3670,6 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      let active: { model: string; percent: number; timer: unknown; resolve: (r: DownloadResult) => void } | null = null;
      let session: { id: string; kind: OnboardingDemoKind } | null = null;
      let recording = false;
-     let cancelledTake: { sessionId: string; undoUntil: number } | null = null;
      let trialTimers: unknown[] = [];
 
      const scenario = () => getConfig().scenario;
@@ -3799,7 +3775,6 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      function endSession() {
        recording = false;
        clearTrialTimers();
-       cancelledTake = null;
        session = null;
      }
 
@@ -3832,7 +3807,6 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
 
      function reset() {
        settleActive("Preview reset", "DOWNLOAD_CANCELLED");
-       cancelledTake = null;
        downloaded.clear();
        kept.clear();
        interrupted.clear();
@@ -3840,12 +3814,13 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      }
 
      const api = {
-       getSystemProfile: async (): Promise<SystemProfile> => ({
+       getSystemProfile: async (): Promise<SystemFacts> => ({
          locales: scenario() === "multilingual" ? ["es-ES", "en-US"] : ["en-US"],
-         totalMemoryBytes: scenario() === "insufficient-memory" ? 4 * 1024 ** 3 : 16 * 1024 ** 3,
          freeDiskBytes: scenario() === "low-disk" ? 412_000_000 : 212_000_000_000,
          gpu: isMac() ? { kind: "apple-silicon", name: null } : { kind: "unknown", name: null },
        }),
+       // Plan 03's channel (§5.1); the preview owns its value per scenario.
+       getTotalMemory: async () => (scenario() === "insufficient-memory" ? 4 * 1024 ** 3 : 16 * 1024 ** 3),
        checkParakeetModelStatus: async (model: string) => ({
          success: true,
          model,
@@ -3914,20 +3889,11 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
          if (session?.id !== id || !recording) return false;
          recording = false;
          clearTrialTimers();
-         cancelledTake = { sessionId: id, undoUntil: clock.now() + UNDO_MS };
-         emitDemo({ status: "cancelled", undoUntil: cancelledTake.undoUntil });
+         emitDemo({ status: "cancelled" });
          return true;
        },
-       // Desktop parity: Undo exists only for a live cancellation inside its window.
-       undoOnboardingDemoCancel: async (id: string) => {
-         if (session?.id !== id || cancelledTake?.sessionId !== id || clock.now() >= cancelledTake.undoUntil) return false;
-         cancelledTake = null;
-         emitDemo({ status: "processing" });
-         later(PROCESS_MS, () =>
-           emitDemo({ status: "success", text: PREVIEW_SENTENCE, rawText: PREVIEW_SENTENCE, cleanup: "skipped" })
-         );
-         return true;
-       },
+       // Desktop parity before Plan 04 (§5.2 fallback): no Undo. Task 22 replaces this.
+       undoOnboardingDemoCancel: async (_id: string) => false,
        onOnboardingDemoEvent: subscribe(demoListeners),
        onDictationHotkeyEvent: subscribe(hotkeyListeners),
      } satisfies Partial<Window["electronAPI"]>;
@@ -4781,7 +4747,8 @@ It keeps ONB-Q1 (Plan 02): the pinned shell and the physical traffic-light inset
 **Files:**
 - Create: `src/components/onboarding/instrumentMath.ts`, `src/components/onboarding/InstrumentRail.tsx`, `src/components/onboarding/OnboardingShell.tsx`
 - Modify: `src/styles/onboarding.css` (append)
-- Modify: `src/index.css`. Delete the orphaned onboarding rules listed in Step 3.5, finding each by selector.
+- Modify: `src/components/ui/LevelBars.tsx` (Plan 01). Add the optional `tone?: "brand" | "onLive"` prop, defaulting to `"brand"`. Spec §5 records this as Plan 05's extension; it replaces the scoped `!important` override.
+- Modify: `src/index.css`. Delete the orphaned onboarding rules listed in Step 3.6, finding each by selector.
 - Modify: `src/components/ui/ActivationModeSelector.tsx`. Remove the dead `onboarding` variant.
 - Modify: `src/components/ui/ProviderIcon.tsx`. Remove the dead `monochrome` prop (line 7), its default (13) and its class branch (35). No caller passes it.
 - Modify: `src/components/OnboardingFlow.tsx`. Apply the **[T11]** blocks of the composition, and delete:
@@ -4792,7 +4759,7 @@ It keeps ONB-Q1 (Plan 02): the pinned shell and the physical traffic-light inset
   - the final `<StepShell>` render.
 - Modify: `DESIGN.md`. Change line 151 (Onboarding title) and the onboarding Layout sentence (≈160), and add `### Onboarding` under `## Components`.
 - Modify: `test/components/personalWorkspace.test.js`. Delete "first setup reaches completion without account APIs or implicit downloads" (69-96). Its replacement below keeps the no-account check.
-- Test: `test/components/onboardingShell.test.js` (append to Plan 02's file of the same name) and `test/components/onboardingFlow.test.js`
+- Test: `test/components/onboardingShell.test.js` (append to Plan 02's file of the same name), `test/components/onboardingFlow.test.js`, and append to Plan 01's `test/components/levelBars.test.js`
 
 **Interfaces:**
 - `instrumentMath.ts`:
@@ -4800,7 +4767,8 @@ It keeps ONB-Q1 (Plan 02): the pinned shell and the physical traffic-light inset
   - `INSTRUMENT_HEIGHT = 140`, `ERROR_FILL = 0.3` and `SETTLE_MS = 520` (`--motion-hero`, the settle before the dock);
   - `barHeights()`, `instrumentFills(mode)` and `instrumentCaption(mode, locale)`;
   - `dockMark(update, { reducedMotion, doc })` returns `"transition" | "instant"`.
-- `InstrumentRail({ title, body, mode, readLevel? })`.
+- `InstrumentRail({ title, body, mode, readLevel? })`. It passes `tone="onLive"` to `LevelBars` while the rail is the solid `--color-live` surface (light theme), and `"brand"` on Plum Night's tinted rail.
+- `LevelBars` (Plan 01, extended here): `tone?: "brand" | "onLive"`, default `"brand"`. `"onLive"` paints paper bars (`var(--color-background)`) for a `--color-live` surface; `"brand"` keeps the orange-to-magenta gradient.
 - `OnboardingShell`:
 
   ```ts
@@ -4947,6 +4915,7 @@ test("listening hands the bars to LevelBars; errors drop them to 30%; success dr
     props: { title: "Hello", body: "", mode: { kind: "listening", heardVoice: false }, readLevel: () => 0 },
   });
   assert.equal(ui.byAttr("data-level-bar").length, 5);
+  assert.equal(ui.findAll((node) => node.attributes["data-tone"] !== undefined)[0].attributes["data-tone"], "onLive", "light rail: paper bars via the tone prop");
   expectKey(ui, "setupFlow.instrument.waiting");
   await ui.rerender({ mode: { kind: "error", reason: "noAudio" } });
   assert.ok(ui.findAll((node) => node.attributes.class === "onb-bar__fill").every((node) => node.style["--fill"] === "0.3"));
@@ -5038,9 +5007,33 @@ test("Back goes to the previous step in the new order", async (t) => {
 
 Later tasks append their flow tests to this file, so they reuse `mountFlow`, `advance`, `currentStep`, `primary` and `buttonWithText` directly. Never `require` a test file from another, because that would register its tests twice.
 
+Append to Plan 01's `test/components/levelBars.test.js`:
+
+```js
+test("tone onLive paints paper bars for a --color-live surface; brand stays the default (Plan 05 extension, §5)", async () => {
+  const { LevelBars } = await loadComponent();
+  const brand = renderStatic(LevelBars, { readLevel: () => 0, height: 20 });
+  assert.ok(brand.includes("linear-gradient(180deg, #ff6a36, #e6007a)"));
+  assert.ok(brand.includes('data-tone="brand"'));
+  const onLive = renderStatic(LevelBars, { readLevel: () => 0, height: 20, tone: "onLive" });
+  assert.equal(onLive.includes("linear-gradient"), false);
+  assert.equal(onLive.split("var(--color-background)").length - 1, 5);
+  assert.ok(onLive.includes('data-tone="onLive"'));
+});
+```
+
+Append to `test/components/onboardingShell.test.js`:
+
+```js
+test("no onboarding rule overrides LevelBars with !important (the tone prop replaced it)", () => {
+  const css = fs.readFileSync(path.join(__dirname, "../../src/styles/onboarding.css"), "utf8");
+  assert.doesNotMatch(css, /\[data-level-bar\][^{]*\{[^}]*!important/);
+});
+```
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/components/onboardingShell.test.js test/components/onboardingFlow.test.js`
+Run: `npm test -- test/components/onboardingShell.test.js test/components/onboardingFlow.test.js test/components/levelBars.test.js`
 
 Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orphaned selectors are still present, and the flow has no `data-onb-primary`.
 
@@ -5117,10 +5110,27 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    }
    ```
 
-2. Create `src/components/onboarding/InstrumentRail.tsx`:
+2. Extend Plan 01's `src/components/ui/LevelBars.tsx` with the tone prop:
 
    ```tsx
-   import type { CSSProperties } from "react";
+   export type LevelBarsTone = "brand" | "onLive";
+   // "onLive": the bars sit on a --color-live fill (the light setup rail), so they read as paper.
+   const BAR_FILL: Record<LevelBarsTone, string> = { brand: BAR_GRADIENT, onLive: "var(--color-background)" };
+
+   export interface LevelBarsProps {
+     readLevel: () => number;
+     height?: number;
+     tone?: LevelBarsTone;
+     className?: string;
+   }
+   ```
+
+   In `LevelBars`, destructure `tone = "brand"`, put `data-tone={tone}` on the wrapper `<span>`, and use `background: BAR_FILL[tone]` on each bar instead of `BAR_GRADIENT`. Nothing else changes, and existing callers keep the gradient.
+
+3. Create `src/components/onboarding/InstrumentRail.tsx`:
+
+   ```tsx
+   import { useEffect, useState, type CSSProperties } from "react";
    import { useTranslation } from "react-i18next";
    import { LevelBars } from "../ui/LevelBars";
    import { INSTRUMENT_HEIGHT, barHeights, instrumentCaption, instrumentFills, type InstrumentMode } from "./instrumentMath";
@@ -5137,8 +5147,22 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    const BUBBLE_PATH =
      "M10 6 H150 A10 10 0 0 1 160 16 V124 A10 10 0 0 1 150 134 H70 L48 154 V134 H10 A10 10 0 0 1 0 124 V16 A10 10 0 0 1 10 6 Z";
 
+   // The light rail is the solid --color-live surface; Plum Night's is a tinted surface.
+   function useDarkTheme(): boolean {
+     const root = typeof document !== "undefined" ? document.documentElement : null;
+     const [dark, setDark] = useState(() => root?.classList?.contains("dark") ?? false);
+     useEffect(() => {
+       if (!root || typeof MutationObserver === "undefined") return;
+       const observer = new MutationObserver(() => setDark(root.classList.contains("dark")));
+       observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+       return () => observer.disconnect();
+     }, [root]);
+     return dark;
+   }
+
    export function InstrumentRail({ title, body, mode, readLevel }: InstrumentRailProps) {
      const { t, i18n } = useTranslation();
+     const dark = useDarkTheme();
      const caption = instrumentCaption(mode, i18n?.language);
      const fills = instrumentFills(mode);
      const captionText =
@@ -5162,7 +5186,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
              </svg>
            ) : null}
            {mode.kind === "listening" && readLevel ? (
-             <LevelBars readLevel={readLevel} height={INSTRUMENT_HEIGHT} />
+             <LevelBars readLevel={readLevel} height={INSTRUMENT_HEIGHT} tone={dark ? "brand" : "onLive"} />
            ) : (
              barHeights().map((height, index) => (
                <span key={index} className="onb-bar" style={{ height }}>
@@ -5177,7 +5201,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    }
    ```
 
-3. Create `src/components/onboarding/OnboardingShell.tsx`:
+4. Create `src/components/onboarding/OnboardingShell.tsx`:
 
    ```tsx
    import { useEffect, useRef, type ReactNode } from "react";
@@ -5291,7 +5315,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    }
    ```
 
-4. Append to `src/styles/onboarding.css`:
+5. Append to `src/styles/onboarding.css`:
 
    ```css
    /* Shell: pinned to the window (ONB-Q1), 56px header and a 64px footer that may
@@ -5601,12 +5625,6 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
      }
    }
 
-   /* LevelBars paints its brand gradient inline; on the light orange rail the bars
-      are paper. Drop when LevelBars gains a tone prop (contract change request 4). */
-   html:not(.dark) .onb-rail [data-level-bar] {
-     background: var(--color-background) !important;
-   }
-
    .onb-instrument__caption {
      min-height: 31px;
      margin: 0;
@@ -5683,7 +5701,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 
    Two rules exist only to make the M04 behaviour explicit. Under 760px the footer's status slot takes a full first row, which keeps Back, Skip and the primary on the second row. The header drops its brand text below 900px, which is what 200% zoom produces on a 1800px window.
 
-5. In `src/index.css`, delete these blocks by selector:
+6. In `src/index.css`, delete these blocks by selector:
    - the `body:has(.onboarding-canvas.compact)` background rule;
    - in the reduced-motion block, the `.onboarding-step-enter, .onboarding-stagger > *` and `.onboarding-pressable:active` rules;
    - every rule from `.onboarding-canvas, body:has(.onboarding-canvas) {` through `.onboarding-shell-scroll { … }`. That includes the token blocks and dark overrides, `.onboarding-embedded-auth`, `.onboarding-card-title`, the `onboarding-step-in` keyframes, `.onboarding-step-enter`, `.onboarding-stagger`, `.onboarding-pressable`, `.onboarding-list*`, `.onboarding-select-*`, `.onboarding-canvas.compact`, `.onboarding-compact-hero`, the disabled primary, `onboarding-typing-dot`, `.onboarding-canvas kbd`, `.onboarding-keycap`, `.onboarding-display-title`, `.onboarding-*-input`, `.onboarding-provider-icon-monochrome`, `.onboarding-scroll-hidden` and `.onboarding-shell-scroll`.
@@ -5698,18 +5716,18 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 
    Expected: only `src/components/ui/ProviderIcon.tsx:35` (`onboarding-provider-icon-monochrome`). Remove that branch as listed under Files: drop the `monochrome` prop, its default and the template term. If anything else appears, stop and report; do not delete a live rule.
 
-6. `src/components/ui/ActivationModeSelector.tsx`:
+7. `src/components/ui/ActivationModeSelector.tsx`:
    - delete the `variant` prop and its doc comment (10-11);
    - delete the `onboarding` entry of `STYLES` (28-35) and the `variant = "default"` destructuring (43);
    - use `STYLES.default`;
    - set `style={{ "--inset": "2px" }}`.
 
-7. In `src/components/OnboardingFlow.tsx`, apply the **[T11]** blocks of the composition: imports, the navigation state and helpers, the `legacy()` wrapper and `stepView()`, and the shell render.
+8. In `src/components/OnboardingFlow.tsx`, apply the **[T11]** blocks of the composition: imports, the navigation state and helpers, the `legacy()` wrapper and `stepView()`, and the shell render.
    - Every step's `content` is still the legacy body, wrapped by `legacy(...)`.
    - Plan 02's footer chip node (its `footerStatus`) is passed as `footerStart`, so `onboardingDownloadProgress`'s "chip follows to later steps" test keeps passing until Task 13 replaces the chip.
    - `config` becomes `previewConfig`; production code stops reading the preview global.
 
-8. `DESIGN.md`:
+9. `DESIGN.md`:
    - **Line 151:** change to `- **Onboarding title** (650, 36px, 1.1 line-height, -0.025em tracking): The setup rail heading; 22px in windows under 760px.`
    - **Layout sentence:** replace the onboarding sentence with "Setup is a pinned window: a 56px header with per-phase progress, a 36% orange rail beside the controls (a 72px banner under 760px), and a 64px footer that wraps to at most two rows at 200% zoom or with long translations."
    - **Add** after `### Voice Pill`:
@@ -5720,9 +5738,9 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    The setup rail is the instrument: the five bars of the mark breathe when idle, fill bottom-up with the voice download, follow the microphone while listening, and drop to 30% in warning amber on error. On the first successful dictation they settle into the mark, the speech bubble draws around them (`--motion-slow`), and the mark docks into the 32px header tile (View Transition), where it stays for the rest of setup. A numeric caption sits under the bars, so progress is never motion-only. Light theme: orange rail (`--color-live`), ink text, paper bars. Plum Night: a warm surface gradient with orange-to-magenta bars. Active progress uses `--color-nav-marker`. Primary actions are the neutral ink capsule; `live` is reserved for record, stop, "Allow microphone", the ready-block mic and "Dictate into a note". Readiness icons use `--color-success` and `--color-warning`; their words stay in foreground colours.
    ```
 
-9. Delete the test "first setup reaches completion without account APIs or implicit downloads" from `test/components/personalWorkspace.test.js`. The flow walk replaces it, and keeps the account check.
+10. Delete the test "first setup reaches completion without account APIs or implicit downloads" from `test/components/personalWorkspace.test.js`. The flow walk replaces it, and keeps the account check.
 
-10. Add the strings:
+11. Add the strings:
 
     ```bash
     node scripts/dev/merge-locale-keys.cjs - <<'JSON'
@@ -5761,7 +5779,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/components/onboardingShell.test.js test/components/onboardingFlow.test.js test/components/personalWorkspace.test.js test/components/onboardingCleanupWiring.test.js test/components/onboardingDownloadProgress.test.js test/components/motionTokens.test.js && npm run typecheck && npm run i18n:check`
+Run: `npm test -- test/components/onboardingShell.test.js test/components/onboardingFlow.test.js test/components/levelBars.test.js test/components/personalWorkspace.test.js test/components/onboardingCleanupWiring.test.js test/components/onboardingDownloadProgress.test.js test/components/motionTokens.test.js && npm run typecheck && npm run i18n:check`
 
 Expected: PASS.
 
@@ -5773,7 +5791,7 @@ Then open `?preview=onboarding&step=speech&scenario=fresh` in the browser previe
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/onboarding/instrumentMath.ts src/components/onboarding/InstrumentRail.tsx src/components/onboarding/OnboardingShell.tsx src/styles/onboarding.css src/index.css src/components/ui/ActivationModeSelector.tsx src/components/ui/ProviderIcon.tsx src/components/OnboardingFlow.tsx DESIGN.md src/locales test/components/onboardingShell.test.js test/components/onboardingFlow.test.js test/components/personalWorkspace.test.js
+git add src/components/onboarding/instrumentMath.ts src/components/onboarding/InstrumentRail.tsx src/components/onboarding/OnboardingShell.tsx src/components/ui/LevelBars.tsx test/components/levelBars.test.js src/styles/onboarding.css src/index.css src/components/ui/ActivationModeSelector.tsx src/components/ui/ProviderIcon.tsx src/components/OnboardingFlow.tsx DESIGN.md src/locales test/components/onboardingShell.test.js test/components/onboardingFlow.test.js test/components/personalWorkspace.test.js
 git commit -m "feat(onboarding): pinned two-phase shell with the instrument rail"
 ```
 
@@ -6681,7 +6699,7 @@ This task also migrates Plan 02's `onboardingDownloadProgress` behaviours onto t
 - Produces:
 
   ```ts
-  export function useSystemProfile(): SystemProfile | null; // falls back to navigator.languages when the bridge is absent
+  export function useSystemProfile(): SystemProfile | null; // getSystemProfile + Plan 03's getTotalMemory; navigator.languages when the bridge is absent
   export interface VoiceStepProps {
     platform: "darwin" | "linux" | "win32"; profile: SystemProfile | null; pick: VoicePick | null;
     selectedModel: string | null; onSelectModel(modelId: string): void;
@@ -6844,7 +6862,8 @@ async function mountVoice(t, { cancelResult = { success: true } } = {}) {
     props: { onComplete() {}, initialStep: "speech", previewConfig: { step: "speech", scenario: "fresh", platform: "linux" } },
     mocks: { "/SettingsPage": "export default function SettingsPage() { return null; }" },
     api: {
-      getSystemProfile: async () => ({ locales: ["en-US"], totalMemoryBytes: 16e9, freeDiskBytes: 5e11, gpu: { kind: "unknown", name: null } }),
+      getSystemProfile: async () => ({ locales: ["en-US"], freeDiskBytes: 5e11, gpu: { kind: "unknown", name: null } }),
+      getTotalMemory: async () => 16e9,
       checkParakeetModelStatus: async () => ({ success: true, model: MODEL, downloaded: installed }),
       modelGetActiveDownloads: async () => [],
       onParakeetDownloadProgress: (callback) => ((listener = callback), () => {}),
@@ -6945,7 +6964,8 @@ export default function LanguageSelector({ value, onChange }) {
   return React.createElement("select", { "data-language": "", value, onChange: (event) => onChange(event.target.value) });
 }`;
 const voiceApi = (locales, extra = {}) => ({
-  getSystemProfile: async () => ({ locales, totalMemoryBytes: 16e9, freeDiskBytes: 5e11, gpu: { kind: "unknown", name: null } }),
+  getSystemProfile: async () => ({ locales, freeDiskBytes: 5e11, gpu: { kind: "unknown", name: null } }),
+  getTotalMemory: async () => 16e9,
   checkParakeetModelStatus: async () => ({ success: true, downloaded: false }),
   modelGetActiveDownloads: async () => [],
   downloadParakeetModel: () => new Promise(() => {}),
@@ -7026,11 +7046,29 @@ Expected: FAIL. `VoiceStep`, `VoiceDownloadPanel` and `DownloadChip` are missing
 
    ```ts
    import { useEffect, useState } from "react";
-   import type { SystemProfile } from "../../types/electron";
+   import type { SystemFacts, SystemProfile } from "../../types/electron";
 
-   function fallbackProfile(): SystemProfile {
+   function fallbackFacts(): SystemFacts {
      const languages = typeof navigator !== "undefined" ? [...(navigator.languages ?? [])] : [];
-     return { locales: languages, totalMemoryBytes: null, freeDiskBytes: null, gpu: { kind: "unknown", name: null } };
+     return { locales: languages, freeDiskBytes: null, gpu: { kind: "unknown", name: null } };
+   }
+
+   // Total memory is Plan 03's get-total-memory (§5.1): the same main value, no second channel.
+   async function totalMemory(): Promise<number | null> {
+     try {
+       const bytes = await window.electronAPI?.getTotalMemory?.();
+       return typeof bytes === "number" && Number.isFinite(bytes) && bytes > 0 ? bytes : null;
+     } catch {
+       return null;
+     }
+   }
+
+   async function facts(): Promise<SystemFacts> {
+     try {
+       return (await window.electronAPI?.getSystemProfile?.()) ?? fallbackFacts();
+     } catch {
+       return fallbackFacts();
+     }
    }
 
    /** Spec D8: hardware and OS locale, read once per setup. */
@@ -7039,12 +7077,8 @@ Expected: FAIL. `VoiceStep`, `VoiceDownloadPanel` and `DownloadChip` are missing
      useEffect(() => {
        let alive = true;
        void (async () => {
-         try {
-           const result = await window.electronAPI?.getSystemProfile?.();
-           if (alive) setProfile(result ?? fallbackProfile());
-         } catch {
-           if (alive) setProfile(fallbackProfile());
-         }
+         const [base, totalMemoryBytes] = await Promise.all([facts(), totalMemory()]);
+         if (alive) setProfile({ ...base, totalMemoryBytes });
        })();
        return () => {
          alive = false;
@@ -8360,7 +8394,7 @@ Covers:
 
 It consumes §5.2 `cancelled`. Review findings closed here:
 - I08: cleanup retries go through the reducer, keyed to the take;
-- I09: Undo is shown only while it can work;
+- I09, Plan 05's half: before Plan 04 a cancel says "Discarded." with no Undo (§5.2 fallback). Task 22 adds Undo once both plans have merged;
 - M02;
 - ONB-16: a synthetic `tap` during a native press is ignored.
 
@@ -8389,7 +8423,7 @@ This is Review Focus 2.
 
 **Interfaces:**
 - Consumes:
-  - from Task 6: `reduceTrial`, `INITIAL_TRIAL_STATE`, `TrialInput`, `isSilent` and `canUndo`;
+  - from Task 6: `reduceTrial`, `INITIAL_TRIAL_STATE`, `TrialInput` and `isSilent`;
   - the bridge methods from Task 4;
   - from Task 14: `TryStage` and `LiveKeycap`;
   - from Task 10: `RecoveryCard` and `useRecheckOnFocus`;
@@ -8410,10 +8444,9 @@ This is Review Focus 2.
   ```
 
 - Produces these hooks:
-  - `useTrialSession(active: boolean)` returns `{ state, dispatch, toggle(), cancel(), undo(), undoAvailable, readLevel(), usedHotkey }`.
+  - `useTrialSession(active: boolean)` returns `{ state, dispatch, toggle(), cancel(), readLevel(), usedHotkey }`. Task 22 adds `undo()` and `undoAvailable`.
     - It begins a `dictation` demo when `active` turns on, and ends it when `active` turns off or on unmount.
     - It ignores events from any other demo id.
-    - `undoAvailable` turns false when main reports that an undo was not delivered (Plan 04 not merged, or no live overlay). It turns true again on the next take.
   - `useDictationHotkey(active: boolean)` returns a `KeycapState`.
   - `useAccessibilityGate(platform, active)` returns `{ granted: boolean | null; request(): void }`.
     - Off macOS it is always granted.
@@ -8487,8 +8520,6 @@ const trialState = (patch = {}) => ({
   recordingSinceMs: null,
   errorKind: null,
   errorMessage: null,
-  undoUntil: null,
-  remoteAlreadySent: null,
   successes: 0,
   takeId: 0,
   cleanupRetry: "idle",
@@ -8508,10 +8539,8 @@ async function view(t, patch = {}) {
       keycap: { pressed: false, downAtMs: null, lastStyle: null, presses: 0 },
       usedHotkey: false,
       accessibilityMissing: false,
-      undoAvailable: true,
       onToggle: () => calls.push("toggle"),
       onCancel: () => calls.push("cancel"),
-      onUndo: () => calls.push("undo"),
       onGrantAccessibility: () => calls.push("grant"),
       onRetryCleanup: () => calls.push("retryCleanup"),
       onTurnCleanupOff: () => calls.push("cleanupOff"),
@@ -8576,22 +8605,10 @@ test("one toggle button, and Stop is the live primary (ONB-Q5)", async (t) => {
   assert.deepEqual(calls, ["toggle"]);
 });
 
-test("a discarded take offers Undo only while it can work, and says if audio already left (I09)", async (t) => {
-  const { ui, calls } = await view(t, {
-    trial: trialState({ phase: "cancelled", undoUntil: 5000, remoteAlreadySent: "OpenAI" }),
-    nowMs: 1000,
-  });
+test("a discarded take says so, with no Undo before Plan 04 (§5.2 fallback, I09)", async (t) => {
+  const { ui } = await view(t, { trial: trialState({ phase: "cancelled" }), nowMs: 1000 });
   expectKey(ui, "setupFlow.try.discarded");
-  expectKey(ui, "setupFlow.try.remoteAlreadySent", { provider: "OpenAI" });
-  await ui.click("setupFlow.try.undo");
-  assert.deepEqual(calls, ["undo"]);
-  await ui.rerender({ nowMs: 6000 });
-  assert.equal(ui.text().includes("setupFlow.try.undo"), false, "past the deadline");
-  await ui.rerender({ nowMs: 1000, undoAvailable: false });
-  assert.equal(ui.text().includes("setupFlow.try.undo"), false, "main could not deliver the last undo");
-  await ui.rerender({ trial: trialState({ phase: "cancelled", undoUntil: 0 }), undoAvailable: true });
-  assert.equal(ui.text().includes("setupFlow.try.undo"), false, "before Plan 04, a cancel has no undo window");
-  expectKey(ui, "setupFlow.try.discarded");
+  assert.equal(ui.text().includes("setupFlow.try.undo"), false);
 });
 
 test("each failure has its own fix", async (t) => {
@@ -8683,18 +8700,6 @@ test("leaving the step ends the demo session, and late events are ignored", asyn
   assert.equal(box.session.state.phase, "idle");
 });
 
-test("an undo main could not deliver hides Undo until the next take (I09)", async (t) => {
-  const { box, emit, calls } = await mountSession(t, { undoOnboardingDemoCancel: async () => false });
-  await React.act(async () => box.session.toggle());
-  const id = calls.find(([name]) => name === "toggle")[1];
-  await emit({ demoId: id, kind: "dictation", status: "listening" });
-  await emit({ demoId: id, kind: "dictation", status: "cancelled", undoUntil: Date.now() + 5000 });
-  assert.equal(box.session.undoAvailable, true);
-  await React.act(async () => box.session.undo());
-  assert.equal(box.session.undoAvailable, false);
-  await emit({ demoId: id, kind: "dictation", status: "listening" });
-  assert.equal(box.session.undoAvailable, true);
-});
 ```
 
 Append to `test/components/onboardingFlow.test.js`:
@@ -8812,7 +8817,6 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
      const [state, dispatch] = useReducer(reduceTrial, INITIAL_TRIAL_STATE);
      const idRef = useRef(`onboarding-${Date.now().toString(36)}`);
      const levelRef = useRef(0);
-     const [undoAvailable, setUndoAvailable] = useState(true);
      const [usedHotkey, setUsedHotkey] = useState(false);
      levelRef.current = state.level;
 
@@ -8823,7 +8827,6 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
        void api?.beginOnboardingDemo?.({ id, kind: "dictation" });
        const offDemo = api?.onOnboardingDemoEvent?.((event) => {
          if (event.demoId !== id) return;
-         if (event.status === "listening") setUndoAvailable(true);
          dispatch({ ...event, atMs: Date.now() } as TrialInput);
        });
        const offHotkey = api?.onDictationHotkeyEvent?.((event) => {
@@ -8845,14 +8848,9 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
      const cancel = useCallback(async () => {
        await window.electronAPI?.cancelOnboardingDemo?.(idRef.current);
      }, []);
-     const undo = useCallback(async () => {
-       // false = no Plan 04 bridge or no live overlay (CCR 1): stop offering Undo for this take.
-       const delivered = await window.electronAPI?.undoOnboardingDemoCancel?.(idRef.current);
-       if (!delivered) setUndoAvailable(false);
-     }, []);
      const readLevel = useCallback(() => levelRef.current, []);
 
-     return { state, dispatch, toggle, cancel, undo, undoAvailable, readLevel, usedHotkey };
+     return { state, dispatch, toggle, cancel, readLevel, usedHotkey };
    }
    ```
 
@@ -8953,7 +8951,7 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
    import { useTranslation } from "react-i18next";
    import { Check, CircleAlert } from "../icons";
    import { Button } from "../ui/button";
-   import { canUndo, isSilent, type TrialState } from "../../utils/onboardingTrial";
+   import { isSilent, type TrialState } from "../../utils/onboardingTrial";
    import type { KeycapState } from "../../utils/onboardingShortcut";
    import { LiveKeycap } from "./LiveKeycap";
    import { RecoveryCard } from "./RecoveryCard";
@@ -8968,10 +8966,8 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
      keycap: KeycapState;
      usedHotkey: boolean;
      accessibilityMissing: boolean;
-     undoAvailable: boolean;
      onToggle(): void;
      onCancel(): void;
-     onUndo(): void;
      onGrantAccessibility(): void;
      onRetryCleanup(): void;
      onTurnCleanupOff(): void;
@@ -8987,7 +8983,6 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
      const key = { key: hotkeyLabel };
      const openSound = { label: t("setupFlow.hello.openSound"), onClick: () => void window.electronAPI?.openSoundInputSettings?.() };
      const changeMic = { label: t("setupFlow.try.changeMic"), onClick: props.onChangeMicrophone };
-     const showUndo = props.undoAvailable && canUndo(trial, props.nowMs);
 
      const failure = (() => {
        if (trial.phase !== "error") return null;
@@ -9062,15 +9057,8 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
                </p>
              ) : null}
              {trial.phase === "cancelled" ? (
-               <p className="onb-field__status">
-                 {t("setupFlow.try.discarded")}
-                 {trial.remoteAlreadySent ? ` ${t("setupFlow.try.remoteAlreadySent", { provider: trial.remoteAlreadySent })}` : ""}
-                 {showUndo ? (
-                   <Button size="sm" variant="ghost" onClick={props.onUndo}>
-                     {t("setupFlow.try.undo")}
-                   </Button>
-                 ) : null}
-               </p>
+               // Task 22 adds the disclosure (disclosureCopy) and Undo here.
+               <p className="onb-field__status">{t("setupFlow.try.discarded")}</p>
              ) : null}
            </div>
            {isSilent(trial, props.nowMs) ? (
@@ -9260,8 +9248,6 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
           "shortcutWorks": "Shortcut works",
           "heardYou": "Loqui heard you",
           "discarded": "Discarded.",
-          "undo": "Undo",
-          "remoteAlreadySent": "{{provider}} already received the audio.",
           "silent": "We're not hearing anything. Wrong microphone?",
           "noAudioTitle": "We didn't hear anything",
           "noAudioBody": "Check that the right microphone is selected and not muted, then try again.",
@@ -9465,6 +9451,7 @@ test("the situation follows the user's choice and its check, then the active rou
   assert.equal(cleanupSituation("provider", "ready", route({ status: "needsKey", provider: "openai" })), "needsKey");
   assert.equal(cleanupSituation("local", "ready", route({ status: "needsModel" }, "device")), "needsModel");
   assert.equal(cleanupSituation("codex", "ready", route({ status: "unreachable" })), "unreachable");
+  assert.equal(cleanupSituation("provider", "ready", route({ status: "unknown" })), "checking", "§5.1 rule 1: unknown is never ready");
 });
 ```
 
@@ -9730,6 +9717,8 @@ Expected: FAIL. The modules are missing, and the wiring test cannot find the new
      switch (route.state.status) {
        case "ready":
          return "ready";
+       case "unknown":
+         return "checking"; // §5.1 rule 1: never ready until main confirms
        case "off":
          return UNMET[choice];
        case "needsModel":
@@ -10355,7 +10344,7 @@ Covers ONB-R8 A and ONB-Q14, finishes ONB-Q18, and consumes §5.1 for readiness 
   - `src/utils/onboardingReadiness.ts`
   - `src/utils/afterSetupIntent.ts`
   - `src/components/onboarding/ReadyStep.tsx`
-- Modify `src/components/OnboardingFlow.tsx`. Apply the **[T18]** blocks of the composition: the imports, `speechRoute`, `noteRoute`, `meetingMode`, `summary`, `noteAction` and the `finish` case. Then delete:
+- Modify `src/components/OnboardingFlow.tsx`. Apply the **[T18]** blocks of the composition: the imports, `speechRoute`, `noteRoute`, `summary`, `noteAction` and the `finish` case. Then delete:
   - the legacy `FinishStep` (931-1008) and the legacy `readiness` memo (1259-1302);
   - `legacy()`, and the `onboarding-welcome.css` and `onboarding-guided.css` imports;
   - `ChoiceCard` (245-301);
@@ -10405,12 +10394,13 @@ Covers ONB-R8 A and ONB-Q14, finishes ONB-Q18, and consumes §5.1 for readiness 
   export function summarizeReadiness(input: ReadinessInput): ReadinessSummary;
 
   // I06: the note action's own route (noteRecordingStt), not dictation's.
-  export type NoteBlock = "microphone" | "selfHosted" | "needsModel" | "needsKey" | "needsUrl" | "unreachable";
+  // §5.1 rule 1: "unknown" is "checking", never ready. Rule 9: self-hosted notes are unreachable/unsupported.
+  export type NoteBlock = "microphone" | "unsupported" | "sealed" | "needsModel" | "needsKey" | "needsUrl" | "unreachable";
   export interface NoteActionState {
-    status: "ready" | "blocked"; block: NoteBlock | null;
+    status: "ready" | "checking" | "blocked"; block: NoteBlock | null;
     locality: Locality; providerId: string | null; settingsPath: string;
   }
-  export function noteActionState(input: { route: ResolvedRoute; meetingMode: string | null; microphone: "granted" | "denied" | "unknown" }): NoteActionState;
+  export function noteActionState(input: { route: ResolvedRoute; microphone: "granted" | "denied" | "unknown" }): NoteActionState;
   ```
 
   - Rows come in the order Speech, Microphone, Shortcut, Cleanup.
@@ -10523,10 +10513,14 @@ test("pending rows name what is missing and where it is fixed", async () => {
   assert.equal(summary.pending, 3);
 });
 
-test("a finished local voice counts before the route refreshes", async () => {
+test("Ready waits for a ready route: unknown reads Checking…, never ready (§5.1 rule 1)", async () => {
   const { summarizeReadiness } = await load();
-  const summary = summarizeReadiness(input({ speechRoute: route("dictationStt", { state: { status: "needsModel" } }), localVoiceActive: true }));
-  assert.equal(summary.rows[0].status, "ready");
+  const unknown = summarizeReadiness(input({ speechRoute: route("dictationStt", { state: { status: "unknown" } }) }));
+  assert.deepEqual([unknown.rows[0].status, unknown.rows[0].detail, unknown.proven], ["pending", "speech.checking", false]);
+  const justInstalled = summarizeReadiness(input({ speechRoute: route("dictationStt", { state: { status: "needsModel" } }), localVoiceActive: true }));
+  assert.deepEqual([justInstalled.rows[0].status, justInstalled.rows[0].detail], ["pending", "speech.checking"], "a finished download still waits for the route");
+  const cleanupUnknown = summarizeReadiness(input({ cleanupChoice: "local", cleanupStatus: "ready", cleanupRoute: route("dictationCleanup", { state: { status: "unknown" } }) }));
+  assert.deepEqual([cleanupUnknown.rows[3].status, cleanupUnknown.rows[3].detail], ["pending", "cleanup.checking"]);
 });
 
 test("a chosen but unavailable cleanup is pending with a real Settings destination (I05)", async () => {
@@ -10541,11 +10535,11 @@ test("a chosen but unavailable cleanup is pending with a real Settings destinati
 
 test("the note action follows its own route and the microphone (I06)", async () => {
   const { noteActionState } = await load();
-  const note = (patch = {}, extra = {}) =>
-    noteActionState({ route: route("noteRecordingStt", patch), meetingMode: "local", microphone: "granted", ...extra });
+  const note = (patch = {}, extra = {}) => noteActionState({ route: route("noteRecordingStt", patch), microphone: "granted", ...extra });
   assert.deepEqual(note(), { status: "ready", block: null, locality: "device", providerId: null, settingsPath: "stt/noteRecording" });
-  assert.equal(note({}, { meetingMode: "self-hosted" }).block, "selfHosted", "the recorder throws unsupportedSelfHosted (CCR 5)");
-  assert.equal(note({ state: { status: "unreachable", detail: "unsupported" } }).block, "selfHosted");
+  assert.equal(note({ state: { status: "unreachable", detail: "unsupported" } }).block, "unsupported", "§5.1 rule 9: self-hosted notes");
+  assert.equal(note({ state: { status: "unreachable", detail: "sealed" } }).block, "sealed");
+  assert.deepEqual([note({ state: { status: "unknown" } }).status, note({ state: { status: "unknown" } }).block], ["checking", null], "§5.1 rule 1");
   assert.equal(note({ state: { status: "needsKey", provider: "openai" } }).block, "needsKey");
   assert.equal(note({ state: { status: "needsModel" } }).block, "needsModel");
   assert.equal(note({}, { microphone: "denied" }).block, "microphone");
@@ -10638,14 +10632,23 @@ test("pending rows resume in setup, or open the exact Settings page when only Se
 });
 
 test("a blocked note action says why and links to its own Settings route (I06)", async (t) => {
-  const note = { status: "blocked", block: "selfHosted", locality: "network", providerId: null, settingsPath: "stt/noteRecording" };
+  const note = { status: "blocked", block: "unsupported", locality: "network", providerId: null, settingsPath: "stt/noteRecording" };
   const { ui, events } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: true }, { note });
   const [dictate] = ui.byAttr("data-variant", "live");
   assert.ok("disabled" in dictate.attributes);
   const [reason] = ui.byAttr("id", dictate.attributes["aria-describedby"]);
-  assert.ok(reason.textContent.includes("setupFlow.ready.noteBlocked.selfHosted"));
+  assert.ok(reason.textContent.includes("setupFlow.ready.noteBlocked.unsupported"));
   await ui.click("setupFlow.ready.fixNote");
   assert.deepEqual(events, [["settings", "stt/noteRecording"]]);
+});
+
+test("an unconfirmed note route reads Checking…, with no fix and no claim (§5.1 rule 1)", async (t) => {
+  const note = { status: "checking", block: null, locality: "device", providerId: null, settingsPath: "stt/noteRecording" };
+  const { ui } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: true }, { note });
+  const [dictate] = ui.byAttr("data-variant", "live");
+  assert.ok("disabled" in dictate.attributes);
+  expectKey(ui, "setupFlow.ready.noteChecking");
+  assert.equal(ui.text().includes("setupFlow.ready.fixNote"), false);
 });
 
 test("a denied microphone sends the note fix back to Hello", async (t) => {
@@ -10728,7 +10731,7 @@ test("a self-hosted note route blocks Dictate into a note and opens its own Sett
   await React.act(async () => {});
   const [dictate] = ui.byAttr("data-variant", "live");
   assert.ok("disabled" in dictate.attributes);
-  expectKey(ui, "setupFlow.ready.noteBlocked.selfHosted");
+  expectKey(ui, "setupFlow.ready.noteBlocked.unsupported"); // §5.1 rule 9, from Plan 03's resolver
   await ui.click("setupFlow.ready.fixNote");
   const [options] = completed();
   assert.equal(options.next.kind, "open-settings");
@@ -10825,13 +10828,18 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
    function speechRow(input: ReadinessInput): ReadinessRow {
      const base = { key: "speech" as const, step: "speech" as const };
      const route = input.speechRoute;
-     if (input.localVoiceActive || route.state.status === "ready") {
+     // §5.1 rule 1: only a ready route counts. A just-finished local download waits
+     // for the route facts to refresh (Plan 03), and reads "Checking…" meanwhile.
+     if (route.state.status === "ready") {
        return input.trialSucceeded
          ? { ...base, status: "ready", detail: "speech.proven", values: { voice: route.model ?? "" } }
          : { ...base, status: "configured", detail: "speech.configured", values: { voice: route.model ?? "" } };
      }
      if (input.voiceDownload === "downloading" || input.voiceDownload === "installing") {
        return { ...base, status: "pending", detail: "speech.downloading" };
+     }
+     if (route.state.status === "unknown" || input.localVoiceActive) {
+       return { ...base, status: "pending", detail: "speech.checking" };
      }
      if (route.state.status === "needsKey" || route.state.status === "needsUrl" || route.state.status === "unreachable") {
        return { ...base, status: "pending", detail: "speech.unavailable", settingsPath: route.settingsPath };
@@ -10883,10 +10891,10 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
      return { rows, pending, proven: rows[0].status === "ready", allLocal: speechLocal && cleanupLocal };
    }
 
-   export type NoteBlock = "microphone" | "selfHosted" | "needsModel" | "needsKey" | "needsUrl" | "unreachable";
+   export type NoteBlock = "microphone" | "unsupported" | "sealed" | "needsModel" | "needsKey" | "needsUrl" | "unreachable";
 
    export interface NoteActionState {
-     status: "ready" | "blocked";
+     status: "ready" | "checking" | "blocked";
      block: NoteBlock | null;
      locality: Locality;
      providerId: string | null;
@@ -10895,23 +10903,23 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
 
    /**
     * I06: "Dictate into a note" records through noteRecordingStt, which can differ
-    * from dictation (Task 13 leaves it alone). Self-hosted is blocked here until
-    * Plan 03 resolves it as unsupported (CCR 5): the recorder throws
-    * unsupportedSelfHosted (src/helpers/meetingTranscriptionRouting.js).
+    * from dictation (Task 13 leaves it alone). The route is the only input: §5.1
+    * rule 9 resolves self-hosted notes as unreachable/unsupported, because the
+    * recorder throws unsupportedSelfHosted (src/helpers/meetingTranscriptionRouting.js).
     */
    export function noteActionState({
      route,
-     meetingMode,
      microphone,
    }: {
      route: ResolvedRoute;
-     meetingMode: string | null;
      microphone: "granted" | "denied" | "unknown";
    }): NoteActionState {
      const base = { locality: route.locality, providerId: route.providerId, settingsPath: route.settingsPath };
      const blocked = (block: NoteBlock): NoteActionState => ({ ...base, status: "blocked", block });
      const state = route.state;
-     if (meetingMode === "self-hosted" || (state.status === "unreachable" && state.detail === "unsupported")) return blocked("selfHosted");
+     if (state.status === "unknown") return { ...base, status: "checking", block: null };
+     if (state.status === "unreachable" && state.detail === "unsupported") return blocked("unsupported");
+     if (state.status === "unreachable" && state.detail === "sealed") return blocked("sealed");
      if (state.status === "needsModel" || state.status === "off") return blocked("needsModel");
      if (state.status === "needsKey") return blocked("needsKey");
      if (state.status === "needsUrl") return blocked("needsUrl");
@@ -11028,7 +11036,11 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
                  {t("setupFlow.ready.openWorkspace")}
                </Button>
              </div>
-             {noteReady ? null : (
+             {noteReady ? null : note.status === "checking" ? (
+               <p id="onb-ready-note-reason" className="onb-muted" role="status">
+                 {t("setupFlow.ready.noteChecking")}
+               </p>
+             ) : (
                <p id="onb-ready-note-reason" className="onb-muted">
                  {t(`setupFlow.ready.noteBlocked.${note.block}`, { provider: noteProviderLabel })}{" "}
                  <Button size="sm" variant="link" onClick={fixNote}>
@@ -11206,6 +11218,7 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
          "details": {
            "speech": {
              "proven": "{{voice}}, heard your first dictation",
+             "checking": "Checking…",
              "configured": "{{voice}}, not tried yet",
              "downloading": "Still downloading",
              "needsModel": "Download a voice",
@@ -11237,9 +11250,11 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
          "openWorkspace": "Open workspace",
          "noteLocal": "Notes are transcribed on this device.",
          "noteSends": "Notes send audio to {{provider}}.",
+         "noteChecking": "Checking how notes are transcribed…",
          "noteBlocked": {
            "microphone": "Notes need your microphone.",
-           "selfHosted": "Note recording is set to a self-hosted server, which notes can't use yet.",
+           "unsupported": "Note recording is set to a service notes can't use yet, such as a self-hosted server.",
+           "sealed": "Sealed mode is on, so note recording can't reach {{provider}}.",
            "needsModel": "Note recording needs a voice model on this device.",
            "needsKey": "Note recording needs your {{provider}} key.",
            "needsUrl": "Note recording needs a server address.",
@@ -11718,7 +11733,7 @@ git commit -m "i18n(onboarding): translate the setup flow into all locales"
 
 ### Task 21: Whole-plan verification
 
-**Files:** none new. This task runs every check and fixes what they surface.
+**Files:** none new. This task runs every check and fixes what they surface. If Plan 04 is already on `main`, run Task 22 first (§3: the plan that merges second wires the Undo bridge).
 
 - [ ] **Step 1: Run the full suite and static checks**
 
@@ -11820,14 +11835,352 @@ git log --oneline main..HEAD
 ```
 
 Write `pr-body.md` with:
-- one line per Task 1–20 commit;
+- one line per Task 1–20 commit, plus Task 22's if it ran on this branch;
 - links to the spec and this plan;
-- the contract change requests (1, 3, 4 and 5), stating which owners have answered, and which fallback is live for each one that is unanswered;
+- the contract change requests and their spec status at `091d198` (all answered), and whether Task 22 ran on this branch or is left to Plan 04;
 - the Step 2 and Step 3 screenshots;
 - the pre-existing tests updated in Step 1;
 - who reviewed the `ar`, `ja` and `zh-TW` strings.
 
 Get the owner's explicit OK before `git push` or `gh pr create`. Publishing is outward-facing.
+
+### Task 22: Undo with Plan 04 (§5.2 Undo bridge)
+
+**Who runs this task.** Spec §3 runs Plans 04 and 05 in parallel. For the Undo bridge, whichever plan merges second wires the real contract and deletes its fallback. Run this task on whichever branch merges second:
+- Plan 05's branch, if Plan 04 is already on `main` when Plan 05 is rebased;
+- otherwise Plan 04's branch, as part of its rebase onto Plan 05.
+
+Before that, Plan 05 ships the fallback: a cancel says "Discarded." with no Undo (Tasks 4, 5, 6, 8 and 15).
+
+Pre-flight. All three must print a match:
+
+```bash
+grep -n "sendUndoCancelDictation" src/helpers/windowManager.js
+grep -n "sanitizeCancelledDemoFields" src/helpers/onboardingInputPolicy.js
+ls src/types/dictation.ts src/helpers/dictationDisclosure.js
+```
+
+Covers I09 and I12 in full. It uses the §5.2 shapes exactly:
+- the demo events `{ status: "cancelled", sessionId, cancelled: CancelledState }` and `{ status: "cancelClosed", sessionId, reason }`;
+- `windowManager.sendUndoCancelDictation(sessionId?) → Promise<UndoResult>`, with `lastCancelledDictation`;
+- the disclosure is rendered with Plan 04's `disclosureCopy`.
+
+Plan 05 restates none of these types.
+
+**Files:**
+- Modify:
+  - `src/helpers/onboardingInputPolicy.js`: spread Plan 04's sanitiser into `sanitizeOnboardingDemoEvent`;
+  - `src/types/electron.ts`: the three §5.2 fields on `OnboardingDemoEvent`;
+  - `src/hooks/useAudioRecording.js`: delete Task 5's fallback `cancelled` publish. Plan 04's `onCancelledChange` publishes `cancelled` and `cancelClosed`;
+  - `src/utils/onboardingTrial.ts`: `cancelled: CancelledState | null`, `cancelClosed`, and `canUndo`;
+  - `src/components/onboarding/useTrialSession.ts`: `undo()` and `undoAvailable`;
+  - `src/components/onboarding/HotkeyTrial.tsx`: the disclosure and Undo;
+  - `src/components/OnboardingFlow.tsx`: the **[T22]** props in the composition;
+  - `src/preview/onboardingScenarioBridge.ts`: the preview's Undo, in the same shapes;
+  - `src/locales` (`setupFlow.try.undo`).
+- Test:
+  - append to `test/helpers/onboardingInputPolicy.test.js`, `test/utils/onboardingTrial.test.js`, `test/components/onboardingTrial.test.js` and `test/preview/onboardingScenarioBridge.test.js`;
+  - append to the existing WindowManager onboarding suite (`grep -l "onboardingDemo" test/helpers/windowManager*.test.js`);
+  - in `test/helpers/useAudioRecordingTrialEvents.test.js`, delete "cancelling an active take tells setup it was discarded…". Plan 04's own hook tests cover the publish.
+
+**Interfaces:**
+- Consumes:
+  - from `src/types/dictation.ts` (Plan 04): `CancelledState`, `UndoResult` and `RemoteDisclosure`;
+  - from `src/helpers/dictationDisclosure.js` (Plan 04): `disclosureCopy(disclosure, t)`;
+  - from `src/helpers/onboardingInputPolicy.js` (Plan 04): `sanitizeCancelledDemoFields(event)`;
+  - from `src/helpers/windowManager.js` (Plan 04): `sendUndoCancelDictation(sessionId?)` and `lastCancelledDictation`. Task 4 already calls them.
+- Produces:
+
+  ```ts
+  // src/types/electron.ts, on OnboardingDemoEvent
+  sessionId?: string; cancelled?: CancelledState; reason?: "expired" | "restored" | "replaced" | "flushed";
+  // src/utils/onboardingTrial.ts
+  // TrialState gains: cancelled: CancelledState | null
+  // TrialInput's event pick gains: "sessionId" | "cancelled" | "reason"
+  export function canUndo(state: TrialState, nowMs: number): boolean; // a live window: paused, or before undoUntil
+  // useTrialSession adds: undo(): Promise<void>; undoAvailable: boolean
+  // HotkeyTrialProps adds: undoAvailable: boolean; onUndo(): void
+  ```
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `test/helpers/onboardingInputPolicy.test.js`:
+
+```js
+test("the §5.2 cancelled fields pass through Plan 04's sanitiser, with nothing extra", () => {
+  const session = { id: "demo-1", kind: "dictation", sawListening: true };
+  const cancelled = {
+    sessionId: "rec-1",
+    undoUntil: 9000,
+    paused: false,
+    remainingMs: 4000,
+    remoteAlreadySent: { target: "openai", payload: "text", evidence: "attested", alsoSentTo: [] },
+  };
+  const out = sanitizeOnboardingDemoEvent({ kind: "dictation", status: "cancelled", sessionId: "rec-1", cancelled, secret: 1 }, session);
+  assert.equal(out.sessionId, "rec-1");
+  assert.deepEqual(out.cancelled, cancelled, "the RemoteDisclosure keeps alsoSentTo (§5.2), which disclosureCopy reads");
+  assert.equal("secret" in out, false);
+  const closed = sanitizeOnboardingDemoEvent({ kind: "dictation", status: "cancelClosed", sessionId: "rec-1", reason: "expired" }, session);
+  assert.deepEqual([closed.status, closed.sessionId, closed.reason], ["cancelClosed", "rec-1", "expired"]);
+});
+```
+
+Append to `test/utils/onboardingTrial.test.js`:
+
+```js
+const undoWindow = (patch = {}) => ({ sessionId: "rec-1", undoUntil: 6000, paused: false, remainingMs: 5000, remoteAlreadySent: null, ...patch });
+
+test("a cancelled take keeps its §5.2 window; Undo is live while it is open or paused", async () => {
+  const { canUndo } = await load();
+  const state = await play([
+    { status: "listening", atMs: 0 },
+    { status: "cancelled", sessionId: "rec-1", cancelled: undoWindow(), atMs: 1000 },
+  ]);
+  assert.equal(state.phase, "cancelled");
+  assert.equal(canUndo(state, 5999), true);
+  assert.equal(canUndo(state, 6000), false);
+  const paused = await play([{ status: "cancelled", sessionId: "rec-1", cancelled: undoWindow({ paused: true, undoUntil: 0 }), atMs: 0 }]);
+  assert.equal(canUndo(paused, 99999), true, "the window is frozen while paused");
+  const bare = await play([{ status: "cancelled", atMs: 0 }]);
+  assert.equal(canUndo(bare, 0), false, "the fallback event has no window");
+});
+
+test("cancelClosed ends the window for its own session only", async () => {
+  const { canUndo } = await load();
+  const open = [{ status: "listening", atMs: 0 }, { status: "cancelled", sessionId: "rec-1", cancelled: undoWindow(), atMs: 1 }];
+  const other = await play([...open, { status: "cancelClosed", sessionId: "rec-0", reason: "expired", atMs: 2 }]);
+  assert.equal(canUndo(other, 10), true);
+  const expired = await play([...open, { status: "cancelClosed", sessionId: "rec-1", reason: "expired", atMs: 2 }]);
+  assert.deepEqual([expired.phase, expired.cancelled, canUndo(expired, 10)], ["cancelled", null, false]);
+  const restored = await play([
+    ...open,
+    { status: "cancelClosed", sessionId: "rec-1", reason: "restored", atMs: 2 },
+    { status: "processing", atMs: 3 },
+  ]);
+  assert.deepEqual([restored.phase, restored.cancelled], ["processing", null]);
+});
+```
+
+Append to `test/components/onboardingTrial.test.js`. First add `cancelled: null,` to the `trialState` defaults, and `undoAvailable: true, onUndo: () => calls.push("undo"),` to `view`'s props. Then append:
+
+```js
+const cancelledWindow = (patch = {}) => ({ sessionId: "rec-1", undoUntil: 5000, paused: false, remainingMs: 4000, remoteAlreadySent: null, ...patch });
+
+test("a discarded take offers Undo only while it can work, and says what already left (I09)", async (t) => {
+  const disclosure = { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: [] };
+  const { ui, calls } = await view(t, {
+    trial: trialState({ phase: "cancelled", cancelled: cancelledWindow({ remoteAlreadySent: disclosure }) }),
+    nowMs: 1000,
+  });
+  expectKey(ui, "setupFlow.try.discarded");
+  expectKey(ui, "pill.caption.remoteAudio", { provider: "OpenAI" }); // Plan 04's disclosureCopy, through the same i18n mock
+  await ui.click("setupFlow.try.undo");
+  assert.deepEqual(calls, ["undo"]);
+  await ui.rerender({ nowMs: 6000 });
+  assert.equal(ui.text().includes("setupFlow.try.undo"), false, "past the deadline");
+  await ui.rerender({ nowMs: 1000, undoAvailable: false });
+  assert.equal(ui.text().includes("setupFlow.try.undo"), false, "main could not restore the last take");
+});
+
+test("an undo main could not restore hides Undo until the next take (I09)", async (t) => {
+  const { box, emit, calls } = await mountSession(t, { undoOnboardingDemoCancel: async () => false });
+  await React.act(async () => box.session.toggle());
+  const id = calls.find(([name]) => name === "toggle")[1];
+  await emit({ demoId: id, kind: "dictation", status: "listening" });
+  await emit({ demoId: id, kind: "dictation", status: "cancelled", sessionId: "rec-1", cancelled: cancelledWindow({ undoUntil: Date.now() + 5000 }) });
+  assert.equal(box.session.undoAvailable, true);
+  await React.act(async () => box.session.undo());
+  assert.equal(box.session.undoAvailable, false);
+  await emit({ demoId: id, kind: "dictation", status: "listening" });
+  assert.equal(box.session.undoAvailable, true);
+});
+```
+
+Append to `test/preview/onboardingScenarioBridge.test.js`, replacing Task 8's fallback test:
+
+```js
+test("Undo needs a live cancellation inside its window, in the §5.2 shapes (I12)", async () => {
+  const { api, time, events } = await trial("ready");
+  assert.equal(await api.undoOnboardingDemoCancel("demo-1"), false, "nothing was cancelled");
+  await api.toggleOnboardingDemo("demo-1");
+  time.advance(200);
+  assert.equal(await api.cancelOnboardingDemo("demo-1"), true);
+  const opened = events.at(-1);
+  assert.equal(opened.status, "cancelled");
+  assert.equal(opened.cancelled.sessionId, opened.sessionId);
+  time.advance(6000);
+  assert.deepEqual([events.at(-1).status, events.at(-1).reason], ["cancelClosed", "expired"]);
+  assert.equal(await api.undoOnboardingDemoCancel("demo-1"), false, "the window has expired");
+  await api.toggleOnboardingDemo("demo-1");
+  time.advance(200);
+  await api.cancelOnboardingDemo("demo-1");
+  assert.equal(await api.undoOnboardingDemoCancel("demo-1"), true);
+  assert.deepEqual(events.slice(-2).map((event) => event.status), ["cancelClosed", "processing"]);
+  time.advance(400);
+  assert.equal(events.at(-1).status, "success");
+});
+```
+
+Append to the WindowManager onboarding suite, using its existing loader:
+
+```js
+test("onboarding Undo asks the overlay for the last cancelled session and reports restored (§5.2)", async () => {
+  const asked = [];
+  const fake = {
+    _onboardingDemoKind: "dictation",
+    lastCancelledDictation: { sessionId: "rec-9" },
+    sendUndoCancelDictation: async (sessionId) => (asked.push(sessionId), { restored: false, sessionId, reason: "unavailable" }),
+  };
+  assert.equal(await WindowManager.prototype.undoOnboardingDemoCancel.call(fake), false);
+  fake.sendUndoCancelDictation = async (sessionId) => (asked.push(sessionId), { restored: true, sessionId });
+  assert.equal(await WindowManager.prototype.undoOnboardingDemoCancel.call(fake), true);
+  assert.deepEqual(asked, ["rec-9", "rec-9"]);
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npm test -- test/helpers/onboardingInputPolicy.test.js test/utils/onboardingTrial.test.js test/components/onboardingTrial.test.js test/preview/onboardingScenarioBridge.test.js "test/helpers/windowManager*.test.js"`
+
+Expected: FAIL. The cancelled fields are dropped, and `canUndo`, `undo` and the preview's Undo are missing. The WindowManager test may already pass, because Task 4 shipped that method.
+
+- [ ] **Step 3: Implement**
+
+1. In `src/helpers/onboardingInputPolicy.js`, replace the Task 4 marker comment in `sanitizeOnboardingDemoEvent` with:
+
+   ```js
+       ...sanitizeCancelledDemoFields(event),
+   ```
+
+   `sanitizeCancelledDemoFields` is defined in the same file by Plan 04. Keep it exactly as Plan 04 wrote it.
+
+2. In `src/types/electron.ts`, add `import type { CancelledState } from "./dictation";` and the three `OnboardingDemoEvent` fields listed under Interfaces.
+
+3. In `src/hooks/useAudioRecording.js`, delete Task 5's fallback block (the `// §5.2 fallback until Plan 04` comment and its `cancelled` publish) from `cancelRecording` and `cancelProcessing`. Plan 04's `onCancelledChange` already publishes `cancelled` and `cancelClosed` for the same take.
+
+4. In `src/utils/onboardingTrial.ts`:
+
+   ```ts
+   import type { CancelledState } from "../types/dictation";
+   // TrialState: add `cancelled: CancelledState | null;`. INITIAL_TRIAL_STATE: `cancelled: null`.
+   // TrialInput: add "sessionId" | "cancelled" | "reason" to the OnboardingDemoEvent pick.
+
+   // in reduceTrial:
+       case "cancelled":
+         return { ...state, phase: "cancelled", level: 0, cancelled: input.cancelled ?? null };
+       case "cancelClosed":
+         if (!state.cancelled || input.sessionId !== state.cancelled.sessionId) return state;
+         return { ...state, cancelled: null };
+
+   export function canUndo(state: TrialState, nowMs: number): boolean {
+     const open = state.cancelled;
+     return state.phase === "cancelled" && open !== null && (open.paused || open.undoUntil > nowMs);
+   }
+   ```
+
+   `fresh()` already resets to `INITIAL_TRIAL_STATE`, so a new take clears `cancelled`. After `cancelClosed` with `restored`, the `processing` event that follows moves the phase on.
+
+5. In `src/components/onboarding/useTrialSession.ts`:
+
+   ```ts
+     const [undoAvailable, setUndoAvailable] = useState(true);
+     // in the demo listener, before dispatch:
+     //   if (event.status === "listening") setUndoAvailable(true);
+     const undo = useCallback(async () => {
+       // §5.2: main returns UndoResult.restored. false (expired, busy, sealed, unavailable…)
+       // stops offering Undo for this take; Plan 04's notice explains why.
+       const restored = await window.electronAPI?.undoOnboardingDemoCancel?.(idRef.current);
+       if (!restored) setUndoAvailable(false);
+     }, []);
+     // return { state, dispatch, toggle, cancel, undo, undoAvailable, readLevel, usedHotkey };
+   ```
+
+6. In `src/components/onboarding/HotkeyTrial.tsx`:
+   - add `undoAvailable: boolean;` and `onUndo(): void;` to the props;
+   - import `canUndo`, and `import { disclosureCopy } from "../../helpers/dictationDisclosure.js";`;
+   - replace the Task 15 `cancelled` paragraph with:
+
+   ```tsx
+             {trial.phase === "cancelled" ? (
+               <p className="onb-field__status">
+                 {t("setupFlow.try.discarded")}
+                 {trial.cancelled?.remoteAlreadySent ? ` ${disclosureCopy(trial.cancelled.remoteAlreadySent, t)}` : ""}
+                 {props.undoAvailable && canUndo(trial, props.nowMs) ? (
+                   <Button size="sm" variant="ghost" onClick={props.onUndo}>
+                     {t("setupFlow.try.undo")}
+                   </Button>
+                 ) : null}
+               </p>
+             ) : null}
+   ```
+
+7. Apply the **[T22]** props in the composition's `HotkeyTrial`: `undoAvailable={trialSession.undoAvailable}` and `onUndo={() => void trialSession.undo()}`.
+
+8. In `src/preview/onboardingScenarioBridge.ts`, replace Task 8's fallback `cancelOnboardingDemo` and `undoOnboardingDemoCancel` with:
+
+   ```ts
+       const UNDO_MS = 5000;
+       let cancelledTake: CancelledState | null = null;
+       let takeCount = 0;
+       const closeTake = (reason: "expired" | "restored") => {
+         if (!cancelledTake) return;
+         const { sessionId } = cancelledTake;
+         cancelledTake = null;
+         emitDemo({ status: "cancelClosed", sessionId, reason });
+       };
+
+       cancelOnboardingDemo: async (id: string) => {
+         if (session?.id !== id || !recording) return false;
+         recording = false;
+         clearTrialTimers();
+         const sessionId = `preview-rec-${++takeCount}`;
+         cancelledTake = { sessionId, undoUntil: clock.now() + UNDO_MS, paused: false, remainingMs: UNDO_MS, remoteAlreadySent: null };
+         emitDemo({ status: "cancelled", sessionId, cancelled: cancelledTake });
+         later(UNDO_MS, () => closeTake("expired"));
+         return true;
+       },
+       // Desktop parity (§5.2): Undo exists only for a live cancellation inside its window.
+       undoOnboardingDemoCancel: async (id: string) => {
+         if (session?.id !== id || !cancelledTake || clock.now() >= cancelledTake.undoUntil) return false;
+         closeTake("restored");
+         emitDemo({ status: "processing" });
+         later(PROCESS_MS, () =>
+           emitDemo({ status: "success", text: PREVIEW_SENTENCE, rawText: PREVIEW_SENTENCE, cleanup: "skipped" })
+         );
+         return true;
+       },
+   ```
+
+   Declare `UNDO_MS`, `cancelledTake` and `takeCount` with the other module state, and `closeTake` beside `emitDemo`. Add `cancelledTake = null;` to `endSession()` and `reset()`. Import `type CancelledState` from `../types/dictation`.
+
+9. Add the string:
+
+   ```bash
+   node scripts/dev/merge-locale-keys.cjs - <<'JSON'
+   { "setupFlow": { "try": { "undo": "Undo" } } }
+   JSON
+   npx prettier --write "src/locales/**/translation.json"
+   ```
+
+   The disclosure sentence is Plan 04's copy (`disclosureCopy`). Do not add a `setupFlow` copy of it.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/onboardingInputPolicy.test.js test/utils/onboardingTrial.test.js test/components/onboardingTrial.test.js test/preview/onboardingScenarioBridge.test.js test/helpers/useAudioRecordingTrialEvents.test.js test/helpers/audioManagerPrivateTrial.test.js "test/helpers/windowManager*.test.js" && npm run typecheck && npm run i18n:check`
+
+Expected: PASS. The private-hold test in `audioManagerPrivateTrial.test.js` now runs instead of skipping. It must pass: an expired private hold is never persisted (§5.2).
+
+Then check on the desktop:
+- With a fresh test profile, start the Say something trial and press Esc mid-take. The field says "Discarded." with Undo.
+- Press Undo within five seconds. The take resumes as processing and then succeeds.
+- Repeat and let the window expire. Undo disappears, and History has no entry for either take.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/helpers/onboardingInputPolicy.js src/types/electron.ts src/hooks/useAudioRecording.js src/utils/onboardingTrial.ts src/components/onboarding/useTrialSession.ts src/components/onboarding/HotkeyTrial.tsx src/components/OnboardingFlow.tsx src/preview/onboardingScenarioBridge.ts src/locales test
+git commit -m "feat(onboarding): wire the trial's Undo to Plan 04's cross-window bridge"
+```
 
 ---
 
@@ -12137,14 +12490,13 @@ export default function OnboardingFlow({ onComplete, onExplore, initialStep, pre
   // [T18] Ready: honest readiness and the note action's own route
   const speechRoute = useResolvedRoute("dictationStt");
   const noteRoute = useResolvedRoute("noteRecordingStt");
-  const meetingMode = useSettingsStore((s) => s.meetingTranscriptionMode);
   const summary = summarizeReadiness({
     speechRoute, localVoiceActive, voiceDownload: voiceStatus,
     microphone: mic.access, micHeard, trialSucceeded: trial.successes > 0,
     platform, accessibilityGranted: accessibility.granted, shortcutProven, shortcutLabel: hotkeyLabel, activationMode,
     cleanupChoice, cleanupStatus, cleanupRoute, cleanupProviderLabel,
   });
-  const noteAction = noteActionState({ route: noteRoute, meetingMode, microphone: mic.access });
+  const noteAction = noteActionState({ route: noteRoute, microphone: mic.access });
 
   // ---------- per-step view ----------
   const railCopy = { title: t(`setupFlow.rail.${step}.title`), body: t(`setupFlow.rail.${step}.body${device}`) };
@@ -12231,10 +12583,10 @@ export default function OnboardingFlow({ onComplete, onExplore, initialStep, pre
                   keycap={keycap}
                   usedHotkey={trialSession.usedHotkey}
                   accessibilityMissing={accessibility.granted === false}
-                  undoAvailable={trialSession.undoAvailable}
+                  undoAvailable={trialSession.undoAvailable} // [T22]
+                  onUndo={() => void trialSession.undo()} // [T22]
                   onToggle={() => void trialSession.toggle()}
                   onCancel={() => void trialSession.cancel()}
-                  onUndo={() => void trialSession.undo()}
                   onGrantAccessibility={accessibility.request}
                   onRetryCleanup={() => void retryCleanup()}
                   onTurnCleanupOff={() => chooseCleanup("none")}

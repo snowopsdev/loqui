@@ -21,7 +21,7 @@
 
 **Tech Stack:** React 19, TypeScript, Tailwind CSS 4 tokens (shipped Plan 01), Electron 44 IPC, and Node `node:test` with `tsx`. Component tests use Plan 02's renderer harness (`test/helpers/harness/fakeDomTree.js`, `rendererMocks.js`), extended compatibly in Task 9.
 
-**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`, consolidated at `091d198` on `snowopsdev/feat/uiux-foundations`. The relevant parts are decisions D1, D5 and D8; §3 (execution order); §4; §5.1–§5.3 and §5.7; and the Plan 05 row.
+**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` at `7f31ece` on `snowopsdev/feat/uiux-foundations` (contracts consolidated at `091d198`; §5.2 clarified at `ff8c9cd`). The relevant parts are decisions D1, D5 and D8; §3 (execution order); §4; §5.1–§5.3 and §5.7; and the Plan 05 row.
 - Visual acceptance comes from `design-explorations/loqui-uiux-review/parts/02-onboarding.html`, using the picked card for each recommendation.
 - Supporting evidence is in `.omc/research/ui-review/audit-onboarding.md`. Both live untracked in the sibling worktree `/Users/snow/.t3/worktrees/loqui/t3-5038e8e6/`.
 
@@ -76,6 +76,24 @@
 | ONB-20 | The traffic-light inset stays physical, matching Plan 02. | 11 |
 | ONB-21 | Navigation markers use `--color-nav-marker`. | 11 and 14 |
 | ONB-02 | `WelcomeVariations` is migrated before `WelcomeScreen` is deleted. | 12 |
+
+### Round-2 review response
+
+**Round 3** is Codex `gpt-6.1-sol` at xhigh on `1904563`: `.omc/research/ui-review/reviews/plan-05-codex-r2.md`. It found 0 Critical, 9 Important and 2 Minor. All 11 are fixed in the task steps and their tests, against spec `7f31ece`. None is disputed. Each fix was checked against the real code or data named in the Evidence column.
+
+| ID | Finding | Fix | Evidence | Tasks |
+|---|---|---|---|---|
+| R2-I01 | Task 22 kept a sanitizer that fails its own contract | Removed "keep it exactly as Plan 04 wrote it". Task 22's pre-flight now requires `alsoSentTo` in the sanitizer, and stops for Plan 04's owner if it is missing. The contract test runs with `[]` and with two destinations. A render test names every receiver through `disclosureCopy`. | Spec §5.2 (ff8c9cd). Plan 04's current sanitizer (`ff423fb`) builds `{ target, payload, evidence }` only, so the test fails until Plan 04 fixes its own task. | 22 |
+| R2-I02 | 04-first: the publish handler dropped the `lastCancelledDictation` bookkeeping | The handler body is now a single `publishDemoEvent` call (sanitise, admit, then `trackCancelledDemo`) in both merge orders. Plan 04's inline lines are superseded, not kept twice. A close only clears its own session. A pure test covers set and clear. A handler-level test drives publish, then cancel, then Undo, then close, through the real `WindowManager`. | `ipcHandlers.js:1059` is the replaced handler. `windowManagerAssistantPanel.test.js:153` loads `WindowManager` with stubs. | 4, 22 |
+| R2-I03 | Task 8's `satisfies` check failed on the progress callback | `ProgressListener` and `ProgressData` are now derived from `Window["electronAPI"]["onParakeetDownloadProgress"]`. `satisfies` is kept, with no casts. | `tsc` probe against `src/types/electron.ts`: the old type gives TS2322, and the derived type compiles with both emit shapes. | 8 |
+| R2-I04 | Clearing an unsupported voice re-selected the detected voice | `chosenModel` is now three-state. `undefined` means untouched (detection applies), and `null` means deliberately no compatible voice. | Real catalog (`modelRegistryData.json`): only `nemotron-3.5-asr-streaming-0.6b` hears `ja`, and nothing hears `he`. The flow test's assertions therefore hold as written. | 13, composition |
+| R2-I05 | Download fakes overwrote one of the two real listeners | New `test/helpers/harness/listenerBus.js` is a Set with per-callback dispose and fan-out emit. All five progress fixtures use it. The chip assertion expects `chipNoEta`, because one sample gives no rate. | `preload.js:47` (`registerListener`) adds one IPC listener per subscriber. | 7, 13, 14 |
+| R2-I06 | Task 22 added untranslated English after Task 20 | `setupFlow.try.undo` now lands in Task 15, hidden, so Task 20 translates it. Task 22 adds no strings. Its verification runs `setupFlowTranslated.test.js` and the full suite. | `scripts/check-i18n.js` checks keys only, so the translation test is the gate. | 15, 22 |
+| R2-I07 | Preview cancel let an in-flight result succeed | The preview tracks `take` as idle, recording or processing. Cancel works in both active states and clears the pending result. Leaving clears it too. New tests cover Esc during processing and leaving then re-entering; both run before and after Task 22. | This mirrors desktop `_cancelOnboardingTake` (Task 4: preparation plus active cancel). | 8, 22 |
+| R2-I08 | Task 11's composition used later tasks' state | The composition now tags each shell render prop: `docked` [T15], `announcement` [T14], the `DownloadChip` footer [T13]. It adds an explicit Task 14 interim for the `try` case (legacy children, download/idle rail, and two Task-14-only bindings). An audit of every block found no other forward reference. | `src/tsconfig.json` has `strict: false` and no `noUnusedLocals`, so tagged-but-unused imports do not break a checkpoint. | 11, 14, composition |
+| R2-I09 | Error bars at 1.02:1 on the light rail | Light: ink (`--color-live-foreground`) on the orange rail, 5.75:1. Plum Night: warning amber, 8.73:1. The rendered-rule contrast test now resolves both error overrides. | Foundations tokens: `#d97706`/`#ff5a1f` give 1.02, `#171717`/`#ff5a1f` give 5.75, `#f0a83c`/`#21151b` give 8.73. | 11 |
+| R2-M01 | M2 docked but did not settle the live bars | Three stages. (1) Settle: the same `LevelBars` driver runs on a zero level for `SETTLE_MS`, and its smoothing eases to the rest silhouette, so no math is duplicated. (2) Draw: the bubble draws for `DRAW_MS` (360 ms). (3) Dock. Reduced motion is an instant swap. The rail test and the flow test assert the stage order. | `levelBars.test.js`: a zero or invalid sample steps toward the rest silhouette. | 11, 15, composition |
+| R2-M02 | Route disclosures bypassed Plan 03's chips | Cleanup uses `RouteDestinationChip` and `RouteStateChip`. Ready's note action uses `RouteDestinationChip` (`NoteActionState` gains `model`). Tests stub the chip module and assert the route each receives. The onboarding sentences stay. | Spec §5.1 published components. Plan 03 `c912d19`, `RouteChips.tsx` props. | 16, 18 |
 
 ## Contract change requests
 
@@ -182,6 +200,7 @@ grep -n "padding-left: max(84px" src/styles/onboarding-welcome.css        # Plan
 grep -n "export function useResolvedRoute" src/lib/routes.ts             # Plan 03
 grep -n "providerId" src/lib/routes.ts                                   # Plan 03 (ResolvedRoute.providerId)
 grep -n "getTotalMemory" preload.js                                      # Plan 03 (§5.1 total memory)
+grep -n "export function RouteDestinationChip" src/components/settings/routing/RouteChips.tsx   # Plan 03 (§5.1 published chips)
 grep -n '"unknown"' src/lib/routeGraph.ts                                # Plan 03 (§5.1 rule 1)
 ls src/components/ui/notices.ts 2>/dev/null && echo "Plan 04 merged: use notifier variant B (Task 7)" || echo "Plan 04 not merged: use notifier variant A (Task 7)"
 grep -n "_closeCancelled\|persistDiscardedBatchRecording" src/helpers/audioManager.js   # which cancel path exists: Plan 04's hold (_closeCancelled) or today's discard (Task 5)
@@ -1268,6 +1287,8 @@ The bridge gains a shortcut demo, the `cancelled` and `cancelClosed` statuses, l
   - `shouldReportDictationHotkey(onboardingActive: boolean, demoKind: string | null): boolean`
   - `sanitizeOnboardingDemoEvent(event, session): OnboardingDemoEvent | null`
   - `admitDemoEvent(session: { sawListening?: boolean }, status: string): boolean`. A session admits nothing until its own `listening` arrives, so a late result from a take that began before the session (or in a previous one) never reaches setup (round 1, ONB-06).
+  - `trackCancelledDemo(holder, payload): void` keeps `holder.lastCancelledDictation` (§5.2) in step with the published events: `cancelled` with a `sessionId` sets it, and `cancelClosed` for that same session clears it.
+  - `publishDemoEvent(event, session, holder): OnboardingDemoEvent | null` sanitises, admits and tracks in that order. It is the publish handler's whole body, in either merge order (R2-I02).
 - Produces these `WindowManager` methods:
   - `reportDictationHotkey(phase: "down" | "up" | "tap"): boolean`
   - `toggleOnboardingDemoRecording(): boolean`
@@ -1302,8 +1323,10 @@ const {
   ONBOARDING_DEMO_STATUSES,
   admitDemoEvent,
   isOnboardingInputAllowed,
+  publishDemoEvent,
   sanitizeOnboardingDemoEvent,
   shouldReportDictationHotkey,
+  trackCancelledDemo,
 } = require("../../src/helpers/onboardingInputPolicy");
 ```
 
@@ -1334,6 +1357,26 @@ test("a session admits nothing until its own take starts listening", () => {
   assert.equal(admitDemoEvent(session, "listening"), true);
   assert.equal(admitDemoEvent(session, "success"), true);
   assert.equal(admitDemoEvent({ id: "demo-3", kind: "shortcut" }, "error"), false);
+});
+
+test("main tracks the open cancel window by session, and only that session closes it (§5.2)", () => {
+  const holder = { lastCancelledDictation: null };
+  trackCancelledDemo(holder, { status: "cancelled" });
+  assert.equal(holder.lastCancelledDictation, null, "the pre-Plan-04 fallback carries no session");
+  trackCancelledDemo(holder, { status: "cancelled", sessionId: "rec-1" });
+  assert.deepEqual(holder.lastCancelledDictation, { sessionId: "rec-1" });
+  trackCancelledDemo(holder, { status: "cancelClosed", sessionId: "rec-0", reason: "expired" });
+  assert.deepEqual(holder.lastCancelledDictation, { sessionId: "rec-1" }, "a stale close cannot clear a newer window");
+  trackCancelledDemo(holder, { status: "cancelClosed", sessionId: "rec-1", reason: "restored" });
+  assert.equal(holder.lastCancelledDictation, null);
+});
+
+test("publishing sanitises, admits, then tracks; a rejected event changes nothing", () => {
+  const holder = { lastCancelledDictation: { sessionId: "keep" } };
+  const session = { id: "demo-1", kind: "dictation" };
+  assert.equal(publishDemoEvent({ kind: "dictation", status: "cancelled", sessionId: "rec-9" }, session, holder), null, "not admitted before listening");
+  assert.deepEqual(holder.lastCancelledDictation, { sessionId: "keep" });
+  assert.equal(publishDemoEvent({ kind: "dictation", status: "listening" }, session, holder).status, "listening");
 });
 
 test("the publish sanitizer keeps trial fields, clamps them, and drops everything else", () => {
@@ -1461,8 +1504,27 @@ Expected: FAIL. `sanitizeOnboardingDemoEvent is not a function`, `"shortcut"` is
        tool: clip(event.tool, 64),
        level: Number.isFinite(event.level) ? Math.min(1, Math.max(0, event.level)) : undefined,
        cleanup: DEMO_CLEANUP_OUTCOMES.has(event.cleanup) ? event.cleanup : undefined,
-       // Task 22 adds ...sanitizeCancelledDemoFields(event) here (Plan 04, §5.2).
+       // Plan 04 (§5.2): ...sanitizeCancelledDemoFields(event),
+       // Add that line now if Plan 04 has merged; otherwise Task 22 adds it.
      };
+   }
+
+   // §5.2 bookkeeping for Plan 04's bridge: Undo asks the overlay for exactly this session.
+   function trackCancelledDemo(holder, payload) {
+     if (!holder || !payload?.sessionId) return;
+     if (payload.status === "cancelled") {
+       holder.lastCancelledDictation = { sessionId: payload.sessionId };
+     } else if (payload.status === "cancelClosed" && holder.lastCancelledDictation?.sessionId === payload.sessionId) {
+       holder.lastCancelledDictation = null;
+     }
+   }
+
+   // The publish handler's whole body. One path in both merge orders (R2-I02).
+   function publishDemoEvent(event, session, holder) {
+     const payload = sanitizeOnboardingDemoEvent(event, session);
+     if (!payload || !admitDemoEvent(session, payload.status)) return null;
+     trackCancelledDemo(holder, payload);
+     return payload;
    }
 
    // Correlation without ids from the overlay: a session starts closed and opens
@@ -1482,19 +1544,17 @@ Expected: FAIL. `sanitizeOnboardingDemoEvent is not a function`, `"shortcut"` is
      ONBOARDING_DEMO_STATUSES,
      admitDemoEvent,
      isOnboardingInputAllowed,
+     publishDemoEvent,
      sanitizeOnboardingDemoEvent,
      shouldReportDictationHotkey,
+     trackCancelledDemo,
    };
    ```
 
 2. Change line 54 of `src/helpers/ipcHandlers.js` to:
 
    ```js
-   const {
-     ONBOARDING_DEMO_KINDS,
-     admitDemoEvent,
-     sanitizeOnboardingDemoEvent,
-   } = require("./onboardingInputPolicy");
+   const { ONBOARDING_DEMO_KINDS, publishDemoEvent } = require("./onboardingInputPolicy");
    ```
 
    Then make two edits in the same file:
@@ -1502,15 +1562,16 @@ Expected: FAIL. `sanitizeOnboardingDemoEvent is not a function`, `"shortcut"` is
 
      ```js
          ipcMain.handle("onboarding-demo-publish", (_event, event) => {
-           const session = this._onboardingDemoSession;
-           const payload = sanitizeOnboardingDemoEvent(event, session);
-           if (!payload || !admitDemoEvent(session, payload.status)) return false;
+           const payload = publishDemoEvent(event, this._onboardingDemoSession, this.windowManager);
+           if (!payload) return false;
            broadcastToWindows("onboarding-demo-event", payload);
            return true;
          });
      ```
 
      If `ONBOARDING_DEMO_STATUSES` is no longer referenced in this file, it was used only by the old publish body, so leave it out of the import.
+
+     **If Plan 04 merged first,** this body replaces Plan 04's, including its two inline `lastCancelledDictation` lines. That bookkeeping now lives in `trackCancelledDemo`, which `publishDemoEvent` calls, so do not keep both. Keep Plan 04's `sanitizeCancelledDemoFields` spread inside `sanitizeOnboardingDemoEvent` (the marked line above).
 
    - After `onboarding-demo-stop`, add:
 
@@ -2560,6 +2621,7 @@ Covers:
 - Modify: `src/helpers/downloadUtils.js`, terminal branches of `downloadFile`'s `catch` (328-343)
 - Modify: `src/helpers/ipcHandlers.js`, `download-parakeet-model` catch block (≈2840-2860)
 - Modify: `src/types/electron.ts`, `ParakeetDownloadProgressData` (517-526)
+- Create: `test/helpers/harness/listenerBus.js`. Preload registrars fan out to every subscriber (`registerListener` in `preload.js`), and `useModelDownload` and `useVoiceDownload` each subscribe to download progress. Every fake in this plan uses this bus, so both real subscriptions receive each event (R2-I05).
 - Test: create `test/utils/onboardingDownload.test.js`, `test/components/useVoiceDownload.test.js` and `test/components/onboardingNotices.test.js`; append to `test/helpers/downloadUtils.test.js`
 
 **Interfaces:**
@@ -2687,6 +2749,28 @@ test("numbers are clamped and formatted for people", async () => {
 });
 ```
 
+Create `test/helpers/harness/listenerBus.js`:
+
+```js
+// Preload registrars (preload.js registerListener) deliver every event to every
+// subscriber and dispose only the callback they returned. Fakes must do the same.
+function listenerBus() {
+  const listeners = new Set();
+  return {
+    subscribe(callback) {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    },
+    emit(...args) {
+      for (const listener of [...listeners]) listener(...args);
+    },
+    size: () => listeners.size,
+  };
+}
+
+module.exports = { listenerBus };
+```
+
 Create `test/components/useVoiceDownload.test.js`. It drives the real `useModelDownload` (Plan 02) with deferred IPC:
 
 ```js
@@ -2696,6 +2780,7 @@ const React = require("react");
 const { createRoot } = require("react-dom/client");
 const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
 const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { listenerBus } = require("../helpers/harness/listenerBus");
 
 function deferred() {
   let resolve;
@@ -2710,13 +2795,13 @@ async function mount(t) {
   });
   const status = new Map();
   const pending = [];
-  let progressListener = null;
+  const progress = listenerBus();
   const calls = [];
   installBrowserGlobals(t, {
     window: {
       electronAPI: {
         checkParakeetModelStatus: (id) => (status.get(id) ?? deferred()).promise,
-        onParakeetDownloadProgress: (listener) => ((progressListener = listener), () => {}),
+        onParakeetDownloadProgress: progress.subscribe,
         modelGetActiveDownloads: async () => [],
         // Deferred: useModelDownload holds an owned request's terminal error until this resolves.
         downloadParakeetModel: (id) => {
@@ -2739,7 +2824,7 @@ async function mount(t) {
   }
   root = createRoot(container);
   const render = (modelId) => React.act(async () => root.render(React.createElement(Harness, { modelId })));
-  const emit = (data) => React.act(async () => progressListener?.({}, data));
+  const emit = (data) => React.act(async () => progress.emit({}, data));
   const settle = (result) => React.act(async () => pending.shift().resolve(result));
   return { render, emit, settle, status, calls, current: () => current };
 }
@@ -3333,7 +3418,7 @@ Expected: PASS. The shared download suites (`modelManagerBridgeDownloadStatus`, 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/utils/onboardingDownload.ts src/components/onboarding/useVoiceDownload.ts src/components/onboarding/onboardingNotices.ts src/components/onboarding/useOnboardingNotifier.ts src/helpers/downloadUtils.js src/helpers/ipcHandlers.js src/types/electron.ts src/locales test/utils/onboardingDownload.test.js test/components/useVoiceDownload.test.js test/components/onboardingNotices.test.js test/helpers/downloadUtils.test.js
+git add src/utils/onboardingDownload.ts src/components/onboarding/useVoiceDownload.ts src/components/onboarding/onboardingNotices.ts src/components/onboarding/useOnboardingNotifier.ts src/helpers/downloadUtils.js src/helpers/ipcHandlers.js src/types/electron.ts src/locales test/utils/onboardingDownload.test.js test/components/useVoiceDownload.test.js test/components/onboardingNotices.test.js test/helpers/downloadUtils.test.js test/helpers/harness/listenerBus.js
 git commit -m "feat(onboarding): per-model download state, kept progress, stall ageing and a §5.3 notice boundary"
 ```
 
@@ -3577,6 +3662,31 @@ test("reset settles a pending transfer and cancel never leaves stale active work
   assert.equal((await retry).success, true);
 });
 
+test("Esc while processing cancels the take: its result never arrives (R2-I07)", async () => {
+  const { api, time, events } = await trial("ready");
+  await api.toggleOnboardingDemo("demo-1");
+  time.advance(200);
+  await api.toggleOnboardingDemo("demo-1"); // stop → processing
+  assert.equal(events.at(-1).status, "processing");
+  assert.equal(await api.cancelOnboardingDemo("demo-1"), true);
+  time.advance(2000);
+  assert.deepEqual(events.slice(-2).map((event) => event.status), ["processing", "cancelled"]);
+  assert.equal(events.some((event) => event.status === "success"), false);
+});
+
+test("leaving mid-processing and coming back never delivers the old result to the new session", async () => {
+  const { api, time, events } = await trial("ready");
+  await api.toggleOnboardingDemo("demo-1");
+  time.advance(200);
+  await api.toggleOnboardingDemo("demo-1");
+  await api.endOnboardingDemo("demo-1");
+  await api.beginOnboardingDemo({ id: "demo-2", kind: "dictation" });
+  time.advance(2000);
+  assert.equal(events.some((event) => event.status === "success"), false);
+  await api.toggleOnboardingDemo("demo-2");
+  assert.deepEqual(events.at(-1), { demoId: "demo-2", kind: "dictation", status: "listening" });
+});
+
 test("a cancel is discarded with no Undo, like desktop before Plan 04 (§5.2 fallback, I12)", async () => {
   const { api, time, events } = await trial("ready");
   await api.toggleOnboardingDemo("demo-1");
@@ -3653,7 +3763,9 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      code?: string;
      keptBytes?: number;
    };
-   type ProgressListener = (event: unknown, data: Record<string, unknown>) => void;
+   // Derived from the preload contract, so `satisfies` checks the real callback type (R2-I03).
+   type ProgressListener = Parameters<Window["electronAPI"]["onParakeetDownloadProgress"]>[0];
+   type ProgressData = Parameters<ProgressListener>[1];
    type DemoPayload = Omit<OnboardingDemoEvent, "demoId" | "kind">;
 
    export function createOnboardingScenarioBridge(
@@ -3669,7 +3781,9 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      const interrupted = new Set<string>();
      let active: { model: string; percent: number; timer: unknown; resolve: (r: DownloadResult) => void } | null = null;
      let session: { id: string; kind: OnboardingDemoKind } | null = null;
-     let recording = false;
+     // The take's lifecycle, through processing (R2-I07): a cancel or a new session
+     // must stop a result that is still on its way.
+     let take: "idle" | "recording" | "processing" = "idle";
      let trialTimers: unknown[] = [];
 
      const scenario = () => getConfig().scenario;
@@ -3683,8 +3797,8 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
            set.delete(listener);
          };
        };
-     const emitProgress = (data: Record<string, unknown>) => {
-       for (const listener of progressListeners) listener({}, data);
+     const emitProgress = (data: ProgressData) => {
+       for (const listener of [...progressListeners]) listener({}, data);
      };
      const emitDemo = (event: DemoPayload) => {
        if (!session) return;
@@ -3734,17 +3848,18 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      }
 
      function startTrial() {
-       recording = true;
+       if (take !== "idle") return;
+       take = "recording";
        emitDemo({ status: "listening" });
        if (scenario() === "microphone-denied") {
-         recording = false;
+         take = "idle";
          emitDemo({ status: "error", code: "NotAllowedError", message: "Permission denied" });
          return;
        }
        const quiet = scenario() === "nothing-heard";
        let ticks = 0;
        const level = () => {
-         if (!recording) return;
+         if (take !== "recording") return;
          ticks += 1;
          emitDemo({ status: "level", level: quiet ? 0.003 : 0.04 + 0.04 * Math.abs(Math.sin(ticks / 2)) });
          if (!quiet && ticks === 8) emitDemo({ status: "partial", text: "Remind me to send" });
@@ -3754,11 +3869,12 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      }
 
      function stopTrial() {
-       if (!recording) return;
-       recording = false;
+       if (take !== "recording") return;
+       take = "processing";
        clearTrialTimers();
        emitDemo({ status: "processing" });
        later(PROCESS_MS, () => {
+         take = "idle";
          const current = scenario();
          if (current === "nothing-heard") {
            emitDemo({ status: "error", code: "NO_AUDIO", message: "No audio detected" });
@@ -3773,8 +3889,8 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
      }
 
      function endSession() {
-       recording = false;
-       clearTrialTimers();
+       take = "idle";
+       clearTrialTimers(); // includes a pending result, so nothing reaches the next session
        session = null;
      }
 
@@ -3789,7 +3905,7 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
          if (phase === "down") startTrial();
          else stopTrial();
        } else if (phase === "down") {
-         if (recording) stopTrial();
+         if (take === "recording") stopTrial();
          else startTrial();
        }
      }
@@ -3880,14 +3996,15 @@ Expected: FAIL with `Cannot find module '../../src/preview/onboardingScenarioBri
          return true;
        },
        toggleOnboardingDemo: async (id: string) => {
-         if (session?.id !== id || session.kind !== "dictation") return false;
-         if (recording) stopTrial();
+         if (session?.id !== id || session.kind !== "dictation" || take === "processing") return false;
+         if (take === "recording") stopTrial();
          else startTrial();
          return true;
        },
+       // Desktop parity (Task 4's _cancelOnboardingTake): cancels recording *or* processing.
        cancelOnboardingDemo: async (id: string) => {
-         if (session?.id !== id || !recording) return false;
-         recording = false;
+         if (session?.id !== id || take === "idle") return false;
+         take = "idle";
          clearTrialTimers();
          emitDemo({ status: "cancelled" });
          return true;
@@ -4764,7 +4881,7 @@ It keeps ONB-Q1 (Plan 02): the pinned shell and the physical traffic-light inset
 **Interfaces:**
 - `instrumentMath.ts`:
   - `InstrumentMode`: `idle | download{percent, downloadedBytes, totalBytes} | listening{heardVoice} | success | error{reason}`;
-  - `INSTRUMENT_HEIGHT = 140`, `ERROR_FILL = 0.3` and `SETTLE_MS = 520` (`--motion-hero`, the settle before the dock);
+  - `INSTRUMENT_HEIGHT = 140`, `ERROR_FILL = 0.3`, `SETTLE_MS = 520` (`--motion-hero`, stage 1: the live bars settle) and `DRAW_MS = 360` (`--motion-slow`, stage 2: the bubble draws). The dock (stage 3) starts after both (R2-M01);
   - `barHeights()`, `instrumentFills(mode)` and `instrumentCaption(mode, locale)`;
   - `dockMark(update, { reducedMotion, doc })` returns `"transition" | "instant"`.
 - `InstrumentRail({ title, body, mode, readLevel? })`. It passes `tone="onLive"` to `LevelBars` while the rail is the solid `--color-live` surface (light theme), and `"brand"` on Plum Night's tinted rail.
@@ -4789,6 +4906,7 @@ Append to `test/components/onboardingShell.test.js`. This is Plan 02's file, and
 ```js
 const { resolveTokens } = require("../helpers/harness/cssTokens");
 const { mountComponent, expectKey } = require("../helpers/harness/mountComponent");
+const React = require("react");
 
 const setupCss = () => read("src/styles/onboarding.css");
 
@@ -4835,6 +4953,10 @@ test("the rendered rail and progress rules meet contrast in light and Plum Night
   const railFg = token(".onb-rail", "color");
   assert.ok(contrastRatio(light[railFg], light[railBg]) >= 4.5, "rail text, light");
   assert.ok(contrastRatio(light[token(".onb-bar__fill", "background")], light[railBg]) >= 3, "paper bars on the rail");
+  const errorLight = token('.onb-instrument[data-mode="error"] .onb-bar__fill', "background");
+  assert.ok(contrastRatio(light[errorLight], light[railBg]) >= 3, "error bars on the light rail (R2-I09)");
+  const errorDark = token('.dark .onb-instrument[data-mode="error"] .onb-bar__fill', "background");
+  assert.ok(contrastRatio(dark[errorDark], dark["--color-surface-1"]) >= 3, "error bars on the Plum Night rail");
   assert.ok(contrastRatio(dark[token(".dark .onb-rail", "color")], dark["--color-surface-1"]) >= 4.5, "rail text, Plum Night");
   const marker = token('.onb-progress__step[data-state="current"]', "background");
   assert.equal(marker, "--color-nav-marker", "active navigation uses the navigation role (D5)");
@@ -4924,9 +5046,34 @@ test("listening hands the bars to LevelBars; errors drop them to 30%; success dr
   assert.equal(ui.byAttr("data-bubble").length, 1, "the speech bubble draws around the settled bars (M02)");
 });
 
+test("success settles the live bars first, then draws the bubble; reduced motion swaps at once (R2-M01)", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const ui = await mountComponent(t, "/components/onboarding/InstrumentRail.tsx", {
+    exportName: "InstrumentRail",
+    props: { title: "Say something", body: "", mode: { kind: "listening", heardVoice: true }, readLevel: () => 0.6 },
+  });
+  await ui.rerender({ mode: { kind: "success" } });
+  const instrument = () => ui.findAll((node) => node.attributes.class === "onb-instrument")[0];
+  assert.equal(instrument().attributes["data-stage"], "settle");
+  assert.equal(ui.byAttr("data-level-bar").length, 5, "the same LevelBars driver eases to rest");
+  assert.equal(ui.byAttr("data-bubble").length, 0, "no bubble until the bars have settled");
+  await React.act(async () => t.mock.timers.tick(520));
+  assert.equal(instrument().attributes["data-stage"], "mark");
+  assert.equal(ui.byAttr("data-bubble").length, 1);
+  assert.equal(ui.byAttr("data-level-bar").length, 0);
+
+  const reduced = await mountComponent(t, "/components/onboarding/InstrumentRail.tsx", {
+    exportName: "InstrumentRail",
+    reducedMotion: true,
+    props: { title: "Say something", body: "", mode: { kind: "listening", heardVoice: true }, readLevel: () => 0.6 },
+  });
+  await reduced.rerender({ mode: { kind: "success" } });
+  assert.equal(reduced.byAttr("data-bubble").length, 1, "reduced motion: an instant swap");
+});
+
 test("the dock uses a View Transition unless motion is reduced or unsupported", async () => {
-  const { dockMark, SETTLE_MS } = await import("../../src/components/onboarding/instrumentMath.ts");
-  assert.equal(SETTLE_MS, 520);
+  const { dockMark, SETTLE_MS, DRAW_MS } = await import("../../src/components/onboarding/instrumentMath.ts");
+  assert.deepEqual([SETTLE_MS, DRAW_MS], [520, 360]);
   let updates = 0;
   const update = () => updates++;
   assert.equal(dockMark(update, { reducedMotion: false, doc: { startViewTransition: (cb) => cb() } }), "transition");
@@ -4936,7 +5083,7 @@ test("the dock uses a View Transition unless motion is reduced or unsupported", 
 });
 ```
 
-The file's existing requires (`assert`, `fs`, `path`, `test`, `read`) are reused. If `read` is not defined there, add `const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");`.
+The file's existing requires (`assert`, `fs`, `path`, `test`, `read`) are reused. Drop the `React` line below if Plan 02's file already declares it. If `read` is not defined there, add `const read = (p) => fs.readFileSync(path.join(__dirname, "../..", p), "utf8");`.
 
 Create `test/components/onboardingFlow.test.js`:
 
@@ -4944,6 +5091,7 @@ Create `test/components/onboardingFlow.test.js`:
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { mountComponent, expectKey } = require("../helpers/harness/mountComponent");
+const { listenerBus } = require("../helpers/harness/listenerBus");
 const React = require("react");
 
 const PREVIEW = { step: "speech", scenario: "ready", platform: "linux" };
@@ -5046,8 +5194,8 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    import { byteParts, clampPercent } from "../../utils/onboardingDownload";
 
    // The five bars of the mark are setup's one hero (ONB-R1 C, ONB-M2): they
-   // breathe when idle, fill with the download, follow the voice, drop to 30% in
-   // amber on error, settle into the mark and dock into the header on success.
+   // breathe when idle, fill with the download, follow the voice, drop to 30% on
+   // error, settle into the mark and dock into the header on success.
    export type InstrumentMode =
      | { kind: "idle" }
      | { kind: "download"; percent: number; downloadedBytes: number; totalBytes: number }
@@ -5057,8 +5205,10 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 
    export const INSTRUMENT_HEIGHT = 140;
    export const ERROR_FILL = 0.3;
-   /** The settle and bubble draw before the dock; equals --motion-hero. */
+   /** Stage 1 of M2: the live bars ease to rest, the mark's silhouette; equals --motion-hero. */
    export const SETTLE_MS = 520;
+   /** Stage 2 of M2: the speech bubble draws around the settled bars; equals --motion-slow. */
+   export const DRAW_MS = 360;
 
    export function barHeights(height = INSTRUMENT_HEIGHT): number[] {
      return LOGO_BAR_SHAPE.map((shape) => Math.round(shape * height));
@@ -5130,10 +5280,10 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
 3. Create `src/components/onboarding/InstrumentRail.tsx`:
 
    ```tsx
-   import { useEffect, useState, type CSSProperties } from "react";
+   import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
    import { useTranslation } from "react-i18next";
    import { LevelBars } from "../ui/LevelBars";
-   import { INSTRUMENT_HEIGHT, barHeights, instrumentCaption, instrumentFills, type InstrumentMode } from "./instrumentMath";
+   import { INSTRUMENT_HEIGHT, SETTLE_MS, barHeights, instrumentCaption, instrumentFills, type InstrumentMode } from "./instrumentMath";
 
    export interface InstrumentRailProps {
      title: string;
@@ -5163,6 +5313,33 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    export function InstrumentRail({ title, body, mode, readLevel }: InstrumentRailProps) {
      const { t, i18n } = useTranslation();
      const dark = useDarkTheme();
+     // M2 stage 1 (R2-M01): after a take, the same LevelBars driver keeps running on a
+     // zero level, so its own smoothing eases the bars to the rest silhouette (the
+     // mark's proportions). Then the static mark and its bubble replace it.
+     const [stage, setStage] = useState<"live" | "settle" | "mark">("live");
+     const wasListening = useRef(false);
+     const silence = useCallback(() => 0, []);
+     useEffect(() => {
+       if (mode.kind === "listening") {
+         wasListening.current = true;
+         setStage("live");
+         return;
+       }
+       if (mode.kind !== "success") {
+         wasListening.current = false;
+         setStage("live");
+         return;
+       }
+       const reduced = globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+       if (!wasListening.current || reduced) {
+         setStage("mark"); // nothing live to settle, or an instant swap under reduced motion
+         return;
+       }
+       setStage("settle");
+       const id = setTimeout(() => setStage("mark"), SETTLE_MS);
+       return () => clearTimeout(id);
+     }, [mode.kind]);
+     const liveLevel = stage === "settle" ? silence : mode.kind === "listening" ? readLevel : undefined;
      const caption = instrumentCaption(mode, i18n?.language);
      const fills = instrumentFills(mode);
      const captionText =
@@ -5179,14 +5356,14 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
            <h1 tabIndex={-1}>{title}</h1>
            {body ? <p>{body}</p> : null}
          </div>
-         <div className="onb-instrument" data-mode={mode.kind} aria-hidden="true">
-           {mode.kind === "success" ? (
+         <div className="onb-instrument" data-mode={mode.kind} data-stage={stage} aria-hidden="true">
+           {mode.kind === "success" && stage === "mark" ? (
              <svg className="onb-bubble" data-bubble="" viewBox="-4 0 168 160" aria-hidden="true">
                <path d={BUBBLE_PATH} pathLength={1} />
              </svg>
            ) : null}
-           {mode.kind === "listening" && readLevel ? (
-             <LevelBars readLevel={readLevel} height={INSTRUMENT_HEIGHT} tone={dark ? "brand" : "onLive"} />
+           {liveLevel ? (
+             <LevelBars readLevel={liveLevel} height={INSTRUMENT_HEIGHT} tone={dark ? "brand" : "onLive"} />
            ) : (
              barHeights().map((height, index) => (
                <span key={index} className="onb-bar" style={{ height }}>
@@ -5608,7 +5785,14 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
      }
    }
 
+   /* Error bars drop to 30% (the shape cue) and the caption names the problem.
+      Light: ink on the orange rail, 5.75:1 (warning amber would be 1.02:1, R2-I09).
+      Plum Night: warning amber on the dark rail, 8.73:1. */
    .onb-instrument[data-mode="error"] .onb-bar__fill {
+     background: var(--color-live-foreground);
+   }
+
+   .dark .onb-instrument[data-mode="error"] .onb-bar__fill {
      background: var(--color-warning);
    }
 
@@ -5735,7 +5919,7 @@ Expected: FAIL. `onboarding.css` has no shell, the modules are missing, the orph
    ```markdown
    ### Onboarding
 
-   The setup rail is the instrument: the five bars of the mark breathe when idle, fill bottom-up with the voice download, follow the microphone while listening, and drop to 30% in warning amber on error. On the first successful dictation they settle into the mark, the speech bubble draws around them (`--motion-slow`), and the mark docks into the 32px header tile (View Transition), where it stays for the rest of setup. A numeric caption sits under the bars, so progress is never motion-only. Light theme: orange rail (`--color-live`), ink text, paper bars. Plum Night: a warm surface gradient with orange-to-magenta bars. Active progress uses `--color-nav-marker`. Primary actions are the neutral ink capsule; `live` is reserved for record, stop, "Allow microphone", the ready-block mic and "Dictate into a note". Readiness icons use `--color-success` and `--color-warning`; their words stay in foreground colours.
+   The setup rail is the instrument: the five bars of the mark breathe when idle, fill bottom-up with the voice download, follow the microphone while listening, and drop to 30% on error (ink on the light rail, warning amber on Plum Night, both at least 3:1). On the first successful dictation the live bars settle into the mark's silhouette (`--motion-hero`), the speech bubble draws around them (`--motion-slow`), and then the mark docks into the 32px header tile (View Transition), where it stays for the rest of setup. A numeric caption sits under the bars, so progress is never motion-only. Light theme: orange rail (`--color-live`), ink text, paper bars. Plum Night: a warm surface gradient with orange-to-magenta bars. Active progress uses `--color-nav-marker`. Primary actions are the neutral ink capsule; `live` is reserved for record, stop, "Allow microphone", the ready-block mic and "Dictate into a note". Readiness icons use `--color-success` and `--color-warning`; their words stay in foreground colours.
    ```
 
 10. Delete the test "first setup reaches completion without account APIs or implicit downloads" from `test/components/personalWorkspace.test.js`. The flow walk replaces it, and keeps the account check.
@@ -6844,6 +7028,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const React = require("react");
 const { mountComponent, expectKey } = require("../helpers/harness/mountComponent");
+const { listenerBus } = require("../helpers/harness/listenerBus");
 
 const MODEL = "parakeet-unified-en-0.6b";
 function deferred() {
@@ -6854,7 +7039,7 @@ function deferred() {
 
 // Mounts the real flow on Voice with an English profile, so the pick is MODEL.
 async function mountVoice(t, { cancelResult = { success: true } } = {}) {
-  let listener = null;
+  const progress = listenerBus();
   let installed = false;
   const pending = [];
   const counts = { cancels: 0 };
@@ -6866,7 +7051,7 @@ async function mountVoice(t, { cancelResult = { success: true } } = {}) {
       getTotalMemory: async () => 16e9,
       checkParakeetModelStatus: async () => ({ success: true, model: MODEL, downloaded: installed }),
       modelGetActiveDownloads: async () => [],
-      onParakeetDownloadProgress: (callback) => ((listener = callback), () => {}),
+      onParakeetDownloadProgress: progress.subscribe,
       downloadParakeetModel: () => {
         const request = deferred();
         pending.push(request);
@@ -6882,7 +7067,7 @@ async function mountVoice(t, { cancelResult = { success: true } } = {}) {
     counts,
     settle,
     install: () => (installed = true),
-    emit: (data) => React.act(async () => listener({}, { model: MODEL, ...data })),
+    emit: (data) => React.act(async () => progress.emit({}, { model: MODEL, ...data })),
     resolve: (result) => React.act(async () => pending.shift().resolve({ model: MODEL, ...result })),
     // Download from Voice, then come back to it: the panel shows the transfer.
     async startAndReturn() {
@@ -6909,7 +7094,8 @@ test("a download in flight follows the user to later steps as a footer chip", as
   await v.emit(PROGRESS);
   await v.ui.click(v.ui.byAttr("data-onb-primary")[0]); // Continue → Say something
   await v.ui.click("setupFlow.skipStep"); // → Cleanup
-  expectKey(v.ui, "setupFlow.download.chip", { percent: 42 });
+  // One sample cannot establish a rate, so there is no ETA yet (the chip never invents one).
+  expectKey(v.ui, "setupFlow.download.chipNoEta", { percent: 42 });
 });
 
 test("a confirmed cancel leaves Download again, and a late result cannot mark it failed", async (t) => {
@@ -7017,14 +7203,14 @@ test("a language change never leaves an incompatible voice committable (I03)", a
 });
 
 test("language is locked while a transfer runs (I03)", async (t) => {
-  let listener = null;
+  const progress = listenerBus();
   const { ui } = await mountFlow(t, { initialStep: "speech" }, {
-    api: voiceApi(["en-US"], { onParakeetDownloadProgress: (callback) => ((listener = callback), () => {}) }),
+    api: voiceApi(["en-US"], { onParakeetDownloadProgress: progress.subscribe }),
     mocks: { "/SettingsPage": "export default function SettingsPage() { return null; }", "ui/LanguageSelector": LANGUAGE_SELECTOR_MOCK },
   });
   await React.act(async () => {});
   await ui.click(primary(ui));
-  await React.act(async () => listener({}, { type: "progress", model: "parakeet-unified-en-0.6b", percentage: 10, downloaded_bytes: 6e7, total_bytes: 6.31e8 }));
+  await React.act(async () => progress.emit({}, { type: "progress", model: "parakeet-unified-en-0.6b", percentage: 10, downloaded_bytes: 6e7, total_bytes: 6.31e8 }));
   await ui.click("setupFlow.back");
   await ui.click(ui.byAttr("aria-expanded", "false")[0]);
   await React.act(async () => ui.props(ui.byAttr("data-language")[0]).onChange({ target: { value: "ja-JP" } }));
@@ -7685,7 +7871,7 @@ The footer chip and its CSS already landed in Task 13.
   - the imports;
   - the hoisted `reducedMotion`;
   - the notices effect and `announcement`;
-  - the `try` case's `TryStage` and `MeetLoquiTour`. Until Task 15, the `TryStage` children are `legacy(<the old try content>)`, and `hotkeyLabel` is `formatHotkeyLabel(dictationKey)` (`src/utils/hotkeys.ts:122`);
+  - the `try` case's `TryStage` and `MeetLoquiTour`, with the composition's **Task 14 interim** for the `try` case: legacy children, the download/idle rail, and the two Task-14-only bindings `hotkeyLabel` (`formatHotkeyLabel`, `src/utils/hotkeys.ts:122`, added to the existing `../utils/hotkeys` import) and `activationMode`. Task 15 deletes those two bindings when its block brings its own;
   - `announcement={announcement}` on the shell.
 - Modify `src/styles/onboarding.css` (append).
 - Test:
@@ -7850,18 +8036,18 @@ export function useOnboardingNotifier() {
 test("a download that finishes or fails off-step sends one §5.3 notice; on Voice and Say something it does not", async (t) => {
   globalThis.__onbNotices = [];
   t.after(() => delete globalThis.__onbNotices);
-  let listener = null;
+  const progress = listenerBus();
   const pending = [];
   const { ui } = await mountFlow(t, { initialStep: "speech" }, {
     api: voiceApi(["en-US"], {
-      onParakeetDownloadProgress: (callback) => ((listener = callback), () => {}),
+      onParakeetDownloadProgress: progress.subscribe,
       downloadParakeetModel: () => new Promise((resolve) => pending.push(resolve)),
     }),
     mocks: { "/SettingsPage": "export default function SettingsPage() { return null; }", "onboarding/useOnboardingNotifier": NOTIFIER_MOCK },
   });
   await React.act(async () => {});
   await ui.click(primary(ui)); // commit + download → Say something
-  const emit = (data) => React.act(async () => listener({}, { model: "parakeet-unified-en-0.6b", ...data }));
+  const emit = (data) => React.act(async () => progress.emit({}, { model: "parakeet-unified-en-0.6b", ...data }));
   await emit({ type: "progress", percentage: 30, downloaded_bytes: 19e7, total_bytes: 6.31e8 });
   assert.equal(globalThis.__onbNotices.length, 0, "Say something shows the download inline");
   await ui.click("setupFlow.skipStep"); // → Cleanup
@@ -7874,15 +8060,15 @@ test("a download that finishes or fails off-step sends one §5.3 notice; on Voic
 });
 
 test("milestones reach one polite live region, once each", async (t) => {
-  let listener = null;
+  const progress = listenerBus();
   const { ui } = await mountFlow(t, { initialStep: "speech" }, {
-    api: voiceApi(["en-US"], { onParakeetDownloadProgress: (callback) => ((listener = callback), () => {}) }),
+    api: voiceApi(["en-US"], { onParakeetDownloadProgress: progress.subscribe }),
   });
   await React.act(async () => {});
   await ui.click(primary(ui));
   const live = () => ui.byAttr("aria-live", "polite").filter((node) => node.attributes["data-onb-announcer"] !== undefined);
   for (const percentage of [10, 26, 27]) {
-    await React.act(async () => listener({}, { type: "progress", model: "parakeet-unified-en-0.6b", percentage, downloaded_bytes: 1, total_bytes: 100 }));
+    await React.act(async () => progress.emit({}, { type: "progress", model: "parakeet-unified-en-0.6b", percentage, downloaded_bytes: 1, total_bytes: 100 }));
   }
   assert.equal(live().length, 1);
   assert.ok(live()[0].textContent.includes("setupFlow.download.announcePercent(percent=25)"));
@@ -8734,15 +8920,20 @@ test("the first success settles, then docks the mark, and the dock stays for the
   const shell = () => ui.findAll((node) => (node.attributes.class ?? "").split(" ").includes("onb-shell"))[0];
   await emit({ status: "listening" });
   await emit({ status: "success", text: "Hello there.", rawText: "hello there", cleanup: "skipped" });
-  assert.equal(shell().attributes["data-docked"], undefined, "the bars settle and the bubble draws first");
+  const instrument = () => ui.findAll((node) => node.attributes.class === "onb-instrument")[0];
+  assert.equal(instrument().attributes["data-stage"], "settle", "stage 1: the live bars settle");
+  assert.equal(shell().attributes["data-docked"], undefined);
   await React.act(async () => t.mock.timers.tick(520));
-  assert.equal(shell().attributes["data-docked"], "true");
+  assert.equal(ui.byAttr("data-bubble").length, 1, "stage 2: the bubble draws");
+  assert.equal(shell().attributes["data-docked"], undefined, "not docked while the bubble draws");
+  await React.act(async () => t.mock.timers.tick(360));
+  assert.equal(shell().attributes["data-docked"], "true", "stage 3: the dock");
   await ui.click("setupFlow.try.makeItYours");
   assert.equal(shell().attributes["data-docked"], "true", "the dock persists");
 });
 ```
 
-The second flow test runs with `reducedMotion: false` (the harness default) and no `startViewTransition`, so `dockMark` calls its update directly once `SETTLE_MS` has passed.
+The second flow test runs with `reducedMotion: false` (the harness default) and no `startViewTransition`, so `dockMark` calls its update directly once `SETTLE_MS + DRAW_MS` has passed.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -9248,6 +9439,7 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
           "shortcutWorks": "Shortcut works",
           "heardYou": "Loqui heard you",
           "discarded": "Discarded.",
+          "undo": "Undo",
           "silent": "We're not hearing anything. Wrong microphone?",
           "noAudioTitle": "We didn't hear anything",
           "noAudioBody": "Check that the right microphone is selected and not muted, then try again.",
@@ -9279,6 +9471,8 @@ Expected: FAIL. The modules are missing, and the legacy trial still renders.
     JSON
     npx prettier --write "src/locales/**/translation.json"
     ```
+
+    `setupFlow.try.undo` is added here although Undo stays hidden until Task 22, so that Task 20 translates it with everything else. Task 22 adds no strings (R2-I06).
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -9331,7 +9525,8 @@ It keeps the superseded-check guarantees tested in `onboardingCleanupWiring.test
 - Consumes:
   - `CleanupChoice` and `CleanupStatus` (`src/utils/onboardingCleanup.ts:10-11`);
   - from §5.1: `useResolvedRoute("dictationCleanup")` and `ResolvedRoute`, which carries `providerId` and `settingsPath`;
-  - from Plan 01: `Locality`, `providerDisplayLabel(providerId, t)` and `LocalityRing`;
+  - from Plan 01: `Locality` and `providerDisplayLabel(providerId, t)`;
+  - from Plan 03 (§5.1, published components): `RouteDestinationChip` and `RouteStateChip` (`src/components/settings/routing/RouteChips.tsx`). Every route disclosure on this step uses them (R2-M02);
   - from Task 15: `runCleanup`;
   - from Task 9: `RadioCardGroup`;
   - the default export `CodexConnection` (`src/components/CodexConnection.tsx`).
@@ -9463,6 +9658,16 @@ const test = require("node:test");
 const React = require("react");
 const { mountComponent, expectKey } = require("../helpers/harness/mountComponent");
 
+// Plan 03's published chips (§5.1), stubbed so the test sees exactly what the step hands them.
+const ROUTE_CHIPS_MOCK = `
+import React from "react";
+export function RouteDestinationChip({ route }) {
+  return React.createElement("span", { "data-route-chip": "destination", "data-locality": route.locality, "data-provider": route.providerId ?? "" });
+}
+export function RouteStateChip({ state }) {
+  return React.createElement("span", { "data-route-chip": "state", "data-state": state.status });
+}`;
+
 const SENTENCE = "um remind me to book the room";
 const route = (patch = {}) => ({
   id: "dictationCleanup",
@@ -9499,7 +9704,7 @@ async function cleanup(t, props = {}) {
       onReuseChange() {},
       ...props,
     },
-    mocks: { "/CodexConnection": "export default function CodexConnection() { return null; }" },
+    mocks: { "/CodexConnection": "export default function CodexConnection() { return null; }", "routing/RouteChips": ROUTE_CHIPS_MOCK },
   });
   await React.act(async () => {});
   return { ui, chosen, runs };
@@ -9562,6 +9767,15 @@ test("Now names the unmet prerequisite of the user's choice (I05)", async (t) =>
   expectKey(ui, "setupFlow.cleanup.now.needsModel");
   await ui.rerender({ choice: "provider", status: "ready", route: { ...remoteReady, model: "GPT-5 mini" } });
   expectKey(ui, "setupFlow.cleanup.now.ready", { name: "GPT-5 mini", provider: "OpenAI" });
+});
+
+test("route disclosures use Plan 03's published chips, fed the real route (R2-M02)", async (t) => {
+  const { ui } = await cleanup(t, { choice: "codex", status: "ready", route: remoteReady });
+  const [destination] = ui.byAttr("data-route-chip", "destination");
+  assert.deepEqual([destination.attributes["data-locality"], destination.attributes["data-provider"]], ["remote", "openai"]);
+  assert.equal(ui.byAttr("data-route-chip", "state")[0].attributes["data-state"], "ready");
+  await ui.rerender({ choice: "none", status: "skipped", route: route() });
+  assert.equal(ui.byAttr("data-route-chip").length, 0, "no route to disclose when cleanup is off");
 });
 ```
 
@@ -9739,7 +9953,7 @@ Expected: FAIL. The modules are missing, and the wiring test cannot find the new
    import { useEffect, useState } from "react";
    import { useTranslation } from "react-i18next";
    import CodexConnection from "../CodexConnection";
-   import { LocalityRing } from "../ui/LocalityRing";
+   import { RouteDestinationChip, RouteStateChip } from "../settings/routing/RouteChips";
    import { Button } from "../ui/button";
    import type { ResolvedRoute } from "../../lib/routes";
    import type { CleanupChoice, CleanupStatus } from "../../utils/onboardingCleanup";
@@ -9842,13 +10056,10 @@ Expected: FAIL. The modules are missing, and the wiring test cannot find the new
              {preview.locality === null ? (
                <span>{t("setupFlow.cleanup.nothingChanges")}</span>
              ) : preview.locality === "device" ? (
-               <>
-                 <LocalityRing locality="device" label={t("locality.device")} size={16} />
-                 <span>{t("locality.device")}</span>
-               </>
+               <RouteDestinationChip route={route} />
              ) : (
                <>
-                 <LocalityRing locality={preview.locality} provider={providerLabel} label={t("locality.remote", { provider: providerLabel })} size={16} />
+                 <RouteDestinationChip route={route} />
                  <span>
                    {t(preview.source === "yours" ? "setupFlow.cleanup.sentNotice" : "setupFlow.cleanup.wordsSent", {
                      count: preview.wordsSent ?? 0,
@@ -9871,7 +10082,7 @@ Expected: FAIL. The modules are missing, and the wiring test cannot find the new
          </section>
          {choice === "codex" ? <CodexConnection onSignedInChange={() => onChoose("codex")} /> : null}
          <p className="onb-muted" role="status">
-           {now}
+           {choice !== "none" ? <RouteStateChip state={route.state} /> : null} {now}
          </p>
          <label className="onb-check">
            <input type="checkbox" dir="ltr" checked={reuse} onChange={(event) => onReuseChange(event.target.checked)} />
@@ -10369,7 +10580,7 @@ Covers ONB-R8 A and ONB-Q14, finishes ONB-Q18, and consumes §5.1 for readiness 
   - from Task 1: `AfterSetupIntent` and `OnboardingCompleteOptions`;
   - from Task 12: `PrivacyDefaults`;
   - from Task 16: `cleanupSituation`;
-  - from Plan 01: `LocalityRing`;
+  - from Plan 03 (§5.1, published components): `RouteDestinationChip` for the note action's route (R2-M02);
   - the flow state the composition already holds;
   - `useCreateNote` (already in `ControlPanel`).
 - Produces, in `onboardingReadiness.ts`:
@@ -10398,7 +10609,7 @@ Covers ONB-R8 A and ONB-Q14, finishes ONB-Q18, and consumes §5.1 for readiness 
   export type NoteBlock = "microphone" | "unsupported" | "sealed" | "needsModel" | "needsKey" | "needsUrl" | "unreachable";
   export interface NoteActionState {
     status: "ready" | "checking" | "blocked"; block: NoteBlock | null;
-    locality: Locality; providerId: string | null; settingsPath: string;
+    locality: Locality; providerId: string | null; model: string | null; settingsPath: string; // the route, for RouteDestinationChip
   }
   export function noteActionState(input: { route: ResolvedRoute; microphone: "granted" | "denied" | "unknown" }): NoteActionState;
   ```
@@ -10536,7 +10747,7 @@ test("a chosen but unavailable cleanup is pending with a real Settings destinati
 test("the note action follows its own route and the microphone (I06)", async () => {
   const { noteActionState } = await load();
   const note = (patch = {}, extra = {}) => noteActionState({ route: route("noteRecordingStt", patch), microphone: "granted", ...extra });
-  assert.deepEqual(note(), { status: "ready", block: null, locality: "device", providerId: null, settingsPath: "stt/noteRecording" });
+  assert.deepEqual(note(), { status: "ready", block: null, locality: "device", providerId: null, model: null, settingsPath: "stt/noteRecording" });
   assert.equal(note({ state: { status: "unreachable", detail: "unsupported" } }).block, "unsupported", "§5.1 rule 9: self-hosted notes");
   assert.equal(note({ state: { status: "unreachable", detail: "sealed" } }).block, "sealed");
   assert.deepEqual([note({ state: { status: "unknown" } }).status, note({ state: { status: "unknown" } }).block], ["checking", null], "§5.1 rule 1");
@@ -10574,7 +10785,16 @@ const rows = (statuses, extra = {}) =>
     detail: `${key}.${statuses[index]}`,
     ...(extra[key] ?? {}),
   }));
-const readyNote = { status: "ready", block: null, locality: "device", providerId: null, settingsPath: "stt/noteRecording" };
+// Plan 03's published chips (§5.1), stubbed so the test sees exactly what the step hands them.
+const ROUTE_CHIPS_MOCK = `
+import React from "react";
+export function RouteDestinationChip({ route }) {
+  return React.createElement("span", { "data-route-chip": "destination", "data-locality": route.locality, "data-provider": route.providerId ?? "" });
+}
+export function RouteStateChip({ state }) {
+  return React.createElement("span", { "data-route-chip": "state", "data-state": state.status });
+}`;
+const readyNote = { status: "ready", block: null, locality: "device", providerId: null, model: null, settingsPath: "stt/noteRecording" };
 
 async function ready(t, summary, patch = {}) {
   const events = [];
@@ -10592,6 +10812,7 @@ async function ready(t, summary, patch = {}) {
       privacy: { historyEnabled: true, onHistoryChange() {}, updatesEnabled: true, onUpdatesChange() {} },
       ...patch,
     },
+    mocks: { "routing/RouteChips": ROUTE_CHIPS_MOCK },
   });
   return { ui, events };
 }
@@ -10632,7 +10853,7 @@ test("pending rows resume in setup, or open the exact Settings page when only Se
 });
 
 test("a blocked note action says why and links to its own Settings route (I06)", async (t) => {
-  const note = { status: "blocked", block: "unsupported", locality: "network", providerId: null, settingsPath: "stt/noteRecording" };
+  const note = { status: "blocked", block: "unsupported", locality: "network", providerId: null, model: null, settingsPath: "stt/noteRecording" };
   const { ui, events } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: true }, { note });
   const [dictate] = ui.byAttr("data-variant", "live");
   assert.ok("disabled" in dictate.attributes);
@@ -10643,7 +10864,7 @@ test("a blocked note action says why and links to its own Settings route (I06)",
 });
 
 test("an unconfirmed note route reads Checking…, with no fix and no claim (§5.1 rule 1)", async (t) => {
-  const note = { status: "checking", block: null, locality: "device", providerId: null, settingsPath: "stt/noteRecording" };
+  const note = { status: "checking", block: null, locality: "device", providerId: null, model: null, settingsPath: "stt/noteRecording" };
   const { ui } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: true }, { note });
   const [dictate] = ui.byAttr("data-variant", "live");
   assert.ok("disabled" in dictate.attributes);
@@ -10652,17 +10873,18 @@ test("an unconfirmed note route reads Checking…, with no fix and no claim (§5
 });
 
 test("a denied microphone sends the note fix back to Hello", async (t) => {
-  const note = { status: "blocked", block: "microphone", locality: "device", providerId: null, settingsPath: "stt/noteRecording" };
+  const note = { status: "blocked", block: "microphone", locality: "device", providerId: null, model: null, settingsPath: "stt/noteRecording" };
   const { ui, events } = await ready(t, { rows: rows(["ready", "pending", "ready", "optional"]), pending: 1, proven: true, allLocal: true }, { note });
   await ui.click("setupFlow.ready.fixNote");
   assert.deepEqual(events, [["resume", "welcome"]]);
 });
 
 test("a remote note route names its provider before the click", async (t) => {
-  const note = { status: "ready", block: null, locality: "remote", providerId: "openai", settingsPath: "stt/noteRecording" };
+  const note = { status: "ready", block: null, locality: "remote", providerId: "openai", model: "Whisper", settingsPath: "stt/noteRecording" };
   const { ui } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: false }, { note });
   expectKey(ui, "setupFlow.ready.noteSends", { provider: "OpenAI" });
-  assert.equal(ui.byAttr("data-locality", "remote").length, 1);
+  const [chip] = ui.byAttr("data-route-chip", "destination");
+  assert.deepEqual([chip.attributes["data-locality"], chip.attributes["data-provider"]], ["remote", "openai"], "Plan 03's chip, fed the note route (R2-M02)");
 });
 
 test("status colours stay off the words and fuchsia stays out of status (ONB-Q14)", () => {
@@ -10898,6 +11120,7 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
      block: NoteBlock | null;
      locality: Locality;
      providerId: string | null;
+     model: string | null;
      settingsPath: string;
    }
 
@@ -10914,7 +11137,7 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
      route: ResolvedRoute;
      microphone: "granted" | "denied" | "unknown";
    }): NoteActionState {
-     const base = { locality: route.locality, providerId: route.providerId, settingsPath: route.settingsPath };
+     const base = { locality: route.locality, providerId: route.providerId, model: route.model, settingsPath: route.settingsPath };
      const blocked = (block: NoteBlock): NoteActionState => ({ ...base, status: "blocked", block });
      const state = route.state;
      if (state.status === "unknown") return { ...base, status: "checking", block: null };
@@ -10937,7 +11160,7 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
    import { useTranslation } from "react-i18next";
    import { Check, CircleAlert, Minus } from "../icons";
    import { Button } from "../ui/button";
-   import { LocalityRing } from "../ui/LocalityRing";
+   import { RouteDestinationChip } from "../settings/routing/RouteChips";
    import type { OnboardingStep } from "../../utils/onboardingState";
    import type { NoteActionState, ReadinessSummary } from "../../utils/onboardingReadiness";
    import { PrivacyDefaults, type PrivacyDefaultsProps } from "./PrivacyDefaults";
@@ -11013,12 +11236,7 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
            </ul>
            <div className="onb-ready__note">
              <p className="onb-reco__meta">
-               <LocalityRing
-                 locality={note.locality}
-                 provider={note.locality === "device" ? undefined : noteProviderLabel}
-                 label={note.locality === "device" ? t("locality.device") : t("locality.remote", { provider: noteProviderLabel })}
-                 size={16}
-               />
+               <RouteDestinationChip route={note} />
                <span>
                  {note.locality === "device" ? t("setupFlow.ready.noteLocal") : t("setupFlow.ready.noteSends", { provider: noteProviderLabel })}
                </span>
@@ -11852,13 +12070,16 @@ Get the owner's explicit OK before `git push` or `gh pr create`. Publishing is o
 
 Before that, Plan 05 ships the fallback: a cancel says "Discarded." with no Undo (Tasks 4, 5, 6, 8 and 15).
 
-Pre-flight. All three must print a match:
+Pre-flight. All four must print a match:
 
 ```bash
 grep -n "sendUndoCancelDictation" src/helpers/windowManager.js
 grep -n "sanitizeCancelledDemoFields" src/helpers/onboardingInputPolicy.js
+grep -n "alsoSentTo" src/helpers/onboardingInputPolicy.js      # §5.2 (ff8c9cd): the sanitiser keeps every RemoteDisclosure field
 ls src/types/dictation.ts src/helpers/dictationDisclosure.js
 ```
+
+If the `alsoSentTo` line prints nothing, the merged Plan 04 sanitiser does not meet §5.2. That sanitiser is Plan 04's code, so stop and have Plan 04's sanitiser task fixed first. Do not weaken this task's contract tests, and do not patch around it in Plan 05.
 
 Covers I09 and I12 in full. It uses the §5.2 shapes exactly:
 - the demo events `{ status: "cancelled", sessionId, cancelled: CancelledState }` and `{ status: "cancelClosed", sessionId, reason }`;
@@ -11869,7 +12090,7 @@ Plan 05 restates none of these types.
 
 **Files:**
 - Modify:
-  - `src/helpers/onboardingInputPolicy.js`: spread Plan 04's sanitiser into `sanitizeOnboardingDemoEvent`;
+  - `src/helpers/onboardingInputPolicy.js`: spread Plan 04's sanitiser into `sanitizeOnboardingDemoEvent`, unless Task 4 already added it (04-first order). The publish handler stays the single `publishDemoEvent` call from Task 4;
   - `src/types/electron.ts`: the three §5.2 fields on `OnboardingDemoEvent`;
   - `src/hooks/useAudioRecording.js`: delete Task 5's fallback `cancelled` publish. Plan 04's `onCancelledChange` publishes `cancelled` and `cancelClosed`;
   - `src/utils/onboardingTrial.ts`: `cancelled: CancelledState | null`, `cancelClosed`, and `canUndo`;
@@ -11877,10 +12098,9 @@ Plan 05 restates none of these types.
   - `src/components/onboarding/HotkeyTrial.tsx`: the disclosure and Undo;
   - `src/components/OnboardingFlow.tsx`: the **[T22]** props in the composition;
   - `src/preview/onboardingScenarioBridge.ts`: the preview's Undo, in the same shapes;
-  - `src/locales` (`setupFlow.try.undo`).
 - Test:
   - append to `test/helpers/onboardingInputPolicy.test.js`, `test/utils/onboardingTrial.test.js`, `test/components/onboardingTrial.test.js` and `test/preview/onboardingScenarioBridge.test.js`;
-  - append to the existing WindowManager onboarding suite (`grep -l "onboardingDemo" test/helpers/windowManager*.test.js`);
+  - append to `test/helpers/windowManagerAssistantPanel.test.js`. It already loads the real `WindowManager` with the Electron stubs;
   - in `test/helpers/useAudioRecordingTrialEvents.test.js`, delete "cancelling an active take tells setup it was discarded…". Plan 04's own hook tests cover the publish.
 
 **Interfaces:**
@@ -11907,19 +12127,22 @@ Plan 05 restates none of these types.
 Append to `test/helpers/onboardingInputPolicy.test.js`:
 
 ```js
-test("the §5.2 cancelled fields pass through Plan 04's sanitiser, with nothing extra", () => {
+test("the §5.2 cancelled fields pass through Plan 04's sanitiser with every RemoteDisclosure field (R2-I01)", () => {
   const session = { id: "demo-1", kind: "dictation", sawListening: true };
-  const cancelled = {
+  const windowWith = (alsoSentTo) => ({
     sessionId: "rec-1",
     undoUntil: 9000,
     paused: false,
     remainingMs: 4000,
-    remoteAlreadySent: { target: "openai", payload: "text", evidence: "attested", alsoSentTo: [] },
-  };
-  const out = sanitizeOnboardingDemoEvent({ kind: "dictation", status: "cancelled", sessionId: "rec-1", cancelled, secret: 1 }, session);
-  assert.equal(out.sessionId, "rec-1");
-  assert.deepEqual(out.cancelled, cancelled, "the RemoteDisclosure keeps alsoSentTo (§5.2), which disclosureCopy reads");
-  assert.equal("secret" in out, false);
+    remoteAlreadySent: { target: "openai", payload: "text", evidence: "attested", alsoSentTo },
+  });
+  for (const alsoSentTo of [[], ["anthropic", "host:gpu-box.lan"]]) {
+    const cancelled = windowWith(alsoSentTo);
+    const out = sanitizeOnboardingDemoEvent({ kind: "dictation", status: "cancelled", sessionId: "rec-1", cancelled, secret: 1 }, session);
+    assert.equal(out.sessionId, "rec-1");
+    assert.deepEqual(out.cancelled, cancelled, `alsoSentTo ${JSON.stringify(alsoSentTo)} survives the bridge (§5.2, ff8c9cd)`);
+    assert.equal("secret" in out, false);
+  }
   const closed = sanitizeOnboardingDemoEvent({ kind: "dictation", status: "cancelClosed", sessionId: "rec-1", reason: "expired" }, session);
   assert.deepEqual([closed.status, closed.sessionId, closed.reason], ["cancelClosed", "rec-1", "expired"]);
 });
@@ -11982,6 +12205,16 @@ test("a discarded take offers Undo only while it can work, and says what already
   assert.equal(ui.text().includes("setupFlow.try.undo"), false, "main could not restore the last take");
 });
 
+test("a disclosure with several receivers names every one of them (§5.2 alsoSentTo, R2-I01)", async (t) => {
+  const disclosure = { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: ["anthropic", "host:gpu-box.lan"] };
+  const { ui } = await view(t, {
+    trial: trialState({ phase: "cancelled", cancelled: cancelledWindow({ remoteAlreadySent: disclosure }) }),
+    nowMs: 1000,
+  });
+  expectKey(ui, "pill.caption.remoteSeveral");
+  for (const name of ["OpenAI", "Anthropic", "gpu-box.lan"]) assert.ok(ui.text().includes(name), name);
+});
+
 test("an undo main could not restore hides Undo until the next take (I09)", async (t) => {
   const { box, emit, calls } = await mountSession(t, { undoOnboardingDemoCancel: async () => false });
   await React.act(async () => box.session.toggle());
@@ -11996,7 +12229,7 @@ test("an undo main could not restore hides Undo until the next take (I09)", asyn
 });
 ```
 
-Append to `test/preview/onboardingScenarioBridge.test.js`, replacing Task 8's fallback test:
+Append to `test/preview/onboardingScenarioBridge.test.js`, replacing only Task 8's fallback test. Task 8's processing-cancel and leave/re-enter tests stay, so they run both before and after this task:
 
 ```js
 test("Undo needs a live cancellation inside its window, in the §5.2 shapes (I12)", async () => {
@@ -12021,22 +12254,34 @@ test("Undo needs a live cancellation inside its window, in the §5.2 shapes (I12
 });
 ```
 
-Append to the WindowManager onboarding suite, using its existing loader:
+Append to `test/helpers/windowManagerAssistantPanel.test.js`. It drives the real publish path (`publishDemoEvent`, Task 4) and the real `WindowManager`. Only Plan 04's overlay round trip is stubbed, and Plan 04 tests that itself (R2-I02):
 
 ```js
-test("onboarding Undo asks the overlay for the last cancelled session and reports restored (§5.2)", async () => {
+const { publishDemoEvent } = require("../../src/helpers/onboardingInputPolicy");
+
+test("publish → cancel → Undo → close: Undo asks for that exact session, and the close clears it (§5.2)", async () => {
+  const manager = new WindowManager();
+  manager._onboardingDemoKind = "dictation";
   const asked = [];
-  const fake = {
-    _onboardingDemoKind: "dictation",
-    lastCancelledDictation: { sessionId: "rec-9" },
-    sendUndoCancelDictation: async (sessionId) => (asked.push(sessionId), { restored: false, sessionId, reason: "unavailable" }),
-  };
-  assert.equal(await WindowManager.prototype.undoOnboardingDemoCancel.call(fake), false);
-  fake.sendUndoCancelDictation = async (sessionId) => (asked.push(sessionId), { restored: true, sessionId });
-  assert.equal(await WindowManager.prototype.undoOnboardingDemoCancel.call(fake), true);
-  assert.deepEqual(asked, ["rec-9", "rec-9"]);
+  manager.sendUndoCancelDictation = async (sessionId) => (asked.push(sessionId), { restored: true, sessionId });
+  const session = { id: "demo-1", kind: "dictation" };
+  const publish = (event) => publishDemoEvent({ kind: "dictation", ...event }, session, manager);
+  const cancelled = { sessionId: "rec-7", undoUntil: Date.now() + 5000, paused: false, remainingMs: 5000, remoteAlreadySent: null };
+
+  publish({ status: "listening" });
+  assert.equal(publish({ status: "cancelled", sessionId: "rec-7", cancelled }).sessionId, "rec-7");
+  assert.deepEqual(manager.lastCancelledDictation, { sessionId: "rec-7" });
+  assert.equal(await manager.undoOnboardingDemoCancel(), true);
+  assert.deepEqual(asked, ["rec-7"], "the overlay is asked for the cancelled session, not an unspecified one");
+  publish({ status: "cancelClosed", sessionId: "rec-7", reason: "restored" });
+  assert.equal(manager.lastCancelledDictation, null);
+
+  manager.sendUndoCancelDictation = async (sessionId) => (asked.push(sessionId), { restored: false, sessionId, reason: "unavailable" });
+  assert.equal(await manager.undoOnboardingDemoCancel(), false, "a refused restore reports false");
 });
 ```
+
+This test is the same in both merge orders, because the handler body is `publishDemoEvent` either way (Task 4).
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -12052,7 +12297,9 @@ Expected: FAIL. The cancelled fields are dropped, and `canUndo`, `undo` and the 
        ...sanitizeCancelledDemoFields(event),
    ```
 
-   `sanitizeCancelledDemoFields` is defined in the same file by Plan 04. Keep it exactly as Plan 04 wrote it.
+   `sanitizeCancelledDemoFields` is defined in the same file by Plan 04. §5.2 (ff8c9cd) requires it to keep every `RemoteDisclosure` field, including `alsoSentTo`. This task's tests assert that with `[]` and with two destinations. If they fail, the sanitiser is Plan 04's to fix (see the pre-flight). Do not edit around it here.
+
+   If Plan 04 merged first, Task 4 already added this line. Leave the publish handler as Task 4's single `publishDemoEvent` call.
 
 2. In `src/types/electron.ts`, add `import type { CancelledState } from "./dictation";` and the three `OnboardingDemoEvent` fields listed under Interfaces.
 
@@ -12130,8 +12377,8 @@ Expected: FAIL. The cancelled fields are dropped, and `canUndo`, `undo` and the 
        };
 
        cancelOnboardingDemo: async (id: string) => {
-         if (session?.id !== id || !recording) return false;
-         recording = false;
+         if (session?.id !== id || take === "idle") return false; // recording or processing (R2-I07)
+         take = "idle";
          clearTrialTimers();
          const sessionId = `preview-rec-${++takeCount}`;
          cancelledTake = { sessionId, undoUntil: clock.now() + UNDO_MS, paused: false, remainingMs: UNDO_MS, remoteAlreadySent: null };
@@ -12143,30 +12390,25 @@ Expected: FAIL. The cancelled fields are dropped, and `canUndo`, `undo` and the 
        undoOnboardingDemoCancel: async (id: string) => {
          if (session?.id !== id || !cancelledTake || clock.now() >= cancelledTake.undoUntil) return false;
          closeTake("restored");
+         take = "processing";
          emitDemo({ status: "processing" });
-         later(PROCESS_MS, () =>
-           emitDemo({ status: "success", text: PREVIEW_SENTENCE, rawText: PREVIEW_SENTENCE, cleanup: "skipped" })
-         );
+         later(PROCESS_MS, () => {
+           take = "idle";
+           emitDemo({ status: "success", text: PREVIEW_SENTENCE, rawText: PREVIEW_SENTENCE, cleanup: "skipped" });
+         });
          return true;
        },
    ```
 
    Declare `UNDO_MS`, `cancelledTake` and `takeCount` with the other module state, and `closeTake` beside `emitDemo`. Add `cancelledTake = null;` to `endSession()` and `reset()`. Import `type CancelledState` from `../types/dictation`.
 
-9. Add the string:
-
-   ```bash
-   node scripts/dev/merge-locale-keys.cjs - <<'JSON'
-   { "setupFlow": { "try": { "undo": "Undo" } } }
-   JSON
-   npx prettier --write "src/locales/**/translation.json"
-   ```
-
-   The disclosure sentence is Plan 04's copy (`disclosureCopy`). Do not add a `setupFlow` copy of it.
+9. No new strings. Task 15 added `setupFlow.try.undo` (hidden until now), and Task 20 translated it into all 11 locales (R2-I06). The disclosure sentence is Plan 04's copy (`disclosureCopy`), so do not add a `setupFlow` copy of it.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/helpers/onboardingInputPolicy.test.js test/utils/onboardingTrial.test.js test/components/onboardingTrial.test.js test/preview/onboardingScenarioBridge.test.js test/helpers/useAudioRecordingTrialEvents.test.js test/helpers/audioManagerPrivateTrial.test.js "test/helpers/windowManager*.test.js" && npm run typecheck && npm run i18n:check`
+Run: `npm test -- test/helpers/onboardingInputPolicy.test.js test/utils/onboardingTrial.test.js test/components/onboardingTrial.test.js test/preview/onboardingScenarioBridge.test.js test/helpers/useAudioRecordingTrialEvents.test.js test/helpers/audioManagerPrivateTrial.test.js "test/helpers/windowManager*.test.js" test/locales/setupFlowTranslated.test.js && npm run typecheck && npm run i18n:check && npm test`
+
+The last `npm test` is the full suite. Task 22 is the second merger's integration, so it must leave everything green in whichever order it runs, including the translation check.
 
 Expected: PASS. The private-hold test in `audioManagerPrivateTrial.test.js` now runs instead of skipping. It must pass: an expired private hold is never persisted (§5.2).
 
@@ -12192,9 +12434,20 @@ This section is the **single authoritative** final shape of `src/components/Onbo
 - the content is `legacy(<the old content for that step>)`, where `const legacy = (node: ReactNode) => <div className="onboarding-welcome onboarding-guided onb-legacy">{node}</div>;`;
 - the rail mode is `{ kind: "idle" }`;
 - the primary is `{ label: t("setupFlow.continue"), onClick: advance }`, except on Ready, which uses `t("setupFlow.rail.finish.openWorkspace")` with `finish()`;
-- Plan 02's `footerStatus` chip node is passed as `footerStart`.
+- the shell render passes only its `[T11]` props. `footerStart` is Plan 02's `footerStatus` chip node until Task 13, `announcement` arrives with Task 14, and `docked` with Task 15. Each render prop carries its tag.
 
 Task 18 deletes `legacy()` and its CSS.
+
+**Forward references (R2-I08).** Each task copies only lines tagged with its own number or lower; a line tagged with a later task does not exist yet. An audit of every block found two places where an earlier block would reach a later binding. Each has an interim:
+- **The shell render (Task 11).** As above: `docked` ([T15]), `announcement` ([T14]) and the `DownloadChip` footer ([T13]) are added by their tasks.
+- **The `try` case (Task 14).** Until Task 15, the rail is `{ ...railCopy, mode: downloadRail ?? { kind: "idle" } }` with no `readLevel`. The `TryStage` children are `legacy(<the old try content>)`. `MeetLoquiTour` takes these two bindings, which Task 15 deletes when its block brings `hotkeyLabel` and `activationMode`:
+
+  ```tsx
+  const hotkeyLabel = formatHotkeyLabel(useSettingsStore((s) => s.dictationKey) || getDefaultHotkey()); // Task 14 only
+  const activationMode = useSettingsStore((s) => s.activationMode);                                     // Task 14 only
+  ```
+
+Every other block references only bindings from its own task or earlier, so each task's checkpoint typechecks.
 
 **Existing code that stays.** Some lines of today's file are kept rather than rewritten (old line numbers at `8267276`):
 - `cleanupModelCatalog` (131-135);
@@ -12224,7 +12477,7 @@ import {
 } from "../utils/onboardingState";                                                             // [T11]
 import { OnboardingShell, type OnboardingShellProps } from "./onboarding/OnboardingShell";     // [T11]
 import type { InstrumentRailProps } from "./onboarding/InstrumentRail";                       // [T11]
-import { SETTLE_MS, dockMark, type InstrumentMode } from "./onboarding/instrumentMath";       // [T11]
+import { SETTLE_MS, DRAW_MS, dockMark, type InstrumentMode } from "./onboarding/instrumentMath"; // [T13] InstrumentMode; [T15] the rest
 import { micPickerModel, selectionFor, type AudioInput } from "../utils/onboardingMic";       // [T12]
 import { HelloStep } from "./onboarding/HelloStep";                                           // [T12]
 import { PrivacyDefaults } from "./onboarding/PrivacyDefaults";                               // [T12] (moved into ReadyStep by T18)
@@ -12245,7 +12498,7 @@ import { shouldAnnounceOffStep, voiceFailedNotice, voiceReadyNotice } from "./on
 import { useOnboardingNotifier } from "./onboarding/useOnboardingNotifier";                   // [T14]
 import { keycapLabel } from "../utils/onboardingShortcut";                                     // [T15]
 import { useTrialSession } from "./onboarding/useTrialSession";                               // [T15]
-import { useDictationHotkey, useShortcutDemo } from "./onboarding/useDictationHotkey";        // [T15] / [T17]
+import { useDictationHotkey, useShortcutDemo } from "./onboarding/useDictationHotkey";        // [T15] useDictationHotkey; [T17] useShortcutDemo
 import { useAccessibilityGate } from "./onboarding/useAccessibilityGate";                     // [T15]
 import { useTicker } from "./onboarding/useTicker";                                           // [T15]
 import { runCleanup } from "./onboarding/cleanupRunner";                                      // [T15]
@@ -12360,13 +12613,15 @@ export default function OnboardingFlow({ onComplete, onExplore, initialStep, pre
   // [T13] Voice: detection, explicit commit, per-model download
   const profile = useSystemProfile();
   const pick = useMemo(() => (profile ? detectVoice(profile) : null), [profile]);
-  const [chosenModel, setChosenModel] = useState<string | null>(() => {
+  // undefined = untouched, so the detected pick applies; null = deliberately no compatible voice
+  // (a language no on-device voice hears). Only undefined falls back to detection (R2-I04).
+  const [chosenModel, setChosenModel] = useState<string | null | undefined>(() => {
     const stored = localStorage.getItem("parakeetModel");
-    return !shouldApplyDetectedVoice(stored) && isOnboardingVoice(stored) ? stored : null;
+    return !shouldApplyDetectedVoice(stored) && isOnboardingVoice(stored) ? stored : undefined;
   });
   const [chosenLanguage, setChosenLanguage] = useState<string | null>(null);
   const spokenLanguages = chosenLanguage ? [chosenLanguage] : spokenLocalesFor(profile?.locales ?? [], pick?.languages ?? []);
-  const selectedModel = chosenModel ?? pick?.modelId ?? null;
+  const selectedModel = chosenModel === undefined ? (pick?.modelId ?? null) : chosenModel;
   const voiceCompatible = selectedModel !== null && voiceSupportsAll(selectedModel, spokenLanguages);
   const voiceDownload = useVoiceDownload(selectedModel);
   const voiceState = voiceDownload.state;
@@ -12438,12 +12693,12 @@ export default function OnboardingFlow({ onComplete, onExplore, initialStep, pre
   useEffect(() => {
     if (trial.phase === "success") setLastTake({ rawText: trial.rawText, text: trial.text, usedHotkey: trialSession.usedHotkey });
   }, [trial.phase, trial.rawText, trial.text, trialSession.usedHotkey]);
-  // M02: settle and draw the bubble (SETTLE_MS), then dock once; the dock persists.
+  // M02: the rail settles the bars (SETTLE_MS) and draws the bubble (DRAW_MS); then dock once. The dock persists.
   useEffect(() => {
     if (trial.successes < 1 || docked) return;
     const id = setTimeout(
       () => dockMark(() => setDocked(true), { reducedMotion, doc: document as unknown as { startViewTransition?: (cb: () => void) => unknown } }),
-      reducedMotion ? 0 : SETTLE_MS
+      reducedMotion ? 0 : SETTLE_MS + DRAW_MS
     );
     return () => clearTimeout(id);
   }, [docked, reducedMotion, trial.successes]);
@@ -12676,14 +12931,14 @@ export default function OnboardingFlow({ onComplete, onExplore, initialStep, pre
       visited={visited}
       platform={platform}
       rail={view.rail}
-      docked={docked}
+      docked={docked} // [T15]
       onNavigate={goTo}
       onBack={step === "welcome" ? undefined : back}
       onSkip={view.onSkip}
       finishLater={view.finishLaterLabel ? { label: view.finishLaterLabel, onClick: finishLater } : undefined}
       primary={view.primary}
-      footerStart={step === "speech" || step === "try" ? undefined : <DownloadChip state={voiceState} onStart={voiceDownload.start} />}
-      announcement={announcement}
+      footerStart={step === "speech" || step === "try" ? undefined : <DownloadChip state={voiceState} onStart={voiceDownload.start} />} // [T13]; Tasks 11–12: Plan 02's footerStatus node
+      announcement={announcement} // [T14]
     >
       {view.content}
     </OnboardingShell>

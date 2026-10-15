@@ -43,7 +43,8 @@ Turning Sealed mode off and clearing the ledger are also confirmed in native dia
 
 **Prerequisites (execution order, not facts about this checkout).** This branch was planned against `0639eaf`. The plans below must be merged into it before the task that names them starts. If one is missing, stop and report; do not recreate its files.
 - **Plan 01**, before Task 7. Provides `src/utils/contrast.ts`, `test/helpers/harness/cssTokens.js`, `src/lib/locality.ts` (`isLoopbackUrl`, `resolveLocality`) and the `--motion-*` tokens.
-- **Plan 03**, before Task 11a. Provides `src/lib/routes.ts` (`buildRouteSnapshot`, `resolveRoute`, `routeSendsCopy`, `isSealedLocality`), `src/stores/routeFactsStore.ts`, `src/helpers/selfHostedProbe.js` and the optional `privacy?` declaration that Task 7 replaces.
+- **Plan 03** (v2, PR #50), before Task 11a. Provides `src/lib/routes.ts` (`buildRouteSnapshot(settings, facts, copy, sealed)`, `currentRouteCopy`, `routeSnapshotFromSettings`, `resolveRoute`, `isSealedLocality`), `src/stores/sealedStore.ts` (which Task 13 migrates), `src/stores/routeFactsStore.ts`, `src/helpers/selfHostedProbe.js`, `test/lib/routeStateFixture.js`, and the optional `privacy?` declaration that Task 7 replaces.
+- **Execution order** (spec §3, 091d198): 01 → 02 → 03 → {04, 05, 06, 07}. This plan is rebased onto 03 before it starts.
 - **Plan 04** is **not** required. CCR-3 and CCR-4 are its side of the contract. Until it merges, Plan 07 uses the existing toast API (spec §5.3).
 
 ---
@@ -63,7 +64,7 @@ This revision answers the independent security review of snapshot `18c0b4c…` (
 | **I5** UI ignores phase, time and attestation contracts | Closed: mostly at `0bbb0e5`, completed in this revision | At `0bbb0e5`: phase-aware matching (`[SEALED_MODE:interrupted]`), interrupted copy, an `onAttestation` subscription with version ordering, and the verified line dated from `effectiveSince`. In this revision: attestations older than 30 s drop to unknown and are re-fetched (13). Every unverified reason, and every note resolved before verification, is named (14). The recorder shows "Loading…" instead of 0 and "No recorded requests for this period" when empty, and never says that nothing left (15). |
 | **I6** content preservation depends on Plan 04, fails mid-recording | Closed, this revision | Task 13 adds `src/lib/sealedRecovery.ts`. A dictation refused or interrupted while retention would discard it is held in renderer memory only (bounded, with a time limit), never on disk. The error toast and the unseal notice offer "Transcribe". Behaviour tests cover the retention combinations, the replay and the cleanup-after-local-STT fallback through the real `AudioManager`. An executed test shows that `startRecording` refuses before touching the microphone, and proceeds when the state is unknown. The pre-flight remains UX protection. CCR-4 asks Plan 04 to keep both. |
 | **I7** last-resort reset cuts local routes | Closed, this revision | The reset is gone (C3). An un-ticketed remote request keeps the seal unverified, and is named, instead of cutting local work. Task 12: `a local request in flight survives sealing, while the remote one beside it is interrupted`. Task 9: `an in-flight loopback transcription survives sealing`. Task 12: `a loopback WebSocket (the Parakeet and sidecar path) stays open through sealing`. Task 16 checks loopback in Electron after the seal. Task 17 seals mid-workflow with real whisper-server, Parakeet, llama-server and Qdrant. |
-| **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision | Task 13 migrates Plan 03's `routeFactsStore`, so `facts.sealed` mirrors the sealed store in the same tick. The route chips, staged Apply and keyring verify all read it. One cross-plan test toggles once and checks the facts store, the resolver and Plan 03's `applyBlocker`; another checks that the keyring panel changes on the same toggle. `isSealedLocality` is the only rule; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
+| **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision; retargeted to spec §5.4 (091d198) | There is one renderer authority, Plan 03's `src/stores/sealedStore.ts`. Task 13 replaces its internals with the attestation store and keeps Plan 03's API, so the route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring all move with it. A ratchet test fails if any other renderer module reads sealed state from the privacy bridge. One cross-plan test sends one event from main and checks the store, the route snapshot, the resolver and the pre-flight together. Plan 03's own Apply-bar and Keyring tests pin those consumers to the store. `isSealedLocality` is the only rule; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
 | **I9** re-enabling persistence writes history-off rows | Closed, this revision | Task 4 distinguishes `pending` (consent not loaded yet) from `memory` (history explicitly off). Only pending rows flush, inside a transaction, and they are kept in memory if the write fails (`persistError`). Tests: `history off from the first sync…`, `pending rows flush on the first sync; memory-only rows never become durable`, `a failed flush keeps the pending rows…`, `restart: saved rows survive; rows kept in memory while history was off do not`. The row cap is checked on insert. |
 | **I10** opaque sessions shown as observed requests | Closed, this revision | Task 15 counts observed requests and helper sessions separately, labels an opaque row's host as "Usually …", and says its traffic is not visible. It adds a producer → IPC → view test with a normal and an interrupted session. The typed fixtures include `observed`. |
 | **I11** trusted-sender URL throws in development | Closed, this revision | Task 7 branches on the dev server before touching the packaged path, and tests both real `DevServerManager` contracts (`appUrlPrefixes follows the real DevServerManager contracts in both modes`), plus main-frame vs subframe and navigated URLs. |
@@ -73,9 +74,9 @@ This revision answers the independent security review of snapshot `18c0b4c…` (
 
 ## Contract change requests
 
-This plan owns §5.4 and must not edit the spec. The owner applies these to §5 of the spec in the PR that merges this plan.
+This plan owns §5.4 and must not edit the spec. The spec owner consolidated every plan's requests into §5 in commit `091d198` (on `snowopsdev/feat/uiux-foundations`). Each request below is marked with where it now lives. Where this plan's code differed from a binding shape, the plan was changed to match the spec.
 
-**CCR-1 (§5.4, owner Plan 07; additive plus one clarification).**
+**CCR-1 (§5.4, owner Plan 07; additive plus one clarification).** *Status: applied in spec §5.4 (091d198): the scope, the preload API, `Attestation`, the 30 s staleness rule and `nothingLeaves`. The clarification that `network` is sealed is recorded there as a spec-owner clarification of D6. §5.4's consumers are Plans 03, 04, 05, 06 and 08.*
 - **Clarification.** While sealed, *both* `remote` and `network` locality routes are blocked. Only `device` (loopback) keeps working.
   - A LAN self-hosted server is another machine, so audio sent to it leaves this computer. The pill copy "Sealed · nothing leaves" would otherwise be false.
   - The resolver therefore reports every non-`device` route as `{ status: "unreachable", detail: "sealed" }`. Plan 03's `isSealedLocality` already encodes this (CCR-2).
@@ -102,13 +103,13 @@ This plan owns §5.4 and must not edit the spec. The owner applies these to §5 
   - `failures` are unresolved and block `nothingLeaves`. `notes` are delays that resolved before `effectiveSince`; the panel shows them for honesty.
   - Any claim about past egress is dated from `effectiveSince`, never from `sealedSince`. A consumer must treat an attestation older than 30 s (by `at`) as unknown.
 
-**CCR-2 (§5.1, owner Plan 03). Replaces the earlier CCR-2.**
-- **One sealed source.** `routeFactsStore` stops calling `privacy.getSealed`/`onSealedChange` itself. `facts.sealed` mirrors Plan 07's sealed store (`src/hooks/useSealedMode.ts`: `subscribeSealed`, `getSealedSnapshot`), with unknown mapped to `false`. Plan 07 Task 13 makes this change and updates Plan 03's store test.
-- **One rule.** `isSealedLocality(locality)` stays the only rule for which routes Sealed mode pauses. The earlier request for `applySealToRoute`, `isRouteSealed` and `routeSnapshotFromSettings` is withdrawn. Plan 07's pre-flight uses `buildRouteSnapshot` + `resolveRoute` + `isSealedLocality`.
-- **One declaration.** Plan 07 Task 7 replaces Plan 03's optional `privacy?` member in `src/types/electron.ts` with the required `privacy: PrivacyAPI`.
-- **The self-hosted probe.** `probe-self-hosted` is gated in main as `providerCheck`. While sealed it is allowed only for loopback, and it returns `{ ok: false, code: "sealed" }` otherwise. Add `"sealed"` to `probeSelfHosted`'s result codes, and show `routes.state.sealed` for it. P03 Task 14's note about adding the probe to a "sealed-mode allowlist" is superseded (Plan 07 Task 11a).
+**CCR-2 (§5.1 and §5.4, owner Plan 03).** *Status: superseded by spec §5.4's "One renderer authority: `src/stores/sealedStore.ts`" (091d198), and Plan 03 v2 (PR #50). The parts that remain are applied in §5.1 and §5.4.*
+- **One sealed source.** *Superseded by §5.4.* The earlier request (that `routeFactsStore` mirror a Plan 07 store) is withdrawn. Plan 03 created `src/stores/sealedStore.ts` as the single renderer authority, with `useSealedStore` (`{ sealed, known }`), `getSealed()` and `ensureSealedSubscribed()`. `routeFactsStore` does not read `privacy`. Plan 07 Task 13 replaces that store's internals (attestation, staleness, versioned reads), and adds `getSealedSnapshot()`, `subscribeSealed()` and `setSealedMode()` to the same module. `src/hooks/useSealedMode.ts` is only the React hook over it. `known: false` is `sealed: null` in `getSealedSnapshot()`; `getSealed()` and route snapshots read it as `false`.
+- **One rule.** *Applied in §5.1 (`isSealedLocality`, rule 7).* `isSealedLocality(locality)` is the only rule for which routes Sealed mode pauses. The earlier `applySealToRoute`/`isRouteSealed` request is withdrawn. Plan 07's pre-flight builds `buildRouteSnapshot(settings, facts, copy, true)` and asks `resolveRoute` for the dictation route's own sealed verdict, so it inherits Plan 03's precedence (§5.1 rule 10: an invalid endpoint is `needsUrl`, never sealed).
+- **One declaration.** *Applied in §5.4.* Plan 07 Task 7 replaces Plan 03's optional `privacy?` member in `src/types/electron.ts` with the required `privacy: PrivacyAPI`.
+- **The self-hosted probe.** *Applied in §5.4.* `probe-self-hosted` is gated in main as `providerCheck`. While sealed it is allowed only for loopback, and it returns `{ ok: false, code: "sealed" }` otherwise; the UI shows `routes.state.sealed`.
 
-**CCR-3 (§5.2 and §5.3, owner Plan 04). The receipt and disclosure shape, matching Plan 04's CCR-6.**
+**CCR-3 (§5.2 and §5.3, owner Plan 04). The receipt and disclosure shape, matching Plan 04's CCR-6.** *Status: applied in spec §5.4, "Egress evidence → `RemoteDisclosure`" (091d198), and in §5.2 (`RemoteDisclosure`, with `alsoSentTo`) and §5.3 (the fixed Plan 07 notices). `dispatched`, `delivered` and `undelivered` are the contract; there is no `sent` phase.*
 - **Main's evidence.** `privacy.onEgress` delivers `EgressNotice`:
 
   ```ts
@@ -123,20 +124,22 @@ This plan owns §5.4 and must not edit the spec. The owner applies these to §5 
   - `dispatched` alone sets `evidence: "dispatched"`. The copy is "may have received".
   - `undelivered` for a ticket withdraws that ticket's `dispatched` evidence, unless another ticket of the session has dispatched or delivered.
   - `metadata` (token fetches, model lists) never counts.
-  - Plan 04's CCR-6 text names `{ phase: "sent" }`. Read that as `delivered` for "attested" and `dispatched` for "may have received". There is no `sent` phase.
+  - There is no `sent` phase (§5.4). Plan 04's earlier `{ phase: "sent" }` reads as `delivered`.
+  - `RemoteDisclosure.alsoSentTo` (§5.2) lists the session's other targets, strongest evidence first. It is built from the same notices, grouped by `correlationId`.
 - **Correlation.** The `correlationId` is the dictation session id (Plan 04 CCR-6). It is carried on the BYOK transcription payload, the realtime and streaming start options, and every cleanup, Agent, vision and translation request of the recording. Main marks a realtime session `dispatched` at the first frame that instance forwards, so audio streamed before the stop counts, and a warm or idle socket does not.
 - **Prefer main.** When `privacy.onEgress` exists, `remoteAlreadySent` comes only from these notices. Plan 04's renderer-side dispatch tracker is the fallback when Plan 07 is absent.
 - **Notices (§5.3).** Plan 07's sealed copy and the recovery prompt must survive Plan 04's toast migration:
   - the recovery prompt is `notify({ kind: "notice", persistent: true, actions: [Transcribe, Discard] })`;
   - a sealed dictation refusal that holds audio in memory is an `alert`, because user content is at stake.
 
-**CCR-4 (§5.4 consumer, owner Plan 04).**
+**CCR-4 (§5.4 consumer, owner Plan 04).** *Status: applied in spec §5.4, "Dictation pre-flight" (091d198).*
 - **What Plan 07 ships.** Plan 07 ships the dictation pre-flight itself (owner decision 3, 2026-10-15). `audioManager.startRecording` refuses to start when `isDictationSealed(settings, getSealedSnapshot().sealed)` is true; `sealed` is `boolean | null`, and only `true` blocks. It reports `sealedMode.blocked.dictationPreflight` through the existing error path (Task 13). Plan 07 also ships in-memory recovery (`sealedRecovery.ts`, `AudioManager.transcribeRecovered`).
 - **Plan 04 keeps both.** When it restructures the recording lifecycle, it must keep the pre-flight check, and the `_noteSealedFailure` call before `saveFailedTranscription`. It renders the refusal as a pill state, a blocked remote ring with "Dictation paused: Sealed mode is on". It keeps the "Transcribe" action reachable from the pill and from the unseal notice.
 - **Rationale.** Main's block happens *after* recording. With local history off, a blocked recording could not otherwise be kept.
 
-**CCR-5 (owner Plan 01): one loopback rule.**
-- `isLoopbackUrl` in `src/lib/locality.ts` accepts exactly what main's `isLoopbackHost` accepts: `127.0.0.0/8`, `::1` in any spelling, IPv4-mapped `127.x`, and a trailing dot on `localhost`.
+**CCR-5 (owner Plan 01): one loopback rule.** *Status: applied in spec §5, Plan 01 contracts, Locality row (091d198).*
+- `isLoopbackUrl` in `src/lib/locality.ts` accepts exactly what main's `isLoopbackHost` accepts: `localhost` (including a trailing dot), `*.localhost`, `127.0.0.0/8`, `::1` in any spelling, and IPv4-mapped `127.x`. A hostname that only resolves to loopback is not loopback.
+- Loopback is not the same as valid. Plain-HTTP `*.localhost` is loopback but refused by the executors, so its route is `needsUrl` (§5.1 rule 10) and never sealed-blocked as remote.
 - Both are tested against `test/fixtures/loopbackCases.json`. Plan 07 Task 11a makes the change and keeps Plan 01's existing cases passing.
 
 ---
@@ -244,7 +247,7 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
 
 **Create (renderer, TypeScript):**
 - `src/types/privacy.ts`: `PrivacyAPI`, `Attestation`, `EgressEvent`, `EgressSummary`, `EgressNotice` and `EgressTask`.
-- `src/hooks/useSealedMode.ts`: the sealed flag and attestation as an external store, with staleness.
+- `src/hooks/useSealedMode.ts`: the React hook over `src/stores/sealedStore.ts` (§5.4); it holds no state.
 - `src/lib/sealedMode.ts`: `isDictationSealed` (the pre-flight), over Plan 03's resolver.
 - `src/lib/sealedRecovery.ts`: in-memory recovery of blocked dictations.
 - `src/utils/sealedModeError.ts`: `isSealedModeError`, `sealedPhase` and `sealedDictationMessageKey`.
@@ -274,7 +277,7 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
   - `src/helpers/selfHostedProbe.js` (Plan 03; Task 11a).
 - Renderer:
   - `src/index.html` (Task 7a), `src/types/electron.ts`, `src/types/updates.ts`;
-  - `src/lib/locality.ts` (Plan 01; Task 11a), `src/lib/routes.ts` (a comment) and `src/stores/routeFactsStore.ts` (Plan 03; Task 13);
+  - `src/lib/locality.ts` (Plan 01; Task 11a), `src/lib/routes.ts` (a comment) and `src/stores/sealedStore.ts` (Plan 03; Task 13 replaces its internals);
   - `src/components/SettingsPage.tsx`, `src/components/settings/UpdateSettings.tsx`, `src/components/SelfHostedPanel.tsx` (Task 11a);
   - `src/components/ui/MarkdownRenderer.tsx`, `src/components/chat/useChatStreaming.ts`;
   - `src/utils/localInferenceError.ts`, `src/utils/recordingErrors.ts`;
@@ -8149,20 +8152,19 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 
 ### Task 13: Renderer integration: one sealed source, dictation pre-flight and recovery, inert remote images, honest failure copy
 
-**Prerequisites.** Plan 03 has merged: `src/lib/routes.ts` and `src/stores/routeFactsStore.ts` exist. This task migrates them; it does not create them.
+**Prerequisites.** Plan 03 has merged: `src/stores/sealedStore.ts`, `src/stores/routeFactsStore.ts` and `src/lib/routes.ts` exist. This task migrates `sealedStore.ts` (spec §5.4, 091d198); it does not create it, and it does not touch `routeFactsStore.ts`.
 
 **Files:**
 - Create:
-  - `src/hooks/useSealedMode.ts`
+  - `src/hooks/useSealedMode.ts`, the React hook over the sealed store (nothing else)
   - `src/lib/sealedMode.ts`
   - `src/lib/sealedRecovery.ts`
   - `src/utils/sealedModeError.ts`
   - `src/components/chat/chatErrorContent.ts`
   - `test/hooks/fakePrivacy.js` (a test helper)
 - Modify:
-  - `src/stores/routeFactsStore.ts` (Plan 03): `facts.sealed` comes from the sealed store; the store no longer calls `privacy` itself.
+  - `src/stores/sealedStore.ts` (Plan 03, Task 3): replace its internals with main's attestation, staleness and versioned reads. Keep `useSealedStore`, `getSealed()` and `ensureSealedSubscribed()` behaving as Plan 03's `test/stores/sealedStore.test.js` pins them, and add `getSealedSnapshot()`, `subscribeSealed()`, `setSealedMode()` and `ATTESTATION_MAX_AGE_MS`.
   - `src/lib/routes.ts` (Plan 03): the comment on `isSealedLocality` only. Its rule stays the single rule.
-  - `test/stores/routeFactsStore.test.js` (Plan 03): its sealed fakes now drive the sealed store.
   - `src/components/ui/MarkdownRenderer.tsx`: remote images render as an inert placeholder unless main says the app is unsealed.
   - `src/components/chat/useChatStreaming.ts:536-546`.
   - `src/utils/localInferenceError.ts:53-63`.
@@ -8173,7 +8175,8 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   - `test/lib/sealedMode.test.js`
   - `test/lib/sealedRecovery.test.js`
   - `test/utils/sealedModeError.test.js`
-  - `test/hooks/useSealedMode.test.js`
+  - `test/stores/sealedStoreAttestation.test.js`
+  - `test/stores/sealedStore.test.js` (Plan 03's, unchanged: it must still pass)
   - `test/lib/routesSealed.test.js`
   - `test/helpers/dictationPreflight.test.js`
   - `test/helpers/audioManagerSealed.test.js`
@@ -8182,21 +8185,28 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 **Interfaces:**
 - Consumes:
   - `window.electronAPI.privacy`, including `onAttestation` (Task 7);
-  - `buildRouteSnapshot`, `resolveRoute`, `routeSendsCopy` and `isSealedLocality` from `src/lib/routes.ts`, and `useRouteFactsStore`, `refreshRouteFacts` and `ensureRouteFactsSubscribed` from `src/stores/routeFactsStore.ts` (Plan 03, §5.1);
+  - `buildRouteSnapshot(settings, facts, copy, sealed)`, `currentRouteCopy()`, `routeSnapshotFromSettings(settings)`, `resolveRoute` and `isSealedLocality` from `src/lib/routes.ts`, and `useRouteFactsStore` from `src/stores/routeFactsStore.ts` (Plan 03, §5.1);
+  - `src/stores/sealedStore.ts` as Plan 03 created it (§5.4): `useSealedStore` (`{ sealed: boolean; known: boolean }`), `getSealed()`, `ensureSealedSubscribed()`;
   - `isLoopbackUrl` from `src/lib/locality.ts` (Plan 01, made to match main in Task 11a).
 - Produces:
 
   ```ts
-  // src/hooks/useSealedMode.ts
-  export type SealedSnapshot = { sealed: boolean | null; attestation: Attestation | null }; // null = unknown → the UI claims nothing
-  export function useSealedMode(): SealedSnapshot;
+  // src/stores/sealedStore.ts: the one renderer authority (§5.4). Plan 03's API, kept:
+  export const useSealedStore: UseBoundStore<StoreApi<{ sealed: boolean; known: boolean }>>;
+  export function getSealed(): boolean;                 // sealed === true; unknown reads false (main enforces either way)
+  export function ensureSealedSubscribed(): void;
+  // Added by Plan 07:
+  export type SealedSnapshot = { sealed: boolean | null; attestation: Attestation | null }; // known: false → sealed: null
+  export function getSealedSnapshot(): SealedSnapshot;  // one cached object per change
+  export function subscribeSealed(listener: () => void): () => void;   // calls ensureSealedSubscribed()
   export function setSealedMode(sealed: boolean): Promise<Attestation & { declined?: boolean }>;
-  export function subscribeSealed(listener: () => void): () => void;
-  export function getSealedSnapshot(): SealedSnapshot;
   export const ATTESTATION_MAX_AGE_MS = 30_000;
   export function _resetSealedStoreForTests(): void;
 
-  // src/lib/sealedMode.ts. The route rule itself is Plan 03's isSealedLocality.
+  // src/hooks/useSealedMode.ts: only the React hook over that module.
+  export function useSealedMode(): SealedSnapshot;
+
+  // src/lib/sealedMode.ts. It asks Plan 03's resolver; the rule is isSealedLocality inside it.
   export function isDictationSealed(settings: SettingsState, sealed: boolean | null): boolean;  // the pre-flight
 
   // src/lib/sealedRecovery.ts. Renderer memory only; never written to disk.
@@ -8220,7 +8230,7 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   ```
 
 - **Copy rule.** "Nothing was sent" copy (`sealedMode.blocked.*`) is used only for phase `"refused"`. A request cut off mid-flight uses `sealedMode.interrupted.*`, which says the provider may have received part of it.
-- **One sealed source (I8).** Main's answer reaches the renderer once, through `useSealedMode`'s store. Plan 03's `routeFactsStore` copies it into `facts.sealed` in the same tick, so the route chips, the staged-Apply blocker (P03 Task 5) and the keyring's verify gate (P03 Task 8), which all read `facts`, change together. `isSealedLocality(locality)` (P03 Task 1) stays the only rule for which routes Sealed mode pauses. This task adds no second one.
+- **One sealed source (I8; spec §5.4, 091d198).** `src/stores/sealedStore.ts` is the only renderer module that reads `privacy.getSealed`, `onSealedChange`, `getAttestation` or `onAttestation`. Plan 03's route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring already read `useSealedStore`/`getSealed()`. Replacing the store's internals therefore moves all of them at once, and nothing else is migrated. Unknown (`known: false`) is `sealed: null` in `getSealedSnapshot()`, and `false` in route snapshots, because main enforces the seal either way. `isSealedLocality(locality)` (P03 Task 1) stays the only rule for which routes Sealed mode pauses. This task adds no second one.
 - **Pre-flight (owner decision 3, 2026-10-15).** While sealed, a dictation whose speech route is not on this device does not start, so nothing is recorded that main would refuse afterwards. The pre-flight is UX protection, not the recovery mechanism: it cannot help when the state is still unknown, or when the seal happens mid-recording.
 - **Recovery (I6).** When main refuses or interrupts a dictation and retention would discard the audio (history off, or audio retention 0), the recording is held in renderer memory, at most `RECOVERY_MAX` recordings for `RECOVERY_TTL_MS`. It is never written to disk. The error toast offers "Transcribe". When Sealed mode turns off, a notice offers it again. Quitting or reloading the window drops it, and the copy says so. When retention keeps the audio, the existing History retry is the recovery and nothing is held.
 - **Cleanup after local speech-to-text.** A refused cleanup step already falls back to the local transcript (`processWithReasoningModel`'s `catch`, `audioManager.js:2714-2738`, returns `normalizedText`). `test/helpers/audioManagerSealed.test.js` pins that for a `SEALED_MODE` error.
@@ -8229,27 +8239,51 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `test/lib/sealedMode.test.js`:
+Create `test/lib/sealedSettings.js`, settings builders over Plan 03's `routeBaseState()` (`test/lib/routeStateFixture.js`), which has every route on the device:
+
+```js
+const { routeBaseState } = require("./routeStateFixture");
+
+// Dictation through a cloud provider; everything else stays local.
+const remoteDictation = () => ({ ...routeBaseState(), transcriptionMode: "providers", useLocalWhisper: false, cloudTranscriptionProvider: "openai" });
+const localDictation = () => routeBaseState();
+// The self-hosted mode value is SettingsState's own; check its transcriptionMode union if this name differs.
+const selfHostedDictation = (url) => ({ ...routeBaseState(), transcriptionMode: "self-hosted", useLocalWhisper: false, remoteTranscriptionUrl: url });
+
+module.exports = { remoteDictation, localDictation, selfHostedDictation };
+```
+
+Create `test/lib/sealedMode.test.js`. `sealedMode.ts` imports `routes.ts`, which is renderer code, so it loads through Plan 03's renderer harness (P03 module note M5):
 
 ```js
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { installBrowserGlobals, createRendererServer } = require("./rendererTestHarness");
+const { remoteDictation, localDictation, selfHostedDictation } = require("./sealedSettings");
 
-// Plan 03's fixture module (see the note under routesSealed.test.js).
-const { settingsWithRemoteRoutes, settingsWithLocalDictation, settingsWithSelfHostedDictation } = require("./routesFixture");
+async function load(t) {
+  installBrowserGlobals(t, { window: { electronAPI: {} } });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-sealed-mode-test-" });
+  return vite.ssrLoadModule("/lib/sealedMode.ts");
+}
 
-test("isDictationSealed: only a dictation route that leaves this computer, and only when sealed", async () => {
-  const { isDictationSealed } = await import("../../src/lib/sealedMode.ts");
-  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), true), true);
-  assert.equal(isDictationSealed(settingsWithLocalDictation(), true), false);
-  assert.equal(isDictationSealed(settingsWithSelfHostedDictation("http://192.168.1.20:8178"), true), true, "a LAN server is another machine");
-  assert.equal(isDictationSealed(settingsWithSelfHostedDictation("http://127.0.0.2:8178"), true), false, "loopback per Task 11a");
-  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), false), false);
-  assert.equal(isDictationSealed(settingsWithRemoteRoutes(), null), false, "unknown claims nothing either way");
+test("isDictationSealed: only a dictation route that leaves this computer, and only when sealed", async (t) => {
+  const { isDictationSealed } = await load(t);
+  assert.equal(isDictationSealed(remoteDictation(), true), true);
+  assert.equal(isDictationSealed(localDictation(), true), false);
+  assert.equal(isDictationSealed(selfHostedDictation("http://192.168.1.20:8178"), true), true, "a LAN server is another machine");
+  assert.equal(isDictationSealed(selfHostedDictation("http://127.0.0.2:8178"), true), false, "loopback per Task 11a");
+  assert.equal(
+    isDictationSealed(selfHostedDictation("http://llm.localhost:8178"), true),
+    false,
+    "plain-HTTP *.localhost is loopback but refused: needsUrl, never sealed-blocked (§5 Locality row, §5.1 rule 10)"
+  );
+  assert.equal(isDictationSealed(remoteDictation(), false), false);
+  assert.equal(isDictationSealed(remoteDictation(), null), false, "unknown claims nothing either way");
 });
 
-test("there is one sealed-route rule: sealedMode.ts defines none of its own", async () => {
-  const mod = await import("../../src/lib/sealedMode.ts");
+test("there is one sealed-route rule: sealedMode.ts defines none of its own", async (t) => {
+  const mod = await load(t);
   assert.deepEqual(Object.keys(mod).sort(), ["isDictationSealed"]);
 });
 ```
@@ -8350,13 +8384,13 @@ test("local inference and recording errors map SEALED_MODE to translated copy", 
 });
 ```
 
-Create `test/hooks/useSealedMode.test.js`:
+Create `test/stores/sealedStoreAttestation.test.js`. `sealedStore.ts` imports only `zustand` and types, so `tsx` loads it directly:
 
 ```js
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const load = () => import("../../src/hooks/useSealedMode.ts");
-const { fakePrivacy, tick } = require("./fakePrivacy");
+const load = () => import("../../src/stores/sealedStore.ts");
+const { fakePrivacy, tick } = require("../hooks/fakePrivacy");
 
 test("unknown until main answers; then follows main's broadcasts", async (t) => {
   const store = await load();
@@ -8375,6 +8409,37 @@ test("unknown until main answers; then follows main's broadcasts", async (t) => 
   fake.listeners.sealed(false);
   assert.equal(store.getSealedSnapshot().sealed, false);
   assert.ok(notified >= 3);
+});
+
+test("Plan 03's API keeps working over the new internals", async (t) => {
+  const store = await load();
+  store._resetSealedStoreForTests();
+  const fake = fakePrivacy({ pending: true }); // getSealed never answers
+  globalThis.window = { electronAPI: { privacy: fake.api } };
+  t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
+  store.ensureSealedSubscribed();
+  await tick();
+  assert.deepEqual(store.useSealedStore.getState(), { sealed: false, known: false });
+  assert.equal(store.getSealed(), false, "unknown reads false for route snapshots");
+  assert.equal(store.getSealedSnapshot().sealed, null, "and null for anything that makes a claim");
+  fake.listeners.sealed(true);
+  assert.deepEqual(store.useSealedStore.getState(), { sealed: true, known: true });
+  assert.equal(store.getSealed(), true);
+  assert.equal(store.getSealedSnapshot().sealed, true);
+});
+
+test("the snapshot object is stable until something changes (useSyncExternalStore)", async (t) => {
+  const store = await load();
+  store._resetSealedStoreForTests();
+  const fake = fakePrivacy();
+  globalThis.window = { electronAPI: { privacy: fake.api } };
+  t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
+  store.subscribeSealed(() => {});
+  await tick();
+  const a = store.getSealedSnapshot();
+  assert.equal(store.getSealedSnapshot(), a);
+  fake.listeners.sealed(false);
+  assert.notEqual(store.getSealedSnapshot(), a);
 });
 
 test("an older attestation never replaces a newer one", async (t) => {
@@ -8430,14 +8495,14 @@ test("an attestation older than 30 s is dropped to unknown and re-fetched", asyn
   assert.equal(store.getSealedSnapshot().attestation.version, 12);
 });
 
-test("without the privacy bridge the state stays unknown", async (t) => {
+test("a build without the privacy bridge cannot be sealed, and that is known (Plan 03's rule)", async (t) => {
   const store = await load();
   store._resetSealedStoreForTests();
   globalThis.window = { electronAPI: {} };
   t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
   store.subscribeSealed(() => {});
   await tick();
-  assert.equal(store.getSealedSnapshot().sealed, null);
+  assert.deepEqual(store.getSealedSnapshot(), { sealed: false, attestation: null });
 });
 ```
 
@@ -8446,13 +8511,14 @@ Create `test/hooks/fakePrivacy.js`, the shared fake of main's privacy bridge:
 ```js
 // A fake window.electronAPI.privacy that a test drives by calling the
 // registered listeners, the way main's broadcasts would.
-function fakePrivacy({ sealed = true, failAttestation = false } = {}) {
+// pending: getSealed never answers, so the state stays unknown until an event.
+function fakePrivacy({ sealed = true, failAttestation = false, pending = false } = {}) {
   const listeners = {};
   const attestation = { sealed, nothingLeaves: sealed, effectiveSince: 1, blockedSinceSealed: 0, version: 1, at: Date.now() };
   return {
     listeners,
     api: {
-      getSealed: async () => sealed,
+      getSealed: () => (pending ? new Promise(() => {}) : Promise.resolve(sealed)),
       getAttestation: async () => { if (failAttestation) throw new Error("ipc"); return { ...attestation, at: Date.now() }; },
       setSealed: async (next) => ({ ...attestation, sealed: next, nothingLeaves: next, version: 2, at: Date.now() }),
       onSealedChange: (cb) => { listeners.sealed = cb; return () => {}; },
@@ -8465,89 +8531,80 @@ const tick = () => new Promise((r) => setImmediate(r));
 module.exports = { fakePrivacy, tick };
 ```
 
-Create `test/lib/routesSealed.test.js`. This is the cross-plan check (I8): one toggle from main reaches every Plan 03 consumer together.
+Create `test/lib/routesSealed.test.js`. This is the cross-plan check (I8): one event from main, through the migrated store, reaches Plan 03's route snapshot, its resolver and the pre-flight in the same tick. It loads through Plan 03's renderer harness (P03 module note M5):
 
 ```js
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { installBrowserGlobals, createRendererServer } = require("./rendererTestHarness");
 const { fakePrivacy, tick } = require("../hooks/fakePrivacy");
-const { settingsWithRemoteRoutes } = require("./routesFixture"); // ← Plan 03's fixture (see note below)
+const { remoteDictation } = require("./sealedSettings");
 
-test("one sealed toggle reaches the facts store and the resolver in the same tick", async (t) => {
-  const sealedStore = await import("../../src/hooks/useSealedMode.ts");
-  const facts = await import("../../src/stores/routeFactsStore.ts");
-  const routes = await import("../../src/lib/routes.ts");
-  sealedStore._resetSealedStoreForTests();
-  const fake = fakePrivacy({ sealed: false });
-  globalThis.window = { electronAPI: { privacy: fake.api }, addEventListener() {} };
-  t.after(() => { delete globalThis.window; sealedStore._resetSealedStoreForTests(); });
+const SEALED = { status: "unreachable", detail: "sealed" };
 
-  facts.ensureRouteFactsSubscribed();
-  await tick();
-  const dictation = () =>
-    routes.resolveRoute(
-      routes.buildRouteSnapshot(settingsWithRemoteRoutes(), facts.useRouteFactsStore.getState().facts, routes.routeSendsCopy((k) => k)),
-      "dictationStt"
-    );
-  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, false);
-  assert.notDeepEqual(dictation().state, { status: "unreachable", detail: "sealed" });
-
-  const targets = await import("../../src/lib/routeTargets.ts");
-  const stagedBlocker = () => {
-    const snapshot = routes.buildRouteSnapshot(settingsWithRemoteRoutes(), facts.useRouteFactsStore.getState().facts, routes.routeSendsCopy((k) => k));
-    const target = { mode: "providers", provider: "groq" };
-    return targets.applyBlocker(targets.previewRoute(snapshot, "dictationStt", target), target);
+async function load(t, privacy) {
+  installBrowserGlobals(t, { window: { electronAPI: { privacy } } });
+  const vite = await createRendererServer(t, { cachePrefix: "loqui-routes-sealed-test-" });
+  return {
+    store: await vite.ssrLoadModule("/stores/sealedStore.ts"),
+    routes: await vite.ssrLoadModule("/lib/routes.ts"),
+    preflight: await vite.ssrLoadModule("/lib/sealedMode.ts"),
   };
-  assert.notEqual(stagedBlocker(), "sealed");
+}
+
+test("one event from main reaches the store, the route snapshot, the resolver and the pre-flight together", async (t) => {
+  const fake = fakePrivacy({ sealed: false });
+  const m = await load(t, fake.api);
+  m.store.ensureSealedSubscribed();
+  await tick();
+  const settings = remoteDictation();
+  const dictation = () => m.routes.resolveRoute(m.routes.routeSnapshotFromSettings(settings), "dictationStt");
+  const preflight = () => m.preflight.isDictationSealed(settings, m.store.getSealedSnapshot().sealed);
+
+  assert.equal(m.routes.routeSnapshotFromSettings(settings).sealed, false);
+  assert.notDeepEqual(dictation().state, SEALED);
+  assert.equal(preflight(), false);
 
   fake.listeners.sealed(true);
-  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, true);
-  assert.deepEqual(dictation().state, { status: "unreachable", detail: "sealed" });
-  // Staged Apply (P03 Task 5) blocks a remote target on the same tick.
-  assert.equal(stagedBlocker(), "sealed");
-
-  await facts.refreshRouteFacts();
-  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, true, "a facts refresh keeps main's answer");
+  assert.deepEqual(m.store.useSealedStore.getState(), { sealed: true, known: true }, "Plan 03's consumers read this");
+  assert.equal(m.routes.routeSnapshotFromSettings(settings).sealed, true);
+  assert.deepEqual(dictation().state, SEALED);
+  assert.equal(preflight(), true);
 
   fake.listeners.sealed(false);
-  assert.equal(facts.useRouteFactsStore.getState().facts.sealed, false);
-  assert.notEqual(stagedBlocker(), "sealed");
+  assert.notDeepEqual(dictation().state, SEALED);
+  assert.equal(preflight(), false);
 });
 
-test("the keyring panel's sealed gate follows the same toggle", async (t) => {
-  const sealedStore = await import("../../src/hooks/useSealedMode.ts");
-  const facts = await import("../../src/stores/routeFactsStore.ts");
-  const { KeyringPanel } = await import("../../src/components/settings/KeyringPanel.tsx");
-  const { renderStatic } = require("../helpers/harness/reactSsr");
-  sealedStore._resetSealedStoreForTests();
-  const fake = fakePrivacy({ sealed: false });
-  globalThis.window = { electronAPI: { privacy: fake.api, keyring: { list: async () => [] } }, addEventListener() {} };
-  t.after(() => { delete globalThis.window; sealedStore._resetSealedStoreForTests(); });
-  facts.ensureRouteFactsSubscribed();
+test("unknown is null for claims and false for route snapshots", async (t) => {
+  const m = await load(t, fakePrivacy({ pending: true }).api);
+  m.store.ensureSealedSubscribed();
   await tick();
-  const open = renderStatic(KeyringPanel, {});
-  fake.listeners.sealed(true);
-  const sealed = renderStatic(KeyringPanel, {});
-  // P03 Task 9 disables "Verify all" while facts.sealed is true (KeyringPanel reads useRouteFactsStore).
-  assert.notEqual(open, sealed, "the keyring view changes with the sealed fact");
-  assert.match(sealed, /disabled=""/);
+  assert.equal(m.store.getSealedSnapshot().sealed, null);
+  assert.equal(m.routes.routeSnapshotFromSettings(remoteDictation()).sealed, false);
+  assert.equal(m.preflight.isDictationSealed(remoteDictation(), m.store.getSealedSnapshot().sealed), false);
 });
 
-test("routeFactsStore no longer reads the privacy bridge itself", () => {
-  const src = fs.readFileSync(path.join(__dirname, "../../src/stores/routeFactsStore.ts"), "utf8");
-  assert.doesNotMatch(src, /privacy/);
-  assert.match(src, /subscribeSealed/);
+test("only the sealed store reads sealed state from the privacy bridge", () => {
+  const root = path.join(__dirname, "../../src");
+  const offenders = [];
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.statSync(full).isDirectory()) walk(full);
+      else if (/\.(tsx?|jsx?)$/.test(name) && !full.endsWith(path.join("stores", "sealedStore.ts")) && !full.includes(`${path.sep}types${path.sep}`)) {
+        if (/privacy\??\.(getSealed|onSealedChange|getAttestation|onAttestation)\b/.test(fs.readFileSync(full, "utf8"))) offenders.push(path.relative(root, full));
+      }
+    }
+  };
+  walk(root);
+  assert.deepEqual(offenders, [], "spec §5.4: no other renderer module reads these");
 });
 ```
 
-Point the `require` at the settings fixture Plan 03's route tests use; find it with `grep -rln "buildRouteSnapshot\|resolveRoutes" test/`. If Plan 03 has no such module, create `test/lib/routesFixture.js`. It exports three builders of a `SettingsState`-shaped object (the fields `buildRouteSnapshot` reads):
-- `settingsWithRemoteRoutes()`: cloud speech-to-text and a cloud chat provider;
-- `settingsWithLocalDictation()`: the same, with the local engine selected (`useLocalWhisper: true`);
-- `settingsWithSelfHostedDictation(url)`: the same, with self-hosted transcription at `url`.
-
-The keyring check imports Plan 03's `KeyringPanel` from wherever P03 Task 9 put it (`grep -rln "export function KeyringPanel" src`). If its sealed state renders differently from a disabled "Verify all" button, assert on that element instead. The point is that it changes on the same toggle. Use Plan 03's `test/lib/i18nTestMock.js` if `react-i18next` needs a stub under the tsx loader.
+Plan 03's own tests already pin that the Apply bar and the Keyring follow `useSealedStore` (its route-draft test "sealed blocks Apply but never a move onto the device", and the Keyring panel tests). Because this task changes only the store's internals, those tests stay as they are and must keep passing.
 
 Create `test/helpers/dictationPreflight.test.js`:
 
@@ -8625,7 +8682,7 @@ test("startRecording refuses before the microphone opens when the pre-flight say
     mockModules: {
       // The real store and resolver are covered by sealedMode.test.js and
       // routesSealed.test.js; this test pins where startRecording asks.
-      "/hooks/useSealedMode": "export const getSealedSnapshot = () => ({ sealed: globalThis.__preflightSealed, attestation: null });",
+      "/stores/sealedStore": "export const getSealedSnapshot = () => ({ sealed: globalThis.__preflightSealed, attestation: null });",
       "/lib/sealedMode": "export const isDictationSealed = (_settings, sealed) => sealed === true;",
     },
   });
@@ -8674,9 +8731,9 @@ const { fakePrivacy, tick } = require("../hooks/fakePrivacy");
 const content = "![chart](https://images.example/c.png) ![local](http://127.0.0.1:8080/a.png) [docs](https://docs.example/x)";
 
 async function render(t, sealed) {
-  const store = await import("../../src/hooks/useSealedMode.ts");
+  const store = await import("../../src/stores/sealedStore.ts");
   store._resetSealedStoreForTests();
-  globalThis.window = { electronAPI: sealed === null ? {} : { privacy: fakePrivacy({ sealed }).api } };
+  globalThis.window = { electronAPI: { privacy: sealed === null ? fakePrivacy({ pending: true }).api : fakePrivacy({ sealed }).api } };
   t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
   store.subscribeSealed(() => {});
   await tick();
@@ -8701,30 +8758,33 @@ test("unsealed: remote images render", async (t) => {
 });
 ```
 
-`renderToStaticMarkup` does not run effects, and `useSyncExternalStore` reads `getServerSnapshot` during SSR. So `useSealedMode` must pass `getSealedSnapshot` (not a constant `UNKNOWN`) as the third argument; Step 3 does. If the `react-i18next` import needs a stub under the tsx loader, use Plan 03's `test/lib/i18nTestMock.js`. The placeholder renders the translation key, which the assertion expects.
+`renderToStaticMarkup` does not run effects, and `useSyncExternalStore` reads `getServerSnapshot` during SSR. So `useSealedMode` must pass `getSealedSnapshot` (not a constant) as the third argument; Step 3 does. The "unknown" case uses a privacy fake whose `getSealed` never answers: a build with no privacy bridge at all is known and unsealed (Plan 03's rule). If the `react-i18next` import needs a stub under the tsx loader, use Plan 03's `test/lib/i18nTestMock.js`. The placeholder renders the translation key, which the assertion expects.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/hooks/useSealedMode.test.js test/lib/routesSealed.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js`
-Expected: FAIL. The modules are missing, `routeFactsStore` still reads `privacy` itself, `startRecording` has no pre-flight, nothing is held for recovery, and remote images render.
+Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/stores/sealedStoreAttestation.test.js test/lib/routesSealed.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js`
+Expected: FAIL. The modules are missing, `sealedStore.ts` has no attestation or snapshot, `startRecording` has no pre-flight, nothing is held for recovery, and remote images render.
 
 - [ ] **Step 3: Implement the pure modules**
 
 Create `src/lib/sealedMode.ts`:
 
 ```ts
-import { buildRouteSnapshot, isSealedLocality, resolveRoute, routeSendsCopy } from "./routes";
+import { buildRouteSnapshot, currentRouteCopy, resolveRoute } from "./routes";
 import { useRouteFactsStore } from "../stores/routeFactsStore";
 
 // The dictation pre-flight: while sealed, a dictation whose speech route would
 // leave this computer is not started, so there is no recording for main to
-// refuse. The rule is Plan 03's isSealedLocality; this file adds none. Unknown
-// (null) never blocks.
+// refuse. It adds no rule of its own: it asks Plan 03's resolver, which applies
+// isSealedLocality and its own precedence (an invalid endpoint, such as
+// plain-HTTP *.localhost, is needsUrl and never sealed; §5.1 rule 10). Unknown
+// (null) never blocks. The snapshot is built with sealed = true from the
+// caller's answer, so the check is decided by that answer, not re-read.
 export function isDictationSealed(settings: Parameters<typeof buildRouteSnapshot>[0], sealed: boolean | null): boolean {
   if (sealed !== true) return false;
-  const facts = { ...useRouteFactsStore.getState().facts, sealed: true };
-  const route = resolveRoute(buildRouteSnapshot(settings, facts, routeSendsCopy((key) => key)), "dictationStt");
-  return route.state.status !== "off" && isSealedLocality(route.locality);
+  const snapshot = buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, currentRouteCopy(), true);
+  const { state } = resolveRoute(snapshot, "dictationStt");
+  return state.status === "unreachable" && state.detail === "sealed";
 }
 ```
 
@@ -8851,124 +8911,173 @@ export function chatErrorContent(error: unknown, t: (key: string) => string): st
 }
 ```
 
-Create `src/hooks/useSealedMode.ts`:
+Create `src/hooks/useSealedMode.ts`, the React view of the store. It holds no state:
 
 ```ts
 import { useSyncExternalStore } from "react";
+import { getSealedSnapshot, subscribeSealed, type SealedSnapshot } from "../stores/sealedStore";
+
+export type { SealedSnapshot };
+
+// The React view of src/stores/sealedStore.ts (spec §5.4). getSealedSnapshot
+// doubles as the server snapshot, so SSR renders see the store.
+export function useSealedMode(): SealedSnapshot {
+  return useSyncExternalStore(subscribeSealed, getSealedSnapshot, getSealedSnapshot);
+}
+```
+
+- [ ] **Step 4: Replace the sealed store's internals (spec §5.4)**
+
+Replace the body of `src/stores/sealedStore.ts` (Plan 03, Task 3) with the module below. It keeps Plan 03's exports and their tested behaviour:
+- a seal event that arrives while the first fetch is in flight wins;
+- the store subscribes once;
+- a failed fetch leaves the state unknown until an event;
+- a build without the privacy bridge is known and unsealed.
+
+It adds main's attestation and the snapshot readers.
+
+```ts
+import { create } from "zustand";
 import type { Attestation } from "../types/privacy";
 
-export type SealedSnapshot = { sealed: boolean | null; attestation: Attestation | null };
+// The one renderer authority for Sealed mode (spec §5.4). Plan 03 created this
+// module and its shared API (useSealedStore, getSealed, ensureSealedSubscribed);
+// Plan 07 owns the internals: main's attestation, staleness and versioned reads.
+// No other renderer module reads sealed state from the privacy bridge.
+// `known` is false until main has answered; main enforces the seal either way.
 
-const UNKNOWN: SealedSnapshot = { sealed: null, attestation: null };
-let snapshot: SealedSnapshot = UNKNOWN;
-const listeners = new Set<() => void>();
-let started = false;
+export const useSealedStore = create<{ sealed: boolean; known: boolean }>()(() => ({
+  sealed: false,
+  known: false,
+}));
+
+// Route snapshots read this: unknown is false, because main enforces the seal anyway.
+export function getSealed(): boolean {
+  return useSealedStore.getState().sealed === true;
+}
+
+// Anything that makes a claim reads this: unknown is null, and claims nothing.
+export type SealedSnapshot = { sealed: boolean | null; attestation: Attestation | null };
 
 // Main re-broadcasts whenever the attestation changes; this bounds how old a
 // claim on screen can be if a broadcast is lost.
 export const ATTESTATION_MAX_AGE_MS = 30_000;
+
+let attestation: Attestation | null = null;
+let snapshot: SealedSnapshot = { sealed: null, attestation: null };
+const listeners = new Set<() => void>();
+let subscribed = false;
+// Bumped by every seal event and by setSealedMode. The first fetch applies only
+// if nothing newer arrived after it started (Plan 03, I14).
+let eventVersion = 0;
 let staleTimer: ReturnType<typeof setTimeout> | null = null;
 
-function publish(patch: Partial<SealedSnapshot>) {
-  snapshot = { ...snapshot, ...patch };
+// One cached object per change, so useSyncExternalStore sees a stable value.
+function publish() {
+  const { sealed, known } = useSealedStore.getState();
+  const next: SealedSnapshot = { sealed: known ? sealed : null, attestation };
+  if (next.sealed === snapshot.sealed && next.attestation === snapshot.attestation) return;
+  snapshot = next;
   for (const listener of listeners) listener();
 }
-
-function refetch() {
-  privacyApi()?.getAttestation().then(adopt, () => publish({ attestation: null }));
-}
-
-// Main versions every attestation; an older one (a late IPC reply) never wins.
-// One older than ATTESTATION_MAX_AGE_MS is not shown: the UI drops to
-// unknown ("Checking…") and asks again.
-function adopt(attestation: Attestation | null) {
-  if (attestation && snapshot.attestation && attestation.version < snapshot.attestation.version) return;
-  if (attestation && Date.now() - attestation.at > ATTESTATION_MAX_AGE_MS) {
-    publish({ attestation: null });
-    refetch();
-    return;
-  }
-  publish({ attestation });
-  if (staleTimer) clearTimeout(staleTimer);
-  staleTimer = attestation
-    ? setTimeout(() => {
-        publish({ attestation: null });
-        refetch();
-      }, ATTESTATION_MAX_AGE_MS)
-    : null;
-  (staleTimer as { unref?: () => void } | null)?.unref?.();
-}
+useSealedStore.subscribe(publish);
 
 const privacyApi = () => (typeof window === "undefined" ? undefined : window.electronAPI?.privacy);
 
-// Main is the only source of truth: nothing here guesses the sealed state, and
-// a failed read drops to unknown instead of keeping a claim that may be stale.
-function start() {
-  if (started) return;
-  started = true;
-  const api = privacyApi();
-  if (!api) return;
-  api.getSealed().then((sealed) => publish({ sealed }), () => {});
-  refetch();
-  api.onSealedChange((sealed) => publish({ sealed }));
-  api.onAttestation(adopt);
+function setAttestation(next: Attestation | null) {
+  attestation = next;
+  publish();
+}
+
+function refetchAttestation() {
+  privacyApi()?.getAttestation?.().then(adopt, () => setAttestation(null));
+}
+
+// Main versions every attestation; an older one (a late IPC reply) never wins.
+// One older than ATTESTATION_MAX_AGE_MS is not shown: the UI drops to unknown
+// ("Checking…") and asks again. A failed read also drops to unknown, so a claim
+// that may be stale is never kept.
+function adopt(next: Attestation | null) {
+  if (next && attestation && next.version < attestation.version) return;
+  if (staleTimer) clearTimeout(staleTimer);
+  staleTimer = null;
+  if (next && Date.now() - next.at > ATTESTATION_MAX_AGE_MS) {
+    setAttestation(null);
+    refetchAttestation();
+    return;
+  }
+  setAttestation(next);
+  if (next) {
+    staleTimer = setTimeout(() => {
+      setAttestation(null);
+      refetchAttestation();
+    }, ATTESTATION_MAX_AGE_MS);
+    (staleTimer as { unref?: () => void }).unref?.();
+  }
+}
+
+export function ensureSealedSubscribed(): void {
+  if (subscribed || typeof window === "undefined") return;
+  subscribed = true;
+  const privacy = privacyApi();
+  if (!privacy?.getSealed && !privacy?.onSealedChange) {
+    // This build has no sealed mode, so nothing can be sealed.
+    useSealedStore.setState({ sealed: false, known: true });
+    return;
+  }
+  privacy.onSealedChange?.((sealed) => {
+    eventVersion += 1;
+    useSealedStore.setState({ sealed: sealed === true, known: true });
+  });
+  privacy.onAttestation?.(adopt);
+  const startedAt = eventVersion;
+  Promise.resolve()
+    .then(() => privacy.getSealed?.())
+    .then(
+      (sealed) => {
+        if (typeof sealed !== "boolean" || eventVersion !== startedAt) return;
+        useSealedStore.setState({ sealed, known: true });
+      },
+      () => {
+        // Unknown stays unknown (main fails closed); the next event settles it.
+      }
+    );
+  refetchAttestation();
 }
 
 export function subscribeSealed(listener: () => void): () => void {
-  start();
+  ensureSealedSubscribed();
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
 export const getSealedSnapshot = (): SealedSnapshot => snapshot;
 
-export function useSealedMode(): SealedSnapshot {
-  // getSealedSnapshot doubles as the server snapshot so SSR tests see the store.
-  return useSyncExternalStore(subscribeSealed, getSealedSnapshot, getSealedSnapshot);
-}
-
+// main resolves after its sealing barrier, or with declined: true when the user
+// kept the seal in main's own dialog. Either way, its answer is adopted.
 export async function setSealedMode(sealed: boolean): Promise<Attestation & { declined?: boolean }> {
   const result = await window.electronAPI.privacy.setSealed(sealed);
-  publish({ sealed: result.sealed });
+  eventVersion += 1;
+  useSealedStore.setState({ sealed: result.sealed === true, known: true });
   adopt(result);
   return result;
 }
 
-export function _resetSealedStoreForTests() {
-  snapshot = UNKNOWN;
-  started = false;
+export function _resetSealedStoreForTests(): void {
   listeners.clear();
+  subscribed = false;
+  eventVersion = 0;
+  attestation = null;
   if (staleTimer) clearTimeout(staleTimer);
   staleTimer = null;
+  useSealedStore.setState({ sealed: false, known: false });
+  snapshot = { sealed: null, attestation: null };
 }
 ```
 
-- [ ] **Step 4: Make the sealed store the only sealed source for the route graph (CCR-2)**
+Plan 03's `test/stores/sealedStore.test.js` loads a fresh module per test through its renderer harness, so it needs no reset. Its fakes have no `getAttestation`/`onAttestation`; the optional calls above leave them untouched. If Plan 03's `test/lib/routesHooks.test.js` gains an attestation fake, add `"privacy.getAttestation"` to its `ALLOWED` list: the call is local IPC and network-free.
 
-In `src/stores/routeFactsStore.ts` (Plan 03, Task 2):
-1. Add `import { getSealedSnapshot, subscribeSealed } from "../hooks/useSealedMode";`.
-2. Delete the `privacy?: { … }` member of `RouteFactsApi`.
-3. In `loadRouteFacts`, delete the `settle(api.privacy?.getSealed && …)` entry from the `Promise.all` array, and `sealed` from the destructuring list in front of it. Return `sealed: getSealedSnapshot().sealed === true`. It is read when the facts are assembled, so a refresh that started before a toggle still returns main's latest answer.
-4. In `ensureRouteFactsSubscribed`, replace the `currentApi()?.privacy?.onSealedChange?.(…)` block with:
-
-   ```ts
-     // Plan 07: main's sealed state reaches the renderer once, through the
-     // sealed store; the route graph mirrors it in the same tick.
-     subscribeSealed(() => {
-       const sealed = getSealedSnapshot().sealed === true;
-       if (useRouteFactsStore.getState().facts.sealed !== sealed) {
-         useRouteFactsStore.setState((s) => ({ facts: { ...s.facts, sealed } }));
-       }
-     });
-   ```
-
-   Unknown (`null`) maps to `false`: the route graph claims no seal it has not been told about. The pre-flight treats unknown the same way, and Recovery covers the gap.
-
-In `src/lib/routes.ts`, change the comment above `isSealedLocality` to: `// Spec §5.4 + Plan 07 CCR-1/CCR-2: the one rule for which routes Sealed mode pauses. LAN servers are another machine.` Do not change the function.
-
-In Plan 03's `test/stores/routeFactsStore.test.js`:
-- Its `fullApi()` fake's `privacy` member becomes `fakePrivacy({ sealed: true }).api` (from `test/hooks/fakePrivacy.js`). Call `_resetSealedStoreForTests()` from `src/hooks/useSealedMode.ts` before each case.
-- The "slow `getSealed`" generation case tests ordering between overlapping refreshes. Drive it with a slow `listWhisperModels` instead; `getSealed` is no longer called by this store.
+In `src/lib/routes.ts`, change the comment above `isSealedLocality` (or its re-export from `routeGraph.ts`) to: `// Spec §5.4 + Plan 07 CCR-1: the one rule for which routes Sealed mode pauses. LAN servers are another machine.` Do not change the function.
 
 Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/electron.ts` with the required `privacy` namespace. Confirm that there is exactly one: `grep -c "privacy" src/types/electron.ts` shows a single member.
 
@@ -8991,7 +9100,7 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
          }
    ```
 
-   Report it through the same error callback the transcription-failure path uses at `:1915-1922`, using whatever name that path calls. Import `isDictationSealed` from `../lib/sealedMode` and `getSealedSnapshot` from `../hooks/useSealedMode`. Calling `getSealedSnapshot()` starts the store on first use, and before main answers it returns `sealed: null`, which never blocks. Plan 04 restyles this as a pill state (CCR-4) but keeps the check.
+   Report it through the same error callback the transcription-failure path uses at `:1915-1922`, using whatever name that path calls. Import `isDictationSealed` from `../lib/sealedMode` and `getSealedSnapshot` from `../stores/sealedStore`. Calling `getSealedSnapshot()` starts the store on first use, and before main answers it returns `sealed: null`, which never blocks. Plan 04 restyles this as a pill state (CCR-4) but keeps the check.
 2. `src/components/chat/useChatStreaming.ts:536-546`. Replace the `content:` line in the error branch with `content: chatErrorContent(error, t),` and add `import { chatErrorContent } from "./chatErrorContent";`. The user's message entry is not modified.
 3. `src/utils/localInferenceError.ts`. After the `OUTPUT_TRUNCATED` branch, add:
 
@@ -9072,7 +9181,7 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
          });
      ```
 
-     Call `offSealed()` in the effect's cleanup. Import `getSealedSnapshot` and `subscribeSealed` from `./useSealedMode`, and `recoveryCount` and `discardRecovery` from `../lib/sealedRecovery`. `useToast` already supports `actions` and `duration`. If `duration: Infinity` is not accepted, use the longest duration `useToast.ts` supports and keep the action. Plan 04 restyles this as a pill notice and must keep the action (CCR-4).
+     Call `offSealed()` in the effect's cleanup. Import `getSealedSnapshot` and `subscribeSealed` from `../stores/sealedStore`, and `recoveryCount` and `discardRecovery` from `../lib/sealedRecovery`. `useToast` already supports `actions` and `duration`. If `duration: Infinity` is not accepted, use the longest duration `useToast.ts` supports and keep the action. Plan 04 restyles this as a pill notice and must keep the action (CCR-4).
 
 7. `src/components/ui/MarkdownRenderer.tsx`. Add an `img` entry to `markdownComponents`:
 
@@ -9098,13 +9207,13 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/hooks/useSealedMode.test.js test/lib/routesSealed.test.js test/stores/routeFactsStore.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js test/helpers/useChatStreamingCancellation.test.js test/helpers/useChatStreamingFlush.test.js && npm run typecheck`
+Run: `npm test -- test/lib/sealedMode.test.js test/lib/sealedRecovery.test.js test/utils/sealedModeError.test.js test/stores/sealedStoreAttestation.test.js test/stores/sealedStore.test.js test/lib/routesSealed.test.js test/lib/routesHooks.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js test/helpers/useChatStreamingCancellation.test.js test/helpers/useChatStreamingFlush.test.js && npm run typecheck`
 Expected: PASS, and typecheck is clean. The new copy keys (`sealedMode.blocked.dictationHeld`, `sealedMode.interrupted.dictationHeld`, `sealedMode.recovery.*`, `sealedMode.markdown.imageBlocked`) are added in Task 14, Step 6; `npm run i18n:check` runs there.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/hooks/useSealedMode.ts src/lib/sealedMode.ts src/lib/sealedRecovery.ts src/utils/sealedModeError.ts src/components/chat/chatErrorContent.ts src/stores/routeFactsStore.ts src/lib/routes.ts src/components/ui/MarkdownRenderer.tsx src/components/chat/useChatStreaming.ts src/utils/localInferenceError.ts src/utils/recordingErrors.ts src/helpers/audioManager.js src/hooks/useAudioRecording.js test/lib test/utils/sealedModeError.test.js test/hooks test/stores/routeFactsStore.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js
+git add src/stores/sealedStore.ts src/hooks/useSealedMode.ts src/lib/sealedMode.ts src/lib/sealedRecovery.ts src/utils/sealedModeError.ts src/components/chat/chatErrorContent.ts src/lib/routes.ts src/components/ui/MarkdownRenderer.tsx src/components/chat/useChatStreaming.ts src/utils/localInferenceError.ts src/utils/recordingErrors.ts src/helpers/audioManager.js src/hooks/useAudioRecording.js test/lib test/utils/sealedModeError.test.js test/hooks test/stores/sealedStoreAttestation.test.js test/helpers/dictationPreflight.test.js test/helpers/audioManagerSealed.test.js test/components/markdownSealed.test.js
 git commit -m "feat(privacy): one sealed source for routes, dictation pre-flight and in-memory recovery, inert remote images"
 ```
 
@@ -9123,7 +9232,7 @@ git commit -m "feat(privacy): one sealed source for routes, dictation pre-flight
 - Test: `test/components/sealedModePanel.test.js`
 
 **Interfaces:**
-- Consumes `useSealedMode` and `setSealedMode` (Task 13), and `Attestation` (Task 7). Uses `contrastRatio` from `src/utils/contrast.ts` and `resolveTokens` from `test/helpers/harness/cssTokens.js` (Plan 01).
+- Consumes `useSealedMode` and `setSealedMode` from `src/stores/sealedStore.ts` (Task 13), and `Attestation` (Task 7). Uses `contrastRatio` from `src/utils/contrast.ts` and `resolveTokens` from `test/helpers/harness/cssTokens.js` (Plan 01).
 - Produces:
 
   ```ts
@@ -9329,7 +9438,8 @@ Create `src/components/settings/SealedModePanel.tsx`:
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Attestation } from "../../types/privacy";
-import { setSealedMode, useSealedMode } from "../../hooks/useSealedMode";
+import { useSealedMode } from "../../hooks/useSealedMode";
+import { setSealedMode } from "../../stores/sealedStore";
 import { Lock } from "../icons";
 import { Toggle } from "../ui/toggle";
 import { sealedStatusLines } from "./sealedModeCopy";

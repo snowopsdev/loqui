@@ -22,24 +22,18 @@ const buttonVariants = cva(
           "relative font-semibold tracking-[0.005em]",
           "bg-cta text-cta-foreground shadow-sm",
           "before:content-[''] before:size-1.5 before:rounded-full before:bg-live before:shadow-[0_0_0_3px_rgb(255_90_31/0.25)]",
-          "hover:brightness-110",
-          "active:brightness-95 active:scale-[0.985]",
-          // A filter recolours the focus ring (a box-shadow on this element), so a
-          // focused button keeps its unfiltered ring through hover and press.
-          "focus-visible:hover:brightness-100 focus-visible:active:brightness-100",
-          "transition-[filter,transform] duration-200 ease-out",
+          // Hover and press change the fill, never a filter: a filter would
+          // recolour the box-shadow focus ring.
+          "hover:bg-cta-hover",
+          "active:bg-cta-active active:scale-[0.985]",
         ].join(" "),
 
         // Live voice only: record, stop, mic, voice send. Orange glass, ink text.
         live: [
           "relative font-semibold tracking-[0.005em]",
           BRAND_GLASS_SURFACE,
-          "hover:brightness-110",
-          "active:brightness-95 active:scale-[0.985]",
-          // A filter recolours the focus ring (a box-shadow on this element), so a
-          // focused button keeps its unfiltered ring through hover and press.
-          "focus-visible:hover:brightness-100 focus-visible:active:brightness-100",
-          "transition-[filter,transform] duration-200 ease-out",
+          "hover:bg-[image:var(--gradient-brand-glass-hover)]",
+          "active:bg-[image:var(--gradient-brand-glass-active)] active:scale-[0.985]",
         ].join(" "),
 
         // Success — uses design tokens

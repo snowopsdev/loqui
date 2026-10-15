@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { renderStatic } = require("../helpers/harness/reactSsr");
-const { resolveTokens } = require("../helpers/harness/cssTokens");
+const { readTokens, resolveTokens } = require("../helpers/harness/cssTokens");
 
 const repoRoot = path.join(__dirname, "../..");
 const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
@@ -140,66 +140,86 @@ test("default button is the ink CTA with a leading brand dot; live is orange", a
   assert.doesNotMatch(link, /text-link\//);
 });
 
-// A CSS filter (or opacity) on the button recolours its box-shadow focus ring.
-// For every variant, a hover/press rule that changes the filter must either be
-// neutralised while focus-visible, or leave the ring at 3:1 on every surface.
-test("the focus ring keeps 3:1 when a focused Button is hovered or pressed", async () => {
+const BUTTON_VARIANTS = [
+  "default",
+  "live",
+  "success",
+  "destructive",
+  "outline",
+  "outline-flat",
+  "secondary",
+  "ghost",
+  "link",
+  "social",
+];
+const buttonClasses = async (variant, props = {}) => {
   const { Button } = await loadButton();
+  const html = renderStatic(Button, { variant, ...props }, "Label");
+  return html.match(/class="([^"]*)"/)[1].split(/\s+/);
+};
+
+// The focus ring is a box-shadow on the button, so any filter or opacity that
+// changes on hover, press or focus recolours it. Feedback must come from fills,
+// borders, text or shadows instead. Checked by property, not by class suffix.
+test("no Button variant changes filter or opacity on hover, press or focus", async () => {
+  const filterLike =
+    /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|blur|opacity|filter|drop-shadow)(-|$)|^\[(filter|opacity):/;
+  for (const variant of BUTTON_VARIANTS) {
+    const classes = await buttonClasses(variant);
+    assert.ok(classes.includes("focus-visible:ring-ring"), `${variant} has an opaque focus ring`);
+    for (const cls of classes) {
+      const parts = cls.split(":");
+      const utility = parts[parts.length - 1];
+      const prefixes = parts.slice(0, -1);
+      if (!filterLike.test(utility)) continue;
+      const interactive = prefixes.some((p) =>
+        /^(hover|active|focus|focus-visible|focus-within|group-hover|peer-.*)$/.test(p)
+      );
+      assert.ok(!interactive, `${variant} uses ${cls}, which recolours the focus ring`);
+    }
+  }
+});
+
+test("a focused default or live Button still has distinct hover and pressed fills", async () => {
+  const cta = await buttonClasses("default");
+  for (const c of ["bg-cta", "hover:bg-cta-hover", "active:bg-cta-active"])
+    assert.ok(cta.includes(c), `default has ${c}`);
+  assert.ok(
+    !cta.some((c) => c.startsWith("focus-visible:hover:") || c.startsWith("focus-visible:active:"))
+  );
+  const live = await buttonClasses("live");
+  for (const c of [
+    "hover:bg-[image:var(--gradient-brand-glass-hover)]",
+    "active:bg-[image:var(--gradient-brand-glass-active)]",
+  ])
+    assert.ok(live.includes(c), `live has ${c}`);
+  assert.ok(
+    !live.some((c) => c.startsWith("focus-visible:hover:") || c.startsWith("focus-visible:active:"))
+  );
+});
+
+test("hover and pressed fills keep text at 4.5:1 and never put white on orange", async () => {
   const { contrastRatio } = await loadContrast();
   const { light, dark } = resolveTokens(css);
-  const variants = [
-    "default",
-    "live",
-    "success",
-    "destructive",
-    "outline",
-    "outline-flat",
-    "secondary",
-    "ghost",
-    "link",
-    "social",
-  ];
-  const scaleHex = (hex, factor) =>
-    "#" +
-    [1, 3, 5]
-      .map((i) => Math.min(255, Math.round(parseInt(hex.slice(i, i + 2), 16) * factor)))
-      .map((v) => v.toString(16).padStart(2, "0"))
-      .join("");
-  for (const variant of variants) {
-    const html = renderStatic(Button, { variant }, "Label");
-    const classes = html.match(/class="([^"]*)"/)[1].split(/\s+/);
-    assert.ok(classes.includes("focus-visible:ring-ring"), `${variant} has an opaque focus ring`);
+  const root = readTokens(css, ":root");
+  for (const [theme, tokens] of [
+    ["light", light],
+    ["dark", dark],
+  ])
     for (const state of ["hover", "active"]) {
-      const rules = classes.filter(
-        (c) =>
-          c.startsWith(`${state}:`) &&
-          /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|opacity|filter|drop-shadow)/.test(
-            c.slice(state.length + 1)
-          )
+      const ratio = contrastRatio(tokens["--color-cta-foreground"], tokens[`--color-cta-${state}`]);
+      assert.ok(ratio >= 4.5, `${theme} cta ${state} is ${ratio}:1`);
+      assert.notEqual(
+        tokens[`--color-cta-${state}`].toLowerCase(),
+        tokens["--color-cta"].toLowerCase()
       );
-      for (const rule of rules) {
-        const neutral = classes.some(
-          (c) => c.startsWith(`focus-visible:${state}:`) && /-100$/.test(c)
-        );
-        const brightness = rule.match(/brightness-(\d+)$/);
-        for (const [theme, tokens] of [
-          ["light", light],
-          ["dark", dark],
-        ])
-          for (const surface of SURFACE_TOKENS) {
-            if (neutral) continue;
-            assert.ok(
-              brightness,
-              `${variant} ${rule} alters the focus ring and is not neutralised while focused`
-            );
-            const ring = scaleHex(tokens["--color-ring"], Number(brightness[1]) / 100);
-            const ratio = contrastRatio(ring, tokens[surface]);
-            assert.ok(
-              ratio >= 3,
-              `${variant} ${theme} focused+${state} ring on ${surface} is ${ratio}:1`
-            );
-          }
-      }
+    }
+  for (const state of ["hover", "active"]) {
+    const stops = root[`--gradient-brand-glass-${state}`].match(/#[0-9a-f]{6}/gi);
+    assert.equal(stops.length, 2, `${state} gradient has two stops`);
+    for (const stop of stops) {
+      const ratio = contrastRatio(light["--color-live-foreground"], stop);
+      assert.ok(ratio >= 4.5, `live ${state} ${stop} is ${ratio}:1`);
     }
   }
 });

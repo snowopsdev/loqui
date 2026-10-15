@@ -42,6 +42,10 @@
      action is an ink capsule that carries a small orange brand dot. */
   --color-cta: #171717;
   --color-cta-foreground: #ffffff;
+  /* Hover lightens the ink, press goes deeper. Fills, never filters: a filter
+     would recolour the box-shadow focus ring. */
+  --color-cta-hover: #2e2e2e;
+  --color-cta-active: #0a0a0a;
   --color-live: #ff5a1f;
   --color-live-foreground: #171717;
   --color-nav-marker: #e84e16;
@@ -214,6 +218,9 @@
     inset 0 -1px 1px rgba(0, 0, 0, 0.12);
   /* The fill under that rim: Button default, mic/send circles, the onboarding brand tile. */
   --gradient-brand-glass: linear-gradient(180deg, #ff6a36 0%, #ff5a1f 100%);
+  /* Hover lifts the glass, press deepens it; ink text stays at 4.5:1+ on every stop. */
+  --gradient-brand-glass-hover: linear-gradient(180deg, #ff8658 0%, #ff7a4d 100%);
+  --gradient-brand-glass-active: linear-gradient(180deg, #f2531c 0%, #e84e16 100%);
   /* The brand tile floats over the onboarding hero, so it adds a soft coloured lift. */
   --shadow-brand-tile: var(--shadow-brand-glass), 0 10px 24px -8px rgb(255 90 31 / 0.45);
 }
@@ -249,6 +256,8 @@
 
   --color-cta: #f3e9ee;
   --color-cta-foreground: #1c1218;
+  --color-cta-hover: #e6d8df;
+  --color-cta-active: #d8c7d1;
   --color-live: #ff5a1f;
   --color-live-foreground: #171717;
   --color-nav-marker: #e6007a;

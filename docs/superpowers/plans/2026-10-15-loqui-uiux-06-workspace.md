@@ -1524,7 +1524,8 @@ This covers WS-Q12. It also delivers Task 3's chat requests to `ChatView`, which
 - Modify: `src/components/ControlPanel.tsx`. Replace the keydown effect at `:228-241`, and pass `request` to `<ChatView />` at `:816-818`.
 - Modify: `src/components/chat/ChatView.tsx`. Remove the `⌘N` listener at `:117-127`, and add the `request` prop and `ChatViewRequest` type.
 - Modify: `src/components/chat/ChatInput.tsx` (as rewritten by Plan 02 Task 12). Add the `seed` prop and a draft generation for its refused-send restore.
-- Test: `test/lib/workspaceShortcuts.test.js`, `test/components/chatComposerSeed.test.js` (mounted, on Plan 02's `rendererMocks` and `fakeDomTree` harness)
+- Create: `test/helpers/harness/mountComposer.js`. A mounted-composer helper on Plan 02's `rendererMocks` and `fakeDomTree` harness, shared with Task 22.
+- Test: `test/lib/workspaceShortcuts.test.js`, `test/components/chatComposerSeed.test.js`
 
 **Interfaces:**
 - Produces:
@@ -1629,24 +1630,22 @@ test("an open Radix dialog is detected from the DOM", async () => {
 });
 ```
 
-Create `test/components/chatComposerSeed.test.js`. It mounts the real composer with Plan 02's harness (`test/helpers/harness/rendererMocks.js`, `test/helpers/harness/fakeDomTree.js`), the same way Plan 02's `chatComposer.test.js` does:
+Create `test/helpers/harness/mountComposer.js`. It mounts the real composer on Plan 02's harness (`test/helpers/harness/rendererMocks.js`, `test/helpers/harness/fakeDomTree.js`), the same way Plan 02's `chatComposer.test.js` does, and is shared with Task 22:
 
 ```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
 const React = require("react");
 const { createElement } = React;
 const { createRoot } = require("react-dom/client");
-const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
-const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
-const { installTree } = require("../helpers/harness/fakeDomTree");
+const { createRendererServer, installBrowserGlobals, installHookDom } = require("../../lib/rendererTestHarness");
+const { rendererOptions, TOAST_MOCK } = require("./rendererMocks");
+const { installTree } = require("./fakeDomTree");
 
 const MOCKS = {
   "/ui/useToast": TOAST_MOCK,
   "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
 };
 
-async function mount(t, onTextSubmit) {
+async function mountComposer(t, onTextSubmit, extraProps = {}) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -1656,7 +1655,7 @@ async function mount(t, onTextSubmit) {
   const tree = installTree();
   const vite = await createRendererServer(t, rendererOptions("loqui-composer-seed-", MOCKS));
   const { ChatInput } = await vite.ssrLoadModule("/components/chat/ChatInput.tsx");
-  let props = { partialTranscript: "", agentState: "idle", onTextSubmit, onCancel() {}, seed: null };
+  let props = { partialTranscript: "", agentState: "idle", onTextSubmit, onCancel() {}, seed: null, ...extraProps };
   const render = (next = {}) => {
     props = { ...props, ...next };
     return React.act(async () => {
@@ -1680,6 +1679,17 @@ async function mount(t, onTextSubmit) {
     });
   return { render, type, press, value: () => tree.props(textarea()).value };
 }
+
+module.exports = { mountComposer };
+```
+
+Create `test/components/chatComposerSeed.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { mountComposer: mount } = require("../helpers/harness/mountComposer");
 
 test("a palette seed disarms a queued draft: nothing is sent on idle, and B stays editable", async (t) => {
   const sent = [];
@@ -1956,7 +1966,7 @@ Expected: PASS. Plan 02's `chatComposer` suite still passes. Typecheck and lint 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/workspaceShortcuts.ts src/components/ControlPanel.tsx src/components/chat/ChatView.tsx src/components/chat/ChatInput.tsx test/lib/workspaceShortcuts.test.js test/components/chatComposerSeed.test.js
+git add src/lib/workspaceShortcuts.ts src/components/ControlPanel.tsx src/components/chat/ChatView.tsx src/components/chat/ChatInput.tsx test/lib/workspaceShortcuts.test.js test/helpers/harness/mountComposer.js test/components/chatComposerSeed.test.js
 git commit -m "feat(workspace): add global shortcuts and chat requests"
 ```
 
@@ -8928,7 +8938,7 @@ This covers the WS-R8 B data and interpretation 7. Today `ReasoningService.ts:25
   ```
 
 - Produces `ragContext.ts`: `buildRagContext(api: Pick<ElectronAPI, "semanticSearchNotes" | "getNote">, userText: string, scope?: { spaceId?: number | null; folderId?: number | null }): Promise<{ text: string; notes: RagNoteRef[] }>`.
-- `Message.context?: { ragNotes?: RagNoteRef[]; route?: MessageRoute | null }`, where `MessageRoute` is `{ model: string | null; providerId: string | null; locality: Locality }`. The raw id is stored, so a later language change still renders the name through `providerDisplayLabel`. `route` is filled by Task 21.
+- `Message.context?: { ragNotes?: RagNoteRef[]; pinnedNotes?: RagNoteRef[]; route?: MessageRoute | null }`. `pinnedNotes` is filled by Task 22 (review I12). In it, `MessageRoute` is `{ model: string | null; providerId: string | null; locality: Locality }`. The raw id is stored, so a later language change still renders the name through `providerDisplayLabel`. `route` is filled by Task 21.
 - `onStreamComplete(assistantId, content, toolCalls?, context?)` and `saveAssistantMessage(content, toolCalls?, context?)`. Metadata is persisted as `{ toolCalls, context }`.
 - `appendCitationSuffix(prompt: string): string`. The instruction is English-only and model-facing.
 
@@ -9225,7 +9235,7 @@ Expected: FAIL. Modules are missing and the regexes do not match.
    }
    ```
 
-   Add `context?: { ragNotes?: RagNoteRef[]; route?: MessageRoute | null };` to `Message`.
+   Add `context?: { ragNotes?: RagNoteRef[]; pinnedNotes?: RagNoteRef[]; route?: MessageRoute | null };` to `Message`.
 
 5. In `src/config/prompts/index.ts`, after `appendDictionarySuffix`, add:
 
@@ -9647,7 +9657,8 @@ Expected: FAIL.
 
      ```tsx
      if (variant === "document") {
-       const candidates = collectSources(toolCalls, context?.ragNotes);
+       // Everything the model was given is citable: RAG notes and pinned notes (I12).
+       const candidates = collectSources(toolCalls, [...(context?.ragNotes ?? []), ...(context?.pinnedNotes ?? [])]);
        const { numbers, sources } = numberCitations(content, candidates);
        return (
          <div
@@ -9787,10 +9798,12 @@ This covers WS-Q6, WS-R8 B ("the chat shows the resolved model with `LocalityRin
 
 **Files:**
 - Create: `src/components/chat/ChatModelChip.tsx`
-- Modify: `src/components/chat/useChatStreaming.ts`. Add the hook option `getRoute`, and stamp it at `:346`.
-- Modify: `src/components/chat/ChatView.tsx`. Add the chip row above `ChatInput` (`:172`), and pass `getRoute`.
+- Create: `src/components/chat/messageRoute.ts` (`toMessageRoute`, shared by the chip and the stream).
+- Modify: `src/components/chat/useChatStreaming.ts`. Resolve the chat route from the **same settings snapshot** that builds the request (`:233`), and stamp it at `:346` (review I11).
+- Modify: `src/components/chat/ChatView.tsx`. Add the chip row above `ChatInput` (`:172`).
+- Modify: `test/helpers/useChatStreamingCancellation.test.js`. Add a deferred-context route-stamp test.
 - Modify: `src/components/chat/ChatMessage.tsx`. Add the route tag in the document header.
-- Test: `test/components/chatModelChip.test.js`, `test/components/chatRouteStamp.test.js`
+- Test: `test/components/chatModelChip.test.js`, `test/helpers/useChatStreamingCancellation.test.js`
 
 **Interfaces:**
 - Consumes `useResolvedRoute("chat")` and `ResolvedRoute` (§5.1), `LocalityRing` (Plan 01), `MessageRoute` (Task 19), and the `onOpenSettings` prop on `ChatView` (Task 4), which receives `route.settingsPath` (CR-06-2).
@@ -9806,7 +9819,10 @@ This covers WS-Q6, WS-R8 B ("the chat shows the resolved model with `LocalityRin
   export function toMessageRoute(route: Pick<ResolvedRoute, "locality" | "providerId" | "model">): MessageRoute;
   ```
 
-- `useChatStreaming({ …, getRoute?: () => MessageRoute | null })`. Every new assistant message records `context.route` at send time. A later settings change never rewrites history.
+- Every new assistant message records `context.route`. It is computed inside `sendToAI` from the `settings` object that `resolveChatStreamingInference` also reads (`:233-238`), via Plan 03's pure `resolveRoute(buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, routeSendsCopy(t)), "chat")`.
+  - The stamp and the dispatched request can never disagree, even when Settings change while context is loading.
+  - A later settings change never rewrites history.
+  - There is no `getRoute` option. Sampling the UI hook after the asynchronous lookups was the I11 bug.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -9869,25 +9885,52 @@ test("an answer is tagged with where it was produced", async () => {
 });
 ```
 
-Create `test/components/chatRouteStamp.test.js`:
+Append to `test/helpers/useChatStreamingCancellation.test.js`. These tests extend `test/helpers/useChatStreamingCancellation.test.js`, which drives the **real** hook. Make two small changes to its `renderChatStreaming` helper first:
+- accept `hookOptions = {}` and spread it into the `useChatStreaming({ … })` call in `Harness`;
+- return `useSettingsStore` alongside `captured`.
+
+The existing tests pass `hookOptions` implicitly as `{}` and are unchanged.
 
 ```js
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const test = require("node:test");
+test("the route stamp is the route the request used, even if Settings change while context loads (I11)", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    requested.push(String(input?.url ?? input));
+    const content = `data: ${JSON.stringify(createOpenAiChunk({ content: "ok" }))}\n\n`;
+    const finish = `data: ${JSON.stringify(createOpenAiChunk({}, "stop"))}\n\n`;
+    return new Response(`${content}${finish}data: [DONE]\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  let resolveSearch;
+  let searchStarted = false;
+  const { captured, getMessages, useSettingsStore } = await renderChatStreaming(t, {
+    electronAPI: {
+      semanticSearchNotes: () => {
+        searchStarted = true;
+        return new Promise((resolve) => (resolveSearch = resolve));
+      },
+    },
+  });
+  const send = captured.sendToAI("hello", []);
+  for (let i = 0; i < 50 && !searchStarted; i++) await new Promise((r) => setImmediate(r));
+  // The user switches chat to a remote provider while the RAG lookup is pending.
+  useSettingsStore.setState({ chatAgentMode: "providers", chatAgentProvider: "openai", chatAgentModel: "gpt-5.6" });
+  resolveSearch([]);
+  await send;
 
-const src = fs.readFileSync(path.join(__dirname, "../../src/components/chat/useChatStreaming.ts"), "utf8");
-
-test("each assistant message records the route it was sent on", () => {
-  assert.match(src, /getRoute\?: \(\) => MessageRoute \| null/);
-  assert.match(src, /context: \{ ragNotes: rag\.notes, route: getRoute\?\.\(\) \?\? null \}/);
+  assert.ok(requested.length > 0 && requested.every((url) => url.includes("127.0.0.1")), "the request went to the loopback server");
+  const answer = getMessages().find((m) => m.role === "assistant");
+  assert.equal(answer.context.route.locality, "device");
+  assert.equal(answer.context.route.providerId, null);
 });
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/components/chatModelChip.test.js test/components/chatRouteStamp.test.js`
+Run: `npm test -- test/components/chatModelChip.test.js test/helpers/useChatStreamingCancellation.test.js`
 Expected: FAIL. The module is missing, and the regex does not match because Task 19 left `route: null`.
 
 - [ ] **Step 3: Implement**
@@ -9968,19 +10011,38 @@ Expected: FAIL. The module is missing, and the regex does not match because Task
 
    The `needsKey` test asserts `text-warning` on the icon. The state words stay `text-foreground`, because `--color-warning` (#d97706) is 3.19:1, which is icon-safe but not text-safe.
 
-2. In `src/components/chat/useChatStreaming.ts`:
-   - Add `getRoute?: () => MessageRoute | null;` to the hook's options interface (next to `onStreamComplete`, `:79`) and destructure it.
-   - Change the assistant message creation (`:346`) from Task 19's `context: { ragNotes: rag.notes, route: null }` to `context: { ragNotes: rag.notes, route: getRoute?.() ?? null }`.
+2. Create `src/components/chat/messageRoute.ts`, and move `toMessageRoute` there from `ChatModelChip.tsx`. `ChatModelChip.tsx` re-exports it:
+
+   ```ts
+   import type { ResolvedRoute } from "../../lib/routes";
+   import type { MessageRoute } from "./types";
+
+   export const toMessageRoute = (route: Pick<ResolvedRoute, "locality" | "providerId" | "model">): MessageRoute => ({
+     model: route.model,
+     providerId: route.providerId,
+     locality: route.locality,
+   });
+   ```
+
+   In `src/components/chat/useChatStreaming.ts`, directly after `resolveChatStreamingInference(settings, …)` (`:233-238`), add:
+
+   ```ts
+   // The stamp comes from the same settings snapshot as the request, so an
+   // answer can never say Local for a request that went to OpenAI (I11).
+   const sentRoute = toMessageRoute(
+     resolveRoute(buildRouteSnapshot(settings, useRouteFactsStore.getState().facts, routeSendsCopy(t)), "chat")
+   );
+   ```
+
+   Import `resolveRoute`, `buildRouteSnapshot` and `routeSendsCopy` from `../../lib/routes`, and `useRouteFactsStore` from `../../stores/routeFactsStore` (all Plan 03 exports). Then change the assistant message creation (`:346`) from Task 19's `context: { ragNotes: rag.notes, route: null }` to `context: { ragNotes: rag.notes, route: sentRoute }`.
 
 3. In `src/components/chat/ChatView.tsx`:
 
    ```ts
    const chatRoute = useResolvedRoute("chat");
-   const routeRef = useRef(chatRoute);
-   routeRef.current = chatRoute;
    ```
 
-   Pass `getRoute: () => toMessageRoute(routeRef.current)` into `useChatStreaming({ … })`. Inside the `px-3 pb-3 pt-1` wrapper, before `<ChatInput>` (`:172`), render:
+   This is only the chip's "next message" display. Inside the `px-3 pb-3 pt-1` wrapper, before `<ChatInput>` (`:172`), render:
 
    ```tsx
    <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "flex flex-wrap items-center gap-2 pb-1.5")}>
@@ -10013,13 +10075,13 @@ Expected: FAIL. The module is missing, and the regex does not match because Task
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/components/chatModelChip.test.js test/components/chatRouteStamp.test.js test/components/chatMessageDocument.test.js test/locales/translationCoverage.test.js && npm run typecheck`
+Run: `npm test -- test/components/chatModelChip.test.js test/helpers/useChatStreamingCancellation.test.js test/components/chatMessageDocument.test.js test/locales/translationCoverage.test.js && npm run typecheck`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/chat/ChatModelChip.tsx src/components/chat/useChatStreaming.ts src/components/chat/ChatView.tsx src/components/chat/ChatMessage.tsx src/locales test/components/chatModelChip.test.js test/components/chatRouteStamp.test.js
+git add src/components/chat/ChatModelChip.tsx src/components/chat/messageRoute.ts src/components/chat/useChatStreaming.ts src/components/chat/ChatView.tsx src/components/chat/ChatMessage.tsx src/locales test/components/chatModelChip.test.js test/helpers/useChatStreamingCancellation.test.js
 git commit -m "feat(chat): show the resolved model and where each answer was produced"
 ```
 
@@ -10033,8 +10095,13 @@ This covers the WS-R8 B context rail (`⌘.`), WS-R7 B ("in chat, `@` adds the e
 - Create: `src/components/chat/contextRail.ts`, `src/components/chat/ChatContextRail.tsx`
 - Modify: `src/components/chat/ChatView.tsx`. Add pinned state, the rail as a third flex child after `:187`, the `⌘.` key, context chips in the chip row, and the `@` popover.
 - Modify: `src/components/chat/ChatInput.tsx`. Add the props `onDraftChange` and `interceptKeyDown`.
-- Modify: `src/components/chat/useChatStreaming.ts`. Add the hook option `getPinnedContext`, included in `combinedContext` (`:295`).
-- Test: `test/components/contextRail.test.js`, `test/components/chatContextRail.test.js`
+- Modify: `src/components/chat/useChatStreaming.ts`:
+  - add the hook option `getPinnedContext`, included in `combinedContext` (`:295`);
+  - recheck cancellation after the lookup (review I02);
+  - record `pinnedNotes` (review I12).
+- Modify: `src/components/chat/ChatMessage.tsx`. Pinned notes are citable; Task 20's `collectSources` call already merges `context.pinnedNotes`.
+- Modify: `test/helpers/useChatStreamingCancellation.test.js`. Add deferred pinned-context tests.
+- Test: `test/components/contextRail.test.js`, `test/components/chatContextRail.test.js`, `test/components/chatComposerMention.test.js`, `test/helpers/useChatStreamingCancellation.test.js`
 
 **Interfaces:**
 - Consumes `searchMentionEntities` and `MentionResult` (Task 18), `MentionSuggestions` (Task 18), `collectSources` (Task 19), the ChatInput `seed` (Task 4), and `useWorkspaceNavigation` (Task 3).
@@ -10051,12 +10118,16 @@ This covers the WS-R8 B context rail (`⌘.`), WS-R7 B ("in chat, `@` adds the e
   export function detectMentionQuery(text: string, caret: number): { start: number; query: string } | null;
   export function removeMentionQuery(text: string, match: { start: number; query: string }): string;
   export function pinnedFromMention(result: MentionResult): PinnedContextItem | null; // people are not context
-  export async function buildPinnedContext(items: PinnedContextItem[], api: PinnedContextApi): Promise<string>;
+  export async function buildPinnedContext(items: PinnedContextItem[], api: PinnedContextApi): Promise<{ text: string; notes: RagNoteRef[] }>;
+  // notes: every pinned note, meeting and folder note that reached the prompt, so they are citable (I12)
   export const RAIL_STORAGE_KEY = "chat.contextRailOpen";
   ```
 
 - `ChatInput` props: `onDraftChange?: (text: string, caret: number) => void` and `interceptKeyDown?: (event: React.KeyboardEvent) => boolean`. The second runs first, and returning `true` stops submit.
-- `useChatStreaming({ …, getPinnedContext?: () => Promise<string> })`.
+- `useChatStreaming({ …, getPinnedContext?: () => Promise<{ text: string; notes: RagNoteRef[] }> })`.
+  - After the lookup resolves, the hook rechecks `cancelled() || !mountedRef.current` **before** it creates an assistant message or dispatches inference (review I02).
+  - The notes are stored as `context.pinnedNotes`.
+- `ChatInput`: while an IME composition is active (`nativeEvent.isComposing` or `keyCode === 229`), `handleKeyDown` returns before calling `interceptKeyDown`. The mention picker never steals a candidate commit (review I10).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -10121,7 +10192,7 @@ test("pinned context reaches the prompt; deleted items are skipped and long note
     getNotes: async () => [{ id: 9, title: "In folder", content: "folder body" }],
     getTranscriptionById: async () => ({ id: 311, text: "Draft a reply to Maya" }),
   };
-  const text = await buildPinnedContext(
+  const { text, notes } = await buildPinnedContext(
     [{ kind: "meeting", id: 38, label: "Pricing review" }, { kind: "note", id: 404, label: "Gone" }, { kind: "folder", id: 2, label: "Work" }, { kind: "dictation", id: 311, label: "Draft…" }],
     api
   );
@@ -10129,8 +10200,141 @@ test("pinned context reaches the prompt; deleted items are skipped and long note
   assert.doesNotMatch(text, /id="404"/);
   assert.match(text, /<note id="9" title="In folder">/);
   assert.match(text, /<dictation id="311">\nDraft a reply to Maya\n<\/dictation>/);
+  assert.deepEqual(notes.map((n) => n.id), [38, 9], "every note that reached the prompt is citable");
+});
+
+test("a pinned-only note is cited even with empty RAG and tool results, and survives save and load (I12)", async () => {
+  const { buildPinnedContext } = await load();
+  const { collectSources, numberCitations } = require("../../src/components/chat/citations.ts");
+  const { notes } = await buildPinnedContext([{ kind: "note", id: 17, label: "Pricing FAQ draft" }], {
+    getNote: async () => ({ id: 17, title: "Pricing FAQ draft", content: "Local transcription is always included" }),
+    getNotes: async () => [],
+    getTranscriptionById: async () => null,
+  });
+  const saved = JSON.parse(JSON.stringify({ context: { ragNotes: [], pinnedNotes: notes } })).context;
+  const { numbers, sources } = numberCitations(
+    "Local stays included [note:17].",
+    collectSources([], [...saved.ragNotes, ...saved.pinnedNotes])
+  );
+  assert.deepEqual([...numbers], [[17, 1]]);
+  assert.equal(sources[0].title, "Pricing FAQ draft");
 });
 ```
+
+Create `test/components/chatComposerMention.test.js`. It uses Task 4's shared `mountComposer` helper:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { mountComposer: mount } = require("../helpers/harness/mountComposer");
+
+test("an IME candidate commit never reaches the mention picker or submits (I10)", async (t) => {
+  const sent = [];
+  const intercepted = [];
+  const c = await mount(t, async (text) => (sent.push(text), true), {
+    interceptKeyDown: (e) => (intercepted.push(e.key), true),
+  });
+  await c.type("@pri");
+  await c.press("Enter", { isComposing: true });
+  await c.press("Enter", { keyCode: 229 });
+  assert.deepEqual(intercepted, []);
+  assert.deepEqual(sent, []);
+});
+
+test("with the picker open, Enter selects a mention instead of submitting", async (t) => {
+  const sent = [];
+  const c = await mount(t, async (text) => (sent.push(text), true), { interceptKeyDown: () => true });
+  await c.type("@pri");
+  await c.press("Enter");
+  assert.deepEqual(sent, []);
+});
+
+test("with the picker closed, Enter submits as usual", async (t) => {
+  const sent = [];
+  const c = await mount(t, async (text) => (sent.push(text), true), { interceptKeyDown: () => false });
+  await c.type("hello");
+  await c.press("Enter");
+  assert.deepEqual(sent, ["hello"]);
+});
+```
+
+Append to `test/helpers/useChatStreamingCancellation.test.js`. Use the `hookOptions` support that Task 21 added to `renderChatStreaming`:
+
+```js
+function deferredPinned() {
+  let resolve;
+  let started = false;
+  const promise = new Promise((r) => (resolve = r));
+  return { get started() { return started; }, resolve, getPinnedContext: () => ((started = true), promise) };
+}
+const waitFor = async (check) => {
+  for (let i = 0; i < 50 && !check(); i++) await new Promise((r) => setImmediate(r));
+};
+function countingFetch(t) {
+  const original = globalThis.fetch;
+  t.after(() => (globalThis.fetch = original));
+  const calls = { count: 0 };
+  globalThis.fetch = async () => {
+    calls.count += 1;
+    const finish = `data: ${JSON.stringify(createOpenAiChunk({ content: "ok" }))}\n\ndata: ${JSON.stringify(createOpenAiChunk({}, "stop"))}\n\n`;
+    return new Response(`${finish}data: [DONE]\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  return calls;
+}
+const PINNED = { text: '<note id="17" title="Pinned">\nbody\n</note>', notes: [{ id: 17, title: "Pinned", type: "personal", date: null, quote: "body" }] };
+
+test("Stop while pinned context loads never starts a provider request (I02)", async (t) => {
+  const calls = countingFetch(t);
+  const pinned = deferredPinned();
+  const { captured, getMessages } = await renderChatStreaming(t, { hookOptions: { getPinnedContext: pinned.getPinnedContext } });
+  const send = captured.sendToAI("hello", []);
+  await waitFor(() => pinned.started);
+  captured.cancelStream();
+  pinned.resolve(PINNED);
+  await send;
+  assert.equal(calls.count, 0);
+  assert.deepEqual(getMessages(), []);
+});
+
+test("unmount while pinned context loads never starts a provider request", async (t) => {
+  const calls = countingFetch(t);
+  const pinned = deferredPinned();
+  const { captured, getMessages, unmount } = await renderChatStreaming(t, { live: true, hookOptions: { getPinnedContext: pinned.getPinnedContext } });
+  const send = captured.sendToAI("hello", []);
+  await waitFor(() => pinned.started);
+  await unmount();
+  pinned.resolve(PINNED);
+  await send;
+  assert.equal(calls.count, 0);
+  assert.deepEqual(getMessages(), []);
+});
+
+test("a newer send supersedes one still loading pinned context", async (t) => {
+  const calls = countingFetch(t);
+  const first = deferredPinned();
+  let useFirst = true;
+  const { captured, getMessages } = await renderChatStreaming(t, {
+    hookOptions: { getPinnedContext: () => (useFirst ? ((useFirst = false), first.getPinnedContext()) : Promise.resolve(PINNED)) },
+  });
+  const firstSend = captured.sendToAI("first", []);
+  await waitFor(() => first.started);
+  await captured.sendToAI("second", []);
+  first.resolve(PINNED);
+  await firstSend;
+  assert.equal(calls.count, 1);
+  assert.equal(getMessages().filter((m) => m.role === "assistant").length, 1);
+});
+
+test("a completed answer records the pinned notes it was given (I12)", async (t) => {
+  countingFetch(t);
+  const { captured, getMessages } = await renderChatStreaming(t, { hookOptions: { getPinnedContext: async () => PINNED } });
+  await captured.sendToAI("hello", []);
+  const answer = getMessages().find((m) => m.role === "assistant");
+  assert.deepEqual(answer.context.pinnedNotes.map((n) => n.id), [17]);
+});
+```
+
+If `cancelled()` (`useChatStreaming.ts:224`) does not yet treat a newer `sendToAI` as a cancellation of the older one, make it compare `sendGeneration` with `sendGenerationRef.current` too. The "newer send" test pins that.
 
 Create `test/components/chatContextRail.test.js`:
 
@@ -10178,7 +10382,7 @@ test("an empty rail explains how to add context", async () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test -- test/components/contextRail.test.js test/components/chatContextRail.test.js`
+Run: `npm test -- test/components/contextRail.test.js test/components/chatContextRail.test.js test/components/chatComposerMention.test.js test/helpers/useChatStreamingCancellation.test.js`
 Expected: FAIL with `Cannot find module`.
 
 - [ ] **Step 3: Implement**
@@ -10187,7 +10391,7 @@ Expected: FAIL with `Cannot find module`.
 
    ```ts
    import type { MentionResult } from "../../lib/mentionSearch";
-   import { collectSources } from "./citations";
+   import { collectSources, type RagNoteRef } from "./citations";
    import type { Message, ToolCallInfo } from "./types";
 
    export const RAIL_STORAGE_KEY = "chat.contextRailOpen";
@@ -10238,35 +10442,51 @@ Expected: FAIL with `Cannot find module`.
 
    const attr = (v: string) => v.replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[c]!);
    export interface PinnedContextApi {
-     getNote(id: number): Promise<{ id: number; title: string; content?: string | null; enhanced_content?: string | null } | null>;
-     getNotes(noteType: string | null, limit: number, folderId: number | null): Promise<Array<{ id: number; title: string; content?: string | null }>>;
+     getNote(id: number): Promise<{ id: number; title: string; content?: string | null; enhanced_content?: string | null; note_type?: string | null } | null>;
+     getNotes(noteType: string | null, limit: number, folderId: number | null): Promise<Array<{ id: number; title: string; content?: string | null; note_type?: string | null }>>;
      getTranscriptionById(id: number): Promise<{ id: number; text: string } | null>;
    }
 
    // What the user pinned is what the model receives: the rail never shows a
    // control that does not change the prompt.
-   export async function buildPinnedContext(items: PinnedContextItem[], api: PinnedContextApi): Promise<string> {
-     const blocks = await Promise.all(
-       items.map(async (item) => {
+   const ref = (n: { id: number; title: string; content?: string | null; note_type?: string | null }, body: string): RagNoteRef => ({
+     id: n.id,
+     title: n.title,
+     type: n.note_type ?? null,
+     date: null,
+     quote: body.replace(/\s+/g, " ").trim().slice(0, 240),
+   });
+
+   export async function buildPinnedContext(
+     items: PinnedContextItem[],
+     api: PinnedContextApi
+   ): Promise<{ text: string; notes: RagNoteRef[] }> {
+     const parts = await Promise.all(
+       items.map(async (item): Promise<{ text: string; notes: RagNoteRef[] } | null> => {
          try {
            if (item.kind === "note" || item.kind === "meeting") {
              const note = await api.getNote(item.id);
              if (!note) return null;
              const body = (note.enhanced_content || note.content || "").slice(0, PINNED_NOTE_CHARS);
-             return `<note id="${note.id}" title="${attr(note.title)}">\n${body}\n</note>`;
+             return { text: `<note id="${note.id}" title="${attr(note.title)}">\n${body}\n</note>`, notes: [ref(note, body)] };
            }
            if (item.kind === "folder") {
              const notes = await api.getNotes(null, FOLDER_NOTES, item.id);
-             return notes.map((n) => `<note id="${n.id}" title="${attr(n.title)}">\n${(n.content || "").slice(0, FOLDER_NOTE_CHARS)}\n</note>`).join("\n\n") || null;
+             if (notes.length === 0) return null;
+             return {
+               text: notes.map((n) => `<note id="${n.id}" title="${attr(n.title)}">\n${(n.content || "").slice(0, FOLDER_NOTE_CHARS)}\n</note>`).join("\n\n"),
+               notes: notes.map((n) => ref(n, (n.content || "").slice(0, FOLDER_NOTE_CHARS))),
+             };
            }
            const dictation = await api.getTranscriptionById(item.id);
-           return dictation ? `<dictation id="${dictation.id}">\n${dictation.text}\n</dictation>` : null;
+           return dictation ? { text: `<dictation id="${dictation.id}">\n${dictation.text}\n</dictation>`, notes: [] } : null;
          } catch {
            return null;
          }
        })
      );
-     return blocks.filter(Boolean).join("\n\n");
+     const present = parts.filter((p): p is { text: string; notes: RagNoteRef[] } => !!p);
+     return { text: present.map((p) => p.text).join("\n\n"), notes: present.flatMap((p) => p.notes) };
    }
    ```
 
@@ -10355,17 +10575,33 @@ Expected: FAIL with `Cannot find module`.
 3. In `src/components/chat/ChatInput.tsx`:
    - Add `onDraftChange?: (text: string, caret: number) => void; interceptKeyDown?: (event: React.KeyboardEvent) => boolean;` to the props.
    - In the composer's `onChange`, after `setInputText(value)`, call `onDraftChange?.(value, event.target.selectionStart ?? value.length)`.
-   - Keep the parent's mirror honest: wherever ChatInput changes `inputText` programmatically, also call `onDraftChange?.(next, next.length)`. Today that is the submit path that clears it to `""`, and the Task 4 `seed` effect. Otherwise a sent message would linger in `ChatView`'s `draftRef` and come back on the next pick.
-   - At the top of `handleKeyDown`, add `if (interceptKeyDown?.(e)) return;`. Plan 02's `isComposing` guard, which already returns early during IME composition, stays first.
-
-4. In `src/components/chat/useChatStreaming.ts`:
-   - Add `getPinnedContext?: () => Promise<string>;` to the options.
-   - At `:295`:
+   - Keep the parent's mirror honest: wherever ChatInput changes `inputText` programmatically, also call `onDraftChange?.(next, next.length)`.
+     - Today that means the submit path that clears it to `""`, and the render-time seed application from Task 4. Call it from an effect keyed on `appliedSeed`, because a parent callback must not run during render.
+     - Otherwise a sent message would linger in `ChatView`'s `draftRef` and come back on the next pick.
+   - At the very top of `handleKeyDown`, add:
 
      ```ts
-     const pinnedContext = (await getPinnedContext?.()) ?? "";
+     // IME owns the keyboard while composing: no mention pick, no submit (I10).
+     // Plan 02 makes this decision inside resolveComposerKey, which runs after
+     // the interceptor, so it must also happen here, first.
+     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+     if (interceptKeyDown?.(e)) return;
+     ```
+
+4. In `src/components/chat/useChatStreaming.ts`:
+   - Add `getPinnedContext?: () => Promise<{ text: string; notes: RagNoteRef[] }>;` to the options.
+   - At `:295`, directly after the existing post-RAG guard (`:294`):
+
+     ```ts
+     const pinned = (await getPinnedContext?.()) ?? { text: "", notes: [] };
+     // A new await is a new chance to be stopped, unmounted or superseded:
+     // recheck before anything is created or dispatched (I02).
+     if (cancelled() || !mountedRef.current) return;
+     const pinnedContext = pinned.text;
      const combinedContext = [noteContextRef.current, pinnedContext, ragContext].filter(Boolean).join("\n\n");
      ```
+
+   - The assistant message creation (`:346`) becomes `context: { ragNotes: rag.notes, pinnedNotes: pinned.notes, route: sentRoute }`.
 
    - Update `hasSources` from Task 19 to `ragContext.length > 0 || pinnedContext.length > 0 || (registry?.getAll().length ?? 0) > 0`. It stays gated by `citations`.
 
@@ -10394,7 +10630,7 @@ Expected: FAIL with `Cannot find module`.
    const mentionListRef = useRef<MentionSuggestionsHandle>(null);
    ```
 
-   - Pass `getPinnedContext: () => buildPinnedContext(pinnedRef.current, window.electronAPI)` into `useChatStreaming`.
+   - Pass `getPinnedContext: () => buildPinnedContext(pinnedRef.current, window.electronAPI)` into `useChatStreaming`. It now returns `{ text, notes }`.
    - `⌘.`: `useEffect` with a keydown listener: `mod && e.key === "." && !isDialogOpen(document)`, calling `preventDefault()` and then `toggleRail()`.
    - When `mentionMatch` changes, run the search:
 
@@ -10491,13 +10727,13 @@ Expected: FAIL with `Cannot find module`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/components/contextRail.test.js test/components/chatContextRail.test.js test/lib/mentionSearch.test.js test/helpers/chatMessageSubmissionLock.test.js test/locales/translationCoverage.test.js && npm run typecheck && npm run lint`
+Run: `npm test -- test/components/contextRail.test.js test/components/chatContextRail.test.js test/components/chatComposerMention.test.js test/components/chatComposerSeed.test.js test/helpers/useChatStreamingCancellation.test.js test/lib/mentionSearch.test.js test/helpers/chatMessageSubmissionLock.test.js test/locales/translationCoverage.test.js && npm run typecheck && npm run lint`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/chat src/hooks/useMentionSources.ts src/components/ui/RichTextEditor.tsx src/locales test/components/contextRail.test.js test/components/chatContextRail.test.js
+git add src/components/chat src/hooks/useMentionSources.ts src/components/ui/RichTextEditor.tsx src/locales test/components/contextRail.test.js test/components/chatContextRail.test.js test/components/chatComposerMention.test.js test/helpers/useChatStreamingCancellation.test.js
 git commit -m "feat(chat): add a context rail and @-pinned context that reaches the prompt"
 ```
 

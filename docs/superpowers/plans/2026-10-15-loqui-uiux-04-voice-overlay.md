@@ -30,10 +30,34 @@
 **Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`. It covers D1, D2, D3, D4, D9 and D10, the Plan 04 row in §3, §4, and contracts §5.1–§5.4.
 - Visual reference: `design-explorations/loqui-uiux-review.html#ch-voice`. Source: `design-explorations/loqui-uiux-review/parts/03-voice.html` (sibling worktree `t3-5038e8e6`). The picked variant cards are R1 C (lines 207–217), R6 B (412–422), R8 B (502–512), R10 A (859–868), R11 B (667–677), R12 A (708–718) and R14 B (810–820).
 - Audit: `.omc/research/ui-review/audit-voice.md` in the same sibling worktree.
-- Independent reviews this revision answers: `.omc/research/ui-review/reviews/plan-04-codex.md` (round 1) and `plan-04-codex-r2.md` (round 2, pinned at ff423fb), both in the sibling worktree.
+- Independent reviews this revision answers: `.omc/research/ui-review/reviews/plan-04-codex.md` (round 1), `plan-04-codex-r2.md` (round 2, at ff423fb) and `plan-04-codex-r3.md` (round 3, at 39822ba), all in the sibling worktree.
 - Spec state: §5 consolidated at 091d198, with the §5.2 clarifications at ff8c9cd and the D2 Linux clarification at 7f31ece.
 
 ---
+
+## Round-3 review response
+
+This revision answers `plan-04-codex-r3.md`, Codex's third review at 39822ba. It found 2 Critical and 4 Important, and its ledger closes 14 of the 18 round-2 items. All six are fixed here, in the task code and in tests that drive the production paths the probes used. None is disputed.
+
+| Finding | Severity | Where | How it is fixed | Pinned by |
+|---|---|---|---|---|
+| **R2-C2** A failed restore lost its recovery identity and audio | Critical | Task 8 | `_holdForRetry` moves the whole live ownership into a new hold **before** settlement can end the session: session, route, intents, press-time context, tracker and privacy. Nothing is ended or released. `saveFailedTranscription` now returns an acknowledged `{ audioKept }`, true only when the audio write returned `{ success: true }`. A restored failure awaits it, and re-holds whenever no usable copy survived. The generation checks are kept. The merge-failure branch takes the same path. | "a failed restore keeps its session, route and context, and a second Undo succeeds" (STT error, Sealed block, zero-day retention, refused write, rejected write; Plan 07 recovery and kept audio as controls); "a merge failure keeps the session and context too" |
+| **R3-C1** Batch Undo did not restore the persistence privacy flag | Critical | Task 8 | `_setOwnedAudio(blob, { sessionId, private })` is the only writer of `lastAudioBlob`, its owner and `lastAudioBlobPrivate`, and keeps `_recordingPrivate` consistent. Original finalization, the streaming fallback, every release and every restore go through it, before any callback or provider work can save. | "_setOwnedAudio is the only writer…" (source); "a private take cancelled before finalization stays private through Undo" (stamped at dispatch and at every save; zero writes once Plan 05's guard exists; then a non-private restore saves normally) |
+| **R1-I5** The streaming fallback counted a connection as an audio dispatch | Important | Tasks 7, 8 | The renderer no longer records evidence when `provider.start()` succeeds, in the normal start or in the Undo replay. A new main module, `streamingHandOff.js`, sends the correlated `dictation-dispatch` (`dictationStt`, `audio`) once per start, immediately before that session's first content frame leaves. It covers every streaming adapter: OpenAI realtime, Tinfoil, Deepgram, AssemblyAI, Gemini and Corti. Keep-alives, warm silence and meeting sockets never count. Frames a warm socket sent before the start arrived are reported at the start. | `streamingFirstFrameHandOff.test.js` (real IPC handlers and adapter send paths, for all six providers): a warm socket with zero frames, a queued frame forwarded later, cancel before forwarding, held or rejected connection and token fetch, back-to-back sessions, a missing correlation id. Task 7 renderer case; Task 8 "a replay that connects discloses nothing until main reports a forwarded frame" |
+| **R1-I12** A delayed window load pushed expired or replaced Settings links | Important | Task 4 | After `createControlPanelWindow` resolves, `openSettings` pushes the queue's current request only if its id still matches. The subscriber acknowledges first, and opens only when main confirms. | "a link that expires while a new control panel loads is never pushed or opened", "a link replaced while a new control panel loads never opens after the newer one" |
+| **R3-I1** The 5 s final-audio wait outlived the 2 s Undo bridge | Important | Tasks 8, 9 | The bridge stays at 2 s (`UNDO_BRIDGE_TIMEOUT_MS`). Main passes the overlay `UNDO_BRIDGE_BUDGET_MS` (1.5 s), and every pre-flight wait in `restoreCancelled` fits inside it. Past its deadline the restore refuses, atomically re-holding, and never starts the pipeline. A recording that is still arriving reads "Try Undo again", not "empty". | "a bridge Undo answers truthfully inside main's 2 s, and never starts late" (real `requestFromRenderer`, real timers, final audio at 2.1 s); Task 9 "a bridge request passes its budget…", "a refusal that keeps the recording says to try again…" |
+| **R3-I2** New tests contradicted earlier task APIs | Important | Tasks 6, 9 | The handoff harness renders the migrated single-argument `useAudioRecording({ … })`. The quit registration check is whitespace-insensitive. Neither behavioural assertion is weakened. | Task 6 handoff tests; Task 9 "main.js routes before-quit through the coordinator" |
+
+**For Plan 05 (either merge order).** The audio-ownership setter is:
+
+```js
+_setOwnedAudio(blob: Blob | null, options?: { sessionId?: string | null; private?: boolean }): void
+// defaults: sessionId = this._activeSession?.id ?? null; private = this._recordingPrivate === true
+```
+
+Plan 05 Task 5's two stamps become `this._setOwnedAudio(audioBlob);` and `this._setOwnedAudio(fallbackBlob);`. Its `releasePrivateAudio`, and the release inside its guards in `saveTranscription` and `saveFailedTranscription`, use `this._setOwnedAudio(null)`. The guards keep reading `lastAudioBlobPrivate`. Its source test checks for the setter calls instead of the bare assignments. Plan 04's "only writer" test fails on any bare `this.lastAudioBlob =` or `this.lastAudioBlobPrivate =` left outside the setter. An early return from the failed-save guard reads as `{ audioKept: false }`, which re-holds a private restored failure in RAM only.
+
+**What was run.** The Task 4 delivery tests ran against the plan's code in a scratch copy of the app: all six pass, and both new scenarios fail on the round-2 code. The other new tests need the code from earlier tasks, which does not exist yet, so they have not been run. Each task's Step "Run tests to verify they pass" runs them once the preceding tasks are applied.
 
 ## Round-2 review response
 
@@ -296,6 +320,7 @@ Each question has a default that the plan implements. A different answer changes
 8. **Crash inside the undo window.** With "Save discarded" on, the audio is saved when the window closes. A normal quit flushes it (Task 9), but a crash inside the 5–10 s window loses that one recording. A crash-proof save would mean writing to disk at cancel, which D3 forbids.
 9. **Streaming Undo pacing (Task 8).** The replay sends at 4× real time. A provider that rejects faster-than-real-time input fails that Undo. The audio goes back into its window, so the words are not lost, but that Undo cannot succeed. Should the replay drop to 1× (slower Undo for long dictations)?
 10. **A cancel while a step is already writing a temp file (Task 8).** If Esc lands while main is already merging segments, or while a local engine is already reading its input, that step's temp file exists until the step ends, usually under a second. The plan documents this in PRIVACY.md rather than killing FFmpeg or the engine mid-write. Is that acceptable, or should the merge IPC become abortable?
+11. **Gemini and Corti upload what they buffered while connecting (Task 7, R1-I5).** Both adapters flush their connection buffer when the provider accepts the session (`geminiLiveStreaming.js:279-281`, `cortiStreaming.js:348`). A dictation cancelled while they connect therefore still uploads the buffered audio. That is existing behaviour; the plan now reports it truthfully as "may have received the audio". Should a cancel during connect discard those buffers instead? That would change privacy behaviour, so it needs your decision.
 
 ## Plan 01 review hand-offs (shipped at `172f9df` on `snowopsdev/feat/uiux-foundations`)
 
@@ -403,7 +428,7 @@ These are the six failure modes most likely to bite a person, each pinned by a t
 | `src/components/voiceNotices.ts`, `src/helpers/retryDictationCleanup.js`, `src/utils/settingsDeepLink.ts`, `src/helpers/settingsLinks.js`, `*NoticeListener.tsx` | VO-Q7, VO-Q21, the acknowledged Settings deep link | 4 |
 | Toast removal | Finish the §5.3 migration | 5 |
 | `src/helpers/dictationSession.js` | Route snapshot, correlation id, the Agent operation and the press-time context per recording | 6 |
-| `src/types/dictation.ts`, `src/helpers/dictationDisclosure.js` | Shared §5.2 types; attested or dispatched disclosure from main's hand-off | 7 |
+| `src/types/dictation.ts`, `src/helpers/dictationDisclosure.js`, `src/helpers/streamingHandOff.js` | Shared §5.2 types; attested or dispatched disclosure from main's hand-off, including the first forwarded streaming frame | 7 |
 | `src/helpers/cancelBuffer.js` (+ `audioManager.js`) | RAM-only cancel buffer and same-route Undo (D3) | 8 |
 | `src/helpers/rendererRequest.js`, `src/helpers/quitCoordinator.js`, `src/hooks/useAudioRecording.js`, `src/hooks/useUndoCancelHotkey.ts`, `main.js` | §5.2 lifecycle, Esc ownership, Undo bridge, coordinated quit flush | 9 |
 | `src/helpers/voicePillPresentation.js` | Stage, footprint and ownership model; VO-Q5, Q12, Q18 | 10 |
@@ -2720,7 +2745,7 @@ git commit -m "feat(voice): pill-anchored notice chips and the words-first card"
 ### Task 4: Voice notices: cleanup, Tinfoil, dictation errors, meeting and main-process notices
 
 Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3 migration. It also closes these review findings:
-- I12 (and its round-2 follow-up): the Settings action opens the route's actual section, even when the control panel is still loading or is reloading. Main holds the request until the panel's subscriber acknowledges it, and drops it after 15 s;
+- I12 (and its round-2 and round-3 follow-ups): the Settings action opens the route's actual section, even when the control panel is still loading or is reloading. Main holds the request until the panel's subscriber acknowledges it, and drops it after 15 s. A request that is acknowledged, expires or is replaced while a new window loads is never pushed or opened later;
 - I10: a failed Retry cleanup leaves its explanation on screen. This is pinned end to end against the real store;
 - R2-C3: every failed dictation that holds content gets its own notice, `dictation-recovery:<sessionId>`. A later recording, error or success never removes it. Only a delivered Paste again or the user's Dismiss does. A failure without content keeps the stable `dictation-error` id, which the next status replaces and the next start or success clears.
 
@@ -2806,7 +2831,7 @@ Covers VO-Q7, VO-Q21 and VO-R6 B (wiring), plus the voice-side half of the §5.3
   type SettingsLinkResult = { delivered: true } | { delivered: false; reason: "timeout" | "replaced" };
   openSettingsAt?: (settingsPath: string) => Promise<SettingsLinkResult>;
   pendingSettingsLink?: () => Promise<SettingsLink | null>;   // control panel only
-  ackSettingsLink?: (id: string) => Promise<boolean>;          // control panel only
+  ackSettingsLink?: (id: string) => Promise<boolean>;          // control panel only; true only for the pending request
   onShowSettings?: (callback: (link?: SettingsLink) => void) => () => void;
   ```
 
@@ -3178,6 +3203,10 @@ The fix is a pending request with an acknowledgment. Main keeps the request unti
 - a request nobody acknowledges expires after 15 s, so a stale link never opens Settings much later;
 - a newer request replaces an older one.
 
+Two rules keep a stale request from coming back:
+- main pushes only the queue's current request. For a new window, `createControlPanelWindow` waits for the first page load (line 1394), and the request can be acknowledged, expire or be replaced meanwhile. The waiting `openSettings` call then pushes nothing; it does not send the link it captured before the wait;
+- the subscriber opens a request only after main confirms it. It acknowledges first, and opens only if main answers `true`. A push that was in transit when its request expired or was replaced opens nothing.
+
 No load event is involved, so new and existing windows behave the same.
 
 1. Create `test/components/settingsDeepLink.test.js`:
@@ -3226,16 +3255,37 @@ No load event is involved, so new and existing windows behave the same.
      return { promise, resolve };
    }
 
+   // Expiry timers that fire only when the test says so.
+   function manualTimers() {
+     const due = new Set();
+     return {
+       setTimeout: (fn) => {
+         const timer = { fn };
+         due.add(timer);
+         return timer;
+       },
+       clearTimeout: (timer) => due.delete(timer),
+       fireAll: () => {
+         for (const timer of [...due]) {
+           due.delete(timer);
+           timer.fn();
+         }
+       },
+     };
+   }
+
    const created = [];
 
    class FakeWebContents extends EventEmitter {
      constructor() {
        super();
        this.document = null; // the page loaded right now, if any
+       this.sent = []; // every main → renderer message, delivered or not
      }
      // Main → renderer: reaches only the current page, and only the listeners
      // it has registered so far.
      send(channel, payload) {
+       this.sent.push({ channel, payload });
        this.document?.deliver(channel, payload);
      }
      setWindowOpenHandler() {}
@@ -3315,12 +3365,15 @@ No load event is involved, so new and existing windows behave the same.
    const PRELOAD = fs.readFileSync(path.join(__dirname, "../../preload.js"), "utf8");
    const flush = () => new Promise((resolve) => setImmediate(resolve));
    const deepLink = () => import("../../src/utils/settingsDeepLink.ts");
+   // What main pushed on "show-settings", whether or not a page received it.
+   const showSettingsSends = (panel) =>
+     panel.webContents.sent.filter((m) => m.channel === "show-settings").map((m) => m.payload);
 
-   function setup(t, { ttlMs } = {}) {
+   function setup(t, { ttlMs, timers } = {}) {
      created.length = 0;
      const handlers = new Map();
      const manager = new WindowManager();
-     if (ttlMs) manager.settingsLinks = createSettingsLinkQueue({ ttlMs });
+     if (ttlMs || timers) manager.settingsLinks = createSettingsLinkQueue({ ttlMs, timers });
      registerSettingsLinkIpc({ handle: (channel, handler) => handlers.set(channel, handler) }, manager);
      t.after(() => manager._clearControlPanelVisibilityTimer());
 
@@ -3374,6 +3427,7 @@ No load event is involved, so new and existing windows behave the same.
 
      subscribeSettingsDeepLinks(page, (section) => opened.push(section));
      assert.deepEqual(await result, { delivered: true });
+     await flush();
      assert.deepEqual(opened, ["llms/cleanup"]);
    });
 
@@ -3394,6 +3448,7 @@ No load event is involved, so new and existing windows behave the same.
      assert.deepEqual(await first, { delivered: true });
      // A loaded, subscribed panel gets the next request by push.
      assert.deepEqual(await manager.openSettings("llms/cleanup"), { delivered: true });
+     await flush();
      assert.deepEqual(opened, ["privacyData", "llms/cleanup"]);
 
      // The panel reloads. The request arrives before the new page subscribes.
@@ -3404,6 +3459,7 @@ No load event is involved, so new and existing windows behave the same.
      assert.deepEqual(opened, ["privacyData", "llms/cleanup"], "nothing reached the unloading page");
      subscribeSettingsDeepLinks(loadDocument(panel.webContents), open);
      assert.deepEqual(await during, { delivered: true });
+     await flush();
      assert.deepEqual(opened, ["privacyData", "llms/cleanup", "general"]);
      assert.equal(created.length, 1, "the existing window was reused");
    });
@@ -3421,6 +3477,61 @@ No load event is involved, so new and existing windows behave the same.
      subscribeSettingsDeepLinks(loadDocument(panel.webContents), (section) => opened.push(section));
      await flush();
      assert.deepEqual(opened, []);
+   });
+
+   test("a link that expires while a new control panel loads is never pushed or opened (I12 round 3)", async (t) => {
+     const { subscribeSettingsDeepLinks } = await deepLink();
+     const clock = manualTimers();
+     const { manager, loadDocument } = setup(t, { timers: clock });
+     const opened = [];
+
+     const result = manager.openSettings("llms/cleanup");
+     const link = manager.settingsLinks.peek();
+     await flush();
+     const [panel] = created;
+     // 15 s pass while the first page load is still pending.
+     clock.fireAll();
+     subscribeSettingsDeepLinks(loadDocument(panel.webContents), (section) => opened.push(section));
+     await flush();
+     // The load finishes, and the suspended openSettings call resumes.
+     panel.load.resolve();
+     assert.deepEqual(await result, { delivered: false, reason: "timeout" });
+     await flush();
+     assert.deepEqual(opened, []);
+     assert.deepEqual(showSettingsSends(panel), [], "main pushed nothing for the expired request");
+
+     // A push already in transit when the request expired opens nothing either.
+     panel.webContents.send("show-settings", link);
+     await flush();
+     assert.deepEqual(opened, []);
+   });
+
+   test("a link replaced while a new control panel loads never opens after the newer one (I12 round 3)", async (t) => {
+     const { subscribeSettingsDeepLinks } = await deepLink();
+     const { manager, loadDocument } = setup(t);
+     const opened = [];
+
+     const first = manager.openSettings("privacyData");
+     await flush();
+     const [panel] = created;
+     // The window already exists, so the newer call does not wait for the load.
+     const newer = manager.openSettings("llms/cleanup");
+     subscribeSettingsDeepLinks(loadDocument(panel.webContents), (section) => opened.push(section));
+     assert.deepEqual(await newer, { delivered: true });
+     await flush();
+     assert.deepEqual(opened, ["llms/cleanup"]);
+
+     // Only now does the first call's wait for the page load end.
+     panel.load.resolve();
+     assert.deepEqual(await first, { delivered: false, reason: "replaced" });
+     await flush();
+     assert.deepEqual(opened, ["llms/cleanup"], "the page stays on the newer section");
+     assert.deepEqual(
+       showSettingsSends(panel).map((link) => link.path),
+       ["llms/cleanup"],
+       "the replaced request was never pushed"
+     );
+     assert.equal(created.length, 1);
    });
 
    test("a newer link replaces an older one; only the control panel may read or acknowledge it", async (t) => {
@@ -3473,23 +3584,28 @@ No load event is involved, so new and existing windows behave the same.
     * request until this acknowledges it. A request sent while the panel was
     * loading or reloading is fetched here on mount, so it is never lost into a
     * page that had no listener yet. The push and the mount check can carry the
-    * same request; it opens once.
+    * same request; it opens once. A request opens only after main confirms it
+    * is still the current one, so an expired or replaced request never opens.
     */
    export function subscribeSettingsDeepLinks(
      api: SettingsLinkApi | undefined,
      open: (section: string | undefined) => void
    ): () => void {
-     if (!api?.onShowSettings) return () => {};
+     const ack = api?.ackSettingsLink;
+     if (!api?.onShowSettings || !ack) return () => {};
      let disposed = false;
      let lastId: string | null = null;
      const apply = (link: SettingsLink | null | undefined) => {
-       if (disposed) return;
-       if (link?.id) {
-         if (link.id === lastId) return;
-         lastId = link.id;
-       }
-       open(parseSettingsDeepLink(link));
-       if (link?.id) void api.ackSettingsLink?.(link.id);
+       if (disposed || !link?.id || link.id === lastId) return;
+       lastId = link.id;
+       // Main answers true only for its current request. A push that was in
+       // transit when the request expired or was replaced gets false.
+       void ack(link.id).then(
+         (current) => {
+           if (current) open(parseSettingsDeepLink(link));
+         },
+         () => {}
+       );
      };
      const unsubscribe = api.onShowSettings(apply);
      void api.pendingSettingsLink?.().then(
@@ -3506,6 +3622,8 @@ No load event is involved, so new and existing windows behave the same.
    ```
 
    A disposed subscriber never acknowledges, so in React's development double mount the second subscriber still finds the request pending.
+
+   The subscriber acknowledges before it opens. `ack` returns `true` only for the queue's pending request, so the acknowledgment is the check that the request is still current. Settings opens one IPC round trip later than before. Main always sends a link with an id, so a payload without one is ignored. Without `onShowSettings` or `ackSettingsLink` the subscriber does nothing. Browser Preview has neither, so it is unchanged.
 
 3. Create `src/helpers/settingsLinks.js`:
 
@@ -3583,11 +3701,19 @@ No load event is involved, so new and existing windows behave the same.
          // up when its subscriber mounts, so nothing here waits on load events.
          const { link, done } = this.settingsLinks.enqueue(settingsPath);
          await this.createControlPanelWindow();
+         // A new window waits for its first page load. Meanwhile this request
+         // may have been acknowledged, expired or been replaced. Push only the
+         // queue's current request, and only while it is still this one.
+         const current = this.settingsLinks.peek();
          const panel = this.controlPanelWindow;
-         if (panel && !panel.isDestroyed()) panel.webContents.send("show-settings", link);
+         if (current?.id === link.id && panel && !panel.isDestroyed()) {
+           panel.webContents.send("show-settings", current);
+         }
          return done;
        }
      ```
+
+   The pushed value is always `peek()`, never the link captured before the wait. A replaced call's own request is gone from the queue, so only the newer call pushes.
 
    The menu callers (lines 165, 1347, 2228 and 2231) keep calling `openSettings()` with no argument and do not await it.
 5. `src/helpers/ipcHandlers.js`: add `const { registerSettingsLinkIpc } = require("./settingsLinks");` with the other requires, and call `registerSettingsLinkIpc(ipcMain, this.windowManager);` after the `window-is-maximized` handler (lines 1176–1181).
@@ -4559,7 +4685,7 @@ test("the panel answers a voice command on its dictation's route, with its corre
 In `test/helpers/useAudioRecordingClipboardPersistence.test.js`, let `mountCompletionHarness` (`:64-173`) wire the two Agent callbacks:
 - Add `onAssistantCommand = NOOP`, `onOnboardingAssistantCommand = NOOP` and `onboardingCompleted = false` to its options.
 - Pass `initialStorage: onboardingCompleted ? { onboardingCompleted: "true" } : {}` to `installBrowserGlobals`.
-- Render `useAudioRecording(NOOP, { onDemoEvent: NOOP, onAssistantCommand, onOnboardingAssistantCommand })`.
+- Render `useAudioRecording({ onDemoEvent: NOOP, onAssistantCommand, onOnboardingAssistantCommand })`. That is the single-argument hook Task 4 migrates to. A leftover `useAudioRecording(NOOP, {…})` would pass the callbacks as an ignored second argument, and neither handoff would ever fire (R3-I2).
 
 Then add:
 
@@ -5065,8 +5191,8 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
    - `src/helpers/ipcHandlers.js:7963-7989`: add `correlationId` to the destructured `transcribe-audio-file-byok` arguments and pass it to the job registration and to any egress gate call Plan 07 has installed.
    - `src/helpers/personalInference.js` `validateRequest` (`:93-171`): accept an optional `correlationId` string of at most 100 characters (`throw new Error("Invalid correlation id.")` otherwise).
    - `src/services/ai/personalInferenceTypes.ts` `TextRequest` (`:6-20`): add `correlationId?: string | null`.
-   - `buildStreamingSessionOptions` (`dictationStreamingRouting.js:49-71`) passes `correlationId` through, and the hardened `dictation-realtime-start` allowlist (`ipcHandlers.js`, see the #1624 comment at `:300-302`) admits it. The per-provider start channels (Deepgram, AssemblyAI, Gemini, Corti) admit it too.
-   - `test/helpers/audioManagerStreamingRouting.test.js` pins that allowlist; extend it with the new field.
+   - `buildStreamingSessionOptions` (`dictationStreamingRouting.js:49-71`) passes `correlationId` through. The `dictation-realtime-start` handler and the per-provider start channels (Deepgram, AssemblyAI, Gemini, Corti) receive the options object whole, with no field allowlist, so nothing else needs to admit it.
+   - Extend `test/helpers/audioManagerStreamingRouting.test.js` to assert that `buildStreamingSessionOptions` carries `correlationId` for every streaming provider.
 7. **The whole operation (R1-C2).**
    - **The session's reads.** Add the ownership check, and read the selection and the screenshot through the session context:
 
@@ -5179,7 +5305,7 @@ git commit -m "feat(voice): dictation sessions pin their route and their Agent o
 
 ### Task 7: Who already received it: shared types and attested disclosure
 
-Closes review finding I5 (round 2: R1-I5) and R2-I1, and settles the disclosure shape with Plan 07 (CCR-6).
+Closes review finding I5 (rounds 2 and 3: R1-I5) and R2-I1, and settles the disclosure shape with Plan 07 (CCR-6).
 
 "OpenAI already received the audio" is a claim about egress, so main must attest it. When Plan 07's egress gate is present, evidence comes **only** from main's `EgressNotice`s for this session's `correlationId` with a content payload (spec §5.4):
 - `delivered` means `attested` ("already received");
@@ -5191,7 +5317,7 @@ Renderer-side records are then ignored. The gate is absent only if Plan 07 has n
 - Main sends `dictation-dispatch` `{ correlationId, task, payload }` to the requesting window immediately before a provider request leaves. That covers the BYOK upload and every cleanup, translation, Agent and vision text request, Codex included.
 - The renderer never infers dispatch from a result or an error. A renderer-side failure before IPC, a main rejection, a refused route, a missing key and a cancel before the upload all record nothing.
 - A cancel during a slow upload discloses as soon as the upload starts, not when the response settles.
-- Realtime streaming records once `provider.start()` resolves successfully. Main answers the start only after the socket has connected, and the frames sent while it connected are already queued in main (`ipcHandlers.js:7053-7056`).
+- Streaming dictation uses the same event. Each streaming adapter in main sends it on the line before the session's **first content frame** leaves on its socket (§5.4: "the first frame forwarded, never for a warm or idle socket"). The renderer records nothing when `provider.start()` succeeds (round 3). A successful start proves only a connection: `dictation-realtime-start` answers at once for an already-connected socket (`ipcHandlers.js:7733-7742`). Frames queued while a socket connects count only when they are sent.
 - The copy then says "may have received", never "already received".
 
 Sealed-mode blocks record nothing either way. Provider-mode custom endpoints on loopback resolve to the device through Plan 03's resolver (§5.1 rule 10), so they never produce a disclosure.
@@ -5204,14 +5330,23 @@ Sealed-mode blocks record nothing either way. Provider-mode custom endpoints on 
 - Modify: `src/helpers/dictationSession.js`. `captureDictationSession` also stores `session.routes`: the Plan 03 `ResolvedRoute` for `dictationStt`, `dictationCleanup`, `translation`, `voiceAssistant` and `assistantVision`, from `routeSnapshotFromSettings`.
 - Modify: `src/helpers/audioManager.js`:
   - add the per-session disclosure tracker;
-  - record the streaming start;
   - tag each text route config with its `disclosureTask` (`resolveReasoningRoute`, `:159-289`).
+- Create: `src/helpers/streamingHandOff.js`. Main's first-frame hand-off for streaming dictation.
+- Modify the streaming adapters, so each reports its content frames:
+  - `src/helpers/openaiRealtimeStreaming.js` `sendAudio` (`:533-570`), which Tinfoil dictation also runs on (`ipcHandlers.js:7051`, `:7063-7071`);
+  - `src/helpers/deepgramStreaming.js` `sendAudio` (`:836-886`);
+  - `src/helpers/assemblyAiStreaming.js` `sendAudio` (`:608-640`);
+  - `src/helpers/geminiLiveStreaming.js` `_sendAudioFrame` (`:352-362`);
+  - `src/helpers/cortiStreaming.js` `flushPreConfigBuffer` (`:397-409`) and `sendAudio` (`:411-429`).
 - Modify: `src/services/ReasoningService.ts:38-62`, `src/services/BaseReasoningService.ts:8-30`, `src/services/ai/personalInferenceTypes.ts:6-20`. A text request carries `disclosureTask`.
 - Modify: `src/helpers/personalInference.js`. `validateRequest` (`:93-171`) checks `disclosureTask`. `execute` (`:347-512`) sends the hand-off right before `codex.generate` (`:392`), `streamText` (`:471`) and `generateText` (`:489`).
-- Modify: `src/helpers/ipcHandlers.js` `transcribe-audio-file-byok` (`:7963-8312`). Send the hand-off right before each of its five provider requests (`:8089`, `:8118`, `:8131`, `:8146`, `:8241`).
+- Modify: `src/helpers/ipcHandlers.js`:
+  - `transcribe-audio-file-byok` (`:7963-8312`): send the hand-off right before each of its five provider requests (`:8089`, `:8118`, `:8131`, `:8146`, `:8241`);
+  - the five streaming start handlers arm their adapter for the session: `dictation-realtime-start` (`:7733-7742`, through `connectDictationStreaming`, `:7024-7093`), `assemblyai-streaming-start` (`:8472-8556`), `deepgram-streaming-start` (`:8649-8742`), `gemini-streaming-start` (`:8870-8897`) and `corti-streaming-start` (`:8978-9015`);
+  - the stop handlers whose adapter outlives the session end it: `deepgram-streaming-stop` (`:8784-8798`), `gemini-streaming-stop` (`:8933-8947`) and `corti-streaming-stop` (`:9025-9038`).
 - Modify: `preload.js`. Add `onDictationDispatch` after `transcribeAudioFileByok` (`:703`).
 - Modify: `src/types/electron.ts`. Declare `onDictationDispatch?` after `transcribeAudioFileByok?` (`:1713-1738`).
-- Test: `test/helpers/dictationDisclosure.test.js`
+- Test: `test/helpers/dictationDisclosure.test.js`, `test/helpers/streamingFirstFrameHandOff.test.js`
 - Modify: `test/helpers/dictationSession.test.js`, `test/helpers/personalInferenceTransport.test.js`, `test/helpers/retryTranscriptionHandler.test.js`
 
 **Interfaces:**
@@ -5229,7 +5364,8 @@ Sealed-mode blocks record nothing either way. Provider-mode custom endpoints on 
     evidence: "attested" | "dispatched"; // attested = main's EgressNotice; dispatched = main's transport hand-off
     alsoSentTo: string[];                // every other target that received part of this dictation (never hidden)
   }
-  /** Main → the requesting window, immediately before a provider request leaves. The no-Plan-07 evidence. */
+  /** Main → the requesting window, immediately before a provider request, or a streaming session's
+   *  first audio frame, leaves. The no-Plan-07 evidence. */
   export interface DictationDispatch {
     correlationId: string;
     task: DisclosureTask;
@@ -5274,6 +5410,16 @@ Sealed-mode blocks record nothing either way. Provider-mode custom endpoints on 
   ```
 
 - Produces, main → renderer: the `dictation-dispatch` event (`DictationDispatch`), and `window.electronAPI.onDictationDispatch(cb): () => void`.
+- Produces, main only (`src/helpers/streamingHandOff.js`, CommonJS):
+
+  ```js
+  firstFrameHandOff(sender, correlationId): (() => void) | null; // once-only; null when the start names no dictation
+  armFirstFrame(adapter, handOff): void;  // a start handler, before its adapter can forward this session's audio
+  contentFrameLeaving(adapter): void;     // an adapter, on the line before a content frame goes out on its socket
+  disarmFirstFrame(adapter): void;        // a stop handler, after its adapter's last flush
+  ```
+
+- Consumes, from Task 6: `correlationId` in the streaming start options. `buildStreamingSessionOptions` passes it through, and every start handler receives the options whole.
 - Produces, on `TextRequest` / `ReasoningConfig`: `disclosureTask?: DisclosureTask | null`. Main validates it and echoes it in the hand-off. Without both `correlationId` and `disclosureTask`, a text request is never handed off, so typed chat and the panel's later requests produce no dictation evidence.
 
 - [ ] **Step 1: Write the failing tests**
@@ -5516,6 +5662,108 @@ test("a text request refused before IPC or by main discloses nothing", async (t)
 });
 ```
 
+Add this streaming case to the same file (round 3). It runs the real `startStreamingRecording` and its real worklet handler (`audioManager.js:3500-3506`). The provider's `send` stands in for main's adapter: it hands off once, when the first frame is forwarded. The test fails if the renderer records at a successful start.
+
+```js
+const REALTIME_STT = { useLocalWhisper: false, transcriptionMode: "providers", cloudTranscriptionProvider: "openai", cloudTranscriptionModel: "gpt-4o-mini-transcribe" };
+
+async function streamingManagerWith(t) {
+  const loaded = await loadAudioManager(t, {
+    cachePrefix: "loqui-disclosure-streaming-",
+    settingsKey: "__disclosureStreamingSettings",
+    settings: REALTIME_STT,
+    mockModules: { "/stores/settingsStore": realSettingsStoreSource("__disclosureStreamingSettings") },
+  });
+  const bus = new EventEmitter();
+  loaded.window.electronAPI = { ...loaded.window.electronAPI, onDictationDispatch: (cb) => (bus.on("d", cb), () => bus.off("d", cb)) };
+  const previousWorklet = globalThis.AudioWorkletNode;
+  const worklets = [];
+  globalThis.AudioWorkletNode = class {
+    constructor() {
+      this.port = { postMessage() {} };
+      worklets.push(this);
+    }
+    connect() {}
+    disconnect() {}
+  };
+  t.after(() => {
+    if (previousWorklet === undefined) delete globalThis.AudioWorkletNode;
+    else globalThis.AudioWorkletNode = previousWorklet;
+  });
+  const io = { startOptions: null, sends: 0 };
+  const provider = {
+    onPartial: () => () => {},
+    onFinal: () => () => {},
+    onError: () => () => {},
+    onSessionEnd: () => () => {},
+    // An already-connected socket: main answers at once and forwards nothing (ipcHandlers.js:7733-7742).
+    start: async (options) => ((io.startOptions = options), { success: true, usedWarmConnection: true }),
+    send: () => {
+      io.sends += 1;
+      // Main's adapter: one hand-off, on the line before the first frame leaves.
+      if (io.sends === 1) bus.emit("d", { correlationId: io.startOptions.correlationId, task: "dictationStt", payload: "audio" });
+    },
+    stop: async () => ({ success: true }),
+  };
+  const stream = { getAudioTracks: () => [{ getSettings: () => ({}) }], getTracks: () => [{ stop() {} }] };
+  const source = { connect() {}, disconnect() {} };
+  const manager = loaded.createManager({
+    isRecording: false,
+    isProcessing: false,
+    isStreaming: false,
+    streamingStartInProgress: false,
+    _streamingStartSettlementWaiters: [],
+    stopRequestedDuringStreamingStart: false,
+    _streamingStopPromise: null,
+    _streamingStopMode: null,
+    _streamingCancellationGeneration: 0,
+    _activeTranscriptionAbortController: null,
+    _streamingSessionGeneration: 0,
+    _activeStreamingSessionId: null,
+    streamingCleanupFns: [],
+    streamingFallbackRecorder: null,
+    streamingFallbackChunks: [],
+    _streamingFallbackSegments: [],
+    streamingTextDebounce: null,
+    preparedMicCapture: { take: async () => null },
+    micRecovery: { stop() {} },
+    getAudioConstraints: async () => ({}),
+    _acquireCaptureStream: async () => stream,
+    startStreamingFallbackRecorder() {},
+    getOrCreateAudioContext: async () => ({
+      createMediaStreamSource: () => source,
+      createAnalyser: () => ({}),
+      audioWorklet: { addModule: async () => {} },
+    }),
+    getWorkletBlobUrl: () => "",
+    getStreamingProvider: () => provider,
+    getEffectiveSttLanguage: () => "auto",
+    getKeyterms: () => [],
+    beginMicRecovery: async () => {},
+    cleanupPreview: async () => null,
+    _markCaptureStreamReleased() {},
+  });
+  return { manager, worklets, io };
+}
+
+test("a streaming start that succeeds discloses nothing until main hands off the first frame (§5.4)", async (t) => {
+  const { manager, worklets, io } = await streamingManagerWith(t);
+  assert.equal(await manager.startStreamingRecording(), true);
+  assert.equal(io.startOptions.correlationId, manager._activeSession.id, "Task 6 passes the session id in the start options");
+  assert.equal(manager.getDisclosure(), null, "a connected socket with no frame forwarded is not a dispatch");
+
+  worklets[0].port.onmessage({ data: "flushed" });
+  assert.equal(io.sends, 0, "the worklet's end sentinel is not audio");
+  assert.equal(manager.getDisclosure(), null);
+
+  worklets[0].port.onmessage({ data: new Int16Array(1600).buffer });
+  assert.deepEqual(manager.getDisclosure(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
+  worklets[0].port.onmessage({ data: new Int16Array(1600).buffer });
+  assert.equal(io.sends, 2);
+  assert.deepEqual(manager.getDisclosure(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
+});
+```
+
 Add the route cases to `test/helpers/dictationSession.test.js` (R2-I1). They load the **real** Plan 03 modules through the renderer harness, with no mocks:
 
 ```js
@@ -5652,10 +5900,456 @@ test("captured dictation audio is handed off right before the upload, never on a
 });
 ```
 
+Create `test/helpers/streamingFirstFrameHandOff.test.js` (round 3). It registers the real IPC handlers, as `retryTranscriptionHandler.test.js` does (`:83-179`), and drives the real start, send and stop handlers through the five real adapters. Only `ws`, the token fetch and Electron are fakes. Every provider runs the shared cases. The fake socket answers each provider's close handshake, so a stop never waits out a timeout.
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const Module = require("node:module");
+const osNode = require("node:os");
+const { EventEmitter } = require("node:events");
+
+const handlersModulePath = require.resolve("../../src/helpers/ipcHandlers");
+// The real adapters the start handlers drive. Only their `ws` is replaced.
+const ADAPTER_PATHS = new Set(
+  ["openaiRealtimeStreaming", "deepgramStreaming", "assemblyAiStreaming", "geminiLiveStreaming", "cortiStreaming"].map(
+    (name) => require.resolve(`../../src/helpers/${name}`)
+  )
+);
+const originalLoad = Module._load;
+
+// One timeline for the whole exchange: each content frame that leaves on any
+// socket, and each hand-off main sends to the renderer.
+const timeline = [];
+const dispatches = [];
+const sockets = [];
+const isContentFrame = (data) =>
+  Buffer.isBuffer(data)
+    ? data.some((byte) => byte !== 0) // Deepgram's warm keep-alive is all-zero silence, never the user's audio
+    : /"input_audio_buffer\.append"|"realtimeInput":\{"audio"/.test(String(data));
+
+// Each provider's close handshake, answered on the next turn.
+const SERVER_REPLIES = [
+  [/"input_audio_buffer\.commit"/, { type: "conversation.item.input_audio_transcription.completed", transcript: "" }],
+  [/"Terminate"/, { type: "Termination" }],
+  [/"type":"flush"/, { type: "flushed" }],
+  [/"audioStreamEnd"/, { serverContent: { generationComplete: true } }],
+  [/"CloseStream"/, "close"],
+];
+
+class FakeSocket extends EventEmitter {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
+  constructor(url) {
+    super();
+    this.url = String(url);
+    this.readyState = FakeSocket.CONNECTING;
+    this.sent = [];
+    sockets.push(this);
+  }
+
+  send(data) {
+    this.sent.push(data);
+    if (isContentFrame(data)) timeline.push("frame");
+    const reply = !Buffer.isBuffer(data) && SERVER_REPLIES.find(([pattern]) => pattern.test(String(data)));
+    if (!reply) return;
+    setImmediate(() => {
+      if (reply[1] !== "close") return this.emit("message", JSON.stringify(reply[1]));
+      this.readyState = FakeSocket.CLOSED;
+      this.emit("close", 1000, Buffer.from(""));
+    });
+  }
+
+  ping() {}
+
+  terminate() {
+    this.readyState = FakeSocket.CLOSED;
+  }
+
+  close() {
+    this.readyState = FakeSocket.CLOSED;
+  }
+}
+
+// The token fetch (fetchRealtimeToken, ipcHandlers.js:5938-5949) and Corti's mint
+// are network round trips. A test can hold or fail them.
+let realtimeToken = async () => "token";
+
+const handlers = new Map();
+const listeners = new Map();
+const electronStub = {
+  app: {
+    getPath: () => osNode.tmpdir(),
+    getName: () => "test",
+    getVersion: () => "0.0.0",
+    isPackaged: false,
+    on: () => {},
+    requestSingleInstanceLock: () => true,
+  },
+  ipcMain: {
+    handle: (channel, fn) => handlers.set(channel, fn),
+    on: (channel, fn) => listeners.set(channel, fn),
+    removeHandler: () => {},
+  },
+  net: {
+    fetch: async () => {
+      throw new Error("This suite makes no HTTP requests.");
+    },
+  },
+  BrowserWindow: class BrowserWindow {
+    static getAllWindows() {
+      return [];
+    }
+    static fromWebContents() {
+      return null;
+    }
+  },
+  shell: {},
+  dialog: {},
+  screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
+  systemPreferences: { getMediaAccessStatus: () => "granted" },
+  session: { fromPartition: () => ({}) },
+  clipboard: {},
+  nativeImage: {},
+  globalShortcut: {},
+  utilityProcess: {},
+  MessageChannelMain: class {},
+};
+
+Module._load = function loadWithFakes(request, parent, isMain) {
+  if (request === "electron") return electronStub;
+  if (request === "ws" && ADAPTER_PATHS.has(parent?.filename)) return FakeSocket;
+  if (request === "./safeTempDir") return { getSafeTempDir: () => osNode.tmpdir() };
+  if (parent?.filename === handlersModulePath) {
+    if (request === "./windowBroadcast") return { broadcastToWindows: () => {} };
+    if (request === "./realtimeTokenProviders") {
+      const real = originalLoad.call(this, request, parent, isMain);
+      return { ...real, fetchRealtimeTokenForProvider: (provider) => realtimeToken(provider) };
+    }
+    if (request === "./tinfoilSecureClient") {
+      const real = originalLoad.call(this, request, parent, isMain);
+      return { ...real, createTinfoilRealtimeSocket: async () => new FakeSocket("wss://tinfoil.test/v1/realtime") };
+    }
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+function anything() {
+  return new Proxy(function () {}, {
+    get: (t, prop) => {
+      if (prop === Symbol.toPrimitive || prop === "toString") return () => "";
+      if (prop === "then") return undefined;
+      return anything();
+    },
+    apply: () => anything(),
+  });
+}
+
+// The handlers' `this`: every adapter slot starts empty, as in the constructor (ipcHandlers.js:299-306).
+const self = new Proxy(
+  {
+    environmentManager: {},
+    _dictationStreaming: null,
+    _dictationConnectPromise: null,
+    _dictationIdleTimer: null,
+    _dictationPreviewEnabled: false,
+    assemblyAiStreaming: null,
+    deepgramStreaming: null,
+    geminiStreaming: null,
+    cortiStreaming: null,
+    _mintStoredCortiToken: async () => ({ token: await realtimeToken("corti"), environment: "eu", tenant: "acme" }),
+  },
+  { get: (target, prop) => (prop in target ? target[prop] : anything()) }
+);
+
+const event = {
+  sender: {
+    isDestroyed: () => false,
+    send: (channel, payload) => {
+      if (channel !== "dictation-dispatch") return;
+      timeline.push("dispatch");
+      dispatches.push(payload);
+    },
+  },
+};
+
+test.before(() => {
+  delete require.cache[handlersModulePath];
+  const IPCHandlers = require(handlersModulePath);
+  (IPCHandlers.default || IPCHandlers).prototype.setupHandlers.call(self);
+});
+
+test.after(() => {
+  Module._load = originalLoad;
+});
+
+test.beforeEach(() => {
+  timeline.length = 0;
+  dispatches.length = 0;
+  realtimeToken = async () => "token";
+});
+
+// A failed assertion can leave a token fetch or a handshake pending, and the next
+// start would wait on it. Settle both, then let no keep-alive, liveness or refresh
+// timer outlive its test.
+test.afterEach(async () => {
+  for (const gate of gates.splice(0)) gate.reject(new Error("The test ended."));
+  for (const socket of sockets) {
+    if (socket.readyState === FakeSocket.CLOSED) continue;
+    socket.readyState = FakeSocket.CLOSED;
+    socket.emit("close", 1006, Buffer.from(""));
+  }
+  await tick();
+  clearTimeout(self._dictationIdleTimer);
+  for (const key of ["_dictationStreaming", "assemblyAiStreaming", "deepgramStreaming", "geminiStreaming", "cortiStreaming"]) {
+    const adapter = self[key];
+    if (!adapter) continue;
+    adapter.cleanupWarmConnection?.();
+    adapter.cleanupAll?.();
+    adapter.cleanup();
+    adapter.stopKeepAlive?.();
+    self[key] = null;
+  }
+});
+
+const json = (message) => JSON.stringify(message);
+const open = (socket) => {
+  socket.readyState = FakeSocket.OPEN;
+  socket.emit("open");
+};
+const realtime = (provider, model) => ({
+  start: "dictation-realtime-start",
+  send: "dictation-realtime-send",
+  warmup: "dictation-realtime-warmup",
+  stop: "dictation-realtime-stop",
+  options: { provider, model },
+  accept: (socket) => {
+    socket.emit("message", json({ type: "session.created" }));
+    socket.emit("message", json({ type: "session.updated" }));
+  },
+});
+const channels = (prefix) => ({
+  start: `${prefix}-streaming-start`,
+  send: `${prefix}-streaming-send`,
+  warmup: `${prefix}-streaming-warmup`,
+  stop: `${prefix}-streaming-stop`,
+  options: {},
+});
+
+// sendsBeforeAccept: forwards audio once the socket is open, before the provider accepts the session.
+// warmSocketCarriesAudio: the warm socket is the session's socket, so the worklet's first frames can
+//   leave before the start IPC arrives (audioManager.js:3500-3508 run before :3588).
+// drainsAtAccept: frames buffered before the socket opened leave when the session is accepted.
+const PROVIDERS = [
+  { name: "openai-realtime", ...realtime("openai-realtime", "gpt-4o-mini-transcribe"), sendsBeforeAccept: true, warmSocketCarriesAudio: true },
+  { name: "tinfoil-realtime", ...realtime("tinfoil-realtime", undefined), sendsBeforeAccept: true, warmSocketCarriesAudio: true },
+  { name: "deepgram", ...channels("deepgram"), accept: (s) => s.emit("message", json({ type: "Metadata", request_id: "dg-1" })), sendsBeforeAccept: true },
+  { name: "assemblyai", ...channels("assemblyai"), accept: (s) => s.emit("message", json({ type: "Begin", id: "aai-1" })), sendsBeforeAccept: true },
+  { name: "gemini", ...channels("gemini"), accept: (s) => s.emit("message", json({ setupComplete: {} })), warmSocketCarriesAudio: true, drainsAtAccept: true },
+  { name: "corti", ...channels("corti"), accept: (s) => s.emit("message", json({ type: "CONFIG_ACCEPTED", sessionId: "corti-1" })) },
+];
+
+const FRAME = () => Buffer.alloc(3200, 1); // 100 ms of 16 kHz s16 PCM: over AssemblyAI's 50 ms floor, even-length for Gemini
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const startOptions = (row, extra = {}) => ({ ...row.options, sampleRate: 16000, mode: "byok", correlationId: "rec-1", ...extra });
+const invoke = (channel, options) => handlers.get(channel)(event, options);
+const send = (row, frame = FRAME()) => listeners.get(row.send)(event, frame);
+
+async function socketAt(index) {
+  for (let i = 0; i < 200 && !sockets[index]; i += 1) await tick();
+  assert.ok(sockets[index], "the adapter opened a socket");
+  return sockets[index];
+}
+
+async function startCold(row, extra) {
+  const index = sockets.length;
+  const started = invoke(row.start, startOptions(row, extra));
+  return { started, socket: await socketAt(index) };
+}
+
+async function warmUp(row) {
+  const index = sockets.length;
+  const warming = invoke(row.warmup, startOptions(row, { correlationId: undefined }));
+  const socket = await socketAt(index);
+  open(socket);
+  row.accept(socket);
+  assert.equal((await warming).success, true);
+  return socket;
+}
+
+const gates = [];
+function held() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => ((resolve = res), (reject = rej)));
+  const gate = { promise, resolve, reject };
+  gates.push(gate);
+  return gate;
+}
+
+// The property under test: main hands off once, on the line before the session's
+// first content frame leaves, and never while no content frame has left.
+function assertHandOff(expected, correlationId = "rec-1") {
+  assert.equal(timeline.includes("frame"), expected, expected ? "a content frame left" : "no content frame left");
+  assert.deepEqual(dispatches, expected ? [{ correlationId, task: "dictationStt", payload: "audio" }] : []);
+  if (expected) assert.equal(timeline[0], "dispatch", "the hand-off goes out before the first frame");
+}
+
+for (const row of PROVIDERS) {
+  test(`${row.name}: a start that connects with no frame sent discloses nothing`, async () => {
+    const { started, socket } = await startCold(row);
+    open(socket);
+    row.accept(socket);
+    assert.equal((await started).success, true);
+    await tick();
+    assertHandOff(false);
+  });
+
+  test(`${row.name}: a warm start discloses nothing until the first frame leaves, and later frames add nothing`, async () => {
+    const socket = await warmUp(row);
+    if (row.name === "deepgram") {
+      assert.ok(socket.sent.some((data) => Buffer.isBuffer(data) && !isContentFrame(data)), "the warm socket sent its silence");
+    }
+    assert.equal((await invoke(row.start, startOptions(row))).success, true);
+    await tick();
+    assertHandOff(false);
+    send(row);
+    assertHandOff(true);
+    send(row);
+    send(row);
+    assertHandOff(true);
+  });
+
+  test(`${row.name}: a frame sent while the socket connects is disclosed when it leaves, not before`, async () => {
+    const { started, socket } = await startCold(row);
+    send(row); // queued, or dropped where the adapter does not queue
+    assertHandOff(false);
+    open(socket);
+    assertHandOff(false);
+    row.accept(socket);
+    assert.equal((await started).success, true);
+    assertHandOff(Boolean(row.drainsAtAccept));
+    send(row);
+    assertHandOff(true);
+  });
+
+  for (const ending of ["completes", "fails"]) {
+    test(`${row.name}: during a held handshake that ${ending}, a frame is disclosed only if it leaves`, async () => {
+      const { started, socket } = await startCold(row);
+      open(socket); // the socket is open; the provider has not accepted the session yet
+      send(row);
+      assertHandOff(Boolean(row.sendsBeforeAccept));
+      if (ending === "completes") {
+        row.accept(socket);
+        assert.equal((await started).success, true);
+        assertHandOff(true); // Gemini and Corti forward the frame they held, now
+      } else {
+        socket.readyState = FakeSocket.CLOSED;
+        socket.emit("close", 1006, Buffer.from(""));
+        assert.equal((await started).success, false);
+        assertHandOff(Boolean(row.sendsBeforeAccept)); // a frame that left stays disclosed; a held one never leaves
+      }
+    });
+  }
+
+  test(`${row.name}: a connection that never comes up discloses nothing`, async () => {
+    const token = held();
+    realtimeToken = () => token.promise;
+    const started = invoke(row.start, startOptions(row));
+    await tick();
+    send(row); // there is no socket yet: buffered or dropped
+    send(row);
+    assertHandOff(false);
+    token.reject(new Error("401 Unauthorized"));
+    assert.equal((await started).success, false);
+    await tick();
+    assertHandOff(false);
+  });
+
+  test(`${row.name}: a cancel before any frame leaves discloses nothing`, async () => {
+    const token = held();
+    realtimeToken = () => token.promise;
+    const started = invoke(row.start, startOptions(row));
+    await tick();
+    send(row); // the only frame: the user cancels and capture stops while the token is fetched (audioManager.js:3801)
+    const index = sockets.length;
+    token.resolve("token");
+    const socket = await socketAt(index);
+    open(socket);
+    row.accept(socket);
+    assert.equal((await started).success, true);
+    // cancelStreamingRecording stops the provider once the start settles (audioManager.js:3806-3814).
+    assert.equal((await invoke(row.stop)).success, true);
+    // Gemini drains what it buffered during the token fetch at setupComplete
+    // (geminiLiveStreaming.js:279-281). That frame really left, so it is disclosed.
+    assertHandOff(Boolean(row.drainsAtAccept));
+  });
+
+  test(`${row.name}: each session is handed off once, and a stopped session never discloses the next`, async () => {
+    let { started, socket } = await startCold(row);
+    open(socket);
+    row.accept(socket);
+    await started;
+    send(row);
+    send(row);
+    assertHandOff(true);
+    assert.equal((await invoke(row.stop)).success, true);
+
+    timeline.length = 0;
+    dispatches.length = 0;
+    ({ started, socket } = await startCold(row, { correlationId: "rec-2" }));
+    open(socket);
+    row.accept(socket);
+    assert.equal((await started).success, true);
+    assertHandOff(false, "rec-2");
+    send(row);
+    assertHandOff(true, "rec-2");
+  });
+
+  test(`${row.name}: a start that names no dictation never hands off`, async () => {
+    const { started, socket } = await startCold(row, { correlationId: undefined });
+    open(socket);
+    row.accept(socket);
+    await started;
+    send(row);
+    assert.ok(timeline.includes("frame"));
+    assert.deepEqual(dispatches, []);
+  });
+}
+
+for (const row of PROVIDERS.filter((p) => p.warmSocketCarriesAudio)) {
+  test(`${row.name}: a frame the warm socket forwarded before the start arrived is disclosed at the start`, async () => {
+    await warmUp(row);
+    send(row); // the worklet already runs; provider.start has not reached main
+    assert.deepEqual(timeline, ["frame"]);
+    assert.deepEqual(dispatches, []);
+    assert.equal((await invoke(row.start, startOptions(row))).success, true);
+    assert.deepEqual(timeline, ["frame", "dispatch"]);
+    send(row);
+    assert.equal(dispatches.length, 1);
+  });
+}
+
+test("assemblyai: audio held under the 50 ms floor is disclosed only when the frame carrying it leaves", async () => {
+  const row = PROVIDERS.find((p) => p.name === "assemblyai");
+  const { started, socket } = await startCold(row);
+  open(socket);
+  row.accept(socket);
+  await started;
+  send(row, Buffer.alloc(800, 1)); // 25 ms: carried forward (assemblyAiStreaming.js:613-618)
+  assertHandOff(false);
+  send(row, Buffer.alloc(800, 1));
+  assertHandOff(true);
+});
+```
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/personalInferenceTransport.test.js test/helpers/retryTranscriptionHandler.test.js`
-Expected: FAIL with `Cannot find module '…/dictationDisclosure.js'`. The session has no `routes`, and main sends no `dictation-dispatch`.
+Run: `npm test -- test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/personalInferenceTransport.test.js test/helpers/retryTranscriptionHandler.test.js test/helpers/streamingFirstFrameHandOff.test.js`
+Expected: FAIL with `Cannot find module '…/dictationDisclosure.js'`. The session has no `routes`, and main sends no `dictation-dispatch`: not from the BYOK handler, and not from any streaming adapter. The cases of `streamingFirstFrameHandOff.test.js` that expect no hand-off already pass. They pin that nothing is sent early.
 
 - [ ] **Step 3: Implement the types, the tracker and the session routes**
 
@@ -5810,8 +6504,9 @@ export function attachEgressEvidence(tracker, sessionId, privacyApi = globalThis
 
 /**
  * Main's transport hand-off for this session (no Plan 07): sent right before a
- * provider request leaves, so it is "may have received", never "already
- * received". record() ignores it once Plan 07's egress feed is attached.
+ * provider request, or a streaming session's first frame, leaves, so it is "may
+ * have received", never "already received". record() ignores it once Plan 07's
+ * egress feed is attached.
  */
 export function attachDispatchEvidence(tracker, sessionId, dispatchApi = globalThis.window?.electronAPI) {
   if (!dispatchApi?.onDictationDispatch) return () => undefined;
@@ -5876,7 +6571,7 @@ In `captureDictationSession`, add `routes: resolveSessionRoutes(settings, snapsh
 
      The selection edit spreads the agent config (`:2394-2395`), and the text-only retry spreads its config (`:2238-2249`), so both keep the task. Main reports an image part as a second `image` hand-off for the same task. Local routes resolve to a `null` target, so local cleanup or agent calls record nothing even if main reports them.
    - **`ReasoningService.requestConfig`** (`:38-62`): add `disclosureTask: config.disclosureTask ?? null`. Add `disclosureTask?: DisclosureTask | null` to `ReasoningConfig` (`BaseReasoningService.ts:8-30`) and to `TextRequest` (`personalInferenceTypes.ts:6-20`).
-   - **Streaming.** In `startStreamingRecording`, capture `const tracker = this._disclosure;` before `await provider.start(...)`. Once it resolves with `res.success` (`:3594`), call `tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" })`. A thrown or unsuccessful start records nothing. A cancel during the connect moves `this._disclosure` into the cancel buffer (Task 8), and the captured tracker still records onto that cancelled session. Task 8's replay records the same way.
+   - **Streaming: main's hand-off only (round 3).** `startStreamingRecording` records nothing, before or after `provider.start(...)` (`:3586-3606`). A successful start proves a connection, not a transmission. The start options carry the session's `correlationId` (Task 6), and main's adapter hands off when it forwards the session's first frame (item 5). A cancel during the connect moves `this._disclosure` into the cancel buffer (Task 8). That tracker is still subscribed to the session id, so a frame that leaves after the cancel still discloses on the cancelled session. Task 8's replay records nothing either: its restarted provider hands off its first replayed frame the same way.
 3. **Main's hand-off: text** (`personalInference.js`).
    - In `validateRequest`, before its `return` (`:170`):
 
@@ -5918,7 +6613,186 @@ In `captureDictationSession`, add `routes: resolveSessionRoutes(settings, snapsh
    ```
 
    Call `handOff();` on the line before each provider request: the self-hosted `postMultipart` (`:8089`), Corti's `transcribeAudio` (`:8118`), `transcribeWithTinfoil` (`:8131`), `transcribeWithGemini` (`:8146`) and the final `postMultipart` (`:8241`). Every early `return { success: false, … }` and throw above them (`:8009`, `:8016`, `:8027`, `:8048-8055`, `:8108`, `:8115`, `:8158`) therefore sends nothing. A loopback self-hosted server still gets a hand-off, and the tracker drops it: its route is `device`.
-5. **Preload and types.**
+5. **Main's hand-off: streaming** (round 3). A streaming session's audio leaves frame by frame, so its transport hand-off is the first content frame each adapter puts on its socket. It is not the start's answer. Three facts of the real code shape it:
+   - `dictation-realtime-start` answers `{ success: true }` at once for an already-connected socket (`ipcHandlers.js:7737`). A warm socket can therefore succeed with nothing sent.
+   - Frames sent while a socket connects wait in the adapter's buffer (OpenAI, Tinfoil, Deepgram, Gemini, and Corti once its socket is open), or are dropped (AssemblyAI). A buffered frame leaves later, or never if the session ends first.
+   - The worklet forwards frames (`audioManager.js:3500-3508`) before `provider.start` is invoked (`:3588`). On a warm OpenAI, Tinfoil or Gemini socket, which is the session's own socket, those frames leave before main sees the start. Deepgram, AssemblyAI and Corti keep a warm socket apart from `this.ws` until the start promotes it, so they drop such frames.
+
+   Create `src/helpers/streamingHandOff.js`:
+
+   ```js
+   // Plan 04 Task 7 (R1-I5, round 3). Without Plan 07, the renderer's only evidence
+   // that a streaming dictation's audio left the device is this hand-off. It is sent
+   // on the line before the session's first content frame goes out on the provider's
+   // socket (spec §5.4), never when a socket connects and never for a warm or idle
+   // socket. Control messages, keep-alives and Deepgram's warm silence never count.
+   const STATE = Symbol("firstFrameHandOff");
+
+   /** The once-only hand-off for one streaming start, or null when the start names no dictation. */
+   function firstFrameHandOff(sender, correlationId) {
+     if (typeof correlationId !== "string" || !correlationId || correlationId.length > 100) return null;
+     let sent = false;
+     return () => {
+       if (sent) return;
+       sent = true;
+       if (typeof sender?.send !== "function" || sender.isDestroyed?.()) return;
+       sender.send("dictation-dispatch", { correlationId, task: "dictationStt", payload: "audio" });
+     };
+   }
+
+   /**
+    * A start handler arms its adapter for the session it opens. A warm socket can
+    * forward the worklet's first frames before the start arrives; they already
+    * left, so they are reported now.
+    */
+   function armFirstFrame(adapter, handOff) {
+     if (!adapter) return;
+     const unclaimed = adapter[STATE]?.unclaimed === true;
+     adapter[STATE] = handOff && !unclaimed ? { handOff } : { done: true };
+     if (handOff && unclaimed) handOff();
+   }
+
+   /** An adapter calls this on the line before a content frame goes out on its socket. */
+   function contentFrameLeaving(adapter) {
+     const state = adapter[STATE];
+     if (state?.done) return;
+     if (!state?.handOff) {
+       adapter[STATE] = { unclaimed: true }; // no session armed yet: the next start claims it
+       return;
+     }
+     adapter[STATE] = { done: true };
+     state.handOff();
+   }
+
+   /** A stop handler ends the session after its adapter's last flush. */
+   function disarmFirstFrame(adapter) {
+     if (adapter) adapter[STATE] = undefined;
+   }
+
+   module.exports = { firstFrameHandOff, armFirstFrame, contentFrameLeaving, disarmFirstFrame };
+   ```
+
+   The hand-off is once-only twice over: the closure sends once, and an adapter fires at most once per arming. So a start that replaces its socket mid-connect (`connectDictationStreaming`, `:7040-7043`) still sends one event. A replay of the same dictation (Task 8) is a new start. It may send one more event for the same id, and the tracker's `merge` absorbs it unchanged.
+
+   **The adapters.** In each, add `const { contentFrameLeaving } = require("./streamingHandOff");` after `const WebSocket = require("ws");` (`:1`). Then call `contentFrameLeaving(this);` on the line before every `send` that carries the user's audio:
+   - `openaiRealtimeStreaming.js` `sendAudio`: the cold-start flush (`:555`) and the live frame (`:565`). Tinfoil dictation runs on this class (`ipcHandlers.js:7051`), and the meeting subclass `TinfoilRealtimeStreaming` calls `super.sendAudio` (`tinfoilRealtimeStreaming.js:66-68`).
+
+     ```js
+           for (const buf of this.coldStartBuffer) {
+             const audio = this._resampleToInputRate(buf);
+             contentFrameLeaving(this);
+             this.ws.send(
+               JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
+             );
+             this.audioBytesSent += audio.length;
+           }
+     ```
+
+     ```js
+         const audio = this._resampleToInputRate(Buffer.from(pcmBuffer));
+         contentFrameLeaving(this);
+         this.ws.send(
+           JSON.stringify({ type: "input_audio_buffer.append", audio: audio.toString("base64") })
+         );
+     ```
+
+   - `deepgramStreaming.js` `sendAudio`: the cold-start flush (`:871`) and the live frame (`:884`).
+
+     ```js
+           for (const buf of this.coldStartBuffer) {
+             contentFrameLeaving(this);
+             this.ws.send(buf);
+           }
+     ```
+
+     ```js
+         this.audioBytesSent += pcmBuffer.length;
+         contentFrameLeaving(this);
+         this.ws.send(pcmBuffer);
+     ```
+
+   - `assemblyAiStreaming.js` `sendAudio`: each frame of the split loop (`:631`). A chunk under the 50 ms floor waits in `pendingAudio` (`:613-618`) and counts when the frame carrying it is sent.
+
+     ```js
+         while (frame.length - offset >= minBytes) {
+           const end = Math.min(offset + maxBytes, frame.length);
+           contentFrameLeaving(this);
+           this.ws.send(frame.subarray(offset, end));
+           offset = end;
+         }
+     ```
+
+   - `geminiLiveStreaming.js`: the first line of `_sendAudioFrame` (`:352`). It is the only audio send. `sendAudio` (`:380`) and `_flushColdStartBuffer` (`:391`) use it, and the flush runs from `_markConnected` (`:281`) and `disconnect` (`:421`).
+
+     ```js
+       _sendAudioFrame(pcmBuffer) {
+         contentFrameLeaving(this);
+         this.ws.send(
+     ```
+
+   - `cortiStreaming.js`: `flushPreConfigBuffer` (`:404`) and `sendAudio` (`:427`).
+
+     ```js
+         for (const frame of this.preConfigBuffer) {
+           contentFrameLeaving(this);
+           this.ws.send(frame);
+           this.audioBytesSent += frame.length;
+         }
+     ```
+
+     ```js
+         this.audioBytesSent += pcmBuffer.length;
+         contentFrameLeaving(this);
+         this.ws.send(pcmBuffer);
+     ```
+
+   No other send carries audio, so none calls it. That covers the OpenAI `session.update` (`:266`) and commit (`:635`), the Tinfoil commit (`tinfoilRealtimeStreaming.js:164`), and Deepgram's keep-alive and warm silence (`:217`, `:285`), `Finalize` (`:893`) and `CloseStream` (`:914`). It also covers AssemblyAI's `ForceEndpoint` (`:647`) and `Terminate` (`:659`), Gemini's setup (`:182`) and `audioStreamEnd` (`:403`), and Corti's config (`:106`, `:209`), `flush` (`:435`, `:466`) and `end` (`:470`). Meeting sockets use the same classes but are never armed, so they never hand off.
+
+   **The handlers** (`ipcHandlers.js`). Add `const { armFirstFrame, disarmFirstFrame, firstFrameHandOff } = require("./streamingHandOff");` after `:52`. Every start handler already receives the start options whole, `correlationId` included (Task 6).
+   - `connectDictationStreaming` (`:7024`) takes the session being started: `async (event, options, session = null) =>`. After `setupDictationCallbacks(streaming, event);` (`:7052`), add:
+
+     ```js
+             // A start arms its new socket too. A warmup has no session, so its socket
+             // stays unarmed: a frame it forwards is claimed by the next start.
+             if (session) armFirstFrame(streaming, session.handOff);
+     ```
+
+   - `dictation-realtime-start` (`:7733-7742`) becomes:
+
+     ```js
+         ipcMain.handle("dictation-realtime-start", async (event, options = {}) => {
+           try {
+             clearDictationIdleTimer();
+             this._dictationPreviewEnabled = !!options.preview;
+             // The evidence is this session's first forwarded frame (Plan 04 Task 7), never
+             // this answer: an already-connected socket gets it before any frame has left.
+             const handOff = firstFrameHandOff(event.sender, options.correlationId);
+             armFirstFrame(this._dictationStreaming, handOff);
+             if (!this._dictationStreaming?.isConnected) await connectDictationStreaming(event, options, { handOff });
+             return { success: true };
+           } catch (err) {
+             return streamingStartFailure(err);
+           }
+         });
+     ```
+
+   - `assemblyai-streaming-start`, on the line before `await this.assemblyAiStreaming.connect({ ...options, token });` (`:8540`); `deepgram-streaming-start`, on the line before `sendDropCount = 0;` (`:8716`); and `corti-streaming-start`, on the line before `await this.cortiStreaming.connect({` (`:9003`). The adapter is `this.assemblyAiStreaming`, `this.deepgramStreaming` or `this.cortiStreaming`. Each has no `this.ws` before its `connect`, so nothing can leave earlier:
+
+     ```js
+             // Hand off when this session's first frame leaves, not when it connects (Plan 04 Task 7).
+             armFirstFrame(this.assemblyAiStreaming, firstFrameHandOff(event.sender, options.correlationId));
+     ```
+
+   - `gemini-streaming-start`, right after `const streaming = ensureGeminiStreaming(event);` (`:8878`). That is before it awaits an in-flight warmup, whose `setupComplete` drains frames this session buffered:
+
+     ```js
+             armFirstFrame(streaming, firstFrameHandOff(event.sender, options.correlationId));
+     ```
+
+   - The stop handlers whose adapter outlives the session: after `result = await this.deepgramStreaming.disconnect(true);` (`:8790`), add `disarmFirstFrame(this.deepgramStreaming);`. Do the same after the Gemini disconnect (`:8939`) and the Corti disconnect (`:9031`). The disarm comes after the disconnect, because Gemini's `disconnect` flushes its buffer (`geminiLiveStreaming.js:421`) and those frames belong to the session. The AssemblyAI and realtime stops discard their adapter (`:8577-8578`, `:7754`).
+
+   Gemini and Corti drain their handshake buffers when the provider accepts the session (`geminiLiveStreaming.js:279-281`, `cortiStreaming.js:348`). A dictation cancelled during their connect therefore still uploads the frames it buffered. The hand-off reports that truthfully: the cancel case pins it for Gemini, and the held-handshake case pins Corti's drain. Whether a cancel should discard those buffers is a separate behaviour change, outside this task.
+6. **Preload and types.**
    - `preload.js`, after `transcribeAudioFileByok` (`:703`):
 
      ```js
@@ -5939,7 +6813,7 @@ In `captureDictationSession`, add `routes: resolveSessionRoutes(settings, snapsh
            ) => () => void;
      ```
 
-6. **Processing stage.** The hook shows "Transcribing…" and "Cleaning up" from this callback (Tasks 9, 10).
+7. **Processing stage.** The hook shows "Transcribing…" and "Cleaning up" from this callback (Tasks 9, 10).
    - In `setCallbacks` (`:629`), add `onProcessingStage = undefined` to the destructure and `this.onProcessingStage = onProcessingStage;` to the body.
    - Emit `this.onProcessingStage?.("transcribing")` at the top of `processAudio` (after `const wasCancelled = …`, `:1775`) and right after the streaming finalize reports processing (`≈3886`).
    - Emit `this.onProcessingStage?.("cleaning")` in `processTranscriptionCore` directly before the cleanup or translation request (`≈2689`), when `route.kind !== "agent"`. Agent turns show the orbit instead.
@@ -5957,13 +6831,13 @@ In `captureDictationSession`, add `routes: resolveSessionRoutes(settings, snapsh
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js test/helpers/dictationOperationHandoff.test.js test/helpers/personalInferenceTransport.test.js test/helpers/personalInference.test.js test/helpers/retryTranscriptionHandler.test.js "test/helpers/audioManager*.test.js"`
-Expected: PASS.
+Run: `npm test -- test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/audioManagerSessionRoute.test.js test/helpers/dictationOperationHandoff.test.js test/helpers/personalInferenceTransport.test.js test/helpers/personalInference.test.js test/helpers/retryTranscriptionHandler.test.js "test/helpers/audioManager*.test.js" "test/helpers/streaming*.test.js" "test/helpers/*Streaming*.test.js"`
+Expected: PASS. The last two patterns also run the adapters' own suites (`openaiRealtimeStreaming`, `tinfoilRealtimeStreaming`, `deepgramStreaming`, `assemblyAiStreaming`, `geminiLiveStreaming`, `streamingConnectionLifecycle`, `streamingStaleSocket`), which must stay green.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/types/dictation.ts src/types/electron.ts src/helpers/dictationDisclosure.js src/helpers/dictationSession.js src/helpers/audioManager.js src/helpers/ipcHandlers.js src/helpers/personalInference.js src/services/ReasoningService.ts src/services/BaseReasoningService.ts src/services/ai/personalInferenceTypes.ts preload.js test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/personalInferenceTransport.test.js test/helpers/retryTranscriptionHandler.test.js
+git add src/types/dictation.ts src/types/electron.ts src/helpers/dictationDisclosure.js src/helpers/dictationSession.js src/helpers/audioManager.js src/helpers/ipcHandlers.js src/helpers/personalInference.js src/helpers/streamingHandOff.js src/helpers/openaiRealtimeStreaming.js src/helpers/deepgramStreaming.js src/helpers/assemblyAiStreaming.js src/helpers/geminiLiveStreaming.js src/helpers/cortiStreaming.js src/services/ReasoningService.ts src/services/BaseReasoningService.ts src/services/ai/personalInferenceTypes.ts preload.js test/helpers/dictationDisclosure.test.js test/helpers/dictationSession.test.js test/helpers/personalInferenceTransport.test.js test/helpers/retryTranscriptionHandler.test.js test/helpers/streamingFirstFrameHandOff.test.js
 git commit -m "feat(voice): disclosure is attested by main, or recorded at main's transport hand-off"
 ```
 
@@ -6026,7 +6900,9 @@ Closes review findings C1, I1, I2 and the AudioManager half of I3. The owner-con
 
   ```js
   // AudioManager
-  restoreCancelled(sessionId?: string): Promise<UndoResult>; // settles once the pipeline starts; the run is this._restoreRun
+  restoreCancelled(sessionId?: string, options?: { budgetMs?: number }): Promise<UndoResult>;
+  // settles once the pipeline starts (the run is this._restoreRun); with budgetMs (the Task 9 bridge)
+  // it settles within the budget and never starts the pipeline after it
   pauseCancelHold(): void; resumeCancelHold(): void;
   flushCancelHold(): Promise<void>;                 // persist if retention allows, then zero; joins any close still saving (shutdown, Task 9)
   // emits onCancelledChange(CancelledState) whenever the window opens, pauses, resumes or gets new
@@ -6169,9 +7045,13 @@ Fixtures follow the real guards:
 
 ```js
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 const { loadAudioManager } = require("./harness/audioManager");
 const { deferred } = require("./harness/deferred");
+const { requestFromRenderer, UNDO_BRIDGE_TIMEOUT_MS, UNDO_BRIDGE_BUDGET_MS } = require("../../src/helpers/rendererRequest.js");
 
 const RETAIN = { saveDiscardedTranscriptions: true, dataRetentionEnabled: true, audioRetentionDays: 30 };
 const LOCAL = {
@@ -6217,6 +7097,7 @@ async function setup(t, settings = LOCAL) {
     _undoWindowFactory: (opts) => createUndoWindow({ ...clock, ...opts }),
     _readSealed: () => false, // the sealedStore seam (§5.4); the Sealed test overrides it
     _delay: (ms) => new Promise((resolve) => clock.setTimer(resolve, ms)),
+    _now: () => now,
     _processingCancellationGeneration: 0,
     _streamingCancellationGeneration: 0,
     _streamingSessionGeneration: 0,
@@ -6519,6 +7400,31 @@ test("streaming Undo replays the frames through the same provider and cleans up 
   assert.equal(manager.isStreaming, false, "a finished replay never leaves the manager stuck");
 });
 
+test("a replay that connects discloses nothing until main reports a forwarded frame (R1-I5)", async (t) => {
+  const { manager, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false });
+  // Main's hand-off channel (Task 7). Installed before the session starts, so its tracker subscribes.
+  const bus = new EventEmitter();
+  win.electronAPI.onDictationDispatch = (cb) => (bus.on("d", cb), () => bus.off("d", cb));
+  streamingManager(manager);
+  manager.isRecording = true;
+  await manager.cancelStreamingRecording();
+  await advance(0);
+  const held = manager._undo.peek();
+  win.electronAPI.dictationRealtimeStart = async () => ({ success: true }); // a warm socket: connects at once
+  win.electronAPI.dictationRealtimeSend = () => {};
+  win.electronAPI.dictationRealtimeStop = async () => ({});
+  manager._attachStreamingListeners = () => {};
+  manager._finalizeStreamingRecording = async () => {};
+  assert.equal((await manager.restoreCancelled()).restored, true);
+  await manager._restoreRun;
+  assert.equal(held.tracker.get(), null, "a successful start is not a dispatch, and the renderer never claims one");
+  bus.emit("d", { correlationId: "another-session", task: "dictationStt", payload: "audio" });
+  assert.equal(held.tracker.get(), null, "another session's hand-off does not count");
+  bus.emit("d", { correlationId: held.session.id, task: "dictationStt", payload: "audio" }); // main: the first frame left
+  assert.equal(held.tracker.get().evidence, "dispatched");
+  assert.equal(held.tracker.get().payload, "audio");
+});
+
 test("a replay whose provider refuses to start leaves the manager usable and re-holds the audio", async (t) => {
   const { manager, io, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false });
   streamingManager(manager);
@@ -6785,6 +7691,162 @@ test("a hold's press-time context is released when its window closes, and kept b
   assert.equal(context.released, false, "a refusal that keeps the recording keeps its context");
   await advance(5000);
   assert.equal(context.released, true, "expiry releases it");
+});
+
+test("a failed restore keeps its session, route and context, and a second Undo succeeds (R2-C2)", async (t) => {
+  const cases = [
+    { name: "STT error, retention off", settings: { dataRetentionEnabled: false }, error: () => new Error("provider 500"), held: true },
+    { name: "Sealed block without Plan 07 recovery", settings: { dataRetentionEnabled: false }, error: () => Object.assign(new Error("Blocked by Sealed mode"), { code: "SEALED_MODE" }), held: true },
+    { name: "zero-day audio retention", settings: { dataRetentionEnabled: true, audioRetentionDays: 0 }, error: () => new Error("provider 500"), held: true },
+    { name: "audio write refused", settings: { dataRetentionEnabled: true }, audioWrite: async () => ({ success: false }), error: () => new Error("provider 500"), held: true },
+    { name: "audio write rejected", settings: { dataRetentionEnabled: true }, audioWrite: async () => { throw new Error("disk full"); }, error: () => new Error("provider 500"), held: true },
+    { name: "Plan 07 holds it for sealed recovery", settings: { dataRetentionEnabled: false }, error: () => Object.assign(new Error("sealed"), { code: "SEALED_MODE", recoveryHeld: true }), held: false },
+    { name: "retention kept the audio", settings: { dataRetentionEnabled: true }, error: () => new Error("provider 500"), held: false },
+  ];
+  for (const c of cases) {
+    const settings = { ...LOCAL, ...c.settings };
+    const { manager, advance, window: win, setSettings } = await setup(t, settings);
+    setSettings(settings);
+    win.electronAPI.saveTranscription = async () => ({ id: 1 });
+    win.electronAPI.saveTranscriptionAudio = c.audioWrite ?? (async () => ({ success: true }));
+    startBatch(manager, [], 3);
+    const original = manager.activeSession;
+    const context = { sessionId: original.id, released: false, release() { this.released = true; } };
+    manager._sessionContext = context;
+    manager.cancelRecording();
+    await advance(0);
+
+    manager.processWithLocalParakeet = async () => { throw c.error(); };
+    await manager.restoreCancelled();
+    await manager._restoreRun;
+    await advance(0);
+    assert.equal(manager.isProcessing, false, `${c.name}: settled`);
+    const held = manager._undo.peek();
+    if (!c.held) {
+      assert.equal(held, null, `${c.name}: a usable copy survived, so nothing is re-held`);
+      continue;
+    }
+    assert.equal(held.session.id, original.id, `${c.name}: the same session, not null`);
+    assert.deepEqual(held.session.routes, original.routes, `${c.name}: its route`);
+    assert.equal(held.context, context, `${c.name}: its press-time context, moved, not released`);
+    assert.equal(context.released, false);
+
+    manager.processWithLocalParakeet = async () => ({ success: true, text: "hi", source: "local-parakeet" });
+    const again = await manager.restoreCancelled(original.id);
+    assert.deepEqual(again, { restored: true, sessionId: original.id }, `${c.name}: a second Undo works`);
+    await manager._restoreRun;
+  }
+});
+
+test("a merge failure keeps the session and context too (R2-C2)", async (t) => {
+  const { manager, advance } = await setup(t);
+  startBatch(manager, [1, 2], 3);
+  const original = manager.activeSession;
+  const context = { sessionId: original.id, released: false, release() { this.released = true; } };
+  manager._sessionContext = context;
+  manager.cancelRecording();
+  await advance(0);
+  manager.mergeRecordedSegments = async () => { throw new Error("ffmpeg failed"); };
+  await manager.restoreCancelled();
+  await manager._restoreRun;
+  await advance(0);
+  const held = manager._undo.peek();
+  assert.equal(held.session.id, original.id);
+  assert.equal(held.context, context);
+  assert.equal(context.released, false);
+});
+
+test("_setOwnedAudio is the only writer of lastAudioBlob and lastAudioBlobPrivate (R3-C1)", () => {
+  const src = fs.readFileSync(path.join(__dirname, "../../src/helpers/audioManager.js"), "utf8");
+  const start = src.indexOf("  _setOwnedAudio(");
+  assert.ok(start > 0, "the setter exists");
+  const end = src.indexOf("\n  }\n", start);
+  const outside = src.slice(0, start) + src.slice(end);
+  assert.doesNotMatch(outside, /this\.lastAudioBlob\s*=(?!=)/, "every lastAudioBlob write goes through the setter");
+  assert.doesNotMatch(outside, /this\.lastAudioBlobPrivate\s*=(?!=)/, "every privacy stamp goes through the setter");
+});
+
+test("a private take cancelled before finalization stays private through Undo (R3-C1)", async (t) => {
+  const settings = { ...LOCAL, ...RETAIN };
+  const source = fs.readFileSync(path.join(__dirname, "../../src/helpers/audioManager.js"), "utf8");
+  const plan05Guard = /if \(this\.lastAudioBlobPrivate\)/.test(source);
+
+  async function run({ isPrivate, fail }) {
+    const { manager, advance, window: win, setSettings } = await setup(t, settings);
+    setSettings(settings);
+    const writes = [];
+    win.electronAPI.saveTranscription = async () => (writes.push("row"), { id: 1 });
+    win.electronAPI.saveTranscriptionAudio = async () => (writes.push("audio"), { success: true });
+    win.electronAPI.recordAnalyticsEvent = async () => writes.push("analytics");
+    const seen = [];
+    for (const name of ["saveTranscription", "saveFailedTranscription"]) {
+      const original = manager[name];
+      manager[name] = function (...args) {
+        seen.push([name, this.lastAudioBlobPrivate]);
+        return original.apply(this, args);
+      };
+    }
+    const rec = startBatch(manager, [], 3, { manualStop: true });
+    manager._recordingPrivate = isPrivate;
+    manager.cancelRecording(); // before finalization: lastAudioBlob was never stamped
+    const restoring = manager.restoreCancelled();
+    rec.finish();
+    manager.processWithLocalParakeet = async () => {
+      seen.push(["dispatch", manager.lastAudioBlobPrivate]);
+      if (fail) throw new Error("provider 500");
+      return { success: true, text: "hi", source: "local-parakeet" };
+    };
+    await restoring;
+    await manager._restoreRun;
+    // A successful dictation is saved by the hook's completion handler (useAudioRecording.js:537).
+    if (!fail) await manager.saveTranscription("hi", "hi", {});
+    await advance(0);
+    return { seen, writes, manager };
+  }
+
+  for (const fail of [false, true]) {
+    const priv = await run({ isPrivate: true, fail });
+    assert.ok(priv.seen.length >= 2 && priv.seen.every(([, flag]) => flag === true), `fail=${fail}: stamped before dispatch and every save`);
+    if (plan05Guard) assert.deepEqual(priv.writes, [], `fail=${fail}: no transcript, audio or analytics`);
+    if (fail) assert.equal(priv.manager._undo.peek()?.private, true, "re-held in RAM, still private");
+  }
+  // A non-private restore afterwards is saved normally: no stale flag.
+  const open = await run({ isPrivate: false, fail: false });
+  assert.ok(open.seen.every(([, flag]) => flag === false));
+  assert.ok(open.writes.includes("row"));
+});
+
+test("a bridge Undo answers truthfully inside main's 2 s, and never starts late (R3-I1)", async (t) => {
+  assert.ok(UNDO_BRIDGE_BUDGET_MS + 250 <= UNDO_BRIDGE_TIMEOUT_MS, "the overlay's budget leaves room for the reply");
+  const { manager, io } = await setup(t);
+  manager._delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)); // real time, like main's timer
+  manager._now = () => Date.now();
+  const rec = startBatch(manager, [], 3, { manualStop: true });
+  manager.cancelRecording();
+  const sessionId = manager._undo.peek().session.id;
+  const ipcMain = new EventEmitter();
+  const webContents = {
+    isDestroyed: () => false,
+    // The overlay side of Task 9: the hook passes budgetMs through to restoreCancelled.
+    send: (_channel, { token, sessionId: id, budgetMs }) => {
+      void manager.restoreCancelled(id, { budgetMs }).then((result) => ipcMain.emit("undo-cancel-reply", { sender: webContents }, token, result));
+    },
+  };
+  const late = setTimeout(() => rec.finish(), UNDO_BRIDGE_TIMEOUT_MS + 100); // the final chunk lands after main's deadline
+  t.after(() => clearTimeout(late));
+  const started = Date.now();
+  const result = await requestFromRenderer({
+    ipcMain, webContents, channel: "undo-cancel-request", replyChannel: "undo-cancel-reply",
+    payload: { sessionId, budgetMs: UNDO_BRIDGE_BUDGET_MS }, timeoutMs: UNDO_BRIDGE_TIMEOUT_MS,
+    fallback: { restored: false, sessionId, reason: "unavailable" },
+  });
+  assert.ok(Date.now() - started < UNDO_BRIDGE_TIMEOUT_MS, "the overlay answered before main gave up");
+  assert.deepEqual(result, { restored: false, sessionId, reason: "noAudio" }, "the truthful answer, not a late success");
+  await new Promise((resolve) => setTimeout(resolve, 800)); // past the late final chunk
+  assert.equal(io.local, 0, "nothing started after the answer");
+  const held = manager._undo.peek();
+  assert.equal(held?.session.id, sessionId, "still held, unzeroed");
+  assert.deepEqual(held.bytes("segment").map(firstByte), [3], "and the late chunk landed in it");
 });
 
 test("flush persists once when retention allows; with retention off it only zeroes", async (t) => {
@@ -7072,7 +8134,11 @@ export function createUndoWindow({
        return (this._undo ??= factory({ onClose: (buffer, reason, opts) => this._closeCancelled(buffer, reason, opts) }));
      }
 
-     /** A timer on the window's clock, so tests drive every deadline with one fake clock. */
+     /** A timer and a clock that tests replace, so one fake clock drives every deadline. */
+     _now() {
+       return Date.now();
+     }
+
      _delay(ms) {
        return new Promise((resolve) => setTimeout(resolve, ms));
      }
@@ -7132,17 +8198,38 @@ export function createUndoWindow({
        // §5.2 private holds: Plan 05's per-recording flag; absent before 05 merges, so false.
        buffer.private = this._recordingPrivate === true;
        this._disclosure = null; // the buffer owns the tracker now
-       if (this._lastAudioSessionId === session.id) {
-         this.lastAudioBlob = null;
-         this._lastAudioSessionId = null;
-       }
+       if (this._lastAudioSessionId === session.id) this._setOwnedAudio(null);
        if (this._sessionAudio?.session === session) this._sessionAudio = null;
        return buffer;
      }
    ```
 
    Task 9 relies on `onCancelledChange(state, closed)`. `closed` is passed only when the state goes to `null`, as `{ sessionId, reason }`, where reason is `"expired" | "replaced" | "flushed" | "restored"`.
-2. **`lastAudioBlob` ownership.** At both assignments (`:1447` batch, `:3935` streaming), also set `this._lastAudioSessionId = this._activeSession?.id ?? null;`.
+2. **One audio-ownership setter (R3-C1, §5.2 private holds).** Add it next to `setCallbacks` (`:629`):
+
+   ```js
+     /**
+      * §5.2 audio ownership. The ONLY writer of `lastAudioBlob`, its owner session and its
+      * persistence privacy flag, `lastAudioBlobPrivate`, which Plan 05's save guards read.
+      * Every assignment goes through here before any callback or provider work can save.
+      * Pass null to release.
+      */
+     _setOwnedAudio(blob, { sessionId = this._activeSession?.id ?? null, private: isPrivate = this._recordingPrivate === true } = {}) {
+       this.lastAudioBlob = blob ?? null;
+       this._lastAudioSessionId = blob ? sessionId : null;
+       this.lastAudioBlobPrivate = Boolean(blob) && isPrivate === true;
+       // Keep the recording's flag consistent with the audio it owns.
+       if (blob && sessionId && sessionId === this._activeSession?.id) this._recordingPrivate = isPrivate === true;
+     }
+   ```
+
+   Route every write of `lastAudioBlob` through it, so no path can stamp audio without its privacy:
+   - `:1447` (batch finalization) becomes `this._setOwnedAudio(audioBlob);`;
+   - `:3935` (streaming fallback) becomes `this._setOwnedAudio(fallbackBlob);`;
+   - the releases at `:488`, `:3051`, `:3100`, `:3114`, `:3152` and `:4212` become `this._setOwnedAudio(null);`. Keep each neighbouring `this.lastAudioMetadata = null;`;
+   - Task 8's own release in `_bufferForSession` and its restore (Step 5) use it too.
+
+   The defaults read the active session and `_recordingPrivate`, which Plan 05's `_captureRecordingPrivacy` sets at start. A restore passes both explicitly from the hold. **Plan 05, either merge order:** its two stamps (`this.lastAudioBlobPrivate = this._recordingPrivate === true;` below `:1447` and `:3935`, P05 Task 5) become these setter calls, and its source test checks for `_setOwnedAudio(audioBlob)` / `_setOwnedAudio(fallbackBlob)`. Its guards in `saveTranscription` and `saveFailedTranscription` keep reading `lastAudioBlobPrivate`.
 3. **Batch cancel while recording** (`cancelRecording`, 1611–1631). Replace the snapshot/`persistDiscardedBatchRecording` wiring:
 
    ```js
@@ -7295,7 +8382,7 @@ The buffer itself never writes. Those files belong to the processing step that w
 A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwhile) puts the recording back in its window. Undo never costs the user their words.
 
 ```js
-  async restoreCancelled(sessionId) {
+  async restoreCancelled(sessionId, { budgetMs } = {}) {
     const buffer = this._undo?.peek();
     if (!buffer || (sessionId && buffer.session.id !== sessionId)) {
       return { restored: false, sessionId: sessionId ?? null, reason: "expired" };
@@ -7327,12 +8414,18 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
       return { restored: false, sessionId: buffer.session.id, reason };
     };
 
+    // R3-I1: a bridge request (Task 9) carries a budget below main's 2 s timeout. Every
+    // pre-flight wait fits inside it, and a request past its deadline never starts the
+    // pipeline, so the caller's answer is always the truth.
+    const deadline = Number.isFinite(budgetMs) ? this._now() + budgetMs : null;
+    const waitMs = deadline === null ? FINAL_AUDIO_WAIT_MS : Math.max(0, Math.min(FINAL_AUDIO_WAIT_MS, deadline - this._now()));
+
     // R2-C1: wait for the recorder's final chunk, bounded. "Not delivered yet" is not
     // "empty": on timeout the recording goes back into its window, unzeroed, and a
     // late chunk still lands in it.
     let complete = false;
     try {
-      complete = await buffer.ready({ until: this._delay(FINAL_AUDIO_WAIT_MS) });
+      complete = await buffer.ready({ until: this._delay(waitMs) });
     } catch {
       return refuse("noAudio", { keep: false });
     }
@@ -7345,6 +8438,8 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
     if (buffer.kind === "streaming" && !STREAMING_PROVIDERS[buffer.session.intents.streamingProviderName]) {
       return refuse("routeUnavailable", { keep: true }); // never re-route; the window keeps the words until it ends
     }
+
+    if (deadline !== null && this._now() > deadline) return refuse("unavailable", { keep: true }); // main already answered
 
     // Task 7 keeps the evidence; Task 6 hands back the press-time selection and screenshot (R1-C2).
     this.applySessionIntents(buffer.session, { tracker: buffer.tracker, context: buffer.context });
@@ -7374,6 +8469,7 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
 
   async _restoreBatch(buffer, generation) {
     const { session } = buffer;
+    const isPrivate = buffer.private === true;
     const blobs = buffer.bytes("segment").map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
     buffer.zero(); // the Blobs are the restored dictation's own audio now
     const metadata = {
@@ -7389,33 +8485,37 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
       audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
       if (!audio) throw Object.assign(new Error("Undo could not combine the recording"), { code: "MERGE_FAILED" });
     } catch (error) {
-      // R2-C2: the merge runs outside processAudio's try/finally. Settle this pipeline
-      // (only if it is still ours) and put the source audio back in a window.
-      if (this._settleProcessingPipeline(pipeline)) this._reholdAudio(session, blobs, metadata);
+      // R2-C2: the merge runs outside processAudio's try/finally. Take the session's
+      // ownership into a hold *before* settling, which would end the session and release
+      // its context. An Esc during the merge already re-held it (Step 4.8).
+      if (this._activeProcessingPipeline === pipeline) {
+        const held = this._holdForRetry(blobs, metadata);
+        this._settleProcessingPipeline(pipeline);
+        if (held) this._rehold(held);
+      }
       throw error;
     }
     if (this._shouldAbandonProcessingPipeline(pipeline)) return; // Esc during the merge re-held it (Step 4.8)
-    // R2-C2: the same recovery ownership as a normal dictation (:1447). The failure path
-    // (:1909-1926) and Plan 07's _noteSealedFailure read lastAudioBlob, in either merge order.
-    this.lastAudioBlob = audio;
-    this._lastAudioSessionId = session.id;
+    // R2-C2 / R3-C1: the same recovery ownership as a normal dictation, privacy included, set
+    // before any provider or save work. The failure path and Plan 07's _noteSealedFailure read it.
+    this._setOwnedAudio(audio, { sessionId: session.id, private: isPrivate });
     await this.processAudio(audio, metadata, pipeline);
   }
 
-  /** Re-holds audio the user brought back with Undo, when no other copy will survive. */
-  _reholdAudio(session, blobs, metadata) {
-    // Keep the press-time reads when the session is still live; once it has ended, a later
-    // Undo runs as a standalone command (Task 6) and never reads the OS selection again.
-    const context = this._activeSession === session ? this._detachSessionOperation().context : null;
-    const held = createCancelBuffer({
-      session, kind: "batch", mimeType: blobs[0]?.type || "audio/webm",
-      durationSeconds: metadata.durationSeconds, analyticsOccurredAt: metadata.analyticsOccurredAt,
-      tracker: this._disclosure, context,
+  /**
+   * R2-C2: moves the live session's whole ownership (session, route, intents, press-time
+   * context, disclosure tracker, privacy) into a new hold, without ending or releasing any
+   * of it. Call it while the failing pipeline still owns the session, before settlement.
+   */
+  _holdForRetry(blobs, metadata) {
+    if (!this._activeSession) return null;
+    const held = this._bufferForSession("batch", {
+      durationSeconds: metadata.durationSeconds,
+      analyticsOccurredAt: metadata.analyticsOccurredAt,
+      mimeType: blobs[0]?.type,
     });
-    held.private = this._recordingPrivate === true;
     for (const blob of blobs) held.adoptBlob(blob, "segment");
-    if (this._sessionAudio?.session === session) this._sessionAudio = null;
-    this._rehold(held);
+    return held;
   }
 
   async _sealedBlocks(session) {
@@ -7453,20 +8553,67 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
 ```
 
 - `processAudio(audio, metadata, pipeline)` returns early when `_activeProcessingPipeline !== pipeline` (`:1773-1774`), and `wasCancelled()` is true once `cancelProcessing` bumps the generation. An Esc during a batch restore therefore stops the pipeline, and Step 4.8 re-holds `_sessionAudio`.
-- **A restored dictation that fails keeps its audio (R2-C2).** In `processAudio`, declare `let reholdRestored = false;` next to `noAudioDetected` (`:1778`). In the failure branch (`:1914-1927`), after the existing `saveFailedTranscription` call, add:
+- **A restored dictation that fails keeps its audio and its identity (R2-C2).**
+  1. `saveFailedTranscription` (`:3110-3163`) reports what it kept. Replace its body's three exits so it returns `{ audioKept }`:
 
-  ```js
-          // D3: audio the user brought back with Undo is never silently lost. With retention
-          // off nothing else keeps it, unless Plan 07 already holds it for sealed recovery.
-          reholdRestored =
-            metadata.restoredFromCancel === true &&
-            !error.recoveryHeld &&
-            !getEffectiveRetentionPreferences().dataRetentionEnabled;
-  ```
+     ```js
+       async saveFailedTranscription(errorMessage, errorCode = null, metadata = {}) {
+         // Plan 05's private guard, when merged, stays the first statement; its early return
+         // means nothing was kept, which callers read as { audioKept: false }.
+         const { dataRetentionEnabled, audioRetentionDays } = getEffectiveRetentionPreferences();
+         if (!dataRetentionEnabled) {
+           logger.debug("Skipping failed transcription save — data retention disabled", {}, "audio");
+           this._setOwnedAudio(null);
+           this.lastAudioMetadata = null;
+           return { audioKept: false };
+         }
+         let audioKept = false;
+         try {
+           const result = await window.electronAPI.saveTranscription("", null, { /* unchanged fields (:3120-3128) */ });
+           if (result?.id && this.lastAudioBlob) {
+             if (audioRetentionDays > 0) {
+               try {
+                 // unchanged durationMs / arrayBuffer lines (:3133-3136)
+                 const saved = await window.electronAPI.saveTranscriptionAudio(result.id, arrayBuffer, { durationMs, provider: null, model: null });
+                 audioKept = saved?.success === true; // the handler returns { success } (ipcHandlers.js:1306-1321)
+               } catch (audioErr) {
+                 logger.warn("Failed to save audio for failed transcription", { error: audioErr.message }, "audio");
+               }
+             }
+             this._setOwnedAudio(null);
+             this.lastAudioMetadata = null;
+           }
+         } catch (error) {
+           logger.error("Failed to save failed transcription record", { error: error.message }, "audio");
+         }
+         return { audioKept };
+       }
+     ```
 
-  In the `finally` (`:1929-1932`), directly after `this._settleProcessingPipeline(pipeline);`, add `if (reholdRestored) this._reholdAudio(this._activeSession, [audioBlob], metadata);`. It must run after settling: `_rehold` treats a busy lifecycle as newer work.
+     Existing callers ignore the result, so they are unchanged.
+  2. In `processAudio`, declare `let retryHold = null;` next to `noAudioDetected` (`:1778`). In the failure branch (`:1914-1927`), replace the `saveFailedTranscription` call with:
 
-  With retention on, `saveFailedTranscription` already keeps it as a failed history row with audio, exactly as for any dictation. A Sealed block that lands between the pre-check and dispatch fails in main, and takes this same path. With Plan 07 merged, its `_noteSealedFailure` runs first and finds `lastAudioBlob` set, whichever plan merged first.
+     ```js
+             if (metadata.restoredFromCancel === true) {
+               // D3: audio the user brought back with Undo is never silently lost. Await an
+               // acknowledged save, and re-hold whenever no usable copy survived: retention off,
+               // zero-day audio, a private take, a refused or rejected write. Plan 07's sealed
+               // recovery (error.recoveryHeld) already keeps a copy.
+               const saved = this.lastAudioBlob
+                 ? await this.saveFailedTranscription(error.message, error.code || null, metadata)
+                 : { audioKept: false };
+               if (!saved?.audioKept && !error.recoveryHeld && !wasCancelled()) {
+                 // While this pipeline still owns the session: settlement would end it and release its context.
+                 retryHold = this._holdForRetry([audioBlob], metadata);
+               }
+             } else if (this.lastAudioBlob) {
+               this.saveFailedTranscription(error.message, error.code || null, metadata); // unchanged: not awaited
+             }
+     ```
+
+  3. In the `finally` (`:1929-1932`), directly after `this._settleProcessingPipeline(pipeline);`, add `if (retryHold) this._rehold(retryHold);`. Opening runs after settling, because `_rehold` treats a busy lifecycle as newer work. The hold was taken before, so it keeps the session id, its route, its intents and its press-time context, and a second Undo resumes the same operation.
+
+  A Sealed block that lands between the pre-check and dispatch fails in main, and takes this same path. With Plan 07 merged, its `_noteSealedFailure` runs first, finds `lastAudioBlob` set and stamped, and holds it for sealed recovery, whichever plan merged first.
 - Sealed state comes only from `src/stores/sealedStore.ts` (§5.4), never from `privacy.getSealed` directly:
 
   ```js
@@ -7500,7 +8647,6 @@ Streaming replay. It owns its streaming state from start to finish, so a failure
       this.isStreaming = true;
       this._attachStreamingListeners(sessionId);
       const settings = this.settings();
-      const tracker = this._disclosure;
       const res = await provider.start(
         buildStreamingSessionOptions({
           providerName, settings,
@@ -7512,7 +8658,9 @@ Streaming replay. It owns its streaming state from start to finish, so a failure
       );
       if (!res?.success) throw Object.assign(new Error(res?.error || "Streaming start failed"), { code: res?.code });
       started = true;
-      tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" });
+      // No evidence here (R1-I5): a connection is not a dispatch. Main sends the correlated
+      // dictation-dispatch when the first replayed frame actually leaves (Task 7), and the
+      // restored tracker is still subscribed to session.id.
       const frames = buffer.frames();
       for (let i = 0; i < frames.length; i += REPLAY_BATCH_FRAMES) {
         if (generation !== this._restoreGeneration) throw Object.assign(new Error("Undo cancelled"), { code: "TRANSCRIPTION_CANCELLED" });
@@ -7625,7 +8773,7 @@ It also wires §5.7: an open cancel window reaches the control panel as the life
 
   ```ts
   // electronAPI (overlay)
-  onUndoCancelRequest?: (cb: (req: { token: number; sessionId: string | null }) => void) => () => void;
+  onUndoCancelRequest?: (cb: (req: { token: number; sessionId: string | null; budgetMs: number }) => void) => () => void;
   replyUndoCancel?: (token: number, result: UndoResult) => void;
   onDictationFlushRequest?: (cb: (req: { token: number }) => void) => () => void;
   replyDictationFlush?: (token: number) => void;
@@ -7734,7 +8882,8 @@ test("the demo channel accepts cancelled and cancelClosed with sanitised fields"
 
 test("main.js routes before-quit through the coordinator", () => {
   const main = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
-  assert.match(main, /app\.on\("before-quit", createQuitCoordinator\(/);
+  // Whitespace-insensitive: the registration spans several lines (R3-I2).
+  assert.match(main, /app\.on\(\s*"before-quit",\s*createQuitCoordinator\(/);
   assert.doesNotMatch(main, /isShuttingDown/, "the coordinator owns the shutdown state");
 });
 ```
@@ -7946,6 +9095,25 @@ test("an Undo that arrives after the window closed says so (CCR-1)", async (t) =
   assert.equal(notices.getNotices().at(-1).title, "notices.undo.expired");
 });
 
+test("a refusal that keeps the recording says to try again, not that it was empty (R3-I1)", async (t) => {
+  const { ref, vite } = await mount(t);
+  const notices = await vite.ssrLoadModule("/components/ui/notices.ts");
+  await fire("onCancelledChange", STATE); // the window is open again after the refusal
+  globalThis.__restoreResult = { restored: false, sessionId: STATE.sessionId, reason: "noAudio" };
+  await React.act(async () => {
+    await ref.api.undoCancel();
+  });
+  assert.equal(notices.getNotices().at(-1).title, "notices.undo.notReady");
+});
+
+test("a bridge request passes its budget through to the manager (R3-I1)", async (t) => {
+  const { listeners } = await mount(t);
+  const calls = [];
+  globalThis.__am.restoreCancelled = async (sessionId, options) => (calls.push([sessionId, options]), { restored: true, sessionId });
+  await React.act(async () => listeners.undo({ token: 5, sessionId: "rec-1", budgetMs: 1500 }));
+  assert.deepEqual(calls, [["rec-1", { budgetMs: 1500 }]]);
+});
+
 test("⌥Z is leased while a window is open and released when it closes", async (t) => {
   const { log } = await mount(t);
   await fire("onCancelledChange", STATE);
@@ -8014,7 +9182,12 @@ function requestFromRenderer({ ipcMain, webContents, channel, replyChannel, payl
   });
 }
 
-module.exports = { requestFromRenderer };
+// §5.2: the Undo bridge answers within 2 s. The overlay gets a smaller budget for its own
+// pre-flight (the final-audio wait), so its truthful answer always arrives first (R3-I1).
+const UNDO_BRIDGE_TIMEOUT_MS = 2000;
+const UNDO_BRIDGE_BUDGET_MS = 1500;
+
+module.exports = { requestFromRenderer, UNDO_BRIDGE_TIMEOUT_MS, UNDO_BRIDGE_BUDGET_MS };
 ```
 
 `src/helpers/windowManager.js`:
@@ -8026,8 +9199,8 @@ module.exports = { requestFromRenderer };
       webContents: this.mainWindow?.webContents,
       channel: "undo-cancel-request",
       replyChannel: "undo-cancel-reply",
-      payload: { sessionId },
-      timeoutMs: 2000,
+      payload: { sessionId, budgetMs: UNDO_BRIDGE_BUDGET_MS },
+      timeoutMs: UNDO_BRIDGE_TIMEOUT_MS,
       fallback: { restored: false, sessionId, reason: "unavailable" },
     });
   }
@@ -8045,7 +9218,7 @@ module.exports = { requestFromRenderer };
   }
 ```
 
-Import `ipcMain` from `electron` if `windowManager.js` does not already. Add `this.lastCancelledDictation = null;` in the constructor. The `onboarding-demo-publish` handler sets it (below). Its only consumer is Plan 05's trial, and demo events flow only during a trial. There is no separate report channel (§5.7: no second relay).
+Import `ipcMain` from `electron` if `windowManager.js` does not already, and import `requestFromRenderer`, `UNDO_BRIDGE_TIMEOUT_MS` and `UNDO_BRIDGE_BUDGET_MS` from `./rendererRequest`. Add `this.lastCancelledDictation = null;` in the constructor. The `onboarding-demo-publish` handler sets it (below). Its only consumer is Plan 05's trial, and demo events flow only during a trial. There is no separate report channel (§5.7: no second relay).
 
 `main.js:1472-1479`:
 
@@ -8247,14 +9420,17 @@ In `src/hooks/useAudioRecording.js`:
 5. **Undo, pause, bridge, flush.**
 
    ```js
-     const restore = useCallback(async (sessionId) => {
-       const result = (await audioManagerRef.current?.restoreCancelled?.(sessionId ?? undefined)) ?? {
+     const restore = useCallback(async (sessionId, options) => {
+       const result = (await audioManagerRef.current?.restoreCancelled?.(sessionId ?? undefined, options)) ?? {
          restored: false, sessionId: sessionId ?? null, reason: "unavailable",
        };
        // The only error surface for a refused Undo. restoreCancelled never calls onError for a
        // refusal; a failure after a successful claim goes through the normal dictation error path.
        if (!result.restored) {
-         notify({ id: "undo-failed", kind: "alert", title: t(`notices.undo.${result.reason}`) });
+         // noAudio with the window open again means the final chunk had not arrived yet (Task 8):
+         // the recording is still there, so say "try again", not "empty".
+         const notReady = result.reason === "noAudio" && cancelledRef.current?.sessionId === result.sessionId;
+         notify({ id: "undo-failed", kind: "alert", title: t(notReady ? "notices.undo.notReady" : `notices.undo.${result.reason}`) });
        }
        return result;
      }, [t]);
@@ -8263,8 +9439,9 @@ In `src/hooks/useAudioRecording.js`:
      const resumeUndo = useCallback(() => audioManagerRef.current?.resumeCancelHold?.(), []);
 
      useEffect(() => {
-       const offUndo = window.electronAPI?.onUndoCancelRequest?.(async ({ token, sessionId }) => {
-         window.electronAPI?.replyUndoCancel?.(token, await restore(sessionId));
+       const offUndo = window.electronAPI?.onUndoCancelRequest?.(async ({ token, sessionId, budgetMs }) => {
+         // R3-I1: answer inside main's deadline; restoreCancelled never starts the pipeline after it.
+         window.electronAPI?.replyUndoCancel?.(token, await restore(sessionId, { budgetMs }));
        });
        const offFlush = window.electronAPI?.onDictationFlushRequest?.(({ token }) => {
          Promise.resolve(audioManagerRef.current?.flushCancelHold?.())
@@ -8320,6 +9497,7 @@ Locale keys (`notices.undo`, all 11 locales):
   "noAudio": "Couldn't undo: the recording was empty.",
   "busy": "Finish the current dictation, then undo.",
   "expired": "Too late to undo: that recording was already discarded.",
+  "notReady": "The recording is still arriving. Try Undo again.",
   "unavailable": "Couldn't reach the dictation window to undo."
 }
 ```

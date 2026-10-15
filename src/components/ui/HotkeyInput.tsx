@@ -653,7 +653,7 @@ export function HotkeyInput({
         onMouseDown={handleMouseDown}
         onFocus={handleFocus}
         onBlur={handleBlur}
-        className="absolute inset-0 z-10 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="absolute inset-0 z-10 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="sr-only">
           {validationWarning ??

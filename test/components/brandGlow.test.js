@@ -36,5 +36,5 @@ test("meeting notification shows the Loqui mark, not the legacy blue glyph", asy
 test("hotkey capture focus ring is on-brand", () => {
   const source = read("src/components/ui/HotkeyInput.tsx");
   assert.doesNotMatch(source, /ring-blue-500/);
-  assert.match(source, /focus-visible:ring-ring\/40/);
+  assert.match(source, /focus-visible:ring-ring(?!\/)/);
 });

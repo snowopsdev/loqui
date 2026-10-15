@@ -104,6 +104,8 @@
 | R3-M01 | The settle stage still lost the live meter. Processing unmounted it, and the first success render dropped it. | Adds `InstrumentMode` `processing`, which the composition maps from `trial.phase === "processing"`. The rail adjusts its meter state during render when the mode changes, so no render drops it. One keyed `LevelBars` instance lives from `listening` through `processing` and the settle, switching to zero input. Its retained frame eases to the rest silhouette, then the bubble draws (`DRAW_MS`), then the mark docks. Reduced motion keeps the instant swap. The new rail test drives the real sampler on a mocked clock, through listening → processing → success. It asserts that the meter's DOM node is the same instance in all three, that the centre bar's transform rises and then eases toward rest, and that the bubble follows. The flow test now emits `processing` and asserts the same identity before checking bubble-then-dock. | 11, 15, composition |
 | R3-M02 | `RouteStateChip` said "Off" next to a chosen but unavailable cleanup | The state chip shows only when the choice's own check has passed (`status === "ready"`) and the route is not `off`. Before that, the prerequisite sentence owns the status. The destination chip stays as it was. The pending-choice test now covers provider failed, provider checking, ChatGPT failed and local pending, and rejects any state chip in each. It accepts exactly one `ready` chip once the route is validated. | 16 |
 
+**Plan 04 round-4 integration (a47935c).** Its snapshot savers replace this plan's temporary mutable privacy guards. Task 5 branches on the setter's presence; Task 22 removes the old guards in the 05→04 order. The private-save fixture uses the real setter when available, and the source ratchet checks conditional ownership release instead of counting three unconditional clears. This is a plan handoff; the combined app suites require implementation of the prerequisite tasks.
+
 ## Contract change requests
 
 The spec consolidated every plan's requests into §3 and §5 at `091d198` (`snowopsdev/feat/uiux-foundations`). Each request below now has a status. Where this plan's code and a spec shape differed, the plan was changed to match the spec.
@@ -1845,12 +1847,22 @@ test("a failed private take writes no history row and no audio", async (t) => {
   const writes = [];
   window.electronAPI.saveTranscription = async (...args) => (writes.push(["row", ...args]), { id: 1 });
   window.electronAPI.saveTranscriptionAudio = async (...args) => (writes.push(["audio", ...args]), {});
-  const manager = recorder(AudioManager, {
-    lastAudioBlob: new Blob(["audio"]),
-    lastAudioBlobPrivate: true,
-  });
+  const manager = recorder(AudioManager);
+  const stampPrivate = () => {
+    const blob = new Blob(["audio"]);
+    if (typeof manager._setOwnedAudio === "function") {
+      manager._setOwnedAudio(blob, { sessionId: "private-trial", private: true });
+    } else {
+      manager.lastAudioBlob = blob;
+      manager.lastAudioBlobPrivate = true;
+    }
+  };
+  stampPrivate();
   await manager.saveFailedTranscription("boom", "NETWORK", {});
-  await manager.saveTranscription("hello", "hello", {});
+  // Each saver gets a private owned recording; do not test the second against the
+  // first saver's already-released state. Delayed callbacks are Plan 04's race suite.
+  stampPrivate();
+  await manager.saveTranscription("hello", "hello", { sessionId: "private-trial" });
   assert.deepEqual(writes, []);
   assert.equal(manager.lastAudioBlob, null, "private audio does not linger in RAM either");
 });
@@ -1866,7 +1878,9 @@ test("every recording start captures its privacy", () => {
   const owned = /_setOwnedAudio\s*\(\s*blob/.test(source);
   if (owned) {
     assert.equal((source.match(/this\._setOwnedAudio\((audioBlob|fallbackBlob)\);/g) ?? []).length, 2, "both audio-carrying writes go through the setter");
-    assert.ok((source.match(/this\._setOwnedAudio\(null\);/g) ?? []).length >= 3, "releasePrivateAudio and both save guards release through the setter");
+    assert.ok((source.match(/this\._setOwnedAudio\(null\);/g) ?? []).length >= 2, "releasePrivateAudio and the conditional snapshot release use the setter");
+    assert.ok((source.match(/this\._releaseOwnedAudio\(owned\)/g) ?? []).length >= 2, "both savers release their captured ownership snapshot");
+    assert.doesNotMatch(source, /if\s*\(this\.lastAudioBlobPrivate\)\s*\{[^}]*return;/, "mutable saver entry guards are replaced by Plan 04's snapshot checks");
     const setter = source.slice(source.indexOf("_setOwnedAudio(blob"));
     const outside = source.replace(setter.slice(0, setter.indexOf("\n  }\n") + 4), "");
     assert.doesNotMatch(outside, /this\.lastAudioBlob(Private)? =/, "no bare write outside the setter");
@@ -2147,9 +2161,10 @@ The hold test is skipped until Plan 04 merges.
 
    - **Audio ownership (spec §5.2, `aad5284`).** If Plan 04 has merged (`grep -n "_setOwnedAudio(" src/helpers/audioManager.js` prints its definition), `AudioManager._setOwnedAudio(blob, options?)` is the only allowed writer of `lastAudioBlob`, its owner session and `lastAudioBlobPrivate`. Its defaults are the active session and `private: this._recordingPrivate === true`, and Plan 04's guard test fails on any bare assignment. In that order, write every audio write in this task through it:
      - the two stamps become `this._setOwnedAudio(audioBlob);` (1447) and `this._setOwnedAudio(fallbackBlob);` (3935), replacing the assignment and the stamp line above;
-     - `releasePrivateAudio()` and both save guards below release with `this._setOwnedAudio(null);` instead of `this.lastAudioBlob = null;`. `this.lastAudioMetadata = null;` stays as it is.
+     - `releasePrivateAudio()` releases with `this._setOwnedAudio(null);` instead of `this.lastAudioBlob = null;`. `this.lastAudioMetadata = null;` stays as it is;
+     - do not add the mutable save guards below. Plan 04's `_ownedAudioSnapshot` and `_releaseOwnedAudio` already protect both savers, including changes of owner during an await. Keep those bodies and their acknowledgement results intact.
 
-     If Plan 05 merges first, write the bare form shown here, and Task 22 migrates it.
+     If Plan 05 merges first, write the bare form shown here, including the temporary guards below, and Task 22 migrates it.
 
    - In `takeDiscardedBatchSnapshot()`, add `private: this._recordingPrivate === true,` to the returned object.
 
@@ -2160,7 +2175,7 @@ The hold test is skipped until Plan 04 merges.
          if (isPrivate) return;
      ```
 
-   - Make this the first statement of both `saveTranscription` (3043) and `saveFailedTranscription` (3110):
+   - **Only before Plan 04 exists**, make this the first statement of both `saveTranscription` (3043) and `saveFailedTranscription` (3110). When its snapshot savers exist, skip this temporary guard:
 
      ```js
          if (this.lastAudioBlobPrivate) {
@@ -12400,9 +12415,10 @@ Expected: FAIL. The cancelled fields are dropped, and `canUndo`, `undo` and the 
 3. **Audio ownership (spec §5.2, `aad5284`).** If Task 5 ran before Plan 04 merged, `audioManager.js` still has its bare writes, and Plan 04's guard test fails on them. Migrate them:
    - `this.lastAudioBlob = audioBlob;` plus its `this.lastAudioBlobPrivate = …` stamp (1447) become `this._setOwnedAudio(audioBlob);`;
    - the same pair for `fallbackBlob` (3935) becomes `this._setOwnedAudio(fallbackBlob);`;
-   - in `releasePrivateAudio()` and both save guards (`saveTranscription`, `saveFailedTranscription`), `this.lastAudioBlob = null;` becomes `this._setOwnedAudio(null);`. `this.lastAudioMetadata = null;` stays.
+   - in `releasePrivateAudio()`, `this.lastAudioBlob = null;` becomes `this._setOwnedAudio(null);`. `this.lastAudioMetadata = null;` stays;
+   - delete Task 5's temporary mutable entry guards from `saveTranscription` and `saveFailedTranscription`. Keep Plan 04's snapshot-based private checks, ownership-safe releases and acknowledged `audioKept` result. Never prepend the old `if (this.lastAudioBlobPrivate)` guard to those methods.
 
-   The setter defaults `private` to `this._recordingPrivate === true`, so the per-recording privacy is unchanged. Task 5's source test switches itself to the setter form once `_setOwnedAudio` exists. It then requires both stamps and three releases through the setter, and no bare write outside it. Plan 04's guard test must pass too.
+   The setter defaults `private` to `this._recordingPrivate === true`, so the per-recording privacy is unchanged. Task 5's source test switches itself to the setter form once `_setOwnedAudio` exists. It requires both stamps, the conditional snapshot-release helper and `releasePrivateAudio` through the setter, saver calls through `_releaseOwnedAudio`, and no bare write outside the setter. Plan 04's guard test must pass too. Run both plans' private-save suites and Plan 04's deferred-row/deferred-audio-write races: an old public save cannot upload or release a newer private recording in either merge order.
 
    In `src/hooks/useAudioRecording.js`, delete Task 5's fallback block (the `// §5.2 fallback until Plan 04` comment and its `cancelled` publish) from `cancelRecording` and `cancelProcessing`. Plan 04's `onCancelledChange` already publishes `cancelled` and `cancelClosed` for the same take.
 

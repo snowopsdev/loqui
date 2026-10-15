@@ -13,12 +13,12 @@ colors:
   divider-gray: "#E5E5E5"
   secondary-text: "#525252"
   link-orange: "#C43E13"
-  night-charcoal: "oklch(0.22 0.006 260)"
-  night-card: "oklch(0.27 0.008 260)"
-  night-raised: "oklch(0.33 0.01 260)"
-  night-border: "oklch(0.35 0.007 260)"
-  night-text: "oklch(0.93 0 0)"
-  night-secondary-text: "oklch(0.65 0 0)"
+  night-charcoal: "#1C1218"
+  night-card: "#271820"
+  night-raised: "#33202B"
+  night-border: "#3D2733"
+  night-text: "#F3E9EE"
+  night-secondary-text: "#B59AA8"
 typography:
   display:
     fontFamily: "Inter Variable, Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif"
@@ -88,7 +88,7 @@ components:
 
 Loqui is a desktop work surface for voice and personal knowledge. Compact navigation and window chrome frame dictation, notes, history, meetings, search, and model controls. The interface is focused and direct; the vivid orange and fuchsia accents give the workbench a distinct signal while text and user content remain the main event.
 
-The same React interface runs in the Electron shell on macOS and Linux, with platform-specific window controls and permissions. Light mode uses clean white and pale-gray surfaces. Dark mode shifts to low-chroma charcoal layers. Rounded controls, restrained elevation, and clear interaction states carry the system across both themes. The visual anti-reference is generic AI-dashboard styling.
+The same React interface runs in the Electron shell on macOS and Linux, with platform-specific window controls and permissions. Light mode uses clean white and pale-gray surfaces. Dark mode is Plum Night: the brand guide's Deep Plum family; magenta marks active navigation; orange still means live voice. Rounded controls, restrained elevation, and clear interaction states carry the system across both themes. The visual anti-reference is generic AI-dashboard styling.
 
 **Key Characteristics:**
 - Signal Orange leads primary actions; Electric Fuchsia supports secondary emphasis.
@@ -109,7 +109,7 @@ Regenerate with `npm run assets:generate` and verify with `npm run assets:check`
 
 ## Colors
 
-The interface palette pairs a vivid orange action color with fuchsia highlights over neutral light and charcoal dark themes. These functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor controls or semantic states.
+The interface palette pairs a vivid orange action color with fuchsia highlights over neutral light and Plum Night dark themes. These functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor controls or semantic states.
 
 ### Primary
 - **Signal Orange** (#FF5A1F): Primary actions, active navigation markers, selection, and focus accents.
@@ -128,10 +128,10 @@ The interface palette pairs a vivid orange action color with fuchsia highlights 
 - **Surface Gray** (#F5F5F5): Light muted panels and controls.
 - **Divider Gray** (#E5E5E5): Light-theme borders and separators.
 - **Secondary Text** (#525252): Supporting copy and labels in light mode.
-- **Night Charcoal** (oklch(0.22 0.006 260)): Dark-theme canvas; panels rise through oklch lightness levels 0.25, 0.27, 0.30, and 0.33.
-- **Night Card** (oklch(0.27 0.008 260)): Dark card surface.
-- **Night Border** (oklch(0.35 0.007 260)): Dark-theme separators and control borders.
-- **Night Text** (oklch(0.93 0 0)): Main dark-theme text; secondary text uses oklch(0.65 0 0).
+- **Night Plum** (#1C1218): Plum Night canvas; panels rise through #21151B, #271820, #2D1C25, and #33202B, with #160D12 for the window backing.
+- **Night Card** (#271820): Dark card surface.
+- **Night Border** (#3D2733): Dark-theme separators and control borders.
+- **Night Text** (#F3E9EE): Main dark-theme text; secondary text uses #B59AA8.
 - **Orange Link** (#C43E13 in light mode; #FF9A7A in dark mode): Text links, kept distinct from the primary action fill.
 
 ### Roles
@@ -168,7 +168,7 @@ The desktop shell pairs a 208px sidebar with a flexible content area. The main w
 
 ## Elevation & Depth
 
-Depth is layered: light mode uses a subtle card shadow and restrained hover lift; dark mode relies on stepped charcoal surfaces, quiet borders, and soft inner rims, with stronger shadows reserved for overlays. Primary orange surfaces carry a fine top highlight and inset rim. Focus rings, selected-model glows, and modal shadows remain state-specific.
+Depth is layered: light mode uses a subtle card shadow and restrained hover lift; dark mode relies on stepped Plum Night surfaces, quiet borders, and soft inner rims, with stronger shadows reserved for overlays. Primary orange surfaces carry a fine top highlight and inset rim. Focus rings, selected-model glows, and modal shadows remain state-specific.
 
 ### Shadow Vocabulary
 - **Card at rest:** `0 1px 3px oklch(0 0 0 / 0.2), inset 0 1px 0 oklch(1 0 0 / 0.03)` in dark mode; light cards use the component's subtle `shadow-sm` treatment.
@@ -221,7 +221,7 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 
 ### Cards / Containers
 - **Corner Style:** 8px on the shared Card primitive; 8–10px on grouped panels and setup cards.
-- **Background:** White cards in light mode; charcoal card tokens in dark mode.
+- **Background:** White cards in light mode; Plum Night card tokens in dark mode.
 - **Shadow Strategy:** A faint resting shadow; dark mode adds a low-contrast top rim and soft shadow. The `.card` utility may lift 1px on light hover, while dark cards change border and shadow without moving.
 - **Border:** One-pixel neutral border; active or selected panels may tint the border with primary orange.
 - **Internal Padding:** Common card headers and contents use 24px; compact setup rows use 16px.
@@ -245,7 +245,7 @@ The persistent dictation control is a compact bordered capsule with a waveform a
 ### Do:
 - **Do** use Signal Orange for primary actions and current navigation state.
 - **Do** use Electric Fuchsia as a supporting accent, keeping the two roles distinct.
-- **Do** preserve the charcoal surface steps and soft rims when adding dark-theme surfaces.
+- **Do** preserve the Plum Night surface steps and soft rims when adding dark-theme surfaces.
 - **Do** use compact controls, clear labels, and the existing visible focus treatment.
 - **Do** adapt window controls and traffic-light clearance to the host OS while keeping the shared React interface coherent.
 

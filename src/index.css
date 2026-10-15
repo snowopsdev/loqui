@@ -143,26 +143,26 @@
 }
 
 .dark {
-  /* Dark mode — charcoal surfaces with clear elevation hierarchy
-     Base L=0.22 (charcoal) with 0.05 steps between layers. */
-  --color-background: oklch(0.22 0.006 260);
-  --color-foreground: oklch(0.93 0 0);
-  --color-card: oklch(0.27 0.008 260);
-  --color-card-foreground: oklch(0.93 0 0);
-  --color-popover: oklch(0.29 0.009 260);
-  --color-popover-foreground: oklch(0.93 0 0);
+  /* Plum Night — the brand guide's Deep Plum family (DESIGN.md "Colors").
+     Hex, not oklch, so contrast tests can score every pair. */
+  --color-background: #1c1218;
+  --color-foreground: #f3e9ee;
+  --color-card: #271820;
+  --color-card-foreground: #f3e9ee;
+  --color-popover: #2b1b24;
+  --color-popover-foreground: #f3e9ee;
   --color-primary: #ff5a1f;
   --color-primary-foreground: #171717;
-  --color-secondary: oklch(0.28 0.007 260);
-  --color-secondary-foreground: oklch(0.9 0 0);
-  --color-muted: oklch(0.24 0.006 260);
-  --color-muted-foreground: oklch(0.65 0 0);
+  --color-secondary: #2a1922;
+  --color-secondary-foreground: #ecdfe6;
+  --color-muted: #22161c;
+  --color-muted-foreground: #b59aa8;
   --color-accent: #d90078;
   --color-accent-foreground: oklch(0.99 0 0);
   --color-destructive: oklch(0.62 0.22 25);
   --color-destructive-foreground: oklch(0.99 0 0);
-  --color-border: oklch(0.35 0.007 260);
-  --color-input: oklch(0.19 0.005 260);
+  --color-border: #3d2733;
+  --color-input: #170e13;
   --color-ring: #ff5a1f;
   --color-success: oklch(0.7 0.18 145);
   --color-success-foreground: oklch(0.99 0 0);
@@ -171,21 +171,30 @@
   --color-info: #ff8a68;
   --color-info-foreground: oklch(0.99 0 0);
 
-  /* Surface hierarchy — charcoal depth system (0.22 → 0.33) */
-  --color-surface-0: oklch(0.22 0.006 260);
-  --color-surface-1: oklch(0.25 0.007 260);
-  --color-surface-2: oklch(0.27 0.008 260);
-  --color-surface-3: oklch(0.3 0.009 260);
-  --color-surface-raised: oklch(0.33 0.01 260);
-  --color-surface-window: oklch(0.19 0.005 260);
+  --color-cta: #f3e9ee;
+  --color-cta-foreground: #1c1218;
+  --color-live: #ff5a1f;
+  --color-live-foreground: #171717;
+  --color-nav-marker: #e6007a;
+  --color-locality-device: #5ee0ad;
+  --color-locality-network: #9bb4d6;
+  --color-locality-remote: #fbbf6a;
+
+  /* Surface hierarchy — plum depth system */
+  --color-surface-0: #1c1218;
+  --color-surface-1: #21151b;
+  --color-surface-2: #271820;
+  --color-surface-3: #2d1c25;
+  --color-surface-raised: #33202b;
+  --color-surface-window: #160d12;
 
   /* Border states */
-  --color-border-subtle: oklch(0.33 0.006 260);
-  --color-border-hover: oklch(0.42 0.01 260);
+  --color-border-subtle: #36222d;
+  --color-border-hover: #4a3040;
   --color-border-active: #ff5a1f;
   --color-link: #ff9a7a;
 
-  /* Card depth shadows — softer for charcoal, with top highlight for premium depth */
+  /* Card depth shadows — softer for plum, with top highlight for premium depth */
   --shadow-card: 0 1px 3px oklch(0 0 0 / 0.2), inset 0 1px 0 oklch(1 0 0 / 0.03);
   --shadow-card-hover: 0 4px 12px oklch(0 0 0 / 0.25), inset 0 1px 0 oklch(1 0 0 / 0.04);
   --shadow-elevated: 0 8px 24px oklch(0 0 0 / 0.3);

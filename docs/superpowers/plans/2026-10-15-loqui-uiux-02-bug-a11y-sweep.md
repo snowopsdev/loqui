@@ -51,11 +51,11 @@ The owner's decisions on the contract change requests are recorded under "Contra
 | I3 Global CSS overrides the input rings | **Closed.** `@layer base` closes at `index.css:387` (at `677057d`), so the native-field rules (1086–1126) are unlayered. Under CSS Cascade 5 an unlayered normal declaration beats any `@layer utilities` declaration, whatever its specificity. Task 2 therefore puts the full-opacity ring in those unlayered rules as `:focus-visible`, and removes the dead ring utilities from `Input` and `Textarea`. A test parses the stylesheet and asserts that the rule is unlayered, that no translucent ring remains, and that no plain `:focus` rule competes. Task 3 records why `Button`'s ring is safe: no unlayered rule touches `button` focus. Task 21 adds a computed-style check in DevTools. | Tasks 2, 3, 21 |
 | I4 The held-start Esc test deadlocks | **Closed.** `beginHeldStart` returns `{ pending }`, so the async helper no longer adopts the held promise. The test asserts the stop is deferred before release and applied after, and has a 10 s timeout. | Task 9 |
 | I5 Audio usage treats unreadable storage as empty, and does not typecheck | **Closed.** A new `useAudioStorageUsage` hook models `loading`, `known` and `unavailable`, with its type inferred from `electron.ts`; the hand-written annotation at `SettingsPage.tsx:1125` is deleted with the old state. `AudioStorageRow` shows "couldn't read" with Retry, never "no audio". Clear All re-reads first and opens no confirmation on a failed read, so a stale count is never shown as current. Mounted hook tests cover an unreadable first read, a rejected read, and a failed refresh after a good count. Step 4 runs typecheck. | Task 19 |
-| I6 The failed-send test assumes a contract the sender lacks | **Closed.** The sender's `true` now means "the message reached the conversation", which is where restoring would start to duplicate. A failure before the save resolves `false` and removes the optimistic message; after the save it resolves `true`; it never rejects. Provider errors are rendered in the thread and resolve normally, as before. The factual claim is corrected. Integration tests run the real sender behind the real composer, failing both before and after persistence. | Task 13 |
+| I6 The failed-send test assumes a contract the sender lacks | **Closed; the rejection rule is revised in round 2 (see the round-2 table).** The sender's `true` now means "the message reached the conversation", which is where restoring would start to duplicate. A failure before the save resolves `false` and removes the optimistic message; after the save it resolves `true`; it never rejects. Provider errors are rendered in the thread and resolve normally, as before. The factual claim is corrected. Integration tests run the real sender behind the real composer, failing both before and after persistence. | Task 13 |
 | I7 A partial delete clears every row's audio flag | **Closed.** A new `clearFlagsForDeletedAudio` unflags only the rows whose file is gone, using `remainingAudioIds()`, and unflags nothing when the folder is unreadable. The IPC handler calls it. It is tested with the real `AudioStorageManager`. | Task 19 |
 | I8 Plan 03 would overwrite the storage failure contract | **Closed.** The contract is in the interface table and in CCR 5, which was accepted along with CCR 4 (02 before 03), and the owner has told Plan 03 to keep `readable` and `failed`. Plan 03's storage task must keep `readable` and `failed`, `resolveClearAudioOutcome`, the flag reconciliation and their tests while adding `directory`. This thread cannot edit Plan 03. | CCR 4, CCR 5 |
 | M1 `useNow` test does not prove time advances | **Closed.** An injectable `readClock`. The test moves the clock exactly 30 s across local midnight and asserts the exact timestamps and the date change, as well as the cleanup. | Task 11 |
-| M2 Un-tokenized progress animation | **Closed.** The indeterminate loop becomes `calc(var(--motion-slow)*4) var(--motion-ease-std)`; the spinner becomes `motion-safe:animate-spin`. `animate-pulse` stays: it is an opacity loop, which the reduced-motion policy keeps, and it runs only in its active state. No new token is needed. | Task 4 |
+| M2 Un-tokenized progress animation | **Closed; the spinner and pulse are revised in round 2 (R2-M1).** The indeterminate loop becomes `calc(var(--motion-slow)*4) var(--motion-ease-std)`; the spinner becomes `motion-safe:animate-spin`. `animate-pulse` stays: it is an opacity loop, which the reduced-motion policy keeps, and it runs only in its active state. No new token is needed. | Task 4 |
 | M3 Literal English download labels | **Closed.** `onboarding.download.start` and `inProgress` in all 11 locales; the test selectors use the keys. | Task 6 |
 | M4 DESIGN and contract updates not executable | **Closed.** DESIGN steps added to Tasks 5, 8, 15 and 16, alongside those already in Tasks 1–4. The stale ring value (Task 15) and the `index.css` min-height anchor (Task 5) are corrected, and the line-number claim is softened. Task 21 adds a gated spec-update step that records each CCR's disposition. | Tasks 5, 8, 15, 16, 21 |
 | M5 Remote Notes readiness has no owner | **Closed as a documented partial, with a handoff (CCR 6).** Task 14 ships local and self-hosted readiness; remote providers report "unknown" and show no hint. Plan 06 owns the consumer task (spec §5.1 handoffs) that maps the route states, keeps dismissal, and tests a remote provider with no key. | Task 14, CCR 6 |
@@ -71,6 +71,19 @@ The Codex review of PR #48 (commit `df7fbd3`) raised two P2 findings. Both are c
 |---|---|---|
 | Preserve the selected context until the send succeeds | **Closed.** AssistantPanel cleared `selectedContext` before `sendMessage` returned `false`, and `ChatInput` gives back only the words, so a retry silently went without the attachment. A new `sendWithSelectedContext` still hides the chip as the message goes, but restores the context when the send resolves `false` or rejects. A selection made while the send was in flight wins. Unit tests cover a sent message, a refusal, a rejection, a newer selection, a refusal that resolves before React commits the clear, and no context. | Task 13 |
 | Implement radio-group keyboard behaviour or avoid radio roles | **Closed: roving tabindex and arrow-key focus, with selection kept explicit.** The list now has one tab stop: the selected card, or the first selectable card. Arrow keys move focus and wrap. Enter, Space or a click selects. Arrows do not also check, a deliberate departure from the WAI-ARIA radio pattern, because selecting can switch where audio goes. `TranscriptionModelPicker` shows a browsed provider's list with `selectedModel=""` (`:1281-1286`), and `handleCloudModelSelect` switches the cloud provider (`:863-870`). If selection followed focus, browsing that list would move audio to another provider. `role="radio"` stays, as SET-Q2 in the approved list specifies. A mounted test drives the arrow keys and asserts that focus moves and nothing is selected. | Task 16 |
+
+## Round-2 review response
+
+The Codex round-2 verification (`.omc/research/ui-review/reviews/plan-02-codex-r2.md`, pinned at `df7fbd3`) found three Important and two Minor issues. All five are closed. While fixing R2-I1, this revision also changes one part of the round-1 sender contract (the row marked "found here"). Line numbers below refer to the merged `main` at `c6dc83d`.
+
+| Finding | Disposition | Where |
+|---|---|---|
+| R2-I1 The real persistence hook cannot support the sender's result | **Closed.** `useChatPersistence.saveUserMessage` (`:82-86`) now awaits `addAgentMessage`. It rejects on a `null` row (deleted conversation, `database.js:1803-1810`), a write error (`:1827-1829`), a missing id or a missing bridge. Because the sender awaits the save before `sendToAI`, nothing is dispatched until the row exists. A new `chatPersistenceSend.test.js` runs the real hook behind the real sender with a fake bridge. It covers a deferred write (no dispatch while pending, then `true`), a rejected write and a `null` write (rejection, rollback, no dispatch), and a failing reply after a save (`true`, message kept). | Task 13 |
+| Found here: a failure before persistence must reject, not resolve `false` | **Changed from round 1.** AssistantPanel's voice-command effect (`AssistantPanel.tsx:205-243`) reads `false` as "lock busy, retry" and a rejection as "failed: discard and show the error". Under round 1's never-reject contract, a save that kept failing would retry in a loop and never show its error. The sender now resolves `true` once saved and `false` only when the lock is busy. When nothing was saved it rejects, after rolling back. `ChatInput` already treats a rejection as "not sent", and `sendWithSelectedContext` (e92ae43) restores the context and rethrows, so both PR #48 fixes still hold. The `chatSendOutcome` tests now expect rejections. This supersedes the "never rejects" wording in the I6 row above. | Task 13 |
+| R2-I2 ChatView unmounts the composer before first-message recovery | **Closed.** ChatView now marks the chat started in `onMessagePersisted`, not `onBeforeSend` (`ChatView.tsx:79-86`). On a first send, `isNewChat` stays true until the message is saved, so `hasActiveChat` (`:129-130`) never drops to `EmptyChatState` (`:165-185`) while the conversation is being created. A new `chatViewFirstSend.test.js` mounts the real `ChatView`, persistence, sender and composer. A deferred creation that fails leaves the composer mounted, with "hello" back and editable, and nothing dispatched. A successful first send keeps the composer and shows the message. A source assertion pins the callback swap. | Task 13 |
+| R2-I3 Immediate failures miss the empty-box restore | **Closed.** `ChatInput` writes its draft through `writeDraft`, which updates `inputTextRef` together with the state. The clear in `handleSubmit`, the refill, `onChange` and Put it back all use it, so an immediate refusal or rejection reads the box as empty and refills it. The layout effect stays for writes from elsewhere. The immediate-refusal and real-sender pre-save tests keep their empty-box assertions and now also assert that no unsent slot appears. An immediate-rejection test is added. The deferred newer-draft tests are unchanged. | Task 13 |
+| R2-M1 The spinner and pulse use Tailwind's literal timings, and reduced motion kills the pulse | **Closed.** The spinner becomes `motion-safe:animate-[spinner-rotate_calc(var(--motion-hero)*2)_linear_infinite]`, using the repo's `spinner-rotate` keyframes. Its easing stays `linear` on purpose: every `--motion-ease-*` token is a curve, and an eased rotation stalls once per turn. The pulse becomes `.progress-pulse`: opacity only, `calc(var(--motion-hero) * 4) var(--motion-ease-std)`. It is re-declared inside the reduced-motion block, where a class selector with `!important` outranks the global `*` rule (`index.css:397-412`). The tests assert all three loops, that no Tailwind loop with literal timing remains, that the keyframes touch only `opacity`, and that the reduced-motion re-declaration exists. Task 21 adds a computed-style check with reduced motion emulated. DESIGN `## Motion` records the rule. | Tasks 4, 21 |
+| R2-M2 Stale authority to change the light ring | **Closed.** Light `--color-ring` `#e84e16` is described as inherited from Plan 01 in CCR 2 and in Task 15. Task 21's allowed-test-edit list keeps only the warning and success foregrounds. | CCR 2, Tasks 15, 21 |
 
 ## Contract change requests
 
@@ -96,7 +109,7 @@ The consolidated spec (091d198 on `snowopsdev/feat/uiux-foundations`) now carrie
 2. **Extend Plan 01's colour-token contract (§5, "Motion and colour tokens"),** from Plan 01's final review.
    - **New token:** `--color-input-border` (light `#858585`, Plum Night `#8c6b7b`; Task 2).
    - **Changed light values:**
-     - `--color-ring` `#ff5a1f` becomes `#e84e16` (Task 3). Plum Night keeps `#ff5a1f`.
+     - `--color-ring` light `#e84e16` is inherited from Plan 01, which shipped it (PR #43). Plum Night keeps `#ff5a1f`. No Plan 02 task changes it.
      - `--color-warning-foreground` and `--color-success-foreground` change from `#ffffff` to `#171717` (Task 1).
 
    **Status: applied in spec §5, Plan 01 contracts table, "Extended by" (091d198).** The light `--color-ring` value already shipped in Plan 01 (PR #43), so Task 3 no longer changes it. `--color-input-border` (Task 2) and the light warning and success foregrounds (Task 1) stay as Plan 02's own additions.*
@@ -131,7 +144,7 @@ The consolidated spec (091d198 on `snowopsdev/feat/uiux-foundations`) now carrie
 | `showSystemNotification` (CCR 1, interruption-only) | `preload.js`, `src/types/electron.ts`, `src/helpers/systemNotification.js` | Plan 04 |
 | `useNow(intervalMs?, readClock?)`; rollover within one tick (≤30 s) | `src/hooks/useNow.ts` | Plan 06 |
 | `ChatInputProps.queueKey`; `onTextSubmit` returns `void \| boolean \| Promise<void \| boolean>` (`false` or a rejection means not sent); the unsent slot | `src/components/chat/ChatInput.tsx` | Plan 06 (WS-R8) |
-| `useChatMessageSender` resolves `true` once the message reached the conversation, `false` otherwise, and never rejects | `src/components/chat/useChatMessageSender.ts` | Plan 06 |
+| `useChatMessageSender` resolves `true` once the message is saved, `false` when the lock is busy, and rejects (after rolling back) when nothing was saved; `saveUserMessage` resolves only on a saved row | `src/components/chat/useChatMessageSender.ts` | Plan 06 |
 | `chatRouteKey` / `useChatRouteKey` | `src/components/chat/chatRouteKey.ts` | Plan 06 |
 | `useModelDownload().cancelDownload` resolves `true` only when main confirmed | `src/hooks/useModelDownload.ts` | Plan 05 (ONB-R4) |
 | Stored-audio contract (CCR 5) | `src/helpers/audioStorage.js`, `audioFlagReconcile.js`, `src/utils/audioDeletion.ts`, `src/hooks/useAudioStorageUsage.ts`, `src/components/settings/AudioStorageRow.tsx` | Plan 03 (SET-R7) |
@@ -208,6 +221,8 @@ The consolidated spec (091d198 on `snowopsdev/feat/uiux-foundations`) now carrie
    - the "a queued draft is not sent after …" tests;
    - "a refusal while a newer draft exists keeps both drafts" and "a rejection while a newer draft exists keeps both drafts";
    - the two "with the real sender" tests;
+   - `chatPersistenceSend.test.js`: "the provider request waits until the user message is saved" and the rejected and `null` write cases;
+   - `chatViewFirstSend.test.js`: "a first send whose conversation cannot be created keeps the composer and the words";
    - in `assistantTextSubmit.test.js`, "a send that was not made gives the context back with the words" and "a newer selection is never overwritten by a failed send".
 3. **Cancel during the onboarding download.** Main refuses to cancel once extraction starts. If the click races that transition, the download must stay visible and its success must still count. Pinned in Task 6 by:
    - "a cancel main refuses keeps the download and its result";
@@ -798,19 +813,25 @@ git commit -m "test(a11y): guard focus rings against unlayered CSS and arbitrary
 
 Covers SET-Q25 and the "Downloading" part of SET-Q6. This task also creates the shared renderer-test mocks that later tasks use.
 
-**Motion.** The indeterminate loop moves onto the motion tokens: 4 × `--motion-slow` is 1440 ms, close to the old 1.5 s, with `--motion-ease-std`. The installing spinner becomes `motion-safe:animate-spin`. `animate-pulse` stays; it is an opacity-only loop, which the reduced-motion policy keeps, and it runs only while installing or indeterminate. Plan 01 defines no loop-duration token, so this plan composes from the existing ones rather than adding one.
+**Motion.** All three loops take their timing from the motion tokens. Plan 01 defines no loop-duration token, so this plan composes from the existing ones rather than adding one.
+- **The indeterminate sweep** is 4 × `--motion-slow` (1440 ms, close to the old 1.5 s), with `--motion-ease-std`.
+- **The installing spinner** uses the repo's own `spinner-rotate` keyframes (`index.css:1298`) for 2 × `--motion-hero` (1040 ms, close to Tailwind's 1 s), behind `motion-safe:`. Its easing stays `linear`. Every `--motion-ease-*` token is a curve, and an eased rotation would visibly stall once per turn, so the timing comes from the tokens and the easing does not.
+- **The opacity pulse** replaces Tailwind's `animate-pulse` (`2s cubic-bezier(0.4, 0, 0.6, 1)`) with a new `.progress-pulse`: 4 × `--motion-hero` (2080 ms) with `--motion-ease-std`, animating `opacity` only.
+- **Reduced motion.** The global rule at `index.css:397-412` sets every keyframe animation to 0.01 ms and one iteration, and re-declares only the ones worth keeping. The pulse is the bar's only sign that work goes on while installing or while the size is unknown. It is opacity only, which the policy keeps, so `.progress-pulse` is re-declared there at full length. With motion reduced, the spinner and the sweep stop, and the pulse keeps running.
 
 The bar also stops using orange. D1 reserves orange for live voice, and the measured light pairs fail §4: orange text on white is 3.12:1, the orange fill on the muted track is 2.86:1, and the old border on the track is 1.16:1. The bar becomes an ink fill on a muted track edged with `--color-input-border` (Task 2). Secondary text drops its `/70` opacity.
 
 **Files:**
 - Create: `test/helpers/harness/rendererMocks.js`
 - Modify: `src/components/ui/DownloadProgressBar.tsx` (whole component, 87 lines)
+- Modify: `src/index.css`. Add `@keyframes progress-pulse` and `.progress-pulse` after `@keyframes indeterminate` (line ~1429), and re-declare `.progress-pulse` inside `@media (prefers-reduced-motion: reduce)` (after the onboarding entries rule, line ~418).
 - Modify: `src/locales/{ar,de,en,es,fr,it,ja,pt,ru,zh-CN,zh-TW}/translation.json`. Add `models.downloadingNamed` and `models.installingNamed`.
-- Modify: `DESIGN.md`, `### Roles`
+- Modify: `DESIGN.md`, `### Roles` and `## Motion`
 - Test: `test/components/downloadProgressBar.test.js`
 
 **Interfaces:**
-- Consumes `--color-input-border` (Task 2), plus `resolveTokens` and `contrastRatio` (Plan 01).
+- Consumes `--color-input-border` and `parseRules`/`isLayered` (Task 2), plus `resolveTokens` and `contrastRatio` (Plan 01), and the motion tokens (Plan 01).
+- Produces `.progress-pulse` in `src/index.css`: the opacity-only loading pulse, kept under reduced motion.
 - Produces `test/helpers/harness/rendererMocks.js`:
   - `I18N_KEYS_MOCK` (string). It is ESM source for a `react-i18next` mock whose `t(key)` returns `key`, and whose `t(key, { a: 1, b: "x" })` returns `key(a=1,b=x)`. It also exports `initReactI18next`, `Trans` and `I18nextProvider`, because `src/i18n.ts` imports them.
   - `TOAST_MOCK` (string). It is ESM source for `useToast()` returning `{ toast, dismiss }`. `toast(props)` pushes to `globalThis.__toasts`.
@@ -978,17 +999,60 @@ test("the bar is built from those tokens, with no orange and no faded text", () 
   assert.match(source, /\bbg-foreground\b/);
 });
 
-test("the fill and the indeterminate loop use the shared motion tokens", () => {
+test("the fill and all three loops take their timing from the motion tokens", () => {
   assert.match(source, /width var\(--motion-base\) var\(--motion-ease-std\)/);
   assert.doesNotMatch(source, /width 300ms ease-out/);
+  // Sweep.
   assert.match(
     source,
     /animate-\[indeterminate_calc\(var\(--motion-slow\)\*4\)_var\(--motion-ease-std\)_infinite\]/
   );
-  assert.doesNotMatch(source, /1\.5s|ease-in-out/);
-  // A spinner is a transform loop: it only runs when motion is allowed.
-  assert.match(source, /motion-safe:animate-spin/);
-  assert.doesNotMatch(source, /(?<!motion-safe:)animate-spin/);
+  // Spinner: a transform loop, so it runs only when motion is allowed. Linear,
+  // because an eased rotation stalls once per turn.
+  assert.match(
+    source,
+    /motion-safe:animate-\[spinner-rotate_calc\(var\(--motion-hero\)\*2\)_linear_infinite\]/
+  );
+  // Pulse.
+  assert.equal(source.match(/\bprogress-pulse\b/g)?.length, 2, "badge and installing fill");
+  // No Tailwind loop with literal timings is left.
+  assert.doesNotMatch(source, /\banimate-(spin|pulse|ping|bounce)\b/);
+  assert.doesNotMatch(source, /1\.5s|ease-in-out|\b\d+(\.\d+)?m?s_/);
+});
+
+test("the pulse is opacity only, tokenized, and the one loop kept under reduced motion", () => {
+  const { parseRules, isLayered } = require("../helpers/harness/cssRules");
+  const css = fs.readFileSync(path.join(__dirname, "../../src/index.css"), "utf8");
+  const rules = parseRules(css);
+  const frames = rules.filter((r) => r.atRules.includes("@keyframes progress-pulse"));
+  assert.ok(frames.length > 0, "@keyframes progress-pulse exists");
+  for (const frame of frames) {
+    const properties = [...frame.body.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+    assert.deepEqual([...new Set(properties)], ["opacity"], `${frame.selector} animates opacity only`);
+  }
+  const base = rules.find((r) => r.selector === ".progress-pulse" && r.atRules.length === 0);
+  assert.ok(base, ".progress-pulse is a top-level rule");
+  assert.equal(isLayered(base), false);
+  assert.match(
+    base.body,
+    /animation:\s*progress-pulse calc\(var\(--motion-hero\) \* 4\) var\(--motion-ease-std\) infinite;/
+  );
+  // The global reduced-motion rule (`*`, !important) sets every animation to
+  // 0.01ms and one iteration; a class selector with !important outranks it.
+  const reduced = rules.find(
+    (r) =>
+      r.selector === ".progress-pulse" &&
+      r.atRules.includes("@media (prefers-reduced-motion: reduce)")
+  );
+  assert.ok(reduced, "the pulse is re-declared for reduced motion");
+  assert.match(reduced.body, /animation-duration:\s*calc\(var\(--motion-hero\) \* 4\) !important;/);
+  assert.match(reduced.body, /animation-iteration-count:\s*infinite !important;/);
+  const killAll = rules.find(
+    (r) =>
+      r.selector.startsWith("*") &&
+      r.atRules.includes("@media (prefers-reduced-motion: reduce)")
+  );
+  assert.match(killAll.body, /animation-duration: 0\.01ms !important;/, "the global rule is unchanged");
 });
 ```
 
@@ -1041,10 +1105,10 @@ export function DownloadProgressBar({
       <div className="flex items-center gap-2 mb-2">
         <div className="relative flex items-center justify-center h-6 min-w-6 px-1.5 shrink-0">
           <div
-            className={`absolute inset-0 rounded-md bg-muted ${isInstalling || indeterminate ? "animate-pulse" : ""}`}
+            className={`absolute inset-0 rounded-md bg-muted ${isInstalling || indeterminate ? "progress-pulse" : ""}`}
           />
           {isInstalling ? (
-            <Loader2 className="relative w-3.5 h-3.5 text-foreground motion-safe:animate-spin" />
+            <Loader2 className="relative w-3.5 h-3.5 text-foreground motion-safe:animate-[spinner-rotate_calc(var(--motion-hero)*2)_linear_infinite]" />
           ) : (
             <span className="relative text-xs font-bold text-foreground tabular-nums">
               {indeterminate ? "···" : `${pct}%`}
@@ -1093,7 +1157,7 @@ export function DownloadProgressBar({
           <div className="h-full w-1/3 rounded-full bg-foreground animate-[indeterminate_calc(var(--motion-slow)*4)_var(--motion-ease-std)_infinite]" />
         ) : (
           <div
-            className={`${isInstalling ? "animate-pulse" : ""} bg-foreground`}
+            className={`${isInstalling ? "progress-pulse" : ""} bg-foreground`}
             style={{
               height: "100%",
               width: `${isInstalling ? 100 : pct}%`,
@@ -1108,10 +1172,44 @@ export function DownloadProgressBar({
 }
 ```
 
+In `src/index.css`, after `@keyframes indeterminate` (line ~1429, unlayered), add:
+
+```css
+/* Loading pulse for progress (DESIGN.md "Motion"). Opacity only, so it is the
+   loop that keeps running under reduced motion (re-declared there). */
+@keyframes progress-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.progress-pulse {
+  animation: progress-pulse calc(var(--motion-hero) * 4) var(--motion-ease-std) infinite;
+}
+```
+
+Inside `@media (prefers-reduced-motion: reduce)`, after the `.onboarding-step-enter, .onboarding-stagger > *` rule (line ~418), add:
+
+```css
+  /* A loading pulse is opacity only, and often the only sign that work goes
+     on, so it keeps its full length. The class selector outranks the `*`
+     rule above; both are !important and unlayered. */
+  .progress-pulse {
+    animation-duration: calc(var(--motion-hero) * 4) !important;
+    animation-iteration-count: infinite !important;
+  }
+```
+
 In `DESIGN.md` `### Roles`, append:
 
 ```markdown
 - **Progress** (downloads, installs): ink fill on a muted track with an `--color-input-border` edge, and ink percentage text. Orange stays reserved for live voice.
+```
+
+In `DESIGN.md` `## Motion`, add to the Rules list:
+
+```markdown
+- Loops take their timing from these tokens. A rotation stays `linear`, because an eased spin stalls once per turn. Under reduced motion, keyframes stop except opacity-only loading cues (`.progress-pulse`), which keep running.
 ```
 
 Add the locale keys from the repo root:
@@ -1158,7 +1256,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add test/helpers/harness/rendererMocks.js test/components/downloadProgressBar.test.js src/components/ui/DownloadProgressBar.tsx src/locales DESIGN.md
+git add test/helpers/harness/rendererMocks.js test/components/downloadProgressBar.test.js src/components/ui/DownloadProgressBar.tsx src/index.css src/locales DESIGN.md
 git commit -m "fix(a11y): accessible, translated download progress bar that clears contrast"
 ```
 
@@ -3374,6 +3472,7 @@ Covers WS-Q5, part 2: queue a draft while the agent works, keep it bound to wher
 **Files:**
 - Create: `src/components/chat/chatRouteKey.ts`
 - Modify: `src/components/chat/useChatMessageSender.ts:57-86`. This makes the result an honest "did the message reach the conversation" answer.
+- Modify: `src/components/chat/useChatPersistence.ts:20` and `:82-86`. `saveUserMessage` awaits the IPC write and rejects unless a row was saved.
 - Modify: `src/components/chat/ChatInput.tsx`:
   - `onTextSubmit` type (line 17), plus a new `queueKey` prop;
   - `handleSubmit` and `handleKeyDown`;
@@ -3388,18 +3487,26 @@ Covers WS-Q5, part 2: queue a draft while the agent works, keep it bound to wher
   - make the chip `onClick` explicit (line 72).
 - Modify: `src/components/notes/NoteEditor.tsx`. Compute `queueKey` and pass it to both `<EmbeddedChat>` (lines 1013 and 1030).
 - Modify: `src/components/notes/overview/ContainerOverview.tsx`. Compute `queueKey` and pass it to `<OverviewAskSection>` (line ~129).
-- Modify: `src/components/chat/ChatView.tsx`. Compute `queueKey` and pass it to `<ChatInput>` (line ~173).
+- Modify: `src/components/chat/ChatView.tsx`:
+  - mark the chat started once the message is saved (`onMessagePersisted`), not before the conversation exists (`onBeforeSend`, line 85);
+  - compute `queueKey` and pass it to `<ChatInput>` (line ~173).
 - Create: `src/components/dictation/assistantTextSubmit.ts`. A failed send gives the selected context back.
 - Modify: `src/components/dictation/AssistantPanel.tsx`. Change `handleTextSubmit` (lines 323–331) to use it, and compute and pass `queueKey` to `<ChatInput>` (line ~533).
 - Modify: `src/locales/*/translation.json`:
   - add `agentMode.input.queued`, `unqueue`, `queueDropped`, `unsent`, `restoreUnsent` and `discardUnsent`.
-- Test: `test/helpers/chatSendOutcome.test.js` (the real sender), `test/helpers/assistantTextSubmit.test.js` (the selected context on failure), and `test/components/chatSends.test.js` (the mounted composer, including the real sender).
+- Test:
+  - `test/helpers/chatSendOutcome.test.js` (the real sender);
+  - `test/components/chatPersistenceSend.test.js` (the real persistence hook behind the real sender, against a fake IPC bridge);
+  - `test/components/chatViewFirstSend.test.js` (the real `ChatView` on a first send whose conversation cannot be created);
+  - `test/helpers/assistantTextSubmit.test.js` (the selected context on failure);
+  - `test/components/chatSends.test.js` (the mounted composer, including the real sender).
 
 **Interfaces:**
 - **`useChatMessageSender`** still returns `(text, options?) => Promise<boolean>`, with a precise meaning.
-  - **`true`:** the user's message reached the conversation (shown and saved), even if the reply then failed. `useChatStreaming` renders reply failures in the thread.
-  - **`false`:** nothing reached the conversation, so the caller still owns the words. That happens when another send holds the lock, or when creating the conversation or saving the message failed.
-  - **No rejection.** It never rejects. A failure before the save also removes the optimistic message it had added.
+  - **`true`:** the user's message reached the conversation (shown and saved), even if the reply then failed. `useChatStreaming` renders reply failures in the thread. A failure after the save is logged, and the send still resolves `true`.
+  - **`false`:** another send holds the lock. Nothing was attempted. This is unchanged.
+  - **Rejection:** nothing reached the conversation, because creating it or saving the message failed, or the conversation is gone. The sender first removes the optimistic message it added, and nothing is dispatched to the provider. Either way, the caller still owns the words.
+- **`ChatPersistence.saveUserMessage(text): Promise<void>`** resolves only after `addAgentMessage` returns a saved row. It rejects when there is no conversation id, when the bridge is missing, when the bridge returns `null` (the conversation was deleted), or when the write fails.
 - `ChatInputProps.onTextSubmit` becomes `(text: string) => void | boolean | Promise<void | boolean>`. `false`, or a rejection, means "not sent". A callback that returns nothing keeps today's behaviour.
 - `ChatInputProps.queueKey?: string` is the destination identity of a send: conversation or context, plus the route. A draft queues only when `queueKey` is set. It is sent only if the key at the moment the agent goes idle equals the key at queue time.
 - Produces `src/components/chat/chatRouteKey.ts`:
@@ -3415,6 +3522,9 @@ Facts from the code:
   - **Before persistence:** it rejects when `onBeforeSend`, `createConversation` (`:63`) or `saveUserMessage` (`:73`) throws.
   - **Streaming errors:** `useChatStreaming.sendToAI` catches provider and stream errors, renders them as an assistant message, and returns normally (`useChatStreaming.ts:~505-555`). So `true` today means "the operation ran", not "the reply succeeded".
   - The new contract makes `true` mean "the message is in the conversation". That is the line that matters for the words: past it, restoring them would duplicate a message the thread already shows.
+- **The save does not wait for the write today.** `useChatPersistence.saveUserMessage` (`useChatPersistence.ts:82-86`) neither awaits nor returns `window.electronAPI.addAgentMessage(...)`, so its promise resolves at once. The bridge resolves to the saved row or `null` (`src/types/electron.ts:1845-1857`). Main returns `null` for a missing or deleted conversation (`src/helpers/database.js:1803-1810`) and rethrows a write error (`:1827-1829`). Without a change here, the sender would mark the message saved and dispatch the provider request before anything is written. The sender is the only caller of `saveUserMessage`.
+- **The voice-command path depends on rejection.** AssistantPanel's pending-command effect (`AssistantPanel.tsx:205-243`) reads `false` as "the lock was busy" and retries when `submissionInFlight` clears. It reads a rejection as a failed command: it discards it and shows the error in the thread. So a failure before persistence must stay a rejection. If it resolved `false`, a save that keeps failing would retry in a loop and never show its error. Plan 04 also edits this effect, adding `operation` to its options, and keeps the split.
+- **ChatView marks a new chat started before the conversation exists.** It passes `onBeforeSend: markChatStarted` (`ChatView.tsx:79-86`), which sets `isNewChat` to `false` before `createConversation` runs. On a first send, `activeConversationId` is still `null` and the thread is empty, so `hasActiveChat` (`:129-130`) turns false. `:165-185` then swaps the composer for `EmptyChatState`. If creation fails, the recovery runs in an unmounted composer and the words are gone. Marking the chat started in `onMessagePersisted` instead keeps `isNewChat` true until the message is saved, by which time `activeConversationId` is set. `isNewChat` is read only by `hasActiveChat` and by `autoFocus`, which acts only on mount.
 - **The route is read live.** `sendToAI` reads routing at dispatch (`useChatStreaming.ts:233`, `getSettings()`, then `resolveChatStreamingInference`).
   - ChatView, EmbeddedChat and OverviewAskSection use scope `chatIntelligence`.
   - AssistantPanel uses `dictationAgent` (`AssistantPanel.tsx:119`). Its typed text carries no screenshot, so the vision override never applies.
@@ -3437,6 +3547,8 @@ Behaviour:
   - If the user has already started a newer draft, the failed text is held beside it as "Your earlier message wasn't sent", with "Put it back" (which places it above the newer draft) and "Discard".
   - Further failures append to the held text.
   - In AssistantPanel, the selected context comes back with the words. If the user has selected other text in the meantime, the newer selection stays.
+  - On a first ChatView send, the composer stays on screen while the conversation is created. If creation fails, the words are back in it and editable.
+  - Nothing goes to the provider until the user's message is saved.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3477,24 +3589,30 @@ async function makeSender(t, { createConversation, saveUserMessage, sendToAI }) 
   return { send: (text) => send(text), thread };
 }
 
-test("a failure before the conversation exists reports not sent", async (t) => {
+test("a failure before the conversation exists rejects, with nothing dispatched", async (t) => {
+  const dispatched = [];
   const s = await makeSender(t, {
     createConversation: async () => {
       throw new Error("Conversation scope is no longer available");
     },
+    sendToAI: async (text) => dispatched.push(text),
   });
-  assert.equal(await s.send("hello"), false);
+  await assert.rejects(s.send("hello"), /Conversation scope is no longer available/);
   assert.deepEqual(s.thread, []);
+  assert.deepEqual(dispatched, []);
 });
 
-test("a failed save reports not sent and takes the optimistic message back out", async (t) => {
+test("a failed save rejects and takes the optimistic message back out", async (t) => {
+  const dispatched = [];
   const s = await makeSender(t, {
     saveUserMessage: async () => {
       throw new Error("disk full");
     },
+    sendToAI: async (text) => dispatched.push(text),
   });
-  assert.equal(await s.send("hello"), false);
+  await assert.rejects(s.send("hello"), /disk full/);
   assert.deepEqual(s.thread, [], "the words live only in the composer now");
+  assert.deepEqual(dispatched, [], "nothing goes to the provider unsaved");
 });
 
 test("once the message is saved, a later failure still reports it as sent", async (t) => {
@@ -3681,6 +3799,21 @@ test("a refused send puts the draft back into an empty box", async (t) => {
   await c.type("hello");
   await c.press("Enter");
   assert.equal(c.value(), "hello");
+  assert.doesNotMatch(c.text(), /agentMode\.input\.unsent/, "an empty box is refilled, not held");
+});
+
+test("a rejected send puts the draft back into an empty box", async (t) => {
+  const c = await mount(t, composer, {
+    agentState: "idle",
+    queueKey: "k",
+    onTextSubmit: async () => {
+      throw new Error("offline");
+    },
+  });
+  await c.type("hello");
+  await c.press("Enter");
+  assert.equal(c.value(), "hello");
+  assert.doesNotMatch(c.text(), /agentMode\.input\.unsent/);
 });
 
 for (const [outcome, settleSend] of [
@@ -3742,6 +3875,7 @@ test("with the real sender, a failure before the save restores the draft", async
   await c.type("hello");
   await c.press("Enter");
   assert.equal(c.value(), "hello");
+  assert.doesNotMatch(c.text(), /agentMode\.input\.unsent/);
   assert.deepEqual(thread, []);
 });
 
@@ -3909,11 +4043,298 @@ test("without a context nothing is cleared or restored", async (t) => {
 });
 ```
 
+Create `test/components/chatPersistenceSend.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
+const { rendererOptions } = require("../helpers/harness/rendererMocks");
+const { installTree } = require("../helpers/harness/fakeDomTree");
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const act = (fn) =>
+  React.act(async () => {
+    await fn();
+    await settle();
+  });
+const row = (content) => ({
+  id: 1,
+  conversation_id: 7,
+  role: "user",
+  content,
+  created_at: "2026-10-15 09:00:00",
+});
+
+// The real useChatPersistence behind the real sender. Only the IPC bridge and
+// the provider call are fakes.
+async function mountRealSender(t, addAgentMessage, sendToAI) {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: {
+        createAgentConversation: async (title) => ({ id: 7, title }),
+        addAgentMessage,
+      },
+    },
+  });
+  installHookDom(t);
+  const tree = installTree();
+  const vite = await createRendererServer(t, rendererOptions("loqui-chat-persistence-send-"));
+  const { useChatPersistence } = await vite.ssrLoadModule("/components/chat/useChatPersistence.ts");
+  const { useChatMessageSender } = await vite.ssrLoadModule(
+    "/components/chat/useChatMessageSender.ts"
+  );
+  const h = {};
+  function Harness() {
+    const persistence = useChatPersistence();
+    h.messages = persistence.messages;
+    h.send = useChatMessageSender({
+      conversationId: persistence.conversationId,
+      persistence,
+      streaming: { sendToAI },
+      createConversation: (text) => persistence.createConversation(text),
+    });
+    return null;
+  }
+  root = createRoot(tree.container);
+  await act(() => root.render(React.createElement(Harness)));
+  return h;
+}
+
+test("the provider request waits until the user message is saved", async (t) => {
+  const write = deferred();
+  const dispatched = [];
+  const h = await mountRealSender(t, () => write.promise, async (text) => dispatched.push(text));
+  let result;
+  await act(() => {
+    result = h.send("hello");
+  });
+  assert.deepEqual(dispatched, [], "nothing goes to the provider while the write is pending");
+  await act(() => write.resolve(row("hello")));
+  assert.equal(await result, true);
+  assert.deepEqual(dispatched, ["hello"]);
+  assert.deepEqual(
+    h.messages.map((m) => m.content),
+    ["hello"]
+  );
+});
+
+for (const [outcome, settleWrite, reason] of [
+  ["rejects", (write) => write.reject(new Error("SQLITE_FULL")), /SQLITE_FULL/],
+  ["returns null (the conversation is gone)", (write) => write.resolve(null), /no longer available/],
+]) {
+  test(`a write that ${outcome} rejects the send, rolls back and dispatches nothing`, async (t) => {
+    const write = deferred();
+    const dispatched = [];
+    const h = await mountRealSender(t, () => write.promise, async (text) => dispatched.push(text));
+    let result;
+    await act(() => {
+      result = h.send("hello");
+      result.catch(() => {}); // asserted below
+    });
+    await act(() => settleWrite(write));
+    await assert.rejects(result, reason);
+    assert.deepEqual(h.messages, [], "the optimistic message is taken back out");
+    assert.deepEqual(dispatched, []);
+  });
+}
+
+test("once saved, a failing reply still counts as sent", async (t) => {
+  const h = await mountRealSender(
+    t,
+    async (_id, _role, content) => row(content),
+    async () => {
+      throw new Error("stream setup failed");
+    }
+  );
+  let result;
+  await act(() => {
+    result = h.send("hello");
+  });
+  assert.equal(await result, true);
+  assert.deepEqual(
+    h.messages.map((m) => m.content),
+    ["hello"],
+    "the thread shows it, so the composer must not offer it again"
+  );
+});
+```
+
+Create `test/components/chatViewFirstSend.test.js`:
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const React = require("react");
+const { createElement } = React;
+const { createRoot } = require("react-dom/client");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
+const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+const { installTree } = require("../helpers/harness/fakeDomTree");
+
+// The real ChatView, persistence, sender and composer. Only leaf views, the
+// provider stream and the route key are stubbed.
+const VIEW_MOCKS = {
+  "/ui/useToast": TOAST_MOCK,
+  "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
+  "/chat/ConversationList": `export default function ConversationList() { return null; }`,
+  "/chat/EmptyChatState": `
+    import React from "react";
+    export default function EmptyChatState() { return React.createElement("p", null, "EMPTY_CHAT"); }
+  `,
+  "/chat/ChatMessages": `
+    import React from "react";
+    export function ChatMessages({ messages }) {
+      return React.createElement("ol", null, messages.map((m) => React.createElement("li", { key: m.id }, m.content)));
+    }
+  `,
+  "/chat/ChatEmptyIllustration": `export function ChatEmptyIllustration() { return null; }`,
+  "/chat/useChatStreaming": `
+    export function useChatStreaming() {
+      return {
+        agentState: "idle",
+        activeToolName: null,
+        toolStatus: "",
+        cancelStream() {},
+        async sendToAI(text) { globalThis.__chatViewDispatched.push(text); },
+      };
+    }
+  `,
+  "/chat/chatRouteKey": `export const chatRouteKey = () => "route-a"; export const useChatRouteKey = () => "route-a";`,
+  "/ui/dialog": `export function ConfirmDialog() { return null; }`,
+};
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const act = (fn) =>
+  React.act(async () => {
+    await fn();
+    await settle();
+  });
+
+async function mountChatView(t, electronAPI) {
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  globalThis.__chatViewDispatched = [];
+  t.after(() => {
+    delete globalThis.__chatViewDispatched;
+  });
+  installBrowserGlobals(t, { window: { electronAPI } });
+  installHookDom(t);
+  const tree = installTree();
+  const vite = await createRendererServer(t, rendererOptions("loqui-chat-view-first-send-", VIEW_MOCKS));
+  const { default: ChatView } = await vite.ssrLoadModule("/components/chat/ChatView.tsx");
+  root = createRoot(tree.container);
+  await act(() => root.render(createElement(ChatView)));
+  const textarea = () => tree.find((node) => node.tagName === "TEXTAREA");
+  return {
+    ...tree,
+    textarea,
+    type: (value) => act(() => tree.props(textarea()).onChange({ target: { value } })),
+    enter: () =>
+      act(() =>
+        tree.props(textarea()).onKeyDown({
+          key: "Enter",
+          shiftKey: false,
+          nativeEvent: { isComposing: false, keyCode: 13 },
+          preventDefault() {},
+        })
+      ),
+  };
+}
+
+test("a first send whose conversation cannot be created keeps the composer and the words", async (t) => {
+  const creation = deferred();
+  const view = await mountChatView(t, {
+    createAgentConversation: () => creation.promise,
+    addAgentMessage: async () => assert.fail("nothing is saved without a conversation"),
+  });
+  await view.type("hello");
+  await view.enter();
+  assert.ok(view.textarea(), "the composer stays while the conversation is created");
+  assert.doesNotMatch(view.text(), /EMPTY_CHAT/);
+  await act(() => creation.resolve(null)); // main returns null for a scope that is gone
+  assert.ok(view.textarea(), "the composer is still mounted after the failure");
+  assert.doesNotMatch(view.text(), /EMPTY_CHAT/);
+  assert.equal(view.props(view.textarea()).value, "hello", "the words are back");
+  await view.type("hello again");
+  assert.equal(view.props(view.textarea()).value, "hello again", "and editable");
+  assert.deepEqual(globalThis.__chatViewDispatched, []);
+});
+
+test("a first send that succeeds keeps the composer and shows the message", async (t) => {
+  const view = await mountChatView(t, {
+    createAgentConversation: async (title) => ({ id: 7, title }),
+    addAgentMessage: async (id, role, content) => ({
+      id: 1,
+      conversation_id: id,
+      role,
+      content,
+      created_at: "2026-10-15 09:00:00",
+    }),
+  });
+  await view.type("hello");
+  await view.enter();
+  assert.ok(view.textarea());
+  assert.equal(view.props(view.textarea()).value, "");
+  assert.match(view.text(), /hello/);
+  assert.deepEqual(globalThis.__chatViewDispatched, ["hello"]);
+});
+
+test("ChatView marks the chat started only once the message is saved", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../../src/components/chat/ChatView.tsx"),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /onBeforeSend: markChatStarted/);
+  assert.match(source, /onMessagePersisted: markChatStarted/);
+});
+```
+
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- test/helpers/chatSendOutcome.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js`
+Run: `npm test -- test/helpers/chatSendOutcome.test.js test/components/chatPersistenceSend.test.js test/components/chatViewFirstSend.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js`
 Expected: FAIL.
-- The sender rejects instead of resolving `false`, and a post-save failure rejects instead of resolving `true`.
+- A post-save failure rejects instead of resolving `true`.
+- With the real persistence hook, the provider request goes out while the write is pending, and a `null` or rejected write still resolves `true`.
+- ChatView swaps the composer for `EMPTY_CHAT` on a first send.
 - No queue exists yet.
 - `chatRouteKey.ts` and `assistantTextSubmit.ts` are missing.
 
@@ -3926,9 +4347,10 @@ Expected: FAIL.
        async (text: string, options?: SendToAIOptions) => {
          // true: the user's message reached the conversation (shown and saved),
          // even if the reply then failed; useChatStreaming renders reply errors
-         // in the thread. false: nothing reached it (another send held the
-         // lock, or creating the conversation or saving failed), so the caller
-         // still owns the words. Never rejects.
+         // in the thread. false: another send held the lock. A rejection:
+         // nothing reached the conversation (creating it or saving failed), so
+         // the optimistic message is taken out and the caller keeps the words.
+         // The voice-command path relies on false meaning "busy, retry".
          let reachedConversation = false;
          let optimisticId: string | null = null;
          try {
@@ -3960,17 +4382,54 @@ Expected: FAIL.
              }
            });
          } catch (error) {
-           console.error("Chat send failed", error);
-           if (!reachedConversation && optimisticId) {
-             const id = optimisticId;
-             persistence.setMessages((messages) => messages.filter((m) => m.id !== id));
+           if (!reachedConversation) {
+             if (optimisticId) {
+               const id = optimisticId;
+               persistence.setMessages((messages) => messages.filter((m) => m.id !== id));
+             }
+             throw error;
            }
-           return reachedConversation;
+           console.error("Chat reply failed after the message was saved", error);
+           return true;
          }
        },
    ```
 
    The existing tests in `test/helpers/chatMessageSubmissionLock.test.js` keep passing: the lock and the busy `false` are unchanged.
+
+   `saveUserMessage` runs before `streaming.sendToAI`, and with step 1b it now waits for the write. So the provider request goes out only after the message is saved.
+
+1b. `src/components/chat/useChatPersistence.ts`. Replace `saveUserMessage` (lines 82–86) with the version below, and document the contract on the interface (line 20):
+
+   ```ts
+     /** Resolves once the message row is saved; rejects when it was not. */
+     saveUserMessage: (text: string) => Promise<void>;
+   ```
+
+   ```ts
+     const saveUserMessage = useCallback(async (text: string) => {
+       const conversationId = conversationIdRef.current;
+       const addAgentMessage = window.electronAPI?.addAgentMessage;
+       if (!conversationId || !addAgentMessage) {
+         throw new Error("No conversation to save the message to");
+       }
+       // Main returns null when the conversation was deleted, and rethrows a
+       // failed write. Either way nothing was saved, so the sender must not
+       // dispatch the reply or report the message as sent.
+       const saved = await addAgentMessage(conversationId, "user", text);
+       if (!saved) throw new Error("The conversation is no longer available");
+     }, []);
+   ```
+
+   `saveAssistantMessage` keeps its fire-and-forget write. A failed assistant save loses no user words, and its callers are stream-completion callbacks.
+
+1c. `src/components/chat/ChatView.tsx`. In the `useChatMessageSender` options (lines 80–86), replace `onBeforeSend: markChatStarted,` with `onMessagePersisted: markChatStarted,`. Add a comment above it:
+
+   ```tsx
+       // Only once the message is saved: marking a first send started earlier
+       // hides the composer (hasActiveChat) before the conversation exists, and
+       // a failed creation would then have nowhere to put the words back.
+   ```
 
 2. Create `src/components/chat/chatRouteKey.ts`:
 
@@ -4020,6 +4479,13 @@ Expected: FAIL.
        const queued = queuedFor !== null;
        const queuedHintId = useId();
        const inputTextRef = useRef(inputText);
+       // Draft writes from this component go through here, so recovery after an
+       // immediate refusal reads the box as it is now, not as the last commit
+       // left it. The layout effect still covers writes from elsewhere.
+       const writeDraft = useCallback((value: string) => {
+         inputTextRef.current = value;
+         setInputText(value);
+       }, []);
        useLayoutEffect(() => {
          inputTextRef.current = inputText;
        }, [inputText]);
@@ -4033,7 +4499,7 @@ Expected: FAIL.
          if (!text || !onTextSubmit) return;
          setQueueDropped(false);
          // Clear at once: a send resolves only after the whole reply streams.
-         setInputText("");
+         writeDraft("");
          requestAnimationFrame(() => inputRef.current?.focus());
          let sent: void | boolean = true;
          try {
@@ -4044,9 +4510,9 @@ Expected: FAIL.
          if (sent !== false) return;
          // Not sent, so nothing reached the conversation. Never lose the words:
          // refill an empty box, or hold them beside a newer draft.
-         if (!inputTextRef.current.trim()) setInputText(text);
+         if (!inputTextRef.current.trim()) writeDraft(text);
          else setUnsent((held) => (held ? `${held}\n\n${text}` : text));
-       }, [inputText, onTextSubmit]);
+       }, [inputText, onTextSubmit, writeDraft]);
      ```
 
    - In `handleKeyDown`, pass `isQueued: queued`, and replace the tail `if (action !== "submit") return; e.preventDefault(); handleSubmit();` with:
@@ -4085,7 +4551,7 @@ Expected: FAIL.
        }, [isIdle, queuedFor, queueKey, handleSubmit]);
      ```
 
-   - The textarea gets `onChange={(e) => { setInputText(e.target.value); setQueueDropped(false); if (!e.target.value.trim()) setQueuedFor(null); }}` and `aria-describedby={queued ? queuedHintId : undefined}`.
+   - The textarea gets `onChange={(e) => { writeDraft(e.target.value); setQueueDropped(false); if (!e.target.value.trim()) setQueuedFor(null); }}` and `aria-describedby={queued ? queuedHintId : undefined}`.
    - Stop (line 222): `onClick={() => { setQueuedFor(null); onCancel?.(); }}`.
    - Send (line 236): `onClick={() => void handleSubmit()}`.
    - After the container's closing `</div>`, before the outer wrapper's closing `</div>`, add:
@@ -4118,7 +4584,8 @@ Expected: FAIL.
                type="button"
                onClick={() => {
                  const held = unsent;
-                 setInputText((current) => (current.trim() ? `${held}\n\n${current}` : held));
+                 const current = inputTextRef.current;
+                 writeDraft(current.trim() ? `${held}\n\n${current}` : held);
                  setUnsent(null);
                }}
                className="rounded-sm underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -4316,13 +4783,13 @@ Expected: FAIL.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/helpers/chatSendOutcome.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js test/helpers/chatMessageSubmissionLock.test.js test/helpers/assistantPanel.test.js test/locales/translationCoverage.test.js`, then `npm run typecheck`.
+Run: `npm test -- test/helpers/chatSendOutcome.test.js test/components/chatPersistenceSend.test.js test/components/chatViewFirstSend.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js test/helpers/chatMessageSubmissionLock.test.js test/helpers/assistantPanel.test.js test/locales/translationCoverage.test.js`, then `npm run typecheck`.
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/chat src/hooks/useEmbeddedChat.ts src/hooks/useContainerChat.ts src/components/notes/EmbeddedChat.tsx src/components/notes/overview/OverviewAskSection.tsx src/components/notes/overview/ContainerOverview.tsx src/components/notes/NoteEditor.tsx src/components/dictation/AssistantPanel.tsx src/components/dictation/assistantTextSubmit.ts src/locales test/helpers/chatSendOutcome.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js
+git add src/components/chat src/hooks/useEmbeddedChat.ts src/hooks/useContainerChat.ts src/components/notes/EmbeddedChat.tsx src/components/notes/overview/OverviewAskSection.tsx src/components/notes/overview/ContainerOverview.tsx src/components/notes/NoteEditor.tsx src/components/dictation/AssistantPanel.tsx src/components/dictation/assistantTextSubmit.ts src/locales test/helpers/chatSendOutcome.test.js test/components/chatPersistenceSend.test.js test/components/chatViewFirstSend.test.js test/helpers/assistantTextSubmit.test.js test/components/chatSends.test.js test/components/chatComposer.test.js
 git commit -m "fix(chat): queued drafts stay in their conversation; unsent words are never lost"
 ```
 
@@ -4712,7 +5179,7 @@ Behaviour:
   - Home and End jump to the first and last enabled tab.
   - Disabled tabs are skipped. They keep the native `disabled` attribute, so they cannot take focus.
 - **Manual activation.** Enter, Space or a click selects. Some callers switch local and remote (`ReasoningModelSelector.tsx:527` mode tabs), so focus alone must never select.
-- **The settings sidebar nav** gets `aria-current="page"`, a visible 2px orange focus ring (`--color-ring`: `#e84e16` in light after Task 3, `#ff5a1f` in Plum Night), an accessible name in compact mode, and an `aria-label` on `<nav>`. The ring is inset, because the nav scrolls (`overflow-y-auto`) and would clip an outset ring.
+- **The settings sidebar nav** gets `aria-current="page"`, a visible 2px orange focus ring (`--color-ring`: `#e84e16` in light, inherited from Plan 01, and `#ff5a1f` in Plum Night), an accessible name in compact mode, and an `aria-label` on `<nav>`. The ring is inset, because the nav scrolls (`overflow-y-auto`) and would clip an outset ring.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6785,9 +7252,9 @@ Expected: everything passes.
 - **Allowed test edits.** Edit a pre-existing test only when its assertion pins exactly the behaviour this plan changes on purpose:
   - 3/4/5 s error timers;
   - "disabled never checks" and "the off switch also blocks manual checks" (`updateManager.test.js`);
-  - Plan 01 token values this plan changes on purpose (light `--color-ring`, light success and warning foregrounds);
+  - Plan 01 token values this plan changes on purpose (the light success and warning foregrounds; light `--color-ring` is inherited unchanged);
   - a card root `onClick`;
-  - a `useChatMessageSender` test that expected a rejection (the sender now resolves `false` before persistence and `true` after);
+  - a `useChatMessageSender` test that expected a failure after the save to reject (the sender now resolves `true` once the message is saved);
   - the `installTree` location;
   - deleted locale fixtures.
 - Name every such edit in the PR description.
@@ -6817,6 +7284,10 @@ Check each of these, and screenshot the starred ones for the PR:
   - The bar shows a real percentage.
   - Cancel returns to "Download the selected model".
   - Download again, Continue, and the footer chip shows the percentage on Cleanup.
+  - Reduced motion (R2-M1). In DevTools → Rendering, emulate `prefers-reduced-motion: reduce`, then watch an install (or a byte-only download).
+    - The badge and fill computed `animation` read `progress-pulse 2.08s cubic-bezier(0.2, 0, 0, 1) infinite`, and the pulse visibly keeps running.
+    - The spinner and the sweep show `animation-duration: 0.01ms` and stay still.
+    - With emulation off, the spinner turns at `1.04s linear`.
 - **Dictation errors.**
   - Force a paste failure that offers "View transcript": the card stays until acted on.
   - A plain network error disappears after 6–10 s.

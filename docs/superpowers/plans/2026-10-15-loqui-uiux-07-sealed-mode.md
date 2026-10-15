@@ -54,11 +54,11 @@ This revision answers the independent security review of snapshot `18c0b4c…` (
 
 | Finding | Status | Where it is closed, and how |
 |---|---|---|
-| **C1** yt-dlp self-update reported stopped before exit | Closed, this revision | Task 6a: `childRegistry` marks a child alive until the OS reports `exit`, and a detached group until the group is gone. `stopAll` sends SIGTERM, then SIGKILL, then rejects with `CHILD_STOP_FAILED` if anything survives. Process trees are tracked on every platform: a detached POSIX group until the group is gone, or a tree until every descendant listed at stop has exited. Windows has no groups, and its `taskkill /T` is a signal, not an exit. A tree whose descendants cannot be listed is never reported stopped. Task 10 registers the self-update (as a tree) and the download children (a group on POSIX, a tree on Windows), and settles their opaque sessions on `exit` only. It tests the timeout, spawn-failure and seal paths. `ytDlpControl` reads the registry, not a flag. Task 7 records `childStop`, which blocks attestation until the child is really gone. Tests: `stopAll rejects when a child survives SIGKILL, and it stays alive`, `a kill that throws leaves the child alive, and stopAll rejects`, `a process tree stays alive until every descendant listed at stop has exited`, `a tree whose descendants cannot be listed is never reported stopped` (6a), `a self-update that times out is still running until it exits, and is recorded then` (10), `a child that will not exit keeps the seal unverified until it really exits` (7), and the yt-dlp test in Task 10, which asserts the process is still alive after SIGKILL and that the row appears only after exit. |
+| **C1** yt-dlp self-update reported stopped before exit | Closed, this revision | Task 6a: `childRegistry` marks a child alive until the OS reports `exit`, and a detached group until the group is gone. `stopAll` sends SIGTERM, then SIGKILL, then rejects with `CHILD_STOP_FAILED` if anything survives. Process trees are tracked on every platform: a detached POSIX group until the group is gone, or a tree until every descendant listed at stop has exited. Windows has no groups, and its `taskkill /T` is a signal, not an exit. A tree whose descendants cannot be listed is never reported stopped. Task 10 spawns the self-update detached on POSIX too, so every yt-dlp process is a process group there, and a tree on Windows, whose descendant list is refreshed while the root runs (the remaining Windows-only window is stated in Task 1's Boundary). It registers both, and settles their opaque sessions on `exit` only. It tests the timeout, spawn-failure and seal paths. `ytDlpControl` reads the registry, not a flag. Task 7 records `childStop`, which blocks attestation until the child is really gone. Tests: `stopAll rejects when a child survives SIGKILL, and it stays alive`, `a kill that throws leaves the child alive, and stopAll rejects`, `a process tree stays alive until every descendant listed at stop has exited`, `a tree helper started while the root runs is waited for after the root exits`, `a tree whose descendants cannot be listed is never reported stopped` (6a), `a self-update that times out is still running until it exits, and is recorded then` (10), `a child that will not exit keeps the seal unverified until it really exits` (7), and the yt-dlp test in Task 10, which asserts the process is still alive after SIGKILL and that the row appears only after exit. |
 | **C2** universal egress claim exceeds the boundary | Closed, this revision. The guarantee is bounded and enforced; the exceptions are disabled or disclosed. | Task 1 states the promise as covering Loqui's main process, Chromium sessions and renderers, and the children Loqui starts. A **Boundary** section lists each outside path and how it is treated. FFmpeg is contained with a protocol whitelist and adversarial fixtures (6a, N24). Every spawn site is inventoried and ratcheted (`spawn-sites`), and the guard refuses network and third-party spawns while sealed (6a). The ratchet now matches imports, so aliases such as `mod.request`, renderer roots and `.tsx`/`.jsx`/`.mjs` files are caught. WebRTC is removed from every renderer (7a). Remote images are inert (13). Pending DNS is counted (6, 7). Preconnect and dns-prefetch are probed in Electron against a connection-logging fixture (16). Browser links need main's confirmation (11). Pending OAuth flows are cancelled (11). Loopback forwarders are a named trust boundary (Task 1). Native helpers that Loqui starts are outside what JavaScript can inspect, so this is disclosed rather than claimed. The panel always shows a scope line while sealed (`settingsPage.privacy.sealed.scope`, Task 14), `docs/PRIVACY.md` names the limit (Task 15), and Task 17 checks each sidecar's sockets with `lsof`. The ratchet scans all of `src/`. |
 | **C3** attestation after failed Chromium shutdown | Closed, this revision | Task 6 removes the last-resort `closeAllConnections` reset entirely (`there is no API that resets every Chromium connection`). A Chromium request is tracked until `onCompleted`/`onErrorOccurred`; a destroyed `webContents` does not clear it. `severAll()` no longer clears the socket count: each socket leaves it on its own `close`. Nothing clears evidence to pass a check (`chromium: remote requests are tracked in flight until they end; a destroyed webContents does not clear them`, and the `severAll` test). Task 7: failures (`codexStop`, `childStop`, `timeout:<what>`) are unresolved until the thing named has stopped, and `nothingLeaves` requires an empty `failures` list. Tests: `an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared`, `mid-transition attestations are never verified`, `a quick seal, unseal, seal ends sealed and verified, in order`. |
 | **I1** tests bypass production wiring | Closed, this revision | Task 12 drives the real `ipcHandlers.js` and `personal-inference:*` handlers. N18 uses the production `createCodexServer` factory, which ignores test-supplied hooks. N20 executes the calendar guard that `main.js` uses, plus a routing ratchet. N10 goes through the realtime start handler. It adds download-manager IPC rows (`model-download`, `download-whisper-model`, `llama-cpp-install`), and discovers the realtime, proxy and download channels instead of listing them. A **bypass-sensitivity** pass reruns every row with Layer A bypassed: the row must reach a transport or a Layer B refusal. A regression drill deletes two production gates and requires their rows to fail. Task 16 runs the real Electron app against an independent fixture that logs requests and raw connections, with a control run proving each probe is seen. It has no offline blockers of its own, and its leak-injection drill must fail. The smoke-script `every(...)` check, which passed on an empty list, is dropped (17). |
-| **I3** host-wide attribution, one-row settlement | Closed, this revision | Task 4 stores a host trail (`hosts`, up to 8), start and end times, and an opaque flag; the `summary` separates `observed` requests from `opaqueSessions`. Task 5 attributes by async context and Electron request tag, never by "some ticket has this host" (`a same-host connection outside the ticket's context is still unexplained`). Task 6 tracks Chromium per request id, extends trails on every redirect hop (ticketed or not), and records unexplained Chromium requests at completion, with their status and full trail (`…recorded at completion with its status and redirect trail`). |
+| **I3** host-wide attribution, one-row settlement | Closed, this revision | Task 4 stores a host trail (`hosts`, up to 8), start and end times, and an opaque flag; the `summary` separates `observed` requests from `opaqueSessions`. Task 5 attributes by async context and Electron request tag, never by "some ticket has this host" (`a same-host connection outside the ticket's context is still unexplained`). Task 6 tracks Chromium per request id, extends trails on every redirect hop (ticketed or not), and records unexplained Chromium requests at completion, with their status and full trail (`…recorded at completion with its status and redirect trail`). A redirect hop refused while sealed records the whole trail, including the allowed earlier hops (`chromium: a redirect into a refused host records the whole trail as blocked`). |
 | **I4** CCR-3 vs the sent notice and Plan 04's receipt | Closed. The "started" wording was fixed at `0bbb0e5`; marking granularity and the contract were fixed in this revision. | Main emits `dispatched` (handed to the transport: "may have received"), `delivered` (a response arrived: "received") and `undelivered` (failed before connecting), with `ticketId`, `targetId` (Plan 04's target encoding), `payload` and `correlationId` (Tasks 5, 8, 9, 9a). Realtime marks only the instance that forwarded audio (`markRealtimeDispatched`), from the first frame. CCR-3 now states one shape that maps onto Plan 04's `RemoteDisclosure`. |
 | **I5** UI ignores phase, time and attestation contracts | Closed: mostly at `0bbb0e5`, completed in this revision | At `0bbb0e5`: phase-aware matching (`[SEALED_MODE:interrupted]`), interrupted copy, an `onAttestation` subscription with version ordering, and the verified line dated from `effectiveSince`. In this revision: attestations older than 30 s drop to unknown and are re-fetched (13). Every unverified reason, and every note resolved before verification, is named (14). The recorder shows "Loading…" instead of 0 and "No recorded requests for this period" when empty, and never says that nothing left (15). |
 | **I6** content preservation depends on Plan 04, fails mid-recording | Closed, this revision | Task 13 adds `src/lib/sealedRecovery.ts`. A dictation refused or interrupted while retention would discard it is held in renderer memory only (bounded, with a time limit), never on disk. The error toast and the unseal notice offer "Transcribe". Behaviour tests cover the retention combinations, the replay and the cleanup-after-local-STT fallback through the real `AudioManager`. An executed test shows that `startRecording` refuses before touching the microphone, and proceeds when the state is unknown. The pre-flight remains UX protection. CCR-4 asks Plan 04 to keep both. |
@@ -451,6 +451,8 @@ The panel says "verified" only when main attests all of this at that moment (Tas
 | A proxy or port-forwarder the user runs on loopback | Trusted as loopback. A loopback `CONNECT` or absolute-form request naming a remote host is refused, and an environment proxy makes the seal unverified. A user-run forwarder that relays plain loopback traffic off the machine is the user's own configuration, and is documented in `docs/PRIVACY.md`. |
 | OS services (system DNS-over-HTTPS, iCloud for Apple Calendar, OS updates) and other apps | Not Loqui's traffic. Not claimed. |
 | Native code inside a local helper doing networking it was not asked to do (for example a sidecar binary that phones home) | Mitigated by launch arguments (loopback binds, no download flags, Qdrant `--disable-telemetry`), reviewed per spawn site. JavaScript hooks cannot see inside a native process, so this is listed as residual, and Task 18 re-checks the arguments. |
+| A helper that a Windows yt-dlp process starts and orphans within one 250 ms refresh | Residual, Windows only: it is not waited for. yt-dlp waits for its post-processors, so this needs a misbehaving binary. POSIX uses process groups, which have no such window (Task 6a). |
+| Build and packaging scripts (`scripts/`, `cleanup.js`) | Not part of the shipped app; they run only on a developer or CI machine, so the ratchet does not scan them. |
 | A malicious local process that reads the Loqui profile | Out of scope. |
 
 ## Assets
@@ -2153,10 +2155,10 @@ function isConnectPhaseError(error) {
   return false;
 }
 
-function refuse({ task, host, model = null, attributed = true }) {
+function refuse({ task, host, hosts = null, model = null, attributed = true }) {
   tally.blockedSinceSealed++;
   const ts = config.now();
-  record({ ts, endedAt: ts, task, host, bytesOut: 0, bytesIn: 0, outcome: "blocked", errorClass: "SEALED_MODE", model, attributed });
+  record({ ts, endedAt: ts, task, host, hosts: hosts ?? [host], bytesOut: 0, bytesIn: 0, outcome: "blocked", errorClass: "SEALED_MODE", model, attributed });
   return new SealedModeError({ task, host });
 }
 
@@ -2458,14 +2460,16 @@ function recordUnattributed({ host, hosts = null, outcome, status = null, bytesO
 
 // Layer B found a connection Layer A did not refuse. With a ticket, the request
 // was authorised before sealing; its own settle() records it as cancelled.
-function recordBackstopBlock({ host, ticket = null }) {
+// hosts: the trail so far, for a redirect hop that was refused (the earlier
+// hops were allowed and must not disappear from the ledger).
+function recordBackstopBlock({ host, hosts = null, ticket = null }) {
   if (ticket) {
     tally.blockedSinceSealed++;
     const error = new SealedModeError({ task: ticket.task, host, phase: "interrupted" });
     ticket.abort(error);
     return error;
   }
-  return refuse({ task: "unattributed", host, attributed: false });
+  return refuse({ task: "unattributed", host: hosts?.[0] ?? host, hosts: hosts ?? [host], attributed: false });
 }
 
 function onSealChanged(sealed) {
@@ -2854,6 +2858,21 @@ test("chromium: an untagged remote request is unexplained, recorded at completio
   const [row] = recorder.list();
   assert.deepEqual([row.task, row.host, row.outcome, row.status, row.attributed], ["unattributed", "images.example.com", "error", 404, false]);
   assert.deepEqual(row.hosts, ["images.example.com", "cdn.images.example.net"], "every hop, as bare hosts");
+  ticket.discard();
+});
+
+test("chromium: a redirect into a refused host records the whole trail as blocked", async () => {
+  const s = fakeSession();
+  backstop.watchSession(s);
+  const hop = nextId;
+  await before(s, "https://first.example.com/a"); // allowed: not sealed yet
+  flags.sealed = true;
+  s.listeners.onBeforeRedirect({ id: hop, redirectURL: "https://second.example.net/b" });
+  // Chromium re-runs onBeforeRequest for the redirected URL with the same request id.
+  assert.deepEqual(await before(s, "https://second.example.net/b", { id: hop }), { cancel: true });
+  const row = recorder.list().find((r) => r.outcome === "blocked");
+  assert.deepEqual([row.task, row.host], ["unattributed", "first.example.com"]);
+  assert.deepEqual(row.hosts, ["first.example.com", "second.example.net"], "the allowed first hop stays in the ledger");
   ticket.discard();
 });
 
@@ -3253,7 +3272,10 @@ function watchSession(session) {
     const verdict = judge(details.url);
     const existing = chromiumInFlight.get(key(details)); // a redirect hop of a request already in flight
     if (verdict.cancel && verdict.remote && gate.isSealed()) {
-      gate.recordBackstopBlock({ host: verdict.host, ticket: existing?.ticket ?? null });
+      // A refused redirect hop: record the whole trail, including the hops
+      // that were allowed before it.
+      const trail = existing ? [...new Set([...existing.hosts, verdict.host])].slice(0, 8) : null;
+      gate.recordBackstopBlock({ host: verdict.host, hosts: trail, ticket: existing?.ticket ?? null });
       chromiumInFlight.delete(key(details));
     } else if (!verdict.cancel && verdict.remote && !existing) {
       chromiumInFlight.set(key(details), { host: verdict.host, hosts: [verdict.host], ts: Date.now(), ticket: null, webContentsId: details.webContentsId });
@@ -3399,7 +3421,7 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
                                                                 // SIGTERM → wait → SIGKILL → wait; rejects with code CHILD_STOP_FAILED if any is still alive
   classify(command: string, stack?: string): "network" | "thirdParty" | "ffmpeg" | "local"
   kindOf(command: string): string                               // "codex", "yt-dlp", or the program's base name
-  _resetForTests(): void;  _setSystemForTests({ listProcesses?, pidAlive? }): void
+  _resetForTests(): void;  _setSystemForTests({ listProcesses?, pidAlive?, groupAlive?, killGroup? }): void
   ```
 
   ```js
@@ -3413,7 +3435,9 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
   - **`ffmpeg`** must carry `-protocol_whitelist` before every `-i`, or it is refused in every mode. A crafted local playlist or media file must never make FFmpeg fetch remote resources.
   - **`local`** is everything else Loqui starts from its own code: clipboard and paste helpers, key listeners, `osascript`, the loopback sidecars, and so on. Each of these call sites is listed and justified in the `spawn-sites` inventory, and a ratchet test fails on any unlisted file (Task 1).
   - **`utilityProcess.fork`** is allowed only for modules under the app's `src/workers/` directory, which the inventory ratchet keeps free of network code. Anything else is refused while sealed.
-  - **Process trees.** A child registered with `group: true` (a detached POSIX spawn) is alive until its whole process group is gone. A child registered with `tree: true` is alive until it and every descendant listed at stop time are gone, on every platform. The descendants come from `ps` on POSIX and `Get-CimInstance Win32_Process` on Windows. If that listing fails, the child is never reported stopped. Task 10 uses `group` for yt-dlp downloads on POSIX, and `tree` for yt-dlp downloads on Windows and for the self-update everywhere.
+  - **Process trees.** A child registered with `group: true` (a detached POSIX spawn) is alive until its whole process group is gone. A child registered with `tree: true` is alive until it and every descendant listed at stop time are gone, on every platform. The descendants come from `ps` on POSIX and `Get-CimInstance Win32_Process` on Windows. If that listing fails, the child is never reported stopped. Task 10 uses `group` for every yt-dlp process on POSIX (downloads and the self-update both spawn detached), and `tree` on Windows. While a tree's root runs, its descendant list is refreshed at most every 250 ms by the liveness checks.
+
+    **Residual (Windows only, stated in the threat model).** A helper that a tree's root starts and then orphans by exiting, all within one 250 ms refresh interval, is not seen. yt-dlp waits for its post-processors, so this needs a misbehaving binary. POSIX process groups have no such window.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3507,6 +3531,23 @@ test("a process tree stays alive until every descendant listed at stop has exite
   assert.ok(signalled.includes(501) && signalled.includes(502), "descendants were signalled too");
   assert.equal(registry.alive().length, 1, "the root exited, but its grandchild has not");
   running.clear();
+  assert.deepEqual(registry.alive(), []);
+});
+
+test("a tree helper started while the root runs is waited for after the root exits", async () => {
+  const table = [{ pid: 700, ppid: 1 }];
+  const running = new Set();
+  registry._setSystemForTests({ listProcesses: () => table, pidAlive: (pid) => running.has(pid) });
+  const root = fakeChild({ pid: 700 });
+  registry.register(root, { kind: "yt-dlp", tree: true });
+  assert.equal(registry.alive().length, 1);
+  table.push({ pid: 701, ppid: 700 }); // yt-dlp starts FFmpeg
+  running.add(701);
+  await new Promise((r) => setTimeout(r, 260)); // past TREE_REFRESH_MS
+  assert.equal(registry.alive().length, 1, "the refresh sees the new helper");
+  root.emit("exit", 0, null);
+  assert.equal(registry.alive().length, 1, "the root is gone; its helper is not");
+  running.delete(701);
   assert.deepEqual(registry.alive(), []);
 });
 
@@ -3665,7 +3706,7 @@ function classify(command, stack = "") {
   return "local";
 }
 
-function groupAlive(pid) {
+function defaultGroupAlive(pid) {
   try {
     process.kill(-pid, 0);
     return true;
@@ -3673,6 +3714,7 @@ function groupAlive(pid) {
     return error.code === "EPERM";
   }
 }
+const defaultKillGroup = (pid, sig) => process.kill(-pid, sig);
 // Process trees: yt-dlp on Windows (no process groups there) and the yt-dlp
 // self-update everywhere. Descendants are listed while the root is still
 // alive, at stop time; the entry is alive until the root and every listed
@@ -3701,7 +3743,8 @@ function defaultPidAlive(pid) {
     return error.code === "EPERM";
   }
 }
-let system = { listProcesses: defaultListProcesses, pidAlive: defaultPidAlive };
+// Every OS-level probe goes through here, so tests with fake pids never signal a real process.
+let system = { listProcesses: defaultListProcesses, pidAlive: defaultPidAlive, groupAlive: defaultGroupAlive, killGroup: defaultKillGroup };
 
 function descendantsOf(root) {
   const all = system.listProcesses();
@@ -3726,7 +3769,7 @@ function snapshotTree(entry) {
 
 function isAlive(entry) {
   if (!entry.exited) return true;
-  if (entry.group && process.platform !== "win32" && entry.pid) return groupAlive(entry.pid);
+  if (entry.group && process.platform !== "win32" && entry.pid) return system.groupAlive(entry.pid);
   if (entry.tree) return entry.descendants === null || entry.descendants.some((pid) => system.pidAlive(pid));
   return false;
 }
@@ -3746,9 +3789,22 @@ function register(child, { kind, group = false, tree = false }) {
   return entry;
 }
 
+// While a tree's root runs, its descendant list is refreshed on every liveness
+// check (the barrier and the 500 ms recheck poll call alive()), at most every
+// 250 ms, so a helper started after a stop began is still waited for.
+const TREE_REFRESH_MS = 250;
+function refreshTree(entry) {
+  if (!entry.tree || entry.exited || entry.descendants === null) return;
+  const now = Date.now();
+  if (entry.listedAt && now - entry.listedAt < TREE_REFRESH_MS) return;
+  entry.listedAt = now;
+  snapshotTree(entry);
+}
+
 function alive(kind) {
   const list = [];
   for (const entry of entries) {
+    refreshTree(entry);
     if (!isAlive(entry)) {
       entries.delete(entry);
       continue;
@@ -3760,7 +3816,7 @@ function alive(kind) {
 
 function signal(entry, sig) {
   try {
-    if (entry.group && process.platform !== "win32" && entry.pid) process.kill(-entry.pid, sig);
+    if (entry.group && process.platform !== "win32" && entry.pid) system.killGroup(entry.pid, sig);
     else entry.child.kill(sig);
   } catch {
     // Already gone, or the kill failed (EPERM): isAlive() decides either way.
@@ -3841,7 +3897,7 @@ function installSpawnGuard({ childProcess = require("node:child_process"), utili
 
 function _resetForTests() {
   entries = new Set();
-  system = { listProcesses: defaultListProcesses, pidAlive: defaultPidAlive };
+  system = { listProcesses: defaultListProcesses, pidAlive: defaultPidAlive, groupAlive: defaultGroupAlive, killGroup: defaultKillGroup };
 }
 function _setSystemForTests(overrides) {
   system = { ...system, ...overrides };
@@ -6498,6 +6554,8 @@ function ensureCacheBinary() {
   downloader._recordCacheChecksum();
   return () => fs.rmSync(YT_DLP_TEST_CACHE_DIR, { recursive: true, force: true });
 }
+// pid 4242 is fake: no real process, group or descendant is ever probed or signalled.
+const FAKE_SYSTEM = { listProcesses: () => [], pidAlive: () => false, groupAlive: () => false, killGroup: () => {} };
 function stuckChild() {
   const child = new EventEmitter();
   child.pid = 4242; // a running process has a pid; the registry tracks it until "exit"
@@ -6513,8 +6571,7 @@ test("sealing kills an in-flight yt-dlp self-update and records an opaque sessio
   const recorder = new FlightRecorder({ now: () => 1 });
   gate._resetForTests();
   gate.configureEgress({ isSealed: () => flags.sealed, recorder, now: () => 1 });
-  // pid 4242 is fake: list no descendants, so no real process is ever signalled.
-  require("../../src/helpers/privacy/childRegistry")._setSystemForTests({ listProcesses: () => [], pidAlive: () => false });
+  require("../../src/helpers/privacy/childRegistry")._setSystemForTests(FAKE_SYSTEM);
   const cleanup = ensureCacheBinary();
   const origSpawn = childProcess.spawn;
   let child;
@@ -6540,7 +6597,7 @@ test("a self-update that times out is still running until it exits, and is recor
   const recorder = new FlightRecorder({ now: () => 1 });
   gate._resetForTests();
   gate.configureEgress({ isSealed: () => false, recorder, now: () => 1 });
-  require("../../src/helpers/privacy/childRegistry")._setSystemForTests({ listProcesses: () => [], pidAlive: () => false });
+  require("../../src/helpers/privacy/childRegistry")._setSystemForTests(FAKE_SYSTEM);
   const cleanup = ensureCacheBinary();
   const origSpawn = childProcess.spawn;
   let child;
@@ -6797,12 +6854,15 @@ In `src/helpers/urlAudioDownloader.js`, add `const egress = require("./privacy/e
    - Directly after the successful `child = childProcess.spawn(...)` (`:426`), register the process and settle the session **only on its exit**:
 
      ```js
-           // tree: yt-dlp may start helpers; they count until they exit too.
-           childRegistry.register(child, { kind: "yt-dlp", tree: true });
+           // POSIX: its own process group (see the detached option below);
+           // Windows: a tree. Helpers it starts count until they exit too.
+           childRegistry.register(child, { kind: "yt-dlp", group: process.platform !== "win32", tree: process.platform === "win32" });
            child.once("exit", (code) =>
              session.settle({ outcome: session.signal.aborted ? "cancelled" : code === 0 ? "ok" : "error" })
            );
      ```
+
+     Add `detached: process.platform !== "win32"` to that spawn's options (`{ windowsHide: true }` at `:426`), so on POSIX the self-update leads its own process group and nothing it starts can outlive the group check. Do not call `child.unref()`: the stdio pipes stay drained as before.
 
      `finish` keeps its job: it resolves the caller's best-effort promise and clears the throttle flag. It no longer decides whether the process is gone; the registry does.
    - In the spawn-failure catch (`:427-432`), add `session.settle({ outcome: "error" });`. No process exists there.
@@ -8074,7 +8134,7 @@ Rules for fixing a failing row:
 - [ ] **Step 3: Run the matrix**
 
 Run: `npm test -- test/helpers/sealedModeEnforcement.test.js`
-Expected: PASS. There are two tests per variant (the refusal and its bypass-sensitivity run; about 80 in total, depending on how many realtime channels and token providers are discovered), plus 3 prevented rows and 11 other checks. Any failure names the inventory row and the channel whose enforcement is missing.
+Expected: PASS. There are two tests per variant (the refusal and its bypass-sensitivity run; about 80 in total, depending on how many realtime channels and token providers are discovered), plus 3 prevented rows and 12 other checks. Any failure names the inventory row and the channel whose enforcement is missing.
 
 Then prove the matrix catches a regression. Temporarily delete the `egress.assertAllowed(...)` line from the `codex-status` handler, and the `gatedNodeFetch(...)` argument from `probe-self-hosted`. Rerun. Both rows must fail. Restore both lines, and record the two failing test names in the PR description.
 

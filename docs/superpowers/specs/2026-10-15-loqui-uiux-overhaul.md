@@ -209,7 +209,7 @@ export interface ResolvedRoute {
 // routeGraph.ts (pure)
 export function resolveRoutes(snapshot: RouteSettingsSnapshot): ResolvedRoute[]; // always 11 entries, in RouteId order
 export function resolveRoute(snapshot: RouteSettingsSnapshot, id: RouteId): ResolvedRoute;
-export function isSealedLocality(locality: Locality): boolean;                    // locality !== "device"; the only rule for what Sealed mode pauses
+export function isSealedLocality(locality: Locality): boolean;                    // locality !== "device"; the locality-based network policy
 
 // routes.ts (renderer)
 export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot;
@@ -240,6 +240,10 @@ Recording freezes the selected tags synchronously at the press and keeps them th
 9. **Unsupported combinations.** `noteRecordingStt` in self-hosted mode, or with a provider outside the meeting providers, is `unreachable`/`unsupported` (Plan 05 CCR 5). So is `uploadStt` on a streaming-only provider.
 10. **Loopback endpoints.** A valid loopback custom endpoint is `device`. An invalid URL is never `device`. Plain-HTTP `*.localhost` is loopback by host, but the executors refuse it, so it resolves `needsUrl`.
 11. **Ready matches the executors.** Readiness uses the same validation the executors apply.
+
+**Native availability (Plan 07, D15).** Plan 07 extends the snapshot with main-authoritative availability for each route's required built-in native engines: `notRequired | available | pending | paused | unknown`. The renderer derives these facts from the existing `sealedStore` attestation; `routeFactsStore` does not become a second privacy subscriber. The pure route graph keeps locality and readiness separate: a device route remains `device`, but an acknowledged native pause becomes `unreachable` / `nativePaused`; a draining or pending boundary becomes `unreachable` / `nativePending`; an unknown required availability is `unknown`. Only main's acknowledged `refused` or whole-tree `stopped` actions produce `paused`. No failed self-test alone implies a pause, and no missing fact implies availability. Apply this overlay while the seal is known active; `available` and `notRequired` retain normal readiness. User-configured loopback endpoints do not acquire a native-engine dependency merely because their locality is `device`.
+
+Plan 07 Task 13 owns this additive graph/facade integration after Plan 03. It must enumerate native dependencies for all eleven routes and test Linux acknowledged pause, a live drain, unknown availability, an available isolated engine, a route needing no native child, and a configured loopback endpoint. Ready, route cards and recording pre-flight consume the same resolved state. This supersedes any earlier statement that `isSealedLocality` alone accounts for native-engine availability; D16 still prevents Plan 07 from merging without the macOS proof.
 
 **Published components** (Plan 08 CCR-6), in `src/components/settings/routing/RouteChips.tsx`:
 

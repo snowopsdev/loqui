@@ -2638,7 +2638,7 @@ This covers the WS-R3 C live states as data.
 **Files:**
 - Create: `src/lib/captureStatus.ts`
 - Create: `src/hooks/useCaptureStatus.ts`
-- Test: `test/lib/captureStatus.test.js`
+- Test: `test/lib/captureStatus.test.js`, `test/hooks/useCaptureStatus.test.js`
 
 **Interfaces:**
 - Consumes the Task 5 preload methods, `useMeetingRecordingStore` (`isRecording`, `recordingStartedAt`, `micCaptureStatus`, `currentMicLevel`), `stopRecording()` from `src/stores/meetingRecordingStore.ts`, and `window.electronAPI.checkMicrophoneAccess()` (`preload.js:681`).
@@ -2687,6 +2687,8 @@ This covers the WS-R3 C live states as data.
   export function useCaptureStatus(): CaptureStatusModel;          // call once, in ControlPanel; pass it down
   export function useLiveClock(active: boolean): number;            // Date.now(), ticking 1 Hz only while active
   ```
+
+- Subscribe to lifecycle pushes before requesting the initial snapshot. Once any push arrives in that effect, discard the initial pull result; cleanup also rejects late results. This keeps a stop or start during mount from being overwritten by an older snapshot.
 
 - Precedence, from first match:
   1. A meeting mic that is `unavailable` or `reconnecting` while recording → **offline (device)**.
@@ -2805,9 +2807,100 @@ test("the rail rises fast and falls slowly", async () => {
 });
 ```
 
+Create `test/hooks/useCaptureStatus.test.js` (mount the real hook with the repo's fake hook DOM):
+
+```js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const { createRendererServer, installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
+
+async function mount(t) {
+  let root;
+  t.after(async () => { if (root) await React.act(async () => root.unmount()); });
+  let resolveInitial;
+  const initial = new Promise((resolve) => { resolveInitial = resolve; });
+  let push;
+  let offCount = 0;
+  const order = [];
+  installBrowserGlobals(t, { window: { electronAPI: {
+    onDictationLifecycleChanged: (listener) => {
+      order.push("subscribe");
+      push = listener;
+      return () => { offCount++; };
+    },
+    getDictationLifecycleState: () => { order.push("pull"); return initial; },
+    checkMicrophoneAccess: async () => ({ granted: true }),
+  } } });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-capture-status-hook-",
+    mockModules: {
+      "stores/meetingRecordingStore": `
+        const meeting = { isRecording: false, recordingStartedAt: null, micCaptureStatus: "inactive", currentMicLevel: 0.25 };
+        export const useMeetingRecordingStore = Object.assign((selector) => selector(meeting), { getState: () => meeting });
+        export const stopRecording = async () => {};
+      `,
+    },
+  });
+  const { useCaptureStatus } = await vite.ssrLoadModule("/hooks/useCaptureStatus.ts");
+  let status;
+  function Harness() { status = useCaptureStatus(); return null; }
+  root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(Harness)));
+  return {
+    order,
+    status: () => status,
+    push: async (snapshot) => React.act(async () => push(snapshot)),
+    pull: async (snapshot) => React.act(async () => { resolveInitial(snapshot); await initial; }),
+    unmount: async () => { await React.act(async () => root.unmount()); root = null; },
+    offCount: () => offCount,
+  };
+}
+
+test("the initial pull applies when no lifecycle push arrives", async (t) => {
+  const h = await mount(t);
+  assert.deepEqual(h.order, ["subscribe", "pull"]);
+  await h.pull({ state: "recording", inputKind: "assistant" });
+  assert.equal(h.status().kind, "listening");
+  assert.equal(h.status().inputKind, "assistant");
+  assert.equal(typeof h.status().startedAt, "number");
+});
+
+test("a delayed initial snapshot cannot overwrite a newer stop, start or processing push", async (t) => {
+  for (const [initialState, pushedState, expectedKind] of [
+    ["recording", "idle", "ready"],
+    ["idle", "recording", "listening"],
+    ["recording", "processing", "processing"],
+  ]) {
+    await t.test(`${initialState} pull after ${pushedState} push`, async (t) => {
+      const h = await mount(t);
+      await h.push({ state: pushedState, inputKind: "translation" });
+      const before = h.status();
+      await h.pull({ state: initialState, inputKind: "assistant" });
+      assert.equal(h.status().kind, expectedKind);
+      assert.equal(h.status().inputKind, before.inputKind);
+      assert.equal(h.status().startedAt, before.startedAt);
+      assert.equal(h.status().source, before.source);
+    });
+  }
+});
+
+test("unmount unsubscribes and ignores a late initial snapshot", async (t) => {
+  const h = await mount(t);
+  const before = h.status();
+  await h.unmount();
+  assert.equal(h.offCount(), 1);
+  await h.pull({ state: "recording", inputKind: "assistant" });
+  assert.equal(h.status(), before);
+  assert.equal(before.readLevel(), 0.25, "late apply must not mutate the stateRef read by retained callbacks");
+});
+```
+
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm test -- test/lib/captureStatus.test.js`
+Run: `npm test -- test/lib/captureStatus.test.js test/hooks/useCaptureStatus.test.js`
 Expected: FAIL with `Cannot find module`.
 
 - [ ] **Step 3: Implement**
@@ -2960,8 +3053,14 @@ Expected: FAIL with `Cannot find module`.
          setDictationInputKind(snapshot.inputKind ?? null);
          setDictationStartedAt(startedAt);
        };
-       void api?.getDictationLifecycleState?.().then(apply).catch(() => {});
-       const offState = api?.onDictationLifecycleChanged?.(apply);
+       let receivedPush = false;
+       const offState = api?.onDictationLifecycleChanged?.((snapshot) => {
+         receivedPush = true;
+         apply(snapshot);
+       });
+       void api?.getDictationLifecycleState?.().then((snapshot) => {
+         if (!receivedPush) apply(snapshot);
+       }).catch(() => {});
        const offLevel = api?.onDictationLevelChanged?.((level) => {
          dictationLevelRef.current = Number.isFinite(level) ? level : 0;
        });
@@ -3019,13 +3118,13 @@ Expected: FAIL with `Cannot find module`.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `npm test -- test/lib/captureStatus.test.js && npm run typecheck`
-Expected: PASS (10 tests). Typecheck is clean.
+Run: `npm test -- test/lib/captureStatus.test.js test/hooks/useCaptureStatus.test.js && npm run typecheck`
+Expected: PASS, including delayed-pull ordering and cleanup regressions. Typecheck is clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/captureStatus.ts src/hooks/useCaptureStatus.ts src/types/electron.ts test/lib/captureStatus.test.js
+git add src/lib/captureStatus.ts src/hooks/useCaptureStatus.ts src/types/electron.ts test/lib/captureStatus.test.js test/hooks/useCaptureStatus.test.js
 git commit -m "feat(workspace): model capture status as Ready, Listening, Cleaning up or Mic offline"
 ```
 
@@ -9826,7 +9925,7 @@ This covers WS-R8 B (layout, citations, Sources row, thinking dots), WS-25, WS-2
 - Consumes `collectSources`, `numberCitations` and `CitationSource` (Task 19); `parseMentionHref` (Task 17); `sanitizeLinkHref` (Task 16); and `useWorkspaceNavigation` (Task 3).
 - Produces:
   - `transformCitations(tree: MdastRoot, numbers: Map<number, number>): void` and `remarkCitations(options: { numbers: Map<number, number> }): (tree) => void`. Known markers become `sup` elements with `data-citation`. Unknown markers are removed.
-  - `MarkdownRenderer` props `remarkPlugins?: PluggableList` and `components?: Partial<Components>`. Workspace hrefs render as in-app buttons. Hrefs that `sanitizeLinkHref` rejects render as plain text.
+  - `MarkdownRenderer` props `remarkPlugins?: PluggableList` and `components?: Partial<Components>`. Workspace hrefs render as in-app buttons. Folder buttons resolve the folder's owning space from `getFoldersValue()` when activated, then call `navigation.openFolder(spaceId, folderId)`; a missing folder leaves navigation unchanged. Hrefs that `sanitizeLinkHref` rejects render as plain text.
   - `SourcesRow({ sources: CitationSource[] })`.
   - `ChatMessage` prop `variant?: "bubble" | "document"` (default `"bubble"`, so `EmbeddedChat`, the overview and `AssistantPanel` are unchanged), plus `context?: Message["context"]`.
   - `ChatMessages` prop `variant?: "bubble" | "document"`.
@@ -9872,11 +9971,31 @@ const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-async function render(t, content) {
+async function render(t, content, inspect = () => {}) {
   installBrowserGlobals(t);
-  const vite = await createRendererServer(t, { cachePrefix: "loqui-markdown-workspace-links-" });
+  window.workspaceLinkCalls = [];
+  window.workspaceLinkFolders = [];
+  const vite = await createRendererServer(t, {
+    cachePrefix: "loqui-markdown-workspace-links-",
+    mockModules: {
+      "/workspaceNavigation": `
+        export const useWorkspaceNavigation = () => ({
+          openNote: (id) => window.workspaceLinkCalls.push(["note", id]),
+          openTranscript: (id) => window.workspaceLinkCalls.push(["dictation", id]),
+          openFolder: (spaceId, folderId) => window.workspaceLinkCalls.push(["folder", spaceId, folderId]),
+          openView: (view) => window.workspaceLinkCalls.push(["view", view]),
+        });
+      `,
+      "stores/noteStore": `export const getFoldersValue = () => window.workspaceLinkFolders;`,
+    },
+  });
   const mod = await vite.ssrLoadModule("/components/ui/MarkdownRenderer.tsx");
-  return renderToStaticMarkup(createElement(mod.default, { content }));
+  function InspectMarkdown(props) {
+    const element = mod.MarkdownRenderer(props);
+    inspect(element.props.children.props.children.props.components.a);
+    return element;
+  }
+  return renderToStaticMarkup(createElement(InspectMarkdown, { content }));
 }
 
 test("workspace mentions open inside Loqui, never in the browser", async (t) => {
@@ -9885,6 +10004,27 @@ test("workspace mentions open inside Loqui, never in the browser", async (t) => 
   assert.match(html, /<button[^>]*data-mention-kind="note"[^>]*>@Roadmap<\/button>/);
   assert.doesNotMatch(html, /href="(meeting|note):/);
   assert.doesNotMatch(html, /target="_blank"[^>]*>@/);
+});
+
+test("folder mentions select the referenced folder and its space using current store data", async (t) => {
+  let Link;
+  const html = await render(t, "See [@Work](folder:2).", (component) => { Link = component; });
+  assert.match(html, /<button[^>]*data-mention-kind="folder"[^>]*>@Work<\/button>/);
+  assert.doesNotMatch(html, /href="folder:|target="_blank"/);
+  let activate;
+  function InspectLink() {
+    const button = Link({ href: "folder:2", children: "@Work" });
+    activate = button.props.onClick;
+    return button;
+  }
+  renderToStaticMarkup(createElement(InspectLink));
+  // Populate after render: the click must read the current store, not capture a list.
+  window.workspaceLinkFolders = [{ id: 2, space_id: 7 }];
+  activate();
+  assert.deepEqual(window.workspaceLinkCalls, [["folder", 7, 2]]);
+  window.workspaceLinkFolders = [];
+  activate();
+  assert.deepEqual(window.workspaceLinkCalls, [["folder", 7, 2]], "a removed folder does not open another location");
 });
 
 test("web links still open externally; script and file links are inert text", async (t) => {
@@ -10076,7 +10216,10 @@ Expected: FAIL.
          const open = () => {
            if (mention.kind === "note" || mention.kind === "meeting") navigation.openNote(id);
            else if (mention.kind === "dictation") navigation.openTranscript(id);
-           else navigation.openView("personal-notes");
+           else if (mention.kind === "folder") {
+             const folder = getFoldersValue().find((f) => f.id === id);
+             if (folder) navigation.openFolder(folder.space_id, folder.id);
+           }
          };
          return (
            <button type="button" data-mention-kind={mention.kind} onClick={open} className="text-link underline decoration-link/30 hover:decoration-link/60">
@@ -10103,7 +10246,7 @@ Expected: FAIL.
      },
      ```
 
-   - Imports: `parseMentionHref` from `../../utils/mentionMarkdown`, `sanitizeLinkHref` from `../../lib/linkHref`, `useWorkspaceNavigation` from `../workspaceNavigation`, and `type PluggableList` from `unified`. If `unified` is not resolvable from `src`, use `import type { Options } from "react-markdown"` and type the prop as `Options["remarkPlugins"]`.
+   - Imports: `getFoldersValue` from `../../stores/noteStore` (read at activation time, as the Task 18 editor chip does), `parseMentionHref` from `../../utils/mentionMarkdown`, `sanitizeLinkHref` from `../../lib/linkHref`, `useWorkspaceNavigation` from `../workspaceNavigation`, and `type PluggableList` from `unified`. If `unified` is not resolvable from `src`, use `import type { Options } from "react-markdown"` and type the prop as `Options["remarkPlugins"]`.
    - Person mentions (`mention:`) render as plain text, so no email address becomes a link.
    - Keep `test/components/markdownRenderer.test.js` passing. Anchor (`#`) and `https:` behaviour is unchanged.
 

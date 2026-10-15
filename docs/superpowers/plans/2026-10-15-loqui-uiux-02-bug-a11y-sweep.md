@@ -4203,19 +4203,19 @@ const { installTree } = require("../helpers/harness/fakeDomTree");
 const VIEW_MOCKS = {
   "/ui/useToast": TOAST_MOCK,
   "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
-  "/chat/ConversationList": `export default function ConversationList() { return null; }`,
-  "/chat/EmptyChatState": `
+  "/ConversationList": `export default function ConversationList() { return null; }`,
+  "/EmptyChatState": `
     import React from "react";
     export default function EmptyChatState() { return React.createElement("p", null, "EMPTY_CHAT"); }
   `,
-  "/chat/ChatMessages": `
+  "/ChatMessages": `
     import React from "react";
     export function ChatMessages({ messages }) {
       return React.createElement("ol", null, messages.map((m) => React.createElement("li", { key: m.id }, m.content)));
     }
   `,
-  "/chat/ChatEmptyIllustration": `export function ChatEmptyIllustration() { return null; }`,
-  "/chat/useChatStreaming": `
+  "/ChatEmptyIllustration": `export function ChatEmptyIllustration() { return null; }`,
+  "/useChatStreaming": `
     export function useChatStreaming() {
       return {
         agentState: "idle",
@@ -4226,7 +4226,7 @@ const VIEW_MOCKS = {
       };
     }
   `,
-  "/chat/chatRouteKey": `export const chatRouteKey = () => "route-a"; export const useChatRouteKey = () => "route-a";`,
+  "/chatRouteKey": `export const chatRouteKey = () => "route-a"; export const useChatRouteKey = () => "route-a";`,
   "/ui/dialog": `export function ConfirmDialog() { return null; }`,
 };
 

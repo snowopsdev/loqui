@@ -3588,7 +3588,9 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
     bytesOut: number; bytesIn: number; unknownBytes: number; opaqueSessions: number;
   }
   export type EgressNotice =
-    | { phase: "sent"; ticketId: number; task: EgressTask; host: string; payload: EgressPayload; correlationId: string | null; ts: number }
+    | { phase: "dispatched" | "delivered" | "undelivered"; ticketId: number; task: EgressTask;
+        targetId: string;              // provider id, or "host:<host>" for custom/LAN endpoints (Plan 04 encoding)
+        host: string; payload: EgressPayload; correlationId: string | null; ts: number }
     | { phase: "recorded"; event: EgressEvent };
   export interface Attestation {
     sealed: boolean;
@@ -3944,14 +3946,14 @@ test("a declined clear deletes nothing", async (t) => {
   assert.equal((await h.invoke("privacy:egress-list", h.pill, { since: 0 })).length, 1);
 });
 
-test("sent notices and recorded events are broadcast; settled tickets refresh the attestation", async (t) => {
+test("dispatch notices and recorded events are broadcast; settled tickets refresh the attestation", async (t) => {
   const h = harness(t);
   const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com", payload: "text" });
-  ticket.markSent();
+  ticket.markDispatched();
   ticket.settle({ outcome: "ok" });
   await new Promise((r) => setTimeout(r, 80));
   const phases = h.sent.filter(([c]) => c === "privacy:egress-event").map(([, n]) => n.phase);
-  assert.deepEqual(phases, ["sent", "sent", "recorded", "recorded"]);
+  assert.deepEqual(phases, ["dispatched", "dispatched", "recorded", "recorded"]);
   assert.ok(h.sent.some(([c]) => c === "privacy:attestation"));
 });
 
@@ -4032,8 +4034,8 @@ test("privacy bridge exposes the Sealed mode contract", async () => {
   assert.deepEqual(attestations, [3]);
   const notices = [];
   api.privacy.onEgress((n) => notices.push(n));
-  listeners.get("privacy:egress-event")({}, { phase: "sent", task: "chat" });
-  assert.deepEqual(notices, [{ phase: "sent", task: "chat" }]);
+  listeners.get("privacy:egress-event")({}, { phase: "dispatched", task: "chat", targetId: "groq" });
+  assert.deepEqual(notices, [{ phase: "dispatched", task: "chat", targetId: "groq" }]);
 });
 ```
 
@@ -4346,11 +4348,16 @@ function attachPrivacyIPC({ ipcMain, BrowserWindow, dialog, state, recorder, att
     }, 50);
   };
   const onEvent = (event) => broadcast("privacy:egress-event", { phase: "recorded", event });
-  const onSent = (notice) => broadcast("privacy:egress-event", { phase: "sent", ...notice });
+  const relay = (phase) => (notice) => broadcast("privacy:egress-event", { phase, ...notice });
+  const onDispatched = relay("dispatched");
+  const onDelivered = relay("delivered");
+  const onUndelivered = relay("undelivered");
   const onCleared = () => broadcast("privacy:egress-cleared");
   recorder.on("event", onEvent);
   recorder.on("cleared", onCleared);
-  gate.events.on("sent", onSent);
+  gate.events.on("dispatched", onDispatched);
+  gate.events.on("delivered", onDelivered);
+  gate.events.on("undelivered", onUndelivered);
   gate.events.on("settled", onSettled);
   transition.on("change", broadcastAttestation);
   // While a seal is unverified, keep checking: Chromium requests finishing and
@@ -4368,7 +4375,9 @@ function attachPrivacyIPC({ ipcMain, BrowserWindow, dialog, state, recorder, att
       for (const channel of channels) ipcMain.removeHandler(channel);
       recorder.off("event", onEvent);
       recorder.off("cleared", onCleared);
-      gate.events.off("sent", onSent);
+      gate.events.off("dispatched", onDispatched);
+      gate.events.off("delivered", onDelivered);
+      gate.events.off("undelivered", onUndelivered);
       gate.events.off("settled", onSettled);
     },
   };
@@ -4847,7 +4856,7 @@ test("sealed: a loopback provider still reaches the model factory", async (t) =>
   assert.equal(h.recorder.list().length, 0, "loopback is never recorded");
 });
 
-test("unsealed: the model factory receives a metered fetch, and 'sent' carries payload and correlation id", async (t) => {
+test("unsealed: the model factory receives a metered fetch; notices carry target, payload and correlation id", async (t) => {
   const sent = [];
   const h = harness(t, {
     modelFactory: async (...args) => {
@@ -4855,13 +4864,16 @@ test("unsealed: the model factory receives a metered fetch, and 'sent' carries p
       throw new Error(REACHED);
     },
   });
-  gate.events.on("sent", (n) => sent.push(n));
+  for (const phase of ["dispatched", "delivered"]) gate.events.on(phase, (n) => sent.push({ phase, ...n }));
   // meteredFetch's default transport is the global fetch; keep the test offline.
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("{}", { status: 200 });
   t.after(() => { globalThis.fetch = originalFetch; });
   await assert.rejects(h.invoke("text-generate", chatRequest({ inferenceScope: "noteFormatting", correlationId: "note-7" })), new RegExp(REACHED));
-  assert.deepEqual(sent.map((n) => [n.task, n.payload, n.correlationId]), [["noteFormatting", "text", "note-7"]]);
+  assert.deepEqual(sent.map((n) => [n.phase, n.task, n.targetId, n.payload, n.correlationId]), [
+    ["dispatched", "noteFormatting", "groq", "text", "note-7"],
+    ["delivered", "noteFormatting", "groq", "text", "note-7"],
+  ]);
   assert.deepEqual([h.recorder.list()[0].task, h.recorder.list()[0].outcome], ["noteFormatting", "error"]);
 });
 
@@ -4888,6 +4900,57 @@ test("sealed: model discovery and Codex handlers are refused", async (t) => {
   await assert.rejects(h.invoke("codex-status"), isSealedModeError);
   assert.equal(h.calls.codexStatus, 0);
   await assert.rejects(h.invoke("text-generate", chatRequest({ provider: "codex", credentialRef: undefined })), isSealedModeError);
+});
+
+test("the production Codex server refuses to spawn while sealed, and records each run as an opaque session that ends on exit", async (t) => {
+  const { createCodexServer } = require("../../src/helpers/personalInference");
+  const { PassThrough, Writable } = require("node:stream");
+  const fixture = require("../fixtures/codex-app-server-0.154.json");
+  const h = harness(t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-codex-prod-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let spawned = 0;
+  const child = new EventEmitter();
+  child.pid = 777;
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => true;
+  child.stdin = new Writable({
+    write(bytes, _e, cb) {
+      const m = JSON.parse(bytes.toString());
+      cb();
+      if (m.method === "initialize") queueMicrotask(() => child.stdout.write(JSON.stringify({ id: m.id, result: fixture.initialize }) + "\n"));
+    },
+  });
+  const seams = {
+    userDataPath: dir,
+    resolveExecutable: async () => "/verified/codex",
+    runFile: async () => ({ stdout: fixture.version }),
+    spawnProcess: () => { spawned++; return child; },
+    // Not a seam: ignored, so the shipped hooks stay in place.
+    beforeSpawn: () => {},
+  };
+  // Release verification is gated too; keep it offline.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("{}", { status: 200 });
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  h.flags.sealed = true;
+  await assert.rejects(createCodexServer(seams).start(), isSealedModeError);
+  assert.equal(spawned, 0);
+
+  // Each app-server process is one opaque session, settled only by its exit.
+  const { codexSession } = require("../../src/helpers/personalInference");
+  const childRegistry = require("../../src/helpers/privacy/childRegistry");
+  h.flags.sealed = false;
+  const run = Object.assign(new EventEmitter(), { pid: 778, kill() { return true; } });
+  codexSession(run);
+  assert.equal(h.recorder.list().length, 0, "the session row is written on exit, not on spawn");
+  assert.ok(childRegistry.alive("codex").some((c) => c.pid === 778));
+  run.emit("exit", 0, null);
+  const [row] = h.recorder.list();
+  assert.deepEqual([row.task, row.opaque, row.bytesOut], ["codex", true, null]);
+  assert.equal(childRegistry.alive("codex").some((c) => c.pid === 778), false);
 });
 
 test("Codex verification is gated; stopCodex waits for the server to stop", async (t) => {
@@ -5018,10 +5081,11 @@ const withTicketSignal = (init, ticket) => ({
 // Electron net.fetch through the gate. The ticket stays open until the caller
 // finishes reading the body, so sealing can interrupt it and the ledger sees
 // the real outcome. The task comes from meta or the egress.withTask() context.
-function gatedNetFetch(url, init = {}, { task, payload, correlationId } = {}) {
+function gatedNetFetch(url, init = {}, { task, payload, correlationId, provider } = {}) {
   const { net } = require("electron");
-  return egress.guardResponse({ task, target: String(url), payload, correlationId }, (ticket) =>
-    egress.meteredFetch(ticket, (u, i) => net.fetch(String(u), { ...i, useSessionCookies: false }))(
+  return egress.guardResponse({ task, target: String(url), payload, correlationId, provider }, (ticket) =>
+    // tag: true — the session backstop attributes the request to this ticket and strips the tag (Task 6).
+    egress.meteredFetch(ticket, (u, i) => net.fetch(String(u), { ...i, useSessionCookies: false }), { tag: true })(
       url,
       withTicketSignal(init, ticket)
     )
@@ -5029,9 +5093,9 @@ function gatedNetFetch(url, init = {}, { task, payload, correlationId } = {}) {
 }
 
 // Node global fetch through the gate, for helpers that take a fetch implementation.
-function gatedNodeFetch(task, { payload, correlationId } = {}) {
+function gatedNodeFetch(task, { payload, correlationId, provider } = {}) {
   return (url, init = {}) =>
-    egress.guardResponse({ task, target: String(url), payload, correlationId }, (ticket) =>
+    egress.guardResponse({ task, target: String(url), payload, correlationId, provider }, (ticket) =>
       egress.meteredFetch(ticket)(url, withTicketSignal(init, ticket))
     );
 }
@@ -5050,6 +5114,7 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
    const { taskForScope, isSealedModeError } = require("./privacy/egressPolicy");
    const { providerEndpoint } = require("./privacy/providerEndpoints");
    const { verifyOfficialCodex } = require("./codexCli");
+   const childRegistry = require("./privacy/childRegistry");
    const CODEX_HOST = "https://chatgpt.com";
    ```
 
@@ -5083,10 +5148,28 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
 
    // One opaque ledger session per app-server process: main cannot see the
    // child's own requests, only that it ran (owner decision, 2026-10-15).
+   // The session settles only on the OS exit event, never on a kill signal, and
+   // the child is in the registry (Task 6a) until then.
    function codexSession(child) {
-     const session = egress.authorize({ task: "codex", target: CODEX_HOST, meter: "opaque" });
+     childRegistry.register(child, { kind: "codex" });
+     const session = egress.authorize({ task: "codex", target: CODEX_HOST, provider: "codex", meter: "opaque", payload: "text" });
      session.signal.addEventListener("abort", () => child.kill(), { once: true });
-     child.once("exit", (code) => session.settle({ outcome: code === 0 || code === null ? "ok" : "error" }));
+     child.once("exit", (code) => session.settle({ outcome: session.signal.aborted ? "cancelled" : code === 0 || code === null ? "ok" : "error" }));
+   }
+
+   // The production Codex server with every Sealed-mode hook wired. Tests pass
+   // only the process seams (executable lookup, version probe, spawn); they
+   // cannot replace the gate hooks, so they exercise the shipped wiring.
+   const CODEX_TEST_SEAMS = ["resolveExecutable", "runFile", "spawnProcess", "env", "homeDir", "platform", "timeoutMs", "stopTimeoutMs"];
+   function createCodexServer({ userDataPath, ...seams } = {}) {
+     const allowed = Object.fromEntries(Object.entries(seams).filter(([key]) => CODEX_TEST_SEAMS.includes(key)));
+     return new CodexAppServer({
+       userDataPath,
+       ...allowed,
+       verifyRelease: gatedVerifyRelease(),
+       beforeSpawn: () => egress.assertAllowed({ task: "codex", target: CODEX_HOST }),
+       onSpawn: codexSession,
+     });
    }
 
    const payloadOf = (messages) =>
@@ -5098,12 +5181,7 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
    Change the default parameter at `:214` to:
 
    ```js
-     codex = new CodexAppServer({
-       userDataPath,
-       verifyRelease: gatedVerifyRelease(),
-       beforeSpawn: () => egress.assertAllowed({ task: "codex", target: CODEX_HOST }),
-       onSpawn: codexSession,
-     }),
+     codex = createCodexServer({ userDataPath }),
    ```
 
 4. Add `egress.assertAllowed({ task: "codex", target: CODEX_HOST });` as the first statement of each of these handlers:
@@ -5140,6 +5218,7 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
            task: taskForScope(request.inferenceScope),
            target: providerEndpoint(request.provider, request.baseUrl),
            model: request.model,
+           provider: request.provider,
            payload: payloadOf(request.messages),
            correlationId: typeof raw?.correlationId === "string" ? raw.correlationId.slice(0, 128) : null,
          },
@@ -5156,7 +5235,7 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
          ticket.signal.addEventListener("abort", () => controller.abort(ticket.signal.reason), { once: true });
      ```
 
-   - Directly before `const text = await codex.generate({` (`:392`), and directly before `const result = streamText(options);` (`:471`) and `const result = await generateText(options);` (`:489`), add `ticket.markSent();`. `meteredFetch` also marks, and the call is idempotent. These cover the providers that do not take a fetch.
+   - Directly before `const text = await codex.generate({` (`:392`), and directly before `const result = streamText(options);` (`:471`) and `const result = await generateText(options);` (`:489`), add `ticket.markDispatched();`. This covers providers that do not take a fetch (Codex, Tinfoil, enterprise). `meteredFetch` marks dispatched, delivered or undelivered precisely for the others, and marking is idempotent.
    - Pass the metered fetch as the seventh `modelFactory` argument (`:412-421`). After the existing six arguments, add `egress.meteredFetch(ticket),`.
    - In the `catch` (`:497`), before `if (controller.signal.aborted && error !== controller.signal.reason) throw abortFailure();` (`:501`), add:
 
@@ -5168,10 +5247,11 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
 
    ```js
        stopCodex: () => codex.stopAndWait(),
-       codexRunning: () => codex.alive(),
+       // True until the OS reports exit: a pending start, or a live process in either record.
+       codexRunning: () => codex.alive() || childRegistry.alive("codex").length > 0,
    ```
 
-8. Add `gatedVerifyRelease` to `module.exports`.
+8. Add `gatedVerifyRelease`, `createCodexServer` and `codexSession` to `module.exports`.
 
 - [ ] **Step 6: Gate the Tinfoil catalog, the connection test and the legacy enterprise channels**
 
@@ -5181,8 +5261,8 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
    const egress = require("./privacy/egressGate");
    // …
    async function fetchModels() {
-     return egress.guard({ task: "providerCheck", target: "https://inference.tinfoil.sh" }, async (ticket) => {
-       ticket.markSent();
+     return egress.guard({ task: "providerCheck", target: "https://inference.tinfoil.sh", provider: "tinfoil" }, async (ticket) => {
+       ticket.markDispatched();
        // The first call also attests the enclave, so allow for more than a plain GET.
        const response = await tinfoilSecureFetch(TINFOIL_MODELS_PATH, {
          method: "GET",
@@ -5342,16 +5422,19 @@ test("an in-flight loopback transcription survives sealing", async () => {
   await pending; // resolves: loopback work is not interrupted
 });
 
-test("unsealed: an upload records exact body bytes, status, and a 'sent' notice with the correlation id", async () => {
+test("unsealed: an upload records exact body bytes and status; it is dispatched, then delivered, with its correlation id", async () => {
   const sent = [];
-  gate.events.on("sent", (n) => sent.push(n));
+  for (const phase of ["dispatched", "delivered"]) gate.events.on(phase, (n) => sent.push({ phase, ...n }));
   const { body, boundary } = audio();
   await gate.withTask("uploadStt", () =>
     stt.postMultipart(new URL("https://api.groq.com/openai/v1/audio/transcriptions"), body, boundary, {}, { correlationId: "upload-3" })
   );
   const [row] = recorder.list();
   assert.deepEqual([row.task, row.outcome, row.bytesOut, row.status], ["uploadStt", "ok", body.length, 200]);
-  assert.deepEqual(sent.map((n) => [n.task, n.payload, n.correlationId]), [["uploadStt", "audio", "upload-3"]]);
+  assert.deepEqual(sent.map((n) => [n.phase, n.task, n.payload, n.correlationId]), [
+    ["dispatched", "uploadStt", "audio", "upload-3"],
+    ["delivered", "uploadStt", "audio", "upload-3"],
+  ]);
 });
 
 test("a cancelled upload is recorded as cancelled", async () => {
@@ -5413,21 +5496,30 @@ function buildMultipartBody(fileBuffer, fileName, contentType, fields = {}) {
 
 // Batch speech uploads (BYOK and self-hosted). The task comes from the
 // handler's egress.withTask() context: dictationStt or uploadStt.
-async function postMultipart(url, body, boundary, headers = {}, { signal, session: fetchSession, correlationId = null } = {}) {
+async function postMultipart(url, body, boundary, headers = {}, { signal, session: fetchSession, correlationId = null, provider = null } = {}) {
   const { net } = require("electron");
-  return egress.guard({ target: url.toString(), payload: "audio", correlationId }, async (ticket) => {
+  return egress.guard({ target: url.toString(), payload: "audio", correlationId, provider }, async (ticket) => {
     ticket.addBytes({ out: body.length });
-    ticket.markSent();
-    const response = await (fetchSession ?? net).fetch(url.toString(), {
+    ticket.markDispatched();
+    let response;
+    try {
+      response = await (fetchSession ?? net).fetch(url.toString(), {
       method: "POST",
-      headers: {
+      // The tag lets the session backstop attribute this request; it strips it before sending.
+      headers: egress.tagHeaders(ticket, {
         "Content-Type": `multipart/form-data; boundary=${boundary}`,
         ...headers,
       },
+      }),
       body,
       signal: signal ? AbortSignal.any([signal, ticket.signal]) : ticket.signal,
       /* …any other options from the original call, unchanged… */
-    });
+      });
+    } catch (error) {
+      if (/ERR_(NAME_NOT_RESOLVED|CONNECTION_REFUSED|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED)/.test(String(error?.message))) ticket.markUndelivered();
+      throw error;
+    }
+    ticket.markDelivered();
     ticket.noteStatus(response.status);
     /* …the rest of the original body. Where it reads the response text, add
        ticket.addBytes({ in: Buffer.byteLength(text) }) right after reading it… */
@@ -5498,8 +5590,8 @@ Fill in every `/* … */` from the moved source. They are the original lines and
    ```js
    const egress = require("./privacy/egressGate");
    // …
-   return egress.guard({ target: "https://inference.tinfoil.sh", payload: "audio" }, async (ticket) => {
-     ticket.markSent();
+   return egress.guard({ target: "https://inference.tinfoil.sh", provider: "tinfoil", payload: "audio" }, async (ticket) => {
+     ticket.markDispatched();
      const response = await tinfoilSecureFetch(/* …existing arguments, with */ { /* …existing init…, */ signal: AbortSignal.any([/* existing signal, if any */ ticket.signal]) });
      /* …existing status check and response read, unchanged… */
    });
@@ -5530,18 +5622,21 @@ git commit -m "feat(privacy): gate batch, retry and proxy speech requests"
   - `src/helpers/sttTransport.js`. Add `realtimeEndpoint` and `connectRealtime`.
   - `src/helpers/ipcHandlers.js`:
     - Route every realtime warmup and start through `connectRealtime`: `connectDictationStreaming` `:7024` (used by `dictation-realtime-warmup` `:7723` and `-start` `:7733`), and the provider handlers around `:8440` (`assemblyai-streaming-warmup`), `:8472` (`assemblyai-streaming-start`), `:8605+` (Deepgram), `:8819`/`:8839` (Gemini), `:8956+` (Corti), and the meeting paths `:5846` and `:6022`.
-    - Mark audio as sent in each audio-send handler.
+    - In each audio-send handler, mark the *specific* streaming session dispatched, after it has actually forwarded audio.
 - Test: `test/helpers/realtimeSealed.test.js`
 
 **Interfaces:**
-- Consumes `egressGate.authorize`, `runWithTicket` and `markSentFor` (Task 5), and the socket metering in `egressBackstop` (Task 6).
+- Consumes `egressGate.authorize`, `runWithTicket` and `Ticket.markDispatched` (Task 5), and the socket metering in `egressBackstop` (Task 6).
 - Produces:
   - `realtimeEndpoint(provider: string, options?: { environment?: string }): string`.
-  - `connectRealtime({ task, provider, options, correlationId? }, connect: () => Promise<T>): Promise<T>`. It authorizes a `meter: "socket"`, `payload: "audio"` ticket and runs `connect` inside it, so the WebSocket created there attaches to the ticket.
-    - If `connect` opened no socket (a warm connection was reused, or the stream was already connected), the redundant ticket is discarded. The warm connection's own ticket keeps ownership and settles when that socket closes.
+  - `connectRealtime({ task, provider, options, correlationId?, owner }, connect: () => Promise<T>): Promise<T>`. It authorizes a `meter: "socket"`, `payload: "audio"` ticket and runs `connect` inside it, so the WebSocket created there attaches to the ticket.
+    - `owner()` returns the streaming instance after `connect`. When `connect` opened a socket, the ticket is stored on that instance under `REALTIME_TICKET`.
+    - If `connect` opened no socket (a warm connection was reused, or the stream was already connected), the redundant ticket is discarded. The instance keeps the ticket that opened its socket, which settles when that socket closes, and that ticket adopts this recording's correlation id if it has none.
     - On failure, the ticket settles and the error (or the sealing reason) is rethrown.
+  - `markRealtimeDispatched(instance, correlationId)`. It marks the instance's own ticket `dispatched`, and only that ticket. Call it after `sendAudio` has forwarded a frame on a connected instance.
+  - `REALTIME_TICKET` (a `Symbol`).
 - Tasks: `noteRecordingStt` for the meeting paths, `dictationStt` for everything else.
-- A realtime session is marked sent at its first audio frame, not at connect, so a warmed but unused socket never counts as "the provider received audio".
+- A realtime session is marked `dispatched` at the first audio frame it forwards, not at connect. A warmed but unused socket, or a different session of the same task, never counts as "the provider may have received audio".
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5599,36 +5694,47 @@ test("sealed: a realtime connect is refused before the socket or token request",
 
 test("warmup then reuse: the reused start leaves no orphan ticket", async (t) => {
   const port = await server(t);
+  const instance = { isConnected: true };
   let warmSocket;
-  await stt.connectRealtime({ task: "dictationStt", provider: "assemblyai-realtime" }, async () => {
+  await stt.connectRealtime({ task: "dictationStt", provider: "assemblyai-realtime", owner: () => instance }, async () => {
     warmSocket = net.connect({ host: "streaming.assemblyai.com", port, lookup: toLoopback });
     await once(warmSocket, "connect");
   });
   assert.equal(gate.activeRemoteCount(), 1, "the warm socket's ticket");
-  await stt.connectRealtime({ task: "dictationStt", provider: "assemblyai-realtime" }, async () => {
+  const warmTicket = instance[stt.REALTIME_TICKET];
+  await stt.connectRealtime({ task: "dictationStt", provider: "assemblyai-realtime", owner: () => instance, correlationId: "rec-7" }, async () => {
     // AssemblyAiStreaming.connect() adopts the warm socket and opens nothing (assemblyAiStreaming.js:394-398).
   });
   assert.equal(gate.activeRemoteCount(), 1, "the reuse ticket was discarded");
+  assert.equal(instance[stt.REALTIME_TICKET], warmTicket, "the instance keeps the ticket that owns its socket");
+  assert.equal(warmTicket.correlationId, "rec-7", "and it adopts this recording's id");
   warmSocket.end();
   await once(warmSocket, "close");
   assert.equal(gate.activeRemoteCount(), 0);
   assert.equal(recorder.list().length, 1);
 });
 
-test("audio is 'sent' at the first frame, with the recording's correlation id", async (t) => {
+test("only the session that forwarded audio is dispatched, with its recording's id", async (t) => {
   const port = await server(t);
-  const sent = [];
-  gate.events.on("sent", (n) => sent.push(n));
-  let socket;
-  await stt.connectRealtime({ task: "dictationStt", provider: "openai-realtime" }, async () => {
-    socket = net.connect({ host: "api.openai.com", port, lookup: toLoopback });
-    await once(socket, "connect");
-  });
-  assert.deepEqual(sent, [], "a warm or idle socket is not delivery");
-  gate.markSentFor({ task: "dictationStt", correlationId: "rec-42" });
-  gate.markSentFor({ task: "dictationStt", correlationId: "rec-42" });
-  assert.deepEqual(sent.map((n) => [n.payload, n.correlationId]), [["audio", "rec-42"]]);
-  socket.destroy();
+  const dispatched = [];
+  gate.events.on("dispatched", (n) => dispatched.push(n));
+  const active = { isConnected: true };
+  const idle = { isConnected: true };
+  const sockets = [];
+  for (const instance of [active, idle]) {
+    await stt.connectRealtime({ task: "dictationStt", provider: "openai-realtime", owner: () => instance }, async () => {
+      const socket = net.connect({ host: "api.openai.com", port, lookup: toLoopback });
+      sockets.push(socket);
+      await once(socket, "connect");
+    });
+  }
+  assert.deepEqual(dispatched, [], "a warm or idle socket is not dispatch");
+  stt.markRealtimeDispatched(active, "rec-42");
+  stt.markRealtimeDispatched(active, "rec-42");
+  assert.deepEqual(dispatched.map((n) => [n.ticketId, n.payload, n.correlationId, n.targetId]), [
+    [active[stt.REALTIME_TICKET].id, "audio", "rec-42", "openai"],
+  ]);
+  for (const socket of sockets) socket.destroy();
 });
 
 test("sealing closes an open realtime session as interrupted", async (t) => {
@@ -5684,19 +5790,38 @@ function realtimeEndpoint(provider, options) {
 // A realtime session is one long-lived socket. Its ticket is socket-metered:
 // it settles with wire bytes when the socket closes, or at once when sealing
 // aborts it.
-async function connectRealtime({ task, provider, options, correlationId = null }, connect) {
+const REALTIME_TICKET = Symbol("loqui.realtimeTicket");
+// Provider ids for the ledger and for Plan 04's target-id encoding.
+const REALTIME_PROVIDER_IDS = {
+  "openai-realtime": "openai",
+  "assemblyai-realtime": "assemblyai",
+  "deepgram-realtime": "deepgram",
+  "gemini-realtime": "gemini",
+  "tinfoil-realtime": "tinfoil",
+  "corti-realtime": "corti",
+};
+
+async function connectRealtime({ task, provider, options, correlationId = null, owner = () => null }, connect) {
   return egress.withTask(task, async () => {
     const ticket = egress.authorize({
       target: realtimeEndpoint(provider, options),
+      provider: REALTIME_PROVIDER_IDS[provider] ?? null,
       meter: "socket",
       payload: "audio",
       correlationId,
     });
     try {
       const result = await egress.runWithTicket(ticket, connect);
-      // A reused warm connection (or an already-open one) belongs to the ticket
-      // that opened it; this one has nothing to own.
-      if (ticket.socketCount() === 0 && !ticket.settled) ticket.discard();
+      const instance = owner();
+      if (ticket.socketCount() > 0) {
+        if (instance) instance[REALTIME_TICKET] = ticket;
+      } else if (!ticket.settled) {
+        // A reused warm connection (or an already-open one) belongs to the
+        // ticket that opened it; this one has nothing to own.
+        ticket.discard();
+        const existing = instance?.[REALTIME_TICKET];
+        if (existing && existing.correlationId == null) existing.correlationId = correlationId;
+      }
       return result;
     } catch (error) {
       const reason = ticket.signal.aborted ? ticket.signal.reason : null;
@@ -5706,18 +5831,33 @@ async function connectRealtime({ task, provider, options, correlationId = null }
   });
 }
 
-module.exports = { buildMultipartBody, postMultipart, realtimeEndpoint, connectRealtime };
+// Called by the audio-send handlers after a frame was forwarded on this
+// instance: only its own ticket is marked, never other sessions of the task.
+function markRealtimeDispatched(instance, correlationId) {
+  const ticket = instance?.[REALTIME_TICKET];
+  if (!ticket || ticket.settled || !instance.isConnected) return;
+  if (ticket.correlationId == null && correlationId) ticket.correlationId = correlationId;
+  ticket.markDispatched();
+}
+
+module.exports = { buildMultipartBody, postMultipart, realtimeEndpoint, connectRealtime, markRealtimeDispatched, REALTIME_TICKET };
 ```
 
 - [ ] **Step 4: Route every realtime warmup and start through it**
 
-In `src/helpers/ipcHandlers.js`, import `connectRealtime` from `./sttTransport`.
+In `src/helpers/ipcHandlers.js`, import `connectRealtime` and `markRealtimeDispatched` from `./sttTransport`.
 
 1. In `connectDictationStreaming` (`:7024`), wrap everything from the token request (`fetchRealtimeToken(…)`, `:7059`) through the `connect(...)` call of the new streaming instance (`:7051` onward):
 
    ```js
        return connectRealtime(
-         { task: "dictationStt", provider: options.provider, options, correlationId: options.correlationId ?? null },
+         {
+           task: "dictationStt",
+           provider: options.provider,
+           options,
+           correlationId: options.correlationId ?? null,
+           owner: () => this._dictationStreaming,
+         },
          async () => {
            /* …existing token fetch, `new OpenAIRealtimeStreaming()` (or the Tinfoil subclass) and connect, unchanged… */
          }
@@ -5726,7 +5866,7 @@ In `src/helpers/ipcHandlers.js`, import `connectRealtime` from `./sttTransport`.
 
    In `dictation-realtime-start` (`:7733`), store `this._dictationCorrelationId = options.correlationId ?? null;`.
 
-2. Wrap the same span (from token fetch through `warmup(...)` or `connect(...)`) in every other realtime handler:
+2. Wrap the same span (from token fetch through `warmup(...)` or `connect(...)`) in every other realtime handler. Pass `owner: () => this.<thatHandlersInstance>`, for example `this.assemblyAiStreaming`:
 
    | Handler | Lines | Task | `provider` |
    |---|---|---|---|
@@ -5738,16 +5878,18 @@ In `src/helpers/ipcHandlers.js`, import `connectRealtime` from `./sttTransport`.
 
    List them with `grep -n '"[a-z-]*-\(streaming\|realtime\)-\(warmup\|start\)"\|meeting-transcription-start' src/helpers/ipcHandlers.js`. Task 12 enumerates the same channels and fails for any one not refused while sealed.
 
-3. In every audio-send handler, add one line before the buffer is forwarded: `dictation-realtime-send` (`:7744`), the provider `*-streaming-send` handlers, and the meeting audio sends. List them with `grep -n '\(streaming\|realtime\)-send\|meeting-transcription-.*audio' src/helpers/ipcHandlers.js`. For example:
+3. In every audio-send handler, mark *that* instance dispatched after it forwarded the frame. The handlers are `dictation-realtime-send` (`:7744`), the provider `*-streaming-send` handlers, and the meeting audio sends. List them with `grep -n '\(streaming\|realtime\)-send\|meeting-transcription-.*audio' src/helpers/ipcHandlers.js`. For example:
 
    ```js
      ipcMain.on("dictation-realtime-send", (_event, buffer) => {
-       egress.markSentFor({ task: "dictationStt", correlationId: this._dictationCorrelationId });
-       this._dictationStreaming?.sendAudio(Buffer.from(buffer));
+       const streaming = this._dictationStreaming;
+       if (!streaming?.isConnected) return;
+       streaming.sendAudio(Buffer.from(buffer));
+       markRealtimeDispatched(streaming, this._dictationCorrelationId);
      });
    ```
 
-   Use `noteRecordingStt` in the meeting handlers. `markSentFor` is idempotent per ticket, so calling it for every chunk costs one map scan.
+   Keep each handler's existing early-return behaviour. If it already skips when not connected, reuse that check. Import `markRealtimeDispatched` from `./sttTransport`. Marking is idempotent per ticket.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -5962,12 +6104,15 @@ test("sealing kills an in-flight yt-dlp self-update and records an opaque sessio
   assert.equal(downloader.ytDlpControl.alive(), true);
   flags.sealed = true;
   gate.abortAllRemote();
-  await update;
+  await update; // the caller's promise resolves; the process is another matter
   assert.deepEqual(child.signals, ["SIGKILL"]);
-  await downloader.ytDlpControl.stop({ timeoutMs: 500 });
+  assert.equal(downloader.ytDlpControl.alive(), true, "a kill signal is not an exit");
+  assert.equal(recorder.list().length, 0, "the session is not settled before the exit");
+  await assert.rejects(downloader.ytDlpControl.stop({ termGraceMs: 20, killGraceMs: 20 }), (e) => e.code === "CHILD_STOP_FAILED");
+  child.emit("exit", null, "SIGKILL");
   assert.equal(downloader.ytDlpControl.alive(), false);
   const [row] = recorder.list();
-  assert.deepEqual([row.task, row.host, row.opaque, row.bytesIn], ["runtimeDownload", "github.com", true, null]);
+  assert.deepEqual([row.task, row.host, row.opaque, row.bytesIn, row.outcome], ["runtimeDownload", "github.com", true, null, "cancelled"]);
 });
 
 test("while sealed, a self-update is not even attempted", async (t) => {
@@ -6081,7 +6226,7 @@ Expected: FAIL. Downloads reach `net.request`, `ytDlpControl` is undefined, and 
 - [ ] **Step 3: Gate `downloadUtils.js`**
 
 1. Add `const egress = require("./privacy/egressGate");`.
-2. In `downloadAttempt`, add `onBytes` to the destructure at `:63` (`const { onProgress, onBytes, signal, startOffset = 0, expectedSize = 0 } = options;`). In the `data` handler, directly after `downloadedSize += chunk.length;` (`:187`), add `onBytes?.(chunk.length);`.
+2. In `downloadAttempt`, add `onBytes` and `extraHeaders` to the destructure at `:63` (`const { onProgress, onBytes, extraHeaders, signal, startOffset = 0, expectedSize = 0 } = options;`). Merge the headers into the request headers at `:71`: `const headers = { "User-Agent": USER_AGENT, ...(extraHeaders || {}) };`. In the `data` handler, directly after `downloadedSize += chunk.length;` (`:187`), add `onBytes?.(chunk.length);`. In `downloadFileUngated`, add `extraHeaders` to the destructure at `:268`, and pass it through in the `downloadAttempt(...)` options at `:307-312`.
 3. In the existing `downloadFile` (`:267`):
    - rename it to `downloadFileUngated`;
    - add `onBytes` to its destructure at `:268`;
@@ -6119,10 +6264,17 @@ Expected: FAIL. Downloads reach `net.request`, `ytDlpControl` is undefined, and 
          },
          { once: true }
        );
-       ticket.markSent();
+       ticket.markDispatched();
        // Bytes received in this run only: a resumed download does not recount
        // what an earlier run already fetched. Request bytes (headers) stay unknown.
-       return downloadFileUngated(url, destPath, { ...rest, signal, onBytes: (n) => ticket.addBytes({ in: n }) });
+       // The tag lets the session backstop attribute the request and its
+       // redirects to this ticket; it is stripped before the request leaves.
+       return downloadFileUngated(url, destPath, {
+         ...rest,
+         signal,
+         extraHeaders: egress.tagHeaders(ticket),
+         onBytes: (n) => ticket.addBytes({ in: n }),
+       });
      });
    }
    ```
@@ -6157,7 +6309,7 @@ In `src/helpers/urlAudioDownloader.js`, add `const egress = require("./privacy/e
      const type = detectUrlType(url);
      // A YouTube import runs yt-dlp, whose own traffic main cannot see.
      return egress.guard({ task: "urlImport", target: url, meter: type === "youtube" ? "opaque" : "body" }, (ticket) => {
-       ticket.markSent();
+       ticket.markDispatched();
        // Sealing aborts the transfer and kills a running yt-dlp child.
        const signal = abortSignal ? AbortSignal.any([abortSignal, ticket.signal]) : ticket.signal;
        debugLogger.log("URL audio download starting", { url, type });
@@ -6189,26 +6341,32 @@ In `src/helpers/urlAudioDownloader.js`, add `const egress = require("./privacy/e
      ```
 
      `abortSignal` is a destructured parameter, so reassigning it is allowed. The existing abort wiring (`:463-477`) and the `removeEventListener` in `finish` (`:449`) then use the combined signal unchanged.
-   - In `finish` (`:445-454`), directly after `ytDlpUpdateInFlight = false;`, add `session.settle({ outcome: session.signal.aborted ? "cancelled" : errMessage ? "error" : "ok" });`.
-   - In the spawn-failure catch (`:427-432`), add the same `session.settle({ outcome: "error" });`.
+   - Directly after the successful `child = childProcess.spawn(...)` (`:426`), register the process and settle the session **only on its exit**:
+
+     ```js
+           childRegistry.register(child, { kind: "yt-dlp" });
+           child.once("exit", (code) =>
+             session.settle({ outcome: session.signal.aborted ? "cancelled" : code === 0 ? "ok" : "error" })
+           );
+     ```
+
+     `finish` keeps its job: it resolves the caller's best-effort promise and clears the throttle flag. It no longer decides whether the process is gone; the registry does.
+   - In the spawn-failure catch (`:427-432`), add `session.settle({ outcome: "error" });`. No process exists there.
+   - In `runYtDlp`, directly after its `child = childProcess.spawn(...)` (`:629`), add `childRegistry.register(child, { kind: "yt-dlp", group: process.platform !== "win32" });`. That spawn is `detached` on POSIX, so the whole process group must be gone before the registry calls it stopped. Its descendants (FFmpeg for post-processing) are in that group.
 
 3. Add the control object next to the state variables (`:42-43`), and export it:
 
    ```js
-   // Read by the Sealed mode transition and attestation (privacyBoot.js).
+   const childRegistry = require("./privacy/childRegistry");
+   // Read by tests and diagnostics. Liveness is the OS exit (and, for a
+   // download, the whole process group), never a flag or a kill signal.
    const ytDlpControl = {
-     alive: () => ytDlpUpdateInFlight || ytDlpBusyCount > 0,
-     // Sealing aborts the urlImport and self-update tickets, which kill the
-     // children; this waits until they are really gone.
-     async stop({ timeoutMs = 3000 } = {}) {
-       const deadline = Date.now() + timeoutMs;
-       while (ytDlpControl.alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
-       if (ytDlpControl.alive()) throw Object.assign(new Error("yt-dlp did not stop."), { code: "YTDLP_STOP_FAILED" });
-     },
+     alive: () => childRegistry.alive("yt-dlp").length > 0,
+     stop: (options) => childRegistry.stopAll({ kinds: ["yt-dlp"], ...options }),
    };
    ```
 
-   `ytDlpBusyCount` drops only after `runYtDlp` settles on the child's `close` (`:379-386`, `:680`), so `alive()` reflects real process lifetime.
+   The sealing barrier stops these processes through `childRegistry.stopAll()` (Task 7). This object is a convenience over the same records.
 
 - [ ] **Step 5: Gate updates**
 
@@ -6238,9 +6396,15 @@ In `src/helpers/updateManager.js`:
 5. Replace `this.running = true;` (`:137`) with:
 
    ```js
-       const ticket = this.authorize({ task: "appUpdate", target: UPDATE_HOST });
+       const ticket = this.authorize({ task: "appUpdate", target: UPDATE_HOST, provider: "github" });
+       // electron-updater sends these headers on every request of its own session;
+       // the session backstop attributes them to this ticket and strips the tag.
+       const previousHeaders = this.updater.requestHeaders;
+       this.updater.requestHeaders = { ...(previousHeaders || {}), [EGRESS_TAG_HEADER]: ticket.tag };
        this.running = true;
    ```
+
+   Add `const { EGRESS_TAG_HEADER } = require("./privacy/egressGate");` at the top of the file, and restore the headers in the `finally` (`this.updater.requestHeaders = previousHeaders;`).
 
    Then:
    - At the start of the `catch` (`:159`), add:
@@ -7760,7 +7924,7 @@ test("live notices: recorded events are prepended once; sent notices are ignored
   const next = mergeNotice(list, { phase: "recorded", event: ev({ id: 2, ts: now }) }, 0);
   assert.deepEqual(next.map((e) => e.id), [2, 1]);
   assert.equal(mergeNotice(next, { phase: "recorded", event: ev({ id: 2, ts: now }) }, 0), next);
-  assert.equal(mergeNotice(next, { phase: "sent", ticketId: 9, task: "chat", host: "x", payload: "text", correlationId: null, ts: now }, 0), next);
+  assert.equal(mergeNotice(next, { phase: "dispatched", ticketId: 9, task: "chat", targetId: "groq", host: "x", payload: "text", correlationId: null, ts: now }, 0), next);
   assert.equal(mergeNotice(next, { phase: "recorded", event: ev({ id: 3, ts: 5 }) }, 10), next, "older than the window");
 });
 

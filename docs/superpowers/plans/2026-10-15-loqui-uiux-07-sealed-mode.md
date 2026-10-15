@@ -15,7 +15,8 @@
   - On the Chromium side it owns `webRequest` on every Electron session. That covers `net.fetch`, `net.request`, `electron-updater` and renderer loads. It tracks each Chromium request until it ends, and checks every redirect hop.
   - While sealed, Layer B denies every non-loopback connection. While unsealed, it reports connections that no ticket explains, which surface as "unexplained" in the ledger.
 - **The spawn guard and child registry** (`src/helpers/privacy/childRegistry.js`).
-  - Every `child_process` spawn and `utilityProcess.fork` is classified. While sealed, network programs (Codex, yt-dlp, `curl`, …) and spawns from third-party code are refused.
+  - Every `child_process` spawn and `utilityProcess.fork` is classified. While sealed, only allowlisted programs start (Loqui's own binaries and known sidecars with launch rules, named system tools with argument rules); network programs (Codex, yt-dlp, `curl`, …), spawns from third-party code and anything unclassified are refused.
+  - Running on-device model servers are not inspected; the attestation names them (CCR-6). The ONNX worker locks its own network at startup.
   - FFmpeg always runs with local inputs only.
   - A child counts as stopped only when the OS reports its exit. Codex and yt-dlp runs are recorded as *opaque sessions*, because main cannot see their individual requests (owner decision, 2026-10-15).
 
@@ -72,9 +73,26 @@ This revision answers the independent security review of snapshot `18c0b4c…` (
 
 ---
 
+## Round-2 review response
+
+This answers Codex's second review (`.omc/research/ui-review/reviews/plan-07-codex-r2.md`, pinned at `e473639`): 3 Critical and 6 Important findings, with 8 round-1 findings confirmed closed. Every finding below is fixed in task steps *and* test code. One point is partly disputed, with evidence. One promise is narrowed and disclosed (CCR-6). Code anchors were rechecked against this worktree, and the spec is now `4980c81`.
+
+| Finding | Status | What changed, and the test that proves it |
+|---|---|---|
+| **C2-R2** DNS gaps; native and renderer boundary | Fixed; one promise narrowed (CCR-6) | **DNS (Task 6):** every entry point in `node:dns`, `node:dns/promises` and both `Resolver` prototypes goes through one wrapper. That includes `lookupService` and `dns.promises.lookupService`, which was never wrapped. Sealed: refused before the native resolver, with localhost names and loopback literals answered locally. Open: counted from call to settle exactly once, including a synchronous throw. Tests: `every resolver query issued before the seal is counted until it ends (callback, promise, Resolver)` (a silent loopback DNS server, no packet leaves), `sealed: lookupService (callback and promise) never reaches the native resolver for a remote address`, and `every DNS entry point … is wrapped`, checked against the live module. **Children (Task 6a):** the `local` default is gone. While sealed, only allowlisted programs start: known sidecars by name with launch rules (llama-server download flags, non-loopback `--host`, Qdrant without `--disable-telemetry`); named OS tools with argument rules (`open -a` only, `sh -c "command -v x"` only, no `powershell`); and Loqui itself. Anything unclassified is refused (`sealed: only allowlisted programs start, and only with allowed arguments`). **ONNX worker:** a runtime lock, not a ratchet. It installs the Node backstop with the seal forced on, proved in a separate Node runtime (`the lock refuses the network inside a separate Node runtime, and keeps loopback`). **Renderer frames (Task 7a):** the preload runs in every frame and removes WebRTC in each, and only the main frame gets `electronAPI`; a CSP adds `frame-src 'none'` and `object-src 'none'`. Unit-tested for main frame and subframe; Task 16 checks `about:blank` and `srcdoc` in Electron. **Narrowed:** running local model servers are launch-checked but cannot be inspected, so they are reported as `uninspectedChildren`, named in the panel and in PRIVACY.md, and excluded from "verified" (CCR-6, Task 1 Promise). |
+| **I6-R2** (Critical) streaming loses audio; replay drops the only copy | Fixed | **Streaming (Task 13):** a seal that arrives during a stream is recorded, from the sealed store or a sealed provider error. With no text, the real finalizer goes through `_preserveSealedStream`: a hold with history off, a failed History entry with history on, and a sealed notice, never an empty success. Test: `streaming sealed mid-dictation with no text (…)` drives the real `_finalizeStreamingRecording`, in both retention modes. **Replay:** claim and release instead of take. `transcribeRecovered` runs only when idle with no other replay (`busy` otherwise), keeps the hold on failure, cancellation or an empty result, never duplicates it on a sealed re-failure, and keeps the metadata (session and `private`). Tests drive the real `processAudio`, faking only the transcription transport: `replay: a transcript removes the hold`, `replay: a non-sealed failure keeps the only copy…`, `replay: refused while busy, and only one replay at a time`. |
+| **N1** (Critical) free text in recorder rows | Fixed | **Recorder (Task 4):** `model` is stored only if it is an identifier (no `//`, no `user:secret@`, no key-shaped token, no query or whitespace); otherwise `null`. `errorClass` is one of `ERROR_CLASSES`, and the gate maps codes onto those categories. Test: `model ids and error classes are identifiers or nothing…` writes hostile values through SQLite and the CSV and asserts they are absent. The value sent to the provider is unchanged. |
+| **I1-R2** suite not executable; drills not isolating | Fixed | **Task 12:** the Whisper manager is constructed lazily, after the Electron stub exists. No model factory is injected: the real AI SDK runs, and only global `fetch` is counted. The ratchet allows the preload's marked WebRTC-removal block and the acceptance script, and nothing else. The Codex rows assert `codexCalls === 0`, so deleting the handler gate fails its row even though a later guard still refuses. Each drill states what it proves. **Task 16:** the leak probes run right after the seal barrier, before any attestation wait, so the leak-injection drill reaches the independent observer. **Updater test:** see the dispute row below. |
+| **I3-R2** operations counted as requests | Fixed | **Gate (Task 5):** the ticket is the operation, and each metered request is its own attempt and row, with its own host, bytes, status and notices (`attemptId`). A request delivered earlier is never withdrawn by a failed retry. Rows have a `kind`: request, stream, connection, session or operation. Pre-transport failures are `operation` rows, which are kept but never counted as having left. Unexplained Node sockets and SDK operations without a metered fetch are `connection` rows, labelled "requests not visible; listed when it closes". Chromium requests that carry a whole operation's tag (electron-updater) get one row each. Tests: `two requests in one operation are two rows; a failed retry never withdraws earlier delivery`, `an operation that fails before any transport is kept, but never counted…`, `an SDK operation that took no metered fetch is recorded as a connection…`, and Task 15's view test for connections and operations. |
+| **I4-R2** session and target lost on speech paths | Fixed | `egress.withContext({ correlationId, provider })` (Task 5) wraps the whole BYOK provider dispatch (Task 9). So the Corti, Gemini and Tinfoil helpers announce the session id and the canonical target without new parameters, and both multipart calls pass `provider` explicitly. Tests: `withContext gives nested tickets the session id and canonical target…`. Task 12 runs, through the real handler, `unsealed: <provider> notices carry the session id and target …` for OpenAI, a custom server, Gemini and Corti; `concurrent sessions never borrow each other's id`; and, once Plan 04 has merged, its real `createDisclosureTracker` fed by main's notices (metadata never counts). Realtime marking per instance was already exact (Task 9a). |
+| **I5-R2** a delayed attestation outlives 30 s | Fixed | **Store (Task 13):** expiry happens at main's `at + 30 s`, with the timer given only the remaining lifetime. Freshness is rechecked on focus and on visibility change, and the panel checks `isAttestationFresh` on every render. A version watermark survives invalidation, and a failed refresh never erases a push that arrived after it started. Tests: `a claim delivered late lives only until main's at + 30 s…`, `after a claim expires, a late older reply is never adopted`, `a failed refresh while a newer push arrives keeps the newer push`, and the panel's stale-claim assertion. |
+| **N2** async yt-dlp spawn failure leaves an immortal ticket | Fixed | `childRegistry.onChildEnd` (Task 6a) ends a session exactly once: on `exit`, on an `error` before any pid, or on `close` without `exit`. An error after a successful start is not an end. Both yt-dlp spawns (Task 10) and `codexSession` (Task 8) use it. Tests: `an asynchronous spawn failure settles the session; an error after start does not`, the Codex case in Task 8, and the timeout and spawn-failure cases. |
+| **N3** retired toasts when Plan 04 merges first | Fixed | Task 13, Step 6 has both branches. With Plan 04 merged: `notify(buildSealedRecoveryNotice(…))`, and `showDictationError({ …, recoveryHeld }, [Transcribe])`, which is Plan 04's persistent alert. Without it: the toast fallback uses `duration: 0`, which `Toast.tsx:97` never auto-dismisses, so it is persistent and not "the longest duration". Plan 04 removes the fallback when it merges second (P04 Task 5, Step 3, item 7). Test: `sealedRecoveryNotice.test.js` checks whichever API the branch has, and the integrated branch runs Plan 04's `noToastLeft` and `voiceNotices` suites. |
+| **I1-R2 (updater test), partly disputed** | Test changed; one claim disputed | The review says D13 requires every manual check to stop at "available". **Evidence:** D13 (spec `4980c81`, §2) covers "manual update checks … when automatic updates are off". Plan 02's implementation downloads on a manual check when automatic updates are on (P02 Task 17: `if (!this.prefs.enabled) publish available else downloadUpdate`). The test's harness has `enabled: true`, so it matches D13. To remove any doubt, the test now starts the download through the automatic check (`check(false)`), which downloads before and after Plan 02. |
+
 ## Contract change requests
 
-This plan owns §5.4 and must not edit the spec. The spec owner consolidated every plan's requests into §5 in commit `091d198` (on `snowopsdev/feat/uiux-foundations`). Each request below is marked with where it now lives. Where this plan's code differed from a binding shape, the plan was changed to match the spec.
+This plan owns §5.4 and must not edit the spec. The spec owner consolidated every plan's requests into §5 in commit `091d198` (on `snowopsdev/feat/uiux-foundations`); the current spec is `4980c81`, which also settles §5.1 rule 10 for plain-HTTP `*.localhost` as this plan assumed. Each request below is marked with where it now lives. Where this plan's code differed from a binding shape, the plan was changed to match the spec.
 
 **CCR-1 (§5.4, owner Plan 07; additive plus one clarification).** *Status: applied in spec §5.4 (091d198): the scope, the preload API, `Attestation`, the 30 s staleness rule and `nothingLeaves`. The clarification that `network` is sealed is recorded there as a spec-owner clarification of D6. §5.4's consumers are Plans 03, 04, 05, 06 and 08.*
 - **Clarification.** While sealed, *both* `remote` and `network` locality routes are blocked. Only `device` (loopback) keeps working.
@@ -140,6 +158,12 @@ This plan owns §5.4 and must not edit the spec. The spec owner consolidated eve
 **CCR-5 (owner Plan 01): one loopback rule.** *Status: applied in spec §5, Plan 01 contracts, Locality row (091d198).*
 - `isLoopbackUrl` in `src/lib/locality.ts` accepts exactly what main's `isLoopbackHost` accepts: `localhost` (including a trailing dot), `*.localhost`, `127.0.0.0/8`, `::1` in any spelling, and IPv4-mapped `127.x`. A hostname that only resolves to loopback is not loopback.
 - Loopback is not the same as valid. Plain-HTTP `*.localhost` is loopback but refused by the executors, so its route is `needsUrl` (§5.1 rule 10) and never sealed-blocked as remote.
+
+**CCR-6 (§5.4, owner Plan 07): narrow the scope for running local model servers.** *Status: requested; needs the spec owner. Raised by the round-2 security review (C2-R2).*
+- **The problem.** §5.4 says the seal covers "the child processes Loqui starts". Local routes need on-device sidecars to keep running: llama-server, whisper-server, Qdrant and the sherpa-onnx servers. Loqui can enforce *how they start*: an allowlist, no download flags, loopback binds, telemetry off, and refusal of anything unclassified. Once a native process runs, no JavaScript hook can see its network traffic. Claiming them as verified would be a promise Loqui cannot prove.
+- **Proposed §5.4 scope text.** "While sealed, nothing that Loqui's main process, its Chromium sessions and renderers, its worker processes, or the network-capable programs it starts sends reaches a host other than loopback. On-device model servers keep running so local routes work; Loqui enforces how they are launched, but cannot inspect their traffic, and says so."
+- **Proposed `Attestation` addition.** `uninspectedChildren: string[]`, the running on-device sidecars. `nothingLeaves` keeps its definition, and does not cover them. The UI names them beside any verified claim.
+- **What Plan 07 ships either way.** The launch enforcement, the field, the disclosure in the panel and in `docs/PRIVACY.md`, and the narrowed verified copy. If the owner wants the original scope instead, closing it needs OS-level containment for the sidecars (a per-process network sandbox on each platform). That would be a separate plan, and until it lands Sealed mode would have to stop local model servers, breaking local routes. D6 rules that out.
 - Both are tested against `test/fixtures/loopbackCases.json`. Plan 07 Task 11a makes the change and keeps Plan 01's existing cases passing.
 
 ---
@@ -147,7 +171,7 @@ This plan owns §5.4 and must not edit the spec. The spec owner consolidated eve
 ## Global Constraints
 
 - **Ownership.** Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md). Sealed mode is enforced in main; a renderer check is UX only and never the guarantee (D6).
-- **The boundary.** The guarantee covers Loqui's main process, its Chromium sessions and renderers, and the processes Loqui starts (Task 1). Anything outside it is either disabled while sealed or disclosed in the UI. No copy claims more.
+- **The boundary.** The guarantee covers Loqui's main process, its Chromium sessions and renderers, its worker processes, and the network-capable programs it starts (Task 1). Running on-device model servers are launch-checked but not inspected, and are named as such (CCR-6). Anything outside the boundary is either disabled while sealed or disclosed in the UI. No copy claims more.
 - **No silent provider switches.** Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure, and a sealed block is a failure that keeps the user's message, recording or draft: in History when retention allows, otherwise in memory with a "Transcribe" action.
 - **What sealed blocks.** Main blocks every outbound provider, model-download, update, calendar and URL-import request while sealed, and local routes keep working. The UI never claims "0 bytes" or "verified" unless main attests it (D6).
 - **"Local" means loopback only.** That is `localhost`, `*.localhost`, `127.0.0.0/8`, `::1` and IPv4-mapped `127.x`, in main and in the renderer (CCR-5). A LAN address, a public IP, an unparseable target or a hostname that merely *resolves* to loopback is **not** local (CCR-1; D4 makes loopback self-hosted URLs `device`).
@@ -218,13 +242,26 @@ Each of these failure modes is the kind a reviewer should try by hand. Each is p
      - Task 10 (`automatic check is skipped while sealed and lastCheck is unchanged`, `seal and unseal always publish status, even when idle`);
      - Task 11 (`the calendar guard main uses starts, focus-syncs and wake-syncs nothing while sealed`);
      - Task 16 (`boot: the remote fixture saw no request and no connection during the whole sealed run`).
-6. **A recording that Sealed mode blocks while local history is off.** It must survive in memory, never on disk, and be offered for "Transcribe" on the error and again on unseal. Pinned in Task 13 (`a sealed failure with history off: held in memory = true`, `transcribeRecovered replays the held recording through the normal pipeline`, `recovery never touches disk or IPC`).
+6. **A recording that Sealed mode blocks while local history is off, batch or streaming.** It must survive in memory, never on disk, and be offered for "Transcribe" on the error and again on unseal. A replay must never drop the only copy. Pinned in Task 13:
+   - `a sealed failure with history off: held in memory = true`;
+   - `streaming sealed mid-dictation with no text (history off)…`;
+   - `replay: a non-sealed failure keeps the only copy…` and `replay: refused while busy, and only one replay at a time`;
+   - `recovery never touches disk or IPC`.
 7. **Ways out of the boundary:** a crafted playlist given to FFmpeg, a link or meeting join link clicked while sealed, a calendar sign-in completed in the browser after sealing, a remote image in a chat answer, a `<link rel="preconnect">`, a WebRTC peer connection. Pinned in:
    - Task 6a (`a local playlist that points at a server makes FFmpeg fetch nothing`);
    - Task 7a (`every window loads the preload, and the preload removes WebRTC from the page`);
    - Task 11 (`a declined link never reaches the OS, and is not an error`, `sealing cancels a pending OAuth flow…`);
    - Task 13 (`sealed: remote images are inert placeholders; loopback images and links stay`);
    - Task 16 (`toggle: the remote fixture saw no request and no connection after sealing`).
+8. **DNS and processes that a seal must not miss.**
+   - A resolver query issued just before the seal, and a reverse lookup while sealed.
+   - An unknown helper binary, `open https://…`, `sh -c curl …` and a llama-server with `-hf`.
+   - The ONNX worker.
+
+   Pinned in:
+   - Task 6 (`every resolver query issued before the seal is counted until it ends…`, `sealed: lookupService (callback and promise) never reaches the native resolver…`, `every DNS entry point … is wrapped…`);
+   - Task 6a (`sealed: only allowlisted programs start, and only with allowed arguments`, `the lock refuses the network inside a separate Node runtime, and keeps loopback`, `an asynchronous spawn failure settles the session…` in Task 10).
+9. **The ledger is metadata, one row per request.** A model id like `https://user:pass@host/v1?key=…` never reaches SQLite or the CSV. Two requests in one operation are two rows. A failed retry never withdraws an earlier delivery. An operation that never sent anything is not counted. Pinned in Task 4 (`model ids and error classes are identifiers or nothing…`) and Task 5 (`two requests in one operation are two rows…`, `an operation that fails before any transport is kept, but never counted…`).
 
 ---
 
@@ -433,7 +470,9 @@ Owner: Plan 07 (`docs/superpowers/plans/2026-10-15-loqui-uiux-07-sealed-mode.md`
 
 ## Promise
 
-While Sealed mode is on, nothing that **Loqui's main process, its Chromium sessions and renderers, or the child processes Loqui starts** send reaches a host other than this computer's loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). Local routes keep working. The promise is enforced in Electron main; the renderer only reflects it.
+While Sealed mode is on, nothing that **Loqui's main process, its Chromium sessions and renderers, its worker processes, or the network-capable programs it starts** send reaches a host other than this computer's loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). Local routes keep working. The promise is enforced in Electron main; the renderer only reflects it.
+
+**Narrowed for local model servers (CCR-6).** Local routes need on-device sidecars to keep running: llama-server, whisper-server, Qdrant and the sherpa-onnx (Parakeet, diarization) servers. Loqui enforces *how they start*: only allowlisted binaries, no download options, loopback binds, telemetry off (Task 6a). It cannot observe their network traffic once they run; no JavaScript hook reaches inside a native process. So the attestation names every running sidecar as `uninspectedChildren`, and the panel and `docs/PRIVACY.md` say plainly that they are not inspected. "Verified" never covers them. Closing this fully needs OS-level containment (for example a per-process network sandbox), which is not in this plan.
 
 The panel says "verified" only when main attests all of this at that moment (Task 7). Main dates that claim from when it confirmed that everything had stopped, not from when the switch was flipped. If something cannot be confirmed (a child that will not exit, a Chromium request that will not end, a pending DNS lookup, an environment proxy), the panel says so and names it, and the verified line does not appear.
 
@@ -443,9 +482,9 @@ The panel says "verified" only when main attests all of this at that moment (Tas
 |---|---|
 | Main-process JavaScript: Node `http(s)`, undici `fetch`, `ws`, `net`, `tls`, `dns`, `dgram`, and SDKs built on them | Layer A (the gate) at each known site; Layer B (socket, DNS and UDP hooks) underneath, for code nobody gated |
 | Chromium networking: Electron `net`, electron-updater's session, renderer loads, redirects | Layer B on every session's `webRequest`, with per-request in-flight tracking |
-| Renderers | Only Loqui's own pages, sandboxed with web security on (Task 7a). Remote images render as placeholders while sealed (Task 13). WebRTC constructors are removed from every renderer's main world (Task 7a), and the IP-handling policy is kept as defence in depth. DNS prefetch is off. Preconnect hints are probed in Electron (Task 16). |
-| Child processes Loqui starts | The spawn guard (Task 6a) classifies every spawn. Network programs (Codex, yt-dlp, `curl`, …) and spawns from third-party code (for example an SDK credential helper) are refused while sealed. Running ones are stopped, and count as stopped only when the OS reports their exit. FFmpeg runs only with `-protocol_whitelist file,pipe`. Local helpers are listed in `spawn-sites` with what they run. |
-| Utility processes and workers | `utilityProcess.fork` only for `src/workers/`, which the ratchet keeps free of network code (N23) |
+| Renderers | Only Loqui's own pages, sandboxed with web security on (Task 7a). Remote images render as placeholders while sealed (Task 13). WebRTC constructors are removed in every frame, `about:blank` and `srcdoc` included: the preload runs in each frame (`nodeIntegrationInSubFrames`, still sandboxed), and only the main frame gets `electronAPI`. A CSP forbids remote frames and plugins. The IP-handling policy is kept as defence in depth. DNS prefetch is off. Preconnect hints are probed in Electron (Task 16). |
+| Child processes Loqui starts | The spawn guard (Task 6a) allows, while sealed, only allowlisted programs: Loqui's own binaries and known sidecars (with launch rules), named system tools (with argument rules), and Loqui itself. Network programs, third-party spawns and anything unclassified are refused. Running network programs are stopped, and count as stopped only when the OS reports their exit. FFmpeg runs only with `-protocol_whitelist file,pipe`. |
+| Utility processes and workers | The ONNX worker installs the Node backstop with the seal forced on, as its first statement. It cannot reach the network in any mode, and a test proves this in a separate Node runtime (Task 6a). `utilityProcess.fork` is limited to `src/workers/`. |
 
 | Outside, and how Sealed mode treats it | Treatment |
 |---|---|
@@ -453,7 +492,7 @@ The panel says "verified" only when main attests all of this at that moment (Tas
 | A calendar sign-in already waiting in the browser | Cancelled on seal; its loopback callback closes (Task 11). |
 | A proxy or port-forwarder the user runs on loopback | Trusted as loopback. A loopback `CONNECT` or absolute-form request naming a remote host is refused, and an environment proxy makes the seal unverified. A user-run forwarder that relays plain loopback traffic off the machine is the user's own configuration, and is documented in `docs/PRIVACY.md`. |
 | OS services (system DNS-over-HTTPS, iCloud for Apple Calendar, OS updates) and other apps | Not Loqui's traffic. Not claimed. |
-| Native code inside a local helper doing networking it was not asked to do (for example a sidecar binary that phones home) | Mitigated by launch arguments (loopback binds, no download flags, Qdrant `--disable-telemetry`), reviewed per spawn site. JavaScript hooks cannot see inside a native process, so this is listed as residual, and Task 18 re-checks the arguments. |
+| Network traffic inside a running local model server (llama-server, whisper-server, Qdrant, sherpa-onnx) | **Disclosed, not claimed (CCR-6).** Their launch is enforced: allowlist, no download flags, loopback binds, Qdrant `--disable-telemetry`. Their runtime traffic is not observable from JavaScript. The attestation lists them as `uninspectedChildren`, and the panel names them beside the verified line. Loqui's own native helpers (key and mic listeners, paste and audio-capture tools) are built from this repository's source, launched only with the arguments in `spawn-sites`, and re-checked in Task 18. |
 | A helper that a Windows yt-dlp process starts and orphans within one 250 ms refresh | Residual, Windows only: it is not waited for. yt-dlp waits for its post-processors, so this needs a misbehaving binary. POSIX uses process groups, which have no such window (Task 6a). |
 | Build and packaging scripts (`scripts/`, `cleanup.js`) | Not part of the shipped app; they run only on a developer or CI machine, so the ratchet does not scan them. |
 | A malicious local process that reads the Loqui profile | Out of scope. |
@@ -484,7 +523,11 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
 
    Residual: a user tricked into pressing "Turn off Sealed mode" in that dialog.
 6. **A corrupt or unwritable settings file.** Mitigation: an unreadable file means sealed (fail closed), and a failed save is surfaced as `saveError`.
-7. **A utility process or worker** (`utilityProcess.fork`, `worker_threads`). Each has its own Node runtime, so the main-process hooks do not apply inside it. Mitigations: the spawn guard allows `utilityProcess.fork` only for `src/workers/`; the ratchet scans `src/workers`, so a network primitive added there fails the test until it is inventoried. Today the only one is the ONNX worker (N23), and it has no network code.
+7. **A utility process or worker** (`utilityProcess.fork`, `worker_threads`). Each has its own Node runtime, so the main-process hooks do not apply inside it. Mitigations:
+   - the ONNX worker installs the Node backstop with the seal forced on before anything else, which is runtime containment, not just review;
+   - a test forks a separate Node runtime with the same lock and proves DNS and `fetch` are refused while loopback works;
+   - a ratchet requires the lock as the first statement of every file in `src/workers`;
+   - the spawn guard allows `utilityProcess.fork` only for `src/workers/`.
 8. **The ledger leaking content.** Mitigation: the schema has no content column, `record()` rejects anything that is not a bare hostname, and error *messages* are never stored, only codes and classes.
 9. **A local proxy that forwards off-machine.** A loopback socket is not proof that nothing leaves. Mitigations:
    - While sealed, a loopback `CONNECT` tunnel or absolute-form request naming a remote host is refused.
@@ -492,8 +535,8 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
    - Node's environment proxy (`NODE_USE_ENV_PROXY`, `--use-env-proxy`) makes the attestation unverified.
    - Chromium decides on the original URL, so a system proxy is never contacted for a refused request.
 10. **Traffic that is not plain TCP.**
-    - DNS resolver queries (`dns.resolve*`, `Resolver`, `lookupService`) and UDP (`dgram`) are refused while sealed. Lookups already in flight are counted, and the seal is verified only after they finish.
-    - WebRTC: every renderer loads `preload.js`, which deletes `RTCPeerConnection` and its relatives from the page's main world before any page script runs (Task 7a). The `disable_non_proxied_udp` policy is kept as defence in depth, and a ratchet bans peer-connection code.
+    - DNS: every entry point in `node:dns` and `node:dns/promises` (lookup, lookupService, all `resolve*`, reverse, and the same on `Resolver` instances) is wrapped. A test checks the live module, so a new API cannot slip past. While sealed, a query is refused before the native resolver is called. Localhost names and loopback literals are answered locally. Every query issued while unsealed is counted from call to settle, exactly once, and the seal is verified only after the count reaches 0. UDP (`dgram`) to a remote address is refused.
+    - WebRTC: the preload runs in every frame and deletes `RTCPeerConnection` and its relatives from each frame's main world before page script runs (Task 7a). Task 16 checks the top page, an `about:blank` iframe and a `srcdoc` iframe. The `disable_non_proxied_udp` policy is kept as defence in depth, and a ratchet bans peer-connection code outside the marked removal block.
     - Chromium speculation: renderer documents turn off DNS prefetching. Task 16 serves `<link rel="preconnect">`, `dns-prefetch` and plain links while sealed, against a fixture that logs raw TCP connections. Any speculative connection fails the acceptance run. Chromium may not act on these hints at all, so the control run does not require them to fire; the sealed run requires zero connections either way.
 
 ## Enforcement layers
@@ -1216,14 +1259,30 @@ git commit -m "feat(privacy): persist Sealed mode in privacy.json and fail close
     - **`false`:** later rows stay in memory, and nothing more is written to disk.
   - `record(event: EgressEventInput): EgressEvent`. It throws `TypeError` for an unknown task or outcome, or for a host that is not bare, and emits `"event"`. A failed insert keeps the row in memory as pending, sets `persistError`, and retries on the next `prune()`.
   - `list({ since?: number, limit?: number }): EgressEvent[]`. Newest first by start time; the limit is clamped to 1..`MAX_ROWS`.
-  - `summary({ since?: number }): { left, observed, blocked, unattributed, unattributedHosts, bytesOut, bytesIn, unknownBytes, opaqueSessions }`. `left` is observed requests plus opaque sessions; `observed` excludes opaque sessions.
+  - `summary({ since?: number }): { left, observed, connections, blocked, unattributed, unattributedHosts, bytesOut, bytesIn, unknownBytes, opaqueSessions }`.
+    - `observed` counts `request` and `stream` rows that were not blocked: requests Loqui saw leave, one row each.
+    - `connections` counts `connection` rows: connections Loqui saw but whose requests it could not inspect.
+    - `opaqueSessions` counts `session` rows.
+    - `left` is the sum of those three.
+    - `operation` rows (authorised work that never reached a transport) and blocked rows are not in `left`.
   - `clear(): void`. Emits `"cleared"`.
   - `prune({ retentionDays: number, maxRows?: number }): { deleted: number }`.
   - `persistError: string | null`.
-- Also produces `toCsv(events: EgressEvent[]): string`, `MAX_ROWS = 100000`, `MEMORY_LIMIT = 500` and `CAP_CHECK_EVERY = 500`. The row cap is enforced on insert, every `CAP_CHECK_EVERY` writes, so the table never exceeds `MAX_ROWS + CAP_CHECK_EVERY` rows between sweeps.
+- Also produces `toCsv(events: EgressEvent[]): string`, `ERROR_CLASSES`, `KINDS`, `MAX_ROWS = 100000`, `MEMORY_LIMIT = 500` and `CAP_CHECK_EVERY = 500`. The row cap is enforced on insert, every `CAP_CHECK_EVERY` writes, so the table never exceeds `MAX_ROWS + CAP_CHECK_EVERY` rows between sweeps.
 - Types:
-  - `EgressEventInput` is `{ ts?, endedAt?, task, host, hosts?, bytesOut?, bytesIn?, outcome: "ok"|"error"|"blocked"|"cancelled", status?, errorClass?, model?, attributed?, opaque? }`.
-  - `EgressEvent` is the same, plus `id`. Every optional field is normalised to a value or `null`; `hosts` is a `string[]`, and `attributed` and `opaque` are booleans.
+  - `EgressEventInput` is `{ ts?, endedAt?, task, host, hosts?, kind?: "request"|"stream"|"connection"|"session"|"operation", operationId?, bytesOut?, bytesIn?, outcome: "ok"|"error"|"blocked"|"cancelled", status?, errorClass?, model?, attributed?, opaque? }`. `kind` defaults to `"session"` when `opaque` is true, and to `"request"` otherwise.
+  - `EgressEvent` is the same, plus `id`. Every optional field is normalised to a value or `null`; `hosts` is a `string[]`, and `attributed` and `opaque` are booleans (`opaque` is `kind === "session"`).
+  - **What a row is (I3).**
+    - `request`: one HTTP request the gate or the Chromium backstop saw, with its own start, end, bytes, status and host trail.
+    - `stream`: one realtime socket session.
+    - `connection`: a Node connection whose requests Loqui could not inspect. It is either an unexplained socket, or an operation whose SDK took no metered fetch. It is recorded when the connection closes.
+    - `session`: one opaque child process run.
+    - `operation`: authorised work that failed before any transport. It is kept for diagnosis, and never counted as having left.
+    - `operationId` is the gate ticket id, the same within one operation. It groups an operation's requests (two calls of one SDK, or a retry) without merging them. It is an integer, not content.
+  - **Identifiers only (N1).**
+    - `model` is stored only if it is an identifier: letters, digits and `. _ : / @ + -`, up to 120 characters. It must contain no `//`, no `user:secret@` shape, and no 32-character run of letters, digits or underscores (the shape of an API key). Anything else is stored as `null`. The value sent to the provider is not changed.
+    - `errorClass` is one of `ERROR_CLASSES`, a bounded set of categories. Anything else is stored as `"OTHER"`.
+    - So no URL, query, credential or free-text message can reach the row or the CSV.
   - `ts` is when the request started (authorisation, or the first transport event for unattributed traffic). `endedAt` is when it settled.
   - `hosts` is the ordered, de-duplicated trail of bare hosts the request contacted: the declared host, sockets observed in its context, and redirects, up to 8. `host` is its first entry.
   - An **opaque** row is one session of a child process that does its own networking: the Codex app-server or yt-dlp (owner decision, 2026-10-15). Loqui sees that the session ran and its usual host, but cannot see its requests or bytes. Its bytes are therefore always `null`, and the UI labels it as a session with its usual host.
@@ -1257,7 +1316,7 @@ test("the schema has metadata columns only", (t) => {
   const columns = manager.db.prepare("PRAGMA table_info(egress_events)").all().map((c) => c.name);
   assert.deepEqual(columns, [
     "id", "ts", "ended_at", "task", "host", "hosts", "bytes_out", "bytes_in", "outcome", "status",
-    "error_class", "model", "attributed", "opaque",
+    "error_class", "model", "attributed", "opaque", "kind", "operation_id",
   ]);
 });
 
@@ -1276,6 +1335,7 @@ test("record and list: newest first, normalised public shape with a host trail",
   assert.deepEqual({ ...rows[0], id: 0 }, {
     id: 0, ts: 1500, endedAt: 2000, task: "modelDownload", host: "huggingface.co", hosts: ["huggingface.co", "cdn-lfs.hf.co"],
     bytesOut: null, bytesIn: 9800, outcome: "ok", status: 200, errorClass: null, model: null, attributed: true, opaque: false,
+    kind: "request", operationId: null,
   });
   assert.equal(rows[1].task, "chat");
   assert.deepEqual(rows[1].hosts, ["api.groq.com"]);
@@ -1300,12 +1360,31 @@ test("bytes: unknown stays null, never 0; negatives are unknown; opaque sessions
   assert.deepEqual([session.opaque, session.bytesOut, session.bytesIn], [true, null, null]);
 });
 
-test("model ids and error classes are stripped of control characters and truncated", () => {
-  const recorder = new FlightRecorder();
-  const row = recorder.record({ ...base, model: "gpt\n-4o\u0000" + "x".repeat(200), errorClass: "E".repeat(100) });
-  assert.equal(row.model.includes("\n"), false);
-  assert.equal(row.model.length, 120);
-  assert.equal(row.errorClass.length, 64);
+test("model ids and error classes are identifiers or nothing: no URL, credential or free text reaches SQLite or the CSV", (t) => {
+  const ctx = persistent(t, () => 5);
+  if (!ctx) return;
+  const hostile = [
+    "https://user:password@example/v1?key=secret",
+    "user:password@host",
+    "//cdn.example/x",
+    "gpt-4o?key=secret",
+    "please summarise my secret notes",
+    "sk-proj-" + "A".repeat(48),
+    "a=b&c=d",
+    "gpt\n-4o\u0000",
+    "x".repeat(200),
+  ];
+  for (const value of hostile) ctx.recorder.record({ ...base, model: value, errorClass: value });
+  for (const row of ctx.db.prepare("SELECT model, error_class FROM egress_events").all()) {
+    assert.equal(row.model, null);
+    assert.equal(row.error_class, "OTHER");
+  }
+  const csv = toCsv(ctx.recorder.list({ limit: 100 }));
+  for (const fragment of ["password", "secret", "cdn.example", "summarise", "AAAAAAAA", "key="]) assert.equal(csv.includes(fragment), false, fragment);
+  for (const ok of ["gpt-4o-mini", "claude-3-5-sonnet@20240620", "accounts/fireworks/models/llama-v3p1-8b", "anthropic.claude-3-haiku-20240307-v1:0", "qwen3.5-2b-q4_k_m"]) {
+    assert.equal(ctx.recorder.record({ ...base, model: ok }).model, ok);
+  }
+  assert.equal(ctx.recorder.record({ ...base, errorClass: "HTTP_5XX" }).errorClass, "HTTP_5XX");
 });
 
 test("pending rows flush on the first sync; memory-only rows never become durable", (t) => {
@@ -1395,15 +1474,17 @@ test("prune deletes rows older than retentionDays and caps the table", (t) => {
   assert.equal(ctx.recorder.list({ since: 0 })[0].ts, clock - 1 * DAY);
 });
 
-test("summary separates observed requests from opaque sessions", () => {
+test("summary counts requests, connections and sessions apart; operations that never left are not counted", () => {
   const recorder = new FlightRecorder();
-  recorder.record(base);
-  recorder.record({ ...base, bytesOut: null });
+  recorder.record({ ...base, operationId: 7 });
+  recorder.record({ ...base, bytesOut: null, operationId: 7 }); // a second request of the same operation
   recorder.record({ ...base, outcome: "blocked", bytesOut: 0, bytesIn: 0 });
   recorder.record({ task: "unattributed", host: "x.example.com", outcome: "ok", attributed: false });
+  recorder.record({ task: "unattributed", host: "y.example.com", kind: "connection", outcome: "ok", attributed: false });
   recorder.record({ task: "codex", host: "chatgpt.com", outcome: "ok", opaque: true });
+  recorder.record({ task: "chat", host: "api.groq.com", kind: "operation", outcome: "error", errorClass: "OTHER" });
   assert.deepEqual(recorder.summary({ since: 0 }), {
-    left: 4, observed: 3, blocked: 1, unattributed: 1, unattributedHosts: ["x.example.com"],
+    left: 5, observed: 3, connections: 1, blocked: 1, unattributed: 2, unattributedHosts: ["x.example.com", "y.example.com"],
     bytesOut: 3100, bytesIn: 19600, unknownBytes: 2, opaqueSessions: 1,
   });
 });
@@ -1432,7 +1513,7 @@ test("CSV export neutralises formulas and quotes", () => {
     { id: 1, ts: Date.UTC(2026, 9, 15, 9, 12), endedAt: Date.UTC(2026, 9, 15, 9, 13), task: "chat", host: "api.groq.com", hosts: ["api.groq.com"], bytesOut: 3100, bytesIn: null, outcome: "ok", status: 200, errorClass: null, model: '=HYPERLINK("x"),"a"', attributed: true, opaque: false },
   ]);
   const [header, line] = csv.trim().split("\n");
-  assert.equal(header, "started_utc,ended_utc,task,hosts,bytes_sent,bytes_received,outcome,status,error_class,model,attributed,opaque_session");
+  assert.equal(header, "started_utc,ended_utc,task,kind,hosts,bytes_sent,bytes_received,outcome,status,error_class,model,attributed,opaque_session");
   assert.equal(line, '2026-10-15T09:12:00.000Z,2026-10-15T09:13:00.000Z,chat,api.groq.com,3100,,ok,200,,"\'=HYPERLINK(""x""),""a""",yes,no');
 });
 ```
@@ -1463,7 +1544,9 @@ CREATE TABLE IF NOT EXISTS egress_events (
   error_class TEXT,
   model TEXT,
   attributed INTEGER NOT NULL DEFAULT 1,
-  opaque INTEGER NOT NULL DEFAULT 0
+  opaque INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT 'request' CHECK (kind IN ('request', 'stream', 'connection', 'session', 'operation')),
+  operation_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_egress_ts ON egress_events(ts);
 ```
@@ -1482,17 +1565,31 @@ const CAP_CHECK_EVERY = 500;
 const MAX_TRAIL = 8;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const OUTCOMES = new Set(["ok", "error", "blocked", "cancelled"]);
+const KINDS = ["request", "stream", "connection", "session", "operation"];
+// Error categories, never free text (N1). egressGate.errorClassOf maps codes onto these.
+const ERROR_CLASSES = [
+  "SEALED_MODE", "ABORTED", "TIMEOUT", "DNS", "CONNECTION", "TLS", "HTTP_4XX", "HTTP_5XX",
+  "PROTOCOL", "BODY_CANCELLED", "DOWNLOAD_CANCELLED", "UPDATE_FAILED", "CHILD_EXIT", "OTHER",
+];
+// A model identifier, never a URL, credential or message (N1). Anything else is
+// stored as null; the value sent to the provider is untouched.
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}$/;
+function modelId(value) {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (!MODEL_ID.test(v)) return null;          // whitespace, ? # = & % quotes, control characters, too long
+  if (v.includes("//")) return null;            // a scheme or protocol-relative URL
+  if (/:[^/@]*@/.test(v)) return null;          // user:secret@
+  if (/[A-Za-z0-9_]{32,}/.test(v)) return null; // the shape of an API key or token
+  return v;
+}
+const errorClass = (value) => (value == null ? null : ERROR_CLASSES.includes(value) ? value : "OTHER");
 // A bare hostname, IPv4 or IPv6 literal, or the literal "unknown". Anything
 // with a path, query, userinfo or whitespace is refused, so a URL can never be
 // stored by mistake.
 const BARE_HOST = /^[a-z0-9._:-]{1,253}$/;
 
 const count = (v) => (Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
-const text = (v, max) => {
-  if (typeof v !== "string") return null;
-  const s = v.replace(/[\u0000-\u001f\u007f]/g, "").trim();
-  return s ? s.slice(0, max) : null;
-};
 function bareHost(value) {
   const host = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!BARE_HOST.test(host)) throw new TypeError("Egress host must be a bare hostname");
@@ -1515,6 +1612,8 @@ function toPublic(row) {
     model: row.model,
     attributed: row.attributed === 1,
     opaque: row.opaque === 1,
+    kind: row.kind,
+    operationId: row.operation_id,
   };
 }
 
@@ -1536,8 +1635,8 @@ class FlightRecorder extends EventEmitter {
   attachDatabase(db) {
     this.db = db;
     this.insert = db.prepare(
-      `INSERT INTO egress_events (ts, ended_at, task, host, hosts, bytes_out, bytes_in, outcome, status, error_class, model, attributed, opaque)
-       VALUES (@ts, @ended_at, @task, @host, @hosts, @bytes_out, @bytes_in, @outcome, @status, @error_class, @model, @attributed, @opaque)`
+      `INSERT INTO egress_events (ts, ended_at, task, host, hosts, bytes_out, bytes_in, outcome, status, error_class, model, attributed, opaque, kind, operation_id)
+       VALUES (@ts, @ended_at, @task, @host, @hosts, @bytes_out, @bytes_in, @outcome, @status, @error_class, @model, @attributed, @opaque, @kind, @operation_id)`
     );
   }
 
@@ -1580,7 +1679,9 @@ class FlightRecorder extends EventEmitter {
     const trail = [host, ...(Array.isArray(event.hosts) ? event.hosts.map(bareHost) : [])];
     const hosts = [...new Set(trail)].slice(0, MAX_TRAIL);
     // A child process's own traffic is invisible to main, so no byte count is honest.
-    const opaque = event.opaque === true;
+    const kind = event.kind ?? (event.opaque === true ? "session" : "request");
+    if (!KINDS.includes(kind)) throw new TypeError(`Unknown egress kind: ${kind}`);
+    const opaque = kind === "session";
     const ts = count(event.ts) ?? this.now();
     return {
       ts,
@@ -1592,10 +1693,12 @@ class FlightRecorder extends EventEmitter {
       bytes_in: opaque ? null : count(event.bytesIn),
       outcome: event.outcome,
       status: Number.isInteger(event.status) ? event.status : null,
-      error_class: text(event.errorClass, 64),
-      model: text(event.model, 120),
+      error_class: errorClass(event.errorClass),
+      model: modelId(event.model),
       attributed: event.attributed === false ? 0 : 1,
       opaque: opaque ? 1 : 0,
+      kind,
+      operation_id: Number.isInteger(event.operationId) ? event.operationId : null,
     };
   }
 
@@ -1645,20 +1748,22 @@ class FlightRecorder extends EventEmitter {
 
   summary({ since = 0 } = {}) {
     const rows = this.list({ since, limit: MAX_ROWS });
-    const left = rows.filter((r) => r.outcome !== "blocked");
-    const observed = left.filter((r) => !r.opaque);
+    const sent = rows.filter((r) => r.outcome !== "blocked" && r.kind !== "operation");
+    const observed = sent.filter((r) => r.kind === "request" || r.kind === "stream");
+    const connections = sent.filter((r) => r.kind === "connection");
     const unexplained = rows.filter((r) => !r.attributed);
     const sum = (key) => observed.reduce((n, r) => n + (r[key] ?? 0), 0);
     return {
-      left: left.length,
+      left: sent.length,
       observed: observed.length,
-      blocked: rows.length - left.length,
+      connections: connections.length,
+      blocked: rows.filter((r) => r.outcome === "blocked").length,
       unattributed: unexplained.length,
       unattributedHosts: [...new Set(unexplained.map((r) => r.host))],
       bytesOut: sum("bytesOut"),
       bytesIn: sum("bytesIn"),
       unknownBytes: observed.filter((r) => r.bytesOut == null).length,
-      opaqueSessions: left.length - observed.length,
+      opaqueSessions: sent.filter((r) => r.kind === "session").length,
     };
   }
 
@@ -1687,7 +1792,7 @@ class FlightRecorder extends EventEmitter {
   }
 }
 
-const CSV_HEADER = ["started_utc", "ended_utc", "task", "hosts", "bytes_sent", "bytes_received", "outcome", "status", "error_class", "model", "attributed", "opaque_session"];
+const CSV_HEADER = ["started_utc", "ended_utc", "task", "kind", "hosts", "bytes_sent", "bytes_received", "outcome", "status", "error_class", "model", "attributed", "opaque_session"];
 
 function csvCell(value) {
   if (value == null) return "";
@@ -1700,14 +1805,14 @@ function csvCell(value) {
 function toCsv(events) {
   const iso = (ms) => (ms == null ? null : new Date(ms).toISOString());
   const lines = events.map((e) =>
-    [iso(e.ts), iso(e.endedAt), e.task, e.hosts.join(" "), e.bytesOut, e.bytesIn, e.outcome, e.status, e.errorClass, e.model, e.attributed ? "yes" : "no", e.opaque ? "yes" : "no"]
+    [iso(e.ts), iso(e.endedAt), e.task, e.kind, e.hosts.join(" "), e.bytesOut, e.bytesIn, e.outcome, e.status, e.errorClass, e.model, e.attributed ? "yes" : "no", e.opaque ? "yes" : "no"]
       .map(csvCell)
       .join(",")
   );
   return [CSV_HEADER.join(","), ...lines].join("\n") + "\n";
 }
 
-module.exports = { FlightRecorder, toCsv, MAX_ROWS, MEMORY_LIMIT, CAP_CHECK_EVERY };
+module.exports = { FlightRecorder, toCsv, ERROR_CLASSES, KINDS, MAX_ROWS, MEMORY_LIMIT, CAP_CHECK_EVERY };
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -1742,6 +1847,7 @@ git commit -m "feat(privacy): add metadata-only flight recorder store"
   attachRecorder(recorder): void;  getRecorder(): FlightRecorder|null
   isSealed(): boolean                       // a throwing isSealed() counts as sealed (fail closed)
   withTask(task, fn): ReturnType<fn>        // task context for nested authorize() calls (AsyncLocalStorage)
+  withContext({ correlationId?, provider? }, fn): ReturnType<fn>  // session and target for every ticket inside fn that does not set its own (I4-R2)
   currentTask(): EgressTask|null;  currentTicket(): Ticket|null
   runWithTicket(ticket, fn): ReturnType<fn>
   authorize(meta: TicketMeta): Ticket       // throws SealedModeError (phase "refused"; records "blocked", 0 bytes) when refused
@@ -1838,21 +1944,66 @@ test("loopback is allowed while sealed, never recorded and never announced", asy
   assert.deepEqual(seen, []);
 });
 
-test("guard records start and end times, body bytes, status and the host trail", async (t) => {
+test("a request records its own start and end, body bytes, status and host trail", async (t) => {
   const { recorder, tick } = setup(t);
+  let operationId;
   await gate.guard({ task: "chat", target: "https://api.groq.com/x", model: "m" }, async (ticket) => {
+    operationId = ticket.id;
     tick(250);
-    ticket.addHost("edge.groq.com");
-    const res = await gate.meteredFetch(ticket, async () => new Response("hello world", { status: 200 }))(
-      "https://api.groq.com/x", { method: "POST", body: "12345" }
-    );
+    const res = await gate.meteredFetch(ticket, async () => {
+      ticket.addHost("edge.groq.com"); // a socket the backstop saw during this request
+      tick(50);
+      return new Response("hello world", { status: 200 });
+    })("https://api.groq.com/x", { method: "POST", body: "12345" });
     await res.text();
   });
-  const [row] = recorder.list();
+  const rows = recorder.list();
+  assert.equal(rows.length, 1, "one request, one row; the operation adds none");
   assert.deepEqual(
-    [row.ts, row.endedAt, row.outcome, row.bytesOut, row.bytesIn, row.status, row.hosts],
-    [1000, 1250, "ok", 5, 11, 200, ["api.groq.com", "edge.groq.com"]]
+    [rows[0].kind, rows[0].operationId, rows[0].ts, rows[0].endedAt, rows[0].outcome, rows[0].bytesOut, rows[0].bytesIn, rows[0].status, rows[0].hosts],
+    ["request", operationId, 1250, 1300, "ok", 5, 11, 200, ["api.groq.com", "edge.groq.com"]]
   );
+});
+
+test("two requests in one operation are two rows; a failed retry never withdraws earlier delivery", async (t) => {
+  const { recorder } = setup(t);
+  const seen = notices();
+  let calls = 0;
+  const transport = async () => {
+    calls++;
+    if (calls === 2) throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } });
+    return new Response("{}", { status: 200 });
+  };
+  await assert.rejects(
+    gate.guard({ task: "chat", target: "https://api.groq.com", provider: "groq", payload: "text", correlationId: "s-1" }, async (ticket) => {
+      await (await gate.meteredFetch(ticket, transport)("https://api.groq.com/a", { body: "x" })).text();
+      await gate.meteredFetch(ticket, transport)("https://cdn.groq.com/b", { body: "y" });
+    })
+  );
+  const rows = recorder.list().reverse(); // oldest first
+  assert.deepEqual(rows.map((r) => [r.kind, r.host, r.outcome, r.errorClass]), [
+    ["request", "api.groq.com", "ok", null],
+    ["request", "cdn.groq.com", "error", "CONNECTION"],
+  ]);
+  assert.equal(rows[0].operationId, rows[1].operationId);
+  assert.deepEqual(seen.map((n) => n.phase), ["dispatched", "delivered", "dispatched"], "no undelivered after a delivery");
+  assert.equal(recorder.summary({ since: 0 }).observed, 2);
+});
+
+test("an operation that fails before any transport is kept, but never counted as having left", async (t) => {
+  const { recorder } = setup(t);
+  await assert.rejects(gate.guard({ task: "chat", target: "https://api.groq.com" }, async () => { throw new Error("model construction failed"); }));
+  assert.deepEqual([recorder.list()[0].kind, recorder.list()[0].errorClass], ["operation", "OTHER"]);
+  assert.equal(recorder.summary({ since: 0 }).left, 0);
+});
+
+test("an SDK operation that took no metered fetch is recorded as a connection, not a request", async (t) => {
+  const { recorder } = setup(t);
+  await gate.guard({ task: "noteFormatting", target: "https://bedrock-runtime.us-east-1.amazonaws.com" }, async (ticket) => {
+    ticket.noteConnection(); // what the backstop does for a socket in this context
+  });
+  assert.equal(recorder.list()[0].kind, "connection");
+  assert.deepEqual([recorder.summary({ since: 0 }).observed, recorder.summary({ since: 0 }).connections], [0, 1]);
 });
 
 test("unmeasured bodies are unknown, not 0: bodyless GET, stream body, 204", async (t) => {
@@ -1866,12 +2017,12 @@ test("unmeasured bodies are unknown, not 0: bodyless GET, stream body, 204", asy
   for (const row of recorder.list()) assert.deepEqual([row.bytesOut, row.bytesIn], [null, null]);
 });
 
-test("a body not fully read inside guard() is recorded as unknown", async (t) => {
+test("a body not fully read inside guard() is recorded as unknown, and the request as delivered", async (t) => {
   const { recorder } = setup(t);
   await gate.guard({ task: "providerCheck", target: "https://api.groq.com" }, (ticket) =>
     gate.meteredFetch(ticket, async () => new Response("a long body", { status: 200 }))("https://api.groq.com/models")
   );
-  assert.equal(recorder.list()[0].bytesIn, null);
+  assert.deepEqual([recorder.list()[0].bytesIn, recorder.list()[0].outcome, recorder.list()[0].status], [null, "ok", 200]);
 });
 
 test("dispatched, then delivered; a connect failure is undelivered, never delivered", async (t) => {
@@ -1880,9 +2031,9 @@ test("dispatched, then delivered; a connect failure is undelivered, never delive
   const ticket = gate.authorize({ task: "dictationStt", target: "https://api.openai.com", provider: "openai", payload: "audio", correlationId: "rec-1" });
   assert.deepEqual(seen, [], "authorisation alone is not dispatch");
   await gate.meteredFetch(ticket, async () => new Response("{}"))("https://api.openai.com/v1/audio", { method: "POST", body: "abc" });
-  assert.deepEqual(seen.map((n) => [n.phase, n.targetId, n.payload, n.correlationId]), [
-    ["dispatched", "openai", "audio", "rec-1"],
-    ["delivered", "openai", "audio", "rec-1"],
+  assert.deepEqual(seen.map((n) => [n.phase, n.targetId, n.payload, n.correlationId, n.attemptId]), [
+    ["dispatched", "openai", "audio", "rec-1", `${ticket.id}.1`],
+    ["delivered", "openai", "audio", "rec-1", `${ticket.id}.1`],
   ]);
   ticket.discard();
 
@@ -1903,7 +2054,9 @@ test("Node requests never carry the tag; Electron net requests do", async (t) =>
   await gate.meteredFetch(ticket, capture)("https://api.groq.com/x", { headers: { a: "1" } });
   await gate.meteredFetch(ticket, capture, { tag: true })("https://api.groq.com/x", { headers: { a: "1" } });
   assert.equal(seenHeaders[0].has(gate.EGRESS_TAG_HEADER), false);
-  assert.equal(seenHeaders[1].get(gate.EGRESS_TAG_HEADER), ticket.tag);
+  // The tag names one request of this operation, not the operation itself.
+  assert.equal(gate.ticketByTag(seenHeaders[1].get(gate.EGRESS_TAG_HEADER))?.ticket, ticket);
+  assert.notEqual(seenHeaders[1].get(gate.EGRESS_TAG_HEADER), ticket.tag);
   ticket.discard();
 });
 
@@ -1940,7 +2093,7 @@ test("guardResponse: a body that fails mid-read is an error, not a success", asy
   const res = await gate.guardResponse({ task: "calendar", target: "https://graph.microsoft.com" }, async () => new Response(broken, { status: 200 }));
   await assert.rejects(res.text());
   await nextTurn();
-  assert.deepEqual([recorder.list()[0].outcome, recorder.list()[0].errorClass], ["error", "ECONNRESET"]);
+  assert.deepEqual([recorder.list()[0].kind, recorder.list()[0].outcome, recorder.list()[0].errorClass], ["request", "error", "CONNECTION"]);
 });
 
 test("guardResponse: sealing after headers with a stalled body interrupts it", async (t) => {
@@ -1968,8 +2121,24 @@ test("settle stores an error class, never a message", async (t) => {
   const providerError = Object.assign(new Error("Your text 'secret plans' was rejected"), { code: "PROVIDER_REJECTED", status: 400 });
   await assert.rejects(gate.guard({ task: "chat", target: "https://api.groq.com" }, async () => { throw providerError; }));
   const [row] = recorder.list();
-  assert.deepEqual([row.outcome, row.errorClass, row.status], ["error", "PROVIDER_REJECTED", 400]);
+  assert.deepEqual([row.outcome, row.errorClass, row.status], ["error", "HTTP_4XX", 400], "a category, not the provider's code");
   assert.equal(JSON.stringify(row).includes("secret"), false);
+  assert.equal(JSON.stringify(row).includes("PROVIDER_REJECTED"), false);
+});
+
+test("withContext gives nested tickets the session id and canonical target, unless they set their own", async (t) => {
+  setup(t);
+  const seen = notices();
+  await gate.withContext({ correlationId: "s-1", provider: "tinfoil" }, async () => {
+    await nextTurn();
+    // A provider helper deep in the call, which knows neither (Tinfoil's SDK wrapper).
+    await gate.guard({ task: "dictationStt", target: "https://inference.tinfoil.sh", payload: "audio" }, async (ticket) => ticket.markDelivered());
+    await gate.guard({ task: "dictationStt", target: "https://api.openai.com", provider: "openai", payload: "audio", correlationId: "other" }, async (ticket) => ticket.markDelivered());
+  });
+  assert.deepEqual(seen.filter((n) => n.phase === "delivered").map((n) => [n.correlationId, n.targetId]), [
+    ["s-1", "tinfoil"],
+    ["other", "openai"],
+  ]);
 });
 
 test("withTask supplies the task across async boundaries", async (t) => {
@@ -2084,7 +2253,7 @@ Create `src/helpers/privacy/egressGate.js`:
 const { AsyncLocalStorage } = require("node:async_hooks");
 const { EventEmitter } = require("node:events");
 const { randomBytes } = require("node:crypto");
-const { EGRESS_TASKS, decideEgress, SealedModeError, isSealedModeError } = require("./egressPolicy");
+const { EGRESS_TASKS, decideEgress, SealedModeError, isSealedModeError, normalizeHost } = require("./egressPolicy");
 
 // Layer A of Sealed mode (docs/security/sealed-mode-threat-model.md). Every
 // known request site asks for a ticket before sending. The ticket carries the
@@ -2096,6 +2265,9 @@ const CONNECT_PHASE_CHROMIUM = /ERR_(NAME_NOT_RESOLVED|CONNECTION_REFUSED|ADDRES
 
 const ticketContext = new AsyncLocalStorage();
 const taskContext = new AsyncLocalStorage();
+// The dictation session and canonical provider for everything inside one
+// handler, so provider helpers deep in the call need not thread them (I4-R2).
+const metaContext = new AsyncLocalStorage();
 const events = new EventEmitter();
 
 const freshTally = () => ({ blockedSinceSealed: 0, recordFailures: 0 });
@@ -2131,6 +2303,10 @@ function withTask(task, fn) {
   return taskContext.run(task, fn);
 }
 const currentTask = () => taskContext.getStore() ?? null;
+function withContext({ correlationId = null, provider = null } = {}, fn) {
+  const outer = metaContext.getStore() ?? {};
+  return metaContext.run({ correlationId: correlationId ?? outer.correlationId ?? null, provider: provider ?? outer.provider ?? null }, fn);
+}
 const currentTicket = () => ticketContext.getStore() ?? null;
 const runWithTicket = (ticket, fn) => ticketContext.run(ticket, fn);
 
@@ -2143,11 +2319,24 @@ function record(event) {
   }
 }
 
+// A bounded category, never the provider's code or message (N1). The recorder
+// stores only values from its ERROR_CLASSES list.
+const DNS_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "EAI_FAIL", "EAI_NONAME"]);
+const CONNECTION_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH", "EPIPE", "ECONNABORTED", "UND_ERR_SOCKET"]);
+const TIMEOUT_CODES = new Set(["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
 function errorClassOf(error) {
   if (isSealedModeError(error)) return "SEALED_MODE";
-  const raw =
-    typeof error?.code === "string" ? error.code : typeof error?.name === "string" ? error.name : "Error";
-  return raw.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) || "Error";
+  for (let e = error, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    const code = typeof e.code === "string" ? e.code : "";
+    if (DNS_CODES.has(code)) return "DNS";
+    if (CONNECTION_CODES.has(code)) return "CONNECTION";
+    if (TIMEOUT_CODES.has(code) || e.name === "TimeoutError") return "TIMEOUT";
+    if (/^(ERR_TLS|CERT_|UNABLE_TO_|DEPTH_ZERO|SELF_SIGNED|ERR_SSL)/.test(code)) return "TLS";
+    if (e.name === "AbortError") return "ABORTED";
+    if (Number.isInteger(e.status) && e.status >= 500) return "HTTP_5XX";
+    if (Number.isInteger(e.status) && e.status >= 400) return "HTTP_4XX";
+  }
+  return "OTHER";
 }
 
 function isConnectPhaseError(error) {
@@ -2177,6 +2366,9 @@ const valueOf = (acc) => (acc.unknown || !acc.measured ? null : acc.total);
 const targetIdFor = (provider, host) =>
   provider && !USER_ENDPOINT_PROVIDERS.has(provider) ? provider : `host:${host}`;
 
+// A ticket is one operation (I3). Each request it makes through meteredFetch is
+// an attempt with its own row, hosts, bytes, status and notices. A ticket with
+// no attempts records one row whose kind says what Loqui actually saw.
 function createTicket({ task, host, loopback, model, meter, payload, correlationId, provider }) {
   const controller = new AbortController();
   const out = meterAccumulator();
@@ -2185,6 +2377,11 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
   let lastStatus = null;
   let openBodies = 0;
   const announced = new Set();
+  const openAttempts = new Set();
+  let attemptCount = 0;
+  let manualDispatch = false; // a single request marked by its caller (postMultipart, downloads)
+  let connections = 0; // sockets the backstop saw in this ticket's context
+  let delivered = false;
   const ticket = {
     id: nextId++,
     tag: `${nextId}.${randomBytes(6).toString("hex")}`,
@@ -2202,7 +2399,14 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
     startedAt: config.now(),
     addHost(seen) {
       if (seen && !ticket.hosts.includes(seen) && ticket.hosts.length < 8) ticket.hosts.push(seen);
+      // A host seen while requests are open belongs to them too; it is never hidden.
+      for (const attempt of openAttempts) attempt.addHost(seen);
     },
+    noteConnection() {
+      connections++;
+    },
+    beginAttempt: (target) => beginAttempt(target),
+    attemptCount: () => attemptCount,
     attachSocket(socket) {
       sockets.add(socket);
       socket.once("close", (hadError) => {
@@ -2227,12 +2431,16 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
     bodyClosed() {
       openBodies--;
     },
-    markDispatched: () => announce("dispatched"),
-    markDelivered: () => {
-      announce("dispatched");
-      announce("delivered");
+    markDispatched: () => {
+      manualDispatch = true;
+      announce("dispatched", null);
     },
-    markUndelivered: () => announce("undelivered"),
+    markDelivered: () => {
+      manualDispatch = true;
+      announce("dispatched", null);
+      announce("delivered", null);
+    },
+    markUndelivered: () => announce("undelivered", null),
     abort(reason) {
       if (!controller.signal.aborted) controller.abort(reason);
       for (const socket of sockets) socket.destroy(reason);
@@ -2247,40 +2455,122 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
     },
     settle({ outcome, status, errorClass = null, bytesOut, bytesIn } = {}) {
       if (ticket.settled) return;
+      const sealedAbort = controller.signal.aborted && isSealedModeError(controller.signal.reason);
+      // Requests still open end with the operation; one that already had its
+      // response keeps "ok" with an unknown received size.
+      for (const attempt of [...openAttempts]) attempt.settle({ outcome: attempt.responded && outcome !== "cancelled" ? "ok" : outcome, errorClass });
       ticket.discard();
       if (loopback) return;
-      const sealedAbort = controller.signal.aborted && isSealedModeError(controller.signal.reason);
-      record({
-        ts: ticket.startedAt,
-        endedAt: config.now(),
-        task,
-        host,
-        hosts: ticket.hosts,
-        bytesOut: bytesOut !== undefined ? bytesOut : valueOf(out),
-        // A body still being read when the request settled was not fully
-        // counted, so the received total is unknown rather than too small.
-        bytesIn: bytesIn !== undefined ? bytesIn : openBodies > 0 ? null : valueOf(inbound),
-        outcome,
-        status: Number.isInteger(status) ? status : lastStatus,
-        errorClass: sealedAbort ? "SEALED_MODE" : errorClass,
-        model,
-        opaque: meter === "opaque",
-      });
+      if (attemptCount === 0) {
+        const kind =
+          meter === "opaque" ? "session"
+          : meter === "socket" ? "stream"
+          : manualDispatch ? "request"
+          : connections > 0 ? "connection" // an SDK that took no metered fetch: Loqui saw connections, not requests
+          : "operation"; // nothing reached a transport; never counted as having left
+        record({
+          ts: ticket.startedAt,
+          endedAt: config.now(),
+          task,
+          host,
+          hosts: ticket.hosts,
+          kind,
+          operationId: ticket.id,
+          bytesOut: bytesOut !== undefined ? bytesOut : valueOf(out),
+          // A body still being read when the request settled was not fully
+          // counted, so the received total is unknown rather than too small.
+          bytesIn: bytesIn !== undefined ? bytesIn : openBodies > 0 ? null : valueOf(inbound),
+          outcome,
+          status: Number.isInteger(status) ? status : lastStatus,
+          errorClass: sealedAbort ? "SEALED_MODE" : errorClass,
+          model,
+        });
+      }
       events.emit("settled", { ticketId: ticket.id });
     },
   };
-  function announce(phase) {
-    if (loopback || announced.has(phase)) return;
-    announced.add(phase);
+  // attemptId is null for a single request marked by its caller.
+  function announce(phase, attemptId, attemptHost = host) {
+    if (loopback) return;
+    const key = `${attemptId ?? "ticket"}:${phase}`;
+    if (announced.has(key)) return;
+    // Once any request of this operation was delivered, a later failed retry
+    // never withdraws that evidence (§5.4: undelivered withdraws dispatched only).
+    if (phase === "undelivered" && delivered) return;
+    if (phase === "delivered") delivered = true;
+    announced.add(key);
     events.emit(phase, {
       ticketId: ticket.id,
+      attemptId,
       task,
       targetId: ticket.targetId,
-      host,
+      host: attemptHost,
       payload,
       correlationId: ticket.correlationId,
       ts: config.now(),
     });
+  }
+  function beginAttempt(target) {
+    attemptCount++;
+    const aOut = meterAccumulator();
+    const aIn = meterAccumulator();
+    const attemptHost = target ?? host;
+    const attempt = {
+      id: `${ticket.id}.${attemptCount}`,
+      tag: `${ticket.id}.${attemptCount}.${randomBytes(6).toString("hex")}`,
+      ticket,
+      task,
+      hosts: [attemptHost],
+      startedAt: config.now(),
+      status: null,
+      openBodies: 0,
+      responded: false,
+      settled: false,
+      get signal() {
+        return controller.signal;
+      },
+      addHost(seen) {
+        if (seen && !attempt.hosts.includes(seen) && attempt.hosts.length < 8) attempt.hosts.push(seen);
+      },
+      abort: (reason) => ticket.abort(reason),
+      addBytes({ out: o, in: i } = {}) {
+        if (o !== undefined) addTo(aOut, o);
+        if (i !== undefined) addTo(aIn, i);
+      },
+      markDispatched: () => announce("dispatched", attempt.id, attemptHost),
+      markDelivered: () => {
+        attempt.responded = true;
+        announce("dispatched", attempt.id, attemptHost);
+        announce("delivered", attempt.id, attemptHost);
+      },
+      markUndelivered: () => announce("undelivered", attempt.id, attemptHost),
+      settle({ outcome, errorClass = null }) {
+        if (attempt.settled) return;
+        attempt.settled = true;
+        openAttempts.delete(attempt);
+        byTag.delete(attempt.tag);
+        if (loopback) return;
+        const sealedAbort = controller.signal.aborted && isSealedModeError(controller.signal.reason);
+        record({
+          ts: attempt.startedAt,
+          endedAt: config.now(),
+          task,
+          host: attempt.hosts[0],
+          hosts: attempt.hosts,
+          kind: "request",
+          operationId: ticket.id,
+          bytesOut: valueOf(aOut),
+          bytesIn: attempt.openBodies > 0 ? null : valueOf(aIn),
+          outcome,
+          status: attempt.status,
+          errorClass: sealedAbort ? "SEALED_MODE" : errorClass,
+          model,
+        });
+      },
+    };
+    openAttempts.add(attempt);
+    byTag.set(attempt.tag, attempt);
+    return attempt;
   }
   active.set(ticket.id, ticket);
   byTag.set(ticket.tag, ticket);
@@ -2297,6 +2587,9 @@ function authorize({
   correlationId = null,
 } = {}) {
   assertTask(task);
+  const ctx = metaContext.getStore();
+  correlationId = correlationId ?? ctx?.correlationId ?? null;
+  provider = provider ?? ctx?.provider ?? null;
   const decision = decideEgress({ sealed: !bypass && isSealed(), target });
   if (!decision.allow) throw refuse({ task, host: decision.host, model });
   return createTicket({ task, host: decision.host, loopback: decision.loopback, model, meter, payload, correlationId, provider });
@@ -2350,6 +2643,8 @@ async function guardResponse(meta, fn) {
     throw rethrow;
   }
   ticket.noteStatus(response.status);
+  // A caller that fetched without meteredFetch still got a response: one request.
+  if (ticket.attemptCount() === 0) ticket.markDelivered();
   if (!response.body) {
     ticket.settle({ outcome: "ok" });
     return response;
@@ -2400,41 +2695,57 @@ function bodyLength(body) {
   return null;
 }
 
-function tagHeaders(ticket, headers = {}) {
-  return { ...headers, [EGRESS_TAG_HEADER]: ticket.tag };
+// Tags a ticket (one operation, e.g. electron-updater's session) or one
+// attempt. ticketByTag returns either; both expose task, addHost and abort.
+function tagHeaders(ticketOrAttempt, headers = {}) {
+  return { ...headers, [EGRESS_TAG_HEADER]: ticketOrAttempt.tag };
 }
+const hostOfInput = (input) => {
+  try {
+    return normalizeHost(new URL(typeof input === "string" || input instanceof URL ? input : input?.url).hostname);
+  } catch {
+    return null;
+  }
+};
 const ticketByTag = (tag) => byTag.get(tag) ?? null;
 
 // tag: true only for Electron net requests, whose session backstop strips the
 // header before it leaves (Task 6). Node requests are attributed by context and
 // must never carry it.
 function meteredFetch(ticket, baseFetch = (...args) => globalThis.fetch(...args), { tag = false } = {}) {
+  // Each call is one request (I3): its own row, host, bytes, status and notices.
   return async (input, init = {}) => {
-    ticket.addBytes({ out: bodyLength(init?.body) });
+    const attempt = ticket.beginAttempt(hostOfInput(input));
+    attempt.addBytes({ out: bodyLength(init?.body) });
     const signal = init?.signal ? AbortSignal.any([init.signal, ticket.signal]) : ticket.signal;
-    const headers = tag ? tagHeaders(ticket, Object.fromEntries(new Headers(init?.headers ?? {}))) : init?.headers;
-    ticket.markDispatched();
+    const headers = tag ? tagHeaders(attempt, Object.fromEntries(new Headers(init?.headers ?? {}))) : init?.headers;
+    attempt.markDispatched();
     let response;
     try {
       response = await baseFetch(input, { ...init, headers, signal });
     } catch (error) {
-      if (isConnectPhaseError(error)) ticket.markUndelivered();
+      if (isConnectPhaseError(error)) attempt.markUndelivered();
+      attempt.settle(failureOutcome(ticket, error).patch);
       throw error;
     }
-    ticket.markDelivered();
+    attempt.markDelivered();
+    attempt.status = response.status;
     ticket.noteStatus(response.status);
+    const settleOk = () => attempt.settle({ outcome: response.status >= 400 ? "error" : "ok", errorClass: response.status >= 500 ? "HTTP_5XX" : response.status >= 400 ? "HTTP_4XX" : null });
     if (!response.body) {
-      ticket.addBytes({ in: null });
+      attempt.addBytes({ in: null });
+      settleOk();
       return response;
     }
-    ticket.bodyOpened();
+    attempt.openBodies++;
     const counter = new TransformStream({
       transform(chunk, controller) {
-        ticket.addBytes({ in: chunk.byteLength });
+        attempt.addBytes({ in: chunk.byteLength });
         controller.enqueue(chunk);
       },
       flush() {
-        ticket.bodyClosed();
+        attempt.openBodies--;
+        settleOk();
       },
     });
     return new Response(response.body.pipeThrough(counter), {
@@ -2456,9 +2767,11 @@ function abortAllRemote() {
 }
 const activeRemoteCount = () => [...active.values()].filter((t) => !t.loopback).length;
 
-function recordUnattributed({ host, hosts = null, outcome, status = null, bytesOut = null, bytesIn = null, ts, endedAt }) {
+// kind: "request" for a Chromium request, "connection" for a Node socket whose
+// requests Loqui cannot see (recorded when it closes).
+function recordUnattributed({ host, hosts = null, kind = "request", outcome, status = null, bytesOut = null, bytesIn = null, ts, endedAt }) {
   const now = config.now();
-  record({ ts: ts ?? now, endedAt: endedAt ?? now, task: "unattributed", host, hosts: hosts ?? [host], outcome, status, bytesOut, bytesIn, attributed: false });
+  record({ ts: ts ?? now, endedAt: endedAt ?? now, task: "unattributed", host, hosts: hosts ?? [host], kind, outcome, status, bytesOut, bytesIn, attributed: false });
 }
 
 // Layer B found a connection Layer A did not refuse. With a ticket, the request
@@ -2500,6 +2813,7 @@ module.exports = {
   getRecorder,
   isSealed,
   withTask,
+  withContext,
   currentTask,
   currentTicket,
   runWithTicket,
@@ -2651,6 +2965,8 @@ test("sealed: a ws handshake is refused", async () => {
   assert.ok(isSealedModeError(await once(ws, "error")));
 });
 
+const DNS_ENTRY_TEST = /^(lookup|lookupService|resolve\w*|reverse)$/;
+
 test("sealed: every DNS API refuses remote names (lookup, resolvers, promises, Resolver classes)", async () => {
   flags.sealed = true;
   await assert.rejects(dns.promises.lookup("example.invalid"), isSealedModeError);
@@ -2668,6 +2984,59 @@ test("pending DNS lookups are counted until they answer", async () => {
   assert.equal(backstop.status().pendingDns >= 1, true);
   await pending;
   assert.equal(backstop.status().pendingDns, 0);
+});
+
+// A resolver pointed at a loopback UDP port that never answers: a query that
+// stays in flight without any packet leaving this computer.
+async function silentDnsServer(t) {
+  const server = dgram.createSocket("udp4");
+  t.after(() => server.close());
+  await new Promise((r) => server.bind(0, "127.0.0.1", r));
+  return `127.0.0.1:${server.address().port}`;
+}
+
+test("every resolver query issued before the seal is counted until it ends (callback, promise, Resolver)", async (t) => {
+  const address = await silentDnsServer(t);
+  const callbackResolver = new dns.Resolver({ timeout: 60000, tries: 1 });
+  callbackResolver.setServers([address]);
+  const promiseResolver = new dns.promises.Resolver({ timeout: 60000, tries: 1 });
+  promiseResolver.setServers([address]);
+  const before = backstop.status().pendingDns;
+  const viaCallback = new Promise((r) => callbackResolver.resolveTxt("stalled.example", (e) => r(e)));
+  const viaReverse = new Promise((r) => callbackResolver.reverse("192.0.2.1", (e) => r(e)));
+  const viaPromise = promiseResolver.resolve4("stalled.example").catch((e) => e);
+  assert.equal(backstop.status().pendingDns, before + 3, "all three are in flight and counted");
+  flags.sealed = true; // sealing does not make them vanish from the count
+  assert.equal(backstop.status().pendingDns, before + 3);
+  callbackResolver.cancel();
+  promiseResolver.cancel();
+  await Promise.all([viaCallback, viaReverse, viaPromise]);
+  assert.equal(backstop.status().pendingDns, before, "each decremented exactly once");
+});
+
+test("sealed: lookupService (callback and promise) never reaches the native resolver for a remote address", async () => {
+  flags.sealed = true;
+  const before = backstop.status().pendingDns;
+  await assert.rejects(dns.promises.lookupService("93.184.215.14", 443), isSealedModeError);
+  assert.ok(isSealedModeError(await new Promise((r) => dns.lookupService("93.184.215.14", 443, (e) => r(e)))));
+  assert.equal(backstop.status().pendingDns, before, "refused before dispatch, so never counted");
+  assert.deepEqual(await dns.promises.lookupService("127.0.0.1", 22), { hostname: "localhost", service: "22" }, "loopback is answered locally");
+});
+
+test("sealed: localhost names and loopback literals are answered without a resolver", async () => {
+  flags.sealed = true;
+  const before = backstop.status().pendingDns;
+  assert.deepEqual(await dns.promises.lookup("app.localhost", { family: 4 }), { address: "127.0.0.1", family: 4 });
+  assert.deepEqual(await dns.promises.lookup("127.0.0.2"), { address: "127.0.0.2", family: 4 });
+  assert.equal(backstop.status().pendingDns, before);
+});
+
+test("every DNS entry point in node:dns and node:dns/promises is wrapped, top-level and on Resolver instances", () => {
+  for (const target of [dns, dns.promises, dns.Resolver.prototype, dns.promises.Resolver.prototype]) {
+    const names = Object.getOwnPropertyNames(target).filter((n) => DNS_ENTRY_TEST.test(n) && typeof target[n] === "function");
+    assert.ok(names.length >= 10, "found the module's resolver functions");
+    for (const name of names) assert.equal(target[name].__loquiEgress, true, name);
+  }
 });
 
 test("sealed: UDP to a remote address is refused; loopback UDP works", async (t) => {
@@ -2940,10 +3309,30 @@ test("only the backstop registers webRequest listeners; no proxy agents or peer 
       if (pattern.test(fs.readFileSync(path.join(repoRoot, file), "utf8"))) out.push(file);
     return out;
   };
+  const walkFiles = (dir, out = []) => {
+    for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+      const rel = path.posix.join(dir, entry.name);
+      if (entry.isDirectory()) walkFiles(rel, out);
+      else if (/\.(c?js|mjs|ts|tsx|jsx)$/.test(entry.name)) out.push(rel);
+    }
+    return out;
+  };
   assert.deepEqual(hits(/webRequest\.(onBeforeRequest|onBeforeRedirect|onCompleted|onErrorOccurred|onBeforeSendHeaders|onHeadersReceived|onSendHeaders|onResponseStarted)\s*\(/), [
     "src/helpers/privacy/egressBackstop.js",
   ]);
-  assert.deepEqual(hits(/\b(ProxyAgent|EnvHttpProxyAgent|setGlobalDispatcher|RTCPeerConnection|webkitRTCPeerConnection)\b/), []);
+  assert.deepEqual(hits(/\b(ProxyAgent|EnvHttpProxyAgent|setGlobalDispatcher)\b/), []);
+  // Peer connections: none in the app. Two places may name the constructors:
+  // the preload's marked removal block (Task 7a), and the acceptance script that
+  // checks they are gone (Task 16). Nothing else.
+  const withoutRemovalBlock = (file, text) =>
+    file === "preload.js" ? text.replace(/\/\/ BEGIN sealed-mode: WebRTC removal[\s\S]*?\/\/ END sealed-mode: WebRTC removal/, "") : text;
+  const peerHits = [];
+  for (const file of [...walkFiles("src"), ...walkFiles("scripts"), "main.js", "preload.js"]) {
+    if (file === "scripts/sealed-acceptance.cjs") continue;
+    const text = withoutRemovalBlock(file, fs.readFileSync(path.join(repoRoot, file), "utf8"));
+    if (/\b(RTCPeerConnection|webkitRTCPeerConnection)\b/.test(text)) peerHits.push(file);
+  }
+  assert.deepEqual(peerHits, []);
 });
 ```
 
@@ -2971,9 +3360,11 @@ const gate = require("./egressGate");
 // net, electron-updater, renderer loads) at each session's webRequest.
 const LOCAL_SCHEMES = new Set(["file:", "devtools:", "chrome:", "chrome-extension:", "data:", "blob:", "about:"]);
 const NETWORK_SCHEMES = new Set(["http:", "https:", "ws:", "wss:"]);
+// Every name-resolution entry point Node exposes (C2-R2). The list is checked
+// against the live modules by a test, so a new Node API cannot slip past.
 const RESOLVER_METHODS = [
   "resolve", "resolve4", "resolve6", "resolveAny", "resolveCaa", "resolveCname", "resolveMx",
-  "resolveNaptr", "resolveNs", "resolvePtr", "resolveSoa", "resolveSrv", "resolveTxt", "reverse",
+  "resolveNaptr", "resolveNs", "resolvePtr", "resolveSoa", "resolveSrv", "resolveTlsa", "resolveTxt", "reverse",
 ];
 
 const installed = { node: false, dns: false, dgram: false, http: false, webContents: false };
@@ -3057,15 +3448,19 @@ function installSocketHook() {
     // Attribution by context only: a same-host socket opened elsewhere is unexplained.
     if (ticket) {
       ticket.addHost(host);
+      ticket.noteConnection?.(); // an operation with sockets but no metered request is a "connection" row (I3)
       if (ticket.meter === "socket") ticket.attachSocket(this);
     }
     const startedAt = Date.now();
     openRemoteSockets.add(this);
     this.once("close", (hadError) => {
       openRemoteSockets.delete(this);
+      // One row per connection, recorded when it closes: Loqui cannot see the
+      // requests inside it (keep-alive reuse is one row, labelled as such).
       if (!ticket)
         gate.recordUnattributed({
           host,
+          kind: "connection",
           outcome: hadError ? "error" : "ok",
           bytesOut: this.bytesWritten,
           bytesIn: this.bytesRead,
@@ -3129,62 +3524,113 @@ function refuseDns(host, callback) {
   return error;
 }
 
-function patchResolver(target, style) {
-  for (const name of RESOLVER_METHODS) {
-    const original = target[name];
-    if (typeof original !== "function") continue;
-    target[name] = function egressAwareResolve(...args) {
-      if (!gate.isSealed()) return original.apply(this, args);
-      // Every resolver query goes to a DNS server, which may be off-machine.
-      if (style === "promise") return Promise.reject(block(args[0]));
-      refuseDns(args[0], args[args.length - 1]);
-      return undefined;
-    };
+// One query counts in pendingDns from the call until its callback or promise
+// settles, exactly once, including a synchronous throw. The sealing barrier and
+// the attestation wait for it to reach 0 (Task 7).
+function counted(original, self, args, style) {
+  let done = false;
+  const finish = () => {
+    if (!done) {
+      done = true;
+      pendingDns--;
+    }
+  };
+  pendingDns++;
+  try {
+    if (style === "promise") return Promise.resolve(original.apply(self, args)).finally(finish);
+    const last = args.length - 1;
+    const callback = args[last];
+    if (typeof callback === "function") {
+      args[last] = (...result) => {
+        finish();
+        callback(...result);
+      };
+    } else {
+      finish(); // Node throws on a missing callback; nothing is in flight.
+    }
+    return original.apply(self, args);
+  } catch (error) {
+    finish();
+    throw error;
   }
 }
 
+// While sealed, nothing reaches the native resolver, except an answer Loqui can
+// give itself: localhost names and loopback literals for lookup, and loopback
+// addresses for lookupService. Resolver queries (resolve*, reverse) always go to
+// a DNS server, so they are refused outright.
+function sealedAnswer(kind, args) {
+  if (kind === "lookup") {
+    const [hostname, maybeOptions] = args;
+    const host = normalizeHost(String(hostname ?? ""));
+    if (isPinnedName(host)) return { lookup: true };
+    if (host && isLoopbackHost(host) && net.isIP(host)) {
+      return { literal: { address: host, family: net.isIP(host) }, options: typeof maybeOptions === "object" ? maybeOptions : {} };
+    }
+    return null;
+  }
+  if (kind === "lookupService") {
+    const [address, port] = args;
+    return isLoopbackHost(String(address)) ? { service: { hostname: "localhost", service: String(port) } } : null;
+  }
+  return null;
+}
+
+function answerSealed(kind, args, style, answer) {
+  if (answer.lookup) {
+    if (style === "promise") {
+      return new Promise((resolve, reject) =>
+        pinnedLoopbackLookup(args[0], args[1] ?? {}, (error, address, family) =>
+          error ? reject(error) : resolve(Array.isArray(address) ? address : { address, family })
+        )
+      );
+    }
+    pinnedLoopbackLookup(...args);
+    return {};
+  }
+  if (answer.literal) {
+    const value = answer.options?.all ? [answer.literal] : answer.literal;
+    if (style === "promise") return Promise.resolve(value);
+    const callback = args[args.length - 1];
+    if (answer.options?.all) process.nextTick(callback, null, value);
+    else process.nextTick(callback, null, value.address, value.family);
+    return {};
+  }
+  if (style === "promise") return Promise.resolve(answer.service);
+  process.nextTick(args[args.length - 1], null, answer.service.hostname, answer.service.service);
+  return undefined;
+}
+
+function wrapDnsEntry(target, name, style) {
+  const original = target[name];
+  if (typeof original !== "function" || original.__loquiEgress) return;
+  const kind = name === "lookup" || name === "lookupService" ? name : "resolver";
+  const wrapped = function egressAwareDns(...args) {
+    if (gate.isSealed()) {
+      const answer = sealedAnswer(kind, args);
+      if (answer) return answerSealed(kind, args, style, answer);
+      const query = String(args[0] ?? "unknown");
+      notify({ layer: "node", host: normalizeHost(query) ?? "unknown", allowed: false });
+      if (style === "promise") return Promise.reject(block(query));
+      refuseDns(query, args[args.length - 1]);
+      return kind === "lookup" ? {} : undefined;
+    }
+    return counted(original, this, args, style);
+  };
+  wrapped.__loquiEgress = true;
+  target[name] = wrapped;
+}
+
 function installDnsHook() {
-  const originalLookup = dns.lookup;
-  dns.lookup = function egressAwareLookup(hostname, ...rest) {
-    if (gate.isSealed() && !isLoopbackHost(hostname)) {
-      refuseDns(hostname, rest[rest.length - 1]);
-      return {};
-    }
-    // Count lookups in flight: the sealing barrier waits for queries issued
-    // before the seal to answer (Task 7).
-    const callback = rest[rest.length - 1];
-    if (typeof callback !== "function") return originalLookup.call(this, hostname, ...rest);
-    pendingDns++;
-    let done = false;
-    rest[rest.length - 1] = (...result) => {
-      if (!done) {
-        done = true;
-        pendingDns--;
-      }
-      callback(...result);
-    };
-    return originalLookup.call(this, hostname, ...rest);
-  };
-  const originalPromiseLookup = dns.promises.lookup;
-  dns.promises.lookup = function egressAwarePromiseLookup(hostname, ...rest) {
-    if (gate.isSealed() && !isLoopbackHost(hostname)) return Promise.reject(block(hostname));
-    pendingDns++;
-    return originalPromiseLookup.call(this, hostname, ...rest).finally(() => {
-      pendingDns--;
-    });
-  };
-  const originalLookupService = dns.lookupService;
-  dns.lookupService = function egressAwareLookupService(address, port, callback) {
-    if (gate.isSealed() && !isLoopbackHost(address)) {
-      refuseDns(address, callback);
-      return undefined;
-    }
-    return originalLookupService.call(this, address, port, callback);
-  };
-  patchResolver(dns, "callback");
-  patchResolver(dns.Resolver.prototype, "callback");
-  patchResolver(dns.promises, "promise");
-  patchResolver(dns.promises.Resolver.prototype, "promise");
+  const targets = [
+    [dns, "callback"],
+    [dns.Resolver.prototype, "callback"],
+    [dns.promises, "promise"],
+    [dns.promises.Resolver.prototype, "promise"],
+  ];
+  for (const [target, style] of targets) {
+    for (const name of ["lookup", "lookupService", ...RESOLVER_METHODS]) wrapDnsEntry(target, name, style);
+  }
   installed.dns = true;
 }
 
@@ -3257,8 +3703,15 @@ function finishChromium(key, { outcome, status = null }) {
   const entry = chromiumInFlight.get(key);
   if (!entry) return;
   chromiumInFlight.delete(key);
-  // A tagged request is recorded by its own ticket; only untagged ones here.
-  if (!entry.ticket) gate.recordUnattributed({ host: entry.host, hosts: entry.hosts, outcome, status, ts: entry.ts });
+  if (entry.attempt) {
+    for (const h of entry.hosts) entry.attempt.addHost(h);
+    entry.attempt.status = status;
+    if (status !== null) entry.attempt.markDelivered();
+    entry.attempt.settle({ outcome, errorClass: status >= 500 ? "HTTP_5XX" : status >= 400 ? "HTTP_4XX" : outcome === "error" ? "OTHER" : null });
+    return;
+  }
+  // A metered request records itself; only untagged ones are recorded here.
+  if (!entry.ticket) gate.recordUnattributed({ host: entry.host, hosts: entry.hosts, kind: "request", outcome, status, ts: entry.ts });
 }
 
 // Electron keeps a single listener per webRequest event, so this module must
@@ -3289,12 +3742,19 @@ function watchSession(session) {
     const requestHeaders = { ...details.requestHeaders };
     const tagName = Object.keys(requestHeaders).find((h) => h.toLowerCase() === gate.EGRESS_TAG_HEADER);
     if (tagName) {
-      const ticket = gate.ticketByTag(requestHeaders[tagName]);
+      const owner = gate.ticketByTag(requestHeaders[tagName]); // one attempt, or a whole operation's ticket
       delete requestHeaders[tagName]; // the tag never leaves this computer
       const entry = chromiumInFlight.get(key(details));
-      if (entry && ticket) {
-        entry.ticket = ticket;
-        ticket.addHost(entry.host);
+      if (entry && owner) {
+        entry.ticket = owner;
+        if (owner.ticket) {
+          owner.addHost(entry.host); // a metered request: it records itself
+        } else {
+          // A ticket that tags a whole session (electron-updater): each Chromium
+          // request becomes its own attempt row, settled when it ends (I3).
+          entry.attempt = owner.beginAttempt(entry.host);
+          entry.attempt.markDispatched();
+        }
       }
     }
     callback({ requestHeaders });
@@ -3401,7 +3861,7 @@ git commit -m "feat(privacy): add socket, DNS, UDP, proxy and session backstop f
 ### Task 6a: Child processes: a registry that waits for exit, a spawn guard, and local-only FFmpeg
 
 Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes that gap for every child Loqui starts. There are two parts:
-- **Enforcement.** While sealed, a network-capable program, or a spawn that third-party code makes from inside `node_modules` (an SDK credential helper, for example), is refused before it starts. FFmpeg is always restricted to local inputs.
+- **Enforcement.** While sealed, only allowlisted programs start: Loqui's own binaries and known sidecars (with launch rules), named system tools (with argument rules), and Loqui itself. A network-capable program, a spawn from third-party code inside `node_modules` (an SDK credential helper, for example), and any unclassified program are refused before they start. FFmpeg is always restricted to local inputs. The ONNX utility process installs the Node backstop with the seal forced on, so it cannot reach the network at all.
 - **Evidence.** Every network-capable child that runs while unsealed is registered, and counts as *alive* until the OS reports its exit. For a detached process group, it stays alive until the whole group is gone. Sealing stops these children and waits for them; a child that survives `SIGKILL` keeps the attestation unverified (Task 7). A kill signal is never treated as proof of exit.
 
 **Files:**
@@ -3409,7 +3869,9 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
 - Modify:
   - `src/helpers/ffmpegUtils.js`. Add `localOnlyInputs(args)`, and use it at all three spawn sites: `runFFmpegConversion` (`spawn(ffmpegPath, [...args, "-y", outputPath]`), `splitAudioFile` (`spawn(ffmpegPath, args`) and `mergeAudioSegments` (`spawn(ffmpegPath, args`).
   - `docs/security/sealed-mode-threat-model.md`. Add the `spawn-sites` inventory (Task 1, Step 3).
-- Test: `test/helpers/childRegistry.test.js` and `test/helpers/ffmpegContainment.test.js`
+  - `src/helpers/gpuBinaryManager.js` and `src/helpers/llamaCppInstaller.js`: register their binary directories.
+  - `src/workers/onnxWorker.js`: lock the worker's network before anything else runs.
+- Test: `test/helpers/childRegistry.test.js`, `test/helpers/ffmpegContainment.test.js` and `test/helpers/workerEgressLock.test.js`
 
 **Interfaces:**
 - Produces:
@@ -3419,10 +3881,12 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
   installSpawnGuard({ childProcess?, utilityProcess? }): void   // idempotent; wraps spawn/execFile/exec/fork and their Sync forms, and utilityProcess.fork
   register(child, { kind: string, group?: boolean, tree?: boolean }): Entry  // the guard registers automatically; exported for tests
                                                                 // group: a POSIX process group (detached spawn); tree: the child and its descendants, on every platform
-  alive(kind?: string): Array<{ kind, pid }>                    // exited only after the OS reported exit (and, for a group, the group is gone)
+  alive(kind?: string): Array<{ kind, pid, local }>             // exited only after the OS reported exit (and, for a group, the group is gone); local = an on-device sidecar
   stopAll({ kinds?, termGraceMs = 1500, killGraceMs = 1500 }?): Promise<void>
+  onChildEnd(child, fn: ({ code, signal, failedToStart }) => void): void   // once: exit, a failed start (error with no pid), or close without exit
                                                                 // SIGTERM → wait → SIGKILL → wait; rejects with code CHILD_STOP_FAILED if any is still alive
-  classify(command: string, stack?: string): "network" | "thirdParty" | "ffmpeg" | "local"
+  classify(command: string, stack?: string): "network" | "thirdParty" | "ffmpeg" | "bundled" | "osTool" | "self" | "unclassified"
+  registerLocalBinaryDir(dir: string): void                     // a directory of binaries Loqui itself installs (GPU runtimes, llama.cpp)
   kindOf(command: string): string                               // "codex", "yt-dlp", or the program's base name
   _resetForTests(): void;  _setSystemForTests({ listProcesses?, pidAlive?, groupAlive?, killGroup? }): void
   ```
@@ -3436,7 +3900,24 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
   - **`network`** covers `codex`, `yt-dlp*`, `curl`, `wget`, `ffplay`, `aws`, `gcloud`, `ssh` and `git`. It is refused while sealed, and registered while unsealed.
   - **`thirdParty`** is any spawn whose call stack enters `/node_modules/`. It is refused while sealed, and registered while unsealed.
   - **`ffmpeg`** must carry `-protocol_whitelist` before every `-i`, or it is refused in every mode. A crafted local playlist or media file must never make FFmpeg fetch remote resources.
-  - **`local`** is everything else Loqui starts from its own code: clipboard and paste helpers, key listeners, `osascript`, the loopback sidecars, and so on. Each of these call sites is listed and justified in the `spawn-sites` inventory, and a ratchet test fails on any unlisted file (Task 1).
+  - **An allowlist, not a default (C2-R2).** While sealed, a program runs only if it is one of these:
+    - **`bundled`:** one of two things.
+      - A known sidecar by name (`llama-server`, `whisper-server`, `qdrant`, `sherpa-onnx-*`), wherever it is installed. A system `llama-server` that `llamaCppInstaller.getSystemBinaryPath()` found is included.
+      - Any program inside Loqui's own binaries: `resources/bin`, `process.resourcesPath`, or a directory registered with `registerLocalBinaryDir` by Loqui's own installers (`gpuBinaryManager`'s `binDir`, `llamaCppInstaller`'s `installDir`).
+
+      Sidecars must pass their launch rules:
+      - llama-server is refused with any download flag (`-hf`, `--hf-repo`, `-hfr`, `--hf-file`, `-hff`, `--hf-token`, `-hft`, `-mu`, `--model-url`, `-dr`, `--docker-repo`), and with a `--host` that is not loopback;
+      - whisper-server is refused with a `--host` that is not loopback;
+      - Qdrant is refused without `--disable-telemetry`.
+    - **`osTool`:** a named system tool from `OS_TOOLS`, with its argument rule:
+      - `open` only with `-a <application>`, never a URL;
+      - `sh` only as `-c "command -v <name>"`;
+      - `explorer.exe` only with an `http(s)` URL, which `openExternalUrl` has already confirmed (Task 11);
+      - `powershell` is refused while sealed. It only extracts archives after a download, and downloads are refused.
+    - **`self`:** `process.execPath`, Loqui relaunching itself.
+
+    Anything else is **`unclassified`** and refused while sealed. Unsealed, it runs, and the spawn-sites ratchet (Task 1) keeps every call site listed.
+  - **What this does not cover.** The allowlist controls which programs start, and with which arguments. It cannot see network traffic inside a native program once it runs. Local sidecars are therefore reported as `uninspectedChildren` in the attestation, and the promise is narrowed accordingly (CCR-6, Task 1 Boundary).
   - **`utilityProcess.fork`** is allowed only for modules under the app's `src/workers/` directory, which the inventory ratchet keeps free of network code. Anything else is refused while sealed.
   - **Process trees.** A child registered with `group: true` (a detached POSIX spawn) is alive until its whole process group is gone. A child registered with `tree: true` is alive until it and every descendant listed at stop time are gone, on every platform. The descendants come from `ps` on POSIX and `Get-CimInstance Win32_Process` on Windows. If that listing fails, the child is never reported stopped. Task 10 uses `group` for every yt-dlp process on POSIX (downloads and the self-update both spawn detached), and `tree` on Windows. While a tree's root runs, its descendant list is refreshed at most every 250 ms by the liveness checks.
 
@@ -3579,8 +4060,38 @@ test("classify: network programs, third-party callers, ffmpeg, and Loqui's own l
   assert.equal(registry.classify("C:\\tools\\curl.exe"), "network");
   assert.equal(registry.classify("/opt/ffmpeg"), "ffmpeg");
   assert.equal(registry.classify("xclip", "at x (/app/node_modules/@aws-sdk/credential-provider-process/dist/index.js:1:1)"), "thirdParty");
-  assert.equal(registry.classify("xclip", "at y (/app/src/helpers/clipboard.js:125:9)"), "local");
+  assert.equal(registry.classify("xclip", "at y (/app/src/helpers/clipboard.js:125:9)"), "osTool");
+  assert.equal(registry.classify(process.execPath), "self");
+  assert.equal(registry.classify("/usr/local/bin/mystery-helper"), "unclassified");
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-bin-"));
+  registry.registerLocalBinaryDir(binDir);
+  assert.equal(registry.classify(path.join(binDir, "llama-server")), "bundled");
   assert.equal(registry.kindOf("/x/yt-dlp_linux"), "yt-dlp");
+});
+
+test("sealed: only allowlisted programs start, and only with allowed arguments", () => {
+  const cp = fakeChildProcess();
+  registry.installSpawnGuard({ childProcess: cp });
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-bin-"));
+  registry.registerLocalBinaryDir(binDir);
+  const llama = path.join(binDir, "llama-server");
+  const qdrant = path.join(binDir, "qdrant");
+  flags.sealed = true;
+  const refused = [
+    ["/usr/local/bin/mystery-helper", []],
+    ["open", ["https://example.com"]],
+    ["sh", ["-c", "curl https://example.com"]],
+    ["powershell", ["-NoProfile", "-Command", "Invoke-WebRequest https://example.com"]],
+    [llama, ["-m", "model.gguf", "-hf", "org/repo"]],
+    [llama, ["-m", "model.gguf", "--host", "0.0.0.0"]],
+    [qdrant, ["--config-path", "c.yaml"]],
+  ];
+  for (const [command, args] of refused) assert.throws(() => cp.spawn(command, args), isSealedModeError, `${command} ${args.join(" ")}`);
+  cp.spawn("open", ["-a", "System Settings"]);
+  cp.spawnSync("sh", ["-c", "command -v xclip"]);
+  cp.spawn(llama, ["-m", "model.gguf", "--host", "127.0.0.1", "--port", "8200"]);
+  cp.spawn(qdrant, ["--disable-telemetry", "--config-path", "c.yaml"]);
+  assert.deepEqual(cp.calls.map((c) => c[1]), ["open", "sh", llama, qdrant]);
 });
 
 test("sealed: network and third-party spawns are refused; local ones run", () => {
@@ -3682,13 +4193,44 @@ const { syncBuiltinESMExports } = require("node:module");
 // process listing is never refused or registered.
 const { execFileSync: originalExecFileSync } = require("node:child_process");
 const gate = require("./egressGate");
-const { SealedModeError } = require("./egressPolicy");
+const { SealedModeError, isLoopbackHost } = require("./egressPolicy");
 
 // Programs Loqui may start that reach the network themselves (threat model,
 // spawn-sites). Main cannot see their traffic, so while sealed they do not run,
 // and while unsealed each run is tracked until the OS reports its exit.
 const NETWORK_COMMANDS = [/^codex(\.exe)?$/, /^yt-dlp/, /^curl(\.exe)?$/, /^wget(\.exe)?$/, /^ffplay/, /^aws(\.exe)?$/, /^gcloud/, /^ssh(\.exe)?$/, /^git(\.exe)?$/];
 const FFMPEG = /^ffmpeg/;
+// System tools Loqui's own code runs (the spawn-sites inventory, Task 1). Each
+// may carry an argument rule; a tool not listed here is unclassified.
+const OS_TOOLS = new Map([
+  ...["xsel", "xclip", "wl-copy", "wl-paste", "xdotool", "kdotool", "ydotool", "osascript", "systemctl", "hyprctl", "gsettings",
+    "qdbus", "which", "taskkill", "tasklist", "ps", "pidof", "pgrep", "groups", "journalctl", "sleep", "tar", "unzip", "nvidia-smi",
+    "nvidia-smi.exe", "taskkill.exe", "tasklist.exe", "tar.exe"].map((name) => [name, null]),
+  ["open", (args) => args[0] === "-a" && args.length === 2],
+  ["sh", (args) => args[0] === "-c" && /^command -v [A-Za-z0-9._-]+$/.test(String(args[1] ?? ""))],
+  ["explorer.exe", (args) => args.length === 1 && /^https?:\/\//i.test(String(args[0]))],
+  ["powershell", () => false],
+  ["powershell.exe", () => false],
+]);
+// Launch rules for sidecars among Loqui's own binaries.
+const LLAMA_DOWNLOAD_FLAGS = new Set(["-hf", "--hf-repo", "-hfr", "--hf-file", "-hff", "--hf-token", "-hft", "-mu", "--model-url", "-dr", "--docker-repo"]);
+const hostArg = (args) => {
+  const i = args.indexOf("--host");
+  return i === -1 ? null : String(args[i + 1] ?? "");
+};
+const SIDECAR_RULES = [
+  [/^llama-server/, (args) => !args.some((a) => LLAMA_DOWNLOAD_FLAGS.has(a)) && (hostArg(args) === null || isLoopbackHost(hostArg(args)))],
+  [/^whisper-server/, (args) => hostArg(args) === null || isLoopbackHost(hostArg(args))],
+  [/^qdrant/, (args) => args.includes("--disable-telemetry")],
+  [/^sherpa-onnx-/, () => true], // Parakeet and diarization; no network options
+];
+const localBinaryDirs = new Set([
+  path.join(__dirname, "..", "..", "..", "resources") + path.sep,
+  ...(process.resourcesPath ? [path.resolve(process.resourcesPath) + path.sep] : []),
+]);
+function registerLocalBinaryDir(dir) {
+  if (dir) localBinaryDirs.add(path.resolve(dir) + path.sep);
+}
 const WORKERS_DIR = path.join(__dirname, "..", "..", "workers") + path.sep;
 
 let entries = new Set();
@@ -3702,11 +4244,34 @@ function kindOf(command) {
   return base;
 }
 function classify(command, stack = "") {
-  const base = baseName(command).split("\\").pop();
+  const raw = String(command ?? "");
+  const base = baseName(raw).split("\\").pop();
   if (NETWORK_COMMANDS.some((re) => re.test(base))) return "network";
   if (FFMPEG.test(base)) return "ffmpeg";
   if (/[\\/]node_modules[\\/]/.test(stack)) return "thirdParty";
-  return "local";
+  if (raw === process.execPath) return "self";
+  // A known sidecar by name, wherever it is installed (a system llama-server
+  // that llamaCppInstaller found counts too); it still has to pass its launch rule.
+  if (SIDECAR_RULES.some(([re]) => re.test(base))) return "bundled";
+  if (path.isAbsolute(raw) && [...localBinaryDirs].some((dir) => path.resolve(raw).startsWith(dir))) return "bundled";
+  if (OS_TOOLS.has(base)) return "osTool";
+  return "unclassified";
+}
+
+// While sealed: may this program start with these arguments? (Unsealed, only
+// FFmpeg's input rule applies.)
+function allowedWhileSealed(kind, command, args) {
+  const base = baseName(command).split("\\").pop();
+  if (kind === "self") return true;
+  if (kind === "osTool") {
+    const rule = OS_TOOLS.get(base);
+    return rule === null || rule(args);
+  }
+  if (kind === "bundled") {
+    const sidecar = SIDECAR_RULES.find(([re]) => re.test(base));
+    return !sidecar || sidecar[1](args);
+  }
+  return false; // network, thirdParty, unclassified
 }
 
 function defaultGroupAlive(pid) {
@@ -3777,10 +4342,13 @@ function isAlive(entry) {
   return false;
 }
 
-function register(child, { kind, group = false, tree = false }) {
+// local: a sidecar that serves on-device routes (llama-server, whisper-server,
+// Qdrant, sherpa-onnx). Sealing never stops it, and the attestation reports it
+// as uninspected instead of claiming to see its traffic (CCR-6).
+function register(child, { kind, group = false, tree = false, local = false }) {
   // descendants: [] until a stop lists them (a root that exits on its own has
   // waited for its children, as yt-dlp does for its post-processors).
-  const entry = { child, kind, pid: child?.pid, group, tree, descendants: [], exited: !child?.pid };
+  const entry = { child, kind, pid: child?.pid, group, tree, local, descendants: [], exited: !child?.pid };
   child?.once?.("exit", () => {
     entry.exited = true;
   });
@@ -3804,6 +4372,24 @@ function refreshTree(entry) {
   snapshotTree(entry);
 }
 
+// Calls fn({ code, signal, failedToStart }) exactly once, when the child has
+// ended: its "exit"; an "error" before any pid (the spawn failed, so no process
+// ever ran); or a "close" with no "exit" seen. An "error" after a successful
+// start is not an end: the process may still be running (N2).
+function onChildEnd(child, fn) {
+  let done = false;
+  const end = (detail) => {
+    if (done) return;
+    done = true;
+    fn(detail);
+  };
+  child.once("exit", (code, signal) => end({ code, signal, failedToStart: false }));
+  child.once("close", (code, signal) => end({ code, signal, failedToStart: false }));
+  child.once("error", () => {
+    if (!child.pid) end({ code: null, signal: null, failedToStart: true });
+  });
+}
+
 function alive(kind) {
   const list = [];
   for (const entry of entries) {
@@ -3812,7 +4398,7 @@ function alive(kind) {
       entries.delete(entry);
       continue;
     }
-    if (!kind || entry.kind === kind) list.push({ kind: entry.kind, pid: entry.pid });
+    if (!kind || entry.kind === kind) list.push({ kind: entry.kind, pid: entry.pid, local: entry.local });
   }
   return list;
 }
@@ -3840,7 +4426,7 @@ const waitUntil = async (predicate, ms) => {
 };
 
 async function stopAll({ kinds, termGraceMs = 1500, killGraceMs = 1500 } = {}) {
-  const targets = [...entries].filter((e) => isAlive(e) && (!kinds || kinds.includes(e.kind)));
+  const targets = [...entries].filter((e) => !e.local && isAlive(e) && (!kinds || kinds.includes(e.kind)));
   if (targets.length === 0) return;
   for (const t of targets) snapshotTree(t); // while the roots are still alive
   for (const t of targets) signal(t, "SIGTERM");
@@ -3860,7 +4446,7 @@ function check(command, args, stack) {
   const kind = classify(command, stack);
   if (kind === "ffmpeg" && !hasLocalOnlyInputs(Array.isArray(args) ? args.map(String) : []))
     throw Object.assign(new Error("FFMPEG_UNSAFE_INPUT: ffmpeg inputs must be restricted to local protocols"), { code: "FFMPEG_UNSAFE_INPUT" });
-  if ((kind === "network" || kind === "thirdParty") && gate.isSealed())
+  if (kind !== "ffmpeg" && gate.isSealed() && !allowedWhileSealed(kind, command, Array.isArray(args) ? args.map(String) : []))
     throw gate.recordBackstopBlock({ host: kindOf(command).replace(/[^a-z0-9._-]/g, "") || "unknown" });
   return kind;
 }
@@ -3877,9 +4463,13 @@ function installSpawnGuard({ childProcess = require("node:child_process"), utili
       const command = programOf(name, args);
       const kind = check(command, Array.isArray(args[1]) ? args[1] : [], new Error().stack);
       const result = original.apply(this, args);
-      if ((kind === "network" || kind === "thirdParty") && !name.endsWith("Sync")) {
+      if (!name.endsWith("Sync")) {
         const options = args.find((a, i) => i > 0 && a && typeof a === "object" && !Array.isArray(a)) ?? {};
-        register(result, { kind: kindOf(command), group: options.detached === true });
+        if (kind === "network" || kind === "thirdParty" || kind === "unclassified") {
+          register(result, { kind: kindOf(command), group: options.detached === true });
+        } else if (kind === "bundled" && SIDECAR_RULES.some(([re]) => re.test(baseName(command)))) {
+          register(result, { kind: kindOf(command).replace(/[-_](darwin|linux|win32).*$/, "").replace(/\.exe$/, ""), group: options.detached === true, local: true });
+        }
       }
       return result;
     };
@@ -3906,10 +4496,68 @@ function _setSystemForTests(overrides) {
   system = { ...system, ...overrides };
 }
 
-module.exports = { installSpawnGuard, register, alive, stopAll, classify, kindOf, _resetForTests, _setSystemForTests, SealedModeError };
+module.exports = { installSpawnGuard, register, alive, stopAll, onChildEnd, classify, kindOf, registerLocalBinaryDir, _resetForTests, _setSystemForTests, SealedModeError };
 ```
 
 `recordBackstopBlock` gives the ledger a `blocked` row for the refused program. Its host field is the program's kind (`yt-dlp`, `curl`), which passes the bare-host check. Refusals happen synchronously, as Node's own spawn argument errors do. Every managed caller (`codexAppServer.start`, `maybeUpdateYtDlp`, `runYtDlp`) already wraps its spawn in `try`/`catch`, or runs behind a gate that refuses first (Tasks 8 and 10).
+
+- [ ] **Step 3a: Register Loqui's binary directories, and lock the ONNX worker**
+
+1. In `src/helpers/gpuBinaryManager.js`, at the end of the constructor (after `this.binDir` is set), add `require("./privacy/childRegistry").registerLocalBinaryDir(this.binDir);`. In `src/helpers/llamaCppInstaller.js`, at the end of `ensureInitialized()` (after `this.installDir` is set), add the same call with `this.installDir`. Bundled binaries under `resources/` and `process.resourcesPath` are registered by default.
+2. A utility process has its own Node runtime, so main's hooks do not apply inside it. Make these the first two statements of `src/workers/onnxWorker.js`, before `const fs = require("fs");`:
+
+   ```js
+   // Sealed mode (Plan 07): this worker never needs the network. The Node
+   // backstop, with the seal forced on, refuses every non-loopback socket, DNS
+   // query and UDP send inside this process, whatever main's seal state is.
+   require("../helpers/privacy/egressGate").configureEgress({ isSealed: () => true });
+   require("../helpers/privacy/egressBackstop").installNodeBackstop();
+   ```
+
+3. Create `test/helpers/workerEgressLock.test.js`:
+
+   ```js
+   const assert = require("node:assert/strict");
+   const { fork } = require("node:child_process");
+   const fs = require("node:fs");
+   const path = require("node:path");
+   const test = require("node:test");
+
+   const repoRoot = path.join(__dirname, "../..");
+
+   test("every worker locks its network before anything else runs", () => {
+     for (const name of fs.readdirSync(path.join(repoRoot, "src/workers")).filter((n) => /\.(c?js|mjs)$/.test(n))) {
+       const code = fs.readFileSync(path.join(repoRoot, "src/workers", name), "utf8").replace(/^\s*\/\/.*$/gm, "").trimStart();
+       assert.match(code, /^require\("\.\.\/helpers\/privacy\/egressGate"\)\.configureEgress\(\{ isSealed: \(\) => true \}\);\s*require\("\.\.\/helpers\/privacy\/egressBackstop"\)\.installNodeBackstop\(\);/, name);
+     }
+   });
+
+   test("the lock refuses the network inside a separate Node runtime, and keeps loopback", async () => {
+     // A child process stands in for the utility process: same lock, its own runtime.
+     const probe = `
+       require(${JSON.stringify(path.join(repoRoot, "src/helpers/privacy/egressGate"))}).configureEgress({ isSealed: () => true });
+       require(${JSON.stringify(path.join(repoRoot, "src/helpers/privacy/egressBackstop"))}).installNodeBackstop();
+       const net = require("node:net");
+       const dns = require("node:dns");
+       const server = net.createServer((s) => s.end()).listen(0, "127.0.0.1", async () => {
+         const results = {};
+         results.dns = await dns.promises.resolveTxt("example.invalid").then(() => "reached", (e) => e.code);
+         results.fetch = await fetch("https://example.invalid/").then(() => "reached", (e) => (e.cause?.code ?? e.code));
+         results.loopback = await new Promise((r) => net.connect(server.address().port, "127.0.0.1", () => r("ok")).on("error", (e) => r(e.code)));
+         process.send(results);
+         server.close();
+       });`;
+     const file = path.join(require("node:os").tmpdir(), `loqui-worker-lock-${process.pid}.js`);
+     fs.writeFileSync(file, probe);
+     const child = fork(file, [], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
+     const results = await new Promise((resolve) => child.once("message", resolve));
+     child.kill();
+     fs.rmSync(file, { force: true });
+     assert.deepEqual(results, { dns: "SEALED_MODE", fetch: "SEALED_MODE", loopback: "ok" });
+   });
+   ```
+
+   `example.invalid` never resolves, and the lock refuses it before DNS, so the test sends nothing off this computer either way.
 
 - [ ] **Step 4: Restrict FFmpeg to local inputs**
 
@@ -4003,17 +4651,18 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
   export interface EgressEvent {
     id: number; ts: number; endedAt: number | null; task: EgressTask;
     host: string; hosts: string[];     // host = hosts[0]; the trail includes redirects (Task 4)
+    kind: "request" | "stream" | "connection" | "session" | "operation"; operationId: number | null;
     bytesOut: number | null; bytesIn: number | null; outcome: EgressOutcome;
-    status: number | null; errorClass: string | null; model: string | null;
+    status: number | null; errorClass: string | null; model: string | null;  // errorClass: a category (Task 4 ERROR_CLASSES); model: an identifier or null
     attributed: boolean; opaque: boolean;
   }
   export interface EgressSummary {
-    left: number; observed: number;    // left = observed requests + opaque sessions
+    left: number; observed: number; connections: number;  // left = observed + connections + opaqueSessions; operations never count
     blocked: number; unattributed: number; unattributedHosts: string[];
     bytesOut: number; bytesIn: number; unknownBytes: number; opaqueSessions: number;
   }
   export type EgressNotice =
-    | { phase: "dispatched" | "delivered" | "undelivered"; ticketId: number; task: EgressTask;
+    | { phase: "dispatched" | "delivered" | "undelivered"; ticketId: number; attemptId: string | null; task: EgressTask;
         targetId: string;              // provider id, or "host:<host>" for custom/LAN endpoints (Plan 04 encoding)
         host: string; payload: EgressPayload; correlationId: string | null; ts: number }
     | { phase: "recorded"; event: EgressEvent };
@@ -4027,7 +4676,7 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
     loadError: "corrupt" | "unreadable" | null; saveError: string | null;
     guards: { node: boolean; dns: boolean; dgram: boolean; http: boolean; webContents: boolean;
               sessions: number; envProxy: boolean; openRemoteSockets: number; chromiumInFlightRemote: number; pendingDns: number };
-    networkChildren: string[]; activeRemote: number;
+    networkChildren: string[]; uninspectedChildren: string[]; activeRemote: number;
     blockedSinceSealed: number; recordFailures: number;
     version: number; at: number;
     nothingLeaves: boolean;
@@ -4520,7 +5169,7 @@ function createSealTransition({ state, bootedAt, getUpdateManager, getInference,
     if (guards.openRemoteSockets > 0) running.push("sockets");
     if (guards.chromiumInFlightRemote > 0) running.push("chromium");
     if (guards.pendingDns > 0) running.push("dns");
-    if (getInference()?.codexRunning?.() || children.alive().length > 0) running.push("children");
+    if (getInference()?.codexRunning?.() || children.alive().some((c) => !c.local)) running.push("children");
     return running;
   };
   async function waitQuiet(gen) {
@@ -4574,8 +5223,12 @@ function createAttestor({ state, transition, getInference, children }) {
     const guards = backstop.status();
     const tally = gate.counters();
     const networkChildren = [
-      ...new Set([...(getInference()?.codexRunning?.() ? ["codex"] : []), ...children.alive().map((c) => c.kind)]),
+      ...new Set([...(getInference()?.codexRunning?.() ? ["codex"] : []), ...children.alive().filter((c) => !c.local).map((c) => c.kind)]),
     ];
+    // On-device sidecars keep running while sealed (local routes must work).
+    // Their launch was checked; their runtime traffic is not visible, so they
+    // are named rather than counted as verified (CCR-6).
+    const uninspectedChildren = [...new Set(children.alive().filter((c) => c.local).map((c) => c.kind))];
     const activeRemote = gate.activeRemoteCount();
     const guardsUp = guards.node && guards.dns && guards.dgram && guards.http && guards.webContents && guards.sessions > 0;
     return {
@@ -4586,6 +5239,7 @@ function createAttestor({ state, transition, getInference, children }) {
       notes,
       guards,
       networkChildren,
+      uninspectedChildren,
       activeRemote,
       blockedSinceSealed: tally.blockedSinceSealed,
       recordFailures: tally.recordFailures,
@@ -4959,13 +5613,22 @@ The owner decided (2026-10-15) to harden the control panel in this plan. It ran 
 - Modify:
   - `src/helpers/windowConfig.js`, in `CONTROL_PANEL_CONFIG.webPreferences`. Use `sandbox: true` and remove `webSecurity: false`, together with their stale comments. The span runs from the comment `// sandbox: false is required because the preload script bridges IPC` through `webSecurity: false,` (currently `:227-234`). `preload`, `nodeIntegration` and `contextIsolation` above it stay unchanged.
   - `src/index.html:3-9`. Turn off DNS prefetching for every renderer document.
-  - `preload.js`. Before `contextBridge.exposeInMainWorld(...)` (`:65`), remove the WebRTC constructors from the page's main world.
+  - `preload.js`. Before `contextBridge.exposeInMainWorld(...)` (`:65`), remove the WebRTC constructors from the main world of every frame, and expose `electronAPI` only in the main frame.
+  - `src/helpers/windowConfig.js`, every `webPreferences`: add `nodeIntegrationInSubFrames: true`.
   - `test/helpers/preloadAuthBridge.test.js` and every other test that stubs `contextBridge` for `preload.js` (today `preloadOnboardingBridge.test.js`; find others with `grep -rln exposeInMainWorld test`): add `executeInMainWorld: () => {}` to the stub.
 - Test: `test/helpers/rendererHardening.test.js`
 
 **Interfaces:** none new. Task 6's `installWebContentsGuard` still applies the WebRTC IP policy to every `webContents`, as defence in depth.
 
-**Why remove WebRTC instead of relying on the policy (C2).** Chromium's `webRequest` does not see WebRTC, and `disable_non_proxied_udp` still allows TCP candidates (for example TURN over TCP). Loqui never uses WebRTC. Every Loqui window loads `preload.js` (`windowConfig.js:185, 224, 279`), and Electron 44 (`package.json`) runs `contextBridge.executeInMainWorld` synchronously, before any page script. So removing the constructors there disables the feature in every renderer, and nothing is left to enforce.
+**Why remove WebRTC instead of relying on the policy (C2).** Chromium's `webRequest` does not see WebRTC, and `disable_non_proxied_udp` still allows TCP candidates (for example TURN over TCP). Loqui never uses WebRTC. Every Loqui window loads `preload.js` (`windowConfig.js:185, 224, 279`), and Electron 44 (`package.json`) runs `contextBridge.executeInMainWorld` synchronously, before any page script.
+
+**Every frame, not just the top page (C2-R2).** A same-origin `about:blank` or `srcdoc` iframe has its own global object, with its own `RTCPeerConnection`. So:
+- every window sets `nodeIntegrationInSubFrames: true`. With `sandbox: true` and `nodeIntegration: false` this grants no Node access; it only makes Electron run the preload in every frame (Electron's WebPreferences docs);
+- the preload removes the constructors in every frame;
+- it exposes `electronAPI` only in the main frame (`process.isMainFrame`), so a subframe gains no IPC;
+- `src/index.html` adds a CSP with `frame-src 'none'` and `object-src 'none'`, so no remote document can be framed at all.
+
+The ratchet test runs the removal for a main frame and a subframe. Task 16 checks the top page, an `about:blank` iframe and a `srcdoc` iframe in the real app. If Electron ever stops running preloads in a new frame before page script can reach it, that check fails. Renderer WebRTC must then be disclosed as outside the boundary, rather than assumed covered.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4996,23 +5659,34 @@ test("every window is sandboxed and keeps web security on", () => {
 test("renderer documents turn off DNS prefetching", () => {
   const html = fs.readFileSync(path.join(repoRoot, "src/index.html"), "utf8");
   assert.match(html, /<meta http-equiv="x-dns-prefetch-control" content="off"\s*\/?>/);
+  assert.match(html, /<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; object-src 'none'"\s*\/?>/);
 });
 
 test("every window loads the preload, and the preload removes WebRTC from the page", () => {
   const configs = require("../../src/helpers/windowConfig");
   for (const [name, config] of Object.entries(configs).filter(([, v]) => v?.webPreferences)) {
     assert.match(String(config.webPreferences.preload), /preload\.js$/, `${name}.preload`);
+    assert.equal(config.webPreferences.nodeIntegrationInSubFrames, true, `${name}: the preload runs in every frame`);
+    assert.equal(config.webPreferences.sandbox, true, `${name}: and still has no Node`);
   }
   const vm = require("node:vm");
-  let mainWorld;
-  const electron = {
-    contextBridge: { executeInMainWorld: ({ func }) => { mainWorld = func; }, exposeInMainWorld() {} },
-    ipcRenderer: { invoke: async () => {}, on() {}, removeListener() {}, send() {}, sendSync() {} },
-    webUtils: {},
+  const loadIn = (isMainFrame) => {
+    const seen = { mainWorld: null, exposed: [] };
+    const electron = {
+      contextBridge: { executeInMainWorld: ({ func }) => { seen.mainWorld = func; }, exposeInMainWorld: (name) => seen.exposed.push(name) },
+      ipcRenderer: { invoke: async () => {}, on() {}, removeListener() {}, send() {}, sendSync() {} },
+      webUtils: {},
+    };
+    const source = fs.readFileSync(path.join(repoRoot, "preload.js"), "utf8");
+    vm.runInNewContext(source, { require: (s) => (s === "electron" ? electron : require(s)), process: { ...process, isMainFrame } });
+    return seen;
   };
-  const source = fs.readFileSync(path.join(repoRoot, "preload.js"), "utf8");
-  vm.runInNewContext(source, { require: (s) => (s === "electron" ? electron : require(s)), process });
-  assert.equal(typeof mainWorld, "function", "preload calls executeInMainWorld");
+  const subframe = loadIn(false);
+  assert.equal(typeof subframe.mainWorld, "function", "a subframe's WebRTC is removed too");
+  assert.deepEqual(subframe.exposed, [], "a subframe gets no electronAPI");
+  const top = loadIn(true);
+  assert.deepEqual(top.exposed, ["electronAPI"]);
+  const mainWorld = top.mainWorld;
   // Run it in a fresh "page" with the constructors a renderer would have.
   const page = vm.createContext({ RTCPeerConnection: function () {}, webkitRTCPeerConnection: function () {}, RTCDataChannel: function () {} });
   vm.runInContext(`(${mainWorld.toString()})()`, page);
@@ -5051,9 +5725,11 @@ Expected: FAIL. `CONTROL_PANEL_CONFIG.sandbox` is `false`, and the meta tag is m
 3. In `preload.js`, directly before `contextBridge.exposeInMainWorld("electronAPI", {` (`:65`), add:
 
    ```js
-   // Sealed mode (Plan 07): Loqui never uses WebRTC, and Chromium's webRequest
-   // cannot see its traffic, so the constructors are removed from the page
-   // before any page script runs. They cannot be redefined.
+   // BEGIN sealed-mode: WebRTC removal (Plan 07 Task 7a; the egress ratchet allows this block)
+   // Loqui never uses WebRTC, and Chromium's webRequest cannot see its traffic,
+   // so the constructors are removed before any page script runs, in every
+   // frame (nodeIntegrationInSubFrames runs this preload in each one). They
+   // cannot be redefined.
    contextBridge.executeInMainWorld({
      func: () => {
        for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel", "RTCRtpSender", "RTCRtpReceiver", "RTCIceCandidate", "RTCSessionDescription"]) {
@@ -5065,9 +5741,24 @@ Expected: FAIL. `CONTROL_PANEL_CONFIG.sandbox` is `false`, and the meta tag is m
        }
      },
    });
+   // END sealed-mode: WebRTC removal
    ```
 
-4. Add `executeInMainWorld: () => {}` to the `contextBridge` stub in `test/helpers/preloadAuthBridge.test.js` and in every other test that loads `preload.js` (`grep -rln exposeInMainWorld test`).
+   Then change `contextBridge.exposeInMainWorld("electronAPI", {` (`:65`) to `if (process.isMainFrame) contextBridge.exposeInMainWorld("electronAPI", {`. A subframe gets no IPC bridge.
+
+   In `src/helpers/windowConfig.js`, add `nodeIntegrationInSubFrames: true,` to every `webPreferences` (`:185`, `:224`, `:279`), next to `sandbox: true`.
+
+   In `src/index.html`, after the DNS-prefetch meta tag, add:
+
+   ```html
+       <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; object-src 'none'" />
+   ```
+
+   This CSP has no `script-src`, so Vite's development preamble is unaffected.
+
+4. In `test/helpers/preloadAuthBridge.test.js` and every other test that loads `preload.js` (today `preloadOnboardingBridge.test.js`; find others with `grep -rln exposeInMainWorld test`):
+   - add `executeInMainWorld: () => {}` to the `contextBridge` stub;
+   - pass `process: { ...process, isMainFrame: true }` to `vm.runInNewContext`, because those tests load the main frame.
 
 - [ ] **Step 4: Run the tests, then check the control panel by hand**
 
@@ -5429,6 +6120,14 @@ test("the production Codex server refuses to spawn while sealed, and records eac
   const [row] = h.recorder.list();
   assert.deepEqual([row.task, row.opaque, row.bytesOut], ["codex", true, null]);
   assert.equal(childRegistry.alive("codex").some((c) => c.pid === 778), false);
+
+  // A spawn that fails asynchronously has no pid and never exits (N2).
+  const failed = new EventEmitter();
+  codexSession(failed);
+  failed.emit("error", Object.assign(new Error("spawn EACCES"), { code: "EACCES" }));
+  failed.emit("close", -2, null);
+  assert.equal(gate.activeRemoteCount(), 0, "the session settled; sealing cannot wait on it forever");
+  assert.equal(h.recorder.list()[0].outcome, "error");
 });
 
 test("Codex verification is gated; stopCodex waits for the server to stop", async (t) => {
@@ -5632,7 +6331,9 @@ Add `src/helpers/privacy/gatedFetch.js` to the `egress-sites` block in the threa
      childRegistry.register(child, { kind: "codex" });
      const session = egress.authorize({ task: "codex", target: CODEX_HOST, provider: "codex", meter: "opaque", payload: "text" });
      session.signal.addEventListener("abort", () => child.kill(), { once: true });
-     child.once("exit", (code) => session.settle({ outcome: session.signal.aborted ? "cancelled" : code === 0 || code === null ? "ok" : "error" }));
+     childRegistry.onChildEnd(child, ({ code, failedToStart }) =>
+       session.settle({ outcome: failedToStart ? "error" : session.signal.aborted ? "cancelled" : code === 0 || code === null ? "ok" : "error" })
+     );
    }
 
    // The production Codex server with every Sealed-mode hook wired. Tests pass
@@ -5818,9 +6519,9 @@ git commit -m "feat(privacy): gate provider inference, checks and Codex; stop Co
 - Consumes `gatedNetFetch` (Task 8) and `egressGate` (Task 5).
 - Produces:
   - `buildMultipartBody(fileBuffer, fileName, contentType, fields?) → { body: Buffer, boundary }`, unchanged.
-  - `postMultipart(url, body, boundary, headers?, { signal?, session?, correlationId? }?) → Promise<data>`. It is gated, records `bytesOut = body.length` exactly, has payload `"audio"`, and marks the ticket sent just before `net.fetch`.
+  - `postMultipart(url, body, boundary, headers?, { signal?, session?, correlationId?, provider? }?) → Promise<data>`. It is gated, records `bytesOut = body.length` exactly, has payload `"audio"`, and marks the request `dispatched` just before `net.fetch` and `delivered` when the response arrives.
 - Speech tasks: `dictationStt` for captured audio, retry and the legacy proxies; `uploadStt` for file paths.
-- Correlation: the BYOK request may carry `correlationId`. Otherwise its existing `requestId` is used. Either way it is echoed in `sent` notices (CCR-3).
+- Correlation (I4-R2): the BYOK request may carry `correlationId`, the dictation session id (§5.4). Otherwise its existing `requestId` is used. The whole provider dispatch runs inside `egress.withContext({ correlationId, provider: route.provider })`. So the multipart path, and the Corti, Gemini and Tinfoil helpers, all announce the session id and the canonical target: the provider id, or `host:<host>` only for `custom` and self-hosted endpoints.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6056,7 +6757,8 @@ Fill in every `/* … */` from the moved source. They are the original lines and
 
    In `transcribe-audio-file-byok`, also make these changes:
    - add `correlationId` to the destructured request (`:7967-7985`);
-   - pass `correlationId: correlationId ?? requestId` in the options of both `postMultipart` calls (`:8089-8095`, `:8241`), next to `signal: job.signal`.
+   - wrap the provider dispatch, from the first `if (route.transport === "proxied" && route.provider === "corti")` (`:8110`) through the multipart `postMultipart(...)` (`:8241`), in `await egress.withContext({ correlationId: correlationId ?? requestId, provider: route.provider }, async () => { … })`. The Corti (`:8116`), Tinfoil (`:8130`) and Gemini (`:8145`) branches then announce the session and the provider, without new parameters;
+   - also pass `correlationId: correlationId ?? requestId, provider: route.provider` explicitly in the options of both `postMultipart` calls (`:8089-8095`, `:8241`), next to `signal: job.signal`. Without the provider, a named provider would be announced as `host:api.openai.com`, the encoding reserved for the user's own server.
 
    The handler's `catch` (`:8298-8305`) already returns `{ success: false, error, code, messageKey }`. A `SealedModeError` therefore reaches the renderer with `code: "SEALED_MODE"` and the `messageKey` for its phase.
 
@@ -6628,6 +7330,37 @@ test("a self-update that fails to spawn leaves nothing running and settles its s
   assert.deepEqual(recorder.list().map((r) => [r.task, r.outcome]), [["runtimeDownload", "error"]]);
 });
 
+test("an asynchronous spawn failure settles the session; an error after start does not", async (t) => {
+  const recorder = new FlightRecorder({ now: () => 1 });
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => false, recorder, now: () => 1 });
+  require("../../src/helpers/privacy/childRegistry")._setSystemForTests(FAKE_SYSTEM);
+  const cleanup = ensureCacheBinary();
+  const origSpawn = childProcess.spawn;
+  let child;
+  childProcess.spawn = () => (child = stuckChild());
+  t.after(() => { childProcess.spawn = origSpawn; cleanup(); gate._resetForTests(); require("../../src/helpers/privacy/childRegistry")._resetForTests(); });
+
+  // 1. EACCES after spawn() returned: no pid, "error", then "close" without "exit".
+  const failing = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+  delete child.pid;
+  child.emit("error", Object.assign(new Error("spawn EACCES"), { code: "EACCES" }));
+  child.emit("close", -13, null);
+  await failing;
+  assert.equal(downloader.ytDlpControl.alive(), false);
+  assert.equal(gate.activeRemoteCount(), 0, "no immortal ticket");
+  assert.deepEqual(recorder.list().map((r) => r.outcome), ["error"]);
+
+  // 2. An error after a successful start (pid 4242): still running until it exits.
+  const running = downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 60000 });
+  child.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+  assert.equal(downloader.ytDlpControl.alive(), true);
+  assert.equal(gate.activeRemoteCount(), 1);
+  child.emit("exit", 1, null);
+  await running;
+  assert.equal(gate.activeRemoteCount(), 0);
+});
+
 test("while sealed, a self-update is not even attempted", async (t) => {
   gate._resetForTests();
   gate.configureEgress({ isSealed: () => true });
@@ -6708,7 +7441,9 @@ test("an unsealed check is attributed to appUpdate and its ticket always settles
 
 test("pauseForSeal cancels a running download without counting a failure", async (t) => {
   const h = harness(t, { latest: "1.1.0" });
-  const pending = h.manager.check(true);
+  // The automatic check downloads when automatic updates are on, before and
+  // after Plan 02 (D13 changes only manual checks with them off).
+  const pending = h.manager.check(false);
   await new Promise((r) => setImmediate(r));
   assert.equal(h.manager.state.phase, "downloading");
   h.flags.sealed = true;
@@ -6860,8 +7595,10 @@ In `src/helpers/urlAudioDownloader.js`, add `const egress = require("./privacy/e
            // POSIX: its own process group (see the detached option below);
            // Windows: a tree. Helpers it starts count until they exit too.
            childRegistry.register(child, { kind: "yt-dlp", group: process.platform !== "win32", tree: process.platform === "win32" });
-           child.once("exit", (code) =>
-             session.settle({ outcome: session.signal.aborted ? "cancelled" : code === 0 ? "ok" : "error" })
+           // Settled exactly once: on exit, or at once if the spawn failed
+           // asynchronously (EACCES/ENOENT arrive as "error" with no pid, N2).
+           childRegistry.onChildEnd(child, ({ code, failedToStart }) =>
+             session.settle({ outcome: failedToStart ? "error" : session.signal.aborted ? "cancelled" : code === 0 ? "ok" : "error" })
            );
      ```
 
@@ -7738,8 +8475,12 @@ const ipc = loadIpcHandlers({
     environmentManager: new Proxy({}, { get: (_t, p) => (typeof p === "string" && p.startsWith("get") ? () => "sk-test" : anything()) }),
     audioStorageManager: { getAudioBuffer: () => wav, deleteAudio() {}, cleanupExpiredAudio() {} },
     // Real managers where they construct without native binaries, so their
-    // download code is the code under test.
-    whisperManager: new WhisperManager(),
+    // download code is the code under test. A getter: the harness spreads this
+    // object after its Electron stub is installed, so whisper.js loads against it.
+    get whisperManager() {
+      const WhisperManager = require("../../src/helpers/whisper");
+      return new WhisperManager();
+    },
   },
 });
 test.after(() => {
@@ -7761,9 +8502,19 @@ const { UpdateManager } = require("../../src/helpers/updateManager");
 const { createCalendarGuard } = require("../../src/helpers/privacy/calendarGuard");
 const { setExternalOpenGuard } = require("../../src/helpers/externalUrlOpener");
 const { createConfirmations } = require("../../src/helpers/privacy/privacyBoot");
-const WhisperManager = require("../../src/helpers/whisper");
 const GoogleCalendarOAuth = require("../../src/helpers/googleCalendarOAuth");
 const MicrosoftCalendarManager = require("../../src/helpers/microsoftCalendarManager");
+
+// Codex is asked only after the handler's own gate (N18). Counting these calls
+// lets a row tell "refused in the handler" from "refused by a later guard".
+let codexCalls = 0;
+{
+  const proto = require("../../src/helpers/codexAppServer").CodexAppServer.prototype;
+  for (const method of ["start", "status", "login"]) {
+    const original = proto[method];
+    if (typeof original === "function") proto[method] = function (...args) { codexCalls++; return original.apply(this, args); };
+  }
+}
 
 backstop.installNodeBackstop();
 let layerBRefusals = 0;
@@ -7778,6 +8529,7 @@ test.beforeEach(() => {
   flags.sealed = true;
   for (const key of Object.keys(transport)) transport[key] = 0;
   layerBRefusals = 0;
+  codexCalls = 0;
   gate._setBypassForTests(false);
   netFetchImpl = async () => { throw new Error("Electron net.fetch reached"); };
   recorder = new FlightRecorder({ now: () => 1 });
@@ -7797,15 +8549,15 @@ const refused = (o) =>
     ? isSealedModeError(o.thrown)
     : !!o.value && (o.value.code === "SEALED_MODE" || isSealedModeError({ message: String(o.value.error ?? "") }));
 
-// No Codex object is injected: registerPersonalInferenceIPC builds the
-// production server with createCodexServer (Task 8), hooks included.
+// Neither a Codex object nor a model factory is injected: registerPersonalInferenceIPC
+// builds the production Codex server (Task 8) and the real AI SDK models. Only
+// the terminal transport (global fetch, counted above) is faked.
 function inference() {
   const handlers = new Map();
   registerPersonalInferenceIPC({
     ipcMain: { handle: (c, fn) => handlers.set(c, fn), removeHandler() {} },
     userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), "loqui-matrix-")),
     getCredential: async () => "sk-test", saveCredential: async () => {}, openExternal: async () => {},
-    modelFactory: async () => { throw new Error("reached the model factory"); },
   });
   const sender = Object.assign(new EventEmitter(), { id: 1, isDestroyed: () => false, send() {} });
   return (name, ...args) => handlers.get(`personal-inference:${name}`)({ sender }, ...args);
@@ -7886,9 +8638,11 @@ const BLOCKED = {
   N16: [["manual update check", "appUpdate", () => updateManager().check(true)]],
   // The production factory: release verification and the spawn guard are the shipped hooks.
   N17: [["Codex start (release verification)", "codex", () => createCodexServer(codexSeams()).start()]],
+  // The fourth element is a row-specific check. For N18 it proves the refusal
+  // happened in the handler, before Codex was asked at all.
   N18: [
-    ["personal-inference:codex-status", "codex", () => inference()("codex-status")],
-    ["personal-inference:codex-login", "codex", () => inference()("codex-login")],
+    ["personal-inference:codex-status", "codex", () => inference()("codex-status"), () => assert.equal(codexCalls, 0, "refused in the handler, before Codex.status")],
+    ["personal-inference:codex-login", "codex", () => inference()("codex-login"), () => assert.equal(codexCalls, 0, "refused in the handler, before Codex.login")],
   ],
   N19: [
     ["gcal-start-oauth", "calendar", () => ipc.invoke("gcal-start-oauth")],
@@ -7936,9 +8690,10 @@ const PREVENTED = {
 };
 
 for (const [id, variants] of Object.entries(BLOCKED)) {
-  for (const [label, task, action] of variants) {
+  for (const [label, task, action, extra] of variants) {
     test(`${id} ${label}: refused before any transport, recorded as ${task}`, async () => {
       const outcome = await outcomeOf(action);
+      extra?.();
       assert.ok(refused(outcome), `${id} ${label} was not refused: ${outcome.thrown?.message ?? JSON.stringify(outcome.value)}`);
       assert.deepEqual(transport, { netFetch: 0, netRequest: 0, nodeFetch: 0, socket: 0, spawn: 0 }, `${id} ${label} touched a transport`);
       const blocked = recorder.list().filter((r) => r.outcome === "blocked");
@@ -8062,6 +8817,59 @@ test("a loopback WebSocket (the Parakeet and sidecar path) stays open through se
   }
 });
 
+// I4-R2: unsealed, every BYOK speech path announces the session id and the
+// canonical target, through the real handler.
+for (const [label, request, expectedTarget] of [
+  ["OpenAI (multipart)", { provider: "openai" }, "openai"],
+  ["custom server (multipart)", { provider: "custom", baseUrl: "https://stt.example.net/v1" }, "host:stt.example.net"],
+  ["Gemini", { provider: "gemini", model: "gemini-2.5-flash" }, "gemini"],
+  ["Corti", { provider: "corti" }, "corti"],
+]) {
+  test(`unsealed: ${label} notices carry the session id and target ${expectedTarget}`, async () => {
+    flags.sealed = false;
+    const seen = [];
+    for (const phase of ["dispatched", "delivered"]) gate.events.on(phase, (n) => n.payload !== "metadata" && seen.push({ phase, ...n }));
+    netFetchImpl = async (url) =>
+      String(url).includes("oauth") || String(url).includes("token")
+        ? new Response(JSON.stringify({ access_token: "t", expires_in: 300 }), { status: 200 })
+        : new Response(JSON.stringify({ text: "hi", candidates: [{ content: { parts: [{ text: "hi" }] } }] }), { status: 200 });
+    await outcomeOf(() => ipc.invoke("transcribe-audio-file-byok", audioRequest({ ...request, correlationId: "session-42" })));
+    assert.ok(seen.length > 0, `${label} dispatched audio`);
+    for (const n of seen) assert.deepEqual([n.correlationId, n.targetId, n.payload], ["session-42", expectedTarget, "audio"], `${label} ${n.phase}`);
+  });
+}
+
+test("concurrent sessions never borrow each other's id", async () => {
+  flags.sealed = false;
+  const seen = [];
+  gate.events.on("delivered", (n) => seen.push(n.correlationId));
+  netFetchImpl = async () => new Response(JSON.stringify({ text: "hi" }), { status: 200 });
+  await Promise.all([
+    ipc.invoke("transcribe-audio-file-byok", audioRequest({ requestId: "r-a", correlationId: "session-a" })),
+    ipc.invoke("transcribe-audio-file-byok", audioRequest({ requestId: "r-b", correlationId: "session-b" })),
+  ]);
+  assert.deepEqual(seen.sort(), ["session-a", "session-b"]);
+});
+
+test("Plan 04's disclosure tracker reads these notices correctly (when Plan 04 has merged)", async (t) => {
+  const trackerPath = path.join(__dirname, "../../src/helpers/dictationDisclosure.js");
+  if (!fs.existsSync(trackerPath)) return t.skip("Plan 04 has not merged; the notice shape is pinned above and in Task 5");
+  const { createDisclosureTracker } = await import(trackerPath);
+  flags.sealed = false;
+  const bus = new EventEmitter();
+  for (const phase of ["dispatched", "delivered", "undelivered"]) gate.events.on(phase, (n) => bus.emit("n", { phase, ...n }));
+  const privacyApi = { onEgress: (cb) => (bus.on("n", cb), () => bus.off("n", cb)) };
+  const tracker = createDisclosureTracker({ session: { id: "session-7" }, privacyApi });
+  netFetchImpl = async () => new Response(JSON.stringify({ text: "hi" }), { status: 200 });
+  await ipc.invoke("transcribe-audio-file-byok", audioRequest({ correlationId: "session-7" }));
+  await ipc.invoke("transcribe-audio-file-byok", audioRequest({ correlationId: "someone-else" }));
+  assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: [] });
+  // A token or model-list request (payload "metadata") never becomes disclosure.
+  await gate.withContext({ correlationId: "session-7" }, () => gate.guard({ task: "dictationStt", target: "https://api.assemblyai.com", provider: "assemblyai" }, async (ticket) => ticket.markDelivered()));
+  assert.equal(tracker.get().alsoSentTo.length, 0);
+  tracker.dispose();
+});
+
 test("every proxy-*-transcription channel is in the matrix", () => {
   const listed = new Set(Object.values(BLOCKED).flat().map(([label]) => label));
   for (const channel of ipc.channels().filter((c) => /^proxy-.*-transcription$/.test(c))) assert.ok(listed.has(channel), channel);
@@ -8089,12 +8897,12 @@ test("local routes keep working while sealed", async () => {
     const m = stt.buildMultipartBody(Buffer.from("RIFF"), "a.wav", "audio/wav", {});
     await gate.withTask("dictationStt", () => stt.postMultipart(new URL(`http://127.0.0.1:${port}/inference`), m.body, m.boundary));
     assert.equal(transport.netFetch, 1, "self-hosted STT reached the (stubbed) transport");
-    await assert.rejects(
-      inference()("text-generate", ask({ provider: "local", baseUrl: "http://127.0.0.1:8080/v1", inferenceScope: "dictationCleanup" })),
-      /reached the model factory/
-    );
+    // The real model factory and SDK, against the local server: the request leaves the SDK and reaches it.
+    const before = transport.nodeFetch;
+    await outcomeOf(() => inference()("text-generate", ask({ provider: "local", baseUrl: `http://127.0.0.1:${port}/v1`, inferenceScope: "dictationCleanup" })));
+    assert.ok(transport.nodeFetch > before, "the local inference request reached the transport");
     assert.equal(await (await originalFetch(`http://127.0.0.1:${port}/`)).text(), "{}");
-    assert.equal(recorder.list().length, 0);
+    assert.equal(recorder.list().length, 0, "loopback is never recorded");
   } finally {
     server.close();
   }
@@ -8128,6 +8936,8 @@ test("all model managers download only through downloadUtils", () => {
 });
 ```
 
+For the identity tests, give each request the fields the handler's route resolver reads for that provider: the custom endpoint URL key, and Corti's `cortiEnvironment` and `cortiTenant`. Find them with `grep -n "route\." src/helpers/ipcHandlers.js` around `:7967-8160`. Adjust the faked response bodies to whatever each helper parses. Never stub the helper itself, only `net.fetch`.
+
 Rules for fixing a failing row:
 - **A bypass-sensitivity test fails.** The refused row never reached its egress point. Supply the missing manager method or request field until the bypassed run reaches the transport. Never delete the row.
 - **A handler fails before reaching its egress point** because a fake manager lacks a method or a request field is missing. Add the method to `managers`, or the field to that row's arguments, with a minimal value. Never stub the gate, `gatedNetFetch`, `postMultipart`, `connectRealtime` or `downloadFile`: those are what the row proves.
@@ -8139,7 +8949,11 @@ Rules for fixing a failing row:
 Run: `npm test -- test/helpers/sealedModeEnforcement.test.js`
 Expected: PASS. There are two tests per variant (the refusal and its bypass-sensitivity run; about 80 in total, depending on how many realtime channels and token providers are discovered), plus 3 prevented rows and 12 other checks. Any failure names the inventory row and the channel whose enforcement is missing.
 
-Then prove the matrix catches a regression. Temporarily delete the `egress.assertAllowed(...)` line from the `codex-status` handler, and the `gatedNodeFetch(...)` argument from `probe-self-hosted`. Rerun. Both rows must fail. Restore both lines, and record the two failing test names in the PR description.
+Then prove the matrix catches a regression. Each drill states what it proves:
+- **A handler-local gate.** Temporarily delete the `egress.assertAllowed(...)` line from the `codex-status` handler. A later guard (the Codex server's `beforeSpawn`) still refuses, so the result can look the same. The row must still fail on its own check, `codexCalls === 0`: Codex was asked before anything refused.
+- **An end-to-end gate.** Temporarily remove the `gatedNodeFetch(...)` argument from `probe-self-hosted`. The refusal then comes from Layer B, unattributed. The row must fail, because its ledger row is no longer a `providerCheck` block. Its bypass-sensitivity twin passes, because Layer B refused at the socket.
+
+Restore both lines, and record the failing test names and their assertion messages in the PR description.
 
 - [ ] **Step 4: Commit**
 
@@ -8201,6 +9015,7 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   export function subscribeSealed(listener: () => void): () => void;   // calls ensureSealedSubscribed()
   export function setSealedMode(sealed: boolean): Promise<Attestation & { declined?: boolean }>;
   export const ATTESTATION_MAX_AGE_MS = 30_000;
+  export function isAttestationFresh(a: Attestation | null, now?: number): boolean;   // now - a.at <= 30 s
   export function _resetSealedStoreForTests(): void;
 
   // src/hooks/useSealedMode.ts: only the React hook over that module.
@@ -8213,10 +9028,11 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
   export const RECOVERY_TTL_MS: number;   // 30 minutes
   export const RECOVERY_MAX = 3;
   export function shouldHoldInMemory(error: unknown, retention: { dataRetentionEnabled: boolean; audioRetentionDays: number }): boolean;
-  export function holdForRecovery(blob: Blob, metadata?: Record<string, unknown>, now?: number): void;
+  export function holdForRecovery(blob: Blob, metadata?: Record<string, unknown>, now?: number): number;  // the hold's id
   export function recoveryCount(now?: number): number;
-  export function takeRecovery(now?: number): { blob: Blob; metadata: Record<string, unknown>; heldAt: number } | null;  // oldest first
-  export function discardRecovery(): void;
+  export function claimRecovery(now?: number): { id: number; blob: Blob; metadata: Record<string, unknown>; heldAt: number } | null; // oldest unclaimed; stays held
+  export function releaseRecovery(id: number, o: { done: boolean }): void;  // done: remove; otherwise unclaim, so it can be tried again
+  export function discardRecovery(): void;                                   // drops unclaimed holds only
   export function subscribeRecovery(listener: () => void): () => void;
 
   // src/utils/sealedModeError.ts
@@ -8232,10 +9048,22 @@ git commit -m "test(privacy): prove a sealed main process refuses every blocked 
 - **Copy rule.** "Nothing was sent" copy (`sealedMode.blocked.*`) is used only for phase `"refused"`. A request cut off mid-flight uses `sealedMode.interrupted.*`, which says the provider may have received part of it.
 - **One sealed source (I8; spec §5.4, 091d198).** `src/stores/sealedStore.ts` is the only renderer module that reads `privacy.getSealed`, `onSealedChange`, `getAttestation` or `onAttestation`. Plan 03's route hooks, `routeSnapshotFromSettings`, the Apply bar and the Keyring already read `useSealedStore`/`getSealed()`. Replacing the store's internals therefore moves all of them at once, and nothing else is migrated. Unknown (`known: false`) is `sealed: null` in `getSealedSnapshot()`, and `false` in route snapshots, because main enforces the seal either way. `isSealedLocality(locality)` (P03 Task 1) stays the only rule for which routes Sealed mode pauses. This task adds no second one.
 - **Pre-flight (owner decision 3, 2026-10-15).** While sealed, a dictation whose speech route is not on this device does not start, so nothing is recorded that main would refuse afterwards. The pre-flight is UX protection, not the recovery mechanism: it cannot help when the state is still unknown, or when the seal happens mid-recording.
-- **Recovery (I6).** When main refuses or interrupts a dictation and retention would discard the audio (history off, or audio retention 0), the recording is held in renderer memory, at most `RECOVERY_MAX` recordings for `RECOVERY_TTL_MS`. It is never written to disk. The error toast offers "Transcribe". When Sealed mode turns off, a notice offers it again. Quitting or reloading the window drops it, and the copy says so. When retention keeps the audio, the existing History retry is the recovery and nothing is held.
+- **Recovery (I6, I6-R2).** When main refuses or interrupts a dictation and retention would discard the audio (history off, or audio retention 0), the recording is held in renderer memory, at most `RECOVERY_MAX` recordings for `RECOVERY_TTL_MS`. It is never written to disk. The hold keeps the recording's metadata unchanged, including the session id and any `private` flag Plan 04 adds. The error notice offers "Transcribe". When Sealed mode turns off, a notice offers it again. Quitting or reloading the window drops it, and the copy says so. When retention keeps the audio, the existing History retry is the recovery and nothing is held.
+  - **Both paths.**
+    - **Batch:** the pipeline `catch` calls `_noteSealedFailure`.
+    - **Streaming:** sealing closes the realtime socket in main, and the provider stops with no text. `audioManager` records that the seal arrived during the stream (from the sealed store, or a sealed error from the provider). The finalizer then preserves the fallback audio through the same path before its empty-result branch: a hold with history off, a failed History entry with history on, and a sealed notice. It never reports an empty success.
+  - **Replay is atomic.**
+    - `transcribeRecovered()` runs only when the audio manager is idle and no other replay is running. Otherwise it returns `busy` and leaves the hold alone.
+    - It claims the hold, rather than taking it.
+    - It removes the hold only when the replay produced a transcript. Any failure, cancellation or empty result releases it for another try. A sealed failure during a replay does not create a second hold.
 - **Cleanup after local speech-to-text.** A refused cleanup step already falls back to the local transcript (`processWithReasoningModel`'s `catch`, `audioManager.js:2714-2738`, returns `normalizedText`). `test/helpers/audioManagerSealed.test.js` pins that for a `SEALED_MODE` error.
 - **Remote images.** Markdown from a provider or a pasted note can name remote images. While sealed, or while the state is unknown, they render as a placeholder, so the page does not ask Chromium for them. Layer B would refuse the request anyway; the placeholder keeps the flight recorder free of unattributed noise and makes the reason visible. Links stay links: opening one goes through main's confirmation (Task 11).
-- **Stale attestations.** An attestation older than `ATTESTATION_MAX_AGE_MS` (by main's `at`) is dropped to unknown and re-fetched. The panel then shows "Checking…", never an old "verified".
+- **Stale attestations (I5, I5-R2).** An attestation is shown for at most `ATTESTATION_MAX_AGE_MS` after main's `at`, never 30 s after it arrived:
+  - its expiry timer gets only the remaining lifetime;
+  - age is rechecked when the window regains focus or becomes visible, because timers are throttled while hidden and paused across sleep;
+  - the panel checks `isAttestationFresh` on every render.
+
+  A version watermark survives invalidation, so a late, older reply is never adopted after a newer claim expired. A stale claim drops to unknown, which the panel shows as "Checking…".
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -8320,10 +9148,29 @@ test("oldest first, bounded, and expired recordings are dropped", async (t) => {
   r.holdForRecovery(blob(3), { n: 3 }, 20);
   r.holdForRecovery(blob(4), { n: 4 }, 30);
   assert.equal(r.recoveryCount(30), r.RECOVERY_MAX, "bounded");
-  assert.equal(r.takeRecovery(30).metadata.n, 2, "the oldest beyond the bound was dropped; then oldest first");
+  const claimed = r.claimRecovery(30);
+  assert.equal(claimed.metadata.n, 2, "the oldest beyond the bound was dropped; then oldest first");
+  r.releaseRecovery(claimed.id, { done: true });
   assert.equal(r.recoveryCount(20 + r.RECOVERY_TTL_MS + 1), 1, "expired entries go");
   off();
   assert.ok(notified >= 5);
+});
+
+test("a claim keeps the hold until the replay succeeds; a failed replay releases it for another try", async (t) => {
+  const r = await load();
+  r.discardRecovery();
+  t.after(() => r.discardRecovery());
+  const id = r.holdForRecovery(blob(1), { sessionId: "s-1", private: true }, 0);
+  const first = r.claimRecovery(0);
+  assert.equal(first.id, id);
+  assert.equal(r.claimRecovery(0), null, "one claim at a time");
+  r.discardRecovery();
+  assert.equal(r.recoveryCount(0), 1, "discard never drops a hold that is being replayed");
+  r.releaseRecovery(id, { done: false });
+  const again = r.claimRecovery(0);
+  assert.deepEqual([again.id, again.metadata], [id, { sessionId: "s-1", private: true }], "same bytes and context, still held");
+  r.releaseRecovery(id, { done: true });
+  assert.equal(r.recoveryCount(0), 0);
 });
 
 test("recovery never touches disk or IPC", () => {
@@ -8475,6 +9322,56 @@ test("setSealedMode adopts main's answer, including a declined unseal", async (t
   const result = await store.setSealedMode(false);
   assert.equal(result.declined, true);
   assert.equal(store.getSealedSnapshot().sealed, true);
+});
+
+test("a claim delivered late lives only until main's at + 30 s, not 30 s after arrival", async (t) => {
+  const store = await load();
+  store._resetSealedStoreForTests();
+  const fake = fakePrivacy();
+  fake.api.getAttestation = async () => ({ sealed: true, nothingLeaves: true, version: 1, at: Date.now() });
+  globalThis.window = { electronAPI: { privacy: fake.api } };
+  t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
+  store.subscribeSealed(() => {});
+  await tick();
+  fake.listeners.attestation({ sealed: true, nothingLeaves: true, version: 7, at: Date.now() - store.ATTESTATION_MAX_AGE_MS + 40 });
+  assert.equal(store.getSealedSnapshot().attestation.version, 7, "fresh for 40 more ms");
+  await new Promise((r) => setTimeout(r, 80));
+  assert.notEqual(store.getSealedSnapshot().attestation?.version, 7, "gone at at + 30 s, not 30 s after it arrived");
+});
+
+test("after a claim expires, a late older reply is never adopted", async (t) => {
+  const store = await load();
+  store._resetSealedStoreForTests();
+  const fake = fakePrivacy();
+  let refetch;
+  fake.api.getAttestation = () => new Promise((r) => { refetch = r; });
+  globalThis.window = { electronAPI: { privacy: fake.api } };
+  t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
+  store.subscribeSealed(() => {});
+  fake.listeners.attestation({ sealed: true, nothingLeaves: true, version: 9, at: Date.now() - store.ATTESTATION_MAX_AGE_MS - 1 });
+  assert.equal(store.getSealedSnapshot().attestation, null, "stale on arrival: unknown");
+  refetch({ sealed: true, nothingLeaves: true, version: 8, at: Date.now() }); // a reply that left main before version 9
+  await tick();
+  assert.equal(store.getSealedSnapshot().attestation, null, "the watermark outlives the expired claim");
+  fake.listeners.attestation({ sealed: true, nothingLeaves: false, version: 10, at: Date.now() });
+  assert.equal(store.getSealedSnapshot().attestation.version, 10, "a newer push is adopted");
+});
+
+test("a failed refresh while a newer push arrives keeps the newer push", async (t) => {
+  const store = await load();
+  store._resetSealedStoreForTests();
+  const fake = fakePrivacy();
+  let fail;
+  fake.api.getAttestation = () => new Promise((_r, reject) => { fail = reject; });
+  globalThis.window = { electronAPI: { privacy: fake.api } };
+  t.after(() => { delete globalThis.window; store._resetSealedStoreForTests(); });
+  store.subscribeSealed(() => {});
+  fake.listeners.attestation({ sealed: true, nothingLeaves: true, version: 3, at: Date.now() });
+  fail(new Error("ipc")); // the refresh started before version 3 arrived
+  await tick();
+  assert.equal(store.getSealedSnapshot().attestation.version, 3, "an older read's failure does not erase a newer push");
+  fake.listeners.attestation({ sealed: true, nothingLeaves: true, version: 4, at: Date.now() });
+  assert.equal(store.getSealedSnapshot().attestation.version, 4);
 });
 
 test("an attestation older than 30 s is dropped to unknown and re-fetched", async (t) => {
@@ -8656,21 +9553,99 @@ for (const [label, retention, held] of [
     assert.equal(recovery.recoveryCount(), held ? 1 : 0);
     assert.equal(error.recoveryHeld === true, held);
     assert.match(error.messageKey, held ? /\.dictationHeld$/ : /\.dictationKept$/);
-    if (held) assert.equal(recovery.takeRecovery().blob, audio, "the same bytes, not a copy on disk");
+    if (held) assert.equal(recovery.claimRecovery().blob, audio, "the same bytes, not a copy on disk");
   });
 }
 
-test("transcribeRecovered replays the held recording through the normal pipeline", async (t) => {
-  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0 });
+// The real processAudio runs; only the transcription transport is faked.
+function replayManager(createManager, transcribe) {
+  const completions = [];
+  const errors = [];
+  const manager = createManager({
+    isRecording: false, isProcessing: false, isStreaming: false, _startInProgress: false,
+    _localSpeechGateState: null, voiceAgentRequested: false, translationRequested: false,
+    pendingCleanupFailure: null, pendingAssistantConversation: null, pendingSelectionEdit: null,
+    processWithOpenAIAPI: transcribe,
+    processTranscriptionCore: async (text) => text,
+    onTranscriptionComplete: (r) => completions.push(r),
+    onError: (e) => errors.push(e),
+    onStateChange() {},
+  });
+  return { manager, completions, errors };
+}
+
+test("replay: a transcript removes the hold; the real pipeline ran", async (t) => {
+  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
   const audio = new Blob(["pcm"]);
-  recovery.holdForRecovery(audio, { durationSeconds: 2 });
-  const processed = [];
-  const manager = createManager({ processAudio: async (blob, metadata) => processed.push([blob, metadata]) });
-  assert.equal(await manager.transcribeRecovered(), true);
-  assert.deepEqual(processed, [[audio, { durationSeconds: 2 }]]);
+  recovery.holdForRecovery(audio, { durationSeconds: 2, sessionId: "s-9" });
+  const seen = [];
+  const { manager, completions } = replayManager(createManager, async (blob, metadata) => {
+    seen.push([blob, metadata.sessionId]);
+    return { success: true, text: "hello" };
+  });
+  assert.deepEqual(await manager.transcribeRecovered(), { started: true, succeeded: true });
+  assert.deepEqual(seen, [[audio, "s-9"]], "the same bytes and session context were replayed");
+  assert.equal(completions.at(-1)?.text, "hello");
   assert.equal(recovery.recoveryCount(), 0);
-  assert.equal(await manager.transcribeRecovered(), false, "nothing left");
 });
+
+test("replay: a non-sealed failure keeps the only copy; a sealed failure keeps it without a duplicate", async (t) => {
+  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
+  recovery.holdForRecovery(new Blob(["pcm"]), {});
+  const failing = replayManager(createManager, async () => { throw new Error("network down"); });
+  assert.deepEqual(await failing.manager.transcribeRecovered(), { started: true, succeeded: false });
+  assert.equal(recovery.recoveryCount(), 1, "kept for another try");
+  const sealed = replayManager(createManager, async () => { throw sealedError(); });
+  await sealed.manager.transcribeRecovered();
+  assert.equal(recovery.recoveryCount(), 1, "still one hold, not two");
+  assert.equal(sealed.errors.at(-1).recoveryHeld, true);
+});
+
+test("replay: refused while busy, and only one replay at a time", async (t) => {
+  const { createManager, recovery } = await setup(t, { dataRetentionEnabled: false, audioRetentionDays: 0, useLocalWhisper: false });
+  recovery.holdForRecovery(new Blob(["pcm"]), {});
+  let release;
+  const { manager } = replayManager(createManager, () => new Promise((r) => { release = () => r({ success: true, text: "x" }); }));
+  manager.isRecording = true;
+  assert.deepEqual(await manager.transcribeRecovered(), { started: false, reason: "busy" });
+  manager.isRecording = false;
+  const first = manager.transcribeRecovered();
+  assert.deepEqual(await manager.transcribeRecovered(), { started: false, reason: "busy" }, "a double click starts nothing");
+  release();
+  assert.equal((await first).succeeded, true);
+  assert.equal(recovery.recoveryCount(), 0);
+});
+
+for (const [label, retention, held] of [
+  ["history off", { dataRetentionEnabled: false, audioRetentionDays: 30 }, true],
+  ["history and audio kept", { dataRetentionEnabled: true, audioRetentionDays: 30 }, false],
+]) {
+  test(`streaming sealed mid-dictation with no text (${label}): the audio is preserved, not reported as an empty success`, async (t) => {
+    const { createManager, recovery } = await setup(t, retention);
+    const audio = new Blob(["fallback-pcm"]);
+    const completions = [];
+    const errors = [];
+    const saved = [];
+    // The real finalizer runs; its audio, provider and timer collaborators are stubbed.
+    const manager = createManager({
+      _activeStreamingSessionId: null, _streamingCancellationGeneration: 0, recordingStartTime: Date.now() - 3000,
+      micRecovery: { stop() {} }, _streamingMicSwapPromise: null, streamingProcessor: null, streamingSource: null,
+      finishStreamingFallbackSegment: async () => {}, mergeRecordedSegments: async () => audio, _streamingFallbackSegments: [audio],
+      streamingFallbackRecorder: null, streamingStream: null, streamingFinalText: "", streamingPartialText: "",
+      getStreamingProvider: () => ({ finalize() {}, awaitsFinalTranscript: false, stop: async () => { throw sealedError(); } }),
+      cleanupStreamingListeners() {}, _streamingSealed: true,
+      onStateChange() {}, onError: (e) => errors.push(e), onTranscriptionComplete: (r) => completions.push(r),
+      saveFailedTranscription: async (...args) => saved.push(args),
+    });
+    assert.equal(await manager._finalizeStreamingRecording(null), true);
+    assert.deepEqual(completions, [], "no empty success");
+    assert.equal(errors[0].code, "SEALED_MODE");
+    assert.equal(errors[0].recoveryHeld, held);
+    assert.equal(recovery.recoveryCount(), held ? 1 : 0);
+    if (held) assert.equal(recovery.claimRecovery().blob, audio);
+    assert.equal(saved.length, 1, "History gets its failed entry whenever retention keeps audio");
+  });
+}
 
 test("startRecording refuses before the microphone opens when the pre-flight says sealed", async (t) => {
   globalThis.__preflightSealed = true;
@@ -8800,15 +9775,17 @@ import { isSealedModeError } from "../utils/sealedModeError";
 export const RECOVERY_TTL_MS = 30 * 60 * 1000;
 export const RECOVERY_MAX = 3;
 
-type Held = { blob: Blob; metadata: Record<string, unknown>; heldAt: number };
+type Held = { id: number; blob: Blob; metadata: Record<string, unknown>; heldAt: number; claimed: boolean };
 let held: Held[] = [];
+let nextId = 1;
 const listeners = new Set<() => void>();
 const notify = () => {
   for (const listener of listeners) listener();
 };
 
 function expire(now: number) {
-  const kept = held.filter((h) => now - h.heldAt <= RECOVERY_TTL_MS);
+  // A hold that is being replayed never expires under the replay.
+  const kept = held.filter((h) => h.claimed || now - h.heldAt <= RECOVERY_TTL_MS);
   if (kept.length !== held.length) {
     held = kept;
     notify();
@@ -8822,9 +9799,17 @@ export function shouldHoldInMemory(
   return isSealedModeError(error) && !(retention.dataRetentionEnabled && retention.audioRetentionDays > 0);
 }
 
-export function holdForRecovery(blob: Blob, metadata: Record<string, unknown> = {}, now = Date.now()): void {
-  held = [...held, { blob, metadata, heldAt: now }].slice(-RECOVERY_MAX);
+export function holdForRecovery(blob: Blob, metadata: Record<string, unknown> = {}, now = Date.now()): number {
+  const id = nextId++;
+  // Over the bound, the oldest unclaimed hold goes; a claimed one is never dropped.
+  held = [...held, { id, blob, metadata: { ...metadata }, heldAt: now, claimed: false }];
+  while (held.length > RECOVERY_MAX) {
+    const victim = held.findIndex((h) => !h.claimed);
+    if (victim === -1) break;
+    held.splice(victim, 1);
+  }
   notify();
+  return id;
 }
 
 export function recoveryCount(now = Date.now()): number {
@@ -8832,18 +9817,30 @@ export function recoveryCount(now = Date.now()): number {
   return held.length;
 }
 
-export function takeRecovery(now = Date.now()): Held | null {
+// Replays claim a hold instead of taking it, so the only copy survives a
+// failed, cancelled or empty replay (I6-R2). One claim at a time.
+export function claimRecovery(now = Date.now()): Held | null {
   expire(now);
-  const [first, ...rest] = held;
+  if (held.some((h) => h.claimed)) return null;
+  const first = held.find((h) => !h.claimed);
   if (!first) return null;
-  held = rest;
+  first.claimed = true;
   notify();
   return first;
 }
 
+export function releaseRecovery(id: number, { done }: { done: boolean }): void {
+  const entry = held.find((h) => h.id === id);
+  if (!entry) return;
+  if (done) held = held.filter((h) => h.id !== id);
+  else entry.claimed = false;
+  notify();
+}
+
 export function discardRecovery(): void {
-  if (held.length === 0) return;
-  held = [];
+  const kept = held.filter((h) => h.claimed);
+  if (kept.length === held.length) return;
+  held = kept;
   notify();
 }
 
@@ -8964,6 +9961,9 @@ export type SealedSnapshot = { sealed: boolean | null; attestation: Attestation 
 export const ATTESTATION_MAX_AGE_MS = 30_000;
 
 let attestation: Attestation | null = null;
+// The newest version ever adopted. It survives invalidation, so a late reply
+// older than a claim we already dropped can never come back (I5-R2).
+let highestVersion = -1;
 let snapshot: SealedSnapshot = { sealed: null, attestation: null };
 const listeners = new Set<() => void>();
 let subscribed = false;
@@ -8990,30 +9990,53 @@ function setAttestation(next: Attestation | null) {
 }
 
 function refetchAttestation() {
-  privacyApi()?.getAttestation?.().then(adopt, () => setAttestation(null));
+  const api = privacyApi();
+  if (!api?.getAttestation) return;
+  const newestAtStart = highestVersion;
+  api.getAttestation().then(adopt, () => {
+    // A failed read cannot vouch for anything, but it must not erase a newer
+    // push that arrived while it was in flight.
+    if (highestVersion === newestAtStart) setAttestation(null);
+  });
 }
 
-// Main versions every attestation; an older one (a late IPC reply) never wins.
-// One older than ATTESTATION_MAX_AGE_MS is not shown: the UI drops to unknown
-// ("Checking…") and asks again. A failed read also drops to unknown, so a claim
-// that may be stale is never kept.
-function adopt(next: Attestation | null) {
-  if (next && attestation && next.version < attestation.version) return;
+export const isAttestationFresh = (a: Attestation | null, now = Date.now()): boolean =>
+  !!a && now - a.at <= ATTESTATION_MAX_AGE_MS;
+
+function expireNow() {
   if (staleTimer) clearTimeout(staleTimer);
   staleTimer = null;
-  if (next && Date.now() - next.at > ATTESTATION_MAX_AGE_MS) {
+  setAttestation(null);
+  refetchAttestation();
+}
+
+// Main versions every attestation; an older one (a late IPC reply) never wins,
+// even after the newer one expired. A claim lives until main's `at` + 30 s and
+// no longer: the timer gets only the remaining lifetime. A failed read drops to
+// unknown, so a claim that may be stale is never kept.
+function adopt(next: Attestation | null) {
+  if (next && next.version < highestVersion) return;
+  if (staleTimer) clearTimeout(staleTimer);
+  staleTimer = null;
+  if (!next) {
     setAttestation(null);
-    refetchAttestation();
+    return;
+  }
+  highestVersion = Math.max(highestVersion, next.version);
+  const remaining = next.at + ATTESTATION_MAX_AGE_MS - Date.now();
+  if (remaining <= 0) {
+    expireNow();
     return;
   }
   setAttestation(next);
-  if (next) {
-    staleTimer = setTimeout(() => {
-      setAttestation(null);
-      refetchAttestation();
-    }, ATTESTATION_MAX_AGE_MS);
-    (staleTimer as { unref?: () => void }).unref?.();
-  }
+  staleTimer = setTimeout(expireNow, remaining);
+  (staleTimer as { unref?: () => void }).unref?.();
+}
+
+// Timers are throttled in a hidden window and paused across sleep, so age is
+// rechecked whenever the window comes back, not only when the timer fires.
+function recheckFreshness() {
+  if (attestation && !isAttestationFresh(attestation)) expireNow();
 }
 
 export function ensureSealedSubscribed(): void {
@@ -9030,6 +10053,8 @@ export function ensureSealedSubscribed(): void {
     useSealedStore.setState({ sealed: sealed === true, known: true });
   });
   privacy.onAttestation?.(adopt);
+  window.addEventListener?.("focus", recheckFreshness);
+  window.document?.addEventListener?.("visibilitychange", recheckFreshness);
   const startedAt = eventVersion;
   Promise.resolve()
     .then(() => privacy.getSealed?.())
@@ -9068,6 +10093,7 @@ export function _resetSealedStoreForTests(): void {
   subscribed = false;
   eventVersion = 0;
   attestation = null;
+  highestVersion = -1;
   if (staleTimer) clearTimeout(staleTimer);
   staleTimer = null;
   useSealedStore.setState({ sealed: false, known: false });
@@ -9122,7 +10148,10 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
      _noteSealedFailure(error) {
        if (!isSealedModeError(error)) return;
        const retention = getEffectiveRetentionPreferences();
-       if (this.lastAudioBlob && shouldHoldInMemory(error, retention)) {
+       if (this._recoveryReplay) {
+         // A replay that failed again: its claimed hold is kept, not duplicated.
+         error.recoveryHeld = true;
+       } else if (this.lastAudioBlob && shouldHoldInMemory(error, retention)) {
          holdForRecovery(this.lastAudioBlob, { ...(this.lastAudioMetadata || {}) });
          error.recoveryHeld = true;
        }
@@ -9130,34 +10159,82 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
        error.messageKey = sealedDictationMessageKey(error, retention, { held: error.recoveryHeld === true });
      }
 
-     // "Transcribe" on the error toast or the unseal notice. Replays the oldest
-     // held recording through the normal pipeline. If it is refused again, the
-     // catch holds it again.
+     // A seal during a realtime stream (I6-R2): main closed the socket, and no
+     // text arrived. Preserve the fallback audio exactly as a refused batch
+     // dictation is preserved, instead of reporting an empty success.
+     async _preserveSealedStream(metadata) {
+       const error = Object.assign(new Error("[SEALED_MODE:interrupted] Sealed mode was turned on during the dictation"), {
+         code: "SEALED_MODE",
+         details: { phase: "interrupted" },
+       });
+       this._noteSealedFailure(error);
+       this.isProcessing = false;
+       this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+       this.onError?.({
+         title: "sealedMode.blocked.dictationTitle",
+         description: error.message,
+         code: "SEALED_MODE",
+         messageKey: error.messageKey,
+         recoveryHeld: error.recoveryHeld === true,
+       });
+       // History on: a failed entry with the audio, for Retry. History off:
+       // saveFailedTranscription drops the field, and the hold above keeps it.
+       if (this.lastAudioBlob) await this.saveFailedTranscription(error.message, "SEALED_MODE", metadata);
+       return true;
+     }
+
+     // "Transcribe" on the error notice or the unseal notice. It claims an idle
+     // pipeline and the oldest hold atomically; the hold is removed only when
+     // the replay produced a transcript.
      async transcribeRecovered() {
-       const held = takeRecovery();
-       if (!held) return false;
+       if (this.isRecording || this.isProcessing || this.isStreaming || this._startInProgress || this._recoveryReplay) {
+         return { started: false, reason: "busy" };
+       }
+       const held = claimRecovery();
+       if (!held) return { started: false, reason: "none" };
+       this._recoveryReplay = held.id;
+       const pipeline = this._startProcessingPipeline();
+       this.isProcessing = true;
+       this.onStateChange?.({ isRecording: false, isProcessing: true, isStreaming: false });
        this.lastAudioBlob = held.blob;
        this.lastAudioMetadata = held.metadata;
-       await this.processAudio(held.blob, held.metadata);
-       return true;
+       try {
+         await this.processAudio(held.blob, held.metadata, pipeline);
+       } finally {
+         this._recoveryReplay = null;
+         releaseRecovery(held.id, { done: pipeline.outcome === "success" });
+       }
+       return { started: true, succeeded: pipeline.outcome === "success" };
      }
    ```
 
    In the dictation pipeline `catch` (`:1903-1928`), as the first statement of the final `else` branch (before `this.onError?.({`, `:1915`), add `this._noteSealedFailure(error);`. In that `onError` call, add `recoveryHeld: error.recoveryHeld === true,` after `messageKey: error.messageKey,`. The existing `saveFailedTranscription(...)` call that follows stays: it keeps the recording for retry in History whenever retention allows.
 
-   Imports: `isSealedModeError` and `sealedDictationMessageKey` from `../utils/sealedModeError`; `shouldHoldInMemory`, `holdForRecovery` and `takeRecovery` from `../lib/sealedRecovery`. `getEffectiveRetentionPreferences()` is defined at `audioManager.js:130-136`.
+   Mark each pipeline's outcome, so a replay knows whether it succeeded:
+   - directly before `this.onTranscriptionComplete?.(result);` (`:1860`), add `pipeline.outcome = result?.success && result.text ? "success" : "empty";`;
+   - as the first statement of the `catch (error)` at `:1884`, add `pipeline.outcome = "failed";`.
 
-6. `src/hooks/useAudioRecording.js`.
-   - Give `showDictationError` (`:300`) an `extraActions = []` parameter, and append it to `actions` before the `toast(...)` call.
-   - In `onError` (`:383`), pass `extraActions` when `error?.recoveryHeld` is true:
+   **The streaming path (I6-R2).**
+   - Where a streaming session starts (the block that registers `provider.onError` at `:3541`), set `this._streamingSealed = false`. Then add `this._offSealedWatch = subscribeSealed(() => { if (this.isStreaming && getSealedSnapshot().sealed === true) this._streamingSealed = true; });`, and call `this._offSealedWatch?.()` in `cleanupStreamingListeners`.
+   - In the `provider.onError` callback, first set `this._streamingSealed ||= isSealedModeError({ message: String(error) }) || getSealedSnapshot().sealed === true;`. When that is true, skip its generic "Streaming Error" `onError`: the finalizer reports the seal instead.
+   - In `_finalizeStreamingRecording`, directly after `this.cleanupStreamingListeners(sessionId); if (wasCancelled()) return true;` (`:3986-3987`), add:
 
      ```js
-             extraActions: error?.recoveryHeld
-               ? [{ label: t("sealedMode.recovery.transcribe"), icon: "retry", onClick: () => audioManagerRef.current?.transcribeRecovered() }]
-               : [],
+         if (!finalText && this._streamingSealed) {
+           // Sealed mid-stream with no text: keep the audio (I6-R2).
+           return this._preserveSealedStream({ durationSeconds, analyticsOccurredAt });
+         }
      ```
 
-   - In the same `useEffect`, after `setCallbacks(...)`, add the notice on unseal:
+     `lastAudioBlob` already holds the fallback recording here (`:3934-3936`). With a partial transcript, the normal pipeline continues, and a refused cleanup keeps the local text (see below).
+
+   Imports: `isSealedModeError` and `sealedDictationMessageKey` from `../utils/sealedModeError`; `shouldHoldInMemory`, `holdForRecovery`, `claimRecovery` and `releaseRecovery` from `../lib/sealedRecovery`; `getSealedSnapshot` and `subscribeSealed` from `../stores/sealedStore`. `getEffectiveRetentionPreferences()` is defined at `audioManager.js:130-136`.
+
+6. `src/hooks/useAudioRecording.js`: the two recovery surfaces (§5.3). Plan 04 and Plan 07 can merge in either order (spec §3), and the code differs. Check which API exists: `test -f src/components/ui/notices.ts`.
+
+   **Plan 04 has merged** (`notices.ts` exists; the toast system is gone). Use Plan 04's builders (P04 Task 4, `src/components/voiceNotices`):
+   - In `onError` (`:383`), call `showDictationError({ title, description, recoveryHeld: error?.recoveryHeld === true }, extraActions)`. When `recoveryHeld` is true, pass `extraActions = [{ label: t("sealedMode.recovery.transcribe"), onClick: () => audioManagerRef.current?.transcribeRecovered() }]`. Plan 04's `buildDictationErrorNotice` makes a held-audio refusal a persistent `alert`.
+   - The unseal prompt:
 
      ```js
          // Plan 07: a dictation held in memory while sealed is offered again
@@ -9166,22 +10243,55 @@ Task 7 already replaced Plan 03's optional `privacy?` declaration in `src/types/
          const offSealed = subscribeSealed(() => {
            const { sealed } = getSealedSnapshot();
            if (wasSealed === true && sealed === false && recoveryCount() > 0) {
-             toast({
-               title: t("sealedMode.recovery.availableTitle"),
-               description: t("sealedMode.recovery.availableDetail", { count: recoveryCount() }),
-               variant: "default",
-               duration: Infinity,
-               actions: [
-                 { label: t("sealedMode.recovery.transcribe"), icon: "retry", onClick: () => audioManagerRef.current?.transcribeRecovered() },
-                 { label: t("sealedMode.recovery.discard"), onClick: () => discardRecovery() },
-               ],
-             });
+             notify(buildSealedRecoveryNotice(t, {
+               transcribe: () => audioManagerRef.current?.transcribeRecovered(),
+               discard: () => discardRecovery(),
+             }));
            }
            wasSealed = sealed;
          });
      ```
 
-     Call `offSealed()` in the effect's cleanup. Import `getSealedSnapshot` and `subscribeSealed` from `../stores/sealedStore`, and `recoveryCount` and `discardRecovery` from `../lib/sealedRecovery`. `useToast` already supports `actions` and `duration`. If `duration: Infinity` is not accepted, use the longest duration `useToast.ts` supports and keep the action. Plan 04 restyles this as a pill notice and must keep the action (CCR-4).
+     This is §5.3's `notify({ kind: "notice", persistent: true, actions: [Transcribe, Discard] })`. Import `notify` from `../components/ui/notices` and `buildSealedRecoveryNotice` from `../components/voiceNotices`.
+
+   **Plan 04 has not merged** (the toast system still exists):
+   - Give `showDictationError` (`:300`) an `extraActions = []` parameter, and append it to `actions` before the `toast(...)` call. In `onError` (`:383`), pass the same Transcribe action when `error?.recoveryHeld` is true, and `duration: 0` so the held-audio refusal stays until acknowledged.
+   - The unseal prompt is the block above, with `notify(buildSealedRecoveryNotice(...))` replaced by `toast({ title: t("sealedMode.recovery.availableTitle"), description: t("sealedMode.recovery.availableDetail", { count: recoveryCount() }), variant: "default", duration: 0, actions: [Transcribe, Discard] })`. In the existing toast, `duration: 0` never auto-dismisses (`Toast.tsx:97` sets a timer only when `duration > 0`), so this is the persistent notice §5.3 requires.
+   - Plan 04 removes this fallback when it merges second (P04 Task 5, Step 3, item 7). Its `noToastLeft` guard fails if a toast survives.
+
+   In both orders, call `offSealed()` in the effect's cleanup. Import `getSealedSnapshot` and `subscribeSealed` from `../stores/sealedStore`, and `recoveryCount` and `discardRecovery` from `../lib/sealedRecovery`.
+
+   Create `test/hooks/sealedRecoveryNotice.test.js`. It checks whichever API this branch has:
+
+   ```js
+   const assert = require("node:assert/strict");
+   const fs = require("node:fs");
+   const path = require("node:path");
+   const test = require("node:test");
+
+   const root = path.join(__dirname, "../..");
+   const hook = fs.readFileSync(path.join(root, "src/hooks/useAudioRecording.js"), "utf8");
+   const plan04 = fs.existsSync(path.join(root, "src/components/ui/notices.ts"));
+
+   test("the recovery prompt is persistent and offers Transcribe and Discard, in either merge order", () => {
+     const block = hook.slice(hook.indexOf("const offSealed = subscribeSealed("), hook.indexOf("wasSealed = sealed;"));
+     assert.ok(block.length > 0, "the unseal prompt exists");
+     if (plan04) {
+       assert.match(block, /notify\(buildSealedRecoveryNotice\(t, \{\s*transcribe:/);
+       assert.doesNotMatch(hook, /(^|[^.\w])toast\(\{/m, "no toast survives once Plan 04 has merged");
+     } else {
+       assert.match(block, /toast\(\{[\s\S]*duration: 0[\s\S]*sealedMode\.recovery\.transcribe[\s\S]*sealedMode\.recovery\.discard/);
+       assert.doesNotMatch(block, /Infinity|duration: [1-9]/, "persistent, never a long timeout");
+     }
+   });
+
+   test("a held-audio refusal carries the Transcribe action", () => {
+     assert.match(hook, /recoveryHeld/);
+     assert.match(hook, /transcribeRecovered\(\)/);
+   });
+   ```
+
+   In the integrated branch, also run Plan 04's `test/components/noToastLeft.test.js` and its notice-shape tests (`test/components/voiceNotices.test.js`).
 
 7. `src/components/ui/MarkdownRenderer.tsx`. Add an `img` entry to `markdownComponents`:
 
@@ -9263,12 +10373,16 @@ const t = (key, params) => (params ? `${key}${JSON.stringify(params)}` : key);
 const time = (ms) => `T${ms}`;
 const attested = { sealed: true, sealedSince: 5, effectiveSince: 7, phase: "sealed", failures: [], notes: [], loadError: null, saveError: null,
   guards: { node: true, dns: true, dgram: true, http: true, webContents: true, sessions: 2, envProxy: false, openRemoteSockets: 0, chromiumInFlightRemote: 0, pendingDns: 0 },
-  networkChildren: [], activeRemote: 0, blockedSinceSealed: 3, recordFailures: 0, version: 1, at: 1, nothingLeaves: true };
+  networkChildren: [], uninspectedChildren: [], activeRemote: 0, blockedSinceSealed: 3, recordFailures: 0, version: 1, at: Date.now(), nothingLeaves: true };
 
 test("the verified claim appears only when main attests it", async () => {
   const { sealedStatusLines } = await copy();
   const keys = (s, a) => sealedStatusLines(s, a, time).map((l) => l.key);
   assert.ok(keys(true, attested).includes("settingsPage.privacy.sealed.attested"));
+  assert.ok(
+    !keys(true, { ...attested, at: Date.now() - 31_000 }).includes("settingsPage.privacy.sealed.attested"),
+    "a claim older than main's at + 30 s is pending at render, whatever the store's timer did"
+  );
   for (const variant of [
     { ...attested, nothingLeaves: false, networkChildren: ["codex"] },
     { ...attested, nothingLeaves: false, guards: { ...attested.guards, sessions: 0 } },
@@ -9303,6 +10417,13 @@ test("each unverified reason names its cause", async () => {
   assert.equal(line({ ...sealing, failures: ["codexStop"] }).key, "settingsPage.privacy.sealed.unverified.stopFailedUnnamed");
   assert.equal(line({ ...sealing, failures: ["timeout:chromium"], guards: { ...attested.guards, chromiumInFlightRemote: 1 } }).key, "settingsPage.privacy.sealed.unverified.chromium");
   assert.equal(line({ ...sealing, failures: ["timeout:dns"], guards: { ...attested.guards, pendingDns: 1 } }).key, "settingsPage.privacy.sealed.unverified.dns");
+});
+
+test("running on-device sidecars are named beside the verified line, never folded into it", async () => {
+  const { sealedStatusLines } = await copy();
+  const lines = sealedStatusLines(true, { ...attested, uninspectedChildren: ["llama-server", "qdrant"] }, time);
+  assert.ok(lines.some((l) => l.key === "settingsPage.privacy.sealed.attested"));
+  assert.deepEqual(lines.find((l) => l.key === "settingsPage.privacy.sealed.uninspected").params, { names: "llama-server, qdrant" });
 });
 
 test("a delay that resolved before verification is disclosed beside the verified line", async () => {
@@ -9373,6 +10494,7 @@ Create `src/components/settings/sealedModeCopy.ts`:
 
 ```ts
 import type { Attestation } from "../../types/privacy";
+import { isAttestationFresh } from "../../stores/sealedStore";
 
 export type StatusLine = { key: string; params?: Record<string, string | number>; tone: "neutral" | "ok" | "warn" };
 const P = "settingsPage.privacy.sealed";
@@ -9406,10 +10528,13 @@ const NOTE_KEYS = new Set(["codexStop", "childStop"]);
 // sealedSince (when the switch was flipped).
 export function sealedStatusLines(
   sealed: boolean | null,
-  attestation: Attestation | null,
-  formatTime: (ms: number) => string
+  attestationIn: Attestation | null,
+  formatTime: (ms: number) => string,
+  now: number = Date.now()
 ): StatusLine[] {
   if (sealed === null) return [{ key: `${P}.unknown`, tone: "neutral" }];
+  // Checked again at render (I5-R2): a claim past main's at + 30 s is pending.
+  const attestation = isAttestationFresh(attestationIn, now) ? attestationIn : null;
   const lines: StatusLine[] = [];
   if (!sealed) {
     lines.push({ key: `${P}.description`, tone: "neutral" });
@@ -9422,6 +10547,9 @@ export function sealedStatusLines(
         tone: "ok",
       });
       for (const note of attestation.notes) if (NOTE_KEYS.has(note)) lines.push({ key: `${P}.note.${note}`, tone: "neutral" });
+      // CCR-6: running on-device sidecars are named, not claimed as verified.
+      if (attestation.uninspectedChildren?.length)
+        lines.push({ key: `${P}.uninspected`, params: { names: attestation.uninspectedChildren.join(", ") }, tone: "neutral" });
     } else lines.push(unverified(attestation));
     // Always shown while sealed: what the guarantee covers, and its limits.
     lines.push({ key: `${P}.scope`, tone: "neutral" });
@@ -9574,7 +10702,8 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.title": "Sealed mode",
   "settingsPage.privacy.sealed.description": "Blocks every request that would leave this computer. On-device models keep working.",
   "settingsPage.privacy.sealed.on": "Cloud routes are paused. Local routes keep working. Turn this off to resume them.",
-  "settingsPage.privacy.sealed.attested": "Sealed and verified since {{time}}: Loqui's network guards have stopped every outside connection since then. Blocked: {{count}}.",
+  "settingsPage.privacy.sealed.attested": "Sealed and verified since {{time}}: every connection that Loqui, its windows, downloads and Codex could make to another computer has been stopped. Blocked: {{count}}.",
+  "settingsPage.privacy.sealed.uninspected": "Running on this computer, not inspected: {{names}}. Loqui started them with network features off, listening only on this computer, but can't see inside them.",
   "settingsPage.privacy.sealed.unverified.pending": "Checking that nothing can leave this computer…",
   "settingsPage.privacy.sealed.unverified.guards": "Sealed mode is on, but Loqui can't confirm its network guards are active. Restart Loqui.",
   "settingsPage.privacy.sealed.unverified.child": "Sealed mode is on, but {{names}} is still running and may use the network. It stops shortly.",
@@ -9590,7 +10719,7 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.loadError": "Loqui couldn't read your Sealed mode setting, so it stayed sealed. Turn it off here if you meant to.",
   "settingsPage.privacy.sealed.saveError": "Sealed mode couldn't be saved. It will be off the next time Loqui starts.",
   "settingsPage.privacy.sealed.unknown": "Sealed mode status is unavailable.",
-  "settingsPage.privacy.sealed.scope": "Covers Loqui, its windows and the programs it starts. Local model servers run with loopback-only settings, but Loqui can't see inside them. Links open in your browser only after you confirm.",
+  "settingsPage.privacy.sealed.scope": "Covers Loqui, its windows, and which programs it starts and how. Once a local model server is running, Loqui can't see inside it. Links open in your browser only after you confirm.",
   "settingsPage.privacy.sealed.toggleError": "Couldn't change Sealed mode: {{message}}",
   "updates.sealed": "Paused while Sealed mode is on."
 }
@@ -9697,8 +10826,8 @@ const t = (key, params) => (params ? `${key}${JSON.stringify(params)}` : key);
 const decode = (html) => html.replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
 const HOUR = 3600000;
 const now = Date.UTC(2026, 9, 15, 12, 0);
-const ev = (o) => ({ id: 1, ts: now - HOUR, endedAt: now - HOUR + 400, task: "chat", host: "api.groq.com", hosts: [o?.host ?? "api.groq.com"], bytesOut: 3100, bytesIn: 9800, outcome: "ok", status: 200, errorClass: null, model: "gpt-oss-120b", attributed: true, opaque: false, ...o });
-const sum = (o) => ({ left: 0, observed: 0, blocked: 0, unattributed: 0, unattributedHosts: [], bytesOut: 0, bytesIn: 0, unknownBytes: 0, opaqueSessions: 0, ...o });
+const ev = (o) => ({ id: 1, ts: now - HOUR, endedAt: now - HOUR + 400, task: "chat", host: "api.groq.com", hosts: [o?.host ?? "api.groq.com"], kind: o?.opaque ? "session" : "request", operationId: null, bytesOut: 3100, bytesIn: 9800, outcome: "ok", status: 200, errorClass: null, model: "gpt-oss-120b", attributed: true, opaque: false, ...o });
+const sum = (o) => ({ left: 0, observed: 0, connections: 0, blocked: 0, unattributed: 0, unattributedHosts: [], bytesOut: 0, bytesIn: 0, unknownBytes: 0, opaqueSessions: 0, ...o });
 
 test("timeline places ticks by minute over the last 24 h and classifies them", async () => {
   const { timelineTicks } = await view();
@@ -9780,6 +10909,21 @@ test("a row shows its host trail and, when it ran for a while, its end time", as
   assert.equal(timeCell(ev({ ts: 1000, endedAt: 1400 }), (ms) => `T${ms}`), "T1000");
 });
 
+test("connections are counted and labelled apart; operations that never left are not shown", async () => {
+  const { FlightRecorderView } = await panel();
+  const html = decode(renderStatic(FlightRecorderView, {
+    t, now, formatTime: String, onExport() {}, onClear() {},
+    events: [
+      ev({ id: 1, task: "unattributed", host: "x.example.com", kind: "connection", attributed: false, bytesOut: 900, bytesIn: 4000 }),
+      ev({ id: 2, kind: "operation", outcome: "error", host: "never-sent.example.com" }),
+    ],
+    summary: sum({ left: 1, connections: 1, unattributed: 1, unattributedHosts: ["x.example.com"] }),
+  }));
+  assert.match(html, /connectionsToday\{"count":1\}/);
+  assert.match(html, /data-kind="connection"[\s\S]*settingsPage\.privacy\.recorder\.connection/);
+  assert.doesNotMatch(html, /never-sent\.example\.com/);
+});
+
 test("while loading, the panel shows no count at all", async () => {
   const { FlightRecorderView } = await panel();
   const html = decode(renderStatic(FlightRecorderView, { t, now, formatTime: String, onExport() {}, onClear() {}, events: [], summary: null }));
@@ -9845,7 +10989,7 @@ test("a normal and an interrupted child session reach the view as sessions, not 
 
   const events = await invoke("privacy:egress-list", { since: 0 });
   const summary = await invoke("privacy:egress-summary", { since: 0 });
-  assert.deepEqual([summary.observed, summary.opaqueSessions], [0, 2]);
+  assert.deepEqual([summary.observed, summary.connections, summary.opaqueSessions], [0, 0, 2]);
   assert.equal(sent.filter(([c, p]) => c === "privacy:egress-event" && p.phase === "recorded").length, 2, "both rows were pushed live");
 
   const { FlightRecorderView } = await import("../../src/components/settings/FlightRecorderPanel.tsx");
@@ -9876,9 +11020,12 @@ export type TickKind = "sent" | "session" | "blocked" | "unexplained";
 export type Tick = { id: number; minute: number; kind: TickKind; event: EgressEvent };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Operations that never reached a transport did not leave; they are not shown.
+export const shownEvents = (events: EgressEvent[]): EgressEvent[] => events.filter((e) => e.kind !== "operation");
+
 export function timelineTicks(events: EgressEvent[], now: number): Tick[] {
   const start = now - DAY_MS;
-  return events
+  return shownEvents(events)
     .filter((e) => e.ts >= start && e.ts <= now)
     .map((e) => ({
       id: e.id,
@@ -9889,7 +11036,7 @@ export function timelineTicks(events: EgressEvent[], now: number): Tick[] {
 }
 
 export function mergeNotice(events: EgressEvent[], notice: EgressNotice, since: number): EgressEvent[] {
-  if (notice.phase !== "recorded" || notice.event.ts < since) return events;
+  if (notice.phase !== "recorded" || notice.event.ts < since || notice.event.kind === "operation") return events;
   if (events.some((e) => e.id === notice.event.id)) return events;
   return [notice.event, ...events];
 }
@@ -9926,7 +11073,7 @@ import { useTranslation } from "react-i18next";
 import type { EgressEvent, EgressSummary } from "../../types/privacy";
 import { formatBytes } from "../../utils/formatBytes";
 import { Button } from "../ui/button";
-import { bytesCell, hostTrail, mergeNotice, startOfToday, timeCell, timelineTicks } from "./flightRecorderView";
+import { bytesCell, hostTrail, mergeNotice, shownEvents, startOfToday, timeCell, timelineTicks } from "./flightRecorderView";
 
 const R = "settingsPage.privacy.recorder";
 type T = (key: string, params?: object) => string;
@@ -9975,6 +11122,9 @@ export function FlightRecorderView({
           <span className="text-[28px] font-bold tabular-nums">{summary.observed}</span>
           <span className="text-[12px]">
             {t(`${R}.observedToday`, { count: summary.observed })}
+            {summary.connections > 0 && (
+              <span className="block text-muted-foreground">{t(`${R}.connectionsToday`, { count: summary.connections })}</span>
+            )}
             {summary.opaqueSessions > 0 && (
               <span className="block text-muted-foreground">{t(`${R}.sessionsToday`, { count: summary.opaqueSessions })}</span>
             )}
@@ -10016,9 +11166,9 @@ export function FlightRecorderView({
           />
         ))}
       </div>
-      {summary !== null && events.length === 0 ? (
+      {summary !== null && shownEvents(events).length === 0 ? (
         <p className="text-[12px] text-muted-foreground">{t(`${R}.empty`)}</p>
-      ) : events.length === 0 ? null : (
+      ) : shownEvents(events).length === 0 ? null : (
         <table className="w-full text-[12px]">
           <thead>
             <tr className="text-start text-muted-foreground">
@@ -10030,8 +11180,8 @@ export function FlightRecorderView({
             </tr>
           </thead>
           <tbody className="tabular-nums">
-            {events.map((e) => (
-              <tr key={e.id} className="h-8 border-t border-border/60">
+            {shownEvents(events).map((e) => (
+              <tr key={e.id} data-kind={e.kind} className="h-8 border-t border-border/60">
                 <td>{timeCell(e, formatTime)}</td>
                 <td>{t(`${R}.tasks.${e.task}`)}</td>
                 <td>
@@ -10045,6 +11195,9 @@ export function FlightRecorderView({
                 {e.opaque ? (
                   // A child process's own traffic: Loqui saw the session, not its bytes.
                   <td colSpan={2} className="text-muted-foreground">{t(`${R}.opaque`)}</td>
+                ) : e.kind === "connection" ? (
+                  // A connection whose requests Loqui could not inspect (I3-R2).
+                  <td colSpan={2} className="text-muted-foreground">{t(`${R}.connection`)}</td>
                 ) : (
                   <>
                     <td><Bytes n={e.bytesOut} t={t} /></td>
@@ -10135,6 +11288,9 @@ These are the English source strings. Merge them with the Task 14, Step 6 script
   "settingsPage.privacy.recorder.sessionsToday_one": "Plus {{count}} helper session (Codex or yt-dlp) whose requests Loqui can't see",
   "settingsPage.privacy.recorder.sessionsToday_other": "Plus {{count}} helper sessions (Codex or yt-dlp) whose requests Loqui can't see",
   "settingsPage.privacy.recorder.usualHost": "Usually {{host}}",
+  "settingsPage.privacy.recorder.connectionsToday_one": "Plus {{count}} connection whose requests Loqui couldn't inspect",
+  "settingsPage.privacy.recorder.connectionsToday_other": "Plus {{count}} connections whose requests Loqui couldn't inspect",
+  "settingsPage.privacy.recorder.connection": "Connection — the requests inside it are not visible to Loqui; listed when it closes",
   "settingsPage.privacy.recorder.loading": "Loading…",
   "settingsPage.privacy.recorder.blockedToday": "Blocked by Sealed mode: {{count}}",
   "settingsPage.privacy.recorder.loopbackNote": "Requests to services on this computer, such as local models, are not listed: they never leave it.",
@@ -10188,7 +11344,7 @@ Add this section to `docs/PRIVACY.md`, after "When network requests occur" and b
 ```markdown
 ## Sealed mode and the flight recorder
 
-**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, nothing that Loqui, its windows or the programs it starts send leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. Local model servers that Loqui starts (llama-server, whisper-server, Parakeet, Qdrant) are launched with loopback-only settings and no download options; Loqui cannot see inside those programs, so that is a limit of what it can check, not a guarantee it measures. A proxy or port-forwarder you run on this computer is treated as local. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, and no environment proxy is in use. It dates the claim from that moment.
+**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, nothing that Loqui, its windows or the programs it starts send leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. Local model servers that Loqui starts (llama-server, whisper-server, Parakeet, Qdrant) keep running so on-device routes work. Loqui refuses to start them with download options or a non-local address, and Qdrant only with telemetry off. But it cannot see inside them once they run, so the Sealed mode panel names them as "not inspected" instead of counting them as verified. A proxy or port-forwarder you run on this computer is treated as local. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, and no environment proxy is in use. It dates the claim from that moment.
 
 When Sealed mode blocks a request, your content is kept: a chat message stays in the conversation, and a dictation recording is kept in History for retry when local history and audio retention allow it. While sealed, a dictation that would use a cloud speech-to-text route does not start at all. A request that was already under way when you turned Sealed mode on is stopped, and Loqui says the provider may have received part of it.
 
@@ -10486,19 +11642,39 @@ async function acceptance() {
       report.runs.openProbes = await probe(app, "open");
       const reached = kinds(leaked(since).requests);
       verify("control: every remote probe reached the fixture while unsealed", reached.length === EXPECTED_REMOTE.length, { reached });
-      verify("renderer: WebRTC constructors are absent from the app's own page", await panel.evaluate(() => typeof RTCPeerConnection === "undefined"));
+      // C2-R2: in the top page, and in frames the page creates for itself.
+      const webrtc = await panel.evaluate(() => {
+        const blank = document.createElement("iframe");
+        document.body.append(blank);
+        const viaBlank = typeof blank.contentWindow.RTCPeerConnection;
+        const srcdoc = document.createElement("iframe");
+        srcdoc.srcdoc = "<p>x</p>";
+        document.body.append(srcdoc);
+        return new Promise((resolve) => srcdoc.addEventListener("load", () => {
+          const result = { top: typeof RTCPeerConnection, blank: viaBlank, srcdoc: typeof srcdoc.contentWindow.RTCPeerConnection, bridgeInFrame: typeof blank.contentWindow.electronAPI };
+          blank.remove();
+          srcdoc.remove();
+          resolve(result);
+        }, { once: true }));
+      });
+      verify("renderer: WebRTC is absent in the page and in about:blank and srcdoc frames; frames get no IPC bridge", Object.values(webrtc).every((v) => v === "undefined"), webrtc);
 
       // Seal from the renderer through the real preload and trusted IPC, with a
       // stubborn network-capable child running.
       const pid = await app.evaluate(() => globalThis.__loquiAcceptance.startStubbornChild());
+      // setSealed resolves after main's sealing barrier ran. The leak probes run
+      // now, before and independently of verification: the independent
+      // observer must not depend on the thing under test reporting success
+      // (the Step 5 drill relies on this ordering).
       await panel.evaluate(() => window.electronAPI.privacy.setSealed(true));
       const sealedAt = Date.now();
-      const verified = await waitFor(() => attestation(panel), (a) => a.nothingLeaves === true, "verified seal after toggling", 20000);
-      verify("toggle: the child was gone before the seal was verified", !(await app.evaluate((_e, p) => globalThis.__loquiAcceptance.pidAlive(p), pid)));
-      verify("toggle: verification is dated after the toggle", verified.effectiveSince >= sealedAt - 1000);
       report.runs.toggledProbes = await probe(app, "toggled");
       await pause(1500); // let late renderer, preconnect and updater traffic surface
       verify("toggle: the remote fixture saw no request and no connection after sealing", nothingLeft(sealedAt), leaked(sealedAt));
+      // Then the attestation, judged separately.
+      const verified = await waitFor(() => attestation(panel), (a) => a.nothingLeaves === true, "verified seal after toggling", 20000);
+      verify("toggle: the child was gone before the seal was verified", !(await app.evaluate((_e, p) => globalThis.__loquiAcceptance.pidAlive(p), pid)));
+      verify("toggle: verification is dated after the toggle", verified.effectiveSince >= sealedAt - 1000);
       verify("toggle: loopback still works", report.runs.toggledProbes.loopback === "reached");
       verify(
         "toggle: every remote probe was attempted and refused",
@@ -10557,7 +11733,7 @@ Expected: every `PASS` line prints, and the script exits with code 0. `report.js
 
 - [ ] **Step 5: Prove the observer catches a leak**
 
-Temporarily comment out the `installNodeBackstop()` call in `privacyBoot.bootEgressGuards` and rebuild. Rerun: "toggle: the remote fixture saw no request and no connection after sealing" must fail on `node-http` or `ws`. Restore the line. Record the failing output in the PR description.
+Temporarily comment out the `installNodeBackstop()` call in `privacyBoot.bootEgressGuards` and rebuild. Rerun: "toggle: the remote fixture saw no request and no connection after sealing" must fail on `node-http` or `ws`. It runs before any attestation wait, so the drill reaches it. (The attestation check that follows also fails, because `guardsUp` is false; that is a second, separate signal.) Restore the line. Record the failing output in the PR description.
 
 - [ ] **Step 6: Commit**
 

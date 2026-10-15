@@ -40,11 +40,11 @@ This revision answers the independent review (`plan-04-codex.md`: 2 Critical, 14
 
 | Finding | Status | Where | How |
 |---|---|---|---|
-| **C1** cancel path writes audio to disk with retention off | Closed | Task 8 | The cancel buffer holds the **raw** segments, or PCM frames plus fallback segments, as owned RAM copies. No FFmpeg merge runs while it is held. The only cancel-time merge is in `_closeCancelled`, behind `shouldSaveDiscardedRecording`, which is the retention gate. A test with two segments and retention off rejects any merge or save. Task 20 Step 3 checks the temp directory on a real recording. |
+| **C1** cancel path writes audio to disk with retention off | Closed | Task 8 | The cancel buffer holds the **raw** segments, or PCM frames plus fallback segments, as owned RAM copies. No FFmpeg merge runs while it is held. The only cancel-time merge is in `_closeCancelled`, behind `shouldSaveDiscardedRecording`, which is the retention gate. A test with two segments and retention off rejects any merge or save. Task 20 Step 3 checks the temp directory on a real recording. A merge or local-engine temp file **already in flight** when Esc lands predates the cancel, and is removed when that step ends. PRIVACY.md and Task 20 say so. |
 | **C2** Undo can use a different route | Closed | Tasks 6, 8 | Each recording captures a frozen, credential-free `DictationSession` at start (route, model, endpoint, prompts, and the Agent and translation intents). Every routing read in the pipeline goes through `this.settings()`, which pins the snapshot, and a source guard test enforces this. The explicit cleanup provider and endpoint replace `ReasoningService`'s live fallback. Undo applies the held session. Tests cover local→remote and provider A→B through the real `processAudio` and `processWithOpenAIAPI`. Sealed mode is re-checked before restore, and main still enforces it. |
-| **I1** late bytes not zeroed; Blobs reachable | Closed | Task 8 | The buffer owns every byte copy, zeroes copies that arrive after it closed, and swallows rejections. Source references are dropped at cancel: `segmentChunks`, `_batchSegments`, the streaming fallback chunks and segments, `_processingAudio`, and `lastAudioBlob` only when it belongs to the same session. A newer session is never cleared. Tested for late bytes, rejection, replacement and residual references. PRIVACY.md states the Blob distinction honestly. |
+| **I1** late bytes not zeroed; Blobs reachable | Closed | Task 8 | The buffer owns every byte copy, zeroes copies that arrive after it closed, and swallows rejections. Source references are dropped at cancel: `segmentChunks`, `_batchSegments`, the streaming fallback chunks and segments, the session's `_sessionAudio` (which a completed dictation also clears), and `lastAudioBlob` only when it belongs to the same session. A newer session is never cleared. Tested for late bytes, rejection, replacement and residual references. PRIVACY.md states the Blob distinction honestly. |
 | **I2** streaming and merge-time cancels lacked Undo | Closed | Task 8 | Streaming Undo replays the held PCM frames through the **same** streaming provider at 4× real time, then runs the normal finalization. This works for Deepgram and AssemblyAI too, which have no batch endpoint. Merge-time and processing-time batch cancels hold the raw segments registered before the merge. There are tests per path. A startup cancel, before any audio exists, has nothing to restore. **Different fix:** the report suggested re-transcribing through a batch endpoint; that would change the route (and does not exist for two providers), so replay stays on the streaming route. |
-| **I3** restore not atomic; no Esc in restored processing | Closed | Tasks 8, 9 | `restoreCancelled` claims the buffer and enters `isProcessing` synchronously, before any await. A restore generation rejects stale work, and every failure settles idle. Esc is registered from lifecycle transitions (busy ↔ idle), not from a successful mic start. Tests: a start during a pending restore, byte rejection, and Undo→processing→Esc. |
+| **I3** restore not atomic; no Esc in restored processing | Closed | Tasks 8, 9 | `restoreCancelled` claims the buffer and enters `isProcessing` synchronously, before any await. Esc bumps a restore generation that every await checks, so an Esc before the pipeline starts puts the recording back in its window, and an Esc during it re-holds the audio. Every failure settles idle. Esc is registered from lifecycle transitions (busy ↔ idle), not from a successful mic start. Tests: a start during a pending restore, byte rejection, and Undo→processing→Esc. |
 | **I4** stage selection ignores native visibility and ownership | Closed | Tasks 10, 11, 17 | `resolvePillOwnership(stage)` returns `holdsWindow`, `interactive` and `outranksFooter`. That one policy feeds auto-hide (`shouldAutoHidePill`), Assistant footer suppression, `resolveVoicePillInteraction` (mac and Windows click-through, and the Linux input region), and the show-when-hidden branch. Tested with auto-hide on, Assistant final actions, and Live Transcript or Assistant mounted. |
 | **I5** "already received" is not egress evidence | Closed | Task 7 | With Plan 07, only main's `EgressNotice { phase: "sent" }` for this session's `correlationId` and a content payload counts (`attested`). Without Plan 07, evidence is recorded only after the transport hand-off (`dispatched`), and the copy then says "may have received". Startup failures, main rejections (`dispatched: false`) and Sealed blocks record nothing. Translation, cleanup, Agent and vision are instrumented. Loopback custom endpoints resolve to the device through Plan 03's resolver. |
 | **I6** no cross-window Undo for Plan 05; disclosure shapes disagree | Closed | Tasks 7, 9; CCR-5, CCR-6 | There are `cancelled` and `cancelClosed` demo statuses with sanitised fields, `windowManager.sendUndoCancelDictation(sessionId)` (a request/reply to the overlay that returns `UndoResult`), and `lastCancelledDictation`. One `RemoteDisclosure` type (target id + payload + evidence) and one label helper serve Plans 04, 05 and 07. A two-window contract test covers the round trip. |
@@ -59,6 +59,37 @@ This revision answers the independent review (`plan-04-codex.md`: 2 Critical, 14
 | **M1** countdown regex fails | Closed | Task 11 | The test asserts each style declaration independently of order. |
 | **M2** `onDismiss` semantics undefined | Closed | Task 1 | `onDismiss(reason)` fires exactly once per revision, with `user`, `action`, `timeout`, `replaced` or `evicted`. Each reason is tested. |
 | **M3** non-concrete verification commands | Closed | Tasks 3, 19, 20 | The deletion gate is a quoted `rg` over imports only, excluding the files being removed. The missing-service case is tested by injection, never by mutating the host. Plan 02's behaviours are checked by name. There is a recorded macOS / X11 / Wayland matrix. The card-height regression is ported to `WordsFirstCard`. |
+
+**Second review (independent, after the PR opened).** A second reviewer traced Tasks 1, 2, 6, 7, 8, 9 and 16 against the repo. All 24 findings are fixed in this revision. None is disputed.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Session snapshot read `entry.store`; the real key is `storeKeys`, so Agent, vision and translation went unpinned | Task 6 reads `storeKeys`; the coverage test asserts exact membership |
+| 2 | A stale `_activeSession` pinned a new streaming start to the old provider | Task 6 ends the session at every idle edge and resolves the start-time provider from live settings; test changes provider between two starts |
+| 3 | Task 8 fixtures could not pass (window length, 256-byte minimum) | Real-size blobs with distinct fills, `_receivedAudioData`, a 2 s recording |
+| 4 | A failed or cancelled replay left `isStreaming` set | `_replayStreamingSession` owns its state in try/finally, checks the restore generation per batch, stops the provider and re-holds the audio |
+| 5 | `restoreCancelled` outlived the 2 s bridge | It returns `UndoResult` after the claim and pre-checks; the pipeline runs detached as `_restoreRun` |
+| 6 | Esc during streaming finalization had no Undo | `_holdStreamingSession()` runs from `cancelProcessing` too; tested |
+| 7 | Esc during the restore's awaits was lost | `_restoreGeneration` is bumped by both cancel paths and checked after each await; the pipeline is created at claim; tested |
+| 8 | Late evidence was dropped; restore discarded it | Evidence records into the tracker captured before each await (batch, text, streaming); restore reuses `buffer.tracker` |
+| 9 | In-flight merge temp files were unaddressed | Documented as a pre-existing step's file in PRIVACY.md, Task 8 "Known limit" and Task 20 |
+| 10 | `_processingAudio` never existed | Replaced by `_sessionAudio`, released at cancel and on settle |
+| 11 | Streaming frames survived a completed dictation | `_dropSessionAudio()` zeroes and clears them after finalization |
+| 12 | Streaming duration read after `recordingStartTime` was nulled | The hold runs first; the >30 s window is tested |
+| 13 | `setOnChange` existed only in prose | In the Task 7 tracker, with a late-evidence test |
+| 14 | `onCancelledChange(state, closed)` was not in Task 8 | Task 8 emits the close reason itself |
+| 15 | `onProcessingStage` was never emitted | Task 7 emits it from `processAudio` and the streaming finalize |
+| 16 | `before-quit` could deadlock on a null `windowManager` | `(windowManager?.flushDictationBeforeQuit?.(…) ?? Promise.resolve())` |
+| 17 | The Escape slot had no owner watch | Installed from `register-cancel-hotkey` (Task 2) |
+| 18 | ⌥Z or ⌥↵ shown after main released the lease | Main sends `pill-hotkey-released`; `usePillHotkey` drops `held` |
+| 19 | A refused Undo destroyed the audio | Sealed, busy and cancelled restores reopen the window |
+| 20 | The Sealed pre-check skipped vision | `assistantVision` is checked when screen context is on |
+| 21 | An empty meeting reported "save failed" | `persisted = !attempted || saveOk`; tested |
+| 22 | The resident notification close was not awaited | Registered with `sidecarRegistry`, which `shutdownAll` awaits |
+| 23 | Disclosure kept a single target | `RemoteDisclosure.alsoSentTo`, with "parts of this dictation" copy |
+| 24 | Expired Undo had no notice; two error surfaces | Every refusal raises exactly one notice, `expired` included; a refusal never calls `onError` |
+
+The three weak tests it named are rewritten: the other-session `lastAudioBlob` test sets the owner before the cancel, the TTL test asserts the clamped delay, and the `_processingAudio` assertion is gone.
 
 **Cross-plan items from the review's conflict table:**
 - **03.** Route-change receipts with Undo keep 7 s (`NOTICE_DURATION_MS.receiptWithAction`). `openSettingsAt` uses Plan 03's `settingsPath` grammar and its `SettingsModal` parser. `providerId` (CCR-7) is accepted in Plan 03's revision.
@@ -87,7 +118,18 @@ export type UndoResult =
   | { restored: false; sessionId: string | null; reason: "expired" | "busy" | "sealed" | "routeUnavailable" | "noAudio" | "unavailable" };
 ```
 
-`undoCancel(): Promise<boolean>` keeps the §5.2 signature. When it returns `false`, a notice explains the reason. The earlier draft's `remotePayload` field and its `undoUntil: 0` sentinel are withdrawn.
+`undoCancel(): Promise<boolean>` keeps the §5.2 signature. When it returns `false`, exactly one notice explains the reason. The earlier draft's `remotePayload` field and its `undoUntil: 0` sentinel are withdrawn.
+
+`UndoResult` semantics:
+- `restored: true` means the recording was claimed and its pipeline started. It does not wait for the transcript.
+- `expired` means no window is open for that session: it closed, or another cancel replaced it.
+- `busy` means a dictation is running, or Esc cancelled the restore before its pipeline started.
+- `sealed` means Sealed mode blocks a route the recording needs.
+- `noAudio` means the held bytes were empty or could not be read.
+- `routeUnavailable` means the recorded streaming provider is gone.
+- `unavailable` means the bridge could not reach the overlay (CCR-5).
+
+On `busy` and `sealed` the recording goes back into its window, and a fresh `cancelled` state is emitted, so the user can try again.
 
 **CCR-2 (§5.2), the meeting recorder.** The `meetingRecording` pill state carries liveness only. Saving is a separate, explicit outcome.
 
@@ -147,7 +189,8 @@ The semantics:
   ```js
   windowManager.sendUndoCancelDictation(sessionId?: string): Promise<UndoResult>;
   // Request/reply on undo-cancel-request / undo-cancel-reply, bound to the overlay's webContents and a token.
-  // Times out after 2 s with { restored: false, sessionId, reason: "unavailable" }.
+  // Times out after 2 s with { restored: false, sessionId, reason: "unavailable" }. restoreCancelled answers
+  // after its claim and pre-checks (CCR-1), so a slow transcription never trips the timeout.
   windowManager.lastCancelledDictation: { sessionId: string } | null;
   ```
 
@@ -161,10 +204,12 @@ export interface RemoteDisclosure {
   target: string;                         // provider id ("openai", "custom"), or "host:<hostname>" for the user's own server
   payload: DisclosurePayload;             // strongest seen: audio > image > text
   evidence: "attested" | "dispatched";    // attested = Plan 07 EgressNotice; dispatched = renderer saw the transport hand-off
+  alsoSentTo: string[];                   // other targets of the same session, strongest evidence first; [] when one
 }
 // src/helpers/dictationDisclosure.js
 dispatchTargetLabel(target, t): string;   // providerDisplayLabel for providers, the host for "host:…"
-disclosureCopy(disclosure, t): string;    // "{{provider}} already received the audio." / "…may have received…"
+disclosureCopy(disclosure, t): string;    // "{{provider}} already received the audio." / "…may have received…";
+                                          // with alsoSentTo: "OpenAI, Anthropic already received parts of this dictation."
 ```
 
 - **Correlation.** The `correlationId` Plan 07 asked for (its CCR-3) is the dictation session id. It is carried on the BYOK transcription payload, the realtime and per-provider streaming start options, and every cleanup, Agent, vision and translation text request of that recording.
@@ -190,7 +235,8 @@ Each question has a default that the plan implements. A different answer changes
 6. **"Retry cleanup" (Task 4).** After a raw paste the pasted text cannot be rewritten in another app, so Retry copies the cleaned text and says so. History keeps the raw text. Is that the expected behaviour?
 7. **Words-card primary colour (Task 3).** The R6 B mock paints "Paste again" orange. D1 reserves orange for voice controls, so the plan uses the ink button.
 8. **Crash inside the undo window.** With "Save discarded" on, the audio is saved when the window closes. A normal quit flushes it (Task 9), but a crash inside the 5–10 s window loses that one recording. A crash-proof save would mean writing to disk at cancel, which D3 forbids.
-9. **Streaming Undo pacing (Task 8).** The replay sends at 4× real time. A provider that rate-limits faster-than-real-time input would fail the Undo with "route unavailable", and the words would not be recovered. Should the replay drop to 1× (slower Undo for long dictations)?
+9. **Streaming Undo pacing (Task 8).** The replay sends at 4× real time. A provider that rejects faster-than-real-time input fails that Undo. The audio goes back into its window, so the words are not lost, but that Undo cannot succeed. Should the replay drop to 1× (slower Undo for long dictations)?
+10. **A cancel while a step is already writing a temp file (Task 8).** If Esc lands while main is already merging segments, or while a local engine is already reading its input, that step's temp file exists until the step ends, usually under a second. The plan documents this in PRIVACY.md rather than killing FFmpeg or the engine mid-write. Is that acceptable, or should the merge IPC become abortable?
 
 ## Plan 01 review hand-offs (shipped at `172f9df` on `snowopsdev/feat/uiux-foundations`)
 
@@ -276,7 +322,7 @@ These are the five failure modes most likely to bite a person, each pinned by a 
 
 1. **Settings change during the undo window.** The user switches STT from local to OpenAI, then presses ⌥Z. They expect the restored dictation to stay on the device. Pinned in Task 8 (`audioManagerCancelBuffer.test.js`, "Undo restores through the session's route even after settings move to a provider") and Task 6 (`audioManagerSessionRoute.test.js`, "audio recorded on-device stays on-device…", "provider A stays provider A…").
 2. **Cancel after a microphone change, retention off.** Two recorded segments, then Esc. They expect nothing on disk, temp files included, and every byte zeroed when the window closes. Pinned in Task 8 ("two segments, retention off: no merge, no write, every byte zeroed (C1)", "bytes that arrive after the buffer was zeroed are zeroed on arrival (I1)").
-3. **Undo, then Esc, then a new dictation.** They expect Esc to cancel the restored processing, and a new hotkey press during a pending restore not to start a second pipeline. Pinned in Task 8 ("Undo is claimed synchronously…") and Task 9 ("Esc is owned by the lifecycle…, including an Undo-started processing phase").
+3. **Undo, then Esc, then a new dictation.** They expect Esc to cancel the restored processing, and a new hotkey press during a pending restore not to start a second pipeline. Pinned in Task 8 ("Undo is claimed synchronously…", "Esc while a restore waits for its bytes cancels it and puts the recording back (I3)") and Task 9 ("Esc is owned by the lifecycle…, including an Undo-started processing phase").
 4. **⌥Z or ⌥↵ leaking after the affordance is gone.** This includes a renderer reload and a backend that answers late. They expect the shortcut back in other apps. Pinned in Task 2 (`hotkeyLeases.test.js`, "released while registration is pending…", "the owner's renderer going away releases every lease it holds") and Task 9 ("⌥Z is leased while a window is open and released when it closes").
 5. **The control panel crashes mid-meeting.** They expect the pill to stop showing a timer and to say the recorder stopped unexpectedly, never "Meeting saved". Pinned in Task 16 (`meetingPresence.test.js`, "presence clears when the owner goes away, and that is reported as ownerLost, never saved"; `meetingStopOutcome.test.js`, "a failed transcript write is a failed outcome…") and Task 17 ("the pill never announces 'saved' because presence vanished").
 
@@ -849,7 +895,8 @@ Covers review finding I7. ⌥Z (undo cancel), ⌥↵ (paste again) and ⌥⌘M (
   const PILL_HOTKEY_ACCELERATORS = { undoCancel: "Alt+Z", noticePrimary: "Alt+Enter", meetingAccept: "CommandOrControl+Alt+M" };
   const LEASE_MAX_TTL_MS = { undoCancel: 120_000, noticePrimary: 60_000, meetingAccept: 120_000 };
   createHotkeyLeases({ hotkeyManager, setTimer?, clearTimer? }): {
-    acquire({ slot, ownerId, ttlMs?, onPress }): Promise<{ leaseId: number; held: boolean; reason?: "released" | "conflict" | "error" }>;
+    acquire({ slot, ownerId, ttlMs?, onPress, onRelease? }): Promise<{ leaseId: number; held: boolean; reason?: "released" | "conflict" | "error" }>;
+    // onRelease(reason: "released" | "ttl" | "superseded" | "owner") runs once when a lease that was acquired ends, whoever ended it.
     release(leaseId: number, ownerId?: string | number): void;   // ownerId, when given, must match
     releaseOwner(ownerId: string | number): void;
     isHeld(leaseId: number): boolean;
@@ -864,6 +911,7 @@ Covers review finding I7. ⌥Z (undo cancel), ⌥↵ (paste again) and ⌥⌘M (
   export function usePillHotkey(slot: PillHotkeySlot, enabled: boolean, onPress: () => void, options?: { ttlMs?: number }): { held: boolean };
   // electronAPI
   acquirePillHotkey?: (slot: PillHotkeySlot, options?: { ttlMs?: number }) => Promise<{ leaseId: number; held: boolean; reason?: string }>;
+  onPillHotkeyReleased?: (callback: (released: { slot: PillHotkeySlot; leaseId: number }) => void) => () => void;
   releasePillHotkey?: (leaseId: number) => Promise<void>;
   onPillHotkeyPressed?: (cb: (press: { slot: PillHotkeySlot; leaseId: number }) => void) => () => void;
   ```
@@ -913,8 +961,10 @@ function fakeManager() {
 function fakeTimers() {
   let seq = 0;
   const timers = new Map();
+  const delays = [];
   return {
-    setTimer: (fn) => (timers.set(++seq, fn), seq),
+    delays,
+    setTimer: (fn, ms) => (delays.push(ms), timers.set(++seq, fn), seq),
     clearTimer: (id) => timers.delete(id),
     fireAll: () => [...timers.values()].forEach((fn) => fn()),
   };
@@ -981,13 +1031,33 @@ test("ttl is enforced by main and clamped per slot", async () => {
   const hm = fakeManager();
   const timers = fakeTimers();
   const leases = createHotkeyLeases({ hotkeyManager: hm, ...timers });
-  const p = leases.acquire({ slot: "noticePrimary", ownerId: 7, ttlMs: 10 * 60_000, onPress() {} });
+  const released = [];
+  const p = leases.acquire({ slot: "noticePrimary", ownerId: 7, ttlMs: 10 * 60_000, onPress() {}, onRelease: (r) => released.push(r) });
   await tick();
   hm.settle();
   await p;
+  assert.deepEqual(timers.delays, [60_000], "a ten-minute request is clamped to the slot's maximum");
   timers.fireAll();
   await tick();
   assert.equal(hm.registered.has("temp:noticePrimary"), false);
+  assert.deepEqual(released, ["ttl"], "the owner is told, so the UI stops showing ⌥↵");
+});
+
+test("a superseded or owner-lost lease tells its owner exactly once", async () => {
+  const hm = fakeManager();
+  const leases = createHotkeyLeases({ hotkeyManager: hm, ...fakeTimers() });
+  const released = [];
+  const first = leases.acquire({ slot: "undoCancel", ownerId: 7, onPress() {}, onRelease: (r) => released.push(["a", r]) });
+  await tick();
+  hm.settle();
+  await first;
+  const second = leases.acquire({ slot: "undoCancel", ownerId: 8, onPress() {}, onRelease: (r) => released.push(["b", r]) });
+  await tick();
+  hm.settle();
+  await second;
+  leases.releaseOwner(8);
+  leases.releaseOwner(8);
+  assert.deepEqual(released, [["a", "superseded"], ["b", "owner"]]);
 });
 
 test("a conflict reports not held, so the UI hides the shortcut", async () => {
@@ -1071,13 +1141,18 @@ function createHotkeyLeases({ hotkeyManager, setTimer = setTimeout, clearTimer =
     return next;
   };
 
-  function release(leaseId, ownerId) {
+  function release(leaseId, ownerId, reason = "released") {
     const lease = leases.get(leaseId);
     if (!lease || !lease.active) return;
     if (ownerId !== undefined && lease.ownerId !== ownerId) return;
     lease.active = false;
     if (lease.timer) clearTimer(lease.timer);
     leases.delete(leaseId);
+    try {
+      lease.onRelease?.(reason);
+    } catch {
+      // A failed notification must not keep the shortcut registered.
+    }
     if (current.get(lease.slot) === leaseId) {
       current.delete(lease.slot);
       void enqueue(lease.slot, () => {
@@ -1087,17 +1162,17 @@ function createHotkeyLeases({ hotkeyManager, setTimer = setTimeout, clearTimer =
     }
   }
 
-  async function acquire({ slot, ownerId, ttlMs, onPress }) {
+  async function acquire({ slot, ownerId, ttlMs, onPress, onRelease }) {
     const accelerator = PILL_HOTKEY_ACCELERATORS[slot];
     if (!accelerator) return { leaseId: 0, held: false, reason: "error" };
     const previous = current.get(slot);
-    if (previous) release(previous);
+    if (previous) release(previous, undefined, "superseded");
     const leaseId = ++seq;
-    const lease = { leaseId, slot, ownerId, active: true, held: false, timer: null };
+    const lease = { leaseId, slot, ownerId, onRelease, active: true, held: false, timer: null };
     leases.set(leaseId, lease);
     current.set(slot, leaseId);
     const ttl = Math.min(Number(ttlMs) > 0 ? Number(ttlMs) : LEASE_MAX_TTL_MS[slot], LEASE_MAX_TTL_MS[slot]);
-    lease.timer = setTimer(() => release(leaseId), ttl);
+    lease.timer = setTimer(() => release(leaseId, undefined, "ttl"), ttl);
 
     return enqueue(slot, async () => {
       if (!lease.active) return { leaseId, held: false, reason: "released" };
@@ -1124,7 +1199,7 @@ function createHotkeyLeases({ hotkeyManager, setTimer = setTimeout, clearTimer =
   }
 
   function releaseOwner(ownerId) {
-    for (const lease of [...leases.values()]) if (lease.ownerId === ownerId) release(lease.leaseId);
+    for (const lease of [...leases.values()]) if (lease.ownerId === ownerId) release(lease.leaseId, undefined, "owner");
   }
 
   return {
@@ -1165,7 +1240,14 @@ Replace the three `slotName !== "cancel"` conditions (lines 215, 269 and 343) wi
       if (watchedLeaseOwners.has(contents)) return;
       watchedLeaseOwners.add(contents);
       const id = contents.id;
-      const releaseAll = () => this.windowManager.hotkeyLeases.releaseOwner(id);
+      const releaseAll = () => {
+        this.windowManager.hotkeyLeases.releaseOwner(id);
+        // The Escape slot is registered by the same renderer (Task 9); it goes with it.
+        if (this._cancelHotkeyOwnerId === id) {
+          this._cancelHotkeyOwnerId = null;
+          this.windowManager.hotkeyManager.unregisterSlot("cancel");
+        }
+      };
       contents.once("destroyed", releaseAll);
       contents.on("render-process-gone", releaseAll);
       contents.on("did-start-navigation", (details) => {
@@ -1187,6 +1269,9 @@ Replace the three `slotName !== "cancel"` conditions (lines 215, 269 and 343) wi
         onPress: () => {
           if (!contents.isDestroyed()) contents.send("pill-hotkey-pressed", { slot, leaseId: current.leaseId });
         },
+        onRelease: () => {
+          if (!contents.isDestroyed()) contents.send("pill-hotkey-released", { slot, leaseId: current.leaseId });
+        },
       }).then((result) => {
         current.leaseId = result.leaseId;
         return result;
@@ -1198,7 +1283,27 @@ Replace the three `slotName !== "cancel"` conditions (lines 215, 269 and 343) wi
     });
 ```
 
-`current` is per call, so a press is tagged with the lease it belongs to. The navigation listener uses the same `details` shape as `meetingTranscriptionLifecycle.js:17-28`.
+`current` is per call, so a press or release is tagged with the lease it belongs to. A release that fires before `acquire` resolves carries `leaseId: 0`; the hook ignores it, and `acquire` then reports `held: false` with reason `released`. The navigation listener uses the same `details` shape as `meetingTranscriptionLifecycle.js:17-28`.
+
+The Escape slot needs the same owner watch, even when no lease was ever taken (finding 17). Move `watchedLeaseOwners` / `watchLeaseOwner` above the `register-cancel-hotkey` handler (line 3510), and change that handler and its pair to:
+
+```js
+    ipcMain.handle("register-cancel-hotkey", async (event, key) => {
+      const hotkeyManager = this.windowManager.hotkeyManager;
+      const mainWindow = this.windowManager.mainWindow;
+      watchLeaseOwner(event.sender);
+      this._cancelHotkeyOwnerId = event.sender.id;
+      return hotkeyManager.registerSlot("cancel", key, () => {
+        mainWindow?.webContents?.send("cancel-hotkey-pressed");
+      });
+    });
+
+    ipcMain.handle("unregister-cancel-hotkey", async () => {
+      this._cancelHotkeyOwnerId = null;
+      this.windowManager.hotkeyManager.unregisterSlot("cancel");
+      return { success: true };
+    });
+```
 
 `preload.js`, after `unregisterCancelHotkey` (line 543):
 
@@ -1206,9 +1311,10 @@ Replace the three `slotName !== "cancel"` conditions (lines 215, 269 and 343) wi
   acquirePillHotkey: (slot, options) => ipcRenderer.invoke("acquire-pill-hotkey", slot, options),
   releasePillHotkey: (leaseId) => ipcRenderer.invoke("release-pill-hotkey", leaseId),
   onPillHotkeyPressed: registerListener("pill-hotkey-pressed", (callback) => (_event, press) => callback(press)),
+  onPillHotkeyReleased: registerListener("pill-hotkey-released", (callback) => (_event, released) => callback(released)),
 ```
 
-Add the types from the Interfaces block to `src/types/electron.ts`, inside the `electronAPI` interface next to `registerCancelHotkey`. Add no-op stubs to `src/preview/browserPreview.ts`: `acquirePillHotkey: async () => ({ leaseId: 0, held: false })`, `releasePillHotkey: async () => {}` and `onPillHotkeyPressed: () => () => {}`.
+Add the types from the Interfaces block to `src/types/electron.ts`, inside the `electronAPI` interface next to `registerCancelHotkey`. Add no-op stubs to `src/preview/browserPreview.ts`: `acquirePillHotkey: async () => ({ leaseId: 0, held: false })`, `releasePillHotkey: async () => {}`, `onPillHotkeyPressed: () => () => {}` and `onPillHotkeyReleased: () => () => {}`.
 
 `src/hooks/usePillHotkey.ts`:
 
@@ -1242,6 +1348,13 @@ export function usePillHotkey(
     const off = api?.onPillHotkeyPressed?.((press) => {
       if (press.slot === slot && press.leaseId === leaseId) onPressRef.current();
     });
+    // Main ended the lease (TTL, a newer lease, a crash elsewhere): stop showing the shortcut.
+    const offReleased = api?.onPillHotkeyReleased?.((released) => {
+      if (released.slot === slot && released.leaseId === leaseId) {
+        leaseId = 0;
+        setHeld(false);
+      }
+    });
     void api?.acquirePillHotkey?.(slot, { ttlMs }).then((result) => {
       if (disposed) {
         void api?.releasePillHotkey?.(result.leaseId);
@@ -1253,6 +1366,7 @@ export function usePillHotkey(
     return () => {
       disposed = true;
       off?.();
+      offReleased?.();
       setHeld(false);
       if (leaseId) void api?.releasePillHotkey?.(leaseId);
     };
@@ -2911,16 +3025,20 @@ test("every inference scope the dictation pipeline uses is covered", async () =>
   const { SESSION_ROUTE_KEYS } = await load();
   const { INFERENCE_SCOPES } = await import("../../src/config/inferenceScopes.ts");
   for (const scope of ["dictationCleanup", "dictationAgent", "dictationAgentVision", "dictationTranslation"]) {
-    const keys = Object.values(INFERENCE_SCOPES[scope].store ?? INFERENCE_SCOPES[scope]).filter((v) => typeof v === "string");
+    const keys = Object.values(INFERENCE_SCOPES[scope].storeKeys);
+    assert.ok(keys.length >= 6, `${scope} has store keys`);
     for (const key of keys) {
       if (/apikey|secret/i.test(key)) continue;
       assert.ok(SESSION_ROUTE_KEYS.includes(key), `${scope}: ${key}`);
     }
   }
+  // Spot checks that would fail if the scope maps were read from the wrong property.
+  for (const key of ["translationProvider", "translationRemoteUrl", "dictationAgentRemoteUrl", "dictationAgentVisionProvider", "cleanupCloudMode"]) {
+    assert.ok(SESSION_ROUTE_KEYS.includes(key), key);
+  }
+  assert.equal(SESSION_ROUTE_KEYS.includes("dictationAgent"), false, "fallbackScope is not a settings key");
 });
 ```
-
-If `INFERENCE_SCOPES[scope]` stores its store-key map under a different property than `store`, read `inferenceScopes.ts:20-100` and use that property in both this test and `SESSION_ROUTE_KEYS`.
 
 Create `test/helpers/audioManagerSessionRoute.test.js`. It drives the **real** `processAudio` / `processWithOpenAIAPI` code, and stubs only the leaf transports:
 
@@ -3000,6 +3118,16 @@ test("Agent and translation intents come from the session, not from live flags",
   assert.equal(manager._activeSession, session);
 });
 
+test("a new streaming start resolves its provider from live settings, not the previous session", async (t) => {
+  const remote = { ...LOCAL, useLocalWhisper: false, cloudTranscriptionProvider: "deepgram", deepgramApiKey: "d" };
+  const { manager, setSettings } = await setup(t, remote);
+  manager.beginDictationSession({ streaming: true, streamingProviderName: "deepgram" });
+  manager._endDictationSession(manager.activeSession);
+  setSettings({ ...remote, cloudTranscriptionProvider: "assemblyai", assemblyaiApiKey: "a" });
+  assert.equal(manager.activeSession, null);
+  assert.equal(manager.getStreamingProviderName(), "assemblyai");
+});
+
 test("no routing read in the dictation pipeline bypasses the session", () => {
   const src = fs.readFileSync(path.join(__dirname, "../../src/helpers/audioManager.js"), "utf8");
   const methods = [
@@ -3046,6 +3174,7 @@ const TEXT_FLAG_KEYS = [
   "cleanupRemoteUrl", "cleanupDisableThinking", "useDictationAgent", "dictationAgentMode",
   "useDictationAgentVisionModel", "dictationAgentVisionModel", "dictationAgentVisionCloudBaseUrl",
   "useDictationTranslation", "snippets", "customPrompts", "uiLanguage", "autoPasteEnabled",
+  "voiceAgentScreenContext",
 ];
 const DICTATION_SCOPES = ["dictationCleanup", "dictationAgent", "dictationAgentVision", "dictationTranslation"];
 
@@ -3053,10 +3182,9 @@ export function isCredentialKey(key) {
   return /apikey|secret|token|clientid|password|credential/i.test(key);
 }
 
+// Each scope's settings keys live under `storeKeys` (inferenceScopes.ts:3-19).
 function scopeKeys(scope) {
-  const entry = INFERENCE_SCOPES[scope];
-  const map = entry?.store ?? entry ?? {};
-  return Object.values(map).filter((v) => typeof v === "string");
+  return Object.values(INFERENCE_SCOPES[scope]?.storeKeys ?? {});
 }
 
 export const SESSION_ROUTE_KEYS = Object.freeze(
@@ -3139,7 +3267,28 @@ export function sessionSettings(session, live) {
    The `applySessionIntents` assignments must not go through `setVoiceAgentRequested`, because that setter (`:707-720`) also clears pending selection and screen state.
 2. **Start points.**
    - In `startRecording`, after the guard at `:1145-1153` passes, call `this.beginDictationSession({ streaming: false, streamingProviderName: null });`.
-   - In `startStreamingRecording`, after its guard (`:3419-3427`), call `this.beginDictationSession({ streaming: true, streamingProviderName: this.getStreamingProviderName() });`. The provider name is captured once, while the live settings still define it.
+   - In `startStreamingRecording`, after its guard (`:3419-3427`), resolve the provider from **live** settings before the new session exists, then begin it:
+
+     ```js
+         this._activeSession = null; // never let the previous session's pin leak into a new start
+         const streamingProviderName = resolveStreamingProviderName({ settings: getSettings(), context: "dictation" });
+         this.beginDictationSession({ streaming: true, streamingProviderName });
+     ```
+
+   - **A session ends at the idle edge.** Add:
+
+     ```js
+       _endDictationSession(session) {
+         if (session && this._activeSession === session) this._activeSession = null;
+       }
+     ```
+
+     Call `this._endDictationSession(this._activeSession)` in three places:
+     - in `_settleProcessingPipeline` (≈1735) when it settles the active pipeline;
+     - in the `finally` of `stopStreamingRecording` (3745–3760) where it reports idle;
+     - in the idle branch of `cancelRecording` / `cancelStreamingRecording` (Task 8 hands the session to the cancel buffer first).
+
+     Between dictations, `settings()` is plain live settings, so warm-up and the next start never see a stale pin.
 3. **Read sites.** Each line below reads live settings today. Change each to `this.settings()`, or pass the view, and keep everything else the same.
 
    | Site | Change |
@@ -3247,6 +3396,7 @@ Startup failures, main-side validation rejections and Sealed-mode blocks record 
     target: string;
     payload: DisclosurePayload;          // strongest seen: audio > image > text
     evidence: "attested" | "dispatched"; // attested = main's EgressNotice; dispatched = transport hand-off seen by the renderer
+    alsoSentTo: string[];                // every other target that received part of this dictation (never hidden)
   }
   export interface CancelledState {
     sessionId: string;
@@ -3275,7 +3425,8 @@ Startup failures, main-side validation rejections and Sealed-mode blocks record 
   export function dispatchTargetLabel(target, t): string;                  // providerDisplayLabel, or the bare host
   export function disclosureCopy(d, t): string;                            // the caption text
   export function createDisclosureTracker({ session, onChange }): {
-    record({ task, payload, evidence }): void; get(): RemoteDisclosure | null; attested(): boolean; dispose(): void;
+    record({ task, payload, evidence }): void; get(): RemoteDisclosure | null; attested(): boolean;
+    setOnChange(fn): void; dispose(): void;
   };
   export function attachEgressEvidence(tracker, sessionId, privacyApi?): () => void; // no-op when Plan 07 is absent
   ```
@@ -3316,11 +3467,15 @@ test("labels are localised through providerDisplayLabel", async () => {
   assert.equal(dispatchTargetLabel("host:gpu-box.lan:8080", t), "gpu-box.lan:8080");
   assert.equal(dispatchTargetLabel("custom", t), "locality.customEndpoint");
   assert.equal(dispatchTargetLabel("", t), "locality.unknownProvider");
-  assert.equal(disclosureCopy({ target: "openai", payload: "audio", evidence: "attested" }, t), "pill.caption.remoteAudio|OpenAI");
-  assert.equal(disclosureCopy({ target: "anthropic", payload: "text", evidence: "dispatched" }, t), "pill.caption.mayHaveText|Anthropic");
+  assert.equal(disclosureCopy({ target: "openai", payload: "audio", evidence: "attested", alsoSentTo: [] }, t), "pill.caption.remoteAudio|OpenAI");
+  assert.equal(disclosureCopy({ target: "anthropic", payload: "text", evidence: "dispatched", alsoSentTo: [] }, t), "pill.caption.mayHaveText|Anthropic");
+  assert.equal(
+    disclosureCopy({ target: "openai", payload: "audio", evidence: "attested", alsoSentTo: ["anthropic"] }, t),
+    "pill.caption.remoteSeveral|OpenAI, Anthropic"
+  );
 });
 
-test("the strongest payload wins; attested evidence replaces dispatched evidence", async () => {
+test("every receiver is named; the primary is the strongest evidence, then the strongest payload", async () => {
   const { createDisclosureTracker } = await load();
   const s = session({
     dictationStt: route("dictationStt", "device"),
@@ -3332,19 +3487,30 @@ test("the strongest payload wins; attested evidence replaces dispatched evidence
   tracker.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" }); // local STT: nothing
   assert.equal(tracker.get(), null);
   tracker.record({ task: "translation", payload: "text", evidence: "dispatched" });
-  assert.deepEqual(tracker.get(), { target: "anthropic", payload: "text", evidence: "dispatched" });
+  assert.deepEqual(tracker.get(), { target: "anthropic", payload: "text", evidence: "dispatched", alsoSentTo: [] });
   tracker.record({ task: "dictationCleanup", payload: "text", evidence: "attested" });
-  assert.deepEqual(tracker.get(), { target: "openai", payload: "text", evidence: "attested" });
+  assert.deepEqual(tracker.get(), { target: "openai", payload: "text", evidence: "attested", alsoSentTo: ["anthropic"] });
   assert.equal(seen.length, 2);
 });
 
-test("once main attests, renderer-side guesses are ignored", async () => {
+test("an attested receiver is never downgraded by a later renderer-side guess", async () => {
   const { createDisclosureTracker } = await load();
-  const s = session({ dictationStt: route("dictationStt", "remote", "openai"), translation: route("translation", "remote", "anthropic") });
+  const s = session({ dictationStt: route("dictationStt", "remote", "openai") });
   const tracker = createDisclosureTracker({ session: s });
   tracker.record({ task: "dictationStt", payload: "audio", evidence: "attested" });
-  tracker.record({ task: "translation", payload: "text", evidence: "dispatched" });
-  assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "attested" });
+  tracker.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" });
+  assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: [] });
+});
+
+test("setOnChange redirects later evidence to a new listener (cancel window updates)", async () => {
+  const { createDisclosureTracker } = await load();
+  const s = session({ dictationStt: route("dictationStt", "remote", "openai") });
+  const tracker = createDisclosureTracker({ session: s });
+  const seen = [];
+  tracker.setOnChange((d) => seen.push(d.evidence));
+  tracker.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" });
+  tracker.record({ task: "dictationStt", payload: "audio", evidence: "attested" });
+  assert.deepEqual(seen, ["dispatched", "attested"]);
 });
 
 test("main's egress feed records only this session's content payloads", async () => {
@@ -3358,7 +3524,7 @@ test("main's egress feed records only this session's content payloads", async ()
   bus.emit("n", { phase: "sent", task: "dictationStt", host: "api.openai.com", payload: "audio", correlationId: "rec-2", ts: 1, ticketId: 2 });
   assert.equal(tracker.get(), null, "token fetches and other sessions do not count");
   bus.emit("n", { phase: "sent", task: "dictationStt", host: "api.openai.com", payload: "audio", correlationId: "rec-1", ts: 1, ticketId: 3 });
-  assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "attested" });
+  assert.deepEqual(tracker.get(), { target: "openai", payload: "audio", evidence: "attested", alsoSentTo: [] });
   assert.equal(tracker.attested(), true);
   off();
   assert.equal(attachEgressEvidence(tracker, "rec-1", undefined)(), undefined, "absent Plan 07 is a no-op");
@@ -3390,7 +3556,7 @@ test("a request main rejected before dispatch discloses nothing", async (t) => {
 test("a request that reached the provider discloses as dispatched", async (t) => {
   const manager = await managerWith(t, { transcribeAudioFileByok: async () => ({ success: false, error: "429", status: 429 }) });
   await manager.processWithOpenAIAPI(new Blob([new Uint8Array(8)]), {}, () => false).catch(() => {});
-  assert.deepEqual(manager.getDisclosure(), { target: "openai", payload: "audio", evidence: "dispatched" });
+  assert.deepEqual(manager.getDisclosure(), { target: "openai", payload: "audio", evidence: "dispatched", alsoSentTo: [] });
 });
 ```
 
@@ -3438,35 +3604,58 @@ export function dispatchTargetLabel(target, t) {
 }
 
 export function disclosureCopy(d, t) {
+  if (d.alsoSentTo?.length) {
+    // Several receivers: name them all rather than hide any (one string, not one per payload).
+    const providers = [d.target, ...d.alsoSentTo].map((x) => dispatchTargetLabel(x, t)).join(", ");
+    return t(d.evidence === "attested" ? "pill.caption.remoteSeveral" : "pill.caption.mayHaveSeveral", { provider: providers });
+  }
   const noun = d.payload === "audio" ? "Audio" : d.payload === "image" ? "Image" : "Text";
   const key = d.evidence === "attested" ? `pill.caption.remote${noun}` : `pill.caption.mayHave${noun}`;
   return t(key, { provider: dispatchTargetLabel(d.target, t) });
 }
 
+const EVIDENCE_RANK = { dispatched: 1, attested: 2 };
+
 export function createDisclosureTracker({ session, onChange } = {}) {
-  let current = null;
+  let listener = onChange;
+  const byTarget = new Map(); // target -> { payload, evidence }
   let attested = false;
+  let current = null;
   const settingsView = session?.settings ?? {};
+  const summarize = () => {
+    const entries = [...byTarget.entries()].sort(
+      ([, a], [, b]) =>
+        EVIDENCE_RANK[b.evidence] - EVIDENCE_RANK[a.evidence] || PAYLOAD_RANK[b.payload] - PAYLOAD_RANK[a.payload]
+    );
+    if (!entries.length) return null;
+    const [[target, top], ...rest] = entries;
+    return { target, payload: top.payload, evidence: top.evidence, alsoSentTo: rest.map(([t]) => t) };
+  };
   return {
     record({ task, payload, evidence }) {
       if (!PAYLOAD_RANK[payload]) return; // "metadata" never counts
-      if (evidence === "dispatched" && attested) return;
       const target = disclosureTargetFor(session?.routes?.[task], settingsView);
       if (target === null) return;
-      const next = { target, payload, evidence };
-      const upgrade =
-        !current ||
-        (evidence === "attested" && current.evidence !== "attested") ||
-        (current.evidence === evidence && PAYLOAD_RANK[payload] > PAYLOAD_RANK[current.payload]);
       if (evidence === "attested") attested = true;
-      if (!upgrade) return;
-      current = next;
-      onChange?.(current);
+      const prev = byTarget.get(target);
+      const next = {
+        payload: prev && PAYLOAD_RANK[prev.payload] > PAYLOAD_RANK[payload] ? prev.payload : payload,
+        evidence: prev?.evidence === "attested" ? "attested" : evidence,
+      };
+      if (prev && prev.payload === next.payload && prev.evidence === next.evidence) return;
+      byTarget.set(target, next);
+      current = summarize();
+      listener?.(current);
     },
     get: () => current,
     attested: () => attested,
+    setOnChange(fn) {
+      listener = fn;
+    },
     dispose() {
+      byTarget.clear();
       current = null;
+      listener = undefined;
     },
   };
 }
@@ -3498,29 +3687,32 @@ const routes = Object.fromEntries(DISCLOSURE_TASKS.map((id) => [id, resolveRoute
 
 - [ ] **Step 4: Record evidence in `AudioManager`**
 
-1. **Tracker per session.** In `beginDictationSession` (Task 6) and in `applySessionIntents`:
+1. **Tracker per session.** In `beginDictationSession` (Task 6), and in `applySessionIntents(session, { tracker } = {})`:
 
    ```js
-     this._disclosure?.dispose();
      this._detachEgress?.();
-     this._disclosure = createDisclosureTracker({ session: this._activeSession });
+     // A restored session keeps the evidence gathered before its cancel (Task 8 passes buffer.tracker).
+     this._disclosure = tracker ?? createDisclosureTracker({ session: this._activeSession });
      this._detachEgress = attachEgressEvidence(this._disclosure, this._activeSession.id);
    ```
 
+   Never dispose a tracker here: a cancel buffer may own it (Task 8). The buffer disposes it when its window closes.
+
    Add `getDisclosure() { return this._disclosure?.get() ?? null; }`. Cancel paths (Task 8) read it when they build `CancelledState`.
 2. **Route evidence.** These record only when no attested feed exists; the tracker enforces that.
-   - **Streaming.** Record `{ task: "dictationStt", payload: "audio", evidence: "dispatched" }` immediately after `provider.start(...)` resolves with `res.success` (`:3594`). Audio frames are already buffered in main by then (`ipcHandlers.js:7053-7055`). A thrown or unsuccessful start records nothing.
-   - **Batch STT.** In `processWithOpenAIAPI`, after `transcribeAudioFileByok` settles (`:2952`), record `{ task: "dictationStt", payload: "audio" }` unless `result?.dispatched === false`. A thrown IPC error records only if `error?.dispatched !== false`.
+   - **Streaming.** In `startStreamingRecording`, capture `const tracker = this._disclosure;` before `await provider.start(...)`. Once it resolves with `res.success` (`:3594`), call `tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" })`. Audio frames are already buffered in main by then (`ipcHandlers.js:7053-7055`). A thrown or unsuccessful start records nothing. A cancel during the connect moves `this._disclosure` into the cancel buffer (Task 8), and the captured tracker still records onto that cancelled session. Task 8's replay records the same way.
+   - **Batch STT.** In `processWithOpenAIAPI`, capture `const tracker = this._disclosure;` **before** the `await`. After `transcribeAudioFileByok` settles (`:2952`), call `tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" })` unless `result?.dispatched === false`. A thrown IPC error records only if `error?.dispatched !== false`. Recording into the captured tracker means evidence that settles after a cancel still lands on the cancelled session (whose buffer now owns that tracker), never on the next session.
    - **Text (cleanup, agent, vision, translation).** Wrap the three call sites that hand a request to `ReasoningService`: `processWithReasoningModel` (`:2199`), `processAgentCommand`'s call (`:2419`) and both `runTranslationChain` steps (`:2507`, `:2518`). Use this helper:
 
      ```js
        async _dispatchText(task, payload, run) {
+         const tracker = this._disclosure; // the session that sent it, even if it is cancelled meanwhile
          try {
            const result = await run();
-           this._disclosure?.record({ task, payload, evidence: "dispatched" });
+           tracker?.record({ task, payload, evidence: "dispatched" });
            return result;
          } catch (error) {
-           if (error?.dispatched !== false) this._disclosure?.record({ task, payload, evidence: "dispatched" });
+           if (error?.dispatched !== false) tracker?.record({ task, payload, evidence: "dispatched" });
            throw error;
          }
        }
@@ -3532,7 +3724,22 @@ const routes = Object.fromEntries(DISCLOSURE_TASKS.map((id) => [id, resolveRoute
      - agent → `"voiceAssistant"`, plus a second `record({ task: "assistantVision", payload: "image" })` when the agent request carried `screenContext`.
 
      Local routes resolve to a `null` target, so local cleanup or agent calls record nothing.
-3. **`dispatched: false` in main.** In `transcribe-audio-file-byok` (`ipcHandlers.js:7964-8009`), every `return { success: false, … }` or thrown error before the provider HTTP call carries `dispatched: false`. This covers validation, missing credentials, `resolveTranscriptionRoute` errors and Plan 07's Sealed block. In `personalInference.js`, do the same for `validateRequest` rejections and for credential-status failures before the provider call: rejected promises carry `error.dispatched = false`.
+3. **Processing stage.** The hook shows "Transcribing…" and "Cleaning up" from this callback (Tasks 9, 10).
+   - In `setCallbacks` (`:629`), add `onProcessingStage = undefined` to the destructure and `this.onProcessingStage = onProcessingStage;` to the body.
+   - Emit `this.onProcessingStage?.("transcribing")` at the top of `processAudio` (after `const wasCancelled = …`, `:1775`) and right after the streaming finalize reports processing (`≈3886`).
+   - Emit `this.onProcessingStage?.("cleaning")` in `processTranscriptionCore` directly before the cleanup or translation request (`≈2689`), when `route.kind !== "agent"`. Agent turns show the orbit instead.
+
+   Add a test to `dictationDisclosure.test.js`:
+
+   ```js
+   test("the cleaning stage is announced before the cleanup request", () => {
+     const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../src/helpers/audioManager.js"), "utf8");
+     const core = src.slice(src.indexOf("async processTranscriptionCore("), src.indexOf("async processTranscriptionCore(") + 9000);
+     assert.ok(core.indexOf('onProcessingStage?.("cleaning")') > 0);
+     assert.ok(core.indexOf('onProcessingStage?.("cleaning")') < core.indexOf("processWithReasoningModel("));
+   });
+   ```
+4. **`dispatched: false` in main.** In `transcribe-audio-file-byok` (`ipcHandlers.js:7964-8009`), every `return { success: false, … }` or thrown error before the provider HTTP call carries `dispatched: false`. This covers validation, missing credentials, `resolveTranscriptionRoute` errors and Plan 07's Sealed block. In `personalInference.js`, do the same for `validateRequest` rejections and for credential-status failures before the provider call: rejected promises carry `error.dispatched = false`.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -3554,11 +3761,11 @@ Closes review findings C1, I1, I2 and the AudioManager half of I3. The owner-con
 
 | D3 rule | How | Pinned by |
 |---|---|---|
-| Held in RAM only, never on disk (temp files included) unless retention already saves discarded audio | The buffer holds the **raw** recorded segments (batch) or PCM frames plus fallback segments (streaming) as owned byte copies. Nothing calls `mergeAudioSegments` (FFmpeg temp files, `ffmpegUtils.js:474-509`) while holding. A merge happens only after Undo (the audio is then a normal dictation again) or at expiry when `shouldSaveDiscardedRecording` allows saving | "two segments, retention off: no merge, no write, all bytes zeroed" |
-| Zeroed on expiry, including late bytes, and no Blob stays reachable | Every byte copy is owned by the buffer. A copy that finishes after the buffer closed is zeroed on arrival, and rejected copies are swallowed. Source Blob references (`segmentChunks`, `_batchSegments`, `_streamingFallbackSegments`, `streamingFallbackChunks`, `_processingAudio`, and `lastAudioBlob` when it belongs to the cancelled session) are dropped at cancel. Immutable browser Blobs cannot be overwritten; they become unreachable and the browser frees them | "late bytes are zeroed", "residual references are released", "a newer session's lastAudioBlob survives" |
-| Undo replays the original route | The buffer carries the frozen `DictationSession` (Task 6). Restore applies it, so every read goes through the snapshot. Main still enforces Sealed mode, and the renderer pre-checks it to fail explicitly | "Undo after switching local→remote stays local", "provider A stays A", "sealed refuses remote" |
+| Held in RAM only, never on disk (temp files included) unless retention already saves discarded audio | The buffer holds the **raw** recorded segments (batch) or PCM frames plus fallback segments (streaming) as owned byte copies. Nothing calls `mergeAudioSegments` (FFmpeg temp files, `ffmpegUtils.js:474-509`) while holding. A merge happens only after Undo (the audio is then a normal dictation again) or at expiry when `shouldSaveDiscardedRecording` allows saving | "two segments, retention off: no merge, no write, every byte zeroed (C1)". A merge already running in main when the cancel lands is the one exception (see "Known limit", Step 4) |
+| Zeroed on expiry, including late bytes, and no Blob stays reachable | Every byte copy is owned by the buffer. A copy that finishes after the buffer closed is zeroed on arrival, and rejected copies are swallowed. Source Blob references (`segmentChunks`, `_batchSegments`, `_streamingFallbackSegments`, `streamingFallbackChunks`, `_sessionAudio`, and `lastAudioBlob` when it belongs to the cancelled session) are dropped at cancel. Immutable browser Blobs cannot be overwritten; they become unreachable and the browser frees them | "late bytes are zeroed", "only the cancelled session's lastAudioBlob is released (I1)" |
+| Undo replays the original route | The buffer carries the frozen `DictationSession` (Task 6). Restore applies it, so every read goes through the snapshot. Main still enforces Sealed mode, and the renderer pre-checks it to fail explicitly | "Undo restores through the session's route even after settings move to a provider (C2)", "streaming Undo replays the frames through the same provider…", "Sealed mode refuses a non-device Undo and keeps the recording held" |
 | Every cancel path gets Undo | Recording, mic recovery, segment merge, transcription and cleanup (batch); recording and finalization (streaming). A cancel during startup, before any audio exists, has nothing to restore and shows no Undo | one test per path |
-| Esc and new starts during restore | Restore claims the buffer and enters `isProcessing` **synchronously**, before any await. A start is rejected by the existing guard, and Esc is lifecycle-owned (Task 9) | "a start during a pending restore is rejected" |
+| Esc and new starts during restore | Restore claims the buffer and enters `isProcessing` **synchronously**, before any await. A start is rejected by the existing guard, and Esc is lifecycle-owned (Task 9) | "Undo is claimed synchronously…", "Esc while a restore waits for its bytes cancels it and puts the recording back (I3)" |
 
 **Streaming Undo replays through the same streaming provider.** Batch endpoints are not used: Deepgram and AssemblyAI have none (`STREAMING_ONLY_PROVIDERS`), and a different endpoint would be a different route. The buffer keeps the exact 16 kHz PCM frames that were sent to the provider, and restore opens a new session with the same provider and options. It replays the frames at 4× real time (main buffers frames while connecting, `ipcHandlers.js:7053-7055`), then runs the normal streaming finalization. The fallback WebM segments are kept only to give history the same audio file a normal streaming dictation saves.
 
@@ -3571,7 +3778,7 @@ Closes review findings C1, I1, I2 and the AudioManager half of I3. The owner-con
   - `_finalizeStreamingRecording` (3846–4082): a `replay` mode that tolerates the missing microphone objects;
   - `lastAudioBlob` ownership (1447, 3935);
   - new methods `restoreCancelled`, `pauseCancelHold`, `resumeCancelHold`, `flushCancelHold`, `_replayStreamingSession`;
-  - delete `persistDiscardedBatchRecording` (1675–1722), which `_persistExpired` replaces.
+  - delete `persistDiscardedBatchRecording` (1675–1722), which `_closeCancelled` replaces.
 - Modify: `docs/PRIVACY.md`. Add the undo paragraph after the paragraph at line 16.
 - Test: `test/helpers/cancelBuffer.test.js`
 - Test: `test/helpers/audioManagerCancelBuffer.test.js`
@@ -3599,11 +3806,12 @@ Closes review findings C1, I1, I2 and the AudioManager half of I3. The owner-con
 
   ```js
   // AudioManager
-  restoreCancelled(sessionId?: string): Promise<UndoResult>;
+  restoreCancelled(sessionId?: string): Promise<UndoResult>; // settles once the pipeline starts; the run is this._restoreRun
   pauseCancelHold(): void; resumeCancelHold(): void;
   flushCancelHold(): Promise<void>;                 // persist if retention allows, then zero (shutdown, Task 9)
-  // emits onCancelledChange(CancelledState | null) whenever the window opens, pauses, resumes,
-  // gets new disclosure evidence, or closes
+  // emits onCancelledChange(CancelledState) whenever the window opens, pauses, resumes or gets new
+  // disclosure evidence, and onCancelledChange(null, { sessionId, reason }) when it closes,
+  // reason: "expired" | "replaced" | "flushed" | "restored"
   ```
 
 - [ ] **Step 1: Write the failing tests**
@@ -3730,7 +3938,12 @@ test("take() ends the window without closing it; expireNow is idempotent", async
 });
 ```
 
-Create `test/helpers/audioManagerCancelBuffer.test.js`. It drives the real cancel and restore methods, and stubs only the leaf transports and the MediaRecorder:
+Create `test/helpers/audioManagerCancelBuffer.test.js`. It drives the real cancel and restore methods, and stubs only the leaf transports and the MediaRecorder.
+
+Fixtures follow the real guards:
+- Blobs are at least `MIN_AUDIO_BYTES` (256, `recordingGuard.js:8`), so `mergeRecordedSegments` keeps them.
+- `_receivedAudioData` is set.
+- `recordingStartTime` is two seconds in the past, so the window is the 5 s one.
 
 ```js
 const assert = require("node:assert/strict");
@@ -3744,6 +3957,11 @@ const LOCAL = {
   cloudTranscriptionProvider: "openai", transcriptionMode: "providers", useCleanupModel: false,
   saveDiscardedTranscriptions: false, dataRetentionEnabled: true, audioRetentionDays: 30, openaiApiKey: "sk",
 };
+
+// 300-byte audio whose every byte is `fill`, so a test can tell segments apart.
+const blob = (fill) => new Blob([new Uint8Array(300).fill(fill)], { type: "audio/webm" });
+const firstByte = (bytes) => bytes[0];
+const allZero = (bytes) => bytes.every((b) => b === 0);
 
 async function setup(t, settings = LOCAL) {
   const loaded = await loadAudioManager(t, { cachePrefix: "openwhispr-cancel-buffer-", settingsKey: "__cancelBufferSettings", settings });
@@ -3761,12 +3979,12 @@ async function setup(t, settings = LOCAL) {
     for (const [id, e] of [...pending]) if (e.at <= now) (pending.delete(id), e.fn());
     for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r));
   };
-  const io = { merges: 0, saves: 0, local: 0, byok: [], streamStarts: [], streamSends: 0, cancelled: [] };
+  const io = { merges: 0, saves: 0, local: 0, byok: [], streamStarts: [], streamSends: 0, cancelled: [], closed: [] };
   loaded.window.electronAPI = {
     ...loaded.window.electronAPI,
-    mergeAudioSegments: async () => {
-      io.merges += 1; // FFmpeg temp files
-      return { success: true, buffer: new Uint8Array([9]).buffer, mimeType: "audio/webm" };
+    mergeAudioSegments: async (payload) => {
+      io.merges += 1; // FFmpeg temp files in main
+      return { success: true, buffer: new Uint8Array(payload[0].buffer).buffer, mimeType: "audio/webm" };
     },
     transcribeAudioFileByok: async (p) => (io.byok.push(p), { success: true, text: "hi" }),
     cancelUploadTranscription: () => {},
@@ -3776,7 +3994,10 @@ async function setup(t, settings = LOCAL) {
   const manager = Object.assign(Object.create(loaded.AudioManager.prototype), {
     _undoWindowFactory: (opts) => createUndoWindow({ ...clock, ...opts }),
     _processingCancellationGeneration: 0,
+    _streamingCancellationGeneration: 0,
+    _streamingSessionGeneration: 0,
     _localSpeechGateState: null,
+    _receivedAudioData: true,
     _batchSegments: [],
     audioChunks: [],
     micRecovery: { stop() {} },
@@ -3785,7 +4006,10 @@ async function setup(t, settings = LOCAL) {
     _closeBatchPcmTap() {},
     _markCaptureStreamReleased() {},
     onStateChange: () => {},
-    onCancelledChange: (s) => io.cancelled.push(s),
+    onCancelledChange: (s, closed) => {
+      io.cancelled.push(s);
+      if (closed) io.closed.push(closed);
+    },
     onTranscriptionComplete: () => {},
     saveDiscardedTranscription: async () => {
       io.saves += 1;
@@ -3797,81 +4021,83 @@ async function setup(t, settings = LOCAL) {
   return { ...loaded, manager, io, advance };
 }
 
-const blob = (bytes) => new Blob([new Uint8Array(bytes)], { type: "audio/webm" });
-
-function startBatch(manager, segments, chunkBytes) {
+function startBatch(manager, segmentFills, chunkFill) {
   manager.beginDictationSession({ streaming: false });
   manager.isRecording = true;
-  manager.recordingStartTime = 1;
-  manager._batchSegments = segments.map(blob);
+  manager.recordingStartTime = Date.now() - 2000;
+  manager._batchSegments = segmentFills.map(blob);
   const recorder = { state: "recording", stream: null, onstop: null, stop() { this.state = "inactive"; this.onstop?.(); } };
   manager.mediaRecorder = recorder;
-  manager.audioChunks = [blob(chunkBytes)];
+  manager.audioChunks = [blob(chunkFill)];
   return recorder;
 }
 
 test("two segments, retention off: no merge, no write, every byte zeroed (C1)", async (t) => {
   const { manager, io, advance } = await setup(t);
-  startBatch(manager, [[1, 1], [2, 2]], [3]);
+  startBatch(manager, [1, 2], 3);
   manager.cancelRecording();
   await advance(0);
-  const state = io.cancelled.at(-1);
-  assert.equal(state.sessionId, manager.activeSession.id);
+  assert.equal(io.cancelled.at(-1).sessionId, manager._undo.peek().session.id);
   const held = manager._undo.peek();
   await held.ready();
-  assert.equal(held.bytes("segment").length, 3);
   const views = held.bytes("segment");
+  assert.deepEqual(views.map(firstByte), [1, 2, 3]);
   await advance(5000);
   assert.equal(io.merges, 0, "FFmpeg (temp files) never ran");
   assert.equal(io.saves, 0);
-  assert.ok(views.every((v) => v.every((b) => b === 0)), "zeroed");
+  assert.ok(views.every(allZero), "zeroed");
   assert.equal(io.cancelled.at(-1), null);
+  assert.deepEqual(io.closed.at(-1), { sessionId: held.session.id, reason: "expired" });
 });
 
 test("retention on: expiry merges and saves exactly once, then zeroes", async (t) => {
   const { manager, io, advance, setSettings } = await setup(t, { ...LOCAL, ...RETAIN });
   setSettings({ ...LOCAL, ...RETAIN });
-  startBatch(manager, [[1], [2]], [3]);
+  startBatch(manager, [1, 2], 3);
   manager.cancelRecording();
   await advance(5000);
-  assert.equal(io.saves, 1);
   assert.equal(io.merges, 1, "the merge is allowed only because retention saves discarded audio");
+  assert.equal(io.saves, 1);
 });
 
-test("residual references are released at cancel; a newer session's lastAudioBlob survives (I1)", async (t) => {
+test("only the cancelled session's lastAudioBlob is released (I1)", async (t) => {
   const { manager, advance } = await setup(t);
-  startBatch(manager, [[1]], [2]);
-  manager.lastAudioBlob = blob([1]);
+  startBatch(manager, [], 2);
+  manager.lastAudioBlob = blob(9);
   manager._lastAudioSessionId = manager.activeSession.id;
   manager.cancelRecording();
   await advance(0);
-  assert.equal(manager.lastAudioBlob, null);
+  assert.equal(manager.lastAudioBlob, null, "the cancelled session's audio is unreachable");
   assert.deepEqual(manager._batchSegments, []);
   assert.deepEqual(manager.audioChunks, []);
-  const newer = blob([7]);
-  manager.lastAudioBlob = newer;
-  manager._lastAudioSessionId = "someone-else";
-  await advance(5000);
-  assert.equal(manager.lastAudioBlob, newer);
+
+  const other = await setup(t);
+  startBatch(other.manager, [], 2);
+  const newer = blob(7);
+  other.manager.lastAudioBlob = newer;
+  other.manager._lastAudioSessionId = "a-different-session";
+  other.manager.cancelRecording();
+  await other.advance(5000);
+  assert.equal(other.manager.lastAudioBlob, newer, "another session's audio is never cleared");
 });
 
 test("a cancel during the segment merge holds the raw segments (merge-time cancel)", async (t) => {
   const { manager, io, advance } = await setup(t);
   manager.beginDictationSession({ streaming: false });
   manager.isRecording = true;
-  manager.recordingStartTime = 1;
-  manager._batchSegments = [blob([1]), blob([2])];
+  manager.recordingStartTime = Date.now() - 2000;
+  manager._batchSegments = [blob(1), blob(2)];
   const merge = deferred();
   manager.mergeRecordedSegments = () => merge.promise;
   const finalizing = manager.finalizeBatchRecording(null);
   await advance(0);
-  manager.cancelProcessing();
+  assert.equal(manager.cancelProcessing(), true);
   await advance(0);
   const held = manager._undo.peek();
   await held.ready();
   assert.equal(held.kind, "batch");
-  assert.deepEqual(held.bytes("segment").map((b) => [...b]), [[1], [2]]);
-  merge.resolve(blob([1, 2]));
+  assert.deepEqual(held.bytes("segment").map(firstByte), [1, 2]);
+  merge.resolve(blob(3));
   await finalizing;
   assert.equal(io.local, 0, "the abandoned pipeline transcribed nothing");
 });
@@ -3880,18 +4106,18 @@ test("a cancel during transcription holds the raw segments, not the merged blob"
   const { manager, advance } = await setup(t);
   manager.beginDictationSession({ streaming: false });
   manager.isRecording = true;
-  manager.recordingStartTime = 1;
-  manager._batchSegments = [blob([4])];
+  manager.recordingStartTime = Date.now() - 2000;
+  manager._batchSegments = [blob(4)];
   const stt = deferred();
   manager.processWithLocalParakeet = () => stt.promise;
   const finalizing = manager.finalizeBatchRecording(null);
   await advance(0);
-  manager.cancelProcessing();
+  assert.equal(manager.cancelProcessing(), true);
   await advance(0);
   const held = manager._undo.peek();
   await held.ready();
-  assert.deepEqual(held.bytes("segment").map((b) => [...b]), [[4]]);
-  assert.equal(manager._processingAudio ?? null, null);
+  assert.deepEqual(held.bytes("segment").map(firstByte), [4]);
+  assert.equal(manager._sessionAudio ?? null, null, "the session's audio references were released");
   stt.resolve({ success: true, text: "late" });
   await finalizing;
 });
@@ -3906,20 +4132,21 @@ test("a cancel during startup, before any audio exists, offers nothing to undo",
 
 test("Undo restores through the session's route even after settings move to a provider (C2)", async (t) => {
   const { manager, io, advance, setSettings } = await setup(t);
-  startBatch(manager, [], [3, 3]);
+  startBatch(manager, [], 3);
   const sessionId = manager.activeSession.id;
   manager.cancelRecording();
   await advance(0);
   setSettings({ ...LOCAL, useLocalWhisper: false }); // switch to OpenAI during the window
   const result = await manager.restoreCancelled(sessionId);
   assert.deepEqual(result, { restored: true, sessionId });
+  await manager._restoreRun;
   assert.equal(io.local, 1);
   assert.equal(io.byok.length, 0, "local audio never left the device");
 });
 
 test("Undo is claimed synchronously: a start during a pending restore is rejected (I3)", async (t) => {
   const { manager, advance } = await setup(t);
-  startBatch(manager, [], [3]);
+  startBatch(manager, [], 3);
   manager.cancelRecording();
   await advance(0);
   const held = manager._undo.peek();
@@ -3930,11 +4157,30 @@ test("Undo is claimed synchronously: a start during a pending restore is rejecte
   assert.equal(await manager.startRecording(), false);
   gate.resolve();
   await restoring;
+  await manager._restoreRun;
+});
+
+test("Esc while a restore waits for its bytes cancels it and puts the recording back (I3)", async (t) => {
+  const { manager, io, advance } = await setup(t);
+  startBatch(manager, [], 3);
+  manager.cancelRecording();
+  await advance(0);
+  const held = manager._undo.peek();
+  const gate = deferred();
+  held.ready = () => gate.promise;
+  const restoring = manager.restoreCancelled();
+  manager.cancelProcessing(); // Esc
+  gate.resolve();
+  const result = await restoring;
+  assert.equal(result.restored, false);
+  assert.equal(manager.isProcessing, false);
+  assert.equal(io.local, 0, "nothing was transcribed or pasted");
+  assert.equal(manager._undo.peek(), held, "the recording is held again, not lost");
 });
 
 test("a restore whose bytes fail settles idle and says so", async (t) => {
   const { manager, advance } = await setup(t);
-  startBatch(manager, [], [3]);
+  startBatch(manager, [], 3);
   manager.cancelRecording();
   await advance(0);
   const held = manager._undo.peek();
@@ -3948,55 +4194,114 @@ test("a restore whose bytes fail settles idle and says so", async (t) => {
   assert.equal(held.isZeroed(), true);
 });
 
-test("Sealed mode refuses an Undo that would leave the device, and allows a local one", async (t) => {
+test("Sealed mode refuses a non-device Undo and keeps the recording held", async (t) => {
   const { manager, window: win, advance } = await setup(t, { ...LOCAL, useLocalWhisper: false });
   win.electronAPI.privacy = { getSealed: async () => true };
-  startBatch(manager, [], [3]);
+  startBatch(manager, [], 3);
   manager.cancelRecording();
   await advance(0);
+  const held = manager._undo.peek();
   assert.equal((await manager.restoreCancelled()).reason, "sealed");
+  assert.equal(manager._undo.peek(), held, "content is preserved on refusal");
+  assert.equal(held.isZeroed(), false);
+  assert.equal(manager.isProcessing, false);
 });
 
-test("a streaming cancel holds the PCM frames and replays them through the same provider", async (t) => {
-  const { manager, io, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false, cloudTranscriptionModel: "gpt-4o-mini-transcribe" });
+function streamingManager(manager) {
   manager.beginDictationSession({ streaming: true, streamingProviderName: "openai-realtime" });
-  manager._sessionAudio = { session: manager.activeSession, kind: "streaming", frames: [new Int16Array([1, 2]), new Int16Array([3])], fallbackChunks: [blob([5])], fallbackSegments: [] };
-  manager.isRecording = true;
+  manager._sessionAudio = {
+    session: manager.activeSession, kind: "streaming",
+    frames: [new Int16Array([1, 2]), new Int16Array([3])],
+    fallbackChunks: [blob(5)], fallbackSegments: [],
+    mimeType: "audio/webm", durationSeconds: null, analyticsOccurredAt: "x",
+  };
   manager.isStreaming = true;
-  manager.recordingStartTime = 1;
+  manager.recordingStartTime = Date.now() - 40_000;
   manager.cleanupStreamingAudio = () => {};
   manager.cleanupStreamingListeners = () => {};
   manager.getStreamingProvider = () => ({ stop: async () => ({}) });
+}
+
+test("a streaming cancel while recording holds the frames, with the long window for >30 s", async (t) => {
+  const { manager, io, advance } = await setup(t, { ...LOCAL, useLocalWhisper: false });
+  streamingManager(manager);
+  manager.isRecording = true;
   await manager.cancelStreamingRecording();
   await advance(0);
   const held = manager._undo.peek();
   assert.equal(held.kind, "streaming");
   assert.equal(held.frames().length, 2);
+  assert.equal(io.cancelled.at(-1).remainingMs, 10_000, "duration was read before recordingStartTime was cleared");
+});
+
+test("a streaming cancel during finalization (Esc → cancelProcessing) holds the frames too (I2)", async (t) => {
+  const { manager, advance } = await setup(t, { ...LOCAL, useLocalWhisper: false });
+  streamingManager(manager);
+  manager.isProcessing = true;
+  manager._streamingStopPromise = new Promise(() => {}); // finalization in flight
+  manager._requestStreamingCancellation = () => {};
+  assert.equal(manager.cancelProcessing(), true);
+  await advance(0);
+  assert.equal(manager._undo.peek().kind, "streaming");
+});
+
+test("streaming Undo replays the frames through the same provider and cleans up after itself", async (t) => {
+  const { manager, io, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false, cloudTranscriptionModel: "gpt-4o-mini-transcribe" });
+  streamingManager(manager);
+  manager.isRecording = true;
+  await manager.cancelStreamingRecording();
+  await advance(0);
+  const held = manager._undo.peek();
   win.electronAPI.dictationRealtimeStart = async (opts) => (io.streamStarts.push(opts), { success: true });
   win.electronAPI.dictationRealtimeSend = () => (io.streamSends += 1);
-  manager._finalizeStreamingRecording = async ({ replay }) => assert.equal(replay, true);
+  win.electronAPI.dictationRealtimeStop = async () => ({});
+  manager._finalizeStreamingRecording = async (sessionId, { replay } = {}) => {
+    assert.equal(replay, true);
+    assert.equal(typeof sessionId, "number");
+  };
   manager._attachStreamingListeners = () => {};
   const result = await manager.restoreCancelled();
   assert.equal(result.restored, true);
+  await manager._restoreRun;
   assert.equal(io.streamStarts[0].provider, "openai-realtime");
   assert.equal(io.streamStarts[0].correlationId, held.session.id);
   assert.equal(io.streamSends, 2);
   assert.equal(held.isZeroed(), true);
+  assert.equal(manager.isStreaming, false, "a finished replay never leaves the manager stuck");
+});
+
+test("a replay whose provider refuses to start leaves the manager usable and re-holds the audio", async (t) => {
+  const { manager, io, advance, window: win } = await setup(t, { ...LOCAL, useLocalWhisper: false });
+  streamingManager(manager);
+  manager.isRecording = true;
+  await manager.cancelStreamingRecording();
+  await advance(0);
+  win.electronAPI.dictationRealtimeStart = async () => ({ success: false, error: "429" });
+  win.electronAPI.dictationRealtimeStop = async () => ({});
+  manager._attachStreamingListeners = () => {};
+  await manager.restoreCancelled();
+  await manager._restoreRun;
+  assert.equal(manager.isStreaming, false);
+  assert.equal(manager.isProcessing, false);
+  assert.equal(manager._undo.peek()?.kind, "streaming", "the audio is offered for Undo again");
+  assert.equal(io.streamSends, 0);
 });
 
 test("flush persists once when retention allows; with retention off it only zeroes", async (t) => {
   const on = await setup(t, { ...LOCAL, ...RETAIN });
   on.setSettings({ ...LOCAL, ...RETAIN });
-  startBatch(on.manager, [], [3]);
+  startBatch(on.manager, [], 3);
   on.manager.cancelRecording();
   await on.advance(0);
   await on.manager.flushCancelHold();
   await on.manager.flushCancelHold();
   assert.equal(on.io.saves, 1);
+  assert.deepEqual(on.io.closed.at(-1).reason, "flushed");
 });
 ```
 
-`startRecording()` in the I3 test runs the real guard (`:1145-1153`). If the prototype instance lacks a field that guard reads, add it to `setup`.
+`startRecording()` in the I3 test runs the real guard (`:1145-1153`). If the prototype instance lacks a field that guard reads, add it to `setup`. The streaming tests replace the provider-facing leaves (`cleanupStreamingAudio`, `cleanupStreamingListeners`, `_attachStreamingListeners`, the `dictationRealtime*` IPC). The cancel, hold and replay logic under test is real.
+
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -4133,7 +4438,7 @@ export function createUndoWindow({
 
 - [ ] **Step 4: Session audio and the cancel paths in `AudioManager`**
 
-1. **Imports and the window.** Add `import { createCancelBuffer, createUndoWindow, REPLAY_BATCH_FRAMES, REPLAY_PACE_MS } from "./cancelBuffer";` and `import { canStartDictation } from "../utils/dictationReadiness";`. Then:
+1. **Imports and the window.** Add `import { createCancelBuffer, createUndoWindow, REPLAY_BATCH_FRAMES, REPLAY_PACE_MS } from "./cancelBuffer";` and `import { canStartDictation } from "../utils/dictationReadiness";`. Then add:
 
    ```js
      _undoWindow() {
@@ -4153,16 +4458,15 @@ export function createUndoWindow({
 
      _openCancelled(buffer) {
        this._undoWindow().open(buffer);
-       // Evidence that arrives after the cancel (an upload that finished
-       // sending, an attested egress notice) updates the copy while the
-       // window is open.
-       buffer.tracker?.setOnChange?.(() => this._emitCancelled(buffer));
+       // Evidence that settles after the cancel (an upload that finished
+       // sending, an attested egress notice) updates the copy while open.
+       buffer.tracker?.setOnChange(() => this._emitCancelled(buffer));
        this._emitCancelled(buffer);
      }
 
      async _closeCancelled(buffer, reason) {
-       this.onCancelledChange?.(null);
-       buffer.tracker?.dispose?.();
+       this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason });
+       buffer.tracker?.dispose();
        if (reason === "replaced" && this._undo?.peek()) this._emitCancelled(this._undo.peek());
        await buffer.ready();
        if (!shouldSaveDiscardedRecording(getSettings(), buffer.durationSeconds)) return; // zeroed by the window
@@ -4178,17 +4482,25 @@ export function createUndoWindow({
        }
      }
 
-     _releaseSessionReferences(session) {
+     /** Move the active session, its tracker and its audio into a new buffer; release every other reference. */
+     _bufferForSession(kind, { durationSeconds, analyticsOccurredAt, mimeType }) {
+       const session = this._activeSession;
+       const buffer = createCancelBuffer({
+         session, kind, mimeType: mimeType || this.recordingMimeType,
+         durationSeconds, analyticsOccurredAt, tracker: this._disclosure,
+       });
+       this._disclosure = null; // the buffer owns the tracker now
        if (this._lastAudioSessionId === session.id) {
          this.lastAudioBlob = null;
          this._lastAudioSessionId = null;
        }
-       if (this._processingAudio?.session === session) this._processingAudio = null;
        if (this._sessionAudio?.session === session) this._sessionAudio = null;
+       this._endDictationSession(session); // Task 6
+       return buffer;
      }
    ```
 
-   In Task 7's `createDisclosureTracker`, add `setOnChange(fn) { onChange = fn; }`. Make `onChange` a `let`, and keep the constructor argument as its initial value.
+   Task 9 relies on `onCancelledChange(state, closed)`. `closed` is passed only when the state goes to `null`, as `{ sessionId, reason }`, where reason is `"expired" | "replaced" | "flushed" | "restored"`.
 2. **`lastAudioBlob` ownership.** At both assignments (`:1447` batch, `:3935` streaming), also set `this._lastAudioSessionId = this._activeSession?.id ?? null;`.
 3. **Batch cancel while recording** (`cancelRecording`, 1611–1631). Replace the snapshot/`persistDiscardedBatchRecording` wiring:
 
@@ -4201,7 +4513,7 @@ export function createUndoWindow({
        snapshot.segments.length = 0;
        this.mediaRecorder.onstop = () => {
          recorder.stream?.getTracks().forEach((track) => track.stop());
-         // The final dataavailable has landed; take the open segment and drop
+         // The final dataavailable has landed: take the open segment and drop
          // every reference to its Blob chunks.
          buffer.adoptBlob(new Blob(snapshot.chunks, { type: snapshot.mimeType }), "segment");
          snapshot.chunks.length = 0;
@@ -4219,21 +4531,7 @@ export function createUndoWindow({
 
    `takeDiscardedBatchSnapshot` returns the live `segmentChunks` array (it is `this.audioChunks`) and the `_batchSegments` array, so clearing them releases the Blobs.
 
-   Add:
-
-   ```js
-     _bufferForSession(kind, { durationSeconds, analyticsOccurredAt, mimeType }) {
-       const session = this._activeSession;
-       const buffer = createCancelBuffer({
-         session, kind, mimeType: mimeType || this.recordingMimeType,
-         durationSeconds, analyticsOccurredAt, tracker: this._disclosure,
-       });
-       this._disclosure = null; // the buffer owns the tracker now; a new session makes a new one
-       this._releaseSessionReferences(session);
-       return buffer;
-     }
-   ```
-
+   At the top of `cancelRecording` and `cancelProcessing`, add `this._restoreGeneration = (this._restoreGeneration ?? 0) + 1;`. A restore waiting on an `await` sees the change and stands down (Step 5).
 4. **`discardBatchRecording`** (mic died, 1641–1646):
 
    ```js
@@ -4249,39 +4547,24 @@ export function createUndoWindow({
      }
    ```
 
-   Cancel during mic recovery already ends in `cancelRecording()` or `discardBatchRecording()` once the swap settles (`replaceBatchMic` `finally`, 1533–1541), so it gets Undo through these two paths. Delete `persistDiscardedBatchRecording`; no caller remains.
-5. **Merge-time and processing-time cancel (batch).**
-   - In `finalizeBatchRecording`, move the `durationSeconds` / `analyticsOccurredAt` computation (1458–1461) above the merge, before line 1431.
+   Cancel during mic recovery ends in one of these two paths once the swap settles (`replaceBatchMic` `finally`, 1533–1541), so it gets Undo. Delete `persistDiscardedBatchRecording`; no caller remains.
+5. **Merge-time and processing-time cancel (batch).** In `finalizeBatchRecording`:
+   - Move the `durationSeconds` / `analyticsOccurredAt` computation (1458–1461) above the merge, before line 1431.
    - Directly after `segments` is built (1425–1428), add:
 
      ```js
        this._sessionAudio = {
-         session: this._activeSession,
-         kind: "batch",
-         segments,
-         mimeType: this.recordingMimeType,
-         durationSeconds,
-         analyticsOccurredAt,
+         session: this._activeSession, kind: "batch", segments,
+         mimeType: this.recordingMimeType, durationSeconds, analyticsOccurredAt,
        };
      ```
 
-   - In `cancelProcessing` (1745–1770), after the generation bump and `_requestStreamingCancellation()`:
-
-     ```js
-       const held = this._sessionAudio;
-       if (held?.kind === "batch" && held.session === this._activeSession) {
-         const buffer = this._bufferForSession("batch", held);
-         for (const segment of held.segments) buffer.adoptBlob(segment, "segment");
-         held.segments.length = 0;
-         this._openCancelled(buffer);
-       }
-     ```
-
-   - `_settleProcessingPipeline` (≈1735) clears `this._sessionAudio = null` when it settles the active pipeline. A completed dictation keeps no undo copy.
+   - `_settleProcessingPipeline` (≈1735) sets `this._sessionAudio = null` when it settles the active pipeline. A completed dictation keeps no undo copy.
 6. **Streaming capture.**
-   - In `startStreamingRecording`, right after `beginDictationSession(...)`:
+   - In `startStreamingRecording`, after `beginDictationSession(...)` (Task 6):
 
      ```js
+       this._streamingFallbackSegments = [];
        this._sessionAudio = {
          session: this._activeSession, kind: "streaming", frames: [],
          fallbackChunks: null, fallbackSegments: this._streamingFallbackSegments,
@@ -4289,33 +4572,72 @@ export function createUndoWindow({
        };
      ```
 
-     Set `this._streamingFallbackSegments = []` before this line, as today (`:3469`), so `fallbackSegments` references the live array.
+     The existing reset at `:3469` moves here.
    - In `startStreamingFallbackRecorder` (3335), after `this.streamingFallbackChunks = chunks;`, add `if (this._sessionAudio?.kind === "streaming") this._sessionAudio.fallbackChunks = chunks;`.
    - In the worklet handler (3500), after `provider.send(event.data);`, add `this._sessionAudio?.frames?.push(new Int16Array(event.data));`. `send` structured-clones the buffer across IPC, so the renderer keeps ownership of `event.data`.
-7. **Streaming cancel** (`cancelStreamingRecording`, both the recording path and the finalize path at 3782–3787). Before `cleanupStreamingAudio()` and before `_streamingFallbackSegments` is reset (3801–3803):
+   - **A completed streaming dictation drops its copy.** At the end of `_finalizeStreamingRecording`, and in the `finally` of `stopStreamingRecording` (3745–3760), call `this._dropSessionAudio()`:
+
+     ```js
+       _dropSessionAudio() {
+         const held = this._sessionAudio;
+         if (!held) return;
+         held.frames?.forEach((frame) => frame.fill(0));
+         if (held.frames) held.frames.length = 0;
+         this._sessionAudio = null;
+       }
+     ```
+
+7. **Streaming hold, shared by both streaming cancel paths:**
+
+   ```js
+     _holdStreamingSession() {
+       const held = this._sessionAudio;
+       if (held?.kind !== "streaming" || held.session !== this._activeSession || !held.frames.length) return false;
+       // Read the duration before any cancel path clears recordingStartTime.
+       held.durationSeconds = this.recordingStartTime ? (Date.now() - this.recordingStartTime) / 1000 : held.durationSeconds;
+       const buffer = this._bufferForSession("streaming", held);
+       buffer.adoptFrames(held.frames.splice(0));
+       for (const segment of held.fallbackSegments.splice(0)) buffer.adoptBlob(segment, "fallback");
+       if (held.fallbackChunks?.length) {
+         buffer.adoptBlob(new Blob(held.fallbackChunks, { type: "audio/webm" }), "fallback");
+         held.fallbackChunks.length = 0;
+       }
+       this._openCancelled(buffer);
+       return true;
+     }
+   ```
+
+   - **Recording path.** In `cancelStreamingRecording` (3781), call `this._holdStreamingSession();` as the first statement after `_requestStreamingCancellation()`. That is before `this.recordingStartTime = null` (`:3792`) and before `_streamingFallbackSegments` is reset (`:3803`).
+   - **Finalization path.** In `cancelProcessing` (1745), the hook's Esc while a streaming dictation finalises. Before `if (this._streamingStopPromise) return true;`, call `this._holdStreamingSession();`. `_finalizeStreamingRecording` computes its own duration before clearing the start time (`:3871-3874`). Keep `recordingStartTime` until after this call.
+
+   A streaming session with no frames yet (cancelled during startup) has nothing to hold and opens no window.
+8. **Batch hold in `cancelProcessing`.** After the streaming call above, and after the generation bump:
 
    ```js
        const held = this._sessionAudio;
-       if (held?.kind === "streaming" && held.session === this._activeSession && held.frames.length) {
-         held.durationSeconds = this.recordingStartTime ? (Date.now() - this.recordingStartTime) / 1000 : held.durationSeconds;
-         const buffer = this._bufferForSession("streaming", held);
-         buffer.adoptFrames(held.frames.splice(0));
-         for (const segment of held.fallbackSegments.splice(0)) buffer.adoptBlob(segment, "fallback");
-         if (held.fallbackChunks?.length) {
-           buffer.adoptBlob(new Blob(held.fallbackChunks, { type: "audio/webm" }), "fallback");
-           held.fallbackChunks.length = 0;
-         }
+       if (held?.kind === "batch" && held.session === this._activeSession) {
+         const buffer = this._bufferForSession("batch", held);
+         for (const segment of held.segments) buffer.adoptBlob(segment, "segment");
+         held.segments.length = 0;
          this._openCancelled(buffer);
        }
    ```
 
-   For the finalize path, compute `durationSeconds` the same way as `_finalizeStreamingRecording` (`:3871-3874`) before `recordingStartTime` is cleared. A streaming session with no frames yet (cancelled during startup) has nothing to hold and opens no window.
-8. **A new recording finalizes any open window first.** At the very start of `startRecording()` and `startStreamingRecording()`, before the guards: `if (this._undo?.peek()) void this._undo.expireNow();`.
+9. **A new recording finalizes any open window first.** At the very start of `startRecording()` and `startStreamingRecording()`, before the guards: `if (this._undo?.peek()) void this._undo.expireNow();`.
+
+**Known limit (also in PRIVACY.md and Task 20).** These cases predate the cancel, so the buffer cannot unwrite them:
+- A cancel can land while main is already merging segments (`merge-audio-segments` writes an FFmpeg temp directory, removed in its `finally`, `ffmpegUtils.js:474-552`).
+- A local engine may already have written its own temporary input.
+
+The buffer itself never writes. Those files belong to the processing step that was already running, and are removed when that step ends. An abandoned pipeline's local variables (its merged Blob, `metadata.rawWav`) become unreachable when its in-flight await settles.
 
 - [ ] **Step 5: Restore**
 
+`restoreCancelled` claims the recording synchronously, finishes its pre-checks, and returns an `UndoResult`. The pipeline then runs detached, as `this._restoreRun`, so the cross-window bridge (2 s, Task 9) gets an answer even when transcription takes longer.
+
+A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwhile) puts the recording back in its window. Undo never costs the user their words.
+
 ```js
-  /** Same-route Undo. Claims the buffer and the lifecycle before any await (I3). */
   async restoreCancelled(sessionId) {
     const buffer = this._undo?.peek();
     if (!buffer || (sessionId && buffer.session.id !== sessionId)) {
@@ -4324,62 +4646,76 @@ export function createUndoWindow({
     if (!canStartDictation(this.getState())) {
       return { restored: false, sessionId: buffer.session.id, reason: "busy" };
     }
+    // Claim before any await (I3): the window closes, the lifecycle is busy.
     this._undo.take();
     const generation = (this._restoreGeneration = (this._restoreGeneration ?? 0) + 1);
     this.isProcessing = true;
     this.onStateChange?.({ isRecording: false, isProcessing: true });
-    this.onCancelledChange?.(null);
-    const fail = (reason) => {
-      if (generation === this._restoreGeneration) {
-        this.isProcessing = false;
-        this.onStateChange?.({ isRecording: false, isProcessing: false });
-      }
+    this.onCancelledChange?.(null, { sessionId: buffer.session.id, reason: "restored" });
+
+    const settleIdle = () => {
+      this.isProcessing = false;
+      this.onStateChange?.({ isRecording: false, isProcessing: false });
+    };
+    const refuse = (reason, { keep }) => {
+      settleIdle();
+      if (keep) this._openCancelled(buffer); // content is preserved
+      else buffer.zero();
       return { restored: false, sessionId: buffer.session.id, reason };
     };
+
     try {
-      try {
-        await buffer.ready();
-      } catch {
-        return fail("noAudio");
-      }
-      if (generation !== this._restoreGeneration) return fail("busy");
-      if (await this._sealedBlocks(buffer.session)) return fail("sealed");
-      this.applySessionIntents(buffer.session);
-      if (buffer.kind === "streaming") {
-        if (!buffer.frames().length) return fail("noAudio");
-        await this._replayStreamingSession(buffer);
-      } else {
-        const blobs = buffer.bytes("segment").map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
-        if (!blobs.length) return fail("noAudio");
-        buffer.zero(); // the Blobs above are the restored dictation's own audio now
-        const audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
-        this._sessionAudio = { session: buffer.session, kind: "batch", segments: blobs, mimeType: buffer.mimeType,
-          durationSeconds: buffer.durationSeconds, analyticsOccurredAt: buffer.analyticsOccurredAt };
-        await this.processAudio(audio, {
-          durationSeconds: buffer.durationSeconds,
-          analyticsOccurredAt: buffer.analyticsOccurredAt,
-          restoredFromCancel: true,
-        });
-      }
-      return { restored: true, sessionId: buffer.session.id };
-    } catch (error) {
-      logger.warn("Undo could not run the original route", { error: error?.message }, "audio");
-      this.onError?.(error);
-      return fail("routeUnavailable");
-    } finally {
-      buffer.zero();
+      await buffer.ready();
+    } catch {
+      return refuse("noAudio", { keep: false });
     }
+    if (generation !== this._restoreGeneration) return refuse("busy", { keep: true });
+    if (await this._sealedBlocks(buffer.session)) return refuse("sealed", { keep: true });
+    if (generation !== this._restoreGeneration) return refuse("busy", { keep: true });
+    const empty = buffer.kind === "streaming" ? !buffer.frames().length : !buffer.bytes("segment").length;
+    if (empty) return refuse("noAudio", { keep: false });
+    if (buffer.kind === "streaming" && !STREAMING_PROVIDERS[buffer.session.intents.streamingProviderName]) {
+      return refuse("routeUnavailable", { keep: true }); // never re-route; the window keeps the words until it ends
+    }
+
+    this.applySessionIntents(buffer.session, { tracker: buffer.tracker }); // Task 7 keeps the evidence
+    this._restoreRun = (buffer.kind === "streaming" ? this._replayStreamingSession(buffer, generation) : this._restoreBatch(buffer))
+      .catch((error) => {
+        logger.warn("Undo could not run the original route", { error: error?.message }, "audio");
+        this.onError?.(error);
+      })
+      .finally(() => buffer.zero());
+    return { restored: true, sessionId: buffer.session.id };
+  }
+
+  async _restoreBatch(buffer) {
+    const blobs = buffer.bytes("segment").map((bytes) => new Blob([bytes], { type: buffer.mimeType }));
+    buffer.zero(); // the Blobs are the restored dictation's own audio now
+    // Re-register the audio first, so an Esc during this restore re-holds it (Step 4.8).
+    this._sessionAudio = {
+      session: buffer.session, kind: "batch", segments: blobs, mimeType: buffer.mimeType,
+      durationSeconds: buffer.durationSeconds, analyticsOccurredAt: buffer.analyticsOccurredAt,
+    };
+    const pipeline = this._startProcessingPipeline(); // Esc bumps its generation (cancelProcessing)
+    const audio = blobs.length === 1 ? blobs[0] : await this.mergeRecordedSegments(blobs);
+    await this.processAudio(
+      audio,
+      { durationSeconds: buffer.durationSeconds, analyticsOccurredAt: buffer.analyticsOccurredAt, restoredFromCancel: true },
+      pipeline
+    );
   }
 
   async _sealedBlocks(session) {
     const sealed = await window.electronAPI?.privacy?.getSealed?.().catch(() => true);
     if (!sealed) return false;
     const routes = session.routes ?? {};
+    const { intents, settings } = session;
     const used = [
       routes.dictationStt,
-      session.settings.useCleanupModel ? routes.dictationCleanup : null,
-      session.intents.translationRequested ? routes.translation : null,
-      session.intents.voiceAgentRequested ? routes.voiceAssistant : null,
+      settings.useCleanupModel ? routes.dictationCleanup : null,
+      intents.translationRequested ? routes.translation : null,
+      intents.voiceAgentRequested ? routes.voiceAssistant : null,
+      intents.voiceAgentRequested && settings.voiceAgentScreenContext ? routes.assistantVision : null,
     ];
     return used.some((r) => r && r.locality !== "device" && r.state?.status !== "off");
   }
@@ -4403,54 +4739,79 @@ export function createUndoWindow({
   }
 ```
 
-`getSealed` failing is treated as sealed, which fails closed like Plan 07's own `getSealed`. When Plan 07 has not merged, `privacy` is `undefined`, the optional chain yields `undefined`, and nothing is blocked.
+- `processAudio(audio, metadata, pipeline)` returns early when `_activeProcessingPipeline !== pipeline` (`:1773-1774`), and `wasCancelled()` is true once `cancelProcessing` bumps the generation. An Esc during a batch restore therefore stops the pipeline, and Step 4.8 re-holds `_sessionAudio`.
+- `getSealed` failing is treated as sealed, failing closed like Plan 07's own `getSealed`. When Plan 07 has not merged, `privacy` is `undefined` and nothing is blocked.
 
-Streaming replay:
+Streaming replay. It owns its streaming state from start to finish, so a failure can never leave `isStreaming` set:
 
 ```js
-  async _replayStreamingSession(buffer) {
+  async _replayStreamingSession(buffer, generation) {
     const { session } = buffer;
     const providerName = session.intents.streamingProviderName;
     const provider = STREAMING_PROVIDERS[providerName];
-    if (!provider) throw Object.assign(new Error("Streaming route unavailable"), { code: "ROUTE_UNAVAILABLE" });
     const sessionId = (this._activeStreamingSessionId = ++this._streamingSessionGeneration);
-    this.isStreaming = true;
-    this.recordingStartTime = null;
-    this._streamingFallbackSegments = buffer.bytes("fallback").map((b) => new Blob([b], { type: "audio/webm" }));
-    this._attachStreamingListeners(sessionId);
-    const settings = this.settings();
-    const res = await provider.start(
-      buildStreamingSessionOptions({
-        providerName,
-        settings,
-        language: this.getEffectiveSttLanguage(settings),
-        keyterms: this.getKeyterms(),
-        voiceAgentRequested: session.intents.voiceAgentRequested,
-        correlationId: session.id,
-      })
-    );
-    if (!res?.success) throw Object.assign(new Error(res?.error || "Streaming start failed"), { code: res?.code });
-    this._disclosure?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" });
-    const frames = buffer.frames();
-    for (let i = 0; i < frames.length; i += REPLAY_BATCH_FRAMES) {
-      for (const frame of frames.slice(i, i + REPLAY_BATCH_FRAMES)) provider.send(frame.buffer.slice(0));
-      await new Promise((resolve) => setTimeout(resolve, REPLAY_PACE_MS));
+    // Keep a copy for an Esc mid-replay (Step 4.7) before the buffer is zeroed.
+    this._sessionAudio = {
+      session, kind: "streaming", frames: buffer.frames().map((f) => f.slice()),
+      fallbackChunks: null, fallbackSegments: buffer.bytes("fallback").map((b) => new Blob([b], { type: "audio/webm" })),
+      mimeType: "audio/webm", durationSeconds: buffer.durationSeconds, analyticsOccurredAt: buffer.analyticsOccurredAt,
+    };
+    this._streamingFallbackSegments = this._sessionAudio.fallbackSegments;
+    let started = false;
+    try {
+      this.isStreaming = true;
+      this._attachStreamingListeners(sessionId);
+      const settings = this.settings();
+      const tracker = this._disclosure;
+      const res = await provider.start(
+        buildStreamingSessionOptions({
+          providerName, settings,
+          language: this.getEffectiveSttLanguage(settings),
+          keyterms: this.getKeyterms(),
+          voiceAgentRequested: session.intents.voiceAgentRequested,
+          correlationId: session.id,
+        })
+      );
+      if (!res?.success) throw Object.assign(new Error(res?.error || "Streaming start failed"), { code: res?.code });
+      started = true;
+      tracker?.record({ task: "dictationStt", payload: "audio", evidence: "dispatched" });
+      const frames = buffer.frames();
+      for (let i = 0; i < frames.length; i += REPLAY_BATCH_FRAMES) {
+        if (generation !== this._restoreGeneration) throw Object.assign(new Error("Undo cancelled"), { code: "TRANSCRIPTION_CANCELLED" });
+        for (const frame of frames.slice(i, i + REPLAY_BATCH_FRAMES)) provider.send(frame.buffer.slice(0));
+        await new Promise((resolve) => setTimeout(resolve, REPLAY_PACE_MS));
+      }
+      buffer.zero();
+      this._streamingStopPromise = this._finalizeStreamingRecording(sessionId, { replay: true });
+      await this._streamingStopPromise;
+    } catch (error) {
+      if (started) await provider?.stop?.().catch(() => {});
+      // Nothing was transcribed: offer the same audio for Undo again.
+      if (!started || error?.code === "TRANSCRIPTION_CANCELLED") this._holdStreamingSession();
+      if (error?.code !== "TRANSCRIPTION_CANCELLED") throw error;
+    } finally {
+      this._streamingStopPromise = null;
+      if (this._activeStreamingSessionId === sessionId) this._activeStreamingSessionId = null;
+      this.isStreaming = false;
+      if (this.isProcessing) {
+        this.isProcessing = false;
+        this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+      }
+      this._endDictationSession(session);
     }
-    buffer.zero();
-    await this._finalizeStreamingRecording({ replay: true });
   }
 ```
 
-- In `startStreamingRecording`, extract the listener registration (`:3511-3556`) into `_attachStreamingListeners(sessionId)` and call it from both places.
-- `_finalizeStreamingRecording(options = {})`: when `options.replay` is true, skip the mic-swap wait (`:3888`), the worklet flush (`:3894-3905`) and the fallback-recorder finish (`:3920-3921`). Every one of those touches objects a replay never created. Null-guard the remaining reads of `this.streamingProcessor` / `this.streamingFallbackRecorder` too.
-- Replay sends `frame.buffer.slice(0)`, a copy, so zeroing the buffer afterwards cannot race the IPC serialisation.
+- Extract the listener registration (`:3511-3556`) from `startStreamingRecording` into `_attachStreamingListeners(sessionId)`, and call it from both places.
+- Change `_finalizeStreamingRecording(sessionId)` to `_finalizeStreamingRecording(sessionId, { replay = false } = {})`. When `replay` is true, skip the mic-swap wait (`:3888`), the worklet flush (`:3894-3905`) and the fallback-recorder finish (`:3920-3921`). Each of those touches objects a replay never created. Null-guard the remaining reads of `this.streamingProcessor` / `this.streamingFallbackRecorder`.
+- `_holdStreamingSession` requires `this._activeSession === held.session`. `applySessionIntents` set it at restore, so a failed or cancelled replay re-holds. A buffer re-held this way is a fresh window over the copy taken above.
 
 - [ ] **Step 6: `docs/PRIVACY.md`**
 
 Add this as its own paragraph after the paragraph at line 16 ("Change retention in **Privacy & Data**…"):
 
 ```markdown
-When you cancel a dictation, Loqui keeps that recording in memory for 5 seconds (10 seconds for recordings over 30 seconds) so you can undo the cancel. It is never written to disk, not even as a temporary file, unless you have turned on saving discarded transcriptions. When the window ends, Loqui overwrites its copy of the audio and releases the recording. Undo sends the audio along the same route it was recorded for, never to a provider you chose afterwards. If a provider had already received the audio or text before you cancelled, Loqui says so.
+When you cancel a dictation, Loqui keeps that recording in memory for 5 seconds (10 seconds for recordings over 30 seconds) so you can undo the cancel. It is never written to disk, not even as a temporary file, unless you have turned on saving discarded transcriptions. When the window ends, Loqui overwrites its copy of the audio and releases the recording. Undo sends the audio along the same route it was recorded for, never to a provider you chose afterwards. If a provider had already received the audio or text before you cancelled, Loqui says so. One case predates the cancel: if Loqui was already combining a recording's parts, or a local engine was already reading it, when you cancelled, that step's temporary file is removed when the step finishes, as it would be for any dictation.
 ```
 
 - [ ] **Step 7: Run tests to verify they pass**
@@ -4495,7 +4856,7 @@ This task closes four review findings:
   ```ts
   // useAudioRecording(options) return gains:
   cancelled: CancelledState | null;
-  undoCancel(): Promise<boolean>;      // false: a notice explains why (expired, sealed, route unavailable, no audio)
+  undoCancel(): Promise<boolean>;      // false: exactly one notice explains why (UndoResult.reason)
   pauseUndo(): void;
   resumeUndo(): void;
   processingStage: "transcribing" | "cleaning" | null;
@@ -4623,7 +4984,8 @@ test("the demo channel accepts cancelled and cancelClosed with sanitised fields"
 test("normal quit flushes the cancel window before teardown", () => {
   const main = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
   const handler = main.slice(main.indexOf('app.on("before-quit"'), main.indexOf('app.on("before-quit"') + 700);
-  assert.match(handler, /flushDictationBeforeQuit\(\{ timeoutMs: \d+ \}\)\.finally\(\(\) => \{\s*performSyncTeardown\(\);/);
+  // windowManager is nullable in main.js; a throw here would leave the app unable to quit.
+  assert.match(handler, /\(windowManager\?\.flushDictationBeforeQuit\?\.\(\{ timeoutMs: \d+ \}\) \?\? Promise\.resolve\(\)\)\.finally\(\(\) => \{\s*performSyncTeardown\(\);/);
 });
 ```
 
@@ -4754,6 +5116,19 @@ test("a failed Undo returns false and explains itself in a notice", async (t) =>
   assert.equal(ok, false);
   // Same module instance the hook imported, so this is the notice it raised.
   assert.equal(notices.getNotices().at(-1).title, "notices.undo.sealed");
+  assert.equal(notices.getNotices().filter((n) => n.title.startsWith("notices.undo.")).length, 1, "one surface, not two");
+});
+
+test("an Undo that arrives after the window closed says so (CCR-1)", async (t) => {
+  const { ref, vite } = await mount(t);
+  const notices = await vite.ssrLoadModule("/components/ui/notices.ts");
+  globalThis.__restoreResult = { restored: false, sessionId: null, reason: "expired" };
+  let ok;
+  await React.act(async () => {
+    ok = await ref.api.undoCancel();
+  });
+  assert.equal(ok, false);
+  assert.equal(notices.getNotices().at(-1).title, "notices.undo.expired");
 });
 
 test("⌥Z is leased while a window is open and released when it closes", async (t) => {
@@ -4845,7 +5220,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   // D3: an open cancel window is persisted (only if retention saves discarded
   // audio) and zeroed before the app exits. A dead renderer times out.
-  windowManager.flushDictationBeforeQuit({ timeoutMs: 3000 }).finally(() => {
+  (windowManager?.flushDictationBeforeQuit?.({ timeoutMs: 3000 }) ?? Promise.resolve()).finally(() => {
     performSyncTeardown();
     sidecarRegistry.shutdownAll().finally(() => app.exit(0));
   });
@@ -4928,11 +5303,7 @@ In `src/hooks/useAudioRecording.js`:
        onProcessingStage: (stage) => setProcessingStage(stage),
    ```
 
-   In Task 8, every `this.onCancelledChange?.(null)` passes its reason as the second argument:
-   - `_closeCancelled` passes `{ sessionId: buffer.session.id, reason }`;
-   - `restoreCancelled` passes `{ sessionId: buffer.session.id, reason: "restored" }`.
-
-   Make that edit in `audioManager.js` here.
+   Task 8 already passes the reason with every close: `_closeCancelled` passes `{ sessionId, reason }`, and `restoreCancelled` passes `reason: "restored"` when it claims the recording. A refused restore reopens the window, which emits a fresh `cancelled` state.
 3. **Esc follows the lifecycle (I3).** Delete every `registerCancelHotkey` / `unregisterCancelHotkey` call in the hook: lines 196, 214, 259, 342 and 818. Then add this as the first statement of `onStateChange`:
 
    ```js
@@ -4947,7 +5318,7 @@ In `src/hooks/useAudioRecording.js`:
          }
    ```
 
-   On unmount, the existing cleanup releases it: add `if (escHeldRef.current) window.electronAPI?.unregisterCancelHotkey?.();` to the effect cleanup at `:786-800`. Main also releases the `cancel` slot if the renderer goes away. Extend Task 2's owner watch to call `hotkeyManager.unregisterSlot("cancel")` when the owner is `mainWindow.webContents`.
+   On unmount, the existing cleanup releases it: add `if (escHeldRef.current) window.electronAPI?.unregisterCancelHotkey?.();` to the effect cleanup at `:786-800`. Main also releases the `cancel` slot if the renderer goes away: Task 2's owner watch covers it, installed from `register-cancel-hotkey` itself.
 4. **Outcome.**
    - Paste success (`:657-660`): `setOutcome({ sessionId: audioManagerRef.current?.activeSession?.id ?? "", kind: "pasted", words: countWords(result.text), at: Date.now() });`
    - `showDictationError` (Task 4): `setOutcome({ sessionId: audioManagerRef.current?.activeSession?.id ?? "", kind: "failed", at: Date.now() });`
@@ -4959,7 +5330,9 @@ In `src/hooks/useAudioRecording.js`:
        const result = (await audioManagerRef.current?.restoreCancelled?.(sessionId ?? undefined)) ?? {
          restored: false, sessionId: sessionId ?? null, reason: "unavailable",
        };
-       if (!result.restored && result.reason !== "expired") {
+       // The only error surface for a refused Undo. restoreCancelled never calls onError for a
+       // refusal; a failure after a successful claim goes through the normal dictation error path.
+       if (!result.restored) {
          notify({ id: "undo-failed", kind: "alert", title: t(`notices.undo.${result.reason}`) });
        }
        return result;
@@ -5001,6 +5374,8 @@ export function useUndoCancelHotkey(cancelled: CancelledState | null, undoCancel
 }
 ```
 
+A window paused by hover can outlive the 120 s `undoCancel` lease. Main then sends `pill-hotkey-released` and `held` turns false (Task 2), so Task 11 stops showing "⌥Z". The Undo button still works.
+
 `src/App.jsx`:
 - Destructure the six new fields.
 - Call `const undoHotkey = useUndoCancelHotkey(cancelled, undoCancel);`. Task 11 shows "⌥Z" only while `undoHotkey.held`.
@@ -5023,6 +5398,7 @@ Locale keys (`notices.undo`, all 12 locales):
   "routeUnavailable": "Couldn't undo: the route this was recorded for is no longer available.",
   "noAudio": "Couldn't undo: the recording was empty.",
   "busy": "Finish the current dictation, then undo.",
+  "expired": "Too late to undo: that recording was already discarded.",
   "unavailable": "Couldn't reach the dictation window to undo."
 }
 ```
@@ -6196,7 +6572,9 @@ Add this to `en/translation.json` and mirror it to all 12 locales. For `ar`, `ru
     "remoteImage": "{{provider}} already received the screenshot.",
     "mayHaveAudio": "{{provider}} may have received the audio.",
     "mayHaveText": "{{provider}} may have received the text.",
-    "mayHaveImage": "{{provider}} may have received the screenshot."
+    "mayHaveImage": "{{provider}} may have received the screenshot.",
+    "remoteSeveral": "{{provider}} already received parts of this dictation.",
+    "mayHaveSeveral": "{{provider}} may have received parts of this dictation."
   },
   "locality": { "sealed": "Blocked by Sealed mode" },
   "route": {
@@ -7917,6 +8295,19 @@ test("a failed transcript write is a failed outcome, never 'saved' (I14)", async
   assert.deepEqual(outcomes.at(-1), { sessionId: "m1", kind: "failed", reason: "save" });
 });
 
+test("an empty meeting (no segments, no fallback transcript) is saved, not 'save failed'", async (t) => {
+  let writes = 0;
+  const { store, outcomes } = await load(t, {
+    updateNote: async () => (writes++, { success: true }),
+    meetingTranscriptionStop: async () => ({ success: true }),
+  });
+  store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now(), segments: [] });
+  const result = await store.stopRecording("m1");
+  assert.equal(writes, 0, "nothing to write");
+  assert.equal(result.persisted, true);
+  assert.equal(outcomes.at(-1).kind, "saved");
+});
+
 test("a stop for another session is ignored, and duplicate stops report once", async (t) => {
   const { store, outcomes } = await load(t, { updateNote: async () => ({}), meetingTranscriptionStop: async () => ({ success: true }) });
   store.__primeRecordingForTests({ sessionId: "m1", noteId: "n1", startedAt: Date.now(), segments: [] });
@@ -8191,7 +8582,7 @@ In `src/stores/meetingRecordingStore.ts`:
 1. Extend `StopRecordingResult` (1495–1501) with `persisted: boolean; stopError: boolean;`. Early-return paths report `persisted: false, stopError: false`.
 2. Inside `runStop`:
    - Before line 1545, capture `const startedAt = useMeetingRecordingStore.getState().recordingStartedAt;`.
-   - Make `persistTranscript` record its result: `let persisted = recordingNoteId == null;`. On success set `persisted = true`. The `catch` keeps logging and leaves `persisted = false`. For a segment-less recording with no fallback transcript, the existing code writes nothing, so treat that as `persisted = true`, because there was nothing to save.
+   - Make `persistTranscript` record whether it tried and whether it worked: `let attempted = false; let saveOk = false;`. Set `attempted = true` on entry to the write, `saveOk = true` on success, and leave the `catch` logging as it is. After `persistFinalTranscriptAroundStop` returns, `const persisted = !attempted || saveOk;`. A segment-less recording with no fallback transcript never calls `persist`, so it reports `persisted = true` rather than a false "save failed": there was nothing to save. A recording with no note (`recordingNoteId == null`) takes the same path.
    - In `stop()`, set `stopError = true` in both the `result?.error` branch and the `catch`.
    - After `persistFinalTranscriptAroundStop` returns, report the outcome:
 
@@ -8337,7 +8728,7 @@ In `src/stores/meetingRecordingStore.ts`:
    Return `[...lead, ...<existing items>]`. In `updateTrayMenu()` (312), set the tooltip to `i18nMain.t(this.meetingPresence ? "tray.tooltipRecording" : "tray.tooltip")`.
 4. **`main.js`.**
    - Next to `windowManager.onDictationStateChanged` (887), add `windowManager.onMeetingPresenceChanged = (p) => trayManager.setMeetingPresence(p);`.
-   - In `performSyncTeardown`, call `void trayManager.teardownMeetingNotification();`, so a resident notification never outlives the app.
+   - After the tray manager is created, register the notification close with the shutdown registry: `sidecarRegistry.register("meetingNotification", () => trayManager.teardownMeetingNotification());`. Both quit paths already await `sidecarRegistry.shutdownAll()` before `app.exit` (`main.js:475`, `:1478`), and `shutdownAll` awaits each stop under its deadline (`sidecarRegistry.js:11-20`). The D-Bus `CloseNotification` therefore completes before exit, so a resident notification never outlives the app. A fire-and-forget call in `performSyncTeardown` would not be awaited.
 5. **`preload.js`.** Add the APIs from the Interfaces block:
    - `reportMeetingRecordingPresence` and `reportMeetingRecordingOutcome` use `ipcRenderer.send`;
    - `getMeetingRecordingPresence` and `requestStopMeetingRecording` use `invoke`;
@@ -9339,7 +9730,7 @@ rg -n "mergeAudioSegments|merge-audio-segments" src/helpers/audioManager.js
 Expected: everything passes, and the cubic-bezier search prints nothing.
 
 The `mergeAudioSegments` search lists the merge call sites. Check each by hand:
-- none of them runs while a cancel buffer is held;
+- none of them starts while a cancel buffer is held (a merge already in flight when Esc lands is the documented exception, Step 3.6);
 - the only cancel-time caller is `_closeCancelled`, behind `shouldSaveDiscardedRecording`.
 
 A pre-existing test that fails because it asserts something this plan intentionally changed must be updated in this branch. Name it in the PR description. These are the intentional changes:
@@ -9386,6 +9777,7 @@ D3 is a privacy promise, so check it end to end once, on a development profile, 
    - Then undo. The result must come back with no request to the provider. With Plan 07 merged, the flight recorder shows no `dictationStt` egress.
 4. Repeat with a streaming provider: cancel mid-sentence, then undo. The same provider transcribes the restored audio.
 5. Turn **Save discarded** on. Cancel and let the window expire: exactly one discarded history row appears.
+6. **The in-flight exception.** With **Save discarded** off, record two segments as in step 1. Release the hotkey, and press Esc as soon as "Transcribing…" appears, while the merge runs. Run the `ls` from step 2 for 5 s. A directory may appear briefly, but it must be gone once the merge returns, and nothing may appear after that. Record what you saw in the PR description.
 
 - [ ] **Step 4: Desktop checks and the platform matrix**
 

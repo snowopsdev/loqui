@@ -4172,6 +4172,8 @@
   "locality": {
     "device": "На этом устройстве",
     "network": "На вашем сервере",
-    "remote": "Отправлено в {{provider}}"
+    "remote": "Отправлено в {{provider}}",
+    "unknownProvider": "Неизвестный провайдер",
+    "customEndpoint": "Пользовательская конечная точка"
   }
 }

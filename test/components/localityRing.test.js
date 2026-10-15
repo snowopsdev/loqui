@@ -59,7 +59,7 @@ test("every locale names all three localities", () => {
     .filter((d) => fs.existsSync(path.join(dir, d, "translation.json")))) {
     const json = JSON.parse(fs.readFileSync(path.join(dir, lang, "translation.json"), "utf8"));
     assert.ok(json.locality, `${lang} has locality`);
-    for (const key of ["device", "network", "remote"])
+    for (const key of ["device", "network", "remote", "unknownProvider", "customEndpoint"])
       assert.ok(json.locality[key], `${lang}.locality.${key}`);
     assert.match(json.locality.remote, /\{\{provider\}\}/, `${lang} remote keeps the placeholder`);
   }

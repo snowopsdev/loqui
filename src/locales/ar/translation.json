@@ -4248,6 +4248,8 @@
   "locality": {
     "device": "على هذا الجهاز",
     "network": "على خادمك",
-    "remote": "يُرسل إلى {{provider}}"
+    "remote": "يُرسل إلى {{provider}}",
+    "unknownProvider": "مزوّد غير معروف",
+    "customEndpoint": "نقطة نهاية مخصصة"
   }
 }

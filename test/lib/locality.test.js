@@ -71,3 +71,17 @@ test("monograms are two letters and ignore punctuation", async () => {
   assert.equal(providerMonogram("ChatGPT (Codex)"), "CC");
   assert.equal(providerMonogram(""), "?");
 });
+
+test("punctuation-only provider ids fall back to the unknown provider name", async () => {
+  const { providerDisplayName } = await load();
+  assert.equal(providerDisplayName("---"), "Unknown provider");
+});
+
+test("providerDisplayLabel localises unknown and custom providers", async () => {
+  const { providerDisplayLabel } = await load();
+  const t = (k) => "T:" + k;
+  assert.equal(providerDisplayLabel(undefined, t), "T:locality.unknownProvider");
+  assert.equal(providerDisplayLabel("---", t), "T:locality.unknownProvider");
+  assert.equal(providerDisplayLabel("custom", t), "T:locality.customEndpoint");
+  assert.equal(providerDisplayLabel("openai", t), "OpenAI");
+});

@@ -4126,6 +4126,8 @@
   "locality": {
     "device": "Neste dispositivo",
     "network": "No seu servidor",
-    "remote": "Enviado para {{provider}}"
+    "remote": "Enviado para {{provider}}",
+    "unknownProvider": "Provedor desconhecido",
+    "customEndpoint": "Endpoint personalizado"
   }
 }

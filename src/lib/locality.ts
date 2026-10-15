@@ -28,16 +28,32 @@ const PROVIDER_NAMES: Record<string, string> = {
   custom: "Custom endpoint",
 };
 
+// English display name for logs and other non-UI uses. UI must call
+// providerDisplayLabel so the unknown/custom fallbacks are localised.
 export function providerDisplayName(providerId: string | null | undefined): string {
   const id = (providerId ?? "").trim();
   if (!id) return "Unknown provider";
   const known = PROVIDER_NAMES[id.toLowerCase()];
   if (known) return known;
-  return id
+  const titled = id
     .split(/[^a-z0-9]+/i)
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(" ");
+  return titled || "Unknown provider";
+}
+
+// Provider name for display in the UI: unknown and custom ids go through `t`
+// (locality.unknownProvider / locality.customEndpoint); everything else is the
+// brand name from providerDisplayName.
+export function providerDisplayLabel(
+  providerId: string | null | undefined,
+  t: (key: string) => string
+): string {
+  const id = (providerId ?? "").trim();
+  if (id.toLowerCase() === "custom") return t("locality.customEndpoint");
+  if (!id || providerDisplayName(id) === "Unknown provider") return t("locality.unknownProvider");
+  return providerDisplayName(id);
 }
 
 export function providerMonogram(displayName: string): string {

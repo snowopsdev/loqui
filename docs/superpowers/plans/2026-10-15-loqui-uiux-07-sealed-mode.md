@@ -54,17 +54,17 @@ This revision answers the independent security review of snapshot `18c0b4c…` (
 
 | Finding | Status | Where it is closed, and how |
 |---|---|---|
-| **C1** yt-dlp self-update reported stopped before exit | Closed, this revision | Task 6a: `childRegistry` marks a child alive until the OS reports `exit`, and a detached group until the group is gone. `stopAll` sends SIGTERM, then SIGKILL, then rejects with `CHILD_STOP_FAILED` if anything survives. Task 10 registers the self-update and download children, and settles their opaque sessions on `exit` only. `ytDlpControl` reads the registry, not a flag. Task 7 records `childStop`, which blocks attestation until the child is really gone. Tests: `stopAll rejects when a child survives SIGKILL, and it stays alive` (6a), `a child that will not exit keeps the seal unverified until it really exits` (7), and the yt-dlp test in Task 10, which asserts the process is still alive after SIGKILL and that the row appears only after exit. |
-| **C2** universal egress claim exceeds the boundary | Closed, this revision. The guarantee is bounded and enforced; the exceptions are disabled or disclosed. | Task 1 states the promise as covering Loqui's main process, Chromium sessions and renderers, and the children Loqui starts. A **Boundary** section lists each outside path and how it is treated. FFmpeg is contained with a protocol whitelist and adversarial fixtures (6a, N24). Every spawn site is inventoried and ratcheted (`spawn-sites`), and the guard refuses network and third-party spawns while sealed (6a). The ratchet now matches imports, so aliases such as `mod.request`, renderer roots and `.tsx`/`.jsx`/`.mjs` files are caught. WebRTC is removed from every renderer (7a). Remote images are inert (13). Pending DNS is counted (6, 7). Preconnect and dns-prefetch are probed in Electron against a connection-logging fixture (16). Browser links need main's confirmation (11). Pending OAuth flows are cancelled (11). Loopback forwarders are a named trust boundary (Task 1). |
-| **C3** attestation after failed Chromium shutdown | Closed, this revision | Task 6 removes the last-resort `closeAllConnections` reset entirely (`there is no API that resets every Chromium connection`). A Chromium request is tracked until `onCompleted`/`onErrorOccurred` or its `webContents` is destroyed, and is never cleared to pass a check. Task 7: failures (`codexStop`, `childStop`, `timeout:<what>`) are unresolved until the thing named has stopped, and `nothingLeaves` requires an empty `failures` list. Tests: `an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared`, `mid-transition attestations are never verified`, `a quick seal, unseal, seal ends sealed and verified, in order`. |
+| **C1** yt-dlp self-update reported stopped before exit | Closed, this revision | Task 6a: `childRegistry` marks a child alive until the OS reports `exit`, and a detached group until the group is gone. `stopAll` sends SIGTERM, then SIGKILL, then rejects with `CHILD_STOP_FAILED` if anything survives. Process trees are tracked on every platform: a detached POSIX group until the group is gone, or a tree until every descendant listed at stop has exited. Windows has no groups, and its `taskkill /T` is a signal, not an exit. A tree whose descendants cannot be listed is never reported stopped. Task 10 registers the self-update (as a tree) and the download children (a group on POSIX, a tree on Windows), and settles their opaque sessions on `exit` only. It tests the timeout, spawn-failure and seal paths. `ytDlpControl` reads the registry, not a flag. Task 7 records `childStop`, which blocks attestation until the child is really gone. Tests: `stopAll rejects when a child survives SIGKILL, and it stays alive`, `a kill that throws leaves the child alive, and stopAll rejects`, `a process tree stays alive until every descendant listed at stop has exited`, `a tree whose descendants cannot be listed is never reported stopped` (6a), `a self-update that times out is still running until it exits, and is recorded then` (10), `a child that will not exit keeps the seal unverified until it really exits` (7), and the yt-dlp test in Task 10, which asserts the process is still alive after SIGKILL and that the row appears only after exit. |
+| **C2** universal egress claim exceeds the boundary | Closed, this revision. The guarantee is bounded and enforced; the exceptions are disabled or disclosed. | Task 1 states the promise as covering Loqui's main process, Chromium sessions and renderers, and the children Loqui starts. A **Boundary** section lists each outside path and how it is treated. FFmpeg is contained with a protocol whitelist and adversarial fixtures (6a, N24). Every spawn site is inventoried and ratcheted (`spawn-sites`), and the guard refuses network and third-party spawns while sealed (6a). The ratchet now matches imports, so aliases such as `mod.request`, renderer roots and `.tsx`/`.jsx`/`.mjs` files are caught. WebRTC is removed from every renderer (7a). Remote images are inert (13). Pending DNS is counted (6, 7). Preconnect and dns-prefetch are probed in Electron against a connection-logging fixture (16). Browser links need main's confirmation (11). Pending OAuth flows are cancelled (11). Loopback forwarders are a named trust boundary (Task 1). Native helpers that Loqui starts are outside what JavaScript can inspect, so this is disclosed rather than claimed. The panel always shows a scope line while sealed (`settingsPage.privacy.sealed.scope`, Task 14), `docs/PRIVACY.md` names the limit (Task 15), and Task 17 checks each sidecar's sockets with `lsof`. The ratchet scans all of `src/`. |
+| **C3** attestation after failed Chromium shutdown | Closed, this revision | Task 6 removes the last-resort `closeAllConnections` reset entirely (`there is no API that resets every Chromium connection`). A Chromium request is tracked until `onCompleted`/`onErrorOccurred`; a destroyed `webContents` does not clear it. `severAll()` no longer clears the socket count: each socket leaves it on its own `close`. Nothing clears evidence to pass a check (`chromium: remote requests are tracked in flight until they end; a destroyed webContents does not clear them`, and the `severAll` test). Task 7: failures (`codexStop`, `childStop`, `timeout:<what>`) are unresolved until the thing named has stopped, and `nothingLeaves` requires an empty `failures` list. Tests: `an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared`, `mid-transition attestations are never verified`, `a quick seal, unseal, seal ends sealed and verified, in order`. |
 | **I1** tests bypass production wiring | Closed, this revision | Task 12 drives the real `ipcHandlers.js` and `personal-inference:*` handlers. N18 uses the production `createCodexServer` factory, which ignores test-supplied hooks. N20 executes the calendar guard that `main.js` uses, plus a routing ratchet. N10 goes through the realtime start handler. It adds download-manager IPC rows (`model-download`, `download-whisper-model`, `llama-cpp-install`), and discovers the realtime, proxy and download channels instead of listing them. A **bypass-sensitivity** pass reruns every row with Layer A bypassed: the row must reach a transport or a Layer B refusal. A regression drill deletes two production gates and requires their rows to fail. Task 16 runs the real Electron app against an independent fixture that logs requests and raw connections, with a control run proving each probe is seen. It has no offline blockers of its own, and its leak-injection drill must fail. The smoke-script `every(...)` check, which passed on an empty list, is dropped (17). |
-| **I3** host-wide attribution, one-row settlement | Closed, this revision | Task 4 stores a host trail (`hosts`, up to 8), start and end times, and an opaque flag; the `summary` separates `observed` requests from `opaqueSessions`. Task 5 attributes by async context and Electron request tag, never by "some ticket has this host" (`a same-host connection outside the ticket's context is still unexplained`). Task 6 tracks Chromium per request id, extends trails on redirect, and records unexplained Chromium requests at completion, with their status. |
+| **I3** host-wide attribution, one-row settlement | Closed, this revision | Task 4 stores a host trail (`hosts`, up to 8), start and end times, and an opaque flag; the `summary` separates `observed` requests from `opaqueSessions`. Task 5 attributes by async context and Electron request tag, never by "some ticket has this host" (`a same-host connection outside the ticket's context is still unexplained`). Task 6 tracks Chromium per request id, extends trails on every redirect hop (ticketed or not), and records unexplained Chromium requests at completion, with their status and full trail (`…recorded at completion with its status and redirect trail`). |
 | **I4** CCR-3 vs the sent notice and Plan 04's receipt | Closed. The "started" wording was fixed at `0bbb0e5`; marking granularity and the contract were fixed in this revision. | Main emits `dispatched` (handed to the transport: "may have received"), `delivered` (a response arrived: "received") and `undelivered` (failed before connecting), with `ticketId`, `targetId` (Plan 04's target encoding), `payload` and `correlationId` (Tasks 5, 8, 9, 9a). Realtime marks only the instance that forwarded audio (`markRealtimeDispatched`), from the first frame. CCR-3 now states one shape that maps onto Plan 04's `RemoteDisclosure`. |
 | **I5** UI ignores phase, time and attestation contracts | Closed: mostly at `0bbb0e5`, completed in this revision | At `0bbb0e5`: phase-aware matching (`[SEALED_MODE:interrupted]`), interrupted copy, an `onAttestation` subscription with version ordering, and the verified line dated from `effectiveSince`. In this revision: attestations older than 30 s drop to unknown and are re-fetched (13). Every unverified reason, and every note resolved before verification, is named (14). The recorder shows "Loading…" instead of 0 and "No recorded requests for this period" when empty, and never says that nothing left (15). |
-| **I6** content preservation depends on Plan 04, fails mid-recording | Closed, this revision | Task 13 adds `src/lib/sealedRecovery.ts`. A dictation refused or interrupted while retention would discard it is held in renderer memory only (bounded, with a time limit), never on disk. The error toast and the unseal notice offer "Transcribe". Behaviour tests cover the retention combinations, the replay and the cleanup-after-local-STT fallback through the real `AudioManager`. The pre-flight remains UX protection. CCR-4 asks Plan 04 to keep both. |
-| **I7** last-resort reset cuts local routes | Closed, this revision | The reset is gone (C3). An un-ticketed remote request keeps the seal unverified, and is named, instead of cutting local work. Task 12: `a local request in flight survives sealing, while the remote one beside it is interrupted`. Task 9: `an in-flight loopback transcription survives sealing`. Task 16 checks loopback in Electron after the seal. |
-| **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision | Task 13 migrates Plan 03's `routeFactsStore`, so `facts.sealed` mirrors the sealed store in the same tick. The route chips, staged Apply and keyring verify all read it, and a cross-plan test toggles once and checks all of it. `isSealedLocality` is the only rule; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
-| **I9** re-enabling persistence writes history-off rows | Closed, this revision | Task 4 distinguishes `pending` (consent not loaded yet) from `memory` (history explicitly off). Only pending rows flush, inside a transaction, and they are kept in memory if the write fails (`persistError`). Tests: `history off from the first sync…`, `pending rows flush on the first sync; memory-only rows never become durable`, `a failed flush keeps the pending rows…`. The row cap is checked on insert. |
+| **I6** content preservation depends on Plan 04, fails mid-recording | Closed, this revision | Task 13 adds `src/lib/sealedRecovery.ts`. A dictation refused or interrupted while retention would discard it is held in renderer memory only (bounded, with a time limit), never on disk. The error toast and the unseal notice offer "Transcribe". Behaviour tests cover the retention combinations, the replay and the cleanup-after-local-STT fallback through the real `AudioManager`. An executed test shows that `startRecording` refuses before touching the microphone, and proceeds when the state is unknown. The pre-flight remains UX protection. CCR-4 asks Plan 04 to keep both. |
+| **I7** last-resort reset cuts local routes | Closed, this revision | The reset is gone (C3). An un-ticketed remote request keeps the seal unverified, and is named, instead of cutting local work. Task 12: `a local request in flight survives sealing, while the remote one beside it is interrupted`. Task 9: `an in-flight loopback transcription survives sealing`. Task 12: `a loopback WebSocket (the Parakeet and sidecar path) stays open through sealing`. Task 16 checks loopback in Electron after the seal. Task 17 seals mid-workflow with real whisper-server, Parakeet, llama-server and Qdrant. |
+| **I8** two sealed sources, ungated Plan 03 probe, loopback mismatch | Closed, this revision | Task 13 migrates Plan 03's `routeFactsStore`, so `facts.sealed` mirrors the sealed store in the same tick. The route chips, staged Apply and keyring verify all read it. One cross-plan test toggles once and checks the facts store, the resolver and Plan 03's `applyBlocker`; another checks that the keyring panel changes on the same toggle. `isSealedLocality` is the only rule; `applySealToRoute`/`isRouteSealed` are gone. Task 7 *replaces* Plan 03's optional `privacy?` declaration. Task 11a gates `probe-self-hosted` as `providerCheck` (loopback only, typed `code: "sealed"`), and makes `isLoopbackUrl` match main's rule through a shared case fixture. |
+| **I9** re-enabling persistence writes history-off rows | Closed, this revision | Task 4 distinguishes `pending` (consent not loaded yet) from `memory` (history explicitly off). Only pending rows flush, inside a transaction, and they are kept in memory if the write fails (`persistError`). Tests: `history off from the first sync…`, `pending rows flush on the first sync; memory-only rows never become durable`, `a failed flush keeps the pending rows…`, `restart: saved rows survive; rows kept in memory while history was off do not`. The row cap is checked on insert. |
 | **I10** opaque sessions shown as observed requests | Closed, this revision | Task 15 counts observed requests and helper sessions separately, labels an opaque row's host as "Usually …", and says its traffic is not visible. It adds a producer → IPC → view test with a normal and an interrupted session. The typed fixtures include `observed`. |
 | **I11** trusted-sender URL throws in development | Closed, this revision | Task 7 branches on the dev server before touching the packaged path, and tests both real `DevServerManager` contracts (`appUrlPrefixes follows the real DevServerManager contracts in both modes`), plus main-frame vs subframe and navigated URLs. |
 | **M1** source ranges and stale instructions | Closed, this revision | Prerequisites are stated as execution-order requirements (above). Task 7a anchors on the comment text (`:227-234`), and keeps `preload`/`nodeIntegration`/`contextIsolation`. `idx_analytics_date` is at `localDatabaseSchema.js:318`. The generic failure is at `providerConnectionTest.js:316-327`. `openExternalUrl` is at `:35` and `shell.openExternal` at `:69`. The answered open questions are removed. The metadata assessment's adversarial cases (URL-like model ids, provider error codes) are covered in Task 4 (`model ids and error classes are stripped of control characters and truncated`, `record rejects non-host values…`). |
@@ -342,12 +342,9 @@ const SPAWN_PRIMITIVE = new RegExp(
     String.raw`new\s+Worker\s*\(`,
   ].join("|")
 );
-// Main, preload, every helper and service, and the renderer.
-const SCAN_ROOTS = [
-  "main.js", "preload.js",
-  "src/helpers", "src/services", "src/lib", "src/utils", "src/config", "src/workers",
-  "src/components", "src/hooks", "src/stores", "src/preview",
-];
+// Main, preload and everything under src/: helpers, services, workers, the
+// renderer entry files and components. JSON and assets do not match SOURCE.
+const SCAN_ROOTS = ["main.js", "preload.js", "src"];
 const SOURCE = /\.(?:c?js|mjs|jsx?|tsx?)$/;
 // The privacy modules implement the guards themselves. egressPolicy.js imports
 // node:net only to parse IP literals (net.isIPv4/isIPv6).
@@ -492,7 +489,7 @@ User content: audio, transcripts, notes, chat messages, screenshots and dictiona
 10. **Traffic that is not plain TCP.**
     - DNS resolver queries (`dns.resolve*`, `Resolver`, `lookupService`) and UDP (`dgram`) are refused while sealed. Lookups already in flight are counted, and the seal is verified only after they finish.
     - WebRTC: every renderer loads `preload.js`, which deletes `RTCPeerConnection` and its relatives from the page's main world before any page script runs (Task 7a). The `disable_non_proxied_udp` policy is kept as defence in depth, and a ratchet bans peer-connection code.
-    - Chromium speculation: renderer documents turn off DNS prefetching. Task 16 probes `<link rel="preconnect">` and `dns-prefetch` against a fixture that logs raw TCP connections, so a speculative connection fails the acceptance run.
+    - Chromium speculation: renderer documents turn off DNS prefetching. Task 16 serves `<link rel="preconnect">`, `dns-prefetch` and plain links while sealed, against a fixture that logs raw TCP connections. Any speculative connection fails the acceptance run. Chromium may not act on these hints at all, so the control run does not require them to fire; the sealed run requires zero connections either way.
 
 ## Enforcement layers
 
@@ -542,7 +539,7 @@ No UI caller, but **reachable from any renderer through preload**, so gated and 
 
 ## Files that can open a connection
 
-`test/helpers/egressInventory.test.js` scans for network imports and calls, and requires each hit to be listed here. `main.js` is listed for `tls` (it adds the system CA store at `:28-37`, and opens nothing). The renderer roots (`src/components`, `src/hooks`, `src/stores`) have no hits: the renderer reaches providers only through IPC.
+`test/helpers/egressInventory.test.js` scans for network imports and calls, and requires each hit to be listed here. `main.js` is listed for `tls` (it adds the system CA store at `:28-37`, and opens nothing). Nothing in the renderer (`src/components`, `src/hooks`, `src/stores`, the `src/*.jsx` entry files) matches: the renderer reaches providers only through IPC.
 
 ```egress-sites
 main.js
@@ -1324,6 +1321,24 @@ test("pending rows flush on the first sync; memory-only rows never become durabl
   assert.equal(rowCount(manager.db), 2);
 });
 
+test("restart: saved rows survive; rows kept in memory while history was off do not", (t) => {
+  const manager = createDb(t);
+  if (!manager) return;
+  const before = new FlightRecorder({ now: () => 5 });
+  before.attachDatabase(manager.db);
+  before.setPersistence(true);
+  before.record({ ...base, model: "saved" });
+  before.setPersistence(false);
+  before.record({ ...base, model: "memory-only" });
+  // A new process: same database, a fresh recorder, history still off at first sync.
+  const after = new FlightRecorder({ now: () => 6 });
+  after.attachDatabase(manager.db);
+  after.setPersistence(false);
+  assert.deepEqual(after.list().map((r) => r.model), ["saved"], "existing saved rows stay visible; nothing from memory came back");
+  after.setPersistence(true);
+  assert.equal(rowCount(manager.db), 1);
+});
+
 test("history off from the first sync: pending rows stay in memory and are never written", (t) => {
   const manager = createDb(t);
   if (!manager) return;
@@ -1693,7 +1708,7 @@ module.exports = { FlightRecorder, toCsv, MAX_ROWS, MEMORY_LIMIT, CAP_CHECK_EVER
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test -- test/helpers/flightRecorder.test.js`
-Expected: PASS (14 tests). Also run the existing DB suites, which share the schema string, to confirm nothing regressed:
+Expected: PASS (15 tests). Also run the existing DB suites, which share the schema string, to confirm nothing regressed:
 
 Run: `npm test -- test/helpers/dictionaryDatabase.test.js test/helpers/listOrdering.test.js`
 Expected: PASS.
@@ -2436,9 +2451,9 @@ function abortAllRemote() {
 }
 const activeRemoteCount = () => [...active.values()].filter((t) => !t.loopback).length;
 
-function recordUnattributed({ host, outcome, status = null, bytesOut = null, bytesIn = null, ts, endedAt }) {
+function recordUnattributed({ host, hosts = null, outcome, status = null, bytesOut = null, bytesIn = null, ts, endedAt }) {
   const now = config.now();
-  record({ ts: ts ?? now, endedAt: endedAt ?? now, task: "unattributed", host, outcome, status, bytesOut, bytesIn, attributed: false });
+  record({ ts: ts ?? now, endedAt: endedAt ?? now, task: "unattributed", host, hosts: hosts ?? [host], outcome, status, bytesOut, bytesIn, attributed: false });
 }
 
 // Layer B found a connection Layer A did not refuse. With a ticket, the request
@@ -2768,6 +2783,7 @@ test("severAll destroys open remote Node sockets and leaves loopback ones alone"
   assert.equal(backstop.status().openRemoteSockets, 1);
   const closed = once(remote, "close");
   assert.equal(backstop.severAll(), 1);
+  assert.equal(backstop.status().openRemoteSockets, 1, "counted until the socket has actually closed");
   await closed;
   assert.equal(remote.destroyed, true);
   assert.equal(local.destroyed, false);
@@ -2825,21 +2841,23 @@ test("chromium: a tagged request is attributed, the tag is stripped, and redirec
   ticket.discard();
 });
 
-test("chromium: an untagged remote request is unexplained, recorded at completion with its status", async () => {
+test("chromium: an untagged remote request is unexplained, recorded at completion with its status and redirect trail", async () => {
   const s = fakeSession();
   backstop.watchSession(s);
   const ticket = gate.authorize({ task: "chat", target: "https://images.example.com" }); // same host, no tag
   const id = nextId;
   await before(s, "https://images.example.com/a.png");
   await sendHeaders(s, id, {});
+  s.listeners.onBeforeRedirect({ id, redirectURL: "https://cdn.images.example.net/a.png?sig=secret" });
   assert.equal(recorder.list().length, 0, "not recorded until it finishes");
   s.listeners.onCompleted({ id, statusCode: 404 });
   const [row] = recorder.list();
   assert.deepEqual([row.task, row.host, row.outcome, row.status, row.attributed], ["unattributed", "images.example.com", "error", 404, false]);
+  assert.deepEqual(row.hosts, ["images.example.com", "cdn.images.example.net"], "every hop, as bare hosts");
   ticket.discard();
 });
 
-test("chromium: remote requests are tracked in flight until they finish, or their webContents goes away", async () => {
+test("chromium: remote requests are tracked in flight until they end; a destroyed webContents does not clear them", async () => {
   const s = fakeSession();
   backstop.watchSession(s);
   const listeners = {};
@@ -2849,12 +2867,14 @@ test("chromium: remote requests are tracked in flight until they finish, or thei
   const base = backstop.status().chromiumInFlightRemote;
   const a = nextId; await before(s, "https://images.example.com/a.png");
   const b = nextId; await before(s, "https://images.example.com/b.png");
-  await before(s, "https://images.example.com/c.png", { webContentsId: 42 });
+  const c = nextId; await before(s, "https://images.example.com/c.png", { webContentsId: 42 });
   await before(s, "http://127.0.0.1:8080/local");
   assert.equal(backstop.status().chromiumInFlightRemote, base + 3);
   s.listeners.onCompleted({ id: a, statusCode: 200 });
   s.listeners.onErrorOccurred({ id: b, error: "net::ERR_ABORTED" });
   contents.emit("destroyed");
+  assert.equal(backstop.status().chromiumInFlightRemote, base + 1, "destroyed is not an end: evidence stays");
+  s.listeners.onErrorOccurred({ id: c, error: "net::ERR_ABORTED" });
   assert.equal(backstop.status().chromiumInFlightRemote, base);
 });
 
@@ -3216,7 +3236,7 @@ function finishChromium(key, { outcome, status = null }) {
   if (!entry) return;
   chromiumInFlight.delete(key);
   // A tagged request is recorded by its own ticket; only untagged ones here.
-  if (!entry.ticket) gate.recordUnattributed({ host: entry.host, outcome, status, ts: entry.ts });
+  if (!entry.ticket) gate.recordUnattributed({ host: entry.host, hosts: entry.hosts, outcome, status, ts: entry.ts });
 }
 
 // Electron keeps a single listener per webRequest event, so this module must
@@ -3236,7 +3256,7 @@ function watchSession(session) {
       gate.recordBackstopBlock({ host: verdict.host, ticket: existing?.ticket ?? null });
       chromiumInFlight.delete(key(details));
     } else if (!verdict.cancel && verdict.remote && !existing) {
-      chromiumInFlight.set(key(details), { host: verdict.host, ts: Date.now(), ticket: null, webContentsId: details.webContentsId });
+      chromiumInFlight.set(key(details), { host: verdict.host, hosts: [verdict.host], ts: Date.now(), ticket: null, webContentsId: details.webContentsId });
     }
     callback({ cancel: verdict.cancel });
   });
@@ -3254,10 +3274,13 @@ function watchSession(session) {
     }
     callback({ requestHeaders });
   });
+  // Every hop joins the trail, ticketed or not; the next hop is judged again in onBeforeRequest.
   session.webRequest.onBeforeRedirect((details) => {
     const entry = chromiumInFlight.get(key(details));
     const next = hostOf(details.redirectURL);
-    if (entry?.ticket && next) entry.ticket.addHost(next);
+    if (!entry || !next) return;
+    if (!entry.hosts.includes(next) && entry.hosts.length < 8) entry.hosts.push(next);
+    entry.ticket?.addHost(next);
   });
   session.webRequest.onCompleted((details) =>
     finishChromium(key(details), { outcome: details.statusCode >= 400 ? "error" : "ok", status: details.statusCode })
@@ -3265,14 +3288,17 @@ function watchSession(session) {
   session.webRequest.onErrorOccurred((details) => finishChromium(key(details), { outcome: "error" }));
 }
 
-// Loqui never uses peer connections (ratchet test); without a proxy this policy
-// also leaves WebRTC no UDP path, which webRequest could not see. Requests of a
-// destroyed webContents are cancelled by Chromium, so stop counting them.
+// Loqui never uses peer connections (ratchet test, and Task 7a removes the
+// constructors); this policy is defence in depth. A destroyed webContents'
+// requests are cancelled by Chromium, which reports each one through
+// onErrorOccurred. They stay counted until it does: a stop is an observed end,
+// never an assumption (C3). Task 16's control run would stay unverified if
+// Chromium ever skipped that event, so the assumption is tested, not trusted.
 function installWebContentsGuard(app) {
   app.on("web-contents-created", (_event, contents) => {
     contents.setWebRTCIPHandlingPolicy?.("disable_non_proxied_udp");
     contents.once?.("destroyed", () => {
-      for (const [k, entry] of chromiumInFlight) if (entry.webContentsId === contents.id) chromiumInFlight.delete(k);
+      for (const entry of chromiumInFlight.values()) if (entry.webContentsId === contents.id) entry.orphaned = true;
     });
   });
   installed.webContents = true;
@@ -3282,10 +3308,11 @@ function installWebContentsGuard(app) {
 // Chromium's pool are left alone. Ticketed Chromium requests are stopped by
 // their own abort signals (gate.abortAllRemote); un-ticketed ones are waited
 // for, and keep the attestation unverified until they end.
+// Each socket leaves openRemoteSockets on its own "close" (the connect hook),
+// so the count drops only once a socket has actually closed.
 function severAll() {
   const sockets = [...openRemoteSockets];
   for (const socket of sockets) socket.destroy();
-  openRemoteSockets.clear();
   return sockets.length;
 }
 
@@ -3365,13 +3392,14 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
   ```js
   // src/helpers/privacy/childRegistry.js
   installSpawnGuard({ childProcess?, utilityProcess? }): void   // idempotent; wraps spawn/execFile/exec/fork and their Sync forms, and utilityProcess.fork
-  register(child, { kind: string, group?: boolean }): Entry     // the guard registers automatically; exported for tests
+  register(child, { kind: string, group?: boolean, tree?: boolean }): Entry  // the guard registers automatically; exported for tests
+                                                                // group: a POSIX process group (detached spawn); tree: the child and its descendants, on every platform
   alive(kind?: string): Array<{ kind, pid }>                    // exited only after the OS reported exit (and, for a group, the group is gone)
   stopAll({ kinds?, termGraceMs = 1500, killGraceMs = 1500 }?): Promise<void>
                                                                 // SIGTERM → wait → SIGKILL → wait; rejects with code CHILD_STOP_FAILED if any is still alive
   classify(command: string, stack?: string): "network" | "thirdParty" | "ffmpeg" | "local"
   kindOf(command: string): string                               // "codex", "yt-dlp", or the program's base name
-  _resetForTests(): void
+  _resetForTests(): void;  _setSystemForTests({ listProcesses?, pidAlive? }): void
   ```
 
   ```js
@@ -3385,6 +3413,7 @@ Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes
   - **`ffmpeg`** must carry `-protocol_whitelist` before every `-i`, or it is refused in every mode. A crafted local playlist or media file must never make FFmpeg fetch remote resources.
   - **`local`** is everything else Loqui starts from its own code: clipboard and paste helpers, key listeners, `osascript`, the loopback sidecars, and so on. Each of these call sites is listed and justified in the `spawn-sites` inventory, and a ratchet test fails on any unlisted file (Task 1).
   - **`utilityProcess.fork`** is allowed only for modules under the app's `src/workers/` directory, which the inventory ratchet keeps free of network code. Anything else is refused while sealed.
+  - **Process trees.** A child registered with `group: true` (a detached POSIX spawn) is alive until its whole process group is gone. A child registered with `tree: true` is alive until it and every descendant listed at stop time are gone, on every platform. The descendants come from `ps` on POSIX and `Get-CimInstance Win32_Process` on Windows. If that listing fails, the child is never reported stopped. Task 10 uses `group` for yt-dlp downloads on POSIX, and `tree` for yt-dlp downloads on Windows and for the self-update everywhere.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3452,6 +3481,41 @@ test("stopAll rejects when a child survives SIGKILL, and it stays alive", async 
   registry.register(child, { kind: "yt-dlp" });
   await assert.rejects(registry.stopAll({ termGraceMs: 20, killGraceMs: 20 }), (e) => e.code === "CHILD_STOP_FAILED");
   assert.deepEqual(registry.alive().map((e) => e.kind), ["yt-dlp"]);
+});
+
+test("a kill that throws leaves the child alive, and stopAll rejects", async () => {
+  const child = fakeChild({ exitsOn: [] });
+  child.kill = () => { throw Object.assign(new Error("kill EPERM"), { code: "EPERM" }); };
+  registry.register(child, { kind: "yt-dlp" });
+  await assert.rejects(registry.stopAll({ termGraceMs: 20, killGraceMs: 20 }), (e) => e.code === "CHILD_STOP_FAILED");
+  assert.equal(registry.alive().length, 1);
+});
+
+test("a process tree stays alive until every descendant listed at stop has exited", async (t) => {
+  const running = new Set([501, 502]);
+  registry._setSystemForTests({
+    listProcesses: () => [{ pid: 500, ppid: 1 }, { pid: 501, ppid: 500 }, { pid: 502, ppid: 501 }, { pid: 900, ppid: 1 }],
+    pidAlive: (pid) => running.has(pid),
+  });
+  const signalled = [];
+  const realKill = process.kill;
+  process.kill = (pid, sig) => (pid === 501 || pid === 502 ? (signalled.push(pid), true) : realKill.call(process, pid, sig));
+  t.after(() => { process.kill = realKill; });
+  const root = fakeChild({ pid: 500 });
+  registry.register(root, { kind: "yt-dlp", tree: true });
+  await assert.rejects(registry.stopAll({ termGraceMs: 30, killGraceMs: 30 }), (e) => e.code === "CHILD_STOP_FAILED");
+  assert.ok(signalled.includes(501) && signalled.includes(502), "descendants were signalled too");
+  assert.equal(registry.alive().length, 1, "the root exited, but its grandchild has not");
+  running.clear();
+  assert.deepEqual(registry.alive(), []);
+});
+
+test("a tree whose descendants cannot be listed is never reported stopped", async () => {
+  registry._setSystemForTests({ listProcesses: () => { throw new Error("ps missing"); }, pidAlive: () => false });
+  const root = fakeChild({ pid: 600 });
+  registry.register(root, { kind: "yt-dlp", tree: true });
+  await assert.rejects(registry.stopAll({ termGraceMs: 30, killGraceMs: 30 }), (e) => e.code === "CHILD_STOP_FAILED");
+  assert.equal(registry.alive().length, 1, "unknown descendants keep it alive: fail closed");
 });
 
 test("a detached process group stays alive until the whole group is gone", { skip: process.platform === "win32" }, async () => {
@@ -3570,6 +3634,9 @@ Create `src/helpers/privacy/childRegistry.js`:
 ```js
 const path = require("node:path");
 const { syncBuiltinESMExports } = require("node:module");
+// Captured before installSpawnGuard wraps the module, so the registry's own
+// process listing is never refused or registered.
+const { execFileSync: originalExecFileSync } = require("node:child_process");
 const gate = require("./egressGate");
 const { SealedModeError } = require("./egressPolicy");
 
@@ -3606,13 +3673,68 @@ function groupAlive(pid) {
     return error.code === "EPERM";
   }
 }
-function isAlive(entry) {
-  if (!entry.exited) return true;
-  return entry.group && process.platform !== "win32" && entry.pid ? groupAlive(entry.pid) : false;
+// Process trees: yt-dlp on Windows (no process groups there) and the yt-dlp
+// self-update everywhere. Descendants are listed while the root is still
+// alive, at stop time; the entry is alive until the root and every listed
+// descendant are gone. If the listing fails, the entry never counts as
+// stopped: the seal stays unverified rather than guessing (C1).
+function defaultListProcesses() {
+  const out =
+    process.platform === "win32"
+      ? originalExecFileSync(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }'],
+          { encoding: "utf8", timeout: 5000, windowsHide: true }
+        )
+      : originalExecFileSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8", timeout: 5000 });
+  return out
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/).map(Number))
+    .filter(([pid, ppid]) => pid > 0 && ppid >= 0)
+    .map(([pid, ppid]) => ({ pid, ppid }));
+}
+function defaultPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+let system = { listProcesses: defaultListProcesses, pidAlive: defaultPidAlive };
+
+function descendantsOf(root) {
+  const all = system.listProcesses();
+  const found = new Set();
+  let frontier = new Set([root]);
+  while (frontier.size > 0) {
+    const next = new Set();
+    for (const p of all) if (frontier.has(p.ppid) && !found.has(p.pid)) next.add(p.pid);
+    for (const pid of next) found.add(pid);
+    frontier = next;
+  }
+  return [...found];
+}
+function snapshotTree(entry) {
+  if (!entry.tree || entry.exited || !entry.pid) return;
+  try {
+    entry.descendants = [...new Set([...(entry.descendants ?? []), ...descendantsOf(entry.pid)])];
+  } catch {
+    entry.descendants = null; // unknown: never reported stopped
+  }
 }
 
-function register(child, { kind, group = false }) {
-  const entry = { child, kind, pid: child?.pid, group, exited: !child?.pid };
+function isAlive(entry) {
+  if (!entry.exited) return true;
+  if (entry.group && process.platform !== "win32" && entry.pid) return groupAlive(entry.pid);
+  if (entry.tree) return entry.descendants === null || entry.descendants.some((pid) => system.pidAlive(pid));
+  return false;
+}
+
+function register(child, { kind, group = false, tree = false }) {
+  // descendants: [] until a stop lists them (a root that exits on its own has
+  // waited for its children, as yt-dlp does for its post-processors).
+  const entry = { child, kind, pid: child?.pid, group, tree, descendants: [], exited: !child?.pid };
   child?.once?.("exit", () => {
     entry.exited = true;
   });
@@ -3641,7 +3763,15 @@ function signal(entry, sig) {
     if (entry.group && process.platform !== "win32" && entry.pid) process.kill(-entry.pid, sig);
     else entry.child.kill(sig);
   } catch {
-    // Already gone; isAlive() decides.
+    // Already gone, or the kill failed (EPERM): isAlive() decides either way.
+  }
+  // On Windows any signal terminates the process; on POSIX it is delivered.
+  for (const pid of entry.tree ? entry.descendants ?? [] : []) {
+    try {
+      process.kill(pid, sig);
+    } catch {
+      // Already gone.
+    }
   }
 }
 const waitUntil = async (predicate, ms) => {
@@ -3653,8 +3783,10 @@ const waitUntil = async (predicate, ms) => {
 async function stopAll({ kinds, termGraceMs = 1500, killGraceMs = 1500 } = {}) {
   const targets = [...entries].filter((e) => isAlive(e) && (!kinds || kinds.includes(e.kind)));
   if (targets.length === 0) return;
+  for (const t of targets) snapshotTree(t); // while the roots are still alive
   for (const t of targets) signal(t, "SIGTERM");
   if (await waitUntil(() => targets.every((t) => !isAlive(t)), termGraceMs)) return;
+  for (const t of targets) snapshotTree(t); // children started during the grace period
   for (const t of targets) if (isAlive(t)) signal(t, "SIGKILL");
   if (await waitUntil(() => targets.every((t) => !isAlive(t)), killGraceMs)) return;
   const failed = targets.filter(isAlive).map((t) => t.kind);
@@ -3709,9 +3841,13 @@ function installSpawnGuard({ childProcess = require("node:child_process"), utili
 
 function _resetForTests() {
   entries = new Set();
+  system = { listProcesses: defaultListProcesses, pidAlive: defaultPidAlive };
+}
+function _setSystemForTests(overrides) {
+  system = { ...system, ...overrides };
 }
 
-module.exports = { installSpawnGuard, register, alive, stopAll, classify, kindOf, _resetForTests, SealedModeError };
+module.exports = { installSpawnGuard, register, alive, stopAll, classify, kindOf, _resetForTests, _setSystemForTests, SealedModeError };
 ```
 
 `recordBackstopBlock` gives the ledger a `blocked` row for the refused program. Its host field is the program's kind (`yt-dlp`, `curl`), which passes the bare-host check. Refusals happen synchronously, as Node's own spawn argument errors do. Every managed caller (`codexAppServer.start`, `maybeUpdateYtDlp`, `runYtDlp`) already wraps its spawn in `try`/`catch`, or runs behind a gate that refuses first (Tasks 8 and 10).
@@ -6364,6 +6500,7 @@ function ensureCacheBinary() {
 }
 function stuckChild() {
   const child = new EventEmitter();
+  child.pid = 4242; // a running process has a pid; the registry tracks it until "exit"
   child.signals = [];
   child.kill = (signal) => { child.signals.push(signal); return true; };
   child.stdout = new EventEmitter();
@@ -6376,6 +6513,8 @@ test("sealing kills an in-flight yt-dlp self-update and records an opaque sessio
   const recorder = new FlightRecorder({ now: () => 1 });
   gate._resetForTests();
   gate.configureEgress({ isSealed: () => flags.sealed, recorder, now: () => 1 });
+  // pid 4242 is fake: list no descendants, so no real process is ever signalled.
+  require("../../src/helpers/privacy/childRegistry")._setSystemForTests({ listProcesses: () => [], pidAlive: () => false });
   const cleanup = ensureCacheBinary();
   const origSpawn = childProcess.spawn;
   let child;
@@ -6395,6 +6534,38 @@ test("sealing kills an in-flight yt-dlp self-update and records an opaque sessio
   assert.equal(downloader.ytDlpControl.alive(), false);
   const [row] = recorder.list();
   assert.deepEqual([row.task, row.host, row.opaque, row.bytesIn, row.outcome], ["runtimeDownload", "github.com", true, null, "cancelled"]);
+});
+
+test("a self-update that times out is still running until it exits, and is recorded then", async (t) => {
+  const recorder = new FlightRecorder({ now: () => 1 });
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => false, recorder, now: () => 1 });
+  require("../../src/helpers/privacy/childRegistry")._setSystemForTests({ listProcesses: () => [], pidAlive: () => false });
+  const cleanup = ensureCacheBinary();
+  const origSpawn = childProcess.spawn;
+  let child;
+  childProcess.spawn = () => (child = stuckChild());
+  t.after(() => { childProcess.spawn = origSpawn; cleanup(); gate._resetForTests(); require("../../src/helpers/privacy/childRegistry")._resetForTests(); });
+  await downloader.maybeUpdateYtDlp({ force: true, timeoutMs: 20 }); // the kill timer fires
+  assert.ok(child.signals.length > 0, "the timeout signalled it");
+  assert.equal(downloader.ytDlpControl.alive(), true, "a timed-out child is not a stopped one");
+  assert.equal(recorder.list().length, 0);
+  child.emit("exit", null, "SIGKILL");
+  assert.equal(downloader.ytDlpControl.alive(), false);
+  assert.equal(recorder.list()[0].outcome, "error");
+});
+
+test("a self-update that fails to spawn leaves nothing running and settles its session", async (t) => {
+  const recorder = new FlightRecorder({ now: () => 1 });
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => false, recorder, now: () => 1 });
+  const cleanup = ensureCacheBinary();
+  const origSpawn = childProcess.spawn;
+  childProcess.spawn = () => { throw Object.assign(new Error("spawn EACCES"), { code: "EACCES" }); };
+  t.after(() => { childProcess.spawn = origSpawn; cleanup(); gate._resetForTests(); });
+  await downloader.maybeUpdateYtDlp({ force: true });
+  assert.equal(downloader.ytDlpControl.alive(), false);
+  assert.deepEqual(recorder.list().map((r) => [r.task, r.outcome]), [["runtimeDownload", "error"]]);
 });
 
 test("while sealed, a self-update is not even attempted", async (t) => {
@@ -6626,7 +6797,8 @@ In `src/helpers/urlAudioDownloader.js`, add `const egress = require("./privacy/e
    - Directly after the successful `child = childProcess.spawn(...)` (`:426`), register the process and settle the session **only on its exit**:
 
      ```js
-           childRegistry.register(child, { kind: "yt-dlp" });
+           // tree: yt-dlp may start helpers; they count until they exit too.
+           childRegistry.register(child, { kind: "yt-dlp", tree: true });
            child.once("exit", (code) =>
              session.settle({ outcome: session.signal.aborted ? "cancelled" : code === 0 ? "ok" : "error" })
            );
@@ -6634,7 +6806,7 @@ In `src/helpers/urlAudioDownloader.js`, add `const egress = require("./privacy/e
 
      `finish` keeps its job: it resolves the caller's best-effort promise and clears the throttle flag. It no longer decides whether the process is gone; the registry does.
    - In the spawn-failure catch (`:427-432`), add `session.settle({ outcome: "error" });`. No process exists there.
-   - In `runYtDlp`, directly after its `child = childProcess.spawn(...)` (`:629`), add `childRegistry.register(child, { kind: "yt-dlp", group: process.platform !== "win32" });`. That spawn is `detached` on POSIX, so the whole process group must be gone before the registry calls it stopped. Its descendants (FFmpeg for post-processing) are in that group.
+   - In `runYtDlp`, directly after its `child = childProcess.spawn(...)` (`:629`), add `childRegistry.register(child, { kind: "yt-dlp", group: process.platform !== "win32", tree: process.platform === "win32" });`. That spawn is `detached` on POSIX, so the whole process group must be gone before the registry calls it stopped; its descendants (FFmpeg for post-processing) are in that group. Windows has no process groups, and the existing kill there is `taskkill /T` (`:596-601`), which is a signal, not an exit. So on Windows the registry tracks the tree: every descendant listed at stop time must be gone too (Task 6a).
 
 3. Add the control object next to the state variables (`:42-43`), and export it:
 
@@ -7805,6 +7977,28 @@ test("a local request in flight survives sealing, while the remote one beside it
   }
 });
 
+test("a loopback WebSocket (the Parakeet and sidecar path) stays open through sealing", async () => {
+  const WebSocket = require("ws");
+  const server = new WebSocket.Server({ port: 0, host: "127.0.0.1" });
+  await new Promise((r) => server.once("listening", r));
+  server.on("connection", (socket) => socket.on("message", (m) => socket.send(m)));
+  try {
+    flags.sealed = false;
+    const client = new WebSocket(`ws://127.0.0.1:${server.address().port}`);
+    await new Promise((resolve, reject) => { client.once("open", resolve); client.once("error", reject); });
+    flags.sealed = true;
+    gate.abortAllRemote();
+    backstop.severAll();
+    const echo = new Promise((resolve) => client.once("message", (m) => resolve(String(m))));
+    client.send("audio-frame");
+    assert.equal(await echo, "audio-frame", "the local stream kept working after the seal");
+    assert.equal(client.readyState, WebSocket.OPEN);
+    client.close();
+  } finally {
+    server.close();
+  }
+});
+
 test("every proxy-*-transcription channel is in the matrix", () => {
   const listed = new Set(Object.values(BLOCKED).flat().map(([label]) => label));
   for (const channel of ipc.channels().filter((c) => /^proxy-.*-transcription$/.test(c))) assert.ok(listed.has(channel), channel);
@@ -7880,7 +8074,7 @@ Rules for fixing a failing row:
 - [ ] **Step 3: Run the matrix**
 
 Run: `npm test -- test/helpers/sealedModeEnforcement.test.js`
-Expected: PASS. There are two tests per variant (the refusal and its bypass-sensitivity run; about 80 in total, depending on how many realtime channels and token providers are discovered), plus 3 prevented rows and 10 other checks. Any failure names the inventory row and the channel whose enforcement is missing.
+Expected: PASS. There are two tests per variant (the refusal and its bypass-sensitivity run; about 80 in total, depending on how many realtime channels and token providers are discovered), plus 3 prevented rows and 11 other checks. Any failure names the inventory row and the channel whose enforcement is missing.
 
 Then prove the matrix catches a regression. Temporarily delete the `egress.assertAllowed(...)` line from the `codex-status` handler, and the `gatedNodeFetch(...)` argument from `probe-self-hosted`. Rerun. Both rows must fail. Restore both lines, and record the two failing test names in the PR description.
 
@@ -8240,16 +8434,45 @@ test("one sealed toggle reaches the facts store and the resolver in the same tic
   assert.equal(facts.useRouteFactsStore.getState().facts.sealed, false);
   assert.notDeepEqual(dictation().state, { status: "unreachable", detail: "sealed" });
 
+  const targets = await import("../../src/lib/routeTargets.ts");
+  const stagedBlocker = () => {
+    const snapshot = routes.buildRouteSnapshot(settingsWithRemoteRoutes(), facts.useRouteFactsStore.getState().facts, routes.routeSendsCopy((k) => k));
+    const target = { mode: "providers", provider: "groq" };
+    return targets.applyBlocker(targets.previewRoute(snapshot, "dictationStt", target), target);
+  };
+  assert.notEqual(stagedBlocker(), "sealed");
+
   fake.listeners.sealed(true);
-  // Staged Apply (P03 Task 5) and keyring verify (P03 Task 8) read these same facts.
   assert.equal(facts.useRouteFactsStore.getState().facts.sealed, true);
   assert.deepEqual(dictation().state, { status: "unreachable", detail: "sealed" });
+  // Staged Apply (P03 Task 5) blocks a remote target on the same tick.
+  assert.equal(stagedBlocker(), "sealed");
 
   await facts.refreshRouteFacts();
   assert.equal(facts.useRouteFactsStore.getState().facts.sealed, true, "a facts refresh keeps main's answer");
 
   fake.listeners.sealed(false);
   assert.equal(facts.useRouteFactsStore.getState().facts.sealed, false);
+  assert.notEqual(stagedBlocker(), "sealed");
+});
+
+test("the keyring panel's sealed gate follows the same toggle", async (t) => {
+  const sealedStore = await import("../../src/hooks/useSealedMode.ts");
+  const facts = await import("../../src/stores/routeFactsStore.ts");
+  const { KeyringPanel } = await import("../../src/components/settings/KeyringPanel.tsx");
+  const { renderStatic } = require("../helpers/harness/reactSsr");
+  sealedStore._resetSealedStoreForTests();
+  const fake = fakePrivacy({ sealed: false });
+  globalThis.window = { electronAPI: { privacy: fake.api, keyring: { list: async () => [] } }, addEventListener() {} };
+  t.after(() => { delete globalThis.window; sealedStore._resetSealedStoreForTests(); });
+  facts.ensureRouteFactsSubscribed();
+  await tick();
+  const open = renderStatic(KeyringPanel, {});
+  fake.listeners.sealed(true);
+  const sealed = renderStatic(KeyringPanel, {});
+  // P03 Task 9 disables "Verify all" while facts.sealed is true (KeyringPanel reads useRouteFactsStore).
+  assert.notEqual(open, sealed, "the keyring view changes with the sealed fact");
+  assert.match(sealed, /disabled=""/);
 });
 
 test("routeFactsStore no longer reads the privacy bridge itself", () => {
@@ -8263,6 +8486,8 @@ Point the `require` at the settings fixture Plan 03's route tests use; find it w
 - `settingsWithRemoteRoutes()`: cloud speech-to-text and a cloud chat provider;
 - `settingsWithLocalDictation()`: the same, with the local engine selected (`useLocalWhisper: true`);
 - `settingsWithSelfHostedDictation(url)`: the same, with self-hosted transcription at `url`.
+
+The keyring check imports Plan 03's `KeyringPanel` from wherever P03 Task 9 put it (`grep -rln "export function KeyringPanel" src`). If its sealed state renders differently from a disabled "Verify all" button, assert on that element instead. The point is that it changes on the same toggle. Use Plan 03's `test/lib/i18nTestMock.js` if `react-i18next` needs a stub under the tsx loader.
 
 Create `test/helpers/dictationPreflight.test.js`:
 
@@ -8330,6 +8555,40 @@ test("transcribeRecovered replays the held recording through the normal pipeline
   assert.equal(await manager.transcribeRecovered(), false, "nothing left");
 });
 
+test("startRecording refuses before the microphone opens when the pre-flight says sealed", async (t) => {
+  globalThis.__preflightSealed = true;
+  t.after(() => delete globalThis.__preflightSealed);
+  const { createManager } = await loadAudioManager(t, {
+    cachePrefix: "loqui-audio-preflight-",
+    settingsKey: "__audioPreflightSettings",
+    settings: { preferredLanguage: "en" },
+    mockModules: {
+      // The real store and resolver are covered by sealedMode.test.js and
+      // routesSealed.test.js; this test pins where startRecording asks.
+      "/hooks/useSealedMode": "export const getSealedSnapshot = () => ({ sealed: globalThis.__preflightSealed, attestation: null });",
+      "/lib/sealedMode": "export const isDictationSealed = (_settings, sealed) => sealed === true;",
+    },
+  });
+  const opened = [];
+  const errors = [];
+  const manager = createManager({
+    isRecording: false, isProcessing: false, isStreaming: false, _streamingStopPromise: null, mediaRecorder: null,
+    preparedMicCapture: { take: async () => { opened.push("prepared"); return null; } },
+    getAudioConstraints: async () => { opened.push("constraints"); return {}; },
+    _startPcmTap: () => { opened.push("tap"); return null; },
+    _acquireCaptureStream: async () => { opened.push("mic"); throw new Error("mic opened"); },
+    onError: (error) => errors.push(error),
+  });
+  assert.equal(await manager.startRecording(), false);
+  assert.deepEqual(opened, [], "nothing about the microphone was touched");
+  assert.equal(errors[0].code, "SEALED_MODE");
+  assert.equal(errors[0].title, "sealedMode.blocked.dictationPreflight");
+
+  globalThis.__preflightSealed = null; // unknown never blocks
+  await manager.startRecording().catch(() => {});
+  assert.ok(opened.length > 0, "with the state unknown, recording proceeds");
+});
+
 test("a refused cleanup after local speech-to-text keeps the local transcript", async (t) => {
   const { createManager } = await setup(t, { useCleanupModel: true, useDictationAgent: false, useDictationTranslation: false });
   const manager = createManager({
@@ -8342,7 +8601,7 @@ test("a refused cleanup after local speech-to-text keeps the local transcript", 
 });
 ```
 
-If the shared harness needs more store stubs for these settings, pass them through `mockModules`, as `test/helpers/audioManagerCleanupFallback.test.js` does. Do not stub `/lib/sealedRecovery.ts` or `/utils/sealedModeError.ts`: they are under test.
+Match the `mockModules` keys to the style the harness already uses (`"/stores/settingsStore"`, without the extension). `startRecording`'s `finally` block may touch more fields than the ones stubbed above; add the minimal ones it reads. If the shared harness needs more store stubs for these settings, pass them through `mockModules`, as `test/helpers/audioManagerCleanupFallback.test.js` does. Do not stub `/lib/sealedRecovery.ts` or `/utils/sealedModeError.ts`: they are under test.
 
 Create `test/components/markdownSealed.test.js`:
 
@@ -8848,7 +9107,8 @@ test("the verified claim appears only when main attests it", async () => {
   ]) {
     assert.equal(keys(true, variant).includes("settingsPage.privacy.sealed.attested"), false);
   }
-  assert.deepEqual(keys(true, null), ["settingsPage.privacy.sealed.on", "settingsPage.privacy.sealed.unverified.pending"]);
+  assert.deepEqual(keys(true, null), ["settingsPage.privacy.sealed.on", "settingsPage.privacy.sealed.unverified.pending", "settingsPage.privacy.sealed.scope"]);
+  assert.ok(keys(true, attested).includes("settingsPage.privacy.sealed.scope"), "the limits are stated next to the verified line too");
   assert.deepEqual(keys(null, null), ["settingsPage.privacy.sealed.unknown"]);
   assert.deepEqual(keys(false, { ...attested, sealed: false, nothingLeaves: false }), ["settingsPage.privacy.sealed.description"]);
 });
@@ -8994,6 +9254,8 @@ export function sealedStatusLines(
       });
       for (const note of attestation.notes) if (NOTE_KEYS.has(note)) lines.push({ key: `${P}.note.${note}`, tone: "neutral" });
     } else lines.push(unverified(attestation));
+    // Always shown while sealed: what the guarantee covers, and its limits.
+    lines.push({ key: `${P}.scope`, tone: "neutral" });
   }
   if (attestation?.loadError) lines.push({ key: `${P}.loadError`, tone: "warn" });
   if (attestation?.saveError) lines.push({ key: `${P}.saveError`, tone: "warn" });
@@ -9158,6 +9420,7 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.loadError": "Loqui couldn't read your Sealed mode setting, so it stayed sealed. Turn it off here if you meant to.",
   "settingsPage.privacy.sealed.saveError": "Sealed mode couldn't be saved. It will be off the next time Loqui starts.",
   "settingsPage.privacy.sealed.unknown": "Sealed mode status is unavailable.",
+  "settingsPage.privacy.sealed.scope": "Covers Loqui, its windows and the programs it starts. Local model servers run with loopback-only settings, but Loqui can't see inside them. Links open in your browser only after you confirm.",
   "settingsPage.privacy.sealed.toggleError": "Couldn't change Sealed mode: {{message}}",
   "updates.sealed": "Paused while Sealed mode is on."
 }
@@ -9755,7 +10018,7 @@ Add this section to `docs/PRIVACY.md`, after "When network requests occur" and b
 ```markdown
 ## Sealed mode and the flight recorder
 
-**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, Loqui sends nothing that leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links you open in your browser are your browser's traffic, not Loqui's. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, and no environment proxy is in use. It dates the claim from that moment.
+**Sealed mode** (Privacy & Data) is enforced in the main process. While it is on, nothing that Loqui, its windows or the programs it starts send leaves this computer: provider requests, connection checks, model and runtime downloads, update checks, Codex, calendars and URL imports are all refused before a connection opens, and work already in flight is stopped. Only loopback (`localhost`, `127.0.0.0/8`, `::1`) is reachable, so on-device models keep working. A self-hosted server on another machine on your network is blocked too. Links open in your browser only after you confirm, because your browser's traffic is outside Sealed mode. Local model servers that Loqui starts (llama-server, whisper-server, Parakeet, Qdrant) are launched with loopback-only settings and no download options; Loqui cannot see inside those programs, so that is a limit of what it can check, not a guarantee it measures. A proxy or port-forwarder you run on this computer is treated as local. If the setting file cannot be read, Loqui stays sealed. Turning Sealed mode off asks for confirmation in a system dialog that the app window cannot answer for you. The panel says Sealed mode is verified only after the main process has confirmed that every request in flight has stopped, its network guards are active, no network-capable helper (Codex, yt-dlp) is running, and no environment proxy is in use. It dates the claim from that moment.
 
 When Sealed mode blocks a request, your content is kept: a chat message stays in the conversation, and a dictation recording is kept in History for retry when local history and audio retention allow it. While sealed, a dictation that would use a cloud speech-to-text route does not start at all. A request that was already under way when you turned Sealed mode on is stopped, and Loqui says the provider may have received part of it.
 
@@ -10179,6 +10442,7 @@ Run `npm run dev` with a disposable profile: `LOQUI_PROFILE_DIR=$(mktemp -d)`. N
 - **Browser links while sealed.** Click a link in a chat answer, and a meeting join link. A system dialog names only the host and defaults to "Don't open". "Don't open" opens nothing and shows no error.
 - **Remote images while sealed.** A chat answer with a remote markdown image shows the "Image not loaded while Sealed mode is on" placeholder, and the flight recorder gains no unexplained row.
 - **Calendar sign-in while sealed.** "Connect Google Calendar" is refused before a browser opens. Start the sign-in unsealed, then seal before finishing it in the browser: the flow ends as interrupted, and finishing in the browser afterwards reaches nothing.
+- **Local sidecars through a seal.** With on-device models installed, start each workflow, seal in the middle of it, and confirm it finishes and the panel reaches verified: local Whisper dictation (whisper-server), Parakeet streaming dictation (WebSocket), llama-server cleanup, and a semantic note search (Qdrant). On macOS, also run `lsof -nP -iTCP -a -p <pid>` for each sidecar while sealed: every connection is to `127.0.0.1` or `::1`. Record the output in the PR.
 - **A stubborn child.** Seal while a URL import (yt-dlp) is downloading. The panel names yt-dlp until the process has exited, and only then says verified.
 - **Codex.** Sign in to ChatGPT, then seal. The Codex process exits, and the panel becomes verified only after it is gone. The recorder shows one "Session — its traffic is not visible to Loqui" row for that run.
 - **Dictate with a local model while sealed.** It works, and nothing is added to the recorder.

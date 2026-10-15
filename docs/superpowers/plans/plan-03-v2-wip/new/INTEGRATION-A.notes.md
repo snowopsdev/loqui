@@ -35,6 +35,25 @@ Owner rule: provider, model and endpoint changes, and anything that adds an off-
 - New section "Enable switches through the planner (INTEGRATION-A)", Steps 6–10: `test/components/routeSwitches.test.js` (mounted: RouteSwitch for cleanup + source pin of the AiModelsSection call site; DictationAgentSettings enable / screen context / vision override; DictationTranslationSettings enable; InferenceConfigEditor ProviderSearchPreference), Task 3 `routesHooks.test.js` guard rewritten, `RouteSwitch.tsx`, call-site edits, `ProviderSearchPreference` via `useSyncExternalStore` + `requestPatch(SCOPE_ROUTE[scope], { "providerSearch:<scope>": next })`, commit `feat(settings): Send route switches and web search through the planner`.
 - T16 search: already resolved by T16 itself (cleanup/assistant/translation/screen-context entries are `link`, not live), so INTEGRATION.md item 1's "T16 search live toggles" needs no edit.
 
+### T09.md (done)
+- Header: new bullet "Corti region (INTEGRATION-A item 5)".
+- Files: `TranscriptionModelPicker.tsx` ranges gain `:412-415`, `:970-983`, `:1266-1272`.
+- Interfaces: consumes Task 8 `useRouteChange().requestPatch`, Task 3 `STT_CONTEXT_ROUTE`.
+- Step 1 `routePickers.test.js`: new subtest "speech: a Corti region switch is staged; the tenant commits on leave and stays instant"; source guard bans `setCortiEnvironment`/`setCortiTenant` in the picker.
+- Step 2 expected-failure text mentions the Corti setters.
+- Step 3 item 6: new bullet (imports `STT_CONTEXT_ROUTE` + `useRouteChange`, drop the two setter selectors, `credentialSetters` Corti entries → `requestPatch(routeId, …)`, tenant `<Input>` → module-level `CommitOnLeaveInput` committed on blur/Enter).
+- Step 3 item 3: new bullet explaining the Codex button names "ChatGPT (via the Codex app)" (`codexAppServer.js:178`, `:380-389`; `personalInference.js:258`).
+- Step 3 item 13 en block: `reasoning.codex.listModels` = "List models from ChatGPT (via the Codex app)", `listModelsTitle` = "The Codex app asks ChatGPT for its model list using your ChatGPT sign-in. Loqui sends no saved key."
+
+### Not edited
+- T16: its search already renders the route switches as `link` entries, so no live bypass remains there.
+- INTERFACES.md and the per-task notes files (T06 §4 "Enable flags", T07 §4 "Enable toggles", T09 §4 Corti / provider search, T16 §4) still describe these bypasses as open; this pass supersedes them. Interface additions of this pass: `ROUTE_SWITCH_KEYS`, `ROUTE_OPTION_KEYS`, `PROVIDER_SEARCH_PATCH_KEYS`, `providerSearchScope`, `readProviderSearchPreference`/`writeProviderSearchPreference` (T06); `requestRoutePatch` (T07); `useRouteChange().requestPatch`, `RouteSwitch` (T08).
+
 ## Unresolved
 
-(in progress)
+1. **Codex host.** Not verifiable in this repo: model listing and chat go through the external `codex app-server --stdio` binary (`src/helpers/codexAppServer.js:178`, JSON-RPC `model/list` at `:385`). T09 therefore labels the recipient "ChatGPT (via the Codex app)". T03's `providerHosts.codex = "chatgpt.com"` (shown in the Apply bar for Codex routes) is still the inference from the sign-in allow-list (`personalInference.js:258`).
+2. **Corti text host.** `providerHosts` has one host per provider id, now `api.<region>.corti.app` for `corti`. Corti text routes really go to `ai.eu.corti.app` (`src/config/constants.ts:123`, `src/helpers/personalInference.js:78`) whatever the region, so their disclosed host is wrong and a region switch also stages them (fails safe: over-stages, never under-stages). Fix needs T01's resolver to read a separate `providerHosts["corti:text"]` for text routes; not done here.
+3. **Same-route instant commit drops a staged draft.** T07's `commit` discards any draft for the committed route, so committing the Corti tenant (instant) while a region switch for the same route is staged discards the staged switch. Existing T07 semantics; the owner may prefer keeping patch drafts that touch other keys.
+4. **Vision override is not "off is instant".** Turning `useDictationAgentVisionModel` off makes screenshots follow the assistant's provider; when that is a different off-device recipient the planner stages it (T06 test "assistant switches…"). Deliberate under the owner rule; differs from the brief's "OFF is always instant".
+5. **No inline pending hint on switches.** A staged "on" leaves the switch showing off; the pending change is visible only in the Apply bar (Task 8). A per-switch "Waiting for Apply" hint would need new copy.
+6. **Nothing was executed.** Planning only: no tests, typecheck or lint were run for these edits.

@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd /Users/snow/.t3/worktrees/loqui/snowopsdev-plan-uiux-03-routes-settings/docs/superpowers/plans/plan-03-v2-wip/new && for f in T04 T05 T13; do head -1 $f.md; tail -2 $f.md | head -2; gre...",
-  "error": "Exit code 1\n### Task 4: Settings paths, in-modal navigation and the support-models tab (SET-Q17)\n\n---\n0\n### Task 5: Route chips, an honest mode selector and contrast (SET-Q4)\n\n---\n0\n### Task 13: Cartridge model cards (SET-R4 B, SET-Q8, SET-Q9)\n\n---\n0",
-  "timestamp": "2026-10-15T13:56:23.017Z",
-  "retry_count": 1
-}

@@ -36,6 +36,21 @@
   --color-info: #c43e13;
   --color-info-foreground: #ffffff;
 
+  /* Roles (DESIGN.md "Colors"). Orange means "live voice": it fills only
+     record/stop/mic controls, the pill and meters. The everyday call to
+     action is an ink capsule that carries a small orange brand dot. */
+  --color-cta: #171717;
+  --color-cta-foreground: #ffffff;
+  --color-live: #ff5a1f;
+  --color-live-foreground: #171717;
+  --color-nav-marker: #ff5a1f;
+  /* Locality: shape carries it first (solid, dotted, dashed ring); these
+     hues back it up. Green/blue/amber, never orange or violet, so locality
+     never reads as mode. */
+  --color-locality-device: #0b7a54;
+  --color-locality-network: #3b6ea8;
+  --color-locality-remote: #b45309;
+
   /* Surface hierarchy — light mode equivalents */
   --color-surface-0: #ffffff;
   --color-surface-1: #fafafa;

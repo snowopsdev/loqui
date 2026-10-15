@@ -134,6 +134,13 @@ The interface palette pairs a vivid orange action color with fuchsia highlights 
 - **Night Text** (oklch(0.93 0 0)): Main dark-theme text; secondary text uses oklch(0.65 0 0).
 - **Orange Link** (#C43E13 in light mode; #FF9A7A in dark mode): Text links, kept distinct from the primary action fill.
 
+### Roles
+- **Live** (`--color-live` #FF5A1F, ink text #171717): orange means a voice is live. Use it only for record/stop/mic controls, the pill and the meters (`Button variant="live"`).
+- **Call to action** (`--color-cta` #171717 / white text; Plum Night #F3E9EE / #1C1218 text): the default `Button`. It carries a 6px orange dot as the brand mark.
+- **Link** (`--color-link` #C43E13 light, #FF9A7A dark): always for inline links, never raw orange.
+- **Locality**: device #0B7A54, your network #3B6EA8, remote provider #B45309 (dark: #5EE0AD, #9BB4D6, #FBBF6A). Always paired with ring shape and words.
+- **Nav marker** (`--color-nav-marker`): orange in light, magenta #E6007A in Plum Night.
+
 ### Named Rules
 **The Two-Brand-Accent Rule.** Orange marks primary action and current state. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
 
@@ -204,7 +211,7 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 
 ### Buttons
 - **Shape:** Capsule for text actions (9999px); icon-only buttons use a 6px radius.
-- **Primary:** Orange vertical gradient from #FF6A36 to #FF5A1F, white semibold label, 40px default height, and 16px horizontal padding. A fine glass rim adds a small highlight.
+- **Primary:** Default buttons are ink capsules with a leading orange dot; `live` buttons use the orange glass surface with ink text and are reserved for voice controls. 40px default height and 16px horizontal padding.
 - **Hover / Focus:** Hover brightens the primary surface. Keyboard focus uses a 2px visible ring with a small offset; pressed controls scale slightly to confirm activation.
 - **Secondary / Ghost / Tertiary:** Outline and secondary buttons use muted fills, thin borders, and restrained shadow; ghost actions gain a muted surface on hover, while link actions remain text-first.
 

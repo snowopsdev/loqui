@@ -17,8 +17,18 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Primary CTA — brand glass capsule
+        // Everyday call to action: ink capsule, small orange brand dot first.
         default: [
+          "relative font-semibold tracking-[0.005em]",
+          "bg-cta text-cta-foreground shadow-sm",
+          "before:content-[''] before:size-1.5 before:rounded-full before:bg-live before:shadow-[0_0_0_3px_rgb(255_90_31/0.25)]",
+          "hover:brightness-110",
+          "active:brightness-95 active:scale-[0.985]",
+          "transition-[filter,transform] duration-200 ease-out",
+        ].join(" "),
+
+        // Live voice only: record, stop, mic, voice send. Orange glass, ink text.
+        live: [
           "relative font-semibold tracking-[0.005em]",
           BRAND_GLASS_SURFACE,
           "hover:brightness-110",
@@ -90,8 +100,8 @@ const buttonVariants = cva(
         // Link — uses design tokens
         link: [
           "font-medium",
-          "text-primary",
-          "hover:text-primary/80 hover:underline",
+          "text-link",
+          "hover:text-link/80 hover:underline",
           "underline-offset-4",
         ].join(" "),
 
@@ -115,6 +125,7 @@ const buttonVariants = cva(
         icon: "size-10 rounded",
       },
     },
+    compoundVariants: [{ variant: "default", size: "icon", className: "before:hidden" }],
     defaultVariants: {
       variant: "default",
       size: "default",

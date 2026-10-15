@@ -61,7 +61,7 @@ export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSe
                       <span
                         aria-hidden="true"
                         className={cn(
-                          "absolute start-0 top-2 bottom-2 w-0.5 rounded-full bg-primary opacity-0 transition-opacity duration-150",
+                          "absolute start-0 top-2 bottom-2 w-0.5 rounded-full bg-nav-marker opacity-0 transition-opacity duration-150",
                           isActive && "opacity-100"
                         )}
                       />
@@ -70,7 +70,7 @@ export default function ControlPanelSidebar({ activeView, onViewChange, onOpenSe
                         className={cn(
                           "shrink-0 transition-colors duration-150",
                           isActive
-                            ? "text-primary"
+                            ? "text-nav-marker"
                             : "text-foreground/55 group-hover:text-foreground/80"
                         )}
                       />

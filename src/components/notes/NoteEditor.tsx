@@ -948,7 +948,12 @@ export default function NoteEditor({
                 className={cn(PAGE_CONTENT_WIDTH_CLASS, "mt-2")}
               >
                 {canEditNote && recordingAllowed && (
-                  <Button size="sm" onClick={onStartRecording} disabled={isProcessing}>
+                  <Button
+                    variant="live"
+                    size="sm"
+                    onClick={onStartRecording}
+                    disabled={isProcessing}
+                  >
                     <Mic size={13} />
                     {t("notes.editor.startRecording")}
                   </Button>

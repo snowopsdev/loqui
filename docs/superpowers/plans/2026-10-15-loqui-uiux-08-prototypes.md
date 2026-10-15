@@ -1,110 +1,94 @@
-# Loqui UI/UX Plan 08 — Prototypes (WS-M4 confidence typography, WS-M5 The Table) Implementation Plan
+# Loqui UI/UX Plan 08 — The Table (WS-M5 spatial canvas prototype) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship two Labs prototypes behind off-by-default flags:
-- **WS-M4, confidence as typography.** Transcript words get variable font weight plus a dotted underline from the speech engine's word probabilities. It is gated to engines that pass a go/no-go spike, and hidden everywhere else.
-- **WS-M5, The Table.** A per-Space spatial canvas with draggable note, meeting, dictation and chat-answer cards. It has connectors, lasso, pan and zoom, an inbox tray, and positions persisted in local SQLite.
+**Goal:** Ship WS-M5, The Table, as a Labs prototype behind an off-by-default flag. It is a per-Space spatial canvas with:
+- draggable, resizable note, meeting, dictation and chat-answer cards;
+- connectors, lasso, pan and zoom;
+- an inbox tray;
+- Summarise and Ask through the Space's own chat, with the route disclosed before anything is sent.
 
-**Architecture:**
-- **WS-M4.** It is a vertical slice from engine to pixels:
-  - Main asks whisper.cpp for `verbose_json` and reads the per-token log-probs sherpa-onnx already sends.
-  - `src/helpers/wordConfidence.js` merges tokens into words.
-  - The renderer carries the words through the existing dictation result to `db-save-transcription`.
-  - Main aligns the words to the saved `raw_text` by character offset and stores them in a new side table, `transcription_confidence`.
-  - History rows fetch the words lazily and render them with `ConfidenceText`.
-- **WS-M5.** A Space's root overview gains a `List | Table` switch.
-  - Main owns three new tables (`note_layout`, `note_layout_links`, `note_layout_viewport`) and returns a ready-to-draw board.
-  - The renderer keeps geometry, model and gesture logic in pure, tested modules (`src/components/table/*.ts`).
-  - Thin React components draw DOM cards over a transformed world.
+Positions persist in local SQLite, owned by main. WS-M4 (confidence typography) is on hold per spec D11. Its plan is summarised in the "Deferred: WS-M4" appendix.
+
+**Architecture:** A Space's root overview gains a `List | Table` switch.
+- Main owns three new tables (`note_layout`, `note_layout_links`, `note_layout_viewport`), validates every write, and returns a ready-to-draw board.
+- The renderer keeps geometry, model and gesture logic in pure, tested modules (`src/components/table/*.ts`).
+- Thin React components draw DOM cards over a transformed world.
+- AI actions reuse `useContainerChat` and Plan 03's route resolver, so there is no new provider request path.
 
 **Tech Stack:**
 - Electron 44 main process (CommonJS), with better-sqlite3 13.0.3.
-- whisper.cpp server (OpenWhispr fork, tag `0.0.10`) and sherpa-onnx 1.13.8 offline WebSocket server.
-- React 19, TypeScript, Tailwind CSS 4, zustand 5 and Radix Popover.
+- React 19, TypeScript, Tailwind CSS 4 and zustand 5.
 - Node `node:test`, using the tsx loader, `react-dom/server`, and the Vite SSR harness (`test/lib/rendererTestHarness.js`).
 
-**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`: the Plan 08 row in §3, decision D7, constraints §4 and contracts §5. Acceptance reference: `design-explorations/loqui-uiux-review.html#ws-m4` and `#ws-m5` (source `design-explorations/loqui-uiux-review/parts/04-workspace.html:1552-1633` for markup, `:2617-2810` for the interactive mocks). Research: `.omc/research/ui-review/audit-workspace.md` §4 M4, M5 and §3 R4.
+**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`: the Plan 08 row in §3, decisions D11 (WS-M4 on hold) and D12 (The Table never deletes content), constraints §4 and contracts §5.
+- Acceptance reference: `design-explorations/loqui-uiux-review.html#ws-m5`, with source `design-explorations/loqui-uiux-review/parts/04-workspace.html:1591-1633` for the markup and `:2694-2810` for the interactive mock.
+- Research: `.omc/research/ui-review/audit-workspace.md` §4 M5.
 
 ---
 
 ## Contract change requests
 
-No new requests came from the 2026-10-15 review. Task 10 complies with Plan 06's token-adoption guard as written; the guard does not need to change. Plan 08 also consumes Plan 03's `RouteDestinationChip` and `RouteStateChip` (`src/components/settings/routing/RouteChips.tsx`), which spec §5.1 does not list. CCR-6 below asks for them to be published.
-
 Spec §5 says only the owning plan may change a contract. These requests go to the owner and the owning plans. Plan 08 codes against the assumption stated in each one, so execution can proceed if the request is accepted as written.
 
 1. **CCR-1, new §5.5 "Space surface" (owner: Plan 06; consumer: Plan 08).** Plan 06 reshapes the sidebar and Spaces (WS-R1 B). Plan 08 needs a stable place to mount a per-Space view switch.
    - **Request:** Plan 06 publishes, as a contract, the component that renders a Space's root content and a `viewSwitch` slot in its header. Alternatively, it keeps `ContainerOverview` (`src/components/notes/overview/ContainerOverview.tsx`) with its current props `{ space, folder, onOpenNote, onNewNote, onAddExisting }`, rendered by `PersonalNotesView` when no note is open.
-   - **Assumption used in Task 17:** the latter.
+   - **Assumption used in Task 8:** the latter.
 2. **CCR-2, new §5.6 "Entity mention links" (owner: Plan 06; consumer: Plan 08).** WS-R7 B (universal mentions) lets notes mention notes, meetings and dictations. The Table draws connectors from these links.
-   - The draft Plan 06 (Task 17, uncommitted on its branch as of 2026-10-14) already defines the pieces in `src/utils/mentionMarkdown.ts`:
-     - the scheme `<kind>:<positiveInt>`, stored as `[@Label](note:17)`, with kinds `note | meeting | dictation | folder`;
-     - `parseMentionHref(href): { kind; entityId: string | null; email: string | null } | null`.
-   - **Request:** Plan 06 publishes the scheme and `parseMentionHref` in spec §5, so Plan 08 can depend on them.
-   - **Plan 08's use:** Task 13 wraps it as `parseEntityHref` in `src/components/table/tableEdges.ts`:
+   - Plan 06 (its universal-mentions task) defines the scheme `<kind>:<positiveInt>`, stored as `[@Label](note:17)`, with kinds `note | meeting | dictation | folder`. It also defines `parseMentionHref(href): { kind; entityId: string | null; email: string | null } | null` in `src/utils/mentionMarkdown.ts`.
+   - **Request:** Plan 06 publishes the scheme and `parseMentionHref` in spec §5.
+   - **Plan 08's use:** Task 4 wraps it as `parseEntityHref` in `src/components/table/tableEdges.ts`:
      - `note` and `meeting` map to a note card;
      - `dictation` maps to a dictation card;
      - `folder` and `person` map to nothing.
-   - If Plan 06 renames the function, only that adapter changes.
 3. **CCR-3, new §5.7 "Labs flags" (owner: Plan 08; consumers: any later prototype).**
    - **Plan 08 produces:**
-     - the boolean settings `labsConfidenceTypography` and `labsTable` in `src/stores/settingsStore.ts` (`BOOLEAN_SETTINGS`, `readBoolean`, `createBooleanSetter`);
+     - the boolean setting `labsTable` in `src/stores/settingsStore.ts` (`BOOLEAN_SETTINGS`, `readBoolean`, `createBooleanSetter`);
      - a `LabsSettings` panel (`src/components/settings/LabsSettings.tsx`) rendered in Settings → System.
-   - **Rule:** a Labs flag defaults to `false`, gates both UI and any engine or request change, and turning it off restores today's behaviour exactly.
-   - Plan 03 restructures Settings and merges before Plan 08. Task 2 mounts the panel in whatever section replaced `case "system"` (`SettingsPage.tsx:2963`) and says how to find it.
-4. **CCR-4, a scope deviation from WS-M4's acceptance mock (owner decision, an addendum to D7).** The mock's popover lists the top three alternatives for a word (n-best), with `Enter` to replace.
-   - No engine Loqui runs exposes per-word alternatives. This was confirmed from the pinned whisper.cpp fork and sherpa-onnx 1.13.8 source; Deepgram's whole-transcript `alternatives[]` is unconfirmed for streaming.
-   - **Plan 08 ships:** a popover with the word's confidence, `A` Add to Words and `P` Play 2 s. It has no alternatives and no `Enter` replace.
-   - **Restoring alternatives** needs decoder top-k changes in the whisper.cpp fork. That is a separate engine project.
-5. **CCR-5, a scope deviation from WS-M5's selection bar (owner decision).** The mock's `Delete` would delete user content from a prototype surface. Spec §4 says content is preserved.
-   - **Plan 08 ships:** `Remove from table`. The card goes back to the Inbox tray and nothing is deleted, so no undo is needed.
-   - **Summarise** and **Ask about these** reuse the Space's existing chat (`useContainerChat`), with the selection as context. The answer becomes a chat-answer card linked to its sources.
+   - **Rule:** a Labs flag defaults to `false`, gates both UI and any request change, and turning it off restores today's behaviour exactly. A later prototype adds its own flag and row to the same panel.
+4. **CCR-4, resolved by D11 (WS-M4 on hold).** The owner chose not to ship confidence typography without per-word alternatives. See the "Deferred: WS-M4" appendix.
+5. **CCR-5, resolved by D12 (approved as written).** The Table's selection action is "Remove from table": the card returns to the Inbox tray and nothing is ever deleted.
+   - Summarise and Ask about these reuse the Space's existing chat (`useContainerChat`). The answer becomes a chat-answer card linked to its sources.
    - There is no new AI request path, so Sealed mode (Plan 07, D6) covers these actions without changes.
-6. **CCR-6, publish the route chips (owner: Plan 03; consumers: Plan 08, and any surface that discloses a route).** The Table discloses the chat route with Plan 03's `RouteDestinationChip(props: { route: Pick<ResolvedRoute, "locality" | "providerId" | "model">; className?: string })` and `RouteStateChip(props: { state: RouteState; className?: string })`.
-   - **Request:** Plan 03 lists them, and `ResolvedRoute.providerId`, in spec §5.1, so Plan 08 does not rely on settings internals.
+6. **CCR-6, publish the route chips (owner: Plan 03; consumers: Plan 08, and any surface that discloses a route).** The Table discloses the chat route with Plan 03's two chips:
+   - `RouteDestinationChip(props: { route: Pick<ResolvedRoute, "locality" | "providerId" | "model">; className?: string })`;
+   - `RouteStateChip(props: { state: RouteState; className?: string })`.
+
+   They live in `src/components/settings/routing/RouteChips.tsx`.
+   - **Request:** Plan 03 lists them, and `ResolvedRoute.providerId`, in spec §5.1.
    - **If declined:** Plan 08 renders `LocalityRing` plus `providerDisplayLabel(providerId, t)` itself, in a local `TableRouteChip` with the same props.
 
 ## Review response (independent review 2026-10-15, Codex gpt-6.1-sol xhigh: 0 Critical, 7 Important, 3 Minor)
 
-All ten findings are closed and none is disputed. Where each fix landed:
+All ten findings are closed and none is disputed. Five of them concerned WS-M4. They went on hold with it (D11): the fixes are recorded in the appendix and apply when WS-M4 is restored.
 
 | Finding | Resolution |
 |---|---|
-| I1 Alignment can attach a rewritten word's score to a later repeat | Task 3: alignment is positional. The engine's words are laid out as written (`n: true` marks unspaced CJK joins) and compared with the saved text. Only words inside the shared prefix or shared suffix keep a score. Text search is gone, so a score can only land on the occurrence at the same position. Tests cover adjacent repeats both ways, an intervening word, an inserted word, prefix-only matches, recasing, CJK and unscored anchors. They were executed against the plan's code: 16 pass, 2 skip pending fixtures. |
-| I2 Downgrade, then edit, then upgrade keeps stale confidence | Task 6: trigger `transcription_confidence_raw_text` (`AFTER UPDATE OF raw_text`) lives in the database file, so older builds fire it too. A new-build cleaned-text edit no longer names `raw_text`. Retry still clears explicitly. A test runs the pre-Plan-08 `UPDATE` with a changed and an identical raw text. Trigger semantics were checked in SQLite. |
-| I3 Gate measures token self-consistency | Tasks 1 and 3: the gate has two stages. Stage 2 runs the storage code (`mergeTokensToWords` and `alignWordsToText`) and measures G2 as scored words over the saved transcript's lexical words (≥ 0.90). G4 is computed on merged, distinct words, with fixed labels (*wrong*, *ambiguous*, *correct*), and any cut-off change must be an explicitly named, owner-approved G4′. |
-| I4 Table AI actions lack route disclosure; Labs copy over-promises | Task 16: the toolbar, the Ask panel and the selection bar show Plan 03's `RouteDestinationChip`, which renders `LocalityRing` and `providerDisplayLabel(providerId, t)`, from `useResolvedRoute("chat")` before anything is sent. A non-ready route shows `RouteStateChip` and disables Summarise and Ask. One test renders the real chip. Task 2: the Labs copy no longer claims everything stays local, and says AI actions use the chat provider. Per-answer route stamps remain Plan 06 Task 21's, in `ChatView`. |
-| I5 Task 10 conflicts with Plan 06's token guard | Task 10: both raw branches use one `RAW_TEXT_CLASS` (`text-caption`, full `text-muted-foreground`). A test enforces the guard's patterns on `TranscriptionItem.tsx`, and Plan 06's guard runs in Task 10, Task 18 and Task 20. The guard does not need to change. |
-| I6 Ask uses the live selection; large selections are silently cut | Tasks 13 and 16: `pinSelection` freezes the selection's keys and context when Ask or Summarise starts. The Ask panel shows "Pinned cards: N". Selection AI actions are limited to 12 with an on-bar explanation, and `buildSelectionContext` never truncates. Board context names the total and says what it left out. |
-| I7 Diff and resize missing | Added as bounded tasks. Task 18 is the raw versus cleaned diff, with `ins`/`del`, a `D` toggle and a fallback above about 700 words. Task 19 is card resize, with a corner handle, Alt+arrows, clamped and snapped sizes, `w`/`h` persisted, and cancel restoring the old size. |
-| M1 Preview ignores `placedKeys` | Task 17: `src/preview/previewTable.ts` is an in-memory store that honours `placedKeys`, hide and links, with a place → read → hide → read test. |
-| M2 Storage budget unstated | Task 6: compact tuples, measured at ≈ 570 KB at the 20 000-word cap and bounded by a test at 650 KB. |
-| M3 No per-frame performance evidence; hard-coded 380 ms | Task 15: pointer moves are coalesced per animation frame, and the snap uses `--motion-slow` (a test forbids literal `ms` in Table CSS). Task 16: handlers are stable. Task 20 Step 4 adds a 500-card trace with pass criteria. |
+| I4 Table AI actions lack route disclosure; Labs copy over-promises | Task 7: the toolbar, the Ask panel and the selection bar show Plan 03's `RouteDestinationChip`, which renders `LocalityRing` and `providerDisplayLabel(providerId, t)`, from `useResolvedRoute("chat")` before anything is sent. A non-ready route shows `RouteStateChip` and disables Summarise and Ask. One test renders the real chip. Task 1: the Labs copy says card positions stay on the device and Summarise and Ask use the chat provider. Per-answer route stamps remain Plan 06's, in `ChatView`. |
+| I6 Ask uses the live selection; large selections are silently cut | Tasks 4 and 7: `pinSelection` freezes the selection's keys and context when Ask or Summarise starts. The Ask panel shows "Pinned cards: N". Selection AI actions are limited to 12 with an on-bar explanation, and `buildSelectionContext` never truncates. Board context names the total and says what it left out. |
+| I7 Acceptance features missing | Card resize is Task 9, with a corner handle, Alt+arrows, clamped and snapped sizes, `w`/`h` persisted, and cancel restoring the old size. The raw versus cleaned diff belonged to WS-M4 and is deferred with it. |
+| M1 Preview ignores `placedKeys` | Task 8: `src/preview/previewTable.ts` is an in-memory store that honours `placedKeys`, hide and links, with a place → read → hide → read test. |
+| M3 No per-frame performance evidence; hard-coded 380 ms | Task 6: pointer moves are coalesced per animation frame, and the snap uses `--motion-slow` (a test forbids literal `ms` in Table CSS). Task 7: handlers are stable. Task 10 Step 4 adds a 500-card trace with pass criteria. |
+| I1, I2, I3, I5, M2 (WS-M4) | On hold with WS-M4 (D11). The appendix records each fix: positional alignment, the `raw_text` trigger, the two-stage gate, Plan 06 token-guard compliance, and the storage budget. I5 no longer applies to this plan, because Plan 08 no longer touches `TranscriptionItem.tsx`. |
 
-Execution order: Plan 08 runs after Plans 03 and 06 are implemented. Before starting, check that `useResolvedRoute`, `RouteDestinationChip`, `RouteStateChip`, `parseMentionHref`, `--color-ai`, `--color-ai-text` and Plan 06's guard are on `main`.
+Execution order: Plan 08 runs after Plans 03 and 06 are implemented. Before starting, check that `useResolvedRoute`, `RouteDestinationChip`, `RouteStateChip`, `parseMentionHref` and `--color-ai-text` are on `main`.
 
-## Owner decisions (2026-10-14)
+## Owner decisions
 
-- **CCR-4 and CCR-5 are accepted.** The popover ships without alternatives, and the Table's action is "Remove from table", not Delete.
-- **Confidence capture runs only while Labs → Confidence is on.** Local dictation pays no extra cost and stores no extra data unless the user opted in. The Labs description says the feature applies to dictations made after it is turned on (Task 2 strings).
-- **Cloud engines stay out of scope.** Whether to extend confidence to gpt-4o-transcribe, Deepgram or AssemblyAI is decided after the prototype has been used.
-- **The inbox defaults stand:** dictations from the last 7 days (up to 20) and recent answered chats (up to 10).
-- **The Table is per Space, not per folder.** One canvas per Space means a note has one position, so there is never a second, conflicting arrangement of the same cards.
-- **Labs lives in Settings → System.**
+- **D11 (2026-10-15):** WS-M4 is on hold until per-word alternatives exist. Plan 08 delivers WS-M5 only.
+- **D12 (2026-10-15):** "Remove from table" returns the card to the Inbox, and nothing is ever deleted.
+- **The inbox defaults stand (2026-10-14):** removed cards of any age, dictations from the last 7 days (up to 20), and recent answered chats (up to 10).
+- **The Table is per Space, not per folder (2026-10-14).** One canvas per Space means a note has one position, so there is never a second, conflicting arrangement of the same cards.
+- **Labs lives in Settings → System (2026-10-14).**
 
 ## Assumptions about Plan 06 (Workspace)
 
-Plan 06's plan existed only as an uncommitted draft when this plan was written (`snowopsdev/plan/uiux-06-workspace`, 2026-10-14). The assumptions below were checked against that draft. Plan 08 executes after Plan 06 merges. Before Task 1, the executor runs `git log --oneline main -- src/components/notes src/components/ui/TranscriptionItem.tsx src/components/HistoryView.tsx` and reads Plan 06's plan. Where an assumption below is false, the affected task says what to do.
+These were checked against Plan 06's plan (`snowopsdev/plan/uiux-06-workspace`). Plan 08 executes after Plan 06 merges. Before Task 1, the executor runs `git log --oneline main -- src/components/notes src/hooks/useContainerChat.ts` and reads Plan 06's plan. Where an assumption below is false, the affected task says what to do.
 
 - **A1.** The Space root overview is still `ContainerOverview`, with the props above (CCR-1). There is still exactly one Space, "Personal" (`spaces.kind CHECK (kind = 'private')`, `src/helpers/localDatabaseSchema.js:276`), but all Plan 08 code is keyed by `space_id` and works unchanged with more Spaces.
-- **A2.** The history row is still `src/components/ui/TranscriptionItem.tsx`. Draft Plan 06 Task 12 modifies it but keeps it.
-  - The cleaned text renders in a single `<p>` (today `:279-285`). After Plan 06 that `<p>` carries `className="text-body line-clamp-4 …"` and `onClick={copyUnlessSelecting}`. Task 10 keeps both.
-  - An expandable raw-transcript block exists (today `:289-324`).
-  - The row kebab builds `candidateActions` (today `:115-146`).
-  - If WS-R4 B moved them, apply Task 10's edits to the moved code.
-- **A3.** Draft Plan 06 does not touch it. `useContainerChat` (`src/hooks/useContainerChat.ts`) still returns `{ messages, agentState, sendMessage, cancelStream, conversations, activeConversationId, switchConversation, startNewChat }`, and `OverviewAskSection` still takes the props passed at `ContainerOverview.tsx:129-139`.
-- **A4.** Draft Plan 06 adds `--color-ai-text` (CR-06-4), which Task 16 uses for the machine-authored Summarise label. Tokens from Plan 01 exist: `--motion-*`, `--color-accent` (#d90078), and the hex dark tokens in `.dark`. Helpers exist: `src/utils/contrast.ts` (`contrastRatio`) and `test/helpers/harness/cssTokens.js` (`resolveTokens`).
+- **A2.** Plan 06 does not touch `useContainerChat`. `src/hooks/useContainerChat.ts` still returns `{ messages, agentState, sendMessage, cancelStream, conversations, activeConversationId, switchConversation, startNewChat }`, and `OverviewAskSection` still takes the props passed at `ContainerOverview.tsx:129-139`.
+- **A3.** Plan 06 adds `--color-ai-text` (CR-06-4), which Task 7 uses for the machine-authored Summarise label.
+- **A4.** Tokens from Plan 01 exist: `--motion-*`, `--color-agent-brand`, and the hex dark tokens in `.dark`. Helpers exist: `src/utils/contrast.ts` (`contrastRatio`) and `test/helpers/harness/cssTokens.js` (`resolveTokens`).
 
 ## Data model and migration
 
@@ -112,381 +96,63 @@ Loqui has no migration system. `initDatabase` (`src/helpers/database.js:100-107`
 
 | Table | Purpose | Lifecycle |
 |---|---|---|
-| `transcription_confidence(transcription_id PK → transcriptions(id) ON DELETE CASCADE, engine, words_json, created_at)` plus trigger `transcription_confidence_raw_text` | One row per transcription that has word confidence. `words_json` holds compact tuples `[[s, e, p, t?]]`: `s`/`e` are UTF-16 offsets into `raw_text`, `p` is 0..1 and `t` is the start in seconds. The budget is about 28 bytes a word, measured at ≈ 570 KB at the 20 000-word cap, where a test bounds it at 650 KB. | Hard deletes cascade (`deleteTranscription`, `clearTranscriptions`, retention all `DELETE`; `foreign_keys = ON` at `database.js:106`). The trigger deletes the row whenever an `UPDATE` names `raw_text`, including updates made by an older build after a downgrade. Retry also clears it explicitly. |
-| `note_layout(space_id, entity_type ∈ note/dictation/chat, entity_id, x, y, w, h, z, hidden, updated_at; PK(space_id, entity_type, entity_id))` | Card positions. The name and columns follow the acceptance reference. `hidden` was added so that "Remove from table" never deletes anything: a removed card of any kind returns to the Inbox, whatever its age. | Polymorphic, so no FK. Every read and write prunes rows whose entity is gone, in the same transaction. |
-| `note_layout_links(space_id, a_type, a_id, b_type, b_id, created_at; PK on all five)` | User-made connectors (Group into note, Summarise). | Both ends are validated on insert. Links to deleted entities are pruned with the layout, and reads return only links whose two ends are on the board or in the Inbox. |
+| `note_layout(space_id, entity_type ∈ note/dictation/chat, entity_id, x, y, w, h, z, hidden, updated_at; PK(space_id, entity_type, entity_id))` | Card positions and sizes. The name and columns follow the acceptance reference. `hidden` implements D12: a removed card of any kind returns to the Inbox, whatever its age. | Polymorphic, so no FK. Every read and write prunes rows whose entity is gone, in the same transaction. |
+| `note_layout_links(space_id, a_type, a_id, b_type, b_id, created_at; PK on all five)` | User-made connectors (Group into note, Summarise, Ask). | Both ends are validated on insert. Links to deleted entities are pruned with the layout, and reads return only links whose two ends are on the board or in the Inbox. |
 | `note_layout_viewport(space_id PK, x, y, scale, updated_at)` | Last pan and zoom per Space. | Overwritten on change. |
 
-Upgrade: an existing profile gains all four tables and the trigger on next launch, and Task 6 and Task 11 test this by dropping them and reopening. Downgrade: older builds ignore the unknown tables. The trigger still fires on their `raw_text` writes, so a downgrade, then an edit, then an upgrade can never show stale scores (Task 6 tests the old build's exact `UPDATE`). History reads stay `SELECT *`-sized: rows gain only `has_confidence` (0/1, computed with `EXISTS`), and the words load lazily per row through `db-get-transcription-confidence`.
+Upgrade: an existing profile gains all three tables on next launch, and Task 2 tests this by dropping them and reopening. Downgrade: older builds ignore the unknown tables, and no existing table changes.
 
 ## Global Constraints
 
 - Electron main owns SQLite, credentials, native runtimes, provider requests and updates. Renderers talk only through typed preload IPC (CLAUDE.md, spec §4).
-- Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure. A confidence payload that fails validation is dropped, and the transcription still saves.
-- Labs flags default to `false`. With both flags off, every request, IPC payload and render must be byte-for-byte what it is today. In particular, whisper.cpp still receives `response_format=json`.
-- WS-M4 changes requests only for local engines: whisper.cpp server and sherpa-onnx offline. No cloud provider request changes in this plan.
-- Text contrast is at least 4.5:1 and non-text UI (underlines, connectors, card borders) at least 3:1, in light theme and Plum Night.
-- Motion uses the shared tokens only (`--motion-*`). Every loop is gated to its active state. Reduced motion keeps opacity and colour feedback and drops transforms (the existing policy in `src/index.css`). The Table's spring snap and the confidence weight transition are both off under reduced motion.
-- Uncertainty is never signalled by weight alone: every uncertain word also has a dotted underline (audit M4).
-- Every visible string goes through i18n in all 11 locales: `ar de en es fr it ja pt ru zh-CN zh-TW`. `npm run i18n:check` passes. Draft Plan 06 adds `scripts/merge-locale-keys.js`, an all-or-nothing merge that refuses conflicting values. If it is on `main`, feed it the same key and value tables as Tasks 2, 10 and 16 instead of their inline `node -e` writers.
+- Local and remote choices stay explicit. Nothing silently switches provider or moves work from local to remote. Content is preserved on every failure, and The Table never deletes content (D12).
+- The Labs flag defaults to `false`. With it off, every request, IPC payload and render must be exactly what it is today.
+- Text contrast is at least 4.5:1 and non-text UI (connectors, card borders, chat rail) at least 3:1, in light theme and Plum Night.
+- Motion uses the shared tokens only (`--motion-*`). Every loop is gated to its active state. Reduced motion keeps opacity and colour feedback and drops transforms (the existing policy in `src/index.css`). The Table's spring snap is off under reduced motion.
+- Every visible string goes through i18n in all 11 locales: `ar de en es fr it ja pt ru zh-CN zh-TW`. `npm run i18n:check` passes. Plan 06 adds `scripts/merge-locale-keys.js`, an all-or-nothing merge that refuses conflicting values. If it is on `main`, feed it the same key and value tables as Tasks 1 and 7 instead of their inline `node -e` writers.
 - RTL: use logical properties (`ms-`, `me-`, `start-`, `end-`, `inset-inline-*`). Canvas world coordinates stay physical; only chrome (inbox tray, toolbar, selection bar) flips.
-- Tests: run `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the desktop app. Never use personal profiles in tests or the spike. Never commit personal voice recordings.
+- Tests: run `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the desktop app. Never use personal profiles in tests.
 - Before a PR: `npm run lint`, `npm run typecheck`, `npm test`, `npm run i18n:check`.
 - Node: `~/.nvm/versions/node/v24.21.0/bin` (matches `.node-version` 24.21.0).
-- `DESIGN.md` is the source of truth (D10). Tasks 10 and 17 update it in the same commits, and `docs/PRIVACY.md` gains the two new local stores.
-
-## Go/no-go gate (D7)
-
-Task 1 is a spike. Its report (`docs/superpowers/research/2026-10-ws-m4-confidence-spike.md`) decides GO or NO-GO per engine, in two stages, each with explicit thresholds:
-- **Stage 1 (Task 1 Step 5).** G1: scores are present on ≥ 95 % of tokens. G3: whisper `verbose_json` costs ≤ 10 % + 50 ms over `json`. Measured on raw engine output.
-- **Stage 2 (Task 3 Step 6).** It runs the same `mergeTokensToWords` and `alignWordsToText` that storage uses.
-  - G2: ≥ 90 % of the saved transcript's lexical words carry a usable score.
-  - G4: the score separates real doubt from noise, on merged words.
-
-An engine is GO only if it passes both stages. If both engines fail stage 1, Part A stops before Task 3. Then:
-
-| Outcome | Tasks to run |
-|---|---|
-| whisper.cpp GO, sherpa-onnx GO | 2–20 |
-| whisper.cpp GO only | 2, 3, 4, 6–20. Skip 5, and remove `"sherpa-onnx"` from `ENGINES` in `src/helpers/wordConfidence.js` (Task 3). |
-| sherpa-onnx GO only | 2, 3, 5–20. Skip 4, and remove `"whisper.cpp"` from `ENGINES` in `src/helpers/wordConfidence.js` (Task 3). |
-| both NO-GO at stage 1 | 2, 11–17, 19, 20. WS-M4 stops after the spike report. Remove `labsConfidenceTypography` from Task 2 and the confidence rows from Tasks 17 and 20. |
-| both NO-GO at stage 2 | As above, plus Task 3 already merged. Its module is unused; delete `src/helpers/wordConfidence.js` and its test in one revert commit. |
-
-WS-M5 (Tasks 11–17 and 19) does not depend on the gate. Task 18 (raw versus cleaned diff) belongs to WS-M4 and follows its gate.
+- `DESIGN.md` is the source of truth (D10). Task 8 updates it, and `docs/PRIVACY.md` gains the new local store.
 
 ## Review Focus
 
-1. **Alignment drift.** The engine's token text differs from the saved `raw_text` (inverse text normalisation "twenty" → "20", repeated words, dictionary-echo recovery swapping in a retry result, whitespace normalisation, CJK without spaces, leading punctuation).
-   - A reasonable person expects a wrong underline to be impossible. Alignment is positional, so a word keeps its score only where its position is unchanged, and everything in a changed region is drawn plain.
-   - Pinned in Task 3 (`wordConfidence.test.js`: "words align… skip what changed", "adjacent repeats", "an inserted word…", "a word that only shares a prefix…", "CJK tokens…") and Task 7 (the retry result carries the retry's own confidence).
-2. **Stale confidence after an edit or retry.** Retry rewrites `raw_text` (the `retry-transcription` handler at `ipcHandlers.js:5083` calls `updateTranscriptionText(id, result.text, result.text)` at `:5290`), and so does a manual edit (`update-transcription-text`, `:7929`). A user expects the old underlines to vanish, not to sit on the new words.
-   - Pinned in Task 6: "confidence follows the raw text" and "a retry clears confidence even when it returns identical text".
-3. **Hostile or garbage payloads over IPC.** The renderer sends the words to `db-save-transcription`. Non-arrays, `NaN` or out-of-range probabilities, 64+ character "words", an unknown engine, or 20 001 words must never fail the save or bloat the DB.
-   - Pinned in Task 3 (`buildStoredConfidence` refusals) and Task 6 ("a malformed payload never blocks saving").
-4. **Keyboard focus on a virtualised canvas.** Arrowing to a card that is outside the rendered 1.5× viewport must still move focus there and bring it into view. Selected and focused cards must never be culled.
-   - Pinned in Task 12 (`visibleIds` always keeps `always`, and `ensureVisible` pans) and Task 15 (the component keeps the focused id in the render set).
-5. **Notes removed or deleted while the board is open, or between sessions.** A note deleted in the editor, a dictation purged by retention, or a chat deleted must not leave a ghost card or a dangling connector. "Remove from table" on a note must not delete the note.
-   - Pinned in Task 11 ("deleted entities are pruned", "removing a note hides it and keeps the note", "deleting an entity frees its capacity", "links and hides to missing entities … are refused") and Task 13 (edges drop endpoints that are not on the board). Task 16's board hook reloads on note and transcription lifecycle events and applies only the placements main accepted.
+1. **Keyboard focus on a virtualised canvas.** Arrowing to a card that is outside the rendered 1.5× viewport must still move focus there and bring it into view. Selected and focused cards must never be culled. With the first card off screen, there must still be a reachable tab stop.
+   - Pinned in Task 3 (`visibleIds` always keeps `always`, and `ensureVisible` pans), Task 5 (`enterCards`) and Task 6 (the focused id stays in the render set, and "the tab stop moves to a rendered card").
+2. **Notes removed or deleted while the board is open, or between sessions.** A note deleted in the editor, a dictation purged by retention, or a chat deleted must not leave a ghost card or a dangling connector. "Remove from table" must never delete anything (D12).
+   - Pinned in Task 2 ("deleted entities are pruned", "removing a note hides it and keeps the note", "a removed old dictation stays in the inbox", "deleting an entity frees its capacity") and Task 4 (edges drop endpoints that are not on the board).
+   - Task 7's board hook reloads on note and transcription lifecycle events and applies only the placements main accepted.
+3. **Hostile or garbage placements over IPC.** The renderer is not trusted: an unknown Space, ids that do not exist, non-integer ids, `NaN` coordinates, batches over 500, and links to missing entities must be refused without writing.
+   - Pinned in Task 2 ("only real entities can be placed", "links and hides to missing entities or Spaces are refused", "the table refuses a 501st placed card").
+4. **AI actions on a route that cannot run, or with too many cards.** If the chat route needs a key, is sealed, or is unreachable, Summarise and Ask must say why and stay disabled. More than 12 selected cards must disable them with an explanation, never silently truncate.
+   - Pinned in Task 4 ("pinning freezes up to 12 selected items and refuses more") and Task 7 ("a route that cannot run disables the AI actions and says why", "more than 12 selected cards disables AI actions").
+5. **A cancelled or contested pointer.** A system gesture, lost capture, or a second finger must never commit a half-finished drag, pan or resize.
+   - Pinned in Task 5 ("a cancelled pointer restores positions and viewport", and the resize cancel in Task 9) and Task 6 (one owning pointer id).
 
 ---
 
-## Part A — WS-M4: confidence as typography
+## Tasks
 
-### Task 1: Spike — which engines expose word probabilities (go/no-go)
+### Task 1: Labs flag and the Labs settings panel
 
-Covers WS-M4 and D7. This task writes no app code.
-
-**Files:**
-- Create: `scripts/spikes/word-confidence-spike.js`
-- Create: `docs/superpowers/research/2026-10-ws-m4-confidence-spike.md`
-- Create (GO engines only): `test/fixtures/confidence/whisper-verbose.json`, `test/fixtures/confidence/sherpa-offline-tdt.json`
-
-**Interfaces:**
-- Produces fixtures that Task 3's tests and stage-2 gate read. Each fixture is the engine's raw JSON response for the synthetic sample below, unedited except for being pretty-printed.
-- Produces the stage-1 gate decision. Task 3 Step 6 adds stage 2, and every later Part A task obeys the combined result.
-
-**Background (desk research, 2026-10-14, from primary sources; the spike confirms it at runtime):**
-
-| Engine (as Loqui runs it) | Today's request and parse | Expected confidence data | Request change |
-|---|---|---|---|
-| whisper.cpp server, fork tag `0.0.10` (`src/helpers/whisperCppRelease.js:1`, `runtime-assets.json`) | `POST /inference`, `response_format=json` (`src/helpers/whisperServer.js:918-923`). Only `text` is read (`src/helpers/whisper.js:565-571`). | `segments[].words[] = {word, start, end, t_dtw, probability}`. These entries are **tokens**, not words; `probability` is 0..1. Present since upstream PR #1781. | `response_format=verbose_json` plus `no_language_probabilities=true` |
-| sherpa-onnx 1.13.8 offline WS (`src/helpers/parakeetWsServer.js:137-160`), Parakeet TDT 0.6b v3 | JSON result; only `.text` is read (`src/helpers/parakeetWsResult.js:1-9`) | `tokens[]` (strings with `▁` word starts), `ys_log_probs[]` (natural log, ≤ 0), `timestamps[]` (s). Filled for greedy search, which is the default. | None |
-| sherpa-onnx online (Nemotron streaming) | `createOnlineAccumulator` | `ys_probs[]` (log-probs) | Out of scope: the streaming path is not instrumented |
-| OpenAI `gpt-4o(-mini)-transcribe` | `transcribe-audio-file-byok` (`ipcHandlers.js:7964`), `data.text` | `logprobs[]` per token with `include[]=logprobs`, `json` only | Out of scope (cloud) |
-| Deepgram nova-3, AssemblyAI (streaming) | transcript text only | `words[].confidence` | Out of scope (cloud) |
-| OpenAI `whisper-1`, Groq, xAI, Gemini, Mistral, Corti, Tinfoil | text | segment-level or none | NO-GO |
-
-- [ ] **Step 1: Prepare a throwaway environment (never a personal profile)**
-
-```bash
-npm run download:whisper-cpp
-npm run download:sherpa-onnx
-ls resources/bin | grep -E "whisper-server|sherpa-onnx-ws"
-node -e 'process.env.LOQUI_CACHE_ROOT||0; console.log(require("./src/helpers/modelDirUtils").getModelsDirForService("whisper"))'
-```
-
-If the `modelDirUtils` call throws because `electron` is unavailable, use the model directories from the installed app's cache instead (`~/.cache/<cacheName>/whisper-models` and `…/parakeet-models`). Copy one Whisper model (for example `ggml-base.bin`, or `ggml-large-v3-turbo.bin` if present) and the `parakeet-tdt-0.6b-v3` directory into `/tmp/loqui-spike/`. Never point the script at a live profile directory.
-
-Create the synthetic sample. It contains names, numbers and homophones on purpose:
-
-```bash
-mkdir -p /tmp/loqui-spike
-say -v Samantha -o /tmp/loqui-spike/sample.aiff "So the pricing change goes out on Thursday, not Monday, and Maria wants the new tier names in the FAQ before we send the announcement to the mailing list. Call Siobhan at four thirty about the Qdrant migration."
-ffmpeg -y -i /tmp/loqui-spike/sample.aiff -ar 16000 -ac 1 -c:a pcm_s16le /tmp/loqui-spike/sample.wav
-```
-
-Record a real voice sample of 20–30 s. It is for calibration only and is never committed:
-
-```bash
-ffmpeg -y -f avfoundation -i ":0" -t 25 -ar 16000 -ac 1 -c:a pcm_s16le /tmp/loqui-spike/voice.wav
-```
-
-- [ ] **Step 2: Write the capture script**
-
-Create `scripts/spikes/word-confidence-spike.js`. It only captures raw engine output and measures stage-1 facts. Word-level coverage and signal are measured in Task 3 Step 6, with the same merging and alignment code that storage uses.
-
-```js
-#!/usr/bin/env node
-// WS-M4 spike, stage 1 (Plan 08 Task 1). Runs the pinned local engines against
-// a 16 kHz mono PCM16 WAV and writes their raw confidence-bearing responses to
-// --out. Prints G1 (scores present) and G3 (latency) facts. Dev tool only: it
-// never reads a Loqui profile and makes no network calls beyond 127.0.0.1.
-//
-//   node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/sample.wav \
-//     --out test/fixtures/confidence \
-//     --whisper-bin resources/bin/whisper-server-darwin-arm64 \
-//     --whisper-model /tmp/loqui-spike/ggml-base.bin \
-//     --sherpa-bin resources/bin/sherpa-onnx-ws-darwin-arm64 \
-//     --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3
-const { spawn } = require("node:child_process");
-const fs = require("node:fs");
-const http = require("node:http");
-const net = require("node:net");
-const path = require("node:path");
-const WebSocket = require("ws");
-
-const WHISPER_PORT = 8199;
-const SHERPA_PORT = 6029;
-const SPECIAL = /^\s*(\[_[A-Z]+_?\d*\]|<\|[^|]*\|>)\s*$/;
-
-const arg = (name) => {
-  const i = process.argv.indexOf(`--${name}`);
-  return i > -1 ? process.argv[i + 1] : null;
-};
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
-const isP = (p) => Number.isFinite(p) && p >= 0 && p <= 1;
-
-async function waitForPort(port, timeoutMs = 120000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const open = await new Promise((resolve) => {
-      const socket = net.connect(port, "127.0.0.1");
-      socket.once("connect", () => resolve(socket.end() || true));
-      socket.once("error", () => resolve(false));
-    });
-    if (open) return;
-    await sleep(250);
-  }
-  throw new Error(`port ${port} not ready after ${timeoutMs}ms`);
-}
-
-function postInference(wav, fields) {
-  const boundary = `----Spike${Date.now()}`;
-  const body = Buffer.concat([
-    Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\nContent-Type: audio/wav\r\n\r\n`
-    ),
-    wav,
-    Buffer.from("\r\n"),
-    ...Object.entries(fields).map(([k, v]) =>
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`)
-    ),
-    Buffer.from(`--${boundary}--\r\n`),
-  ]);
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        port: WHISPER_PORT,
-        path: "/inference",
-        method: "POST",
-        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}`, "Content-Length": body.length },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => resolve({ ms: Date.now() - started, json: JSON.parse(data) }));
-      }
-    );
-    req.on("error", reject);
-    req.end(body);
-  });
-}
-
-function wavToFloat32(wav) {
-  const pcm = wav.subarray(wav.indexOf("data") + 8);
-  const out = Buffer.alloc((pcm.length / 2) * 4);
-  for (let i = 0; i < pcm.length / 2; i++) out.writeFloatLE(pcm.readInt16LE(i * 2) / 32768, i * 4);
-  return out;
-}
-
-function sherpaDecode(samples) {
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const ws = new WebSocket(`ws://127.0.0.1:${SHERPA_PORT}`);
-    let result = "";
-    ws.on("open", () => {
-      const message = Buffer.alloc(8 + samples.length);
-      message.writeInt32LE(16000, 0);
-      message.writeInt32LE(samples.length, 4);
-      samples.copy(message, 8);
-      ws.send(message);
-    });
-    ws.on("message", (data) => {
-      result += data.toString();
-      ws.send("Done");
-    });
-    ws.on("close", () => resolve({ ms: Date.now() - started, json: JSON.parse(result) }));
-    ws.on("error", reject);
-  });
-}
-
-async function runWhisper(wav, out) {
-  const child = spawn(arg("whisper-bin"), [
-    "-m", arg("whisper-model"), "--host", "127.0.0.1", "--port", String(WHISPER_PORT), "--max-len", "4096",
-  ], { stdio: "ignore" });
-  try {
-    await waitForPort(WHISPER_PORT);
-    const plain = [];
-    const verbose = [];
-    let last = null;
-    for (let i = 0; i < 5; i++) {
-      plain.push((await postInference(wav, { response_format: "json", language: "en" })).ms);
-      last = await postInference(wav, { response_format: "verbose_json", no_language_probabilities: "true", language: "en" });
-      verbose.push(last.ms);
-    }
-    const tokens = (last.json.segments || []).flatMap((s) => s.words || []).filter((t) => !SPECIAL.test(t.word ?? ""));
-    console.log(JSON.stringify({
-      engine: "whisper.cpp",
-      topLevelKeys: Object.keys(last.json),
-      tokenKeys: Object.keys(tokens[0] || {}),
-      tokens: tokens.length,
-      g1ScoredShare: tokens.length ? tokens.filter((t) => isP(t.probability)).length / tokens.length : 0,
-      g3MedianMs: { json: median(plain), verbose_json: median(verbose) },
-    }, null, 2));
-    fs.writeFileSync(path.join(out, "whisper-verbose.json"), JSON.stringify(last.json, null, 2) + "\n");
-  } finally {
-    child.kill();
-  }
-}
-
-async function runSherpa(wav, out) {
-  const dir = arg("parakeet-dir");
-  const child = spawn(arg("sherpa-bin"), [
-    `--tokens=${path.join(dir, "tokens.txt")}`,
-    `--encoder=${path.join(dir, "encoder.int8.onnx")}`,
-    `--decoder=${path.join(dir, "decoder.int8.onnx")}`,
-    `--joiner=${path.join(dir, "joiner.int8.onnx")}`,
-    "--model-type=nemo_transducer",
-    `--port=${SHERPA_PORT}`,
-    "--num-threads=2",
-    "--num-work-threads=1",
-  ], { stdio: "ignore" });
-  try {
-    await waitForPort(SHERPA_PORT);
-    const r = await sherpaDecode(wavToFloat32(wav));
-    const tokens = r.json.tokens || [];
-    const lps = r.json.ys_log_probs || [];
-    console.log(JSON.stringify({
-      engine: "sherpa-onnx",
-      keys: Object.keys(r.json),
-      tokens: tokens.length,
-      logProbs: lps.length,
-      timestamps: (r.json.timestamps || []).length,
-      g1ScoredShare: tokens.length && tokens.length === lps.length ? lps.map((lp) => Math.exp(lp)).filter(isP).length / tokens.length : 0,
-      ms: r.ms,
-    }, null, 2));
-    fs.writeFileSync(path.join(out, "sherpa-offline-tdt.json"), JSON.stringify(r.json, null, 2) + "\n");
-  } finally {
-    child.kill();
-  }
-}
-
-(async () => {
-  const wav = fs.readFileSync(arg("wav"));
-  const out = arg("out");
-  fs.mkdirSync(out, { recursive: true });
-  if (arg("whisper-bin")) await runWhisper(wav, out);
-  if (arg("sherpa-bin")) await runSherpa(wav, out);
-})().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
-```
-
-- [ ] **Step 3: Capture the synthetic sample into the test fixtures**
-
-Run (adjust the binary names to your platform):
-
-```bash
-node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/sample.wav --out test/fixtures/confidence \
-  --whisper-bin resources/bin/whisper-server-darwin-arm64 --whisper-model /tmp/loqui-spike/ggml-base.bin \
-  --sherpa-bin resources/bin/sherpa-onnx-ws-darwin-arm64 --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3
-```
-
-Expected: two JSON summaries.
-- whisper: `tokenKeys` includes `word` and `probability`.
-- sherpa: `keys` includes `tokens` and `ys_log_probs`, and `tokens === logProbs`.
-
-If a key differs from the background table (for example sherpa names it `token_log_probs`), record the real name in the report. Task 3 uses the names from the report.
-
-- [ ] **Step 4: Capture the real voice sample outside the repo**
-
-```bash
-node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/voice.wav --out /tmp/loqui-spike/voice \
-  --whisper-bin resources/bin/whisper-server-darwin-arm64 --whisper-model /tmp/loqui-spike/ggml-base.bin \
-  --sherpa-bin resources/bin/sherpa-onnx-ws-darwin-arm64 --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3
-```
-
-Keep `/tmp/loqui-spike/voice/` and `voice.wav` until Task 3 Step 6, which scores them. Then delete both. They are never committed.
-
-- [ ] **Step 5: Stage-1 decision and report**
-
-Stage 1 is GO for an engine only if both of these hold on both samples:
-- **G1 (scores present):** `g1ScoredShare ≥ 0.95`. Special tokens are excluded.
-- **G3 (cost):**
-  - whisper: median `verbose_json` latency ≤ median `json` latency × 1.10 + 50 ms, over 5 runs.
-  - sherpa: needs no request change, so G3 passes by definition.
-
-Stage 2 (G2 coverage, G4 signal) runs in Task 3 Step 6, on the code that will actually store and draw the words. An engine is GO only if it passes both stages.
-
-Create `docs/superpowers/research/2026-10-ws-m4-confidence-spike.md` with these sections:
-1. **Question:** quote D7.
-2. **Method:** the samples, the binaries and model names, the commands from Steps 3–4.
-3. **Stage 1 results:** paste the four JSON summaries, and state G1 and G3 per engine.
-4. **Stage 2 results:** a placeholder heading that Task 3 Step 6 fills in. If both engines fail stage 1, write "Not run: no engine passed stage 1" instead.
-5. **Data flow:** copy the "Data model and migration" section of this plan, and note any field-name corrections from Step 3.
-6. **Cloud engines:** copy the cloud rows of the background table, marked "not instrumented in Plan 08; follow-up candidates: gpt-4o(-mini)-transcribe logprobs, Deepgram and AssemblyAI streaming `words[].confidence`".
-
-Delete the fixture of any engine that failed stage 1.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add scripts/spikes/word-confidence-spike.js docs/superpowers/research/2026-10-ws-m4-confidence-spike.md test/fixtures/confidence
-git commit -m "docs(spike): Word confidence stage-1 gate for local speech engines (WS-M4)"
-```
-
-Stop here and show the owner the stage-1 table. If both engines failed stage 1, Part A ends (see the gate table).
-
----
-
-
-### Task 2: Labs flags and the Labs settings panel
-
-Covers CCR-3. It is shared by Part A and Part B.
+Covers CCR-3.
 
 **Files:**
 - Modify: `src/stores/settingsStore.ts`:
   - `BOOLEAN_SETTINGS` at `:195-~240` (add next to `"saveDiscardedTranscriptions"` at `:222`);
   - `SettingsState` body at `:786` (after `audioCuesEnabled: boolean;`);
-  - the setter types next to `:1089`;
+  - the setter type next to `:1089`;
   - initial state next to `:1489`;
-  - setters next to `:2201`.
+  - the setter next to `:2201`.
 - Create: `src/components/settings/LabsSettings.tsx`
 - Modify: `src/components/SettingsPage.tsx`. Import the panel, and render it in `case "system":` (`:2963`) after `<UpdateSettings />`. Plan 03 may have restructured this. If so, run `grep -n "UpdateSettings" src/components/SettingsPage.tsx src/components/settings/*.tsx` and mount `<LabsSettings />` directly after `<UpdateSettings />`, wherever that now renders.
 - Modify: `src/locales/{ar,de,en,es,fr,it,ja,pt,ru,zh-CN,zh-TW}/translation.json` (`settingsPage.labs.*`).
 - Test: `test/components/labsSettings.test.js`
 
 **Interfaces:**
-- Produces these settings-store keys (boolean, persisted in `localStorage`, synced across windows through `BOOLEAN_SETTINGS`):
-  - `labsConfidenceTypography` (default `false`), with `setLabsConfidenceTypography(value: boolean)`;
-  - `labsTable` (default `false`), with `setLabsTable(value: boolean)`;
-  - `historyShowConfidence` (default `false`; the list-row toggle, used in Task 10), with `setHistoryShowConfidence(value: boolean)`.
-- Produces `export default function LabsSettings(): JSX.Element`.
+- Produces the settings-store key `labsTable`: boolean, default `false`, persisted in `localStorage` and synced across windows through `BOOLEAN_SETTINGS`. Its setter is `setLabsTable(value: boolean)`.
+- Produces `export default function LabsSettings(): JSX.Element`, a panel with one switch per Labs prototype. A later prototype adds its own row here (CCR-3).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -519,42 +185,30 @@ async function renderLabs(t, state) {
   return renderToStaticMarkup(createElement(mod.default));
 }
 
-test("Labs lists both prototypes as switches, off by default", async (t) => {
-  // Copy check lives in the locale test below; here only structure.
-  const html = await renderLabs(t, {
-    labsConfidenceTypography: false,
-    labsTable: false,
-    setLabsConfidenceTypography() {},
-    setLabsTable() {},
-  });
+test("Labs lists The Table as a switch, off by default", async (t) => {
+  const html = await renderLabs(t, { labsTable: false, setLabsTable() {} });
   assert.match(html, /settingsPage\.labs\.title/);
-  assert.match(html, /settingsPage\.labs\.confidence\.label/);
   assert.match(html, /settingsPage\.labs\.table\.label/);
-  assert.equal((html.match(/role="switch"/g) || []).length, 2);
-  assert.equal((html.match(/aria-checked="false"/g) || []).length, 2);
+  assert.equal((html.match(/role="switch"/g) || []).length, 1);
+  assert.match(html, /aria-checked="false"/);
 });
 
-test("the store declares the Labs flags as synced booleans that default to off", () => {
+test("the store declares labsTable as a synced boolean that defaults to off", () => {
   const src = fs.readFileSync(path.join(repoRoot, "src/stores/settingsStore.ts"), "utf8");
   const set = src.slice(src.indexOf("const BOOLEAN_SETTINGS"), src.indexOf("]);", src.indexOf("const BOOLEAN_SETTINGS")));
-  for (const key of ["labsConfidenceTypography", "labsTable", "historyShowConfidence"]) {
-    assert.match(set, new RegExp(`"${key}"`), `${key} is in BOOLEAN_SETTINGS`);
-    assert.match(src, new RegExp(`${key}: readBoolean\\("${key}", false\\)`), `${key} defaults to false`);
-    const setter = `set${key[0].toUpperCase()}${key.slice(1)}`;
-    assert.match(src, new RegExp(`${setter}: createBooleanSetter\\("${key}"\\)`), `${setter} persists`);
-  }
+  assert.match(set, /"labsTable"/);
+  assert.match(src, /labsTable: readBoolean\("labsTable", false\)/);
+  assert.match(src, /setLabsTable: createBooleanSetter\("labsTable"\)/);
 });
 
-test("every locale names both Labs prototypes", () => {
+test("every locale names the Labs panel and The Table, without a local-only promise", () => {
   const dir = path.join(repoRoot, "src/locales");
   for (const lang of fs.readdirSync(dir).filter((d) => fs.existsSync(path.join(dir, d, "translation.json")))) {
-    const json = JSON.parse(fs.readFileSync(path.join(dir, lang, "translation.json"), "utf8"));
-    const labs = json.settingsPage?.labs;
+    const labs = JSON.parse(fs.readFileSync(path.join(dir, lang, "translation.json"), "utf8")).settingsPage?.labs;
     assert.ok(labs?.title && labs?.description, `${lang} labs title`);
-    for (const k of ["confidence", "table"]) assert.ok(labs[k]?.label && labs[k]?.description, `${lang} labs.${k}`);
+    assert.ok(labs.table?.label && labs.table?.description, `${lang} labs.table`);
   }
   const en = JSON.parse(fs.readFileSync(path.join(dir, "en", "translation.json"), "utf8"));
-  assert.match(en.settingsPage.labs.confidence.description, /after you turn it on/, "sets expectations for older history");
   assert.match(en.settingsPage.labs.table.description, /use your chat provider/, "AI actions are not promised to stay local");
   assert.doesNotMatch(en.settingsPage.labs.description, /stay on this device/, "no blanket local-only claim");
 });
@@ -563,51 +217,22 @@ test("every locale names both Labs prototypes", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- test/components/labsSettings.test.js`
-Expected: FAIL. Vite cannot resolve `/components/settings/LabsSettings.tsx`, `labsConfidenceTypography is in BOOLEAN_SETTINGS` fails, and `en labs title` fails.
+Expected: FAIL. Vite cannot resolve `/components/settings/LabsSettings.tsx`, the store has no `"labsTable"`, and `en labs title` fails.
 
 - [ ] **Step 3: Implement**
 
 1. In `src/stores/settingsStore.ts`:
-   - Add three entries to `BOOLEAN_SETTINGS` directly after `"saveDiscardedTranscriptions",` (`:222`):
+   - Add `"labsTable",` to `BOOLEAN_SETTINGS`, directly after `"saveDiscardedTranscriptions",` (`:222`).
+   - In `export interface SettingsState … {`, add after `audioCuesEnabled: boolean;` (`:786`):
 
      ```ts
-       "labsConfidenceTypography",
-       "labsTable",
-       "historyShowConfidence",
-     ```
-
-   - In `export interface SettingsState … {` add, after `audioCuesEnabled: boolean;` (`:786`):
-
-     ```ts
-       // Labs prototypes (Plan 08). Off by default; off means today's behaviour exactly.
-       labsConfidenceTypography: boolean;
+       // Labs prototype (Plan 08). Off by default; off means today's behaviour exactly.
        labsTable: boolean;
-       historyShowConfidence: boolean;
      ```
 
-   - Next to `setSaveDiscardedTranscriptions: (value: boolean) => void;` (`:1089`):
-
-     ```ts
-       setLabsConfidenceTypography: (value: boolean) => void;
-       setLabsTable: (value: boolean) => void;
-       setHistoryShowConfidence: (value: boolean) => void;
-     ```
-
-   - Next to `saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),` (`:1489`):
-
-     ```ts
-       labsConfidenceTypography: readBoolean("labsConfidenceTypography", false),
-       labsTable: readBoolean("labsTable", false),
-       historyShowConfidence: readBoolean("historyShowConfidence", false),
-     ```
-
-   - Next to `setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),` (`:2201`):
-
-     ```ts
-       setLabsConfidenceTypography: createBooleanSetter("labsConfidenceTypography"),
-       setLabsTable: createBooleanSetter("labsTable"),
-       setHistoryShowConfidence: createBooleanSetter("historyShowConfidence"),
-     ```
+   - Next to `setSaveDiscardedTranscriptions: (value: boolean) => void;` (`:1089`), add `setLabsTable: (value: boolean) => void;`.
+   - Next to `saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),` (`:1489`), add `labsTable: readBoolean("labsTable", false),`.
+   - Next to `setSaveDiscardedTranscriptions: createBooleanSetter("saveDiscardedTranscriptions"),` (`:2201`), add `setLabsTable: createBooleanSetter("labsTable"),`.
 
 2. Create `src/components/settings/LabsSettings.tsx`:
 
@@ -618,29 +243,16 @@ Expected: FAIL. Vite cannot resolve `/components/settings/LabsSettings.tsx`, `la
    import { Toggle } from "../ui/toggle";
 
    // Labs: prototypes that ship off. Each switch gates both the UI and any
-   // engine/request change behind it (CCR-3, Plan 08).
+   // request change behind it (CCR-3, Plan 08).
    export default function LabsSettings() {
      const { t } = useTranslation();
-     const confidence = useSettingsStore((s) => s.labsConfidenceTypography);
-     const setConfidence = useSettingsStore((s) => s.setLabsConfidenceTypography);
      const table = useSettingsStore((s) => s.labsTable);
      const setTable = useSettingsStore((s) => s.setLabsTable);
 
      return (
        <div>
-         <SectionHeader
-           title={t("settingsPage.labs.title")}
-           description={t("settingsPage.labs.description")}
-         />
+         <SectionHeader title={t("settingsPage.labs.title")} description={t("settingsPage.labs.description")} />
          <SettingsPanel>
-           <SettingsPanelRow>
-             <SettingsRow
-               label={t("settingsPage.labs.confidence.label")}
-               description={t("settingsPage.labs.confidence.description")}
-             >
-               <Toggle checked={confidence} onChange={setConfidence} />
-             </SettingsRow>
-           </SettingsPanelRow>
            <SettingsPanelRow>
              <SettingsRow
                label={t("settingsPage.labs.table.label")}
@@ -663,22 +275,20 @@ Expected: FAIL. Vite cannot resolve `/components/settings/LabsSettings.tsx`, `la
    node -e '
    const fs=require("fs"),p=require("path");
    const L={
-    en:["Labs","Prototypes that are still being shaped. You can turn them off at any time.","Confidence in transcripts","Words the speech engine was unsure about are drawn lighter and underlined. Works with local Whisper and Parakeet. Applies to dictations made after you turn it on.","The Table","A canvas view for a space: spread notes, dictations and answers out and link them. Card positions stay on this device; Summarise and Ask use your chat provider."],
-    de:["Labs","Prototypen in Arbeit. Du kannst sie jederzeit ausschalten.","Sicherheit im Transkript","Wörter, bei denen die Spracherkennung unsicher war, erscheinen heller und unterstrichen. Funktioniert mit lokalem Whisper und Parakeet. Gilt für Diktate, die du danach aufnimmst.","Der Tisch","Eine Leinwand für einen Bereich: Notizen, Diktate und Antworten auslegen und verbinden. Kartenpositionen bleiben auf diesem Gerät; Zusammenfassen und Fragen nutzen deinen Chat-Anbieter."],
-    es:["Labs","Prototipos aún en desarrollo. Puedes desactivarlos cuando quieras.","Confianza en las transcripciones","Las palabras de las que el motor de voz no estaba seguro se muestran más claras y subrayadas. Funciona con Whisper y Parakeet locales. Se aplica a los dictados que hagas después de activarla.","La Mesa","Un lienzo para un espacio: extiende notas, dictados y respuestas y enlázalos. Las posiciones se quedan en este dispositivo; Resumir y Preguntar usan tu proveedor de chat."],
-    fr:["Labs","Des prototypes encore en chantier. Vous pouvez les désactiver à tout moment.","Confiance dans les transcriptions","Les mots dont le moteur vocal doutait sont plus légers et soulignés. Fonctionne avec Whisper et Parakeet en local. S’applique aux dictées faites après l’activation.","La Table","Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les. Les positions restent sur cet appareil ; Résumer et Demander utilisent votre fournisseur de chat."],
-    it:["Labs","Prototipi ancora in lavorazione. Puoi disattivarli quando vuoi.","Affidabilità nelle trascrizioni","Le parole su cui il motore vocale era incerto appaiono più chiare e sottolineate. Funziona con Whisper e Parakeet locali. Vale per le dettature fatte dopo averla attivata.","Il Tavolo","Una tela per uno spazio: disponi note, dettature e risposte e collegale. Le posizioni restano su questo dispositivo; Riassumi e Chiedi usano il tuo provider di chat."],
-    pt:["Labs","Protótipos ainda em evolução. Você pode desativá-los a qualquer momento.","Confiança nas transcrições","Palavras sobre as quais o mecanismo de voz tinha dúvidas aparecem mais leves e sublinhadas. Funciona com Whisper e Parakeet locais. Vale para ditados feitos depois de ativar.","A Mesa","Uma tela para um espaço: espalhe notas, ditados e respostas e ligue-os. As posições ficam neste dispositivo; Resumir e Perguntar usam seu provedor de chat."],
-    ru:["Лаборатория","Прототипы в разработке. Их можно отключить в любой момент.","Уверенность в расшифровке","Слова, в которых распознавание не было уверено, показываются светлее и с подчёркиванием. Работает с локальными Whisper и Parakeet. Действует для диктовок, сделанных после включения.","Стол","Холст для пространства: раскладывайте заметки, диктовки и ответы и связывайте их. Положение карточек хранится на этом устройстве; «Кратко изложить» и «Спросить» используют ваш чат-провайдер."],
-    ja:["Labs","開発中のプロトタイプです。いつでもオフにできます。","文字起こしの確信度","音声エンジンが自信を持てなかった単語を細く、下線付きで表示します。ローカルの Whisper と Parakeet で動作します。オンにした後の音声入力に適用されます。","テーブル","スペース用のキャンバス。メモ、音声入力、回答を広げてつなげられます。カードの配置はこのデバイスに保存され、要約と質問はチャットのプロバイダーを使います。"],
-    "zh-CN":["实验室","仍在打磨的原型功能。可随时关闭。","转写置信度","语音引擎不确定的词会以较细字重并加下划线显示。适用于本地 Whisper 和 Parakeet。仅对开启后的听写生效。","桌面","空间的画布视图：铺开笔记、听写和回答并把它们连起来。卡片位置保存在此设备上；总结和提问使用你的聊天服务提供方。"],
-    "zh-TW":["實驗室","仍在打磨的原型功能。可隨時關閉。","轉錄信心度","語音引擎不確定的字詞會以較細字重並加底線顯示。適用於本機 Whisper 與 Parakeet。僅對開啟後的聽寫生效。","桌面","空間的畫布檢視：鋪開筆記、聽寫與回答並將它們連起來。卡片位置保存在此裝置上；摘要與提問使用你的聊天服務提供者。"],
-    ar:["المختبر","نماذج أولية ما زالت قيد التشكيل. يمكنك إيقافها في أي وقت.","الثقة في النصوص المفرغة","تظهر الكلمات التي لم يكن محرك الكلام متأكدًا منها بخط أخف وتحتها خط. يعمل مع Whisper وParakeet المحليين. ينطبق على الإملاءات بعد تفعيله.","الطاولة","لوحة لمساحة: افرد الملاحظات والإملاءات والإجابات واربط بينها. تبقى مواضع البطاقات على هذا الجهاز، ويستخدم التلخيص والسؤال مزوّد الدردشة لديك."]};
-   for(const [l,[title,desc,cl,cd,tl,td]] of Object.entries(L)){const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.settingsPage=j.settingsPage||{};j.settingsPage.labs={title,description:desc,confidence:{label:cl,description:cd},table:{label:tl,description:td}};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
+    en:["Labs", "Prototypes that are still being shaped. You can turn them off at any time.", "The Table", "A canvas view for a space: spread notes, dictations and answers out and link them. Card positions stay on this device; Summarise and Ask use your chat provider."],
+    de:["Labs", "Prototypen in Arbeit. Du kannst sie jederzeit ausschalten.", "Der Tisch", "Eine Leinwand für einen Bereich: Notizen, Diktate und Antworten auslegen und verbinden. Kartenpositionen bleiben auf diesem Gerät; Zusammenfassen und Fragen nutzen deinen Chat-Anbieter."],
+    es:["Labs", "Prototipos aún en desarrollo. Puedes desactivarlos cuando quieras.", "La Mesa", "Un lienzo para un espacio: extiende notas, dictados y respuestas y enlázalos. Las posiciones se quedan en este dispositivo; Resumir y Preguntar usan tu proveedor de chat."],
+    fr:["Labs", "Des prototypes encore en chantier. Vous pouvez les désactiver à tout moment.", "La Table", "Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les. Les positions restent sur cet appareil ; Résumer et Demander utilisent votre fournisseur de chat."],
+    it:["Labs", "Prototipi ancora in lavorazione. Puoi disattivarli quando vuoi.", "Il Tavolo", "Una tela per uno spazio: disponi note, dettature e risposte e collegale. Le posizioni restano su questo dispositivo; Riassumi e Chiedi usano il tuo provider di chat."],
+    pt:["Labs", "Protótipos ainda em evolução. Você pode desativá-los a qualquer momento.", "A Mesa", "Uma tela para um espaço: espalhe notas, ditados e respostas e ligue-os. As posições ficam neste dispositivo; Resumir e Perguntar usam seu provedor de chat."],
+    ru:["Лаборатория", "Прототипы в разработке. Их можно отключить в любой момент.", "Стол", "Холст для пространства: раскладывайте заметки, диктовки и ответы и связывайте их. Положение карточек хранится на этом устройстве; «Кратко изложить» и «Спросить» используют ваш чат-провайдер."],
+    ja:["Labs", "開発中のプロトタイプです。いつでもオフにできます。", "テーブル", "スペース用のキャンバス。メモ、音声入力、回答を広げてつなげられます。カードの配置はこのデバイスに保存され、要約と質問はチャットのプロバイダーを使います。"],
+    "zh-CN":["实验室", "仍在打磨的原型功能。可随时关闭。", "桌面", "空间的画布视图：铺开笔记、听写和回答并把它们连起来。卡片位置保存在此设备上；总结和提问使用你的聊天服务提供方。"],
+    "zh-TW":["實驗室", "仍在打磨的原型功能。可隨時關閉。", "桌面", "空間的畫布檢視：鋪開筆記、聽寫與回答並將它們連起來。卡片位置保存在此裝置上；摘要與提問使用你的聊天服務提供者。"],
+    ar:["المختبر", "نماذج أولية ما زالت قيد التشكيل. يمكنك إيقافها في أي وقت.", "الطاولة", "لوحة لمساحة: افرد الملاحظات والإملاءات والإجابات واربط بينها. تبقى مواضع البطاقات على هذا الجهاز، ويستخدم التلخيص والسؤال مزوّد الدردشة لديك."]};
+   for(const [l,[title,desc,tl,td]] of Object.entries(L)){const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.settingsPage=j.settingsPage||{};j.settingsPage.labs={title,description:desc,table:{label:tl,description:td}};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
    npx prettier --check "src/locales/**/translation.json" || npx prettier --write "src/locales/**/translation.json"
    ```
-
-   If the gate disabled WS-M4, drop the `confidence` row from the component, the test and the locales.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -689,2471 +299,16 @@ Expected: PASS.
 
 ```bash
 git add src/stores/settingsStore.ts src/components/settings/LabsSettings.tsx src/components/SettingsPage.tsx src/locales test/components/labsSettings.test.js
-git commit -m "feat(settings): Labs panel with off-by-default prototype flags"
+git commit -m "feat(settings): Labs panel with an off-by-default Table flag"
 ```
 
 ---
 
-### Task 3: Word confidence core (main process) and the stage-2 gate
-
-Run this only if at least one engine passed stage 1.
-
-**Files:**
-- Create: `src/helpers/wordConfidence.js` (CommonJS; required by main-process modules)
-- Create: `scripts/spikes/word-confidence-gate.js` (stage 2; dev tool)
-- Modify: `docs/superpowers/research/2026-10-ws-m4-confidence-spike.md` (the stage-2 section)
-- Test: `test/helpers/wordConfidence.test.js`
-
-**Interfaces:**
-- Produces (CommonJS `module.exports`):
-  - `ENGINES: Set<"whisper.cpp" | "sherpa-onnx">`, `MAX_WORDS = 20000`, `MAX_WORD_LENGTH = 64`
-  - `tokensFromWhisperVerbose(json): Token[]`, where `Token = { text: string; p: number; t?: number }`
-  - `tokensFromSherpaOffline(json, offsetSeconds = 0): Token[]`
-  - `offsetTokens(tokens: Token[] | undefined, seconds: number): Token[]`. It shifts `t` and forces a word boundary at the first token.
-  - `mergeTokensToWords(tokens: Token[]): Word[]`, where `Word = { w: string; p: number; t?: number; n?: true }`:
-    - `p` is the geometric mean of the word's scored, non-punctuation tokens, rounded to 3 decimals. It is `NaN` for an unscored word (punctuation-only, or tokens without a usable score). Unscored words are kept so the layout stays exact.
-    - `n: true` means the word follows the previous one with no space (CJK).
-  - `alignWordsToText(words: Word[], text: string): Stored[]`, where `Stored = { s: number; e: number; p: number; t?: number }`. Alignment is **positional**. The engine's words are laid out as the engine wrote them and compared with the saved text. Only words inside the longest common prefix or the longest common suffix are kept. Everything in the changed middle is dropped, so a score can never move to another occurrence of the same word.
-  - `lexicalWordCount(text: string): number`. This is the gate's denominator: whitespace-separated chunks containing a letter or digit.
-  - `buildStoredConfidence(input: { engine, words: Word[] } | null, rawText: string): { v: 1; engine; words: Stored[] } | null`
-- The **candidate** shape that crosses IPC (renderer → main) is `{ engine: "whisper.cpp" | "sherpa-onnx"; words: Word[] }`. Tasks 4–7 call it `confidence`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `test/helpers/wordConfidence.test.js`:
-
-```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const {
-  ENGINES,
-  MAX_WORDS,
-  alignWordsToText,
-  buildStoredConfidence,
-  lexicalWordCount,
-  mergeTokensToWords,
-  offsetTokens,
-  tokensFromSherpaOffline,
-  tokensFromWhisperVerbose,
-} = require("../../src/helpers/wordConfidence");
-
-// The first GO engine from the gate; NO-GO engines are tested as refusals.
-const ENGINE = [...ENGINES][0];
-const words = (...pairs) => pairs.map(([w, p, extra]) => ({ w, p, ...extra }));
-const covered = (raw, aligned) => aligned.map((a) => [raw.slice(a.s, a.e), a.p]);
-
-test("whisper tokens merge into words at leading-space boundaries", () => {
-  assert.deepEqual(
-    mergeTokensToWords([
-      { text: " Mar", p: 0.6, t: 1.2 },
-      { text: "ia", p: 0.9, t: 1.3 },
-      { text: " wants", p: 0.95, t: 1.5 },
-      { text: ".", p: 0.2, t: 1.8 },
-    ]),
-    [{ w: "Maria", p: 0.735, t: 1.2 }, { w: "wants.", p: 0.95, t: 1.5 }]
-  );
-});
-
-test("sherpa pieces use ▁ as the boundary and log-probs become probabilities", () => {
-  const tokens = tokensFromSherpaOffline(
-    { text: "the tier", tokens: ["▁the", "▁ti", "er"], ys_log_probs: [Math.log(0.99), Math.log(0.64), 0], timestamps: [0.1, 0.4, 0.5] },
-    15
-  );
-  assert.deepEqual(tokens.map((t) => t.t), [15.1, 15.4, 15.5]);
-  assert.deepEqual(mergeTokensToWords(tokens).map((w) => [w.w, w.p]), [["the", 0.99], ["tier", 0.8]]);
-  assert.deepEqual(tokensFromSherpaOffline({ tokens: ["▁a"], ys_log_probs: [] }), [], "lengths must match");
-  assert.deepEqual(tokensFromSherpaOffline(null), []);
-});
-
-test("whisper verbose_json words become tokens with start seconds", () => {
-  const json = {
-    text: " So the tier.",
-    segments: [{ text: " So the tier.", words: [
-      { word: " So", start: 0, end: 0.3, t_dtw: -1, probability: 0.97 },
-      { word: " the", start: 0.3, end: 0.5, t_dtw: -1, probability: 0.99 },
-      { word: " tier", start: 0.5, end: 0.9, t_dtw: -1, probability: 0.64 },
-      { word: ".", start: 0.9, end: 1, t_dtw: -1, probability: 0.5 },
-    ] }],
-  };
-  assert.deepEqual(mergeTokensToWords(tokensFromWhisperVerbose(json)), [
-    { w: "So", p: 0.97, t: 0 },
-    { w: "the", p: 0.99, t: 0.3 },
-    { w: "tier.", p: 0.64, t: 0.5 },
-  ]);
-  assert.deepEqual(tokensFromWhisperVerbose({ text: "x" }), []);
-});
-
-test("special and byte-fallback tokens vanish; unscored text stays as an unscored word", () => {
-  const out = mergeTokensToWords([
-    { text: "[_BEG_]", p: 1 },
-    { text: " hello", p: 0.9 },
-    { text: "<|endoftext|>", p: 1 },
-    { text: "<0xE2>", p: 0.5 },
-    { text: "[_TT_150]", p: 1 },
-    { text: " a", p: Number.NaN },
-    { text: " -", p: 0.4 },
-  ]);
-  assert.deepEqual(out.map((w) => w.w), ["hello", "a", "-"]);
-  assert.equal(out[0].p, 0.9);
-  assert.ok(Number.isNaN(out[1].p) && Number.isNaN(out[2].p), "kept for layout, never drawn");
-});
-
-test("CJK tokens are words of their own, joined without a space", () => {
-  const out = mergeTokensToWords([{ text: "定价", p: 0.9 }, { text: "周四", p: 0.6 }, { text: "。", p: 0.3 }]);
-  assert.deepEqual(out, [{ w: "定价", p: 0.9 }, { w: "周四。", p: 0.6, n: true }]);
-  const raw = "定价周四。";
-  assert.deepEqual(covered(raw, alignWordsToText(out, raw)), [["定价", 0.9], ["周四。", 0.6]]);
-});
-
-test("leading punctuation opens a word but does not score it", () => {
-  assert.deepEqual(mergeTokensToWords([{ text: " (", p: 0.1 }, { text: "see", p: 0.8 }, { text: ")", p: 0.1 }]), [{ w: "(see)", p: 0.8 }]);
-});
-
-test("segment offsets shift time and force a boundary at the seam", () => {
-  assert.deepEqual(offsetTokens([{ text: "lo", p: 0.9, t: 0.2 }, { text: "▁there", p: 0.9, t: 0.4 }], 15), [
-    { text: " lo", p: 0.9, t: 15.2 },
-    { text: "▁there", p: 0.9, t: 15.4 },
-  ]);
-  assert.deepEqual(offsetTokens(undefined, 15), []);
-});
-
-test("identical text aligns every scored word by position, mapping through whitespace", () => {
-  const raw = "So  the\ntier.";
-  const out = alignWordsToText(words(["So", 0.97], ["the", 0.99], ["tier.", 0.64]), raw);
-  assert.deepEqual(covered(raw, out), [["So", 0.97], ["the", 0.99], ["tier.", 0.64]]);
-});
-
-test("a rewritten word drops; the words around it keep their own scores", () => {
-  const raw = "Call 20 people.";
-  const out = alignWordsToText(words(["Call", 0.9], ["twenty", 0.5], ["people.", 0.8]), raw);
-  assert.deepEqual(covered(raw, out), [["Call", 0.9], ["people.", 0.8]]);
-});
-
-test("adjacent repeats: the score stays on the occurrence that kept its position", () => {
-  const raw = "20 twenty";
-  assert.deepEqual(covered(raw, alignWordsToText(words(["twenty", 0.3], ["twenty", 0.8]), raw)), [["twenty", 0.8]]);
-  const raw2 = "twenty 20";
-  assert.deepEqual(covered(raw2, alignWordsToText(words(["twenty", 0.3], ["twenty", 0.8]), raw2)), [["twenty", 0.3]]);
-  const raw3 = "20 and twenty";
-  assert.deepEqual(covered(raw3, alignWordsToText(words(["twenty", 0.3], ["and", 0.9], ["twenty", 0.8]), raw3)), [
-    ["and", 0.9],
-    ["twenty", 0.8],
-  ]);
-});
-
-test("an inserted word in the saved text drops only what its region touches", () => {
-  const raw = "the big tier names";
-  const out = alignWordsToText(words(["the", 0.9], ["tier", 0.7], ["names", 0.8]), raw);
-  assert.deepEqual(covered(raw, out), [["the", 0.9], ["names", 0.8]]);
-});
-
-test("a word that only shares a prefix with the saved word is not matched", () => {
-  const raw = "Mondays on";
-  assert.deepEqual(covered(raw, alignWordsToText(words(["Monday", 0.5], ["on", 0.9]), raw)), [["on", 0.9]]);
-});
-
-test("case is part of the text: a recased word is a change, not a match", () => {
-  const raw = "Thursday, not Monday.";
-  assert.deepEqual(covered(raw, alignWordsToText(words(["thursday,", 0.8], ["not", 0.9], ["Monday.", 0.7]), raw)), [
-    ["not", 0.9],
-    ["Monday.", 0.7],
-  ]);
-});
-
-test("unscored words anchor the layout but are never stored", () => {
-  const raw = "so - yes";
-  assert.deepEqual(covered(raw, alignWordsToText(words(["so", 0.9], ["-", Number.NaN], ["yes", 0.8]), raw)), [
-    ["so", 0.9],
-    ["yes", 0.8],
-  ]);
-});
-
-test("lexical words count letters and digits, not punctuation", () => {
-  assert.equal(lexicalWordCount("Call 20 people. — ok"), 4);
-  assert.equal(lexicalWordCount(""), 0);
-});
-
-test("stored payload is validated, aligned and versioned", () => {
-  const raw = "Maria wants the tier names.";
-  const stored = buildStoredConfidence(
-    { engine: ENGINE, words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }, { w: "the", p: 0.99 }, { w: "tier", p: 2 }, { w: "names.", p: 0.88 }] },
-    raw
-  );
-  assert.deepEqual(stored, {
-    v: 1,
-    engine: ENGINE,
-    words: [{ s: 0, e: 5, p: 0.58, t: 1.2 }, { s: 6, e: 11, p: 0.91 }, { s: 12, e: 15, p: 0.99 }, { s: 21, e: 27, p: 0.88 }],
-  });
-  assert.equal(buildStoredConfidence({ engine: "deepgram", words: [{ w: "Maria", p: 0.5 }] }, raw), null, "unknown engine");
-  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "zebra", p: 0.5 }] }, raw), null, "nothing aligned");
-  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "Maria", p: Number.NaN }] }, raw), null, "no usable score");
-  assert.equal(buildStoredConfidence({ engine: ENGINE, words: "nope" }, raw), null, "not an array");
-  assert.equal(
-    buildStoredConfidence({ engine: ENGINE, words: new Array(MAX_WORDS + 1).fill({ w: "Maria", p: 1 }) }, raw),
-    null,
-    "oversized payloads are refused whole"
-  );
-  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "M".repeat(65), p: 1 }] }, raw), null);
-  assert.equal(buildStoredConfidence(null, raw), null);
-  assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "Maria", p: 1 }] }, null), null);
-  for (const nogo of ["whisper.cpp", "sherpa-onnx"].filter((e) => !ENGINES.has(e))) {
-    assert.equal(buildStoredConfidence({ engine: nogo, words: [{ w: "Maria", p: 0.5 }] }, raw), null, `${nogo} is NO-GO`);
-  }
-});
-
-for (const [file, toTokens, normalise] of [
-  ["whisper-verbose.json", tokensFromWhisperVerbose, (t) => t.replace(/\n/g, " ").replace(/\s+/g, " ").trim()],
-  ["sherpa-offline-tdt.json", (json) => tokensFromSherpaOffline(json), (t) => t.trim()],
-]) {
-  test(`spike fixture ${file}: at least 90% of lexical words carry a usable score`, (t) => {
-    const fixture = path.join(__dirname, "../fixtures/confidence", file);
-    if (!fs.existsSync(fixture)) return t.skip("engine was NO-GO in the spike");
-    const json = JSON.parse(fs.readFileSync(fixture, "utf8"));
-    const saved = normalise(String(json.text));
-    const aligned = alignWordsToText(mergeTokensToWords(toTokens(json)), saved);
-    const lexical = lexicalWordCount(saved);
-    assert.ok(lexical > 10, `${lexical} lexical words`);
-    assert.ok(aligned.length / lexical >= 0.9, `${aligned.length}/${lexical} scored`);
-  });
-}
-```
-
-The `normalise` functions mirror what each engine's parse stores as `raw_text`: `normalizeWhitespace` (`src/helpers/whisper.js:529-531`) and `.trim()` (`src/helpers/parakeet.js:316`).
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- test/helpers/wordConfidence.test.js`
-Expected: FAIL with `Cannot find module '../../src/helpers/wordConfidence'`.
-
-- [ ] **Step 3: Implement**
-
-Create `src/helpers/wordConfidence.js`:
-
-```js
-// Word-level recognition confidence (Plan 08, WS-M4).
-//
-// Engines report per-token probabilities. This module turns tokens into words
-// and, at save time, pins each word to character offsets in the raw transcript
-// that was actually stored. Alignment is positional, never a text search: the
-// engine's words are laid out as the engine wrote them, and only words inside
-// the common prefix or common suffix of that layout and the saved text keep
-// their score. Anything in between changed, so it is drawn plain. A wrong
-// underline is worse than none.
-
-const ENGINES = new Set(["whisper.cpp", "sherpa-onnx"]);
-const MAX_WORDS = 20000;
-const MAX_WORD_LENGTH = 64;
-
-const SPECIAL_TOKEN = /^\s*(\[_[A-Z]+_?\d*\]|<\|[^|]*\|>|<unk>|<blk>|<s>|<\/s>)\s*$/;
-const BYTE_TOKEN = /^<0x[0-9A-Fa-f]{2}>$/;
-const PUNCT_ONLY = /^[\p{P}\p{S}]+$/u;
-const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const LEXICAL = /[\p{L}\p{N}]/u;
-
-const round3 = (n) => Math.round(n * 1000) / 1000;
-const isProbability = (p) => typeof p === "number" && Number.isFinite(p) && p >= 0 && p <= 1;
-
-function tokensFromWhisperVerbose(json) {
-  const segments = Array.isArray(json?.segments) ? json.segments : [];
-  const tokens = [];
-  for (const segment of segments) {
-    for (const entry of Array.isArray(segment?.words) ? segment.words : []) {
-      if (typeof entry?.word !== "string") continue;
-      tokens.push({
-        text: entry.word,
-        p: Number(entry.probability),
-        ...(Number.isFinite(entry.start) ? { t: round3(entry.start) } : {}),
-      });
-    }
-  }
-  return tokens;
-}
-
-function tokensFromSherpaOffline(json, offsetSeconds = 0) {
-  const pieces = Array.isArray(json?.tokens) ? json.tokens : [];
-  const logProbs = Array.isArray(json?.ys_log_probs) ? json.ys_log_probs : [];
-  if (!pieces.length || pieces.length !== logProbs.length) return [];
-  const times =
-    Array.isArray(json?.timestamps) && json.timestamps.length === pieces.length ? json.timestamps : null;
-  return pieces.map((piece, i) => ({
-    text: String(piece),
-    p: Math.exp(Number(logProbs[i])),
-    ...(times && Number.isFinite(times[i]) ? { t: round3(times[i] + offsetSeconds) } : {}),
-  }));
-}
-
-function offsetTokens(tokens, seconds) {
-  if (!Array.isArray(tokens)) return [];
-  return tokens.map((token, i) => ({
-    ...token,
-    text: i === 0 && !/^[\s▁]/.test(token.text) ? ` ${token.text}` : token.text,
-    ...(Number.isFinite(token.t) ? { t: round3(token.t + seconds) } : {}),
-  }));
-}
-
-function mergeTokensToWords(tokens) {
-  const words = [];
-  let current = null;
-  const flush = () => {
-    if (!current) return;
-    const scored = current.scores.length > 0 && current.scores.every(isProbability);
-    const meanLog = scored
-      ? current.scores.reduce((sum, p) => sum + Math.log(Math.max(p, 1e-6)), 0) / current.scores.length
-      : Number.NaN;
-    words.push({
-      w: current.text,
-      p: scored ? round3(Math.exp(meanLog)) : Number.NaN,
-      ...(current.t !== undefined ? { t: current.t } : {}),
-      ...(current.joined ? { n: true } : {}),
-    });
-    current = null;
-  };
-
-  for (const token of Array.isArray(tokens) ? tokens : []) {
-    if (!token || typeof token.text !== "string") continue;
-    const text = token.text.replace(/▁/g, " ");
-    const bare = text.trim();
-    if (!bare || SPECIAL_TOKEN.test(text) || BYTE_TOKEN.test(bare)) continue;
-    const isPunct = PUNCT_ONLY.test(bare);
-    const spaced = /^\s/.test(text);
-    const startsWord = spaced || !current || (CJK.test(bare) && !isPunct);
-    if (startsWord) {
-      flush();
-      current = {
-        text: bare,
-        scores: isPunct ? [] : [token.p],
-        t: token.t,
-        joined: !spaced && words.length > 0,
-      };
-    } else {
-      current.text += bare;
-      // Punctuation rides along with its word but never lowers its score.
-      if (!isPunct) current.scores.push(token.p);
-    }
-  }
-  flush();
-  return words;
-}
-
-// The saved text with whitespace runs collapsed to one space and trimmed, plus
-// the index in the original string of every kept character.
-function normaliseWithMap(text) {
-  let norm = "";
-  const map = [];
-  for (let i = 0; i < text.length; i++) {
-    if (/\s/.test(text[i])) {
-      if (norm && !norm.endsWith(" ")) {
-        norm += " ";
-        map.push(i);
-      }
-    } else {
-      norm += text[i];
-      map.push(i);
-    }
-  }
-  if (norm.endsWith(" ")) {
-    norm = norm.slice(0, -1);
-    map.pop();
-  }
-  return { norm, map };
-}
-
-function alignWordsToText(words, text) {
-  if (typeof text !== "string" || !text || !Array.isArray(words) || words.length === 0) return [];
-  // 1. Lay the words out exactly as the engine wrote them.
-  let layout = "";
-  const spans = words.map((word, i) => {
-    if (i > 0 && !word.n) layout += " ";
-    const s = layout.length;
-    layout += word.w;
-    return { s, e: layout.length };
-  });
-  // 2. Compare with the saved text, position by position.
-  const { norm, map } = normaliseWithMap(text);
-  let prefix = 0;
-  while (prefix < layout.length && prefix < norm.length && layout[prefix] === norm[prefix]) prefix++;
-  const identical = prefix === layout.length && prefix === norm.length;
-  let suffix = 0;
-  const maxSuffix = Math.min(layout.length, norm.length) - prefix;
-  while (suffix < maxSuffix && layout[layout.length - 1 - suffix] === norm[norm.length - 1 - suffix]) suffix++;
-  // 3. Keep a word only if it sits wholly inside the shared prefix (with the
-  //    character after it shared too) or the shared suffix (with the character
-  //    before it shared too). That is a word boundary in both texts.
-  const out = [];
-  spans.forEach((span, i) => {
-    const word = words[i];
-    if (!isProbability(word.p)) return;
-    let at;
-    if (identical || span.e < prefix) at = span.s;
-    else if (layout.length - span.s < suffix) at = norm.length - (layout.length - span.s);
-    else return;
-    const end = at + (span.e - span.s);
-    out.push({ s: map[at], e: map[end - 1] + 1, p: word.p, ...(word.t !== undefined ? { t: word.t } : {}) });
-  });
-  return out;
-}
-
-function lexicalWordCount(text) {
-  return String(text || "")
-    .split(/\s+/)
-    .filter((chunk) => LEXICAL.test(chunk)).length;
-}
-
-function sanitizeWords(words) {
-  if (!Array.isArray(words) || words.length === 0 || words.length > MAX_WORDS) return null;
-  const clean = [];
-  for (const word of words) {
-    if (!word || typeof word.w !== "string") continue;
-    if (word.w.length > MAX_WORD_LENGTH) return null;
-    const w = word.w.trim();
-    if (!w) continue;
-    // A word with an unusable score still anchors the layout; it is never drawn.
-    clean.push({
-      w,
-      p: isProbability(word.p) ? round3(word.p) : Number.NaN,
-      ...(Number.isFinite(word.t) && word.t >= 0 ? { t: round3(word.t) } : {}),
-      ...(word.n === true ? { n: true } : {}),
-    });
-  }
-  return clean.some((word) => isProbability(word.p)) ? clean : null;
-}
-
-function buildStoredConfidence(input, rawText) {
-  if (!input || !ENGINES.has(input.engine) || typeof rawText !== "string") return null;
-  const words = sanitizeWords(input.words);
-  if (!words) return null;
-  const aligned = alignWordsToText(words, rawText);
-  return aligned.length ? { v: 1, engine: input.engine, words: aligned } : null;
-}
-
-module.exports = {
-  ENGINES,
-  MAX_WORDS,
-  MAX_WORD_LENGTH,
-  alignWordsToText,
-  buildStoredConfidence,
-  lexicalWordCount,
-  mergeTokensToWords,
-  offsetTokens,
-  tokensFromSherpaOffline,
-  tokensFromWhisperVerbose,
-};
-```
-
-If the spike report recorded a different sherpa field name (for example `token_log_probs`), use that name in `tokensFromSherpaOffline` and in its test.
-
-The positional cases in the tests, traced:
-- **`"20 twenty"`.** The engine layout is `"twenty twenty"`. The shared prefix is 0 characters and the shared suffix is `" twenty"` (7). Only the second word sits inside the suffix with its preceding space shared, so its own 0.8 is kept.
-- **`"Mondays on"`.** The layout is `"Monday on"`. The shared prefix is `"Monday"`, but the next character differs (`s` versus a space), so `Monday` is not kept.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- test/helpers/wordConfidence.test.js`
-Expected: PASS. The fixture tests pass for engines that passed stage 1 and skip for the others.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/helpers/wordConfidence.js test/helpers/wordConfidence.test.js
-git commit -m "feat(stt): Merge engine tokens into positionally aligned word confidence"
-```
-
-- [ ] **Step 6: Stage-2 gate (G2 coverage, G4 signal) on merged words**
-
-Create `scripts/spikes/word-confidence-gate.js`:
-
-```js
-#!/usr/bin/env node
-// WS-M4 spike, stage 2 (Plan 08 Task 3). Scores captured engine output with
-// the same merging and alignment that storage uses, then prints G2 and the G4
-// candidates. Reads JSON written by word-confidence-spike.js.
-//
-//   node scripts/spikes/word-confidence-gate.js --dir test/fixtures/confidence
-//   node scripts/spikes/word-confidence-gate.js --dir /tmp/loqui-spike/voice --lowest 8
-const fs = require("node:fs");
-const path = require("node:path");
-const {
-  alignWordsToText,
-  lexicalWordCount,
-  mergeTokensToWords,
-  tokensFromSherpaOffline,
-  tokensFromWhisperVerbose,
-} = require("../../src/helpers/wordConfidence");
-
-const arg = (name) => {
-  const i = process.argv.indexOf(`--${name}`);
-  return i > -1 ? process.argv[i + 1] : null;
-};
-const dir = arg("dir");
-const lowest = Number(arg("lowest") || 0);
-const ENGINES = [
-  ["whisper.cpp", "whisper-verbose.json", tokensFromWhisperVerbose, (t) => t.replace(/\n/g, " ").replace(/\s+/g, " ").trim()],
-  ["sherpa-onnx", "sherpa-offline-tdt.json", (j) => tokensFromSherpaOffline(j), (t) => t.trim()],
-];
-
-for (const [engine, file, toTokens, normalise] of ENGINES) {
-  const full = path.join(dir, file);
-  if (!fs.existsSync(full)) continue;
-  const json = JSON.parse(fs.readFileSync(full, "utf8"));
-  const saved = normalise(String(json.text));
-  const merged = mergeTokensToWords(toTokens(json));
-  const aligned = alignWordsToText(merged, saved);
-  const lexical = lexicalWordCount(saved);
-  const bucket = (p) => (p >= 0.9 ? "sure" : p >= 0.7 ? "maybe" : "unsure");
-  const buckets = { sure: 0, maybe: 0, unsure: 0 };
-  for (const a of aligned) buckets[bucket(a.p)] += 1;
-  const distinct = new Map();
-  for (const a of aligned) {
-    const word = saved.slice(a.s, a.e).replace(/[\p{P}\p{S}]+$/u, "").toLowerCase();
-    if (!distinct.has(word) || distinct.get(word) > a.p) distinct.set(word, a.p);
-  }
-  console.log(JSON.stringify({
-    engine,
-    lexicalWords: lexical,
-    scoredWords: aligned.length,
-    g2Coverage: lexical ? Number((aligned.length / lexical).toFixed(3)) : 0,
-    buckets,
-    sureShare: aligned.length ? Number((buckets.sure / aligned.length).toFixed(3)) : 0,
-    ...(lowest ? { lowestDistinctWords: [...distinct].sort((a, b) => a[1] - b[1]).slice(0, lowest) } : {}),
-  }, null, 2));
-}
-```
-
-Run it on both samples:
-
-```bash
-node scripts/spikes/word-confidence-gate.js --dir test/fixtures/confidence
-node scripts/spikes/word-confidence-gate.js --dir /tmp/loqui-spike/voice --lowest 8
-```
-
-Stage 2 is GO for an engine only if all of these hold:
-- **G2 (usable coverage):** `g2Coverage ≥ 0.90` on both samples. That is scored words over the saved transcript's lexical words, after merging and positional alignment.
-- **G4 (signal), on merged distinct words:**
-  - On the synthetic sample, `sureShare ≥ 0.80`.
-  - On the voice sample, at least 3 of the 8 `lowestDistinctWords` are labelled *wrong* or *ambiguous*. Listen to the recording and label each one:
-    - **wrong:** the written word is not what was said;
-    - **ambiguous:** what was said has more than one valid spelling (a homophone, a name, a number written as words or digits);
-    - **correct:** otherwise.
-  - **Revised gate G4′.** If G4 fails only because of the cut-offs, the report may propose new `CONFIDENCE_THRESHOLDS` (default `{ sure: 0.9, maybe: 0.7 }`) as an explicitly named revised gate. Re-run the script with those cut-offs (change the `bucket` function, then revert it) and record both runs. G4′ needs the owner's approval at the stop below, and Task 8 then uses its thresholds. No other exception exists.
-
-Fill in the report's "Stage 2 results" section with the four summaries, the 8 labels, and a final table: `engine | G1 | G2 | G3 | G4 (or G4′) | GO/NO-GO`. Then:
-- delete `/tmp/loqui-spike/voice/` and `voice.wav`;
-- delete the fixture of any engine that failed stage 2;
-- remove that engine from `ENGINES` in `src/helpers/wordConfidence.js`. The `NO-GO` loop in the test covers the refusal.
-
-```bash
-git add scripts/spikes/word-confidence-gate.js docs/superpowers/research/2026-10-ws-m4-confidence-spike.md test/fixtures/confidence src/helpers/wordConfidence.js
-git commit -m "docs(spike): Word confidence stage-2 gate on merged words (WS-M4)"
-```
-
-Stop and show the owner the final gate table before Task 4.
-
----
-
-
-### Task 4: whisper.cpp — request `verbose_json` behind the option and parse words
-
-Run this only if whisper.cpp is GO.
-
-**Files:**
-- Modify: `src/helpers/whisperServer.js:868` (destructure `wordConfidence`) and `:918-923` (`response_format`)
-- Modify: `src/helpers/whisper.js`:
-  - `:397-400` (`transcribeLocalWhisper` forwards the option);
-  - `:466-471` and `:479` (`_runServerTranscription`);
-  - `:533` and `:565-571` (`parseWhisperResult`).
-- Test: `test/helpers/whisperServerInferenceFields.test.js` (append), `test/helpers/whisperWordConfidence.test.js` (new)
-
-**Interfaces:**
-- Consumes Task 3: `tokensFromWhisperVerbose`, `mergeTokensToWords`.
-- Produces:
-  - `WhisperServerManager#transcribe(buffer, { …, wordConfidence?: boolean })`;
-  - `WhisperManager#transcribeLocalWhisper(blob, { …, wordConfidence?: boolean })`;
-  - `parseWhisperResult(output, { wordConfidence?: boolean } = {})`, which returns `{ success: true, text, confidence?: { engine: "whisper.cpp", words } }`.
-- The IPC handler `transcribe-local-whisper` (`ipcHandlers.js:2374-2390`) already spreads `requestOptions` through, so it needs no change.
-
-- [ ] **Step 1: Write the failing tests**
-
-Append to `test/helpers/whisperServerInferenceFields.test.js`:
-
-```js
-test("word confidence asks for verbose_json and skips the language-probability pass", async (t) => {
-  const { server, port, getBody } = await startCapturingServer();
-  t.after(() => server.close());
-
-  const manager = createManager(port);
-  await manager.transcribe(Buffer.from("audio"), { language: "en", wordConfidence: true });
-
-  const body = getBody();
-  assert.equal(fieldValue(body, "response_format"), "verbose_json");
-  assert.equal(fieldValue(body, "no_language_probabilities"), "true");
-});
-
-test("without word confidence the request is unchanged", async (t) => {
-  const { server, port, getBody } = await startCapturingServer();
-  t.after(() => server.close());
-
-  const manager = createManager(port);
-  await manager.transcribe(Buffer.from("audio"), { language: "en" });
-
-  const body = getBody();
-  assert.equal(fieldValue(body, "response_format"), "json");
-  assert.equal(fieldValue(body, "no_language_probabilities"), null);
-});
-```
-
-Create `test/helpers/whisperWordConfidence.test.js`:
-
-```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const WhisperManager = require("../../src/helpers/whisper");
-
-const VERBOSE = {
-  task: "transcribe",
-  language: "en",
-  text: " So the tier.",
-  segments: [{ text: " So the tier.", words: [
-    { word: " So", start: 0, end: 0.3, t_dtw: -1, probability: 0.97 },
-    { word: " the", start: 0.3, end: 0.5, t_dtw: -1, probability: 0.99 },
-    { word: " tier", start: 0.5, end: 0.9, t_dtw: -1, probability: 0.64 },
-    { word: ".", start: 0.9, end: 1, t_dtw: -1, probability: 0.5 },
-  ] }],
-};
-const EXPECTED_WORDS = [{ w: "So", p: 0.97, t: 0 }, { w: "the", p: 0.99, t: 0.3 }, { w: "tier.", p: 0.64, t: 0.5 }];
-
-const parser = () => Object.create(WhisperManager.prototype);
-
-test("verbose_json keeps the normalised text and adds whisper.cpp word confidence", () => {
-  assert.deepEqual(parser().parseWhisperResult(VERBOSE, { wordConfidence: true }), {
-    success: true,
-    text: "So the tier.",
-    confidence: { engine: "whisper.cpp", words: EXPECTED_WORDS },
-  });
-});
-
-test("without the option the result shape is exactly today's", () => {
-  assert.deepEqual(parser().parseWhisperResult(VERBOSE), { success: true, text: "So the tier." });
-});
-
-test("a verbose response without words still returns its text", () => {
-  assert.deepEqual(parser().parseWhisperResult({ text: " Hi.", segments: [] }, { wordConfidence: true }), {
-    success: true,
-    text: "Hi.",
-  });
-});
-
-test("transcribeLocalWhisper forwards the option to the server and the parser", async () => {
-  const manager = parser();
-  let seen = null;
-  manager.serverManager = {
-    isAvailable: () => true,
-    start: async () => {},
-    port: 1,
-    transcribe: async (_buffer, options) => {
-      seen = options;
-      return VERBOSE;
-    },
-  };
-  manager.getModelPath = () => __filename;
-  manager.getVadModelPath = () => null;
-  manager.resolveGpuStartOptions = () => ({});
-  const out = await manager.transcribeLocalWhisper(Buffer.from("audio"), { model: "base", wordConfidence: true });
-  assert.equal(seen.wordConfidence, true);
-  assert.deepEqual(out.confidence, { engine: "whisper.cpp", words: EXPECTED_WORDS });
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `npm test -- test/helpers/whisperServerInferenceFields.test.js test/helpers/whisperWordConfidence.test.js`
-Expected: FAIL. The verbose test gets `json` instead of `verbose_json`, the parser returns no `confidence`, and `seen.wordConfidence` is `undefined`.
-
-- [ ] **Step 3: Implement**
-
-1. `src/helpers/whisperServer.js:868`. Change the destructure to:
-
-   ```js
-       const { language, initialPrompt, signal, skipDecoderThresholds, wordConfidence } = options;
-   ```
-
-   Replace the `response_format` block at `:918-923` with:
-
-   ```js
-       // Labs word confidence (Plan 08): verbose_json carries per-token
-       // probabilities. The language-probability pass is never wanted here.
-       parts.push(
-         `--${boundary}\r\n` +
-           `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
-           `${wordConfidence ? "verbose_json" : "json"}\r\n`
-       );
-       if (wordConfidence) {
-         parts.push(
-           `--${boundary}\r\n` +
-             `Content-Disposition: form-data; name="no_language_probabilities"\r\n\r\n` +
-             `true\r\n`
-         );
-       }
-   ```
-
-2. `src/helpers/whisper.js`:
-   - At the top with the other requires, add `const { mergeTokensToWords, tokensFromWhisperVerbose } = require("./wordConfidence");`.
-   - In `transcribeLocalWhisper`, the options object passed to `transcribeViaServer` (`:397-400`) gains `wordConfidence: options.wordConfidence === true,`.
-   - In `_runServerTranscription`, the `serverManager.transcribe` options (`:466-471`) gain `wordConfidence: options.wordConfidence === true,`. Change `return this.parseWhisperResult(result);` (`:479`) to:
-
-     ```js
-         return this.parseWhisperResult(result, { wordConfidence: options.wordConfidence === true });
-     ```
-
-   - Change the signature at `:533` to `parseWhisperResult(output, { wordConfidence = false } = {}) {` and replace the server branch at `:565-571` with:
-
-     ```js
-         // Handle whisper-server format (has "text" field directly)
-         if (result.text !== undefined) {
-           const text = typeof result.text === "string" ? this.normalizeWhitespace(result.text) : "";
-           if (!text || this.isBlankAudioMarker(text)) {
-             return { success: false, message: "No audio detected" };
-           }
-           if (wordConfidence) {
-             const words = mergeTokensToWords(tokensFromWhisperVerbose(result));
-             if (words.length) return { success: true, text, confidence: { engine: "whisper.cpp", words } };
-           }
-           return { success: true, text };
-         }
-     ```
-
-   - `transcribeViaLan` (`:482`) is unchanged. LAN servers stay on `json`, so LAN results never carry confidence.
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/helpers/whisperServerInferenceFields.test.js test/helpers/whisperWordConfidence.test.js test/helpers/whisperServerWavInput.test.js test/helpers/whisperServerVadArgs.test.js`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/helpers/whisperServer.js src/helpers/whisper.js test/helpers/whisperServerInferenceFields.test.js test/helpers/whisperWordConfidence.test.js
-git commit -m "feat(stt): whisper.cpp word confidence via verbose_json behind an option"
-```
-
----
-
-### Task 5: sherpa-onnx Parakeet — carry tokens from the WS result to the parse
-
-Run this only if sherpa-onnx is GO.
-
-**Files:**
-- Modify: `src/helpers/parakeetWsResult.js:1-9` (add `parseOfflinePayload`) and `:65` (export)
-- Modify: `src/helpers/parakeetWsServer.js:15` (import) and `:385` (resolve tokens)
-- Modify: `src/helpers/parakeetServer.js:215-227` (offset and join the segment tokens)
-- Modify: `src/helpers/parakeet.js`:
-  - `:293` (`transcribeLocalParakeet` passes the option to the parser);
-  - `parseParakeetResult` (`:296-321`).
-- Test: `test/helpers/parakeetWsResult.test.js` (append), `test/helpers/parakeetServer.test.js` (append), `test/helpers/parakeetWordConfidence.test.js` (new)
-
-**Interfaces:**
-- Consumes Task 3: `tokensFromSherpaOffline`, `offsetTokens`, `mergeTokensToWords`.
-- Produces:
-  - `parseOfflinePayload(message): object | null`;
-  - `ParakeetWsServer#transcribe` resolves `{ text, elapsed, tokens: Token[] }`;
-  - `ParakeetServerManager#transcribe` resolves `{ text, elapsed, tokens, truncated? }`;
-  - `ParakeetManager#parseParakeetResult(output, { wordConfidence? })` returns `{ …, confidence?: { engine: "sherpa-onnx", words } }`.
-
-- [ ] **Step 1: Write the failing tests**
-
-Append to `test/helpers/parakeetWsResult.test.js` (keep its existing imports; add `parseOfflinePayload` to the destructured require at the top):
-
-```js
-test("parseOfflinePayload returns the raw sherpa JSON, or null for plain text", () => {
-  const raw = JSON.stringify({ text: "hi", tokens: ["▁hi"], ys_log_probs: [-0.1] });
-  assert.deepEqual(parseOfflinePayload(raw), { text: "hi", tokens: ["▁hi"], ys_log_probs: [-0.1] });
-  assert.equal(parseOfflinePayload("hello there"), null);
-  assert.equal(parseOfflinePayload(""), null);
-});
-```
-
-Append to `test/helpers/parakeetServer.test.js`:
-
-```js
-test("segmented decodes keep tokens in order with per-segment time offsets", async () => {
-  const fake = fakeWsServer([
-    { text: "first", tokens: [{ text: "▁first", p: 0.9, t: 1 }] },
-    { text: "second", tokens: [{ text: "sec", p: 0.8, t: 0.5 }, { text: "ond", p: 0.7, t: 0.7 }] },
-  ]);
-  const manager = managerWith(fake);
-
-  const result = await manager.transcribe(wavFromSeconds([{ seconds: 20 }]));
-
-  assert.equal(result.text, "first second");
-  assert.deepEqual(result.tokens, [
-    { text: "▁first", p: 0.9, t: 1 },
-    { text: " sec", p: 0.8, t: 15.5 },
-    { text: "ond", p: 0.7, t: 15.7 },
-  ]);
-});
-```
-
-Create `test/helpers/parakeetWordConfidence.test.js`:
-
-```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const ParakeetManager = require("../../src/helpers/parakeet");
-
-const parser = () => Object.create(ParakeetManager.prototype);
-const OUTPUT = {
-  text: "the tier",
-  elapsed: 3,
-  tokens: [{ text: "▁the", p: 0.99, t: 0.1 }, { text: "▁ti", p: 0.64, t: 0.4 }, { text: "er", p: 1, t: 0.5 }],
-};
-
-test("Parakeet results carry sherpa-onnx word confidence on request", () => {
-  assert.deepEqual(parser().parseParakeetResult(OUTPUT, { wordConfidence: true }), {
-    success: true,
-    text: "the tier",
-    confidence: { engine: "sherpa-onnx", words: [{ w: "the", p: 0.99, t: 0.1 }, { w: "tier", p: 0.8, t: 0.4 }] },
-  });
-});
-
-test("without the option, or without tokens, the result is exactly today's", () => {
-  assert.deepEqual(parser().parseParakeetResult(OUTPUT), { success: true, text: "the tier" });
-  assert.deepEqual(parser().parseParakeetResult({ text: "x" }, { wordConfidence: true }), { success: true, text: "x" });
-});
-
-test("a truncated decode keeps its warning alongside confidence", () => {
-  const out = parser().parseParakeetResult({ ...OUTPUT, truncated: true }, { wordConfidence: true });
-  assert.equal(out.warning, "truncated");
-  assert.equal(out.confidence.engine, "sherpa-onnx");
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `npm test -- test/helpers/parakeetWsResult.test.js test/helpers/parakeetServer.test.js test/helpers/parakeetWordConfidence.test.js`
-Expected: FAIL. `parseOfflinePayload is not a function`, `result.tokens` is `undefined`, and there is no `confidence` key.
-
-- [ ] **Step 3: Implement**
-
-1. `src/helpers/parakeetWsResult.js`. Add after `parseOfflineMessage`:
-
-   ```js
-   // The offline server's full JSON (tokens, ys_log_probs, timestamps…), or null
-   // when it sent plain text. parseOfflineMessage stays the text source of truth.
-   function parseOfflinePayload(message) {
-     try {
-       const parsed = JSON.parse(String(message || "").trim());
-       return parsed && typeof parsed === "object" ? parsed : null;
-     } catch {
-       return null;
-     }
-   }
-   ```
-
-   Change the export at `:65` to `module.exports = { parseOfflineMessage, parseOfflinePayload, parseOnlineMessages, createOnlineAccumulator };`.
-
-2. `src/helpers/parakeetWsServer.js`:
-   - Change `:15` to `const { parseOfflineMessage, parseOfflinePayload, createOnlineAccumulator } = require("./parakeetWsResult");`.
-   - Add `const { tokensFromSherpaOffline } = require("./wordConfidence");`.
-   - Change `:385` to:
-
-     ```js
-             resolve({
-               text: parseOfflineMessage(result),
-               tokens: tokensFromSherpaOffline(parseOfflinePayload(result)),
-               elapsed,
-             });
-     ```
-
-3. `src/helpers/parakeetServer.js`:
-   - Add `const { offsetTokens } = require("./wordConfidence");` with the requires.
-   - Replace the join at `:219-227` with:
-
-     ```js
-           const text = results
-             .map((result) => result.text)
-             .filter(Boolean)
-             .join(" ");
-           // Token times restart per segment; shift them onto the recording's clock.
-           const tokens = results.flatMap((result, index) =>
-             offsetTokens(result.tokens, index * maxSegmentSeconds)
-           );
-           const elapsed = results.reduce((sum, result) => sum + (result.elapsed || 0), 0);
-           return results.some((result) => result.truncated)
-             ? { text, elapsed, tokens, truncated: true }
-             : { text, elapsed, tokens };
-     ```
-
-   The single-request path (`:164-176`) already returns the WS result object, so its `tokens` ride along.
-
-4. `src/helpers/parakeet.js`:
-   - Add `const { mergeTokensToWords } = require("./wordConfidence");`.
-   - Change `return this.parseParakeetResult(result);` in `transcribeLocalParakeet` to `return this.parseParakeetResult(result, { wordConfidence: options.wordConfidence === true });`.
-   - Change the signature to `parseParakeetResult(output, { wordConfidence = false } = {}) {` and replace its final two statements (from `const text = output.text.trim();`) with:
-
-     ```js
-         const text = output.text.trim();
-
-         if (!text) {
-           return { success: false, code: "NO_SPEECH_DETECTED", message: "No audio detected" };
-         }
-
-         const words = wordConfidence ? mergeTokensToWords(output.tokens) : [];
-         const confidence = words.length ? { confidence: { engine: "sherpa-onnx", words } } : {};
-
-         // Surfaced by the renderer as a partial-transcription warning toast.
-         return output.truncated
-           ? { success: true, text, warning: "truncated", ...confidence }
-           : { success: true, text, ...confidence };
-     ```
-
-   Upload and meeting callers never pass `wordConfidence`, so their results are unchanged.
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/helpers/parakeetWsResult.test.js test/helpers/parakeetServer.test.js test/helpers/parakeetWordConfidence.test.js test/helpers/parakeetWsStartup.test.js`
-Expected: PASS. Pre-existing `deepEqual`s on `transcribe()` results may now see an extra `tokens: []`. If one does, update only that expectation to include `tokens: []` and name it in the commit body.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/helpers/parakeetWsResult.js src/helpers/parakeetWsServer.js src/helpers/parakeetServer.js src/helpers/parakeet.js test/helpers/parakeetWsResult.test.js test/helpers/parakeetServer.test.js test/helpers/parakeetWordConfidence.test.js
-git commit -m "feat(stt): Parakeet word confidence from sherpa-onnx token log-probs"
-```
-
----
-
-### Task 6: Confidence storage, migration, IPC and lifecycle
-
-**Files:**
-- Modify: `src/helpers/localDatabaseSchema.js` (append before the closing backtick at `:329`)
-- Modify: `src/helpers/database.js`:
-  - requires (`:1-21`);
-  - `saveTranscription` (`:156-205`);
-  - `getTranscriptions` (`:534-548`);
-  - `updateTranscriptionText` (`:605-623`);
-  - `getTranscriptionById` (`:649-658`);
-  - a new `getTranscriptionConfidence` after `getTranscriptionById`.
-- Modify: `src/helpers/ipcHandlers.js` (register `db-get-transcription-confidence` after `db-get-transcriptions` at `:1263-1265`; clear confidence in `retry-transcription` at `:5290`)
-- Modify: `preload.js` (after `getTranscriptionById` at `:197`)
-- Modify: `src/types/electron.ts`:
-  - new exported types above `TranscriptionItem` (`:97`);
-  - `has_confidence` on `TranscriptionItem`;
-  - `saveTranscription` options (`:818-828`);
-  - the new method after `getTranscriptionById` (`:839`).
-- Test: `test/helpers/transcriptionConfidenceDatabase.test.js`
-
-**Interfaces:**
-- Consumes Task 3: `buildStoredConfidence`.
-- Produces:
-  - `DatabaseManager#saveTranscription(text, rawText, { …, confidence?: Candidate | null })`;
-  - `DatabaseManager#getTranscriptionConfidence(id): TranscriptionConfidence | null`;
-  - `DatabaseManager#clearTranscriptionConfidence(id): { success: true }`, called by `retry-transcription`;
-  - every transcription row from `getTranscriptions`, `getTranscriptionById` and `saveTranscription().transcription` carries `has_confidence: 0 | 1`.
-  - Preload: `window.electronAPI.getTranscriptionConfidence(id)`.
-  - Types in `src/types/electron.ts`:
-
-    ```ts
-    export type ConfidenceEngine = "whisper.cpp" | "sherpa-onnx";
-    export interface TranscriptionConfidenceInput { engine: ConfidenceEngine; words: Array<{ w: string; p: number; t?: number }> }
-    export interface TranscriptionConfidenceWord { s: number; e: number; p: number; t?: number }
-    export interface TranscriptionConfidence { v: 1; engine: ConfidenceEngine; words: TranscriptionConfidenceWord[] }
-    ```
-
-- [ ] **Step 1: Write the failing test**
-
-Create `test/helpers/transcriptionConfidenceDatabase.test.js`:
-
-```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { createDb } = require("./harness/db");
-const fs = require("node:fs");
-const path = require("node:path");
-const DatabaseManager = require("../../src/helpers/database");
-const { ENGINES } = require("../../src/helpers/wordConfidence");
-
-const ENGINE = [...ENGINES][0]; // a GO engine from the Task 1 gate
-const INPUT = { engine: ENGINE, words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }] };
-const STORED = { v: 1, engine: ENGINE, words: [{ s: 0, e: 5, p: 0.58, t: 1.2 }, { s: 6, e: 11, p: 0.91 }] };
-const confidenceRows = (db) => db.db.prepare("SELECT COUNT(*) AS n FROM transcription_confidence").get().n;
-
-test("a transcription saved with confidence round-trips and flags history rows", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const { id, transcription } = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT });
-  assert.equal(transcription.has_confidence, 1);
-  assert.deepEqual(db.getTranscriptionConfidence(id), STORED);
-  assert.equal(db.getTranscriptions().find((row) => row.id === id).has_confidence, 1);
-  assert.equal(db.getTranscriptionById(id).has_confidence, 1);
-});
-
-test("confidence aligns to raw_text, not the cleaned text", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const { id } = db.saveTranscription("MARIA WANTS IT!", "Maria wants it.", { confidence: INPUT });
-  assert.deepEqual(db.getTranscriptionConfidence(id), STORED);
-});
-
-test("rows without confidence cost nothing and read as 0", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const { id, transcription } = db.saveTranscription("plain", "plain");
-  assert.equal(transcription.has_confidence, 0);
-  assert.equal(db.getTranscriptionConfidence(id), null);
-  assert.equal(confidenceRows(db), 0);
-});
-
-test("a malformed payload never blocks saving the transcription", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  for (const confidence of [{ engine: ENGINE, words: "nope" }, { engine: "evil", words: INPUT.words }, 42]) {
-    const { id, success, transcription } = db.saveTranscription("keep me", "keep me", { confidence });
-    assert.equal(success, true);
-    assert.equal(transcription.text, "keep me");
-    assert.equal(db.getTranscriptionConfidence(id), null);
-  }
-});
-
-test("confidence follows the raw text: editing or retrying it drops the stale words", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const { id } = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT });
-  db.updateTranscriptionText(id, "Maria wants it, edited.", "Maria wants it.");
-  assert.deepEqual(db.getTranscriptionConfidence(id), STORED, "a cleaned-text edit keeps raw-aligned words");
-  db.updateTranscriptionText(id, "Retried text", "Retried text");
-  assert.equal(db.getTranscriptionConfidence(id), null);
-  assert.equal(db.getTranscriptionById(id).has_confidence, 0);
-});
-
-test("a retry clears confidence even when it returns identical text", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const { id } = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT });
-  db.clearTranscriptionConfidence(id);
-  db.updateTranscriptionText(id, "Maria wants it.", "Maria wants it.");
-  assert.equal(db.getTranscriptionConfidence(id), null);
-  const handlers = fs.readFileSync(path.join(__dirname, "../../src/helpers/ipcHandlers.js"), "utf8");
-  assert.match(
-    handlers,
-    /clearTranscriptionConfidence\(id\);\s*\n\s*this\.databaseManager\.updateTranscriptionText\(id, result\.text, result\.text\)/,
-    "retry-transcription drops old scores before writing the new text"
-  );
-});
-
-test("deleting, clearing and retention purge confidence with the transcription", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const a = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT }).id;
-  const b = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT }).id;
-  db.deleteTranscription(a);
-  assert.equal(db.getTranscriptionConfidence(a), null);
-  db.db.prepare("UPDATE transcriptions SET created_at = datetime('now', '-40 days') WHERE id = ?").run(b);
-  db.deleteTranscriptionsExpiredBefore(30);
-  assert.equal(confidenceRows(db), 0);
-  db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT });
-  db.clearTranscriptions();
-  assert.equal(confidenceRows(db), 0);
-});
-
-test("an older build's edit after a downgrade never leaves stale scores", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const { id } = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT });
-  // The pre-Plan-08 statement (src/helpers/database.js:607): it always names raw_text.
-  const oldBuildUpdate = db.db.prepare("UPDATE transcriptions SET text = ?, raw_text = ? WHERE id = ?");
-  oldBuildUpdate.run("Never do this", "Never do this", id);
-  assert.equal(db.getTranscriptionConfidence(id), null, "a different raw text drops the scores");
-  const second = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT }).id;
-  oldBuildUpdate.run("Maria wants it!", "Maria wants it.", second);
-  assert.equal(db.getTranscriptionConfidence(second), null, "even an identical raw text from an old build drops them");
-});
-
-test("stored scores are compact: the word cap stays under 650 KB", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const raw = Array.from({ length: 20000 }, (_, i) => `w${i % 1000}`).join(" ");
-  const many = { engine: ENGINE, words: raw.split(" ").map((w, i) => ({ w, p: 0.734, t: i * 0.321 })) };
-  const { id } = db.saveTranscription(raw, raw, { confidence: many });
-  const { words_json } = db.db.prepare("SELECT words_json FROM transcription_confidence WHERE transcription_id = ?").get(id);
-  assert.ok(words_json.length < 650000, `${words_json.length} bytes (measured ≈ 570 KB)`);
-  assert.equal(db.getTranscriptionConfidence(id).words.length, 20000);
-});
-
-test("a profile created before Plan 08 gains the table on open and keeps its history", (t) => {
-  const db = createDb(t);
-  if (!db) return;
-  const { id } = db.saveTranscription("older row", "older row");
-  db.db.exec("DROP TRIGGER transcription_confidence_raw_text; DROP TABLE transcription_confidence");
-  db.db.close();
-  const reopened = new DatabaseManager();
-  t.after(() => reopened.db.close());
-  assert.ok(
-    reopened.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcription_confidence'").get()
-  );
-  assert.ok(
-    reopened.db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'transcription_confidence_raw_text'").get()
-  );
-  assert.equal(reopened.getTranscriptionById(id).text, "older row");
-  assert.equal(reopened.getTranscriptionById(id).has_confidence, 0);
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- test/helpers/transcriptionConfidenceDatabase.test.js`
-Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTranscriptionConfidence is not a function`. If the run reports skips instead, run `npm run native:node` first.
-
-- [ ] **Step 3: Implement**
-
-1. `src/helpers/localDatabaseSchema.js`. Insert before the final `` `; ``:
-
-   ```sql
-   -- Word-level recognition confidence (Plan 08, WS-M4, Labs). One row per
-   -- transcription; words_json is [[s,e,p(,t)]] tuples with s/e as offsets into raw_text.
-   -- A side table so existing profiles gain it from this idempotent script and
-   -- history's SELECT * rows stay small.
-   CREATE TABLE IF NOT EXISTS transcription_confidence (
-     transcription_id INTEGER PRIMARY KEY REFERENCES transcriptions(id) ON DELETE CASCADE,
-     engine TEXT NOT NULL,
-     words_json TEXT NOT NULL,
-     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-   );
-   -- Any write that names raw_text drops the scores, even one made by an older
-   -- build that knows nothing of this table (downgrade, edit, upgrade). The
-   -- trigger lives in the database file, so it travels with the profile.
-   CREATE TRIGGER IF NOT EXISTS transcription_confidence_raw_text
-   AFTER UPDATE OF raw_text ON transcriptions
-   BEGIN
-     DELETE FROM transcription_confidence WHERE transcription_id = NEW.id;
-   END;
-   ```
-
-2. `src/helpers/database.js`:
-   - Add `const { buildStoredConfidence } = require("./wordConfidence");` with the requires.
-   - Add below the module constants (after `:26`):
-
-     ```js
-     // History rows carry a cheap has_confidence flag; the words load lazily.
-     const TRANSCRIPTION_ROW_SELECT = `SELECT t.*, EXISTS (
-         SELECT 1 FROM transcription_confidence c WHERE c.transcription_id = t.id
-       ) AS has_confidence FROM transcriptions t`;
-     ```
-
-   - In `saveTranscription`, add `confidence = null,` to the destructured options. Replace the `stmt.run(...)` through the fetch with:
-
-     ```js
-           const result = this.db.transaction(() => {
-             const inserted = stmt.run(
-               text,
-               rawText,
-               status,
-               errorMessage,
-               errorCode,
-               routeKind,
-               clientTranscriptionId,
-               occurredAt
-             );
-             this._saveTranscriptionConfidence(inserted.lastInsertRowid, confidence, rawText ?? text);
-             return inserted;
-           })();
-
-           const transcription = this.db
-             .prepare(`${TRANSCRIPTION_ROW_SELECT} WHERE t.id = ?`)
-             .get(result.lastInsertRowid);
-     ```
-
-   - Add these methods after `saveTranscription`:
-
-     ```js
-       // Invalid or unalignable input is dropped, never thrown: the transcription
-       // itself must always save (content is preserved on every failure).
-       _saveTranscriptionConfidence(id, input, rawText) {
-         if (!input) return false;
-         const stored = buildStoredConfidence(input, rawText);
-         if (!stored) return false;
-         // Compact tuples: ~28 bytes a word, so the 20 000-word cap is ≈ 570 KB.
-         const tuples = stored.words.map((w) => (w.t === undefined ? [w.s, w.e, w.p] : [w.s, w.e, w.p, w.t]));
-         this.db
-           .prepare(
-             "INSERT OR REPLACE INTO transcription_confidence (transcription_id, engine, words_json) VALUES (?, ?, ?)"
-           )
-           .run(id, stored.engine, JSON.stringify(tuples));
-         return true;
-       }
-     ```
-
-   - `getTranscriptions`. Change the SQL to:
-
-     ```js
-           const statusFilter = includeDiscarded ? "" : " AND t.status != 'discarded'";
-           const stmt = this.db.prepare(
-             `${TRANSCRIPTION_ROW_SELECT} WHERE t.deleted_at IS NULL${statusFilter} ORDER BY t.timestamp DESC, t.id DESC LIMIT ?`
-           );
-     ```
-
-   - `updateTranscriptionText`. Write `raw_text` only when it changes, so a cleaned-text edit keeps the scores and the trigger drops them on every real raw-text change. Replace `stmt.run(text, rawText, id);` inside the transaction with:
-
-     ```js
-             // Naming raw_text in the SET fires transcription_confidence_raw_text,
-             // so only do it when it actually changes.
-             if (existing && existing.raw_text === rawText) {
-               this.db.prepare("UPDATE transcriptions SET text = ? WHERE id = ?").run(text, id);
-             } else {
-               stmt.run(text, rawText, id);
-             }
-     ```
-
-   - `getTranscriptionById`. Change the statement to `this.db.prepare(\`${TRANSCRIPTION_ROW_SELECT} WHERE t.id = ?\`)`.
-   - Add after `getTranscriptionById`:
-
-     ```js
-       // Retry re-decodes the audio, possibly with another engine: old scores never
-       // carry over, even when the new text is identical.
-       clearTranscriptionConfidence(id) {
-         if (!this.db) throw new Error("Database not initialized");
-         this.db.prepare("DELETE FROM transcription_confidence WHERE transcription_id = ?").run(id);
-         return { success: true };
-       }
-
-       getTranscriptionConfidence(id) {
-         if (!this.db) throw new Error("Database not initialized");
-         const row = this.db
-           .prepare("SELECT engine, words_json FROM transcription_confidence WHERE transcription_id = ?")
-           .get(id);
-         if (!row) return null;
-         try {
-           const words = JSON.parse(row.words_json).map(([s, e, p, t]) => (t === undefined ? { s, e, p } : { s, e, p, t }));
-           return { v: 1, engine: row.engine, words };
-         } catch (error) {
-           debugLogger.warn("Unreadable transcription confidence", { id, error: error.message }, "database");
-           return null;
-         }
-       }
-     ```
-
-3. `src/helpers/ipcHandlers.js`:
-   - In `retry-transcription`, insert `this.databaseManager.clearTranscriptionConfidence(id);` on the line directly before `this.databaseManager.updateTranscriptionText(id, result.text, result.text);` (`:5290`).
-   - After the `db-get-transcriptions` handler (`:1263-1265`), add:
-
-   ```js
-       ipcMain.handle("db-get-transcription-confidence", async (_event, id) => {
-         return this.databaseManager.getTranscriptionConfidence(id);
-       });
-   ```
-
-4. `preload.js`. After `getTranscriptionById` (`:197`):
-
-   ```js
-     getTranscriptionConfidence: (id) => ipcRenderer.invoke("db-get-transcription-confidence", id),
-   ```
-
-5. `src/types/electron.ts`:
-   - Add the four exported types from **Interfaces** above `export interface TranscriptionItem` (`:97`).
-   - Add `has_confidence?: number;` inside `TranscriptionItem` after `route_kind?: string | null;`.
-   - Add `routeKind?: string | null;` and `confidence?: TranscriptionConfidenceInput | null;` to the `saveTranscription` options type (`:821-827`).
-   - After `getTranscriptionById` (`:839`), add:
-
-     ```ts
-           getTranscriptionConfidence?: (id: number) => Promise<TranscriptionConfidence | null>;
-     ```
-
-   - Add `confidence?: TranscriptionConfidenceInput;` to `ParakeetTranscriptionResult` (`:528`).
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/helpers/transcriptionConfidenceDatabase.test.js test/helpers/personalIpcContract.test.js test/helpers/personalDatabase.test.js test/helpers/transcriptRetention.test.js test/helpers/translationHistory.test.js && npm run typecheck`
-Expected: PASS. The IPC contract test confirms the new `db-*` channel is registered and that `getTranscriptionConfidence` exists on `DatabaseManager`.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/helpers/localDatabaseSchema.js src/helpers/database.js src/helpers/ipcHandlers.js preload.js src/types/electron.ts test/helpers/transcriptionConfidenceDatabase.test.js
-git commit -m "feat(db): store word confidence beside transcriptions, aligned to raw text"
-```
-
----
-
-### Task 7: Renderer pipeline — request, carry and save confidence
-
-**Files:**
-- Modify: `src/helpers/audioManager.js`:
-  - `processWithLocalWhisper` (`:1953-1956` options, `:2012-2016` retry call, `:2085-2092` result);
-  - `processWithLocalParakeet` (`:2145-2148` call, `:2170-2178` result);
-  - `saveTranscription` (`:3043-3047` signature, `:3079-3083` IPC call).
-- Modify: `src/hooks/useAudioRecording.js:537-545` (forward `result.confidence`)
-- Test: `test/helpers/audioManagerWordConfidence.test.js`
-
-**Interfaces:**
-- Consumes the Task 2 setting `labsConfidenceTypography`. It consumes Task 4 and Task 5 results (`result.confidence`) and the Task 6 `saveTranscription` option `confidence`.
-- Produces:
-  - dictation results `{ …, rawText, confidence?: TranscriptionConfidenceInput }`;
-  - `AudioManager#saveTranscription(text, rawText, { clientTranscriptionId, analyticsOccurredAt, confidence })`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `test/helpers/audioManagerWordConfidence.test.js`:
-
-```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { loadAudioManager } = require("./harness/audioManager");
-
-const AUDIO_BLOB = new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/webm" });
-const WHISPER_CONFIDENCE = { engine: "whisper.cpp", words: [{ w: "Hello", p: 0.6 }] };
-const SHERPA_CONFIDENCE = { engine: "sherpa-onnx", words: [{ w: "Hello", p: 0.6 }] };
-
-async function setup(t, settings) {
-  const loaded = await loadAudioManager(t, {
-    cachePrefix: "loqui-word-confidence-test-",
-    settingsKey: "__wordConfidenceSettings",
-    settings: {
-      useLocalWhisper: true,
-      localTranscriptionProvider: "whisper",
-      whisperModel: "base",
-      cloudTranscriptionMode: "byok",
-      dataRetentionEnabled: true,
-      audioRetentionDays: 0,
-      ...settings,
-    },
-  });
-  const manager = loaded.createManager({
-    getEffectiveSttLanguage: () => "en-US",
-    getCustomDictionaryPrompt: () => null,
-    getWhisperPrompt: () => null,
-    processTranscription: async (text) => `cleaned: ${text}`,
-  });
-  return { ...loaded, manager };
-}
-
-test("with the Labs flag off, whisper is asked exactly as today", async (t) => {
-  const { window, manager } = await setup(t, { labsConfidenceTypography: false });
-  const calls = [];
-  window.electronAPI.transcribeLocalWhisper = async (_buffer, options) => {
-    calls.push(options);
-    return { success: true, text: "Hello" };
-  };
-  const result = await manager.processWithLocalWhisper(AUDIO_BLOB, "base");
-  assert.equal("wordConfidence" in calls[0], false);
-  assert.equal("confidence" in result, false);
-});
-
-test("with the Labs flag on, whisper confidence rides with the raw text", async (t) => {
-  const { window, manager } = await setup(t, { labsConfidenceTypography: true });
-  const calls = [];
-  window.electronAPI.transcribeLocalWhisper = async (_buffer, options) => {
-    calls.push(options);
-    return { success: true, text: "Hello", confidence: WHISPER_CONFIDENCE };
-  };
-  const result = await manager.processWithLocalWhisper(AUDIO_BLOB, "base");
-  assert.equal(calls[0].wordConfidence, true);
-  assert.equal(result.rawText, "Hello");
-  assert.equal(result.text, "cleaned: Hello");
-  assert.deepEqual(result.confidence, WHISPER_CONFIDENCE);
-});
-
-test("the dictionary-echo retry keeps asking for confidence and its own result wins", async (t) => {
-  const { window, manager } = await setup(t, { labsConfidenceTypography: true });
-  const prompt = "Alcahest, Chromium, TypeScript, Electron, testing, data, benchmark, inference";
-  manager.getCustomDictionaryPrompt = () => prompt;
-  manager.getWhisperPrompt = () => prompt;
-  const calls = [];
-  const retryConfidence = { engine: "whisper.cpp", words: [{ w: "The", p: 0.9 }] };
-  window.electronAPI.transcribeLocalWhisper = async (_buffer, options) => {
-    calls.push(options);
-    return calls.length === 1
-      ? { success: true, text: prompt, confidence: WHISPER_CONFIDENCE }
-      : { success: true, text: "The database migration completed successfully.", confidence: retryConfidence };
-  };
-  const result = await manager.processWithLocalWhisper(AUDIO_BLOB, "base");
-  assert.equal(calls.length, 2, "the echo triggered the prompt-free retry");
-  assert.equal(calls[1].wordConfidence, true);
-  assert.deepEqual(result.confidence, retryConfidence);
-});
-
-test("Parakeet asks for confidence only while the Labs flag is on", async (t) => {
-  const { window, manager } = await setup(t, { labsConfidenceTypography: true, localTranscriptionProvider: "nvidia" });
-  const calls = [];
-  window.electronAPI.transcribeLocalParakeet = async (_buffer, options) => {
-    calls.push(options);
-    return { success: true, text: "Hello", confidence: SHERPA_CONFIDENCE };
-  };
-  const result = await manager.processWithLocalParakeet(AUDIO_BLOB, "parakeet-tdt-0.6b-v3");
-  assert.equal(calls[0].wordConfidence, true);
-  assert.deepEqual(result.confidence, SHERPA_CONFIDENCE);
-});
-
-test("saveTranscription forwards confidence to the database call, and omits it when absent", async (t) => {
-  const { window, manager } = await setup(t, {});
-  const saved = [];
-  window.electronAPI.recordAnalyticsEvent = async () => {};
-  window.electronAPI.saveTranscription = async (text, rawText, options) => {
-    saved.push(options);
-    return { id: 1, success: true };
-  };
-  await manager.saveTranscription("cleaned: Hello", "Hello", { confidence: WHISPER_CONFIDENCE });
-  await manager.saveTranscription("plain", "plain", {});
-  assert.deepEqual(saved[0].confidence, WHISPER_CONFIDENCE);
-  assert.equal("confidence" in saved[1], false);
-});
-```
-
-The echo test depends on the dictionary-echo heuristics (`audioManager.js:1990-2078`). If it does not trigger the retry with this prompt, copy the prompt and first outcome from the first case in `test/helpers/audioManagerDictionaryPromptRecovery.test.js:86-110`, which is known to retry.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- test/helpers/audioManagerWordConfidence.test.js`
-Expected: FAIL. `calls[0].wordConfidence` is `undefined` and `result.confidence` is `undefined` in the flag-on cases.
-
-- [ ] **Step 3: Implement**
-
-1. `processWithLocalWhisper`. After `options.language = language;` (the `if (language)` block at `:1954-1956`), add:
-
-   ```js
-         // Labs (WS-M4): word probabilities are requested only while the
-         // prototype is on, so the default request stays plain json.
-         if (getSettings().labsConfidenceTypography) {
-           options.wordConfidence = true;
-         }
-   ```
-
-   In the retry call at `:2012-2016`, add `...(options.wordConfidence ? { wordConfidence: true } : {}),` after the `language` spread. In the success return at `:2085-2092`, add `...(result.confidence ? { confidence: result.confidence } : {}),` after `rawText,`.
-
-2. `processWithLocalParakeet`. Change the call at `:2145-2148` to:
-
-   ```js
-           result = await window.electronAPI.transcribeLocalParakeet(arrayBuffer, {
-             model,
-             language: getBaseLanguageCode(this.getEffectiveSttLanguage(getSettings())),
-             ...(getSettings().labsConfidenceTypography ? { wordConfidence: true } : {}),
-           });
-   ```
-
-   In the success return at `:2170-2178`, add `...(result.confidence ? { confidence: result.confidence } : {}),` after `rawText,`. The streamed-text path builds `result = { success: true, text: streamedText }`, so it never carries confidence.
-
-3. `saveTranscription`. Change the destructure at `:3046` to `{ clientTranscriptionId, analyticsOccurredAt, confidence } = {}`, and the IPC call at `:3079-3083` to:
-
-   ```js
-         const result = await window.electronAPI.saveTranscription(text, rawText, {
-           clientTranscriptionId: eventId,
-           routeKind: this.translationRequested ? "translation" : null,
-           analyticsOccurredAt: occurredAt.toISOString(),
-           ...(confidence ? { confidence } : {}),
-         });
-   ```
-
-4. `src/hooks/useAudioRecording.js:537-545`. In the options object passed to `audioManagerRef.current.saveTranscription(...)`, add after the `analyticsOccurredAt` spread:
-
-   ```js
-                     ...(result.confidence ? { confidence: result.confidence } : {}),
-   ```
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/helpers/audioManagerWordConfidence.test.js test/helpers/audioManagerDictionaryPromptRecovery.test.js test/helpers/audioManagerOccurrenceTime.test.js test/helpers/audioManagerWakeWordLanguage.test.js`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/helpers/audioManager.js src/hooks/useAudioRecording.js test/helpers/audioManagerWordConfidence.test.js
-git commit -m "feat(dictation): carry Labs word confidence from local engines to history"
-```
-
----
-
-### Task 8: Confidence tokens, buckets and `ConfidenceText`
-
-**Files:**
-- Create: `src/lib/wordConfidence.ts`
-- Create: `src/components/ui/ConfidenceText.tsx`
-- Modify: `src/index.css`:
-  - `@theme` block at `:7` (light tokens);
-  - `.dark` block at `:113` (Plum Night tokens);
-  - a new "Confidence typography" rule block appended at the end of the file.
-- Test: `test/lib/wordConfidence.test.js`, `test/components/confidenceText.test.js`
-
-**Interfaces:**
-- Consumes the types `TranscriptionConfidence` and `TranscriptionConfidenceWord` from `src/types/electron.ts` (Task 6).
-- Produces `src/lib/wordConfidence.ts`:
-
-  ```ts
-  export type ConfidenceBucket = "sure" | "maybe" | "unsure";
-  export const CONFIDENCE_THRESHOLDS: { sure: number; maybe: number };   // default { sure: 0.9, maybe: 0.7 } unless the spike changed them
-  export const CONFIDENCE_WEIGHT: Record<ConfidenceBucket, number>;      // { sure: 420, maybe: 400, unsure: 380 }
-  export function confidenceBucket(p: number): ConfidenceBucket;
-  export type TranscriptSegment = { text: string; word?: TranscriptionConfidenceWord; index?: number };
-  export function segmentTranscript(text: string, words: TranscriptionConfidenceWord[]): TranscriptSegment[];
-  export function confidencePercent(p: number): number;                  // 0..100, rounded
-  ```
-
-- Produces `ConfidenceText` (`src/components/ui/ConfidenceText.tsx`):
-
-  ```ts
-  export interface ConfidenceTextProps {
-    text: string;
-    confidence: TranscriptionConfidence | null;
-    show: boolean;                               // false = plain weight 420, no underlines, no buttons
-    className?: string;
-    onClick?: React.MouseEventHandler<HTMLParagraphElement>;   // keeps Plan 06's click-to-copy on the row
-    renderWord?: (args: { word: TranscriptionConfidenceWord; bucket: "maybe" | "unsure"; label: string; children: string }) => React.ReactNode;
-  }
-  export function ConfidenceText(props: ConfidenceTextProps): JSX.Element;
-  ```
-
-  Without `renderWord`, an uncertain word renders as a focusable `<span role="button" tabIndex={0}>` with an `aria-label`. Task 9 passes `renderWord` to wrap it in the popover.
-- Produces CSS custom properties `--color-confidence-maybe` and `--color-confidence-low`, and classes `.confidence-text`, `.confidence-word[data-confidence=…]`.
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `test/lib/wordConfidence.test.js`:
-
-```js
-const assert = require("node:assert/strict");
-const test = require("node:test");
-
-const load = () => import("../../src/lib/wordConfidence.ts");
-
-test("buckets follow the spec mapping at the boundaries", async () => {
-  const { confidenceBucket, CONFIDENCE_WEIGHT } = await load();
-  assert.equal(confidenceBucket(0.9), "sure");
-  assert.equal(confidenceBucket(0.8999), "maybe");
-  assert.equal(confidenceBucket(0.7), "maybe");
-  assert.equal(confidenceBucket(0.6999), "unsure");
-  assert.equal(confidenceBucket(Number.NaN), "sure", "bad data never accuses a word");
-  assert.deepEqual(CONFIDENCE_WEIGHT, { sure: 420, maybe: 400, unsure: 380 });
-});
-
-test("segments cover the text exactly once, in order, and ignore broken offsets", async () => {
-  const { segmentTranscript } = await load();
-  const text = "Maria wants the tier names.";
-  const segments = segmentTranscript(text, [
-    { s: 16, e: 20, p: 0.64 },
-    { s: 0, e: 5, p: 0.58 },
-    { s: 3, e: 8, p: 0.1 },
-    { s: 30, e: 40, p: 0.1 },
-    { s: 21, e: 21, p: 0.1 },
-  ]);
-  assert.equal(segments.map((s) => s.text).join(""), text);
-  assert.deepEqual(segments.filter((s) => s.word).map((s) => s.text), ["Maria", "tier"]);
-  assert.deepEqual(segmentTranscript("plain", []), [{ text: "plain" }]);
-});
-
-test("percent labels are whole numbers", async () => {
-  const { confidencePercent } = await load();
-  assert.equal(confidencePercent(0.584), 58);
-  assert.equal(confidencePercent(1), 100);
-});
-```
-
-Create `test/components/confidenceText.test.js`:
-
-```js
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const test = require("node:test");
-const { renderStatic } = require("../helpers/harness/reactSsr");
-const { resolveTokens } = require("../helpers/harness/cssTokens");
-
-const repoRoot = path.join(__dirname, "../..");
-const load = () => import("../../src/components/ui/ConfidenceText.tsx");
-const CONF = { v: 1, engine: "whisper.cpp", words: [{ s: 0, e: 5, p: 0.58 }, { s: 6, e: 11, p: 0.95 }, { s: 16, e: 20, p: 0.8 }] };
-const TEXT = "Maria wants the tier names.";
-
-test("uncertain words are focusable, labelled and carry their bucket; sure words stay plain", async () => {
-  const { ConfidenceText } = await load();
-  const html = renderStatic(ConfidenceText, { text: TEXT, confidence: CONF, show: true });
-  assert.match(html, /class="confidence-text[^"]*"[^>]*data-show="true"/);
-  assert.match(html, /data-confidence="unsure"[^>]*role="button"[^>]*tabindex="0"[^>]*>Maria</);
-  assert.match(html, /data-confidence="maybe"[^>]*>tier</);
-  assert.match(html, /aria-label="history\.confidence\.wordLabel"/);
-  assert.doesNotMatch(html, /data-confidence="sure"[^>]*role="button"/);
-  assert.equal(html.replace(/<[^>]+>/g, ""), TEXT, "text content is unchanged");
-});
-
-test("with confidence hidden nothing is interactive", async () => {
-  const { ConfidenceText } = await load();
-  const html = renderStatic(ConfidenceText, { text: TEXT, confidence: CONF, show: false });
-  assert.match(html, /data-show="false"/);
-  assert.doesNotMatch(html, /role="button"/);
-});
-
-test("weight is never the only signal, and reduced motion drops the transition", () => {
-  const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
-  for (const bucket of ["maybe", "unsure"]) {
-    const rule = css.match(new RegExp(`\\.confidence-text\\[data-show="true"\\] \\.confidence-word\\[data-confidence="${bucket}"\\]\\s*\\{([^}]*)\\}`));
-    assert.ok(rule, `${bucket} rule`);
-    assert.match(rule[1], /text-decoration-line:\s*underline/);
-    assert.match(rule[1], /text-decoration-style:\s*dotted/);
-  }
-  assert.match(css, /\.confidence-word\s*\{[^}]*transition:[^}]*var\(--motion-fast\)/);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.confidence-word\s*\{\s*transition:\s*none;/);
-});
-
-test("underline colours reach 3:1 on page and card surfaces in both themes", async () => {
-  const { contrastRatio } = await import("../../src/utils/contrast.ts");
-  const { light, dark } = resolveTokens(fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8"));
-  for (const [theme, tokens] of [["light", light], ["dark", dark]]) {
-    for (const fg of ["--color-confidence-maybe", "--color-confidence-low"]) {
-      for (const bg of ["--color-background", "--color-card"]) {
-        assert.ok(contrastRatio(tokens[fg], tokens[bg]) >= 3, `${theme} ${fg} on ${bg}`);
-      }
-    }
-  }
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `npm test -- test/lib/wordConfidence.test.js test/components/confidenceText.test.js`
-Expected: FAIL with `Cannot find module '../../src/lib/wordConfidence.ts'`.
-
-- [ ] **Step 3: Implement**
-
-Create `src/lib/wordConfidence.ts`:
-
-```ts
-import type { TranscriptionConfidenceWord } from "../types/electron";
-
-// WS-M4 (Plan 08). Thresholds come from the audit spec; Task 1's spike may
-// have recalibrated them. Weights ride Inter Variable's continuous wght axis.
-export type ConfidenceBucket = "sure" | "maybe" | "unsure";
-
-export const CONFIDENCE_THRESHOLDS = { sure: 0.9, maybe: 0.7 } as const;
-export const CONFIDENCE_WEIGHT: Record<ConfidenceBucket, number> = { sure: 420, maybe: 400, unsure: 380 };
-
-export function confidenceBucket(p: number): ConfidenceBucket {
-  if (!Number.isFinite(p) || p >= CONFIDENCE_THRESHOLDS.sure) return "sure";
-  return p >= CONFIDENCE_THRESHOLDS.maybe ? "maybe" : "unsure";
-}
-
-export function confidencePercent(p: number): number {
-  return Math.round(Math.max(0, Math.min(1, p)) * 100);
-}
-
-export type TranscriptSegment = { text: string; word?: TranscriptionConfidenceWord; index?: number };
-
-// Splits text into plain runs and word runs. Words that overlap an earlier
-// word, fall outside the text or are empty are ignored, so the segments always
-// concatenate back to exactly `text`.
-export function segmentTranscript(
-  text: string,
-  words: TranscriptionConfidenceWord[]
-): TranscriptSegment[] {
-  const sorted = [...words].sort((a, b) => a.s - b.s);
-  const segments: TranscriptSegment[] = [];
-  let cursor = 0;
-  sorted.forEach((word, index) => {
-    if (word.s < cursor || word.e <= word.s || word.e > text.length) return;
-    if (word.s > cursor) segments.push({ text: text.slice(cursor, word.s) });
-    segments.push({ text: text.slice(word.s, word.e), word, index });
-    cursor = word.e;
-  });
-  if (cursor < text.length || segments.length === 0) segments.push({ text: text.slice(cursor) });
-  return segments;
-}
-```
-
-The gate outcome is enforced in main (`ENGINES` in `src/helpers/wordConfidence.js`): the UI shows only what main stored. If the spike recalibrated, set `CONFIDENCE_THRESHOLDS` to the report's values and update the boundary assertions in `test/lib/wordConfidence.test.js` to match.
-
-Create `src/components/ui/ConfidenceText.tsx`:
-
-```tsx
-import type { MouseEventHandler, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
-import type { TranscriptionConfidence, TranscriptionConfidenceWord } from "../../types/electron";
-import { confidenceBucket, confidencePercent, segmentTranscript } from "../../lib/wordConfidence";
-import { cn } from "../lib/utils";
-
-export interface ConfidenceTextProps {
-  text: string;
-  confidence: TranscriptionConfidence | null;
-  show: boolean;
-  className?: string;
-  onClick?: MouseEventHandler<HTMLParagraphElement>;
-  renderWord?: (args: {
-    word: TranscriptionConfidenceWord;
-    bucket: "maybe" | "unsure";
-    label: string;
-    children: string;
-  }) => ReactNode;
-}
-
-// The type itself shows what the machine was unsure about (WS-M4). Weight is
-// never the only signal: the CSS pairs it with a dotted underline.
-export function ConfidenceText({ text, confidence, show, className, onClick, renderWord }: ConfidenceTextProps) {
-  const { t } = useTranslation();
-  const segments = segmentTranscript(text, confidence?.words ?? []);
-
-  return (
-    <p dir="auto" className={cn("confidence-text", className)} data-show={show ? "true" : "false"} onClick={onClick}>
-      {segments.map((segment, i) => {
-        if (!segment.word) return segment.text;
-        const bucket = confidenceBucket(segment.word.p);
-        if (!show || bucket === "sure") {
-          return (
-            <span key={i} className="confidence-word" data-confidence={bucket}>
-              {segment.text}
-            </span>
-          );
-        }
-        const label = t("history.confidence.wordLabel", {
-          word: segment.text,
-          percent: confidencePercent(segment.word.p),
-        });
-        if (renderWord) {
-          return <span key={i}>{renderWord({ word: segment.word, bucket, label, children: segment.text })}</span>;
-        }
-        return (
-          <span key={i} className="confidence-word" data-confidence={bucket} role="button" tabIndex={0} aria-label={label}>
-            {segment.text}
-          </span>
-        );
-      })}
-    </p>
-  );
-}
-```
-
-In `src/index.css`:
-- Add to the `@theme` block (`:7`), after the `--color-accent-foreground` line:
-
-  ```css
-    /* WS-M4 confidence underlines (non-text, ≥3:1 on background and card). */
-    --color-confidence-maybe: #767676;
-    --color-confidence-low: #d90078;
-  ```
-
-- Add to `.dark` (`:113`), after its `--color-accent-foreground` line:
-
-  ```css
-    --color-confidence-maybe: #a8989f;
-    --color-confidence-low: #ff6db8;
-  ```
-
-- Append at the end of the file:
-
-  ```css
-  /* Confidence typography (WS-M4, Labs). Inter Variable's wght axis carries
-     certainty; a dotted underline always accompanies the lighter weight so
-     the signal never depends on weight alone. */
-  .confidence-text {
-    font-weight: 420;
-    font-variation-settings: "wght" 420;
-  }
-  .confidence-word {
-    border-radius: 3px;
-    transition:
-      font-variation-settings var(--motion-fast) var(--motion-ease-std),
-      font-weight var(--motion-fast) var(--motion-ease-std),
-      text-decoration-color var(--motion-fast) var(--motion-ease-std);
-  }
-  .confidence-text[data-show="true"] .confidence-word[data-confidence="maybe"] {
-    font-weight: 400;
-    font-variation-settings: "wght" 400;
-    text-decoration-line: underline;
-    text-decoration-style: dotted;
-    text-decoration-color: var(--color-confidence-maybe);
-    text-decoration-thickness: 1.5px;
-    text-underline-offset: 3px;
-    cursor: pointer;
-  }
-  .confidence-text[data-show="true"] .confidence-word[data-confidence="unsure"] {
-    font-weight: 380;
-    font-variation-settings: "wght" 380;
-    text-decoration-line: underline;
-    text-decoration-style: dotted;
-    text-decoration-color: var(--color-confidence-low);
-    text-decoration-thickness: 1.5px;
-    text-underline-offset: 3px;
-    cursor: pointer;
-  }
-  .confidence-word:focus-visible {
-    outline: 2px solid var(--color-ring);
-    outline-offset: 2px;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .confidence-word {
-      transition: none;
-    }
-  }
-  ```
-
-The `history.confidence.wordLabel` key is added in Task 10 Step 3. Until then, the SSR test sees the raw key, as the existing tests do.
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/lib/wordConfidence.test.js test/components/confidenceText.test.js test/components/motionTokens.test.js`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/lib/wordConfidence.ts src/components/ui/ConfidenceText.tsx src/index.css test/lib/wordConfidence.test.js test/components/confidenceText.test.js
-git commit -m "feat(ui): ConfidenceText draws recognition certainty in Inter's weight axis"
-```
-
----
-
-### Task 9: Word popover — Add to Words, Play 2 s
-
-**Files:**
-- Create: `src/components/ui/ConfidenceWordPopover.tsx`
-- Create: `src/lib/wordAudio.ts`
-- Test: `test/lib/wordAudio.test.js`, `test/components/confidenceWordPopover.test.js`
-
-**Interfaces:**
-- Consumes:
-  - `Popover`, `PopoverTrigger`, `PopoverContent` from `src/components/ui/popover.tsx`;
-  - `useSettingsStore((s) => s.updateCustomDictionary)` (`settingsStore.ts:1914`, `({ add, remove }) => void`);
-  - `window.electronAPI.getAudioBuffer(id)` (preload, `get-audio-buffer`).
-- Produces:
-  - `src/lib/wordAudio.ts`:
-    - `audioWindow(startSeconds: number, durationSeconds: number | null): { offset: number; length: number }`. It returns 2 s starting 0.5 s before the word, clamped to the recording.
-    - `playWordAudio(transcriptionId: number, startSeconds: number, durationMs: number | null): Promise<boolean>`
-  - `ConfidenceWordPopover(props: { transcriptionId: number; word: TranscriptionConfidenceWord; bucket: "maybe" | "unsure"; label: string; text: string; canPlay: boolean; durationMs: number | null; onAdded?: (word: string) => void }): JSX.Element`
-- Keys on a focused uncertain word: `A` adds the word to the dictionary, `P` plays 2 s (only when `canPlay`), `Escape` closes. Hover opens after the pointer enters and closes 220 ms after it leaves both the word and the popover. Focus opens.
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `test/lib/wordAudio.test.js`:
-
-```js
-const assert = require("node:assert/strict");
-const test = require("node:test");
-
-const load = () => import("../../src/lib/wordAudio.ts");
-
-test("the window starts half a second early and lasts two seconds", async () => {
-  const { audioWindow } = await load();
-  assert.deepEqual(audioWindow(3, 10), { offset: 2.5, length: 2 });
-});
-
-test("the window is clamped to the start and end of the recording", async () => {
-  const { audioWindow } = await load();
-  assert.deepEqual(audioWindow(0.2, 10), { offset: 0, length: 2 });
-  assert.deepEqual(audioWindow(9.8, 10), { offset: 8, length: 2 });
-  assert.deepEqual(audioWindow(0.5, 1.2), { offset: 0, length: 1.2 });
-  assert.deepEqual(audioWindow(4, null), { offset: 3.5, length: 2 }, "unknown duration keeps 2 s");
-  assert.deepEqual(audioWindow(Number.NaN, 10), { offset: 0, length: 2 });
-});
-```
-
-Create `test/components/confidenceWordPopover.test.js`:
-
-```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { createElement } = require("react");
-const { renderToStaticMarkup } = require("react-dom/server");
-const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
-
-async function render(t, props) {
-  installBrowserGlobals(t);
-  const vite = await createRendererServer(t, {
-    cachePrefix: "loqui-confidence-popover-test-",
-    mockModules: {
-      // Suffix match on the import source: ConfidenceWordPopover imports "./popover".
-      "/popover": `
-        import { createElement } from "react";
-        const pass = (props) => createElement("div", { "data-part": props["data-part"] }, props.children);
-        export const Popover = (props) => createElement("div", { "data-open": String(!!props.open) }, props.children);
-        export const PopoverTrigger = (props) => props.children;
-        export const PopoverContent = pass;
-      `,
-      "/stores/settingsStore": `export const useSettingsStore = (sel) => sel({ updateCustomDictionary() {} });`,
-    },
-  });
-  const mod = await vite.ssrLoadModule("/components/ui/ConfidenceWordPopover.tsx");
-  return renderToStaticMarkup(createElement(mod.ConfidenceWordPopover, props));
-}
-
-const BASE = {
-  transcriptionId: 7,
-  word: { s: 0, e: 5, p: 0.58, t: 1.2 },
-  bucket: "unsure",
-  label: "Maria, 58 percent",
-  text: "Maria",
-  durationMs: 9000,
-};
-
-test("the trigger is the word itself, labelled and keyboard reachable", async (t) => {
-  const html = await render(t, { ...BASE, canPlay: true });
-  assert.match(html, /class="confidence-word"[^>]*data-confidence="unsure"[^>]*role="button"[^>]*tabindex="0"[^>]*aria-label="Maria, 58 percent"[^>]*>Maria</);
-  assert.match(html, /aria-haspopup="dialog"/);
-});
-
-test("the popover offers Add to Words always and Play only with retained audio", async (t) => {
-  const withAudio = await render(t, { ...BASE, canPlay: true });
-  assert.match(withAudio, /history\.confidence\.addToWords/);
-  assert.match(withAudio, /history\.confidence\.play/);
-  assert.match(withAudio, /history\.confidence\.percent/);
-  assert.doesNotMatch(withAudio, /alternatives/i, "CCR-4: no n-best list");
-  const noAudio = await render(t, { ...BASE, canPlay: false });
-  assert.doesNotMatch(noAudio, /history\.confidence\.play/);
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `npm test -- test/lib/wordAudio.test.js test/components/confidenceWordPopover.test.js`
-Expected: FAIL. The modules are not found.
-
-- [ ] **Step 3: Implement**
-
-Create `src/lib/wordAudio.ts`:
-
-```ts
-const LEAD_SECONDS = 0.5;
-const WINDOW_SECONDS = 2;
-
-export function audioWindow(
-  startSeconds: number,
-  durationSeconds: number | null
-): { offset: number; length: number } {
-  const start = Number.isFinite(startSeconds) ? Math.max(0, startSeconds) : 0;
-  const total = durationSeconds != null && Number.isFinite(durationSeconds) ? durationSeconds : null;
-  const length = total != null ? Math.min(WINDOW_SECONDS, total) : WINDOW_SECONDS;
-  let offset = Math.max(0, start - LEAD_SECONDS);
-  if (total != null) offset = Math.min(offset, Math.max(0, total - length));
-  return { offset: Math.round(offset * 1000) / 1000, length: Math.round(length * 1000) / 1000 };
-}
-
-// Plays two seconds of the retained recording around a word. Returns false when
-// there is no audio (retention off, file purged) so callers can say so.
-export async function playWordAudio(
-  transcriptionId: number,
-  startSeconds: number,
-  durationMs: number | null
-): Promise<boolean> {
-  const buffer = await window.electronAPI?.getAudioBuffer?.(transcriptionId);
-  if (!buffer) return false;
-  const context = new AudioContext();
-  try {
-    const decoded = await context.decodeAudioData(buffer);
-    const { offset, length } = audioWindow(startSeconds, durationMs != null ? durationMs / 1000 : decoded.duration);
-    const source = context.createBufferSource();
-    source.buffer = decoded;
-    source.connect(context.destination);
-    source.onended = () => void context.close();
-    source.start(0, offset, length);
-    return true;
-  } catch {
-    void context.close();
-    return false;
-  }
-}
-```
-
-`getAudioBuffer` is typed `(id: number) => Promise<ArrayBuffer | null>` (`src/types/electron.ts:855`).
-
-Create `src/components/ui/ConfidenceWordPopover.tsx`:
-
-```tsx
-import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
-import type { TranscriptionConfidenceWord } from "../../types/electron";
-import { confidencePercent } from "../../lib/wordConfidence";
-import { playWordAudio } from "../../lib/wordAudio";
-import { useSettingsStore } from "../../stores/settingsStore";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover";
-
-const CLOSE_DELAY_MS = 220;
-
-export interface ConfidenceWordPopoverProps {
-  transcriptionId: number;
-  word: TranscriptionConfidenceWord;
-  bucket: "maybe" | "unsure";
-  label: string;
-  text: string;
-  canPlay: boolean;
-  durationMs: number | null;
-  onAdded?: (word: string) => void;
-}
-
-// CCR-4: no engine supplies per-word alternatives, so the popover offers what
-// is real: the score, Add to Words and a 2 s replay.
-export function ConfidenceWordPopover({
-  transcriptionId,
-  word,
-  bucket,
-  label,
-  text,
-  canPlay,
-  durationMs,
-  onAdded,
-}: ConfidenceWordPopoverProps) {
-  const { t } = useTranslation();
-  const updateCustomDictionary = useSettingsStore((s) => s.updateCustomDictionary);
-  const [open, setOpen] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bare = text.replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, "");
-  const playable = canPlay && word.t !== undefined;
-
-  const keepOpen = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    setOpen(true);
-  };
-  const closeSoon = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
-  };
-  const addToWords = () => {
-    if (!bare) return;
-    updateCustomDictionary({ add: [bare] });
-    onAdded?.(bare);
-    setOpen(false);
-  };
-  const play = async () => {
-    if (!playable || playing) return;
-    setPlaying(true);
-    await playWordAudio(transcriptionId, word.t as number, durationMs);
-    setTimeout(() => setPlaying(false), 2000);
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <span
-          className="confidence-word"
-          data-confidence={bucket}
-          role="button"
-          tabIndex={0}
-          aria-label={label}
-          aria-haspopup="dialog"
-          onMouseEnter={keepOpen}
-          onMouseLeave={closeSoon}
-          onFocus={keepOpen}
-          // Plan 06's row copies on click; a word click opens this popover instead.
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => {
-            const key = event.key.toLowerCase();
-            if (key === "a") {
-              event.preventDefault();
-              addToWords();
-            } else if (key === "p" && playable) {
-              event.preventDefault();
-              void play();
-            } else if (event.key === "Escape") {
-              setOpen(false);
-            }
-          }}
-        >
-          {text}
-        </span>
-      </PopoverTrigger>
-      <PopoverContent
-        data-part="confidence-popover"
-        className="w-56 p-2 text-xs"
-        onMouseEnter={keepOpen}
-        onMouseLeave={closeSoon}
-        // Portalled content still bubbles through the React tree to the row.
-        onClick={(event) => event.stopPropagation()}
-        onOpenAutoFocus={(event: Event) => event.preventDefault()}
-      >
-        <p className="px-2 pb-1 font-medium text-muted-foreground">
-          {t("history.confidence.percent", { percent: confidencePercent(word.p) })}
-        </p>
-        <button
-          type="button"
-          className="flex h-7 w-full items-center justify-between rounded-md px-2 text-start hover:bg-foreground/6"
-          onClick={addToWords}
-        >
-          <span>{t("history.confidence.addToWords")}</span>
-          <kbd className="text-muted-foreground">A</kbd>
-        </button>
-        {playable && (
-          <button
-            type="button"
-            className="flex h-7 w-full items-center justify-between rounded-md px-2 text-start hover:bg-foreground/6"
-            onClick={() => void play()}
-            aria-busy={playing}
-          >
-            <span>{t(playing ? "history.confidence.playing" : "history.confidence.play")}</span>
-            <kbd className="text-muted-foreground">P</kbd>
-          </button>
-        )}
-      </PopoverContent>
-    </Popover>
-  );
-}
-```
-
-`PopoverContent` spreads its remaining props onto Radix `Content` (`src/components/ui/popover.tsx:23`), so `onOpenAutoFocus`, `onMouseEnter` and `onMouseLeave` pass through.
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/lib/wordAudio.test.js test/components/confidenceWordPopover.test.js && npm run typecheck`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/lib/wordAudio.ts src/components/ui/ConfidenceWordPopover.tsx test/lib/wordAudio.test.js test/components/confidenceWordPopover.test.js
-git commit -m "feat(ui): confidence word popover with Add to Words and 2 s replay"
-```
-
----
-
-### Task 10: History integration, preview stub, and docs
-
-**Files:**
-- Create: `src/hooks/useTranscriptionConfidence.ts`
-- Modify: `src/components/ui/TranscriptionItem.tsx`:
-  - imports (`:1-28`);
-  - menu actions (`:115-146`);
-  - text paragraph (`:279-285`);
-  - raw-transcript paragraph (`:314-316`).
-- Modify: `src/components/HistoryView.tsx` (the ⌥C listener)
-- Modify: `src/preview/browserPreview.ts:177` (a `getTranscriptionConfidence` stub)
-- Modify: `src/locales/*/translation.json` (`history.confidence.*`)
-- Modify: `DESIGN.md` (a "Confidence typography (Labs)" subsection), `docs/PRIVACY.md` (local storage of word scores)
-- Test: `test/components/transcriptionItemConfidence.test.js`
-
-**Interfaces:**
-- Consumes:
-  - `ConfidenceText` (Task 8) and `ConfidenceWordPopover` (Task 9);
-  - `window.electronAPI.getTranscriptionConfidence` and `item.has_confidence` (Task 6);
-  - the settings `labsConfidenceTypography`, `historyShowConfidence` and `setHistoryShowConfidence` (Task 2).
-- Produces `useTranscriptionConfidence(id: number, rawText: string | null, enabled: boolean): TranscriptionConfidence | null`. It uses a module-level cache keyed by `${id}:${rawText}`, so a changed raw text refetches.
-- Behaviour:
-  - **List row.** It shows `ConfidenceText` only when all of these hold: Labs is on, `historyShowConfidence` is on, the row has confidence, and `item.text === item.raw_text`. If cleanup changed the text, the words belong to the raw text, so the cleaned row stays plain.
-  - **Expanded raw transcript.** It always shows `ConfidenceText` with `show` true when Labs is on and data exists (spec: "default on in the expanded raw view").
-  - **Kebab item.** "Show confidence" or "Hide confidence" toggles `historyShowConfidence`, only on rows that have data.
-  - **⌥C.** In History it toggles the same setting while Labs is on.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `test/components/transcriptionItemConfidence.test.js`:
-
-```js
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const { createElement } = require("react");
-const { renderToStaticMarkup } = require("react-dom/server");
-const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
-
-const repoRoot = path.join(__dirname, "../..");
-const CONF = { v: 1, engine: "whisper.cpp", words: [{ s: 0, e: 5, p: 0.58 }] };
-
-async function renderRow(t, { settings, item }) {
-  installBrowserGlobals(t);
-  globalThis.__rowSettings = settings;
-  t.after(() => delete globalThis.__rowSettings);
-  const vite = await createRendererServer(t, {
-    cachePrefix: "loqui-row-confidence-test-",
-    mockModules: {
-      "/stores/settingsStore": `export const useSettingsStore = (sel) => sel(globalThis.__rowSettings);`,
-      "/hooks/useTranscriptionConfidence": `export const useTranscriptionConfidence = (_id, _raw, enabled) => (enabled ? ${JSON.stringify(CONF)} : null);`,
-      // Mock keys match the end of the import source ("./dropdown-menu", "./popover").
-      "/dropdown-menu": `
-        import { createElement } from "react";
-        const pass = (p) => createElement("div", null, p.children);
-        export const DropdownMenu = pass; export const DropdownMenuTrigger = pass;
-        export const DropdownMenuContent = pass; export const DropdownMenuItem = pass;
-      `,
-      "/utils/platform": `export const getCachedPlatform = () => "darwin";`,
-      "/popover": `
-        export const Popover = (p) => p.children; export const PopoverTrigger = (p) => p.children;
-        export const PopoverContent = () => null;
-      `,
-    },
-  });
-  const mod = await vite.ssrLoadModule("/components/ui/TranscriptionItem.tsx");
-  return renderToStaticMarkup(
-    createElement(mod.default, {
-      item,
-      onCopy() {},
-      onDelete() {},
-      onShowAudioInFolder() {},
-      onRetryTranscription: async () => {},
-    })
-  );
-}
-
-const ITEM = {
-  id: 1, text: "Maria wants it.", raw_text: "Maria wants it.", timestamp: "2026-10-14 10:00:00", created_at: "2026-10-14 10:00:00",
-  has_audio: 0, audio_duration_ms: null, provider: null, model: null, status: "completed", error_message: null,
-  error_code: null, route_kind: null, client_transcription_id: "c1", cloud_id: null, sync_status: "synced", deleted_at: null,
-  has_confidence: 1,
-};
-const ON = { labsConfidenceTypography: true, historyShowConfidence: true, setHistoryShowConfidence() {}, updateCustomDictionary() {} };
-
-test("with Labs on and the toggle on, the row draws confidence", async (t) => {
-  const html = await renderRow(t, { settings: ON, item: ITEM });
-  assert.match(html, /class="confidence-text[^"]*"[^>]*data-show="true"/);
-  assert.match(html, /history\.confidence\.hide/);
-});
-
-test("with Labs off, the row is exactly today's plain paragraph and has no confidence menu item", async (t) => {
-  const html = await renderRow(t, { settings: { ...ON, labsConfidenceTypography: false }, item: ITEM });
-  assert.doesNotMatch(html, /confidence-/);
-  assert.doesNotMatch(html, /history\.confidence\./);
-});
-
-test("cleaned text that differs from the raw text stays plain in the list", async (t) => {
-  const html = await renderRow(t, { settings: ON, item: { ...ITEM, text: "MARIA WANTS IT!" } });
-  const list = html.slice(0, html.indexOf("controlPanel.history.rawTranscript"));
-  assert.doesNotMatch(list, /confidence-text/);
-  assert.match(html.slice(html.indexOf("controlPanel.history.rawTranscript")), /confidence-text[^"]*"[^>]*data-show="true"/);
-});
-
-test("the raw paragraph satisfies Plan 06's token guard in both branches", () => {
-  const src = fs.readFileSync(path.join(repoRoot, "src/components/ui/TranscriptionItem.tsx"), "utf8");
-  assert.doesNotMatch(src, /\btext-muted-foreground\/\d+/);
-  assert.doesNotMatch(src, /\btext-\[\d+(\.\d+)?px\]/);
-  assert.match(src, /className=\{RAW_TEXT_CLASS\}[\s\S]*className=\{RAW_TEXT_CLASS\}/);
-});
-
-test("rows from engines without data never show the toggle", async (t) => {
-  const html = await renderRow(t, { settings: ON, item: { ...ITEM, has_confidence: 0 } });
-  assert.doesNotMatch(html, /history\.confidence\./);
-});
-
-test("every locale carries the confidence strings with their placeholders", () => {
-  const dir = path.join(repoRoot, "src/locales");
-  for (const lang of fs.readdirSync(dir).filter((d) => fs.existsSync(path.join(dir, d, "translation.json")))) {
-    const c = JSON.parse(fs.readFileSync(path.join(dir, lang, "translation.json"), "utf8")).history?.confidence;
-    assert.ok(c, `${lang} history.confidence`);
-    for (const k of ["show", "hide", "addToWords", "play", "playing"]) assert.ok(c[k], `${lang}.${k}`);
-    assert.match(c.wordLabel, /\{\{word\}\}/);
-    assert.match(c.wordLabel, /\{\{percent\}\}/);
-    assert.match(c.percent, /\{\{percent\}\}/);
-  }
-});
-```
-
-The props match `TranscriptionItemProps` (`TranscriptionItem.tsx:49-56`). If Plan 06 changed them, pass its required props instead.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- test/components/transcriptionItemConfidence.test.js`
-Expected: FAIL. No `confidence-text` appears, and `en history.confidence` is missing.
-
-- [ ] **Step 3: Implement**
-
-1. Create `src/hooks/useTranscriptionConfidence.ts`:
-
-   ```ts
-   import { useEffect, useState } from "react";
-   import type { TranscriptionConfidence } from "../types/electron";
-
-   // Keyed by id and raw text: a retry or edit changes raw_text, and main drops
-   // the stale words, so the old cache entry must not be reused.
-   const cache = new Map<string, TranscriptionConfidence | null>();
-
-   export function useTranscriptionConfidence(
-     id: number,
-     rawText: string | null,
-     enabled: boolean
-   ): TranscriptionConfidence | null {
-     const key = `${id}:${rawText ?? ""}`;
-     const [value, setValue] = useState<TranscriptionConfidence | null>(() => cache.get(key) ?? null);
-
-     useEffect(() => {
-       if (!enabled) return;
-       if (cache.has(key)) {
-         setValue(cache.get(key) ?? null);
-         return;
-       }
-       let stale = false;
-       window.electronAPI
-         ?.getTranscriptionConfidence?.(id)
-         .then((result) => {
-           cache.set(key, result ?? null);
-           if (!stale) setValue(result ?? null);
-         })
-         .catch(() => {
-           if (!stale) setValue(null);
-         });
-       return () => {
-         stale = true;
-       };
-     }, [enabled, id, key]);
-
-     return enabled ? value : null;
-   }
-   ```
-
-2. `src/components/ui/TranscriptionItem.tsx`:
-   - Imports. Add:
-
-     ```tsx
-     import { ConfidenceText } from "./ConfidenceText";
-     import { ConfidenceWordPopover } from "./ConfidenceWordPopover";
-     import { useSettingsStore } from "../../stores/settingsStore";
-     import { useTranscriptionConfidence } from "../../hooks/useTranscriptionConfidence";
-     ```
-
-     Also add `Gauge` to the `../icons` import list (exported at `src/components/icons/index.ts:45`).
-
-   - After `const hasAudio = item.has_audio === 1;` (`:97`), add:
-
-     ```tsx
-       const labsConfidence = useSettingsStore((s) => s.labsConfidenceTypography);
-       const showConfidence = useSettingsStore((s) => s.historyShowConfidence);
-       const setShowConfidence = useSettingsStore((s) => s.setHistoryShowConfidence);
-       const hasConfidence = labsConfidence && isTranscribed && item.has_confidence === 1;
-       const confidence = useTranscriptionConfidence(item.id, rawText, hasConfidence);
-       const confidenceInList = hasConfidence && showConfidence && rawText === item.text;
-       const renderConfidenceWord = ({ word, bucket, label, children }: {
-         word: { s: number; e: number; p: number; t?: number };
-         bucket: "maybe" | "unsure";
-         label: string;
-         children: string;
-       }) => (
-         <ConfidenceWordPopover
-           transcriptionId={item.id}
-           word={word}
-           bucket={bucket}
-           label={label}
-           text={children}
-           canPlay={hasAudio}
-           durationMs={item.audio_duration_ms}
-         />
-       );
-     ```
-
-   - In `candidateActions`, insert after the `raw` entry:
-
-     ```tsx
-         hasConfidence && {
-           key: "confidence",
-           icon: Gauge,
-           label: t(showConfidence ? "history.confidence.hide" : "history.confidence.show"),
-           onSelect: () => setShowConfidence(!showConfidence),
-         },
-     ```
-
-   - Replace the text paragraph at `:279-285` with the block below. After Plan 06, use the paragraph's then-current `className` (`text-body line-clamp-4 …`) in both branches, and pass its `onClick={copyUnlessSelecting}` to both: `ConfidenceText` forwards `onClick` to its `<p>`.
-
-     ```tsx
-             ) : confidenceInList ? (
-               <ConfidenceText
-                 text={item.text}
-                 confidence={confidence}
-                 show
-                 className="text-base leading-normal wrap-break-word whitespace-pre-wrap text-foreground"
-                 renderWord={renderConfidenceWord}
-               />
-             ) : (
-               <p
-                 dir="auto"
-                 className="text-base leading-normal wrap-break-word whitespace-pre-wrap text-foreground"
-               >
-                 {item.text}
-               </p>
-             )}
-     ```
-
-   - Replace the raw paragraph at `:314-316` with the block below. Above the component, define `const RAW_TEXT_CLASS = "mt-1 text-caption leading-relaxed text-muted-foreground";`.
-     - Plan 06 Task 25's `workspaceTokenAdoption.test.js` scans this file and rejects `text-muted-foreground/NN` and arbitrary `text-[Npx]` sizes. Its migration maps the old `text-muted-foreground/80` to full `text-muted-foreground`, and readable small text to `text-caption`.
-     - If Plan 06 left this paragraph with different compliant classes, use exactly those for `RAW_TEXT_CLASS`, so both branches stay identical.
-
-     ```tsx
-                   {hasConfidence ? (
-                     <ConfidenceText
-                       text={rawText}
-                       confidence={confidence}
-                       show
-                       className={RAW_TEXT_CLASS}
-                       renderWord={renderConfidenceWord}
-                     />
-                   ) : (
-                     <p dir="auto" className={RAW_TEXT_CLASS}>
-                       {rawText}
-                     </p>
-                   )}
-     ```
-
-3. `src/components/HistoryView.tsx`. Next to its other hooks, add a ⌥C listener:
-
-   ```tsx
-     const labsConfidence = useSettingsStore((s) => s.labsConfidenceTypography);
-     const toggleShowConfidence = useSettingsStore((s) => s.setHistoryShowConfidence);
-     const showConfidence = useSettingsStore((s) => s.historyShowConfidence);
-     useEffect(() => {
-       if (!labsConfidence) return;
-       const onKeyDown = (event: KeyboardEvent) => {
-         // ⌥C / Alt+C (spec WS-M4). event.code survives the macOS dead-key "ç".
-         if (event.altKey && !event.metaKey && !event.ctrlKey && event.code === "KeyC") {
-           const target = event.target as HTMLElement | null;
-           if (target?.closest("input, textarea, [contenteditable='true']")) return;
-           event.preventDefault();
-           toggleShowConfidence(!showConfidence);
-         }
-       };
-       window.addEventListener("keydown", onKeyDown);
-       return () => window.removeEventListener("keydown", onKeyDown);
-     }, [labsConfidence, showConfidence, toggleShowConfidence]);
-   ```
-
-   Import `useEffect` from React and `useSettingsStore` from `../stores/settingsStore` if `HistoryView` does not already. Draft Plan 06 adds `HistoryMenu({ showDiscarded, onToggleDiscarded, onClearAll, hasHistory })` in `src/components/home/HistoryMenu.tsx`. If it merged, give it two optional props, `showConfidence?: boolean` and `onToggleConfidence?: () => void`. When `onToggleConfidence` is set, render a `DropdownMenuCheckboxItem` labelled `t("history.confidence.show")` with `checked={showConfidence}` after "Show discarded". `HistoryView` passes them only while `labsConfidence` is on. This matches the spec's "Toggle Show confidence in History menu (⌥C)".
-
-4. `src/preview/browserPreview.ts`. After `getTranscriptions: async () => [...history],` (`:177`), add:
-
-   ```ts
-       getTranscriptionConfidence: async () => null,
-   ```
-
-5. Locales. Add `history.confidence` to every locale:
-
-   ```bash
-   node -e '
-   const fs=require("fs"),p=require("path");
-   const L={
-    en:["Show confidence","Hide confidence","{{word}}, {{percent}} percent confidence","{{percent}}% sure","Add to Words","Play 2 s","Playing…"],
-    de:["Sicherheit zeigen","Sicherheit ausblenden","{{word}}, {{percent}} Prozent Sicherheit","{{percent}} % sicher","Zu Wörtern hinzufügen","2 s abspielen","Wird abgespielt…"],
-    es:["Mostrar confianza","Ocultar confianza","{{word}}, {{percent}} por ciento de confianza","{{percent}} % de seguridad","Añadir a Palabras","Reproducir 2 s","Reproduciendo…"],
-    fr:["Afficher la confiance","Masquer la confiance","{{word}}, confiance de {{percent}} pour cent","Sûr à {{percent}} %","Ajouter aux mots","Écouter 2 s","Lecture…"],
-    it:["Mostra affidabilità","Nascondi affidabilità","{{word}}, affidabilità {{percent}} per cento","Sicuro al {{percent}}%","Aggiungi alle parole","Riproduci 2 s","Riproduzione…"],
-    pt:["Mostrar confiança","Ocultar confiança","{{word}}, {{percent}} por cento de confiança","{{percent}}% de certeza","Adicionar às Palavras","Reproduzir 2 s","Reproduzindo…"],
-    ru:["Показать уверенность","Скрыть уверенность","{{word}}, уверенность {{percent}} процентов","Уверенность {{percent}}%","Добавить в слова","Воспроизвести 2 с","Воспроизведение…"],
-    ja:["確信度を表示","確信度を隠す","{{word}}、確信度 {{percent}} パーセント","確信度 {{percent}}%","単語に追加","2 秒再生","再生中…"],
-    "zh-CN":["显示置信度","隐藏置信度","{{word}}，置信度 {{percent}}%","{{percent}}% 确定","添加到词汇","播放 2 秒","正在播放…"],
-    "zh-TW":["顯示信心度","隱藏信心度","{{word}}，信心度 {{percent}}%","{{percent}}% 確定","加入詞彙","播放 2 秒","播放中…"],
-    ar:["إظهار الثقة","إخفاء الثقة","{{word}}، ثقة {{percent}} بالمئة","متأكد بنسبة {{percent}}٪","إضافة إلى الكلمات","تشغيل ثانيتين","جارٍ التشغيل…"]};
-   for(const [l,[show,hide,wordLabel,percent,addToWords,play,playing]] of Object.entries(L)){const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.history=j.history||{};j.history.confidence={show,hide,wordLabel,percent,addToWords,play,playing};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
-   npx prettier --check "src/locales/**/translation.json" || npx prettier --write "src/locales/**/translation.json"
-   ```
-
-   The English "Add to Words" matches the Dictionary view's name for the custom dictionary. If the `en` locale's sidebar label for the dictionary is not "Words" (`grep -n '"dictionary"' src/locales/en/translation.json`), use that label instead in every language.
-
-6. In `DESIGN.md`, add the following under `## Motion`, or near the typography section if one exists:
-
-   ```markdown
-   ### Confidence typography (Labs, WS-M4)
-
-   Recognition certainty is drawn in the type. Inter Variable's `wght` axis: p ≥ 0.90 → 420, 0.70–0.90 → 400 + dotted underline `--color-confidence-maybe`, < 0.70 → 380 + dotted underline `--color-confidence-low` (fuchsia = machine uncertainty). Weight never stands alone: the underline always comes with it. Transitions use `--motion-fast`; reduced motion is instant. Words with no engine data render at 420 with no underline. Only local whisper.cpp and Parakeet supply data; everything else shows plain text and no toggle.
-   ```
-
-7. In `docs/PRIVACY.md`, add one sentence to the local-storage section: "With Labs → Confidence in transcripts on, local Whisper and Parakeet word scores are stored beside each transcript in the local database, and are deleted with it."
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/components/transcriptionItemConfidence.test.js test/components/confidenceText.test.js test/components/workspaceTokenAdoption.test.js && npm run i18n:check && npm run typecheck`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/hooks/useTranscriptionConfidence.ts src/components/ui/TranscriptionItem.tsx src/components/HistoryView.tsx src/preview/browserPreview.ts src/locales DESIGN.md docs/PRIVACY.md test/components/transcriptionItemConfidence.test.js
-git commit -m "feat(history): Labs confidence typography in history rows and raw view"
-```
-
----
-
-## Part B — WS-M5: The Table
-
-### Task 11: Table storage and IPC
+### Task 2: Table storage and IPC
 
 **Files:**
 - Create: `src/types/table.ts`
-- Modify: `src/helpers/localDatabaseSchema.js` (append three tables after the Task 6 block, before the closing backtick)
+- Modify: `src/helpers/localDatabaseSchema.js` (append three tables before the closing backtick)
 - Modify: `src/helpers/database.js` (constants after `:26`; a new "The Table" method group after `getPrivateSpaceId`, `:1386-1395`)
 - Modify: `src/helpers/ipcHandlers.js` (register five `db-*` handlers after `db-get-spaces` at `:1780`)
 - Modify: `preload.js` (after `getSpaces`/`updateSpace` at `:264-265`)
@@ -3807,7 +962,7 @@ git commit -m "feat(db): The Table layout, links and viewport in local SQLite"
 
 ---
 
-### Task 12: Table geometry
+### Task 3: Table geometry
 
 **Files:**
 - Create: `src/components/table/tableGeometry.ts`
@@ -4137,7 +1292,7 @@ git commit -m "feat(table): pure canvas geometry for pan, zoom, lasso and focus"
 
 ---
 
-### Task 13: Table model — cards, edges, context and state
+### Task 4: Table model — cards, edges, context and state
 
 **Files:**
 - Create: `src/components/table/tableModel.ts`
@@ -4145,7 +1300,7 @@ git commit -m "feat(table): pure canvas geometry for pan, zoom, lasso and focus"
 - Test: `test/components/tableModel.test.js`
 
 **Interfaces:**
-- Consumes the Task 11 types (`src/types/table.ts`) and the Task 12 geometry. It consumes `TranscriptionItem` from `src/types/electron.ts`.
+- Consumes the Task 2 types (`src/types/table.ts`) and the Task 3 geometry. It consumes `TranscriptionItem` from `src/types/electron.ts`.
 - Consumes Plan 06's `parseMentionHref` from `src/utils/mentionMarkdown.ts` (CCR-2).
 - Produces `tableEdges.ts`: `parseEntityHref(href: string): TableEntityRef | null`.
 - Produces `tableModel.ts`:
@@ -4379,7 +1534,7 @@ export function parseEntityHref(href: string): TableEntityRef | null {
 }
 ```
 
-If the grep finds nothing (Plan 06 shipped without Task 17), use this body instead and keep the same tests:
+If the grep finds nothing (Plan 06 shipped without its universal-mentions task), use this body instead and keep the same tests:
 
 ```ts
 export function parseEntityHref(href: string): TableEntityRef | null {
@@ -4693,14 +1848,14 @@ git commit -m "feat(table): card model, connectors from links and mentions, boar
 
 ---
 
-### Task 14: Gestures and keyboard as pure state machines
+### Task 5: Gestures and keyboard as pure state machines
 
 **Files:**
 - Create: `src/components/table/tableGestures.ts`
 - Test: `test/components/tableGestures.test.js`
 
 **Interfaces:**
-- Consumes Task 12 (`Point`, `Rect`, `Viewport`, `Direction`, `GRID`, `snapToGrid`, `zoomAt`, `normalizeRect`).
+- Consumes Task 3 (`Point`, `Rect`, `Viewport`, `Direction`, `GRID`, `snapToGrid`, `zoomAt`, `normalizeRect`).
 - Produces:
 
   ```ts
@@ -5029,7 +2184,7 @@ git commit -m "feat(table): pointer, wheel and keyboard rules as pure state mach
 
 ---
 
-### Task 15: `TableCanvas`, `TableCard` and canvas CSS
+### Task 6: `TableCanvas`, `TableCard` and canvas CSS
 
 **Files:**
 - Create: `src/components/table/TableCard.tsx`
@@ -5041,7 +2196,7 @@ git commit -m "feat(table): pointer, wheel and keyboard rules as pure state mach
 - Test: `test/components/tableCanvas.test.js`
 
 **Interfaces:**
-- Consumes Tasks 12–14 and `TableCardModel`. It also consumes `--color-agent-brand` (`index.css:19`, the violet chat rail), `--color-ring` (selection and focus) and `--motion-spring-snap` (Plan 01).
+- Consumes Tasks 3–5 and `TableCardModel`. It also consumes `--color-agent-brand` (`index.css:19`, the violet chat rail), `--color-ring` (selection and focus) and `--motion-spring-snap` (Plan 01).
 - Produces:
 
   ```ts
@@ -5623,7 +2778,7 @@ export function TableCanvas(props: TableCanvasProps) {
 The lasso overlay uses physical `left`/`top`, because it shares the canvas's physical coordinate space. That is intended (see Global Constraints, RTL).
 
 In `src/index.css`:
-- Add to `@theme` after `--color-confidence-low` (or after `--color-accent-foreground` if Part A was gated off):
+- Add to `@theme` after `--color-accent-foreground`:
 
   ```css
     /* The Table (WS-M5): decorative dot grid; connectors are non-text UI (≥3:1). */
@@ -5791,7 +2946,7 @@ git commit -m "feat(table): DOM cards on a pannable, zoomable, virtualised canva
 
 ---
 
-### Task 16: `TableView` — board hook, inbox tray, selection bar, and the Space's chat
+### Task 7: `TableView` — board hook, inbox tray, selection bar, and the Space's chat
 
 **Files:**
 - Create: `src/components/table/useTableBoard.ts`
@@ -5803,7 +2958,7 @@ git commit -m "feat(table): DOM cards on a pannable, zoomable, virtualised canva
 - Test: `test/components/tableView.test.js`
 
 **Interfaces:**
-- Consumes Tasks 11–15. It consumes `useContainerChat` and `OverviewAskSection` (`src/components/notes/overview/OverviewAskSection.tsx`, props as at `ContainerOverview.tsx:129-139`). It consumes `window.electronAPI.saveNote(title, content, noteType, sourceFile, audioDuration, folderId, spaceId)` (`preload.js:224`) and `window.electronAPI.onTranscriptionAdded(cb)` (`preload.js:345-363`).
+- Consumes Tasks 2–6. It consumes `useContainerChat` and `OverviewAskSection` (`src/components/notes/overview/OverviewAskSection.tsx`, props as at `ContainerOverview.tsx:129-139`). It consumes `window.electronAPI.saveNote(title, content, noteType, sourceFile, audioDuration, folderId, spaceId)` (`preload.js:224`) and `window.electronAPI.onTranscriptionAdded(cb)` (`preload.js:345-363`).
 - Produces:
   - `useContainerChat({ space, folder, notes, contextOverride?: string | null })`. When `contextOverride` is set, it replaces the container context sent with each message.
   - `useTableBoard(spaceId: number)`, which returns:
@@ -6504,7 +3659,7 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
    `useResolvedRoute` and `ResolvedRoute` come from Plan 03 (`src/lib/routes.ts`, spec §5.1). `RouteDestinationChip` and `RouteStateChip` come from Plan 03 (`src/components/settings/routing/RouteChips.tsx`). The destination chip renders Plan 01's `LocalityRing` and names the provider with `providerDisplayLabel(providerId, t)`. When the route is not ready (needs a key, sealed, unreachable), the state chip says why, and the selection bar disables Summarise and Ask. The answer itself is persisted by the same chat path as the Space's Ask box. Per-answer route stamps are Plan 06 Task 21's, in `ChatView`.
 
 
-6. Append to `src/index.css` after the Task 15 block:
+6. Append to `src/index.css` after the Task 6 block:
 
    ```css
    .table-view {
@@ -6639,7 +3794,7 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
    }
    ```
 
-   Summarise text uses Plan 06's `--color-ai-text` (CR-06-4), because fuchsia means machine-authored (audit M5) and that token is already contrast-tested as text. If `--color-ai-text` is not on `main`, use `--color-accent` (#d90078, 4.97:1 on `#ffffff`). In that case, also check that Plum Night's `--color-accent` reaches 4.5:1 on `--color-popover`, and if it does not, use `--color-confidence-low` for `.dark .table-selbar__machine`.
+   Summarise text uses Plan 06's `--color-ai-text` (CR-06-4), because fuchsia means machine-authored (audit M5) and that token is already contrast-tested as text. If `--color-ai-text` is not on `main`, use `--color-accent` (#d90078, 4.97:1 on `#ffffff`). In that case, also check that Plum Night's `--color-accent` reaches 4.5:1 on `--color-popover`, and if it does not, use `#ff6db8` (6.6:1 on Plum Night surfaces) for `.dark .table-selbar__machine`.
 
 7. Locales. Add `table.*` to every locale. This script writes each nested key from a flat path list:
 
@@ -6679,7 +3834,7 @@ git commit -m "feat(table): inbox tray, selection actions and the Space's chat o
 
 ---
 
-### Task 17: Entry point — `List | Table` in the Space overview, preview stubs, docs
+### Task 8: Entry point — `List | Table` in the Space overview, preview stubs, docs
 
 **Files:**
 - Modify: `src/components/notes/overview/ContainerOverview.tsx`:
@@ -6690,12 +3845,12 @@ git commit -m "feat(table): inbox tray, selection actions and the Space's chat o
 - Create: `src/preview/previewTable.ts` (in-memory Table store for the browser preview)
 - Modify: `src/preview/browserPreview.ts` (spread it in after `getSpaceNotes` at `:196`)
 - Test: `test/components/previewTable.test.js`
-- Modify: `src/locales/*/translation.json`. No new keys: the switch reuses `table.view.*` from Task 16.
+- Modify: `src/locales/*/translation.json`. No new keys: the switch reuses `table.view.*` from Task 7.
 - Modify: `DESIGN.md` (a "The Table (Labs)" subsection), `docs/PRIVACY.md` (local layout storage)
 - Test: `test/components/containerOverviewTable.test.js`
 
 **Interfaces:**
-- Consumes the `labsTable` setting (Task 2) and `TableView` (Task 16, lazily imported).
+- Consumes the `labsTable` setting (Task 1) and `TableView` (Task 7, lazily imported).
 - Produces:
   - `TableViewSwitch({ value, onChange }: { value: "list" | "table"; onChange: (v: "list" | "table") => void })`, exported from `ContainerOverview.tsx`: a two-button segmented control with `aria-pressed`.
   - The per-Space view choice, persisted in `localStorage` under `notes.overview.view.<spaceId>`. The default is `"list"`. A missing or unknown value reads as `"list"`. The Table appears only at the Space root (`folder === null`) and only while `labsTable` is on.
@@ -6977,7 +4132,7 @@ Expected: FAIL. With Labs on, there is no `table.view.label` group.
 
    If a suite already mocks `/stores/settingsStore`, add `labsTable: false` to its state object instead.
 
-4. `DESIGN.md`. Add after the Task 10 subsection:
+4. `DESIGN.md`. Add this subsection after `## Motion` (Plan 01):
 
    ```markdown
    ### The Table (Labs, WS-M5)
@@ -7006,335 +4161,9 @@ git commit -m "feat(notes): List | Table switch for a space when Labs is on"
 
 ---
 
-### Task 18: Raw versus cleaned diff in the expanded transcript (WS-M4)
+### Task 9: Card resize on The Table (WS-M5)
 
-This covers the M4 acceptance bullet "cleaned text shows AI edits as a diff" (audit M4, showcase `#ws-m4` Raw/Cleaned switch). It follows the WS-M4 gate and is skipped when Part A stops.
-
-**Files:**
-- Create: `src/lib/transcriptDiff.ts`
-- Create: `src/components/ui/TranscriptDiff.tsx`
-- Modify: `src/components/ui/TranscriptionItem.tsx`. Add a Raw | Cleaned switch to the expanded block, and make `D` toggle it.
-- Modify: `src/index.css` (append the diff rules)
-- Modify: `src/locales/*/translation.json` (`history.diff.*`)
-- Test: `test/lib/transcriptDiff.test.js`, `test/components/transcriptDiff.test.js`, `test/components/transcriptionItemConfidence.test.js` (append)
-
-**Interfaces:**
-- Produces:
-  - `diffWords(before: string, after: string): Array<{ op: "same" | "insert" | "delete"; text: string }> | null`. It compares words and runs of whitespace with an LCS. It returns `null` when the comparison would exceed `MAX_DIFF_CELLS = 2_000_000`, which is about 700 words a side.
-  - `TranscriptDiff({ before, after, className })`. It renders `<ins>` and `<del>`, and falls back to the plain cleaned text when `diffWords` returns `null`.
-- Behaviour:
-  - The switch appears only while Labs → Confidence is on, and only when `raw_text` differs from the cleaned text. Raw is the default, so raw always sits beside cleaned and no content is hidden.
-  - **Raw** shows `ConfidenceText` (Task 10). **Cleaned** shows the diff.
-  - `D` toggles the switch while focus is inside the expanded block.
-- Deviation from the mock:
-  - Removed words stay at full `--color-muted-foreground` with a strike-through. The mock drew them at 40 % opacity, which would fail 4.5:1 text contrast.
-  - They collapse after `--motion-base`. Under reduced motion they stay visible and static.
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `test/lib/transcriptDiff.test.js`:
-
-```js
-const assert = require("node:assert/strict");
-const test = require("node:test");
-
-const load = () => import("../../src/lib/transcriptDiff.ts");
-const join = (parts, keep) => parts.filter((p) => p.op === "same" || p.op === keep).map((p) => p.text).join("");
-
-test("cleanup edits come out as deletions then insertions, around shared runs", async () => {
-  const { diffWords } = await load();
-  assert.deepEqual(diffWords("so the pricing change", "So the pricing change."), [
-    { op: "delete", text: "so" },
-    { op: "insert", text: "So" },
-    { op: "same", text: " the pricing " },
-    { op: "delete", text: "change" },
-    { op: "insert", text: "change." },
-  ]);
-});
-
-test("the diff always rebuilds both texts exactly", async () => {
-  const { diffWords } = await load();
-  const before = "um so Maria wants  the tier names in the faq";
-  const after = "Maria wants the tier names in the FAQ.";
-  const parts = diffWords(before, after);
-  assert.equal(join(parts, "delete"), before);
-  assert.equal(join(parts, "insert"), after);
-  assert.deepEqual(diffWords("same text", "same text"), [{ op: "same", text: "same text" }]);
-});
-
-test("very long transcripts are not diffed", async () => {
-  const { diffWords } = await load();
-  const long = Array.from({ length: 1500 }, (_, i) => `w${i}`).join(" ");
-  assert.equal(diffWords(long, `${long} end`), null);
-});
-```
-
-Create `test/components/transcriptDiff.test.js`:
-
-```js
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const test = require("node:test");
-const { renderStatic } = require("../helpers/harness/reactSsr");
-
-const repoRoot = path.join(__dirname, "../..");
-const load = () => import("../../src/components/ui/TranscriptDiff.tsx");
-
-test("insertions and deletions are semantic ins and del", async () => {
-  const { TranscriptDiff } = await load();
-  const html = renderStatic(TranscriptDiff, { before: "so the change", after: "So the change." });
-  assert.match(html, /<del class="transcript-diff__del">so<\/del><ins class="transcript-diff__ins">So<\/ins> the /);
-  assert.match(html, /<ins class="transcript-diff__ins">change\.<\/ins>/);
-});
-
-test("an undiffable transcript falls back to the plain cleaned text", async () => {
-  const { TranscriptDiff } = await load();
-  const long = Array.from({ length: 1500 }, (_, i) => `w${i}`).join(" ");
-  const html = renderStatic(TranscriptDiff, { before: long, after: `${long} end` });
-  assert.doesNotMatch(html, /<ins|<del/);
-  assert.match(html, / end<\/p>$/);
-});
-
-test("removed words keep full muted contrast and stop moving under reduced motion", () => {
-  const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
-  assert.match(css, /\.transcript-diff__del\s*\{[^}]*color:\s*var\(--color-muted-foreground\);[^}]*text-decoration-line:\s*line-through/);
-  assert.doesNotMatch(css.match(/\.transcript-diff__del\s*\{[^}]*\}/)[0], /opacity:\s*0\.\d/);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.transcript-diff__ins,\s*\.transcript-diff__del\s*\{\s*animation:\s*none;/);
-});
-```
-
-Append to `test/components/transcriptionItemConfidence.test.js`:
-
-```js
-test("a cleaned row offers Raw | Cleaned in the expanded block, Raw first", async (t) => {
-  const html = await renderRow(t, { settings: ON, item: { ...ITEM, text: "MARIA WANTS IT!" } });
-  assert.match(html, /role="group"[^>]*aria-label="history\.diff\.label"/);
-  assert.match(html, /aria-pressed="true"[^>]*>history\.diff\.raw</);
-  assert.match(html, /aria-pressed="false"[^>]*>history\.diff\.cleaned</);
-});
-
-test("no switch when nothing was cleaned, or with Labs off", async (t) => {
-  assert.doesNotMatch(await renderRow(t, { settings: ON, item: ITEM }), /history\.diff\./);
-  assert.doesNotMatch(
-    await renderRow(t, { settings: { ...ON, labsConfidenceTypography: false }, item: { ...ITEM, text: "X" } }),
-    /history\.diff\./
-  );
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `npm test -- test/lib/transcriptDiff.test.js test/components/transcriptDiff.test.js test/components/transcriptionItemConfidence.test.js`
-Expected: FAIL. The modules are not found, and `history.diff.label` is missing.
-
-- [ ] **Step 3: Implement**
-
-Create `src/lib/transcriptDiff.ts`:
-
-```ts
-export type DiffOp = "same" | "insert" | "delete";
-export interface DiffPart { op: DiffOp; text: string }
-
-// LCS over words and whitespace runs. Bounded so a long meeting-length
-// dictation never blocks the renderer; callers show plain text instead.
-export const MAX_DIFF_CELLS = 2_000_000;
-
-export function diffWords(before: string, after: string): DiffPart[] | null {
-  const a = before.match(/\S+|\s+/g) ?? [];
-  const b = after.match(/\S+|\s+/g) ?? [];
-  if ((a.length + 1) * (b.length + 1) > MAX_DIFF_CELLS) return null;
-  const n = a.length;
-  const m = b.length;
-  const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
-    }
-  }
-  const out: DiffPart[] = [];
-  const push = (op: DiffOp, text: string) => {
-    const last = out[out.length - 1];
-    if (last && last.op === op) last.text += text;
-    else out.push({ op, text });
-  };
-  let i = 0;
-  let j = 0;
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      push("same", a[i]);
-      i++;
-      j++;
-    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) push("delete", a[i++]);
-    else push("insert", b[j++]);
-  }
-  while (i < n) push("delete", a[i++]);
-  while (j < m) push("insert", b[j++]);
-  return out;
-}
-```
-
-Create `src/components/ui/TranscriptDiff.tsx`:
-
-```tsx
-import { useMemo } from "react";
-import { diffWords } from "../../lib/transcriptDiff";
-import { cn } from "../lib/utils";
-
-// Cleaned text with the AI's edits shown against the raw transcript (WS-M4).
-export function TranscriptDiff({ before, after, className }: { before: string; after: string; className?: string }) {
-  const parts = useMemo(() => diffWords(before, after), [before, after]);
-  if (!parts) {
-    return (
-      <p dir="auto" className={className}>
-        {after}
-      </p>
-    );
-  }
-  return (
-    <p dir="auto" className={cn("transcript-diff", className)}>
-      {parts.map((part, i) =>
-        part.op === "same" ? (
-          part.text
-        ) : part.op === "insert" ? (
-          <ins key={i} className="transcript-diff__ins">
-            {part.text}
-          </ins>
-        ) : (
-          <del key={i} className="transcript-diff__del">
-            {part.text}
-          </del>
-        )
-      )}
-    </p>
-  );
-}
-```
-
-In `src/components/ui/TranscriptionItem.tsx`:
-- Import `TranscriptDiff` from `./TranscriptDiff`.
-- After the Task 10 confidence hooks, add:
-
-  ```tsx
-    const [rawView, setRawView] = useState<"raw" | "cleaned">("raw");
-    const showDiffSwitch = labsConfidence && isTranscribed && rawText !== null && rawText !== item.text;
-  ```
-
-- On the expanded block's inner `<div className="mt-2 border-t …">`, add a key handler:
-
-  ```tsx
-            onKeyDown={(event) => {
-              const typing = (event.target as HTMLElement).closest("input, textarea, [contenteditable='true']");
-              if (!showDiffSwitch || typing || event.metaKey || event.ctrlKey || event.altKey) return;
-              if (event.key.toLowerCase() === "d") {
-                event.preventDefault();
-                setRawView((v) => (v === "raw" ? "cleaned" : "raw"));
-              }
-            }}
-  ```
-
-- In its header row, between the "Raw transcript" label and the copy button, render:
-
-  ```tsx
-                  {showDiffSwitch && (
-                    <div role="group" aria-label={t("history.diff.label")} className="inline-flex rounded-full bg-surface-3 p-0.5">
-                      {(["raw", "cleaned"] as const).map((v) => (
-                        <button
-                          key={v}
-                          type="button"
-                          aria-pressed={rawView === v}
-                          onClick={() => setRawView(v)}
-                          className={cn(
-                            "h-5 rounded-full px-2 text-micro font-medium",
-                            rawView === v ? "bg-background text-foreground" : "text-muted-foreground"
-                          )}
-                        >
-                          {t(`history.diff.${v}`)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-  ```
-
-- Wrap the Task 10 raw branch so Cleaned shows the diff:
-
-  ```tsx
-                  {showDiffSwitch && rawView === "cleaned" ? (
-                    <TranscriptDiff before={rawText} after={item.text} className={RAW_TEXT_CLASS} />
-                  ) : hasConfidence ? (
-                    /* the Task 10 ConfidenceText branch, unchanged */
-                  ) : (
-                    /* the Task 10 plain <p className={RAW_TEXT_CLASS}> branch, unchanged */
-                  )}
-  ```
-
-  The classes used here (`text-micro`, `text-muted-foreground`, `bg-surface-3`) all pass Plan 06's guard.
-
-Append to `src/index.css`:
-
-```css
-/* Raw versus cleaned (WS-M4, Labs). Inserted text carries a faint AI tint
-   that fades; removed text is struck through at full muted contrast, then
-   collapses. Under reduced motion both stay visible and static. */
-.transcript-diff__ins {
-  text-decoration: none;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--color-ai) 12%, transparent);
-  animation: transcript-diff-ins var(--motion-slow) var(--motion-ease-std) var(--motion-hero) forwards;
-}
-.transcript-diff__del {
-  color: var(--color-muted-foreground);
-  text-decoration-line: line-through;
-  animation: transcript-diff-del var(--motion-base) var(--motion-ease-exit) var(--motion-base) forwards;
-}
-@keyframes transcript-diff-ins {
-  to {
-    background: transparent;
-  }
-}
-@keyframes transcript-diff-del {
-  to {
-    opacity: 0;
-    font-size: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .transcript-diff__ins,
-  .transcript-diff__del {
-    animation: none;
-  }
-}
-```
-
-`--color-ai` is Plan 06's (CR-06-4). If it is not on `main`, use `--color-accent`.
-
-Locales. Add `history.diff` to every locale:
-
-```bash
-node -e '
-const fs=require("fs"),p=require("path");
-const L={en:["Transcript view","Raw","Cleaned"],de:["Transkriptansicht","Roh","Bereinigt"],es:["Vista de la transcripción","Original","Limpio"],fr:["Vue de la transcription","Brut","Nettoyé"],it:["Vista della trascrizione","Grezzo","Pulito"],pt:["Visualização da transcrição","Bruto","Limpo"],ru:["Вид расшифровки","Исходный","Очищенный"],ja:["文字起こしの表示","元の文","整えた文"],"zh-CN":["转写视图","原始","整理后"],"zh-TW":["轉錄檢視","原始","整理後"],ar:["عرض النص المفرغ","الأصلي","المنقّح"]};
-for(const [l,[label,raw,cleaned]] of Object.entries(L)){const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.history=j.history||{};j.history.diff={label,raw,cleaned};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
-npx prettier --check "src/locales/**/translation.json" || npx prettier --write "src/locales/**/translation.json"
-```
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test -- test/lib/transcriptDiff.test.js test/components/transcriptDiff.test.js test/components/transcriptionItemConfidence.test.js test/components/workspaceTokenAdoption.test.js && npm run i18n:check && npm run typecheck`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/lib/transcriptDiff.ts src/components/ui/TranscriptDiff.tsx src/components/ui/TranscriptionItem.tsx src/index.css src/locales test/lib/transcriptDiff.test.js test/components/transcriptDiff.test.js test/components/transcriptionItemConfidence.test.js
-git commit -m "feat(history): Raw versus cleaned diff in the expanded transcript (Labs)"
-```
-
----
-
-### Task 19: Card resize on The Table (WS-M5)
-
-This covers the M5 acceptance bullet "resize handle bottom-right". The width and height persist in `note_layout.w/h` (Task 11), which until now nothing wrote.
+This covers the M5 acceptance bullet "resize handle bottom-right". The width and height persist in `note_layout.w/h` (Task 2), which until now nothing wrote.
 
 **Files:**
 - Modify: `src/components/table/tableGestures.ts`. Add a `resize` gesture, `clampSize`, and Alt+arrow resizing.
@@ -7555,7 +4384,7 @@ Expected: FAIL. `g.kind` is `"drag"`, and `s.sizes` and `data-resize-handle` are
      );
    ```
 
-6. `src/index.css`. Append after the Task 15 block (physical corner: the handle lives in world space):
+6. `src/index.css`. Append after the Task 6 block (physical corner: the handle lives in world space):
 
    ```css
    .table-card__resize {
@@ -7591,7 +4420,7 @@ git commit -m "feat(table): Resize cards from the corner or with Alt+arrows"
 
 ---
 
-### Task 20: Whole-plan verification
+### Task 10: Whole-plan verification
 
 **Files:** none new. This task runs every check and fixes what it surfaces.
 
@@ -7606,20 +4435,11 @@ npm run i18n:check
 npm run format:check
 ```
 
-Expected: everything passes. A failing pre-existing test may be updated in this branch only when it pins exactly what this plan intentionally changed. Those cases are:
-- a `transcribe()` result `deepEqual` that now includes `tokens: []` (Task 5);
-- a history-row `deepEqual` that now includes `has_confidence` (Task 6).
+Expected: everything passes. Plan 06's `test/components/workspaceTokenAdoption.test.js` must pass unchanged. Plan 08 creates no files in its scope, and the Table's own CSS test forbids literal durations. Any failure is a regression in this branch; fix the code, never the guard.
 
-Plan 06's `test/components/workspaceTokenAdoption.test.js` must pass unchanged. Never weaken it to make a Plan 08 file pass; fix the Plan 08 classes instead.
+- [ ] **Step 2: Flag-off regression check**
 
-Name every such test in the PR description. Any other failure is a regression; fix the code.
-
-- [ ] **Step 2: Flags-off regression check**
-
-With both Labs switches off (the default for a fresh profile), confirm nothing changed:
-- Run `npm test -- test/helpers/whisperServerInferenceFields.test.js`. The default request still sends `response_format=json`.
-- In the app, dictate once with local Whisper and once with Parakeet. The history row is the plain paragraph, the kebab has no confidence item, and ⌥C does nothing.
-- Open Notes → Personal. There is no `List | Table` switch.
+With Labs → The Table off (the default for a fresh profile), open Notes → Personal: there is no `List | Table` switch, and the overview renders exactly as before. Task 8's "with Labs off the overview is unchanged" test pins the same behaviour.
 
 - [ ] **Step 3: Visual verification in the desktop app (light and Plum Night)**
 
@@ -7631,47 +4451,37 @@ LOQUI_PROFILE_DIR="$(mktemp -d)" npm run dev
 ```
 
 Screenshot each of these for the PR:
-1. **Settings → System → Labs.** Both switches are present and off. Turn both on.
-2. **Confidence with local Whisper.** Dictate "Call Siobhan at four thirty about the Qdrant migration." In History, expand the raw transcript: low-confidence words are lighter with a fuchsia dotted underline, and medium ones have a grey dotted underline.
-   - Hover a word: the popover shows the percent, Add to Words, and Play 2 s (with audio retention on).
-   - Press `A` on a focused word: it appears in Dictionary.
-   - Press ⌥C: the list row toggles. A row whose cleaned text differs from the raw text stays plain in the list.
-3. **Confidence with Parakeet.** Repeat step 2.
-4. **A cloud provider (any).** The new row has no confidence and no toggle.
-5. **Retry a confidence row.** After retry the underlines are gone, or they are fresh if the engine supplied new data.
-6. **Reduced motion** (System Settings → Accessibility → Reduce motion). Toggling confidence is instant, and dropping a card does not spring.
-7. **The Table.** Open Notes → Personal → `Table`.
+1. **Settings → System → Labs.** One switch, The Table, present and off. Its description says card positions stay on this device and that Summarise and Ask use the chat provider. Turn it on.
+2. **Reduced motion** (System Settings → Accessibility → Reduce motion). Dropping a card does not spring.
+3. **The Table.** Open Notes → Personal → `Table`.
    - Notes auto-flow. Drag one: it springs to the grid. Reload the app: it stays.
    - Shift-drag lasso three cards, then:
      - **Group into note:** a new note appears linked to all three.
-     - **Summarise:** the Ask panel opens. Its model chip shows the route's locality (Plan 03 and Plan 06), and the answer becomes a linked Answer card. Repeat it after opening an older conversation in the panel: the summary must start a new conversation, without the old history.
+     - **Summarise:** the Ask panel opens and the answer becomes a linked Answer card. Repeat it after opening an older conversation in the panel: the summary must start a new conversation, without the old history.
      - **Ask about these:** type a question and send it. The answer also becomes an Answer card linked to the selection.
-     - **Remove from table:** the cards move to the Inbox, and the notes still exist in List.
+     - **Remove from table:** the cards move to the Inbox, and the notes still exist in List (D12).
    - Drag an Inbox dictation in. Arrow between cards, Shift+arrow to nudge, Enter to open a note.
    - Zoom with Ctrl or ⌘ plus the wheel and with a pinch; Reset view fits everything.
    - Dictate while the Table is open: the new capture appears in the Inbox. Delete a placed note from List view in a second window: its card disappears within a second.
    - Click into the Ask box, then pan or zoom with the wheel: focus stays in the Ask box.
    - Reopen the Table with its first card scrolled off screen, then Tab into the canvas and press an arrow: focus lands on a visible card.
-8. **RTL** (UI language Arabic). The Inbox sits at the inline start (right), the selection bar is centred, and the canvas world is not mirrored.
-9. **Sealed mode** (if Plan 07 has merged). Turn Sealed on with a remote chat route:
+4. **RTL** (UI language Arabic). The Inbox sits at the inline start (right), the selection bar is centred, and the canvas world is not mirrored.
+5. **Sealed mode** (if Plan 07 has merged). Turn Sealed on with a remote chat route:
    - Summarise or Ask is blocked by main exactly as the Space's Ask box is, and no new path bypasses it.
    - The selection bar shows the route's sealed state chip, and both AI buttons are disabled.
-10. **Route disclosure.**
-    - With a remote chat provider, the toolbar, the Ask panel and the selection bar all show the dashed remote `LocalityRing` and the provider's localised name before you click Summarise.
-    - Switch the chat route to a local model: the solid device ring replaces it.
-    - Select 13 cards: Summarise and Ask disable and the bar explains the 12-card limit.
-11. **Pinned selection.** Select two cards and choose Ask. Change the selection to a third card, then type and send a question. The panel says "Pinned cards: 2", and the answer card links to the two pinned cards only.
-12. **Raw versus cleaned** (with cleanup on). Expand a cleaned row and press `D`:
-    - Cleaned shows insertions tinted and deletions struck through, and the deletions then collapse.
-    - `D` returns to Raw, with the confidence underlines.
-13. **Resize.**
-    - Drag a card's bottom-right corner: it grows on the 8px grid between 180×80 and 640×600, and survives an app restart.
-    - Alt+arrows resize the focused card.
-    - A cancelled resize (switch apps mid-drag) restores the old size.
+6. **Route disclosure.**
+   - With a remote chat provider, the toolbar, the Ask panel and the selection bar all show the dashed remote `LocalityRing` and the provider's localised name before you click Summarise.
+   - Switch the chat route to a local model: the solid device ring replaces it.
+   - Select 13 cards: Summarise and Ask disable and the bar explains the 12-card limit.
+7. **Pinned selection.** Select two cards and choose Ask. Change the selection to a third card, then type and send a question. The panel says "Pinned cards: 2", and the answer card links to the two pinned cards only.
+8. **Resize.**
+   - Drag a card's bottom-right corner: it grows on the 8px grid between 180×80 and 640×600, and survives an app restart.
+   - Alt+arrows resize the focused card.
+   - A cancelled resize (switch apps mid-drag) restores the old size.
 
 - [ ] **Step 4: Performance check with 500 cards**
 
-Seed a throwaway profile with 500 notes in the Space and 200 links, using the DB methods from Task 11 in a one-off script against that profile's database. Open the Table. In Chrome DevTools (View → Toggle Developer Tools), record a Performance trace while you:
+Seed a throwaway profile with 500 notes in the Space and 200 links, using the DB methods from Task 2 in a one-off script against that profile's database. Open the Table. In Chrome DevTools (View → Toggle Developer Tools), record a Performance trace while you:
 - drag one card continuously for 5 s;
 - pan with the wheel and pinch-zoom from 25 % to 200 %;
 - hold Shift+→ for 3 s on a focused card.
@@ -7686,4 +4496,34 @@ If a criterion fails, profile which of `cardsFor`, `deriveEdges` or card renderi
 
 - [ ] **Step 5: Commit any fixes, then hand off**
 
-The owner asked that this plan not be pushed by its planning thread. When executing, get the owner's explicit OK before `git push` and `gh pr create`; publishing a PR is outward-facing. The PR body lists one line per Task 1–19 commit, links the spec, this plan and the spike report, embeds the Step 3 screenshots, and names any intentionally updated pre-existing tests (Step 1).
+Implementation commits land on this plan's branch and draft PR (#47). Get the owner's explicit OK before marking the PR ready, because publishing is outward-facing. The PR body lists one line per Task 1–9 commit, links the spec and this plan, and embeds the Step 3 screenshots and the Step 4 trace summary.
+
+---
+
+## Appendix — Deferred: WS-M4 (confidence typography)
+
+**Status:** on hold per spec D11 (owner decision, 2026-10-15). WS-M4 drew transcript words lighter, with a dotted underline, where the speech engine was unsure. The owner chose not to ship it without per-word alternatives, which no engine Loqui runs can supply today. The full task text (spike, storage, IPC, `ConfidenceText`, word popover, raw versus cleaned diff, and the `labsConfidenceTypography` flag) is preserved in git at commit `162a0ca`, in this file.
+
+**What the spike research found (desk research from pinned sources, not yet run).**
+
+| Engine (as Loqui runs it) | Scores available | Per-word alternatives |
+|---|---|---|
+| whisper.cpp server, OpenWhispr fork `0.0.10` | Per **token**, `segments[].words[].probability` in `verbose_json`; Loqui requests `json` today (`src/helpers/whisperServer.js:918-923`) | No, even with `beam_size` |
+| sherpa-onnx 1.13.8 offline WS, Parakeet TDT | Per token, `ys_log_probs[]` (natural log) with `tokens[]` and `timestamps[]`, already sent; Loqui reads only `.text` (`src/helpers/parakeetWsResult.js:1-9`) | No (greedy search) |
+| OpenAI `gpt-4o(-mini)-transcribe` | Per token with `include[]=logprobs`, `json` only | No |
+| Deepgram nova-3, AssemblyAI (streaming) | Per word, `words[].confidence` | Deepgram whole-transcript `alternatives[]`, unconfirmed for streaming |
+| `whisper-1`, Groq, xAI, Gemini, Mistral | Segment-level or none | No |
+
+**What restoring WS-M4 needs.**
+1. Decoder top-k per token in the OpenWhispr whisper.cpp fork, exposed in `verbose_json`, so each word can carry its runner-up spellings. This is a separate engine project (D11). sherpa-onnx would need the equivalent from its transducer decoder, or Parakeet stays scores-only.
+2. Then re-plan from commit `162a0ca`. It starts with the two-stage go/no-go spike, and adds the alternatives list and `Enter`-to-replace back to the word popover.
+
+**Codex review findings that apply when it is restored** (independent review, 2026-10-15). Each fix was designed and tested in the `162a0ca` text:
+- **I1 (occurrence-accurate alignment).** Align by position, never by text search. Lay the engine's words out as written and keep a score only for words inside the shared prefix or shared suffix with the saved `raw_text`. Repeats then cannot steal another occurrence's score. 16 alignment tests passed against that code.
+- **I2 (no stale scores after downgrade and re-upgrade).** An `AFTER UPDATE OF raw_text` trigger in the database file deletes scores even when an older build edits the text. Retry clears them explicitly.
+- **I3 (GO gate on usable words).**
+  - Stage 1 measures data presence and request cost.
+  - Stage 2 runs the storage code and requires that at least 90 % of the saved transcript's lexical words carry a usable score.
+  - The signal check (G4) uses merged, distinct words with fixed labels, and any change to its cut-offs is a named, owner-approved revised gate.
+- **I5 (Plan 06 token guard).** Any history-row change must pass Plan 06's `workspaceTokenAdoption.test.js`, for example `text-caption` and full `text-muted-foreground`, never `text-muted-foreground/NN`.
+- **M2 (storage budget).** Store compact `[s, e, p, t]` tuples. The measured size is about 570 KB at the 20 000-word cap.

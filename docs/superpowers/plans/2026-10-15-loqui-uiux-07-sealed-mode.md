@@ -508,6 +508,7 @@ test("loopback classification", () => {
     "http://127.0.0.2:9000",
     "http://[::ffff:127.0.0.1]/",
     "http://[0:0:0:0:0:0:0:1]/",
+    "http://app.localhost:5173/", // RFC 6761: *.localhost is loopback; the backstop pins it (Task 6)
   ]) {
     assert.equal(policy.isLoopbackHost(policy.hostOf(url)), true, url);
   }
@@ -643,12 +644,14 @@ function hostOf(target) {
 }
 
 // Loopback only. A LAN address is another machine (CCR-1), 0.0.0.0 is not an
-// address you send to, and a name that merely resolves to 127.0.0.1 is not
-// trusted because DNS is outside our control.
+// address you send to, and any other name that merely resolves to 127.0.0.1 is
+// not trusted because DNS is outside our control.
 function isLoopbackHost(value) {
   const host = normalizeHost(value ?? "");
   if (!host) return false;
-  if (host === "localhost") return true;
+  // RFC 6761 reserves localhost and *.localhost for loopback. The backstop
+  // answers these names itself (Task 6), so DNS can never steer them elsewhere.
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
   if (net.isIPv4(host)) return host.split(".")[0] === "127";
   if (!net.isIPv6(host)) return false;
   if (host === "::1" || /^(?:0{1,4}:){7}0{0,3}1$/.test(host)) return true;
@@ -968,24 +971,32 @@ git commit -m "feat(privacy): persist Sealed mode in privacy.json and fail close
 
 **Files:**
 - Create: `src/helpers/privacy/flightRecorder.js`
-- Modify: `src/helpers/localDatabaseSchema.js`. Add the `egress_events` table and index directly after line 315 (`CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics_events(local_date);`).
+- Modify: `src/helpers/localDatabaseSchema.js`. Add the `egress_events` table and index directly after the line `CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics_events(local_date);` (currently `:318`). Anchor on that text, not the number.
 - Test: `test/helpers/flightRecorder.test.js`. It must contain `require("./harness/db")`; see Global Constraints.
 
 **Interfaces:**
 - Produces `class FlightRecorder extends EventEmitter`:
-  - `new FlightRecorder({ db?: BetterSqlite3.Database | null, now?: () => number })`. It starts **memory-only**, and `persisting` is `false`.
+  - `new FlightRecorder({ db?: BetterSqlite3.Database | null, now?: () => number })`. It starts in **pending** mode: main has not yet heard the user's retention settings.
   - `attachDatabase(db)`. Keeps the handle; writes nothing yet.
-  - `setPersistence(enabled: boolean)`. When it is `true` and a database is attached, the in-memory rows are flushed to SQLite and later rows are written there. When it is `false`, nothing more is written to disk. Main calls it on every retention sync with `dataRetentionEnabled`.
-  - `record(event: EgressEventInput): EgressEvent`. It throws `TypeError` for an unknown task or outcome, or for a host that is not bare, and it emits `"event"`.
-  - `list({ since?: number, limit?: number }): EgressEvent[]`. Newest first; the limit is clamped to 1..`MAX_ROWS`.
-  - `summary({ since?: number }): { left, blocked, unattributed, unattributedHosts, bytesOut, bytesIn, unknownBytes, opaqueSessions }`.
+  - `setPersistence(enabled: boolean)`. Main calls it on every retention sync with `dataRetentionEnabled`.
+    - **`true`:**
+      - Rows recorded while *pending* are flushed to SQLite in one transaction, and leave memory only after the transaction commits.
+      - Rows recorded while *explicitly memory-only* are never flushed, so turning history back on does not make them durable.
+      - Later rows are written to SQLite.
+    - **`false`:** later rows stay in memory, and nothing more is written to disk.
+  - `record(event: EgressEventInput): EgressEvent`. It throws `TypeError` for an unknown task or outcome, or for a host that is not bare, and emits `"event"`. A failed insert keeps the row in memory as pending, sets `persistError`, and retries on the next `prune()`.
+  - `list({ since?: number, limit?: number }): EgressEvent[]`. Newest first by start time; the limit is clamped to 1..`MAX_ROWS`.
+  - `summary({ since?: number }): { left, observed, blocked, unattributed, unattributedHosts, bytesOut, bytesIn, unknownBytes, opaqueSessions }`. `left` is observed requests plus opaque sessions; `observed` excludes opaque sessions.
   - `clear(): void`. Emits `"cleared"`.
   - `prune({ retentionDays: number, maxRows?: number }): { deleted: number }`.
-- Also produces `toCsv(events: EgressEvent[]): string`, `MAX_ROWS = 100000` and `MEMORY_LIMIT = 500`.
+  - `persistError: string | null`.
+- Also produces `toCsv(events: EgressEvent[]): string`, `MAX_ROWS = 100000`, `MEMORY_LIMIT = 500` and `CAP_CHECK_EVERY = 500`. The row cap is enforced on insert, every `CAP_CHECK_EVERY` writes, so the table never exceeds `MAX_ROWS + CAP_CHECK_EVERY` rows between sweeps.
 - Types:
-  - `EgressEventInput` is `{ ts?, task, host, bytesOut?, bytesIn?, outcome: "ok"|"error"|"blocked"|"cancelled", status?, errorClass?, model?, attributed?, opaque? }`.
-  - `EgressEvent` is the same, with `id`, and with every optional field normalised to a value or `null` (`attributed: boolean`, `opaque: boolean`).
-  - An **opaque** row is a session of a child process that does its own networking: the Codex app-server and yt-dlp. Loqui sees that the session ran, and its usual host, but cannot see its individual requests or bytes. Its bytes are therefore always `null`, and the UI labels it "session; traffic not visible to Loqui" (owner decision, 2026-10-15).
+  - `EgressEventInput` is `{ ts?, endedAt?, task, host, hosts?, bytesOut?, bytesIn?, outcome: "ok"|"error"|"blocked"|"cancelled", status?, errorClass?, model?, attributed?, opaque? }`.
+  - `EgressEvent` is the same, plus `id`. Every optional field is normalised to a value or `null`; `hosts` is a `string[]`, and `attributed` and `opaque` are booleans.
+  - `ts` is when the request started (authorisation, or the first transport event for unattributed traffic). `endedAt` is when it settled.
+  - `hosts` is the ordered, de-duplicated trail of bare hosts the request contacted: the declared host, sockets observed in its context, and redirects, up to 8. `host` is its first entry.
+  - An **opaque** row is one session of a child process that does its own networking: the Codex app-server or yt-dlp (owner decision, 2026-10-15). Loqui sees that the session ran and its usual host, but cannot see its requests or bytes. Its bytes are therefore always `null`, and the UI labels it as a session with its usual host.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -999,6 +1010,7 @@ const { FlightRecorder, toCsv, MEMORY_LIMIT } = require("../../src/helpers/priva
 
 const DAY = 24 * 60 * 60 * 1000;
 const base = { task: "chat", host: "api.groq.com", outcome: "ok", bytesOut: 3100, bytesIn: 9800 };
+const rowCount = (db) => db.prepare("SELECT COUNT(*) AS n FROM egress_events").get().n;
 
 function persistent(t, now) {
   const manager = createDb(t);
@@ -1014,72 +1026,103 @@ test("the schema has metadata columns only", (t) => {
   if (!manager) return;
   const columns = manager.db.prepare("PRAGMA table_info(egress_events)").all().map((c) => c.name);
   assert.deepEqual(columns, [
-    "id", "ts", "task", "host", "bytes_out", "bytes_in", "outcome", "status", "error_class", "model", "attributed", "opaque",
+    "id", "ts", "ended_at", "task", "host", "hosts", "bytes_out", "bytes_in", "outcome", "status",
+    "error_class", "model", "attributed", "opaque",
   ]);
 });
 
-test("record and list: newest first, normalised public shape", (t) => {
+test("record and list: newest first, normalised public shape with a host trail", (t) => {
   let clock = 1000;
   const ctx = persistent(t, () => clock);
   if (!ctx) return;
   ctx.recorder.record(base);
   clock = 2000;
-  ctx.recorder.record({ ...base, task: "dictationStt", host: "api.openai.com", bytesIn: undefined, status: 200 });
+  ctx.recorder.record({
+    ...base, task: "modelDownload", host: "huggingface.co", hosts: ["huggingface.co", "cdn-lfs.hf.co", "huggingface.co"],
+    ts: 1500, endedAt: 2000, bytesOut: undefined, status: 200,
+  });
   const rows = ctx.recorder.list();
   assert.equal(rows.length, 2);
-  assert.deepEqual(
-    { ...rows[0], id: 0 },
-    { id: 0, ts: 2000, task: "dictationStt", host: "api.openai.com", bytesOut: 3100, bytesIn: null, outcome: "ok", status: 200, errorClass: null, model: null, attributed: true, opaque: false }
-  );
+  assert.deepEqual({ ...rows[0], id: 0 }, {
+    id: 0, ts: 1500, endedAt: 2000, task: "modelDownload", host: "huggingface.co", hosts: ["huggingface.co", "cdn-lfs.hf.co"],
+    bytesOut: null, bytesIn: 9800, outcome: "ok", status: 200, errorClass: null, model: null, attributed: true, opaque: false,
+  });
   assert.equal(rows[1].task, "chat");
+  assert.deepEqual(rows[1].hosts, ["api.groq.com"]);
 });
 
-test("record rejects non-host values and unknown enums", () => {
+test("record rejects non-host values, in host and in the trail, and unknown enums", () => {
   const recorder = new FlightRecorder();
   for (const host of ["https://api.openai.com/v1", "api.openai.com/v1", "user@host", "a host", "host?q=1", ""]) {
     assert.throws(() => recorder.record({ ...base, host }), TypeError, host);
+    assert.throws(() => recorder.record({ ...base, hosts: ["api.groq.com", host] }), TypeError, `trail: ${host}`);
   }
   assert.throws(() => recorder.record({ ...base, task: "telemetry" }), TypeError);
   assert.throws(() => recorder.record({ ...base, outcome: "maybe" }), TypeError);
 });
 
-test("bytes: unknown stays null, never 0; negatives are unknown", () => {
+test("bytes: unknown stays null, never 0; negatives are unknown; opaque sessions never carry bytes", () => {
   const recorder = new FlightRecorder();
   const row = recorder.record({ ...base, bytesOut: undefined, bytesIn: -5 });
-  assert.equal(row.bytesOut, null);
-  assert.equal(row.bytesIn, null);
+  assert.deepEqual([row.bytesOut, row.bytesIn], [null, null]);
   assert.equal(recorder.record({ ...base, outcome: "blocked", bytesOut: 0, bytesIn: 0 }).bytesOut, 0);
+  const session = recorder.record({ task: "codex", host: "chatgpt.com", outcome: "ok", opaque: true, bytesOut: 10, bytesIn: 20 });
+  assert.deepEqual([session.opaque, session.bytesOut, session.bytesIn], [true, null, null]);
 });
 
-test("opaque child sessions never carry byte counts", () => {
+test("model ids and error classes are stripped of control characters and truncated", () => {
   const recorder = new FlightRecorder();
-  const row = recorder.record({ task: "codex", host: "chatgpt.com", outcome: "ok", opaque: true, bytesOut: 10, bytesIn: 20 });
-  assert.deepEqual([row.opaque, row.bytesOut, row.bytesIn], [true, null, null]);
-  assert.equal(recorder.summary({ since: 0 }).opaqueSessions, 1);
-});
-
-test("model ids are stripped of control characters and truncated", () => {
-  const recorder = new FlightRecorder();
-  const row = recorder.record({ ...base, model: "gpt\n-4o\u0000" + "x".repeat(200) });
+  const row = recorder.record({ ...base, model: "gpt\n-4o\u0000" + "x".repeat(200), errorClass: "E".repeat(100) });
   assert.equal(row.model.includes("\n"), false);
   assert.equal(row.model.length, 120);
+  assert.equal(row.errorClass.length, 64);
 });
 
-test("memory-only until persistence is enabled; then memory rows are flushed", (t) => {
+test("pending rows flush on the first sync; memory-only rows never become durable", (t) => {
+  const manager = createDb(t);
+  if (!manager) return;
+  const recorder = new FlightRecorder({ now: () => 5 });
+  recorder.attachDatabase(manager.db);
+  recorder.record({ ...base, model: "pending" });          // before main heard the settings
+  recorder.setPersistence(true);
+  assert.equal(rowCount(manager.db), 1, "the pending row is flushed");
+  recorder.setPersistence(false);
+  recorder.record({ ...base, model: "while-off" });        // history explicitly off
+  assert.equal(rowCount(manager.db), 1);
+  recorder.setPersistence(true);
+  assert.equal(rowCount(manager.db), 1, "turning history back on does not flush what was recorded while it was off");
+  assert.deepEqual(recorder.list().map((r) => r.model).sort(), ["pending", "while-off"]);
+  recorder.record({ ...base, model: "after" });
+  assert.equal(rowCount(manager.db), 2);
+});
+
+test("history off from the first sync: pending rows stay in memory and are never written", (t) => {
   const manager = createDb(t);
   if (!manager) return;
   const recorder = new FlightRecorder({ now: () => 5 });
   recorder.attachDatabase(manager.db);
   recorder.record(base);
-  assert.equal(manager.db.prepare("SELECT COUNT(*) AS n FROM egress_events").get().n, 0);
-  assert.equal(recorder.list().length, 1);
-  recorder.setPersistence(true);
-  assert.equal(manager.db.prepare("SELECT COUNT(*) AS n FROM egress_events").get().n, 1);
-  assert.equal(recorder.list().length, 1, "no duplicate after the flush");
   recorder.setPersistence(false);
+  recorder.setPersistence(true);
+  assert.equal(rowCount(manager.db), 0);
+  assert.equal(recorder.list().length, 1);
+});
+
+test("a failed flush keeps the pending rows in memory and reports persistError", () => {
+  const failingDb = {
+    prepare: (sql) => ({
+      run: () => { throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" }); },
+      all: () => [],
+      get: () => ({ n: 0 }),
+    }),
+    transaction: (fn) => () => fn(),
+  };
+  const recorder = new FlightRecorder({ now: () => 5 });
+  recorder.attachDatabase(failingDb);
   recorder.record(base);
-  assert.equal(manager.db.prepare("SELECT COUNT(*) AS n FROM egress_events").get().n, 1);
-  assert.equal(recorder.list().length, 2);
+  recorder.setPersistence(true);
+  assert.equal(recorder.persistError, "SQLITE_FULL");
+  assert.equal(recorder.list().length, 1, "nothing was lost");
 });
 
 test("memory mode keeps only the newest MEMORY_LIMIT rows", () => {
@@ -1091,7 +1134,7 @@ test("memory mode keeps only the newest MEMORY_LIMIT rows", () => {
 });
 
 test("prune deletes rows older than retentionDays and caps the table", (t) => {
-  let clock = 100 * DAY;
+  const clock = 100 * DAY;
   const ctx = persistent(t, () => clock);
   if (!ctx) return;
   ctx.recorder.record({ ...base, ts: clock - 40 * DAY });
@@ -1104,15 +1147,16 @@ test("prune deletes rows older than retentionDays and caps the table", (t) => {
   assert.equal(ctx.recorder.list({ since: 0 })[0].ts, clock - 1 * DAY);
 });
 
-test("summary counts what left, what was blocked, and unexplained hosts", () => {
+test("summary separates observed requests from opaque sessions", () => {
   const recorder = new FlightRecorder();
   recorder.record(base);
   recorder.record({ ...base, bytesOut: null });
   recorder.record({ ...base, outcome: "blocked", bytesOut: 0, bytesIn: 0 });
   recorder.record({ task: "unattributed", host: "x.example.com", outcome: "ok", attributed: false });
+  recorder.record({ task: "codex", host: "chatgpt.com", outcome: "ok", opaque: true });
   assert.deepEqual(recorder.summary({ since: 0 }), {
-    left: 3, blocked: 1, unattributed: 1, unattributedHosts: ["x.example.com"],
-    bytesOut: 3100, bytesIn: 19600, unknownBytes: 2, opaqueSessions: 0,
+    left: 4, observed: 3, blocked: 1, unattributed: 1, unattributedHosts: ["x.example.com"],
+    bytesOut: 3100, bytesIn: 19600, unknownBytes: 2, opaqueSessions: 1,
   });
 });
 
@@ -1137,11 +1181,11 @@ test("record emits the public event", () => {
 
 test("CSV export neutralises formulas and quotes", () => {
   const csv = toCsv([
-    { id: 1, ts: Date.UTC(2026, 9, 15, 9, 12), task: "chat", host: "api.groq.com", bytesOut: 3100, bytesIn: null, outcome: "ok", status: 200, errorClass: null, model: '=HYPERLINK("x"),"a"', attributed: true, opaque: false },
+    { id: 1, ts: Date.UTC(2026, 9, 15, 9, 12), endedAt: Date.UTC(2026, 9, 15, 9, 13), task: "chat", host: "api.groq.com", hosts: ["api.groq.com"], bytesOut: 3100, bytesIn: null, outcome: "ok", status: 200, errorClass: null, model: '=HYPERLINK("x"),"a"', attributed: true, opaque: false },
   ]);
   const [header, line] = csv.trim().split("\n");
-  assert.equal(header, "time_utc,task,host,bytes_sent,bytes_received,outcome,status,error_class,model,attributed,opaque_session");
-  assert.equal(line, '2026-10-15T09:12:00.000Z,chat,api.groq.com,3100,,ok,200,,"\'=HYPERLINK(""x""),""a""",yes,no');
+  assert.equal(header, "started_utc,ended_utc,task,hosts,bytes_sent,bytes_received,outcome,status,error_class,model,attributed,opaque_session");
+  assert.equal(line, '2026-10-15T09:12:00.000Z,2026-10-15T09:13:00.000Z,chat,api.groq.com,3100,,ok,200,,"\'=HYPERLINK(""x""),""a""",yes,no');
 });
 ```
 
@@ -1152,7 +1196,7 @@ Expected: FAIL with `Cannot find module '../../src/helpers/privacy/flightRecorde
 
 - [ ] **Step 3: Add the table**
 
-In `src/helpers/localDatabaseSchema.js`, insert after line 315:
+In `src/helpers/localDatabaseSchema.js`, insert after the line `CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics_events(local_date);`:
 
 ```sql
 -- Flight recorder (Plan 07). Metadata about requests that left this computer:
@@ -1160,8 +1204,10 @@ In `src/helpers/localDatabaseSchema.js`, insert after line 315:
 CREATE TABLE IF NOT EXISTS egress_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,
+  ended_at INTEGER,
   task TEXT NOT NULL,
   host TEXT NOT NULL,
+  hosts TEXT NOT NULL,
   bytes_out INTEGER,
   bytes_in INTEGER,
   outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'error', 'blocked', 'cancelled')),
@@ -1184,10 +1230,12 @@ const { EGRESS_TASKS } = require("./egressPolicy");
 
 const MAX_ROWS = 100000;
 const MEMORY_LIMIT = 500;
+const CAP_CHECK_EVERY = 500;
+const MAX_TRAIL = 8;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const OUTCOMES = new Set(["ok", "error", "blocked", "cancelled"]);
 // A bare hostname, IPv4 or IPv6 literal, or the literal "unknown". Anything
-// with a path, query, userinfo or whitespace is refused so a URL can never be
+// with a path, query, userinfo or whitespace is refused, so a URL can never be
 // stored by mistake.
 const BARE_HOST = /^[a-z0-9._:-]{1,253}$/;
 
@@ -1197,13 +1245,20 @@ const text = (v, max) => {
   const s = v.replace(/[\u0000-\u001f\u007f]/g, "").trim();
   return s ? s.slice(0, max) : null;
 };
+function bareHost(value) {
+  const host = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!BARE_HOST.test(host)) throw new TypeError("Egress host must be a bare hostname");
+  return host;
+}
 
 function toPublic(row) {
   return {
     id: row.id,
     ts: row.ts,
+    endedAt: row.ended_at,
     task: row.task,
     host: row.host,
+    hosts: row.hosts.split(","),
     bytesOut: row.bytes_out,
     bytesIn: row.bytes_in,
     outcome: row.outcome,
@@ -1220,47 +1275,71 @@ class FlightRecorder extends EventEmitter {
     super();
     this.now = now;
     this.db = null;
-    this.persisting = false;
+    // "pending": retention not heard yet; "persist": write to SQLite;
+    // "memory": the user turned local history off.
+    this.mode = "pending";
     this.memory = [];
     this.nextMemoryId = -1;
+    this.writesSinceCap = 0;
+    this.persistError = null;
     if (db) this.attachDatabase(db);
   }
 
   attachDatabase(db) {
     this.db = db;
     this.insert = db.prepare(
-      `INSERT INTO egress_events (ts, task, host, bytes_out, bytes_in, outcome, status, error_class, model, attributed, opaque)
-       VALUES (@ts, @task, @host, @bytes_out, @bytes_in, @outcome, @status, @error_class, @model, @attributed, @opaque)`
+      `INSERT INTO egress_events (ts, ended_at, task, host, hosts, bytes_out, bytes_in, outcome, status, error_class, model, attributed, opaque)
+       VALUES (@ts, @ended_at, @task, @host, @hosts, @bytes_out, @bytes_in, @outcome, @status, @error_class, @model, @attributed, @opaque)`
     );
   }
 
-  // Off until main hears the renderer's retention settings (the same caution
-  // as _retentionSettingsSynced in ipcHandlers.js): a user with local history
-  // off must never get rows on disk.
+  get persisting() {
+    return this.mode === "persist";
+  }
+
   setPersistence(enabled) {
-    if (enabled && this.db) {
-      const pending = this.memory;
-      this.memory = [];
+    if (!enabled) {
+      // Rows collected before the settings were known stay memory-only too.
+      for (const row of this.memory) row.scope = "memory";
+      this.mode = "memory";
+      return;
+    }
+    this.mode = "persist";
+    this.flushPending();
+  }
+
+  // Only rows recorded before consent was known are eligible; they leave
+  // memory only after the transaction commits.
+  flushPending() {
+    if (!this.db || this.mode !== "persist") return;
+    const pending = this.memory.filter((r) => r.scope === "pending");
+    if (pending.length === 0) return;
+    try {
       this.db.transaction(() => {
-        for (const { id: _id, ...row } of pending) this.insert.run(row);
+        for (const { id: _id, scope: _scope, ...row } of pending) this.insert.run(row);
       })();
-      this.persisting = true;
-    } else {
-      this.persisting = false;
+      this.memory = this.memory.filter((r) => r.scope !== "pending");
+      this.persistError = null;
+    } catch (error) {
+      this.persistError = error.code || error.message;
     }
   }
 
   normalize(event) {
     if (!EGRESS_TASKS.includes(event?.task)) throw new TypeError(`Unknown egress task: ${event?.task}`);
     if (!OUTCOMES.has(event.outcome)) throw new TypeError(`Unknown egress outcome: ${event.outcome}`);
-    const host = typeof event.host === "string" ? event.host.trim().toLowerCase() : "";
-    if (!BARE_HOST.test(host)) throw new TypeError("Egress host must be a bare hostname");
+    const host = bareHost(event.host);
+    const trail = [host, ...(Array.isArray(event.hosts) ? event.hosts.map(bareHost) : [])];
+    const hosts = [...new Set(trail)].slice(0, MAX_TRAIL);
     // A child process's own traffic is invisible to main, so no byte count is honest.
     const opaque = event.opaque === true;
+    const ts = count(event.ts) ?? this.now();
     return {
-      ts: count(event.ts) ?? this.now(),
+      ts,
+      ended_at: count(event.endedAt) ?? ts,
       task: event.task,
       host,
+      hosts: hosts.join(","),
       bytes_out: opaque ? null : count(event.bytesOut),
       bytes_in: opaque ? null : count(event.bytesIn),
       outcome: event.outcome,
@@ -1272,15 +1351,27 @@ class FlightRecorder extends EventEmitter {
     };
   }
 
+  remember(row, scope) {
+    const id = this.nextMemoryId--;
+    this.memory.push({ id, scope, ...row });
+    if (this.memory.length > MEMORY_LIMIT) this.memory.splice(0, this.memory.length - MEMORY_LIMIT);
+    return id;
+  }
+
   record(event) {
     const row = this.normalize(event);
     let id;
-    if (this.persisting) {
-      id = Number(this.insert.run(row).lastInsertRowid);
+    if (this.mode === "persist" && this.db) {
+      try {
+        id = Number(this.insert.run(row).lastInsertRowid);
+        if (++this.writesSinceCap >= CAP_CHECK_EVERY) this.capRows();
+      } catch (error) {
+        // Keep it, and try again on the next prune; never lose a ledger row silently.
+        this.persistError = error.code || error.message;
+        id = this.remember(row, "pending");
+      }
     } else {
-      id = this.nextMemoryId--;
-      this.memory.push({ id, ...row });
-      if (this.memory.length > MEMORY_LIMIT) this.memory.splice(0, this.memory.length - MEMORY_LIMIT);
+      id = this.remember(row, this.mode === "memory" ? "memory" : "pending");
     }
     const published = toPublic({ id, ...row });
     this.emit("event", published);
@@ -1307,17 +1398,19 @@ class FlightRecorder extends EventEmitter {
   summary({ since = 0 } = {}) {
     const rows = this.list({ since, limit: MAX_ROWS });
     const left = rows.filter((r) => r.outcome !== "blocked");
+    const observed = left.filter((r) => !r.opaque);
     const unexplained = rows.filter((r) => !r.attributed);
-    const sum = (key) => left.reduce((n, r) => n + (r[key] ?? 0), 0);
+    const sum = (key) => observed.reduce((n, r) => n + (r[key] ?? 0), 0);
     return {
       left: left.length,
+      observed: observed.length,
       blocked: rows.length - left.length,
       unattributed: unexplained.length,
       unattributedHosts: [...new Set(unexplained.map((r) => r.host))],
       bytesOut: sum("bytesOut"),
       bytesIn: sum("bytesIn"),
-      unknownBytes: left.filter((r) => r.bytesOut == null && !r.opaque).length,
-      opaqueSessions: left.filter((r) => r.opaque).length,
+      unknownBytes: observed.filter((r) => r.bytesOut == null).length,
+      opaqueSessions: left.length - observed.length,
     };
   }
 
@@ -1327,22 +1420,26 @@ class FlightRecorder extends EventEmitter {
     this.emit("cleared");
   }
 
+  capRows(maxRows = MAX_ROWS) {
+    this.writesSinceCap = 0;
+    return this.db.prepare(
+      "DELETE FROM egress_events WHERE id NOT IN (SELECT id FROM egress_events ORDER BY ts DESC, id DESC LIMIT ?)"
+    ).run(maxRows).changes;
+  }
+
   prune({ retentionDays, maxRows = MAX_ROWS } = {}) {
     const cutoff = Number.isFinite(retentionDays) && retentionDays > 0 ? this.now() - retentionDays * DAY_MS : null;
     if (cutoff !== null) this.memory = this.memory.filter((r) => r.ts >= cutoff);
     if (!this.db) return { deleted: 0 };
+    this.flushPending();
     let deleted = 0;
     if (cutoff !== null) deleted += this.db.prepare("DELETE FROM egress_events WHERE ts < ?").run(cutoff).changes;
-    deleted += this.db
-      .prepare(
-        "DELETE FROM egress_events WHERE id NOT IN (SELECT id FROM egress_events ORDER BY ts DESC, id DESC LIMIT ?)"
-      )
-      .run(maxRows).changes;
+    deleted += this.capRows(maxRows);
     return { deleted };
   }
 }
 
-const CSV_HEADER = ["time_utc", "task", "host", "bytes_sent", "bytes_received", "outcome", "status", "error_class", "model", "attributed", "opaque_session"];
+const CSV_HEADER = ["started_utc", "ended_utc", "task", "hosts", "bytes_sent", "bytes_received", "outcome", "status", "error_class", "model", "attributed", "opaque_session"];
 
 function csvCell(value) {
   if (value == null) return "";
@@ -1353,21 +1450,22 @@ function csvCell(value) {
 }
 
 function toCsv(events) {
+  const iso = (ms) => (ms == null ? null : new Date(ms).toISOString());
   const lines = events.map((e) =>
-    [new Date(e.ts).toISOString(), e.task, e.host, e.bytesOut, e.bytesIn, e.outcome, e.status, e.errorClass, e.model, e.attributed ? "yes" : "no", e.opaque ? "yes" : "no"]
+    [iso(e.ts), iso(e.endedAt), e.task, e.hosts.join(" "), e.bytesOut, e.bytesIn, e.outcome, e.status, e.errorClass, e.model, e.attributed ? "yes" : "no", e.opaque ? "yes" : "no"]
       .map(csvCell)
       .join(",")
   );
   return [CSV_HEADER.join(","), ...lines].join("\n") + "\n";
 }
 
-module.exports = { FlightRecorder, toCsv, MAX_ROWS, MEMORY_LIMIT };
+module.exports = { FlightRecorder, toCsv, MAX_ROWS, MEMORY_LIMIT, CAP_CHECK_EVERY };
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test -- test/helpers/flightRecorder.test.js`
-Expected: PASS (13 tests). Run the existing DB suites, which share the schema string, to confirm nothing regressed:
+Expected: PASS (14 tests). Also run the existing DB suites, which share the schema string, to confirm nothing regressed:
 
 Run: `npm test -- test/helpers/dictionaryDatabase.test.js test/helpers/listOrdering.test.js`
 Expected: PASS.
@@ -1404,35 +1502,45 @@ git commit -m "feat(privacy): add metadata-only flight recorder store"
                                             // ticket lives for fn's duration; use when fn consumes the whole response
   guardResponse(meta, fn: (ticket) => Promise<Response>): Promise<Response>
                                             // ticket lives until the returned body is fully read, errors, is cancelled, or sealing aborts it
-  meteredFetch(ticket, baseFetch?): typeof fetch   // marks the ticket sent, then counts request/response body bytes
-  markSentFor({ task, correlationId? }): void      // realtime: first audio frame marks the task's open socket tickets as sent
+  meteredFetch(ticket, baseFetch?, { tag? }?): typeof fetch   // marks dispatched/delivered/undelivered, counts body bytes; tag: true only for Electron net (Task 6 strips it)
+  tagHeaders(ticket, headers?): Record<string,string>  // adds the x-loqui-egress tag the Chromium backstop strips (Task 6)
+  ticketByTag(tag): Ticket|null
   abortAllRemote(): number;  activeRemoteCount(): number
-  explainingTicket(host): Ticket|null;  isHostExplained(host): boolean;  noteRedirect(fromHost, toHost): void
-  recordUnattributed({ host, outcome, bytesOut?, bytesIn? }): void
+  recordUnattributed({ host, outcome, status?, bytesOut?, bytesIn?, ts?, endedAt? }): void
   recordBackstopBlock({ host, ticket? }): SealedModeError
   onSealChanged(sealed: boolean): void;  counters(): { blockedSinceSealed, recordFailures }
-  events: EventEmitter   // "sent" → SentNotice; "settled" → { ticketId }
-  _resetForTests(): void
+  events: EventEmitter   // "dispatched" | "delivered" | "undelivered" → EgressNotice; "settled" → { ticketId }
+  EGRESS_TAG_HEADER = "x-loqui-egress"
+  _resetForTests(): void;  _setBypassForTests(on: boolean): void   // bypass = authorise as if unsealed (regression-sensitivity checks, Task 12)
   ```
 
   The types:
 
   ```js
-  TicketMeta = { task?, target, model?, meter?: "body"|"socket"|"opaque" = "body",
+  TicketMeta = { task?, target, model?, provider?: string|null, meter?: "body"|"socket"|"opaque" = "body",
                  payload?: "audio"|"text"|"image"|"metadata" = "metadata", correlationId?: string|null }
-  SentNotice = { ticketId, task, host, payload, correlationId, ts }   // CCR-3: emitted at transport hand-off, never at authorisation
-  Ticket = { id, task, host, loopback, model, meter, payload, correlationId, signal, observedHosts, redirectHosts, settled,
-             observeHost(host), attachSocket(socket), socketCount(), addBytes({ out?, in? }), noteStatus(code),
-             bodyOpened(), bodyClosed(), markSent(), abort(reason),
-             settle({ outcome, status?, errorClass?, bytesOut?, bytesIn? }), discard() }
+  EgressNotice = { ticketId, task, targetId, host, payload, correlationId, ts }   // targetId: provider id, or "host:<host>" (Plan 04 encoding)
+  Ticket = { id, tag, task, host, hosts, loopback, model, meter, payload, correlationId, targetId, signal, settled, startedAt,
+             addHost(host), attachSocket(socket), socketCount(), addBytes({ out?, in? }), noteStatus(code),
+             bodyOpened(), bodyClosed(), markDispatched(), markDelivered(), markUndelivered(),
+             abort(reason), settle({ outcome, status?, errorClass?, bytesOut?, bytesIn? }), discard() }
   ```
 
-  The meters:
-  - `"body"` counts request and response *bodies*: `null` means not measured, never 0.
-  - `"socket"` counts wire bytes on the ticket's own sockets, so it includes TLS overhead.
-  - `"opaque"` is a child-process session. It is recorded with `opaque: true` and no byte counts.
+- **Attribution is by context, never by hostname.**
+  - A Node socket belongs to a ticket only when it is opened inside that ticket's `AsyncLocalStorage` context.
+  - A Chromium request belongs to a ticket only when it carries that ticket's tag header, which the backstop strips before sending (Task 6).
+  - A second request to the same host from somewhere else is *unexplained*, even while a ticket for that host is open.
+- **Host trail.** `hosts` is the ordered, de-duplicated list of hosts a ticket contacted: the declared host, every socket opened in its context, and every redirect. The ledger stores it (Task 4).
+- **Notice phases.**
+  - `dispatched`: Loqui handed the payload to a transport, so the provider *may* have received it.
+  - `delivered`: the provider answered, so it *did* receive it.
+  - `undelivered`: the transport failed before connecting, so it did not.
 
-  Byte semantics are documented in `docs/PRIVACY.md` (Task 15). A loopback ticket is never recorded and never emits `"sent"`.
+  Plan 04's cancel copy maps these to "may have received", "received" and nothing (CCR-3). A loopback ticket emits no notices and is never recorded.
+- **The meters.**
+  - `"body"` counts request and response *bodies*: `null` means not measured, never 0. A bodyless request is `null`, because its headers still went out.
+  - `"socket"` counts wire bytes on the ticket's own sockets, so it includes TLS overhead.
+  - `"opaque"` is a child-process session. It is recorded with `opaque: true` and no byte counts, and it settles only when the child exits (Task 6a).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1447,13 +1555,19 @@ const { isSealedModeError, sealedPhaseOf } = require("../../src/helpers/privacy/
 
 function setup(t, { sealed = false } = {}) {
   const flags = { sealed };
-  const recorder = new FlightRecorder({ now: () => 1000 });
+  let clock = 1000;
+  const recorder = new FlightRecorder({ now: () => clock });
   gate._resetForTests();
-  gate.configureEgress({ isSealed: () => flags.sealed, recorder, now: () => 1000 });
+  gate.configureEgress({ isSealed: () => flags.sealed, recorder, now: () => clock });
   t.after(() => gate._resetForTests());
-  return { flags, recorder };
+  return { flags, recorder, tick: (ms) => (clock += ms) };
 }
-const tick = () => new Promise((r) => setImmediate(r));
+const nextTurn = () => new Promise((r) => setImmediate(r));
+const notices = () => {
+  const seen = [];
+  for (const phase of ["dispatched", "delivered", "undelivered"]) gate.events.on(phase, (n) => seen.push({ phase, ...n }));
+  return seen;
+};
 
 test("a sealed gate refuses a remote target and records 0 bytes", (t) => {
   const { recorder } = setup(t, { sealed: true });
@@ -1466,28 +1580,30 @@ test("a sealed gate refuses a remote target and records 0 bytes", (t) => {
   assert.equal(gate.counters().blockedSinceSealed, 1);
 });
 
-test("loopback is allowed while sealed, never recorded and never 'sent'", async (t) => {
+test("loopback is allowed while sealed, never recorded and never announced", async (t) => {
   const { recorder } = setup(t, { sealed: true });
-  const sent = [];
-  gate.events.on("sent", (n) => sent.push(n));
+  const seen = notices();
   await gate.guard({ task: "dictationCleanup", target: "http://127.0.0.1:8080/v1" }, async (ticket) => {
     await gate.meteredFetch(ticket, async () => new Response("ok"))("http://127.0.0.1:8080/v1", { body: "x" });
   });
   assert.equal(recorder.list().length, 0);
-  assert.deepEqual(sent, []);
+  assert.deepEqual(seen, []);
 });
 
-test("guard records an ok request with metered body bytes and status", async (t) => {
-  const { recorder } = setup(t);
-  const fakeFetch = async () => new Response("hello world", { status: 200 });
+test("guard records start and end times, body bytes, status and the host trail", async (t) => {
+  const { recorder, tick } = setup(t);
   await gate.guard({ task: "chat", target: "https://api.groq.com/x", model: "m" }, async (ticket) => {
-    const res = await gate.meteredFetch(ticket, fakeFetch)("https://api.groq.com/x", { method: "POST", body: "12345" });
+    tick(250);
+    ticket.addHost("edge.groq.com");
+    const res = await gate.meteredFetch(ticket, async () => new Response("hello world", { status: 200 }))(
+      "https://api.groq.com/x", { method: "POST", body: "12345" }
+    );
     await res.text();
   });
   const [row] = recorder.list();
   assert.deepEqual(
-    [row.outcome, row.bytesOut, row.bytesIn, row.status, row.host],
-    ["ok", 5, 11, 200, "api.groq.com"]
+    [row.ts, row.endedAt, row.outcome, row.bytesOut, row.bytesIn, row.status, row.hosts],
+    [1000, 1250, "ok", 5, 11, 200, ["api.groq.com", "edge.groq.com"]]
   );
 });
 
@@ -1499,10 +1615,7 @@ test("unmeasured bodies are unknown, not 0: bodyless GET, stream body, 204", asy
   await gate.guard({ task: "chat", target: "https://api.groq.com" }, (ticket) =>
     gate.meteredFetch(ticket, async () => new Response(null, { status: 204 }))("https://api.groq.com/x", { body: new ReadableStream() })
   );
-  for (const row of recorder.list()) {
-    assert.equal(row.bytesOut, null);
-    assert.equal(row.bytesIn, null);
-  }
+  for (const row of recorder.list()) assert.deepEqual([row.bytesOut, row.bytesIn], [null, null]);
 });
 
 test("a body not fully read inside guard() is recorded as unknown", async (t) => {
@@ -1513,6 +1626,50 @@ test("a body not fully read inside guard() is recorded as unknown", async (t) =>
   assert.equal(recorder.list()[0].bytesIn, null);
 });
 
+test("dispatched, then delivered; a connect failure is undelivered, never delivered", async (t) => {
+  setup(t);
+  const seen = notices();
+  const ticket = gate.authorize({ task: "dictationStt", target: "https://api.openai.com", provider: "openai", payload: "audio", correlationId: "rec-1" });
+  assert.deepEqual(seen, [], "authorisation alone is not dispatch");
+  await gate.meteredFetch(ticket, async () => new Response("{}"))("https://api.openai.com/v1/audio", { method: "POST", body: "abc" });
+  assert.deepEqual(seen.map((n) => [n.phase, n.targetId, n.payload, n.correlationId]), [
+    ["dispatched", "openai", "audio", "rec-1"],
+    ["delivered", "openai", "audio", "rec-1"],
+  ]);
+  ticket.discard();
+
+  seen.length = 0;
+  const refused = gate.authorize({ task: "chat", target: "http://192.168.1.5:8080/v1", provider: "lan", payload: "text" });
+  await assert.rejects(
+    gate.meteredFetch(refused, async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }); })("http://192.168.1.5:8080/v1", { body: "x" })
+  );
+  assert.deepEqual(seen.map((n) => [n.phase, n.targetId]), [["dispatched", "host:192.168.1.5"], ["undelivered", "host:192.168.1.5"]]);
+  refused.discard();
+});
+
+test("Node requests never carry the tag; Electron net requests do", async (t) => {
+  setup(t);
+  const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com" });
+  const seenHeaders = [];
+  const capture = async (_url, init) => { seenHeaders.push(new Headers(init.headers ?? {})); return new Response("{}"); };
+  await gate.meteredFetch(ticket, capture)("https://api.groq.com/x", { headers: { a: "1" } });
+  await gate.meteredFetch(ticket, capture, { tag: true })("https://api.groq.com/x", { headers: { a: "1" } });
+  assert.equal(seenHeaders[0].has(gate.EGRESS_TAG_HEADER), false);
+  assert.equal(seenHeaders[1].get(gate.EGRESS_TAG_HEADER), ticket.tag);
+  ticket.discard();
+});
+
+test("tags identify a ticket for the Chromium backstop", (t) => {
+  setup(t);
+  const ticket = gate.authorize({ task: "calendar", target: "https://graph.microsoft.com" });
+  const headers = gate.tagHeaders(ticket, { Accept: "application/json" });
+  assert.equal(headers[gate.EGRESS_TAG_HEADER], ticket.tag);
+  assert.equal(headers.Accept, "application/json");
+  assert.equal(gate.ticketByTag(ticket.tag), ticket);
+  ticket.discard();
+  assert.equal(gate.ticketByTag(ticket.tag), null);
+});
+
 test("guardResponse keeps the ticket open until the body is read", async (t) => {
   const { recorder } = setup(t);
   const res = await gate.guardResponse({ task: "calendar", target: "https://graph.microsoft.com" }, (ticket) =>
@@ -1521,10 +1678,9 @@ test("guardResponse keeps the ticket open until the body is read", async (t) => 
   assert.equal(gate.activeRemoteCount(), 1, "still open after headers");
   assert.equal(recorder.list().length, 0);
   assert.equal(await res.text(), "calendar json");
-  await tick();
+  await nextTurn();
   assert.equal(gate.activeRemoteCount(), 0);
-  const [row] = recorder.list();
-  assert.deepEqual([row.outcome, row.bytesIn, row.status], ["ok", 13, 200]);
+  assert.deepEqual([recorder.list()[0].outcome, recorder.list()[0].bytesIn, recorder.list()[0].status], ["ok", 13, 200]);
 });
 
 test("guardResponse: a body that fails mid-read is an error, not a success", async (t) => {
@@ -1535,7 +1691,7 @@ test("guardResponse: a body that fails mid-read is an error, not a success", asy
   });
   const res = await gate.guardResponse({ task: "calendar", target: "https://graph.microsoft.com" }, async () => new Response(broken, { status: 200 }));
   await assert.rejects(res.text());
-  await tick();
+  await nextTurn();
   assert.deepEqual([recorder.list()[0].outcome, recorder.list()[0].errorClass], ["error", "ECONNRESET"]);
 });
 
@@ -1571,7 +1727,7 @@ test("settle stores an error class, never a message", async (t) => {
 test("withTask supplies the task across async boundaries", async (t) => {
   const { recorder } = setup(t);
   await gate.withTask("uploadStt", async () => {
-    await tick();
+    await nextTurn();
     await gate.guard({ target: "https://api.openai.com/v1/audio" }, async () => {});
   });
   assert.equal(recorder.list()[0].task, "uploadStt");
@@ -1595,29 +1751,6 @@ test("abortAllRemote interrupts in-flight remote tickets; loopback keeps running
   assert.equal(gate.activeRemoteCount(), 0);
 });
 
-test("'sent' fires at transport hand-off with payload and correlation id, not at authorisation (CCR-3)", async (t) => {
-  setup(t);
-  const sent = [];
-  gate.events.on("sent", (n) => sent.push(n));
-  const ticket = gate.authorize({ task: "dictationStt", target: "https://api.openai.com", payload: "audio", correlationId: "rec-1" });
-  assert.deepEqual(sent, [], "authorisation alone is not delivery");
-  await gate.meteredFetch(ticket, async () => new Response("{}"))("https://api.openai.com/v1/audio", { method: "POST", body: "abc" });
-  ticket.markSent();
-  assert.deepEqual(sent.map((n) => [n.task, n.host, n.payload, n.correlationId]), [["dictationStt", "api.openai.com", "audio", "rec-1"]]);
-  ticket.discard();
-});
-
-test("markSentFor marks the task's open socket tickets once and adopts the correlation id", (t) => {
-  setup(t);
-  const sent = [];
-  gate.events.on("sent", (n) => sent.push(n));
-  const warm = gate.authorize({ task: "dictationStt", target: "wss://api.openai.com", meter: "socket", payload: "audio" });
-  gate.markSentFor({ task: "dictationStt", correlationId: "rec-9" });
-  gate.markSentFor({ task: "dictationStt", correlationId: "rec-9" });
-  assert.deepEqual(sent.map((n) => n.correlationId), ["rec-9"]);
-  warm.discard();
-});
-
 test("an opaque child session is recorded without bytes", (t) => {
   const { recorder } = setup(t);
   const session = gate.authorize({ task: "codex", target: "https://chatgpt.com", meter: "opaque" });
@@ -1627,6 +1760,16 @@ test("an opaque child session is recorded without bytes", (t) => {
   assert.deepEqual([row.task, row.opaque, row.bytesOut, row.bytesIn], ["codex", true, null, null]);
 });
 
+test("aborting an opaque session does not settle it: only the child's exit does", (t) => {
+  setup(t);
+  const session = gate.authorize({ task: "codex", target: "https://chatgpt.com", meter: "opaque" });
+  gate.abortAllRemote();
+  assert.equal(session.settled, false);
+  assert.equal(gate.activeRemoteCount(), 1);
+  session.settle({ outcome: "cancelled" });
+  assert.equal(gate.activeRemoteCount(), 0);
+});
+
 test("aborting a socket-metered ticket that never opened a socket settles it", (t) => {
   const { recorder } = setup(t);
   const ticket = gate.authorize({ task: "dictationStt", target: "wss://api.openai.com", meter: "socket" });
@@ -1634,7 +1777,6 @@ test("aborting a socket-metered ticket that never opened a socket settles it", (
   gate.abortAllRemote();
   assert.equal(ticket.settled, true);
   assert.equal(recorder.list()[0].outcome, "cancelled");
-  assert.equal(gate.activeRemoteCount(), 0);
 });
 
 test("'settled' fires for every settled remote ticket", async (t) => {
@@ -1652,22 +1794,18 @@ test("a throwing isSealed fails closed", (t) => {
   assert.throws(() => gate.authorize({ task: "chat", target: "https://api.groq.com" }), isSealedModeError);
 });
 
+test("the test-only bypass authorises as if unsealed", (t) => {
+  setup(t, { sealed: true });
+  gate._setBypassForTests(true);
+  const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com" });
+  ticket.discard();
+  gate._setBypassForTests(false);
+  assert.throws(() => gate.authorize({ task: "chat", target: "https://api.groq.com" }), isSealedModeError);
+});
+
 test("unknown tasks are a programming error", (t) => {
   setup(t);
   assert.throws(() => gate.authorize({ task: "telemetry", target: "https://x.example" }), TypeError);
-});
-
-test("explaining tickets: host, observed hosts and redirects", (t) => {
-  setup(t);
-  const ticket = gate.authorize({ task: "modelDownload", target: "https://huggingface.co/x" });
-  assert.equal(gate.isHostExplained("huggingface.co"), true);
-  assert.equal(gate.isHostExplained("cdn-lfs.hf.co"), false);
-  gate.noteRedirect("huggingface.co", "cdn-lfs.hf.co");
-  assert.equal(gate.explainingTicket("cdn-lfs.hf.co"), ticket);
-  ticket.observeHost("cas-bridge.xethub.hf.co");
-  assert.equal(gate.isHostExplained("cas-bridge.xethub.hf.co"), true);
-  ticket.discard();
-  assert.equal(gate.isHostExplained("huggingface.co"), false);
 });
 
 test("assertAllowed leaves no ticket and no ledger row when allowed", (t) => {
@@ -1697,11 +1835,17 @@ Create `src/helpers/privacy/egressGate.js`:
 ```js
 const { AsyncLocalStorage } = require("node:async_hooks");
 const { EventEmitter } = require("node:events");
+const { randomBytes } = require("node:crypto");
 const { EGRESS_TASKS, decideEgress, SealedModeError, isSealedModeError } = require("./egressPolicy");
 
 // Layer A of Sealed mode (docs/security/sealed-mode-threat-model.md). Every
 // known request site asks for a ticket before sending. The ticket carries the
 // task for the flight recorder and an AbortSignal that sealing trips.
+const EGRESS_TAG_HEADER = "x-loqui-egress";
+const USER_ENDPOINT_PROVIDERS = new Set(["custom", "lan", "local"]);
+const CONNECT_PHASE_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+const CONNECT_PHASE_CHROMIUM = /ERR_(NAME_NOT_RESOLVED|CONNECTION_REFUSED|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED|NAME_RESOLUTION_FAILED)/;
+
 const ticketContext = new AsyncLocalStorage();
 const taskContext = new AsyncLocalStorage();
 const events = new EventEmitter();
@@ -1709,8 +1853,10 @@ const events = new EventEmitter();
 const freshTally = () => ({ blockedSinceSealed: 0, recordFailures: 0 });
 let config = { isSealed: () => false, recorder: null, now: Date.now };
 let active = new Map();
+let byTag = new Map();
 let nextId = 1;
 let tally = freshTally();
+let bypass = false;
 
 function configureEgress({ isSealed, recorder = config.recorder, now = Date.now }) {
   if (typeof isSealed !== "function") throw new TypeError("isSealed must be a function");
@@ -1756,9 +1902,18 @@ function errorClassOf(error) {
   return raw.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) || "Error";
 }
 
+function isConnectPhaseError(error) {
+  for (let e = error, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    if (CONNECT_PHASE_CODES.has(e.code)) return true;
+    if (typeof e.message === "string" && CONNECT_PHASE_CHROMIUM.test(e.message)) return true;
+  }
+  return false;
+}
+
 function refuse({ task, host, model = null, attributed = true }) {
   tally.blockedSinceSealed++;
-  record({ ts: config.now(), task, host, bytesOut: 0, bytesIn: 0, outcome: "blocked", errorClass: "SEALED_MODE", model, attributed });
+  const ts = config.now();
+  record({ ts, endedAt: ts, task, host, bytesOut: 0, bytesIn: 0, outcome: "blocked", errorClass: "SEALED_MODE", model, attributed });
   return new SealedModeError({ task, host });
 }
 
@@ -1771,30 +1926,34 @@ function addTo(acc, n) {
   }
 }
 const valueOf = (acc) => (acc.unknown || !acc.measured ? null : acc.total);
+const targetIdFor = (provider, host) =>
+  provider && !USER_ENDPOINT_PROVIDERS.has(provider) ? provider : `host:${host}`;
 
-function createTicket({ task, host, loopback, model, meter, payload, correlationId }) {
+function createTicket({ task, host, loopback, model, meter, payload, correlationId, provider }) {
   const controller = new AbortController();
   const out = meterAccumulator();
   const inbound = meterAccumulator();
   const sockets = new Set();
   let lastStatus = null;
   let openBodies = 0;
-  let sent = false;
+  const announced = new Set();
   const ticket = {
     id: nextId++,
+    tag: `${nextId}.${randomBytes(6).toString("hex")}`,
     task,
     host,
+    hosts: [host],
     loopback,
     model,
     meter,
     payload,
     correlationId,
+    targetId: targetIdFor(provider, host),
     signal: controller.signal,
-    observedHosts: new Set(),
-    redirectHosts: new Set(),
     settled: false,
-    observeHost(seen) {
-      if (seen && seen !== host) ticket.observedHosts.add(seen);
+    startedAt: config.now(),
+    addHost(seen) {
+      if (seen && !ticket.hosts.includes(seen) && ticket.hosts.length < 8) ticket.hosts.push(seen);
     },
     attachSocket(socket) {
       sockets.add(socket);
@@ -1820,22 +1979,23 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
     bodyClosed() {
       openBodies--;
     },
-    // The payload has been handed to the transport. This, not authorisation,
-    // is the evidence behind "the provider received it" copy (CCR-3).
-    markSent() {
-      if (sent || loopback) return;
-      sent = true;
-      events.emit("sent", { ticketId: ticket.id, task, host, payload, correlationId: ticket.correlationId, ts: config.now() });
+    markDispatched: () => announce("dispatched"),
+    markDelivered: () => {
+      announce("dispatched");
+      announce("delivered");
     },
+    markUndelivered: () => announce("undelivered"),
     abort(reason) {
       if (!controller.signal.aborted) controller.abort(reason);
       for (const socket of sockets) socket.destroy(reason);
       // A socket-metered ticket with no socket yet has nothing left to close.
+      // An opaque session settles only when its child exits (Task 6a).
       if (meter === "socket" && sockets.size === 0) ticket.settle({ outcome: "cancelled" });
     },
     discard() {
       ticket.settled = true;
       active.delete(ticket.id);
+      byTag.delete(ticket.tag);
     },
     settle({ outcome, status, errorClass = null, bytesOut, bytesIn } = {}) {
       if (ticket.settled) return;
@@ -1843,9 +2003,11 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
       if (loopback) return;
       const sealedAbort = controller.signal.aborted && isSealedModeError(controller.signal.reason);
       record({
-        ts: config.now(),
+        ts: ticket.startedAt,
+        endedAt: config.now(),
         task,
-        host: [...ticket.observedHosts][0] ?? host,
+        host,
+        hosts: ticket.hosts,
         bytesOut: bytesOut !== undefined ? bytesOut : valueOf(out),
         // A body still being read when the request settled was not fully
         // counted, so the received total is unknown rather than too small.
@@ -1859,7 +2021,21 @@ function createTicket({ task, host, loopback, model, meter, payload, correlation
       events.emit("settled", { ticketId: ticket.id });
     },
   };
+  function announce(phase) {
+    if (loopback || announced.has(phase)) return;
+    announced.add(phase);
+    events.emit(phase, {
+      ticketId: ticket.id,
+      task,
+      targetId: ticket.targetId,
+      host,
+      payload,
+      correlationId: ticket.correlationId,
+      ts: config.now(),
+    });
+  }
   active.set(ticket.id, ticket);
+  byTag.set(ticket.tag, ticket);
   return ticket;
 }
 
@@ -1867,14 +2043,15 @@ function authorize({
   task = currentTask() ?? "unattributed",
   target,
   model = null,
+  provider = null,
   meter = "body",
   payload = "metadata",
   correlationId = null,
 } = {}) {
   assertTask(task);
-  const decision = decideEgress({ sealed: isSealed(), target });
+  const decision = decideEgress({ sealed: !bypass && isSealed(), target });
   if (!decision.allow) throw refuse({ task, host: decision.host, model });
-  return createTicket({ task, host: decision.host, loopback: decision.loopback, model, meter, payload, correlationId });
+  return createTicket({ task, host: decision.host, loopback: decision.loopback, model, meter, payload, correlationId, provider });
 }
 
 function assertAllowed(meta) {
@@ -1975,12 +2152,28 @@ function bodyLength(body) {
   return null;
 }
 
-function meteredFetch(ticket, baseFetch = (...args) => globalThis.fetch(...args)) {
+function tagHeaders(ticket, headers = {}) {
+  return { ...headers, [EGRESS_TAG_HEADER]: ticket.tag };
+}
+const ticketByTag = (tag) => byTag.get(tag) ?? null;
+
+// tag: true only for Electron net requests, whose session backstop strips the
+// header before it leaves (Task 6). Node requests are attributed by context and
+// must never carry it.
+function meteredFetch(ticket, baseFetch = (...args) => globalThis.fetch(...args), { tag = false } = {}) {
   return async (input, init = {}) => {
     ticket.addBytes({ out: bodyLength(init?.body) });
     const signal = init?.signal ? AbortSignal.any([init.signal, ticket.signal]) : ticket.signal;
-    ticket.markSent();
-    const response = await baseFetch(input, { ...init, signal });
+    const headers = tag ? tagHeaders(ticket, Object.fromEntries(new Headers(init?.headers ?? {}))) : init?.headers;
+    ticket.markDispatched();
+    let response;
+    try {
+      response = await baseFetch(input, { ...init, headers, signal });
+    } catch (error) {
+      if (isConnectPhaseError(error)) ticket.markUndelivered();
+      throw error;
+    }
+    ticket.markDelivered();
     ticket.noteStatus(response.status);
     if (!response.body) {
       ticket.addBytes({ in: null });
@@ -2004,14 +2197,6 @@ function meteredFetch(ticket, baseFetch = (...args) => globalThis.fetch(...args)
   };
 }
 
-function markSentFor({ task, correlationId = null }) {
-  for (const ticket of active.values()) {
-    if (ticket.task !== task || ticket.meter !== "socket" || ticket.loopback) continue;
-    if (ticket.correlationId == null && correlationId != null) ticket.correlationId = correlationId;
-    ticket.markSent();
-  }
-}
-
 function abortAllRemote() {
   let aborted = 0;
   for (const ticket of [...active.values()]) {
@@ -2023,20 +2208,9 @@ function abortAllRemote() {
 }
 const activeRemoteCount = () => [...active.values()].filter((t) => !t.loopback).length;
 
-function explainingTicket(host) {
-  if (!host) return null;
-  for (const t of active.values())
-    if (t.host === host || t.observedHosts.has(host) || t.redirectHosts.has(host)) return t;
-  return null;
-}
-const isHostExplained = (host) => explainingTicket(host) !== null;
-function noteRedirect(fromHost, toHost) {
-  const ticket = explainingTicket(fromHost);
-  if (ticket && toHost) ticket.redirectHosts.add(toHost);
-}
-
-function recordUnattributed({ host, outcome, bytesOut = null, bytesIn = null }) {
-  record({ ts: config.now(), task: "unattributed", host, outcome, bytesOut, bytesIn, attributed: false });
+function recordUnattributed({ host, outcome, status = null, bytesOut = null, bytesIn = null, ts, endedAt }) {
+  const now = config.now();
+  record({ ts: ts ?? now, endedAt: endedAt ?? now, task: "unattributed", host, outcome, status, bytesOut, bytesIn, attributed: false });
 }
 
 // Layer B found a connection Layer A did not refuse. With a ticket, the request
@@ -2059,12 +2233,18 @@ const counters = () => ({ ...tally });
 function _resetForTests() {
   config = { isSealed: () => false, recorder: null, now: Date.now };
   active = new Map();
+  byTag = new Map();
   nextId = 1;
   tally = freshTally();
+  bypass = false;
   events.removeAllListeners();
+}
+function _setBypassForTests(on) {
+  bypass = !!on;
 }
 
 module.exports = {
+  EGRESS_TAG_HEADER,
   configureEgress,
   attachRecorder,
   getRecorder,
@@ -2078,31 +2258,30 @@ module.exports = {
   guard,
   guardResponse,
   meteredFetch,
-  markSentFor,
+  tagHeaders,
+  ticketByTag,
   abortAllRemote,
   activeRemoteCount,
-  explainingTicket,
-  isHostExplained,
-  noteRedirect,
   recordUnattributed,
   recordBackstopBlock,
   onSealChanged,
   counters,
   events,
   _resetForTests,
+  _setBypassForTests,
 };
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm test -- test/helpers/egressGate.test.js`
-Expected: PASS (22 tests).
+Expected: PASS (24 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/helpers/privacy/egressGate.js test/helpers/egressGate.test.js
-git commit -m "feat(privacy): add egress gate with tickets, task context and metering"
+git commit -m "feat(privacy): add egress gate with tickets, tags, task context and metering"
 ```
 
 ---
@@ -2111,7 +2290,7 @@ git commit -m "feat(privacy): add egress gate with tickets, task context and met
 
 **Files:**
 - Create: `src/helpers/privacy/egressBackstop.js`
-- Modify: `scripts/smoke-electron.cjs:86-95`. This is the block from `const instrumented = new WeakSet();` through `electron.app.whenReady().then(() => watchSession(electron.session.defaultSession));`. Replace the script's own `webRequest` watcher with a backstop observer, because Electron keeps only one listener per `webRequest` event.
+- Modify: `scripts/smoke-electron.cjs`. Replace the block from `const instrumented = new WeakSet();` through `electron.app.whenReady().then(() => watchSession(electron.session.defaultSession));` (currently `:86-95`) with a backstop observer, because Electron keeps only one listener per `webRequest` event. Anchor on that text, not the numbers.
 - Test: `test/helpers/egressBackstop.test.js`
 
 **Interfaces:**
@@ -2120,22 +2299,28 @@ git commit -m "feat(privacy): add egress gate with tickets, task context and met
 
   ```js
   installNodeBackstop(): void      // idempotent. Hooks:
-                                   //  net.Socket#connect (TCP/TLS: http, https, undici fetch, ws, SDKs) — "localhost" is pinned to loopback addresses
+                                   //  net.Socket#connect (TCP/TLS: http, https, undici fetch, ws, SDKs) — localhost and *.localhost are pinned to loopback
                                    //  http/https request+get (a loopback proxy asked to CONNECT or forward to a remote host)
-                                   //  dns.lookup, dns.lookupService and every dns resolver API (callback, promises, Resolver classes)
+                                   //  dns.lookup/lookupService and every dns resolver API (callback, promises, Resolver classes); pending lookups are counted
                                    //  dgram Socket#send/#connect (UDP)
-  watchSession(session): void      // idempotent; owns webRequest onBeforeRequest/onBeforeRedirect/onCompleted/onErrorOccurred
-  installWebContentsGuard(app): void  // every webContents gets setWebRTCIPHandlingPolicy("disable_non_proxied_udp")
+  watchSession(session): void      // idempotent; owns webRequest onBeforeRequest/onBeforeSendHeaders/onBeforeRedirect/onCompleted/onErrorOccurred
+  installWebContentsGuard(app): void  // every webContents: WebRTC "disable_non_proxied_udp"; its in-flight requests are dropped when it is destroyed
   judgeChromiumRequest(url): { cancel: boolean }
   severAll(): number               // destroys open remote Node sockets; never touches loopback or Chromium connections
-  closeChromiumConnections(): Promise<void>  // last resort: session.closeAllConnections() (also resets local ones)
-  addObserver(fn: (e: { layer: "node"|"chromium", host, url?, allowed, explained? }) => boolean|void): () => void
+  addObserver(fn: (e: { layer: "node"|"chromium", host, url?, allowed }) => boolean|void): () => void
                                    // a chromium observer returning true vetoes the request (smoke test hook)
   status(): { node, dns, dgram, http, webContents: boolean; sessions: number; envProxy: boolean;
-              openRemoteSockets: number; chromiumInFlightRemote: number }
+              openRemoteSockets: number; chromiumInFlightRemote: number; pendingDns: number }
   ```
 
-  `envProxy` is true when Node was started with its environment proxy enabled (`NODE_USE_ENV_PROXY`, or `--use-env-proxy` in `process.execArgv`). Undici would then tunnel through a proxy this layer cannot inspect, so the attestation treats it as unverified (Task 7).
+- **Attribution.**
+  - **Node:** a socket opened inside a ticket's `AsyncLocalStorage` context belongs to that ticket. Its host joins the ticket's trail, and a socket-metered ticket counts its wire bytes. A socket opened anywhere else is *unexplained*, even if a ticket for the same host is open. It is recorded when it closes, with its wire bytes.
+  - **Chromium:** a request carrying the gate's `x-loqui-egress` tag belongs to that ticket. `onBeforeSendHeaders` reads the tag and **strips it before the request leaves**, and redirects extend that ticket's host trail. An untagged remote request is *unexplained*, and is recorded when it completes or fails, with its real status.
+- **No connection resets.**
+  - There is no "close all connections" step. Ticketed work is stopped by its own abort signal.
+  - Un-ticketed Chromium requests (for example, a renderer image that started before sealing) are counted until they complete or fail, or until their `webContents` is destroyed.
+  - The attestation stays unverified while any are in flight (Task 7), so local work in the same session is never reset.
+- **`envProxy`** is true when Node was started with its environment proxy enabled (`NODE_USE_ENV_PROXY`, or `--use-env-proxy` in `process.execArgv`). Undici would then tunnel through a proxy this layer cannot inspect, so the attestation treats it as unverified.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2228,6 +2413,13 @@ test("sealed: every DNS API refuses remote names (lookup, resolvers, promises, R
   assert.ok(isSealedModeError(await new Promise((r) => dns.lookupService("93.184.215.14", 443, (e) => r(e)))));
 });
 
+test("pending DNS lookups are counted until they answer", async () => {
+  const pending = new Promise((r) => dns.lookup("localhost", () => r()));
+  assert.equal(backstop.status().pendingDns >= 1, true);
+  await pending;
+  assert.equal(backstop.status().pendingDns, 0);
+});
+
 test("sealed: UDP to a remote address is refused; loopback UDP works", async (t) => {
   flags.sealed = true;
   const sender = dgram.createSocket("udp4");
@@ -2254,14 +2446,16 @@ test("sealed: loopback keeps working by address and by localhost", async (t) => 
   assert.equal(recorder.list().length, 0);
 });
 
-test("'localhost' is pinned to loopback even when a lookup says otherwise", async (t) => {
+test("localhost and *.localhost are pinned to loopback even when a lookup says otherwise", async (t) => {
   const { port, received } = await echoServer(t);
-  const socket = net.connect({ host: "localhost", port, family: 4, lookup: toPublic });
-  await once(socket, "connect");
-  assert.equal(socket.remoteAddress, "127.0.0.1");
-  socket.end("ok");
-  await once(socket, "close");
-  assert.equal(Buffer.concat(received).toString(), "ok");
+  for (const host of ["localhost", "app.localhost"]) {
+    const socket = net.connect({ host, port, family: 4, lookup: toPublic });
+    await once(socket, "connect");
+    assert.equal(socket.remoteAddress, "127.0.0.1", host);
+    socket.end("ok");
+    await once(socket, "close");
+  }
+  assert.equal(Buffer.concat(received).toString(), "okok");
 });
 
 test("sealed: a loopback proxy is not allowed to tunnel or forward to a remote host", async (t) => {
@@ -2288,19 +2482,31 @@ test("unsealed: an unexplained remote connection is recorded with its wire bytes
   assert.deepEqual([row.task, row.host, row.attributed, row.bytesOut], ["unattributed", "tracker.example", false, 2]);
 });
 
-test("unsealed: a connection inside a ticket is attributed, not unexplained", async (t) => {
+test("a same-host connection outside the ticket's context is still unexplained", async (t) => {
   const { port } = await echoServer(t);
-  await gate.guard({ task: "chat", target: "https://api.provider.example" }, async (ticket) => {
+  const ticket = gate.authorize({ task: "chat", target: "https://api.provider.example" });
+  const socket = net.connect({ host: "api.provider.example", port, lookup: toLoopback }); // not in runWithTicket
+  await once(socket, "connect");
+  socket.end();
+  socket.resume();
+  await once(socket, "close");
+  const [row] = recorder.list();
+  assert.deepEqual([row.task, row.attributed], ["unattributed", false]);
+  ticket.discard();
+});
+
+test("unsealed: a connection inside a ticket joins its host trail", async (t) => {
+  const { port } = await echoServer(t);
+  await gate.guard({ task: "chat", target: "https://api.provider.example" }, async () => {
     const socket = net.connect({ host: "edge.provider.example", port, lookup: toLoopback });
     await once(socket, "connect");
     socket.end();
     socket.resume();
     await once(socket, "close");
-    assert.ok(ticket.observedHosts.has("edge.provider.example"));
   });
   const rows = recorder.list();
   assert.equal(rows.length, 1);
-  assert.deepEqual([rows[0].task, rows[0].host, rows[0].attributed], ["chat", "edge.provider.example", true]);
+  assert.deepEqual([rows[0].task, rows[0].hosts, rows[0].attributed], ["chat", ["api.provider.example", "edge.provider.example"], true]);
 });
 
 test("a socket-metered ticket settles with wire bytes when its socket closes", async (t) => {
@@ -2341,6 +2547,10 @@ test("severAll destroys open remote Node sockets and leaves loopback ones alone"
   local.destroy();
 });
 
+test("there is no API that resets every Chromium connection", () => {
+  assert.equal(backstop.closeChromiumConnections, undefined);
+});
+
 test("status reports the env-proxy hazard", (t) => {
   const before = process.env.NODE_USE_ENV_PROXY;
   t.after(() => { if (before === undefined) delete process.env.NODE_USE_ENV_PROXY; else process.env.NODE_USE_ENV_PROXY = before; });
@@ -2351,72 +2561,88 @@ test("status reports the env-proxy hazard", (t) => {
 });
 
 function fakeSession() {
-  const s = { closed: 0, listeners: {}, async closeAllConnections() { s.closed++; } };
+  const s = { listeners: {} };
   s.webRequest = new Proxy({}, { get: (_t, name) => (listener) => { s.listeners[name] = listener; } });
   return s;
 }
-const ask = (session, url, id = Math.random()) =>
-  new Promise((resolve) => session.listeners.onBeforeRequest({ id, url }, resolve));
+let nextId = 1;
+const before = (s, url, extra = {}) =>
+  new Promise((resolve) => s.listeners.onBeforeRequest({ id: nextId++, url, webContentsId: 7, ...extra }, resolve));
+const sendHeaders = (s, id, requestHeaders) =>
+  new Promise((resolve) => s.listeners.onBeforeSendHeaders({ id, requestHeaders }, resolve));
 
-test("chromium sessions: sealed cancels remote, keeps local schemes and loopback", async () => {
-  const session = fakeSession();
-  backstop.watchSession(session);
+test("chromium: sealed cancels remote, keeps local schemes and loopback", async () => {
+  const s = fakeSession();
+  backstop.watchSession(s);
   flags.sealed = true;
-  assert.deepEqual(await ask(session, "https://api.github.com/repos/snowopsdev/loqui/releases"), { cancel: true });
-  assert.deepEqual(await ask(session, "file:///Applications/Loqui.app/index.html"), { cancel: false });
-  assert.deepEqual(await ask(session, "http://localhost:5174/"), { cancel: false });
-  assert.deepEqual(await ask(session, "devtools://devtools/bundled/inspector.html"), { cancel: false });
+  assert.deepEqual(await before(s, "https://api.github.com/repos/snowopsdev/loqui/releases"), { cancel: true });
+  assert.deepEqual(await before(s, "file:///Applications/Loqui.app/index.html"), { cancel: false });
+  assert.deepEqual(await before(s, "http://localhost:5174/"), { cancel: false });
+  assert.deepEqual(await before(s, "devtools://devtools/bundled/inspector.html"), { cancel: false });
   assert.equal(recorder.list()[0].outcome, "blocked");
 });
 
-test("chromium sessions: remote requests are tracked in flight until they complete or fail", async () => {
-  const session = fakeSession();
-  backstop.watchSession(session);
-  const base = backstop.status().chromiumInFlightRemote;
-  await ask(session, "https://images.example.com/a.png", 101);
-  await ask(session, "https://images.example.com/b.png", 102);
-  await ask(session, "http://127.0.0.1:8080/local", 103);
-  assert.equal(backstop.status().chromiumInFlightRemote, base + 2);
-  session.listeners.onCompleted({ id: 101 });
-  session.listeners.onErrorOccurred({ id: 102 });
-  assert.equal(backstop.status().chromiumInFlightRemote, base);
-});
-
-test("severAll never resets Chromium connections; closeChromiumConnections does", async () => {
-  const session = fakeSession();
-  backstop.watchSession(session);
-  backstop.severAll();
-  assert.equal(session.closed, 0, "local self-hosted requests survive sealing");
-  await backstop.closeChromiumConnections();
-  assert.equal(session.closed, 1);
-});
-
-test("chromium sessions: unexplained hosts are recorded; ticket hosts and redirects are not", async () => {
-  const session = fakeSession();
-  backstop.watchSession(session);
-  backstop.watchSession(session); // idempotent
-  assert.deepEqual(await ask(session, "https://images.example.com/a.png"), { cancel: false });
-  assert.equal(recorder.list()[0].host, "images.example.com");
+test("chromium: a tagged request is attributed, the tag is stripped, and redirects extend the trail", async () => {
+  const s = fakeSession();
+  backstop.watchSession(s);
   const ticket = gate.authorize({ task: "modelDownload", target: "https://huggingface.co/m" });
-  session.listeners.onBeforeRedirect({ url: "https://huggingface.co/m", redirectURL: "https://cdn-lfs.hf.co/m" });
-  await ask(session, "https://cdn-lfs.hf.co/m");
-  assert.equal(recorder.list().length, 1);
+  const id = nextId;
+  await before(s, "https://huggingface.co/m");
+  const sent = await sendHeaders(s, id, { Accept: "*/*", [gate.EGRESS_TAG_HEADER]: ticket.tag });
+  assert.deepEqual(sent, { requestHeaders: { Accept: "*/*" } }, "the tag never leaves");
+  s.listeners.onBeforeRedirect({ id, url: "https://huggingface.co/m", redirectURL: "https://cdn-lfs.hf.co/m" });
+  s.listeners.onCompleted({ id, statusCode: 200 });
+  assert.deepEqual(ticket.hosts, ["huggingface.co", "cdn-lfs.hf.co"]);
+  assert.equal(recorder.list().length, 0, "the ticket records it, not the backstop");
   ticket.discard();
 });
 
+test("chromium: an untagged remote request is unexplained, recorded at completion with its status", async () => {
+  const s = fakeSession();
+  backstop.watchSession(s);
+  const ticket = gate.authorize({ task: "chat", target: "https://images.example.com" }); // same host, no tag
+  const id = nextId;
+  await before(s, "https://images.example.com/a.png");
+  await sendHeaders(s, id, {});
+  assert.equal(recorder.list().length, 0, "not recorded until it finishes");
+  s.listeners.onCompleted({ id, statusCode: 404 });
+  const [row] = recorder.list();
+  assert.deepEqual([row.task, row.host, row.outcome, row.status, row.attributed], ["unattributed", "images.example.com", "error", 404, false]);
+  ticket.discard();
+});
+
+test("chromium: remote requests are tracked in flight until they finish, or their webContents goes away", async () => {
+  const s = fakeSession();
+  backstop.watchSession(s);
+  const listeners = {};
+  backstop.installWebContentsGuard({ on: (event, fn) => { listeners[event] = fn; } });
+  const contents = Object.assign(new (require("node:events").EventEmitter)(), { id: 42, setWebRTCIPHandlingPolicy() {} });
+  listeners["web-contents-created"]({}, contents);
+  const base = backstop.status().chromiumInFlightRemote;
+  const a = nextId; await before(s, "https://images.example.com/a.png");
+  const b = nextId; await before(s, "https://images.example.com/b.png");
+  await before(s, "https://images.example.com/c.png", { webContentsId: 42 });
+  await before(s, "http://127.0.0.1:8080/local");
+  assert.equal(backstop.status().chromiumInFlightRemote, base + 3);
+  s.listeners.onCompleted({ id: a, statusCode: 200 });
+  s.listeners.onErrorOccurred({ id: b, error: "net::ERR_ABORTED" });
+  contents.emit("destroyed");
+  assert.equal(backstop.status().chromiumInFlightRemote, base);
+});
+
 test("an observer can veto a chromium request (smoke test hook)", async (t) => {
-  const session = fakeSession();
-  backstop.watchSession(session);
+  const s = fakeSession();
+  backstop.watchSession(s);
   const off = backstop.addObserver((e) => e.layer === "chromium" && e.host === "openwhispr.com");
   t.after(off);
-  assert.deepEqual(await ask(session, "https://openwhispr.com/x"), { cancel: true });
+  assert.deepEqual(await before(s, "https://openwhispr.com/x"), { cancel: true });
 });
 
 test("every webContents gets the WebRTC no-UDP policy", () => {
   const listeners = {};
   backstop.installWebContentsGuard({ on: (event, fn) => { listeners[event] = fn; } });
   let policy = null;
-  listeners["web-contents-created"]({}, { setWebRTCIPHandlingPolicy: (p) => { policy = p; } });
+  listeners["web-contents-created"]({}, Object.assign(new (require("node:events").EventEmitter)(), { id: 1, setWebRTCIPHandlingPolicy: (p) => { policy = p; } }));
   assert.equal(policy, "disable_non_proxied_udp");
   assert.equal(backstop.status().webContents, true);
 });
@@ -2435,7 +2661,7 @@ test("only the backstop registers webRequest listeners; no proxy agents or peer 
       for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
         const rel = path.posix.join(dir, entry.name);
         if (entry.isDirectory()) walk(rel);
-        else if (/\.(c?js|ts|tsx|jsx)$/.test(entry.name) && pattern.test(fs.readFileSync(path.join(repoRoot, rel), "utf8"))) out.push(rel);
+        else if (/\.(c?js|mjs|ts|tsx|jsx)$/.test(entry.name) && pattern.test(fs.readFileSync(path.join(repoRoot, rel), "utf8"))) out.push(rel);
       }
     };
     walk("src");
@@ -2447,7 +2673,7 @@ test("only the backstop registers webRequest listeners; no proxy agents or peer 
   assert.deepEqual(hits(/webRequest\.(onBeforeRequest|onBeforeRedirect|onCompleted|onErrorOccurred|onBeforeSendHeaders|onHeadersReceived|onSendHeaders|onResponseStarted)\s*\(/), [
     "src/helpers/privacy/egressBackstop.js",
   ]);
-  assert.deepEqual(hits(/\b(ProxyAgent|EnvHttpProxyAgent|setGlobalDispatcher|RTCPeerConnection)\b/), []);
+  assert.deepEqual(hits(/\b(ProxyAgent|EnvHttpProxyAgent|setGlobalDispatcher|RTCPeerConnection|webkitRTCPeerConnection)\b/), []);
 });
 ```
 
@@ -2483,8 +2709,9 @@ const RESOLVER_METHODS = [
 const installed = { node: false, dns: false, dgram: false, http: false, webContents: false };
 const sessions = new Set();
 const openRemoteSockets = new Set();
-const chromiumInFlight = new Set();
+const chromiumInFlight = new Map(); // `${sessionTag}:${id}` → { host, ts, ticket, webContentsId }
 const observers = new Set();
+let pendingDns = 0;
 
 function addObserver(fn) {
   observers.add(fn);
@@ -2504,9 +2731,10 @@ function notify(event) {
 
 const block = (host) =>
   gate.recordBackstopBlock({ host: normalizeHost(String(host ?? "")) ?? "unknown", ticket: gate.currentTicket() });
+const isPinnedName = (host) => host === "localhost" || host.endsWith(".localhost");
 
-// "localhost" is answered here, never by DNS or a caller-supplied lookup, so a
-// name that claims to be local cannot be steered to another machine.
+// localhost and *.localhost are answered here, never by DNS or a caller-
+// supplied lookup, so a name that claims to be local cannot be steered away.
 function pinnedLoopbackLookup(_hostname, options, callback) {
   if (typeof options === "function") [callback, options] = [options, {}];
   const both = [
@@ -2532,14 +2760,13 @@ function connectTarget(args) {
   return { host: typeof host === "string" ? host : "localhost" };
 }
 
-function pinLocalhost(args, target) {
+function pinLocal(args, target, host) {
   if (target.options) {
     target.options.lookup = pinnedLoopbackLookup;
     return args;
   }
-  // (port[, host][, callback]) → an options object the pin can attach to.
   const callback = args.find((a) => typeof a === "function");
-  return [{ port: Number(args[0]), host: "localhost", lookup: pinnedLoopbackLookup }, ...(callback ? [callback] : [])];
+  return [{ port: Number(args[0]), host, lookup: pinnedLoopbackLookup }, ...(callback ? [callback] : [])];
 }
 
 function installSocketHook() {
@@ -2548,7 +2775,7 @@ function installSocketHook() {
     const target = connectTarget(args);
     if (target.local) return originalConnect.apply(this, args);
     const host = normalizeHost(String(target.host)) ?? "unknown";
-    if (host === "localhost") return originalConnect.apply(this, pinLocalhost(args, target));
+    if (isPinnedName(host)) return originalConnect.apply(this, pinLocal(args, target, host));
     if (isLoopbackHost(host)) return originalConnect.apply(this, args);
     const ticket = gate.currentTicket();
     if (gate.isSealed()) {
@@ -2557,18 +2784,25 @@ function installSocketHook() {
       process.nextTick(() => this.destroy(error));
       return this;
     }
-    const explained = !!ticket || gate.isHostExplained(host);
+    // Attribution by context only: a same-host socket opened elsewhere is unexplained.
     if (ticket) {
-      ticket.observeHost(host);
+      ticket.addHost(host);
       if (ticket.meter === "socket") ticket.attachSocket(this);
     }
+    const startedAt = Date.now();
     openRemoteSockets.add(this);
     this.once("close", (hadError) => {
       openRemoteSockets.delete(this);
-      if (!explained)
-        gate.recordUnattributed({ host, outcome: hadError ? "error" : "ok", bytesOut: this.bytesWritten, bytesIn: this.bytesRead });
+      if (!ticket)
+        gate.recordUnattributed({
+          host,
+          outcome: hadError ? "error" : "ok",
+          bytesOut: this.bytesWritten,
+          bytesIn: this.bytesRead,
+          ts: startedAt,
+        });
     });
-    notify({ layer: "node", host, allowed: true, explained });
+    notify({ layer: "node", host, allowed: true });
     return originalConnect.apply(this, args);
   };
   installed.node = true;
@@ -2582,7 +2816,7 @@ function forwardTarget(args) {
   if (typeof args[0] === "string" || args[0] instanceof URL) {
     const url = new URL(String(args[0]));
     options = { host: url.hostname, path: `${url.pathname}${url.search}`, method: "GET" };
-    if (args[1] && typeof args[1] === "object" && !(args[1] instanceof Function)) options = { ...options, ...args[1] };
+    if (args[1] && typeof args[1] === "object" && typeof args[1] !== "function") options = { ...options, ...args[1] };
   } else if (args[0] && typeof args[0] === "object") {
     options = args[0];
   }
@@ -2646,12 +2880,28 @@ function installDnsHook() {
       refuseDns(hostname, rest[rest.length - 1]);
       return {};
     }
+    // Count lookups in flight: the sealing barrier waits for queries issued
+    // before the seal to answer (Task 7).
+    const callback = rest[rest.length - 1];
+    if (typeof callback !== "function") return originalLookup.call(this, hostname, ...rest);
+    pendingDns++;
+    let done = false;
+    rest[rest.length - 1] = (...result) => {
+      if (!done) {
+        done = true;
+        pendingDns--;
+      }
+      callback(...result);
+    };
     return originalLookup.call(this, hostname, ...rest);
   };
   const originalPromiseLookup = dns.promises.lookup;
   dns.promises.lookup = function egressAwarePromiseLookup(hostname, ...rest) {
     if (gate.isSealed() && !isLoopbackHost(hostname)) return Promise.reject(block(hostname));
-    return originalPromiseLookup.call(this, hostname, ...rest);
+    pendingDns++;
+    return originalPromiseLookup.call(this, hostname, ...rest).finally(() => {
+      pendingDns--;
+    });
   };
   const originalLookupService = dns.lookupService;
   dns.lookupService = function egressAwareLookupService(address, port, callback) {
@@ -2724,17 +2974,22 @@ function judge(url) {
   const decision = decideEgress({ sealed: gate.isSealed(), target: url });
   if (decision.loopback) return { cancel: false, remote: false };
   if (!decision.allow) {
-    gate.recordBackstopBlock({ host: decision.host, ticket: gate.explainingTicket(decision.host) });
     notify({ layer: "chromium", host: decision.host, url, allowed: false });
-    return { cancel: true, remote: true };
+    return { cancel: true, remote: true, host: decision.host };
   }
-  const explained = gate.isHostExplained(decision.host);
-  if (notify({ layer: "chromium", host: decision.host, url, allowed: true, explained })) return { cancel: true, remote: true };
-  if (!explained) gate.recordUnattributed({ host: decision.host, outcome: "ok" });
-  return { cancel: false, remote: true };
+  if (notify({ layer: "chromium", host: decision.host, url, allowed: true })) return { cancel: true, remote: true, host: decision.host };
+  return { cancel: false, remote: true, host: decision.host };
 }
 
 const judgeChromiumRequest = (url) => ({ cancel: judge(url).cancel });
+
+function finishChromium(key, { outcome, status = null }) {
+  const entry = chromiumInFlight.get(key);
+  if (!entry) return;
+  chromiumInFlight.delete(key);
+  // A tagged request is recorded by its own ticket; only untagged ones here.
+  if (!entry.ticket) gate.recordUnattributed({ host: entry.host, outcome, status, ts: entry.ts });
+}
 
 // Electron keeps a single listener per webRequest event, so this module must
 // be the only caller (enforced by test/helpers/egressBackstop.test.js).
@@ -2748,37 +3003,62 @@ function watchSession(session) {
   const key = (details) => `${tag}:${details.id}`;
   session.webRequest.onBeforeRequest((details, callback) => {
     const verdict = judge(details.url);
-    if (!verdict.cancel && verdict.remote) chromiumInFlight.add(key(details));
+    const existing = chromiumInFlight.get(key(details)); // a redirect hop of a request already in flight
+    if (verdict.cancel && verdict.remote && gate.isSealed()) {
+      gate.recordBackstopBlock({ host: verdict.host, ticket: existing?.ticket ?? null });
+      chromiumInFlight.delete(key(details));
+    } else if (!verdict.cancel && verdict.remote && !existing) {
+      chromiumInFlight.set(key(details), { host: verdict.host, ts: Date.now(), ticket: null, webContentsId: details.webContentsId });
+    }
     callback({ cancel: verdict.cancel });
   });
-  session.webRequest.onBeforeRedirect((details) => gate.noteRedirect(hostOf(details.url), hostOf(details.redirectURL)));
-  session.webRequest.onCompleted((details) => chromiumInFlight.delete(key(details)));
-  session.webRequest.onErrorOccurred((details) => chromiumInFlight.delete(key(details)));
+  session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const requestHeaders = { ...details.requestHeaders };
+    const tagName = Object.keys(requestHeaders).find((h) => h.toLowerCase() === gate.EGRESS_TAG_HEADER);
+    if (tagName) {
+      const ticket = gate.ticketByTag(requestHeaders[tagName]);
+      delete requestHeaders[tagName]; // the tag never leaves this computer
+      const entry = chromiumInFlight.get(key(details));
+      if (entry && ticket) {
+        entry.ticket = ticket;
+        ticket.addHost(entry.host);
+      }
+    }
+    callback({ requestHeaders });
+  });
+  session.webRequest.onBeforeRedirect((details) => {
+    const entry = chromiumInFlight.get(key(details));
+    const next = hostOf(details.redirectURL);
+    if (entry?.ticket && next) entry.ticket.addHost(next);
+  });
+  session.webRequest.onCompleted((details) =>
+    finishChromium(key(details), { outcome: details.statusCode >= 400 ? "error" : "ok", status: details.statusCode })
+  );
+  session.webRequest.onErrorOccurred((details) => finishChromium(key(details), { outcome: "error" }));
 }
 
-// Loqui never uses peer connections; without a proxy this policy leaves WebRTC
-// no UDP path, which webRequest could not see.
+// Loqui never uses peer connections (ratchet test); without a proxy this policy
+// also leaves WebRTC no UDP path, which webRequest could not see. Requests of a
+// destroyed webContents are cancelled by Chromium, so stop counting them.
 function installWebContentsGuard(app) {
-  app.on("web-contents-created", (_event, contents) => contents.setWebRTCIPHandlingPolicy?.("disable_non_proxied_udp"));
+  app.on("web-contents-created", (_event, contents) => {
+    contents.setWebRTCIPHandlingPolicy?.("disable_non_proxied_udp");
+    contents.once?.("destroyed", () => {
+      for (const [k, entry] of chromiumInFlight) if (entry.webContentsId === contents.id) chromiumInFlight.delete(k);
+    });
+  });
   installed.webContents = true;
 }
 
 // Node sockets only: loopback connections (self-hosted STT, llama-server) and
 // Chromium's pool are left alone. Ticketed Chromium requests are stopped by
-// their own abort signals (gate.abortAllRemote).
+// their own abort signals (gate.abortAllRemote); un-ticketed ones are waited
+// for, and keep the attestation unverified until they end.
 function severAll() {
   const sockets = [...openRemoteSockets];
   for (const socket of sockets) socket.destroy();
   openRemoteSockets.clear();
   return sockets.length;
-}
-
-// Last resort for un-ticketed Chromium requests still in flight after the grace
-// period (e.g. a renderer image). It also resets local connections, so the seal
-// transition reports it.
-async function closeChromiumConnections() {
-  await Promise.allSettled([...sessions].map((session) => session.closeAllConnections?.()));
-  chromiumInFlight.clear();
 }
 
 const envProxy = () =>
@@ -2791,6 +3071,7 @@ const status = () => ({
   envProxy: envProxy(),
   openRemoteSockets: openRemoteSockets.size,
   chromiumInFlightRemote: chromiumInFlight.size,
+  pendingDns,
 });
 
 module.exports = {
@@ -2799,7 +3080,6 @@ module.exports = {
   installWebContentsGuard,
   judgeChromiumRequest,
   severAll,
-  closeChromiumConnections,
   addObserver,
   status,
 };
@@ -2812,7 +3092,7 @@ If the global `fetch` test fails with `ENOTFOUND` instead of a sealed error, thi
 
 - [ ] **Step 4: Point the smoke script at the observer**
 
-In `scripts/smoke-electron.cjs`, replace lines 86-95 with the snippet below. The range runs from `const instrumented = new WeakSet();` through `electron.app.whenReady().then(() => watchSession(electron.session.defaultSession));`. Line 96, `require(path.join(repoRoot, "main.js"));`, stays.
+In `scripts/smoke-electron.cjs`, replace the block named in **Files** with the snippet below. The `require(path.join(repoRoot, "main.js"));` line after it stays.
 
 ```js
   // Electron keeps one listener per webRequest event and the Sealed mode
@@ -2827,7 +3107,7 @@ In `scripts/smoke-electron.cjs`, replace lines 86-95 with the snippet below. The
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm test -- test/helpers/egressBackstop.test.js test/helpers/egressGate.test.js`
-Expected: PASS. No test makes a DNS query or an off-host connection: every "remote" socket resolves to 127.0.0.1 through `toLoopback`, sealed refusals happen before DNS, and UDP goes only to loopback.
+Expected: PASS. Every "remote" socket in these tests resolves to 127.0.0.1 through `toLoopback`; sealed refusals happen before DNS, and UDP goes only to loopback. The one unsealed lookup is for `localhost`, which the OS answers from its hosts file. No test makes an off-host connection or an external DNS query.
 
 - [ ] **Step 6: Commit**
 

@@ -3578,13 +3578,15 @@ git commit -m "feat(privacy): track child processes until exit, guard spawns, ke
   export type EgressOutcome = "ok" | "error" | "blocked" | "cancelled";
   export type EgressPayload = "audio" | "text" | "image" | "metadata";
   export interface EgressEvent {
-    id: number; ts: number; task: EgressTask; host: string;
+    id: number; ts: number; endedAt: number | null; task: EgressTask;
+    host: string; hosts: string[];     // host = hosts[0]; the trail includes redirects (Task 4)
     bytesOut: number | null; bytesIn: number | null; outcome: EgressOutcome;
     status: number | null; errorClass: string | null; model: string | null;
     attributed: boolean; opaque: boolean;
   }
   export interface EgressSummary {
-    left: number; blocked: number; unattributed: number; unattributedHosts: string[];
+    left: number; observed: number;    // left = observed requests + opaque sessions
+    blocked: number; unattributed: number; unattributedHosts: string[];
     bytesOut: number; bytesIn: number; unknownBytes: number; opaqueSessions: number;
   }
   export type EgressNotice =
@@ -4484,11 +4486,14 @@ In `preload.js`, after the closing `},` of `personalInference` (`preload.js:99`)
   },
 ```
 
-Create `src/types/privacy.ts` with the TypeScript block from **Interfaces** above. In `src/types/electron.ts`, after line 677 (`personalInference: …`), add:
+Create `src/types/privacy.ts` with the TypeScript block from **Interfaces** above. In `src/types/electron.ts`, Plan 03 (Task 2) declared an optional `privacy?: { getSealed; onSealedChange }` member after `downloadSearchModel`. **Replace** that whole member with:
 
 ```ts
+      // Sealed mode and the flight recorder (spec §5.4, Plan 07).
       privacy: import("./privacy").PrivacyAPI;
 ```
+
+If Plan 03 has not merged, add the line after `personalInference: …` (`:677`) instead. Either way there must be exactly one `privacy` member: two declarations with different optionality fail the typecheck.
 
 These are the English source strings for main's dialogs. Add them to all 11 locales, using the merge script in Task 14, Step 6:
 
@@ -8549,8 +8554,8 @@ const copy = () => import("../../src/components/settings/sealedModeCopy.ts");
 const panel = () => import("../../src/components/settings/SealedModePanel.tsx");
 const t = (key, params) => (params ? `${key}${JSON.stringify(params)}` : key);
 const time = (ms) => `T${ms}`;
-const attested = { sealed: true, sealedSince: 5, effectiveSince: 7, phase: "sealed", failures: [], loadError: null, saveError: null,
-  guards: { node: true, dns: true, dgram: true, http: true, webContents: true, sessions: 2, envProxy: false, openRemoteSockets: 0, chromiumInFlightRemote: 0 },
+const attested = { sealed: true, sealedSince: 5, effectiveSince: 7, phase: "sealed", failures: [], notes: [], loadError: null, saveError: null,
+  guards: { node: true, dns: true, dgram: true, http: true, webContents: true, sessions: 2, envProxy: false, openRemoteSockets: 0, chromiumInFlightRemote: 0, pendingDns: 0 },
   networkChildren: [], activeRemote: 0, blockedSinceSealed: 3, recordFailures: 0, version: 1, at: 1, nothingLeaves: true };
 
 test("the verified claim appears only when main attests it", async () => {
@@ -8584,6 +8589,19 @@ test("each unverified reason names its cause", async () => {
   assert.deepEqual(line({ ...attested, nothingLeaves: false, networkChildren: ["codex"] }).params, { names: "codex" });
   assert.equal(line({ ...attested, nothingLeaves: false, guards: { ...attested.guards, node: false } }).key, "settingsPage.privacy.sealed.unverified.guards");
   assert.equal(line({ ...attested, nothingLeaves: false, activeRemote: 2 }).key, "settingsPage.privacy.sealed.unverified.active");
+  const sealing = { ...attested, nothingLeaves: false, phase: "sealing", effectiveSince: null };
+  assert.equal(line({ ...sealing, failures: ["childStop"], networkChildren: ["yt-dlp"] }).key, "settingsPage.privacy.sealed.unverified.stopFailed");
+  assert.deepEqual(line({ ...sealing, failures: ["childStop"], networkChildren: ["yt-dlp"] }).params, { names: "yt-dlp" });
+  assert.equal(line({ ...sealing, failures: ["codexStop"] }).key, "settingsPage.privacy.sealed.unverified.stopFailedUnnamed");
+  assert.equal(line({ ...sealing, failures: ["timeout:chromium"], guards: { ...attested.guards, chromiumInFlightRemote: 1 } }).key, "settingsPage.privacy.sealed.unverified.chromium");
+  assert.equal(line({ ...sealing, failures: ["timeout:dns"], guards: { ...attested.guards, pendingDns: 1 } }).key, "settingsPage.privacy.sealed.unverified.dns");
+});
+
+test("a delay that resolved before verification is disclosed beside the verified line", async () => {
+  const { sealedStatusLines } = await copy();
+  const keys = sealedStatusLines(true, { ...attested, notes: ["codexStop"] }, time).map((l) => l.key);
+  assert.ok(keys.includes("settingsPage.privacy.sealed.attested"));
+  assert.ok(keys.includes("settingsPage.privacy.sealed.note.codexStop"));
 });
 
 test("load and save problems are always surfaced", async () => {
@@ -8651,17 +8669,28 @@ import type { Attestation } from "../../types/privacy";
 export type StatusLine = { key: string; params?: Record<string, string | number>; tone: "neutral" | "ok" | "warn" };
 const P = "settingsPage.privacy.sealed";
 
+// Most fundamental cause first. Failures are unresolved (they block the
+// verified line); main clears one only when the thing it names has stopped.
 function unverified(a: Attestation | null): StatusLine {
   if (!a) return { key: `${P}.unverified.pending`, tone: "warn" };
   const g = a.guards;
   if (!g.node || !g.dns || !g.dgram || !g.http || !g.webContents || g.sessions === 0)
     return { key: `${P}.unverified.guards`, tone: "warn" };
   if (g.envProxy) return { key: `${P}.unverified.envProxy`, tone: "warn" };
+  if (a.failures.some((f) => f === "codexStop" || f === "childStop"))
+    return a.networkChildren.length > 0
+      ? { key: `${P}.unverified.stopFailed`, params: { names: a.networkChildren.join(", ") }, tone: "warn" }
+      : { key: `${P}.unverified.stopFailedUnnamed`, tone: "warn" };
   if (a.networkChildren.length > 0)
     return { key: `${P}.unverified.child`, params: { names: a.networkChildren.join(", ") }, tone: "warn" };
-  if (a.phase === "sealing") return { key: `${P}.unverified.stopping`, tone: "warn" };
-  return { key: `${P}.unverified.active`, tone: "warn" };
+  if (g.chromiumInFlightRemote > 0 || a.failures.includes("timeout:chromium"))
+    return { key: `${P}.unverified.chromium`, tone: "warn" };
+  if (g.pendingDns > 0 || a.failures.includes("timeout:dns")) return { key: `${P}.unverified.dns`, tone: "warn" };
+  if (a.activeRemote > 0 || g.openRemoteSockets > 0) return { key: `${P}.unverified.active`, tone: "warn" };
+  return { key: `${P}.unverified.stopping`, tone: "warn" };
 }
+
+const NOTE_KEYS = new Set(["codexStop", "childStop"]);
 
 // The only place the panel decides what it may claim. The verified line is
 // shown solely when main's attestation says so (D6), and it is dated from
@@ -8678,13 +8707,14 @@ export function sealedStatusLines(
     lines.push({ key: `${P}.description`, tone: "neutral" });
   } else {
     lines.push({ key: `${P}.on`, tone: "neutral" });
-    if (attestation?.nothingLeaves && attestation.effectiveSince != null)
+    if (attestation?.nothingLeaves && attestation.effectiveSince != null) {
       lines.push({
         key: `${P}.attested`,
         params: { time: formatTime(attestation.effectiveSince), count: attestation.blockedSinceSealed },
         tone: "ok",
       });
-    else lines.push(unverified(attestation));
+      for (const note of attestation.notes) if (NOTE_KEYS.has(note)) lines.push({ key: `${P}.note.${note}`, tone: "neutral" });
+    } else lines.push(unverified(attestation));
   }
   if (attestation?.loadError) lines.push({ key: `${P}.loadError`, tone: "warn" });
   if (attestation?.saveError) lines.push({ key: `${P}.saveError`, tone: "warn" });
@@ -8822,6 +8852,14 @@ These are the English source strings. Every other locale gets a faithful transla
   "sealedMode.interrupted.chat": "Chat stopped: Sealed mode was turned on mid-reply. Your message is kept; the provider may have received it.",
   "sealedMode.interrupted.dictationKept": "Stopped when Sealed mode was turned on; the provider may have received part of the audio. The recording is in History for retry.",
   "sealedMode.interrupted.dictationNotKept": "Stopped when Sealed mode was turned on; the provider may have received part of the audio. The recording was not kept, because local history is off.",
+  "sealedMode.blocked.dictationHeld": "Nothing was sent. Local history is off, so the recording is kept in memory only, until you quit Loqui. Choose Transcribe after turning Sealed mode off or switching to an on-device model.",
+  "sealedMode.interrupted.dictationHeld": "Stopped when Sealed mode was turned on; the provider may have received part of the audio. The recording is kept in memory only, until you quit Loqui.",
+  "sealedMode.recovery.transcribe": "Transcribe",
+  "sealedMode.recovery.discard": "Discard",
+  "sealedMode.recovery.availableTitle": "A dictation is waiting",
+  "sealedMode.recovery.availableDetail_one": "Sealed mode is off. {{count}} recording blocked earlier is still in memory. Transcribe it now?",
+  "sealedMode.recovery.availableDetail_other": "Sealed mode is off. {{count}} recordings blocked earlier are still in memory. Transcribe them now?",
+  "sealedMode.markdown.imageBlocked": "Image not loaded while Sealed mode is on: {{alt}}",
   "settingsPage.privacy.sealed.title": "Sealed mode",
   "settingsPage.privacy.sealed.description": "Blocks every request that would leave this computer. On-device models keep working.",
   "settingsPage.privacy.sealed.on": "Cloud routes are paused. Local routes keep working. Turn this off to resume them.",
@@ -8832,6 +8870,12 @@ These are the English source strings. Every other locale gets a faithful transla
   "settingsPage.privacy.sealed.unverified.active": "Sealed mode is on. Stopping requests that started before you turned it on.",
   "settingsPage.privacy.sealed.unverified.stopping": "Sealed mode is on, but Loqui could not yet confirm that everything stopped. It keeps checking.",
   "settingsPage.privacy.sealed.unverified.envProxy": "Sealed mode is on, but Loqui was started with a network proxy setting it cannot inspect, so it can't confirm that nothing leaves.",
+  "settingsPage.privacy.sealed.unverified.stopFailed": "Sealed mode is on, but {{names}} did not stop when asked. Loqui can't verify the seal until it exits. Quitting Loqui stops it.",
+  "settingsPage.privacy.sealed.unverified.stopFailedUnnamed": "Sealed mode is on, but a helper process did not stop when asked. Loqui can't verify the seal until it exits. Quitting Loqui stops it.",
+  "settingsPage.privacy.sealed.unverified.chromium": "Sealed mode is on, but a page request that started earlier is still open. Loqui can't verify the seal until it ends.",
+  "settingsPage.privacy.sealed.unverified.dns": "Sealed mode is on, but a name lookup that started earlier is still pending. It keeps checking.",
+  "settingsPage.privacy.sealed.note.codexStop": "Verified after a delay: Codex took longer than usual to stop.",
+  "settingsPage.privacy.sealed.note.childStop": "Verified after a delay: a helper process took longer than usual to stop.",
   "settingsPage.privacy.sealed.loadError": "Loqui couldn't read your Sealed mode setting, so it stayed sealed. Turn it off here if you meant to.",
   "settingsPage.privacy.sealed.saveError": "Sealed mode couldn't be saved. It will be off the next time Loqui starts.",
   "settingsPage.privacy.sealed.unknown": "Sealed mode status is unavailable.",
@@ -8897,7 +8941,13 @@ git commit -m "feat(privacy): add the Sealed mode panel with attested status"
   - `src/locales/*/translation.json`. Add `settingsPage.privacy.recorder.*`.
   - `docs/PRIVACY.md`. Add a "Sealed mode and the flight recorder" section, and point the "When network requests occur" table at it.
   - `DESIGN.md`. Append the recorder rules to the Task 14 section.
-- Test: `test/components/flightRecorderPanel.test.js`
+- Test: `test/components/flightRecorderPanel.test.js`, `test/components/flightRecorderPipeline.test.js`
+
+**What the panel may claim (I5, I10).**
+- The headline counts **observed requests**, the requests Loqui's guards saw and metered. Opaque child sessions (Codex, yt-dlp) are counted on a separate line, because Loqui saw the session start and end, not the requests inside it.
+- An opaque row names its **usual host**, not "the destination". Its bytes cell says the traffic is not visible.
+- A row shows its whole host trail (redirects, CDN hosts) and its end time when it ran for a second or more.
+- Before the first summary arrives, the panel shows "Loading…", never "0". The empty state says "No recorded requests for this period". It never says that nothing left this computer: the recorder may have been cleared, pruned, or (with history off) emptied by a restart.
 
 **Interfaces:**
 - Consumes `privacy.listEgress`, `egressSummary`, `clearEgress`, `exportEgressCsv`, `onEgress` and `onEgressCleared` (Task 7), and uses `formatBytes` from `src/utils/formatBytes`. **Clear history** is confirmed by main's own dialog (Task 7, `createConfirmations`), so the panel shows no renderer confirm. A compromised renderer therefore cannot wipe the evidence silently.
@@ -8905,12 +8955,14 @@ git commit -m "feat(privacy): add the Sealed mode panel with attested status"
 
   ```ts
   // flightRecorderView.ts
-  export type TickKind = "sent" | "blocked" | "unexplained";
+  export type TickKind = "sent" | "session" | "blocked" | "unexplained";
   export type Tick = { id: number; minute: number; kind: TickKind; event: EgressEvent };
   export function timelineTicks(events: EgressEvent[], now: number): Tick[];   // last 24 h, minute 0..1439
   export function mergeNotice(events: EgressEvent[], notice: EgressNotice, since: number): EgressEvent[];
   export function startOfToday(now: number): number;
   export function bytesCell(n: number | null, format: (n: number) => string): { text: string; unknown: boolean };
+  export function hostTrail(e: EgressEvent): string;                                   // "a → b → c"
+  export function timeCell(e: EgressEvent, formatTime: (ms: number) => string): string; // start, or start–end
   // FlightRecorderPanel.tsx
   export function FlightRecorderView(props: { t; events: EgressEvent[]; summary: EgressSummary | null; now: number;
     formatTime: (ms: number) => string; onExport(): void; onClear(): void }): JSX.Element;
@@ -8933,7 +8985,8 @@ const t = (key, params) => (params ? `${key}${JSON.stringify(params)}` : key);
 const decode = (html) => html.replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
 const HOUR = 3600000;
 const now = Date.UTC(2026, 9, 15, 12, 0);
-const ev = (o) => ({ id: 1, ts: now - HOUR, task: "chat", host: "api.groq.com", bytesOut: 3100, bytesIn: 9800, outcome: "ok", status: 200, errorClass: null, model: "gpt-oss-120b", attributed: true, opaque: false, ...o });
+const ev = (o) => ({ id: 1, ts: now - HOUR, endedAt: now - HOUR + 400, task: "chat", host: "api.groq.com", hosts: [o?.host ?? "api.groq.com"], bytesOut: 3100, bytesIn: 9800, outcome: "ok", status: 200, errorClass: null, model: "gpt-oss-120b", attributed: true, opaque: false, ...o });
+const sum = (o) => ({ left: 0, observed: 0, blocked: 0, unattributed: 0, unattributedHosts: [], bytesOut: 0, bytesIn: 0, unknownBytes: 0, opaqueSessions: 0, ...o });
 
 test("timeline places ticks by minute over the last 24 h and classifies them", async () => {
   const { timelineTicks } = await view();
@@ -8955,7 +9008,7 @@ test("unknown bytes are never shown as zero", async () => {
   assert.deepEqual(bytesCell(0, fmt), { text: "0 B", unknown: false });
 });
 
-test("live notices: recorded events are prepended once; sent notices are ignored", async () => {
+test("live notices: recorded events are prepended once; dispatch notices are ignored", async () => {
   const { mergeNotice } = await view();
   const list = [ev({ id: 1 })];
   const next = mergeNotice(list, { phase: "recorded", event: ev({ id: 2, ts: now }) }, 0);
@@ -8970,9 +9023,9 @@ test("the view: counts, hollow blocked ticks, unknown bytes, LTR hosts, unexplai
   const html = decode(renderStatic(FlightRecorderView, {
     t, now, formatTime: (ms) => `T${ms}`, onExport() {}, onClear() {},
     events: [ev({ id: 1, bytesIn: null }), ev({ id: 2, outcome: "blocked", bytesOut: 0, bytesIn: 0 }), ev({ id: 3, task: "unattributed", host: "x.example.com", attributed: false })],
-    summary: { left: 2, blocked: 1, unattributed: 1, unattributedHosts: ["x.example.com"], bytesOut: 3100, bytesIn: 9800, unknownBytes: 1, opaqueSessions: 0 },
+    summary: sum({ left: 2, observed: 2, blocked: 1, unattributed: 1, unattributedHosts: ["x.example.com"], bytesOut: 3100, bytesIn: 9800, unknownBytes: 1 }),
   }));
-  assert.match(html, /settingsPage\.privacy\.recorder\.leftToday\{"count":2\}/);
+  assert.match(html, /settingsPage\.privacy\.recorder\.observedToday\{"count":2\}/);
   assert.match(html, /data-kind="blocked"/);
   assert.match(html, /settingsPage\.privacy\.recorder\.unknownBytes/);
   assert.match(html, /dir="ltr"[^>]*>api\.groq\.com/);
@@ -8984,28 +9037,120 @@ test("the empty state makes no network claim beyond what was recorded", async ()
   const { FlightRecorderView } = await panel();
   const html = decode(renderStatic(FlightRecorderView, {
     t, now, formatTime: String, onExport() {}, onClear() {}, events: [],
-    summary: { left: 0, blocked: 0, unattributed: 0, unattributedHosts: [], bytesOut: 0, bytesIn: 0, unknownBytes: 0, opaqueSessions: 0 },
+    summary: sum({}),
   }));
   assert.match(html, /settingsPage\.privacy\.recorder\.empty/);
+  assert.doesNotMatch(html, /nothing|0 bytes/i);
   assert.match(html, /settingsPage\.privacy\.recorder\.loopbackNote/);
   assert.match(html, /settingsPage\.privacy\.recorder\.bytesNote/);
 });
 
-test("an opaque child session says its traffic is not visible, instead of showing bytes", async () => {
+test("an opaque child session is counted apart, names its usual host, and shows no bytes", async () => {
   const { FlightRecorderView } = await panel();
   const html = decode(renderStatic(FlightRecorderView, {
     t, now, formatTime: String, onExport() {}, onClear() {},
     events: [ev({ id: 7, task: "codex", host: "chatgpt.com", bytesOut: null, bytesIn: null, opaque: true })],
-    summary: { left: 1, blocked: 0, unattributed: 0, unattributedHosts: [], bytesOut: 0, bytesIn: 0, unknownBytes: 0, opaqueSessions: 1 },
+    summary: sum({ left: 1, observed: 0, opaqueSessions: 1 }),
   }));
+  assert.match(html, /settingsPage\.privacy\.recorder\.observedToday\{"count":0\}/);
+  assert.match(html, /settingsPage\.privacy\.recorder\.sessionsToday\{"count":1\}/);
+  assert.match(html, /settingsPage\.privacy\.recorder\.usualHost\{"host":"chatgpt\.com"\}/);
   assert.match(html, /settingsPage\.privacy\.recorder\.opaque/);
+  assert.match(html, /data-kind="session"/);
   assert.doesNotMatch(html, /settingsPage\.privacy\.recorder\.unknownBytes/);
+});
+
+test("a row shows its host trail and, when it ran for a while, its end time", async () => {
+  const { hostTrail, timeCell } = await view();
+  const download = ev({ host: "huggingface.co", hosts: ["huggingface.co", "cdn-lfs.hf.co"], ts: 1000, endedAt: 61000 });
+  assert.equal(hostTrail(download), "huggingface.co → cdn-lfs.hf.co");
+  assert.equal(timeCell(download, (ms) => `T${ms}`), "T1000–T61000");
+  assert.equal(timeCell(ev({ ts: 1000, endedAt: 1400 }), (ms) => `T${ms}`), "T1000");
+});
+
+test("while loading, the panel shows no count at all", async () => {
+  const { FlightRecorderView } = await panel();
+  const html = decode(renderStatic(FlightRecorderView, { t, now, formatTime: String, onExport() {}, onClear() {}, events: [], summary: null }));
+  assert.match(html, /settingsPage\.privacy\.recorder\.loading/);
+  assert.doesNotMatch(html, /observedToday/);
+  assert.doesNotMatch(html, /settingsPage\.privacy\.recorder\.empty/);
 });
 ```
 
+Create `test/components/flightRecorderPipeline.test.js`. It runs producer → IPC → view with the real gate, recorder and privacy IPC, so the view is tested against what main actually sends:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { EventEmitter } = require("node:events");
+const { renderStatic } = require("../helpers/harness/reactSsr");
+const gate = require("../../src/helpers/privacy/egressGate");
+const { FlightRecorder } = require("../../src/helpers/privacy/flightRecorder");
+const { SealedState } = require("../../src/helpers/privacy/sealedState");
+const { attachPrivacyIPC } = require("../../src/helpers/privacy/privacyIPC");
+
+const t = (key, params) => (params ? `${key}${JSON.stringify(params)}` : key);
+const decode = (html) => html.replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
+
+test("a normal and an interrupted child session reach the view as sessions, not requests", async (t2) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-recorder-pipeline-"));
+  t2.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let clock = Date.UTC(2026, 9, 15, 12, 0);
+  const recorder = new FlightRecorder({ now: () => clock });
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => false, recorder, now: () => clock });
+  t2.after(() => gate._resetForTests());
+
+  const handlers = new Map();
+  const sent = [];
+  const win = { webContents: { send: (c, p) => sent.push([c, p]), mainFrame: {} }, isDestroyed: () => false };
+  const ipc = attachPrivacyIPC({
+    ipcMain: { handle: (c, fn) => handlers.set(c, fn), removeHandler: (c) => handlers.delete(c) },
+    BrowserWindow: { getAllWindows: () => [win] },
+    dialog: {},
+    state: new SealedState({ profile: dir }),
+    recorder,
+    transition: Object.assign(new EventEmitter(), { apply: async () => {}, recheck() {}, snapshot: () => ({ phase: "open", effectiveSince: null, failures: [], notes: [] }) }),
+    attest: () => ({}),
+    isTrustedSender: () => true,
+    confirm: { unseal: async () => true, clear: async () => true, openLink: async () => true },
+    now: () => clock,
+  });
+  t2.after(() => ipc.dispose());
+  const invoke = (channel, ...args) => handlers.get(channel)({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args);
+
+  // The producers Task 8 and Task 10 use: an opaque session settled on exit.
+  const codex = gate.authorize({ task: "codex", target: "https://chatgpt.com", provider: "codex", meter: "opaque", payload: "text" });
+  clock += 5000;
+  codex.settle({ outcome: "ok" });
+  const ytdlp = gate.authorize({ task: "urlImport", target: "https://www.youtube.com", meter: "opaque", payload: "metadata" });
+  clock += 2000;
+  gate.abortAllRemote(); // sealing mid-session
+  ytdlp.settle({ outcome: "cancelled" });
+
+  const events = await invoke("privacy:egress-list", { since: 0 });
+  const summary = await invoke("privacy:egress-summary", { since: 0 });
+  assert.deepEqual([summary.observed, summary.opaqueSessions], [0, 2]);
+  assert.equal(sent.filter(([c, p]) => c === "privacy:egress-event" && p.phase === "recorded").length, 2, "both rows were pushed live");
+
+  const { FlightRecorderView } = await import("../../src/components/settings/FlightRecorderPanel.tsx");
+  const html = decode(renderStatic(FlightRecorderView, { t, now: clock, formatTime: (ms) => `T${ms}`, onExport() {}, onClear() {}, events, summary }));
+  assert.match(html, /observedToday\{"count":0\}/);
+  assert.match(html, /sessionsToday\{"count":2\}/);
+  assert.match(html, /usualHost\{"host":"chatgpt\.com"\}/);
+  assert.match(html, /outcome\.cancelled/);
+  assert.equal((html.match(/recorder\.opaque/g) || []).length, 2);
+});
+```
+
+If Task 7's `attachPrivacyIPC` requires further arguments, pass the same values `test/helpers/privacyIPC.test.js` passes.
+
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npm test -- test/components/flightRecorderPanel.test.js`
+Run: `npm test -- test/components/flightRecorderPanel.test.js test/components/flightRecorderPipeline.test.js`
 Expected: FAIL with missing modules.
 
 - [ ] **Step 3: View model**
@@ -9015,7 +9160,7 @@ Create `src/components/settings/flightRecorderView.ts`:
 ```ts
 import type { EgressEvent, EgressNotice } from "../../types/privacy";
 
-export type TickKind = "sent" | "blocked" | "unexplained";
+export type TickKind = "sent" | "session" | "blocked" | "unexplained";
 export type Tick = { id: number; minute: number; kind: TickKind; event: EgressEvent };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -9026,7 +9171,7 @@ export function timelineTicks(events: EgressEvent[], now: number): Tick[] {
     .map((e) => ({
       id: e.id,
       minute: Math.min(1439, Math.floor((e.ts - start) / 60000)),
-      kind: e.outcome === "blocked" ? "blocked" : e.attributed ? "sent" : "unexplained",
+      kind: e.outcome === "blocked" ? "blocked" : !e.attributed ? "unexplained" : e.opaque ? "session" : "sent",
       event: e,
     }));
 }
@@ -9047,6 +9192,16 @@ export function startOfToday(now: number): number {
 export function bytesCell(n: number | null, format: (n: number) => string): { text: string; unknown: boolean } {
   return n == null ? { text: "—", unknown: true } : { text: format(n), unknown: false };
 }
+
+// Every host the request reached, in order (redirects, CDN hosts).
+export function hostTrail(e: EgressEvent): string {
+  return (e.hosts?.length ? e.hosts : [e.host]).join(" → ");
+}
+
+// Start time, plus the end time when the request ran for a second or more.
+export function timeCell(e: EgressEvent, formatTime: (ms: number) => string): string {
+  return e.endedAt != null && e.endedAt - e.ts >= 1000 ? `${formatTime(e.ts)}–${formatTime(e.endedAt)}` : formatTime(e.ts);
+}
 ```
 
 - [ ] **Step 4: Panel**
@@ -9059,7 +9214,7 @@ import { useTranslation } from "react-i18next";
 import type { EgressEvent, EgressSummary } from "../../types/privacy";
 import { formatBytes } from "../../utils/formatBytes";
 import { Button } from "../ui/button";
-import { bytesCell, mergeNotice, startOfToday, timelineTicks } from "./flightRecorderView";
+import { bytesCell, hostTrail, mergeNotice, startOfToday, timeCell, timelineTicks } from "./flightRecorderView";
 
 const R = "settingsPage.privacy.recorder";
 type T = (key: string, params?: object) => string;
@@ -9100,15 +9255,23 @@ export function FlightRecorderView({
         <h3 className="text-[13px] font-semibold">{t(`${R}.title`)}</h3>
         <p className="text-[12px] text-muted-foreground">{t(`${R}.subtitle`)}</p>
       </header>
-      <div className="flex items-baseline gap-3">
-        <span className="text-[28px] font-bold tabular-nums">{summary?.left ?? 0}</span>
-        <span className="text-[12px]">
-          {t(`${R}.leftToday`, { count: summary?.left ?? 0 })}
-          {summary && summary.blocked > 0 && (
-            <span className="block text-muted-foreground">{t(`${R}.blockedToday`, { count: summary.blocked })}</span>
-          )}
-        </span>
-      </div>
+      {summary === null ? (
+        // Loading: claim nothing, not even zero.
+        <p className="text-[12px] text-muted-foreground">{t(`${R}.loading`)}</p>
+      ) : (
+        <div className="flex items-baseline gap-3">
+          <span className="text-[28px] font-bold tabular-nums">{summary.observed}</span>
+          <span className="text-[12px]">
+            {t(`${R}.observedToday`, { count: summary.observed })}
+            {summary.opaqueSessions > 0 && (
+              <span className="block text-muted-foreground">{t(`${R}.sessionsToday`, { count: summary.opaqueSessions })}</span>
+            )}
+            {summary.blocked > 0 && (
+              <span className="block text-muted-foreground">{t(`${R}.blockedToday`, { count: summary.blocked })}</span>
+            )}
+          </span>
+        </div>
+      )}
       {summary && summary.unattributed > 0 && (
         <p role="status" className="rounded-md border border-destructive/50 px-3 py-2 text-[12px]">
           {t(`${R}.unexplained`, { host: summary.unattributedHosts[0] })}
@@ -9132,6 +9295,7 @@ export function FlightRecorderView({
             className={[
               "absolute bottom-0 h-6 w-[3px] rounded-t-sm",
               tick.kind === "sent" && "bg-[var(--color-locality-remote,#b45309)]",
+              tick.kind === "session" && "border border-[var(--color-locality-remote,#b45309)] bg-[var(--color-locality-remote,#b45309)]/40",
               tick.kind === "unexplained" && "bg-destructive",
               tick.kind === "blocked" && "border border-muted-foreground bg-transparent",
             ]
@@ -9140,9 +9304,9 @@ export function FlightRecorderView({
           />
         ))}
       </div>
-      {events.length === 0 ? (
+      {summary !== null && events.length === 0 ? (
         <p className="text-[12px] text-muted-foreground">{t(`${R}.empty`)}</p>
-      ) : (
+      ) : events.length === 0 ? null : (
         <table className="w-full text-[12px]">
           <thead>
             <tr className="text-start text-muted-foreground">
@@ -9156,10 +9320,15 @@ export function FlightRecorderView({
           <tbody className="tabular-nums">
             {events.map((e) => (
               <tr key={e.id} className="h-8 border-t border-border/60">
-                <td>{formatTime(e.ts)}</td>
+                <td>{timeCell(e, formatTime)}</td>
                 <td>{t(`${R}.tasks.${e.task}`)}</td>
                 <td>
-                  <span dir="ltr" className="font-mono">{e.host}</span>
+                  {e.opaque ? (
+                    // Loqui knows where this program usually connects, not where it did.
+                    <span>{t(`${R}.usualHost`, { host: e.host })}</span>
+                  ) : (
+                    <span dir="ltr" className="font-mono">{hostTrail(e)}</span>
+                  )}
                 </td>
                 {e.opaque ? (
                   // A child process's own traffic: Loqui saw the session, not its bytes.
@@ -9248,13 +9417,18 @@ These are the English source strings. Merge them with the Task 14, Step 6 script
 ```json
 {
   "settingsPage.privacy.recorder.title": "Flight recorder",
-  "settingsPage.privacy.recorder.subtitle": "What left this computer today. Metadata only: no audio, text or keys are stored here.",
-  "settingsPage.privacy.recorder.leftToday": "Requests that left this computer today: {{count}}",
+  "settingsPage.privacy.recorder.subtitle": "What Loqui sent off this computer today, as its network guards saw it. Metadata only: no audio, text or keys are stored here.",
+  "settingsPage.privacy.recorder.observedToday_one": "{{count}} request Loqui saw leave this computer today",
+  "settingsPage.privacy.recorder.observedToday_other": "{{count}} requests Loqui saw leave this computer today",
+  "settingsPage.privacy.recorder.sessionsToday_one": "Plus {{count}} helper session (Codex or yt-dlp) whose requests Loqui can't see",
+  "settingsPage.privacy.recorder.sessionsToday_other": "Plus {{count}} helper sessions (Codex or yt-dlp) whose requests Loqui can't see",
+  "settingsPage.privacy.recorder.usualHost": "Usually {{host}}",
+  "settingsPage.privacy.recorder.loading": "Loading…",
   "settingsPage.privacy.recorder.blockedToday": "Blocked by Sealed mode: {{count}}",
   "settingsPage.privacy.recorder.loopbackNote": "Requests to services on this computer, such as local models, are not listed: they never leave it.",
   "settingsPage.privacy.recorder.retention": "Records follow your transcript retention setting. With local history off, they are kept only until Loqui quits.",
   "settingsPage.privacy.recorder.unexplained": "Loqui contacted {{host}} and couldn't match it to a task.",
-  "settingsPage.privacy.recorder.empty": "No records to show for today.",
+  "settingsPage.privacy.recorder.empty": "No recorded requests for this period.",
   "settingsPage.privacy.recorder.opaque": "Session — its traffic is not visible to Loqui",
   "settingsPage.privacy.recorder.bytesNote": "Sent and received count request and response bodies; live transcription counts the whole connection. “—” means Loqui could not measure it.",
   "settingsPage.privacy.recorder.timelineLabel": "Requests over the last 24 hours",

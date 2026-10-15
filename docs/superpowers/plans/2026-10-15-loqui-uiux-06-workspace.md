@@ -8430,11 +8430,13 @@ This covers WS-R7 B (People, Notes, Meetings, Dictations and Folders; a hover ca
     | { type: "pointerEnter" } | { type: "pointerLeave" }
     | { type: "focusIn" } | { type: "focusOut"; staysInside: boolean }
     | { type: "escape" } | { type: "closeTimer" };
-  export interface HoverCardState { open: boolean; closing: boolean }
+  export interface HoverCardState { open: boolean; closing: boolean; dismissed: boolean }
   export function hoverCardReducer(state: HoverCardState, event: HoverCardEvent): HoverCardState;
   /** One hover/focus boundary around trigger + card: crossing the gap or
    *  tabbing into the card keeps it open; leaving both closes after a delay;
-   *  Escape closes and returns focus to the trigger. */
+   *  Escape closes and returns focus to the trigger. Escape leaves the card
+   *  dismissed until focus or the pointer leaves the boundary, so the focus
+   *  Escape itself returns to the chip does not reopen it (review I08-R2). */
   export function useHoverCard(triggerRef: React.RefObject<HTMLElement | null>): {
     open: boolean;
     boundary: {
@@ -8560,17 +8562,21 @@ Create `test/components/hoverCard.test.js`:
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const { installBrowserGlobals, installHookDom } = require("../lib/rendererTestHarness");
+
 const load = () => import("../../src/components/ui/useHoverCard.ts");
-const closed = { open: false, closing: false };
+const closed = { open: false, closing: false, dismissed: false };
 
 test("moving from the chip across the gap into the card keeps it open (I08)", async () => {
   const { hoverCardReducer: r } = await load();
   let s = r(closed, { type: "pointerEnter" });
   s = r(s, { type: "pointerLeave" }); // leaves the chip
-  assert.deepEqual(s, { open: true, closing: true });
+  assert.deepEqual(s, { open: true, closing: true, dismissed: false });
   s = r(s, { type: "pointerEnter" }); // reaches the card before the timer
-  assert.deepEqual(s, { open: true, closing: false });
-  assert.deepEqual(r(s, { type: "closeTimer" }), { open: true, closing: false }, "a stale timer is ignored");
+  assert.deepEqual(s, { open: true, closing: false, dismissed: false });
+  assert.deepEqual(r(s, { type: "closeTimer" }), { open: true, closing: false, dismissed: false }, "a stale timer is ignored");
 });
 
 test("leaving both closes after the delay", async () => {
@@ -8589,9 +8595,54 @@ test("tabbing from the chip into Open and Insert quote keeps it open; tabbing ou
   assert.deepEqual(r(s, { type: "focusOut", staysInside: false }), closed);
 });
 
-test("Escape closes", async () => {
+test("Escape closes, and the focus it returns to the chip does not reopen the card (I08-R2)", async () => {
   const { hoverCardReducer: r } = await load();
-  assert.deepEqual(r({ open: true, closing: false }, { type: "escape" }), closed);
+  let s = r({ open: true, closing: false, dismissed: false }, { type: "escape" });
+  assert.equal(s.open, false);
+  s = r(s, { type: "focusIn" }); // the chip.focus() Escape itself causes
+  assert.equal(s.open, false, "restoring focus is not a new entry");
+  // A genuine re-entry after leaving opens it again, by keyboard or pointer.
+  assert.equal(r(r(s, { type: "focusOut", staysInside: false }), { type: "focusIn" }).open, true);
+  assert.equal(r(r(s, { type: "pointerLeave" }), { type: "pointerEnter" }).open, true);
+});
+
+test("the real hook: Escape from Open focuses the chip and leaves the card closed; Tab out and back reopens it (I08-R2)", async (t) => {
+  const { useHoverCard } = await load();
+  let root = null;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  installHookDom(t);
+  let api = null;
+  const focused = [];
+  // Like a real focus event, the chip's focus() bubbles to the boundary's onFocus.
+  const chip = {
+    focus() {
+      focused.push("chip");
+      api.boundary.onFocus();
+    },
+  };
+  const triggerRef = { current: chip };
+  function Probe() {
+    api = useHoverCard(triggerRef);
+    return null;
+  }
+  const act = (fn) => React.act(async () => fn());
+  root = createRoot(document.documentElement);
+  await act(() => root.render(React.createElement(Probe)));
+  const within = { contains: () => true };
+  const outside = { contains: () => false };
+  await act(() => api.boundary.onFocus()); // Tab reaches the chip
+  await act(() => api.boundary.onBlur({ relatedTarget: {}, currentTarget: within })); // chip → Open
+  await act(() => api.boundary.onFocus());
+  assert.equal(api.open, true, "open while focus is on Open");
+  await act(() => api.boundary.onKeyDown({ key: "Escape", stopPropagation() {} }));
+  assert.deepEqual(focused, ["chip"], "focus returned to the chip");
+  assert.equal(api.open, false, "and the card is closed");
+  await act(() => api.boundary.onBlur({ relatedTarget: {}, currentTarget: outside })); // Tab away
+  await act(() => api.boundary.onFocus()); // Shift+Tab back
+  assert.equal(api.open, true, "a genuine re-entry opens it");
 });
 
 test("the chip and its card share one boundary, and the card is editor chrome", () => {
@@ -8603,7 +8654,7 @@ test("the chip and its card share one boundary, and the card is editor chrome", 
 });
 ```
 
-The fake DOM has no pointer or focus events, so the boundary is tested as a reducer and its wiring is pinned. Task 27 checks the real pointer, Tab, Escape and RTL behaviour.
+The fake DOM has no pointer or focus events of its own. The reducer cases cover every transition, and the hook case drives the production `useHoverCard` handlers in the order the browser fires them, including the focus event Escape's own `chip.focus()` causes. Task 27 checks the real pointer, Tab, Escape and RTL behaviour.
 
 Create `test/components/mentionHoverCard.test.js`:
 
@@ -8913,21 +8964,26 @@ Expected: FAIL. Two modules are missing, and the existing `MentionSuggestions` h
    export interface HoverCardState {
      open: boolean;
      closing: boolean;
+     /** Escape closed it; focus returning to the trigger must not reopen it. */
+     dismissed: boolean;
    }
 
-   const CLOSED: HoverCardState = { open: false, closing: false };
+   const CLOSED: HoverCardState = { open: false, closing: false, dismissed: false };
 
    export function hoverCardReducer(state: HoverCardState, event: HoverCardEvent): HoverCardState {
      switch (event.type) {
        case "pointerEnter":
+         return { open: true, closing: false, dismissed: false };
        case "focusIn":
-         return { open: true, closing: false };
+         // The focus Escape returns to the chip lands here: stay closed until
+         // focus or the pointer has left the boundary (dismissed-until-leave).
+         return state.dismissed ? state : { open: true, closing: false, dismissed: false };
        case "pointerLeave":
-         return state.open ? { open: true, closing: true } : state;
+         return state.open ? { ...state, closing: true } : { ...state, dismissed: false };
        case "focusOut":
          return event.staysInside ? state : CLOSED;
        case "escape":
-         return CLOSED;
+         return { open: false, closing: false, dismissed: true };
        case "closeTimer":
          return state.closing ? CLOSED : state;
      }

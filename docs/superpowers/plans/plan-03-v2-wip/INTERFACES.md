@@ -90,7 +90,7 @@ export interface RouteFacts {                       // produced by routeFactsSto
 export interface RouteCapabilities {                // static data passed in by the builder so routeGraph stays JSON-free
   meetingProviders: readonly string[];              // MEETING_STREAMING_PROVIDER_IDS
   transcriptionProviderBaseUrls: readonly { id: string; baseUrl: string }[]; // for transcriptionRoute Tinfoil detection
-  providerHosts: Readonly<Record<string, string>>;  // provider id → API host (registry baseUrl host; anthropic/gemini/openrouter/codex known hosts)
+  providerHosts: Readonly<Record<string, string>>;  // provider id → API host (registry baseUrl host; anthropic/gemini/openrouter/codex known hosts); "corti" follows cortiEnvironment (speech), "corti:text" is the fixed text host (src/config/constants.ts:123)
 }
 export type PayloadPart = /* see Payload section */ string;
 export interface RouteCopy { parts: Readonly<Record<PayloadPart, string>>; list: (items: string[]) => string } // translated; list = Intl.ListFormat conjunction

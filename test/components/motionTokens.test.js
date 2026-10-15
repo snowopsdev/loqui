@@ -5,8 +5,7 @@ const test = require("node:test");
 
 const repoRoot = path.join(__dirname, "../..");
 const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
-// Prettier wraps long linear() and :where() lists across lines; collapse that
-// layout so the assertions check values, not line breaks.
+// Flattens prettier-wrapped CSS declarations for single-line regex checks.
 const readFlat = (p) =>
   read(p)
     .replace(/\s+/g, " ")

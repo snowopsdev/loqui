@@ -2021,12 +2021,12 @@ a:hover {
   stroke-width: 2;
 }
 .locality-ring[data-locality="network"] .locality-ring__svg circle {
-  stroke-dasharray: 0.5 3.5;
+  stroke-dasharray: 0.6 3.4;
   stroke-linecap: round;
   stroke-width: 2.25;
 }
 .locality-ring[data-locality="remote"] .locality-ring__svg circle {
-  stroke-dasharray: 4 3;
+  stroke-dasharray: 6 4;
 }
 .locality-ring[data-locality="remote"][data-active="true"] .locality-ring__svg {
   animation: locality-orbit 6s linear infinite;

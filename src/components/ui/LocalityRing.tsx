@@ -34,7 +34,7 @@ export function LocalityRing({
       style={{ width: size, height: size }}
     >
       <svg className="locality-ring__svg" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="10.75" />
+        <circle cx="12" cy="12" r="10.75" pathLength="100" />
       </svg>
       {children ? <span className="locality-ring__content">{children}</span> : null}
       {locality === "remote" && provider ? (

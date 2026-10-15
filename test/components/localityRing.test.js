@@ -20,6 +20,7 @@ test("ring exposes locality, label and activity to CSS and assistive tech", asyn
   assert.match(html, /data-locality="remote"/);
   assert.match(html, /data-active="true"/);
   assert.match(html, /class="locality-ring__badge"[^>]*>Op</);
+  assert.match(html, /<circle[^>]*pathLength="100"/);
 });
 
 test("device and network rings never show a provider badge", async () => {
@@ -35,11 +36,11 @@ test("shape carries locality; orbit only runs while active and never under reduc
   const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
   assert.match(
     css,
-    /\.locality-ring\[data-locality="network"\] \.locality-ring__svg circle\s*\{[^}]*stroke-dasharray:\s*0\.5 3\.5/
+    /\.locality-ring\[data-locality="network"\] \.locality-ring__svg circle\s*\{[^}]*stroke-dasharray:\s*0\.6 3\.4/
   );
   assert.match(
     css,
-    /\.locality-ring\[data-locality="remote"\] \.locality-ring__svg circle\s*\{[^}]*stroke-dasharray:\s*4 3/
+    /\.locality-ring\[data-locality="remote"\] \.locality-ring__svg circle\s*\{[^}]*stroke-dasharray:\s*6 4/
   );
   assert.match(
     css,

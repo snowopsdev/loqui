@@ -288,8 +288,11 @@ export interface RemoteDisclosure {
   windowManager.lastCancelledDictation: { sessionId: string } | null;
   ```
 
-- **Plan 05's side.** Plan 05's `onboarding-demo-undo-cancel` handler calls `sendUndoCancelDictation(lastCancelledDictation?.sessionId)` and returns `result.restored`. Its demo event carries `cancelled: CancelledState`. Until Plan 04 merges, cancel shows "Discarded." with no Undo.
-- **Private holds.** The hold keeps the snapshot's `private` flag. An expired private hold is never persisted, and a restore re-applies `private` before processing.
+- **Plan 05's side.** Plan 05's `onboarding-demo-undo-cancel` handler calls `sendUndoCancelDictation(lastCancelledDictation?.sessionId)` and returns `result.restored`. Its demo event carries `cancelled: CancelledState`.
+- **Merge order 05 before 04.** Plan 05's own tasks import nothing from `src/types/dictation.ts` or `dictationDisclosure.js`, because those files exist only once Plan 04 has merged. They show "Discarded." with no Undo. Plan 05's Task 22 (cancelled state, Undo, disclosure copy) imports the shared types. Whichever of 04 and 05 merges second runs it.
+- **Which channel.** The onboarding trial reads the cancelled state *only* from `onboarding-demo-event`, which carries the sessionId, the `CancelledState` and `cancelClosed`. The §5.7 capture bridge carries the lifecycle `state` string, which may be `"cancelled"`, for the workspace mic card. Onboarding does not read cancel details from it, so the two never compete.
+- **`alsoSentTo` survives the bridge.** `sanitizeCancelledDemoFields` keeps every `RemoteDisclosure` field, including `alsoSentTo`.
+- **Private holds (Plan 04 implements this).** The hold keeps the snapshot's `private` flag, through `_closeCancelled`, `restoreCancelled` and `flushCancelHold`. An expired or flushed private hold is never persisted, and a restore re-applies `private` before processing.
 
 **Disclosure copy.** `src/helpers/dictationDisclosure.js` exports:
 - `dispatchTargetLabel(target, t)`: `providerDisplayLabel` for providers, and the host for `host:…`;

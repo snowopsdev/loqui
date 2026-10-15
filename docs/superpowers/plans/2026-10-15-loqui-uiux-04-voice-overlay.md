@@ -35,18 +35,31 @@
 
 ---
 
+## Round-5 review response
+
+This revision answers `plan-04-codex-r5.md`, reviewed at `a47935c`. Its two remaining Important findings are addressed in the executable Task 8 prescriptions and tests below. The four round-4 closures remain intact. These revisions specify behavior; this plan checkout does not contain the application implementation.
+
+| Finding | Severity | Where | Resolution and executable evidence |
+|---|---|---|---|
+| **R5-I1** A stale failed pipeline cleared a newer streaming take's Undo audio | Important | Tasks 6, 8 | Settlement first checks that the pipeline still owns `_activeProcessingPipeline`; only then can it clear `_sessionAudio`, and only if that capture belongs to `pipeline.session`. The batch Esc path detaches its pipeline before publishing idle, so a delayed `finally` cannot clear or notify a newer stream. The added regression starts B through real `startStreamingRecording`, sends a frame through its worklet callback while A's row or audio write waits, settles A, then cancels and restores B; it asserts B's frames and lifecycle survive. |
+| **R5-I2** Plan 05's mutable privacy guards and tests conflicted with snapshot savers | Important | Task 8 and Plan 05 handoff | Remove the stale claim that Plan 05 guards remain. P05 Task 5 skips temporary guards when snapshot savers exist; Task 22 removes them when P05 merges first. P04's successful-save fixture always passes captured `sessionId` and `private`, and both private-save zero-write assertions are unconditional. P05 fixtures use owned private audio and test each saver independently. |
+
+**Helper boundaries.** Every setter assignment gets a fresh generation token. `_releaseOwnedAudio` requires the captured Blob, owner id and token to match. Private privacy travels on the frozen session and the named save operation for the operation's lifetime; there is no fixed-size owner cache. A named stale owner without captured privacy fails closed as private. These are internal changes: `_setOwnedAudio` keeps its public signature, and no IPC or shared type is added.
+
+**Verification and limits.** A structural scan found 160 balanced Markdown fences and passed nine targeted assertions for the handoff, privacy snapshot, conditional release and streaming regression text. Node 24 `--check` passed on the extracted Task 8 test fence, and `git diff --check` passed. These checks validate document structure and JavaScript syntax only. The Task 8 cases are proposed test prescriptions; this plan checkout has no implementation to execute them against. The earlier round-4 scratch results do not verify the round-5 behavior, and no combined Plan 04/05 implementation suite was run.
+
 ## Round-4 review response
 
 This revision answers `plan-04-codex-r4.md`, Codex's round-4 check at 9cb9be7. It found 2 Critical and 2 Important, and its ledger closes R3-C1, R1-I5, R1-I12 and R3-I2. All four are fixed here, and none is disputed.
 
 | Finding | Severity | Where | How it is fixed | Pinned by |
 |---|---|---|---|---|
-| **R4-C1** An old failed save could upload or release a newer private recording | Critical | Task 8 | Both savers persist only an immutable ownership snapshot taken before their first await: blob, owner id, privacy and metadata (`_ownedAudioSnapshot`). A private snapshot never enters persistence. Every release goes through `_releaseOwnedAudio(owned)`, which clears manager state only while it still holds that snapshot's audio. `audioKept` comes from that snapshot's own acknowledged write. `saveTranscription` gets a `sessionId` option for the hook's save. The setter remembers recent private owners, so a session whose audio was already released stays private. The probe also exposed a second bug, now fixed: a stale pipeline's settlement after Esc could end a newer session. Each pipeline now ends only its own session (Task 6). | "an old failed save never uploads or releases a newer private recording's audio" (a deferred row and a deferred audio write: zero private bytes uploaded, the newer owner and session untouched, the cancelled recording held); "a save for a session that no longer owns the audio…" |
+| **R4-C1** An old failed save could upload or release a newer private recording | Critical | Task 8 | Both savers persist only an immutable ownership snapshot taken before their first await: Blob, owner id, operation privacy, generation token and metadata (`_ownedAudioSnapshot`). A private snapshot never enters persistence. `_releaseOwnedAudio(owned)` requires the same Blob, owner id and generation token before clearing manager state. `audioKept` comes from that snapshot's own acknowledged write. The success hook passes captured `sessionId` and `private` for its save. The immutable session carries privacy across delayed callbacks; the setter has no manager-wide owner cache. Task 6 and Task 8 now also make stale-pipeline settlement a no-op after cancellation, preserving a newer stream's capture and lifecycle. | "an old failed save never uploads or releases a newer private recording's audio" (a deferred row and a deferred audio write: zero private bytes uploaded, the newer owner and session untouched, the cancelled recording held); "a save for a session that no longer owns the audio…" |
 | **R2-C2** Dictionary echo bypassed restored-failure recovery | Critical | Task 8 | `_recoverRestoredFailure` is the single path for every failure branch of a restored dictation. The dictionary-echo branch and the generic branch both await the acknowledged save of their snapshot, and re-hold before settlement when no usable copy survived. Genuine silence stays distinct and is not re-held. | The failure matrix gains dictionary echo with retention off, with zero-day retention and with a refused write, each followed by a working second Undo, plus a genuine-silence control |
 | **R3-I1** The bridge budget counted from receipt | Important | Tasks 8, 9 | Main sends an absolute `deadlineAt` (send time + `UNDO_BRIDGE_BUDGET_MS`). The overlay refuses at once if it is already past, clamps every wait to the time remaining, and checks it again just before starting the pipeline. Main's 2 s timeout is unchanged. | "a bridge Undo answers truthfully inside main's 2 s, and never starts late, however late it arrives" (delivery at 0, 750 and 1700 ms, final audio at 2.1 s) |
 | **R4-I1** New fixtures bypassed constructor state | Important | Tasks 7, 8 | The streaming fixture creates a real `_streamingEgressStopped` Set and clears it before each case; a new case asserts it. The retry, merge and context tests use the real `createSessionContext` (with `markRestored` and `released`), loaded through the renderer harness. | the fixture case; the failure matrix and merge cases |
 
-**What was run (scratch copies outside the repo).**
+**Round-4 verification record (scratch copies outside the repo, not re-run for round 5).**
 - **`streamingFirstFrameHandOff.test.js`, exactly as the plan writes it:** 71 of 71 pass, against Codex's reconstruction of the Task 7 adapter and handler changes. That is the 70 cases plus the new fixture case.
 - **Codex's round-4 probe harness, re-pointed at this revision's snippets:** the real `processAudio`, `saveTranscription` and cancel methods, with the plan's Task 6–9 edits applied and only IPC, OS and transport leaves faked. Every scenario passes, including each one Codex reported as failing:
   - the ownership matrix: STT, Sealed, zero-day, refused and rejected writes, and dictionary echo three ways;
@@ -57,7 +70,7 @@ This revision answers `plan-04-codex-r4.md`, Codex's round-4 check at 9cb9be7. I
   The harness is `/tmp/p04-r4-probe/probes.cjs`.
 - **Not run:** the Task 8 and 9 app suites themselves, which need Tasks 1–7 implemented first.
 
-**For Plan 05 (update).** With the snapshot checks above, its two `lastAudioBlobPrivate` entry guards in `saveTranscription` and `saveFailedTranscription` are subsumed. Keep only Plan 04's checks, in either merge order. The setter is unchanged from spec §5.2 "Audio ownership". Its only new behaviour is the private-owner memory, which is internal.
+**For Plan 05 (round-4 update, superseded by the round-5 handoff above).** Keep only Plan 04's snapshot checks in either merge order. Task 5 skips temporary guards when the snapshot savers exist; Task 22 removes them when Plan 05 merged first. The setter signature is unchanged. Session privacy is internal and frozen with the operation; no manager-wide owner cache is retained.
 
 ## Round-3 review response
 
@@ -66,7 +79,7 @@ This revision answers `plan-04-codex-r3.md`, Codex's third review at 39822ba. It
 | Finding | Severity | Where | How it is fixed | Pinned by |
 |---|---|---|---|---|
 | **R2-C2** A failed restore lost its recovery identity and audio | Critical | Task 8 | `_holdForRetry` moves the whole live ownership into a new hold **before** settlement can end the session: session, route, intents, press-time context, tracker and privacy. Nothing is ended or released. `saveFailedTranscription` now returns an acknowledged `{ audioKept }`, true only when the audio write returned `{ success: true }`. A restored failure awaits it, and re-holds whenever no usable copy survived. The generation checks are kept. The merge-failure branch takes the same path. | "a failed restore keeps its session, route and context, and a second Undo succeeds" (STT error, Sealed block, zero-day retention, refused write, rejected write; Plan 07 recovery and kept audio as controls); "a merge failure keeps the session and context too" |
-| **R3-C1** Batch Undo did not restore the persistence privacy flag | Critical | Task 8 | `_setOwnedAudio(blob, { sessionId, private })` is the only writer of `lastAudioBlob`, its owner and `lastAudioBlobPrivate`, and keeps `_recordingPrivate` consistent. Original finalization, the streaming fallback, every release and every restore go through it, before any callback or provider work can save. | "_setOwnedAudio is the only writer…" (source); "a private take cancelled before finalization stays private through Undo" (stamped at dispatch and at every save; zero writes once Plan 05's guard exists; then a non-private restore saves normally) |
+| **R3-C1** Batch Undo did not restore the persistence privacy flag | Critical | Task 8 | `_setOwnedAudio(blob, { sessionId, private })` is the only writer of `lastAudioBlob`, its owner and `lastAudioBlobPrivate`, and keeps `_recordingPrivate` consistent. Original finalization, the streaming fallback, every release and every restore go through it, before any callback or provider work can save. | "_setOwnedAudio is the only writer…" (source); "a private take cancelled before finalization stays private through Undo" (stamped at dispatch and at every save; both savers make zero writes unconditionally; a non-private restore still saves normally) |
 | **R1-I5** The streaming fallback counted a connection as an audio dispatch | Important | Tasks 7, 8 | The renderer no longer records evidence when `provider.start()` succeeds, in the normal start or in the Undo replay. A new main module, `streamingHandOff.js`, sends the correlated `dictation-dispatch` (`dictationStt`, `audio`) once per start, immediately before that session's first content frame leaves. It covers every streaming adapter: OpenAI realtime, Tinfoil, Deepgram, AssemblyAI, Gemini and Corti. Keep-alives, warm silence and meeting sockets never count. Frames a warm socket sent before the start arrived are reported at the start. | `streamingFirstFrameHandOff.test.js` (real IPC handlers and adapter send paths, for all six providers): a warm socket with zero frames, a queued frame forwarded later, cancel before forwarding, held or rejected connection and token fetch, back-to-back sessions, a missing correlation id. Task 7 renderer case; Task 8 "a replay that connects discloses nothing until main reports a forwarded frame" |
 | **R1-I12** A delayed window load pushed expired or replaced Settings links | Important | Task 4 | After `createControlPanelWindow` resolves, `openSettings` pushes the queue's current request only if its id still matches. The subscriber acknowledges first, and opens only when main confirms. | "a link that expires while a new control panel loads is never pushed or opened", "a link replaced while a new control panel loads never opens after the newer one" |
 | **R3-I1** The 5 s final-audio wait outlived the 2 s Undo bridge | Important | Tasks 8, 9 | The bridge stays at 2 s (`UNDO_BRIDGE_TIMEOUT_MS`). Main passes the overlay `UNDO_BRIDGE_BUDGET_MS` (1.5 s), and every pre-flight wait in `restoreCancelled` fits inside it. Past its deadline the restore refuses, atomically re-holding, and never starts the pipeline. A recording that is still arriving reads "Try Undo again", not "empty". | "a bridge Undo answers truthfully inside main's 2 s, and never starts late" (real `requestFromRenderer`, real timers, final audio at 2.1 s); Task 9 "a bridge request passes its budget…", "a refusal that keeps the recording says to try again…" |
@@ -76,10 +89,10 @@ This revision answers `plan-04-codex-r3.md`, Codex's third review at 39822ba. It
 
 ```js
 _setOwnedAudio(blob: Blob | null, options?: { sessionId?: string | null; private?: boolean }): void
-// defaults: sessionId = this._activeSession?.id ?? null; private = this._recordingPrivate === true
+// defaults: sessionId = this._activeSession?.id ?? null; private = this._activeSession?.private ?? (this._recordingPrivate === true)
 ```
 
-Plan 05 Task 5's two stamps become `this._setOwnedAudio(audioBlob);` and `this._setOwnedAudio(fallbackBlob);`. Its `releasePrivateAudio` uses `this._setOwnedAudio(null)`. Its guards in `saveTranscription` and `saveFailedTranscription` are subsumed by Plan 04's snapshot checks (round 4). Its source test checks for the setter calls instead of the bare assignments. Plan 04's "only writer" test fails on any bare `this.lastAudioBlob =` or `this.lastAudioBlobPrivate =` left outside the setter. An early return from the failed-save guard reads as `{ audioKept: false }`, which re-holds a private restored failure in RAM only.
+Plan 05 Task 5's two stamps become `this._setOwnedAudio(audioBlob);` and `this._setOwnedAudio(fallbackBlob);`. Its `releasePrivateAudio` uses `this._setOwnedAudio(null)`. Task 5 skips temporary saver guards when Plan 04's snapshot savers exist; Task 22 removes guards if Plan 05 merged first. Its source test checks for setter calls instead of bare assignments. Plan 04's "only writer" test fails on any bare `this.lastAudioBlob =` or `this.lastAudioBlobPrivate =` left outside the setter. A private failed-save snapshot returns `{ audioKept: false }`, which re-holds a private restored failure in RAM only.
 
 **Spec decisions applied after round 3 (aad5284).**
 - **§5.2 "Audio ownership".** The spec now carries `_setOwnedAudio` exactly as above.
@@ -3874,13 +3887,15 @@ No load event is involved, so new and existing windows behave the same.
      ```
 
      Callers that pass `duration` keep compiling, because the argument is ignored. Remove `duration` from those call sites (`grep -n "showDictationError(" src/hooks/useAudioRecording.js`).
-   - **Session ids.** At the top of `onError` (line 383) and of `onTranscriptionComplete` (line 452), before any `await`, add:
+   - **Session identity and privacy.** At the top of `onError` (line 383) and of `onTranscriptionComplete` (line 452), before any `await`, capture the immutable session and its privacy:
 
      ```js
-     const sessionId = audioManagerRef.current?.activeSession?.id ?? null;
+     const session = audioManagerRef.current?.activeSession ?? null;
+     const sessionId = session?.id ?? null;
+     const sessionPrivate = session?.private === true;
      ```
 
-     Pass `sessionId` to every `showDictationError({ … })` inside those two callbacks (lines 402, 459, 598 and 629). Read it there and nowhere later: the pipeline settles right after these callbacks are invoked (`audioManager.js:1860` then `:1932`), and Task 6 ends the session at that edge, so a read after an `await` sees `null`. `onNoAudio` (line 412) carries no content and needs no id. Until Task 6 lands, `activeSession` is `undefined`, and `localRecoveryKey` keeps each card distinct.
+     Pass `sessionId` to every `showDictationError({ … })` inside those two callbacks (lines 402, 459, 598 and 629). The successful save passes `{ sessionId, private: sessionPrivate }` too (Task 8). Capture both values there and pass them across awaits; the pipeline settles right after the callbacks are invoked (`audioManager.js:1860` then `:1932`), and Task 6 ends the active session at that edge. `onNoAudio` (line 412) carries no content and needs no id. Until Task 6 lands, `activeSession` is `undefined`, and `localRecoveryKey` keeps each card distinct.
    - Line 363, mic disconnected: `notify({ id: "mic", kind: "notice", title: t("hooks.audioRecording.micDisconnected.title"), body: t("hooks.audioRecording.micDisconnected.description") })`. Keep the existing description key.
    - Line 370, mic restored: `notify({ id: "mic", kind: "receipt", title: t("hooks.audioRecording.micRestored.title") })`. The same id replaces the disconnected notice.
    - Line 400, screen context skipped: `notify({ kind: "notice", title, body })` with the same title and description as today.
@@ -4242,12 +4257,13 @@ Record with a local Voice Assistant, cancel, switch it to a provider, then Undo:
   // src/helpers/dictationSession.js
   export const SESSION_ROUTE_KEYS: readonly string[];   // every settings-store key that decides a dictation route or its prompt
   export function isCredentialKey(key: string): boolean; // /apikey|secret|token|clientid|password|credential/i
-  export function captureDictationSession({ settings, intents, agentName, id?, now? }): DictationSession;
+  export function captureDictationSession({ settings, intents, agentName, private?, id?, now? }): DictationSession;
   export function sessionSettings(session: DictationSession, live: object): object; // live, overlaid with the snapshot
   export function sessionOperation(session: DictationSession): DictationOperation;  // frozen { sessionId, settings: session.settings }
   export function createSessionContext({ sessionId, selection?, screen? }): SessionContext;
   // DictationSession (frozen):
   // { id: string; startedAt: number; settings: Readonly<Record<string, unknown>>; agentName: string;
+  //   private: boolean; // captured with the operation; survives delayed save callbacks
   //   intents: { voiceAgentRequested: boolean; translationRequested: boolean; streaming: boolean;
   //              streamingProviderName: string | null; assistantSelectionContext: unknown } }
   // SessionContext (owned by one session; it moves into the cancel buffer and back on Undo):
@@ -4312,6 +4328,7 @@ test("the snapshot is frozen, credential-free and covers every route key", async
   const { captureDictationSession, SESSION_ROUTE_KEYS, isCredentialKey } = await load(t);
   const session = captureDictationSession({
     settings: live,
+    private: true,
     intents: { voiceAgentRequested: false, translationRequested: true, streaming: false, streamingProviderName: null },
     agentName: "Loqui",
     id: "rec-1",
@@ -4319,6 +4336,7 @@ test("the snapshot is frozen, credential-free and covers every route key", async
   });
   assert.equal(session.id, "rec-1");
   assert.equal(Object.isFrozen(session), true);
+  assert.equal(session.private, true, "privacy is frozen with this operation's route");
   assert.equal(Object.isFrozen(session.settings), true);
   assert.equal(session.settings.cleanupProvider, "anthropic");
   assert.equal("theme" in session.settings, false, "only routing and prompt keys are captured");
@@ -5073,6 +5091,7 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
        const live = getSettings();
        this._activeSession = captureDictationSession({
          settings: live,
+         private: this._recordingPrivate === true,
          intents: {
            voiceAgentRequested: this.voiceAgentRequested,
            translationRequested: this.translationRequested,
@@ -5116,12 +5135,13 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
 
    The `applySessionIntents` assignments must not go through `setVoiceAgentRequested`, because that setter (`:707-720`) also clears pending selection and screen state.
 2. **Start points.**
-   - In `startRecording`, after the guard at `:1144-1153` passes, call `this.beginDictationSession({ streaming: false, streamingProviderName: null });`.
+   - In `startRecording`, after the guard at `:1144-1153` passes and before starting any asynchronous microphone work, call `this._captureRecordingPrivacy?.();` and then `this.beginDictationSession({ streaming: false, streamingProviderName: null });`. The session freezes this per-recording privacy with its route.
    - In `startStreamingRecording`, after its guard (`:3422-3430`), resolve the provider from **live** settings before the new session exists, then begin it:
 
      ```js
          this._activeSession = null; // never let the previous session's pin leak into a new start
          const streamingProviderName = resolveStreamingProviderName({ settings: getSettings(), context: "dictation" });
+         this._captureRecordingPrivacy?.();
          this.beginDictationSession({ streaming: true, streamingProviderName });
      ```
 
@@ -5148,7 +5168,7 @@ The local `getSettings` export shadows the star export. The `.ts` specifier does
      ```
 
      End the session at the idle edges, in three places:
-     - in `_settleProcessingPipeline` (`:1735`) when it settles the active pipeline. Each pipeline remembers the session it served: `_startProcessingPipeline` (`:1720`) adds `session: this._activeSession` to the object it creates, and settlement calls `this._endDictationSession(pipeline.session)`. A stale pipeline that settles after Esc, once a newer recording has begun, never ends that newer session. `_endDictationSession` ignores a session that is no longer active (round 4);
+     - in `_settleProcessingPipeline` (`:1735`) when it settles the active pipeline. Each pipeline remembers the session it served: `_startProcessingPipeline` (`:1720`) adds `session: this._activeSession` to the object it creates, and settlement calls `this._endDictationSession(pipeline.session)`. On the non-streaming path, `cancelProcessing` first detaches the cancelled `_activeProcessingPipeline` before reporting idle, so its late `finally` cannot settle or notify a newer lifecycle. `_endDictationSession` ignores a session that is no longer active (round 4);
      - in the `finally` of `stopStreamingRecording` (3745–3760) where it reports idle, with `this._endDictationSession(this._activeSession)`;
      - in the idle branch of `cancelRecording` / `cancelStreamingRecording`, the same way. Task 8 hands the session and its context to the cancel buffer first, through `_detachSessionOperation()`.
 
@@ -7243,7 +7263,8 @@ async function setup(t, settings = LOCAL) {
   return { ...loaded, manager, io, advance, createSessionContext };
 }
 
-function startBatch(manager, segmentFills, chunkFill, { manualStop = false } = {}) {
+function startBatch(manager, segmentFills, chunkFill, { manualStop = false, private: isPrivate } = {}) {
+  if (isPrivate !== undefined) manager._recordingPrivate = isPrivate === true;
   manager.beginDictationSession({ streaming: false });
   manager.isRecording = true;
   manager.recordingStartTime = Date.now() - 2000;
@@ -7264,6 +7285,56 @@ function startBatch(manager, segmentFills, chunkFill, { manualStop = false } = {
   manager.mediaRecorder = recorder;
   manager.audioChunks = [blob(chunkFill)];
   return recorder;
+}
+
+function installRealStreamingStart(manager, t) {
+  const worklets = [];
+  const streamingEgressStopped = manager._streamingEgressStopped ?? new Set();
+  streamingEgressStopped.clear();
+  const previous = globalThis.AudioWorkletNode;
+  globalThis.AudioWorkletNode = class {
+    constructor() {
+      this.port = { postMessage() {} };
+      worklets.push(this);
+    }
+    connect() {}
+    disconnect() {}
+  };
+  t.after(() => {
+    if (previous === undefined) delete globalThis.AudioWorkletNode;
+    else globalThis.AudioWorkletNode = previous;
+  });
+
+  const stream = { getAudioTracks: () => [{ getSettings: () => ({}) }], getTracks: () => [{ stop() {} }] };
+  const source = { connect() {}, disconnect() {} };
+  const sent = [];
+  const provider = {
+    onPartial: () => () => {}, onFinal: () => () => {}, onError: () => () => {}, onSessionEnd: () => () => {},
+    start: async () => ({ success: true }), send(frame) { sent.push([...new Int16Array(frame)]); }, cancel: async () => ({}), stop: async () => ({}),
+  };
+  Object.assign(manager, {
+    isRecording: false, isProcessing: false, isStreaming: false,
+    streamingStartInProgress: false, stopRequestedDuringStreamingStart: false,
+    _streamingSessionGeneration: 0, _activeStreamingSessionId: null,
+    _streamingCancellationGeneration: 0, _streamingEgressStopped: streamingEgressStopped,
+    _streamingStopPromise: null, _streamingStopMode: null, _streamingStartSettlementWaiters: [],
+    _activeTranscriptionAbortController: null, streamingCleanupFns: [],
+    streamingTextDebounce: null,
+    streamingFallbackRecorder: null, streamingFallbackChunks: [], _streamingFallbackSegments: [],
+    preparedMicCapture: { take: async () => null },
+    getAudioConstraints: async () => ({}), _acquireCaptureStream: async () => stream,
+    startStreamingFallbackRecorder() {},
+    getOrCreateAudioContext: async () => ({
+      createMediaStreamSource: () => source, createAnalyser: () => ({}),
+      audioWorklet: { addModule: async () => {} },
+    }),
+    getWorkletBlobUrl: () => "", workletModuleLoaded: false,
+    getStreamingProviderName: () => "openai-realtime", getStreamingProvider: () => provider,
+    getEffectiveSttLanguage: () => "auto", getKeyterms: () => [],
+    beginMicRecovery: async () => {}, cleanupStreamingAudio() {}, cleanupStreamingListeners() {},
+    _markCaptureStreamReleased() {},
+  });
+  return { worklets, sent, provider };
 }
 
 test("two segments, retention off: no merge, no write, every byte zeroed (C1)", async (t) => {
@@ -7603,14 +7674,12 @@ test("a replay whose provider refuses to start leaves the manager usable and re-
 test("a private hold is never persisted, and its restore stays private (§5.2)", async (t) => {
   const { manager, io, advance, setSettings } = await setup(t, { ...LOCAL, ...RETAIN });
   setSettings({ ...LOCAL, ...RETAIN });
-  startBatch(manager, [], 3);
-  manager._recordingPrivate = true;
+  startBatch(manager, [], 3, { private: true });
   manager.cancelRecording();
   await advance(5000);
   assert.equal(io.saves, 0, "retention on, but private");
 
-  startBatch(manager, [], 4);
-  manager._recordingPrivate = true;
+  startBatch(manager, [], 4, { private: true });
   manager.cancelRecording();
   await advance(0);
   manager._recordingPrivate = false; // a later, non-private recording changed the flag
@@ -7694,8 +7763,7 @@ test("expiry zeroes at the deadline even when a copy never settles (R1-I1)", asy
   // Private, retention on: never persisted, zeroed at the deadline too.
   const priv = await setup(t, { ...LOCAL, ...RETAIN });
   priv.setSettings({ ...LOCAL, ...RETAIN });
-  startBatch(priv.manager, [1], 3);
-  priv.manager._recordingPrivate = true;
+  startBatch(priv.manager, [1], 3, { private: true });
   priv.manager.cancelRecording();
   await priv.advance(0);
   const heldPriv = priv.manager._undo.peek();
@@ -7931,9 +7999,6 @@ test("_setOwnedAudio is the only writer of lastAudioBlob and lastAudioBlobPrivat
 
 test("a private take cancelled before finalization stays private through Undo (R3-C1)", async (t) => {
   const settings = { ...LOCAL, ...RETAIN };
-  const source = fs.readFileSync(path.join(__dirname, "../../src/helpers/audioManager.js"), "utf8");
-  const plan05Guard = /if \(this\.lastAudioBlobPrivate\)/.test(source);
-
   async function run({ isPrivate, fail }) {
     const { manager, advance, window: win, setSettings } = await setup(t, settings);
     setSettings(settings);
@@ -7949,8 +8014,8 @@ test("a private take cancelled before finalization stays private through Undo (R
         return original.apply(this, args);
       };
     }
-    const rec = startBatch(manager, [], 3, { manualStop: true });
-    manager._recordingPrivate = isPrivate;
+    const rec = startBatch(manager, [], 3, { manualStop: true, private: isPrivate });
+    const session = manager.activeSession;
     manager.cancelRecording(); // before finalization: lastAudioBlob was never stamped
     const restoring = manager.restoreCancelled();
     rec.finish();
@@ -7962,7 +8027,7 @@ test("a private take cancelled before finalization stays private through Undo (R
     await restoring;
     await manager._restoreRun;
     // A successful dictation is saved by the hook's completion handler (useAudioRecording.js:537).
-    if (!fail) await manager.saveTranscription("hi", "hi", {});
+    if (!fail) await manager.saveTranscription("hi", "hi", { sessionId: session.id, private: session.private });
     await advance(0);
     return { seen, writes, manager };
   }
@@ -7970,7 +8035,7 @@ test("a private take cancelled before finalization stays private through Undo (R
   for (const fail of [false, true]) {
     const priv = await run({ isPrivate: true, fail });
     assert.ok(priv.seen.length >= 2 && priv.seen.every(([, flag]) => flag === true), `fail=${fail}: stamped before dispatch and every save`);
-    if (plan05Guard) assert.deepEqual(priv.writes, [], `fail=${fail}: no transcript, audio or analytics`);
+    assert.deepEqual(priv.writes, [], `fail=${fail}: no transcript, audio or analytics`);
     if (fail) assert.equal(priv.manager._undo.peek()?.private, true, "re-held in RAM, still private");
   }
   // A non-private restore afterwards is saved normally: no stale flag.
@@ -8076,13 +8141,14 @@ test("a save for a session that no longer owns the audio saves no audio, and kee
   win.electronAPI.recordAnalyticsEvent = async () => writes.push("analytics");
 
   // The hook saves dictation A after dictation B already owns the audio.
+  manager._recordingPrivate = false;
   const a = manager.beginDictationSession({});
   manager._setOwnedAudio(blob(4));
   manager._recordingPrivate = false;
   const b = manager.beginDictationSession({});
   const newer = blob(5);
   manager._setOwnedAudio(newer);
-  await manager.saveTranscription("hello", "hello", { sessionId: a.id });
+  await manager.saveTranscription("hello", "hello", { sessionId: a.id, private: a.private });
   assert.equal(writes.includes(5), false, "B's audio never lands on A's row");
   assert.equal(manager.lastAudioBlob, newer, "B's audio is untouched");
 
@@ -8092,9 +8158,98 @@ test("a save for a session that no longer owns the audio saves no audio, and kee
   const p = manager.beginDictationSession({});
   manager._setOwnedAudio(blob(6));
   manager._setOwnedAudio(null);
-  await manager.saveTranscription("secret", "secret", { sessionId: p.id });
+  for (let i = 0; i < 20; i += 1) {
+    manager._recordingPrivate = false;
+    manager.beginDictationSession({}); // delayed privacy does not depend on a fixed-size owner cache
+  }
+  await manager.saveTranscription("secret", "secret", { sessionId: p.id, private: p.private });
   assert.deepEqual(writes, [], "no row, audio or analytics for a private session");
+  await manager.saveTranscription("unknown", "unknown", { sessionId: "missing-owner" });
+  assert.deepEqual(writes, [], "unknown stale ownership fails closed as private");
   assert.ok(b.id);
+});
+
+test("an old release cannot clear the same Blob reassigned to the same session (R5-I2)", async (t) => {
+  const { manager } = await setup(t, { ...LOCAL, ...RETAIN });
+  const session = manager.beginDictationSession({});
+  const sameBlob = blob(8);
+  manager._setOwnedAudio(sameBlob, { sessionId: session.id, private: false });
+  const oldSnapshot = manager._ownedAudioSnapshot({ sessionId: session.id, private: false });
+  manager._setOwnedAudio(sameBlob, { sessionId: session.id, private: false }); // new ownership generation
+
+  manager._releaseOwnedAudio(oldSnapshot);
+  assert.equal(manager.lastAudioBlob, sameBlob, "same Blob identity does not make an old release current");
+  assert.equal(manager._lastAudioSessionId, session.id);
+  assert.notEqual(manager._lastAudioOwnerToken, oldSnapshot.ownerToken);
+});
+
+test("a delayed cancelled pipeline preserves a newer real streaming capture and its Undo (R5-I1)", async (t) => {
+  for (const pending of ["row", "audio"]) {
+    const settings = { ...LOCAL, ...RETAIN };
+    const { manager, advance, window: win, setSettings } = await setup(t, settings);
+    setSettings(settings);
+    const row = deferred();
+    const audioWrite = deferred();
+    const uploaded = [];
+    win.electronAPI.saveTranscription = async () => (pending === "row" ? row.promise : { id: 1 });
+    win.electronAPI.saveTranscriptionAudio = async (_id, arrayBuffer) => {
+      uploaded.push(new Uint8Array(arrayBuffer)[0]);
+      return pending === "audio" ? audioWrite.promise : { success: true };
+    };
+
+    startBatch(manager, [], 3);
+    const oldSession = manager.activeSession;
+    manager.cancelRecording();
+    await advance(0);
+    manager.processWithLocalParakeet = async () => { throw new Error("provider 500"); };
+    await manager.restoreCancelled();
+    for (let i = 0; i < 5; i += 1) await advance(0); // A's row or audio write is now pending
+
+    manager.cancelProcessing(); // Esc detaches A's pipeline and re-holds its audio
+    await advance(0);
+    const lifecycle = [];
+    manager.onStateChange = (state) => lifecycle.push(state);
+    const { worklets, sent } = installRealStreamingStart(manager, t);
+    assert.ok(manager._streamingEgressStopped instanceof Set);
+    assert.equal(await manager.startStreamingRecording(), true);
+    const newerSession = manager.activeSession;
+    const pcm = new Int16Array([11, 12, 13, 14]);
+    worklets[0].port.onmessage({ data: pcm.buffer }); // the real worklet callback records B's frame
+    assert.deepEqual(sent, [[11, 12, 13, 14]], "B's frame left through its streaming provider");
+    assert.deepEqual(manager._sessionAudio.frames.map((frame) => [...frame]), [[11, 12, 13, 14]]);
+    const lifecycleAtCapture = lifecycle.length;
+
+    if (pending === "row") row.resolve({ id: 1 });
+    else audioWrite.resolve({ success: true });
+    await manager._restoreRun;
+    await advance(0);
+
+    assert.equal(manager._sessionAudio?.session, newerSession, `${pending}: A cannot clear B's capture`);
+    assert.deepEqual(manager._sessionAudio.frames.map((frame) => [...frame]), [[11, 12, 13, 14]], `${pending}: B's PCM survives`);
+    assert.equal(manager.activeSession, newerSession, `${pending}: A cannot end B's session`);
+    assert.equal(lifecycle.length, lifecycleAtCapture, `${pending}: A cannot publish idle over B`);
+
+    await manager.cancelStreamingRecording();
+    await advance(0);
+    const held = manager._undo.peek();
+    assert.equal(held?.session.id, newerSession.id, `${pending}: Esc holds B`);
+    assert.deepEqual(held.frames().map((frame) => [...frame]), [[11, 12, 13, 14]]);
+
+    const replayed = [];
+    win.electronAPI.dictationRealtimeStart = async () => ({ success: true });
+    win.electronAPI.dictationRealtimeSend = (frame) => replayed.push([...new Int16Array(frame)]);
+    win.electronAPI.dictationRealtimeStop = async () => ({ success: true });
+    manager._attachStreamingListeners = () => {};
+    manager._finalizeStreamingRecording = async (_id, { replay } = {}) => assert.equal(replay, true);
+    assert.equal((await manager.restoreCancelled(newerSession.id)).restored, true, `${pending}: Undo resumes B`);
+    await manager._restoreRun;
+    assert.deepEqual(replayed, [[11, 12, 13, 14]], `${pending}: Undo replays the captured PCM`);
+    assert.equal(held.isZeroed(), true, `${pending}: the restored hold releases its owned copy`);
+    assert.equal(manager.isProcessing, false);
+    assert.equal(manager.isStreaming, false);
+    assert.notEqual(oldSession.id, newerSession.id);
+    assert.equal(uploaded.every((byte) => byte === 3), true, `${pending}: A never uploads B's captured audio`);
+  }
 });
 
 test("flush persists once when retention allows; with retention off it only zeroes", async (t) => {
@@ -8443,8 +8598,8 @@ export function createUndoWindow({
          session, kind, mimeType: mimeType || this.recordingMimeType,
          durationSeconds, analyticsOccurredAt, tracker: this._disclosure, context,
        });
-       // §5.2 private holds: Plan 05's per-recording flag; absent before 05 merges, so false.
-       buffer.private = this._recordingPrivate === true;
+       // Privacy was frozen on this session at the recording start; the buffer keeps it through Undo.
+       buffer.private = session?.private === true;
        this._disclosure = null; // the buffer owns the tracker now
        if (this._lastAudioSessionId === session.id) this._setOwnedAudio(null);
        if (this._sessionAudio?.session === session) this._sessionAudio = null;
@@ -8458,14 +8613,14 @@ export function createUndoWindow({
    ```js
      /**
       * §5.2 audio ownership. The ONLY writer of `lastAudioBlob`, its owner session and its
-      * persistence privacy flag, `lastAudioBlobPrivate`, which Plan 05's save guards read.
-      * Every assignment goes through here before any callback or provider work can save.
-      * Pass null to release.
+      * persistence privacy flag. Every assignment goes through here before any callback or
+      * provider work can save. Pass null to release.
       */
-     _setOwnedAudio(blob, { sessionId = this._activeSession?.id ?? null, private: isPrivate = this._recordingPrivate === true } = {}) {
+     _setOwnedAudio(blob, { sessionId = this._activeSession?.id ?? null, private: isPrivate = this._activeSession?.private ?? (this._recordingPrivate === true) } = {}) {
        this.lastAudioBlob = blob ?? null;
        this._lastAudioSessionId = blob ? sessionId : null;
        this.lastAudioBlobPrivate = Boolean(blob) && isPrivate === true;
+       this._lastAudioOwnerToken = {};
        // Keep the recording's flag consistent with the audio it owns.
        if (blob && sessionId && sessionId === this._activeSession?.id) this._recordingPrivate = isPrivate === true;
      }
@@ -8477,7 +8632,7 @@ export function createUndoWindow({
    - the releases at `:488`, `:3051`, `:3100`, `:3114`, `:3152` and `:4212` become `this._setOwnedAudio(null);`. Keep each neighbouring `this.lastAudioMetadata = null;`;
    - Task 8's own release in `_bufferForSession` and its restore (Step 5) use it too.
 
-   The defaults read the active session and `_recordingPrivate`, which Plan 05's `_captureRecordingPrivacy` sets at start. A restore passes both explicitly from the hold. **Plan 05, either merge order:** its two stamps (`this.lastAudioBlobPrivate = this._recordingPrivate === true;` below `:1447` and `:3935`, P05 Task 5) become these setter calls, and its source test checks for `_setOwnedAudio(audioBlob)` / `_setOwnedAudio(fallbackBlob)`. Its guards in `saveTranscription` and `saveFailedTranscription` keep reading `lastAudioBlobPrivate`.
+   The default prefers the active session's frozen privacy; `_recordingPrivate` is only a pre-session fallback. A restore passes both explicitly from the hold. **Plan 05, either merge order:** its two stamps (`this.lastAudioBlobPrivate = this._recordingPrivate === true;` below `:1447` and `:3935`, P05 Task 5) become these setter calls, and its source test checks for `_setOwnedAudio(audioBlob)` / `_setOwnedAudio(fallbackBlob)`. Task 5 skips temporary saver guards when snapshot savers exist; Task 22 removes them when Plan 05 merged first. The snapshot savers own all privacy decisions.
 3. **Batch cancel while recording** (`cancelRecording`, 1611–1631). Replace the snapshot/`persistDiscardedBatchRecording` wiring:
 
    ```js
@@ -8543,7 +8698,7 @@ export function createUndoWindow({
        };
      ```
 
-   - `_settleProcessingPipeline` (≈1735) sets `this._sessionAudio = null` when it settles the active pipeline. A completed dictation keeps no undo copy.
+   - `_settleProcessingPipeline` (≈1735) first returns without side effects unless `this._activeProcessingPipeline === pipeline`. On a successful owned settlement, it clears `_sessionAudio` only when `this._sessionAudio?.session === pipeline.session`, using `_dropSessionAudio()` so captured frames are zeroed, then ends that session and publishes idle for that pipeline. In the non-streaming branch of `cancelProcessing`, after the `_streamingStopPromise` early return and before setting idle, detach the cancelled batch pipeline with `this._activeProcessingPipeline = null`. Its late `finally` must not clear a newer streaming capture or notify the newer lifecycle.
 6. **Streaming capture.**
    - In `startStreamingRecording`, after `beginDictationSession(...)` (Task 6):
 
@@ -8816,35 +8971,28 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
         * resolves is never read, uploaded or released by an older save. With `sessionId`, the
         * audio counts only if that session still owns it.
         */
-       _ownedAudioSnapshot({ sessionId } = {}) {
+       _ownedAudioSnapshot({ sessionId, private: sessionPrivate } = {}) {
          const owner = this._lastAudioSessionId;
          const owns = Boolean(this.lastAudioBlob) && (sessionId === undefined || sessionId === owner);
          const id = owns ? owner : sessionId ?? null;
          return Object.freeze({
            blob: owns ? this.lastAudioBlob : null,
            sessionId: id,
-           private: owns ? this.lastAudioBlobPrivate === true : (this._privateSessionIds ??= new Set()).has(id),
+           private: owns ? this.lastAudioBlobPrivate === true : (sessionPrivate === undefined ? Boolean(id) : sessionPrivate === true),
+           ownerToken: owns ? this._lastAudioOwnerToken : null,
            metadata: owns ? this.lastAudioMetadata ?? null : null,
          });
        }
 
-       /** Releases lastAudioBlob only while it is still the snapshot's audio. A newer owner is never touched. */
+       /** Releases only the exact Blob generation and owner captured by this snapshot. */
        _releaseOwnedAudio(owned) {
-         if (!owned.blob || this.lastAudioBlob !== owned.blob) return;
-         this._setOwnedAudio(null);
+         if (!owned.blob || this.lastAudioBlob !== owned.blob || this._lastAudioSessionId !== owned.sessionId || this._lastAudioOwnerToken !== owned.ownerToken) return;
+         this._setOwnedAudio(null, { sessionId: owned.sessionId, private: owned.private });
          this.lastAudioMetadata = null;
        }
      ```
 
-     `_setOwnedAudio` also remembers private owners after their audio is released, so a snapshot of a session whose audio is gone keeps that session's privacy. Add this as the setter's last statement. The set is created lazily, because the test managers are prototype-only:
-
-     ```js
-         if (blob && isPrivate === true && sessionId) {
-           const ids = (this._privateSessionIds ??= new Set());
-           ids.add(sessionId);
-           if (ids.size > 16) ids.delete(ids.values().next().value); // keep the newest 16
-         }
-     ```
+     `_ownedAudioSnapshot({ sessionId, private })` uses the immutable operation privacy when the session no longer owns the Blob. If a named stale session has no captured privacy, it fails closed as private and cannot create a transcript, audio or analytics write. Do not retain session ids in a manager-wide cache. The per-assignment token distinguishes even a re-assignment of the same Blob to the same session.
   2. **`saveFailedTranscription`** (`:3110-3163`) persists only the snapshot, and reports what it kept:
 
      ```js
@@ -8884,13 +9032,13 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
      ```
 
   3. **`saveTranscription`** (`:3043-3105`), the other save the setter migration touched, gets the same treatment:
-     - It gains a `sessionId` option. Its first statement is `const owned = this._ownedAudioSnapshot(sessionId === undefined ? {} : { sessionId });`, and `if (owned.private) { this._releaseOwnedAudio(owned); return true; }` follows it.
+     - It gains `{ sessionId, private: sessionPrivate }` options. Its first statement is `const owned = this._ownedAudioSnapshot({ sessionId, private: sessionPrivate });`, and `if (owned.private) { this._releaseOwnedAudio(owned); return true; }` follows it. A stale named session with unknown privacy is private by default.
      - Every later read of `this.lastAudioBlob` and `this.lastAudioMetadata` (`:3058`, `:3086-3093`) reads `owned.blob` and `owned.metadata` instead.
      - Both releases (`:3051`, `:3100`) become `this._releaseOwnedAudio(owned)`.
 
-     In the hook's save call (`useAudioRecording.js:537`), add `sessionId` to its options: Task 4 captures it at the top of `onTranscriptionComplete`. A save that runs after a newer recording took ownership then saves its own transcript, but none of the newer audio.
+     In the hook's save call (`useAudioRecording.js:537`), pass both captured `sessionId` and `private: sessionPrivate`: Task 4 reads them from the immutable session at the top of `onTranscriptionComplete`. A delayed save then keeps that operation's privacy and transcript identity even if a newer recording takes ownership.
 
-     **Plan 05, either merge order:** its two entry guards (`if (this.lastAudioBlobPrivate) …`) are subsumed by the snapshot checks above, which also cover a private owner that changed mid-save. Keep only Plan 04's checks.
+     **Plan 05, either merge order:** its temporary entry guards are skipped when the snapshot savers exist and removed by Task 22 when Plan 05 merged first. Keep only Plan 04's snapshot checks, which cover a private owner that changed mid-save.
   4. **One recovery path for every failure of a restored dictation.** Add:
 
      ```js
@@ -8908,7 +9056,7 @@ A refusal before the pipeline starts (sealed, busy, a cancel that arrived meanwh
        }
      ```
 
-  5. **`processAudio`.** Declare `let retryHold = null;` next to `noAudioDetected` (`:1778`). At the top of the `catch`, directly after the `wasCancelled()` return (`:1887-1892`), take `const owned = this._ownedAudioSnapshot();`. Then route both saving branches through the helper:
+  5. **`processAudio`.** Declare `let retryHold = null;` next to `noAudioDetected` (`:1778`). At the top of the `catch`, directly after the `wasCancelled()` return (`:1887-1892`), take `const owned = this._ownedAudioSnapshot({ sessionId: pipeline.session?.id, private: pipeline.session?.private });`. Then route both saving branches through the helper:
      - The dictionary-echo branch (`:1903-1912`) keeps `noAudioDetected = true;`, then: `if (metadata.restoredFromCancel === true) retryHold = await this._recoverRestoredFailure(error, audioBlob, metadata, owned, wasCancelled); else if (this.lastAudioBlob) this.saveFailedTranscription(error.message, error.code, metadata, owned);`.
      - The generic branch (`:1914-1927`) keeps its `onError`, then: `if (metadata.restoredFromCancel === true) retryHold = await this._recoverRestoredFailure(error, audioBlob, metadata, owned, wasCancelled); else if (this.lastAudioBlob) this.saveFailedTranscription(error.message, error.code || null, metadata, owned);`. A non-restored dictation is still not awaited.
      - The genuine-silence branch (`"No audio detected"`, `:1913`) is unchanged: there is nothing to recover.

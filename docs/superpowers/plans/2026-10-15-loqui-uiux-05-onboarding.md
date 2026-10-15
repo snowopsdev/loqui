@@ -998,7 +998,7 @@ Covers ONB-R3 C under D8.
   export interface VoicePick {
     modelId: string | null;
     outcome: VoiceOutcome | null;
-    languages: string[];                     // base codes in OS order; supported ones first-class
+    languages: string[];                     // base codes heard by modelId, in OS order; [] if no voice
     reason: VoiceReason;
     disk: { neededBytes: number; freeBytes: number } | null; // set only when short
   }
@@ -1062,16 +1062,21 @@ test("Japanese never gets an English-only voice", async () => {
 });
 
 test("an unsupported language is said out loud, with no model guessed", async () => {
-  const { detectVoice } = await load();
+  const { detectVoice, spokenLocalesFor, voiceSupportsAll } = await load();
   for (const [locales, language] of [[["he-IL"], "he"], [["zh-Hant-TW"], "zh"]]) {
     const pick = detectVoice({ locales, freeDiskBytes: plenty });
     assert.equal(pick.modelId, null);
     assert.equal(pick.outcome, null);
+    assert.deepEqual(pick.languages, [], "no compatible voice means no detected spoken languages");
     assert.deepEqual(pick.reason, { kind: "unsupported", language });
   }
   const partial = detectVoice({ locales: ["he-IL", "fr-FR"], freeDiskBytes: plenty });
   assert.equal(partial.modelId, "orukeet-v0.1.0", "a supported second language still gets a voice");
   assert.deepEqual(partial.reason, { kind: "language", language: "fr" });
+  assert.deepEqual(partial.languages, ["fr"]);
+  const spoken = spokenLocalesFor(["he-IL", "fr-FR"], partial.languages);
+  assert.deepEqual(spoken, ["fr-FR"], "unsupported OS locales never become spoken languages");
+  assert.equal(voiceSupportsAll(partial.modelId, spoken), true, "the detected fallback is committable");
 });
 
 test("disk is flagged when free space is under 2.5 times the download", async () => {
@@ -1153,7 +1158,7 @@ export type VoiceReason =
 export interface VoicePick {
   modelId: string | null;
   outcome: VoiceOutcome | null;
-  languages: string[];
+  languages: string[]; // only languages heard by modelId, in OS order; [] if no voice
   reason: VoiceReason;
   disk: { neededBytes: number; freeBytes: number } | null;
 }
@@ -1221,7 +1226,7 @@ export function detectVoice(profile: Pick<SystemProfile, "locales" | "freeDiskBy
   return {
     modelId,
     outcome: modelId ? outcomeFor(modelId) : null,
-    languages,
+    languages: modelId ? languages.filter((language) => supportsSpeechLanguage(modelId, language)) : [],
     reason,
     disk: neededBytes !== null && free !== null && free < neededBytes ? { neededBytes, freeBytes: free } : null,
   };
@@ -1883,7 +1888,7 @@ test("every recording start captures its privacy", () => {
     assert.doesNotMatch(source, /if\s*\(this\.lastAudioBlobPrivate\)\s*\{[^}]*return;/, "mutable saver entry guards are replaced by Plan 04's snapshot checks");
     const setter = source.slice(source.indexOf("_setOwnedAudio(blob"));
     const outside = source.replace(setter.slice(0, setter.indexOf("\n  }\n") + 4), "");
-    assert.doesNotMatch(outside, /this\.lastAudioBlob(Private)? =/, "no bare write outside the setter");
+    assert.doesNotMatch(outside, /this\.lastAudioBlob(?:Private)?\s*=(?!=)/, "no bare write outside the setter");
   } else {
     const blobs = source.match(/this\.lastAudioBlob = (audioBlob|fallbackBlob);\s*\n\s*this\.lastAudioBlobPrivate = this\._recordingPrivate === true;/g) ?? [];
     assert.equal(blobs.length, 2, "both audio-carrying assignments record privacy");
@@ -7270,6 +7275,18 @@ test("viewing Voice writes nothing; its primary makes dictation local, even from
   assert.deepEqual(ui.calls.filter(([name]) => name === "downloadParakeetModel"), [["downloadParakeetModel", "orukeet-v0.1.0"]]);
 });
 
+test("a supported secondary OS locale remains committable without manual language changes", async (t) => {
+  const { ui } = await mountFlow(t, { initialStep: "speech" }, { api: voiceApi(["he-IL", "fr-FR"]) });
+  await React.act(async () => {});
+  assert.equal(ui.byAttr("aria-checked", "true")[0].attributes["data-value"], "orukeet-v0.1.0");
+  assert.equal("disabled" in primary(ui).attributes, false);
+  await ui.click(primary(ui));
+  const settings = (await ui.vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore.getState();
+  assert.deepEqual(settings.spokenLanguages, ["fr-FR"]);
+  assert.equal(settings.preferredLanguage, "fr-FR");
+  assert.deepEqual(ui.calls.filter(([name]) => name === "downloadParakeetModel"), [["downloadParakeetModel", "orukeet-v0.1.0"]]);
+});
+
 test("a language change never leaves an incompatible voice committable (I03)", async (t) => {
   const { ui } = await mountFlow(t, { initialStep: "speech" }, {
     api: voiceApi(["en-US"]),
@@ -10703,7 +10720,7 @@ Covers ONB-R8 A and ONB-Q14, finishes ONB-Q18, and consumes §5.1 for readiness 
     settingsPath?: string;           // set when only Settings can fix it
   }
   export interface ReadinessInput {
-    speechRoute: ResolvedRoute; localVoiceActive: boolean; voiceDownload: VoiceDownloadState["status"];
+    speechRoute: ResolvedRoute; noteRoute: ResolvedRoute; localVoiceActive: boolean; voiceDownload: VoiceDownloadState["status"];
     microphone: "granted" | "denied" | "unknown"; micHeard: boolean; trialSucceeded: boolean;
     platform: "darwin" | "linux" | "win32"; accessibilityGranted: boolean | null;
     shortcutProven: boolean; shortcutLabel: string; activationMode: "tap" | "push";
@@ -10725,6 +10742,7 @@ Covers ONB-R8 A and ONB-Q14, finishes ONB-Q18, and consumes §5.1 for readiness 
   - Rows come in the order Speech, Microphone, Shortcut, Cleanup.
   - Cleanup that is off is `optional` and never counts as pending.
   - Cleanup that was chosen but is unavailable is `pending` (I05).
+  - `allLocal` includes `noteRecordingStt`, even when dictation and cleanup are local. A remote, network or unknown note locality prevents the blanket device-only claim.
 - Produces, in `afterSetupIntent.ts`:
   - `setAfterSetupIntent(intent: AfterSetupIntent)`;
   - `takeAfterSetupIntent(): AfterSetupIntent | null`, which is one-shot and in memory.
@@ -10754,6 +10772,7 @@ const route = (id, patch = {}) => ({
 });
 const input = (patch = {}) => ({
   speechRoute: route("dictationStt"),
+  noteRoute: route("noteRecordingStt"),
   localVoiceActive: true,
   voiceDownload: "ready",
   microphone: "granted",
@@ -10850,6 +10869,15 @@ test("a chosen but unavailable cleanup is pending with a real Settings destinati
   assert.equal(summary.pending, 1);
   const remote = summarizeReadiness(input({ cleanupChoice: "provider", cleanupStatus: "ready", cleanupRoute: route("dictationCleanup", { locality: "remote", providerId: "openai" }) }));
   assert.deepEqual([remote.rows[3].status, remote.allLocal], ["ready", false]);
+});
+
+test("the all-local claim includes the note route independently of dictation and cleanup", async () => {
+  const { summarizeReadiness } = await load();
+  for (const locality of ["device", "remote", "network", "unknown"]) {
+    const summary = summarizeReadiness(input({ noteRoute: route("noteRecordingStt", { locality }) }));
+    assert.deepEqual([summary.pending, summary.proven], [0, true], "dictation remains proven");
+    assert.equal(summary.allLocal, locality === "device", locality);
+  }
 });
 
 test("the note action follows its own route and the microphone (I06)", async () => {
@@ -10962,7 +10990,7 @@ test("pending rows resume in setup, or open the exact Settings page when only Se
 
 test("a blocked note action says why and links to its own Settings route (I06)", async (t) => {
   const note = { status: "blocked", block: "unsupported", locality: "network", providerId: null, model: null, settingsPath: "stt/noteRecording" };
-  const { ui, events } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: true }, { note });
+  const { ui, events } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: false }, { note });
   const [dictate] = ui.byAttr("data-variant", "live");
   assert.ok("disabled" in dictate.attributes);
   const [reason] = ui.byAttr("id", dictate.attributes["aria-describedby"]);
@@ -10987,10 +11015,12 @@ test("a denied microphone sends the note fix back to Hello", async (t) => {
   assert.deepEqual(events, [["resume", "welcome"]]);
 });
 
-test("a remote note route names its provider before the click", async (t) => {
+test("a remote note route names its provider and never claims everything stays on device", async (t) => {
   const note = { status: "ready", block: null, locality: "remote", providerId: "openai", model: "Whisper", settingsPath: "stt/noteRecording" };
   const { ui } = await ready(t, { rows: rows(["ready", "ready", "ready", "optional"]), pending: 0, proven: true, allLocal: false }, { note });
   expectKey(ui, "setupFlow.ready.noteSends", { provider: "OpenAI" });
+  expectKey(ui, "setupFlow.ready.subProven");
+  assert.equal(/setupFlow\.ready\.subAllLocal(Mac|Other)/.test(ui.text()), false);
   const [chip] = ui.byAttr("data-route-chip", "destination");
   assert.deepEqual([chip.attributes["data-locality"], chip.attributes["data-provider"]], ["remote", "openai"], "Plan 03's chip, fed the note route (R2-M02)");
 });
@@ -11132,6 +11162,7 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
 
    export interface ReadinessInput {
      speechRoute: ResolvedRoute;
+     noteRoute: ResolvedRoute;
      localVoiceActive: boolean;
      voiceDownload: VoiceDownloadState["status"];
      microphone: "granted" | "denied" | "unknown";
@@ -11218,7 +11249,8 @@ Expected: FAIL. The modules are missing, the legacy CSS files still exist, and `
      const pending = rows.filter((row) => row.status === "pending").length;
      const speechLocal = input.localVoiceActive || input.speechRoute.locality === "device";
      const cleanupLocal = rows[3].status === "optional" || input.cleanupRoute.locality === "device";
-     return { rows, pending, proven: rows[0].status === "ready", allLocal: speechLocal && cleanupLocal };
+     const noteLocal = input.noteRoute.locality === "device";
+     return { rows, pending, proven: rows[0].status === "ready", allLocal: speechLocal && cleanupLocal && noteLocal };
    }
 
    export type NoteBlock = "microphone" | "unsupported" | "sealed" | "needsModel" | "needsKey" | "needsUrl" | "unreachable";
@@ -12865,7 +12897,7 @@ export default function OnboardingFlow({ onComplete, onExplore, initialStep, pre
   const speechRoute = useResolvedRoute("dictationStt");
   const noteRoute = useResolvedRoute("noteRecordingStt");
   const summary = summarizeReadiness({
-    speechRoute, localVoiceActive, voiceDownload: voiceStatus,
+    speechRoute, noteRoute, localVoiceActive, voiceDownload: voiceStatus,
     microphone: mic.access, micHeard, trialSucceeded: trial.successes > 0,
     platform, accessibilityGranted: accessibility.granted, shortcutProven, shortcutLabel: hotkeyLabel, activationMode,
     cleanupChoice, cleanupStatus, cleanupRoute, cleanupProviderLabel,

@@ -3565,7 +3565,10 @@ test("chromium: a tagged request is attributed, the tag is stripped, and redirec
   s.listeners.onBeforeRedirect({ id, url: "https://huggingface.co/m", redirectURL: "https://cdn-lfs.hf.co/m" });
   s.listeners.onCompleted({ id, statusCode: 200 });
   assert.deepEqual(ticket.hosts, ["huggingface.co", "cdn-lfs.hf.co"]);
-  assert.equal(recorder.list().length, 0, "the ticket records it, not the backstop");
+  const [row] = recorder.list();
+  assert.equal(recorder.list().length, 1, "a whole-operation tag records one Chromium attempt");
+  assert.deepEqual([row.task, row.host, row.outcome], ["modelDownload", "huggingface.co", "ok"]);
+  assert.deepEqual(row.hosts, ["huggingface.co", "cdn-lfs.hf.co"]);
   ticket.discard();
 });
 
@@ -3585,20 +3588,61 @@ test("chromium: an untagged remote request is unexplained, recorded at completio
   ticket.discard();
 });
 
-test("chromium: a redirect into a refused host records the whole trail as blocked", async () => {
-  const s = fakeSession();
-  backstop.watchSession(s);
-  const hop = nextId;
-  await before(s, "https://first.example.com/a"); // allowed: not sealed yet
-  flags.sealed = true;
-  s.listeners.onBeforeRedirect({ id: hop, redirectURL: "https://second.example.net/b" });
-  // Chromium re-runs onBeforeRequest for the redirected URL with the same request id.
-  assert.deepEqual(await before(s, "https://second.example.net/b", { id: hop }), { cancel: true });
-  const row = recorder.list().find((r) => r.outcome === "blocked");
-  assert.deepEqual([row.task, row.host], ["unattributed", "first.example.com"]);
-  assert.deepEqual(row.hosts, ["first.example.com", "second.example.net"], "the allowed first hop stays in the ledger");
-  ticket.discard();
-});
+for (const endEvent of ["onCompleted", "onErrorOccurred"]) {
+  test(`chromium: a cancelled redirect stays counted until ${endEvent}, with one blocked trail`, async () => {
+    const s = fakeSession();
+    backstop.watchSession(s);
+    const base = backstop.status().chromiumInFlightRemote;
+    const hop = nextId;
+    await before(s, "https://first.example.com/a"); // allowed: not sealed yet
+    assert.equal(backstop.status().chromiumInFlightRemote, base + 1);
+    flags.sealed = true;
+    s.listeners.onBeforeRedirect({ id: hop, redirectURL: "https://second.example.net/b" });
+    // Chromium re-runs onBeforeRequest for the redirected URL with the same request id.
+    assert.deepEqual(await before(s, "https://second.example.net/b", { id: hop }), { cancel: true });
+    assert.equal(backstop.status().chromiumInFlightRemote, base + 1, "cancel requested is not an observed end");
+    const [row] = recorder.list();
+    assert.deepEqual([row.task, row.host, row.outcome], ["unattributed", "first.example.com", "blocked"]);
+    assert.deepEqual(row.hosts, ["first.example.com", "second.example.net"], "the allowed first hop stays in the ledger");
+    s.listeners[endEvent]({ id: hop, statusCode: 200, error: "net::ERR_BLOCKED_BY_CLIENT" });
+    assert.equal(backstop.status().chromiumInFlightRemote, base);
+    s.listeners.onErrorOccurred({ id: hop, error: "net::ERR_ABORTED" });
+    assert.equal(backstop.status().chromiumInFlightRemote, base, "a duplicate end is harmless");
+    assert.equal(recorder.list().length, 1, "the blocked trail is recorded once");
+  });
+
+  test(`chromium: a tagged cancelled redirect settles as cancelled on ${endEvent}`, async () => {
+    const s = fakeSession();
+    backstop.watchSession(s);
+    const ticket = gate.authorize({ task: "modelDownload", target: "https://first.example.com/a" });
+    const base = backstop.status().chromiumInFlightRemote;
+    const hop = nextId;
+    await before(s, "https://first.example.com/a");
+    await sendHeaders(s, hop, { [gate.EGRESS_TAG_HEADER]: ticket.tag });
+    let delivered = 0;
+    const onDelivered = () => delivered++;
+    gate.events.on("delivered", onDelivered);
+    try {
+      flags.sealed = true;
+      s.listeners.onBeforeRedirect({ id: hop, redirectURL: "https://second.example.net/b" });
+      assert.deepEqual(await before(s, "https://second.example.net/b", { id: hop }), { cancel: true });
+      assert.equal(backstop.status().chromiumInFlightRemote, base + 1);
+      assert.equal(recorder.list().length, 0, "the attributed attempt waits for its observed end");
+      s.listeners[endEvent]({ id: hop, statusCode: 200, error: "net::ERR_BLOCKED_BY_CLIENT" });
+      assert.equal(backstop.status().chromiumInFlightRemote, base);
+      ticket.settle({ outcome: "cancelled" });
+      s.listeners.onErrorOccurred({ id: hop, error: "net::ERR_ABORTED" });
+      const [row] = recorder.list();
+      assert.equal(recorder.list().length, 1);
+      assert.deepEqual([row.task, row.outcome, row.errorClass], ["modelDownload", "cancelled", "SEALED_MODE"]);
+      assert.deepEqual(row.hosts, ["first.example.com", "second.example.net"]);
+      assert.equal(delivered, 0, "a cancellation acknowledgement is not delivery evidence");
+    } finally {
+      gate.events.off("delivered", onDelivered);
+      ticket.discard();
+    }
+  });
+}
 
 test("chromium: remote requests are tracked in flight until they end; a destroyed webContents does not clear them", async () => {
   const s = fakeSession();
@@ -4057,11 +4101,18 @@ function finishChromium(key, { outcome, status = null }) {
   chromiumInFlight.delete(key);
   if (entry.attempt) {
     for (const h of entry.hosts) entry.attempt.addHost(h);
+    if (entry.cancelPending) {
+      entry.attempt.settle({ outcome: "cancelled", errorClass: "SEALED_MODE" });
+      return; // a cancellation acknowledgement does not establish delivery
+    }
     entry.attempt.status = status;
     if (status !== null) entry.attempt.markDelivered();
     entry.attempt.settle({ outcome, errorClass: status >= 500 ? "HTTP_5XX" : status >= 400 ? "HTTP_4XX" : outcome === "error" ? "OTHER" : null });
     return;
   }
+  // A cancelled redirect already recorded its blocked trail at refusal. Keep
+  // its evidence until this observed end, without adding a second ledger row.
+  if (entry.cancelPending) return;
   // A metered request records itself; only untagged ones are recorded here.
   if (!entry.ticket) gate.recordUnattributed({ host: entry.host, hosts: entry.hosts, kind: "request", outcome, status, ts: entry.ts });
 }
@@ -4084,7 +4135,10 @@ function watchSession(session) {
       // that were allowed before it.
       const trail = existing ? [...new Set([...existing.hosts, verdict.host])].slice(0, 8) : null;
       gate.recordBackstopBlock({ host: verdict.host, hosts: trail, ticket: existing?.ticket ?? null });
-      chromiumInFlight.delete(key(details));
+      if (existing) {
+        existing.hosts = trail;
+        existing.cancelPending = true; // only onCompleted/onErrorOccurred may retire it
+      }
     } else if (!verdict.cancel && verdict.remote && !existing) {
       chromiumInFlight.set(key(details), { host: verdict.host, hosts: [verdict.host], ts: Date.now(), ticket: null, webContentsId: details.webContentsId });
     }

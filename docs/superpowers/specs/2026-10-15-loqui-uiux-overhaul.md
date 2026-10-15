@@ -58,7 +58,7 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
   - The default `Button` becomes an ink capsule with an orange brand dot (light theme: ink on paper; dark theme: paper on plum).
   - A new `live` variant carries the orange gradient with ink text (6.29:1). It is used only for record, stop, mic, send-by-voice, the pill and the meters.
   - Therefore ONB-Q4, VO-Q4 and WS-Q4 are delivered as: neutral primary everywhere, `live` only for voice controls, and links always `--color-link`. `BRAND_GLASS_SURFACE` text becomes ink, not white.
-  - Orange stays the focus-ring and active-nav accent in light theme; the light nav marker is the deeper orange `#E84E16` so it clears 3:1 on the sidebar surface.
+  - Orange stays the focus-ring and active-nav accent in light theme; the light nav marker and focus ring are the deeper orange `#E84E16` so they clear 3:1 on every light surface. Focus rings are drawn fully opaque.
 - **D2, VO-R12 A "Recorder capsule" is a state of the existing pill window, not a second always-on-top window.** *(Confirmed.)*
   - The pill shows a red-orange dot, mm:ss and Stop while a meeting records, and dictation still works from it.
   - Linux fallbacks: the tray icon shows a recording state, and a persistent notification has a Stop action.
@@ -77,7 +77,7 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
   |---|---|---|---|
   | `device` | solid | `#0b7a54` | `#5ee0ad` |
   | `network` (self-hosted on another machine) | dotted | `#3b6ea8` | `#9bb4d6` |
-  | `remote` (provider) | dashed orbit + provider badge | `#b45309` | `#fbbf6a` |
+  | `remote` (provider) | dashed orbit + provider badge | `#ad5008` | `#fbbf6a` |
 
   Unknown providers resolve to `remote`, which fails toward disclosure. A self-hosted URL on localhost, 127.0.0.1 or ::1 is `device`.
 - **D5, Plum Night replaces charcoal as the only dark theme.** Every dark token is written in hex so contrast is testable. Magenta `#E6007A` is the dark-theme active-nav marker; the focus ring stays orange.

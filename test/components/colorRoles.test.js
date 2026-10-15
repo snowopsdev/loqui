@@ -10,27 +10,85 @@ const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
 const loadContrast = () => import("../../src/utils/contrast.ts");
 const loadButton = () => import("../../src/components/ui/button.tsx");
 
-const LIGHT_TEXT_PAIRS = [
-  ["--color-foreground", "--color-background"],
-  ["--color-muted-foreground", "--color-background"],
-  ["--color-link", "--color-background"],
-  ["--color-cta-foreground", "--color-cta"],
-  ["--color-live-foreground", "--color-live"],
-  ["--color-locality-device", "--color-background"],
-  ["--color-locality-network", "--color-background"],
-  ["--color-locality-remote", "--color-background"],
-  ["--color-locality-device", "--color-surface-window"],
-  ["--color-locality-network", "--color-surface-window"],
-  ["--color-locality-remote", "--color-surface-window"],
+const SURFACE_TOKENS = [
+  "--color-background",
+  "--color-card",
+  "--color-popover",
+  "--color-secondary",
+  "--color-muted",
+  "--color-input",
+  "--color-surface-0",
+  "--color-surface-1",
+  "--color-surface-2",
+  "--color-surface-3",
+  "--color-surface-raised",
+  "--color-surface-window",
 ];
 
-test("light theme text roles meet 4.5:1", async () => {
+const TEXT_ROLES = [
+  "--color-foreground",
+  "--color-muted-foreground",
+  "--color-link",
+  "--color-link-hover",
+  "--color-locality-device",
+  "--color-locality-network",
+  "--color-locality-remote",
+];
+
+test("light text roles meet 4.5:1 on every supported light surface", async () => {
   const { contrastRatio } = await loadContrast();
   const { light } = resolveTokens(css);
-  for (const [fg, bg] of LIGHT_TEXT_PAIRS) {
+  for (const fg of TEXT_ROLES)
+    for (const bg of SURFACE_TOKENS) {
+      const ratio = contrastRatio(light[fg], light[bg]);
+      assert.ok(ratio >= 4.5, `${fg} on ${bg} is ${ratio}:1`);
+    }
+  for (const [fg, bg] of [
+    ["--color-cta-foreground", "--color-cta"],
+    ["--color-live-foreground", "--color-live"],
+  ]) {
     const ratio = contrastRatio(light[fg], light[bg]);
     assert.ok(ratio >= 4.5, `${fg} on ${bg} is ${ratio}:1`);
   }
+});
+
+test("the focus ring clears 3:1 on every surface in both themes", async () => {
+  const { contrastRatio } = await loadContrast();
+  const { light, dark } = resolveTokens(css);
+  for (const [theme, tokens] of [
+    ["light", light],
+    ["dark", dark],
+  ])
+    for (const surface of SURFACE_TOKENS) {
+      const ratio = contrastRatio(tokens["--color-ring"], tokens[surface]);
+      assert.ok(ratio >= 3, `${theme} ring on ${surface} is ${ratio}:1`);
+    }
+});
+
+test("the onboarding canvas does not swap in a lower-contrast focus ring", () => {
+  const canvas = css.match(/\n\.onboarding-canvas \{([^}]*)\}/)[1];
+  assert.doesNotMatch(canvas, /--color-ring:/);
+});
+
+test("focus indicators on shared controls are fully opaque", () => {
+  for (const file of [
+    "src/components/ui/button.tsx",
+    "src/components/ControlPanelSidebar.tsx",
+    "src/components/ui/HotkeyInput.tsx",
+  ]) {
+    const source = fs.readFileSync(path.join(repoRoot, file), "utf8");
+    assert.doesNotMatch(source, /ring-(ring|primary)\/\d+/, `${file} has a translucent ring`);
+  }
+});
+
+test("every HotkeyInput variant draws an opaque ring on focus and while capturing", async () => {
+  const { HotkeyInput } = await import("../../src/components/ui/HotkeyInput.tsx");
+  for (const variant of ["default", "hero", "capture-overlay"]) {
+    const html = renderStatic(HotkeyInput, { value: "", onChange() {}, variant });
+    assert.match(html, /focus-visible:ring-2 focus-visible:ring-ring(?![\w/-])/, variant);
+  }
+  const source = fs.readFileSync(path.join(repoRoot, "src/components/ui/HotkeyInput.tsx"), "utf8");
+  assert.equal(source.match(/ring-2 ring-ring(?![\w/-])/g)?.length, 2, "capturing ring is opaque");
 });
 
 test("live role is orange with ink text, and the CTA is not orange", () => {
@@ -77,6 +135,9 @@ test("default button is the ink CTA with a leading brand dot; live is orange", a
   const link = renderStatic(Button, { variant: "link" }, "Privacy & Data");
   assert.match(link, /text-link/);
   assert.doesNotMatch(link, /text-primary/);
+  // Hover darkens a link; opacity would wash it below 4.5:1.
+  assert.match(link, /hover:text-link-hover/);
+  assert.doesNotMatch(link, /text-link\//);
 });
 
 test("sidebar active marker uses the nav-marker role", () => {

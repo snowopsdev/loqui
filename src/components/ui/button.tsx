@@ -10,7 +10,7 @@ const buttonVariants = cva(
     "inline-flex items-center justify-center gap-2 whitespace-nowrap",
     "rounded-full text-sm font-medium cursor-pointer select-none",
     "transition-[background-color,border-color,color,transform] duration-200 ease-out",
-    "outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+    "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
     "disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed",
     "[&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 shrink-0",
   ].join(" "),
@@ -101,7 +101,7 @@ const buttonVariants = cva(
         link: [
           "font-medium",
           "text-link",
-          "hover:text-link/80 hover:underline",
+          "hover:text-link-hover hover:underline",
           "underline-offset-4",
         ].join(" "),
 

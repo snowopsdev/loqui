@@ -21,7 +21,7 @@
   --color-destructive-foreground: #ffffff;
   --color-border: #e5e5e5;
   --color-input: #f9f6f1;
-  --color-ring: #ff5a1f;
+  --color-ring: #e84e16;
   --color-background: #ffffff;
   --color-foreground: #171717;
   --color-card: #ffffff;
@@ -29,6 +29,7 @@
   --color-popover: #ffffff;
   --color-popover-foreground: #171717;
   --color-link: #c43e13;
+  --color-link-hover: #a8340d;
   --color-success: #16a34a;
   --color-success-foreground: #ffffff;
   --color-warning: #d97706;
@@ -49,7 +50,7 @@
      never reads as mode. */
   --color-locality-device: #0b7a54;
   --color-locality-network: #3b6ea8;
-  --color-locality-remote: #b45309;
+  --color-locality-remote: #ad5008;
 
   /* Surface hierarchy — light mode equivalents */
   --color-surface-0: #ffffff;
@@ -63,7 +64,7 @@
   /* Border states — light mode equivalents */
   --color-border-subtle: #e5e5e5;
   --color-border-hover: #d4d4d4;
-  --color-border-active: #ff5a1f;
+  --color-border-active: #e84e16;
 }
 
 :root {
@@ -268,6 +269,7 @@
   --color-border-hover: #4a3040;
   --color-border-active: #ff5a1f;
   --color-link: #ff9a7a;
+  --color-link-hover: #ffb39a;
 
   /* Card depth shadows — softer for plum, with top highlight for premium depth */
   --shadow-card: 0 1px 3px oklch(0 0 0 / 0.2), inset 0 1px 0 oklch(1 0 0 / 0.03);
@@ -550,7 +552,6 @@ body.dark:has(.onboarding-canvas) {
   --color-muted: var(--onboarding-surface-secondary);
   --color-muted-foreground: var(--onboarding-text-secondary);
   --color-border: var(--onboarding-control-border);
-  --color-ring: var(--onboarding-accent);
   background-color: var(--onboarding-surface);
   /* Supplied full-width artwork replaces the generated corner washes. Keeping
      its natural aspect ratio preserves the authored Loqui composition

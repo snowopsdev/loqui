@@ -30,11 +30,32 @@ test("Plum Night surfaces use the approved ramp", () => {
   for (const [token, value] of Object.entries(SURFACES)) assert.equal(dark[token], value, token);
 });
 
-test("Plum Night text roles meet 4.5:1 on every surface they sit on", async () => {
+test("Plum Night text roles meet 4.5:1 on every Plum Night surface", async () => {
   const { contrastRatio } = await load();
   const { dark } = resolveTokens(css);
-  const texts = ["--color-foreground", "--color-muted-foreground", "--color-link", "--color-locality-device", "--color-locality-network", "--color-locality-remote"];
-  const surfaces = ["--color-background", "--color-card", "--color-surface-raised", "--color-surface-window"];
+  const texts = [
+    "--color-foreground",
+    "--color-muted-foreground",
+    "--color-link",
+    "--color-link-hover",
+    "--color-locality-device",
+    "--color-locality-network",
+    "--color-locality-remote",
+  ];
+  const surfaces = [
+    "--color-background",
+    "--color-card",
+    "--color-popover",
+    "--color-secondary",
+    "--color-muted",
+    "--color-input",
+    "--color-surface-0",
+    "--color-surface-1",
+    "--color-surface-2",
+    "--color-surface-3",
+    "--color-surface-raised",
+    "--color-surface-window",
+  ];
   for (const t of texts)
     for (const s of surfaces) {
       const ratio = contrastRatio(dark[t], dark[s]);

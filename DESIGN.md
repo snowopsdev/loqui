@@ -19,7 +19,7 @@ colors:
   nav-marker-dark: "#E6007A"
   locality-device: "#0B7A54"
   locality-network: "#3B6EA8"
-  locality-remote: "#B45309"
+  locality-remote: "#AD5008"
   night-charcoal: "#1C1218"
   night-card: "#271820"
   night-raised: "#33202B"
@@ -126,7 +126,7 @@ Regenerate with `npm run assets:generate` and verify with `npm run assets:check`
 The interface palette pairs a vivid orange live-voice color with fuchsia highlights over neutral light and Plum Night dark themes. The light-theme functional tokens remain unchanged by the September 2026 artwork update; the supplied brand style guide is a reference for the artwork, not an instruction to recolor light-theme controls or semantic states. The dark theme deliberately adopts the guide's Deep Plum family as Plum Night.
 
 ### Primary
-- **Signal Orange** (#FF5A1F): Live voice and the focus accent. The ink CTA is the everyday action. The light-theme active-navigation marker uses the deeper orange #E84E16 (3:1 on the sidebar surface); Plum Night uses magenta for the active marker.
+- **Signal Orange** (#FF5A1F): Live voice and the Plum Night focus accent (light theme uses the deeper #E84E16 for focus). The ink CTA is the everyday action. The light-theme active-navigation marker uses the deeper orange #E84E16 (3:1 on the sidebar surface); Plum Night uses magenta for the active marker.
 - **Orange Highlight** (#FF6A36): The brighter top stop in the live button and brand-surface gradient.
 
 ### Secondary
@@ -151,8 +151,9 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 ### Roles
 - **Live** (`--color-live` #FF5A1F, ink text #171717): orange means a voice is live. Use it only for record/stop/mic controls, the pill and the meters (`Button variant="live"`).
 - **Call to action** (`--color-cta` #171717 / white text; Plum Night #F3E9EE / #1C1218 text): the default `Button`. It carries a 6px orange dot as the brand mark.
-- **Link** (`--color-link` #C43E13 light, #FF9A7A dark): always for inline links, never raw orange.
-- **Locality**: device #0B7A54, your network #3B6EA8, remote provider #B45309 (dark: #5EE0AD, #9BB4D6, #FBBF6A). Always paired with ring shape and words.
+- **Link** (`--color-link` #C43E13 light, #FF9A7A dark; hover `--color-link-hover` #A8340D light, #FFB39A dark): always for inline links, never raw orange. Hover swaps to the hover token at full opacity; it never fades the link, which would drop it below 4.5:1.
+- **Focus ring** (`--color-ring`): #E84E16 in light (at least 3:1 on every light surface), #FF5A1F in Plum Night. Always drawn fully opaque; a translucent orange ring does not reach 3:1.
+- **Locality**: device #0B7A54, your network #3B6EA8, remote provider #AD5008 (dark: #5EE0AD, #9BB4D6, #FBBF6A). Always paired with ring shape and words.
 - **Nav marker** (`--color-nav-marker`): deeper orange #E84E16 in light (3:1 on the sidebar surface), magenta #E6007A in Plum Night.
 
 ### Named Rules

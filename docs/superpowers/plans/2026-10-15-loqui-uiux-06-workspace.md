@@ -59,7 +59,7 @@ Every Important finding is closed. Minor findings M01–M03 are closed, and so i
 | M01 | History landing needs request scope and a ring nonce | `transcriptionStore.revealTranscription(id)` fetches by id and inserts in order; the landing uses a request generation; the ring is `{ id, nonce }`, keyed by nonce. | Task 12, `transcriptionReveal.test.js`; Task 3 "asking for the same transcript twice re-rings it" |
 | M02 | Entity labels need a real Markdown round trip | `markdownLabel` escapes `\`, `*`, `_`, `` ` `` and `~` after `sanitizeLabel`; both builders use it. | Task 17: "labels survive a real Markdown parse… (M02)", through `markdown-it` |
 | M03 | Publish the Plan 08 handoff; reconcile numbering | CR-06-6, CR-06-7 and CR-06-8 below, and one proposed §5 numbering for all plans. | This section |
-| M04 | Reduce bulk; make the handback accurate | File map regenerated (it now lists `chatRequest.ts`, `messageRoute.ts`, `editorChrome.ts`, `useHoverCard.ts`, the guard and the `cn` change). Task 26's handback lists CR-06-1…8 and the manual checks the review asked for. **The split is disputed** (below). | File map; Task 26 |
+| M04 | Reduce bulk; make the handback accurate | File map regenerated (it now lists `chatRequest.ts`, `messageRoute.ts`, `editorChrome.ts`, `useHoverCard.ts`, the guard and the `cn` change). Task 27's handback lists CR-06-1…8 and the manual checks the review asked for. **The split is disputed** (below). | File map; Task 27 |
 
 **Disputed: M04's request to split the plan into three documents.**
 - **Scope is one spec row.** Spec §3 assigns the workspace to Plan 06 as one unit, and the shell, Home, editor and chat tasks share contracts that a split would duplicate: `WorkspaceNavigation` (Task 3) is consumed by Tasks 12, 13, 18, 20 and 23; `ComposerSeed` (Task 4) by Tasks 13 and 16; the guard (Task 25) by every task. Three documents would need a fourth "shared contract" document, which is what this plan's Interfaces blocks already are.
@@ -7775,7 +7775,7 @@ test("the editor wrapper and every chrome surface use the marker", () => {
 });
 ```
 
-The fake DOM has no layout or real focus, so these tests pin the decision and the wiring. The behaviour itself is checked in Task 26: type a URL and click inside the field.
+The fake DOM has no layout or real focus, so these tests pin the decision and the wiring. The behaviour itself is checked in Task 27: type a URL and click inside the field.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -8511,7 +8511,7 @@ test("the chip and its card share one boundary, and the card is editor chrome", 
 });
 ```
 
-The fake DOM has no pointer or focus events, so the boundary is tested as a reducer and its wiring is pinned. Task 26 checks the real pointer, Tab, Escape and RTL behaviour.
+The fake DOM has no pointer or focus events, so the boundary is tested as a reducer and its wiring is pinned. Task 27 checks the real pointer, Tab, Escape and RTL behaviour.
 
 Create `test/components/mentionHoverCard.test.js`:
 
@@ -11429,7 +11429,311 @@ git commit -m "fix(ui): adopt the type ramp and colour roles across the workspac
 
 ---
 
-### Task 26: Whole-plan verification
+### Task 26: Notes readiness handoff
+
+This covers WS-Q7's remote half and the §5.1 "Notes readiness" handoff (Plan 02 CCR 6). Plan 06 owns it because it rewrites the Notes surface. Plan 02 Task 14 shipped a temporary `useNoteActionsReady(): boolean | null` that knows local and self-hosted readiness only, and reports remote providers as unknown, so a remote provider with no saved key gets no hint. This task replaces it with the resolved `noteFormatting` route, which knows every case.
+
+**Files:**
+- Create: `src/components/notes/notesActionsHint.ts` (pure), `src/components/notes/NotesActionsHint.tsx` (presentational)
+- Delete: `src/hooks/useNoteActionsReady.ts` and `src/utils/noteActionsReadiness.ts` (Plan 02 Task 14's temporary readiness)
+- Modify: `src/components/notes/shared.ts`. Remove `shouldShowActionsModelHint`; keep `NOTES_ACTIONS_MODEL_HINT_KEY`.
+- Modify: `src/components/notes/PersonalNotesView.tsx`. Swap the hint row Task 9 moved for `<NotesActionsHint>`, drop `useNoteActionsReady`, and disable the `ActionPicker` when the route is `off`.
+- Modify: `test/components/notesActionsGate.test.js` (Plan 02's). Remove the tests of the deleted modules; the new test file replaces them.
+- Modify: `src/locales/*/translation.json`
+- Test: `test/components/notesActionsHint.test.js`
+
+**Interfaces:**
+- Consumes `useResolvedRoute("noteFormatting")` (the `noteRoute` Task 15 declared in `PersonalNotesView`), `RouteState` and `ResolvedRoute` (§5.1), `providerDisplayLabel` (Plan 01), `makeRoute` from `test/lib/routeFixtures.js` (Plan 03), and Plan 02 Task 14's `NOTES_ACTIONS_MODEL_HINT_KEY`, `modelHintDismissed`, `dismissModelHint`, `openActions` and the `notes.actionsModelHint.title`/`.choose` strings.
+- Produces:
+
+  ```ts
+  // notesActionsHint.ts
+  export interface NotesActionsHintCopy { titleKey: string; actionKey: string }
+  export function notesActionsHint(state: RouteState, dismissed: boolean): NotesActionsHintCopy | null;
+  export function notesActionsDisabledByRoute(state: RouteState): boolean; // true only for "off"
+
+  // NotesActionsHint.tsx
+  export function NotesActionsHint(props: {
+    route: Pick<ResolvedRoute, "state" | "providerId" | "settingsPath">;
+    dismissed: boolean;
+    onOpenSettings?: (settingsPath: string) => void;
+    onDismiss: () => void;
+    className?: string;
+  }): JSX.Element | null;
+  ```
+
+The mapping is the spec's (§5.1 Handoffs):
+
+| Route state | Hint | Action (always `onOpenSettings(route.settingsPath)`) |
+|---|---|---|
+| `ready` | none | — |
+| `unknown` | none yet | — |
+| `off` | none; the `ActionPicker` is disabled | — |
+| `needsModel` | "Actions need an AI model" (Plan 02's `title`) | "Choose a model" (Plan 02's `choose`) |
+| `needsKey`, provider `""` | "Actions need an AI provider" | "Choose a provider" |
+| `needsKey` | "Actions need an API key for {{provider}}" | "Add the key" |
+| `needsUrl` | "Actions need your server's address" | "Add the address" |
+| `unreachable`, detail `sealed` | "Actions are paused while Sealed mode is on" | "Open Settings" |
+| `unreachable`, any other detail | "Actions can't reach the notes model" | "Open Settings" |
+
+The provider name is `providerDisplayLabel(route.providerId, t)`, never the `needsKey.provider` string and never `providerDisplayName`. Sealed state reaches this task only through the route (§5.1 rule 7); nothing here reads `sealedStore`. The hint explains what to fix; the route itself is disclosed where it is used (the slash menu's reasons, Task 15).
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/components/notesActionsHint.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const i18next = require("i18next");
+const { initReactI18next } = require("react-i18next");
+const { renderStatic } = require("../helpers/harness/reactSsr");
+const { makeRoute } = require("../lib/routeFixtures");
+
+const root = path.join(__dirname, "../..");
+const loadPure = () => import("../../src/components/notes/notesActionsHint.ts");
+async function loadView() {
+  if (!i18next.isInitialized) {
+    const en = JSON.parse(fs.readFileSync(path.join(root, "src/locales/en/translation.json"), "utf8"));
+    await i18next.use(initReactI18next).init({ lng: "en", resources: { en: { translation: en } }, interpolation: { escapeValue: false } });
+  }
+  return import("../../src/components/notes/NotesActionsHint.tsx");
+}
+const noteRoute = (over = {}) => makeRoute({ id: "noteFormatting", ...over });
+const K = "notes.actionsModelHint";
+
+test("every route state maps to the spec's hint (§5.1 Notes readiness)", async () => {
+  const { notesActionsHint } = await loadPure();
+  assert.equal(notesActionsHint({ status: "ready" }, false), null, "ready shows no hint");
+  assert.equal(notesActionsHint({ status: "unknown" }, false), null, "unknown shows nothing yet");
+  assert.equal(notesActionsHint({ status: "off" }, false), null, "off disables Actions instead");
+  assert.deepEqual(notesActionsHint({ status: "needsModel", sizeBytes: 1 }, false), { titleKey: `${K}.title`, actionKey: `${K}.choose` });
+  assert.deepEqual(notesActionsHint({ status: "needsKey", provider: "openai" }, false), { titleKey: `${K}.needsKey`, actionKey: `${K}.addKey` });
+  assert.deepEqual(notesActionsHint({ status: "needsKey", provider: "" }, false), { titleKey: `${K}.needsProvider`, actionKey: `${K}.chooseProvider` });
+  assert.deepEqual(notesActionsHint({ status: "needsUrl" }, false), { titleKey: `${K}.needsUrl`, actionKey: `${K}.addUrl` });
+  assert.deepEqual(notesActionsHint({ status: "unreachable", detail: "sealed" }, false), { titleKey: `${K}.sealed`, actionKey: `${K}.openSettings` });
+  for (const detail of ["retired", "unsupported", undefined]) {
+    assert.deepEqual(notesActionsHint({ status: "unreachable", detail }, false), { titleKey: `${K}.unreachable`, actionKey: `${K}.openSettings` });
+  }
+});
+
+test("a dismissed hint stays dismissed, under Plan 02's key", async () => {
+  const { notesActionsHint } = await loadPure();
+  const { NOTES_ACTIONS_MODEL_HINT_KEY } = await import("../../src/components/notes/shared.ts");
+  assert.equal(NOTES_ACTIONS_MODEL_HINT_KEY, "notesActionsModelHintDismissed");
+  assert.equal(notesActionsHint({ status: "needsKey", provider: "openai" }, true), null);
+});
+
+test("only off disables Actions", async () => {
+  const { notesActionsDisabledByRoute } = await loadPure();
+  assert.equal(notesActionsDisabledByRoute({ status: "off" }), true);
+  for (const state of [{ status: "ready" }, { status: "unknown" }, { status: "needsModel" }, { status: "needsKey", provider: "" }, { status: "needsUrl" }, { status: "unreachable", detail: "sealed" }]) {
+    assert.equal(notesActionsDisabledByRoute(state), false, JSON.stringify(state));
+  }
+});
+
+test("a remote provider with no saved key gets the hint, named and linked to its own settings", async () => {
+  const { NotesActionsHint } = await loadView();
+  const route = noteRoute({
+    locality: "remote",
+    provider: "OpenAI",
+    providerId: "openai",
+    model: "gpt-5.6",
+    state: { status: "needsKey", provider: "openai" },
+  });
+  const html = renderStatic(NotesActionsHint, { route, dismissed: false, onOpenSettings: () => {}, onDismiss: () => {} });
+  assert.match(html, /role="note"/);
+  assert.match(html, /data-route-state="needsKey"/);
+  assert.match(html, /Actions need an API key for OpenAI/);
+  assert.match(html, />Add the key</);
+  assert.ok(html.includes(`data-settings-path="${route.settingsPath}"`), "the action opens the route's own settings path");
+  assert.doesNotMatch(html, /ring-(?:ring|primary)\/\d+/);
+});
+
+test("ready, unknown and off render nothing", async () => {
+  const { NotesActionsHint } = await loadView();
+  for (const state of [{ status: "ready" }, { status: "unknown" }, { status: "off" }]) {
+    const html = renderStatic(NotesActionsHint, { route: noteRoute({ state }), dismissed: false, onOpenSettings: () => {}, onDismiss: () => {} });
+    assert.equal(html, "", JSON.stringify(state));
+  }
+});
+
+test("PersonalNotesView reads the route, not Plan 02's temporary hook", () => {
+  const view = fs.readFileSync(path.join(root, "src/components/notes/PersonalNotesView.tsx"), "utf8");
+  assert.doesNotMatch(view, /useNoteActionsReady|shouldShowActionsModelHint/);
+  assert.doesNotMatch(view, /onOpenSettings\("intelligence"\)/, "the action uses the route's settingsPath");
+  assert.match(view, /<NotesActionsHint\b[\s\S]*?route=\{noteRoute\}/);
+  assert.match(view, /notesActionsDisabledByRoute\(noteRoute\.state\)/);
+  assert.match(view, /localStorage\.setItem\(NOTES_ACTIONS_MODEL_HINT_KEY, "true"\)/);
+  assert.equal(fs.existsSync(path.join(root, "src/hooks/useNoteActionsReady.ts")), false);
+  assert.equal(fs.existsSync(path.join(root, "src/utils/noteActionsReadiness.ts")), false);
+});
+```
+
+In Plan 02's `test/components/notesActionsGate.test.js`, delete the tests "a fresh profile's default local model is selected but not ready", "self-hosted needs a URL; an empty model is never ready; remote is unknown", "the hint shows only when Actions cannot run, and until dismissed" and "the hint links to model settings and can be dismissed", and the now-unused `load` and `loadReadiness` helpers. Keep "notes render without passing through the Actions first run" and "Actions opens the first run once, then the manager, from any view" unchanged; Tasks 9 and 15 keep them passing.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npm test -- test/components/notesActionsHint.test.js test/components/notesActionsGate.test.js`
+Expected: FAIL. `notesActionsHint.ts` and `NotesActionsHint.tsx` are missing, and `PersonalNotesView` still calls `useNoteActionsReady`. The two kept Plan 02 tests pass.
+
+- [ ] **Step 3: Implement**
+
+1. Check for other users first: `grep -rn "useNoteActionsReady\|noteActionsReadiness\|shouldShowActionsModelHint" src test`. Expect only `PersonalNotesView.tsx`, `shared.ts`, the two Plan 02 modules and `notesActionsGate.test.js`. If anything else uses them, stop and report it rather than deleting.
+
+2. Create `src/components/notes/notesActionsHint.ts`:
+
+   ```ts
+   import type { RouteState } from "../../lib/routes";
+
+   export interface NotesActionsHintCopy {
+     titleKey: string;
+     actionKey: string;
+   }
+
+   const K = "notes.actionsModelHint";
+
+   // §5.1 Notes readiness (Plan 02 CCR 6): ready shows nothing, unknown shows
+   // nothing yet, off disables Actions instead of nagging, and every other
+   // state names its fix. Every action opens the route's own settingsPath.
+   export function notesActionsHint(state: RouteState, dismissed: boolean): NotesActionsHintCopy | null {
+     if (dismissed) return null;
+     if (state.status === "ready" || state.status === "unknown" || state.status === "off") return null;
+     if (state.status === "needsModel") return { titleKey: `${K}.title`, actionKey: `${K}.choose` };
+     if (state.status === "needsKey") {
+       return state.provider === ""
+         ? { titleKey: `${K}.needsProvider`, actionKey: `${K}.chooseProvider` }
+         : { titleKey: `${K}.needsKey`, actionKey: `${K}.addKey` };
+     }
+     if (state.status === "needsUrl") return { titleKey: `${K}.needsUrl`, actionKey: `${K}.addUrl` };
+     return state.detail === "sealed"
+       ? { titleKey: `${K}.sealed`, actionKey: `${K}.openSettings` }
+       : { titleKey: `${K}.unreachable`, actionKey: `${K}.openSettings` };
+   }
+
+   export function notesActionsDisabledByRoute(state: RouteState): boolean {
+     return state.status === "off";
+   }
+   ```
+
+3. Create `src/components/notes/NotesActionsHint.tsx`:
+
+   ```tsx
+   import { useTranslation } from "react-i18next";
+   import { X } from "../icons";
+   import { cn } from "../lib/utils";
+   import { providerDisplayLabel } from "../../lib/locality";
+   import type { ResolvedRoute } from "../../lib/routes";
+   import { notesActionsHint } from "./notesActionsHint";
+
+   export function NotesActionsHint({
+     route,
+     dismissed,
+     onOpenSettings,
+     onDismiss,
+     className,
+   }: {
+     route: Pick<ResolvedRoute, "state" | "providerId" | "settingsPath">;
+     dismissed: boolean;
+     onOpenSettings?: (settingsPath: string) => void;
+     onDismiss: () => void;
+     className?: string;
+   }) {
+     const { t } = useTranslation();
+     const hint = notesActionsHint(route.state, dismissed);
+     if (!hint) return null;
+     const provider = providerDisplayLabel(route.providerId, t);
+     return (
+       <div
+         role="note"
+         data-route-state={route.state.status}
+         className={cn("rounded-md border border-border bg-muted/40 px-3 py-2 text-caption text-muted-foreground", className)}
+       >
+         <div className="flex items-start gap-2">
+           <span className="flex-1 text-foreground">{t(hint.titleKey, { provider })}</span>
+           <button
+             type="button"
+             onClick={onDismiss}
+             aria-label={t("common.close")}
+             className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+           >
+             <X size={12} aria-hidden="true" />
+           </button>
+         </div>
+         {onOpenSettings && (
+           <button
+             type="button"
+             data-settings-path={route.settingsPath}
+             onClick={() => onOpenSettings(route.settingsPath)}
+             className="mt-0.5 rounded-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+           >
+             {t(hint.actionKey)}
+           </button>
+         )}
+       </div>
+     );
+   }
+   ```
+
+4. In `src/components/notes/shared.ts`, delete `shouldShowActionsModelHint` and its comment. Keep `NOTES_ACTIONS_MODEL_HINT_KEY`.
+
+5. In `src/components/notes/PersonalNotesView.tsx`:
+   - Remove `import { useNoteActionsReady } from "../../hooks/useNoteActionsReady";` and `const noteActionsReady = useNoteActionsReady();`.
+   - Change the `./shared` import to drop `shouldShowActionsModelHint`, and add `import { NotesActionsHint } from "./NotesActionsHint";` and `import { notesActionsDisabledByRoute } from "./notesActionsHint";`.
+   - Replace the hint block Task 9 moved to the top of the editor column (its `<div className="px-3 pt-2">` wrapper included) with:
+
+     ```tsx
+     <NotesActionsHint
+       className="mx-3 mt-2"
+       route={noteRoute}
+       dismissed={modelHintDismissed}
+       onOpenSettings={onOpenSettings}
+       onDismiss={dismissModelHint}
+     />
+     ```
+
+   - In the `ActionPicker`'s `disabled` expression, add `|| notesActionsDisabledByRoute(noteRoute.state)` as the last operand.
+   - Keep `modelHintDismissed`, `dismissModelHint`, `openActions`, `finishActionsIntro` and both dialogs as they are.
+
+6. Delete `src/hooks/useNoteActionsReady.ts` and `src/utils/noteActionsReadiness.ts`.
+
+7. Add strings (Task 1 helper, `--strict`). Plan 02's `notes.actionsModelHint.title` and `.choose` stay. English block:
+
+   ```json
+   {
+     "notes": {
+       "actionsModelHint": {
+         "needsProvider": "Actions need an AI provider",
+         "chooseProvider": "Choose a provider",
+         "needsKey": "Actions need an API key for {{provider}}",
+         "addKey": "Add the key",
+         "needsUrl": "Actions need your server's address",
+         "addUrl": "Add the address",
+         "sealed": "Actions are paused while Sealed mode is on",
+         "unreachable": "Actions can't reach the notes model",
+         "openSettings": "Open Settings"
+       }
+     }
+   }
+   ```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- test/components/notesActionsHint.test.js test/components/notesActionsGate.test.js test/components/slashItems.test.js test/components/workspaceTokenAdoption.test.js test/locales/translationCoverage.test.js && npm run typecheck && npm run i18n:check`
+Expected: PASS. The token guard still reports `[]`, because `PersonalNotesView.tsx` is in its scope.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A src/components/notes/notesActionsHint.ts src/components/notes/NotesActionsHint.tsx src/components/notes/shared.ts src/components/notes/PersonalNotesView.tsx src/hooks/useNoteActionsReady.ts src/utils/noteActionsReadiness.ts src/locales test/components/notesActionsHint.test.js test/components/notesActionsGate.test.js
+git commit -m "feat(notes): Actions hint follows the resolved note-formatting route"
+```
+
+---
+
+### Task 27: Whole-plan verification
 
 **Files:** none new. This task runs every check and fixes what they surface.
 
@@ -11506,6 +11810,8 @@ Check each item, and screenshot it for the PR:
   - **Hover card.** Hover a mention chip, move slowly across the gap into the card: it stays open. Tab from the chip into Open and Insert quote, then Tab out: it closes. Escape returns focus to the chip. Repeat in `ar` (RTL): the card opens on the correct side and the gap still holds.
   - **Ask AI.** With the floating chat closed and a draft queued in it earlier, select text and Ask AI: the floating chat opens, the quote is in a visible composer, nothing is sent, and the queue is not armed.
   - **Meeting route on the mic card.** Configure dictation local and meeting transcription remote (or the reverse). Start a meeting recording: the mic card and the rail name the meeting route and its locality, not the dictation route. Start a dictation: the card switches to the dictation route.
+  - **Notes Actions hint (Task 26).** With notes formatting on a remote provider and no saved key, Notes shows "Actions need an API key for OpenAI", and Add the key opens Settings at that route's page. While the route is still being checked after launch, nothing shows. Turn notes formatting off: the Actions picker is disabled and no hint shows. Dismiss the hint and relaunch: it stays dismissed.
+  - **Unknown is neutral.** Right after launch, before main confirms the routes, the chat chip and the mic card show Plan 03's "Checking…" state, never a ready look and never a "needs setup" warning.
   - **Stop during pinned context.** Pin a large note, send, and press Stop at once: no request reaches the provider (watch the network log or the provider's dashboard), and the draft is not lost.
 - **Theme toggle mid-session.** No smear (Plan 01), and every changed surface reads at contrast in Plum Night.
 - **RTL** (`ar`): the sidebar rail, the edge rail, breadcrumb separators and the kbd hints mirror correctly.
@@ -11518,10 +11824,10 @@ gh pr create --title "feat(workspace): Loqui workspace — one sidebar, Capture,
 ```
 
 `pr-body.md` contains:
-- one line per Task 1–25 commit;
+- one line per Task 1–26 commit;
 - links to `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` and this plan;
 - the Step 2 screenshots;
-- the contract change requests CR-06-1…8 and, for each, whether the spec owner has applied it and under which §5 number (CR-06-2 and CR-06-5 are already accepted by Plan 03);
+- the contract change requests CR-06-1…8, each applied in spec 091d198 (§3, the §5 Plan 01 table, §5.1, §5.7–§5.10), and any spec change since;
 - the Review response table, with any review finding whose fix changed during execution;
 - every `token-guard: allow` opt-out, with its reason;
 - the interpretations this plan committed to;

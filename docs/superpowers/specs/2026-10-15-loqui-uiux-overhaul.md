@@ -448,7 +448,11 @@ onDictationLevelChanged(cb: (level: number) => void): () => void;            // 
 toggleDictationFromControlPanel(): Promise<{ success: boolean }>;
 ```
 
-Plan 04's `cancelled` state reaches the control panel through this channel. Plan 06 maps any state it does not know to "ready". Plans 04 and 05 reuse this channel and add no second relay.
+Plan 04's `cancelled` state reaches the control panel through this channel.
+
+- **State strings.** Main forwards any `state` string of 1–64 characters unchanged, with no character-set restriction. A non-string or longer value becomes `"idle"`.
+- **Normalization.** Main's own normalization for the pill, tray and hotkey gates is separate, and never rewrites the bridge field.
+- **Unknown states.** Plan 06 maps any state it does not know to "ready". Plans 04 and 05 reuse this channel and add no second relay.
 
 ### 5.8 Workspace token guard (owner: Plan 06; consumers: every plan that edits a workspace file)
 

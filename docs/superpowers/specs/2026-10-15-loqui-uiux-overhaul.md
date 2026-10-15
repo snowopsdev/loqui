@@ -108,6 +108,7 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
   - **Packages.** The `.deb` and `.rpm` packages install an AppArmor profile that lets `loqui-isolate` create its namespaces.
   - **Fallback.** Where isolation still can't be set up (AppImage, tar.gz, locked-down systems, or a failed boot self-test), every native child Loqui starts **pauses while sealed**: model servers and helpers alike, as in D14. An unconfined helper would keep the seal from ever verifying. The Sealed panel names the reason and the fix: install the package, or unseal. Device routes that need no native child keep working.
   - **No weaker fallback.** No seccomp or Landlock fallback is claimed as isolation, and partial coverage never counts toward `nothingLeaves`.
+- **D16, macOS native models must work inside verified isolation** (owner decision, 2026-10-15, after Plan 07 round 3). The owner declined extending D15's pause fallback to macOS. Plan 07 remains blocked until native models work inside isolation that enforces the strict loopback boundary. Seatbelt's `localhost` alias, which admits the computer's other interface addresses, and a polling listener watcher do not establish that boundary. A failed or incomplete proof keeps the attestation unverified; it never becomes a successful seal. D15 remains Linux-specific.
 
 ## 3. Plans and dependencies
 
@@ -220,6 +221,10 @@ export function useResolvedRoute(id: RouteId): ResolvedRoute;
 
 `RouteSettingsSnapshot` is Plan 03's choice, with one fixed field: `sealed` is a required `boolean`. Facts that only main knows (models on disk, credential presence, keyring health) come from `src/stores/routeFactsStore.ts` through network-free preload calls. Loading route facts never calls Codex, model discovery or key verification. `test/lib/routeFixtures.js` exports `makeSnapshot` and `makeRoute` for consumers' tests.
 
+**Vertex authentication source (Plan 03).** `vertexAuthSource: "adc" | "apiKey"` is a non-secret planned setting, and the executor honours it. Selecting `adc` ignores a saved API key; selecting `apiKey` without a committed key is `needsKey`, with no implicit ADC fallback. Saving, removing or undoing a secret changes readiness, never the selected source or recipient. Changing the source goes through the route draft, recipient review and Apply for every coupled route. Existing installations migrate once from main's committed effective credential source (including the supported legacy environment fallback), preserving their current selection. Main settles pre-existing credential writes and persists the source before admitting mutations; it never derives it again from later key presence. Fresh installations default to `adc`.
+
+**Credential handoffs (Plans 03 and 07).** Reset fences and drains every environment persistence entry point, including the independent `save-all-keys-to-env` writer, before erasing data. Verify binds the displayed recipient to one complete options snapshot and committed credential capture. Plan 07 preserves `runTest(config, captured.values)` and the capture-aware `_runProviderConnectionTest(config, captured)` when adding seal checks; it does not replace captured values with live getters.
+
 **Rules**
 1. **Unknown is not ready.** A fact that is not yet known resolves to `unknown`. Consumers render it as a neutral "Checking…" state; Plan 05's Ready step waits for `ready`. An unset model is still `needsModel`.
 2. **Empty provider.** `needsKey` with provider `""` means "choose a provider".
@@ -304,6 +309,8 @@ export interface RemoteDisclosure {
   windowManager.lastCancelledDictation: { sessionId: string } | null;
   ```
 
+- **Admission deadline.** Main sends an absolute epoch `deadlineAt` with the Undo request. The overlay clamps waits to the remaining time and checks it immediately before dispatch. Delayed delivery or queued handling cannot start a restore after main has reported failure. Main's 2 s timeout remains unchanged.
+
 - **Plan 05's side.** Plan 05's `onboarding-demo-undo-cancel` handler calls `sendUndoCancelDictation(lastCancelledDictation?.sessionId)` and returns `result.restored`. Its demo event carries `cancelled: CancelledState`.
 - **Merge order 05 before 04.** Plan 05's own tasks import nothing from `src/types/dictation.ts` or `dictationDisclosure.js`, because those files exist only once Plan 04 has merged. They show "Discarded." with no Undo. Plan 05's Task 22 (cancelled state, Undo, disclosure copy) imports the shared types. Whichever of 04 and 05 merges second runs it.
 - **Which channel.** The onboarding trial reads the cancelled state *only* from `onboarding-demo-event`, which carries the sessionId, the `CancelledState` and `cancelClosed`. The §5.7 capture bridge carries the lifecycle `state` string, which may be `"cancelled"`, for the workspace mic card. Onboarding does not read cancel details from it, so the two never compete.
@@ -312,8 +319,11 @@ export interface RemoteDisclosure {
 - **Audio ownership.** `AudioManager._setOwnedAudio(blob: Blob | null, options?: { sessionId?: string | null; private?: boolean })` is the only writer of `lastAudioBlob`, its owner session and `lastAudioBlobPrivate`, and it keeps `_recordingPrivate` in step.
   - **Defaults.** `sessionId` is the active session's id, and `private` is `_recordingPrivate === true`.
   - **Callers.** Original finalization, the fallback and every restore go through it before any provider or save work. So does every release, as `_setOwnedAudio(null)`.
+  - **Asynchronous saves.** Before their first await, both savers capture the recording's audio, owner session, privacy and metadata. They persist only that snapshot, never a newer recording's mutable fields. A private snapshot creates no history, audio or analytics writes. Releasing an old snapshot cannot clear a newer owner's audio or end its session. Privacy survives release and delayed callbacks for as long as that operation can still complete.
+  - **Failure recovery.** Every restored failure, including dictionary echo, awaits its own persistence acknowledgement and re-holds the original session, context and private flag if no usable copy survives. Genuine silence stays distinct. Plan 07's recovery uses the same ownership rules.
   - **Test.** It fails on any bare assignment outside the setter.
   - **Plan 05.** Its privacy stamps and releases use it, in whichever task merges second.
+    When Plan 04's snapshot savers exist, they replace Plan 05's mutable `lastAudioBlobPrivate` entry guards; the second merger removes those guards and runs both plans' private-save tests.
 - **Cancel stops further egress.** A cancel discards any audio a streaming adapter buffered while connecting (Gemini, Corti and any other provider that buffers before connecting), so nothing more is uploaded after the cancel. The Undo hold keeps the audio in RAM, and a restore re-sends it from there.
   - **What the copy says.** `remoteAlreadySent` reports only frames that actually left before the cancel.
 

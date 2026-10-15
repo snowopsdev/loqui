@@ -39,7 +39,7 @@ The evidence is in `.omc/research/ui-review/audit-settings.md` (§1.4 is the 11-
   - the `--color-locality-*`, `--color-live*` and `--motion-*` tokens;
   - `Button variant="live"`. The default `Button` is the ink capsule.
 
-  Rebase onto `main` after Plan 01 merges and before Task 1.
+  Rebase onto `main` after Plan 01 merges and before Task 1. Plan 01 finished on `snowopsdev/feat/uiux-foundations` at `172f9df`. Its final review sent four items to this plan; each is handled below (see "Plan 01 review items").
 - **Plan 02 (Bug & a11y sweep)** is expected to merge before this plan executes. It touches the same files for SET-Q1, Q2, Q5, Q6, Q11, Q13 and Q20. Where a task here supersedes one of those, the task says so. Keep Plan 02's semantics (labels, `aria-*`) and replace only the markup this plan redesigns. If Plan 02 has not merged when a task starts, do that task's "Plan 02 overlap" step anyway, because the step is written to be correct either way.
 
 ---
@@ -50,8 +50,8 @@ The evidence is in `.omc/research/ui-review/audit-settings.md` (§1.4 is the 11-
 
 **Additive field: `ResolvedRoute.providerId: string | null`.** This accepts Plan 04's CCR-5.
 - It holds the raw provider id (`"openai"`, `"custom"`), and is `null` for `device` and `network` routes.
-- UIs render provider names with Plan 01's `providerDisplayLabel(route.providerId, t)`, so "Custom endpoint" and "Unknown provider" are localised.
-- `provider` stays the English display string from `providerDisplayName`, for logs and non-UI uses.
+- **Every UI string that names a provider** uses Plan 01's `providerDisplayLabel(providerId, t)` from `src/lib/locality.ts`, so "Custom endpoint" and "Unknown provider" are localised (`locality.customEndpoint`, `locality.unknownProvider`). This covers chips, toasts, the Apply bar, the Patchbay, the keyring and screen-context copy. Task 15's guard test fails if a settings UI file calls `providerDisplayName`.
+- `provider` stays the English display string from `providerDisplayName`, for logs and non-UI uses only.
 
 **Clarifications.** The owner should copy these into §5.1 in the PR for this plan (spec rule: "the owner updates this section in the same PR"):
 
@@ -62,7 +62,15 @@ The evidence is in `.omc/research/ui-review/audit-settings.md` (§1.4 is the 11-
 5. **Assistant screenshots.** With screen context on and no vision override, a non-device `voiceAssistant` route's `sends` names the screenshot too. The screenshot then goes to the assistant's own model, and the copy says so.
 6. **Sealed mode covers the network too.** This accepts Plan 07's CCR-1. While sealed, every route whose locality is not `device` reports `{ status: "unreachable", detail: "sealed" }`, including LAN self-hosted servers. Off routes stay `off`.
 7. **Text routes need a model.** A text route in a remote or self-hosted mode with no model chosen reports `{ status: "needsModel" }` with no `sizeBytes`, which reads as "Choose a model". Speech routes do not: providers apply their default model.
-8. **`settingsPath` grammar.** It is `"<section>/<subTab>"` or `"<section>"`. The sections are `stt`, `llms`, `routing`, `privacyData` and the existing `SettingsSectionType` ids. Consumers pass it unchanged to the existing `onOpenSettings(section?: string)` callback in `src/components/ControlPanel.tsx`. Task 3 makes `SettingsModal` parse it.
+8. **Retired `openwhispr` mode.** `resolveLocality({ mode: "openwhispr" })` without a provider labels the route "Unknown provider", so the route graph always passes a provider id.
+   - A route in `openwhispr` mode (the retired hosted service) resolves to `locality: "remote"`, with `providerId` set to the configured provider, or `"openwhispr"` when none is set.
+   - Its state is `{ status: "unreachable", detail: "retired" }`, because no request path exists: `resolveTranscriptionRoute` rejects the mode as `UNSUPPORTED_TRANSCRIPTION_MODE`.
+   - The chip reads "Service retired · choose again". Sealed mode still takes precedence.
+9. **Loopback custom endpoints resolve to `device`.** `resolveLocality` ignores `remoteUrl` outside `mode: "self-hosted"`. So a `"providers"`-mode custom endpoint (provider `custom`) is resolved in the route graph instead:
+   - when `isLoopbackUrl(cloudBaseUrl)` is true (LM Studio or Ollama on `localhost`, `127.0.0.1`, `::1` or `*.localhost`), it is `device`, with `providerId: null` and `sends: null`;
+   - any other custom URL, including LAN addresses, stays `remote`, failing toward disclosure.
+   - This applies to speech and text routes alike. It is pinned in Task 1 ("a custom endpoint … is the device only on loopback").
+10. **`settingsPath` grammar.** It is `"<section>/<subTab>"` or `"<section>"`. The sections are `stt`, `llms`, `routing`, `privacyData` and the existing `SettingsSectionType` ids. Consumers pass it unchanged to the existing `onOpenSettings(section?: string)` callback in `src/components/ControlPanel.tsx`. Task 3 makes `SettingsModal` parse it.
 
 Additive exports from `routes.ts` that consumers may also use: `ROUTE_IDS`, `ROUTE_KIND`, `ROUTE_SETTINGS_PATH`, `RouteSettingsSnapshot`, `RouteFacts`, `buildRouteSnapshot`. Also additive: `src/stores/routeFactsStore.ts` exports `refreshRouteFacts()`.
 
@@ -72,6 +80,22 @@ Additive exports from `routes.ts` that consumers may also use: `ROUTE_IDS`, `ROU
   - `isSealedLocality` in `src/lib/routes.ts` applies the rule.
 - When Plan 07 Task 13 lands, it replaces those two touch points with `useSealedMode()` and `applySealToRoute(route, sealed)`, as CCR-2 describes. Nothing else in this plan reads sealed state.
 - This plan declares `privacy?:` as optional on `window.electronAPI` (Task 2) so it compiles first. Plan 07 makes it required.
+
+## Plan 01 review items (folded in)
+
+| # | Item from Plan 01's final review | Where |
+|---|---|---|
+| 1 | `providerDisplayLabel(providerId, t)` names every provider in UI; `providerDisplayName` is for logs only | Contract above. Tasks 4, 5, 6, 7, 9 and 14 use it. Task 15 adds a guard test. |
+| 2 | `openwhispr` routes must pass a provider id | Clarification 8. Task 1 resolver and test. Task 4 chip copy. |
+| 3 | Decide loopback custom endpoints explicitly | Clarification 9: they resolve to `device`. Task 1 tests speech and text. |
+| 4 | Extend `test/components/plumNight.test.js` to the surfaces Settings uses | Task 4 Step 1. Task 15 adds the light-theme pairing guard. |
+
+While extending item 4, a light-theme measurement found three pairs below the bar. These are Plan 01 tokens, which this plan does not own:
+- **Destructive text.** `--color-destructive` `#dc2626` is 4.43:1 on `#f5f5f5` (`muted`, `secondary`, `surface-3`).
+- **Focus ring.** `--color-ring` `#ff5a1f` is 2.86:1 on `#f5f5f5` and 2.99:1 on `surface-1` `#fafafa`.
+- **Warning fill.** `--color-warning` `#d97706` is 2.92:1 on `#f5f5f5`.
+
+Plum Night passes every pair, with a minimum of 5.16:1. This plan never places destructive text or warning fills on those three light surfaces, and Task 15's guard enforces that. The focus ring on muted rows (for example, the active nav item) is a token decision for the owner; see open question 7.
 
 ## Open questions for the owner
 
@@ -83,6 +107,7 @@ Each question has a default, and the plan implements that default unless the own
 4. **Transcript export.** The R7 A mock shows an "Export" button for transcript history, but there is no export IPC today. Default: ship without it, and add it with an export feature later.
 5. **Curated model tiers.** The Speed and Quality pips are size-derived estimates until `speedTier` and `qualityTier` are curated in `modelRegistryData.json`. Should someone curate them before release?
 6. **Main-process locality.** `ipcHandlers.js` gains a small `PROVIDER_NAMES` map for native reminder notifications that mirrors `src/lib/locality.ts`. Default: accept the duplication. Main cannot import the renderer TS module without a build step.
+7. **Light-theme ring and status tokens.** Should the owner retune the orange ring (or add a darker ring for muted surfaces), `--color-destructive` and `--color-warning`? This would be a Plan 01 follow-up, so that they clear 3:1 and 4.5:1 on `#f5f5f5` in light theme (see "Plan 01 review items"). Default: Plan 03 avoids those pairings, and the active nav item's focus ring stays as Plan 01 shipped it.
 
 ## Global Constraints
 
@@ -414,9 +439,21 @@ test("route graph", async (t) => {
   await t.test("a custom endpoint needs a base URL and is the device only on loopback", () => {
     const at = (url) => byId(snapshot({ llm: { dictationCleanup: { mode: "providers", provider: "custom", model: "m", cloudBaseUrl: url } } })).dictationCleanup;
     assert.deepEqual(at("").state, { status: "needsUrl" });
-    assert.equal(at("http://127.0.0.1:8080/v1").locality, "device");
-    assert.equal(at("https://llm.example.com/v1").locality, "remote");
+    // Decision (Plan 01 review item 3): loopback custom endpoints are this device.
+    for (const url of ["http://127.0.0.1:8080/v1", "http://localhost:1234/v1", "http://[::1]:1234/v1", "http://lmstudio.localhost/v1"]) {
+      const r = at(url);
+      assert.equal(r.locality, "device", url);
+      assert.equal(r.providerId, null, url);
+      assert.equal(r.sends, null, url);
+    }
+    // Everything else fails toward disclosure, LAN included.
+    for (const url of ["https://llm.example.com/v1", "http://192.168.1.20:1234/v1"]) {
+      assert.equal(at(url).locality, "remote", url);
+      assert.equal(at(url).providerId, "custom", url);
+    }
     assert.equal(at("https://llm.example.com/v1").provider, "Custom endpoint");
+    const speech = byId(snapshot({ stt: { dictation: { mode: "providers", cloudProvider: "custom", cloudBaseUrl: "http://localhost:9000/v1" } } }));
+    assert.equal(speech.dictationStt.locality, "device", "the same rule holds for speech");
   });
 
   await t.test("off routes keep their destination but send nothing", () => {
@@ -473,8 +510,19 @@ test("route graph", async (t) => {
   });
 
   await t.test("unknown modes fail toward disclosure", () => {
-    const r = byId(snapshot({ stt: { upload: { mode: "openwhispr", cloudProvider: "" } } }));
+    const r = byId(snapshot({ stt: { upload: { mode: "mystery", cloudProvider: "" } } }));
     assert.equal(r.uploadStt.locality, "remote");
+  });
+
+  await t.test("the retired openwhispr mode names a provider and says it cannot run", () => {
+    const bare = byId(snapshot({ stt: { upload: { mode: "openwhispr", cloudProvider: "" } } })).uploadStt;
+    assert.equal(bare.locality, "remote");
+    assert.equal(bare.providerId, "openwhispr");
+    assert.notEqual(bare.provider, "Unknown provider");
+    assert.deepEqual(bare.state, { status: "unreachable", detail: "retired" });
+    const withProvider = byId(snapshot({ llm: { chatIntelligence: { mode: "openwhispr", provider: "openai", model: "x" } } })).chat;
+    assert.equal(withProvider.providerId, "openai");
+    assert.equal(withProvider.provider, "OpenAI");
   });
 
   await t.test("resolveRoute matches the list entry", () => {
@@ -762,6 +810,21 @@ function cloudDestination(
   keyId: string = providerId // Corti speech authenticates with client credentials ("corti:speech")
 ): Destination {
   const model = modelId ? (s.models[`cloud:${providerId}:${modelId}`]?.name ?? modelId) : null;
+  if (mode === "openwhispr") {
+    // The retired hosted service: nothing can run, but the label must still
+    // name a provider (resolveLocality alone would say "Unknown provider").
+    const id = providerId || "openwhispr";
+    return {
+      locality: "remote",
+      provider: providerDisplayName(id),
+      providerId: id,
+      model,
+      state: { status: "unreachable", detail: "retired" },
+    };
+  }
+  // Loopback custom endpoints (LM Studio, Ollama on localhost) never leave
+  // the device. resolveLocality only reads URLs in self-hosted mode, so the
+  // route graph decides here. Non-loopback custom URLs stay remote.
   if (providerId === "custom" && isLoopbackUrl(baseUrl)) {
     return { locality: "device", provider: null, providerId: null, model, state: { status: "ready" } };
   }
@@ -1008,7 +1071,7 @@ Notes for the implementer:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm test -- test/lib/routes.test.js && npm run typecheck`
-Expected: PASS (1 test with 18 subtests). Typecheck is clean.
+Expected: PASS (1 test with 19 subtests). Typecheck is clean.
 
 - [ ] **Step 5: Commit**
 
@@ -1907,7 +1970,8 @@ git commit -m "feat(settings): Route deep links and on-device support models tab
   - `src/components/settings/UploadSettings.tsx:124`
   - `src/components/settings/InferenceConfigEditor.tsx:156`
 - Modify: `src/locales/*/translation.json`
-- Test: `test/components/routeChips.test.js`, `test/components/inferenceModeSelector.test.js`, `test/components/rovingNav.test.js`
+- Modify: `test/components/plumNight.test.js` (Plan 01's). Extend contrast coverage to the surfaces Settings uses (Plan 01 review item 4).
+- Test: `test/components/routeChips.test.js`, `test/components/inferenceModeSelector.test.js`, `test/components/rovingNav.test.js`, `test/components/plumNight.test.js`
 
 **Interfaces:**
 - Consumes:
@@ -1934,6 +1998,53 @@ git commit -m "feat(settings): Route deep links and on-device support models tab
   ```
 
 - [ ] **Step 1: Write the failing tests**
+
+Append to `test/components/plumNight.test.js`. It reuses that file's `css`, `load` and `resolveTokens`. Plan 01 checks text roles only on background, card, surface-raised and surface-window, but route chips, the Patchbay, the keyring, the cartridges and the storage list sit on popover, muted, secondary and surface-1 to surface-3:
+
+```js
+const SETTINGS_SURFACES = [
+  "--color-popover",
+  "--color-muted",
+  "--color-secondary",
+  "--color-surface-1",
+  "--color-surface-2",
+  "--color-surface-3",
+];
+
+test("Plum Night text roles meet 4.5:1 on the settings surfaces", async () => {
+  const { contrastRatio } = await load();
+  const { dark } = resolveTokens(css);
+  const texts = [
+    "--color-foreground",
+    "--color-muted-foreground",
+    "--color-popover-foreground",
+    "--color-secondary-foreground",
+    "--color-link",
+    "--color-destructive",
+    "--color-locality-device",
+    "--color-locality-network",
+    "--color-locality-remote",
+  ];
+  for (const t of texts)
+    for (const s of SETTINGS_SURFACES) {
+      const ratio = contrastRatio(dark[t], dark[s]);
+      assert.ok(ratio >= 4.5, `${t} on ${s} is ${ratio}:1`);
+    }
+});
+
+test("Plum Night non-text roles (ring, locality jacks, status dots) meet 3:1 on the settings surfaces", async () => {
+  const { contrastRatio } = await load();
+  const { dark } = resolveTokens(css);
+  const marks = ["--color-ring", "--color-locality-device", "--color-locality-network", "--color-locality-remote", "--color-warning", "--color-destructive"];
+  for (const m of marks)
+    for (const s of SETTINGS_SURFACES) {
+      const ratio = contrastRatio(dark[m], dark[s]);
+      assert.ok(ratio >= 3, `${m} on ${s} is ${ratio}:1`);
+    }
+});
+```
+
+These pass against the tokens shipped at `172f9df`. The measured minimums are 5.82:1 for text (`--color-destructive` on `surface-3`) and 5.16:1 for the ring. They are pinned so that a later token change cannot regress the settings surfaces silently.
 
 Create `test/components/rovingNav.test.js`:
 
@@ -1982,6 +2093,7 @@ test("route chips", async (t) => {
     assert.equal(chips.routeStateLabel({ status: "needsKey", provider: "" }, tr), "routes.state.chooseProvider");
     assert.equal(chips.routeStateLabel({ status: "needsUrl" }, tr), "routes.state.addUrl");
     assert.equal(chips.routeStateLabel({ status: "unreachable", detail: "sealed" }, tr), "routes.state.sealed");
+    assert.equal(chips.routeStateLabel({ status: "unreachable", detail: "retired" }, tr), "routes.state.retired");
     assert.equal(chips.routeStateLabel({ status: "unreachable", detail: "192.168.1.20" }, tr), 'routes.state.cantReach{"host":"192.168.1.20"}');
     assert.equal(chips.routeStateLabel({ status: "unreachable" }, tr), "routes.state.cantReachUnknown");
   });
@@ -2155,6 +2267,7 @@ Expected: FAIL. The modules are missing, and the selector has no `role="radiogro
          return t("routes.state.addUrl");
        case "unreachable":
          if (state.detail === "sealed") return t("routes.state.sealed");
+         if (state.detail === "retired") return t("routes.state.retired");
          return state.detail
            ? t("routes.state.cantReach", { host: state.detail })
            : t("routes.state.cantReachUnknown");
@@ -2404,6 +2517,7 @@ Expected: FAIL. The modules are missing, and the selector has no `role="radiogro
          "chooseProvider": "Choose a provider",
          "addUrl": "Add server URL",
          "sealed": "Paused · Sealed mode",
+         "retired": "Service retired · choose again",
          "cantReach": "Can't reach {{host}}",
          "cantReachUnknown": "Can't reach the server"
        }
@@ -2413,7 +2527,7 @@ Expected: FAIL. The modules are missing, and the selector has no `role="radiogro
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test -- test/components/rovingNav.test.js test/components/routeChips.test.js test/components/inferenceModeSelector.test.js && npm run typecheck && npm run i18n:check`
+Run: `npm test -- test/components/rovingNav.test.js test/components/routeChips.test.js test/components/inferenceModeSelector.test.js test/components/plumNight.test.js && npm run typecheck && npm run i18n:check`
 Expected: PASS.
 
 Then manually check: in Settings → Speech-to-Text, Tab moves into the mode list once, ↑/↓ move the selection, and an empty local model shows "Current · Choose a model".
@@ -2421,7 +2535,7 @@ Then manually check: in Settings → Speech-to-Text, Tab moves into the mode lis
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/ui/rovingNav.ts src/components/settings/routing/RouteChips.tsx src/components/ui/SettingsSection.tsx src/components/ui/ModelCardList.tsx src/components/icons/index.ts src/lib/routes.ts src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx src/components/settings/InferenceConfigEditor.tsx src/locales test/components/rovingNav.test.js test/components/routeChips.test.js test/components/inferenceModeSelector.test.js
+git add test/components/plumNight.test.js src/components/ui/rovingNav.ts src/components/settings/routing/RouteChips.tsx src/components/ui/SettingsSection.tsx src/components/ui/ModelCardList.tsx src/components/icons/index.ts src/lib/routes.ts src/components/SettingsPage.tsx src/components/settings/MeetingSettings.tsx src/components/settings/UploadSettings.tsx src/components/settings/InferenceConfigEditor.tsx src/locales test/components/rovingNav.test.js test/components/routeChips.test.js test/components/inferenceModeSelector.test.js
 git commit -m "feat(settings): Route state chips and a radio-group mode selector"
 ```
 
@@ -8547,10 +8661,32 @@ test("orange 'live' is for voice only, never in settings", () => {
 test("locality is drawn with the locality roles, not ad-hoc greens and ambers", () => {
   for (const [f, src] of files) assert.doesNotMatch(src, /#(22A559|E39B14|0f9f6e|b45309)/i, f);
 });
+
+test("provider names in UI go through providerDisplayLabel, never the English providerDisplayName", () => {
+  const ui = [
+    ...files,
+    ...["src/components/settings/screenContextCopy.ts", "src/lib/routeTargets.ts"].map((f) => [f, fs.readFileSync(path.join(root, f), "utf8")]),
+  ];
+  for (const [f, src] of ui) assert.doesNotMatch(src, /\bproviderDisplayName\(/, f);
+});
+
+test("light theme: no destructive text or warning fill on the #f5f5f5 surfaces", () => {
+  // Plan 01 tokens measure 4.43:1 (destructive text) and 2.92:1 (warning fill)
+  // on muted/secondary/surface-3 in light theme. Keep them off those surfaces.
+  for (const [f, src] of files) {
+    for (const cls of src.match(/className=(?:"[^"]*"|\{`[^`]*`\})/g) ?? []) {
+      const onGrey = /\bbg-(muted|secondary|surface-3)\b/.test(cls);
+      assert.ok(!(onGrey && /\btext-destructive\b/.test(cls)), `${f}: ${cls}`);
+      assert.ok(!(onGrey && /\bbg-warning\b/.test(cls)), `${f}: ${cls}`);
+    }
+  }
+});
 ```
 
 Run: `npm test -- test/components/settingsColorRoles.test.js`
-Expected: PASS. If it fails, fix the offending class in that file rather than the test.
+Expected: PASS. If it fails, fix the offending class or call in that file rather than the test.
+
+`destinations.ts` is deliberately not in the provider-name guard. It uses `providerDisplayName` only to sort destinations, and the Patchbay renders their names with `providerDisplayLabel`.
 
 - [ ] **Step 2: Update `DESIGN.md`**
 

@@ -43,7 +43,7 @@
   --color-cta-foreground: #ffffff;
   --color-live: #ff5a1f;
   --color-live-foreground: #171717;
-  --color-nav-marker: #ff5a1f;
+  --color-nav-marker: #e84e16;
   /* Locality: shape carries it first (solid, dotted, dashed ring); these
      hues back it up. Green/blue/amber, never orange or violet, so locality
      never reads as mode. */

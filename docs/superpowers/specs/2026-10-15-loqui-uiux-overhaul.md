@@ -58,7 +58,7 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
   - The default `Button` becomes an ink capsule with an orange brand dot (light theme: ink on paper; dark theme: paper on plum).
   - A new `live` variant carries the orange gradient with ink text (6.29:1). It is used only for record, stop, mic, send-by-voice, the pill and the meters.
   - Therefore ONB-Q4, VO-Q4 and WS-Q4 are delivered as: neutral primary everywhere, `live` only for voice controls, and links always `--color-link`. `BRAND_GLASS_SURFACE` text becomes ink, not white.
-  - Orange stays the focus-ring and active-nav accent in light theme.
+  - Orange stays the focus-ring and active-nav accent in light theme; the light nav marker is the deeper orange `#E84E16` so it clears 3:1 on the sidebar surface.
 - **D2, VO-R12 A "Recorder capsule" is a state of the existing pill window, not a second always-on-top window.** *(Confirmed.)*
   - The pill shows a red-orange dot, mm:ss and Stop while a meeting records, and dictation still works from it.
   - Linux fallbacks: the tray icon shows a recording state, and a persistent notification has a Stop action.
@@ -134,7 +134,7 @@ Plans 02–08 are planned in parallel. Every plan codes against these contracts,
 |---|---|
 | Motion and colour tokens | `--motion-*`; `--color-cta*`, `--color-live*`, `--color-nav-marker`, `--color-locality-*` |
 | Button | `variant="live"` |
-| Locality | `src/lib/locality.ts`: `Locality`, `RouteLocality`, `resolveLocality`, `providerDisplayName`, `providerMonogram`, `isLoopbackUrl` |
+| Locality | `src/lib/locality.ts`: `Locality`, `RouteLocality`, `resolveLocality`, `providerDisplayName`, `providerDisplayLabel`, `providerMonogram`, `isLoopbackUrl` |
 | Locality ring | `src/components/ui/LocalityRing.tsx` |
 | Level meter | `src/components/ui/LevelBars.tsx` and `levelBarsMath.ts` |
 | Test helpers | `src/utils/contrast.ts`, `test/helpers/harness/cssTokens.js` |

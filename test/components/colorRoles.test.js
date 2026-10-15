@@ -33,11 +33,18 @@ test("light theme text roles meet 4.5:1", async () => {
   }
 });
 
-test("live is the only orange-filled role, and it carries ink text", () => {
+test("live role is orange with ink text, and the CTA is not orange", () => {
   const { light } = resolveTokens(css);
   assert.equal(light["--color-live"].toLowerCase(), "#ff5a1f");
   assert.equal(light["--color-live-foreground"].toLowerCase(), "#171717");
   assert.notEqual(light["--color-cta"].toLowerCase(), "#ff5a1f");
+});
+
+test("light nav marker clears 3:1 on the sidebar surface", async () => {
+  const { contrastRatio } = await loadContrast();
+  const { light } = resolveTokens(css);
+  const ratio = contrastRatio(light["--color-nav-marker"], light["--color-surface-window"]);
+  assert.ok(ratio >= 3, `nav marker is ${ratio}:1`);
 });
 
 test("the brand glass surface never pairs white text with orange", () => {

@@ -3118,6 +3118,415 @@ git commit -m "feat(privacy): add socket, DNS, UDP, proxy and session backstop f
 
 ---
 
+### Task 6a: Child processes: a registry that waits for exit, a spawn guard, and local-only FFmpeg
+
+Main's hooks (Tasks 5 and 6) cannot see inside a child process. This task closes that gap for every child Loqui starts. There are two parts:
+- **Enforcement.** While sealed, a network-capable program, or a spawn that third-party code makes from inside `node_modules` (an SDK credential helper, for example), is refused before it starts. FFmpeg is always restricted to local inputs.
+- **Evidence.** Every network-capable child that runs while unsealed is registered, and counts as *alive* until the OS reports its exit. For a detached process group, it stays alive until the whole group is gone. Sealing stops these children and waits for them; a child that survives `SIGKILL` keeps the attestation unverified (Task 7). A kill signal is never treated as proof of exit.
+
+**Files:**
+- Create: `src/helpers/privacy/childRegistry.js`
+- Modify:
+  - `src/helpers/ffmpegUtils.js`. Add `localOnlyInputs(args)`, and use it at all three spawn sites: `runFFmpegConversion` (`spawn(ffmpegPath, [...args, "-y", outputPath]`), `splitAudioFile` (`spawn(ffmpegPath, args`) and `mergeAudioSegments` (`spawn(ffmpegPath, args`).
+  - `docs/security/sealed-mode-threat-model.md`. Add the `spawn-sites` inventory (Task 1, Step 3).
+- Test: `test/helpers/childRegistry.test.js` and `test/helpers/ffmpegContainment.test.js`
+
+**Interfaces:**
+- Produces:
+
+  ```js
+  // src/helpers/privacy/childRegistry.js
+  installSpawnGuard({ childProcess?, utilityProcess? }): void   // idempotent; wraps spawn/execFile/exec/fork and their Sync forms, and utilityProcess.fork
+  register(child, { kind: string, group?: boolean }): Entry     // the guard registers automatically; exported for tests
+  alive(kind?: string): Array<{ kind, pid }>                    // exited only after the OS reported exit (and, for a group, the group is gone)
+  stopAll({ kinds?, termGraceMs = 1500, killGraceMs = 1500 }?): Promise<void>
+                                                                // SIGTERM → wait → SIGKILL → wait; rejects with code CHILD_STOP_FAILED if any is still alive
+  classify(command: string, stack?: string): "network" | "thirdParty" | "ffmpeg" | "local"
+  kindOf(command: string): string                               // "codex", "yt-dlp", or the program's base name
+  _resetForTests(): void
+  ```
+
+  ```js
+  // src/helpers/ffmpegUtils.js
+  localOnlyInputs(args: string[]): string[]   // inserts "-protocol_whitelist", "file,pipe" before every "-i" that lacks it
+  ```
+
+- **Rules.**
+  - **`network`** covers `codex`, `yt-dlp*`, `curl`, `wget`, `ffplay`, `aws`, `gcloud`, `ssh` and `git`. It is refused while sealed, and registered while unsealed.
+  - **`thirdParty`** is any spawn whose call stack enters `/node_modules/`. It is refused while sealed, and registered while unsealed.
+  - **`ffmpeg`** must carry `-protocol_whitelist` before every `-i`, or it is refused in every mode. A crafted local playlist or media file must never make FFmpeg fetch remote resources.
+  - **`local`** is everything else Loqui starts from its own code: clipboard and paste helpers, key listeners, `osascript`, the loopback sidecars, and so on. Each of these call sites is listed and justified in the `spawn-sites` inventory, and a ratchet test fails on any unlisted file (Task 1).
+  - **`utilityProcess.fork`** is allowed only for modules under the app's `src/workers/` directory, which the inventory ratchet keeps free of network code. Anything else is refused while sealed.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/helpers/childRegistry.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const gate = require("../../src/helpers/privacy/egressGate");
+const registry = require("../../src/helpers/privacy/childRegistry");
+const { isSealedModeError } = require("../../src/helpers/privacy/egressPolicy");
+
+const flags = { sealed: false };
+test.beforeEach(() => {
+  flags.sealed = false;
+  gate._resetForTests();
+  gate.configureEgress({ isSealed: () => flags.sealed });
+  registry._resetForTests();
+});
+
+function fakeChild({ exitsOn = ["SIGTERM", "SIGKILL"], pid = 4242 } = {}) {
+  const child = new EventEmitter();
+  child.pid = pid;
+  child.signals = [];
+  child.kill = (signal = "SIGTERM") => {
+    child.signals.push(signal);
+    if (exitsOn.includes(signal)) setTimeout(() => child.emit("exit", null, signal), 5);
+    return true;
+  };
+  return child;
+}
+function fakeChildProcess() {
+  const calls = [];
+  const make = (name) => (...args) => {
+    calls.push([name, ...args]);
+    return name.endsWith("Sync") ? { status: 0 } : fakeChild();
+  };
+  return { calls, spawn: make("spawn"), execFile: make("execFile"), exec: make("exec"), fork: make("fork"),
+           spawnSync: make("spawnSync"), execFileSync: make("execFileSync"), execSync: make("execSync") };
+}
+
+test("a child is alive until it exits, not until it is signalled", async () => {
+  const child = fakeChild({ exitsOn: [] });
+  registry.register(child, { kind: "yt-dlp" });
+  child.kill("SIGKILL");
+  assert.deepEqual(registry.alive().map((e) => e.kind), ["yt-dlp"], "a signal is not an exit");
+  child.emit("exit", null, "SIGKILL");
+  assert.deepEqual(registry.alive(), []);
+});
+
+test("stopAll escalates to SIGKILL and waits for the exit", async () => {
+  const child = fakeChild({ exitsOn: ["SIGKILL"] });
+  registry.register(child, { kind: "codex" });
+  await registry.stopAll({ termGraceMs: 30, killGraceMs: 200 });
+  assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
+  assert.deepEqual(registry.alive(), []);
+});
+
+test("stopAll rejects when a child survives SIGKILL, and it stays alive", async () => {
+  const child = fakeChild({ exitsOn: [] });
+  registry.register(child, { kind: "yt-dlp" });
+  await assert.rejects(registry.stopAll({ termGraceMs: 20, killGraceMs: 20 }), (e) => e.code === "CHILD_STOP_FAILED");
+  assert.deepEqual(registry.alive().map((e) => e.kind), ["yt-dlp"]);
+});
+
+test("a detached process group stays alive until the whole group is gone", { skip: process.platform === "win32" }, async () => {
+  const { spawn } = require("node:child_process");
+  // The leader exits at once; its detached child keeps the group alive briefly.
+  const leader = spawn("/bin/sh", ["-c", "sleep 0.3 & exit 0"], { detached: true, stdio: "ignore" });
+  registry.register(leader, { kind: "yt-dlp", group: true });
+  await new Promise((r) => leader.once("exit", r));
+  assert.equal(registry.alive().length, 1, "the group member is still running");
+  await new Promise((r) => setTimeout(r, 600));
+  assert.equal(registry.alive().length, 0);
+});
+
+test("classify: network programs, third-party callers, ffmpeg, and Loqui's own local tools", () => {
+  assert.equal(registry.classify("/Users/x/.cache/loqui/yt-dlp_macos"), "network");
+  assert.equal(registry.classify("codex"), "network");
+  assert.equal(registry.classify("C:\\tools\\curl.exe"), "network");
+  assert.equal(registry.classify("/opt/ffmpeg"), "ffmpeg");
+  assert.equal(registry.classify("xclip", "at x (/app/node_modules/@aws-sdk/credential-provider-process/dist/index.js:1:1)"), "thirdParty");
+  assert.equal(registry.classify("xclip", "at y (/app/src/helpers/clipboard.js:125:9)"), "local");
+  assert.equal(registry.kindOf("/x/yt-dlp_linux"), "yt-dlp");
+});
+
+test("sealed: network and third-party spawns are refused; local ones run", () => {
+  const cp = fakeChildProcess();
+  registry.installSpawnGuard({ childProcess: cp });
+  flags.sealed = true;
+  assert.throws(() => cp.spawn("/x/yt-dlp_macos", ["--update-to", "nightly"]), isSealedModeError);
+  assert.throws(() => cp.execFileSync("curl", ["https://example.com"]), isSealedModeError);
+  const sdkDir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-guard-"));
+  const sdkFile = path.join(sdkDir, "node_modules", "fake-sdk", "index.js");
+  fs.mkdirSync(path.dirname(sdkFile), { recursive: true });
+  fs.writeFileSync(sdkFile, "module.exports = (cp) => cp.spawn('credential-helper', []);");
+  assert.throws(() => require(sdkFile)(cp), isSealedModeError);
+  cp.spawnSync("xclip", ["-selection", "clipboard"]);
+  assert.deepEqual(cp.calls.map((c) => c[1]), ["xclip"], "only the local tool reached the real API");
+});
+
+test("unsealed: network children are registered and stoppable", () => {
+  const cp = fakeChildProcess();
+  registry.installSpawnGuard({ childProcess: cp });
+  cp.spawn("codex", ["app-server", "--stdio"]);
+  cp.spawn("/x/yt-dlp_macos", ["-x"], { detached: true });
+  assert.deepEqual(registry.alive().map((e) => e.kind).sort(), ["codex", "yt-dlp"]);
+});
+
+test("ffmpeg without a protocol whitelist is refused in every mode", () => {
+  const cp = fakeChildProcess();
+  registry.installSpawnGuard({ childProcess: cp });
+  assert.throws(() => cp.spawn("/opt/ffmpeg", ["-i", "in.m3u8", "out.wav"]), /FFMPEG_UNSAFE_INPUT/);
+  cp.spawn("/opt/ffmpeg", ["-protocol_whitelist", "file,pipe", "-i", "in.wav", "out.wav"]);
+  assert.equal(cp.calls.length, 1);
+});
+
+test("utilityProcess.fork is limited to the app's own workers while sealed", () => {
+  const forks = [];
+  const utilityProcess = { fork: (modulePath) => { forks.push(modulePath); return fakeChild(); } };
+  registry.installSpawnGuard({ childProcess: fakeChildProcess(), utilityProcess });
+  flags.sealed = true;
+  const worker = path.join(__dirname, "../../src/workers/onnxWorker.js");
+  utilityProcess.fork(worker);
+  assert.throws(() => utilityProcess.fork("/tmp/elsewhere/agent.js"), isSealedModeError);
+  assert.deepEqual(forks, [worker]);
+});
+```
+
+Create `test/helpers/ffmpegContainment.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { installElectronStub } = require("./harness/electronStub");
+
+installElectronStub();
+const ffmpeg = require("../../src/helpers/ffmpegUtils");
+
+test("localOnlyInputs adds the whitelist before every -i, once", () => {
+  assert.deepEqual(ffmpeg.localOnlyInputs(["-i", "a.wav", "-i", "b.wav", "out.wav"]), [
+    "-protocol_whitelist", "file,pipe", "-i", "a.wav", "-protocol_whitelist", "file,pipe", "-i", "b.wav", "out.wav",
+  ]);
+  const already = ["-protocol_whitelist", "file,pipe", "-i", "a.wav"];
+  assert.deepEqual(ffmpeg.localOnlyInputs(already), already);
+});
+
+test("a local playlist that points at a server makes FFmpeg fetch nothing", async (t) => {
+  const ffmpegPath = typeof ffmpeg.getFFmpegPath === "function" ? ffmpeg.getFFmpegPath() : null;
+  if (!ffmpegPath || !fs.existsSync(ffmpegPath)) return t.skip("no bundled ffmpeg in this checkout");
+  let hits = 0;
+  const server = http.createServer((_req, res) => { hits++; res.end(); });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-ffmpeg-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const playlist = path.join(dir, "evil.m3u8");
+  fs.writeFileSync(playlist, `#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nhttp://127.0.0.1:${server.address().port}/seg.ts\n#EXT-X-ENDLIST\n`);
+  await assert.rejects(ffmpeg.convertToWav(playlist, path.join(dir, "out.wav")));
+  assert.equal(hits, 0, "FFmpeg did not follow the remote reference");
+});
+```
+
+If `getFFmpegPath` is not exported, export it from `ffmpegUtils.js` (it is defined at `:10`). The skip only applies to checkouts without the bundled binary; CI has it.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npm test -- test/helpers/childRegistry.test.js test/helpers/ffmpegContainment.test.js`
+Expected: FAIL with `Cannot find module '../../src/helpers/privacy/childRegistry'` and `ffmpeg.localOnlyInputs is not a function`.
+
+- [ ] **Step 3: Implement the registry and guard**
+
+Create `src/helpers/privacy/childRegistry.js`:
+
+```js
+const path = require("node:path");
+const { syncBuiltinESMExports } = require("node:module");
+const gate = require("./egressGate");
+const { SealedModeError } = require("./egressPolicy");
+
+// Programs Loqui may start that reach the network themselves (threat model,
+// spawn-sites). Main cannot see their traffic, so while sealed they do not run,
+// and while unsealed each run is tracked until the OS reports its exit.
+const NETWORK_COMMANDS = [/^codex(\.exe)?$/, /^yt-dlp/, /^curl(\.exe)?$/, /^wget(\.exe)?$/, /^ffplay/, /^aws(\.exe)?$/, /^gcloud/, /^ssh(\.exe)?$/, /^git(\.exe)?$/];
+const FFMPEG = /^ffmpeg/;
+const WORKERS_DIR = path.join(__dirname, "..", "..", "workers") + path.sep;
+
+let entries = new Set();
+let installed = false;
+
+const baseName = (command) => path.basename(String(command ?? "")).toLowerCase().replace(/\\/g, "/").split("/").pop();
+function kindOf(command) {
+  const base = baseName(command);
+  if (/^codex/.test(base)) return "codex";
+  if (/^yt-dlp/.test(base)) return "yt-dlp";
+  return base;
+}
+function classify(command, stack = "") {
+  const base = baseName(command).split("\\").pop();
+  if (NETWORK_COMMANDS.some((re) => re.test(base))) return "network";
+  if (FFMPEG.test(base)) return "ffmpeg";
+  if (/[\\/]node_modules[\\/]/.test(stack)) return "thirdParty";
+  return "local";
+}
+
+function groupAlive(pid) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+function isAlive(entry) {
+  if (!entry.exited) return true;
+  return entry.group && process.platform !== "win32" && entry.pid ? groupAlive(entry.pid) : false;
+}
+
+function register(child, { kind, group = false }) {
+  const entry = { child, kind, pid: child?.pid, group, exited: !child?.pid };
+  child?.once?.("exit", () => {
+    entry.exited = true;
+  });
+  // A spawn that failed to start has no pid and never runs.
+  child?.once?.("error", () => {
+    if (!child.pid) entry.exited = true;
+  });
+  entries.add(entry);
+  return entry;
+}
+
+function alive(kind) {
+  const list = [];
+  for (const entry of entries) {
+    if (!isAlive(entry)) {
+      entries.delete(entry);
+      continue;
+    }
+    if (!kind || entry.kind === kind) list.push({ kind: entry.kind, pid: entry.pid });
+  }
+  return list;
+}
+
+function signal(entry, sig) {
+  try {
+    if (entry.group && process.platform !== "win32" && entry.pid) process.kill(-entry.pid, sig);
+    else entry.child.kill(sig);
+  } catch {
+    // Already gone; isAlive() decides.
+  }
+}
+const waitUntil = async (predicate, ms) => {
+  const deadline = Date.now() + ms;
+  while (!predicate() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+  return predicate();
+};
+
+async function stopAll({ kinds, termGraceMs = 1500, killGraceMs = 1500 } = {}) {
+  const targets = [...entries].filter((e) => isAlive(e) && (!kinds || kinds.includes(e.kind)));
+  if (targets.length === 0) return;
+  for (const t of targets) signal(t, "SIGTERM");
+  if (await waitUntil(() => targets.every((t) => !isAlive(t)), termGraceMs)) return;
+  for (const t of targets) if (isAlive(t)) signal(t, "SIGKILL");
+  if (await waitUntil(() => targets.every((t) => !isAlive(t)), killGraceMs)) return;
+  const failed = targets.filter(isAlive).map((t) => t.kind);
+  throw Object.assign(new Error(`Child processes did not exit: ${failed.join(", ")}`), { code: "CHILD_STOP_FAILED", kinds: failed });
+}
+
+function hasLocalOnlyInputs(args) {
+  return args.every((arg, i) => arg !== "-i" || (args[i - 2] === "-protocol_whitelist" && /^[a-z,]+$/.test(String(args[i - 1])) && !/(http|tcp|udp|rtmp|tls|crypto)/.test(String(args[i - 1]))));
+}
+
+function check(command, args, stack) {
+  const kind = classify(command, stack);
+  if (kind === "ffmpeg" && !hasLocalOnlyInputs(Array.isArray(args) ? args.map(String) : []))
+    throw Object.assign(new Error("FFMPEG_UNSAFE_INPUT: ffmpeg inputs must be restricted to local protocols"), { code: "FFMPEG_UNSAFE_INPUT" });
+  if ((kind === "network" || kind === "thirdParty") && gate.isSealed())
+    throw gate.recordBackstopBlock({ host: kindOf(command).replace(/[^a-z0-9._-]/g, "") || "unknown" });
+  return kind;
+}
+
+// exec/execSync take a command line; the program is its first token.
+const programOf = (name, args) => (name === "exec" || name === "execSync" ? String(args[0]).trim().split(/\s+/)[0] : name === "fork" ? process.execPath : args[0]);
+
+function installSpawnGuard({ childProcess = require("node:child_process"), utilityProcess = null } = {}) {
+  if (installed && childProcess === require("node:child_process")) return;
+  for (const name of ["spawn", "execFile", "exec", "fork", "spawnSync", "execFileSync", "execSync"]) {
+    const original = childProcess[name];
+    if (typeof original !== "function") continue;
+    childProcess[name] = function guarded(...args) {
+      const command = programOf(name, args);
+      const kind = check(command, Array.isArray(args[1]) ? args[1] : [], new Error().stack);
+      const result = original.apply(this, args);
+      if ((kind === "network" || kind === "thirdParty") && !name.endsWith("Sync")) {
+        const options = args.find((a, i) => i > 0 && a && typeof a === "object" && !Array.isArray(a)) ?? {};
+        register(result, { kind: kindOf(command), group: options.detached === true });
+      }
+      return result;
+    };
+  }
+  if (utilityProcess && typeof utilityProcess.fork === "function") {
+    const originalFork = utilityProcess.fork;
+    utilityProcess.fork = function guardedUtilityFork(modulePath, ...rest) {
+      if (gate.isSealed() && !path.resolve(String(modulePath)).startsWith(WORKERS_DIR))
+        throw gate.recordBackstopBlock({ host: "utility-process" });
+      return originalFork.call(this, modulePath, ...rest);
+    };
+  }
+  if (childProcess === require("node:child_process")) {
+    installed = true;
+    syncBuiltinESMExports();
+  }
+}
+
+function _resetForTests() {
+  entries = new Set();
+}
+
+module.exports = { installSpawnGuard, register, alive, stopAll, classify, kindOf, _resetForTests, SealedModeError };
+```
+
+`recordBackstopBlock` gives the ledger a `blocked` row for the refused program. Its host field is the program's kind (`yt-dlp`, `curl`), which passes the bare-host check. Refusals happen synchronously, as Node's own spawn argument errors do. Every managed caller (`codexAppServer.start`, `maybeUpdateYtDlp`, `runYtDlp`) already wraps its spawn in `try`/`catch`, or runs behind a gate that refuses first (Tasks 8 and 10).
+
+- [ ] **Step 4: Restrict FFmpeg to local inputs**
+
+In `src/helpers/ffmpegUtils.js`, add and export:
+
+```js
+// Inputs are files Loqui already has. FFmpeg can follow remote references
+// inside a media file or playlist, so only local protocols are allowed. The
+// Sealed mode spawn guard refuses any ffmpeg call without this (childRegistry.js).
+function localOnlyInputs(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-i" && out[out.length - 2] !== "-protocol_whitelist") out.push("-protocol_whitelist", "file,pipe");
+    out.push(args[i]);
+  }
+  return out;
+}
+```
+
+Wrap the argument list at each of the three spawn sites:
+- `spawn(ffmpegPath, localOnlyInputs([...args, "-y", outputPath]), …)`;
+- `spawn(ffmpegPath, localOnlyInputs(args), …)` in `splitAudioFile`;
+- `spawn(ffmpegPath, localOnlyInputs(args), …)` in `mergeAudioSegments`.
+
+Also export `getFFmpegPath` if it is not already exported.
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `npm test -- test/helpers/childRegistry.test.js test/helpers/ffmpegContainment.test.js test/helpers/ffmpegUtils.test.js`
+Expected: PASS. The last file is the existing FFmpeg suite, if present (`ls test/helpers | grep -i ffmpeg`).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/helpers/privacy/childRegistry.js src/helpers/ffmpegUtils.js test/helpers/childRegistry.test.js test/helpers/ffmpegContainment.test.js
+git commit -m "feat(privacy): track child processes until exit, guard spawns, keep FFmpeg local"
+```
+
+---
+
 ### Task 7: Boot order, the sealing barrier, attestation, trusted IPC, preload and types
 
 **Files:**
@@ -3135,12 +3544,15 @@ git commit -m "feat(privacy): add socket, DNS, UDP, proxy and session backstop f
   - `SealedState` (Task 3), `FlightRecorder` (Task 4), `egressGate` (Task 5) and `egressBackstop` (Task 6);
   - `inference.stopCodex(): Promise<void>` and `inference.codexRunning(): boolean` (Task 8);
   - `updateManager.pauseForSeal()` and `updateManager.resumeAfterSeal()` (Task 10);
-  - `ytDlpControl.alive(): boolean` and `ytDlpControl.stop(): Promise<void>` from `urlAudioDownloader.js` (Task 10);
+  - `childRegistry` (Task 6a): `alive()`, `stopAll()` and `installSpawnGuard()`;
   - the calendar managers' existing `stop()`/`start()`.
 - Produces:
-  - `bootEgressGuards({ app, profile, getDefaultSession, now? }): { state, recorder, bootedAt }`.
-  - `createSealTransition({ state, bootedAt, getUpdateManager, getInference, getCalendars, getYtDlp, sleep, now?, waitMs? })`. It returns `{ apply(sealed): Promise<void>, recheck(): void, snapshot(): { phase: "open"|"sealing"|"sealed", effectiveSince: number|null, failures: string[] }, on("change", fn) }`.
-  - `createAttestor({ state, transition, getInference, getYtDlp }): () => Attestation`.
+  - `bootEgressGuards({ app, profile, getDefaultSession, utilityProcess?, now? }): { state, recorder, bootedAt }`. It installs the Node backstop, the spawn guard (Task 6a), the webContents guard and the session watcher.
+  - `createSealTransition({ state, bootedAt, getUpdateManager, getInference, getCalendars, children, sleep, now?, waitMs?, onStopping? })`. It returns `{ apply(sealed): Promise<void>, recheck(): void, snapshot(): TransitionSnapshot, on("change", fn) }`.
+    - `TransitionSnapshot` is `{ phase: "open"|"sealing"|"sealed", effectiveSince: number|null, failures: string[], notes: string[] }`.
+    - `failures` are *unresolved* problems, and while any remain the seal is unverified.
+    - `notes` are problems that resolved before the seal became effective; they are kept for display.
+  - `createAttestor({ state, transition, getInference, children }): () => Attestation`.
   - `createConfirmations({ dialog, BrowserWindow, t }): { unseal(event): Promise<boolean>, clear(count, event): Promise<boolean> }`. These are native dialogs that main shows, which a renderer cannot click through.
   - `createTrustedSender({ getWindows, appUrlPrefixes }): (event) => boolean` and `appUrlPrefixes(): string[]`.
   - `attachPrivacyIPC({ ipcMain, BrowserWindow, state, recorder, attest, transition, isTrustedSender, confirm, now? }): { broadcastAttestation(): void, dispose(): void }`.
@@ -3183,10 +3595,11 @@ git commit -m "feat(privacy): add socket, DNS, UDP, proxy and session backstop f
     sealedSince: number | null;        // when the switch was turned on
     effectiveSince: number | null;     // when main verified everything had stopped; null until then
     phase: "open" | "sealing" | "sealed";
-    failures: string[];                // e.g. "codexStop", "chromiumReset", "timeout"
+    failures: string[];                // unresolved: "codexStop", "childStop", "timeout:<what is still running>"
+    notes: string[];                   // resolved before effectiveSince, shown for honesty
     loadError: "corrupt" | "unreadable" | null; saveError: string | null;
     guards: { node: boolean; dns: boolean; dgram: boolean; http: boolean; webContents: boolean;
-              sessions: number; envProxy: boolean; openRemoteSockets: number; chromiumInFlightRemote: number };
+              sessions: number; envProxy: boolean; openRemoteSockets: number; chromiumInFlightRemote: number; pendingDns: number };
     networkChildren: string[]; activeRemote: number;
     blockedSinceSealed: number; recordFailures: number;
     version: number; at: number;
@@ -3211,7 +3624,8 @@ git commit -m "feat(privacy): add socket, DNS, UDP, proxy and session backstop f
 - `sealed` is true and `phase` is `"sealed"`, with an `effectiveSince` set;
 - every guard is installed: `node`, `dns`, `dgram`, `http` and `webContents`, plus at least one session;
 - `envProxy` is false;
-- there are no open remote sockets and no Chromium remote requests in flight;
+- there are no open remote sockets, no Chromium remote requests in flight and no DNS lookups pending;
+- `failures` is empty: a failed stop, a child that survived `SIGKILL`, or a timeout never yields a verified seal, and evidence is never cleared to make a check pass;
 - no network-capable child is alive;
 - no remote ticket is active.
 
@@ -3247,28 +3661,33 @@ function harness(t, { sealedAtBoot = false } = {}) {
   let clock = 1000;
   const log = [];
   const codex = { alive: false, stopCodex: async () => { log.push("codex.stop"); codex.alive = false; }, codexRunning: () => codex.alive };
-  const ytDlp = { busy: false, alive: () => ytDlp.busy, stop: async () => { log.push("ytdlp.stop"); ytDlp.busy = false; } };
+  // A fake of childRegistry (Task 6a): children are alive until "exited".
+  const children = {
+    list: [],
+    alive() { return this.list.filter((c) => !c.exited).map((c) => ({ kind: c.kind })); },
+    async stopAll() { log.push("children.stop"); for (const c of this.list) if (!c.stubborn) c.exited = true; if (this.list.some((c) => !c.exited)) throw Object.assign(new Error("x"), { code: "CHILD_STOP_FAILED" }); },
+  };
   const calendar = { stop: () => log.push("calendar.stop"), start: () => log.push("calendar.start") };
   const transition = createSealTransition({
     state, bootedAt: 500,
     getUpdateManager: () => ({ pauseForSeal: () => log.push("updates.pause"), resumeAfterSeal: () => log.push("updates.resume") }),
-    getInference: () => codex, getCalendars: () => [calendar, null], getYtDlp: () => ytDlp,
+    getInference: () => codex, getCalendars: () => [calendar, null], children,
     sleep: () => new Promise((r) => setImmediate(r)), now: () => (clock += 100), waitMs: 1000,
   });
-  const attest = createAttestor({ state, transition, getInference: () => codex, getYtDlp: () => ytDlp });
-  return { state, transition, attest, log, codex, ytDlp };
+  const attest = createAttestor({ state, transition, getInference: () => codex, children });
+  return { state, transition, attest, log, codex, children };
 }
 
 test("sealed at boot is effective from boot, with everything verified", (t) => {
   const h = harness(t, { sealedAtBoot: true });
-  assert.deepEqual(h.transition.snapshot(), { phase: "sealed", effectiveSince: 500, failures: [] });
+  assert.deepEqual(h.transition.snapshot(), { phase: "sealed", effectiveSince: 500, failures: [], notes: [] });
   assert.equal(h.attest().nothingLeaves, true);
 });
 
 test("sealing stops everything, waits for children, then becomes effective", async (t) => {
   const h = harness(t);
   h.codex.alive = true;
-  h.ytDlp.busy = true;
+  h.children.list.push({ kind: "yt-dlp", exited: false });
   const ticket = gate.authorize({ task: "chat", target: "https://api.groq.com" });
   ticket.signal.addEventListener("abort", () => ticket.settle({ outcome: "cancelled" }));
   const phases = [];
@@ -3276,7 +3695,7 @@ test("sealing stops everything, waits for children, then becomes effective", asy
   h.state.set(true);
   await h.transition.apply(true);
   assert.equal(ticket.signal.aborted, true);
-  assert.deepEqual(h.log, ["updates.pause", "calendar.stop", "codex.stop", "ytdlp.stop"]);
+  assert.deepEqual(h.log, ["updates.pause", "calendar.stop", "codex.stop", "children.stop"]);
   assert.deepEqual(phases, ["sealing", "sealed"]);
   const snapshot = h.transition.snapshot();
   assert.equal(snapshot.phase, "sealed");
@@ -3284,23 +3703,69 @@ test("sealing stops everything, waits for children, then becomes effective", asy
   assert.equal(h.attest().nothingLeaves, true);
 });
 
-test("a child that will not exit keeps the seal unverified", async (t) => {
+test("a child that will not exit keeps the seal unverified until it really exits", async (t) => {
   const h = harness(t);
-  h.codex.alive = true;
-  h.codex.stopCodex = async () => { throw new Error("still running"); };
+  const stubborn = { kind: "yt-dlp", exited: false, stubborn: true };
+  h.children.list.push(stubborn);
   h.state.set(true);
   await h.transition.apply(true);
   const snapshot = h.transition.snapshot();
   assert.equal(snapshot.phase, "sealing");
   assert.equal(snapshot.effectiveSince, null);
-  assert.ok(snapshot.failures.includes("codexStop"));
-  assert.ok(snapshot.failures.includes("timeout"));
+  assert.ok(snapshot.failures.includes("childStop"));
+  assert.ok(snapshot.failures.includes("timeout:children"));
   const a = h.attest();
   assert.equal(a.nothingLeaves, false);
-  assert.deepEqual(a.networkChildren, ["codex"]);
-  // Once the child finally exits, a recheck verifies the seal.
-  h.codex.alive = false;
+  assert.deepEqual(a.networkChildren, ["yt-dlp"]);
+  // A recheck while it is still alive changes nothing.
   h.transition.recheck();
+  assert.equal(h.transition.snapshot().phase, "sealing");
+  // Once the OS reports its exit, a recheck verifies the seal and keeps a note.
+  stubborn.exited = true;
+  h.transition.recheck();
+  assert.equal(h.transition.snapshot().phase, "sealed");
+  assert.deepEqual(h.transition.snapshot().failures, []);
+  assert.ok(h.transition.snapshot().notes.includes("childStop"));
+  assert.equal(h.attest().nothingLeaves, true);
+});
+
+test("an un-ticketed Chromium request in flight keeps it sealing; nothing is reset or cleared", async (t) => {
+  const h = harness(t);
+  const session = { listeners: {}, closed: 0, async closeAllConnections() { this.closed++; } };
+  session.webRequest = new Proxy({}, { get: (_t, name) => (fn) => { session.listeners[name] = fn; } });
+  backstop.watchSession(session);
+  await new Promise((r) => session.listeners.onBeforeRequest({ id: 900, url: "https://images.example.com/a.png", webContentsId: 1 }, r));
+  h.state.set(true);
+  await h.transition.apply(true);
+  assert.equal(h.transition.snapshot().phase, "sealing");
+  assert.ok(h.transition.snapshot().failures.includes("timeout:chromium"));
+  assert.equal(session.closed, 0, "no connection reset: local work in the same session survives");
+  assert.equal(h.attest().nothingLeaves, false);
+  session.listeners.onCompleted({ id: 900, statusCode: 200 });
+  h.transition.recheck();
+  assert.equal(h.transition.snapshot().phase, "sealed");
+});
+
+test("mid-transition attestations are never verified", async (t) => {
+  const h = harness(t);
+  let during = null;
+  h.codex.alive = true;
+  h.codex.stopCodex = async () => { during = h.attest(); h.codex.alive = false; };
+  h.state.set(true);
+  await h.transition.apply(true);
+  assert.equal(during.phase, "sealing");
+  assert.equal(during.nothingLeaves, false);
+});
+
+test("a quick seal, unseal, seal ends sealed and verified, in order", async (t) => {
+  const h = harness(t);
+  h.state.set(true);
+  const first = h.transition.apply(true);
+  h.state.set(false);
+  const second = h.transition.apply(false);
+  h.state.set(true);
+  const third = h.transition.apply(true);
+  await Promise.all([first, second, third]);
   assert.equal(h.transition.snapshot().phase, "sealed");
   assert.equal(h.attest().nothingLeaves, true);
 });
@@ -3309,7 +3774,7 @@ test("unsealing restarts calendars and republishes update status", async (t) => 
   const h = harness(t, { sealedAtBoot: true });
   h.state.set(false);
   await h.transition.apply(false);
-  assert.deepEqual(h.transition.snapshot(), { phase: "open", effectiveSince: null, failures: [] });
+  assert.deepEqual(h.transition.snapshot(), { phase: "open", effectiveSince: null, failures: [], notes: [] });
   assert.deepEqual(h.log, ["calendar.start", "updates.resume"]);
   assert.equal(h.attest().nothingLeaves, false, "unsealed never attests");
 });
@@ -3331,7 +3796,7 @@ test("attestations are versioned and timestamped", (t) => {
 });
 ```
 
-Create `test/helpers/trustedSender.test.js`:
+Create `test/helpers/trustedSender.test.js`. It covers both real `DevServerManager` contracts: production returns a file path; development returns `null` from `getAppFilePath` and an `http://localhost:<port>` URL from `getAppUrl` (`devServerManager.js:59`, `:72-86`).
 
 ```js
 const assert = require("node:assert/strict");
@@ -3359,6 +3824,18 @@ test("only the main frame of a known window showing the app's own page is truste
   const other = windowWith(settings.webContents.mainFrame.url);
   assert.equal(isTrusted({ sender: other.webContents, senderFrame: other.webContents.mainFrame }), false);
   assert.equal(isTrusted({}), false);
+});
+
+test("appUrlPrefixes follows the real DevServerManager contracts in both modes", () => {
+  const { appUrlPrefixes } = require("../../src/helpers/privacy/trustedSender");
+  const prod = { getAppFilePath: () => ({ path: "/Applications/Loqui.app/Contents/Resources/app.asar/src/dist/index.html", query: { panel: "true" } }), getAppUrl: () => null };
+  assert.deepEqual(appUrlPrefixes({ DevServerManager: prod, env: {} }), ["file:///Applications/Loqui.app/Contents/Resources/app.asar/src/dist/"]);
+  const dev = { getAppFilePath: () => null, getAppUrl: () => "http://localhost:5174/?panel=true" };
+  assert.deepEqual(appUrlPrefixes({ DevServerManager: dev, env: { NODE_ENV: "development" } }), ["http://localhost:5174/"]);
+  // A development page is trusted only on the dev server's own origin.
+  const page = windowWith("http://localhost:5174/?panel=true");
+  const isTrusted = createTrustedSender({ getWindows: () => [page], appUrlPrefixes: () => appUrlPrefixes({ DevServerManager: dev, env: { NODE_ENV: "development" } }) });
+  assert.equal(isTrusted({ sender: page.webContents, senderFrame: page.webContents.mainFrame }), true);
 });
 ```
 
@@ -3575,15 +4052,17 @@ const gate = require("./egressGate");
 const backstop = require("./egressBackstop");
 const { SealedState } = require("./sealedState");
 const { FlightRecorder } = require("./flightRecorder");
+const childRegistry = require("./childRegistry");
 
 // Called from main.js before any helper that can open a connection is
 // required (test/helpers/privacyBootOrder.test.js). Order matters: read the
 // switch, configure the gate, then install the hooks.
-function bootEgressGuards({ app, profile, getDefaultSession, now = Date.now }) {
+function bootEgressGuards({ app, profile, getDefaultSession, utilityProcess = null, now = Date.now }) {
   const state = new SealedState({ profile, now });
   const recorder = new FlightRecorder({ now });
   gate.configureEgress({ isSealed: () => state.isSealed(), recorder, now });
   backstop.installNodeBackstop();
+  childRegistry.installSpawnGuard({ utilityProcess });
   backstop.installWebContentsGuard(app);
   app.on("session-created", (session) => backstop.watchSession(session));
   app.whenReady().then(() => backstop.watchSession(getDefaultSession()));
@@ -3591,77 +4070,84 @@ function bootEgressGuards({ app, profile, getDefaultSession, now = Date.now }) {
 }
 
 // The sealing barrier. "sealed" (with effectiveSince) is reached only after
-// every remote ticket, remote socket, in-flight Chromium request and
-// network-capable child has stopped; until then the phase stays "sealing".
-function createSealTransition({ state, bootedAt, getUpdateManager, getInference, getCalendars, getYtDlp, sleep, now = Date.now, waitMs = 2000 }) {
+// every remote ticket, remote socket, in-flight Chromium request, pending DNS
+// lookup and network-capable child has stopped. It fails closed: a stop that
+// fails, a child that survives SIGKILL or anything still running keeps the
+// phase "sealing" with a failure listed, and no evidence is ever cleared to
+// make the check pass. Nothing local is reset.
+function createSealTransition({ state, bootedAt, getUpdateManager, getInference, getCalendars, children, sleep, now = Date.now, waitMs = 2000 }) {
   const emitter = new EventEmitter();
   let snapshot = state.isSealed()
-    ? { phase: "sealed", effectiveSince: bootedAt, failures: [] } // guards were installed before anything ran
-    : { phase: "open", effectiveSince: null, failures: [] };
+    ? { phase: "sealed", effectiveSince: bootedAt, failures: [], notes: [] } // guards were installed before anything ran
+    : { phase: "open", effectiveSince: null, failures: [], notes: [] };
+  let generation = 0;
   const set = (next) => {
     snapshot = next;
     emitter.emit("change", snapshot);
   };
-  const quiet = () => {
+  // Names what is still running, so the panel can say why it is unverified.
+  const stillRunning = () => {
     const guards = backstop.status();
-    return (
-      gate.activeRemoteCount() === 0 &&
-      guards.openRemoteSockets === 0 &&
-      guards.chromiumInFlightRemote === 0 &&
-      !getInference()?.codexRunning?.() &&
-      !getYtDlp()?.alive?.()
-    );
+    const running = [];
+    if (gate.activeRemoteCount() > 0) running.push("requests");
+    if (guards.openRemoteSockets > 0) running.push("sockets");
+    if (guards.chromiumInFlightRemote > 0) running.push("chromium");
+    if (guards.pendingDns > 0) running.push("dns");
+    if (getInference()?.codexRunning?.() || children.alive().length > 0) running.push("children");
+    return running;
   };
-  async function waitQuiet() {
+  async function waitQuiet(gen) {
     const deadline = now() + waitMs;
-    while (!quiet() && now() < deadline) await sleep(25);
-    return quiet();
+    while (stillRunning().length > 0 && now() < deadline && gen === generation) await sleep(25);
+    return stillRunning();
   }
   async function apply(sealed) {
+    const gen = ++generation;
     gate.onSealChanged(sealed);
     if (!sealed) {
-      set({ phase: "open", effectiveSince: null, failures: [] });
+      set({ phase: "open", effectiveSince: null, failures: [], notes: [] });
       for (const calendar of getCalendars()) calendar?.start?.();
       getUpdateManager()?.resumeAfterSeal?.();
       return;
     }
-    set({ phase: "sealing", effectiveSince: null, failures: [] });
+    set({ phase: "sealing", effectiveSince: null, failures: [], notes: [] });
     gate.abortAllRemote();
     getUpdateManager()?.pauseForSeal?.();
     for (const calendar of getCalendars()) calendar?.stop?.();
     const failures = [];
-    const [codex, ytDlp] = await Promise.allSettled([getInference()?.stopCodex?.(), getYtDlp()?.stop?.()]);
+    const [codex, rest] = await Promise.allSettled([getInference()?.stopCodex?.(), children.stopAll()]);
     if (codex.status === "rejected") failures.push("codexStop");
-    if (ytDlp.status === "rejected") failures.push("ytDlpStop");
+    if (rest.status === "rejected") failures.push("childStop");
     backstop.severAll();
-    let done = await waitQuiet();
-    if (!done && backstop.status().chromiumInFlightRemote > 0) {
-      // Last resort for un-ticketed Chromium requests (e.g. a renderer image).
-      await backstop.closeChromiumConnections();
-      failures.push("chromiumReset");
-      done = await waitQuiet();
-    }
-    if (done) set({ phase: "sealed", effectiveSince: now(), failures });
-    else set({ phase: "sealing", effectiveSince: null, failures: [...failures, "timeout"] });
+    const running = await waitQuiet(gen);
+    if (gen !== generation) return; // a later toggle owns the outcome
+    if (running.length === 0 && failures.length === 0) set({ phase: "sealed", effectiveSince: now(), failures: [], notes: [] });
+    else set({ phase: "sealing", effectiveSince: null, failures: [...failures, ...running.map((r) => `timeout:${r}`)], notes: [] });
   }
-  // Called when tickets settle or children exit: finishes a stalled seal.
+  // Called when tickets settle, Chromium requests finish or children exit.
+  // A failure is resolved only by the thing it names having actually stopped.
   function recheck() {
-    if (snapshot.phase === "sealing" && state.isSealed() && quiet())
-      set({ phase: "sealed", effectiveSince: now(), failures: snapshot.failures.filter((f) => f !== "timeout") });
+    if (snapshot.phase !== "sealing" || !state.isSealed()) return;
+    const running = stillRunning();
+    if (running.length > 0) {
+      set({ ...snapshot, failures: [...snapshot.failures.filter((f) => !f.startsWith("timeout:")), ...running.map((r) => `timeout:${r}`)] });
+      return;
+    }
+    const resolved = snapshot.failures.filter((f) => !f.startsWith("timeout:"));
+    set({ phase: "sealed", effectiveSince: now(), failures: [], notes: resolved });
   }
   return { apply, recheck, snapshot: () => snapshot, on: (event, fn) => emitter.on(event, fn) };
 }
 
-function createAttestor({ state, transition, getInference, getYtDlp }) {
+function createAttestor({ state, transition, getInference, children }) {
   let version = 0;
   return function attest() {
     const saved = state.snapshot();
-    const { phase, effectiveSince, failures } = transition.snapshot();
+    const { phase, effectiveSince, failures, notes } = transition.snapshot();
     const guards = backstop.status();
     const tally = gate.counters();
     const networkChildren = [
-      ...(getInference()?.codexRunning?.() ? ["codex"] : []),
-      ...(getYtDlp()?.alive?.() ? ["yt-dlp"] : []),
+      ...new Set([...(getInference()?.codexRunning?.() ? ["codex"] : []), ...children.alive().map((c) => c.kind)]),
     ];
     const activeRemote = gate.activeRemoteCount();
     const guardsUp = guards.node && guards.dns && guards.dgram && guards.http && guards.webContents && guards.sessions > 0;
@@ -3670,6 +4156,7 @@ function createAttestor({ state, transition, getInference, getYtDlp }) {
       phase,
       effectiveSince,
       failures,
+      notes,
       guards,
       networkChildren,
       activeRemote,
@@ -3681,10 +4168,12 @@ function createAttestor({ state, transition, getInference, getYtDlp }) {
         saved.sealed &&
         phase === "sealed" &&
         effectiveSince != null &&
+        failures.length === 0 &&
         guardsUp &&
         !guards.envProxy &&
         guards.openRemoteSockets === 0 &&
         guards.chromiumInFlightRemote === 0 &&
+        guards.pendingDns === 0 &&
         networkChildren.length === 0 &&
         activeRemote === 0,
     };
@@ -3743,11 +4232,16 @@ function createTrustedSender({ getWindows, appUrlPrefixes }) {
   };
 }
 
-// The URLs windowManager.loadWindowContent() loads (windowManager.js:556-574).
+// The URLs windowManager.loadWindowContent() loads (windowManager.js:556-574):
+// the dev server's origin in development (getAppFilePath returns null there),
+// the packaged renderer directory otherwise. Never both.
 function appUrlPrefixes({ DevServerManager = require("../devServerManager"), env = process.env } = {}) {
-  const prefixes = [`${pathToFileURL(path.dirname(DevServerManager.getAppFilePath(true).path)).href}/`];
-  if (env.NODE_ENV === "development") prefixes.push(`${new URL(DevServerManager.getAppUrl(true)).origin}/`);
-  return prefixes;
+  if (env.NODE_ENV === "development") {
+    const url = DevServerManager.getAppUrl(true);
+    return url ? [`${new URL(url).origin}/`] : [];
+  }
+  const file = DevServerManager.getAppFilePath(true);
+  return file?.path ? [`${pathToFileURL(path.dirname(file.path)).href}/`] : [];
 }
 
 module.exports = { createTrustedSender, appUrlPrefixes };
@@ -3859,11 +4353,18 @@ function attachPrivacyIPC({ ipcMain, BrowserWindow, dialog, state, recorder, att
   gate.events.on("sent", onSent);
   gate.events.on("settled", onSettled);
   transition.on("change", broadcastAttestation);
+  // While a seal is unverified, keep checking: Chromium requests finishing and
+  // children exiting do not emit gate events.
+  const poll = setInterval(() => {
+    if (transition.snapshot().phase === "sealing") transition.recheck();
+  }, 500);
+  poll.unref?.();
 
   return {
     broadcastAttestation,
     dispose() {
       clearTimeout(pending);
+      clearInterval(poll);
       for (const channel of channels) ipcMain.removeHandler(channel);
       recorder.off("event", onEvent);
       recorder.off("cleared", onCleared);
@@ -3888,10 +4389,11 @@ module.exports = { attachPrivacyIPC };
      app,
      profile: app.getPath("userData"),
      getDefaultSession: () => session.defaultSession,
+     utilityProcess,
    });
    ```
 
-   `session` (`main.js:24`) and `dialog` (`main.js:21`) are already in the `require("electron")` destructure.
+   `session` (`main.js:24`) and `dialog` (`main.js:21`) are already in the `require("electron")` destructure. Add `utilityProcess` to it if it is missing. `onnxWorkerClient.js:2` imports it from `electron`.
 
 2. In `initializeCoreManagers()`, directly after `databaseManager = new DatabaseManager();` (`main.js:308`), add:
 
@@ -3902,14 +4404,14 @@ module.exports = { attachPrivacyIPC };
 3. After the `updateManager = require("./src/helpers/updateIPC").attachUpdateIPC({ … });` statement (`main.js:460-470`), add:
 
    ```js
-     const ytDlpControl = () => require("./src/helpers/urlAudioDownloader").ytDlpControl;
+     const childRegistry = require("./src/helpers/privacy/childRegistry");
      const sealTransition = privacyBoot.createSealTransition({
        state: privacy.state,
        bootedAt: privacy.bootedAt,
        getUpdateManager: () => updateManager,
        getInference: () => inference,
        getCalendars: () => [googleCalendarManager, microsoftCalendarManager],
-       getYtDlp: ytDlpControl,
+       children: childRegistry,
        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
      });
      const trustedSender = require("./src/helpers/privacy/trustedSender");
@@ -3924,7 +4426,7 @@ module.exports = { attachPrivacyIPC };
          state: privacy.state,
          transition: sealTransition,
          getInference: () => inference,
-         getYtDlp: ytDlpControl,
+         children: childRegistry,
        }),
        isTrustedSender: trustedSender.createTrustedSender({
          getWindows: () => [windowManager.mainWindow, windowManager.controlPanelWindow],
@@ -3999,6 +4501,8 @@ These are the English source strings for main's dialogs. Add them to all 11 loca
 - [ ] **Step 9: Run the tests to verify they pass**
 
 Run: `npm test -- test/helpers/sealTransition.test.js test/helpers/trustedSender.test.js test/helpers/privacyIPC.test.js test/helpers/privacyBootOrder.test.js test/helpers/preloadAuthBridge.test.js && npm run typecheck && npm run i18n:check`
+
+Re-run the transition tests a few times (`--test-concurrency=1`, three runs) to catch ordering flakiness in the rapid-toggle case.
 Expected: PASS. Typecheck and i18n are clean.
 
 - [ ] **Step 10: Commit**
@@ -4016,7 +4520,7 @@ The owner decided (2026-10-15) to harden the control panel in this plan. It ran 
 
 **Files:**
 - Modify:
-  - `src/helpers/windowConfig.js:224-231`. Use `sandbox: true` and remove `webSecurity: false`, together with their stale comments.
+  - `src/helpers/windowConfig.js`, in `CONTROL_PANEL_CONFIG.webPreferences`. Use `sandbox: true` and remove `webSecurity: false`, together with their stale comments. The span runs from the comment `// sandbox: false is required because the preload script bridges IPC` through `webSecurity: false,` (currently `:227-234`). `preload`, `nodeIntegration` and `contextIsolation` above it stay unchanged.
   - `src/index.html:3-9`. Turn off DNS prefetching for every renderer document.
 - Test: `test/helpers/rendererHardening.test.js`
 
@@ -4063,7 +4567,7 @@ Expected: FAIL. `CONTROL_PANEL_CONFIG.sandbox` is `false`, and the meta tag is m
 
 - [ ] **Step 3: Implement**
 
-1. In `src/helpers/windowConfig.js`, replace lines 224-231 (the two comments, `sandbox: false,` and `webSecurity: false,`) with:
+1. In `src/helpers/windowConfig.js`, replace the span from `// sandbox: false is required because the preload script bridges IPC` through `webSecurity: false,` with the snippet below. That span is the two stale comments plus `sandbox: false,` and `webSecurity: false,`, currently `:227-234`. Keep every other line of `webPreferences`:
 
    ```js
        // Same as the main window: the preload only uses contextBridge/ipcRenderer,

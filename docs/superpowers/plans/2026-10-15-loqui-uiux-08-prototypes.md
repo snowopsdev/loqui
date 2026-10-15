@@ -30,6 +30,8 @@
 
 ## Contract change requests
 
+No new requests came from the 2026-10-15 review. Task 10 complies with Plan 06's token-adoption guard as written; the guard does not need to change. Plan 08 also consumes Plan 03's `RouteDestinationChip` and `RouteStateChip` (`src/components/settings/routing/RouteChips.tsx`), which spec §5.1 does not list. CCR-6 below asks for them to be published.
+
 Spec §5 says only the owning plan may change a contract. These requests go to the owner and the owning plans. Plan 08 codes against the assumption stated in each one, so execution can proceed if the request is accepted as written.
 
 1. **CCR-1, new §5.5 "Space surface" (owner: Plan 06; consumer: Plan 08).** Plan 06 reshapes the sidebar and Spaces (WS-R1 B). Plan 08 needs a stable place to mount a per-Space view switch.
@@ -59,6 +61,28 @@ Spec §5 says only the owning plan may change a contract. These requests go to t
    - **Plan 08 ships:** `Remove from table`. The card goes back to the Inbox tray and nothing is deleted, so no undo is needed.
    - **Summarise** and **Ask about these** reuse the Space's existing chat (`useContainerChat`), with the selection as context. The answer becomes a chat-answer card linked to its sources.
    - There is no new AI request path, so Sealed mode (Plan 07, D6) covers these actions without changes.
+6. **CCR-6, publish the route chips (owner: Plan 03; consumers: Plan 08, and any surface that discloses a route).** The Table discloses the chat route with Plan 03's `RouteDestinationChip(props: { route: Pick<ResolvedRoute, "locality" | "providerId" | "model">; className?: string })` and `RouteStateChip(props: { state: RouteState; className?: string })`.
+   - **Request:** Plan 03 lists them, and `ResolvedRoute.providerId`, in spec §5.1, so Plan 08 does not rely on settings internals.
+   - **If declined:** Plan 08 renders `LocalityRing` plus `providerDisplayLabel(providerId, t)` itself, in a local `TableRouteChip` with the same props.
+
+## Review response (independent review 2026-10-15, Codex gpt-6.1-sol xhigh: 0 Critical, 7 Important, 3 Minor)
+
+All ten findings are closed and none is disputed. Where each fix landed:
+
+| Finding | Resolution |
+|---|---|
+| I1 Alignment can attach a rewritten word's score to a later repeat | Task 3: alignment is positional. The engine's words are laid out as written (`n: true` marks unspaced CJK joins) and compared with the saved text. Only words inside the shared prefix or shared suffix keep a score. Text search is gone, so a score can only land on the occurrence at the same position. Tests cover adjacent repeats both ways, an intervening word, an inserted word, prefix-only matches, recasing, CJK and unscored anchors. They were executed against the plan's code: 16 pass, 2 skip pending fixtures. |
+| I2 Downgrade, then edit, then upgrade keeps stale confidence | Task 6: trigger `transcription_confidence_raw_text` (`AFTER UPDATE OF raw_text`) lives in the database file, so older builds fire it too. A new-build cleaned-text edit no longer names `raw_text`. Retry still clears explicitly. A test runs the pre-Plan-08 `UPDATE` with a changed and an identical raw text. Trigger semantics were checked in SQLite. |
+| I3 Gate measures token self-consistency | Tasks 1 and 3: the gate has two stages. Stage 2 runs the storage code (`mergeTokensToWords` and `alignWordsToText`) and measures G2 as scored words over the saved transcript's lexical words (≥ 0.90). G4 is computed on merged, distinct words, with fixed labels (*wrong*, *ambiguous*, *correct*), and any cut-off change must be an explicitly named, owner-approved G4′. |
+| I4 Table AI actions lack route disclosure; Labs copy over-promises | Task 16: the toolbar, the Ask panel and the selection bar show Plan 03's `RouteDestinationChip`, which renders `LocalityRing` and `providerDisplayLabel(providerId, t)`, from `useResolvedRoute("chat")` before anything is sent. A non-ready route shows `RouteStateChip` and disables Summarise and Ask. One test renders the real chip. Task 2: the Labs copy no longer claims everything stays local, and says AI actions use the chat provider. Per-answer route stamps remain Plan 06 Task 21's, in `ChatView`. |
+| I5 Task 10 conflicts with Plan 06's token guard | Task 10: both raw branches use one `RAW_TEXT_CLASS` (`text-caption`, full `text-muted-foreground`). A test enforces the guard's patterns on `TranscriptionItem.tsx`, and Plan 06's guard runs in Task 10, Task 18 and Task 20. The guard does not need to change. |
+| I6 Ask uses the live selection; large selections are silently cut | Tasks 13 and 16: `pinSelection` freezes the selection's keys and context when Ask or Summarise starts. The Ask panel shows "Pinned cards: N". Selection AI actions are limited to 12 with an on-bar explanation, and `buildSelectionContext` never truncates. Board context names the total and says what it left out. |
+| I7 Diff and resize missing | Added as bounded tasks. Task 18 is the raw versus cleaned diff, with `ins`/`del`, a `D` toggle and a fallback above about 700 words. Task 19 is card resize, with a corner handle, Alt+arrows, clamped and snapped sizes, `w`/`h` persisted, and cancel restoring the old size. |
+| M1 Preview ignores `placedKeys` | Task 17: `src/preview/previewTable.ts` is an in-memory store that honours `placedKeys`, hide and links, with a place → read → hide → read test. |
+| M2 Storage budget unstated | Task 6: compact tuples, measured at ≈ 570 KB at the 20 000-word cap and bounded by a test at 650 KB. |
+| M3 No per-frame performance evidence; hard-coded 380 ms | Task 15: pointer moves are coalesced per animation frame, and the snap uses `--motion-slow` (a test forbids literal `ms` in Table CSS). Task 16: handlers are stable. Task 20 Step 4 adds a 500-card trace with pass criteria. |
+
+Execution order: Plan 08 runs after Plans 03 and 06 are implemented. Before starting, check that `useResolvedRoute`, `RouteDestinationChip`, `RouteStateChip`, `parseMentionHref`, `--color-ai`, `--color-ai-text` and Plan 06's guard are on `main`.
 
 ## Owner decisions (2026-10-14)
 
@@ -88,12 +112,12 @@ Loqui has no migration system. `initDatabase` (`src/helpers/database.js:100-107`
 
 | Table | Purpose | Lifecycle |
 |---|---|---|
-| `transcription_confidence(transcription_id PK → transcriptions(id) ON DELETE CASCADE, engine, words_json, created_at)` | One row per transcription that has word confidence. `words_json` holds `[{s, e, p, t?}]`, where `s`/`e` are UTF-16 offsets into `raw_text`, `p` is 0..1 and `t` is the start in seconds. | Hard deletes cascade (`deleteTranscription`, `clearTranscriptions`, retention all `DELETE`; `foreign_keys = ON` at `database.js:106`). `updateTranscriptionText` drops the row when `raw_text` changes (edit or retry). |
+| `transcription_confidence(transcription_id PK → transcriptions(id) ON DELETE CASCADE, engine, words_json, created_at)` plus trigger `transcription_confidence_raw_text` | One row per transcription that has word confidence. `words_json` holds compact tuples `[[s, e, p, t?]]`: `s`/`e` are UTF-16 offsets into `raw_text`, `p` is 0..1 and `t` is the start in seconds. The budget is about 28 bytes a word, measured at ≈ 570 KB at the 20 000-word cap, where a test bounds it at 650 KB. | Hard deletes cascade (`deleteTranscription`, `clearTranscriptions`, retention all `DELETE`; `foreign_keys = ON` at `database.js:106`). The trigger deletes the row whenever an `UPDATE` names `raw_text`, including updates made by an older build after a downgrade. Retry also clears it explicitly. |
 | `note_layout(space_id, entity_type ∈ note/dictation/chat, entity_id, x, y, w, h, z, hidden, updated_at; PK(space_id, entity_type, entity_id))` | Card positions. The name and columns follow the acceptance reference. `hidden` was added so that "Remove from table" never deletes anything: a removed card of any kind returns to the Inbox, whatever its age. | Polymorphic, so no FK. Every read and write prunes rows whose entity is gone, in the same transaction. |
 | `note_layout_links(space_id, a_type, a_id, b_type, b_id, created_at; PK on all five)` | User-made connectors (Group into note, Summarise). | Both ends are validated on insert. Links to deleted entities are pruned with the layout, and reads return only links whose two ends are on the board or in the Inbox. |
 | `note_layout_viewport(space_id PK, x, y, scale, updated_at)` | Last pan and zoom per Space. | Overwritten on change. |
 
-Upgrade: an existing profile gains all four tables on next launch, and Task 6 and Task 11 test this by dropping the tables and reopening. Downgrade: older builds ignore unknown tables. History reads stay `SELECT *`-sized: rows gain only `has_confidence` (0/1, computed with `EXISTS`), and the words load lazily per row through `db-get-transcription-confidence`.
+Upgrade: an existing profile gains all four tables and the trigger on next launch, and Task 6 and Task 11 test this by dropping them and reopening. Downgrade: older builds ignore the unknown tables. The trigger still fires on their `raw_text` writes, so a downgrade, then an edit, then an upgrade can never show stale scores (Task 6 tests the old build's exact `UPDATE`). History reads stay `SELECT *`-sized: rows gain only `has_confidence` (0/1, computed with `EXISTS`), and the words load lazily per row through `db-get-transcription-confidence`.
 
 ## Global Constraints
 
@@ -113,22 +137,29 @@ Upgrade: an existing profile gains all four tables on next launch, and Task 6 an
 
 ## Go/no-go gate (D7)
 
-Task 1 is a spike. Its report (`docs/superpowers/research/2026-10-ws-m4-confidence-spike.md`) decides, per engine, GO or NO-GO, against the criteria in Task 1 Step 5. Then:
+Task 1 is a spike. Its report (`docs/superpowers/research/2026-10-ws-m4-confidence-spike.md`) decides GO or NO-GO per engine, in two stages, each with explicit thresholds:
+- **Stage 1 (Task 1 Step 5).** G1: scores are present on ≥ 95 % of tokens. G3: whisper `verbose_json` costs ≤ 10 % + 50 ms over `json`. Measured on raw engine output.
+- **Stage 2 (Task 3 Step 6).** It runs the same `mergeTokensToWords` and `alignWordsToText` that storage uses.
+  - G2: ≥ 90 % of the saved transcript's lexical words carry a usable score.
+  - G4: the score separates real doubt from noise, on merged words.
+
+An engine is GO only if it passes both stages. If both engines fail stage 1, Part A stops before Task 3. Then:
 
 | Outcome | Tasks to run |
 |---|---|
-| whisper.cpp GO, sherpa-onnx GO | 2–18 |
-| whisper.cpp GO only | 2, 3, 4, 6–18. Skip 5, and remove `"sherpa-onnx"` from `ENGINES` in `src/helpers/wordConfidence.js` (Task 3). |
-| sherpa-onnx GO only | 2, 3, 5–18. Skip 4, and remove `"whisper.cpp"` from `ENGINES` in `src/helpers/wordConfidence.js` (Task 3). |
-| both NO-GO | 2, 11–18. WS-M4 stops after the spike report. Remove `labsConfidenceTypography` from Task 2 and the confidence rows from Tasks 17 and 18. |
+| whisper.cpp GO, sherpa-onnx GO | 2–20 |
+| whisper.cpp GO only | 2, 3, 4, 6–20. Skip 5, and remove `"sherpa-onnx"` from `ENGINES` in `src/helpers/wordConfidence.js` (Task 3). |
+| sherpa-onnx GO only | 2, 3, 5–20. Skip 4, and remove `"whisper.cpp"` from `ENGINES` in `src/helpers/wordConfidence.js` (Task 3). |
+| both NO-GO at stage 1 | 2, 11–17, 19, 20. WS-M4 stops after the spike report. Remove `labsConfidenceTypography` from Task 2 and the confidence rows from Tasks 17 and 20. |
+| both NO-GO at stage 2 | As above, plus Task 3 already merged. Its module is unused; delete `src/helpers/wordConfidence.js` and its test in one revert commit. |
 
-WS-M5 (Tasks 11–17) does not depend on the gate.
+WS-M5 (Tasks 11–17 and 19) does not depend on the gate. Task 18 (raw versus cleaned diff) belongs to WS-M4 and follows its gate.
 
 ## Review Focus
 
-1. **Alignment drift.** The engine's token text differs from the saved `raw_text` (inverse text normalisation "twenty" → "20", dictionary-echo recovery swapping in a retry result, whitespace normalisation, CJK without spaces, leading punctuation).
-   - A reasonable person expects a wrong underline to be impossible. A word with no exact, word-bounded match at or after the previous match is simply drawn plain.
-   - Pinned in Task 3 (`wordConfidence.test.js`: "words align… skip what changed", "a repeated word never jumps to a later occurrence", "CJK tokens are words of their own", the boundary test) and Task 7 (the retry result carries the retry's own confidence).
+1. **Alignment drift.** The engine's token text differs from the saved `raw_text` (inverse text normalisation "twenty" → "20", repeated words, dictionary-echo recovery swapping in a retry result, whitespace normalisation, CJK without spaces, leading punctuation).
+   - A reasonable person expects a wrong underline to be impossible. Alignment is positional, so a word keeps its score only where its position is unchanged, and everything in a changed region is drawn plain.
+   - Pinned in Task 3 (`wordConfidence.test.js`: "words align… skip what changed", "adjacent repeats", "an inserted word…", "a word that only shares a prefix…", "CJK tokens…") and Task 7 (the retry result carries the retry's own confidence).
 2. **Stale confidence after an edit or retry.** Retry rewrites `raw_text` (the `retry-transcription` handler at `ipcHandlers.js:5083` calls `updateTranscriptionText(id, result.text, result.text)` at `:5290`), and so does a manual edit (`update-transcription-text`, `:7929`). A user expects the old underlines to vanish, not to sit on the new words.
    - Pinned in Task 6: "confidence follows the raw text" and "a retry clears confidence even when it returns identical text".
 3. **Hostile or garbage payloads over IPC.** The renderer sends the words to `db-save-transcription`. Non-arrays, `NaN` or out-of-range probabilities, 64+ character "words", an unknown engine, or 20 001 words must never fail the save or bloat the DB.
@@ -152,8 +183,8 @@ Covers WS-M4 and D7. This task writes no app code.
 - Create (GO engines only): `test/fixtures/confidence/whisper-verbose.json`, `test/fixtures/confidence/sherpa-offline-tdt.json`
 
 **Interfaces:**
-- Produces fixtures that Task 3's tests read. Each fixture is the engine's raw JSON response for the synthetic sample below, unedited except for being pretty-printed.
-- Produces the gate decision table that every later Part A task obeys.
+- Produces fixtures that Task 3's tests and stage-2 gate read. Each fixture is the engine's raw JSON response for the synthetic sample below, unedited except for being pretty-printed.
+- Produces the stage-1 gate decision. Task 3 Step 6 adds stage 2, and every later Part A task obeys the combined result.
 
 **Background (desk research, 2026-10-14, from primary sources; the spike confirms it at runtime):**
 
@@ -191,23 +222,23 @@ Record a real voice sample of 20–30 s. It is for calibration only and is never
 ffmpeg -y -f avfoundation -i ":0" -t 25 -ar 16000 -ac 1 -c:a pcm_s16le /tmp/loqui-spike/voice.wav
 ```
 
-- [ ] **Step 2: Write the spike script**
+- [ ] **Step 2: Write the capture script**
 
-Create `scripts/spikes/word-confidence-spike.js`:
+Create `scripts/spikes/word-confidence-spike.js`. It only captures raw engine output and measures stage-1 facts. Word-level coverage and signal are measured in Task 3 Step 6, with the same merging and alignment code that storage uses.
 
 ```js
 #!/usr/bin/env node
-// WS-M4 spike (Plan 08 Task 1). Runs the pinned local engines against a 16 kHz
-// mono PCM16 WAV and prints/stores their raw confidence-bearing responses.
-// Dev tool only: it never reads a Loqui profile and makes no network calls
-// beyond 127.0.0.1.
+// WS-M4 spike, stage 1 (Plan 08 Task 1). Runs the pinned local engines against
+// a 16 kHz mono PCM16 WAV and writes their raw confidence-bearing responses to
+// --out. Prints G1 (scores present) and G3 (latency) facts. Dev tool only: it
+// never reads a Loqui profile and makes no network calls beyond 127.0.0.1.
 //
 //   node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/sample.wav \
+//     --out test/fixtures/confidence \
 //     --whisper-bin resources/bin/whisper-server-darwin-arm64 \
 //     --whisper-model /tmp/loqui-spike/ggml-base.bin \
 //     --sherpa-bin resources/bin/sherpa-onnx-ws-darwin-arm64 \
-//     --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3 \
-//     [--save]   # write test/fixtures/confidence/*.json (synthetic sample only)
+//     --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -215,15 +246,17 @@ const net = require("node:net");
 const path = require("node:path");
 const WebSocket = require("ws");
 
-const OUT_DIR = path.join(__dirname, "../../test/fixtures/confidence");
 const WHISPER_PORT = 8199;
 const SHERPA_PORT = 6029;
+const SPECIAL = /^\s*(\[_[A-Z]+_?\d*\]|<\|[^|]*\|>)\s*$/;
 
 const arg = (name) => {
   const i = process.argv.indexOf(`--${name}`);
   return i > -1 ? process.argv[i + 1] : null;
 };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+const isP = (p) => Number.isFinite(p) && p >= 0 && p <= 1;
 
 async function waitForPort(port, timeoutMs = 120000) {
   const started = Date.now();
@@ -260,10 +293,7 @@ function postInference(wav, fields) {
         port: WHISPER_PORT,
         path: "/inference",
         method: "POST",
-        headers: {
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
-          "Content-Length": body.length,
-        },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}`, "Content-Length": body.length },
       },
       (res) => {
         let data = "";
@@ -277,8 +307,7 @@ function postInference(wav, fields) {
 }
 
 function wavToFloat32(wav) {
-  const dataAt = wav.indexOf("data") + 8;
-  const pcm = wav.subarray(dataAt);
+  const pcm = wav.subarray(wav.indexOf("data") + 8);
   const out = Buffer.alloc((pcm.length / 2) * 4);
   for (let i = 0; i < pcm.length / 2; i++) out.writeFloatLE(pcm.readInt16LE(i * 2) / 32768, i * 4);
   return out;
@@ -305,28 +334,7 @@ function sherpaDecode(samples) {
   });
 }
 
-// Rough token→word check, independent of Task 3's module: the share of
-// whitespace words in the joined token text found, in order, in `text`.
-function orderedCoverage(tokenTexts, text) {
-  const joined = tokenTexts.join("").replace(/▁/g, " ").replace(/\s+/g, " ").trim();
-  const words = joined.split(" ").filter(Boolean);
-  const hay = text.replace(/\s+/g, " ").toLowerCase();
-  let cursor = 0;
-  let hits = 0;
-  for (const w of words) {
-    const at = hay.indexOf(w.toLowerCase(), cursor);
-    if (at !== -1) {
-      hits += 1;
-      cursor = at + w.length;
-    }
-  }
-  return words.length ? hits / words.length : 0;
-}
-
-const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
-const deciles = (ps) => [0.1, 0.25, 0.5, 0.75, 0.9].map((q) => [...ps].sort((a, b) => a - b)[Math.floor(q * (ps.length - 1))]);
-
-async function runWhisper(wav, save) {
+async function runWhisper(wav, out) {
   const child = spawn(arg("whisper-bin"), [
     "-m", arg("whisper-model"), "--host", "127.0.0.1", "--port", String(WHISPER_PORT), "--max-len", "4096",
   ], { stdio: "ignore" });
@@ -334,34 +342,28 @@ async function runWhisper(wav, save) {
     await waitForPort(WHISPER_PORT);
     const plain = [];
     const verbose = [];
-    for (let i = 0; i < 3; i++) {
+    let last = null;
+    for (let i = 0; i < 5; i++) {
       plain.push((await postInference(wav, { response_format: "json", language: "en" })).ms);
-      const v = await postInference(wav, { response_format: "verbose_json", no_language_probabilities: "true", language: "en" });
-      verbose.push(v.ms);
-      if (i === 2) {
-        const tokens = (v.json.segments || []).flatMap((s) => s.words || []);
-        const ps = tokens.map((t) => t.probability).filter((p) => Number.isFinite(p) && p >= 0 && p <= 1);
-        console.log(JSON.stringify({
-          engine: "whisper.cpp",
-          topLevelKeys: Object.keys(v.json),
-          segmentKeys: Object.keys(v.json.segments?.[0] || {}),
-          tokenKeys: Object.keys(tokens[0] || {}),
-          tokenCount: tokens.length,
-          probabilityShare: tokens.length ? ps.length / tokens.length : 0,
-          orderedCoverage: orderedCoverage(tokens.map((t) => t.word), String(v.json.text || "")),
-          probabilityDeciles: deciles(ps),
-          lowest: tokens.slice().sort((a, b) => a.probability - b.probability).slice(0, 8).map((t) => [t.word, t.probability]),
-          medianMs: { json: median(plain), verbose_json: median(verbose) },
-        }, null, 2));
-        if (save) fs.writeFileSync(path.join(OUT_DIR, "whisper-verbose.json"), JSON.stringify(v.json, null, 2) + "\n");
-      }
+      last = await postInference(wav, { response_format: "verbose_json", no_language_probabilities: "true", language: "en" });
+      verbose.push(last.ms);
     }
+    const tokens = (last.json.segments || []).flatMap((s) => s.words || []).filter((t) => !SPECIAL.test(t.word ?? ""));
+    console.log(JSON.stringify({
+      engine: "whisper.cpp",
+      topLevelKeys: Object.keys(last.json),
+      tokenKeys: Object.keys(tokens[0] || {}),
+      tokens: tokens.length,
+      g1ScoredShare: tokens.length ? tokens.filter((t) => isP(t.probability)).length / tokens.length : 0,
+      g3MedianMs: { json: median(plain), verbose_json: median(verbose) },
+    }, null, 2));
+    fs.writeFileSync(path.join(out, "whisper-verbose.json"), JSON.stringify(last.json, null, 2) + "\n");
   } finally {
     child.kill();
   }
 }
 
-async function runSherpa(wav, save) {
+async function runSherpa(wav, out) {
   const dir = arg("parakeet-dir");
   const child = spawn(arg("sherpa-bin"), [
     `--tokens=${path.join(dir, "tokens.txt")}`,
@@ -378,20 +380,16 @@ async function runSherpa(wav, save) {
     const r = await sherpaDecode(wavToFloat32(wav));
     const tokens = r.json.tokens || [];
     const lps = r.json.ys_log_probs || [];
-    const ps = lps.map((lp) => Math.exp(lp)).filter((p) => Number.isFinite(p) && p >= 0 && p <= 1);
     console.log(JSON.stringify({
       engine: "sherpa-onnx",
       keys: Object.keys(r.json),
-      tokenCount: tokens.length,
-      logProbCount: lps.length,
-      timestampCount: (r.json.timestamps || []).length,
-      probabilityShare: tokens.length ? ps.length / tokens.length : 0,
-      orderedCoverage: orderedCoverage(tokens, String(r.json.text || "")),
-      probabilityDeciles: deciles(ps),
-      lowest: tokens.map((t, i) => [t, Math.exp(lps[i])]).sort((a, b) => a[1] - b[1]).slice(0, 8),
+      tokens: tokens.length,
+      logProbs: lps.length,
+      timestamps: (r.json.timestamps || []).length,
+      g1ScoredShare: tokens.length && tokens.length === lps.length ? lps.map((lp) => Math.exp(lp)).filter(isP).length / tokens.length : 0,
       ms: r.ms,
     }, null, 2));
-    if (save) fs.writeFileSync(path.join(OUT_DIR, "sherpa-offline-tdt.json"), JSON.stringify(r.json, null, 2) + "\n");
+    fs.writeFileSync(path.join(out, "sherpa-offline-tdt.json"), JSON.stringify(r.json, null, 2) + "\n");
   } finally {
     child.kill();
   }
@@ -399,73 +397,73 @@ async function runSherpa(wav, save) {
 
 (async () => {
   const wav = fs.readFileSync(arg("wav"));
-  const save = process.argv.includes("--save");
-  if (save) fs.mkdirSync(OUT_DIR, { recursive: true });
-  if (arg("whisper-bin")) await runWhisper(wav, save);
-  if (arg("sherpa-bin")) await runSherpa(wav, save);
+  const out = arg("out");
+  fs.mkdirSync(out, { recursive: true });
+  if (arg("whisper-bin")) await runWhisper(wav, out);
+  if (arg("sherpa-bin")) await runSherpa(wav, out);
 })().catch((error) => {
   console.error(error);
   process.exit(1);
 });
 ```
 
-- [ ] **Step 3: Run it on the synthetic sample and save fixtures**
+- [ ] **Step 3: Capture the synthetic sample into the test fixtures**
 
 Run (adjust the binary names to your platform):
 
 ```bash
-node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/sample.wav \
-  --whisper-bin resources/bin/whisper-server-darwin-arm64 --whisper-model /tmp/loqui-spike/ggml-base.bin \
-  --sherpa-bin resources/bin/sherpa-onnx-ws-darwin-arm64 --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3 --save
-```
-
-Expected: two JSON summaries.
-- whisper: `tokenKeys` includes `word` and `probability`.
-- sherpa: `keys` includes `tokens` and `ys_log_probs`, with `tokenCount === logProbCount`.
-
-If a key differs from the background table (for example sherpa names it `token_log_probs`), record the real name in the report; Task 3 and Task 5 use the names from the report.
-
-- [ ] **Step 4: Run it on the real voice sample (no `--save`)**
-
-```bash
-node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/voice.wav \
+node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/sample.wav --out test/fixtures/confidence \
   --whisper-bin resources/bin/whisper-server-darwin-arm64 --whisper-model /tmp/loqui-spike/ggml-base.bin \
   --sherpa-bin resources/bin/sherpa-onnx-ws-darwin-arm64 --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3
 ```
 
-For each engine, listen to the recording and mark each of the 8 `lowest` words as *wrong*, *ambiguous* or *correct*. Then delete `/tmp/loqui-spike/voice.wav`.
+Expected: two JSON summaries.
+- whisper: `tokenKeys` includes `word` and `probability`.
+- sherpa: `keys` includes `tokens` and `ys_log_probs`, and `tokens === logProbs`.
 
-- [ ] **Step 5: Decide and write the report**
+If a key differs from the background table (for example sherpa names it `token_log_probs`), record the real name in the report. Task 3 uses the names from the report.
 
-An engine is **GO** only if all four hold on both samples:
-- **G1 data:** `probabilityShare ≥ 0.95`.
-- **G2 alignment:** `orderedCoverage ≥ 0.95`.
-- **G3 cost:**
-  - whisper: median `verbose_json` latency ≤ median `json` latency × 1.10 + 50 ms.
-  - sherpa: no request change is needed, so G3 passes by definition.
-- **G4 signal:** on the voice sample, at least 3 of the 8 lowest words are *wrong* or *ambiguous*, and on the synthetic sample at least 80 % of tokens have p ≥ 0.9.
-  - If G4 holds only with different cut-offs, the report proposes new values for `CONFIDENCE_THRESHOLDS` (default `{ sure: 0.9, maybe: 0.7 }`), and Task 8 uses them.
+- [ ] **Step 4: Capture the real voice sample outside the repo**
+
+```bash
+node scripts/spikes/word-confidence-spike.js --wav /tmp/loqui-spike/voice.wav --out /tmp/loqui-spike/voice \
+  --whisper-bin resources/bin/whisper-server-darwin-arm64 --whisper-model /tmp/loqui-spike/ggml-base.bin \
+  --sherpa-bin resources/bin/sherpa-onnx-ws-darwin-arm64 --parakeet-dir /tmp/loqui-spike/parakeet-tdt-0.6b-v3
+```
+
+Keep `/tmp/loqui-spike/voice/` and `voice.wav` until Task 3 Step 6, which scores them. Then delete both. They are never committed.
+
+- [ ] **Step 5: Stage-1 decision and report**
+
+Stage 1 is GO for an engine only if both of these hold on both samples:
+- **G1 (scores present):** `g1ScoredShare ≥ 0.95`. Special tokens are excluded.
+- **G3 (cost):**
+  - whisper: median `verbose_json` latency ≤ median `json` latency × 1.10 + 50 ms, over 5 runs.
+  - sherpa: needs no request change, so G3 passes by definition.
+
+Stage 2 (G2 coverage, G4 signal) runs in Task 3 Step 6, on the code that will actually store and draw the words. An engine is GO only if it passes both stages.
 
 Create `docs/superpowers/research/2026-10-ws-m4-confidence-spike.md` with these sections:
 1. **Question:** quote D7.
 2. **Method:** the samples, the binaries and model names, the commands from Steps 3–4.
-3. **Results:** paste both JSON summaries per sample. Redact nothing; the voice transcript is not included, only the per-token words in `lowest`.
-4. **Decision:** a table `engine | G1 | G2 | G3 | G4 | GO/NO-GO`, plus the threshold decision.
+3. **Stage 1 results:** paste the four JSON summaries, and state G1 and G3 per engine.
+4. **Stage 2 results:** a placeholder heading that Task 3 Step 6 fills in. If both engines fail stage 1, write "Not run: no engine passed stage 1" instead.
 5. **Data flow:** copy the "Data model and migration" section of this plan, and note any field-name corrections from Step 3.
 6. **Cloud engines:** copy the cloud rows of the background table, marked "not instrumented in Plan 08; follow-up candidates: gpt-4o(-mini)-transcribe logprobs, Deepgram and AssemblyAI streaming `words[].confidence`".
 
-Delete the fixture of any NO-GO engine.
+Delete the fixture of any engine that failed stage 1.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add scripts/spikes/word-confidence-spike.js docs/superpowers/research/2026-10-ws-m4-confidence-spike.md test/fixtures/confidence
-git commit -m "docs(spike): word confidence go/no-go for local speech engines (WS-M4)"
+git commit -m "docs(spike): Word confidence stage-1 gate for local speech engines (WS-M4)"
 ```
 
-Stop here and show the owner the decision table before starting Task 3. A NO-GO on both engines ends Part A (see the gate table).
+Stop here and show the owner the stage-1 table. If both engines failed stage 1, Part A ends (see the gate table).
 
 ---
+
 
 ### Task 2: Labs flags and the Labs settings panel
 
@@ -557,6 +555,8 @@ test("every locale names both Labs prototypes", () => {
   }
   const en = JSON.parse(fs.readFileSync(path.join(dir, "en", "translation.json"), "utf8"));
   assert.match(en.settingsPage.labs.confidence.description, /after you turn it on/, "sets expectations for older history");
+  assert.match(en.settingsPage.labs.table.description, /use your chat provider/, "AI actions are not promised to stay local");
+  assert.doesNotMatch(en.settingsPage.labs.description, /stay on this device/, "no blanket local-only claim");
 });
 ```
 
@@ -663,17 +663,17 @@ Expected: FAIL. Vite cannot resolve `/components/settings/LabsSettings.tsx`, `la
    node -e '
    const fs=require("fs"),p=require("path");
    const L={
-    en:["Labs","Prototypes that are still being shaped. They stay on this device and can be turned off at any time.","Confidence in transcripts","Words the speech engine was unsure about are drawn lighter and underlined. Works with local Whisper and Parakeet. Applies to dictations made after you turn it on.","The Table","A canvas view for a space: spread notes, dictations and answers out and link them."],
-    de:["Labs","Prototypen in Arbeit. Sie bleiben auf diesem Gerät und lassen sich jederzeit ausschalten.","Sicherheit im Transkript","Wörter, bei denen die Spracherkennung unsicher war, erscheinen heller und unterstrichen. Funktioniert mit lokalem Whisper und Parakeet. Gilt für Diktate, die du danach aufnimmst.","Der Tisch","Eine Leinwand für einen Bereich: Notizen, Diktate und Antworten auslegen und verbinden."],
-    es:["Labs","Prototipos aún en desarrollo. Se quedan en este dispositivo y puedes desactivarlos cuando quieras.","Confianza en las transcripciones","Las palabras de las que el motor de voz no estaba seguro se muestran más claras y subrayadas. Funciona con Whisper y Parakeet locales. Se aplica a los dictados que hagas después de activarla.","La Mesa","Un lienzo para un espacio: extiende notas, dictados y respuestas y enlázalos."],
-    fr:["Labs","Des prototypes encore en chantier. Ils restent sur cet appareil et se désactivent à tout moment.","Confiance dans les transcriptions","Les mots dont le moteur vocal doutait sont plus légers et soulignés. Fonctionne avec Whisper et Parakeet en local. S’applique aux dictées faites après l’activation.","La Table","Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les."],
-    it:["Labs","Prototipi ancora in lavorazione. Restano su questo dispositivo e puoi disattivarli quando vuoi.","Affidabilità nelle trascrizioni","Le parole su cui il motore vocale era incerto appaiono più chiare e sottolineate. Funziona con Whisper e Parakeet locali. Vale per le dettature fatte dopo averla attivata.","Il Tavolo","Una tela per uno spazio: disponi note, dettature e risposte e collegale."],
-    pt:["Labs","Protótipos ainda em evolução. Ficam neste dispositivo e podem ser desativados a qualquer momento.","Confiança nas transcrições","Palavras sobre as quais o mecanismo de voz tinha dúvidas aparecem mais leves e sublinhadas. Funciona com Whisper e Parakeet locais. Vale para ditados feitos depois de ativar.","A Mesa","Uma tela para um espaço: espalhe notas, ditados e respostas e ligue-os."],
-    ru:["Лаборатория","Прототипы в разработке. Они остаются на этом устройстве, их можно отключить в любой момент.","Уверенность в расшифровке","Слова, в которых распознавание не было уверено, показываются светлее и с подчёркиванием. Работает с локальными Whisper и Parakeet. Действует для диктовок, сделанных после включения.","Стол","Холст для пространства: раскладывайте заметки, диктовки и ответы и связывайте их."],
-    ja:["Labs","開発中のプロトタイプです。このデバイス上にとどまり、いつでもオフにできます。","文字起こしの確信度","音声エンジンが自信を持てなかった単語を細く、下線付きで表示します。ローカルの Whisper と Parakeet で動作します。オンにした後の音声入力に適用されます。","テーブル","スペース用のキャンバス。メモ、音声入力、回答を広げてつなげられます。"],
-    "zh-CN":["实验室","仍在打磨的原型功能。它们只在此设备上运行，可随时关闭。","转写置信度","语音引擎不确定的词会以较细字重并加下划线显示。适用于本地 Whisper 和 Parakeet。仅对开启后的听写生效。","桌面","空间的画布视图：铺开笔记、听写和回答并把它们连起来。"],
-    "zh-TW":["實驗室","仍在打磨的原型功能。它們只在此裝置上執行，可隨時關閉。","轉錄信心度","語音引擎不確定的字詞會以較細字重並加底線顯示。適用於本機 Whisper 與 Parakeet。僅對開啟後的聽寫生效。","桌面","空間的畫布檢視：鋪開筆記、聽寫與回答並將它們連起來。"],
-    ar:["المختبر","نماذج أولية ما زالت قيد التشكيل. تبقى على هذا الجهاز ويمكن إيقافها في أي وقت.","الثقة في النصوص المفرغة","تظهر الكلمات التي لم يكن محرك الكلام متأكدًا منها بخط أخف وتحتها خط. يعمل مع Whisper وParakeet المحليين. ينطبق على الإملاءات بعد تفعيله.","الطاولة","لوحة لمساحة: افرد الملاحظات والإملاءات والإجابات واربط بينها."]};
+    en:["Labs","Prototypes that are still being shaped. You can turn them off at any time.","Confidence in transcripts","Words the speech engine was unsure about are drawn lighter and underlined. Works with local Whisper and Parakeet. Applies to dictations made after you turn it on.","The Table","A canvas view for a space: spread notes, dictations and answers out and link them. Card positions stay on this device; Summarise and Ask use your chat provider."],
+    de:["Labs","Prototypen in Arbeit. Du kannst sie jederzeit ausschalten.","Sicherheit im Transkript","Wörter, bei denen die Spracherkennung unsicher war, erscheinen heller und unterstrichen. Funktioniert mit lokalem Whisper und Parakeet. Gilt für Diktate, die du danach aufnimmst.","Der Tisch","Eine Leinwand für einen Bereich: Notizen, Diktate und Antworten auslegen und verbinden. Kartenpositionen bleiben auf diesem Gerät; Zusammenfassen und Fragen nutzen deinen Chat-Anbieter."],
+    es:["Labs","Prototipos aún en desarrollo. Puedes desactivarlos cuando quieras.","Confianza en las transcripciones","Las palabras de las que el motor de voz no estaba seguro se muestran más claras y subrayadas. Funciona con Whisper y Parakeet locales. Se aplica a los dictados que hagas después de activarla.","La Mesa","Un lienzo para un espacio: extiende notas, dictados y respuestas y enlázalos. Las posiciones se quedan en este dispositivo; Resumir y Preguntar usan tu proveedor de chat."],
+    fr:["Labs","Des prototypes encore en chantier. Vous pouvez les désactiver à tout moment.","Confiance dans les transcriptions","Les mots dont le moteur vocal doutait sont plus légers et soulignés. Fonctionne avec Whisper et Parakeet en local. S’applique aux dictées faites après l’activation.","La Table","Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les. Les positions restent sur cet appareil ; Résumer et Demander utilisent votre fournisseur de chat."],
+    it:["Labs","Prototipi ancora in lavorazione. Puoi disattivarli quando vuoi.","Affidabilità nelle trascrizioni","Le parole su cui il motore vocale era incerto appaiono più chiare e sottolineate. Funziona con Whisper e Parakeet locali. Vale per le dettature fatte dopo averla attivata.","Il Tavolo","Una tela per uno spazio: disponi note, dettature e risposte e collegale. Le posizioni restano su questo dispositivo; Riassumi e Chiedi usano il tuo provider di chat."],
+    pt:["Labs","Protótipos ainda em evolução. Você pode desativá-los a qualquer momento.","Confiança nas transcrições","Palavras sobre as quais o mecanismo de voz tinha dúvidas aparecem mais leves e sublinhadas. Funciona com Whisper e Parakeet locais. Vale para ditados feitos depois de ativar.","A Mesa","Uma tela para um espaço: espalhe notas, ditados e respostas e ligue-os. As posições ficam neste dispositivo; Resumir e Perguntar usam seu provedor de chat."],
+    ru:["Лаборатория","Прототипы в разработке. Их можно отключить в любой момент.","Уверенность в расшифровке","Слова, в которых распознавание не было уверено, показываются светлее и с подчёркиванием. Работает с локальными Whisper и Parakeet. Действует для диктовок, сделанных после включения.","Стол","Холст для пространства: раскладывайте заметки, диктовки и ответы и связывайте их. Положение карточек хранится на этом устройстве; «Кратко изложить» и «Спросить» используют ваш чат-провайдер."],
+    ja:["Labs","開発中のプロトタイプです。いつでもオフにできます。","文字起こしの確信度","音声エンジンが自信を持てなかった単語を細く、下線付きで表示します。ローカルの Whisper と Parakeet で動作します。オンにした後の音声入力に適用されます。","テーブル","スペース用のキャンバス。メモ、音声入力、回答を広げてつなげられます。カードの配置はこのデバイスに保存され、要約と質問はチャットのプロバイダーを使います。"],
+    "zh-CN":["实验室","仍在打磨的原型功能。可随时关闭。","转写置信度","语音引擎不确定的词会以较细字重并加下划线显示。适用于本地 Whisper 和 Parakeet。仅对开启后的听写生效。","桌面","空间的画布视图：铺开笔记、听写和回答并把它们连起来。卡片位置保存在此设备上；总结和提问使用你的聊天服务提供方。"],
+    "zh-TW":["實驗室","仍在打磨的原型功能。可隨時關閉。","轉錄信心度","語音引擎不確定的字詞會以較細字重並加底線顯示。適用於本機 Whisper 與 Parakeet。僅對開啟後的聽寫生效。","桌面","空間的畫布檢視：鋪開筆記、聽寫與回答並將它們連起來。卡片位置保存在此裝置上；摘要與提問使用你的聊天服務提供者。"],
+    ar:["المختبر","نماذج أولية ما زالت قيد التشكيل. يمكنك إيقافها في أي وقت.","الثقة في النصوص المفرغة","تظهر الكلمات التي لم يكن محرك الكلام متأكدًا منها بخط أخف وتحتها خط. يعمل مع Whisper وParakeet المحليين. ينطبق على الإملاءات بعد تفعيله.","الطاولة","لوحة لمساحة: افرد الملاحظات والإملاءات والإجابات واربط بينها. تبقى مواضع البطاقات على هذا الجهاز، ويستخدم التلخيص والسؤال مزوّد الدردشة لديك."]};
    for(const [l,[title,desc,cl,cd,tl,td]] of Object.entries(L)){const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.settingsPage=j.settingsPage||{};j.settingsPage.labs={title,description:desc,confidence:{label:cl,description:cd},table:{label:tl,description:td}};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
    npx prettier --check "src/locales/**/translation.json" || npx prettier --write "src/locales/**/translation.json"
    ```
@@ -694,10 +694,14 @@ git commit -m "feat(settings): Labs panel with off-by-default prototype flags"
 
 ---
 
-### Task 3: Word confidence core (main process)
+### Task 3: Word confidence core (main process) and the stage-2 gate
+
+Run this only if at least one engine passed stage 1.
 
 **Files:**
 - Create: `src/helpers/wordConfidence.js` (CommonJS; required by main-process modules)
+- Create: `scripts/spikes/word-confidence-gate.js` (stage 2; dev tool)
+- Modify: `docs/superpowers/research/2026-10-ws-m4-confidence-spike.md` (the stage-2 section)
 - Test: `test/helpers/wordConfidence.test.js`
 
 **Interfaces:**
@@ -705,9 +709,12 @@ git commit -m "feat(settings): Labs panel with off-by-default prototype flags"
   - `ENGINES: Set<"whisper.cpp" | "sherpa-onnx">`, `MAX_WORDS = 20000`, `MAX_WORD_LENGTH = 64`
   - `tokensFromWhisperVerbose(json): Token[]`, where `Token = { text: string; p: number; t?: number }`
   - `tokensFromSherpaOffline(json, offsetSeconds = 0): Token[]`
-  - `offsetTokens(tokens: Token[] | undefined, seconds: number): Token[]`. This shifts `t` and forces a word boundary at the first token.
-  - `mergeTokensToWords(tokens: Token[]): Word[]`, where `Word = { w: string; p: number; t?: number }` and `p` is the geometric mean of the word's non-punctuation token probabilities, rounded to 3 decimals.
-  - `alignWordsToText(words: Word[], text: string): Stored[]`, where `Stored = { s: number; e: number; p: number; t?: number }`.
+  - `offsetTokens(tokens: Token[] | undefined, seconds: number): Token[]`. It shifts `t` and forces a word boundary at the first token.
+  - `mergeTokensToWords(tokens: Token[]): Word[]`, where `Word = { w: string; p: number; t?: number; n?: true }`:
+    - `p` is the geometric mean of the word's scored, non-punctuation tokens, rounded to 3 decimals. It is `NaN` for an unscored word (punctuation-only, or tokens without a usable score). Unscored words are kept so the layout stays exact.
+    - `n: true` means the word follows the previous one with no space (CJK).
+  - `alignWordsToText(words: Word[], text: string): Stored[]`, where `Stored = { s: number; e: number; p: number; t?: number }`. Alignment is **positional**. The engine's words are laid out as the engine wrote them and compared with the saved text. Only words inside the longest common prefix or the longest common suffix are kept. Everything in the changed middle is dropped, so a score can never move to another occurrence of the same word.
+  - `lexicalWordCount(text: string): number`. This is the gate's denominator: whitespace-separated chunks containing a letter or digit.
   - `buildStoredConfidence(input: { engine, words: Word[] } | null, rawText: string): { v: 1; engine; words: Stored[] } | null`
 - The **candidate** shape that crosses IPC (renderer → main) is `{ engine: "whisper.cpp" | "sherpa-onnx"; words: Word[] }`. Tasks 4–7 call it `confidence`.
 
@@ -725,26 +732,28 @@ const {
   MAX_WORDS,
   alignWordsToText,
   buildStoredConfidence,
+  lexicalWordCount,
   mergeTokensToWords,
   offsetTokens,
   tokensFromSherpaOffline,
   tokensFromWhisperVerbose,
 } = require("../../src/helpers/wordConfidence");
 
-// The first GO engine from the Task 1 gate; NO-GO engines are tested as refusals.
+// The first GO engine from the gate; NO-GO engines are tested as refusals.
 const ENGINE = [...ENGINES][0];
+const words = (...pairs) => pairs.map(([w, p, extra]) => ({ w, p, ...extra }));
+const covered = (raw, aligned) => aligned.map((a) => [raw.slice(a.s, a.e), a.p]);
 
 test("whisper tokens merge into words at leading-space boundaries", () => {
-  const words = mergeTokensToWords([
-    { text: " Mar", p: 0.6, t: 1.2 },
-    { text: "ia", p: 0.9, t: 1.3 },
-    { text: " wants", p: 0.95, t: 1.5 },
-    { text: ".", p: 0.2, t: 1.8 },
-  ]);
-  assert.deepEqual(words, [
-    { w: "Maria", p: 0.735, t: 1.2 },
-    { w: "wants.", p: 0.95, t: 1.5 },
-  ]);
+  assert.deepEqual(
+    mergeTokensToWords([
+      { text: " Mar", p: 0.6, t: 1.2 },
+      { text: "ia", p: 0.9, t: 1.3 },
+      { text: " wants", p: 0.95, t: 1.5 },
+      { text: ".", p: 0.2, t: 1.8 },
+    ]),
+    [{ w: "Maria", p: 0.735, t: 1.2 }, { w: "wants.", p: 0.95, t: 1.5 }]
+  );
 });
 
 test("sherpa pieces use ▁ as the boundary and log-probs become probabilities", () => {
@@ -776,79 +785,106 @@ test("whisper verbose_json words become tokens with start seconds", () => {
   assert.deepEqual(tokensFromWhisperVerbose({ text: "x" }), []);
 });
 
-test("special, byte-fallback and invalid tokens never become words", () => {
-  const words = mergeTokensToWords([
+test("special and byte-fallback tokens vanish; unscored text stays as an unscored word", () => {
+  const out = mergeTokensToWords([
     { text: "[_BEG_]", p: 1 },
     { text: " hello", p: 0.9 },
     { text: "<|endoftext|>", p: 1 },
     { text: "<0xE2>", p: 0.5 },
     { text: "[_TT_150]", p: 1 },
     { text: " a", p: Number.NaN },
-    { text: " b", p: 1.4 },
-    { text: " c", p: -0.1 },
+    { text: " -", p: 0.4 },
   ]);
-  assert.deepEqual(words.map((w) => w.w), ["hello"]);
+  assert.deepEqual(out.map((w) => w.w), ["hello", "a", "-"]);
+  assert.equal(out[0].p, 0.9);
+  assert.ok(Number.isNaN(out[1].p) && Number.isNaN(out[2].p), "kept for layout, never drawn");
 });
 
-test("CJK tokens are words of their own and keep trailing punctuation", () => {
-  const words = mergeTokensToWords([{ text: "定价", p: 0.9 }, { text: "周四", p: 0.6 }, { text: "。", p: 0.3 }]);
-  assert.deepEqual(words.map((w) => [w.w, w.p]), [["定价", 0.9], ["周四。", 0.6]]);
+test("CJK tokens are words of their own, joined without a space", () => {
+  const out = mergeTokensToWords([{ text: "定价", p: 0.9 }, { text: "周四", p: 0.6 }, { text: "。", p: 0.3 }]);
+  assert.deepEqual(out, [{ w: "定价", p: 0.9 }, { w: "周四。", p: 0.6, n: true }]);
   const raw = "定价周四。";
-  assert.deepEqual(alignWordsToText(words, raw).map((a) => raw.slice(a.s, a.e)), ["定价", "周四。"]);
+  assert.deepEqual(covered(raw, alignWordsToText(out, raw)), [["定价", 0.9], ["周四。", 0.6]]);
 });
 
 test("leading punctuation opens a word but does not score it", () => {
-  const words = mergeTokensToWords([{ text: " (", p: 0.1 }, { text: "see", p: 0.8 }, { text: ")", p: 0.1 }]);
-  assert.deepEqual(words, [{ w: "(see)", p: 0.8 }]);
+  assert.deepEqual(mergeTokensToWords([{ text: " (", p: 0.1 }, { text: "see", p: 0.8 }, { text: ")", p: 0.1 }]), [{ w: "(see)", p: 0.8 }]);
 });
 
 test("segment offsets shift time and force a boundary at the seam", () => {
-  const shifted = offsetTokens([{ text: "lo", p: 0.9, t: 0.2 }, { text: "▁there", p: 0.9, t: 0.4 }], 15);
-  assert.deepEqual(shifted, [{ text: " lo", p: 0.9, t: 15.2 }, { text: "▁there", p: 0.9, t: 15.4 }]);
+  assert.deepEqual(offsetTokens([{ text: "lo", p: 0.9, t: 0.2 }, { text: "▁there", p: 0.9, t: 0.4 }], 15), [
+    { text: " lo", p: 0.9, t: 15.2 },
+    { text: "▁there", p: 0.9, t: 15.4 },
+  ]);
   assert.deepEqual(offsetTokens(undefined, 15), []);
 });
 
-test("words align to the saved raw text by offset and skip what changed", () => {
-  const raw = "So the pricing change goes out on Thursday, not Monday. Call 20 people.";
-  const aligned = alignWordsToText(
-    ["So", "the", "pricing", "change", "goes", "out", "on", "thursday,", "not", "Monday.", "Call", "twenty", "people."].map(
-      (w, i) => ({ w, p: i === 7 ? 0.84 : 0.9 })
-    ),
-    raw
-  );
-  assert.deepEqual(aligned.map((a) => raw.slice(a.s, a.e)), [
-    "So", "the", "pricing", "change", "goes", "out", "on", "Thursday,", "not", "Monday.", "Call", "people.",
+test("identical text aligns every scored word by position, mapping through whitespace", () => {
+  const raw = "So  the\ntier.";
+  const out = alignWordsToText(words(["So", 0.97], ["the", 0.99], ["tier.", 0.64]), raw);
+  assert.deepEqual(covered(raw, out), [["So", 0.97], ["the", 0.99], ["tier.", 0.64]]);
+});
+
+test("a rewritten word drops; the words around it keep their own scores", () => {
+  const raw = "Call 20 people.";
+  const out = alignWordsToText(words(["Call", 0.9], ["twenty", 0.5], ["people.", 0.8]), raw);
+  assert.deepEqual(covered(raw, out), [["Call", 0.9], ["people.", 0.8]]);
+});
+
+test("adjacent repeats: the score stays on the occurrence that kept its position", () => {
+  const raw = "20 twenty";
+  assert.deepEqual(covered(raw, alignWordsToText(words(["twenty", 0.3], ["twenty", 0.8]), raw)), [["twenty", 0.8]]);
+  const raw2 = "twenty 20";
+  assert.deepEqual(covered(raw2, alignWordsToText(words(["twenty", 0.3], ["twenty", 0.8]), raw2)), [["twenty", 0.3]]);
+  const raw3 = "20 and twenty";
+  assert.deepEqual(covered(raw3, alignWordsToText(words(["twenty", 0.3], ["and", 0.9], ["twenty", 0.8]), raw3)), [
+    ["and", 0.9],
+    ["twenty", 0.8],
   ]);
-  assert.equal(aligned[7].p, 0.84, "a case-insensitive match keeps the engine score");
 });
 
-test("alignment never matches inside another word, past skipped words, or far ahead", () => {
-  const raw = "Monday on the mountain";
-  const aligned = alignWordsToText([{ w: "Monday", p: 0.9 }, { w: "on", p: 0.5 }], raw);
-  assert.deepEqual(aligned.map((a) => raw.slice(a.s, a.e)), ["Monday", "on"]);
-  assert.equal(aligned[1].s, 7, "not the 'on' inside Monday");
-  assert.deepEqual(alignWordsToText([{ w: "mountain", p: 0.5 }], raw), [], "three unsaid words cannot be skipped");
-  assert.deepEqual(alignWordsToText([{ w: "so", p: 0.5 }, { w: "the", p: 0.5 }], "Um so the").map((a) => a.s), [3, 6], "one extra saved word is tolerated");
-  const far = `${"x ".repeat(40)}target`;
-  assert.deepEqual(alignWordsToText([{ w: "target", p: 0.5 }], far), [], "beyond the 48-char lookahead");
+test("an inserted word in the saved text drops only what its region touches", () => {
+  const raw = "the big tier names";
+  const out = alignWordsToText(words(["the", 0.9], ["tier", 0.7], ["names", 0.8]), raw);
+  assert.deepEqual(covered(raw, out), [["the", 0.9], ["names", 0.8]]);
 });
 
-test("a repeated word never jumps to a later occurrence when the first was rewritten", () => {
-  const raw = "20 and twenty";
-  const aligned = alignWordsToText([{ w: "twenty", p: 0.3 }, { w: "and", p: 0.9 }, { w: "twenty", p: 0.8 }], raw);
-  assert.deepEqual(aligned.map((a) => [raw.slice(a.s, a.e), a.p]), [["and", 0.9], ["twenty", 0.8]]);
+test("a word that only shares a prefix with the saved word is not matched", () => {
+  const raw = "Mondays on";
+  assert.deepEqual(covered(raw, alignWordsToText(words(["Monday", 0.5], ["on", 0.9]), raw)), [["on", 0.9]]);
+});
+
+test("case is part of the text: a recased word is a change, not a match", () => {
+  const raw = "Thursday, not Monday.";
+  assert.deepEqual(covered(raw, alignWordsToText(words(["thursday,", 0.8], ["not", 0.9], ["Monday.", 0.7]), raw)), [
+    ["not", 0.9],
+    ["Monday.", 0.7],
+  ]);
+});
+
+test("unscored words anchor the layout but are never stored", () => {
+  const raw = "so - yes";
+  assert.deepEqual(covered(raw, alignWordsToText(words(["so", 0.9], ["-", Number.NaN], ["yes", 0.8]), raw)), [
+    ["so", 0.9],
+    ["yes", 0.8],
+  ]);
+});
+
+test("lexical words count letters and digits, not punctuation", () => {
+  assert.equal(lexicalWordCount("Call 20 people. — ok"), 4);
+  assert.equal(lexicalWordCount(""), 0);
 });
 
 test("stored payload is validated, aligned and versioned", () => {
   const raw = "Maria wants the tier names.";
   const stored = buildStoredConfidence(
-    { engine: ENGINE, words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }, { w: "", p: 0.5 }, { w: "tier", p: 2 }, { w: "names.", p: 0.88 }] },
+    { engine: ENGINE, words: [{ w: "Maria", p: 0.58, t: 1.2 }, { w: "wants", p: 0.91 }, { w: "the", p: 0.99 }, { w: "tier", p: 2 }, { w: "names.", p: 0.88 }] },
     raw
   );
   assert.deepEqual(stored, {
     v: 1,
     engine: ENGINE,
-    words: [{ s: 0, e: 5, p: 0.58, t: 1.2 }, { s: 6, e: 11, p: 0.91 }, { s: 21, e: 27, p: 0.88 }],
+    words: [{ s: 0, e: 5, p: 0.58, t: 1.2 }, { s: 6, e: 11, p: 0.91 }, { s: 12, e: 15, p: 0.99 }, { s: 21, e: 27, p: 0.88 }],
   });
   assert.equal(buildStoredConfidence({ engine: "deepgram", words: [{ w: "Maria", p: 0.5 }] }, raw), null, "unknown engine");
   assert.equal(buildStoredConfidence({ engine: ENGINE, words: [{ w: "zebra", p: 0.5 }] }, raw), null, "nothing aligned");
@@ -867,23 +903,24 @@ test("stored payload is validated, aligned and versioned", () => {
   }
 });
 
-for (const [file, toTokens] of [
-  ["whisper-verbose.json", tokensFromWhisperVerbose],
-  ["sherpa-offline-tdt.json", (json) => tokensFromSherpaOffline(json)],
+for (const [file, toTokens, normalise] of [
+  ["whisper-verbose.json", tokensFromWhisperVerbose, (t) => t.replace(/\n/g, " ").replace(/\s+/g, " ").trim()],
+  ["sherpa-offline-tdt.json", (json) => tokensFromSherpaOffline(json), (t) => t.trim()],
 ]) {
-  test(`spike fixture ${file}: at least 95% of words align to the engine's own text`, (t) => {
+  test(`spike fixture ${file}: at least 90% of lexical words carry a usable score`, (t) => {
     const fixture = path.join(__dirname, "../fixtures/confidence", file);
-    if (!fs.existsSync(fixture)) return t.skip("engine was NO-GO in the Task 1 spike");
+    if (!fs.existsSync(fixture)) return t.skip("engine was NO-GO in the spike");
     const json = JSON.parse(fs.readFileSync(fixture, "utf8"));
-    const words = mergeTokensToWords(toTokens(json));
-    const text = String(json.text).replace(/\s+/g, " ").trim();
-    const aligned = alignWordsToText(words, text);
-    assert.ok(words.length > 10, `${words.length} words`);
-    assert.ok(aligned.length / words.length >= 0.95, `${aligned.length}/${words.length} aligned`);
-    for (const a of aligned) assert.ok(a.p >= 0 && a.p <= 1 && a.e > a.s);
+    const saved = normalise(String(json.text));
+    const aligned = alignWordsToText(mergeTokensToWords(toTokens(json)), saved);
+    const lexical = lexicalWordCount(saved);
+    assert.ok(lexical > 10, `${lexical} lexical words`);
+    assert.ok(aligned.length / lexical >= 0.9, `${aligned.length}/${lexical} scored`);
   });
 }
 ```
+
+The `normalise` functions mirror what each engine's parse stores as `raw_text`: `normalizeWhitespace` (`src/helpers/whisper.js:529-531`) and `.trim()` (`src/helpers/parakeet.js:316`).
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -899,24 +936,21 @@ Create `src/helpers/wordConfidence.js`:
 //
 // Engines report per-token probabilities. This module turns tokens into words
 // and, at save time, pins each word to character offsets in the raw transcript
-// that was actually stored. Anything that does not line up exactly is dropped:
-// a word without data renders at normal weight, which is the honest fallback;
-// a word with the wrong data would be a lie.
+// that was actually stored. Alignment is positional, never a text search: the
+// engine's words are laid out as the engine wrote them, and only words inside
+// the common prefix or common suffix of that layout and the saved text keep
+// their score. Anything in between changed, so it is drawn plain. A wrong
+// underline is worse than none.
 
 const ENGINES = new Set(["whisper.cpp", "sherpa-onnx"]);
 const MAX_WORDS = 20000;
 const MAX_WORD_LENGTH = 64;
-// How far past the previous match a word may be found. Covers a few words the
-// engine text and the saved text disagree on (ITN, cleanup) without letting a
-// common word ("the") jump to a far-away occurrence.
-const ALIGN_LOOKAHEAD = 48;
 
 const SPECIAL_TOKEN = /^\s*(\[_[A-Z]+_?\d*\]|<\|[^|]*\|>|<unk>|<blk>|<s>|<\/s>)\s*$/;
 const BYTE_TOKEN = /^<0x[0-9A-Fa-f]{2}>$/;
 const PUNCT_ONLY = /^[\p{P}\p{S}]+$/u;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const CJK_GLOBAL = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
-const WORD_CHAR = /[\p{L}\p{N}]/u;
+const LEXICAL = /[\p{L}\p{N}]/u;
 
 const round3 = (n) => Math.round(n * 1000) / 1000;
 const isProbability = (p) => typeof p === "number" && Number.isFinite(p) && p >= 0 && p <= 1;
@@ -963,28 +997,36 @@ function mergeTokensToWords(tokens) {
   const words = [];
   let current = null;
   const flush = () => {
-    if (current && current.scores.length) {
-      const meanLog =
-        current.scores.reduce((sum, p) => sum + Math.log(Math.max(p, 1e-6)), 0) / current.scores.length;
-      words.push({
-        w: current.text,
-        p: round3(Math.exp(meanLog)),
-        ...(current.t !== undefined ? { t: current.t } : {}),
-      });
-    }
+    if (!current) return;
+    const scored = current.scores.length > 0 && current.scores.every(isProbability);
+    const meanLog = scored
+      ? current.scores.reduce((sum, p) => sum + Math.log(Math.max(p, 1e-6)), 0) / current.scores.length
+      : Number.NaN;
+    words.push({
+      w: current.text,
+      p: scored ? round3(Math.exp(meanLog)) : Number.NaN,
+      ...(current.t !== undefined ? { t: current.t } : {}),
+      ...(current.joined ? { n: true } : {}),
+    });
     current = null;
   };
 
   for (const token of Array.isArray(tokens) ? tokens : []) {
-    if (!token || typeof token.text !== "string" || !isProbability(token.p)) continue;
+    if (!token || typeof token.text !== "string") continue;
     const text = token.text.replace(/▁/g, " ");
     const bare = text.trim();
     if (!bare || SPECIAL_TOKEN.test(text) || BYTE_TOKEN.test(bare)) continue;
     const isPunct = PUNCT_ONLY.test(bare);
-    const startsWord = /^\s/.test(text) || !current || (CJK.test(bare) && !isPunct);
+    const spaced = /^\s/.test(text);
+    const startsWord = spaced || !current || (CJK.test(bare) && !isPunct);
     if (startsWord) {
       flush();
-      current = { text: bare, scores: isPunct ? [] : [token.p], t: token.t };
+      current = {
+        text: bare,
+        scores: isPunct ? [] : [token.p],
+        t: token.t,
+        joined: !spaced && words.length > 0,
+      };
     } else {
       current.text += bare;
       // Punctuation rides along with its word but never lowers its score.
@@ -995,60 +1037,68 @@ function mergeTokensToWords(tokens) {
   return words;
 }
 
-function findWord(text, lowerText, word, from) {
-  const useLower = lowerText !== null && word.toLowerCase().length === word.length;
-  const hay = useLower ? lowerText : text;
-  const needle = useLower ? word.toLowerCase() : word;
-  const checkBoundary = !CJK.test(word);
-  let at = hay.indexOf(needle, from);
-  while (at !== -1 && at - from <= ALIGN_LOOKAHEAD) {
-    const end = at + needle.length;
-    if (!checkBoundary || (!WORD_CHAR.test(text[at - 1] ?? "") && !WORD_CHAR.test(text[end] ?? ""))) {
-      return at;
+// The saved text with whitespace runs collapsed to one space and trimmed, plus
+// the index in the original string of every kept character.
+function normaliseWithMap(text) {
+  let norm = "";
+  const map = [];
+  for (let i = 0; i < text.length; i++) {
+    if (/\s/.test(text[i])) {
+      if (norm && !norm.endsWith(" ")) {
+        norm += " ";
+        map.push(i);
+      }
+    } else {
+      norm += text[i];
+      map.push(i);
     }
-    at = hay.indexOf(needle, at + 1);
   }
-  return -1;
-}
-
-// Word count of a stretch of saved text. A CJK character counts as one unit,
-// matching how CJK tokens become words in mergeTokensToWords.
-function wordUnits(text) {
-  let units = 0;
-  for (const run of text.match(/[\p{L}\p{N}]+/gu) ?? []) {
-    const cjk = run.match(CJK_GLOBAL)?.length ?? 0;
-    units += cjk + (run.replace(CJK_GLOBAL, "").length ? 1 : 0);
+  if (norm.endsWith(" ")) {
+    norm = norm.slice(0, -1);
+    map.pop();
   }
-  return units;
+  return { norm, map };
 }
-
-const engineUnits = (word) => (CJK.test(word) ? (word.match(CJK_GLOBAL)?.length ?? 1) : 1);
 
 function alignWordsToText(words, text) {
-  if (typeof text !== "string" || !text) return [];
-  const lower = text.toLowerCase();
-  const lowerText = lower.length === text.length ? lower : null;
+  if (typeof text !== "string" || !text || !Array.isArray(words) || words.length === 0) return [];
+  // 1. Lay the words out exactly as the engine wrote them.
+  let layout = "";
+  const spans = words.map((word, i) => {
+    if (i > 0 && !word.n) layout += " ";
+    const s = layout.length;
+    layout += word.w;
+    return { s, e: layout.length };
+  });
+  // 2. Compare with the saved text, position by position.
+  const { norm, map } = normaliseWithMap(text);
+  let prefix = 0;
+  while (prefix < layout.length && prefix < norm.length && layout[prefix] === norm[prefix]) prefix++;
+  const identical = prefix === layout.length && prefix === norm.length;
+  let suffix = 0;
+  const maxSuffix = Math.min(layout.length, norm.length) - prefix;
+  while (suffix < maxSuffix && layout[layout.length - 1 - suffix] === norm[norm.length - 1 - suffix]) suffix++;
+  // 3. Keep a word only if it sits wholly inside the shared prefix (with the
+  //    character after it shared too) or the shared suffix (with the character
+  //    before it shared too). That is a word boundary in both texts.
   const out = [];
-  let cursor = 0;
-  // Engine words not found since the last match. A match is accepted only if
-  // the saved text skipped at most one word more than the engine did (slack
-  // for a split or inserted token), so "twenty and twenty" saved as
-  // "20 and twenty" can never pin the first word's score on the second "twenty".
-  let skipped = 0;
-  for (const word of words) {
-    const at = findWord(text, lowerText, word.w, cursor);
-    if (at === -1 || wordUnits(text.slice(cursor, at)) > skipped + 1) {
-      skipped += engineUnits(word.w);
-      continue;
-    }
-    // Words with an unusable score still anchor the walk; they are never drawn.
-    if (isProbability(word.p)) {
-      out.push({ s: at, e: at + word.w.length, p: word.p, ...(word.t !== undefined ? { t: word.t } : {}) });
-    }
-    cursor = at + word.w.length;
-    skipped = 0;
-  }
+  spans.forEach((span, i) => {
+    const word = words[i];
+    if (!isProbability(word.p)) return;
+    let at;
+    if (identical || span.e < prefix) at = span.s;
+    else if (layout.length - span.s < suffix) at = norm.length - (layout.length - span.s);
+    else return;
+    const end = at + (span.e - span.s);
+    out.push({ s: map[at], e: map[end - 1] + 1, p: word.p, ...(word.t !== undefined ? { t: word.t } : {}) });
+  });
   return out;
+}
+
+function lexicalWordCount(text) {
+  return String(text || "")
+    .split(/\s+/)
+    .filter((chunk) => LEXICAL.test(chunk)).length;
 }
 
 function sanitizeWords(words) {
@@ -1059,10 +1109,12 @@ function sanitizeWords(words) {
     if (word.w.length > MAX_WORD_LENGTH) return null;
     const w = word.w.trim();
     if (!w) continue;
+    // A word with an unusable score still anchors the layout; it is never drawn.
     clean.push({
       w,
       p: isProbability(word.p) ? round3(word.p) : Number.NaN,
       ...(Number.isFinite(word.t) && word.t >= 0 ? { t: round3(word.t) } : {}),
+      ...(word.n === true ? { n: true } : {}),
     });
   }
   return clean.some((word) => isProbability(word.p)) ? clean : null;
@@ -1082,6 +1134,7 @@ module.exports = {
   MAX_WORD_LENGTH,
   alignWordsToText,
   buildStoredConfidence,
+  lexicalWordCount,
   mergeTokensToWords,
   offsetTokens,
   tokensFromSherpaOffline,
@@ -1091,19 +1144,114 @@ module.exports = {
 
 If the spike report recorded a different sherpa field name (for example `token_log_probs`), use that name in `tokensFromSherpaOffline` and in its test.
 
+The positional cases in the tests, traced:
+- **`"20 twenty"`.** The engine layout is `"twenty twenty"`. The shared prefix is 0 characters and the shared suffix is `" twenty"` (7). Only the second word sits inside the suffix with its preceding space shared, so its own 0.8 is kept.
+- **`"Mondays on"`.** The layout is `"Monday on"`. The shared prefix is `"Monday"`, but the next character differs (`s` versus a space), so `Monday` is not kept.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- test/helpers/wordConfidence.test.js`
-Expected: PASS. The fixture tests pass for GO engines and skip for NO-GO engines.
+Expected: PASS. The fixture tests pass for engines that passed stage 1 and skip for the others.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/helpers/wordConfidence.js test/helpers/wordConfidence.test.js
-git commit -m "feat(stt): merge engine tokens into aligned word confidence"
+git commit -m "feat(stt): Merge engine tokens into positionally aligned word confidence"
 ```
 
+- [ ] **Step 6: Stage-2 gate (G2 coverage, G4 signal) on merged words**
+
+Create `scripts/spikes/word-confidence-gate.js`:
+
+```js
+#!/usr/bin/env node
+// WS-M4 spike, stage 2 (Plan 08 Task 3). Scores captured engine output with
+// the same merging and alignment that storage uses, then prints G2 and the G4
+// candidates. Reads JSON written by word-confidence-spike.js.
+//
+//   node scripts/spikes/word-confidence-gate.js --dir test/fixtures/confidence
+//   node scripts/spikes/word-confidence-gate.js --dir /tmp/loqui-spike/voice --lowest 8
+const fs = require("node:fs");
+const path = require("node:path");
+const {
+  alignWordsToText,
+  lexicalWordCount,
+  mergeTokensToWords,
+  tokensFromSherpaOffline,
+  tokensFromWhisperVerbose,
+} = require("../../src/helpers/wordConfidence");
+
+const arg = (name) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i > -1 ? process.argv[i + 1] : null;
+};
+const dir = arg("dir");
+const lowest = Number(arg("lowest") || 0);
+const ENGINES = [
+  ["whisper.cpp", "whisper-verbose.json", tokensFromWhisperVerbose, (t) => t.replace(/\n/g, " ").replace(/\s+/g, " ").trim()],
+  ["sherpa-onnx", "sherpa-offline-tdt.json", (j) => tokensFromSherpaOffline(j), (t) => t.trim()],
+];
+
+for (const [engine, file, toTokens, normalise] of ENGINES) {
+  const full = path.join(dir, file);
+  if (!fs.existsSync(full)) continue;
+  const json = JSON.parse(fs.readFileSync(full, "utf8"));
+  const saved = normalise(String(json.text));
+  const merged = mergeTokensToWords(toTokens(json));
+  const aligned = alignWordsToText(merged, saved);
+  const lexical = lexicalWordCount(saved);
+  const bucket = (p) => (p >= 0.9 ? "sure" : p >= 0.7 ? "maybe" : "unsure");
+  const buckets = { sure: 0, maybe: 0, unsure: 0 };
+  for (const a of aligned) buckets[bucket(a.p)] += 1;
+  const distinct = new Map();
+  for (const a of aligned) {
+    const word = saved.slice(a.s, a.e).replace(/[\p{P}\p{S}]+$/u, "").toLowerCase();
+    if (!distinct.has(word) || distinct.get(word) > a.p) distinct.set(word, a.p);
+  }
+  console.log(JSON.stringify({
+    engine,
+    lexicalWords: lexical,
+    scoredWords: aligned.length,
+    g2Coverage: lexical ? Number((aligned.length / lexical).toFixed(3)) : 0,
+    buckets,
+    sureShare: aligned.length ? Number((buckets.sure / aligned.length).toFixed(3)) : 0,
+    ...(lowest ? { lowestDistinctWords: [...distinct].sort((a, b) => a[1] - b[1]).slice(0, lowest) } : {}),
+  }, null, 2));
+}
+```
+
+Run it on both samples:
+
+```bash
+node scripts/spikes/word-confidence-gate.js --dir test/fixtures/confidence
+node scripts/spikes/word-confidence-gate.js --dir /tmp/loqui-spike/voice --lowest 8
+```
+
+Stage 2 is GO for an engine only if all of these hold:
+- **G2 (usable coverage):** `g2Coverage ≥ 0.90` on both samples. That is scored words over the saved transcript's lexical words, after merging and positional alignment.
+- **G4 (signal), on merged distinct words:**
+  - On the synthetic sample, `sureShare ≥ 0.80`.
+  - On the voice sample, at least 3 of the 8 `lowestDistinctWords` are labelled *wrong* or *ambiguous*. Listen to the recording and label each one:
+    - **wrong:** the written word is not what was said;
+    - **ambiguous:** what was said has more than one valid spelling (a homophone, a name, a number written as words or digits);
+    - **correct:** otherwise.
+  - **Revised gate G4′.** If G4 fails only because of the cut-offs, the report may propose new `CONFIDENCE_THRESHOLDS` (default `{ sure: 0.9, maybe: 0.7 }`) as an explicitly named revised gate. Re-run the script with those cut-offs (change the `bucket` function, then revert it) and record both runs. G4′ needs the owner's approval at the stop below, and Task 8 then uses its thresholds. No other exception exists.
+
+Fill in the report's "Stage 2 results" section with the four summaries, the 8 labels, and a final table: `engine | G1 | G2 | G3 | G4 (or G4′) | GO/NO-GO`. Then:
+- delete `/tmp/loqui-spike/voice/` and `voice.wav`;
+- delete the fixture of any engine that failed stage 2;
+- remove that engine from `ENGINES` in `src/helpers/wordConfidence.js`. The `NO-GO` loop in the test covers the refusal.
+
+```bash
+git add scripts/spikes/word-confidence-gate.js docs/superpowers/research/2026-10-ws-m4-confidence-spike.md test/fixtures/confidence src/helpers/wordConfidence.js
+git commit -m "docs(spike): Word confidence stage-2 gate on merged words (WS-M4)"
+```
+
+Stop and show the owner the final gate table before Task 4.
+
 ---
+
 
 ### Task 4: whisper.cpp — request `verbose_json` behind the option and parse words
 
@@ -1608,16 +1756,43 @@ test("deleting, clearing and retention purge confidence with the transcription",
   assert.equal(confidenceRows(db), 0);
 });
 
+test("an older build's edit after a downgrade never leaves stale scores", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const { id } = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT });
+  // The pre-Plan-08 statement (src/helpers/database.js:607): it always names raw_text.
+  const oldBuildUpdate = db.db.prepare("UPDATE transcriptions SET text = ?, raw_text = ? WHERE id = ?");
+  oldBuildUpdate.run("Never do this", "Never do this", id);
+  assert.equal(db.getTranscriptionConfidence(id), null, "a different raw text drops the scores");
+  const second = db.saveTranscription("Maria wants it.", "Maria wants it.", { confidence: INPUT }).id;
+  oldBuildUpdate.run("Maria wants it!", "Maria wants it.", second);
+  assert.equal(db.getTranscriptionConfidence(second), null, "even an identical raw text from an old build drops them");
+});
+
+test("stored scores are compact: the word cap stays under 650 KB", (t) => {
+  const db = createDb(t);
+  if (!db) return;
+  const raw = Array.from({ length: 20000 }, (_, i) => `w${i % 1000}`).join(" ");
+  const many = { engine: ENGINE, words: raw.split(" ").map((w, i) => ({ w, p: 0.734, t: i * 0.321 })) };
+  const { id } = db.saveTranscription(raw, raw, { confidence: many });
+  const { words_json } = db.db.prepare("SELECT words_json FROM transcription_confidence WHERE transcription_id = ?").get(id);
+  assert.ok(words_json.length < 650000, `${words_json.length} bytes (measured ≈ 570 KB)`);
+  assert.equal(db.getTranscriptionConfidence(id).words.length, 20000);
+});
+
 test("a profile created before Plan 08 gains the table on open and keeps its history", (t) => {
   const db = createDb(t);
   if (!db) return;
   const { id } = db.saveTranscription("older row", "older row");
-  db.db.exec("DROP TABLE transcription_confidence");
+  db.db.exec("DROP TRIGGER transcription_confidence_raw_text; DROP TABLE transcription_confidence");
   db.db.close();
   const reopened = new DatabaseManager();
   t.after(() => reopened.db.close());
   assert.ok(
     reopened.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcription_confidence'").get()
+  );
+  assert.ok(
+    reopened.db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'transcription_confidence_raw_text'").get()
   );
   assert.equal(reopened.getTranscriptionById(id).text, "older row");
   assert.equal(reopened.getTranscriptionById(id).has_confidence, 0);
@@ -1635,7 +1810,7 @@ Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTransc
 
    ```sql
    -- Word-level recognition confidence (Plan 08, WS-M4, Labs). One row per
-   -- transcription; words_json is [{s,e,p,t?}] with s/e as offsets into raw_text.
+   -- transcription; words_json is [[s,e,p(,t)]] tuples with s/e as offsets into raw_text.
    -- A side table so existing profiles gain it from this idempotent script and
    -- history's SELECT * rows stay small.
    CREATE TABLE IF NOT EXISTS transcription_confidence (
@@ -1644,6 +1819,14 @@ Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTransc
      words_json TEXT NOT NULL,
      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
    );
+   -- Any write that names raw_text drops the scores, even one made by an older
+   -- build that knows nothing of this table (downgrade, edit, upgrade). The
+   -- trigger lives in the database file, so it travels with the profile.
+   CREATE TRIGGER IF NOT EXISTS transcription_confidence_raw_text
+   AFTER UPDATE OF raw_text ON transcriptions
+   BEGIN
+     DELETE FROM transcription_confidence WHERE transcription_id = NEW.id;
+   END;
    ```
 
 2. `src/helpers/database.js`:
@@ -1689,11 +1872,13 @@ Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTransc
          if (!input) return false;
          const stored = buildStoredConfidence(input, rawText);
          if (!stored) return false;
+         // Compact tuples: ~28 bytes a word, so the 20 000-word cap is ≈ 570 KB.
+         const tuples = stored.words.map((w) => (w.t === undefined ? [w.s, w.e, w.p] : [w.s, w.e, w.p, w.t]));
          this.db
            .prepare(
              "INSERT OR REPLACE INTO transcription_confidence (transcription_id, engine, words_json) VALUES (?, ?, ?)"
            )
-           .run(id, stored.engine, JSON.stringify(stored.words));
+           .run(id, stored.engine, JSON.stringify(tuples));
          return true;
        }
      ```
@@ -1707,13 +1892,15 @@ Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTransc
            );
      ```
 
-   - `updateTranscriptionText`. Inside the transaction, before `stmt.run(text, rawText, id);`, add:
+   - `updateTranscriptionText`. Write `raw_text` only when it changes, so a cleaned-text edit keeps the scores and the trigger drops them on every real raw-text change. Replace `stmt.run(text, rawText, id);` inside the transaction with:
 
      ```js
-             // Words are pinned to raw_text offsets; a new raw text (edit or retry)
-             // makes them lie, so they go.
-             if (existing && existing.raw_text !== rawText) {
-               this.db.prepare("DELETE FROM transcription_confidence WHERE transcription_id = ?").run(id);
+             // Naming raw_text in the SET fires transcription_confidence_raw_text,
+             // so only do it when it actually changes.
+             if (existing && existing.raw_text === rawText) {
+               this.db.prepare("UPDATE transcriptions SET text = ? WHERE id = ?").run(text, id);
+             } else {
+               stmt.run(text, rawText, id);
              }
      ```
 
@@ -1736,7 +1923,8 @@ Expected: FAIL. `transcription.has_confidence` is `undefined`, and `db.getTransc
            .get(id);
          if (!row) return null;
          try {
-           return { v: 1, engine: row.engine, words: JSON.parse(row.words_json) };
+           const words = JSON.parse(row.words_json).map(([s, e, p, t]) => (t === undefined ? { s, e, p } : { s, e, p, t }));
+           return { v: 1, engine: row.engine, words };
          } catch (error) {
            debugLogger.warn("Unreadable transcription confidence", { id, error: error.message }, "database");
            return null;
@@ -2714,6 +2902,13 @@ test("cleaned text that differs from the raw text stays plain in the list", asyn
   assert.match(html.slice(html.indexOf("controlPanel.history.rawTranscript")), /confidence-text[^"]*"[^>]*data-show="true"/);
 });
 
+test("the raw paragraph satisfies Plan 06's token guard in both branches", () => {
+  const src = fs.readFileSync(path.join(repoRoot, "src/components/ui/TranscriptionItem.tsx"), "utf8");
+  assert.doesNotMatch(src, /\btext-muted-foreground\/\d+/);
+  assert.doesNotMatch(src, /\btext-\[\d+(\.\d+)?px\]/);
+  assert.match(src, /className=\{RAW_TEXT_CLASS\}[\s\S]*className=\{RAW_TEXT_CLASS\}/);
+});
+
 test("rows from engines without data never show the toggle", async (t) => {
   const html = await renderRow(t, { settings: ON, item: { ...ITEM, has_confidence: 0 } });
   assert.doesNotMatch(html, /history\.confidence\./);
@@ -2855,7 +3050,9 @@ Expected: FAIL. No `confidence-text` appears, and `en history.confidence` is mis
              )}
      ```
 
-   - Replace the raw paragraph at `:314-316` with:
+   - Replace the raw paragraph at `:314-316` with the block below. Above the component, define `const RAW_TEXT_CLASS = "mt-1 text-caption leading-relaxed text-muted-foreground";`.
+     - Plan 06 Task 25's `workspaceTokenAdoption.test.js` scans this file and rejects `text-muted-foreground/NN` and arbitrary `text-[Npx]` sizes. Its migration maps the old `text-muted-foreground/80` to full `text-muted-foreground`, and readable small text to `text-caption`.
+     - If Plan 06 left this paragraph with different compliant classes, use exactly those for `RAW_TEXT_CLASS`, so both branches stay identical.
 
      ```tsx
                    {hasConfidence ? (
@@ -2863,11 +3060,11 @@ Expected: FAIL. No `confidence-text` appears, and `en history.confidence` is mis
                        text={rawText}
                        confidence={confidence}
                        show
-                       className="mt-1 text-xs leading-relaxed text-muted-foreground/80"
+                       className={RAW_TEXT_CLASS}
                        renderWord={renderConfidenceWord}
                      />
                    ) : (
-                     <p dir="auto" className="mt-1 text-xs leading-relaxed text-muted-foreground/80">
+                     <p dir="auto" className={RAW_TEXT_CLASS}>
                        {rawText}
                      </p>
                    )}
@@ -2938,7 +3135,7 @@ Expected: FAIL. No `confidence-text` appears, and `en history.confidence` is mis
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/transcriptionItemConfidence.test.js test/components/confidenceText.test.js && npm run i18n:check && npm run typecheck`
+Run: `npm test -- test/components/transcriptionItemConfidence.test.js test/components/confidenceText.test.js test/components/workspaceTokenAdoption.test.js && npm run i18n:check && npm run typecheck`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -3962,7 +4159,10 @@ git commit -m "feat(table): pure canvas geometry for pan, zoom, lasso and focus"
   export function buildCards(entities: TableEntity[], measured?: Record<string, number>): TableCardModel[];
   export function deriveEdges(cards: TableCardModel[], links: TableLink[], parseHref: (href: string) => TableEntityRef | null): Array<{ a: string; b: string }>;
   export function plainExcerpt(markdown: string, max?: number): string;
-  export function buildSelectionContext(spaceName: string, entities: TableEntity[]): string;
+  export const SELECTION_AI_LIMIT = 12;   // Summarise and Ask take at most 12 cards; the bar says so
+  export function buildSelectionContext(spaceName: string, entities: TableEntity[]): string;   // every given item, no silent cut
+  export function buildBoardContext(spaceName: string, entities: TableEntity[]): string;       // nothing selected: names the total, includes the first 12
+  export function pinSelection(spaceName: string, entities: TableEntity[]): { keys: string[]; context: string } | { error: "empty" | "tooMany" };
   export function buildGroupedNote(entities: TableEntity[], labels: { title: string; untitled: string; kind: Record<TableCardKind, string> }): { title: string; content: string };
   export function dictationEntityFromItem(item: TranscriptionItem): TableEntity;
   export interface TableState { board: TableBoardData | null; measured: Record<string, number>; overrides: Record<string, Point>; selection: string[]; focused: string | null; viewport: Viewport }
@@ -4065,6 +4265,25 @@ test("selection context names the space and fences each item", async () => {
   assert.match(ctx, /^The user selected 2 items on the canvas of the space "Work"\./);
   assert.match(ctx, /<item type="note" title="He said &quot;hi&quot;"/);
   assert.match(ctx, /<item type="dictation" title=""/);
+});
+
+test("pinning freezes up to 12 selected items and refuses more, never truncating", async () => {
+  const { pinSelection, SELECTION_AI_LIMIT } = await load();
+  assert.equal(SELECTION_AI_LIMIT, 12);
+  const twelve = Array.from({ length: 12 }, (_, i) => entity("note", i + 1));
+  const pin = pinSelection("Work", twelve);
+  assert.equal(pin.keys.length, 12);
+  assert.match(pin.context, /^The user selected 12 items/);
+  assert.equal((pin.context.match(/<item /g) || []).length, 12);
+  assert.deepEqual(pinSelection("Work", [...twelve, entity("note", 13)]), { error: "tooMany" });
+  assert.deepEqual(pinSelection("Work", []), { error: "empty" });
+});
+
+test("board context names the total and says which items it left out", async () => {
+  const { buildBoardContext } = await load();
+  const ctx = buildBoardContext("Work", Array.from({ length: 20 }, (_, i) => entity("note", i + 1)));
+  assert.match(ctx, /holds 20 cards\. Excerpts of the first 12 are below; the rest are not included\./);
+  assert.equal((ctx.match(/<item /g) || []).length, 12);
 });
 
 test("grouped notes list every source, untitled dictations by kind", async () => {
@@ -4186,7 +4405,7 @@ import { autoPlace, DEFAULT_VIEWPORT, snapToGrid, type Point, type Rect, type Vi
 
 export const CARD_WIDTH: Record<TableCardKind, number> = { note: 280, meeting: 320, dictation: 220, chat: 340 };
 export const CARD_HEIGHT_ESTIMATE: Record<TableCardKind, number> = { note: 152, meeting: 176, dictation: 112, chat: 176 };
-const CONTEXT_ITEMS = 12;
+export const SELECTION_AI_LIMIT = 12;
 const CONTEXT_CHARS = 600;
 
 export const refKey = (ref: TableEntityRef) => `${ref.type}:${ref.id}`;
@@ -4268,14 +4487,33 @@ export function plainExcerpt(markdown: string, max = 240): string {
 
 const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
+const itemBlock = (e: TableEntity) =>
+  `<item type="${e.kind}" title="${escapeAttr(e.title ?? "")}" at="${escapeAttr(e.at)}">\n${e.excerpt.slice(0, CONTEXT_CHARS)}\n</item>`;
+
 // Instructions to the model, not UI copy: English like useContainerChat's context.
+// Every given item is included; callers enforce SELECTION_AI_LIMIT up front.
 export function buildSelectionContext(spaceName: string, entities: TableEntity[]): string {
-  const header = `The user selected ${entities.length} items on the canvas of the space "${spaceName}". Answer about these items only.`;
-  const blocks = entities.slice(0, CONTEXT_ITEMS).map(
-    (e) =>
-      `<item type="${e.kind}" title="${escapeAttr(e.title ?? "")}" at="${escapeAttr(e.at)}">\n${e.excerpt.slice(0, CONTEXT_CHARS)}\n</item>`
-  );
-  return [header, ...blocks].join("\n\n");
+  const header = `The user selected ${entities.length} items on the canvas of the space "${spaceName}". Answer about these items only. Each item is an excerpt.`;
+  return [header, ...entities.map(itemBlock)].join("\n\n");
+}
+
+export function buildBoardContext(spaceName: string, entities: TableEntity[]): string {
+  const shown = entities.slice(0, SELECTION_AI_LIMIT);
+  const header =
+    `The user is looking at the canvas of the space "${spaceName}", which holds ${entities.length} cards. ` +
+    (shown.length < entities.length
+      ? `Excerpts of the first ${shown.length} are below; the rest are not included.`
+      : "Excerpts of all of them are below.");
+  return [header, ...shown.map(itemBlock)].join("\n\n");
+}
+
+export function pinSelection(
+  spaceName: string,
+  entities: TableEntity[]
+): { keys: string[]; context: string } | { error: "empty" | "tooMany" } {
+  if (entities.length === 0) return { error: "empty" };
+  if (entities.length > SELECTION_AI_LIMIT) return { error: "tooMany" };
+  return { keys: entities.map((e) => refKey(e.ref)), context: buildSelectionContext(spaceName, entities) };
 }
 
 export function buildGroupedNote(
@@ -4929,7 +5167,8 @@ test("meeting cards show initials, durations and the kind label", async () => {
 test("CSS: physical world, reduced motion drops the spring, tokens meet 3:1", async () => {
   const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
   assert.match(css, /\.table-world\s*\{[^}]*left:\s*0;[^}]*transform-origin:\s*0 0;/);
-  assert.match(css, /\.table-card\[data-snapping="true"\]\s*\{[^}]*var\(--motion-spring-snap\)/);
+  assert.match(css, /\.table-card\[data-snapping="true"\]\s*\{[^}]*var\(--motion-slow\) var\(--motion-spring-snap\)/);
+  assert.doesNotMatch(css.slice(css.indexOf("/* The Table (WS-M5")), /\b\d+ms\b/, "Table motion uses shared duration tokens only");
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.table-card\[data-snapping="true"\]\s*\{\s*transition:\s*none;/);
   assert.match(css, /\.table-card\[data-kind="chat"\]\s*\{[^}]*border-inline-start:[^}]*var\(--color-agent-brand\)/);
   assert.match(css, /\.table-card\s*\{[^}]*border:\s*1px solid var\(--color-table-card-border\)/);
@@ -5075,7 +5314,7 @@ import { TableCard } from "./TableCard";
 import type { TableCardModel } from "./tableModel";
 
 export const TABLE_REF_MIME = "application/x-loqui-table-ref";
-const SNAP_MS = 380;
+const SNAP_MS = 360; // matches --motion-slow, the shared duration the snap spring runs on
 const ZOOM_STEP = 1.2;
 
 export interface TableCanvasProps {
@@ -5114,6 +5353,9 @@ export function TableCanvas(props: TableCanvasProps) {
   onResizeRef.current = props.onResize;
   // One pointer owns a gesture; a second touch never hijacks it.
   const pointerIdRef = useRef<number | null>(null);
+  // Pointer moves are coalesced to one per animation frame.
+  const frameRef = useRef<number | null>(null);
+  const latestPoint = useRef<Point | null>(null);
 
   const placed = useMemo(() => cards.map((c) => ({ id: c.key, rect: c.rect })), [cards]);
   const byKey = useMemo(() => new Map(cards.map((c) => [c.key, c])), [cards]);
@@ -5190,14 +5432,17 @@ export function TableCanvas(props: TableCanvasProps) {
     rootRef.current?.setPointerCapture(event.pointerId);
   };
 
-  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerId !== pointerIdRef.current) return;
-    const { gesture, effect } = move(gestureRef.current, local(event));
+  const applyMove = () => {
+    frameRef.current = null;
+    const point = latestPoint.current;
+    if (!point) return;
+    const { gesture, effect } = move(gestureRef.current, point);
     gestureRef.current = gesture;
     if (!effect) return;
     if (effect.type === "viewport") props.onViewport(effect.viewport, false);
     if (effect.type === "positions") {
-      setDragging(Object.keys(effect.positions));
+      const keys = Object.keys(effect.positions);
+      setDragging((current) => (current.length === keys.length ? current : keys));
       props.onMove(effect.positions);
     }
     if (effect.type === "lasso") {
@@ -5205,10 +5450,21 @@ export function TableCanvas(props: TableCanvasProps) {
       props.onSelect(lassoSelect(placed, effect.rect, viewport));
     }
   };
+  const cancelFrame = () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== pointerIdRef.current) return;
+    latestPoint.current = local(event);
+    if (frameRef.current === null) frameRef.current = requestAnimationFrame(applyMove);
+  };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerId !== pointerIdRef.current) return;
     pointerIdRef.current = null;
+    cancelFrame(); // release() computes from the final point itself
     const effect = release(gestureRef.current, local(event));
     gestureRef.current = { kind: "idle" };
     setDragging([]);
@@ -5228,6 +5484,7 @@ export function TableCanvas(props: TableCanvasProps) {
   const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerId !== pointerIdRef.current) return;
     pointerIdRef.current = null;
+    cancelFrame();
     const effect = cancel(gestureRef.current);
     gestureRef.current = { kind: "idle" };
     setDragging([]);
@@ -5458,8 +5715,8 @@ In `src/index.css`:
   }
   .table-card[data-snapping="true"] {
     transition:
-      left 380ms var(--motion-spring-snap),
-      top 380ms var(--motion-spring-snap);
+      left var(--motion-slow) var(--motion-spring-snap),
+      top var(--motion-slow) var(--motion-spring-snap);
   }
   .table-card__kind {
     display: flex;
@@ -5602,13 +5859,48 @@ test("an empty inbox says so", async (t) => {
   assert.match(html, /table\.inbox\.empty/);
 });
 
+const READY = { locality: "remote", providerId: "openai", model: "gpt-x", state: { status: "ready" } };
+const CHIP_STUBS = {
+  "/routing/RouteChips": `
+    import { createElement } from "react";
+    export const RouteDestinationChip = ({ route }) => createElement("span", { "data-route-chip": route.locality, "data-provider": route.providerId });
+    export const RouteStateChip = ({ state }) => createElement("span", { "data-route-state": state.status });`,
+};
+const bar = (t, props, mocks = CHIP_STUBS) =>
+  render(t, "/components/table/TableSelectionBar.tsx", "TableSelectionBar", {
+    count: 3, busy: false, route: READY, onSummarise() {}, onAsk() {}, onGroup() {}, onRemove() {}, ...props,
+  }, mocks);
+const disabled = (html, key) => new RegExp(`<button(?=[^>]*disabled)[^>]*>${key.replace(/\./g, "\\.")}<`).test(html);
+
 test("the selection bar is a toolbar with the four CCR-5 actions and no Delete", async (t) => {
-  const html = await render(t, "/components/table/TableSelectionBar.tsx", "TableSelectionBar", {
-    count: 3, busy: false, onSummarise() {}, onAsk() {}, onGroup() {}, onRemove() {},
-  });
+  const html = await bar(t, {});
   assert.match(html, /role="toolbar"/);
   for (const k of ["count", "summarise", "ask", "group", "remove"]) assert.match(html, new RegExp(`table\\.selection\\.${k}`));
   assert.doesNotMatch(html, /delete/i);
+});
+
+test("the bar shows where Summarise and Ask will send before anything is sent", async (t) => {
+  const html = await bar(t, {});
+  assert.match(html, /data-route-chip="remote"[^>]*data-provider="openai"/);
+  assert.equal(disabled(html, "table.selection.summarise"), false);
+});
+
+test("a route that cannot run disables the AI actions and says why", async (t) => {
+  const html = await bar(t, { route: { ...READY, state: { status: "needsKey", provider: "OpenAI" } } });
+  assert.match(html, /data-route-state="needsKey"/);
+  assert.ok(disabled(html, "table.selection.summarise") && disabled(html, "table.selection.ask"));
+  assert.equal(disabled(html, "table.selection.group"), false, "grouping is local and stays available");
+});
+
+test("more than 12 selected cards disables AI actions and explains the limit", async (t) => {
+  const html = await bar(t, { count: 13 });
+  assert.ok(disabled(html, "table.selection.summarise") && disabled(html, "table.selection.ask"));
+  assert.match(html, /table\.selection\.limit/);
+});
+
+test("composition: the real route chip draws Plan 01's LocalityRing", async (t) => {
+  const html = await bar(t, {}, {});
+  assert.match(html, /role="img"[^>]*data-locality="remote"|data-locality="remote"[^>]*role="img"/);
 });
 
 test("TableView composes toolbar, canvas, inbox and a live status region", async (t) => {
@@ -5634,9 +5926,12 @@ test("TableView composes toolbar, canvas, inbox and a live status region", async
                    activeConversationId: null, switchConversation: async () => {}, startNewChat() {} };
         }`,
       "/overview/OverviewAskSection": `export function OverviewAskSection() { return null; }`,
+      "/lib/routes": `export const useResolvedRoute = () => (${JSON.stringify({ id: "chat", kind: "text", locality: "remote", provider: "OpenAI", providerId: "openai", model: "gpt-x", state: { status: "ready" }, sends: "x", settingsPath: "llms/chat" })});`,
+      ...CHIP_STUBS,
     }
   );
   assert.match(html, /SWITCH/);
+  assert.match(html, /table-toolbar__route[^>]*><span data-route-chip="remote"/, "the chat route is visible on the Table itself");
   assert.match(html, /role="toolbar"[^>]*aria-label="table\.view\.label"/);
   assert.match(html, /table\.zoomOut/);
   assert.match(html, /table\.resetView/);
@@ -5653,6 +5948,9 @@ test("every locale carries the table strings with their placeholders", () => {
     assert.match(tbl.canvasLabel, /\{\{space\}\}/, lang);
     assert.match(tbl.zoomLevel, /\{\{percent\}\}/, lang);
     assert.match(tbl.selection.count, /\{\{count\}\}/, lang);
+    assert.match(tbl.selection.limit, /\{\{limit\}\}/, lang);
+    assert.match(tbl.ask.pinned, /\{\{count\}\}/, lang);
+    assert.ok(tbl.ask.wholeTable, `${lang}.table.ask.wholeTable`);
     assert.match(tbl.card.label, /\{\{kind\}\}/, lang);
     for (const k of ["note", "meeting", "dictation", "chat"]) assert.ok(tbl.kind[k], `${lang}.table.kind.${k}`);
   }
@@ -5854,11 +6152,15 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
 
    ```tsx
    import { useTranslation } from "react-i18next";
+   import type { ResolvedRoute } from "../../lib/routes";
+   import { RouteDestinationChip, RouteStateChip } from "../settings/routing/RouteChips";
    import { Button } from "../ui/button";
+   import { SELECTION_AI_LIMIT } from "./tableModel";
 
    export interface TableSelectionBarProps {
      count: number;
      busy: boolean;
+     route: Pick<ResolvedRoute, "locality" | "providerId" | "model" | "state">;
      onSummarise: () => void;
      onAsk: () => void;
      onGroup: () => void;
@@ -5866,16 +6168,21 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
    }
 
    // CCR-5: nothing here deletes content. Summarise and Ask go through the
-   // Space's own chat, so the route, its locality and Sealed mode all apply.
-   export function TableSelectionBar({ count, busy, onSummarise, onAsk, onGroup, onRemove }: TableSelectionBarProps) {
+   // Space's own chat; the destination (LocalityRing + provider) is on the bar
+   // before anything is sent, and a route that cannot run disables them.
+   export function TableSelectionBar({ count, busy, route, onSummarise, onAsk, onGroup, onRemove }: TableSelectionBarProps) {
      const { t } = useTranslation();
+     const tooMany = count > SELECTION_AI_LIMIT;
+     const routeReady = route.state.status === "ready";
+     const aiDisabled = busy || tooMany || !routeReady;
      return (
        <div role="toolbar" aria-label={t("table.selection.count", { count })} className="table-selbar">
          <span className="table-selbar__count">{t("table.selection.count", { count })}</span>
-         <Button size="sm" variant="ghost" className="table-selbar__machine" disabled={busy} onClick={onSummarise}>
+         {routeReady ? <RouteDestinationChip route={route} /> : <RouteStateChip state={route.state} />}
+         <Button size="sm" variant="ghost" className="table-selbar__machine" disabled={aiDisabled} onClick={onSummarise}>
            {t("table.selection.summarise")}
          </Button>
-         <Button size="sm" variant="ghost" disabled={busy} onClick={onAsk}>
+         <Button size="sm" variant="ghost" disabled={aiDisabled} onClick={onAsk}>
            {t("table.selection.ask")}
          </Button>
          <Button size="sm" variant="ghost" disabled={busy} onClick={onGroup}>
@@ -5884,6 +6191,7 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
          <Button size="sm" variant="ghost" onClick={onRemove}>
            {t("table.selection.remove")}
          </Button>
+         {tooMany && <span className="table-selbar__note">{t("table.selection.limit", { limit: SELECTION_AI_LIMIT })}</span>}
        </div>
      );
    }
@@ -5894,27 +6202,29 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
 5. Create `src/components/table/TableView.tsx`:
 
    ```tsx
-   import { useEffect, useMemo, useRef, useState } from "react";
+   import { useCallback, useEffect, useMemo, useRef, useState } from "react";
    import type { ReactNode } from "react";
    import { useTranslation } from "react-i18next";
    import { useContainerChat } from "../../hooks/useContainerChat";
+   import { useResolvedRoute } from "../../lib/routes";
    import type { NoteItem, SpaceItem } from "../../types/electron";
    import type { TableEntityRef } from "../../types/table";
    import { OverviewAskSection } from "../notes/overview/OverviewAskSection";
+   import { RouteDestinationChip, RouteStateChip } from "../settings/routing/RouteChips";
    import { Button } from "../ui/button";
    import { TableCanvas } from "./TableCanvas";
    import { TableInbox } from "./TableInbox";
    import { TableSelectionBar } from "./TableSelectionBar";
    import { fitViewport, screenToWorld, snapToGrid, zoomAt, type Point } from "./tableGeometry";
-   import { buildGroupedNote, buildSelectionContext, parseRefKey, placementsFor } from "./tableModel";
+   import { buildBoardContext, buildGroupedNote, parseRefKey, pinSelection, placementsFor } from "./tableModel";
    import { useTableBoard } from "./useTableBoard";
 
-   const BOARD_CONTEXT_ITEMS = 12;
    // The Table sends its own context; a stable empty list keeps useContainerChat's memo quiet.
    const NO_NOTES: NoteItem[] = [];
    const RELOAD_AFTER_CHAT_MS = 600;
 
    interface PendingResult { sources: string[]; at: Point }
+   interface Pinned { keys: string[]; context: string }
 
    export default function TableView({
      space,
@@ -5928,9 +6238,17 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
      const { t } = useTranslation();
      const board = useTableBoard(space.id);
      const { state, cards, edges, dispatch } = board;
+     const stateRef = useRef(state);
+     stateRef.current = state;
+     // Where Summarise and Ask send: shown before anything is sent (spec §4,
+     // "local and remote choices stay explicit"). Same resolver the chat uses.
+     const chatRoute = useResolvedRoute("chat");
      const [askOpen, setAskOpen] = useState(false);
      const [expanded, setExpanded] = useState<string | null>(null);
      const [busy, setBusy] = useState(false);
+     // The selection is frozen when Ask or Summarise starts: changing the
+     // selection afterwards never changes what the answer was about.
+     const [pinned, setPinned] = useState<Pinned | null>(null);
      const pending = useRef<PendingResult | null>(null);
      const canvasSize = useRef({ width: 1200, height: 800 });
 
@@ -5938,18 +6256,27 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        () => cards.filter((c) => state.selection.includes(c.key)).map((c) => c.entity),
        [cards, state.selection]
      );
-     const context = useMemo(
-       () => buildSelectionContext(space.name, selected.length ? selected : cards.slice(0, BOARD_CONTEXT_ITEMS).map((c) => c.entity)),
-       [cards, selected, space.name]
-     );
-     const chat = useContainerChat({ space, folder: null, notes: NO_NOTES, contextOverride: context });
+     const boardContext = useMemo(() => buildBoardContext(space.name, cards.map((c) => c.entity)), [cards, space.name]);
+     const chat = useContainerChat({ space, folder: null, notes: NO_NOTES, contextOverride: pinned?.context ?? boardContext });
+
+     const belowSelection = (): Point => {
+       const rects = cards.filter((c) => state.selection.includes(c.key)).map((c) => c.rect);
+       if (!rects.length) return screenToWorld({ x: canvasSize.current.width / 2, y: canvasSize.current.height / 2 }, state.viewport);
+       const cx = rects.reduce((sum, r) => sum + r.x + r.w / 2, 0) / rects.length;
+       const bottom = Math.max(...rects.map((r) => r.y + r.h));
+       return { x: snapToGrid(cx - 140), y: snapToGrid(bottom + 40) };
+     };
 
      // Summarise and Ask both start a fresh conversation. The prompt is sent
      // only after the reset has rendered, so the sender never reuses the old
      // conversation id or history (useChatMessageSender captures them per render).
      const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
      const startFromSelection = (prompt: string | null) => {
-       pending.current = { sources: [...state.selection], at: belowSelection() };
+       if (chatRoute.state.status !== "ready") return;
+       const pin = pinSelection(space.name, selected);
+       if ("error" in pin) return;
+       setPinned(pin);
+       pending.current = { sources: pin.keys, at: belowSelection() };
        setAskOpen(true);
        chat.startNewChat();
        if (prompt) setQueuedPrompt(prompt);
@@ -5961,18 +6288,20 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        setBusy(true);
        void chat.sendMessage(prompt).finally(() => setBusy(false));
      }, [chat.activeConversationId, chat.messages.length, chat.sendMessage, queuedPrompt]);
-     // Switching to another conversation abandons a pending table answer.
+     // Switching conversation or starting a plain new chat abandons the pin.
      const switchConversation = (id: number) => {
        pending.current = null;
+       setPinned(null);
        return chat.switchConversation(id);
      };
      const newChat = () => {
        pending.current = null;
+       setPinned(null);
        chat.startNewChat();
      };
 
      // An answer created from the table (Summarise or Ask) becomes a card below
-     // its sources, linked to them, as soon as its conversation exists.
+     // its pinned sources, linked to them, as soon as its conversation exists.
      useEffect(() => {
        const result = pending.current;
        if (!result || chat.activeConversationId == null) return;
@@ -5993,14 +6322,6 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        const id = setTimeout(() => void board.reload(), RELOAD_AFTER_CHAT_MS);
        return () => clearTimeout(id);
      }, [board.reload, chat.messages.length, chat.agentState]);
-
-     const belowSelection = (): Point => {
-       const rects = cards.filter((c) => state.selection.includes(c.key)).map((c) => c.rect);
-       if (!rects.length) return screenToWorld({ x: canvasSize.current.width / 2, y: canvasSize.current.height / 2 }, state.viewport);
-       const cx = rects.reduce((sum, r) => sum + r.x + r.w / 2, 0) / rects.length;
-       const bottom = Math.max(...rects.map((r) => r.y + r.h));
-       return { x: snapToGrid(cx - 140), y: snapToGrid(bottom + 40) };
-     };
 
      const group = async () => {
        setBusy(true);
@@ -6028,22 +6349,66 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
        }
      };
 
-     const open = (key: string) => {
-       const ref = parseRefKey(key);
-       if (!ref) return;
-       if (ref.type === "note") onOpenNote(ref.id);
-       else if (ref.type === "chat") {
-         setAskOpen(true);
-         void switchConversation(ref.id);
-       } else setExpanded((current) => (current === key ? null : key));
-     };
+     const open = useCallback(
+       (key: string) => {
+         const ref = parseRefKey(key);
+         if (!ref) return;
+         if (ref.type === "note") onOpenNote(ref.id);
+         else if (ref.type === "chat") {
+           setAskOpen(true);
+           pending.current = null;
+           setPinned(null);
+           void chat.switchConversation(ref.id);
+         } else setExpanded((current) => (current === key ? null : key));
+       },
+       [chat.switchConversation, onOpenNote]
+     );
 
-     const placeFromInbox = (key: string, world?: Point) => {
-       const ref = parseRefKey(key);
-       if (!ref) return;
-       const at = world ?? screenToWorld({ x: canvasSize.current.width / 2, y: canvasSize.current.height / 2 }, state.viewport);
-       void board.place([{ ...ref, x: snapToGrid(at.x), y: snapToGrid(at.y) }]);
-     };
+     const placeFromInbox = useCallback(
+       (key: string, world?: Point) => {
+         const ref = parseRefKey(key);
+         if (!ref) return;
+         const at =
+           world ??
+           screenToWorld({ x: canvasSize.current.width / 2, y: canvasSize.current.height / 2 }, stateRef.current.viewport);
+         void board.place([{ ...ref, x: snapToGrid(at.x), y: snapToGrid(at.y) }]);
+       },
+       [board.place]
+     );
+
+     // Stable handlers: the canvas re-renders on every pointer frame, and a new
+     // function identity would reconnect every card's ResizeObserver.
+     const onMove = useCallback((positions: Record<string, Point>) => dispatch({ type: "moved", positions }), [dispatch]);
+     const onDrop = useCallback(
+       (positions: Record<string, Point>) =>
+         void board.place(placementsFor(stateRef.current, Object.keys(positions), positions)),
+       [board.place]
+     );
+     const onClickCard = useCallback((key: string, additive: boolean) => dispatch({ type: "clickCard", key, additive }), [dispatch]);
+     const onSelect = useCallback((keys: string[]) => dispatch({ type: "select", keys }), [dispatch]);
+     const onFocus = useCallback((key: string | null) => dispatch({ type: "focus", key }), [dispatch]);
+     const onRemove = useCallback((keys: string[]) => void board.hide(keys), [board.hide]);
+     const onNudge = useCallback(
+       (keys: string[], dx: number, dy: number) => {
+         const current = stateRef.current;
+         const positions = Object.fromEntries(
+           board.cards.filter((c) => keys.includes(c.key)).map((c) => [c.key, { x: c.rect.x + dx, y: c.rect.y + dy }])
+         );
+         void board.place(placementsFor(current, keys, positions));
+       },
+       [board.cards, board.place]
+     );
+     const onMeasure = useCallback((key: string, h: number) => dispatch({ type: "measured", key, h }), [dispatch]);
+     const onResize = useCallback((size: { width: number; height: number }) => {
+       canvasSize.current = size;
+     }, []);
+
+     const routeChip =
+       chatRoute.state.status === "ready" ? (
+         <RouteDestinationChip route={chatRoute} />
+       ) : (
+         <RouteStateChip state={chatRoute.state} />
+       );
 
      const status =
        board.status === "full"
@@ -6069,13 +6434,14 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
              {t("table.resetView")}
            </Button>
            <span className="table-toolbar__hint">{t("table.hint")}</span>
-           <Button size="sm" variant="ghost" className="ms-auto" aria-expanded={askOpen} onClick={() => setAskOpen((v) => !v)}>
+           <span className="ms-auto table-toolbar__route">{routeChip}</span>
+           <Button size="sm" variant="ghost" aria-expanded={askOpen} onClick={() => setAskOpen((v) => !v)}>
              {t(askOpen ? "table.ask.close" : "table.ask.open")}
            </Button>
          </div>
          <p role="status" aria-live="polite" className="table-status">{status}</p>
          <div className="table-body">
-           <TableInbox entities={state.board?.inbox ?? []} onPlace={(key) => placeFromInbox(key)} />
+           <TableInbox entities={state.board?.inbox ?? []} onPlace={placeFromInbox} />
            <TableCanvas
              cards={cards}
              edges={edges}
@@ -6085,27 +6451,26 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
              expanded={expanded}
              label={t("table.canvasLabel", { space: space.name })}
              onViewport={board.setViewport}
-             onMove={(positions) => dispatch({ type: "moved", positions })}
-             onDrop={(positions) => void board.place(placementsFor(state, Object.keys(positions), positions))}
-             onClickCard={(key, additive) => dispatch({ type: "clickCard", key, additive })}
-             onSelect={(keys) => dispatch({ type: "select", keys })}
-             onFocus={(key) => dispatch({ type: "focus", key })}
+             onMove={onMove}
+             onDrop={onDrop}
+             onClickCard={onClickCard}
+             onSelect={onSelect}
+             onFocus={onFocus}
              onOpen={open}
-             onRemove={(keys) => void board.hide(keys)}
-             onNudge={(keys, dx, dy) => {
-               const positions = Object.fromEntries(
-                 cards.filter((c) => keys.includes(c.key)).map((c) => [c.key, { x: c.rect.x + dx, y: c.rect.y + dy }])
-               );
-               void board.place(placementsFor(state, keys, positions));
-             }}
-             onMeasure={(key, h) => dispatch({ type: "measured", key, h })}
-             onDropRef={(key, world) => placeFromInbox(key, world)}
-             onResize={(size) => {
-               canvasSize.current = size;
-             }}
+             onRemove={onRemove}
+             onNudge={onNudge}
+             onMeasure={onMeasure}
+             onDropRef={placeFromInbox}
+             onResize={onResize}
            />
            {askOpen && (
              <aside className="table-ask" aria-label={t("table.ask.open")}>
+               <div className="table-ask__head">
+                 {routeChip}
+                 <p className="table-ask__scope">
+                   {pinned ? t("table.ask.pinned", { count: pinned.keys.length }) : t("table.ask.wholeTable")}
+                 </p>
+               </div>
                <OverviewAskSection
                  messages={chat.messages}
                  agentState={chat.agentState}
@@ -6124,6 +6489,7 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
            <TableSelectionBar
              count={state.selection.length}
              busy={busy}
+             route={chatRoute}
              onSummarise={() => startFromSelection(t("table.selection.summarisePrompt"))}
              onAsk={() => startFromSelection(null)}
              onGroup={() => void group()}
@@ -6134,6 +6500,9 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
      );
    }
    ```
+
+   `useResolvedRoute` and `ResolvedRoute` come from Plan 03 (`src/lib/routes.ts`, spec §5.1). `RouteDestinationChip` and `RouteStateChip` come from Plan 03 (`src/components/settings/routing/RouteChips.tsx`). The destination chip renders Plan 01's `LocalityRing` and names the provider with `providerDisplayLabel(providerId, t)`. When the route is not ready (needs a key, sealed, unreachable), the state chip says why, and the selection bar disables Summarise and Ask. The answer itself is persisted by the same chat path as the Space's Ask box. Per-answer route stamps are Plan 06 Task 21's, in `ChatView`.
+
 
 6. Append to `src/index.css` after the Task 15 block:
 
@@ -6255,6 +6624,19 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
    .table-selbar__machine {
      color: var(--color-ai-text);
    }
+   .table-selbar__note,
+   .table-ask__scope {
+     margin: 0;
+     font-size: 11.5px;
+     color: var(--color-muted-foreground);
+   }
+   .table-ask__head {
+     display: flex;
+     flex-wrap: wrap;
+     align-items: center;
+     gap: 8px;
+     padding: 10px 12px 0;
+   }
    ```
 
    Summarise text uses Plan 06's `--color-ai-text` (CR-06-4), because fuchsia means machine-authored (audit M5) and that token is already contrast-tested as text. If `--color-ai-text` is not on `main`, use `--color-accent` (#d90078, 4.97:1 on `#ffffff`). In that case, also check that Plum Night's `--color-accent` reaches 4.5:1 on `--color-popover`, and if it does not, use `--color-confidence-low` for `.dark .table-selbar__machine`.
@@ -6264,19 +6646,19 @@ Expected: FAIL. The modules are not found and `en.table` is missing.
    ```bash
    node -e '
    const fs=require("fs"),p=require("path");
-   const K=["view.label","view.list","view.table","canvasLabel","canvasRole","zoomIn","zoomOut","resetView","zoomLevel","hint","kind.note","kind.meeting","kind.dictation","kind.chat","card.label","card.untitled","card.answerPending","inbox.title","inbox.description","inbox.empty","selection.count","selection.summarise","selection.ask","selection.group","selection.remove","selection.summarisePrompt","groupedNote.title","status.full","status.truncated","status.saveFailed","ask.open","ask.close"];
+   const K=["view.label","view.list","view.table","canvasLabel","canvasRole","zoomIn","zoomOut","resetView","zoomLevel","hint","kind.note","kind.meeting","kind.dictation","kind.chat","card.label","card.untitled","card.answerPending","inbox.title","inbox.description","inbox.empty","selection.count","selection.summarise","selection.ask","selection.group","selection.remove","selection.summarisePrompt","groupedNote.title","status.full","status.truncated","status.saveFailed","ask.open","ask.close","ask.pinned","ask.wholeTable","selection.limit"];
    const L={
-    en:["View","List","Table","Canvas: {{space}}","canvas","Zoom in","Zoom out","Reset view","{{percent}}%","Drag cards or the background. Shift-drag to select. Ctrl or ⌘ with the wheel zooms. Arrow keys move between cards; Shift with arrows nudges.","Note","Meeting","Dictation","Answer","{{kind}}: {{title}}","Untitled","Waiting for the answer…","Inbox","New captures. Drag one onto the table, or press Enter.","Nothing new","Selected: {{count}}","Summarise","Ask about these","Group into note","Remove from table","Summarise the selected items in a few sentences.","Grouped from the table","The table holds up to 500 cards. Remove some first.","Showing the 500 most recent cards.","Couldn’t save that position. Nothing else changed.","Ask","Close"],
-    de:["Ansicht","Liste","Tisch","Leinwand: {{space}}","Leinwand","Vergrößern","Verkleinern","Ansicht zurücksetzen","{{percent}} %","Karten oder den Hintergrund ziehen. Mit Umschalt ziehen, um auszuwählen. Strg oder ⌘ mit dem Mausrad zoomt. Pfeiltasten wechseln zwischen Karten; mit Umschalt verschieben sie.","Notiz","Besprechung","Diktat","Antwort","{{kind}}: {{title}}","Ohne Titel","Warte auf die Antwort …","Eingang","Neue Aufnahmen. Auf den Tisch ziehen oder Eingabe drücken.","Nichts Neues","Ausgewählt: {{count}}","Zusammenfassen","Dazu fragen","Zu Notiz bündeln","Vom Tisch nehmen","Fasse die ausgewählten Elemente in wenigen Sätzen zusammen.","Vom Tisch gebündelt","Der Tisch fasst bis zu 500 Karten. Entferne zuerst einige.","Die 500 neuesten Karten werden angezeigt.","Position konnte nicht gespeichert werden. Sonst hat sich nichts geändert.","Fragen","Schließen"],
-    es:["Vista","Lista","Mesa","Lienzo: {{space}}","lienzo","Acercar","Alejar","Restablecer vista","{{percent}} %","Arrastra tarjetas o el fondo. Mayús y arrastrar para seleccionar. Ctrl o ⌘ con la rueda hace zoom. Las flechas cambian de tarjeta; con Mayús la desplazan.","Nota","Reunión","Dictado","Respuesta","{{kind}}: {{title}}","Sin título","Esperando la respuesta…","Bandeja","Capturas nuevas. Arrastra una a la mesa o pulsa Intro.","Nada nuevo","Seleccionadas: {{count}}","Resumir","Preguntar sobre esto","Agrupar en una nota","Quitar de la mesa","Resume los elementos seleccionados en pocas frases.","Agrupado desde la mesa","La mesa admite hasta 500 tarjetas. Quita algunas primero.","Se muestran las 500 tarjetas más recientes.","No se pudo guardar esa posición. No cambió nada más.","Preguntar","Cerrar"],
-    fr:["Vue","Liste","Table","Canevas : {{space}}","canevas","Zoom avant","Zoom arrière","Réinitialiser la vue","{{percent}} %","Faites glisser les cartes ou le fond. Maj + glisser pour sélectionner. Ctrl ou ⌘ avec la molette pour zoomer. Les flèches passent d’une carte à l’autre ; avec Maj, elles la déplacent.","Note","Réunion","Dictée","Réponse","{{kind}} : {{title}}","Sans titre","En attente de la réponse…","Boîte de réception","Nouvelles captures. Faites-en glisser une sur la table ou appuyez sur Entrée.","Rien de nouveau","Sélection : {{count}}","Résumer","Poser une question","Regrouper dans une note","Retirer de la table","Résume les éléments sélectionnés en quelques phrases.","Regroupé depuis la table","La table contient au plus 500 cartes. Retirez-en d’abord.","Affichage des 500 cartes les plus récentes.","Impossible d’enregistrer cette position. Rien d’autre n’a changé.","Demander","Fermer"],
-    it:["Vista","Elenco","Tavolo","Tela: {{space}}","tela","Ingrandisci","Riduci","Ripristina vista","{{percent}}%","Trascina le schede o lo sfondo. Maiusc e trascina per selezionare. Ctrl o ⌘ con la rotellina per lo zoom. Le frecce passano da una scheda all’altra; con Maiusc la spostano.","Nota","Riunione","Dettatura","Risposta","{{kind}}: {{title}}","Senza titolo","In attesa della risposta…","In arrivo","Nuove acquisizioni. Trascinane una sul tavolo o premi Invio.","Niente di nuovo","Selezionati: {{count}}","Riassumi","Chiedi su questi","Raggruppa in una nota","Togli dal tavolo","Riassumi gli elementi selezionati in poche frasi.","Raggruppato dal tavolo","Il tavolo contiene al massimo 500 schede. Rimuovine prima qualcuna.","Sono mostrate le 500 schede più recenti.","Impossibile salvare la posizione. Nient’altro è cambiato.","Chiedi","Chiudi"],
-    pt:["Visualização","Lista","Mesa","Tela: {{space}}","tela","Aproximar","Afastar","Redefinir visualização","{{percent}}%","Arraste cartões ou o fundo. Shift e arrastar para selecionar. Ctrl ou ⌘ com a roda faz zoom. As setas mudam de cartão; com Shift, movem-no.","Nota","Reunião","Ditado","Resposta","{{kind}}: {{title}}","Sem título","Aguardando a resposta…","Entrada","Novas capturas. Arraste uma para a mesa ou pressione Enter.","Nada novo","Selecionados: {{count}}","Resumir","Perguntar sobre estes","Agrupar em uma nota","Tirar da mesa","Resuma os itens selecionados em poucas frases.","Agrupado a partir da mesa","A mesa comporta até 500 cartões. Remova alguns primeiro.","Mostrando os 500 cartões mais recentes.","Não foi possível salvar essa posição. Nada mais mudou.","Perguntar","Fechar"],
-    ru:["Вид","Список","Стол","Холст: {{space}}","холст","Увеличить","Уменьшить","Сбросить вид","{{percent}} %","Перетаскивайте карточки или фон. Shift и перетаскивание — выделение. Ctrl или ⌘ с колесом — масштаб. Стрелки переходят между карточками; со Shift — сдвигают её.","Заметка","Встреча","Диктовка","Ответ","{{kind}}: {{title}}","Без названия","Ожидание ответа…","Входящие","Новые записи. Перетащите на стол или нажмите Enter.","Ничего нового","Выбрано: {{count}}","Кратко изложить","Спросить об этом","Собрать в заметку","Убрать со стола","Кратко изложи выбранные элементы в нескольких предложениях.","Собрано со стола","На столе помещается до 500 карточек. Сначала уберите часть.","Показаны 500 последних карточек.","Не удалось сохранить положение. Больше ничего не изменилось.","Спросить","Закрыть"],
-    ja:["表示","リスト","テーブル","キャンバス: {{space}}","キャンバス","拡大","縮小","表示をリセット","{{percent}}%","カードや背景をドラッグ。Shift を押しながらドラッグで選択。Ctrl または ⌘ とホイールでズーム。矢印キーでカード間を移動し、Shift と矢印で少しずつ動かします。","メモ","ミーティング","音声入力","回答","{{kind}}: {{title}}","無題","回答を待っています…","受信箱","新しいキャプチャ。テーブルにドラッグするか Enter を押します。","新着なし","選択中: {{count}}","要約","これについて質問","メモにまとめる","テーブルから外す","選択した項目を数文で要約してください。","テーブルからまとめたメモ","テーブルに置けるカードは 500 枚までです。先にいくつか外してください。","最新の 500 枚を表示しています。","その位置を保存できませんでした。ほかには何も変わっていません。","質問","閉じる"],
-    "zh-CN":["视图","列表","桌面","画布：{{space}}","画布","放大","缩小","重置视图","{{percent}}%","拖动卡片或背景。按住 Shift 拖动可框选。Ctrl 或 ⌘ 加滚轮可缩放。方向键在卡片间移动；Shift 加方向键可微调位置。","笔记","会议","听写","回答","{{kind}}：{{title}}","无标题","正在等待回答…","收件箱","新的记录。拖到桌面上，或按 Enter。","暂无新内容","已选择：{{count}}","总结","就这些提问","合并为笔记","从桌面移除","用几句话总结所选内容。","从桌面合并","桌面最多容纳 500 张卡片。请先移除一些。","显示最近的 500 张卡片。","无法保存该位置。其他内容均未更改。","提问","关闭"],
-    "zh-TW":["檢視","清單","桌面","畫布：{{space}}","畫布","放大","縮小","重設檢視","{{percent}}%","拖曳卡片或背景。按住 Shift 拖曳可框選。Ctrl 或 ⌘ 加滾輪可縮放。方向鍵在卡片間移動；Shift 加方向鍵可微調位置。","筆記","會議","聽寫","回答","{{kind}}：{{title}}","未命名","正在等待回答…","收件匣","新的記錄。拖到桌面上，或按 Enter。","沒有新內容","已選取：{{count}}","摘要","針對這些提問","合併為筆記","從桌面移除","用幾句話摘要所選內容。","從桌面合併","桌面最多可容納 500 張卡片。請先移除一些。","顯示最近的 500 張卡片。","無法儲存該位置。其他內容均未變更。","提問","關閉"],
-    ar:["العرض","قائمة","طاولة","لوحة: {{space}}","لوحة","تكبير","تصغير","إعادة ضبط العرض","{{percent}}٪","اسحب البطاقات أو الخلفية. اسحب مع Shift للتحديد. Ctrl أو ⌘ مع العجلة للتكبير. تنتقل الأسهم بين البطاقات، ومع Shift تحرّكها قليلًا.","ملاحظة","اجتماع","إملاء","إجابة","{{kind}}: {{title}}","بلا عنوان","بانتظار الإجابة…","الوارد","التقاطات جديدة. اسحب واحدًا إلى الطاولة أو اضغط Enter.","لا جديد","المحدد: {{count}}","تلخيص","اسأل عن هذه","تجميع في ملاحظة","إزالة من الطاولة","لخّص العناصر المحددة في بضع جمل.","مجمّعة من الطاولة","تتسع الطاولة لـ 500 بطاقة كحد أقصى. أزل بعضها أولًا.","تُعرض أحدث 500 بطاقة.","تعذّر حفظ هذا الموضع. لم يتغير شيء آخر.","اسأل","إغلاق"]};
+    en:["View","List","Table","Canvas: {{space}}","canvas","Zoom in","Zoom out","Reset view","{{percent}}%","Drag cards or the background. Shift-drag to select. Ctrl or ⌘ with the wheel zooms. Arrow keys move between cards; Shift with arrows nudges.","Note","Meeting","Dictation","Answer","{{kind}}: {{title}}","Untitled","Waiting for the answer…","Inbox","New captures. Drag one onto the table, or press Enter.","Nothing new","Selected: {{count}}","Summarise","Ask about these","Group into note","Remove from table","Summarise the selected items in a few sentences.","Grouped from the table","The table holds up to 500 cards. Remove some first.","Showing the 500 most recent cards.","Couldn’t save that position. Nothing else changed.","Ask","Close","Pinned cards: {{count}}","Asking about the whole table","AI actions work on up to {{limit}} cards."],
+    de:["Ansicht","Liste","Tisch","Leinwand: {{space}}","Leinwand","Vergrößern","Verkleinern","Ansicht zurücksetzen","{{percent}} %","Karten oder den Hintergrund ziehen. Mit Umschalt ziehen, um auszuwählen. Strg oder ⌘ mit dem Mausrad zoomt. Pfeiltasten wechseln zwischen Karten; mit Umschalt verschieben sie.","Notiz","Besprechung","Diktat","Antwort","{{kind}}: {{title}}","Ohne Titel","Warte auf die Antwort …","Eingang","Neue Aufnahmen. Auf den Tisch ziehen oder Eingabe drücken.","Nichts Neues","Ausgewählt: {{count}}","Zusammenfassen","Dazu fragen","Zu Notiz bündeln","Vom Tisch nehmen","Fasse die ausgewählten Elemente in wenigen Sätzen zusammen.","Vom Tisch gebündelt","Der Tisch fasst bis zu 500 Karten. Entferne zuerst einige.","Die 500 neuesten Karten werden angezeigt.","Position konnte nicht gespeichert werden. Sonst hat sich nichts geändert.","Fragen","Schließen","Angeheftete Karten: {{count}}","Fragen zum ganzen Tisch","KI-Aktionen funktionieren mit bis zu {{limit}} Karten."],
+    es:["Vista","Lista","Mesa","Lienzo: {{space}}","lienzo","Acercar","Alejar","Restablecer vista","{{percent}} %","Arrastra tarjetas o el fondo. Mayús y arrastrar para seleccionar. Ctrl o ⌘ con la rueda hace zoom. Las flechas cambian de tarjeta; con Mayús la desplazan.","Nota","Reunión","Dictado","Respuesta","{{kind}}: {{title}}","Sin título","Esperando la respuesta…","Bandeja","Capturas nuevas. Arrastra una a la mesa o pulsa Intro.","Nada nuevo","Seleccionadas: {{count}}","Resumir","Preguntar sobre esto","Agrupar en una nota","Quitar de la mesa","Resume los elementos seleccionados en pocas frases.","Agrupado desde la mesa","La mesa admite hasta 500 tarjetas. Quita algunas primero.","Se muestran las 500 tarjetas más recientes.","No se pudo guardar esa posición. No cambió nada más.","Preguntar","Cerrar","Tarjetas fijadas: {{count}}","Preguntas sobre toda la mesa","Las acciones de IA admiten hasta {{limit}} tarjetas."],
+    fr:["Vue","Liste","Table","Canevas : {{space}}","canevas","Zoom avant","Zoom arrière","Réinitialiser la vue","{{percent}} %","Faites glisser les cartes ou le fond. Maj + glisser pour sélectionner. Ctrl ou ⌘ avec la molette pour zoomer. Les flèches passent d’une carte à l’autre ; avec Maj, elles la déplacent.","Note","Réunion","Dictée","Réponse","{{kind}} : {{title}}","Sans titre","En attente de la réponse…","Boîte de réception","Nouvelles captures. Faites-en glisser une sur la table ou appuyez sur Entrée.","Rien de nouveau","Sélection : {{count}}","Résumer","Poser une question","Regrouper dans une note","Retirer de la table","Résume les éléments sélectionnés en quelques phrases.","Regroupé depuis la table","La table contient au plus 500 cartes. Retirez-en d’abord.","Affichage des 500 cartes les plus récentes.","Impossible d’enregistrer cette position. Rien d’autre n’a changé.","Demander","Fermer","Cartes épinglées : {{count}}","Questions sur toute la table","Les actions d’IA portent sur {{limit}} cartes au maximum."],
+    it:["Vista","Elenco","Tavolo","Tela: {{space}}","tela","Ingrandisci","Riduci","Ripristina vista","{{percent}}%","Trascina le schede o lo sfondo. Maiusc e trascina per selezionare. Ctrl o ⌘ con la rotellina per lo zoom. Le frecce passano da una scheda all’altra; con Maiusc la spostano.","Nota","Riunione","Dettatura","Risposta","{{kind}}: {{title}}","Senza titolo","In attesa della risposta…","In arrivo","Nuove acquisizioni. Trascinane una sul tavolo o premi Invio.","Niente di nuovo","Selezionati: {{count}}","Riassumi","Chiedi su questi","Raggruppa in una nota","Togli dal tavolo","Riassumi gli elementi selezionati in poche frasi.","Raggruppato dal tavolo","Il tavolo contiene al massimo 500 schede. Rimuovine prima qualcuna.","Sono mostrate le 500 schede più recenti.","Impossibile salvare la posizione. Nient’altro è cambiato.","Chiedi","Chiudi","Schede fissate: {{count}}","Domande su tutto il tavolo","Le azioni IA funzionano con al massimo {{limit}} schede."],
+    pt:["Visualização","Lista","Mesa","Tela: {{space}}","tela","Aproximar","Afastar","Redefinir visualização","{{percent}}%","Arraste cartões ou o fundo. Shift e arrastar para selecionar. Ctrl ou ⌘ com a roda faz zoom. As setas mudam de cartão; com Shift, movem-no.","Nota","Reunião","Ditado","Resposta","{{kind}}: {{title}}","Sem título","Aguardando a resposta…","Entrada","Novas capturas. Arraste uma para a mesa ou pressione Enter.","Nada novo","Selecionados: {{count}}","Resumir","Perguntar sobre estes","Agrupar em uma nota","Tirar da mesa","Resuma os itens selecionados em poucas frases.","Agrupado a partir da mesa","A mesa comporta até 500 cartões. Remova alguns primeiro.","Mostrando os 500 cartões mais recentes.","Não foi possível salvar essa posição. Nada mais mudou.","Perguntar","Fechar","Cartões fixados: {{count}}","Perguntas sobre toda a mesa","As ações de IA funcionam com até {{limit}} cartões."],
+    ru:["Вид","Список","Стол","Холст: {{space}}","холст","Увеличить","Уменьшить","Сбросить вид","{{percent}} %","Перетаскивайте карточки или фон. Shift и перетаскивание — выделение. Ctrl или ⌘ с колесом — масштаб. Стрелки переходят между карточками; со Shift — сдвигают её.","Заметка","Встреча","Диктовка","Ответ","{{kind}}: {{title}}","Без названия","Ожидание ответа…","Входящие","Новые записи. Перетащите на стол или нажмите Enter.","Ничего нового","Выбрано: {{count}}","Кратко изложить","Спросить об этом","Собрать в заметку","Убрать со стола","Кратко изложи выбранные элементы в нескольких предложениях.","Собрано со стола","На столе помещается до 500 карточек. Сначала уберите часть.","Показаны 500 последних карточек.","Не удалось сохранить положение. Больше ничего не изменилось.","Спросить","Закрыть","Закреплено карточек: {{count}}","Вопросы обо всём столе","Действия ИИ работают максимум с {{limit}} карточками."],
+    ja:["表示","リスト","テーブル","キャンバス: {{space}}","キャンバス","拡大","縮小","表示をリセット","{{percent}}%","カードや背景をドラッグ。Shift を押しながらドラッグで選択。Ctrl または ⌘ とホイールでズーム。矢印キーでカード間を移動し、Shift と矢印で少しずつ動かします。","メモ","ミーティング","音声入力","回答","{{kind}}: {{title}}","無題","回答を待っています…","受信箱","新しいキャプチャ。テーブルにドラッグするか Enter を押します。","新着なし","選択中: {{count}}","要約","これについて質問","メモにまとめる","テーブルから外す","選択した項目を数文で要約してください。","テーブルからまとめたメモ","テーブルに置けるカードは 500 枚までです。先にいくつか外してください。","最新の 500 枚を表示しています。","その位置を保存できませんでした。ほかには何も変わっていません。","質問","閉じる","固定したカード: {{count}}","テーブル全体について質問","AI 操作は最大 {{limit}} 枚のカードまでです。"],
+    "zh-CN":["视图","列表","桌面","画布：{{space}}","画布","放大","缩小","重置视图","{{percent}}%","拖动卡片或背景。按住 Shift 拖动可框选。Ctrl 或 ⌘ 加滚轮可缩放。方向键在卡片间移动；Shift 加方向键可微调位置。","笔记","会议","听写","回答","{{kind}}：{{title}}","无标题","正在等待回答…","收件箱","新的记录。拖到桌面上，或按 Enter。","暂无新内容","已选择：{{count}}","总结","就这些提问","合并为笔记","从桌面移除","用几句话总结所选内容。","从桌面合并","桌面最多容纳 500 张卡片。请先移除一些。","显示最近的 500 张卡片。","无法保存该位置。其他内容均未更改。","提问","关闭","已固定卡片：{{count}}","就整个桌面提问","AI 操作最多支持 {{limit}} 张卡片。"],
+    "zh-TW":["檢視","清單","桌面","畫布：{{space}}","畫布","放大","縮小","重設檢視","{{percent}}%","拖曳卡片或背景。按住 Shift 拖曳可框選。Ctrl 或 ⌘ 加滾輪可縮放。方向鍵在卡片間移動；Shift 加方向鍵可微調位置。","筆記","會議","聽寫","回答","{{kind}}：{{title}}","未命名","正在等待回答…","收件匣","新的記錄。拖到桌面上，或按 Enter。","沒有新內容","已選取：{{count}}","摘要","針對這些提問","合併為筆記","從桌面移除","用幾句話摘要所選內容。","從桌面合併","桌面最多可容納 500 張卡片。請先移除一些。","顯示最近的 500 張卡片。","無法儲存該位置。其他內容均未變更。","提問","關閉","已釘選卡片：{{count}}","針對整個桌面提問","AI 操作最多支援 {{limit}} 張卡片。"],
+    ar:["العرض","قائمة","طاولة","لوحة: {{space}}","لوحة","تكبير","تصغير","إعادة ضبط العرض","{{percent}}٪","اسحب البطاقات أو الخلفية. اسحب مع Shift للتحديد. Ctrl أو ⌘ مع العجلة للتكبير. تنتقل الأسهم بين البطاقات، ومع Shift تحرّكها قليلًا.","ملاحظة","اجتماع","إملاء","إجابة","{{kind}}: {{title}}","بلا عنوان","بانتظار الإجابة…","الوارد","التقاطات جديدة. اسحب واحدًا إلى الطاولة أو اضغط Enter.","لا جديد","المحدد: {{count}}","تلخيص","اسأل عن هذه","تجميع في ملاحظة","إزالة من الطاولة","لخّص العناصر المحددة في بضع جمل.","مجمّعة من الطاولة","تتسع الطاولة لـ 500 بطاقة كحد أقصى. أزل بعضها أولًا.","تُعرض أحدث 500 بطاقة.","تعذّر حفظ هذا الموضع. لم يتغير شيء آخر.","اسأل","إغلاق","البطاقات المثبتة: {{count}}","السؤال عن الطاولة كلها","تعمل إجراءات الذكاء الاصطناعي على {{limit}} بطاقة كحد أقصى."]};
    for(const [l,vals] of Object.entries(L)){if(vals.length!==K.length)throw new Error(l+" has "+vals.length+" values");const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.table={};K.forEach((k,i)=>{const parts=k.split(".");let o=j.table;parts.slice(0,-1).forEach((s)=>{o=o[s]=o[s]||{};});o[parts.at(-1)]=vals[i];});fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
    npx prettier --check "src/locales/**/translation.json" || npx prettier --write "src/locales/**/translation.json"
    ```
@@ -6305,7 +6687,9 @@ git commit -m "feat(table): inbox tray, selection actions and the Space's chat o
   - state, after `:47`;
   - an early return for Table mode before `return (` at `:93`;
   - the header actions row at `:113`.
-- Modify: `src/preview/browserPreview.ts` (stubs after `getSpaceNotes` at `:196`)
+- Create: `src/preview/previewTable.ts` (in-memory Table store for the browser preview)
+- Modify: `src/preview/browserPreview.ts` (spread it in after `getSpaceNotes` at `:196`)
+- Test: `test/components/previewTable.test.js`
 - Modify: `src/locales/*/translation.json`. No new keys: the switch reuses `table.view.*` from Task 16.
 - Modify: `DESIGN.md` (a "The Table (Labs)" subsection), `docs/PRIVACY.md` (local layout storage)
 - Test: `test/components/containerOverviewTable.test.js`
@@ -6459,46 +6843,130 @@ Expected: FAIL. With Labs on, there is no `table.view.label` group.
 
    `useContainerChat` is still called above the early return, so the hook order stays stable. The Table builds its own chat with the selection context.
 
-2. `src/preview/browserPreview.ts`. After `getSpaceNotes` (`:196`):
+2. Preview store. The browser preview must behave like main, or visual review is misleading. Create `src/preview/previewTable.ts`:
 
    ```ts
-       getTableBoard: async (spaceId) => ({
-         spaceId,
-         cards: notes.map((note) => ({
-           ref: { type: "note", id: note.id },
-           kind: note.note_type === "meeting" ? "meeting" : "note",
-           title: note.title,
-           excerpt: note.content ?? "",
-           at: note.updated_at,
-           durationMs: null,
-           participants: [],
-           hrefs: [],
-           noteId: null,
-           layout: null,
-         })),
-         inbox: history.slice(0, 3).map((item) => ({
-           ref: { type: "dictation", id: item.id },
-           kind: "dictation",
-           title: null,
-           excerpt: item.text,
-           at: item.timestamp,
-           durationMs: item.audio_duration_ms,
-           participants: [],
-           hrefs: [],
-           noteId: null,
-           layout: null,
-         })),
-         links: [],
-         viewport: null,
-         truncated: false,
-       }),
-       placeTableCards: async (_spaceId, placements) => ({ success: true, placed: placements.length }),
-       hideTableCards: async (_spaceId, refs) => ({ success: true, hidden: refs.length }),
-       linkTableCards: async () => ({ success: true }),
-       setTableViewport: async () => ({ success: true }),
+   import type { NoteItem, TranscriptionItem } from "../types/electron";
+   import type { TableBoardData, TableEntity, TableEntityRef, TableLayout, TablePlacement, TableViewport } from "../types/table";
+
+   // Browser preview only: an in-memory stand-in for main's Table storage, so
+   // placing, removing and linking behave like the desktop app (minus persistence).
+   export function createPreviewTable(source: {
+     notes: () => Pick<NoteItem, "id" | "title" | "content" | "note_type" | "updated_at">[];
+     history: () => Pick<TranscriptionItem, "id" | "text" | "timestamp" | "audio_duration_ms">[];
+   }) {
+     const layout = new Map<string, TableLayout>();
+     const links = new Map<string, { a: TableEntityRef; b: TableEntityRef }>();
+     let viewport: TableViewport | null = null;
+     const key = (r: TableEntityRef) => `${r.type}:${r.id}`;
+     const note = (id: number) => source.notes().find((n) => n.id === id);
+     const dictation = (id: number) => source.history().find((h) => h.id === id);
+     const exists = (r: TableEntityRef) => (r.type === "note" ? !!note(r.id) : r.type === "dictation" ? !!dictation(r.id) : false);
+     const base = { participants: [], hrefs: [], noteId: null };
+     const noteEntity = (n: ReturnType<typeof note> & object): TableEntity => ({
+       ...base,
+       ref: { type: "note", id: n.id },
+       kind: n.note_type === "meeting" ? "meeting" : "note",
+       title: n.title,
+       excerpt: n.content ?? "",
+       at: n.updated_at,
+       durationMs: null,
+       layout: layout.get(`note:${n.id}`) ?? null,
+     });
+     const dictationEntity = (d: ReturnType<typeof dictation> & object): TableEntity => ({
+       ...base,
+       ref: { type: "dictation", id: d.id },
+       kind: "dictation",
+       title: null,
+       excerpt: d.text,
+       at: d.timestamp,
+       durationMs: d.audio_duration_ms ?? null,
+       layout: layout.get(`dictation:${d.id}`) ?? null,
+     });
+
+     return {
+       getTableBoard: async (spaceId: number): Promise<TableBoardData> => {
+         const notes = source.notes().map(noteEntity);
+         const dictations = source.history().map(dictationEntity);
+         const cards = [...notes.filter((e) => !e.layout?.hidden), ...dictations.filter((e) => e.layout && !e.layout.hidden)];
+         const inbox = [
+           ...[...notes, ...dictations].filter((e) => e.layout?.hidden),
+           ...dictations.filter((e) => !e.layout).slice(0, 3),
+         ];
+         const present = new Set([...cards, ...inbox].map((e) => key(e.ref)));
+         return {
+           spaceId,
+           cards,
+           inbox,
+           links: [...links.values()].filter((l) => present.has(key(l.a)) && present.has(key(l.b))),
+           viewport,
+           truncated: false,
+         };
+       },
+       placeTableCards: async (_spaceId: number, placements: TablePlacement[]) => {
+         const placedKeys: string[] = [];
+         for (const p of placements) {
+           if (!exists(p)) continue;
+           layout.set(key(p), { x: p.x, y: p.y, w: p.w ?? null, h: p.h ?? null, z: p.z ?? 0, hidden: false });
+           placedKeys.push(key(p));
+         }
+         return { success: true as const, placed: placedKeys.length, placedKeys };
+       },
+       hideTableCards: async (_spaceId: number, refs: TableEntityRef[]) => {
+         let hidden = 0;
+         for (const r of refs) {
+           if (!exists(r)) continue;
+           layout.set(key(r), { ...(layout.get(key(r)) ?? { x: 0, y: 0, w: null, h: null, z: 0 }), hidden: true });
+           hidden += 1;
+         }
+         return { success: true, hidden };
+       },
+       linkTableCards: async (_spaceId: number, a: TableEntityRef, b: TableEntityRef) => {
+         if (!exists(a) || !exists(b) || key(a) === key(b)) return { success: false };
+         const [first, second] = key(a) < key(b) ? [a, b] : [b, a];
+         links.set(`${key(first)}|${key(second)}`, { a: first, b: second });
+         return { success: true };
+       },
+       setTableViewport: async (_spaceId: number, next: TableViewport) => {
+         viewport = { ...next };
+         return { success: true };
+       },
+     };
+   }
    ```
 
-   The fields match `makeNote` (`src/preview/browserPreview.ts:21`: `note_type`, `title`, `content`, `updated_at`) and the preview `history` items (`:92-112`: `id`, `text`, `timestamp`, `audio_duration_ms`).
+   In `src/preview/browserPreview.ts`, import it and spread it into the stub object after `getSpaceNotes` (`:196`):
+
+   ```ts
+       ...createPreviewTable({ notes: () => notes, history: () => history }),
+   ```
+
+   The arrow functions read the current `notes` and `history` (`:21`, `:92-112`), so notes added in the preview appear on the Table.
+
+   Add `test/components/previewTable.test.js`:
+
+   ```js
+   const assert = require("node:assert/strict");
+   const test = require("node:test");
+
+   const load = () => import("../../src/preview/previewTable.ts");
+
+   test("the preview Table honours placedKeys: place → read, hide → read, link → read", async () => {
+     const { createPreviewTable } = await load();
+     const notes = [{ id: 1, title: "A", content: "x", note_type: "personal", updated_at: "t" }];
+     const history = [{ id: 7, text: "hi", timestamp: "t", audio_duration_ms: null }];
+     const api = createPreviewTable({ notes: () => notes, history: () => history });
+     assert.equal((await api.getTableBoard(1)).cards[0].layout, null);
+     const placed = await api.placeTableCards(1, [{ type: "note", id: 1, x: 40, y: 48 }, { type: "note", id: 99, x: 0, y: 0 }]);
+     assert.deepEqual(placed.placedKeys, ["note:1"], "unknown ids are refused like main");
+     assert.deepEqual((await api.getTableBoard(1)).cards[0].layout, { x: 40, y: 48, w: null, h: null, z: 0, hidden: false });
+     await api.hideTableCards(1, [{ type: "note", id: 1 }]);
+     assert.ok((await api.getTableBoard(1)).inbox.some((e) => e.ref.id === 1 && e.layout.hidden));
+     await api.placeTableCards(1, [{ type: "dictation", id: 7, x: 0, y: 0 }]);
+     assert.equal((await api.linkTableCards(1, { type: "note", id: 1 }, { type: "dictation", id: 7 })).success, true);
+     assert.equal((await api.getTableBoard(1)).links.length, 1);
+   });
+   ```
 
 3. Existing suites that load `ContainerOverview` (`test/components/spaceEmoji.test.js`, `test/components/containerOverviewDefaultFolder.test.js`) now pull in the settings store and the Table graph. Add these two entries to each suite's `mockModules`, so the suites stay isolated from Labs:
 
@@ -6515,7 +6983,7 @@ Expected: FAIL. With Labs on, there is no `table.view.label` group.
    ### The Table (Labs, WS-M5)
 
    A per-Space canvas, reached from the Space overview's `List | Table` switch when Labs → The Table is on.
-   - **World**: physical coordinates like a map (not mirrored in RTL); 24px dot grid; zoom 25–200%; drag snaps to an 8px grid with `--motion-spring-snap` (380ms), instant under reduced motion.
+   - **World**: physical coordinates like a map (not mirrored in RTL); 24px dot grid; zoom 25–200%; drag snaps to an 8px grid with `--motion-spring-snap` over `--motion-slow`, instant under reduced motion; cards resize from a bottom-right handle or Alt+arrows.
    - **Cards** are DOM: note 280px, meeting 320px (initials + duration), dictation 220px (neutral mic glyph: orange is live voice only, D1), answer 340px with a `--color-agent-brand` inline-start rail. Selection and focus use `--color-ring`.
    - **Connectors**: 1.5px `--color-table-connector` curves from user links, chat-about-note, and note mentions.
    - **A11y**: a spatial listbox. One tab stop; arrows move to the nearest card; Shift+arrows nudge 8px; Space selects; Enter opens; Delete removes from the table (never deletes content).
@@ -6526,19 +6994,604 @@ Expected: FAIL. With Labs on, there is no `table.view.label` group.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- test/components/containerOverviewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js test/components/tableView.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Run: `npm test -- test/components/containerOverviewTable.test.js test/components/previewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js test/components/tableView.test.js && npm run typecheck && npm run lint && npm run i18n:check`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/notes/overview/ContainerOverview.tsx src/preview/browserPreview.ts DESIGN.md docs/PRIVACY.md test/components/containerOverviewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js
+git add src/components/notes/overview/ContainerOverview.tsx src/preview/browserPreview.ts src/preview/previewTable.ts test/components/previewTable.test.js DESIGN.md docs/PRIVACY.md test/components/containerOverviewTable.test.js test/components/spaceEmoji.test.js test/components/containerOverviewDefaultFolder.test.js
 git commit -m "feat(notes): List | Table switch for a space when Labs is on"
 ```
 
 ---
 
-### Task 18: Whole-plan verification
+### Task 18: Raw versus cleaned diff in the expanded transcript (WS-M4)
+
+This covers the M4 acceptance bullet "cleaned text shows AI edits as a diff" (audit M4, showcase `#ws-m4` Raw/Cleaned switch). It follows the WS-M4 gate and is skipped when Part A stops.
+
+**Files:**
+- Create: `src/lib/transcriptDiff.ts`
+- Create: `src/components/ui/TranscriptDiff.tsx`
+- Modify: `src/components/ui/TranscriptionItem.tsx`. Add a Raw | Cleaned switch to the expanded block, and make `D` toggle it.
+- Modify: `src/index.css` (append the diff rules)
+- Modify: `src/locales/*/translation.json` (`history.diff.*`)
+- Test: `test/lib/transcriptDiff.test.js`, `test/components/transcriptDiff.test.js`, `test/components/transcriptionItemConfidence.test.js` (append)
+
+**Interfaces:**
+- Produces:
+  - `diffWords(before: string, after: string): Array<{ op: "same" | "insert" | "delete"; text: string }> | null`. It compares words and runs of whitespace with an LCS. It returns `null` when the comparison would exceed `MAX_DIFF_CELLS = 2_000_000`, which is about 700 words a side.
+  - `TranscriptDiff({ before, after, className })`. It renders `<ins>` and `<del>`, and falls back to the plain cleaned text when `diffWords` returns `null`.
+- Behaviour:
+  - The switch appears only while Labs → Confidence is on, and only when `raw_text` differs from the cleaned text. Raw is the default, so raw always sits beside cleaned and no content is hidden.
+  - **Raw** shows `ConfidenceText` (Task 10). **Cleaned** shows the diff.
+  - `D` toggles the switch while focus is inside the expanded block.
+- Deviation from the mock:
+  - Removed words stay at full `--color-muted-foreground` with a strike-through. The mock drew them at 40 % opacity, which would fail 4.5:1 text contrast.
+  - They collapse after `--motion-base`. Under reduced motion they stay visible and static.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `test/lib/transcriptDiff.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const load = () => import("../../src/lib/transcriptDiff.ts");
+const join = (parts, keep) => parts.filter((p) => p.op === "same" || p.op === keep).map((p) => p.text).join("");
+
+test("cleanup edits come out as deletions then insertions, around shared runs", async () => {
+  const { diffWords } = await load();
+  assert.deepEqual(diffWords("so the pricing change", "So the pricing change."), [
+    { op: "delete", text: "so" },
+    { op: "insert", text: "So" },
+    { op: "same", text: " the pricing " },
+    { op: "delete", text: "change" },
+    { op: "insert", text: "change." },
+  ]);
+});
+
+test("the diff always rebuilds both texts exactly", async () => {
+  const { diffWords } = await load();
+  const before = "um so Maria wants  the tier names in the faq";
+  const after = "Maria wants the tier names in the FAQ.";
+  const parts = diffWords(before, after);
+  assert.equal(join(parts, "delete"), before);
+  assert.equal(join(parts, "insert"), after);
+  assert.deepEqual(diffWords("same text", "same text"), [{ op: "same", text: "same text" }]);
+});
+
+test("very long transcripts are not diffed", async () => {
+  const { diffWords } = await load();
+  const long = Array.from({ length: 1500 }, (_, i) => `w${i}`).join(" ");
+  assert.equal(diffWords(long, `${long} end`), null);
+});
+```
+
+Create `test/components/transcriptDiff.test.js`:
+
+```js
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const { renderStatic } = require("../helpers/harness/reactSsr");
+
+const repoRoot = path.join(__dirname, "../..");
+const load = () => import("../../src/components/ui/TranscriptDiff.tsx");
+
+test("insertions and deletions are semantic ins and del", async () => {
+  const { TranscriptDiff } = await load();
+  const html = renderStatic(TranscriptDiff, { before: "so the change", after: "So the change." });
+  assert.match(html, /<del class="transcript-diff__del">so<\/del><ins class="transcript-diff__ins">So<\/ins> the /);
+  assert.match(html, /<ins class="transcript-diff__ins">change\.<\/ins>/);
+});
+
+test("an undiffable transcript falls back to the plain cleaned text", async () => {
+  const { TranscriptDiff } = await load();
+  const long = Array.from({ length: 1500 }, (_, i) => `w${i}`).join(" ");
+  const html = renderStatic(TranscriptDiff, { before: long, after: `${long} end` });
+  assert.doesNotMatch(html, /<ins|<del/);
+  assert.match(html, / end<\/p>$/);
+});
+
+test("removed words keep full muted contrast and stop moving under reduced motion", () => {
+  const css = fs.readFileSync(path.join(repoRoot, "src/index.css"), "utf8");
+  assert.match(css, /\.transcript-diff__del\s*\{[^}]*color:\s*var\(--color-muted-foreground\);[^}]*text-decoration-line:\s*line-through/);
+  assert.doesNotMatch(css.match(/\.transcript-diff__del\s*\{[^}]*\}/)[0], /opacity:\s*0\.\d/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.transcript-diff__ins,\s*\.transcript-diff__del\s*\{\s*animation:\s*none;/);
+});
+```
+
+Append to `test/components/transcriptionItemConfidence.test.js`:
+
+```js
+test("a cleaned row offers Raw | Cleaned in the expanded block, Raw first", async (t) => {
+  const html = await renderRow(t, { settings: ON, item: { ...ITEM, text: "MARIA WANTS IT!" } });
+  assert.match(html, /role="group"[^>]*aria-label="history\.diff\.label"/);
+  assert.match(html, /aria-pressed="true"[^>]*>history\.diff\.raw</);
+  assert.match(html, /aria-pressed="false"[^>]*>history\.diff\.cleaned</);
+});
+
+test("no switch when nothing was cleaned, or with Labs off", async (t) => {
+  assert.doesNotMatch(await renderRow(t, { settings: ON, item: ITEM }), /history\.diff\./);
+  assert.doesNotMatch(
+    await renderRow(t, { settings: { ...ON, labsConfidenceTypography: false }, item: { ...ITEM, text: "X" } }),
+    /history\.diff\./
+  );
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npm test -- test/lib/transcriptDiff.test.js test/components/transcriptDiff.test.js test/components/transcriptionItemConfidence.test.js`
+Expected: FAIL. The modules are not found, and `history.diff.label` is missing.
+
+- [ ] **Step 3: Implement**
+
+Create `src/lib/transcriptDiff.ts`:
+
+```ts
+export type DiffOp = "same" | "insert" | "delete";
+export interface DiffPart { op: DiffOp; text: string }
+
+// LCS over words and whitespace runs. Bounded so a long meeting-length
+// dictation never blocks the renderer; callers show plain text instead.
+export const MAX_DIFF_CELLS = 2_000_000;
+
+export function diffWords(before: string, after: string): DiffPart[] | null {
+  const a = before.match(/\S+|\s+/g) ?? [];
+  const b = after.match(/\S+|\s+/g) ?? [];
+  if ((a.length + 1) * (b.length + 1) > MAX_DIFF_CELLS) return null;
+  const n = a.length;
+  const m = b.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const out: DiffPart[] = [];
+  const push = (op: DiffOp, text: string) => {
+    const last = out[out.length - 1];
+    if (last && last.op === op) last.text += text;
+    else out.push({ op, text });
+  };
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      push("same", a[i]);
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) push("delete", a[i++]);
+    else push("insert", b[j++]);
+  }
+  while (i < n) push("delete", a[i++]);
+  while (j < m) push("insert", b[j++]);
+  return out;
+}
+```
+
+Create `src/components/ui/TranscriptDiff.tsx`:
+
+```tsx
+import { useMemo } from "react";
+import { diffWords } from "../../lib/transcriptDiff";
+import { cn } from "../lib/utils";
+
+// Cleaned text with the AI's edits shown against the raw transcript (WS-M4).
+export function TranscriptDiff({ before, after, className }: { before: string; after: string; className?: string }) {
+  const parts = useMemo(() => diffWords(before, after), [before, after]);
+  if (!parts) {
+    return (
+      <p dir="auto" className={className}>
+        {after}
+      </p>
+    );
+  }
+  return (
+    <p dir="auto" className={cn("transcript-diff", className)}>
+      {parts.map((part, i) =>
+        part.op === "same" ? (
+          part.text
+        ) : part.op === "insert" ? (
+          <ins key={i} className="transcript-diff__ins">
+            {part.text}
+          </ins>
+        ) : (
+          <del key={i} className="transcript-diff__del">
+            {part.text}
+          </del>
+        )
+      )}
+    </p>
+  );
+}
+```
+
+In `src/components/ui/TranscriptionItem.tsx`:
+- Import `TranscriptDiff` from `./TranscriptDiff`.
+- After the Task 10 confidence hooks, add:
+
+  ```tsx
+    const [rawView, setRawView] = useState<"raw" | "cleaned">("raw");
+    const showDiffSwitch = labsConfidence && isTranscribed && rawText !== null && rawText !== item.text;
+  ```
+
+- On the expanded block's inner `<div className="mt-2 border-t …">`, add a key handler:
+
+  ```tsx
+            onKeyDown={(event) => {
+              const typing = (event.target as HTMLElement).closest("input, textarea, [contenteditable='true']");
+              if (!showDiffSwitch || typing || event.metaKey || event.ctrlKey || event.altKey) return;
+              if (event.key.toLowerCase() === "d") {
+                event.preventDefault();
+                setRawView((v) => (v === "raw" ? "cleaned" : "raw"));
+              }
+            }}
+  ```
+
+- In its header row, between the "Raw transcript" label and the copy button, render:
+
+  ```tsx
+                  {showDiffSwitch && (
+                    <div role="group" aria-label={t("history.diff.label")} className="inline-flex rounded-full bg-surface-3 p-0.5">
+                      {(["raw", "cleaned"] as const).map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          aria-pressed={rawView === v}
+                          onClick={() => setRawView(v)}
+                          className={cn(
+                            "h-5 rounded-full px-2 text-micro font-medium",
+                            rawView === v ? "bg-background text-foreground" : "text-muted-foreground"
+                          )}
+                        >
+                          {t(`history.diff.${v}`)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+  ```
+
+- Wrap the Task 10 raw branch so Cleaned shows the diff:
+
+  ```tsx
+                  {showDiffSwitch && rawView === "cleaned" ? (
+                    <TranscriptDiff before={rawText} after={item.text} className={RAW_TEXT_CLASS} />
+                  ) : hasConfidence ? (
+                    /* the Task 10 ConfidenceText branch, unchanged */
+                  ) : (
+                    /* the Task 10 plain <p className={RAW_TEXT_CLASS}> branch, unchanged */
+                  )}
+  ```
+
+  The classes used here (`text-micro`, `text-muted-foreground`, `bg-surface-3`) all pass Plan 06's guard.
+
+Append to `src/index.css`:
+
+```css
+/* Raw versus cleaned (WS-M4, Labs). Inserted text carries a faint AI tint
+   that fades; removed text is struck through at full muted contrast, then
+   collapses. Under reduced motion both stay visible and static. */
+.transcript-diff__ins {
+  text-decoration: none;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-ai) 12%, transparent);
+  animation: transcript-diff-ins var(--motion-slow) var(--motion-ease-std) var(--motion-hero) forwards;
+}
+.transcript-diff__del {
+  color: var(--color-muted-foreground);
+  text-decoration-line: line-through;
+  animation: transcript-diff-del var(--motion-base) var(--motion-ease-exit) var(--motion-base) forwards;
+}
+@keyframes transcript-diff-ins {
+  to {
+    background: transparent;
+  }
+}
+@keyframes transcript-diff-del {
+  to {
+    opacity: 0;
+    font-size: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-diff__ins,
+  .transcript-diff__del {
+    animation: none;
+  }
+}
+```
+
+`--color-ai` is Plan 06's (CR-06-4). If it is not on `main`, use `--color-accent`.
+
+Locales. Add `history.diff` to every locale:
+
+```bash
+node -e '
+const fs=require("fs"),p=require("path");
+const L={en:["Transcript view","Raw","Cleaned"],de:["Transkriptansicht","Roh","Bereinigt"],es:["Vista de la transcripción","Original","Limpio"],fr:["Vue de la transcription","Brut","Nettoyé"],it:["Vista della trascrizione","Grezzo","Pulito"],pt:["Visualização da transcrição","Bruto","Limpo"],ru:["Вид расшифровки","Исходный","Очищенный"],ja:["文字起こしの表示","元の文","整えた文"],"zh-CN":["转写视图","原始","整理后"],"zh-TW":["轉錄檢視","原始","整理後"],ar:["عرض النص المفرغ","الأصلي","المنقّح"]};
+for(const [l,[label,raw,cleaned]] of Object.entries(L)){const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.history=j.history||{};j.history.diff={label,raw,cleaned};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
+npx prettier --check "src/locales/**/translation.json" || npx prettier --write "src/locales/**/translation.json"
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npm test -- test/lib/transcriptDiff.test.js test/components/transcriptDiff.test.js test/components/transcriptionItemConfidence.test.js test/components/workspaceTokenAdoption.test.js && npm run i18n:check && npm run typecheck`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/lib/transcriptDiff.ts src/components/ui/TranscriptDiff.tsx src/components/ui/TranscriptionItem.tsx src/index.css src/locales test/lib/transcriptDiff.test.js test/components/transcriptDiff.test.js test/components/transcriptionItemConfidence.test.js
+git commit -m "feat(history): Raw versus cleaned diff in the expanded transcript (Labs)"
+```
+
+---
+
+### Task 19: Card resize on The Table (WS-M5)
+
+This covers the M5 acceptance bullet "resize handle bottom-right". The width and height persist in `note_layout.w/h` (Task 11), which until now nothing wrote.
+
+**Files:**
+- Modify: `src/components/table/tableGestures.ts`. Add a `resize` gesture, `clampSize`, and Alt+arrow resizing.
+- Modify: `src/components/table/tableModel.ts`. Add `sizes` overrides, `fixedH` on cards, and sizes in `placementsFor`.
+- Modify: `src/components/table/TableCard.tsx` (the handle and `minHeight`)
+- Modify: `src/components/table/TableCanvas.tsx` (route resize presses and effects; add the `onResizeCard` prop)
+- Modify: `src/components/table/TableView.tsx` (`onResizeCard`)
+- Modify: `src/index.css` (the handle)
+- Test: `test/components/tableGestures.test.js`, `test/components/tableModel.test.js`, `test/components/tableCanvas.test.js` (append to each)
+
+**Interfaces:**
+- `tableGestures.ts` gains:
+  - `MIN_CARD = { w: 180, h: 80 }`, `MAX_CARD = { w: 640, h: 600 }` and `clampSize(size)`;
+  - the gesture `{ kind: "resize"; key; start; origin: { w; h }; scale; moved }`;
+  - `PressInput.resizeKey?: string | null` and `PressInput.sizes?: Record<string, { w: number; h: number }>`;
+  - the move effect `{ type: "size"; key; size }` and the release effect `{ type: "resized"; key; size }` (snapped and clamped);
+  - `cancel()` restores the size;
+  - the key action `{ type: "resize"; dw; dh }` from Alt+arrows.
+- `tableModel.ts` gains:
+  - `TableState.sizes: Record<string, { w: number; h: number }>` and the action `{ type: "resized"; key: string; size: { w: number; h: number } }`;
+  - `TableCardModel.fixedH: number | null`;
+  - `placementsFor` writes the overridden `w`/`h`, and `placed` clears them.
+- `TableCanvasProps.onResizeCard?: (key: string, size: { w: number; h: number }, commit: boolean) => void`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `test/components/tableGestures.test.js`:
+
+```js
+test("the corner handle resizes in world units, clamped, snaps on release, and cancel restores", async () => {
+  const { press, move, release, cancel } = await load();
+  const g = press({ ...base, point: { x: 0, y: 0 }, cardKey: "note:1", resizeKey: "note:1", sizes: { "note:1": { w: 280, h: 150 } } });
+  assert.equal(g.kind, "resize");
+  const r = move(g, { x: 41, y: -400 });
+  assert.deepEqual(r.effect, { type: "size", key: "note:1", size: { w: 300.5, h: 80 } });
+  assert.deepEqual(release(r.gesture, { x: 41, y: -400 }), { type: "resized", key: "note:1", size: { w: 304, h: 80 } });
+  assert.deepEqual(cancel(r.gesture), { type: "size", key: "note:1", size: { w: 280, h: 150 } });
+  assert.deepEqual(move(g, { x: 4000, y: 4000 }).effect.size, { w: 640, h: 600 });
+});
+
+test("Alt+arrows resize the focused card by one grid step", async () => {
+  const { keyAction } = await load();
+  const k = (key) => keyAction({ key, shiftKey: false, metaKey: false, ctrlKey: false, altKey: true }, true);
+  assert.deepEqual(k("ArrowRight"), { type: "resize", dw: 8, dh: 0 });
+  assert.deepEqual(k("ArrowUp"), { type: "resize", dw: 0, dh: -8 });
+});
+```
+
+Append to `test/components/tableModel.test.js`:
+
+```js
+test("reducer: a resize shows at once and persists its size with the placement", async () => {
+  const { initialTableState, tableReducer, cardsFor, placementsFor } = await load();
+  let s = tableReducer(initialTableState(), {
+    type: "loaded",
+    board: board([entity("note", 1, { layout: { x: 96, y: 40, w: null, h: null, z: 0, hidden: false } })]),
+  });
+  s = tableReducer(s, { type: "resized", key: "note:1", size: { w: 320, h: 200 } });
+  assert.deepEqual([cardsFor(s)[0].rect.w, cardsFor(s)[0].rect.h, cardsFor(s)[0].fixedH], [320, 200, 200]);
+  const placements = placementsFor(s, ["note:1"]);
+  assert.deepEqual(placements, [{ type: "note", id: 1, x: 96, y: 40, w: 320, h: 200, z: 0 }]);
+  s = tableReducer(s, { type: "placed", placements });
+  assert.deepEqual(s.sizes, {});
+  assert.deepEqual([cardsFor(s)[0].rect.w, cardsFor(s)[0].rect.h, cardsFor(s)[0].fixedH], [320, 200, 200]);
+});
+```
+
+Append to `test/components/tableCanvas.test.js`:
+
+```js
+test("cards carry a resize handle and keep a resized height as their minimum", async () => {
+  const { TableCanvas } = await load();
+  const html = renderStatic(TableCanvas, props({ cards: [{ ...card("note:1", "note", 32, 32), fixedH: 220 }] }));
+  assert.match(html, /data-resize-handle=""[^>]*aria-hidden="true"/);
+  assert.match(html, /data-card-key="note:1"[^>]*style="[^"]*min-height:220px/);
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npm test -- test/components/tableGestures.test.js test/components/tableModel.test.js test/components/tableCanvas.test.js`
+Expected: FAIL. `g.kind` is `"drag"`, and `s.sizes` and `data-resize-handle` are missing.
+
+- [ ] **Step 3: Implement**
+
+1. `tableGestures.ts`:
+   - Add to the `Gesture` union `| { kind: "resize"; key: string; start: Point; origin: { w: number; h: number }; scale: number; moved: boolean }`.
+   - Add `resizeKey?: string | null; sizes?: Record<string, { w: number; h: number }>;` to `PressInput`.
+   - Add `| { type: "size"; key: string; size: { w: number; h: number } }` to `MoveEffect`.
+   - Add `| { type: "resized"; key: string; size: { w: number; h: number } }` to `ReleaseEffect`.
+   - Add `| { type: "resize"; dw: number; dh: number }` to `KeyAction`.
+   - Then add:
+
+   ```ts
+   export const MIN_CARD = { w: 180, h: 80 };
+   export const MAX_CARD = { w: 640, h: 600 };
+   export function clampSize(size: { w: number; h: number }): { w: number; h: number } {
+     return {
+       w: Math.min(MAX_CARD.w, Math.max(MIN_CARD.w, size.w)),
+       h: Math.min(MAX_CARD.h, Math.max(MIN_CARD.h, size.h)),
+     };
+   }
+   ```
+
+   - In `press`, before the drag branch:
+
+   ```ts
+     const origin = input.resizeKey ? input.sizes?.[input.resizeKey] : undefined;
+     if (input.resizeKey && origin) {
+       return { kind: "resize", key: input.resizeKey, start: input.point, origin, scale: input.viewport.scale, moved: false };
+     }
+   ```
+
+   - In `move`, add a case:
+
+   ```ts
+       case "resize": {
+         const moved = gesture.moved || passed(gesture.start, point);
+         const next = { ...gesture, moved };
+         if (!moved) return { gesture: next, effect: null };
+         const size = clampSize({
+           w: gesture.origin.w + (point.x - gesture.start.x) / gesture.scale,
+           h: gesture.origin.h + (point.y - gesture.start.y) / gesture.scale,
+         });
+         return { gesture: next, effect: { type: "size", key: gesture.key, size } };
+       }
+   ```
+
+   - In `release`, add:
+
+   ```ts
+       case "resize":
+         return gesture.moved
+           ? {
+               type: "resized",
+               key: gesture.key,
+               size: clampSize({
+                 w: snapToGrid(gesture.origin.w + (point.x - gesture.start.x) / gesture.scale),
+                 h: snapToGrid(gesture.origin.h + (point.y - gesture.start.y) / gesture.scale),
+               }),
+             }
+           : null;
+   ```
+
+   - In `cancel`, add: `if (gesture.kind === "resize" && gesture.moved) return { type: "size", key: gesture.key, size: gesture.origin };`
+   - In `keyAction`, replace the first line with:
+
+   ```ts
+     if (e.metaKey || e.ctrlKey) return null;
+     const dir = ARROWS[e.key];
+     if (e.altKey) {
+       return dir && onCard ? { type: "resize", dw: STEP[dir][0] * GRID, dh: STEP[dir][1] * GRID } : null;
+     }
+   ```
+
+   Then delete the original `const dir = ARROWS[e.key];` line that followed.
+
+2. `tableModel.ts`:
+   - `TableState` gains `sizes: Record<string, { w: number; h: number }>`, and `initialTableState()` returns `sizes: {}`.
+   - `TableAction` gains `| { type: "resized"; key: string; size: { w: number; h: number } }`.
+   - `TableCardModel` gains `fixedH: number | null`. In `buildCards`, set `fixedH: e.layout?.h ?? null` on both placed and auto cards.
+   - Reducer changes:
+     - `case "loaded"`: also reset `sizes: {}`.
+     - `case "placed"`: also delete the placed keys from a copy of `state.sizes`.
+     - Add a case:
+
+     ```ts
+         case "resized":
+           return { ...state, sizes: { ...state.sizes, [action.key]: action.size } };
+     ```
+
+   - `cardsFor` applies a size override after the position override:
+
+   ```ts
+       const z = state.sizes[card.key];
+       return z ? { ...moved, rect: { ...moved.rect, w: z.w, h: z.h }, fixedH: z.h } : moved;
+   ```
+
+     Here `moved` is the card returned by today's position-override branch.
+   - In `placementsFor`, write `w: state.sizes[card.key]?.w ?? card.entity.layout?.w ?? null` and `h: state.sizes[card.key]?.h ?? card.entity.layout?.h ?? null`.
+
+3. `TableCard.tsx`:
+   - Add `minHeight: card.fixedH ?? undefined` to the style.
+   - Add a last child: `<span className="table-card__resize" data-resize-handle="" aria-hidden="true" />`. Keyboard users resize with Alt+arrows.
+
+4. `TableCanvas.tsx`:
+   - Add `onResizeCard?: (key: string, size: { w: number; h: number }, commit: boolean) => void;` to the props.
+   - In `onPointerDown`, compute `const handle = (event.target as HTMLElement).closest("[data-resize-handle]");` and pass these to `press`:
+     - `resizeKey: handle ? (cardEl?.dataset.cardKey ?? null) : null`;
+     - `sizes: Object.fromEntries(cards.map((c) => [c.key, { w: c.rect.w, h: c.rect.h }]))`.
+   - In `applyMove`, add `if (effect.type === "size") props.onResizeCard?.(effect.key, effect.size, false);`.
+   - In `onPointerUp`, add `if (effect.type === "resized") props.onResizeCard?.(effect.key, effect.size, true);`.
+   - In `onPointerCancel`, add `if (effect?.type === "size") props.onResizeCard?.(effect.key, effect.size, false);`.
+   - In `onKeyDown`, add a case:
+
+   ```tsx
+         case "resize": {
+           const rect = cardKey ? byKey.get(cardKey)?.rect : undefined;
+           if (cardKey && rect) props.onResizeCard?.(cardKey, clampSize({ w: rect.w + action.dw, h: rect.h + action.dh }), true);
+           return;
+         }
+   ```
+
+   - Import `clampSize` from `./tableGestures`.
+
+5. `TableView.tsx`. Add a stable handler and pass `onResizeCard={onResizeCard}` to `TableCanvas`:
+
+   ```tsx
+     const onResizeCard = useCallback(
+       (key: string, size: { w: number; h: number }, commit: boolean) => {
+         dispatch({ type: "resized", key, size });
+         if (commit) {
+           const next = { ...stateRef.current, sizes: { ...stateRef.current.sizes, [key]: size } };
+           void board.place(placementsFor(next, [key]));
+         }
+       },
+       [dispatch, board.place]
+     );
+   ```
+
+6. `src/index.css`. Append after the Task 15 block (physical corner: the handle lives in world space):
+
+   ```css
+   .table-card__resize {
+     position: absolute;
+     right: 2px;
+     bottom: 2px;
+     width: 12px;
+     height: 12px;
+     border-right: 2px solid var(--color-table-card-border);
+     border-bottom: 2px solid var(--color-table-card-border);
+     border-bottom-right-radius: 4px;
+     cursor: nwse-resize;
+     opacity: 0;
+   }
+   .table-card:hover .table-card__resize,
+   .table-card:focus-visible .table-card__resize,
+   .table-card[aria-selected="true"] .table-card__resize {
+     opacity: 1;
+   }
+   ```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npm test -- test/components/tableGestures.test.js test/components/tableModel.test.js test/components/tableCanvas.test.js test/components/tableView.test.js && npm run typecheck`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/components/table src/index.css test/components/tableGestures.test.js test/components/tableModel.test.js test/components/tableCanvas.test.js
+git commit -m "feat(table): Resize cards from the corner or with Alt+arrows"
+```
+
+---
+
+### Task 20: Whole-plan verification
 
 **Files:** none new. This task runs every check and fixes what it surfaces.
 
@@ -6556,6 +7609,8 @@ npm run format:check
 Expected: everything passes. A failing pre-existing test may be updated in this branch only when it pins exactly what this plan intentionally changed. Those cases are:
 - a `transcribe()` result `deepEqual` that now includes `tokens: []` (Task 5);
 - a history-row `deepEqual` that now includes `has_confidence` (Task 6).
+
+Plan 06's `test/components/workspaceTokenAdoption.test.js` must pass unchanged. Never weaken it to make a Plan 08 file pass; fix the Plan 08 classes instead.
 
 Name every such test in the PR description. Any other failure is a regression; fix the code.
 
@@ -6598,8 +7653,37 @@ Screenshot each of these for the PR:
    - Click into the Ask box, then pan or zoom with the wheel: focus stays in the Ask box.
    - Reopen the Table with its first card scrolled off screen, then Tab into the canvas and press an arrow: focus lands on a visible card.
 8. **RTL** (UI language Arabic). The Inbox sits at the inline start (right), the selection bar is centred, and the canvas world is not mirrored.
-9. **Sealed mode** (if Plan 07 has merged). Turn Sealed on with a remote chat route: Summarise or Ask is blocked by main exactly as the Space's Ask box is, and no new path bypasses it.
+9. **Sealed mode** (if Plan 07 has merged). Turn Sealed on with a remote chat route:
+   - Summarise or Ask is blocked by main exactly as the Space's Ask box is, and no new path bypasses it.
+   - The selection bar shows the route's sealed state chip, and both AI buttons are disabled.
+10. **Route disclosure.**
+    - With a remote chat provider, the toolbar, the Ask panel and the selection bar all show the dashed remote `LocalityRing` and the provider's localised name before you click Summarise.
+    - Switch the chat route to a local model: the solid device ring replaces it.
+    - Select 13 cards: Summarise and Ask disable and the bar explains the 12-card limit.
+11. **Pinned selection.** Select two cards and choose Ask. Change the selection to a third card, then type and send a question. The panel says "Pinned cards: 2", and the answer card links to the two pinned cards only.
+12. **Raw versus cleaned** (with cleanup on). Expand a cleaned row and press `D`:
+    - Cleaned shows insertions tinted and deletions struck through, and the deletions then collapse.
+    - `D` returns to Raw, with the confidence underlines.
+13. **Resize.**
+    - Drag a card's bottom-right corner: it grows on the 8px grid between 180×80 and 640×600, and survives an app restart.
+    - Alt+arrows resize the focused card.
+    - A cancelled resize (switch apps mid-drag) restores the old size.
 
-- [ ] **Step 4: Commit any fixes, then hand off**
+- [ ] **Step 4: Performance check with 500 cards**
 
-The owner asked that this plan not be pushed by its planning thread. When executing, get the owner's explicit OK before `git push` and `gh pr create`; publishing a PR is outward-facing. The PR body lists one line per Task 1–17 commit, links the spec, this plan and the spike report, embeds the Step 3 screenshots, and names any intentionally updated pre-existing tests (Step 1).
+Seed a throwaway profile with 500 notes in the Space and 200 links, using the DB methods from Task 11 in a one-off script against that profile's database. Open the Table. In Chrome DevTools (View → Toggle Developer Tools), record a Performance trace while you:
+- drag one card continuously for 5 s;
+- pan with the wheel and pinch-zoom from 25 % to 200 %;
+- hold Shift+→ for 3 s on a focused card.
+
+Pass criteria:
+- the frame rate stays at or above 50 fps during the drag and the pan;
+- no task is longer than 50 ms;
+- React commits stay at one per animation frame or fewer (pointer moves are coalesced in `TableCanvas`);
+- cards' `ResizeObserver`s do not reconnect on each frame (stable `onMeasure`).
+
+If a criterion fails, profile which of `cardsFor`, `deriveEdges` or card rendering dominates, and memoise that one before the PR. Attach the trace summary to the PR.
+
+- [ ] **Step 5: Commit any fixes, then hand off**
+
+The owner asked that this plan not be pushed by its planning thread. When executing, get the owner's explicit OK before `git push` and `gh pr create`; publishing a PR is outward-facing. The PR body lists one line per Task 1–19 commit, links the spec, this plan and the spike report, embeds the Step 3 screenshots, and names any intentionally updated pre-existing tests (Step 1).

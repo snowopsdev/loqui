@@ -27,3 +27,43 @@ export function barPhase(index: number, timeMs: number): number {
 export function smoothToward(previous: number, target: number, factor: number): number {
   return round3(previous + (target - previous) * factor);
 }
+
+// Raw input below this counts as silence, so analyser noise cannot be
+// normalised up against a fully decayed peak and wobble the resting logo.
+export const LEVEL_BARS_SILENCE_FLOOR = 0.004;
+
+const PEAK_FLOOR = 0.01;
+const PEAK_DECAY_PER_SAMPLE = 0.99;
+const SMOOTHING = 0.3;
+const REDUCED_PHASE = 0.5;
+
+export interface LevelBarsFrame {
+  scales: number[];
+  peak: number;
+}
+
+// One meter tick as a pure function. The session peak decays with elapsed
+// time (not tick count) so the 33 ms and 100 ms sample rates behave alike;
+// reduced motion drops smoothing and the per-bar phase wobble.
+export function nextLevelBarsFrame(
+  prev: LevelBarsFrame,
+  raw: unknown,
+  nowMs: number,
+  dtMs: number,
+  reduce: boolean
+): LevelBarsFrame {
+  const sane = typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, raw) : 0;
+  const level = sane < LEVEL_BARS_SILENCE_FLOOR ? 0 : sane;
+  const dt = Number.isFinite(dtMs) && dtMs > 0 ? dtMs : 0;
+  const peak = Math.max(
+    level,
+    prev.peak * Math.pow(PEAK_DECAY_PER_SAMPLE, dt / LEVEL_BARS_SAMPLE_MS),
+    PEAK_FLOOR
+  );
+  const norm = level / peak;
+  const scales = LOGO_BAR_SHAPE.map((_, i) => {
+    const target = levelBarScale(i, norm, reduce ? REDUCED_PHASE : barPhase(i, nowMs));
+    return reduce ? target : smoothToward(prev.scales[i] ?? target, target, SMOOTHING);
+  });
+  return { scales, peak };
+}

@@ -54,3 +54,53 @@ test("reduced motion samples at 10 Hz", async () => {
   assert.equal(LEVEL_BARS_SAMPLE_MS, 33);
   assert.equal(LEVEL_BARS_REDUCED_SAMPLE_MS, 100);
 });
+
+const restFrame = (LOGO_BAR_SHAPE, levelBarScale) => ({
+  scales: LOGO_BAR_SHAPE.map((_, i) => levelBarScale(i, 0, 0.5)),
+  peak: 0.01,
+});
+
+test("a NaN sample steps toward the rest silhouette", async () => {
+  const { nextLevelBarsFrame, levelBarScale, LOGO_BAR_SHAPE } = await loadMath();
+  const rest = restFrame(LOGO_BAR_SHAPE, levelBarScale);
+  const next = nextLevelBarsFrame(rest, Number.NaN, 1000, 33, false);
+  assert.deepEqual(next.scales, rest.scales);
+  const neg = nextLevelBarsFrame(rest, -3, 1000, 33, false);
+  assert.deepEqual(neg.scales, rest.scales);
+});
+
+test("noise below the silence floor keeps the rest silhouette after long silence", async () => {
+  const { nextLevelBarsFrame, levelBarScale, LOGO_BAR_SHAPE, LEVEL_BARS_SILENCE_FLOOR } =
+    await loadMath();
+  assert.equal(LEVEL_BARS_SILENCE_FLOOR, 0.004);
+  let frame = { scales: restFrame(LOGO_BAR_SHAPE, levelBarScale).scales, peak: 1 };
+  for (let t = 0; t < 400; t++) {
+    frame = nextLevelBarsFrame(frame, 0.003, t * 33, 33, false);
+  }
+  assert.deepEqual(frame.scales, restFrame(LOGO_BAR_SHAPE, levelBarScale).scales);
+  assert.ok(frame.peak >= 0.01 && frame.peak < 0.02);
+});
+
+test("reduced motion skips smoothing and the phase wobble", async () => {
+  const { nextLevelBarsFrame, levelBarScale, LOGO_BAR_SHAPE } = await loadMath();
+  const prev = restFrame(LOGO_BAR_SHAPE, levelBarScale);
+  const a = nextLevelBarsFrame(prev, 0.5, 1000, 100, true);
+  const b = nextLevelBarsFrame(prev, 0.5, 98765, 100, true);
+  assert.deepEqual(a.scales, b.scales);
+  assert.deepEqual(
+    a.scales,
+    LOGO_BAR_SHAPE.map((_, i) => levelBarScale(i, 0.5 / a.peak, 0.5))
+  );
+});
+
+test("peak decay depends on elapsed time, not on the sampling rate", async () => {
+  const { nextLevelBarsFrame, levelBarScale, LOGO_BAR_SHAPE } = await loadMath();
+  const start = { ...restFrame(LOGO_BAR_SHAPE, levelBarScale), peak: 1 };
+  const run = (dt) => {
+    let frame = start;
+    for (let t = 0; t < 1000; t += dt) frame = nextLevelBarsFrame(frame, 0, t, dt, false);
+    return frame.peak;
+  };
+  assert.ok(Math.abs(run(25) - run(100)) < 1e-3, `${run(25)} vs ${run(100)}`);
+  assert.ok(run(25) < 0.8);
+});

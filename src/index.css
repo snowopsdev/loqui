@@ -21,7 +21,7 @@
   --color-destructive-foreground: #ffffff;
   --color-border: #e5e5e5;
   --color-input: #f9f6f1;
-  --color-ring: #ff5a1f;
+  --color-ring: #e84e16;
   --color-background: #ffffff;
   --color-foreground: #171717;
   --color-card: #ffffff;
@@ -29,12 +29,32 @@
   --color-popover: #ffffff;
   --color-popover-foreground: #171717;
   --color-link: #c43e13;
+  --color-link-hover: #a8340d;
   --color-success: #16a34a;
   --color-success-foreground: #ffffff;
   --color-warning: #d97706;
   --color-warning-foreground: #ffffff;
   --color-info: #c43e13;
   --color-info-foreground: #ffffff;
+
+  /* Roles (DESIGN.md "Colors"). Orange means "live voice": it fills only
+     record/stop/mic controls, the pill and meters. The everyday call to
+     action is an ink capsule that carries a small orange brand dot. */
+  --color-cta: #171717;
+  --color-cta-foreground: #ffffff;
+  /* Hover lightens the ink, press goes deeper. Fills, never filters: a filter
+     would recolour the box-shadow focus ring. */
+  --color-cta-hover: #2e2e2e;
+  --color-cta-active: #0a0a0a;
+  --color-live: #ff5a1f;
+  --color-live-foreground: #171717;
+  --color-nav-marker: #e84e16;
+  /* Locality: shape carries it first (solid, dotted, dashed ring); these
+     hues back it up. Green/blue/amber, never orange or violet, so locality
+     never reads as mode. */
+  --color-locality-device: #0b7a54;
+  --color-locality-network: #3b6ea8;
+  --color-locality-remote: #ad5008;
 
   /* Surface hierarchy — light mode equivalents */
   --color-surface-0: #ffffff;
@@ -48,7 +68,7 @@
   /* Border states — light mode equivalents */
   --color-border-subtle: #e5e5e5;
   --color-border-hover: #d4d4d4;
-  --color-border-active: #ff5a1f;
+  --color-border-active: #e84e16;
 }
 
 :root {
@@ -60,6 +80,98 @@
      --ease-out here overrides Tailwind's @layer theme variable of the same
      name and silently retimes every `ease-out` utility app-wide. */
   --onboarding-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Loqui Motion (DESIGN.md "Motion"). Prefixed --motion- so Tailwind's own
+     --ease-* theme variables stay untouched. Exits run at ~70% of the enter
+     duration with --motion-ease-exit; never ease-in. Springs are CSS
+     linear() curves: snap at 380ms (+6.6%), settle at 520ms (+8.6%),
+     bounce at 640ms (+19%, success confirmations only). */
+  --motion-instant: 90ms;
+  --motion-fast: 150ms;
+  --motion-base: 240ms;
+  --motion-slow: 360ms;
+  --motion-hero: 520ms;
+  --motion-ease-std: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-exit: cubic-bezier(0.2, 0, 0.4, 1);
+  --motion-spring-snap: linear(
+    0,
+    0.075,
+    0.245,
+    0.446,
+    0.637,
+    0.796,
+    0.915,
+    0.995,
+    1.042,
+    1.063,
+    1.066,
+    1.059,
+    1.047,
+    1.033,
+    1.021,
+    1.011,
+    1.004,
+    0.999,
+    0.997,
+    0.996,
+    0.996,
+    0.996,
+    0.997,
+    1
+  );
+  --motion-spring-settle: linear(
+    0,
+    0.076,
+    0.251,
+    0.46,
+    0.659,
+    0.824,
+    0.947,
+    1.026,
+    1.07,
+    1.086,
+    1.083,
+    1.07,
+    1.052,
+    1.034,
+    1.019,
+    1.007,
+    0.999,
+    0.995,
+    0.993,
+    0.993,
+    0.994,
+    0.995,
+    0.997,
+    1
+  );
+  --motion-spring-bounce: linear(
+    0,
+    0.119,
+    0.386,
+    0.683,
+    0.933,
+    1.1,
+    1.18,
+    1.188,
+    1.152,
+    1.097,
+    1.042,
+    0.999,
+    0.973,
+    0.964,
+    0.966,
+    0.974,
+    0.985,
+    0.995,
+    1.002,
+    1.006,
+    1.007,
+    1.006,
+    1.004,
+    1
+  );
 
   /* Bundled open-source fonts work without network access. */
   --font-family-sans:
@@ -106,54 +218,69 @@
     inset 0 -1px 1px rgba(0, 0, 0, 0.12);
   /* The fill under that rim: Button default, mic/send circles, the onboarding brand tile. */
   --gradient-brand-glass: linear-gradient(180deg, #ff6a36 0%, #ff5a1f 100%);
+  /* Hover lifts the glass, press deepens it; ink text stays at 4.5:1+ on every stop. */
+  --gradient-brand-glass-hover: linear-gradient(180deg, #ff8658 0%, #ff7a4d 100%);
+  --gradient-brand-glass-active: linear-gradient(180deg, #f2531c 0%, #e84e16 100%);
   /* The brand tile floats over the onboarding hero, so it adds a soft coloured lift. */
   --shadow-brand-tile: var(--shadow-brand-glass), 0 10px 24px -8px rgb(255 90 31 / 0.45);
 }
 
 .dark {
-  /* Dark mode — charcoal surfaces with clear elevation hierarchy
-     Base L=0.22 (charcoal) with 0.05 steps between layers. */
-  --color-background: oklch(0.22 0.006 260);
-  --color-foreground: oklch(0.93 0 0);
-  --color-card: oklch(0.27 0.008 260);
-  --color-card-foreground: oklch(0.93 0 0);
-  --color-popover: oklch(0.29 0.009 260);
-  --color-popover-foreground: oklch(0.93 0 0);
+  /* Plum Night — the brand guide's Deep Plum family (DESIGN.md "Colors").
+     Hex, not oklch, so contrast tests can score every pair. */
+  --color-background: #1c1218;
+  --color-foreground: #f3e9ee;
+  --color-card: #271820;
+  --color-card-foreground: #f3e9ee;
+  --color-popover: #2b1b24;
+  --color-popover-foreground: #f3e9ee;
   --color-primary: #ff5a1f;
   --color-primary-foreground: #171717;
-  --color-secondary: oklch(0.28 0.007 260);
-  --color-secondary-foreground: oklch(0.9 0 0);
-  --color-muted: oklch(0.24 0.006 260);
-  --color-muted-foreground: oklch(0.65 0 0);
+  --color-secondary: #2a1922;
+  --color-secondary-foreground: #ecdfe6;
+  --color-muted: #22161c;
+  --color-muted-foreground: #b59aa8;
   --color-accent: #d90078;
-  --color-accent-foreground: oklch(0.99 0 0);
-  --color-destructive: oklch(0.62 0.22 25);
-  --color-destructive-foreground: oklch(0.99 0 0);
-  --color-border: oklch(0.35 0.007 260);
-  --color-input: oklch(0.19 0.005 260);
+  --color-accent-foreground: #ffffff;
+  --color-destructive: #f87171;
+  --color-destructive-foreground: #1c1218;
+  --color-border: #3d2733;
+  --color-input: #170e13;
   --color-ring: #ff5a1f;
-  --color-success: oklch(0.7 0.18 145);
-  --color-success-foreground: oklch(0.99 0 0);
-  --color-warning: oklch(0.75 0.15 70);
-  --color-warning-foreground: oklch(0.15 0 0);
+  --color-success: #4ade80;
+  --color-success-foreground: #1c1218;
+  --color-warning: #f0a83c;
+  --color-warning-foreground: #1c1218;
   --color-info: #ff8a68;
-  --color-info-foreground: oklch(0.99 0 0);
+  --color-info-foreground: #1c1218;
 
-  /* Surface hierarchy — charcoal depth system (0.22 → 0.33) */
-  --color-surface-0: oklch(0.22 0.006 260);
-  --color-surface-1: oklch(0.25 0.007 260);
-  --color-surface-2: oklch(0.27 0.008 260);
-  --color-surface-3: oklch(0.3 0.009 260);
-  --color-surface-raised: oklch(0.33 0.01 260);
-  --color-surface-window: oklch(0.19 0.005 260);
+  --color-cta: #f3e9ee;
+  --color-cta-foreground: #1c1218;
+  --color-cta-hover: #e6d8df;
+  --color-cta-active: #d8c7d1;
+  --color-live: #ff5a1f;
+  --color-live-foreground: #171717;
+  --color-nav-marker: #e6007a;
+  --color-locality-device: #5ee0ad;
+  --color-locality-network: #9bb4d6;
+  --color-locality-remote: #fbbf6a;
+
+  /* Surface hierarchy — plum depth system */
+  --color-surface-0: #1c1218;
+  --color-surface-1: #21151b;
+  --color-surface-2: #271820;
+  --color-surface-3: #2d1c25;
+  --color-surface-raised: #33202b;
+  --color-surface-window: #160d12;
 
   /* Border states */
-  --color-border-subtle: oklch(0.33 0.006 260);
-  --color-border-hover: oklch(0.42 0.01 260);
+  --color-border-subtle: #36222d;
+  --color-border-hover: #4a3040;
   --color-border-active: #ff5a1f;
   --color-link: #ff9a7a;
+  --color-link-hover: #ffb39a;
 
-  /* Card depth shadows — softer for charcoal, with top highlight for premium depth */
+  /* Card depth shadows — softer for plum, with top highlight for premium depth */
   --shadow-card: 0 1px 3px oklch(0 0 0 / 0.2), inset 0 1px 0 oklch(1 0 0 / 0.03);
   --shadow-card-hover: 0 4px 12px oklch(0 0 0 / 0.25), inset 0 1px 0 oklch(1 0 0 / 0.04);
   --shadow-elevated: 0 8px 24px oklch(0 0 0 / 0.3);
@@ -174,10 +301,29 @@
 @layer base {
   * {
     border-color: var(--color-border);
+  }
+
+  /* Colour feedback belongs to things you can operate. A transition on every
+     element smeared theme switches and re-fired on every per-frame style
+     write (meters, glows). :where() keeps specificity at zero so Tailwind
+     transition utilities still override it. */
+  :where(
+    button,
+    a,
+    input,
+    select,
+    textarea,
+    summary,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="option"],
+    [role="switch"]
+  ) {
     transition:
-      background-color 150ms ease,
-      border-color 150ms ease,
-      color 150ms ease;
+      background-color var(--motion-fast) var(--motion-ease-std),
+      border-color var(--motion-fast) var(--motion-ease-std),
+      color var(--motion-fast) var(--motion-ease-std);
   }
 
   body {
@@ -415,7 +561,6 @@ body.dark:has(.onboarding-canvas) {
   --color-muted: var(--onboarding-surface-secondary);
   --color-muted-foreground: var(--onboarding-text-secondary);
   --color-border: var(--onboarding-control-border);
-  --color-ring: var(--onboarding-accent);
   background-color: var(--onboarding-surface);
   /* Supplied full-width artwork replaces the generated corner washes. Keeping
      its natural aspect ratio preserves the authored Loqui composition
@@ -1857,4 +2002,72 @@ a:hover {
 .emoji-picker-scroll::-webkit-scrollbar-thumb {
   border-radius: 8px;
   background-color: var(--color-border);
+}
+
+/* Locality ring (DESIGN.md "Roles"): shape first, hue second. */
+.locality-ring {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: var(--color-locality-device);
+}
+.locality-ring[data-locality="network"] {
+  color: var(--color-locality-network);
+}
+.locality-ring[data-locality="remote"] {
+  color: var(--color-locality-remote);
+}
+.locality-ring__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.locality-ring__svg circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.locality-ring[data-locality="network"] .locality-ring__svg circle {
+  stroke-dasharray: 0.25 6;
+  stroke-linecap: round;
+  stroke-width: 2.25;
+}
+.locality-ring[data-locality="remote"] .locality-ring__svg circle {
+  stroke-dasharray: 6 4;
+}
+.locality-ring[data-locality="remote"][data-active="true"] .locality-ring__svg {
+  animation: locality-orbit 6s linear infinite;
+}
+.locality-ring__content {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 70%;
+  height: 70%;
+}
+.locality-ring__badge {
+  position: absolute;
+  inset-inline-end: -5px;
+  bottom: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 9999px;
+  background: var(--color-background);
+  border: 1.5px solid currentColor;
+  font: 700 8px/12px var(--font-family-sans);
+  text-align: center;
+}
+@keyframes locality-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .locality-ring__svg {
+    animation: none !important;
+  }
 }

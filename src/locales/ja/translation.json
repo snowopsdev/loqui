@@ -4122,5 +4122,12 @@
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"
+  },
+  "locality": {
+    "device": "このデバイス上",
+    "network": "あなたのサーバー上",
+    "remote": "{{provider}} に送信",
+    "unknownProvider": "不明なプロバイダー",
+    "customEndpoint": "カスタムエンドポイント"
   }
 }

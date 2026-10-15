@@ -853,6 +853,7 @@ This covers WS-Q9 and the foundation for WS-Q3, mentions, citations and Insights
 - Create: `src/stores/homeViewStore.ts`
 - Create: `src/components/workspaceNavigation.tsx`, `src/components/chat/chatRequest.ts`
 - Modify: `src/stores/noteStore.ts`. Add the one authoritative open-by-id path and the launch restore (review I04, I06):
+- Modify: `src/stores/noteListOps.ts`. `teardownNoteContainers` also evicts opened notes that lived in a removed container, so deleting a folder cannot leave an uncached older note in the editor (review N01).
   - the `NoteState` interface (`:14-27`) and the initial state (`:46-57`);
   - `findNoteInState` (`:92-98`);
   - `initializeNotesTree`'s auto-select (`:342-344`);
@@ -1073,6 +1074,49 @@ test("an IPC delete of an opened older note clears it from the editor", async (t
   deleted({ id: 999 });
   assert.equal(store.getNoteFromStore(999), null);
   assert.equal(store.getActiveNoteIdValue(), null);
+});
+
+// N01: main deletes a folder's notes and broadcasts only folder-deleted.
+const ARCHIVE = { id: 3, space_id: 1, name: "Archive", is_default: 0 };
+
+test("deleting the folder of an opened older note evicts it, by broadcast (N01)", async (t) => {
+  let folderDeleted;
+  let rowExists = true;
+  const { store } = await loadStore(t, {
+    getFolders: async () => [{ id: 2, space_id: 1, name: "Work", is_default: 1 }, ARCHIVE],
+    getNote: async (id) => (id === 999 && rowExists ? note(999, { folder_id: 3 }) : null),
+    onFolderDeleted: (cb) => {
+      folderDeleted = cb;
+      return () => {};
+    },
+  });
+  await store.initializeNotesTree();
+  assert.equal(await store.openNoteById(999), "opened");
+  rowExists = false; // main deleted the folder and its notes
+  folderDeleted({ id: 3 });
+  assert.equal(store.getNoteFromStore(999), null, "the editor can no longer resolve it");
+  assert.notEqual(store.getActiveNoteIdValue(), 999);
+  assert.equal(await store.openNoteById(999), "missing", "a later reopen asks main and reports missing");
+});
+
+test("deleting the folder of an opened older note evicts it, locally (N01)", async (t) => {
+  let folders = [{ id: 2, space_id: 1, name: "Work", is_default: 1 }, ARCHIVE];
+  let rowExists = true;
+  const { store } = await loadStore(t, {
+    getFolders: async () => folders,
+    getNote: async (id) => (id === 999 && rowExists ? note(999, { folder_id: 3 }) : null),
+    deleteFolder: async (id) => {
+      folders = folders.filter((f) => f.id !== id);
+      rowExists = false;
+      return { success: true };
+    },
+  });
+  await store.initializeNotesTree();
+  await store.openNoteById(999);
+  assert.deepEqual(await store.deleteFolder(3), { success: true });
+  assert.equal(store.getNoteFromStore(999), null);
+  assert.notEqual(store.getActiveNoteIdValue(), 999);
+  assert.equal(await store.openNoteById(999), "missing");
 });
 
 test("launch restore wins over the tree's first-note pick when the tree loads first", async (t) => {
@@ -1321,6 +1365,43 @@ Expected:
          });
        }
      ```
+
+   - **Folder deletion (review N01).** Main deletes every note in a deleted folder and broadcasts only `folder-deleted` (`database.js:1310-1326`, `ipcHandlers.js:1727-1741`), so `note-deleted` never reaches an opened note in that folder. Both teardown paths, the IPC `onFolderDeleted` handler (`:159-178`) and the local `deleteFolder` (`:445-458`), already go through `teardownNoteContainers`. Teach that one function about `openedNotes` in `src/stores/noteListOps.ts`:
+
+     ```ts
+     export interface NoteContainerState {
+       notesByContainer: Record<string, NoteItem[]>;
+       expandedContainers: Set<string>;
+       activeNoteId: number | null;
+       openedNotes?: Record<number, NoteItem>;
+     }
+
+     export interface TeardownContainersResult extends NoteContainerState {
+       removedNotes: NoteItem[];
+       openedNotes: Record<number, NoteItem>;
+     }
+
+     // The same key format as noteStore's folderContainerKey / spaceContainerKey.
+     const containerKeyOf = (note: NoteItem): string =>
+       note.folder_id != null ? `f:${note.folder_id}` : `s:${note.space_id}`;
+     ```
+
+     In `teardownNoteContainers`, after the `notesByContainer` loop and before `activeNoteId` is computed, add:
+
+     ```ts
+       // Notes opened by id live outside every container page (Plan 06). A
+       // removed container takes them with it, or the editor would keep showing
+       // a note main has already deleted.
+       const openedNotes: Record<number, NoteItem> = {};
+       for (const opened of Object.values(state.openedNotes ?? {})) {
+         if (removedKeys.has(containerKeyOf(opened))) removedNotes.push(opened);
+         else openedNotes[opened.id] = opened;
+       }
+     ```
+
+     and return `openedNotes` with the rest. `activeNoteId` is already cleared when the active note is in `removedNotes`, which now includes opened ones.
+   - In `noteStore.ts`, add `openedNotes: teardown.openedNotes,` to the `useNoteStore.setState(...)` call of both the `onFolderDeleted` handler and `deleteFolder`. Add `openedNotes: {} as Record<number, NoteItem>,` to `createClearedAccountNoteState` in `noteListOps.ts`, so any account reset that uses it clears the cache too.
+   - Other paths: a note moved between folders keeps its cached copy current through `updateNoteInStore` (above), and `openNoteById` always consults main for a note that is not cached, so a stale id reports `missing`. There is no space-purge handler in `noteStore.ts` today (`:511` defers to a broadcast); if one is added, it must call `teardownNoteContainers` with the space's keys like the folder paths do.
 
    - Append:
 
@@ -1623,7 +1704,7 @@ Expected: PASS. Typecheck is clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/workspaceView.ts src/stores/homeViewStore.ts src/stores/noteStore.ts src/components/workspaceNavigation.tsx src/components/chat/chatRequest.ts src/components/ControlPanel.tsx src/locales test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js test/stores/noteOpenRestore.test.js
+git add src/lib/workspaceView.ts src/stores/homeViewStore.ts src/stores/noteStore.ts src/stores/noteListOps.ts src/components/workspaceNavigation.tsx src/components/chat/chatRequest.ts src/components/ControlPanel.tsx src/locales test/lib/workspaceView.test.js test/stores/homeViewStore.test.js test/components/workspaceNavigation.test.js test/stores/noteOpenRestore.test.js
 git commit -m "feat(workspace): persist the view and add workspace navigation"
 ```
 

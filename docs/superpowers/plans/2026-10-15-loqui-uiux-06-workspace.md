@@ -34,16 +34,52 @@ The visual acceptance reference is `design-explorations/loqui-uiux-review.html#c
 
 ---
 
+## Review response (Codex review `plan-06-codex.md`, 2026-10-15: 0 Critical, 16 Important, 4 Minor)
+
+Every Important finding is closed. Minor findings M01–M03 are closed, and so is the file-map and handback half of M04. Only M04's request to split the plan is disputed (below). Each fix has a behavioural test that fails on the reviewed design and passes on the revised one; "Pinned in" names it.
+
+| # | Finding | Fix | Pinned in |
+|---|---|---|---|
+| I01 | Palette seed inherits an armed send queue | `ChatInput` applies a `seed` during render: it replaces the draft, disarms `queued` when `resetQueue`, and bumps a draft generation so a refused send that started earlier cannot restore its text over the seed. ChatView `new`/`open` requests reset the queue; `focus` keeps it. | Task 4, `chatComposerSeed.test.js` (mounted): "a palette seed disarms a queued draft…", "a refused send that started before a new chat…", "a focus-only request keeps…", "a seed present at mount…" |
+| I02 | Stop during pinned-context loading starts a request anyway | After `await buildPinnedContext(...)` the stream rechecks `cancelled() \|\| !mountedRef.current` before any provider call. | Task 22, `useChatStreamingCancellation.test.js` (deferred lookup on the real hook): Stop, unmount and a superseding send never reach the provider |
+| I03 | Suggestion helper does not typecheck | `suggestionPopup.ts` is constrained `P extends object`, with an explicit `SuggestionPopupComponent<P>` and a `RendererProps` widening. Both callers compiled with tsc 6.0.3 against the repo's `node_modules` in `strict: false` and `strict: true`; reverting the constraint reproduces TS2344. | Task 15, Step 4 runs `npm run typecheck` |
+| I04 | A fetched deep-linked note is not available to the editor | `noteStore` gains `openedNotes` and `openNoteById(id)` (one fetch-by-id path); `updateNoteInStore` and `removeNote` keep it current. Navigation and the palette use it. | Task 3, `noteOpenRestore.test.js`: "a deep link opens a note older than the first page, and the editor can read it", "an IPC delete of an opened older note…" |
+| I05 | Ask AI seeds a composer that then hides | NoteEditor opens the floating chat (`chatMode`) and passes `composerSeed` to both `EmbeddedChat` instances, which forward it to `ChatInput`'s `seed`. `NoteBottomBar` is not seeded. | Task 16, `bubbleToolbar.test.js`: "Ask AI opens a visible composer and seeds it, disarming any queue (I05)" |
+| I06 | Launch restore races the tree's auto-select | `restoreLaunchNote(id)` sets `launchRestorePending`, and `initializeNotesTree` skips its first-note pick while it is set. A navigation generation lets a user's click supersede the restore. | Task 3, `noteOpenRestore.test.js`: both load orders, and "pending native navigation during a restore takes precedence" |
+| I07 | Bubble clicks refocus the document | `editorChrome.ts` `isEditorChromeTarget`; RichTextEditor's click-to-focus ignores `[data-editor-chrome]`; BubbleMenu prevents default on `mousedown` except in inputs. | Task 16, `editorChrome.test.js` |
+| I08 | Hover-card actions vanish before they can be reached | `useHoverCard` (reducer, 150 ms close delay, one boundary around chip and card using `relatedTarget` containment, Escape returns focus to the chip). | Task 18, `hoverCard.test.js`: gap crossing, Tab into Open/Insert quote, Tab out, Escape |
+| I09 | Slash AI readiness reads the cleanup model | `noteAiReadiness(useResolvedRoute("noteFormatting").state)`; not-ready shows a `setupAi` item that opens the route's `settingsPath`. | Task 15, `slashItems.test.js` "(I09)" and "PersonalNotesView takes readiness from the route" |
+| I10 | Mention interception precedes Plan 02's IME check | `handleKeyDown` returns on `nativeEvent.isComposing \|\| keyCode === 229` before calling `interceptKeyDown`. | Task 22, `chatComposerMention.test.js`: "an IME candidate commit never reaches the mention picker or submits (I10)" |
+| I11 | Answer stamped Local after a remote request | `getRoute()` removed. The stream resolves `sentRoute` from the same `settings` snapshot that builds the request, and stamps that. | Task 21, `useChatStreamingCancellation.test.js`: "the route stamp is the route the request used, even if Settings change while context loads (I11)" |
+| I12 | Pinned-only sources are never citable | `Message.context.pinnedNotes` is recorded, saved and loaded; `collectSources` merges `ragNotes` and `pinnedNotes`. | Task 22: "a pinned-only note is cited even with empty RAG and tool results…", "a completed answer records the pinned notes it was given (I12)" |
+| I13 | Meeting capture shows the dictation route | `CaptureStatus.inputKind` plus `captureRouteIds(status)` select `noteRecordingStt` for meetings and `voiceAssistant`/`translation` for the text route. The mic card and sidebar render those routes. | Task 6, `captureStatus.test.js`; Task 8, `micStatusCard.test.js` "a meeting shows the meeting route… (I13)" |
+| I14 | Low-contrast focus and action indicators | Row actions rest at full `text-muted-foreground` (7.9:1); every new control keeps `focus-visible:ring-2 focus-visible:ring-ring`; the guard's `faded-ring` rule rejects `ring-*/NN`. | Task 9 "(I14)"; Task 12 "actions are visible at rest… (I14)"; Task 25 guard |
+| I15 | Guard omits workspace screens | The guard is a shared module (`test/helpers/workspaceTokenGuard.js`, CR-06-6). It adds Integrations, Dictionary, Snippets, UploadAudioView and CaptureControl, plus `faded-foreground` and `faded-ring` rules. It reports about 390 violations on today's tree, including every file the review named. | Task 25, `workspaceTokenAdoption.test.js` (scan, rule self-test, standard-size invariant) |
+| I16 | Task 1 replaces Plan 03's locale helper | Task 1 now upgrades Plan 03's `scripts/merge-locale-keys.js` with an opt-in `--strict`. The plain CLI is unchanged (same usage exit 2, same `Missing locales in fragment:` exit 1), and Plan 03's test passes unchanged. | Task 1, `mergeLocaleKeysStrict.test.js` (verified 5/5 against Plan 03's helper) |
+| M01 | History landing needs request scope and a ring nonce | `transcriptionStore.revealTranscription(id)` fetches by id and inserts in order; the landing uses a request generation; the ring is `{ id, nonce }`, keyed by nonce. | Task 12, `transcriptionReveal.test.js`; Task 3 "asking for the same transcript twice re-rings it" |
+| M02 | Entity labels need a real Markdown round trip | `markdownLabel` escapes `\`, `*`, `_`, `` ` `` and `~` after `sanitizeLabel`; both builders use it. | Task 17: "labels survive a real Markdown parse… (M02)", through `markdown-it` |
+| M03 | Publish the Plan 08 handoff; reconcile numbering | CR-06-6, CR-06-7 and CR-06-8 below, and one proposed §5 numbering for all plans. | This section |
+| M04 | Reduce bulk; make the handback accurate | File map regenerated (it now lists `chatRequest.ts`, `messageRoute.ts`, `editorChrome.ts`, `useHoverCard.ts`, the guard and the `cn` change). Task 26's handback lists CR-06-1…8 and the manual checks the review asked for. **The split is disputed** (below). | File map; Task 26 |
+
+**Disputed: M04's request to split the plan into three documents.**
+- **Scope is one spec row.** Spec §3 assigns the workspace to Plan 06 as one unit, and the shell, Home, editor and chat tasks share contracts that a split would duplicate: `WorkspaceNavigation` (Task 3) is consumed by Tasks 12, 13, 18, 20 and 23; `ComposerSeed` (Task 4) by Tasks 13 and 16; the guard (Task 25) by every task. Three documents would need a fourth "shared contract" document, which is what this plan's Interfaces blocks already are.
+- **The review's concern is contradictions, and those are fixed at their source.** All sixteen Important findings were wrong behaviour in a specific task, not drift between duplicated copies. Each is now pinned by a behavioural test (table above), so a contradiction fails a test rather than hiding in volume.
+- **Execution is already bounded.** Each task ends in its own commit and runs alone under superpowers:subagent-driven-development; a subagent reads one task, not the whole document.
+- **What was done instead:** the file map was regenerated and the handback completed (the actionable half of M04). If the owner still wants a split after reading this, Tasks 1–13, 14–18 and 19–26 are the natural cut points, and each already starts from merged code.
+
 ## Contract change requests
 
-The spec owner should apply these to §3 and §5. Until then, this plan codes against the names below.
+The spec owner should apply these to §3 and §5. Until then, this plan codes against the names below. Plan 03 has already accepted CR-06-2 and CR-06-5 (P03:51-73).
 
-1. **CR-06-1. Add a Plan 02 → Plan 06 edge to §3, and a §5.5 "Workspace bug fixes" contract (owner: Plan 02; consumer: 06).** Plan 06 builds on WS-Q1, WS-Q5 and WS-Q7, but the §3 graph only gates 06 on 01 and 03. Plan 02 should produce:
-   - `src/hooks/useNow.ts` with `export function useNow(intervalMs: number): Date`. It re-renders every `intervalMs` and at the next local midnight. This is the WS-Q1 fix, and Tasks 11 and 12 read "now" from it.
-   - `ChatInput.tsx` after WS-Q5 keeps these identifiers: the `inputText`/`setInputText` state pair, `inputRef`, `handleKeyDown`, `handleSubmit`, and the props `agentState`, `onTextSubmit`, `onCancel`, `autoFocus`, `placeholder`, `className` and `voiceDraft`. Task 22 adds props on top of them.
-   - `useNotesOnboarding()` keeps returning `isLLMConfigured: boolean` after WS-Q7. Task 15 uses it to enable the slash menu's AI group.
-2. **CR-06-2. Extend §5.1 (owner: Plan 03).** Any `ResolvedRoute.settingsPath` value must be a valid `SettingsModal` `initialSection`. Today `initialSection` accepts only the legacy names in `SettingsModal.tsx:13-39`. Plan 06 opens Settings from the chat model chip and the mic card by calling `onOpenSettings(route.settingsPath)`. Plan 03 can meet this by mapping paths in `SECTION_ALIASES`/`LEGACY_SUB_TAB` or by exporting a resolver. Either way the call site stays `onOpenSettings(route.settingsPath)`.
-3. **CR-06-3. Add a §5.6 "Capture status bridge" contract (owner: Plan 06; consumers: 04, 05).** Plan 06 adds these preload methods (Task 5):
+**Proposed §5 numbering, once for all plans.** Spec §5 stops at §5.4 today, and Plans 02, 06 and 08 each proposed overlapping §5.5/§5.6 names. This plan proposes: §5.5 System notifications (Plan 02), §5.6 Capture status bridge (CR-06-3), §5.7 Workspace token guard (CR-06-6), §5.8 Space surface (CR-06-7), §5.9 Entity mention links (CR-06-8), §5.10 Labs flags (Plan 08 CCR-3). The final numbers are the spec owner's call; the CR ids below stay stable whatever numbers they get.
+
+1. **CR-06-1. Add a Plan 02 → Plan 06 edge to §3 (owner: Plan 02; consumer: 06).** Plan 06 builds on WS-Q1, WS-Q5 and WS-Q7, but the §3 graph only gates 06 on 01 and 03. Plan 06 consumes these names from Plan 02:
+   - `src/hooks/useNow.ts`: `export function useNow(intervalMs?: number): Date`. Tasks 11 and 12 read "now" from it.
+   - `ChatInput.tsx` after WS-Q5 (Plan 02 Task 12): the `inputText`/`setInputText` and `queued`/`setQueued` state pairs, `inputRef`, `handleKeyDown` (with its `isComposing` check), the async `handleSubmit` that restores the draft on refusal, and the props `agentState`, `onTextSubmit`, `onCancel`, `autoFocus`, `placeholder`, `className` and `voiceDraft`. Tasks 4 and 22 add props on top of them.
+   - The focus rule `focus-visible:ring-2 focus-visible:ring-ring` (Plan 02 Task 3).
+   - The test harness files `test/helpers/harness/rendererMocks.js` (`rendererOptions`, `TOAST_MOCK`) and `test/helpers/harness/fakeDomTree.js` (`installTree`). Tasks 4 and 22 mount the composer with them.
+2. **CR-06-2. Extend §5.1 (owner: Plan 03). Accepted by Plan 03.** Any `ResolvedRoute.settingsPath` value is a valid `SettingsModal` `initialSection`. Plan 06 opens Settings from the chat model chip, the mic card and the slash menu's `setupAi` item with `onOpenSettings(route.settingsPath)`. The spec text still needs the line.
+3. **CR-06-3. §5.6 "Capture status bridge" (owner: Plan 06; consumers: 04, 05).** Plan 06 adds these preload methods (Task 5):
 
    ```ts
    type DictationLifecycleSnapshot = {
@@ -56,15 +92,44 @@ The spec owner should apply these to §3 and §5. Until then, this plan codes ag
    toggleDictationFromControlPanel(): Promise<{ success: boolean }>;
    ```
 
-   Plan 04 adds `cancelled` (§5.2), which reaches the control panel through the same channel. Plan 06 maps any state it does not know to "ready". It should be recorded so Plan 04 and Plan 05 reuse it rather than adding a second channel.
-4. **CR-06-4. Add to the §5 Plan 01 token table, marked "added by Plan 06".** The new tokens are `--color-ai`, `--color-ai-text`, `--color-agent`, `--color-agent-text`, and the UI type ramp `--text-display|title|heading|body|ui|caption|micro`, which carries line-height, weight and tracking. Plan 04 (VO-R8 B, violet orbit) and Plan 05 should consume these rather than define their own violet or fuchsia. WS-R11 B asks for the aliases (spec §3), but Plan 01 Task 3 does not ship them.
+   Plan 04 adds `cancelled` (§5.2), which reaches the control panel through the same channel. Plan 06 maps any state it does not know to "ready". Plans 04 and 05 should reuse this channel rather than add a second relay. `inputKind` is what lets the mic card name the right route (I13).
+4. **CR-06-4. Add to the §5 Plan 01 token table, marked "added by Plan 06".** The new tokens are `--color-ai`, `--color-ai-text`, `--color-agent`, `--color-agent-text`, and the UI type ramp `--text-display|title|heading|body|ui|caption|micro`, which carries line-height, weight and tracking. They are additive: the ramp never redefines Tailwind's `--text-xs…--text-9xl` (Task 25 tests this). This request creates **no dependency** of Plans 04 or 05 on Plan 06. They may adopt the aliases after Plan 06 merges, and the existing `--color-agent-brand` stays valid until an agreed migration.
+5. **CR-06-5. Extend §5.1 (owner: Plan 03): `providerId: string | null` on `ResolvedRoute`. Accepted by Plan 03.** UI names providers with `providerDisplayLabel(route.providerId, t)` (Plan 01), which localises "Custom endpoint" and "Unknown provider". `provider` stays for logs. Plans 04, 05 and 08 should do the same.
+6. **CR-06-6. §5.7 "Workspace token guard" (owner: Plan 06; consumers: every plan that edits a workspace file, Plan 08 first).** This settles the Plan 08 Task 10 collision on `TranscriptionItem.tsx`.
+   - **Module:** `test/helpers/workspaceTokenGuard.js` (Task 25) exports `LINE_RULES`, `LIVE_GLASS_ALLOWED`, `WORKSPACE_GUARDED_FILES`, `scanText(file, text)` and `scanFiles(files)`. `test/components/workspaceTokenAdoption.test.js` asserts `scanFiles(WORKSPACE_GUARDED_FILES)` is `[]`.
+   - **What it rejects**, by rule id:
 
-5. **CR-06-5. Extend §5.1 (owner: Plan 03): add `providerId: string | null` to `ResolvedRoute`.** This comes from Plan 01's final review: UI must name providers with `providerDisplayLabel(providerId, t)` from `src/lib/locality.ts`, which localises "Custom endpoint" and "Unknown provider". `providerDisplayName` is for logs only.
-   - §5.1 currently defines `provider` as the English `providerDisplayName` string. Passed back through `providerDisplayLabel`, that string loses the localisation for exactly the custom and unknown cases.
-   - With `providerId` (the raw id, for example `"openai"` or `"custom"`), Plan 06 renders every provider name as `providerDisplayLabel(route.providerId, t)`. `provider` can stay for logs.
-   - Plan 04 and Plan 05 should do the same in the pill and onboarding.
+     | Rule id | Rejects | Use instead |
+     |---|---|---|
+     | `arbitrary-size` | `text-[Npx]` | the ramp: `text-micro` (11), `text-caption` (12), `text-ui` (13), `text-body` (15), `text-heading`, `text-title`, `text-display` |
+     | `faded-muted` | `text-muted-foreground/NN` | full `text-muted-foreground` |
+     | `faded-foreground` | `text-foreground/NN` with NN below 70 | `text-muted-foreground` (70 and above passes) |
+     | `orange-text` | `text-primary` (not `text-primary-foreground`) | `text-link` |
+     | `orange-fill` | `bg-primary`, with or without `/NN` | a neutral surface; `bg-live` on voice controls |
+     | `raw-amber` | `text-`, `bg-` or `border-amber-NNN` | the `warning` tokens |
+     | `glyph-icon` | `⊘` | a Lucide icon and a word |
+     | `provider-name` | `providerDisplayName(` | `providerDisplayLabel(providerId, t)` |
+     | `faded-ring` | `ring-ring/NN`, `ring-primary/NN` | `ring-2 ring-ring` |
+     | `live-glass` | `GRADIENT_CIRCLE`, `BRAND_GLASS_SURFACE`, `gradient-brand-glass` outside `ChatInput.tsx` | a neutral surface or `Button variant="secondary"` |
+     | `icon-cta` | a default `<Button>` whose first child is a component (an icon) | `variant="live"` (voice) or `"secondary"`/`"outline"` |
 
-§5.3 (notices) needs no change. Plan 06 writes `useToast().toast(...)`, and Plan 04 migrates those call sites when it merges, as §5.3 says. The exception is when Plan 04 has already merged by the time Plan 06 starts: then the Preconditions rule applies, and Plan 06 calls `notify` directly.
+   - **What it does not reject:** Tailwind's standard sizes (`text-xs`, `text-sm`, `text-base`), hover and background opacities (`hover:bg-foreground/6`), and `text-foreground/70` and above. Those migrate when a file is touched, not by force.
+   - **Scope** is `WORKSPACE_GUARDED_FILES`: the shell (ControlPanel, sidebar, top bar), History, CommandSearch, UpcomingMeetings, Insights, Integrations, Dictionary, Snippets, CaptureMenu, CaptureControl, MicStatusCard, TranscriptionItem, EmptyStateCard, DataRetentionNotice, the mention components, NoteEditor, NoteBottomBar, PersonalNotesView, SpacesTree, UploadAudioView, UploadDropZone, and every `.tsx` in `chat/`, `home/`, `insights/` and `ui/editor/`.
+   - **Opt-out:** a same-line comment `token-guard: allow <rule-id> — <reason>`. The reason is required; reviewers read it and the PR body lists it.
+   - **How Plan 08 complies** (its Task 10 already says it codes against this guard):
+     - `TranscriptionItem.tsx` raw paragraph: Plan 06 Task 12 sets it to exactly `mt-1 text-caption leading-relaxed text-muted-foreground`. Plan 08's `RAW_TEXT_CLASS` uses that string.
+     - `TranscriptionItem.tsx` list paragraph: Plan 06 Task 12 sets `text-body line-clamp-4 wrap-break-word whitespace-pre-wrap text-foreground` with `onClick={copyUnlessSelecting}`. Plan 08's `ConfidenceText` branch and its plain `<p>` branch use that className and keep the `onClick`, instead of the pre-Plan 06 `text-base leading-normal …` it quotes.
+     - Confidence styling that genuinely needs faded text (low-confidence words) uses a reasoned opt-out, for example `token-guard: allow faded-foreground — low-confidence word (Labs, Plan 08)`. `ConfidenceText.tsx` is not in scope unless Plan 08 adds it.
+     - Plan 08's new files (`src/components/table/*`, `ConfidenceText.tsx`, `ConfidenceWordPopover.tsx`, `TranscriptDiff.tsx`) may opt in by calling `scanFiles([...])` in their own test; Plan 06 does not add them to its list. If opted in, `TableViewSwitch`'s `text-foreground/60` (P08 Task 17) fails `faded-foreground` and should become `text-muted-foreground`.
+     - `HistoryMenu.tsx` (Plan 06 Task 12) is in scope through `home/`. Plan 08's added checkbox row passes as long as it reuses the existing row classes.
+7. **CR-06-7. §5.8 "Space surface" (owner: Plan 06; consumer: Plan 08). Accepts Plan 08 CCR-1's second option.** Plan 06 keeps `ContainerOverview` (`src/components/notes/overview/ContainerOverview.tsx`) with its props unchanged, `{ space, folder, onOpenNote, onNewNote, onAddExisting }`. `PersonalNotesView` renders it as the Space root whenever no note is open. Task 9 removes the second column and the duplicate tree, not the overview. Plan 08 mounts its view switch in the overview's header.
+8. **CR-06-8. §5.9 "Entity mention links" (owner: Plan 06; consumers: Plan 08, any later plan that links entities).** Accepts Plan 08 CCR-2. Published from `src/utils/mentionMarkdown.ts` (Task 17):
+   - the href scheme `<kind>:<positiveInt>`, with `kind` one of `note | meeting | dictation | folder`, stored in Markdown as `[@Label](note:17)` with the label escaped by `markdownLabel`;
+   - `export type MentionKind = "person" | "note" | "meeting" | "dictation" | "folder";` and `export const ENTITY_MENTION_KINDS`;
+   - `export function parseMentionHref(href: string | null | undefined): Omit<MentionEntity, "label"> | null`, which returns `null` for anything that is not an entity or a person mention;
+   - the rule that workspace hrefs navigate inside Loqui and never reach the OS URL handler (Task 20).
+
+§5.3 (notices) needs no change. Plan 06 writes `useToast().toast(...)`, and Plan 04 migrates those call sites when it merges, as §5.3 says. If Plan 04 has already merged when Plan 06 starts, the Preconditions rule applies, and Plan 06 calls `notify` directly.
 
 ## Global Constraints
 
@@ -78,8 +143,9 @@ These are copied from spec §4 and Plan 01, plus the rules this plan adds.
 - No size below 11px. Readable text floors at 12px (WS-R11 B). Metadata uses full `text-muted-foreground`, never `/55`, `/60` or `/70`.
 - Every visible string goes through i18n, with keys in all 11 locale folders (`ar de en es fr it ja pt ru zh-CN zh-TW`). `npm run i18n:check` and `test/locales/translationCoverage.test.js` must pass.
   - This plan gives the English copy verbatim. The implementer translates it into the other 10 locales, keeping `{{placeholders}}` and plural suffixes.
-  - Strings are added with the merge helper from Task 1.
+  - Strings are added with Plan 03's merge helper in `--strict` mode (Task 1): `node scripts/merge-locale-keys.js --strict <fragment.json>`.
 - RTL: use logical properties (`ms-`/`me-`, `ps-`/`pe-`, `start`/`end`, `inset-inline-*`).
+- Focus: every new or changed interactive element uses Plan 02's `focus-visible:ring-2 focus-visible:ring-ring`, never a translucent ring (`ring-ring/50`). The Task 25 guard enforces it.
 - Provider names shown in the UI always come from `providerDisplayLabel(providerId, t)` (`src/lib/locality.ts`, Plan 01). `providerDisplayName` is for logs and other non-UI uses only. The Task 25 guard enforces this in workspace files.
 - Never use personal profiles in tests.
 - Tests: run `npm run native:node` once, then `npm test -- <files>`. Run `npm run native:electron` before launching the desktop app. Node is `~/.nvm/versions/node/v24.21.0/bin` (`.node-version` 24.21.0).
@@ -98,11 +164,13 @@ grep -q "export function providerDisplayLabel" src/lib/locality.ts && echo "plan
 test -f src/lib/routes.ts && grep -q "export function useResolvedRoute" src/lib/routes.ts && echo "plan03 ok"
 grep -q "providerId" src/lib/routes.ts && echo "plan03 providerId ok (CR-06-5)"
 test -f src/hooks/useNow.ts && grep -q "export function useNow" src/hooks/useNow.ts && echo "plan02 useNow ok"
-grep -q "<textarea" src/components/chat/ChatInput.tsx && echo "plan02 composer ok"
+grep -q "<textarea" src/components/chat/ChatInput.tsx && grep -q "const \[queued, setQueued\]" src/components/chat/ChatInput.tsx && echo "plan02 composer ok"
+test -f test/helpers/harness/rendererMocks.js && test -f test/helpers/harness/fakeDomTree.js && echo "plan02 harness ok"
+test -f scripts/merge-locale-keys.js && test -f test/scripts/mergeLocaleKeys.test.js && echo "plan03 locale helper ok"
 test -f src/components/ui/notices.ts && echo "plan04 notices merged" || echo "plan04 not merged: keep useToast"
 ```
 
-All seven "ok" lines must print. If one is missing, stop and report which plan is not merged, or that CR-06-5 has not been applied. Do not stub its interface, and do not add `providerId` to Plan 03's module from this plan.
+All nine "ok" lines must print. If one is missing, stop and report which plan is not merged, or that CR-06-5 has not been applied. Do not stub its interface, and do not add `providerId` to Plan 03's module from this plan.
 
 If `src/components/ui/notices.ts` exists, use `notify({ kind: "receipt", title })` wherever this plan writes `toast({ title, ... })`, `notify({ kind: "alert", ... })` for destructive toasts, and `notify({ kind: "notice", ... })` otherwise.
 
@@ -150,6 +218,9 @@ These resolve conflicts between picks, or gaps between a mock and the code. Each
     `OnboardingFlow.tsx:440` is left to Plan 05, and `PromptStudio.tsx:400` and `:541` are Settings, so they are left to Plan 03. The Task 25 guard enforces the rule in workspace files.
 15. **"Today" in Coming up is neutral, not orange glass** (Plan 01 review, D1). A calendar day is not live voice. Task 11 replaces the `GRADIENT_CIRCLE` strip at `UpcomingMeetings.tsx:~250` with a stronger neutral surface and the word "Today".
 16. **Plan 06 does not change `Button` styling.** The ramp reaches buttons through the call sites (`text-ui` and similar), and `button.tsx` is untouched. Plan 01's review noted that `hover:brightness-110` barely shows on the ink CTA and clips on the pale Plum Night CTA. That fix belongs in `button.tsx` (Plan 01's file), so it goes back to the owner as a follow-up and is not done here.
+17. **R2 A's "actions at 40% opacity" is overridden** (review I14). It composites to about 1.95:1, under the 3:1 floor, so row actions rest at full `text-muted-foreground`. They stay visible at rest, which was the intent.
+18. **Ask AI goes to the note's embedded chat**, opened as the floating panel so the seeded composer is on screen (review I05). The bottom ask bar is not seeded.
+19. **The mic card names the routes of the capture in progress** (review I13): the meeting route while a meeting records, the dictation route while dictating, and the assistant or translation route as the text route when that input kind is live.
 
 ## Review Focus
 
@@ -162,7 +233,9 @@ These are the input classes most likely to bite a real user that no recommendati
 2. **Workspace hrefs (`note:17`, `meeting:42`, `dictation:311`, `folder:2`) in chat markdown and note content.** They must navigate inside Loqui. They must never reach `target="_blank"` and the OS URL handler. Unknown and `javascript:` hrefs stay inert. Pinned in Task 20 (`markdownRendererWorkspaceLinks.test.js`) and Task 16 (`linkHref.test.js`).
 3. **A deep link to a transcript the current Home view hides.** The row may be filtered out by a chip, excluded by the in-view search, or folded inside a session. Opening it from the palette must clear the filter, expand the session, scroll to the row and ring it. Pinned in Task 3 (`homeViewStore.test.js`) and Task 10 (`homeFeed.test.js`, "a transcript folded inside a session can be located for a deep link").
 4. **Stale persisted state at launch.** The cases are a saved view id that no longer exists (`upload` still exists; a future rename must not crash), a saved note id that was deleted, and corrupt `localStorage`. Each falls back to Home or the notes overview. Pinned in Task 3 (`workspaceView.test.js`).
-5. **Shortcuts while a dialog or a text composition is active.** `⌘1`–`⌘3`, `⌘\`, `⌘N` and `⌘⇧N` must not switch views behind an open Settings dialog or palette, or while an IME composition is in progress. Pinned in Task 4 (`workspaceShortcuts.test.js`).
+5. **Async work that outlives the user's intent.** Stop or unmount while pinned context loads, a newer send, a route changed in Settings mid-request, a refused send landing after a seed, a launch restore racing the tree. Each has a deferred-promise test on the real hook or store (Tasks 3, 4, 21, 22).
+6. **Pointer and keyboard paths into editor chrome.** Bubble-toolbar clicks, the URL field and the mention hover card must keep focus where the user put it, across the gap and with Tab and Escape (Tasks 16, 18).
+7. **Shortcuts while a dialog or a text composition is active.** `⌘1`–`⌘3`, `⌘\`, `⌘N` and `⌘⇧N` must not switch views behind an open Settings dialog or palette, or while an IME composition is in progress. Pinned in Task 4 (`workspaceShortcuts.test.js`).
 
 ---
 
@@ -5736,6 +5809,7 @@ Expected: FAIL. Modules are missing, the time renders as `07:51 PM`, `opacity-0`
      };
      ```
 
+   - Raw text in the expanded block (`:314`): `className="mt-1 text-caption leading-relaxed text-muted-foreground"`, replacing `text-xs … text-muted-foreground/80`. Plan 08 Task 10 copies this exact string into its `RAW_TEXT_CLASS` (CR-06-6).
    - Meta, under the actions in column 3:
 
      ```tsx

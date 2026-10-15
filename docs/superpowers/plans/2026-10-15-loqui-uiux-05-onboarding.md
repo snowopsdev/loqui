@@ -214,6 +214,7 @@ grep -n '"unknown"' src/lib/routeGraph.ts                                # Plan 
 ls src/components/ui/notices.ts 2>/dev/null && echo "Plan 04 merged: use notifier variant B (Task 7)" || echo "Plan 04 not merged: use notifier variant A (Task 7)"
 grep -n "_closeCancelled\|persistDiscardedBatchRecording" src/helpers/audioManager.js   # which cancel path exists: Plan 04's hold (_closeCancelled) or today's discard (Task 5)
 grep -n "sendUndoCancelDictation" src/helpers/windowManager.js || echo "Plan 04 bridge not present: skip Task 22 (whichever plan merges second runs it)"
+grep -n "_setOwnedAudio(" src/helpers/audioManager.js || echo "Plan 04 audio-ownership setter not present: Task 5 writes the bare form, Task 22 migrates it"
 ```
 
 Record the baseline with `npm run native:node` and then `npm test`. Line numbers in this plan were taken at commit `8267276`, with Plan 02's shifts noted. When a line has moved, find it by the quoted code.
@@ -1860,8 +1861,19 @@ test("every recording start captures its privacy", () => {
   const captured = source.match(/this\._captureRecordingPrivacy\(\);\s*\n\s*this\.isRecording = true;/g) ?? [];
   assert.ok(starts.length >= 2);
   assert.equal(captured.length, starts.length, "each `isRecording = true` is preceded by the capture");
-  const blobs = source.match(/this\.lastAudioBlob = (audioBlob|fallbackBlob);\s*\n\s*this\.lastAudioBlobPrivate = this\._recordingPrivate === true;/g) ?? [];
-  assert.equal(blobs.length, 2, "both audio-carrying assignments record privacy");
+  // Spec §5.2 "Audio ownership" (aad5284): once Plan 04's setter exists, it is the only
+  // writer, and privacy rides its default. Before that, the bare stamp is required.
+  const owned = /_setOwnedAudio\s*\(\s*blob/.test(source);
+  if (owned) {
+    assert.equal((source.match(/this\._setOwnedAudio\((audioBlob|fallbackBlob)\);/g) ?? []).length, 2, "both audio-carrying writes go through the setter");
+    assert.ok((source.match(/this\._setOwnedAudio\(null\);/g) ?? []).length >= 3, "releasePrivateAudio and both save guards release through the setter");
+    const setter = source.slice(source.indexOf("_setOwnedAudio(blob"));
+    const outside = source.replace(setter.slice(0, setter.indexOf("\n  }\n") + 4), "");
+    assert.doesNotMatch(outside, /this\.lastAudioBlob(Private)? =/, "no bare write outside the setter");
+  } else {
+    const blobs = source.match(/this\.lastAudioBlob = (audioBlob|fallbackBlob);\s*\n\s*this\.lastAudioBlobPrivate = this\._recordingPrivate === true;/g) ?? [];
+    assert.equal(blobs.length, 2, "both audio-carrying assignments record privacy");
+  }
 });
 
 // Spec §5.2 (private holds, Plan 04's contract): Plan 04 replaces the immediate
@@ -2132,6 +2144,12 @@ The hold test is skipped until Plan 04 merges.
      ```js
          this.lastAudioBlobPrivate = this._recordingPrivate === true;
      ```
+
+   - **Audio ownership (spec §5.2, `aad5284`).** If Plan 04 has merged (`grep -n "_setOwnedAudio(" src/helpers/audioManager.js` prints its definition), `AudioManager._setOwnedAudio(blob, options?)` is the only allowed writer of `lastAudioBlob`, its owner session and `lastAudioBlobPrivate`. Its defaults are the active session and `private: this._recordingPrivate === true`, and Plan 04's guard test fails on any bare assignment. In that order, write every audio write in this task through it:
+     - the two stamps become `this._setOwnedAudio(audioBlob);` (1447) and `this._setOwnedAudio(fallbackBlob);` (3935), replacing the assignment and the stamp line above;
+     - `releasePrivateAudio()` and both save guards below release with `this._setOwnedAudio(null);` instead of `this.lastAudioBlob = null;`. `this.lastAudioMetadata = null;` stays as it is.
+
+     If Plan 05 merges first, write the bare form shown here, and Task 22 migrates it.
 
    - In `takeDiscardedBatchSnapshot()`, add `private: this._recordingPrivate === true,` to the returned object.
 
@@ -12168,6 +12186,7 @@ Plan 05 restates none of these types.
   - `src/helpers/onboardingInputPolicy.js`: spread Plan 04's sanitiser into `sanitizeOnboardingDemoEvent`, unless Task 4 already added it (04-first order). The publish handler stays the single `publishDemoEvent` call from Task 4;
   - `src/types/electron.ts`: the three §5.2 fields on `OnboardingDemoEvent`;
   - `src/hooks/useAudioRecording.js`: delete Task 5's fallback `cancelled` publish. Plan 04's `onCancelledChange` publishes `cancelled` and `cancelClosed`;
+  - `src/helpers/audioManager.js`: if Task 5 wrote the bare form (05 merged first), migrate its audio writes to `_setOwnedAudio` (spec §5.2 "Audio ownership", `aad5284`, Plan 04 R3-C1);
   - `src/utils/onboardingTrial.ts`: `cancelled: CancelledState | null`, `cancelClosed`, and `canUndo`;
   - `src/components/onboarding/useTrialSession.ts`: `undo()` and `undoAvailable`;
   - `src/components/onboarding/HotkeyTrial.tsx`: the disclosure and Undo;
@@ -12378,7 +12397,14 @@ Expected: FAIL. The cancelled fields are dropped, and `canUndo`, `undo` and the 
 
 2. In `src/types/electron.ts`, add `import type { CancelledState } from "./dictation";` and the three `OnboardingDemoEvent` fields listed under Interfaces.
 
-3. In `src/hooks/useAudioRecording.js`, delete Task 5's fallback block (the `// §5.2 fallback until Plan 04` comment and its `cancelled` publish) from `cancelRecording` and `cancelProcessing`. Plan 04's `onCancelledChange` already publishes `cancelled` and `cancelClosed` for the same take.
+3. **Audio ownership (spec §5.2, `aad5284`).** If Task 5 ran before Plan 04 merged, `audioManager.js` still has its bare writes, and Plan 04's guard test fails on them. Migrate them:
+   - `this.lastAudioBlob = audioBlob;` plus its `this.lastAudioBlobPrivate = …` stamp (1447) become `this._setOwnedAudio(audioBlob);`;
+   - the same pair for `fallbackBlob` (3935) becomes `this._setOwnedAudio(fallbackBlob);`;
+   - in `releasePrivateAudio()` and both save guards (`saveTranscription`, `saveFailedTranscription`), `this.lastAudioBlob = null;` becomes `this._setOwnedAudio(null);`. `this.lastAudioMetadata = null;` stays.
+
+   The setter defaults `private` to `this._recordingPrivate === true`, so the per-recording privacy is unchanged. Task 5's source test switches itself to the setter form once `_setOwnedAudio` exists. It then requires both stamps and three releases through the setter, and no bare write outside it. Plan 04's guard test must pass too.
+
+   In `src/hooks/useAudioRecording.js`, delete Task 5's fallback block (the `// §5.2 fallback until Plan 04` comment and its `cancelled` publish) from `cancelRecording` and `cancelProcessing`. Plan 04's `onCancelledChange` already publishes `cancelled` and `cancelClosed` for the same take.
 
 4. In `src/utils/onboardingTrial.ts`:
 

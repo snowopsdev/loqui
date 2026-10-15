@@ -26,7 +26,7 @@
 
 **Tech Stack:** React 19, TypeScript, zustand, Tailwind CSS 4, Radix Dialog, react-i18next, Electron IPC (`preload.js`, `src/helpers/ipcHandlers.js`), better-sqlite3, Node `node:test` with `tsx`, and Vite SSR (`test/lib/rendererTestHarness.js`) for renderer modules that import the settings store.
 
-**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md`: the Plan 03 row in §3, decisions D1, D4 and D6, constraints §4, contracts §5.1 (owned here), §5.3 and §5.4 (consumed). Visual acceptance is the picked variant cards in `design-explorations/loqui-uiux-review.html#ch-settings`. Their source is `design-explorations/loqui-uiux-review/parts/05-settings.html`:
+**Spec:** `docs/superpowers/specs/2026-10-15-loqui-uiux-overhaul.md` (contracts consolidated at `091d198`): the Plan 03 row in §3, decisions D1, D4 and D6, constraints §4, contracts §5.1 (owned here), §5.3, §5.4 and §5.6 (consumed). Visual acceptance is the picked variant cards in `design-explorations/loqui-uiux-review.html#ch-settings`. Their source is `design-explorations/loqui-uiux-review/parts/05-settings.html`:
 
 | Pick | Card lines | Script lines |
 |---|---|---|
@@ -67,75 +67,74 @@ Every Critical and Important finding is closed. One finding is narrowed with evi
 | **I6** One-route draft changes other routes | Closed | Tasks 6 and 8. The planner resolves all 11 routes before and after. The Apply bar lists every changed route, marking coupled ones (meeting or upload inheriting dictation, vision following the assistant) with destination, host and payload. Undo restores inheritance blanks. |
 | **I7** Patchbay destination identity | Closed | Tasks 1 and 10. Additive `ResolvedRoute.host`. Destinations use `route.providerId`, with one network destination per effective host. Tests cover a stale vision override, two LAN hosts and an inactive loopback URL. |
 | **I8** Ready not constrained by executors | Closed | Task 1. Speech readiness runs the real `resolveTranscriptionRoute`. Meeting uses the streaming-provider table and rejects self-hosted. LLM endpoints use `isSecureHttpEndpoint` plus hosted-host rejection before any loopback decision. Unsupported configurations are `unreachable/unsupported`, not silently rewritten. |
-| **I9** Failed inventory yields Ready | Closed | Tasks 1 and 3. Per-family facts are retained across errors, and the new additive `RouteState` `{ status: "unknown" }` replaces optimistic ready (contract change request). |
+| **I9** Failed inventory yields Ready | Closed | Tasks 1 and 3. Per-family facts are retained across errors, and the additive `RouteState` `{ status: "unknown" }` replaces optimistic ready (applied in spec §5.1, 091d198). |
 | **I10** Corti identities | Closed | Tasks 1, 2, 8 and 11. `corti:text` (API key) and `corti:speech` (client id and secret) are separate identities for presence, health and rejection. The staged panel shows the speech credential fields. |
 | **I11** Stale verification overwrites replacement | Closed | Task 11. Verify captures the credential generation and records only if it is unchanged. Concurrent Verify per identity is coalesced. Deferred-promise tests cover replacement, removal, out-of-order verifications and interrupted Verify all. |
 | **I12** Storage/reset failures reported as success | Closed | Task 14. Main returns typed `{ ok, deleted, remaining, errors }`. Unreadable counts are errors, never zero. The dialog keeps the reviewed snapshot. Reset checks `success`, keeps errors visible and resets the credential authority. |
 | **I13** Light-theme contrast | Closed | Tasks 4, 5, 12, 14 and 18. The light `--color-ring` `#E84E16` (≥ 3.33:1 on every light surface) has already shipped in Plan 01 (`f7d53e4`); Task 5 verifies it. `text-success` is removed. Destructive outline buttons hover on `bg-background`. Amber dots use `bg-locality-remote`. Both themes are measured with opacity compositing over the real Settings surfaces, and the guards cover every changed Settings component, including inherited Button hover. |
-| **I14** Two sealed authorities | Closed | Task 3. `sealedStore.ts` is the only renderer reader for hooks, imperative snapshots, the Apply bar and the keyring. The fetch result cannot override a newer event. Contract request to Plan 07: implement `useSealedMode` on top of it. |
+| **I14** Two sealed authorities | Closed | Task 3. `sealedStore.ts` is the only renderer reader for hooks, imperative snapshots, the Apply bar and the keyring. The fetch result cannot override a newer event. Spec §5.4 (091d198) confirms it as the single authority; Plan 07 swaps its internals. |
 | **I15** Payload descriptions incomplete | Closed | Tasks 1 and 3. A conservative per-route payload-parts table built from request-builder evidence (selected text, history, notes and calendar look-ups, dictionary and snippet triggers, Corti meeting key terms, attendees, screenshot, web search), composed from the same snapshot inputs the request paths use. Agreement tests run against `resolveMeetingTranscriptionOptions`, `getDictionaryHintWords` and `isProviderSearchEnabled`, plus labelled source guards. |
 | **M1** Plan 02 dependency | Closed | Task 18 Step 0 hard preflight. Real keyboard tests for the cartridge grid and mode selector. |
 | **M2** Tiers and context dropped | Closed | Task 13. The `ReasoningModelSelector` mapping forwards them, with a test. |
 | **M3** Physical spacing, literal durations | Closed | Tasks 10, 13, 15 and 16. Logical properties and `--motion-*` only. The search flash uses `--motion-flash` with `animationend` cleanup. |
 | **M4** Manual partial-delete check | Closed | Task 14 test with a main fake. The `tail -f` step is removed. |
-| **M5** Consumer test loading, red/green labels | Closed | Node-loadable `routeGraph.ts` (contract request to Plan 07). Each test is labelled change-driving or baseline guard. Mounted behaviour tests are added for the critical transitions. The §5.1 spec update is a tracked step in Task 18. |
+| **M5** Consumer test loading, red/green labels | Closed | Node-loadable `routeGraph.ts` (applied in spec §5.1, 091d198). Each test is labelled change-driving or baseline guard. Mounted behaviour tests are added for the critical transitions. The §5.1 spec update is a tracked step in Task 18. |
 
 ## Contract change requests
 
-**§5.1, route graph (owned here). Exact v2 shape** (`src/lib/routes.ts` re-exports everything from `src/lib/routeGraph.ts`):
+**Status (spec commit 091d198).** Every request below is resolved in the consolidated spec. Where the spec's wording differs from what was asked, the spec governs and the plan follows it.
 
-```ts
-export type RouteState =
-  | { status: "ready" }
-  | { status: "off" }
-  | { status: "unknown" }                        // NEW: readiness not yet confirmed by main (loading, or the check failed). Never treated as ready.
-  | { status: "needsModel"; sizeBytes?: number }
-  | { status: "needsKey"; provider: string }     // provider "" = choose a provider
-  | { status: "needsUrl" }                       // missing, malformed, insecure, hosted or forbidden endpoint
-  | { status: "unreachable"; detail?: string };  // detail vocabulary: "sealed" | "retired" | "unsupported"
+**§5.1, route graph (owned here).** **Applied in spec §5.1 (091d198).** Spec §5.1 now records the exact shape this plan codes against:
+- `RouteState` includes `{ status: "unknown" }` and types `unreachable.detail` as the literal union `"sealed" | "retired" | "unsupported"`;
+- `ResolvedRoute` includes `providerId` and `host`;
+- `routeGraph.ts` is the pure resolver and `routes.ts` re-exports it;
+- `buildRouteSnapshot` and `routeSnapshotFromSettings` are published. `routeSnapshotFromSettings` reads current facts, `sealedStore` and i18n, with no subscriptions and no IPC (Task 3). Plan 07 withdrew its request for it, but it stays published.
 
-export interface ResolvedRoute {
-  id: RouteId;
-  kind: RouteKind;
-  locality: Locality;
-  provider: string | null;      // English providerDisplayName, logs only
-  providerId: string | null;    // NEW (accepts Plan 04 CCR-5 / Plan 06 CR-06-5): raw id; null for device and network
-  host: string | null;          // NEW: normalized effective endpoint host[:port]; null when nothing leaves the device or the endpoint is invalid
-  model: string | null;
-  state: RouteState;
-  sends: string | null;         // translated payload list; null when device or off
-  settingsPath: string;
-}
+Consumer impact (also in §5.1 rule 1): Plans 04, 05 and 06 render `unknown` as a neutral "Checking…" state and never as ready, and Plan 05's Ready step waits for `ready`. `sends` is a composed list, so consumers that only display it are unaffected.
 
-// Unchanged: resolveRoutes, resolveRoute, useResolvedRoutes, useResolvedRoute.
-// NEW (Plan 07 CCR-2): non-React snapshot for the dictation pre-flight.
-export function routeSnapshotFromSettings(settings: SettingsState): RouteSettingsSnapshot;
-```
+**Clarifications.** All are applied in spec §5.1 (091d198).
 
-Consumer impact:
-- Plans 04, 05 and 06 must render `unknown` as a neutral "Checking…" state, and never as ready. Plan 05's Ready step waits for `ready`.
-- `sends` is now a composed list. Consumers that only display it are unaffected.
+| # | Clarification | Status |
+|---|---|---|
+| 1 | Empty provider: `needsKey` with `""` = choose a provider | Applied in spec §5.1, rule 2 |
+| 2 | Unknown is not ready | Applied in spec §5.1, rule 1 |
+| 3 | `sends` is null when on device or off | Applied in spec §5.1, rule 3 |
+| 4 | Off routes keep their destination | Applied in spec §5.1, rule 4 |
+| 5 | Support routes are always `device` | Applied in spec §5.1, rule 5 |
+| 6 | The assistant's `sends` names the screenshot | Applied in spec §5.1, rule 3 |
+| 7 | Sealed applies to every non-device route | Applied in spec §5.1, rule 7 (`isSealedLocality`) and §5.4 scope |
+| 8 | An off-device text route needs a model | Applied in spec §5.1, rule 6 |
+| 9 | Retired `openwhispr` mode | Applied in spec §5.1, rule 8 |
+| 10 | Loopback custom endpoints | Applied in spec §5.1, rule 10, and the §5 Locality row. Plain-HTTP `*.localhost` is loopback (`isLoopbackUrl` is true, per `test/fixtures/loopbackCases.json`), but the executors refuse it, so it is invalid and resolves `needsUrl`. Task 1 tests this. |
+| 11 | `settingsPath` grammar | Applied in spec §5.1 (the `ResolvedRoute.settingsPath` field) |
+| 12 | Ready matches the executors | Applied in spec §5.1, rule 11 |
+| — | Unsupported combinations (meeting self-hosted or non-meeting provider; upload on a streaming-only provider) | Applied in spec §5.1, rule 9. Task 1 tests both. |
 
-**Clarifications to record in §5.1:**
-1. **Empty provider.** `needsKey` with provider `""` means "choose a provider".
-2. **Unknown is not ready.** Unknown facts produce `unknown`, never `ready`. This reverses v1. An unset model is still `needsModel`.
-3. **`sends` when nothing leaves.** `sends` is null when the route is on the device or off.
-4. **Off routes.** An off route keeps the destination it would use.
-5. **Support routes.** `speakerId` and `semanticSearch` are always on the device.
-6. **Assistant screenshots.** With screen context on and no override, the assistant's `sends` names the screenshot.
-7. **Sealed mode.** Sealed applies to every non-device route.
-8. **Text routes need a model.** An off-device text route without a model is `needsModel` with no size.
-9. **Retired mode.** `openwhispr` mode is remote, with a provider id and `unreachable/retired`.
-10. **Loopback custom endpoints.** A valid loopback custom endpoint is `device`. An invalid URL is never `device`, and that includes plain-HTTP `*.localhost`: main and the executor refuse it, which reverses revision 1.
-11. **`settingsPath` grammar.** It is `"<section>[/<subTab>]"`.
-12. **Ready matches the executors.** Readiness reflects the same validation the executors apply.
+**Module note (M5).** **Applied in spec §5.1 (091d198):**
+- `routeGraph.ts` is Node-loadable under `node --import tsx`;
+- `test/lib/routeFixtures.js` exports `makeSnapshot` and `makeRoute`.
 
-**Module note (M5).** `src/lib/routeGraph.ts` is Node-loadable under `node --import tsx` without Vite: erasable TypeScript, explicit import extensions, no React or store imports. Plan 07's direct Node test (its `test/lib/routesSealed.test.js`) should import the pure functions from `routeGraph.ts`, or load `routes.ts` through the renderer harness. `test/lib/routeFixtures.js` exports `makeSnapshot` and `makeRoute` for consumers.
+**Route chips.** **Applied in spec §5.1 (091d198)** (Plan 08 CCR-6). `RouteDestinationChip` and `RouteStateChip` in `src/components/settings/routing/RouteChips.tsx` are published with the exact props in §5.1 (Task 5), and Plan 08 consumes them.
 
-**§5.4, sealed mode (owned by Plan 07). Requests:**
-- Implement `useSealedMode()` and the attestation as the internals of `src/stores/sealedStore.ts`, which this plan creates as the single renderer authority. Keep `useSealedStore`/`getSealed` as the shared API, so the hooks, imperative snapshots, Apply bar and keyring cannot disagree.
-- Keep `RouteSettingsSnapshot.sealed` a required `boolean`, and do not redeclare it as optional.
-- This plan accepts CCR-1: sealed covers `network`.
+**Handoffs in §5.1.**
+- Notes readiness (Plan 02 CCR 6) is superseded by spec §5.1 Handoffs: Plan 06 owns it, so this plan does not touch `useNoteActionsReady`.
+- `get-total-memory` ships here (Task 13), as spec §5.1 Handoffs records. Plan 05 reads the same main value.
+
+**§5.4, sealed mode (owned by Plan 07).**
+- Make `sealedStore.ts` the single renderer authority, with Plan 07's internals behind it. **Applied in spec §5.4 (091d198).** This plan creates `src/stores/sealedStore.ts` with `useSealedStore` (`{ sealed, known }`), `getSealed()` and `ensureSealedSubscribed()`, and keeps the internals small enough to swap. Plan 07 replaces the internals, adds `getSealedSnapshot()` and `subscribeSealed(cb)` to the same module, and migrates this store (not `routeFactsStore`) in its Task 13. No other renderer module calls `privacy.getSealed` or `privacy.onSealedChange`, and Task 18 guards this.
+- Keep `RouteSettingsSnapshot.sealed` a required `boolean`. **Applied in spec §5.1 (091d198).** Unknown seal (`known: false`) maps to `false` in route snapshots (spec §5.4), because main enforces the seal either way.
+- Sealed covers `network` (Plan 07 CCR-1). **Applied in spec §5.4 (091d198)**, and accepted here.
+- The self-hosted probe while sealed. The plan's earlier note asked to add `probe-self-hosted` to a sealed-mode allowlist. That note is **superseded by spec §5.4**: main gates it as `providerCheck` (loopback only while sealed, otherwise `{ ok: false, code: "sealed" }`). Task 9 adds the `"sealed"` code and shows `routes.state.sealed`.
+- Plan 07 makes `privacy` required in `src/types/electron.ts`, replacing this plan's optional `privacy?`. **Applied in spec §5.4 (091d198).**
+
+**§5.6, stored audio (owned by Plan 02).** This is not a request from this plan, but it constrains Task 14, and the plan follows spec §5.6 (091d198):
+- `readable` and `failed` are kept end to end;
+- the unavailable state is kept;
+- an unreadable zero is never shown as "cleared";
+- `useAudioStorageUsage` and `resolveClearAudioOutcome` are consumed, not re-implemented;
+- `UpdateStatus.phase` `"available"` keeps rendering (D13).
+
+**§5.3, notices (owned by Plan 04).** Plan 03 merges before Plan 04 (spec §3), so it keeps the existing toast API and calls no `notify()`.
 
 **Plan 01 tokens.** No request remains. The light `--color-ring` `#E84E16` already shipped in Plan 01 (`f7d53e4`). Task 5 verifies it and adds both-theme composited contrast tests.
 
@@ -883,6 +882,7 @@ test("unsupported and live-only speech providers follow the executor per context
     facts: { credentials: keys("deepgram") },
   });
   assert.deepEqual(withKey.dictationStt.state, { status: "ready" }, "dictation streams live");
+  // §5.1 rule 9: uploadStt on a streaming-only provider is unreachable/unsupported.
   assert.deepEqual(
     withKey.uploadStt.state,
     { status: "unreachable", detail: "unsupported" },
@@ -900,6 +900,8 @@ test("unsupported and live-only speech providers follow the executor per context
 });
 
 test("note recording runs only the meeting streaming providers and never self-hosted", async () => {
+  // §5.1 rule 9: noteRecordingStt in self-hosted mode, or with a provider outside the meeting providers,
+  // is unreachable/unsupported (Plan 05 CCR 5).
   const groq = await routesOf({
     stt: { meeting: { mode: "providers", cloudProvider: "groq" } },
     facts: { credentials: keys("groq") },
@@ -982,6 +984,34 @@ test("text endpoints use the executor's rule before the loopback decision", asyn
   assert.equal(lan.host, "192.168.1.20:11434");
   assert.equal(lan.providerId, null);
   assert.deepEqual(lan.state, { status: "ready" });
+});
+
+test("plain-HTTP *.localhost is loopback but refused by the executors, so it needs a URL (§5.1 rule 10)", async () => {
+  const { isLoopbackUrl } = await import("../../src/lib/locality.ts");
+  const url = "http://lmstudio.localhost/v1";
+  // §5 Locality row (Plan 07 CCR-5, pinned by Plan 07's test/fixtures/loopbackCases.json): *.localhost IS loopback.
+  assert.equal(isLoopbackUrl(url), true, "*.localhost is loopback");
+  // §5.1 rule 10: whether an endpoint is valid is the executors' question, and they refuse plain-HTTP
+  // *.localhost. Loopback-but-refused therefore resolves needsUrl, never device and never ready.
+  const custom = (
+    await routesOf({
+      llm: { dictationCleanup: { mode: "providers", provider: "custom", model: "m", cloudBaseUrl: url } },
+    })
+  ).dictationCleanup;
+  assert.deepEqual(custom.state, { status: "needsUrl" });
+  assert.notEqual(custom.locality, "device");
+  const speech = (
+    await routesOf({
+      stt: { dictation: { mode: "providers", cloudProvider: "custom", cloudModel: "whisper-1", cloudBaseUrl: url } },
+    })
+  ).dictationStt;
+  assert.deepEqual(speech.state, { status: "needsUrl" });
+  assert.notEqual(speech.locality, "device");
+  const selfHosted = (
+    await routesOf({ llm: { dictationTranslation: { mode: "self-hosted", remoteUrl: url, model: "llama3.1:8b" } } })
+  ).translation;
+  assert.deepEqual(selfHosted.state, { status: "needsUrl" });
+  assert.equal(selfHosted.locality, "network");
 });
 
 test("a text provider main refuses is unsupported", async () => {
@@ -1278,9 +1308,10 @@ Test labels. Every test below is **change-driving**: `src/lib/routeGraph.ts` doe
 | a usable text provider without a chosen model … | text routes need a model (kept from v1) |
 | speech readiness agrees with the batch executor … | I8: malformed, public HTTP, hosted openwhispr, Tinfoil, store default, non-HTTP loopback, each cross-checked against `resolveTranscriptionRoute` |
 | self-hosted speech … | I8/I7: LAN host, loopback device, invalid never device |
-| unsupported and live-only speech providers … | I8: unsupported provider, live-only dictation vs upload, unknown mode |
-| note recording runs only the meeting streaming providers … | I8: inherited Groq for meeting, self-hosted meeting |
+| unsupported and live-only speech providers … | I8: unsupported provider, live-only dictation vs upload (§5.1 rule 9: `uploadStt` on a streaming-only provider is `unreachable`/`unsupported`), unknown mode |
+| note recording runs only the meeting streaming providers … | I8 and §5.1 rule 9: a provider outside `capabilities.meetingProviders` (inherited Groq) and self-hosted mode are both `unreachable`/`unsupported` |
 | text endpoints use the executor's rule before the loopback decision | I8: malformed, public HTTP, hosted, embedded credentials, `ws://localhost`, plain-HTTP `*.localhost`; loopback custom → device |
+| plain-HTTP *.localhost is loopback but refused … (§5.1 rule 10) | §5 Locality row + §5.1 rule 10: `isLoopbackUrl("http://lmstudio.localhost/v1") === true` (Plan 01's `isLoopbackUrl` already accepts `*.localhost`; Plan 07 CCR-5 keeps it) and yet the custom text, custom speech and self-hosted routes are `needsUrl`, never `device` |
 | a text provider main refuses is unsupported | I8: providers main rejects |
 | the retired openwhispr mode … | retired, provider named (kept from v1) |
 | off routes keep their destination … | off keeps locality/host, sends nothing |
@@ -1296,7 +1327,7 @@ Test labels. Every test below is **change-driving**: `src/lib/routeGraph.ts` doe
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- test/lib/routeGraph.test.js`
-Expected: FAIL, `# tests 25`, `# pass 0`, `# fail 25`. Twenty-four fail with `ERR_MODULE_NOT_FOUND` "Cannot find module '…/src/lib/routeGraph.ts' imported from …/test/lib/routeGraph.test.js"; the import guard fails with `ENOENT: no such file or directory, open '…/src/lib/routeGraph.ts'`.
+Expected: FAIL, `# tests 26`, `# pass 0`, `# fail 26`. Twenty-five fail with `ERR_MODULE_NOT_FOUND` "Cannot find module '…/src/lib/routeGraph.ts' imported from …/test/lib/routeGraph.test.js"; the import guard fails with `ENOENT: no such file or directory, open '…/src/lib/routeGraph.ts'`.
 
 - [ ] **Step 3: Implement**
 
@@ -1342,7 +1373,7 @@ export type RouteState =
   | { status: "needsModel"; sizeBytes?: number }
   | { status: "needsKey"; provider: string }
   | { status: "needsUrl" }
-  | { status: "unreachable"; detail?: string };
+  | { status: "unreachable"; detail?: "sealed" | "retired" | "unsupported" }; // spec §5.1: literal union, not string
 
 export interface ResolvedRoute {
   id: RouteId;
@@ -2078,7 +2109,7 @@ Notes for the implementer:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm test -- test/lib/routeGraph.test.js test/helpers/transcriptionRoute.test.js test/helpers/meetingTranscriptionRouting.test.js && npm run typecheck`
-Expected: PASS. `test/lib/routeGraph.test.js` reports `# tests 25`, `# pass 25`; the two executor suites are unchanged and still pass. Typecheck is clean.
+Expected: PASS. `test/lib/routeGraph.test.js` reports `# tests 26`, `# pass 26`; the two executor suites are unchanged and still pass. Typecheck is clean.
 
 Then confirm the module loads in plain Node with the test loader and nothing else:
 
@@ -4872,6 +4903,20 @@ test("routeSnapshotFromSettings reads the facts store, the sealed store and the 
   assert.equal(s.copy.list(["a", "b"]), "a and b");
 });
 
+test("routeSnapshotFromSettings makes no IPC and no subscription; an unknown seal maps to false (§5.1, §5.4)", async (t) => {
+  // §5.1: "current facts + sealedStore + i18n; no subscriptions, no IPC".
+  const touched = [];
+  const electronAPI = new Proxy({}, { get: (_, key) => (touched.push(String(key)), undefined) });
+  const { vite, routes, base } = await load(t, { electronAPI });
+  const { useSealedStore } = await vite.ssrLoadModule("/stores/sealedStore.ts");
+  touched.length = 0;
+  const s = routes.routeSnapshotFromSettings(base);
+  assert.deepEqual(touched, [], "no preload call");
+  assert.equal(s.sealed, false, "§5.4: known: false maps to sealed = false in route snapshots");
+  // ensureSealedSubscribed() with no privacy API would set known: true at once, so this proves it never ran.
+  assert.deepEqual(useSealedStore.getState(), { sealed: false, known: false });
+});
+
 test("a seal change during an outstanding facts load reaches every reader and survives the load", async (t) => {
   // I14: the v1 facts refresh carried `sealed` and could overwrite a newer seal event.
   let emitSealed;
@@ -5256,9 +5301,13 @@ Expected: FAIL.
 
    // The one renderer authority for sealed mode (spec §5.4). Route hooks, the
    // imperative route snapshot, the Apply bar and the Keyring all read this
-   // store and nothing else. Plan 07 replaces the internals (attestation,
-   // useSealedMode) and keeps useSealedStore/getSealed as the shared API.
-   // `known` is false until main has answered; main enforces the seal either way.
+   // store and nothing else; no other renderer module calls privacy.getSealed or
+   // privacy.onSealedChange (Task 18 guards it). Keep the internals small and
+   // swappable: Plan 07 (its Task 13) replaces them (attestation, staleness,
+   // fail-closed reads), adds getSealedSnapshot() and subscribeSealed(cb) to this
+   // same module, and keeps useSealedStore/getSealed/ensureSealedSubscribed exactly.
+   // `known` is false until main has answered. Route snapshots map unknown
+   // (known: false) to sealed = false, because main enforces the seal either way.
 
    export const useSealedStore = create<{ sealed: boolean; known: boolean }>()(() => ({
      sealed: false,
@@ -6777,6 +6826,8 @@ Design decisions worth reviewing:
   //   stagedMode?: InferenceMode|null  (Task 8; the staged mode is the checked radio and shows "Staged, not active")
   ```
 
+  The two chip signatures are exactly the published components of spec §5.1 (Plan 08 CCR-6): no other props, required or optional. Plan 08 consumes them, and §5.1 requires every surface that discloses a route (Plans 04–08 included) to use these two chips rather than build its own. Changing either signature is a §5.1 contract change.
+
 - i18n keys owned here: `routes.runsOn`, `routes.place.chooseProvider`, `routes.selection.{current,selected,staged}`, `routes.state.*`. Task 3 owns `routes.names.*`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -6853,6 +6904,8 @@ test("route chips", async (t) => {
     assert.equal(chips.routeStateLabel({ status: "unreachable", detail: "retired" }, tr), "routes.state.retired");
     assert.equal(chips.routeStateLabel({ status: "unreachable", detail: "unsupported" }, tr), "routes.state.unsupported");
     assert.equal(chips.routeStateLabel({ status: "unreachable" }, tr), "routes.state.cantReach");
+    // Defensive only: §5.1 types `detail` as "sealed" | "retired" | "unsupported", so TypeScript callers cannot
+    // pass anything else; this JS test checks the runtime fallback for an out-of-contract value.
     assert.equal(chips.routeStateLabel({ status: "unreachable", detail: "something-new" }, tr), "routes.state.cantReach");
   });
 
@@ -12337,14 +12390,15 @@ Closes **C1** and the picker half of **I1**.
   - Task 8: `useRouteCommit(id)`, `useRouteChange().requestPatch` (I1 follow-up), `EndpointDraft`/`EndpointDraftValue`, `TEXT_PROVIDER_TABS`, `StagedRouteBar` (`placement`, `shortcut`), test helpers `createProbeRoot`/`findElement` and `routeTestApi`/`primeRouteFacts`/`toastCapture`/`rendererServer`, locale keys `staging.useEndpoint` and `staging.useServer`.
   - Task 7: `useRouteDraftStore` (tests); its `commit` already stops llama-server when a scope moves to a server. Task 6: `RouteTarget`. Task 1 (re-exported by Task 3's `src/lib/routes.ts`): `SCOPE_ROUTE`, `STT_CONTEXT_ROUTE`, `LlmRouteScope`. Task 3: `useSealedStore` (`src/stores/sealedStore.ts`), `loadRouteFacts(api)` (tests, through Task 8's `primeRouteFacts`), and `useRouteFactsStore` and `ensureRouteFactsSubscribed()` (`src/stores/routeFactsStore.ts`). `facts.credentials` is a `Map<CredentialId, boolean>`, or `null` before main has listed credentials. Task 2: the `credentials.list` row `{ id: "codex", present }`, where present means main found `<userData>/codex/auth.json` (`hasStoredAccount`, a stat with no process and no network). Task 2: `saveSecret(storeKey: SecretStoreKey, value)` and `type SecretStoreKey`, exported from `src/stores/settingsStore.ts` (the custom-endpoint keys `cleanupCustomApiKey` … `chatAgentCustomApiKey` and `customTranscriptionApiKey` are secret store keys), and the ack-returning per-provider setters (`setOpenrouterApiKey`).
   - `BidiInterpolatedText`/`BIDI_VALUE_TOKEN` (`src/components/ui/BidiInterpolatedText.tsx`).
+  - Task 5: the `routes.state.sealed` copy, shown when the self-hosted probe answers `{ ok: false, code: "sealed" }` (spec §5.4: main gates `probe-self-hosted` as `providerCheck`, loopback only while sealed; Plan 07 adds the gate).
   - Main's discovery handler resolves the credential slot it sends: `custom:<scope>` for custom endpoints and `openrouter` for OpenRouter (`src/helpers/personalInference.js:136-138`, `:286-301`).
 - Produces:
 
   ```ts
   // window.electronAPI (preload)
   probeSelfHosted?: (baseUrl: string) => Promise<
-    { ok: true; count: number } | { ok: false; code: "invalidUrl" | "httpsRequired" | "network" | "timeout" | "http"; status?: number }
-  >;
+    { ok: true; count: number } | { ok: false; code: "invalidUrl" | "httpsRequired" | "network" | "timeout" | "http" | "sealed"; status?: number }
+  >; // "sealed": spec §5.4, main gates probe-self-hosted as providerCheck (loopback only while sealed); the panel shows routes.state.sealed
   // src/helpers/providerConnectionTest.js
   module.exports.isPrivateHost(hostname: string): boolean;
   // OpenAICompatiblePanel props (replaces setBaseUrl / setApiKey / setModel)
@@ -12693,6 +12747,7 @@ const modelList = (tree) =>
 
 test("pickers commit through the route planner (I1)", async (t) => {
   const probeCalls = [];
+  let nextProbe = { ok: true, count: 3 };
   const modelCalls = [];
   installBrowserGlobals(t, {
     window: {
@@ -12708,7 +12763,7 @@ test("pickers commit through the route planner (I1)", async (t) => {
           onParakeetDownloadProgress: () => () => {},
           probeSelfHosted: async (url) => {
             probeCalls.push(url);
-            return { ok: true, count: 3 };
+            return nextProbe;
           },
           personalInference: {
             models: async (request) => {
@@ -12920,6 +12975,21 @@ test("pickers commit through the route planner (I1)", async (t) => {
     assert.equal(endpointField(tree()), null);
     assert.ok(findElement(tree(), (node) => node.props?.children === "http://192.168.1.20:8178"));
   });
+
+  await t.test("self-hosted: main's sealed refusal shows the Sealed copy (spec §5.4)", async () => {
+    // Change-driving: v1 had no "sealed" code. Main gates probe-self-hosted as providerCheck: loopback
+    // only while sealed, otherwise { ok: false, code: "sealed" }. The panel does not pre-empt main.
+    nextProbe = { ok: false, code: "sealed" };
+    const tree = await probes.mount("server", () => SelfHostedPanel({ service: "transcription", url: "", model: "", onUse() {} }));
+    const button = endpointField(tree()).props.actions({ url: "http://192.168.1.20:8178", model: "" });
+    assert.equal(button.props.disabled, false);
+    await probes.act(() => button.props.onClick());
+    await probes.settle();
+    const status = findElement(tree(), (node) => node.props?.role === "status");
+    assert.match(String(status.props.children), /routes\.state\.sealed/);
+    assert.doesNotMatch(String(status.props.children), /testFail/);
+    nextProbe = { ok: true, count: 3 };
+  });
 });
 
 // Source guard, change-driving: each of these names is a direct write or a discovery side path today.
@@ -13009,12 +13079,14 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
              baseUrl: string
            ) => Promise<
              | { ok: true; count: number }
-             | { ok: false; code: "invalidUrl" | "httpsRequired" | "network" | "timeout" | "http"; status?: number }
+             // "sealed": spec §5.4. Main gates probe-self-hosted as providerCheck: while sealed it
+             // probes loopback only and otherwise answers { ok: false, code: "sealed" } (Plan 07's gate).
+             | { ok: false; code: "invalidUrl" | "httpsRequired" | "network" | "timeout" | "http" | "sealed"; status?: number }
            >;
      ```
 
    - `src/preview/browserPreview.ts`, in the returned object after `personalInference,` (`:156`): `probeSelfHosted: async () => ({ ok: false as const, code: "network" as const }),`
-   - Plan 07's egress inventory must list `selfHostedProbe.js`; the panel already disables Test while sealed (below).
+   - Sealed mode: superseded by spec §5.4 (Plan 07 gates `probe-self-hosted` as `providerCheck`: loopback only while sealed, otherwise `{ ok: false, code: "sealed" }`). The panel therefore does not disable Test while sealed; main decides, and the panel shows the `routes.state.sealed` copy (Task 5) for the `sealed` code. Plan 07's egress inventory still lists `selfHostedProbe.js`.
 
 2. **`src/components/OpenAICompatiblePanel.tsx`.** Replace the whole file:
 
@@ -13924,7 +13996,6 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
    ```tsx
    import { useState } from "react";
    import { useTranslation } from "react-i18next";
-   import { useSealedStore } from "../stores/sealedStore";
    import { EndpointDraft, type EndpointDraftValue } from "./settings/routing/EndpointDraft";
    import { Button } from "./ui/button";
 
@@ -13953,7 +14024,8 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
 
    export default function SelfHostedPanel({ service, url, model, onUse }: SelfHostedPanelProps) {
      const { t } = useTranslation();
-     const sealed = useSealedStore((s) => s.sealed);
+     // No sealed check here: spec §5.4 has main gate the probe as providerCheck (loopback stays
+     // testable while sealed) and answer { ok: false, code: "sealed" } otherwise.
      const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
      const placeholderUrl = service === "transcription" ? "http://localhost:8178" : "http://localhost:11434/v1";
 
@@ -13981,7 +14053,7 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
            variant="outline"
            data-action="probe-self-hosted"
            title={host ? t("settingsPage.selfHosted.testTitle", { host }) : undefined}
-           disabled={sealed || !host || probe.kind === "testing"}
+           disabled={!host || probe.kind === "testing"}
            onClick={() => void runTest(address)}
          >
            {probe.kind === "testing" ? t("settingsPage.selfHosted.testing") : t("settingsPage.selfHosted.test")}
@@ -13994,9 +14066,11 @@ Expected: FAIL. `selfHostedProbe.js` is missing and `isPrivateHost` is not expor
          {probe.kind === "ok"
            ? t("settingsPage.selfHosted.testOk", { count: probe.count, host: probe.host })
            : probe.kind === "fail"
-             ? probe.code === "httpsRequired"
-               ? t("settingsPage.selfHosted.testHttpsRequired")
-               : t("settingsPage.selfHosted.testFail", { host: probe.host })
+             ? probe.code === "sealed"
+               ? t("routes.state.sealed")
+               : probe.code === "httpsRequired"
+                 ? t("settingsPage.selfHosted.testHttpsRequired")
+                 : t("settingsPage.selfHosted.testFail", { host: probe.host })
              : ""}
        </p>
      );
@@ -16468,6 +16542,8 @@ Verifying a key sends it to the provider, which is a network event (`docs/PRIVAC
   }
   function startRotationReminders({ keyring, notify, intervalMs, setIntervalImpl, setTimeoutImpl, clearIntervalImpl, clearTimeoutImpl }) → () => void;
   ```
+
+  `notify` here is an injected main-process callback (`_notifyKeyRotation`, an Electron `Notification`), not spec §5.3's renderer `notify()`. Plan 03 runs before Plan 04, so every renderer message in this plan keeps the existing toast API (`useToast`); Plan 04 migrates those call sites.
 
   Health follows the authority: a `save` or `undo` that leaves the identity present resets its row to `unverified` (clearing the error, and restarting the 90-day clock when a reminder is on); any change that leaves it absent deletes the row. Every row change broadcasts `keyring-changed` `{ id }`. `isSealed` defaults to `() => false`; Plan 07 passes main's sealed state so Verify refuses with `outcome: "sealed"` and makes no request.
 - Produces (`src/types/electron.ts`, `window.electronAPI.keyring`):
@@ -19536,7 +19612,7 @@ Pips are estimates derived from size unless the registry carries curated `speedT
   // src/hooks/useTotalMemory.ts
   export function useTotalMemory(): number | null;
   // preload
-  getTotalMemory: () => Promise<number>;   // os.totalmem(), bytes
+  getTotalMemory: () => Promise<number>;   // os.totalmem(), bytes; spec §5.1 handoff: ships here, Plan 05's getSystemProfile reads the same main value
   ```
 
   `LocalModel` gains `contextLength?`, `speedTier?` and `qualityTier?`, and `ModelDefinition` gains `speedTier?` and `qualityTier?`. No picker gains a prop.
@@ -20779,7 +20855,7 @@ Expected: FAIL. `stepGrid` is not a function, and `cartridgeMath.ts`, `ModelCart
      getTotalMemory?: () => Promise<number>;
      ```
 
-   Plan 05 (ONB-R3 C "Detected for you") may add a hardware probe. If it lands first with a total-RAM field, use that and drop this channel.
+   This channel ships in Plan 03 (spec §5.1 handoffs, "Total memory"). Plan 05's `getSystemProfile` (ONB-R3 C "Detected for you") reads the same main-side `os.totalmem()` value and adds no second channel.
 
 5. **Forward the registry fields (M2).**
    - In `src/models/ModelRegistry.ts`, add to `ModelDefinition` after `contextLength`:
@@ -21153,32 +21229,36 @@ Every "Delete…" opens a confirm built from a **snapshot** taken when the dialo
 
 What changes from v1 (old Task 11), and why:
 - v1 counted visible transcripts (`deleted_at IS NULL AND status != 'discarded'`) but deleted every row and every recording (C2). v2 moves the count and the delete into `src/helpers/storageOps.js` in main, uses the same predicate for both, checks the reviewed counts inside the delete transaction and rolls back if `clearTranscriptions` ever removes a different number of rows than the count.
-- v1 decided success from a recount that turned unreadable state into zero (`getStorageUsage` returns `{ fileCount: 0 }` on a read error, `src/helpers/audioStorage.js:202-205`) and ignored resolved failure results (I12). v2 adds a throwing `measure()`, returns typed outcomes from main, and the renderer treats only `ok === true && errors.length === 0 && remaining === 0` as success.
+- v1 decided success from a recount that turned unreadable state into zero and ignored resolved failure results (I12). Plan 02 (spec §5.6, its Task 19) already fixed the base for the single "Clear All Audio" row: `getStorageUsage()` returns `{ fileCount, totalBytes, readable }`, `deleteAllAudio()` returns `{ deleted, failed, readable }`, main has `remainingAudioIds()` and `clearFlagsForDeletedAudio()` (`src/helpers/audioFlagReconcile.js`), and the renderer has `resolveClearAudioOutcome` (`src/utils/audioDeletion.ts`) and `useAudioStorageUsage`. v2 builds on that contract instead of a parallel one: the new `listStoredAudio()` is the by-name form of `getStorageUsage()` with the same `readable` flag (it never throws; `getStorageUsage()` is derived from it, so Plan 02's shape and tests are unchanged), `storageOps` maps `readable: false` to a typed `count-failed`/`recount-failed` error, flag reconciliation is Plan 02's `clearFlagsForDeletedAudio`, every audio result carries Plan 02's `failed` and `readable`, the Storage list's audio row takes its count, bytes and unavailable state from Plan 02's `useAudioStorageUsage` hook (unchanged), and the renderer grants audio success only when `resolveClearAudioOutcome` says `"cleared"` (plus `ok`, no errors and `remaining === 0`). An unreadable zero is never shown as "cleared".
 - v1's dialog read live row state, so a retry lost the reviewed count. v2 stores the snapshot in the dialog state; row refreshes never touch it.
 - v1's reset toasted success after any resolved `cleanupApp()` and relaunched, although main returns `{ success: false, errors }` instead of throwing (`src/helpers/ipcHandlers.js:3277-3281`). v2 keeps the reset dialog open with the errors and never relaunches on failure. Main's reset also stopped swallowing per-file audio failures (`deleteAllAudio` catches each unlink at `src/helpers/audioStorage.js:171-179`, so its `try` at `ipcHandlers.js:3164-3168` never fired). The credential reset in `cleanup-app` is Task 2's (`this.credentials.reset();`, added after the `clearAllPersistedData` try/catch); this task leaves it in place.
 - v1's triggers used the outline variant, which hovers to `bg-muted` (`src/components/ui/button.tsx:49-59`), where `--color-destructive` `#dc2626` is 4.43:1 (I13). v2's `DESTRUCTIVE_OUTLINE` keeps them on `bg-background` (4.83:1).
 - Model deletion stays renderer-orchestrated (three existing family IPCs), but each family returns a typed outcome, success needs every family's `success === true` and a recount of zero, and local selections are cleared only when the recount proves every model file is gone.
 
-Model-cache clearing and reset move here from System; the old one-click "Clear All Audio" is removed (this supersedes Plan 02's SET-Q5 confirm). Solid destructive buttons appear only inside dialogs.
+Model-cache clearing and reset move here from System. Plan 02's one-click "Clear All Audio" row (`AudioStorageRow`, its SET-Q5 confirm) is replaced by the Storage list's audio row, as spec §5.6 anticipates; only that row component is retired. Plan 02's `useAudioStorageUsage` hook is a published §5.6 contract and stays exactly as Plan 02 wrote it, with its tests: `StorageList` calls `useAudioStorageUsage(true)` and maps its `loading | known | unavailable` state onto the audio row (`audioRowFromUsage`), and every `load()` also calls the hook's `refresh()`, so the row re-reads with the rest of the list. The hook's `clearAll()` is not used, because the counted delete goes through `storage.deleteAudio(expected)`. What the old row guaranteed carries over: the unavailable state (Plan 02's `settingsPage.privacy.audioStorageUnavailable` copy, with "Count again" as the Retry), a fresh re-read before any confirmation opens (a failed read opens none), `readable` and `failed` on every audio result, and "cleared" only through `resolveClearAudioOutcome`. Plan 02's tests stay as they are (`test/helpers/audioStorageClear.test.js`, `test/hooks/useAudioStorageUsage.test.js`, and `clearAllAudio.test.js`'s `resolveClearAudioOutcome` case); only `audioStorageRow.test.js`'s markup cases are ported into `storageList.test.js` (Step 6) before that file and the component are deleted. Solid destructive buttons appear only inside dialogs.
 
 **Files:**
 - Create: `src/helpers/storageOps.js` (main; injected deps; owns both predicates)
 - Create: `src/components/settings/storageMath.ts` (pure)
 - Create: `src/components/settings/StorageList.tsx`
-- Modify: `src/helpers/audioStorage.js`: require `isStoredAudioFile` from `./storageOps`; use it in `deleteAllAudio` (`:169`) and `getStorageUsage` (`:191`); add `measure()` and `removeFiles(names)` after `getStorageUsage` (`:189-206`).
+- Modify: `src/helpers/audioStorage.js` (as Plan 02 left it): require `isStoredAudioFile` from `./storageOps` and use it in `deleteAllAudio`; add `listStoredAudio()` and `removeFiles(names)`; make `getStorageUsage()` return Plan 02's `{ fileCount, totalBytes, readable }` derived from `listStoredAudio()`. `remainingAudioIds()` stays as Plan 02 wrote it.
 - Modify: `src/helpers/ipcHandlers.js`:
   - require `createStorageOps` next to the `./windowBroadcast` require (`:11`);
   - construct `this.storageOps` after `this.audioStorageManager = new AudioStorageManager();` (`:316`);
   - register `storage-preview`, `storage-delete-audio`, `storage-delete-history` after the `get-audio-storage-usage` handler (`:1378-1380`);
-  - in `cleanup-app` (`:3094`), replace the audio block (`:3163-3168`, anchor `// Delete audio files`). Do not add a credential reset: Task 2 already put `this.credentials.reset();` after the `clearAllPersistedData` try/catch, and this task does not touch that part of the handler.
+  - in `cleanup-app` (`:3094`), replace the audio block (`:3163-3168`, anchor `// Delete audio files`) so it reads Plan 02's `deleteAllAudio()` result (`readable`, `failed`) instead of ignoring it. Do not add a credential reset: Task 2 already put `this.credentials.reset();` after the `clearAllPersistedData` try/catch, and this task does not touch that part of the handler.
+  - leave Plan 02's `delete-all-audio` handler (it calls `clearFlagsForDeletedAudio`) and `get-audio-storage-usage` as they are.
 - Modify: `preload.js`: add a `storage` object after `deleteAllAudio` (`:192`).
 - Modify: `src/types/electron.ts`: export the storage result types after `AnalyticsSummary` (`:137-147`); add `storage?` after `deleteAllAudio` (`:858`).
 - Modify: `src/components/SettingsPage.tsx` (Tasks 4, 5, 8, 9, 10 and 13 edit this file first, so find each block by the quoted anchor; the line numbers are from the current tree):
   - remove the `FolderOpen,` line from the `./icons` import (`:12`; Task 4 adds `HardDrive,` right after it, which stays) and the `import { formatBytes } from "../utils/formatBytes";` line (`:102`); change `import { clearMissingLocalModelSelections, useSettingsStore } from "../stores/settingsStore";` (`:101`) to `import { useSettingsStore } from "../stores/settingsStore";`;
-  - delete `const [isRemovingModels, setIsRemovingModels] = useState(false);` and the `cachePathHint` state plus its `getModelCacheRoot` effect (`:1097-1110`), the `audioStorageUsage` state plus its `getAudioStorageUsage` effect (`:1116-1129`), `const handleClearAllAudio = async () => {…};` (`:1146-1155`) and `const handleRemoveModels = useCallback(…);` (`:1448-1494`);
-  - in `case "privacyData":`, delete the `SettingsPanelRow` whose `SettingsRow` has `label={t("settingsPage.privacy.audioStorageUsage")}` (`:2793-2815`; the retention select row above it stays) and insert `<StorageList />` after the `{/* Data Retention */}` block's closing `</div>` (`:2869`), directly before `{/* Permissions */}` (`:2871`);
-  - in `case "system":`, delete from `{/* Data Management */}` through the closing `</div>` of its `<div className="border-t border-border/70 pt-6">` wrapper (`:2980-3066`; the block holds `settingsPage.developer.dataManagementTitle` and the `settingsPage.developer.resetAll.*` Reset button). `<UpdateSettings />`, the version panel and `{/* Developer Tools */}` `<DeveloperSection />` stay.
+  - delete `const [isRemovingModels, setIsRemovingModels] = useState(false);` and the `cachePathHint` state plus its `getModelCacheRoot` effect (`:1097-1110`), Plan 02's `const audioStorage = useAudioStorageUsage(activeSection === "privacyData");` and `const [clearAudioError, setClearAudioError] = useState(false);` (where the old `audioStorageUsage` state was, `:1116-1129`), Plan 02's `const handleClearAllAudio = async () => {…};` (`:1146-1155`), the `useAudioStorageUsage` and `AudioStorageRow` imports, and `const handleRemoveModels = useCallback(…);` (`:1448-1494`);
+  - in `case "privacyData":`, delete the `SettingsPanelRow` that holds Plan 02's `<AudioStorageRow … />` (`:2793-2815`; the retention select row above it stays) and insert `<StorageList />` after the `{/* Data Retention */}` block's closing `</div>` (`:2869`), directly before `{/* Permissions */}` (`:2871`);
+  - in `case "system":`, delete from `{/* Data Management */}` through the closing `</div>` of its `<div className="border-t border-border/70 pt-6">` wrapper (`:2980-3066`; the block holds `settingsPage.developer.dataManagementTitle` and the `settingsPage.developer.resetAll.*` Reset button). `<UpdateSettings />`, the version panel and `{/* Developer Tools */}` `<DeveloperSection />` stay. `UpdateSettings` keeps rendering every `UpdateStatus.phase` Plan 02 gave it, including `"available"` (spec §5.6, D13); this task does not edit the component.
 - Modify: `test/helpers/deviceCleanupContract.test.js` (add one test)
+- Delete (the Plan 02 row component the Storage list replaces; its markup cases are ported first, Step 6): `src/components/settings/AudioStorageRow.tsx`, `test/components/audioStorageRow.test.js`
+- Modify: `test/components/clearAllAudio.test.js` (Plan 02): keep the `resolveClearAudioOutcome` case unchanged; point the "re-reads before confirming" case at `StorageList.tsx` (Step 6)
+- Keep unchanged (Plan 02, spec §5.6): `src/hooks/useAudioStorageUsage.ts` (now consumed by `StorageList.tsx` for the audio row) and `test/hooks/useAudioStorageUsage.test.js`, `src/utils/audioDeletion.ts` (now also consumed by `storageMath.ts`), `src/helpers/audioFlagReconcile.js` (now also called by `storageOps.js`), `test/helpers/audioStorageClear.test.js`
 - Modify: `src/locales/*/translation.json` (via `scripts/merge-locale-keys.js`)
 - Test: `test/helpers/storageOps.test.js`, `test/components/storageMath.test.js`, `test/components/storageList.test.js`
 
@@ -21188,6 +21268,7 @@ Model-cache clearing and reset move here from System; the old one-click "Clear A
   - Task 3: `withI18nMock` (`test/lib/i18nTestMock.js`); the route facts store refreshes on `openwhispr-models-cleared` (Appendix A "Facts store"), so this task dispatches that event instead of importing the store.
   - Task 4: `formatDecimalBytes(bytes, decimals = 1)` in `src/utils/formatBytes.ts` (1000-based, at most one decimal with trailing zeros dropped: `1_200_000_000` → "1.2 GB", `9_800_000_000` → "9.8 GB", `1_329_766_560` → "1.3 GB"; `0`, negative or non-finite → "0 MB"). Empty rows never call it (they show `storage.<kind>.empty`); a history confirm with transcripts but no recordings reads "0 audio files (0 MB)".
   - Plan 01: `test/helpers/harness/cssTokens.js` `resolveTokens`, `src/utils/contrast.ts` `contrastRatio`.
+  - Plan 02 (spec §5.6, stored audio; present at execution time): `AudioStorageManager.getStorageUsage(): { fileCount; totalBytes; readable }`, `deleteAllAudio(): { deleted; failed; readable }`, `remainingAudioIds(): Set<string> | null`; `clearFlagsForDeletedAudio({ audioStorage, database }): number[]` (`src/helpers/audioFlagReconcile.js`; clears nothing when the folder is unreadable); `resolveClearAudioOutcome(deleted: { failed; readable } | null, after: { fileCount; readable } | null): "cleared" | "partial"` (`src/utils/audioDeletion.ts`); `useAudioStorageUsage(active: boolean): { usage: AudioUsage; refresh(): Promise<AudioUsage>; clearAll() }` and `type AudioUsage = { status: "loading" } | { status: "known"; fileCount; totalBytes } | { status: "unavailable" }` (`src/hooks/useAudioStorageUsage.ts`; used as is, `clearAll` unused); the locale key `settingsPage.privacy.audioStorageUnavailable`. Plan 02's tests for these stay green.
   - Existing: `DatabaseManager.clearTranscriptions()` (`src/helpers/database.js:551-562`, returns `{ success, cleared }`), `clearAudioFlags(ids)` (`:660-676`, throws on failure); `AudioStorageManager.saveAudio` (`src/helpers/audioStorage.js`, names files `OpenWhispr-<id>.webm` without a timestamp), `audioDir`; `broadcastToWindows` (`src/helpers/windowBroadcast`); preload `listWhisperModels` (`:393`), `deleteAllWhisperModels` (`:395`), `listParakeetModels` (`:450`), `deleteAllParakeetModels` (`:452`), `modelGetAll` (`:549`), `modelDeleteAll` (`:554`), `getModelCacheRoot` (`:699`), `openWhisperModelsFolder` (`:700`), `cleanupApp` (`:501`), `relaunchApp` (`:502`); `clearMissingLocalModelSelections` (`src/stores/settingsStore.ts:2714-2724`); `ToastContext`/`useToast` (`src/components/ui/useToast.ts:42-50`); `Dialog`, `DialogContent`, `DialogTitle`, `DialogDescription` (`src/components/ui/dialog.tsx`); `Input` (`src/components/ui/input.tsx`); `deferred()` (`test/helpers/harness/deferred.js`).
 - Produces, main (`src/helpers/storageOps.js`, CommonJS):
 
@@ -21196,17 +21277,19 @@ Model-cache clearing and reset move here from System; the old one-click "Clear A
   const HISTORY_COUNT_SQL: string;                             // the history predicate: every row of transcriptions
   function createStorageOps({ audio, database, broadcast }): {
     preview(): StoragePreview;
-    deleteAudio(opts?: { expected?: { files: number } | null; reconcileFlags?: boolean }): StorageDeleteResult;
+    deleteAudio(opts?: { expected?: { files: number } | null }): StorageDeleteResult;
     deleteHistory(opts?: { expected?: { total: number; files: number } | null }): StorageHistoryDeleteResult;
   };
-  // audio: { audioDir, measure(): { files: string[]; bytes: number; directory: string } /* throws */, removeFiles(names): { deleted: number; failed: { file: string; error: string }[] } }
+  // audio: { audioDir, listStoredAudio(): StoredAudioList, removeFiles(names): { deleted: number; failed: { file: string; error: string }[] }, remainingAudioIds() /* Plan 02 */ }
   // database: { db /* better-sqlite3 */, clearTranscriptions(), clearAudioFlags(ids) }
-  // expected === undefined: unchecked (only main's reset uses it); null or malformed: "invalid-request".
+  // Flags: Plan 02's clearFlagsForDeletedAudio({ audioStorage: audio, database }), only after a readable recount.
+  // readable: false from listStoredAudio maps to "count-failed: …" / "recount-failed: …".
+  // expected === undefined: unchecked (no caller after this task; main's reset uses Plan 02's deleteAllAudio()); null or malformed: "invalid-request".
   // errors are stable strings: "stale", "invalid-request", "count-failed: …", "delete-failed: <file>: …",
   // "recount-failed: …", "flags-failed: …", "history-failed: …".
   ```
 
-- Produces, `AudioStorageManager.measure()` (throws on an unreadable folder or file; a missing folder holds nothing) and `AudioStorageManager.removeFiles(names)` (never throws; refuses names that are not plain recordings).
+- Produces, `AudioStorageManager.listStoredAudio(): StoredAudioList` where `StoredAudioList = { files: string[]; totalBytes: number; readable: boolean; directory: string; error?: string }`. It is the by-name form of Plan 02's `getStorageUsage()`, with the same predicate and the same `readable` rule: it never throws, and any folder read error (missing included) is `readable: false` with `files: []`, never an empty store. A file that cannot be stat'd still counts, without its size, as in Plan 02. `getStorageUsage()` becomes `{ fileCount: files.length, totalBytes, readable }` of it, so Plan 02's shape and tests are unchanged. Also `AudioStorageManager.removeFiles(names)` (never throws; refuses names that are not plain recordings; an already-missing file is neither deleted nor failed).
 - Produces, IPC: `storage-preview` → `StoragePreview`; `storage-delete-audio(expected: { files })` → `StorageDeleteResult`; `storage-delete-history(expected: { total, files })` → `StorageHistoryDeleteResult`. Preload `window.electronAPI.storage.{ preview, deleteAudio, deleteHistory }`.
 - Produces, `src/types/electron.ts`:
 
@@ -21214,8 +21297,11 @@ Model-cache clearing and reset move here from System; the old one-click "Clear A
   export interface StorageAudioPreview { files: number; bytes: number; directory: string }
   export interface StorageHistoryPreview { total: number; discarded: number; softDeleted: number; withAudio: number }
   export interface StoragePreview { audio: StorageAudioPreview | { error: string }; history: StorageHistoryPreview | { error: string } }
-  export interface StorageDeleteResult { ok: boolean; deleted: number; remaining: number | null; errors: string[] }
-  export interface StorageHistoryDeleteResult extends StorageDeleteResult { audio: { deleted: number; remaining: number | null } }
+  // failed and readable are Plan 02's fields (spec §5.6): failed = recordings that could not be unlinked;
+  // readable = the folder could be read to count them (false also when nothing was read, e.g. "invalid-request").
+  export interface StorageAudioErase { deleted: number; failed: number; readable: boolean; remaining: number | null }
+  export interface StorageDeleteResult extends StorageAudioErase { ok: boolean; errors: string[] }
+  export interface StorageHistoryDeleteResult { ok: boolean; deleted: number; remaining: number | null; errors: string[]; audio: StorageAudioErase }
   ```
 
   `discarded` counts `status = 'discarded' AND deleted_at IS NULL`; `softDeleted` counts `deleted_at IS NOT NULL`; the two never overlap.
@@ -21246,6 +21332,8 @@ Model-cache clearing and reset move here from System; the old one-click "Clear A
   export function resetConfirmed(typed: string, word: string): boolean;
   export function snapshotCount(snapshot: StorageSnapshot): number;
   export function isEmptySnapshot(snapshot: StorageSnapshot): boolean;
+  // Plan 02's hook state as the audio row; `directory` comes from main's preview row ("" until it loads).
+  export function audioRowFromUsage(usage: AudioUsage, preview: RowState<AudioSnapshot>): RowState<AudioSnapshot>;
   ```
 
 - Produces, `src/components/settings/StorageList.tsx`:
@@ -21255,7 +21343,7 @@ Model-cache clearing and reset move here from System; the old one-click "Clear A
   export const RESET_RELAUNCH_DELAY_MS = 1000;
   export type DeletePhase = "review" | "running" | "failed";
   export type ResetPhase = "review" | "running" | "failed" | "done";
-  export interface StorageListViewProps { audio: RowState; models: RowState; history: RowState; onDelete(kind: StorageKind): void; onOpenModels(): void; onRefresh(): void; onReset(): void }
+  export interface StorageListViewProps { audio: RowState; models: RowState; history: RowState; onDelete(kind: StorageKind): void | Promise<void>; onOpenModels(): void; onRefresh(): void; onReset(): void }
   export function StorageListView(props: StorageListViewProps): JSX.Element;
   export interface CountedDeleteProps { snapshot: StorageSnapshot; phase: DeletePhase; last: { snapshot: StorageSnapshot; outcome: DeleteOutcome } | null; onConfirm(): void; onCancel(): void; onRecount(): void }
   export function CountedDeleteContent(props: CountedDeleteProps & { Title?: ElementType; Description?: ElementType }): JSX.Element;
@@ -21340,7 +21428,7 @@ test("history preview counts every row and recording; deleting removes exactly t
     deleted: preview.history.total,
     remaining: 0,
     errors: [],
-    audio: { deleted: preview.audio.files, remaining: 0 },
+    audio: { deleted: preview.audio.files, failed: 0, readable: true, remaining: 0 },
   });
   assert.deepEqual(s.ops.preview(), {
     audio: { files: 0, bytes: 0, directory: s.audio.audioDir },
@@ -21363,10 +21451,13 @@ test("audio deletion removes every recording, linked or not, and keeps transcrip
   assert.deepEqual(s.ops.deleteAudio({ expected: { files: previewed } }), {
     ok: true,
     deleted: previewed,
+    failed: 0,
+    readable: true,
     remaining: 0,
     errors: [],
   });
   assert.equal(rowCount(s.db), 5);
+  // Plan 02's clearFlagsForDeletedAudio (spec §5.6) did this, not a second reconciler.
   assert.equal(flagged(s.db), 0, "has_audio cleared for every row whose recording is gone");
   assert.equal(s.ops.preview().audio.files, 0);
 });
@@ -21381,11 +21472,13 @@ test("a count that changed after review refuses the delete and touches nothing",
     deleted: 0,
     remaining: 5,
     errors: ["stale"],
-    audio: { deleted: 0, remaining: 4 },
+    audio: { deleted: 0, failed: 0, readable: true, remaining: 4 },
   });
   assert.deepEqual(s.ops.deleteAudio({ expected: { files: 3 } }), {
     ok: false,
     deleted: 0,
+    failed: 0,
+    readable: true,
     remaining: 4,
     errors: ["stale"],
   });
@@ -21401,6 +21494,8 @@ test("renderer requests without valid reviewed counts are refused", (t) => {
   assert.deepEqual(s.ops.deleteAudio({ expected: null }), {
     ok: false,
     deleted: 0,
+    failed: 0,
+    readable: false, // nothing was read
     remaining: null,
     errors: ["invalid-request"],
   });
@@ -21423,7 +21518,14 @@ test("an unreadable audio folder is an error, never zero, and blocks history del
   assert.equal(result.deleted, 0);
   assert.equal(result.remaining, null);
   assert.match(result.errors[0], /^count-failed: .*ENOTDIR/);
+  assert.equal(result.audio.readable, false, "Plan 02's readable flag, mapped to a typed error");
   assert.equal(rowCount(s.db), 5);
+  const audioOnly = s.ops.deleteAudio({ expected: { files: 0 } });
+  assert.deepEqual(
+    { ok: audioOnly.ok, readable: audioOnly.readable, remaining: audioOnly.remaining },
+    { ok: false, readable: false, remaining: null },
+    "an unreadable zero is never a clean delete"
+  );
 });
 
 // change-driving (M4): a main fake that fails one unlink.
@@ -21445,6 +21547,8 @@ test("a partial file failure reports exact deleted and remaining counts (M4)", (
   assert.deepEqual(s.ops.deleteAudio({ expected: { files: 4 } }), {
     ok: false,
     deleted: 3,
+    failed: 1,
+    readable: true,
     remaining: 1,
     errors: [`delete-failed: ${busy}: EBUSY`],
   });
@@ -21453,7 +21557,7 @@ test("a partial file failure reports exact deleted and remaining counts (M4)", (
     deleted: 5,
     remaining: 0,
     errors: [`delete-failed: ${busy}: EBUSY`],
-    audio: { deleted: 0, remaining: 1 },
+    audio: { deleted: 0, failed: 1, readable: true, remaining: 1 },
   });
 });
 
@@ -21463,10 +21567,10 @@ test("a failed recount leaves the result unknown, not successful, and keeps flag
   const s = setup(t, {
     audio: (real) =>
       Object.create(real, {
-        measure: {
+        listStoredAudio: {
           value() {
-            if (reads++ === 0) return real.measure();
-            throw new Error("EACCES: permission denied");
+            if (reads++ === 0) return real.listStoredAudio();
+            return { files: [], totalBytes: 0, readable: false, directory: real.audioDir, error: "EACCES: permission denied" };
           },
         },
       }),
@@ -21476,6 +21580,8 @@ test("a failed recount leaves the result unknown, not successful, and keeps flag
   assert.deepEqual(s.ops.deleteAudio({ expected: { files: 4 } }), {
     ok: false,
     deleted: 4,
+    failed: 0,
+    readable: true, // the count before the delete was readable; the recount was not
     remaining: null,
     errors: ["recount-failed: EACCES: permission denied"],
   });
@@ -21506,24 +21612,27 @@ test("if the delete ever removes a different set than the count, it rolls back",
   assert.deepEqual(result.errors, [
     "history-failed: predicate mismatch: counted 5 rows, delete removed 2",
   ]);
-  assert.deepEqual(result.audio, { deleted: 0, remaining: 4 });
+  assert.deepEqual(result.audio, { deleted: 0, failed: 0, readable: true, remaining: 4 });
   assert.equal(rowCount(s.db), 5);
   assert.equal(s.ops.preview().audio.files, 4, "rows go first, so no recording was touched");
 });
 
-// change-driving: measure/removeFiles do not exist.
-test("measure throws on an unreadable folder; a missing folder holds nothing", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-audio-measure-"));
+// change-driving: listStoredAudio/removeFiles do not exist.
+test("listStoredAudio names what getStorageUsage counts; an unreadable folder is readable: false, never empty", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "loqui-audio-list-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   setUserDataDir(root);
   const audio = new AudioStorageManager();
   fs.writeFileSync(path.join(audio.audioDir, "OpenWhispr-1.webm"), "abc");
   fs.writeFileSync(path.join(audio.audioDir, "readme.txt"), "x");
-  assert.deepEqual(audio.measure(), {
+  assert.deepEqual(audio.listStoredAudio(), {
     files: ["OpenWhispr-1.webm"],
-    bytes: 3,
+    totalBytes: 3,
+    readable: true,
     directory: audio.audioDir,
   });
+  // Plan 02's shape (spec §5.6), derived from the same list: one predicate for the row, the count and the delete.
+  assert.deepEqual(audio.getStorageUsage(), { fileCount: 1, totalBytes: 3, readable: true });
   assert.deepEqual(audio.removeFiles(["../escape.webm", "readme.txt"]), {
     deleted: 0,
     failed: [
@@ -21532,9 +21641,12 @@ test("measure throws on an unreadable folder; a missing folder holds nothing", (
     ],
   });
   fs.rmSync(audio.audioDir, { recursive: true, force: true });
-  assert.deepEqual(audio.measure(), { files: [], bytes: 0, directory: audio.audioDir });
   fs.writeFileSync(audio.audioDir, "not a folder");
-  assert.throws(() => audio.measure(), { code: "ENOTDIR" });
+  const unreadable = audio.listStoredAudio();
+  assert.equal(unreadable.readable, false);
+  assert.deepEqual(unreadable.files, []);
+  assert.match(unreadable.error, /ENOTDIR/);
+  assert.deepEqual(audio.getStorageUsage(), { fileCount: 0, totalBytes: 0, readable: false });
 });
 
 // change-driving
@@ -21554,12 +21666,13 @@ test("the storage bridge has a main handler for every channel", () => {
 Append to `test/helpers/deviceCleanupContract.test.js` (it already defines `cleanupHandler`, the `cleanup-app` body matched up to `ipcMain.handle("update-hotkey"`, `:11-13`):
 
 ```js
-// change-driving: cleanup-app still calls deleteAllAudio(), which swallows per-file failures.
-test("device reset reports audio erase failures", () => {
+// change-driving: cleanup-app ignores deleteAllAudio()'s result, so failed unlinks and an unreadable folder were swallowed.
+test("device reset reports audio erase failures from Plan 02's result", () => {
   assert.ok(cleanupHandler, "cleanup-app handler is present");
   const source = cleanupHandler[1];
-  assert.ok(source.includes("this.storageOps.deleteAudio({ reconcileFlags: false })"));
-  assert.ok(!source.includes("audioStorageManager.deleteAllAudio()"), "per-file failures were swallowed");
+  assert.match(source, /const audioErase = this\.audioStorageManager\.deleteAllAudio\(\);/);
+  assert.match(source, /!audioErase\.readable/);
+  assert.match(source, /audioErase\.failed > 0/);
 });
 
 // baseline guard (Task 2 added the call): rewriting the audio block keeps the credential reset.
@@ -21572,7 +21685,7 @@ test("device reset still retires every credential token", () => {
 - [ ] **Step 2: Run the main tests to verify they fail**
 
 Run: `npm run native:node && npm test -- test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js`
-Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device reset reports audio erase failures" fails on `this.storageOps.deleteAudio`. "device reset still retires every credential token" passes (baseline guard; Task 2's line is already there).
+Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device reset reports audio erase failures from Plan 02's result" fails on `const audioErase`. "device reset still retires every credential token" passes (baseline guard; Task 2's line is already there).
 
 - [ ] **Step 3: Implement main**
 
@@ -21583,15 +21696,16 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
    // Each preview counts with the predicate its deletion uses, and each
    // deletion refuses to run when the set changed after the user reviewed it,
    // so a confirmation never promises less than the delete removes.
-   // Unreadable state is an error, never zero.
+   // Built on Plan 02's stored-audio contract (spec §5.6): the folder listing
+   // carries `readable`, which this module maps to a typed error (an unreadable
+   // folder is never zero), every audio result keeps `failed` and `readable`,
+   // and has_audio flags go through Plan 02's clearFlagsForDeletedAudio.
+   const { clearFlagsForDeletedAudio } = require("./audioFlagReconcile");
 
    /** Audio predicate: every recording in the audio folder, linked to a transcript or not. */
    function isStoredAudioFile(name) {
      return typeof name === "string" && name.endsWith(".webm");
    }
-
-   // Recordings end in "-<transcription id>.webm" (audioStorage.js _buildFilename).
-   const AUDIO_ID = /(?:^|-)(\d+)\.webm$/;
 
    /**
     * History predicate: every row of `transcriptions` -- completed, discarded
@@ -21629,18 +21743,13 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
        };
      };
 
+     const unreadable = (listed) => listed.error || `unreadable: ${listed.directory}`;
+
      function preview() {
-       let audioPreview;
-       try {
-         const measured = audio.measure();
-         audioPreview = {
-           files: measured.files.length,
-           bytes: measured.bytes,
-           directory: measured.directory,
-         };
-       } catch (error) {
-         audioPreview = { error: describe(error) };
-       }
+       const listed = audio.listStoredAudio();
+       const audioPreview = listed.readable
+         ? { files: listed.files.length, bytes: listed.totalBytes, directory: listed.directory }
+         : { error: unreadable(listed) };
        let history;
        try {
          history = countHistory();
@@ -21651,79 +21760,66 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
      }
 
      // Unlinks exactly the counted names, then re-reads the folder to learn how
-     // many of them are still there. A failed re-read leaves `remaining` unknown.
+     // many of them are still there. An unreadable re-read leaves `remaining`
+     // unknown (null), which is never success.
      function removeCounted(names) {
        const errors = [];
        const { deleted, failed } = audio.removeFiles(names);
        for (const failure of failed) errors.push(`delete-failed: ${failure.file}: ${failure.error}`);
-       let present = null;
-       let remaining = null;
-       try {
-         present = new Set(audio.measure().files);
-         remaining = names.filter((name) => present.has(name)).length;
-       } catch (error) {
-         errors.push(`recount-failed: ${describe(error)}`);
+       const after = audio.listStoredAudio();
+       if (!after.readable) {
+         errors.push(`recount-failed: ${unreadable(after)}`);
+         return { deleted, failed: failed.length, remaining: null, errors };
        }
-       return { deleted, remaining, present, errors };
+       const present = new Set(after.files);
+       return { deleted, failed: failed.length, remaining: names.filter((name) => present.has(name)).length, errors };
      }
 
-     // Clears has_audio only for rows whose recording is provably gone.
-     function reconcileAudioFlags(present, errors) {
-       if (!present) return;
+     // Plan 02's reconciler: clears has_audio only for rows whose recording is
+     // provably gone, and nothing when the folder is unreadable.
+     function reconcileAudioFlags(errors) {
        try {
-         const kept = new Set();
-         for (const name of present) {
-           const match = AUDIO_ID.exec(name);
-           if (match) kept.add(Number(match[1]));
-         }
-         const gone = database.db
-           .prepare("SELECT id FROM transcriptions WHERE has_audio = 1")
-           .all()
-           .map((row) => row.id)
-           .filter((id) => !kept.has(id));
-         if (gone.length > 0) database.clearAudioFlags(gone);
+         clearFlagsForDeletedAudio({ audioStorage: audio, database });
        } catch (error) {
          errors.push(`flags-failed: ${describe(error)}`);
        }
      }
 
-     function deleteAudio({ expected, reconcileFlags = true } = {}) {
-       if (expected !== undefined && !validExpected(expected, ["files"])) {
-         return { ok: false, deleted: 0, remaining: null, errors: ["invalid-request"] };
-       }
-       let counted;
-       try {
-         counted = audio.measure();
-       } catch (error) {
-         return { ok: false, deleted: 0, remaining: null, errors: [`count-failed: ${describe(error)}`] };
-       }
+     // `readable: false` with no read at all ("invalid-request") is still never success.
+     const notRead = (error) => ({ ok: false, deleted: 0, failed: 0, readable: false, remaining: null, errors: [error] });
+
+     function deleteAudio({ expected } = {}) {
+       if (expected !== undefined && !validExpected(expected, ["files"])) return notRead("invalid-request");
+       const counted = audio.listStoredAudio();
+       if (!counted.readable) return notRead(`count-failed: ${unreadable(counted)}`);
        if (expected !== undefined && counted.files.length !== expected.files) {
-         return { ok: false, deleted: 0, remaining: counted.files.length, errors: ["stale"] };
+         return { ok: false, deleted: 0, failed: 0, readable: true, remaining: counted.files.length, errors: ["stale"] };
        }
        const result = removeCounted(counted.files);
-       if (reconcileFlags) reconcileAudioFlags(result.present, result.errors);
+       // Unknown disk state never clears flags.
+       if (result.remaining !== null) reconcileAudioFlags(result.errors);
        return {
-         ok: result.errors.length === 0 && result.remaining === 0,
+         ok: result.errors.length === 0 && result.failed === 0 && result.remaining === 0,
          deleted: result.deleted,
+         failed: result.failed,
+         readable: true,
          remaining: result.remaining,
          errors: result.errors,
        };
      }
 
      function deleteHistory({ expected } = {}) {
-       const untouched = (files) => ({ deleted: 0, remaining: files });
+       const untouched = (files) => ({ deleted: 0, failed: 0, readable: files !== null, remaining: files });
        if (expected !== undefined && !validExpected(expected, ["total", "files"])) {
          return { ok: false, deleted: 0, remaining: null, errors: ["invalid-request"], audio: untouched(null) };
        }
-       let counted;
-       try {
-         counted = audio.measure();
-       } catch (error) {
+       const counted = audio.listStoredAudio();
+       if (!counted.readable) {
          return {
            ok: false,
            deleted: 0,
            remaining: null,
-           errors: [`count-failed: ${describe(error)}`],
+           errors: [`count-failed: ${unreadable(counted)}`],
            audio: untouched(null),
          };
        }
@@ -21770,11 +21866,11 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
        // Every row is gone, so no has_audio flag is left to reconcile.
        const files = removeCounted(counted.files);
        return {
-         ok: files.errors.length === 0 && files.remaining === 0,
+         ok: files.errors.length === 0 && files.failed === 0 && files.remaining === 0,
          deleted: cleared,
          remaining: 0,
          errors: files.errors,
-         audio: { deleted: files.deleted, remaining: files.remaining },
+         audio: { deleted: files.deleted, failed: files.failed, readable: true, remaining: files.remaining },
        };
      }
 
@@ -21786,35 +21882,41 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
 
    `clearTranscriptions` opens its own `this.db.transaction(...)()` (`database.js:552`); better-sqlite3 runs a transaction function called inside another as a savepoint, so the outer rollback covers it.
 
-2. `src/helpers/audioStorage.js`:
+2. `src/helpers/audioStorage.js`, as Plan 02 Task 19 left it (spec §5.6: `deleteAllAudio()` → `{ deleted, failed, readable }`, `getStorageUsage()` → `{ fileCount, totalBytes, readable }`, `remainingAudioIds()`):
    - After `const { parseDbTimestamp } = require("./dbTimestamp");` (`:5`) add `const { isStoredAudioFile } = require("./storageOps");`.
-   - In `deleteAllAudio` (`:169`) and `getStorageUsage` (`:191`), replace `.filter((f) => f.endsWith(".webm"))` with `.filter(isStoredAudioFile)`.
-   - After `getStorageUsage()` (its closing brace is `:206`, directly before the class's closing `}`), add:
+   - In Plan 02's `deleteAllAudio()`, replace `.filter((f) => f.endsWith(".webm"))` with `.filter(isStoredAudioFile)`. Its body and return shape stay Plan 02's.
+   - Replace Plan 02's `getStorageUsage()` body with the derived form below, and add `listStoredAudio()` directly above it. `remainingAudioIds()` stays as Plan 02 wrote it.
 
      ```js
-       // Every stored recording and their total size. Throws when the folder or
-       // a file can't be read, so an unreadable folder is never reported as
-       // empty. A missing folder holds nothing, and a file removed between the
-       // listing and the stat is no longer stored.
-       measure() {
-         let names;
+       // The stored recordings behind getStorageUsage(), by name, so Settings >
+       // Storage deletes exactly the set it counted. Never throws: like Plan 02's
+       // getStorageUsage (spec §5.6), any folder read error is `readable: false`,
+       // never an empty store. A file that can't be stat'd still counts, without
+       // its size.
+       listStoredAudio() {
+         let files;
          try {
-           names = fs.readdirSync(this.audioDir);
+           files = fs.readdirSync(this.audioDir).filter(isStoredAudioFile);
          } catch (error) {
-           if (error.code === "ENOENT") return { files: [], bytes: 0, directory: this.audioDir };
-           throw error;
+           debugLogger.error("Failed to read the audio folder", { error: error.message }, "audio-storage");
+           return { files: [], totalBytes: 0, readable: false, directory: this.audioDir, error: error.message };
          }
-         const files = [];
-         let bytes = 0;
-         for (const name of names.filter(isStoredAudioFile)) {
+         let totalBytes = 0;
+         for (const file of files) {
            try {
-             bytes += fs.statSync(path.join(this.audioDir, name)).size;
-             files.push(name);
-           } catch (error) {
-             if (error.code !== "ENOENT") throw error;
+             totalBytes += fs.statSync(path.join(this.audioDir, file)).size;
+           } catch {
+             // Skip files that can't be stat'd (Plan 02's rule)
            }
          }
-         return { files, bytes, directory: this.audioDir };
+         return { files, totalBytes, readable: true, directory: this.audioDir };
+       }
+
+       // Plan 02's shape, derived from the same listing: one predicate for the
+       // row, the count and the delete.
+       getStorageUsage() {
+         const { files, totalBytes, readable } = this.listStoredAudio();
+         return { fileCount: files.length, totalBytes, readable };
        }
 
        // Unlinks exactly these recordings and reports each failure; never throws.
@@ -21882,14 +21984,18 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
      with
 
      ```js
-           // Delete audio files. The database is already closed, so has_audio
-           // flags are not reconciled; the database file is deleted below.
-           const audioErase = this.storageOps.deleteAudio({ reconcileFlags: false });
-           if (audioErase.ok === false) errors.push(`Audio delete: ${audioErase.errors.join("; ")}`);
+           // Delete audio files. Plan 02's deleteAllAudio() reports failed unlinks
+           // and an unreadable folder (spec §5.6); a reset must not swallow them.
+           // The database is already closed, so has_audio flags are not
+           // reconciled; the database file is deleted below.
+           const audioErase = this.audioStorageManager.deleteAllAudio();
+           if (!audioErase.readable) errors.push("Audio delete: the audio folder could not be read");
+           else if (audioErase.failed > 0)
+             errors.push(`Audio delete: ${audioErase.failed} file(s) could not be deleted`);
      ```
 
    - Leave the rest of `cleanup-app` as Task 2 left it, in particular `this.credentials.reset();` directly after the `clearAllPersistedData` try/catch (the `// Delete device-wide settings and encrypted credentials.` block). Task 2's `credentialIpc.test.js` and this task's baseline guard both check it.
-   - Leave `db-clear-transcriptions` (`:1287-1298`) and `delete-all-audio` (`:1400-1416`) as they are. Their callers (ControlPanel's "Clear All Transcriptions", which says "All transcriptions, audio files, and Insights counters", `src/locales/en/translation.json:660-661`) do not show counts.
+   - Leave `db-clear-transcriptions` (`:1287-1298`) and Plan 02's `delete-all-audio` (`:1400-1416`; it already reconciles flags through `clearFlagsForDeletedAudio`) as they are. Their callers (ControlPanel's "Clear All Transcriptions", which says "All transcriptions, audio files, and Insights counters", `src/locales/en/translation.json:660-661`) do not show counts.
 
 4. `preload.js`, after `deleteAllAudio: () => ipcRenderer.invoke("delete-all-audio"),` (`:192`):
 
@@ -21902,7 +22008,7 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
      },
    ```
 
-5. `src/types/electron.ts`: after `AnalyticsSummary` (`:137-147`) add the five exported interfaces from Interfaces above. After `deleteAllAudio: () => Promise<{ deleted: number }>;` (`:858`) add:
+5. `src/types/electron.ts`: after `AnalyticsSummary` (`:137-147`) add the six exported interfaces from Interfaces above. After Plan 02's `deleteAllAudio: () => Promise<{ deleted: number; failed: number; readable: boolean }>;` (`:858`) add:
 
    ```ts
          storage?: {
@@ -21919,8 +22025,8 @@ Expected: FAIL. `Cannot find module '../../src/helpers/storageOps.js'`; "device 
 
 - [ ] **Step 4: Run the main tests to verify they pass**
 
-Run: `npm test -- test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js test/helpers/credentialIpc.test.js test/helpers/audioStorageTraversal.test.js test/helpers/personalIpcContract.test.js test/helpers/analyticsDatabase.test.js test/helpers/personalDatabase.test.js`
-Expected: PASS. (`credentialIpc` (Task 2), `audioStorageTraversal`, `personalIpcContract`, `analyticsDatabase` and `personalDatabase` are baseline guards for the touched modules; `credentialIpc` proves the `cleanup-app` edit kept `this.credentials.reset()`.) If `createDb` reports the native binding missing, run `npm run native:node` first; never skip these tests.
+Run: `npm test -- test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js test/helpers/audioStorageClear.test.js test/helpers/credentialIpc.test.js test/helpers/audioStorageTraversal.test.js test/helpers/personalIpcContract.test.js test/helpers/analyticsDatabase.test.js test/helpers/personalDatabase.test.js`
+Expected: PASS. (`audioStorageClear` (Plan 02, spec §5.6) proves `getStorageUsage`, `deleteAllAudio`, `remainingAudioIds` and `clearFlagsForDeletedAudio` kept their contract; `credentialIpc` (Task 2), `audioStorageTraversal`, `personalIpcContract`, `analyticsDatabase` and `personalDatabase` are baseline guards for the touched modules; `credentialIpc` proves the `cleanup-app` edit kept `this.credentials.reset()`.) If `createDb` reports the native binding missing, run `npm run native:node` first; never skip these tests.
 
 - [ ] **Step 5: Commit**
 
@@ -21976,14 +22082,23 @@ test("an unreadable model family is an error, never zero", async () => {
 
 test("only a clean typed result from main is success", async () => {
   const { outcomeFromResult, historyOutcomeFromResult, outcomeFromRejection } = await load();
-  assert.deepEqual(outcomeFromResult({ ok: true, deleted: 214, remaining: 0, errors: [] }), {
+  const clean = { failed: 0, readable: true }; // Plan 02's fields (spec §5.6)
+  assert.deepEqual(outcomeFromResult({ ok: true, deleted: 214, ...clean, remaining: 0, errors: [] }), {
     ok: true,
     deleted: 214,
     remaining: 0,
     errors: [],
   });
-  assert.equal(outcomeFromResult({ ok: true, deleted: 214, remaining: null, errors: [] }).ok, false);
-  assert.equal(outcomeFromResult({ ok: true, deleted: 214, remaining: 0, errors: ["flags-failed: x"] }).ok, false);
+  assert.equal(outcomeFromResult({ ok: true, deleted: 214, ...clean, remaining: null, errors: [] }).ok, false);
+  assert.equal(outcomeFromResult({ ok: true, deleted: 214, ...clean, remaining: 0, errors: ["flags-failed: x"] }).ok, false);
+  // resolveClearAudioOutcome decides: an unreadable zero and a failed unlink are never "cleared".
+  assert.equal(outcomeFromResult({ ok: true, deleted: 0, failed: 0, readable: false, remaining: 0, errors: [] }).ok, false);
+  assert.equal(outcomeFromResult({ ok: true, deleted: 213, failed: 1, readable: true, remaining: 0, errors: [] }).ok, false);
+  assert.deepEqual(
+    outcomeFromResult({ ok: true, deleted: 214, remaining: 0, errors: [] }).errors,
+    ["invalid-result"],
+    "failed and readable are required"
+  );
   assert.deepEqual(outcomeFromResult({ deleted: 0 }), {
     ok: false,
     deleted: null,
@@ -21992,8 +22107,13 @@ test("only a clean typed result from main is success", async () => {
   });
   assert.deepEqual(outcomeFromResult({ success: true }).deleted, null, "a legacy shape is not a count");
   assert.deepEqual(
-    historyOutcomeFromResult({ ok: true, deleted: 5, remaining: 0, errors: [], audio: { deleted: 1, remaining: 3 } }),
+    historyOutcomeFromResult({ ok: true, deleted: 5, remaining: 0, errors: [], audio: { deleted: 1, ...clean, remaining: 3 } }),
     { ok: false, deleted: 5, remaining: 0, errors: [], audio: { deleted: 1, remaining: 3 } }
+  );
+  assert.equal(
+    historyOutcomeFromResult({ ok: true, deleted: 5, remaining: 0, errors: [], audio: { deleted: 0, failed: 0, readable: false, remaining: 0 } }).ok,
+    false,
+    "history with an unreadable audio folder is never cleared"
   );
   assert.deepEqual(outcomeFromRejection(new Error("closed"), "history"), {
     ok: false,
@@ -22041,6 +22161,18 @@ test("reset succeeds only on success: true with no errors", async () => {
   assert.equal(resetConfirmed(" Reset ", "reset"), true);
   assert.equal(resetConfirmed("res", "reset"), false);
   assert.equal(resetConfirmed("", ""), false);
+});
+
+test("the audio row is Plan 02's useAudioStorageUsage state; unavailable is never zero", async () => {
+  const { audioRowFromUsage } = await load();
+  const preview = { status: "ready", snapshot: { kind: "audio", files: 9, bytes: 9, directory: "/tmp/a" } };
+  assert.deepEqual(audioRowFromUsage({ status: "loading" }, preview), { status: "loading" });
+  assert.deepEqual(audioRowFromUsage({ status: "unavailable" }, preview), { status: "error", error: "unavailable" });
+  assert.deepEqual(audioRowFromUsage({ status: "known", fileCount: 4, totalBytes: 37 }, preview), {
+    status: "ready",
+    snapshot: { kind: "audio", files: 4, bytes: 37, directory: "/tmp/a" },
+  });
+  assert.equal(audioRowFromUsage({ status: "known", fileCount: 4, totalBytes: 37 }, { status: "loading" }).snapshot.directory, "");
 });
 
 test("an uncountable audio folder makes history uncountable too", async () => {
@@ -22170,6 +22302,10 @@ test("storage list markup", async (t) => {
       models: { status: "loading" },
     });
     assert.ok(html.includes("storage.countFailed"));
+    // Plan 02's unavailable state (spec §5.6), ported from audioStorageRow.test.js: the audio row says the
+    // folder couldn't be read, offers Count again (the Retry), and never says "no audio".
+    assert.ok(html.includes("settingsPage.privacy.audioStorageUnavailable"));
+    assert.ok(!html.includes("storage.audio.empty"));
     assert.ok(html.includes("storage.loading"));
     for (const kind of ["audio", "models", "history"]) {
       assert.match(html, new RegExp(`<button[^>]*data-storage-delete="${kind}"[^>]*disabled=""`));
@@ -22215,6 +22351,7 @@ const settle = () =>
   });
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const UNREADABLE = { fileCount: 0, totalBytes: 0, readable: false }; // Plan 02's unreadable usage
 const PREVIEW = {
   audio: { files: 214, bytes: 1_200_000_000, directory: "/tmp/loqui-test/audio" },
   history: { total: 1482, discarded: 12, softDeleted: 3, withAudio: 199 },
@@ -22228,14 +22365,22 @@ function fakeApi({ storage = {}, ...rest } = {}) {
       preview: async () => PREVIEW,
       deleteAudio: async (expected) => {
         calls.push(["deleteAudio", expected]);
-        return { ok: true, deleted: 214, remaining: 0, errors: [] };
+        return { ok: true, deleted: 214, failed: 0, readable: true, remaining: 0, errors: [] };
       },
       deleteHistory: async (expected) => {
         calls.push(["deleteHistory", expected]);
-        return { ok: true, deleted: 1482, remaining: 0, errors: [], audio: { deleted: 214, remaining: 0 } };
+        return {
+          ok: true,
+          deleted: 1482,
+          remaining: 0,
+          errors: [],
+          audio: { deleted: 214, failed: 0, readable: true, remaining: 0 },
+        };
       },
       ...storage,
     },
+    // Plan 02's hook (useAudioStorageUsage) reads this for the audio row.
+    getAudioStorageUsage: async () => ({ fileCount: 214, totalBytes: 1_200_000_000, readable: true }),
     listWhisperModels: async () => ({
       success: true,
       models: [{ model: "base", downloaded: disk.whisper, size_bytes: 147_951_465 }],
@@ -22380,6 +22525,8 @@ test("a partial result from main shows its exact counts and errors (M4)", async 
       deleteAudio: async () => ({
         ok: false,
         deleted: 211,
+        failed: 3,
+        readable: true,
         remaining: 3,
         errors: ["delete-failed: OpenWhispr-7.webm: EBUSY"],
       }),
@@ -22405,7 +22552,14 @@ test("a partial result from main shows its exact counts and errors (M4)", async 
 test("ok:true with an unknown remainder is still a failure (I12)", async (t) => {
   const { api } = fakeApi({
     storage: {
-      deleteAudio: async () => ({ ok: true, deleted: 214, remaining: null, errors: ["recount-failed: EACCES"] }),
+      deleteAudio: async () => ({
+        ok: true,
+        deleted: 214,
+        failed: 0,
+        readable: true,
+        remaining: null,
+        errors: ["recount-failed: EACCES"],
+      }),
     },
   });
   const h = await mount(t, api);
@@ -22421,10 +22575,13 @@ test("a failed recount after a delete shows an error row, never zero (I12)", asy
     storage: {
       preview: async () => {
         previews++;
-        if (previews > 1) throw new Error("EACCES");
+        if (previews > 2) throw new Error("EACCES"); // 1: mount, 2: Delete… re-read, 3: after the delete
         return PREVIEW;
       },
     },
+    // load() calls preview first, then the hook's refresh(), so this sees the same read number.
+    getAudioStorageUsage: async () =>
+      previews > 2 ? UNREADABLE : { fileCount: 214, totalBytes: 1_200_000_000, readable: true },
   });
   const h = await mount(t, api);
   await confirmDelete(h, "audio");
@@ -22433,7 +22590,7 @@ test("a failed recount after a delete shows an error row, never zero (I12)", asy
     ["storage.audio.done(count=214)"],
     "success came from main's typed result"
   );
-  assert.deepEqual(h.view().audio, { status: "error", error: "EACCES" });
+  assert.deepEqual(h.view().audio, { status: "error", error: "unavailable" }, "Plan 02's hook: unavailable, not zero");
   assert.deepEqual(h.view().history, { status: "error", error: "EACCES" });
 });
 
@@ -22449,6 +22606,7 @@ test("the dialog keeps the reviewed snapshot while a delete runs (I12)", async (
         return pending.promise;
       },
     },
+    getAudioStorageUsage: async () => ({ fileCount: files, totalBytes: 1_200_000_000, readable: true }),
   });
   const h = await mount(t, api);
   await React.act(async () => h.view().onDelete("audio"));
@@ -22465,7 +22623,7 @@ test("the dialog keeps the reviewed snapshot while a delete runs (I12)", async (
   await React.act(async () => h.dialog().onOpenChange(false));
   assert.equal(sent.length, 1, "a second click while running is ignored");
   assert.equal(h.dialog().phase, "running", "a running dialog cannot be closed");
-  pending.resolve({ ok: true, deleted: 214, remaining: 0, errors: [] });
+  pending.resolve({ ok: true, deleted: 214, failed: 0, readable: true, remaining: 0, errors: [] });
   await settle();
   assert.equal(h.dialog(), null);
 });
@@ -22477,7 +22635,13 @@ test("main's stale refusal brings back the new counts for review (C2)", async (t
       preview: async () => ({ ...PREVIEW, history: { ...PREVIEW.history, total } }),
       deleteHistory: async () => {
         total = 1483;
-        return { ok: false, deleted: 0, remaining: 1483, errors: ["stale"], audio: { deleted: 0, remaining: 214 } };
+        return {
+          ok: false,
+          deleted: 0,
+          remaining: 1483,
+          errors: ["stale"],
+          audio: { deleted: 0, failed: 0, readable: true, remaining: 214 },
+        };
       },
     },
   });
@@ -22521,6 +22685,51 @@ test("models: typed per-family outcomes; selections stay after a partial delete"
   const html = renderToStaticMarkup(React.createElement(h.s.CountedDeleteContent, d));
   assert.ok(html.includes("storage.models.familyFailed(family=storage.models.families.parakeet)"));
   assert.ok(html.includes("storage.failed.partial(deleted=1,total=2,remaining=1)"));
+});
+
+// The audio row runs on Plan 02's useAudioStorageUsage (its own tests stay unchanged); these pin that
+// the Storage list keeps its unavailable state and clearAllAudio.test.js's "re-reads before confirming
+// and never confirms a stale count". change-driving: the container does not exist.
+test("an unreadable or rejected first read is unavailable, and opens no confirmation (Plan 02, §5.6)", async (t) => {
+  const reject = async () => {
+    throw new Error("ipc down");
+  };
+  for (const [preview, getAudioStorageUsage] of [
+    [async () => ({ ...PREVIEW, audio: { error: "ENOTDIR: not a directory" } }), async () => UNREADABLE],
+    [reject, reject],
+  ]) {
+    const { api, calls } = fakeApi({ storage: { preview }, getAudioStorageUsage });
+    const h = await mount(t, api);
+    assert.deepEqual(h.view().audio, { status: "error", error: "unavailable" });
+    await React.act(async () => h.view().onDelete("audio"));
+    assert.equal(h.dialog(), null);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("Delete… re-reads before confirming; a failed re-read opens nothing (Plan 02, §5.6)", async (t) => {
+  let previews = 0;
+  let files = 214;
+  const { api, calls } = fakeApi({
+    storage: {
+      preview: async () => {
+        previews++;
+        if (previews === 3) throw new Error("EACCES");
+        return { ...PREVIEW, audio: { ...PREVIEW.audio, files } };
+      },
+    },
+    getAudioStorageUsage: async () =>
+      previews >= 3 ? UNREADABLE : { fileCount: files, totalBytes: 1_200_000_000, readable: true },
+  });
+  const h = await mount(t, api); // read 1
+  files = 210;
+  await React.act(async () => h.view().onDelete("audio")); // read 2
+  assert.equal(h.dialog().snapshot.files, 210, "the confirm shows the fresh count, not the row's older one");
+  await React.act(async () => h.dialog().onCancel());
+  await React.act(async () => h.view().onDelete("audio")); // read 3 fails
+  assert.equal(h.dialog(), null, "no confirmation on a failed read");
+  assert.deepEqual(h.view().audio, { status: "error", error: "unavailable" }, "the stale count is not kept");
+  assert.deepEqual(calls, []);
 });
 
 test("models: selections are cleared only when every model file is gone", async (t) => {
@@ -22587,6 +22796,8 @@ test("a rejected reset keeps the dialog open with the IPC error (I12)", async (t
 });
 ```
 
+Plan 02's tests: `test/hooks/useAudioStorageUsage.test.js` stays unchanged (the hook is kept and now feeds the audio row; `fakeApi` supplies its `getAudioStorageUsage`). Only `audioStorageRow.test.js` is ported, because only `AudioStorageRow` is retired: its cases → the "an uncountable or loading row…" markup subtest (unavailable copy, Count again, disabled Delete while loading, never "no audio") and the partial test's `role="alert"`. `clearAllAudio.test.js`'s "re-reads before confirming" → "Delete… re-reads before confirming…"; that file keeps its `resolveClearAudioOutcome` case unchanged, and Step 8 item 3 replaces its SettingsPage-handler case.
+
 The mock `t` returns keys, so the reset word is the key `storage.reset.word`. `PREVIEW.history` adds 15 hidden rows (12 discarded, 3 soft-deleted). The models fixture has two downloaded files (Whisper `base` and one LLM); in the partial test Whisper's delete clears its file and the LLM's fails, so main's recount is 1.
 
 - [ ] **Step 7: Run the renderer tests to verify they fail**
@@ -22602,7 +22813,10 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
    // Pure helpers for Settings > Storage. Main owns audio and history counts
    // (src/helpers/storageOps.js); this module validates what main returns and
    // does the renderer-side model arithmetic. Nothing here turns an unknown
-   // into zero or a failure into success.
+   // into zero or a failure into success. Audio success is Plan 02's rule
+   // (spec §5.6): resolveClearAudioOutcome must say "cleared".
+   import { resolveClearAudioOutcome } from "../../utils/audioDeletion.ts";
+   import type { AudioUsage } from "../../hooks/useAudioStorageUsage.ts";
 
    export type ModelFamily = "whisper" | "parakeet" | "llm";
    export const MODEL_FAMILIES: readonly ModelFamily[] = ["whisper", "parakeet", "llm"];
@@ -22779,23 +22993,43 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
      };
    }
 
+   // Plan 02's audio fields (spec §5.6). Both are required: a result without
+   // them is not a result this build understands.
+   interface AudioErase { deleted: number; failed: number; readable: boolean; remaining: number | null }
+   function readAudioErase(raw: unknown): AudioErase | null {
+     if (!isObject(raw)) return null;
+     const { deleted, failed, readable, remaining } = raw;
+     if (!isCount(deleted) || !isCount(failed) || typeof readable !== "boolean") return null;
+     if (remaining !== null && !isCount(remaining)) return null;
+     return { deleted, failed, readable, remaining: remaining as number | null };
+   }
+   // "Cleared" only when nothing failed, the folder was readable, and the
+   // counted set reads back readable and empty. An unreadable zero never is.
+   const audioCleared = (erase: AudioErase): boolean =>
+     resolveClearAudioOutcome(
+       { failed: erase.failed, readable: erase.readable },
+       erase.remaining === null ? null : { fileCount: erase.remaining, readable: true }
+     ) === "cleared";
+
    const INVALID: DeleteOutcome = { ok: false, deleted: null, remaining: null, errors: ["invalid-result"] };
 
    export function outcomeFromResult(raw: unknown): DeleteOutcome {
-     return readResult(raw) ?? { ...INVALID, errors: [...INVALID.errors] };
+     const rows = readResult(raw);
+     const erase = readAudioErase(raw);
+     if (!rows || !erase) return { ...INVALID, errors: [...INVALID.errors] };
+     return { ...rows, ok: rows.ok === true && audioCleared(erase) };
    }
 
    export function historyOutcomeFromResult(raw: unknown): DeleteOutcome {
      const rows = readResult(raw);
-     const audio = isObject(raw) && isObject(raw.audio) ? raw.audio : null;
-     if (!rows || !audio || !isCount(audio.deleted)) {
+     const audio = readAudioErase(isObject(raw) ? raw.audio : null);
+     if (!rows || !audio) {
        return { ...INVALID, errors: [...INVALID.errors], audio: { deleted: null, remaining: null } };
      }
-     const remaining = isCount(audio.remaining) ? audio.remaining : null;
      return {
        ...rows,
-       ok: rows.ok === true && remaining === 0,
-       audio: { deleted: audio.deleted, remaining },
+       ok: rows.ok === true && audioCleared(audio),
+       audio: { deleted: audio.deleted, remaining: audio.remaining },
      };
    }
 
@@ -22836,6 +23070,21 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
      if (snapshot.kind === "history") return snapshot.total === 0 && snapshot.files === 0;
      return snapshotCount(snapshot) === 0;
    }
+
+   // The audio row is Plan 02's useAudioStorageUsage state (spec §5.6): unavailable
+   // is an error row, never zero. Only the folder path comes from main's preview.
+   export function audioRowFromUsage(
+     usage: AudioUsage,
+     preview: RowState<AudioSnapshot>
+   ): RowState<AudioSnapshot> {
+     if (usage.status === "loading") return { status: "loading" };
+     if (usage.status === "unavailable") return { status: "error", error: "unavailable" };
+     const directory = preview.status === "ready" ? preview.snapshot.directory : "";
+     return {
+       status: "ready",
+       snapshot: { kind: "audio", files: usage.fileCount, bytes: usage.totalBytes, directory },
+     };
+   }
    ```
 
 2. Create `src/components/settings/StorageList.tsx`:
@@ -22850,7 +23099,9 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
    import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
    import { Input } from "../ui/input";
    import { useToast } from "../ui/useToast";
+   import { useAudioStorageUsage } from "../../hooks/useAudioStorageUsage";
    import {
+     audioRowFromUsage,
      countModels,
      errorText,
      familyOutcome,
@@ -22898,7 +23149,9 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
 
    function rowSummary(t: T, kind: StorageKind, row: RowState): string {
      if (row.status === "loading") return t("storage.loading");
-     if (row.status === "error") return t("storage.countFailed");
+     // Plan 02's unavailable state (spec §5.6): an unreadable audio folder is never "no audio".
+     if (row.status === "error")
+       return kind === "audio" ? t("settingsPage.privacy.audioStorageUnavailable") : t("storage.countFailed");
      const s = row.snapshot;
      if (isEmptySnapshot(s)) return t(`storage.${kind}.empty`);
      if (s.kind === "audio") {
@@ -22920,7 +23173,7 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
      audio: RowState;
      models: RowState;
      history: RowState;
-     onDelete: (kind: StorageKind) => void;
+     onDelete: (kind: StorageKind) => void | Promise<void>;
      onOpenModels: () => void;
      onRefresh: () => void;
      onReset: () => void;
@@ -22942,7 +23195,7 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
            data-storage-delete={kind}
            className={DESTRUCTIVE_OUTLINE}
            disabled={state.status !== "ready" || isEmptySnapshot(state.snapshot)}
-           onClick={() => props.onDelete(kind)}
+           onClick={() => void props.onDelete(kind)}
          >
            {t("storage.delete")}
          </Button>
@@ -23279,13 +23532,22 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
      const busy = useRef(false);
      const word = t("storage.reset.word");
 
+     // Plan 02's hook (spec §5.6) owns the audio row's count, bytes and
+     // unavailable state; load() re-reads it with the rest of the list.
+     const audioUsage = useAudioStorageUsage(true);
+     const refreshAudioUsage = audioUsage.refresh;
+
      const load = useCallback(async (): Promise<Rows> => {
        const api = window.electronAPI;
-       const [preview, models] = await Promise.all([loadPreviewRows(api), loadModelsRow(api)]);
+       const [preview, models] = await Promise.all([
+         loadPreviewRows(api),
+         loadModelsRow(api),
+         refreshAudioUsage(),
+       ]);
        const next: Rows = { audio: preview.audio, history: preview.history, models };
        setRows(next);
        return next;
-     }, []);
+     }, [refreshAudioUsage]);
 
      useEffect(() => {
        void load();
@@ -23317,6 +23579,17 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
          setDialog({ snapshot: row.snapshot, phase: "review", last });
        } else {
          setDialog({ snapshot: reviewed, phase: "failed", last });
+       }
+     };
+
+     // Plan 02 (spec §5.6): count again before confirming. A failed read turns
+     // the row unavailable and opens no confirmation, so a stale count is never
+     // presented as current.
+     const openDelete = async (kind: StorageKind) => {
+       if (dialog || busy.current) return;
+       const row = (await load())[kind];
+       if (row.status === "ready" && !isEmptySnapshot(row.snapshot)) {
+         setDialog({ snapshot: row.snapshot, phase: "review", last: null });
        }
      };
 
@@ -23361,15 +23634,10 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
      return (
        <>
          <StorageListView
-           audio={rows.audio}
+           audio={audioRowFromUsage(audioUsage.usage, rows.audio)}
            models={rows.models}
            history={rows.history}
-           onDelete={(kind) => {
-             const row = rows[kind];
-             if (row.status === "ready" && !isEmptySnapshot(row.snapshot)) {
-               setDialog({ snapshot: row.snapshot, phase: "review", last: null });
-             }
-           }}
+           onDelete={(kind) => openDelete(kind)}
            onOpenModels={() => void window.electronAPI?.openWhisperModelsFolder?.()}
            onRefresh={() => void load()}
            onReset={() => setReset({ phase: "review", typed: "", errors: [] })}
@@ -23413,16 +23681,17 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
    ```
 
    Notes on the container:
-   - The reviewed snapshot lives in `dialog.snapshot` and is set only when the dialog opens, after a `"stale"` refusal, or after "Count again" in the failed state. Row refreshes (`onRefresh`, the post-delete `load()`) only touch `rows`.
+   - The audio row shown is `audioRowFromUsage(audioUsage.usage, rows.audio)`: Plan 02's `useAudioStorageUsage` decides its count, bytes and unavailable state, and `rows.audio` (main's preview) supplies only the folder path. Confirm snapshots always come from the preview that `openDelete` re-reads, because main checks those counts.
+   - The reviewed snapshot lives in `dialog.snapshot` and is set only when the dialog opens (from a fresh `load()`, Plan 02's re-read-before-confirm rule), after a `"stale"` refusal, or after "Count again" in the failed state. Row refreshes (`onRefresh`, the post-delete `load()`) only touch `rows`.
    - `busy` (a ref) and `phase !== "review"` both guard `runDelete`, so a double click sends one request.
-   - Success is `outcome.ok === true`, which `storageMath` grants only for a typed result with `ok: true`, no errors and `remaining === 0` (and `audio.remaining === 0` for history). The post-delete recount never decides it.
+   - Success is `outcome.ok === true`, which `storageMath` grants only for a typed result with `ok: true`, no errors, `remaining === 0` and Plan 02's `resolveClearAudioOutcome` returning `"cleared"` for the audio part (`failed === 0`, `readable`, and nothing left; for history the `audio` part). The post-delete recount never decides it.
    - The reset dialog never closes itself (unlike `ConfirmDialog`, which calls `onOpenChange(false)` after `onConfirm`, `src/components/ui/dialog.tsx:138-141`), so failures stay visible.
 
 3. `src/components/SettingsPage.tsx`, per the Files list:
    - After `import { UploadTranscriptionPanel } from "./settings/UploadSettings";` (`:85`) add `import { StorageList } from "./settings/StorageList";` (a named export).
    - Remove `FolderOpen,` (`:12`) and `import { formatBytes } from "../utils/formatBytes";` (`:102`), and change `:101` to `import { useSettingsStore } from "../stores/settingsStore";`. Their only users are the blocks deleted below.
-   - Delete `const [isRemovingModels, setIsRemovingModels] = useState(false);` and the `cachePathHint` state and `getModelCacheRoot` effect (`:1097-1110`), the `audioStorageUsage` state and its effect (`:1116-1129`), `handleClearAllAudio` (`:1146-1155`) and `handleRemoveModels` (`:1448-1494`).
-   - In `privacyData`, delete the second `SettingsPanelRow` of the audio-retention panel (`:2793-2815`, the "audioStorageUsage" row with the Clear All Audio button). Then after the Data Retention block's closing `</div>` (`:2869`) insert:
+   - Delete `const [isRemovingModels, setIsRemovingModels] = useState(false);` and the `cachePathHint` state and `getModelCacheRoot` effect (`:1097-1110`), Plan 02's `audioStorage`/`clearAudioError` hook state (`:1116-1129`), Plan 02's `handleClearAllAudio` (`:1146-1155`), the `useAudioStorageUsage` and `AudioStorageRow` imports, and `handleRemoveModels` (`:1448-1494`).
+   - In `privacyData`, delete the second `SettingsPanelRow` of the audio-retention panel (`:2793-2815`, Plan 02's `<AudioStorageRow … />`). Then after the Data Retention block's closing `</div>` (`:2869`) insert:
 
      ```tsx
                  {/* Storage: counted deletes and reset (SET-R7 A) */}
@@ -23434,7 +23703,22 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
    - In `system`, delete `{/* Data Management */}` through its closing `</div>` (`:2980-3066`), leaving the `</div>` at `:3067` that closes the section.
 
    Do not touch the retention selects; previewing retention changes is R7 B, which was not picked. By the time this task runs, Task 4 has already removed `<LocalSupportModels />` from `case "privacyData":` and Task 10 has added `case "routing":`, so locate everything above by its quoted anchor, not by line. Task 15 runs later and does not move the Storage block: in `privacyData` it only drops the `title` from the first `SectionHeader` (`settingsPage.privacy.title`) and swaps the file-local `SettingsPanel`/`SettingsPanelRow`/`SectionHeader` for the `./ui/SettingsSection` exports; in `system` it changes only the nav description to "Updates and developer tools", which matches the Data Management removal here. `DeveloperSection` stays in `system`.
-   - Before committing, confirm the removed imports have no other users: `grep -n "FolderOpen\|formatBytes(\|clearMissingLocalModelSelections" src/components/SettingsPage.tsx` prints nothing.
+   - Before committing, confirm the removed imports have no other users: `grep -n "FolderOpen\|formatBytes(\|clearMissingLocalModelSelections\|useAudioStorageUsage\|AudioStorageRow" src/components/SettingsPage.tsx` prints nothing (the hook now lives in `StorageList.tsx`, not `SettingsPage.tsx`).
+   - Retire only Plan 02's replaced row component (spec §5.6 anticipates the Storage list replacing it; Step 6 ported its markup cases): `git rm src/components/settings/AudioStorageRow.tsx test/components/audioStorageRow.test.js`. `grep -rn "AudioStorageRow" src test` must then print nothing, and `grep -rln "useAudioStorageUsage" src` must print exactly `src/hooks/useAudioStorageUsage.ts` and `src/components/settings/StorageList.tsx`. Keep `src/hooks/useAudioStorageUsage.ts` and `test/hooks/useAudioStorageUsage.test.js` unchanged (published in §5.6; the audio row consumes it), `src/utils/audioDeletion.ts` (`storageMath.ts` imports it) and `src/helpers/audioFlagReconcile.js` (`storageOps.js` and `delete-all-audio` call it).
+   - In `test/components/clearAllAudio.test.js` (Plan 02), keep the `resolveClearAudioOutcome` case unchanged and replace the "Clear All re-reads before confirming and never confirms a stale count" case, which reads the deleted SettingsPage handler, with this source check (the behaviour is pinned by `storageList.test.js`'s mounted "Delete… re-reads before confirming…"):
+
+     ```js
+     test("Storage's Delete… re-reads before confirming and never confirms a stale count", () => {
+       const list = fs.readFileSync(path.join(__dirname, "../../src/components/settings/StorageList.tsx"), "utf8");
+       const open = list.match(/const openDelete = async \(kind: StorageKind\) => \{[\s\S]*?\n {5}\};/)[0];
+       assert.match(open, /const row = \(await load\(\)\)\[kind\];/);
+       assert.match(open, /if \(row\.status === "ready"/);
+       assert.match(list, /resolveClearAudioOutcome|outcomeFromResult/);
+       assert.doesNotMatch(page, /handleClearAllAudio|audioStorageUsage\b/, "the old row is gone");
+     });
+     ```
+
+     Plan 02's locale keys that only the retired row used (`settingsPage.privacy.clearAllAudio*`, `audioStorageChecking`, `audioStorageFiles`, `audioStorageEmpty`, `audioStorageUsage`) lose their last reader. If `npm run i18n:check` reports them as unused, delete them from every locale with a short inline `node` script after `grep -rn` confirms no reader is left (`merge-locale-keys.js` only adds); otherwise leave them. `settingsPage.privacy.audioStorageUnavailable` stays either way, because the Storage list's audio row shows it.
 
 4. i18n. Write `/tmp/loqui-i18n-task-14.json` shaped `{ "en": {…}, "ar": {…}, … "zh-TW": {…} }` with the `en` block below verbatim and real translations for the other 10 locales (every `_one/_other` key needs each CLDR category the locale uses: `ar` zero/one/two/few/many/other, `ru` one/few/many/other, `ja`/`zh-CN`/`zh-TW` other only; every non-singular form keeps `{{count}}`). Translate `storage.reset.word` to a short, easy-to-type word in each language (e.g. de "zurücksetzen", ja "リセット") and keep the `typeLabel` quotes appropriate to the locale. Then run `node scripts/merge-locale-keys.js /tmp/loqui-i18n-task-14.json && npm run i18n:check`.
 
@@ -23540,7 +23824,7 @@ Expected: FAIL. `storageMath.ts` and `StorageList.tsx` cannot be loaded. The con
 
 - [ ] **Step 9: Run the tests to verify they pass**
 
-Run: `npm run native:node && npm test -- test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js test/components/storageMath.test.js test/components/storageList.test.js test/helpers/personalIpcContract.test.js && npm run typecheck && npm run lint && npm run i18n:check`
+Run: `npm run native:node && npm test -- test/helpers/storageOps.test.js test/helpers/deviceCleanupContract.test.js test/helpers/audioStorageClear.test.js test/hooks/useAudioStorageUsage.test.js test/components/clearAllAudio.test.js test/components/storageMath.test.js test/components/storageList.test.js test/helpers/personalIpcContract.test.js && npm run typecheck && npm run lint && npm run i18n:check`
 Expected: PASS.
 
 There is no manual partial-failure step (M4): the partial cases are pinned by `storageOps.test.js` ("a partial file failure reports exact deleted and remaining counts") against real files with a failing `removeFiles`, and by `storageList.test.js` ("a partial result from main shows its exact counts and errors") through the container's real handlers. For visual acceptance against card R7 A (`design-explorations/loqui-uiux-review/parts/05-settings.html:1658-1672`), with `npm run native:electron` and a throwaway profile (never a personal one): Privacy & Data shows Storage with counts; Delete… on history names transcripts with the discarded/deleted split and the audio files with size and folder; Reset stays disabled until the word is typed; System no longer shows Clear Cache or Reset.
@@ -23548,9 +23832,9 @@ There is no manual partial-failure step (M4): the partial cases are pinned by `s
 - [ ] **Step 10: Commit**
 
 ```bash
-npx prettier --write src/components/settings/storageMath.ts src/components/settings/StorageList.tsx src/components/SettingsPage.tsx test/components/storageMath.test.js test/components/storageList.test.js
+npx prettier --write src/components/settings/storageMath.ts src/components/settings/StorageList.tsx src/components/SettingsPage.tsx test/components/storageMath.test.js test/components/storageList.test.js test/components/clearAllAudio.test.js
 npm run lint
-git add src/components/settings/storageMath.ts src/components/settings/StorageList.tsx src/components/SettingsPage.tsx src/locales test/components/storageMath.test.js test/components/storageList.test.js
+git add src/components/settings/storageMath.ts src/components/settings/StorageList.tsx src/components/SettingsPage.tsx src/locales test/components/storageMath.test.js test/components/storageList.test.js test/components/clearAllAudio.test.js
 git commit -m "feat(settings): Storage list with counted confirms and typed outcomes"
 ```
 
@@ -25885,7 +26169,7 @@ Expected: FAIL. Every new module is missing, `--motion-flash` is undefined, and 
    | saveDiscarded | `SettingsPage.tsx` | `privacy.saveDiscarded"` | row |
    | storage | `settings/StorageList.tsx` (Task 14) | `StorageListView`'s root `<section aria-labelledby="storage-title" className="space-y-2">` whose `<h3 id="storage-title">` renders `t("storage.title")` | `data-setting-id="storage"` on that `<section>` |
    | permissions | `SettingsPage.tsx` | the `<div>` that contains `<SectionHeader title={t("settingsPage.permissions.title")}` | `data-setting-id="permissions"` |
-   | updates | `settings/UpdateSettings.tsx` | the root `<section … aria-label={t("updates.title")}>` | `data-setting-id="updates"` |
+   | updates | `settings/UpdateSettings.tsx` | the root `<section … aria-label={t("updates.title")}>` | `data-setting-id="updates"` (attribute only: the component keeps rendering Plan 02's `UpdateStatus.phase === "available"` state, spec §5.6/D13) |
    | debugLogging | `DeveloperSection.tsx` | the `<div className="px-5 py-4">` that contains `developerSection.debugMode.label` | `data-setting-id="debugLogging"` |
 
    In `Patchbay.tsx`, add ``data-setting-id={`route-${route.id}`}`` to the `<div key={route.id} className="flex items-center gap-1">` that wraps each task button and its "open settings" chevron.
@@ -26582,12 +26866,18 @@ grep -q 'aria-current={isActive ? "page" : undefined}' src/components/ui/Sidebar
 grep -q 'settingsPage.reviewSetup.title' src/components/SettingsPage.tsx
 test -f test/components/settingsNavigation.test.js && test -f test/components/settingsCopy.test.js
 test -f test/components/modelCardKeyboard.test.js
+# Plan 02 stored-audio contract (spec §5.6), which Task 14 builds on
+grep -q "remainingAudioIds()" src/helpers/audioStorage.js
+grep -q "readable: false" src/helpers/audioStorage.js
+test -f src/helpers/audioFlagReconcile.js && test -f src/utils/audioDeletion.ts && test -f src/hooks/useAudioStorageUsage.ts
+grep -q '"available"' src/types/updates.ts   # UpdateStatus.phase (D13)
+grep -q 'status?.phase === "available"' src/components/settings/UpdateSettings.tsx
 npm run native:node
-npm test -- test/components/settingsNavigation.test.js test/components/settingsCopy.test.js test/components/modelCardKeyboard.test.js test/components/plumNight.test.js
+npm test -- test/components/settingsNavigation.test.js test/components/settingsCopy.test.js test/components/modelCardKeyboard.test.js test/components/plumNight.test.js test/helpers/audioStorageClear.test.js test/hooks/useAudioStorageUsage.test.js
 echo "PREFLIGHT OK"
 ```
 
-Expected: ends with `PREFLIGHT OK`, and the four test files pass. **If any line fails, stop. Do not start Task 1.** Report which line failed and that Plan 01 or Plan 02 must be merged first. What depends on each line: Task 1 imports `isLoopbackUrl`/`providerDisplayName` from `locality.ts`; Tasks 4, 5 and 10 render `LocalityRing` and the `locality.*` strings; Task 5 extends `plumNight.test.js` and scores tokens with `cssTokens.js`/`contrast.ts`; Task 13 builds on Plan 02's `modelCardKeyboard.test.js` and the provider tablist; Task 15 moves Plan 02's nav markup (`aria-current`) and edits `settingsNavigation.test.js`; Task 17 edits `settingsCopy.test.js` and links the `reviewSetup` card.
+Expected: ends with `PREFLIGHT OK`, and the six test files pass. **If any line fails, stop. Do not start Task 1.** Report which line failed and that Plan 01 or Plan 02 must be merged first. What depends on each line: Task 1 imports `isLoopbackUrl`/`providerDisplayName` from `locality.ts`; Tasks 4, 5 and 10 render `LocalityRing` and the `locality.*` strings; Task 5 extends `plumNight.test.js` and scores tokens with `cssTokens.js`/`contrast.ts`; Task 13 builds on Plan 02's `modelCardKeyboard.test.js` and the provider tablist; Task 15 moves Plan 02's nav markup (`aria-current`) and edits `settingsNavigation.test.js`; Task 17 edits `settingsCopy.test.js` and links the `reviewSetup` card; Task 14 builds on Plan 02's stored-audio contract (`readable`, `failed`, `remainingAudioIds`, `clearFlagsForDeletedAudio`, `resolveClearAudioOutcome`, and `useAudioStorageUsage` for the audio row) and keeps `audioStorageClear.test.js` and `useAudioStorageUsage.test.js` unchanged; `UpdateSettings` keeps Plan 02's `"available"` phase.
 
 - [ ] **Step 1: Write the guards**
 
@@ -26806,7 +27096,7 @@ test("[baseline guard] destructive text on the hover:bg-background remedy meets 
 });
 ```
 
-Create `test/components/routeFactsNoNetwork.test.js`. Rule 4 of the plan: loading route facts makes no network call, and rule 1: nothing sends a stored credential without a button press. Task 3's behavioural test pins rule 4 at run time; this is the cheap static net over every module that builds, plans or draws the route graph (the files Tasks 1, 3, 6, 7, 8 and 10 create). The explicit-button callers (Task 9's pickers and self-hosted Test, Task 12's `KeyringPanel`) are deliberately not in the list:
+Create `test/components/routeFactsNoNetwork.test.js`. Rule 4 of the plan: loading route facts makes no network call, and rule 1: nothing sends a stored credential without a button press. Task 3's behavioural test pins rule 4 at run time; this is the cheap static net over every module that builds, plans or draws the route graph (the files Tasks 1, 3, 6, 7, 8 and 10 create). The explicit-button callers (Task 9's pickers and self-hosted Test, Task 12's `KeyringPanel`) are deliberately not in the list. Its last test is the spec §5.4 sealed-authority guard: it scans all of `src/` (excluding `src/stores/sealedStore.ts` and type declarations) and fails if any other renderer module calls `privacy.getSealed` or `privacy.onSealedChange`:
 
 ```js
 const assert = require("node:assert/strict");
@@ -26894,6 +27184,30 @@ test("[source guard, baseline after Task 9] Settings' Codex views start nothing 
     }
   }
   assert.doesNotMatch(selector, /checkStatusOnMount/, "Settings never opts into the mount read");
+});
+
+// Every .ts/.tsx/.js file under src/, recursively.
+function sourceFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(full);
+    return /\.(?:tsx?|jsx?)$/.test(entry.name) ? [full] : [];
+  });
+}
+
+test("[source guard, baseline] only src/stores/sealedStore.ts reads the privacy seal API (spec §5.4)", () => {
+  // §5.4: sealedStore.ts is the one renderer authority. No other renderer module calls
+  // privacy.getSealed or privacy.onSealedChange; they read useSealedStore / getSealed() (and, after
+  // Plan 07, getSealedSnapshot() / subscribeSealed(cb)) from that module. Type declarations
+  // (src/types/**, *.d.ts) describe the preload API and are not readers.
+  const READS = /privacy\??\.\s*(?:getSealed|onSealedChange)\b|\bonSealedChange\b/;
+  const offenders = [];
+  for (const full of sourceFiles(path.join(root, "src"))) {
+    const rel = path.relative(root, full).split(path.sep).join("/");
+    if (rel === "src/stores/sealedStore.ts" || rel.startsWith("src/types/") || rel.endsWith(".d.ts")) continue;
+    if (READS.test(stripComments(fs.readFileSync(full, "utf8")))) offenders.push(rel);
+  }
+  assert.deepEqual(offenders, [], "read sealed state through src/stores/sealedStore.ts");
 });
 ```
 
@@ -27139,7 +27453,7 @@ Expected after fixes: PASS. Run `npx prettier --write` on every file you touched
 
 - [ ] **Step 4: Confirm spec §5.1 and §5.4 reflect the contract change requests (tracked; the owner applies them)**
 
-The spec's rule is that the owner updates §5 in the same PR. The text to paste is the "Contract change requests" section of this plan. The spec as written still describes `routes.ts` as a pure module without `providerId`, `host`, the `unknown` state or `routeSnapshotFromSettings`.
+The spec's rule is that the owner updates §5 in the same PR. Spec §5 was consolidated at commit 091d198 and already carries this plan's shapes, so this step is a regression check that nothing was lost before the PR.
 
 ```bash
 node -e '
@@ -27149,9 +27463,12 @@ const slice = (from, to) => spec.slice(spec.indexOf(from), spec.indexOf(to, spec
 const s51 = slice("### 5.1", "### 5.2");
 const s54 = spec.slice(spec.indexOf("### 5.4"));
 const missing = [];
-for (const token of ["providerId", "host: string | null", "unknown", "routeGraph.ts", "routeSnapshotFromSettings"])
+for (const token of ["providerId", "host: string | null", "unknown", "routeGraph.ts", "routeSnapshotFromSettings",
+  "detail?: \"sealed\" | \"retired\" | \"unsupported\"", "RouteDestinationChip", "RouteStateChip", "get-total-memory"])
   if (!s51.includes(token)) missing.push("§5.1 lacks " + token);
 if (!/network|non-device/.test(s54)) missing.push("§5.4 does not say sealed covers network routes");
+for (const token of ["src/stores/sealedStore.ts", "ensureSealedSubscribed", "probe-self-hosted"])
+  if (!s54.includes(token)) missing.push("§5.4 lacks " + token);
 if (missing.length) { console.log(missing.join("\n")); process.exit(1); }
 console.log("SPEC OK");
 '
@@ -27267,7 +27584,7 @@ Write `/tmp/plan03-pr-body.md` (not committed):
 - this handoff:
 
   > **Plan 07 handoff.**
-  > - `src/stores/sealedStore.ts` is the single renderer authority for sealed state. Hooks (`useSealedStore`), imperative reads (`getSealed()` for `routeSnapshotFromSettings`, the Apply bar and Keyring Verify) and the route snapshot all read it. Implement `useSealedMode()` and the attestation as its internals and keep `useSealedStore` and `getSealed` exported, so those readers cannot disagree.
+  > - `src/stores/sealedStore.ts` is the single renderer authority for sealed state (spec §5.4). Hooks (`useSealedStore`), imperative reads (`getSealed()` for `routeSnapshotFromSettings`, the Apply bar and Keyring Verify) and the route snapshot all read it, and Task 18's source guard fails if any other renderer module calls `privacy.getSealed` or `privacy.onSealedChange`. Plan 07 Task 13 migrates this store (not `routeFactsStore`): it replaces the internals (attestation, staleness, fail-closed reads), adds `getSealedSnapshot()` and `subscribeSealed(cb)` to the same module, and keeps `useSealedStore` (`{ sealed: boolean; known: boolean }`), `getSealed(): boolean` and `ensureSealedSubscribed()` exactly. `src/hooks/useSealedMode.ts` is only the React hook over this module. Route snapshots map unknown (`known: false`) to `sealed: false`.
   > - `RouteSettingsSnapshot.sealed` is a required `boolean`. Do not redeclare it optional.
   > - `src/lib/routeGraph.ts` is the Node-loadable pure resolver (imports only `./locality.ts`, `../helpers/transcriptionRoute.ts` and `../utils/urlUtils.ts`; explicit extensions; no React, store or JSON). Import it directly in Plan 07's Node test, or load `routes.ts` through the renderer harness. `test/lib/routeFixtures.js` exports `makeSnapshot` and `makeRoute`.
   > - While sealed, every non-device route (LAN servers included) resolves `unreachable/sealed`; routes that are off stay `off`.
@@ -27297,13 +27614,15 @@ The design every task codes against. Task sections are authoritative where they 
 | `src/lib/routes.ts` | §5.1 contract module: `export * from "./routeGraph.ts"`, plus `buildRouteSnapshot`, `routeSnapshotFromSettings`, `routeCopy`, hooks. Imports store/facts/sealed stores. | T3 |
 | main `src/helpers/credentialAuthority.js` | Main-owned credential presence, acknowledged saves, change events, generations, undo-remove tokens, Codex presence (file stat only). | T2 |
 | `src/stores/routeFactsStore.ts` | Renderer facts: per-family model inventories, support models, credential presence, rejected identities. Network-free. Retains last-known values across errors. | T3 |
-| `src/stores/sealedStore.ts` | THE single renderer sealed authority (hooks, imperative snapshots, Apply bar, Keyring). Plan 07 replaces its internals. | T3 |
+| `src/stores/sealedStore.ts` | THE single renderer sealed authority (hooks, imperative snapshots, Apply bar, Keyring), spec §5.4. No other renderer module calls `privacy.getSealed`/`privacy.onSealedChange` (Task 18 guard). Plan 07 Task 13 replaces its internals and adds `getSealedSnapshot()`/`subscribeSealed(cb)`. | T3 |
 | `src/lib/providerSwitchPlans.ts` | Pure-ish (imports registry JSON) provider-switch patch planners shared by store and planner. | T6 |
 | `src/lib/routePlanner.ts` | `planRouteChange` / `planPatch`: one simulated patch used for preview, commit and Undo; lists coupled changes across all 11 routes. | T6 |
 | `src/stores/routeDraftStore.ts` | Draft (target or patch), `requestRouteChange`, `applyDraft`, Undo. | T7 |
 | main `src/helpers/keyring.js` | Health rows (SQLite), generation-bound Verify, reminders. | T11 |
-| main `src/helpers/storageOps.js` | Main-owned storage preview + typed deletions with identical predicates. | T14 |
-| main `src/helpers/selfHostedProbe.js` | Unauthenticated model-list probe (no headers). | T9 |
+| main `src/helpers/storageOps.js` | Main-owned storage preview + typed deletions with identical predicates, on Plan 02's stored-audio contract (spec §5.6: `readable`, `failed`, `clearFlagsForDeletedAudio`). | T14 |
+| main `src/helpers/selfHostedProbe.js` | Unauthenticated model-list probe (no headers). Result codes include `"sealed"`: main gates `probe-self-hosted` as `providerCheck` (spec §5.4; the gate ships in Plan 07), and the panel shows `routes.state.sealed`. | T9 |
+| `src/components/settings/routing/RouteChips.tsx` | §5.1 published components, exactly `RouteDestinationChip(props: { route: Pick<ResolvedRoute, "locality" \| "providerId" \| "model">; className?: string })` and `RouteStateChip(props: { state: RouteState; className?: string })`. Every surface that discloses a route uses them; Plan 08 consumes them. | T5 |
+| main `get-total-memory` / preload `getTotalMemory()` | `os.totalmem()` bytes for the model-fit check. Ships here; Plan 05's `getSystemProfile` reads the same main value and adds no channel (§5.1 handoffs). | T13 |
 
 ### §5.1 contract — exact v2 shape (Plan 03 owns; CCRs listed in header)
 
@@ -27322,7 +27641,7 @@ export type RouteState =
   | { status: "needsModel"; sizeBytes?: number }
   | { status: "needsKey"; provider: string }     // provider "" = choose a provider
   | { status: "needsUrl" }                       // missing/malformed/insecure/hosted/forbidden endpoint
-  | { status: "unreachable"; detail?: string };  // detail: "sealed" | "retired" | "unsupported"
+  | { status: "unreachable"; detail?: "sealed" | "retired" | "unsupported" };  // spec §5.1: literal union
 export interface ResolvedRoute {
   id: RouteId;
   kind: RouteKind;
@@ -27340,7 +27659,7 @@ export function resolveRoute(snapshot: RouteSettingsSnapshot, id: RouteId): Reso
 // src/lib/routes.ts adds:
 export function useResolvedRoutes(): ResolvedRoute[];
 export function useResolvedRoute(id: RouteId): ResolvedRoute;
-export function routeSnapshotFromSettings(settings: SettingsState): RouteSettingsSnapshot; // CCR (Plan 07): non-React, reads current facts + sealed store + i18n
+export function routeSnapshotFromSettings(settings: SettingsState): RouteSettingsSnapshot; // published in §5.1: non-React; current facts + sealedStore + i18n; no subscriptions, no IPC
 export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot;
 ```
 
@@ -27426,10 +27745,10 @@ Renderer (T2): `settingsStore` secret setters become ack-based: `saveSecret(stor
 ```ts
 // src/stores/sealedStore.ts
 export const useSealedStore: UseBoundStore<StoreApi<{ sealed: boolean; known: boolean }>>;
-export function getSealed(): boolean;                 // imperative snapshot (currentRouteSnapshot, Apply, Keyring)
+export function getSealed(): boolean;                 // imperative snapshot (routeSnapshotFromSettings, Apply, Keyring); unknown reads false
 export function ensureSealedSubscribed(): void;       // subscribes privacy?.onSealedChange (each event bumps a version) and fetches privacy?.getSealed() once; the fetch result is applied only if no event arrived after the fetch started
 ```
-Every Plan 03 reader of sealed state uses this module and nothing else. CCR to Plan 07: implement `useSealedMode()`/attestation on top of this store (replace its internals), keeping `getSealed`/`useSealedStore` as the shared API.
+Spec §5.4. Every renderer reader of sealed state uses this module and nothing else; no other renderer module calls `privacy.getSealed` or `privacy.onSealedChange` (Task 18 source guard). Route snapshots map unknown (`known: false`) to `sealed: false`. Plan 07 Task 13 migrates this store (not `routeFactsStore`): it replaces the internals, adds `getSealedSnapshot()` and `subscribeSealed(cb)` to the same module, and keeps the three exports above exactly; `src/hooks/useSealedMode.ts` is only the React hook over it.
 
 ### Planner (T6) and drafts
 
@@ -27477,7 +27796,7 @@ export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: 
 
 ### Storage ops
 
-`storage-preview` → `{ audio: { files, bytes, directory } | { error }, history: { total, discarded, softDeleted, withAudio } | { error }, models handled in renderer lists }`; `storage-delete-audio` / `storage-delete-history` → `{ ok: boolean; deleted: number; remaining: number | null; errors: string[] }` where the count predicate and the delete predicate are the SAME functions (audio = every `.webm` in audioDir; history = every row in `transcriptions` plus every `.webm` — i.e. history deletion also deletes all audio and the confirmation says so and counts both). Unreadable counts are errors, never zero.
+`storage-preview` → `{ audio: { files, bytes, directory } | { error }, history: { total, discarded, softDeleted, withAudio } | { error }, models handled in renderer lists }`; `storage-delete-audio` → `{ ok: boolean; deleted: number; failed: number; readable: boolean; remaining: number | null; errors: string[] }`; `storage-delete-history` → `{ ok; deleted; remaining; errors; audio: { deleted; failed; readable; remaining } }`; the count predicate and the delete predicate are the SAME functions (audio = every `.webm` in audioDir; history = every row in `transcriptions` plus every `.webm` — i.e. history deletion also deletes all audio and the confirmation says so and counts both). Unreadable counts are errors, never zero. Built on Plan 02's stored-audio contract (spec §5.6): `getStorageUsage()` → `{ fileCount, totalBytes, readable }` (derived from the new `listStoredAudio()`), `deleteAllAudio()` → `{ deleted, failed, readable }` (used by `cleanup-app`), `remainingAudioIds()` and `clearFlagsForDeletedAudio()` (used by `storageOps`), renderer `resolveClearAudioOutcome` (gates audio success in `storageMath`) and `useAudioStorageUsage` (kept unchanged with its tests; it feeds the Storage list's audio row count, bytes and unavailable state through `audioRowFromUsage`). `failed` and `readable` are kept end to end; an unreadable zero is never "cleared". Only Plan 02's `AudioStorageRow` is retired, with its markup cases ported (Task 14).
 
 ### Tokens (CCR to Plan 01 tokens, implemented by T5)
 

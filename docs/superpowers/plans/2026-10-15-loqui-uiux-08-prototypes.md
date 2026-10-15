@@ -60,6 +60,15 @@ Spec §5 says only the owning plan may change a contract. These requests go to t
    - **Summarise** and **Ask about these** reuse the Space's existing chat (`useContainerChat`), with the selection as context. The answer becomes a chat-answer card linked to its sources.
    - There is no new AI request path, so Sealed mode (Plan 07, D6) covers these actions without changes.
 
+## Owner decisions (2026-10-14)
+
+- **CCR-4 and CCR-5 are accepted.** The popover ships without alternatives, and the Table's action is "Remove from table", not Delete.
+- **Confidence capture runs only while Labs → Confidence is on.** Local dictation pays no extra cost and stores no extra data unless the user opted in. The Labs description says the feature applies to dictations made after it is turned on (Task 2 strings).
+- **Cloud engines stay out of scope.** Whether to extend confidence to gpt-4o-transcribe, Deepgram or AssemblyAI is decided after the prototype has been used.
+- **The inbox defaults stand:** dictations from the last 7 days (up to 20) and recent answered chats (up to 10).
+- **The Table is per Space, not per folder.** One canvas per Space means a note has one position, so there is never a second, conflicting arrangement of the same cards.
+- **Labs lives in Settings → System.**
+
 ## Assumptions about Plan 06 (Workspace)
 
 Plan 06's plan existed only as an uncommitted draft when this plan was written (`snowopsdev/plan/uiux-06-workspace`, 2026-10-14). The assumptions below were checked against that draft. Plan 08 executes after Plan 06 merges. Before Task 1, the executor runs `git log --oneline main -- src/components/notes src/components/ui/TranscriptionItem.tsx src/components/HistoryView.tsx` and reads Plan 06's plan. Where an assumption below is false, the affected task says what to do.
@@ -513,6 +522,7 @@ async function renderLabs(t, state) {
 }
 
 test("Labs lists both prototypes as switches, off by default", async (t) => {
+  // Copy check lives in the locale test below; here only structure.
   const html = await renderLabs(t, {
     labsConfidenceTypography: false,
     labsTable: false,
@@ -545,6 +555,8 @@ test("every locale names both Labs prototypes", () => {
     assert.ok(labs?.title && labs?.description, `${lang} labs title`);
     for (const k of ["confidence", "table"]) assert.ok(labs[k]?.label && labs[k]?.description, `${lang} labs.${k}`);
   }
+  const en = JSON.parse(fs.readFileSync(path.join(dir, "en", "translation.json"), "utf8"));
+  assert.match(en.settingsPage.labs.confidence.description, /after you turn it on/, "sets expectations for older history");
 });
 ```
 
@@ -651,17 +663,17 @@ Expected: FAIL. Vite cannot resolve `/components/settings/LabsSettings.tsx`, `la
    node -e '
    const fs=require("fs"),p=require("path");
    const L={
-    en:["Labs","Prototypes that are still being shaped. They stay on this device and can be turned off at any time.","Confidence in transcripts","Words the speech engine was unsure about are drawn lighter and underlined. Works with local Whisper and Parakeet.","The Table","A canvas view for a space: spread notes, dictations and answers out and link them."],
-    de:["Labs","Prototypen in Arbeit. Sie bleiben auf diesem Gerät und lassen sich jederzeit ausschalten.","Sicherheit im Transkript","Wörter, bei denen die Spracherkennung unsicher war, erscheinen heller und unterstrichen. Funktioniert mit lokalem Whisper und Parakeet.","Der Tisch","Eine Leinwand für einen Bereich: Notizen, Diktate und Antworten auslegen und verbinden."],
-    es:["Labs","Prototipos aún en desarrollo. Se quedan en este dispositivo y puedes desactivarlos cuando quieras.","Confianza en las transcripciones","Las palabras de las que el motor de voz no estaba seguro se muestran más claras y subrayadas. Funciona con Whisper y Parakeet locales.","La Mesa","Un lienzo para un espacio: extiende notas, dictados y respuestas y enlázalos."],
-    fr:["Labs","Des prototypes encore en chantier. Ils restent sur cet appareil et se désactivent à tout moment.","Confiance dans les transcriptions","Les mots dont le moteur vocal doutait sont plus légers et soulignés. Fonctionne avec Whisper et Parakeet en local.","La Table","Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les."],
-    it:["Labs","Prototipi ancora in lavorazione. Restano su questo dispositivo e puoi disattivarli quando vuoi.","Affidabilità nelle trascrizioni","Le parole su cui il motore vocale era incerto appaiono più chiare e sottolineate. Funziona con Whisper e Parakeet locali.","Il Tavolo","Una tela per uno spazio: disponi note, dettature e risposte e collegale."],
-    pt:["Labs","Protótipos ainda em evolução. Ficam neste dispositivo e podem ser desativados a qualquer momento.","Confiança nas transcrições","Palavras sobre as quais o mecanismo de voz tinha dúvidas aparecem mais leves e sublinhadas. Funciona com Whisper e Parakeet locais.","A Mesa","Uma tela para um espaço: espalhe notas, ditados e respostas e ligue-os."],
-    ru:["Лаборатория","Прототипы в разработке. Они остаются на этом устройстве, их можно отключить в любой момент.","Уверенность в расшифровке","Слова, в которых распознавание не было уверено, показываются светлее и с подчёркиванием. Работает с локальными Whisper и Parakeet.","Стол","Холст для пространства: раскладывайте заметки, диктовки и ответы и связывайте их."],
-    ja:["Labs","開発中のプロトタイプです。このデバイス上にとどまり、いつでもオフにできます。","文字起こしの確信度","音声エンジンが自信を持てなかった単語を細く、下線付きで表示します。ローカルの Whisper と Parakeet で動作します。","テーブル","スペース用のキャンバス。メモ、音声入力、回答を広げてつなげられます。"],
-    "zh-CN":["实验室","仍在打磨的原型功能。它们只在此设备上运行，可随时关闭。","转写置信度","语音引擎不确定的词会以较细字重并加下划线显示。适用于本地 Whisper 和 Parakeet。","桌面","空间的画布视图：铺开笔记、听写和回答并把它们连起来。"],
-    "zh-TW":["實驗室","仍在打磨的原型功能。它們只在此裝置上執行，可隨時關閉。","轉錄信心度","語音引擎不確定的字詞會以較細字重並加底線顯示。適用於本機 Whisper 與 Parakeet。","桌面","空間的畫布檢視：鋪開筆記、聽寫與回答並將它們連起來。"],
-    ar:["المختبر","نماذج أولية ما زالت قيد التشكيل. تبقى على هذا الجهاز ويمكن إيقافها في أي وقت.","الثقة في النصوص المفرغة","تظهر الكلمات التي لم يكن محرك الكلام متأكدًا منها بخط أخف وتحتها خط. يعمل مع Whisper وParakeet المحليين.","الطاولة","لوحة لمساحة: افرد الملاحظات والإملاءات والإجابات واربط بينها."]};
+    en:["Labs","Prototypes that are still being shaped. They stay on this device and can be turned off at any time.","Confidence in transcripts","Words the speech engine was unsure about are drawn lighter and underlined. Works with local Whisper and Parakeet. Applies to dictations made after you turn it on.","The Table","A canvas view for a space: spread notes, dictations and answers out and link them."],
+    de:["Labs","Prototypen in Arbeit. Sie bleiben auf diesem Gerät und lassen sich jederzeit ausschalten.","Sicherheit im Transkript","Wörter, bei denen die Spracherkennung unsicher war, erscheinen heller und unterstrichen. Funktioniert mit lokalem Whisper und Parakeet. Gilt für Diktate, die du danach aufnimmst.","Der Tisch","Eine Leinwand für einen Bereich: Notizen, Diktate und Antworten auslegen und verbinden."],
+    es:["Labs","Prototipos aún en desarrollo. Se quedan en este dispositivo y puedes desactivarlos cuando quieras.","Confianza en las transcripciones","Las palabras de las que el motor de voz no estaba seguro se muestran más claras y subrayadas. Funciona con Whisper y Parakeet locales. Se aplica a los dictados que hagas después de activarla.","La Mesa","Un lienzo para un espacio: extiende notas, dictados y respuestas y enlázalos."],
+    fr:["Labs","Des prototypes encore en chantier. Ils restent sur cet appareil et se désactivent à tout moment.","Confiance dans les transcriptions","Les mots dont le moteur vocal doutait sont plus légers et soulignés. Fonctionne avec Whisper et Parakeet en local. S’applique aux dictées faites après l’activation.","La Table","Un canevas pour un espace : étalez notes, dictées et réponses, puis reliez-les."],
+    it:["Labs","Prototipi ancora in lavorazione. Restano su questo dispositivo e puoi disattivarli quando vuoi.","Affidabilità nelle trascrizioni","Le parole su cui il motore vocale era incerto appaiono più chiare e sottolineate. Funziona con Whisper e Parakeet locali. Vale per le dettature fatte dopo averla attivata.","Il Tavolo","Una tela per uno spazio: disponi note, dettature e risposte e collegale."],
+    pt:["Labs","Protótipos ainda em evolução. Ficam neste dispositivo e podem ser desativados a qualquer momento.","Confiança nas transcrições","Palavras sobre as quais o mecanismo de voz tinha dúvidas aparecem mais leves e sublinhadas. Funciona com Whisper e Parakeet locais. Vale para ditados feitos depois de ativar.","A Mesa","Uma tela para um espaço: espalhe notas, ditados e respostas e ligue-os."],
+    ru:["Лаборатория","Прототипы в разработке. Они остаются на этом устройстве, их можно отключить в любой момент.","Уверенность в расшифровке","Слова, в которых распознавание не было уверено, показываются светлее и с подчёркиванием. Работает с локальными Whisper и Parakeet. Действует для диктовок, сделанных после включения.","Стол","Холст для пространства: раскладывайте заметки, диктовки и ответы и связывайте их."],
+    ja:["Labs","開発中のプロトタイプです。このデバイス上にとどまり、いつでもオフにできます。","文字起こしの確信度","音声エンジンが自信を持てなかった単語を細く、下線付きで表示します。ローカルの Whisper と Parakeet で動作します。オンにした後の音声入力に適用されます。","テーブル","スペース用のキャンバス。メモ、音声入力、回答を広げてつなげられます。"],
+    "zh-CN":["实验室","仍在打磨的原型功能。它们只在此设备上运行，可随时关闭。","转写置信度","语音引擎不确定的词会以较细字重并加下划线显示。适用于本地 Whisper 和 Parakeet。仅对开启后的听写生效。","桌面","空间的画布视图：铺开笔记、听写和回答并把它们连起来。"],
+    "zh-TW":["實驗室","仍在打磨的原型功能。它們只在此裝置上執行，可隨時關閉。","轉錄信心度","語音引擎不確定的字詞會以較細字重並加底線顯示。適用於本機 Whisper 與 Parakeet。僅對開啟後的聽寫生效。","桌面","空間的畫布檢視：鋪開筆記、聽寫與回答並將它們連起來。"],
+    ar:["المختبر","نماذج أولية ما زالت قيد التشكيل. تبقى على هذا الجهاز ويمكن إيقافها في أي وقت.","الثقة في النصوص المفرغة","تظهر الكلمات التي لم يكن محرك الكلام متأكدًا منها بخط أخف وتحتها خط. يعمل مع Whisper وParakeet المحليين. ينطبق على الإملاءات بعد تفعيله.","الطاولة","لوحة لمساحة: افرد الملاحظات والإملاءات والإجابات واربط بينها."]};
    for(const [l,[title,desc,cl,cd,tl,td]] of Object.entries(L)){const f=p.join("src/locales",l,"translation.json");const j=JSON.parse(fs.readFileSync(f,"utf8"));j.settingsPage=j.settingsPage||{};j.settingsPage.labs={title,description:desc,confidence:{label:cl,description:cd},table:{label:tl,description:td}};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
    npx prettier --check "src/locales/**/translation.json" || npx prettier --write "src/locales/**/translation.json"
    ```

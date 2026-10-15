@@ -13,7 +13,7 @@
 - Line numbers for Tasks 1–3 and 5 were checked against `677057d`; all other anchors are unchanged since `172f9df`. If an anchor has moved, find the quoted code; do not trust the number over the code.
 - Plan 01 shifted `src/components/OnboardingFlow.tsx` by one line after line 820. It also rewrote `src/index.css`, `src/components/ui/button.tsx` and `src/components/ControlPanelSidebar.tsx`, and at `4b0b51f` it already shipped the light `#e84e16` ring and the full-opacity Button and sidebar rings.
 
-**Order:** Plan 02 merges before Plans 03, 04, 05 and 06 (CCR 4). Each of those plans rewrites surfaces this plan fixes, and must keep the fixes and their tests.
+**Order (spec §3):** 01 → 02 → 03 → {04, 05, 06, 07}, then 06 → 08. Plans 03, 04, 05 and 06 all rewrite surfaces this plan fixes, and must keep the fixes and their tests.
 
 **Architecture:** Tasks 1–2 add to Plan 01's colour tokens and fix the global field rules that consume them, and Task 3 guards the focus rings Plan 01 shipped. Every later fix stays inside the component, hook or main-process module that owns the bug. Where the logic is non-trivial, the task extracts a small pure helper next to its caller so `node:test` can pin it without a DOM:
 - `chatInputKeys.ts`, `chatRouteKey.ts`, `providerTabsKeys.ts`, `upcomingEventGroups.ts`, `audioDeletion.ts`, `noteActionsReadiness.ts`;
@@ -58,7 +58,7 @@ The owner's decisions on the contract change requests are recorded under "Contra
 | M2 Un-tokenized progress animation | **Closed.** The indeterminate loop becomes `calc(var(--motion-slow)*4) var(--motion-ease-std)`; the spinner becomes `motion-safe:animate-spin`. `animate-pulse` stays: it is an opacity loop, which the reduced-motion policy keeps, and it runs only in its active state. No new token is needed. | Task 4 |
 | M3 Literal English download labels | **Closed.** `onboarding.download.start` and `inProgress` in all 11 locales; the test selectors use the keys. | Task 6 |
 | M4 DESIGN and contract updates not executable | **Closed.** DESIGN steps added to Tasks 5, 8, 15 and 16, alongside those already in Tasks 1–4. The stale ring value (Task 15) and the `index.css` min-height anchor (Task 5) are corrected, and the line-number claim is softened. Task 21 adds a gated spec-update step that records each CCR's disposition. | Tasks 5, 8, 15, 16, 21 |
-| M5 Remote Notes readiness has no owner | **Closed as a documented partial, with a handoff (CCR 6).** Task 14 ships local and self-hosted readiness; remote providers report "unknown" and show no hint. Plan 03's owner adds a consumer task that maps the route states, keeps dismissal, and tests a remote provider with no key. | Task 14, CCR 6 |
+| M5 Remote Notes readiness has no owner | **Closed as a documented partial, with a handoff (CCR 6).** Task 14 ships local and self-hosted readiness; remote providers report "unknown" and show no hint. Plan 06 owns the consumer task (spec §5.1 handoffs) that maps the route states, keeps dismissal, and tests a remote provider with no key. | Task 14, CCR 6 |
 | Cross-plan: native notification vs Linux recorder Stop | **Resolved: interruption-only.** `showSystemNotification` carries no actions, and Plan 04 keeps its own Linux action path. | CCR 1 |
 | Cross-plan: D3 undo gap | Plan 04's to close or amend. Plan 02's Esc change is bounded and does not certify D3. | Notes for Plan 04 |
 | Cross-plan: midnight wording, IME guard order | `useNow` guarantees rollover within one tick (≤30 s). Plan 06 should say the same, and run its mention interceptor after the IME guard (including keyCode 229). | Notes for Plan 06 |
@@ -73,7 +73,7 @@ One disagreement from the first review round still stands. Provider tabs keep th
 - **CCR 2:** the ring part already shipped in Plan 01. `--color-input-border` and the light warning and success foregrounds stay in Plan 02 as its own additions.
 - **CCRs 1, 5 and 6:** accepted. The owner publishes them in the consolidated spec update, as §5.5 plus the stored-audio contract, and Plan 03 has been told to keep the `readable` and `failed` fields.
 
-This PR therefore does not edit the spec (Task 21).
+The consolidated spec (091d198 on `snowopsdev/feat/uiux-foundations`) now carries all of them; each status below names its section. This PR does not edit the spec (Task 21).
 
 1. **Add §5.5 Interruption notifications (owner: Plan 02; consumer: Plan 04).** Task 10 adds:
    ```ts
@@ -85,34 +85,35 @@ This PR therefore does not edit the spec (Task 21).
    - Clicking it focuses the sending window.
    - **It is interruption-only and carries no actions.** D2's Linux recorder notice needs a Stop action. Plan 04 keeps its own Linux (freedesktop/gdbus) action path for that, because Electron's action support differs on Linux. This contract does not claim to cover it.
 
-   *Disposition: accepted. The owner publishes it as §5.5 in the consolidated spec update.*
+   **Status: applied in spec §5.5 (091d198).**
 2. **Extend Plan 01's colour-token contract (§5, "Motion and colour tokens"),** from Plan 01's final review.
    - **New token:** `--color-input-border` (light `#858585`, Plum Night `#8c6b7b`; Task 2).
    - **Changed light values:**
      - `--color-ring` `#ff5a1f` becomes `#e84e16` (Task 3). Plum Night keeps `#ff5a1f`.
      - `--color-warning-foreground` and `--color-success-foreground` change from `#ffffff` to `#171717` (Task 1).
 
-   *Disposition: the light `--color-ring` value already shipped in Plan 01 (PR #43), so Task 3 no longer changes it. `--color-input-border` (Task 2) and the light warning and success foregrounds (Task 1) stay as Plan 02's own additions.*
-3. **FYI, `UpdateStatus.phase` gains `"available"`** (Task 17). It means a manual check found a newer version while automatic updates are off. Plan 03 moves `UpdateSettings` and must keep rendering it. This reverses a deliberate rule pinned at `test/helpers/updateManager.test.js:187` ("the off switch also blocks manual checks"); SET-Q16 is the owner's pick. *Disposition: approved, recorded as D13 in the spec. Manual checks stay available with automatic updates off, nothing downloads without an explicit click, and Task 17 replaces the rule pinned at `updateManager.test.js:187`.*
-4. **Record the execution order in §3:** 01 → 02 → {03, 04, 05, 06}. The spec's graph shows 02 in parallel with 01 and nothing downstream of it. In fact Plans 03, 04, 05 and 06 all rewrite surfaces Plan 02 fixes:
+   **Status: applied in spec §5, Plan 01 contracts table, "Extended by" (091d198).** The light `--color-ring` value already shipped in Plan 01 (PR #43), so Task 3 no longer changes it. `--color-input-border` (Task 2) and the light warning and success foregrounds (Task 1) stay as Plan 02's own additions.*
+3. **FYI, `UpdateStatus.phase` gains `"available"`** (Task 17). It means a manual check found a newer version while automatic updates are off. Plan 03 moves `UpdateSettings` and must keep rendering it. This reverses a deliberate rule pinned at `test/helpers/updateManager.test.js:187` ("the off switch also blocks manual checks"); SET-Q16 is the owner's pick. **Status: applied in spec §5.6, "Update status" (D13; 091d198).** Manual checks stay available with automatic updates off, nothing downloads without an explicit click, and Task 17 replaces the rule pinned at `updateManager.test.js:187`.*
+4. **Record the execution order in §3:** 01 → 02 before 03–06. The spec's graph shows 02 in parallel with 01 and nothing downstream of it. In fact Plans 03, 04, 05 and 06 all rewrite surfaces Plan 02 fixes:
    - Plan 03: settings storage, model cards, navigation and the setup card;
    - Plan 04: toasts and Esc;
    - Plan 05: the onboarding shell and download;
    - Plan 06: the clock, the composer and Notes.
 
-   Each needs Plan 02's tests in place. *Disposition: approved. The owner applies it to §3 in the consolidated spec update.*
+   Each needs Plan 02's tests in place. **Status: superseded by spec §3 (091d198), which orders 01 → 02 → 03 → {04, 05, 06, 07}, then 06 → 08.** That keeps 02 before every plan that rewrites its surfaces, and also puts 03 before 04–07.
 5. **Stored-audio contract (owner: Plan 02; consumer: Plan 03).**
    - `getStorageUsage()` returns `{ fileCount, totalBytes, readable }`.
    - `deleteAllAudio()` returns `{ deleted, failed, readable }`.
    - `remainingAudioIds()` and `clearFlagsForDeletedAudio()` exist.
    - The renderer gets `resolveClearAudioOutcome` and `useAudioStorageUsage`.
-   - Plan 03 Task 11 replaces this UI. Its current text drops `readable`/`failed` and treats an unreadable zero as cleared, so it must keep the fields, the unavailable state and the tests. *Disposition: accepted. The owner publishes the contract in the consolidated spec update, and Plan 03 has been told to keep `readable` and `failed`.*
-6. **Notes readiness handoff (owner of the consumer task: Plan 03).** Plan 03 adds a task that replaces `useNoteActionsReady` with `useResolvedRoute("noteFormatting")`.
-   - It maps `ready` to no hint, and `needsModel`, `needsKey`, `needsUrl` and `unreachable` to the hint with the right action. `off` means Actions are disabled.
-   - It keeps the dismissal key `notesActionsModelHintDismissed`.
-   - It tests a remote provider with no saved key.
+   - Plan 03 Task 11 replaces this UI. Its current text drops `readable`/`failed` and treats an unreadable zero as cleared, so it must keep the fields, the unavailable state and the tests. **Status: applied in spec §5.6 (091d198).**
+6. **Notes readiness handoff (owner of the consumer task: Plan 06).** Plan 06 replaces `useNoteActionsReady` with `useResolvedRoute("noteFormatting")`. Plan 06 owns it because it rewrites the Notes surface.
+   - `ready` shows no hint.
+   - `needsModel`, `needsKey`, `needsUrl` and `unreachable` show the hint with the matching action, `onOpenSettings(route.settingsPath)`.
+   - `unknown` shows nothing yet, and `off` disables Actions.
+   - It keeps the dismissal key `notesActionsModelHintDismissed`, and tests a remote provider with no saved key.
 
-   Until then, WS-Q7's hint covers local and self-hosted routes only. *Disposition: accepted.*
+   Until then, WS-Q7's hint covers local and self-hosted routes only. **Status: applied in spec §5.1, Handoffs (091d198), assigned to Plan 06.**
 
 ## Interfaces this plan produces for later plans
 
@@ -127,7 +128,7 @@ This PR therefore does not edit the spec (Task 21).
 | `chatRouteKey` / `useChatRouteKey` | `src/components/chat/chatRouteKey.ts` | Plan 06 |
 | `useModelDownload().cancelDownload` resolves `true` only when main confirmed | `src/hooks/useModelDownload.ts` | Plan 05 (ONB-R4) |
 | Stored-audio contract (CCR 5) | `src/helpers/audioStorage.js`, `audioFlagReconcile.js`, `src/utils/audioDeletion.ts`, `src/hooks/useAudioStorageUsage.ts`, `src/components/settings/AudioStorageRow.tsx` | Plan 03 (SET-R7) |
-| `useNoteActionsReady(): boolean \| null` (temporary, CCR 6) | `src/hooks/useNoteActionsReady.ts` | replaced by a Plan 03 consumer task |
+| `useNoteActionsReady(): boolean \| null` (temporary, CCR 6) | `src/hooks/useNoteActionsReady.ts` | replaced by Plan 06 (spec §5.1 handoff) |
 | `ProviderTabItem.keySaved` | `src/components/ui/ProviderTabs.tsx` | Plan 03 (SET-R5) |
 | `ModelCard` `selectionRole`, `ModelCardList` `ariaLabel`; Learn more never selects | `src/components/ui/ModelCardList.tsx` | Plan 03 (SET-R4) |
 | `rendererOptions`, `I18N_KEYS_MOCK`, `TOAST_MOCK` | `test/helpers/harness/rendererMocks.js` | every later plan's renderer tests |
@@ -135,7 +136,7 @@ This PR therefore does not edit the spec (Task 21).
 | `parseRules`, `isLayered` | `test/helpers/harness/cssRules.js` | any cascade test |
 
 **Notes for Plan 03:**
-- Keep the stored-audio contract (CCR 5) and add the Notes readiness consumer task (CCR 6).
+- Keep the stored-audio contract (spec §5.6).
 - When local model cards and the settings nav are replaced, keep the following and their tests:
   - explicit activation (arrows never select);
   - accessible names;
@@ -157,6 +158,7 @@ This PR therefore does not edit the spec (Task 21).
 - the translated labels.
 
 **Notes for Plan 06:**
+- **Notes readiness (spec §5.1 handoff, CCR 6).** Replace `useNoteActionsReady` with `useResolvedRoute("noteFormatting")` as §5.1 specifies, keep the dismissal key, and test a remote provider with no saved key.
 - **Composer.** Keep Task 13's `queueKey` binding, the unsent slot and the sender contract when adding draft seeding or mirroring.
 - **Mentions.** Run any mention interceptor after `resolveComposerKey`'s IME guard (`isComposing` and keyCode 229).
 - **Clock.** State `useNow`'s guarantee as "within one tick (≤30 s) of local midnight".
@@ -4171,7 +4173,7 @@ Covers WS-Q7.
   - `NOTES_ACTIONS_MODEL_HINT_KEY = "notesActionsModelHintDismissed"`;
   - `shouldShowActionsModelHint(ready: boolean | null, dismissed: boolean): boolean`;
   - `noteActionsReadiness(config: { mode: string; model: string; remoteUrl?: string }, downloadedModelIds: ReadonlySet<string> | null): boolean | null`;
-  - `useNoteActionsReady(): boolean | null`, where `null` means "unknown": still checking, or a remote provider. Plan 03's `useResolvedRoute("noteFormatting")` (§5.1) replaces this hook through a consumer task that CCR 6 asks Plan 03's owner to add. Until then this is a documented partial delivery of WS-Q7's hint: local and self-hosted routes get it, and remote providers show none.
+  - `useNoteActionsReady(): boolean | null`, where `null` means "unknown": still checking, or a remote provider. Plan 06 replaces this hook with `useResolvedRoute("noteFormatting")`, per the spec §5.1 handoff (CCR 6). Until then this is a documented partial delivery of WS-Q7's hint: local and self-hosted routes get it, and remote providers show none.
 - Consumes:
   - `useNotesOnboarding()` (`src/hooks/useNotesOnboarding.ts`);
   - `NotesOnboarding` (`{ onComplete }`);
@@ -6525,7 +6527,7 @@ Check each of these, and screenshot the starred ones for the PR:
 
 - [ ] **Step 3: Confirm the spec is untouched**
 
-The owner decided every CCR (see "Contract change requests"). D13 is already in the spec, and CCRs 1, 4, 5 and 6 arrive in the owner's consolidated spec update. This PR must not edit the spec, so this command must print nothing:
+Every CCR is applied in, or superseded by, the consolidated spec (091d198); see "Contract change requests". This PR must not edit the spec, so this command must print nothing:
 
 ```bash
 git diff --stat origin/snowopsdev/feat/uiux-foundations...HEAD -- docs/superpowers/specs

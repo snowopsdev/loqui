@@ -2,9 +2,16 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { Message, ToolCallInfo } from "./types";
 import type { ContainerScope } from "../../types/chat";
 
+/** Logical display ownership survives first creation, but never navigation or remount. */
+export interface ChatSelection {
+  isCurrent: () => boolean;
+}
+
 interface UseChatPersistenceOptions {
   conversationId?: number | null;
   onConversationCreated?: (id: number, title: string) => void;
+  /** Refresh the admitted host's history without changing its selection. */
+  onConversationStored?: (id: number) => void;
 }
 
 export interface ChatPersistence {
@@ -14,8 +21,10 @@ export interface ChatPersistence {
   createConversation: (
     title: string,
     noteId?: number | null,
-    scope?: ContainerScope
+    scope?: ContainerScope,
+    selection?: ChatSelection
   ) => Promise<number>;
+  captureSelection: () => ChatSelection;
   loadConversation: (id: number) => Promise<void>;
   /** Resolves only after the user message row has been saved. */
   saveUserMessage: (text: string, conversationId?: number) => Promise<void>;
@@ -36,12 +45,26 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
   );
   const conversationIdRef = useRef(conversationId);
 
-  useEffect(() => {
-    conversationIdRef.current = conversationId;
-  }, [conversationId]);
+  const selectionGeneration = useRef(0);
+  const captureSelection = useCallback((): ChatSelection => {
+    const generation = selectionGeneration.current;
+    return { isCurrent: () => generation === selectionGeneration.current };
+  }, []);
+
+  useEffect(
+    () => () => {
+      selectionGeneration.current += 1;
+    },
+    []
+  );
 
   const createConversation = useCallback(
-    async (title: string, noteId?: number | null, scope?: ContainerScope): Promise<number> => {
+    async (
+      title: string,
+      noteId?: number | null,
+      scope?: ContainerScope,
+      selection = captureSelection()
+    ): Promise<number> => {
       const conv = await window.electronAPI?.createAgentConversation?.(
         title,
         noteId ?? undefined,
@@ -52,39 +75,52 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
         throw new Error("Conversation scope is no longer available");
       }
       const id = conv.id;
-      conversationIdRef.current = id;
-      setConversationId(id);
-      options.onConversationCreated?.(id, title);
+      options.onConversationStored?.(id);
+      if (selection.isCurrent()) {
+        conversationIdRef.current = id;
+        setConversationId(id);
+        options.onConversationCreated?.(id, title);
+      }
       return id;
     },
-    [options]
+    [options, captureSelection]
   );
 
-  const loadConversation = useCallback(async (id: number) => {
-    const conv = await window.electronAPI?.getAgentConversation?.(id);
-    if (!conv) {
-      // The conversation was deleted elsewhere (e.g. ControlPanel history).
-      // Clear the id, or every subsequent save silently no-ops against the
-      // tombstoned row and the session is never persisted.
-      conversationIdRef.current = null;
-      setConversationId(null);
-      return;
-    }
-    conversationIdRef.current = id;
-    setConversationId(id);
-    const loaded: Message[] = conv.messages.map((m) => {
-      const parsed = m.metadata ? tryParseMetadata(m.metadata) : undefined;
-      const toolCalls = parsed?.toolCalls as ToolCallInfo[] | undefined;
-      return {
-        id: crypto.randomUUID(),
-        role: m.role as Message["role"],
-        content: m.content,
-        isStreaming: false,
-        ...(toolCalls ? { toolCalls } : {}),
-      };
-    });
-    setMessages(loaded);
-  }, []);
+  const loadConversation = useCallback(
+    async (id: number) => {
+      selectionGeneration.current += 1;
+      const selection = captureSelection();
+      // Invalidate the old request immediately, before the history read completes.
+      conversationIdRef.current = id;
+      setConversationId(id);
+      setMessages([]);
+      const conv = await window.electronAPI?.getAgentConversation?.(id);
+      if (!selection.isCurrent()) return;
+      if (!conv) {
+        // The conversation was deleted elsewhere (e.g. ControlPanel history).
+        // Clear the id, or every subsequent save silently no-ops against the
+        // tombstoned row and the session is never persisted.
+        conversationIdRef.current = null;
+        setConversationId(null);
+        return;
+      }
+      conversationIdRef.current = id;
+      setConversationId(id);
+      const loaded: Message[] = conv.messages.map((m) => {
+        const parsed = m.metadata ? tryParseMetadata(m.metadata) : undefined;
+        const toolCalls = parsed?.toolCalls as ToolCallInfo[] | undefined;
+        return {
+          id: crypto.randomUUID(),
+          role: m.role as Message["role"],
+          content: m.content,
+          isStreaming: false,
+          ...(toolCalls ? { toolCalls } : {}),
+        };
+      });
+      setMessages((current) => (selection.isCurrent() ? loaded : current));
+    },
+    [captureSelection]
+  );
 
   const isCurrentConversation = useCallback((id: number) => conversationIdRef.current === id, []);
 
@@ -112,6 +148,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
   );
 
   const handleNewChat = useCallback(() => {
+    selectionGeneration.current += 1;
     setMessages([]);
     conversationIdRef.current = null;
     setConversationId(null);
@@ -122,6 +159,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
     setMessages,
     conversationId,
     createConversation,
+    captureSelection,
     loadConversation,
     saveUserMessage,
     isCurrentConversation,

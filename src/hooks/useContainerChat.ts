@@ -1,3 +1,4 @@
+import type { ChatSelection } from "../components/chat/useChatPersistence";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useChatPersistence } from "../components/chat/useChatPersistence";
 import { useChatStreaming } from "../components/chat/useChatStreaming";
@@ -45,13 +46,11 @@ export function useContainerChat({
   folder,
   notes,
 }: UseContainerChatOptions): UseContainerChatReturn {
-  const [conversationId, setConversationId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<ContainerConversationItem[]>([]);
   const folderId = folder?.id ?? null;
 
-  const persistence = useChatPersistence({
-    onConversationCreated: (id) => setConversationId(id),
-  });
+  const persistence = useChatPersistence();
+  const conversationId = persistence.conversationId;
 
   const containerContext = useMemo(() => {
     const header = folder
@@ -101,23 +100,26 @@ export function useContainerChat({
   const switchConversation = useCallback(
     async (id: number) => {
       await persistence.loadConversation(id);
-      setConversationId(id);
     },
     [persistence]
   );
 
   const startNewChat = useCallback(() => {
     persistence.handleNewChat();
-    setConversationId(null);
   }, [persistence]);
 
   const createConversation = useCallback(
-    async (text: string) => {
+    async (text: string, selection?: ChatSelection) => {
       const title = deriveConversationTitle(text, folder?.name ?? space.name);
-      const id = await persistence.createConversation(title, null, {
-        spaceId: space.id,
-        folderId,
-      });
+      const id = await persistence.createConversation(
+        title,
+        null,
+        {
+          spaceId: space.id,
+          folderId,
+        },
+        selection
+      );
       void fetchConversations();
       return id;
     },

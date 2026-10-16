@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import type { ChatPersistence } from "./useChatPersistence";
+import type { ChatPersistence, ChatSelection } from "./useChatPersistence";
 import type { ChatStreaming, SendToAIOptions } from "./useChatStreaming";
 import type { Message } from "./types";
 
@@ -13,7 +13,7 @@ interface UseChatMessageSenderOptions {
   conversationId: number | null;
   persistence: ChatPersistence;
   streaming: Pick<ChatStreaming, "sendToAI"> & Partial<Pick<ChatStreaming, "captureInference">>;
-  createConversation: (text: string) => Promise<number>;
+  createConversation: (text: string, selection?: ChatSelection) => Promise<number>;
   onBeforeSend?: () => void;
   onMessagePersisted?: (context: PersistedMessageContext) => void | Promise<void>;
   onSendingChange?: (sending: boolean) => void;
@@ -67,6 +67,12 @@ export function useChatMessageSender({
       try {
         return await submissionLockRef.current!.run(async () => {
           // Capture before callbacks or awaits can change the recipient settings.
+          const selection = persistence.captureSelection?.();
+          const previousMessages = [...persistence.messages];
+          let admittedId = conversationId;
+          const isCurrent = () =>
+            selection?.isCurrent() ??
+            (admittedId == null || persistence.isCurrentConversation?.(admittedId) !== false);
           const admittedOptions = {
             ...options,
             inferenceSnapshot: streaming.captureInference?.(options),
@@ -74,8 +80,8 @@ export function useChatMessageSender({
           onSendingChange?.(true);
           try {
             onBeforeSend?.();
-            const convId = conversationId ?? (await createConversation(text));
-            const previousMessages = persistence.messages;
+            const convId = conversationId ?? (await createConversation(text, selection));
+            admittedId = convId;
             const userMessage: Message = {
               id: crypto.randomUUID(),
               role: "user",
@@ -83,12 +89,14 @@ export function useChatMessageSender({
               isStreaming: false,
             };
 
-            persistence.setMessages((messages) => [...messages, userMessage]);
+            persistence.setMessages((messages) =>
+              isCurrent() ? [...messages, userMessage] : messages
+            );
             optimisticId = userMessage.id;
             await persistence.saveUserMessage(text, convId);
             reachedConversation = true;
             // A saved A message must not change the state of a newly selected B composer.
-            if (persistence.isCurrentConversation?.(convId) !== false) {
+            if (isCurrent()) {
               await onMessagePersisted?.({
                 conversationId: convId,
                 text,
@@ -99,7 +107,7 @@ export function useChatMessageSender({
               ...admittedOptions,
               owner: {
                 conversationId: convId,
-                isCurrent: () => persistence.isCurrentConversation?.(convId) !== false,
+                isCurrent,
                 onStreamComplete: (_id, content, toolCalls) =>
                   persistence.saveAssistantMessage?.(content, toolCalls, convId),
               },

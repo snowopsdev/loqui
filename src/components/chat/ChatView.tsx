@@ -1,3 +1,4 @@
+import type { ChatSelection } from "./useChatPersistence";
 import { useChatRouteKey } from "./chatRouteKey";
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
@@ -43,8 +44,8 @@ export default function ChatView() {
     conversationId: activeConversationId,
     onConversationCreated: (id) => {
       setActiveConversationId(id);
-      setRefreshKey((k) => k + 1);
     },
+    onConversationStored: () => setRefreshKey((k) => k + 1),
   });
 
   const streaming = useChatStreaming({
@@ -70,9 +71,9 @@ export default function ChatView() {
   }, [persistence]);
 
   const createConversation = useCallback(
-    async (text: string) => {
+    async (text: string, selection?: ChatSelection) => {
       const title = text.length > 50 ? `${text.slice(0, 50)}...` : text;
-      return persistence.createConversation(title);
+      return persistence.createConversation(title, undefined, undefined, selection);
     },
     [persistence]
   );

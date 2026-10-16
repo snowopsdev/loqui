@@ -18,7 +18,7 @@ const { installTree } = require("../helpers/harness/fakeDomTree");
 const VIEW_MOCKS = {
   "/ui/useToast": TOAST_MOCK,
   "/useVoiceDraft": `export const useVoiceDraft = () => ({ status: "idle", start() {}, stop() {}, cancel() {}, elapsed: 0, readLevel: () => 0, streamingOnlyProvider: false });`,
-  "/ConversationList": `export default function ConversationList() { return null; }`,
+  "/ConversationList": `export default function ConversationList(props) { globalThis.__chatViewNavigation = props; return null; }`,
   "/EmptyChatState": `
     import React from "react";
     export default function EmptyChatState() { return React.createElement("p", null, "EMPTY_CHAT"); }
@@ -37,7 +37,7 @@ const VIEW_MOCKS = {
         activeToolName: null,
         toolStatus: "",
         cancelStream() {},
-        async sendToAI(text) { globalThis.__chatViewDispatched.push(text); },
+        async sendToAI(text, history, options) { globalThis.__chatViewDispatched.push(text); globalThis.__chatViewRequests.push({ text, history, current: options.owner.isCurrent() }); await options.owner.onStreamComplete(options.owner.conversationId, "answer: " + text); },
       };
     }
   `,
@@ -68,8 +68,11 @@ async function mountChatView(t, electronAPI) {
     if (root) await React.act(async () => root.unmount());
   });
   globalThis.__chatViewDispatched = [];
+  globalThis.__chatViewRequests = [];
   t.after(() => {
     delete globalThis.__chatViewDispatched;
+    delete globalThis.__chatViewRequests;
+    delete globalThis.__chatViewNavigation;
   });
   installBrowserGlobals(t, { window: { electronAPI } });
   installHookDom(t);
@@ -144,3 +147,118 @@ test("ChatView marks the chat started only once the message is saved", () => {
   assert.doesNotMatch(source, /onBeforeSend: markChatStarted/);
   assert.match(source, /onMessagePersisted: markChatStarted/);
 });
+
+for (const destination of ["B", "new"]) {
+  for (const outcome of ["success", "create failure", "write failure"]) {
+    test(`late creation after selecting ${destination}: ${outcome} preserves selection, history and newer draft`, async (t) => {
+      const creation = deferred();
+      const writes = [];
+      let creates = 0;
+      const view = await mountChatView(t, {
+        createAgentConversation: () =>
+          ++creates === 1 ? creation.promise : Promise.resolve({ id: 9 }),
+        getAgentConversation: async (id) => ({
+          id,
+          messages: [{ role: "user", content: "B private history" }],
+        }),
+        addAgentMessage: async (id, role, content) => {
+          if (id === 7 && role === "user" && outcome === "write failure")
+            throw new Error("SQLITE_FULL");
+          writes.push({ id, role, content });
+          return { id: writes.length };
+        },
+      });
+      await view.type("A first question");
+      await view.enter();
+      await act(() => globalThis.__chatViewNavigation.onSelectConversation(8));
+      if (destination === "new") await act(() => globalThis.__chatViewNavigation.onNewChat());
+      await view.type("newer visible draft");
+      await act(() => creation.resolve(outcome === "create failure" ? null : { id: 7 }));
+      assert.equal(
+        globalThis.__chatViewNavigation.activeConversationId,
+        destination === "B" ? 8 : null
+      );
+      assert.equal(view.props(view.textarea()).value, "newer visible draft");
+      assert.equal(
+        globalThis.__chatViewNavigation.refreshKey,
+        outcome === "create failure" ? 0 : 1,
+        "stored A remains discoverable in history without selecting it"
+      );
+      assert.doesNotMatch(
+        view.text(),
+        /A first question/,
+        "stale optimistic insertion never enters the selected history"
+      );
+      if (destination === "B") assert.match(view.text(), /B private history/);
+      else assert.doesNotMatch(view.text(), /B private history/);
+      if (outcome === "success") {
+        assert.deepEqual(writes, [
+          { id: 7, role: "user", content: "A first question" },
+          { id: 7, role: "assistant", content: "answer: A first question" },
+        ]);
+        assert.equal(globalThis.__chatViewRequests[0].current, false);
+        assert.deepEqual(
+          globalThis.__chatViewRequests[0].history.map((m) => m.content),
+          ["A first question"]
+        );
+      } else {
+        assert.deepEqual(writes, []);
+        assert.match(
+          view.text(),
+          /agentMode.input.unsent/,
+          "failed admitted text is retained beside newer words"
+        );
+      }
+      await view.enter();
+      const followup = globalThis.__chatViewRequests.at(-1);
+      assert.equal(followup.text, "newer visible draft");
+      assert.deepEqual(
+        followup.history.map((m) => m.content),
+        destination === "B" ? ["B private history", "newer visible draft"] : ["newer visible draft"]
+      );
+      assert.equal(writes.at(-2).id, destination === "B" ? 8 : 9);
+    });
+  }
+}
+
+test("stale conversation load cannot reclaim a newer New Chat selection", async (t) => {
+  const load = deferred();
+  const view = await mountChatView(t, { getAgentConversation: () => load.promise });
+  await act(() => {
+    void globalThis.__chatViewNavigation.onSelectConversation(8);
+  });
+  await act(() => globalThis.__chatViewNavigation.onNewChat());
+  await view.type("new draft");
+  await act(() =>
+    load.resolve({ id: 8, messages: [{ role: "user", content: "stale private history" }] })
+  );
+  assert.equal(globalThis.__chatViewNavigation.activeConversationId, null);
+  assert.equal(view.props(view.textarea()).value, "new draft");
+  assert.doesNotMatch(view.text(), /stale private history/);
+});
+
+for (const missing of [false, true]) {
+  test(`stale ${missing ? "missing" : "existing"} B load cannot reclaim selected C`, async (t) => {
+    const loadB = deferred();
+    const view = await mountChatView(t, {
+      getAgentConversation: (id) =>
+        id === 8
+          ? loadB.promise
+          : Promise.resolve({ id, messages: [{ role: "user", content: "C history" }] }),
+    });
+    await act(() => {
+      void globalThis.__chatViewNavigation.onSelectConversation(8);
+    });
+    await act(() => globalThis.__chatViewNavigation.onSelectConversation(9));
+    await view.type("C draft");
+    await act(() =>
+      loadB.resolve(
+        missing ? null : { id: 8, messages: [{ role: "user", content: "B private history" }] }
+      )
+    );
+    assert.equal(globalThis.__chatViewNavigation.activeConversationId, 9);
+    assert.equal(view.props(view.textarea()).value, "C draft");
+    assert.match(view.text(), /C history/);
+    assert.doesNotMatch(view.text(), /B private history/);
+  });
+}

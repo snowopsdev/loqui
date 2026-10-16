@@ -1,3 +1,4 @@
+import type { ChatSelection } from "../chat/useChatPersistence";
 import { useChatRouteKey } from "../chat/chatRouteKey";
 import { sendWithSelectedContext } from "./assistantTextSubmit";
 import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
@@ -124,9 +125,9 @@ export function AssistantPanel({
   });
 
   const createConversation = useCallback(
-    (text: string) => {
+    (text: string, selection?: ChatSelection) => {
       const title = text.slice(0, 50) + (text.length > 50 ? "..." : "");
-      return persistence.createConversation(title);
+      return persistence.createConversation(title, undefined, undefined, selection);
     },
     [persistence]
   );

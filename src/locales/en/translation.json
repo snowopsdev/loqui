@@ -2698,7 +2698,9 @@
       "localServerUnavailable": "{{model}} couldn't be started on this computer. Try again, or switch to a cloud model."
     },
     "downloadingNamed": "Downloading {{model}}",
-    "installingNamed": "Installing {{model}}"
+    "installingNamed": "Installing {{model}}",
+    "deleteNamed": "Delete {{model}}",
+    "listLabel": "Models"
   },
   "sidebar": {
     "sections": {

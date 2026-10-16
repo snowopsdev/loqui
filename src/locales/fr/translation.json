@@ -2698,7 +2698,9 @@
       "localServerUnavailable": "Impossible de démarrer {{model}} sur cet ordinateur. Réessayez ou passez à un modèle cloud."
     },
     "downloadingNamed": "Téléchargement de {{model}}",
-    "installingNamed": "Installation de {{model}}"
+    "installingNamed": "Installation de {{model}}",
+    "deleteNamed": "Supprimer {{model}}",
+    "listLabel": "Modèles"
   },
   "insights": {
     "title": "Statistiques",

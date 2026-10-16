@@ -339,7 +339,9 @@
       "localServerUnavailable": "تعذّر تشغيل {{model}} على هذا الكمبيوتر. حاول مرة أخرى، أو بدّل إلى نموذج سحابي."
     },
     "downloadingNamed": "جارٍ تنزيل {{model}}",
-    "installingNamed": "جارٍ تثبيت {{model}}"
+    "installingNamed": "جارٍ تثبيت {{model}}",
+    "deleteNamed": "حذف {{model}}",
+    "listLabel": "النماذج"
   },
   "reasoning": {
     "mode": {

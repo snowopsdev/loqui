@@ -2621,7 +2621,9 @@
       "localServerUnavailable": "Не удалось запустить {{model}} на этом компьютере. Попробуйте снова или переключитесь на облачную модель."
     },
     "downloadingNamed": "Загрузка {{model}}",
-    "installingNamed": "Установка {{model}}"
+    "installingNamed": "Установка {{model}}",
+    "deleteNamed": "Удалить {{model}}",
+    "listLabel": "Модели"
   },
   "referral": {
     "modalTitle": "Реферальная программа",

@@ -236,7 +236,7 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 
 ### Chips
 - **Style:** Status and category badges are small full capsules. The default badge uses a translucent orange fill and orange text; secondary and status variants keep their own semantic colors.
-- **State:** Focusable chips use a visible ring. Selected model and provider states use a subtle orange-tinted surface and border.
+- **State:** Focusable chips use a visible ring. Selected model and provider states use a subtle orange-tinted surface and border. Model cards are radios in a labelled radiogroup with one tab stop, on the selected card. The whole card is the hit area. Arrow keys move focus between cards; only Enter, Space or a click selects, because selecting can switch the provider. A not-yet-downloaded local model is `aria-disabled` but still focusable. Card actions (delete, download, cancel, Learn more) keep their own names; delete appears on hover or keyboard focus.
 
 ### Toasts
 - **Announcement:** standard toasts are polite status regions (`role="status"`); destructive toasts are assertive alerts (`role="alert"`). Dictation-error cards already announce as alerts.

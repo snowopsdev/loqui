@@ -2605,7 +2605,9 @@
       "localServerUnavailable": "無法在這台電腦上啟動 {{model}}。請重試，或改用雲端模型。"
     },
     "downloadingNamed": "正在下載 {{model}}",
-    "installingNamed": "正在安裝 {{model}}"
+    "installingNamed": "正在安裝 {{model}}",
+    "deleteNamed": "刪除 {{model}}",
+    "listLabel": "模型"
   },
   "referral": {
     "modalTitle": "推薦計畫",

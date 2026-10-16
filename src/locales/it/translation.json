@@ -2605,7 +2605,9 @@
       "localServerUnavailable": "Impossibile avviare {{model}} su questo computer. Riprova o passa a un modello cloud."
     },
     "downloadingNamed": "Download di {{model}} in corso",
-    "installingNamed": "Installazione di {{model}} in corso"
+    "installingNamed": "Installazione di {{model}} in corso",
+    "deleteNamed": "Elimina {{model}}",
+    "listLabel": "Modelli"
   },
   "referral": {
     "modalTitle": "Invita un amico",

@@ -2658,7 +2658,9 @@
       "localServerUnavailable": "No se pudo iniciar {{model}} en este ordenador. Inténtalo de nuevo o cambia a un modelo en la nube."
     },
     "downloadingNamed": "Descargando {{model}}",
-    "installingNamed": "Instalando {{model}}"
+    "installingNamed": "Instalando {{model}}",
+    "deleteNamed": "Eliminar {{model}}",
+    "listLabel": "Modelos"
   },
   "referral": {
     "title": "Recomienda y gana recompensas",

@@ -48,6 +48,8 @@ interface ModelCardProps {
   isSelected: boolean;
   onSelect: (modelId: string) => void;
   colorScheme?: ColorScheme;
+  selectionRole?: "radio" | "none";
+  tabIndex?: number;
   // Long-form descriptions (e.g. OpenRouter) fill the row and ellipsize
   // instead of sitting flush-right like short metadata.
   truncateDescription?: boolean;
@@ -63,6 +65,8 @@ export function ModelCard({
   onSelect,
   colorScheme = "purple",
   truncateDescription = false,
+  selectionRole = "radio",
+  tabIndex,
   onDownload,
   onDelete,
   onCancelDownload,
@@ -75,6 +79,13 @@ export function ModelCard({
   const modelIsCancelling = model.isCancelling ?? false;
   const specHref = model.specUrl ? withUtm(model.specUrl, "model_spec") : undefined;
 
+  const openExternalSpec = specHref ? createExternalLinkHandler(specHref) : undefined;
+  // Documentation must never select the model in either selection mode.
+  const openSpec = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    openExternalSpec?.(event);
+  };
+
   const handleCardClick = () => {
     if (isLocalMode) {
       if (isDownloaded && !isSelected) {
@@ -84,6 +95,9 @@ export function ModelCard({
       onSelect(model.value);
     }
   };
+
+  const isSelectable = isLocalMode ? Boolean(isDownloaded) : true;
+  const asRadio = selectionRole === "radio";
 
   const getStatusDotClass = () => {
     if (!isLocalMode) {
@@ -104,12 +118,28 @@ export function ModelCard({
 
   return (
     <div
-      onClick={handleCardClick}
-      className={`relative w-full p-2 rounded-md border text-start transition-colors duration-200 group overflow-hidden ${
+      onClick={asRadio ? undefined : handleCardClick}
+      className={`relative w-full p-2 rounded-md border text-start transition-colors duration-[var(--motion-base)] group overflow-hidden ${
         isSelected ? styles.selected : styles.default
       } ${!isLocalMode || (isDownloaded && !isSelected) ? "cursor-pointer" : ""}`}
     >
-      <div className="flex items-center gap-1.5">
+      {asRadio && (
+        // Keep the radio beside the actions so they retain their own roles.
+        <button
+          type="button"
+          role="radio"
+          aria-checked={isSelected}
+          aria-disabled={isSelectable ? undefined : true}
+          aria-label={model.label}
+          tabIndex={tabIndex}
+          onClick={handleCardClick}
+          className={cn(
+            "absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            isSelectable && !isSelected ? "cursor-pointer" : "cursor-default"
+          )}
+        />
+      )}
+      <div className={cn("relative flex items-center gap-1.5", asRadio && "pointer-events-none")}>
         <div
           className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusDotClass()} ${
             isSelected && isDownloaded
@@ -154,11 +184,11 @@ export function ModelCard({
         {specHref && (
           <a
             href={specHref}
-            onClick={createExternalLinkHandler(specHref)}
-            className="inline-flex items-center gap-0.5 text-xs text-primary/60 hover:text-primary transition-colors shrink-0"
+            onClick={openSpec}
+            className="pointer-events-auto inline-flex items-center gap-0.5 text-xs text-link hover:underline shrink-0"
           >
             {t("models.learnMore")}
-            <ExternalLink size={9} />
+            <ExternalLink size={9} aria-hidden="true" />
           </a>
         )}
 
@@ -185,9 +215,10 @@ export function ModelCard({
                   }}
                   size="icon"
                   variant="ghost"
-                  className="size-6 text-muted-foreground/70 hover:text-destructive opacity-0 group-hover:opacity-100 transition-[color,opacity,transform] active:scale-95"
+                  aria-label={t("models.deleteNamed", { model: model.label })}
+                  className="pointer-events-auto size-6 text-muted-foreground/70 hover:text-destructive opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-[color,opacity,transform] active:scale-95"
                 >
-                  <Trash2 size={12} />
+                  <Trash2 size={12} aria-hidden="true" />
                 </Button>
               ) : isDownloading ? (
                 <Button
@@ -198,7 +229,7 @@ export function ModelCard({
                   disabled={modelIsCancelling}
                   size="sm"
                   variant="outline"
-                  className="h-6 px-2.5 text-xs text-destructive border-destructive/25 hover:bg-destructive/8"
+                  className="pointer-events-auto h-6 px-2.5 text-xs text-destructive border-destructive/25 hover:bg-destructive/8"
                 >
                   <X size={11} className="me-0.5" />
                   {modelIsCancelling ? "..." : t("common.cancel")}
@@ -211,7 +242,7 @@ export function ModelCard({
                   }}
                   size="sm"
                   variant="default"
-                  className="h-6 px-2.5 text-xs"
+                  className="pointer-events-auto h-6 px-2.5 text-xs"
                 >
                   <Download size={11} className="me-1" />
                   {t("common.download")}
@@ -231,6 +262,7 @@ interface ModelCardListProps {
   onModelSelect: (modelId: string) => void;
   colorScheme?: ColorScheme;
   className?: string;
+  ariaLabel?: string;
   truncateDescription?: boolean;
   // Local model actions (optional - when provided, enables local model UI)
   onDownload?: (modelId: string) => void;
@@ -238,12 +270,20 @@ interface ModelCardListProps {
   onCancelDownload?: (modelId: string) => void;
 }
 
+const ARROW_STEP: Record<string, number> = {
+  ArrowDown: 1,
+  ArrowRight: 1,
+  ArrowUp: -1,
+  ArrowLeft: -1,
+};
+
 export default function ModelCardList({
   models,
   selectedModel,
   onModelSelect,
   colorScheme = "purple",
   className = "",
+  ariaLabel,
   truncateDescription = false,
   onDownload,
   onDelete,
@@ -255,12 +295,39 @@ export default function ModelCardList({
     return <p className="text-sm text-muted-foreground py-2">{t("models.noneAvailable")}</p>;
   }
 
+  const isSelectable = (model: ModelCardOption) =>
+    onDownload ? Boolean(model.isDownloaded) : true;
+  // Returning to the group starts at the selection, or the first selectable card.
+  const tabStop =
+    models.find((model) => model.value === selectedModel && isSelectable(model))?.value ??
+    models.find(isSelectable)?.value ??
+    models[0].value;
+
+  // Selection may switch provider, so arrows only browse; buttons activate explicitly.
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = ARROW_STEP[event.key];
+    if (!step) return;
+    const radios = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+    );
+    const from = radios.indexOf(event.target as HTMLButtonElement);
+    if (from === -1) return; // Leave card actions' keys alone.
+    event.preventDefault();
+    radios[(from + step + radios.length) % radios.length].focus();
+  };
+
   return (
-    <div className={`space-y-0.5 ${className}`}>
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel ?? t("models.listLabel")}
+      onKeyDown={handleKeyDown}
+      className={`space-y-0.5 ${className}`}
+    >
       {models.map((model) => (
         <ModelCard
           key={model.value}
           model={model}
+          tabIndex={model.value === tabStop ? 0 : -1}
           isSelected={selectedModel === model.value}
           onSelect={onModelSelect}
           colorScheme={colorScheme}

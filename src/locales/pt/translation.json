@@ -2584,7 +2584,9 @@
       "localServerUnavailable": "Não foi possível iniciar o {{model}} neste computador. Tente novamente ou mude para um modelo na nuvem."
     },
     "downloadingNamed": "Baixando {{model}}",
-    "installingNamed": "Instalando {{model}}"
+    "installingNamed": "Instalando {{model}}",
+    "deleteNamed": "Excluir {{model}}",
+    "listLabel": "Modelos"
   },
   "upgradePrompt": {
     "paymentFailed": "Não foi possível processar seu pagamento",

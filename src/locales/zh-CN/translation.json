@@ -2605,7 +2605,9 @@
       "localServerUnavailable": "无法在这台电脑上启动 {{model}}。请重试，或改用云端模型。"
     },
     "downloadingNamed": "正在下载 {{model}}",
-    "installingNamed": "正在安装 {{model}}"
+    "installingNamed": "正在安装 {{model}}",
+    "deleteNamed": "删除 {{model}}",
+    "listLabel": "模型"
   },
   "referral": {
     "modalTitle": "推荐计划",

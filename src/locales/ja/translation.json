@@ -2605,7 +2605,9 @@
       "localServerUnavailable": "このコンピューターでは {{model}} を起動できませんでした。もう一度試すか、クラウドモデルに切り替えてください。"
     },
     "downloadingNamed": "{{model}} をダウンロード中",
-    "installingNamed": "{{model}} をインストール中"
+    "installingNamed": "{{model}} をインストール中",
+    "deleteNamed": "{{model}} を削除",
+    "listLabel": "モデル"
   },
   "notes": {
     "sidebar": {

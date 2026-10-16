@@ -4043,5 +4043,26 @@
     "unknown": "保存済み認証情報の状態を取得できません。",
     "recipientChanged": "認証情報または送信先が変更されました。更新された送信先を確認し、もう一度「検証」を押してください。",
     "unavailable": "検証を利用できません。保存済み認証情報の状態を確認できませんでした。"
+  },
+  "cartridge": {
+    "groupLabel": "言語モデル",
+    "speechGroupLabel": "音声モデル",
+    "speed": "速度",
+    "quality": "品質",
+    "memory": "メモリ使用量",
+    "meter": "{{label}}：5段階中{{value}}",
+    "estimate": "実測値がない場合、指標はファイルサイズから推定します。何もアップロードされません。",
+    "context": "{{k}}k コンテキスト",
+    "tight": "このデバイスではメモリに余裕がありません",
+    "tooLarge": "このデバイスには大きすぎます：約{{needs}}が必要ですが、このデバイスのメモリは{{total}}です",
+    "notDownloaded": "未ダウンロード",
+    "download": "ダウンロード",
+    "downloadNamed": "{{name}}をダウンロード",
+    "downloading": "{{name}}をダウンロード中",
+    "cancel": "{{name}}のダウンロードをキャンセル",
+    "delete": "{{name}}を削除",
+    "inUseBy": "使用中のタスク",
+    "showFewer": "表示を減らす",
+    "showAll_other": "すべて表示（{{count}}件）"
   }
 }

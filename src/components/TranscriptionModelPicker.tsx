@@ -1,6 +1,9 @@
+import { useTotalMemory } from "../hooks/useTotalMemory";
+import { cartridgeFromLocalModel, usedByMap } from "./ui/cartridgeMath";
+import { ModelCartridgeGrid } from "./ui/ModelCartridgeGrid";
 import { credentialSlotForStoreKey } from "../lib/credentialSlots";
 import type { RouteTarget } from "../lib/routePlanner";
-import { STT_CONTEXT_ROUTE } from "../lib/routes";
+import { STT_CONTEXT_ROUTE, useResolvedRoutes } from "../lib/routes";
 import { RouteStateChip } from "./settings/routing/RouteChips";
 import { EndpointDraft } from "./settings/routing/EndpointDraft";
 import { useRouteChange } from "./settings/routing/useRouteChange";
@@ -30,15 +33,10 @@ import { useSettingsStore } from "../stores/settingsStore";
 import type { ParakeetCheckResult } from "../types/electron";
 import { createExternalLinkHandler } from "../utils/externalLinks";
 import logger from "../utils/logger";
-import {
-  MODEL_PICKER_COLORS,
-  type ColorScheme,
-  type ModelPickerStyles,
-} from "../utils/modelPickerStyles";
 import { getCachedPlatform } from "../utils/platform";
 import { getRemoteProviderIcon } from "../utils/providerIcons";
 import { type TranscriptionPolicyContext } from "../utils/providerSelection";
-import { Check, CircleAlert, Cloud, Download, Lock, Trash2, X, Zap } from "./icons";
+import { Check, CircleAlert, Cloud, Lock, Zap } from "./icons";
 import ApiKeyInput from "./ui/ApiKeyInput";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
@@ -46,7 +44,6 @@ import { DownloadProgressBar } from "./ui/DownloadProgressBar";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import { Input } from "./ui/input";
 import ModelCardList from "./ui/ModelCardList";
-import { ProviderIcon } from "./ui/ProviderIcon";
 import { ProviderTabs } from "./ui/ProviderTabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
@@ -54,166 +51,6 @@ interface LocalModel {
   model: string;
   size_mb?: number;
   downloaded?: boolean;
-}
-
-interface LocalModelCardProps {
-  modelId: string;
-  name: string;
-  description: string;
-  size: string;
-  actualSizeMb?: number;
-  isSelected: boolean;
-  isDownloaded: boolean;
-  isDownloading: boolean;
-  isCancelling: boolean;
-  isInstalling: boolean;
-  recommended?: boolean;
-  provider: string;
-  languageLabel?: string;
-  modelCardUrl?: string;
-  onSelect: () => void;
-  onDelete: () => void;
-  onDownload: () => void;
-  onCancel: () => void;
-  styles: ModelPickerStyles;
-}
-
-function LocalModelCard({
-  modelId,
-  name,
-  description,
-  size,
-  actualSizeMb,
-  isSelected,
-  isDownloaded,
-  isDownloading,
-  isCancelling,
-  isInstalling,
-  recommended,
-  provider,
-  languageLabel,
-  modelCardUrl,
-  onSelect,
-  onDelete,
-  onDownload,
-  onCancel,
-  styles: cardStyles,
-}: LocalModelCardProps) {
-  const { t } = useTranslation();
-  const handleClick = () => {
-    if (isDownloaded && !isSelected) {
-      onSelect();
-    }
-  };
-
-  return (
-    <div
-      onClick={handleClick}
-      className={`relative w-full text-start overflow-hidden rounded-md border transition-colors duration-200 group ${
-        isSelected ? cardStyles.modelCard.selected : cardStyles.modelCard.default
-      } ${isDownloaded && !isSelected ? "cursor-pointer" : ""}`}
-    >
-      <div className="flex items-center gap-1.5 p-2">
-        <div className="shrink-0">
-          {isDownloaded ? (
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${
-                isSelected
-                  ? "bg-primary shadow-[0_0_6px_rgb(255_90_31_/_0.6)] animate-[pulse-glow_2s_ease-in-out_infinite]"
-                  : "bg-success shadow-[0_0_4px_rgba(34,197,94,0.5)]"
-              }`}
-            />
-          ) : isDownloading ? (
-            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.5)] animate-[spinner-rotate_1s_linear_infinite]" />
-          ) : (
-            <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/20" />
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <ProviderIcon provider={provider} className="w-3.5 h-3.5 shrink-0" />
-          <span className="font-semibold text-sm text-foreground truncate tracking-tight">
-            {name}
-          </span>
-          <span className="text-xs text-muted-foreground/70 tabular-nums shrink-0">
-            {actualSizeMb ? `${actualSizeMb}MB` : size}
-          </span>
-          {recommended && (
-            <span className={cardStyles.badges.recommended}>{t("common.recommended")}</span>
-          )}
-          {languageLabel && (
-            <span className="text-xs text-muted-foreground/70 font-medium shrink-0">
-              {languageLabel}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          {isDownloaded ? (
-            <>
-              {isSelected && (
-                <span className="text-xs font-medium text-primary px-2 py-0.5 bg-primary/10 rounded-sm">
-                  {t("common.active")}
-                </span>
-              )}
-              <Button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                size="icon"
-                variant="ghost"
-                className="size-6 text-muted-foreground/70 hover:text-destructive opacity-0 group-hover:opacity-100 transition-[color,opacity,transform] active:scale-95"
-              >
-                <Trash2 size={12} />
-              </Button>
-            </>
-          ) : isDownloading ? (
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCancel();
-              }}
-              disabled={isCancelling || isInstalling}
-              size="sm"
-              variant="outline"
-              className="h-6 px-2.5 text-xs text-destructive border-destructive/25 hover:bg-destructive/8"
-            >
-              <X size={11} className="me-0.5" />
-              {isCancelling ? "..." : t("common.cancel")}
-            </Button>
-          ) : (
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDownload();
-              }}
-              size="sm"
-              variant="default"
-              className="h-6 px-2.5 text-xs"
-            >
-              <Download size={11} className="me-1" />
-              {t("common.download")}
-            </Button>
-          )}
-        </div>
-      </div>
-      {modelCardUrl && (
-        <a
-          href={modelCardUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => {
-            event.stopPropagation();
-            createExternalLinkHandler(modelCardUrl)(event);
-          }}
-          className="inline-block ms-7 mb-2 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
-          {t("transcription.modelCard")}
-        </a>
-      )}
-    </div>
-  );
 }
 
 interface TranscriptionModelPickerProps {
@@ -425,13 +262,14 @@ export default function TranscriptionModelPicker({
   useLocalWhisper,
   cloudTranscriptionBaseUrl = "",
   className = "",
-  variant = "settings",
   mode,
   streamingOnly = false,
 }: TranscriptionModelPickerProps) {
   const { t } = useTranslation();
   const { requestPatch } = useRouteChange();
   const routeId = STT_CONTEXT_ROUTE[transcriptionContext];
+  const totalMemory = useTotalMemory();
+  const routes = useResolvedRoutes();
 
   const openaiApiKey = useSettingsStore((s) => s.openaiApiKey);
   const setOpenaiApiKey = useSettingsStore((s) => s.setOpenaiApiKey);
@@ -522,8 +360,6 @@ export default function TranscriptionModelPicker({
   const loadParakeetModelsRef = useRef<(() => Promise<void>) | null>(null);
 
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
-  const colorScheme: ColorScheme = variant === "settings" ? "purple" : "blue";
-  const styles = useMemo(() => MODEL_PICKER_COLORS[colorScheme], [colorScheme]);
 
   // streamingOnly is Note Recording's picker, so it offers the streaming
   // providers note recording can actually run — not every streaming provider.
@@ -974,48 +810,50 @@ export default function TranscriptionModelPicker({
           }))
         : localModels;
 
-    return (
-      <div className="space-y-0.5">
-        {modelsToRender.map((model) => {
-          const modelId = model.model;
-          const info = WHISPER_MODEL_INFO[modelId] ?? {
-            name: modelId,
-            description: t("transcription.fallback.whisperModelDescription"),
-            size: t("common.unknown"),
-            recommended: false,
-          };
+    const cards = modelsToRender.map((model) => {
+      const info = WHISPER_MODEL_INFO[model.model] ?? {
+        name: model.model,
+        sizeMb: undefined,
+        recommended: false,
+      };
+      // size_mb is only reported once a file exists; fall back to the registry.
+      const sizeMb = model.size_mb ?? info.sizeMb;
+      return cartridgeFromLocalModel(
+        {
+          id: model.model,
+          name: info.name,
+          sizeBytes: sizeMb ? sizeMb * 1_000_000 : undefined,
+          recommended: info.recommended,
+        },
+        {
+          downloaded: model.downloaded ?? false,
+          downloading: isDownloadingModel(model.model),
+          cancelling: isCancellingModel(model.model),
+          installing: whisperDownloads[model.model]?.phase === "installing",
+          progress: whisperDownloads[model.model]?.progress,
+        }
+      );
+    });
 
-          return (
-            <LocalModelCard
-              key={modelId}
-              modelId={modelId}
-              name={info.name}
-              description={info.description}
-              size={info.size}
-              actualSizeMb={model.size_mb}
-              isSelected={modelId === selectedLocalModel}
-              isDownloaded={model.downloaded ?? false}
-              isDownloading={isDownloadingModel(modelId)}
-              isCancelling={isCancellingModel(modelId)}
-              isInstalling={whisperDownloads[modelId]?.phase === "installing"}
-              recommended={info.recommended}
-              provider="whisper"
-              onSelect={() => handleWhisperModelSelect(modelId)}
-              onDelete={() => handleDelete(modelId)}
-              onDownload={() =>
-                downloadModel(modelId, (downloadedId) => {
-                  setLocalModels((prev) =>
-                    prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
-                  );
-                  handleWhisperModelSelect(downloadedId);
-                })
-              }
-              onCancel={() => cancelDownload(modelId)}
-              styles={styles}
-            />
-          );
-        })}
-      </div>
+    return (
+      <ModelCartridgeGrid
+        label={t("cartridge.speechGroupLabel")}
+        models={cards}
+        selectedId={selectedLocalModel}
+        totalMemoryBytes={totalMemory}
+        usedBy={usedByMap(cards, routes, (id) => t(`routes.names.${id}`))}
+        onSelect={handleWhisperModelSelect}
+        onDelete={handleDelete}
+        onDownload={(modelId) =>
+          downloadModel(modelId, (downloadedId) => {
+            setLocalModels((prev) =>
+              prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
+            );
+            handleWhisperModelSelect(downloadedId);
+          })
+        }
+        onCancel={cancelDownload}
+      />
     );
   };
 
@@ -1050,51 +888,52 @@ export default function TranscriptionModelPicker({
         : parakeetModels
     ).filter((model) => getASRModelOrganization(model.model) === internalLocalProvider);
 
-    return (
-      <div className="space-y-0.5">
-        {modelsToRender.map((model) => {
-          const modelId = model.model;
-          const info = PARAKEET_MODEL_INFO[modelId] ?? {
-            name: modelId,
-            description: t("transcription.fallback.parakeetModelDescription"),
-            modelCardUrl: undefined,
-            size: t("common.unknown"),
-            language: "en",
-            recommended: false,
-          };
+    const cards = modelsToRender.map((model) => {
+      const info = PARAKEET_MODEL_INFO[model.model] ?? {
+        name: model.model,
+        modelCardUrl: undefined,
+        sizeMb: undefined,
+        recommended: false,
+      };
+      const sizeMb = model.size_mb ?? info.sizeMb;
+      return cartridgeFromLocalModel(
+        {
+          id: model.model,
+          name: info.name,
+          sizeBytes: sizeMb ? sizeMb * 1_000_000 : undefined,
+          recommended: info.recommended,
+        },
+        {
+          downloaded: model.downloaded ?? false,
+          downloading: isDownloadingParakeetModel(model.model),
+          cancelling: isCancellingParakeetModel(model.model),
+          installing: parakeetDownloads[model.model]?.phase === "installing",
+          progress: parakeetDownloads[model.model]?.progress,
+          href: info.modelCardUrl,
+          hrefLabel: info.modelCardUrl ? t("transcription.modelCard") : undefined,
+        }
+      );
+    });
 
-          return (
-            <LocalModelCard
-              key={modelId}
-              modelId={modelId}
-              name={info.name}
-              description={info.description}
-              size={info.size}
-              actualSizeMb={model.size_mb}
-              isSelected={modelId === selectedLocalModel}
-              isDownloaded={model.downloaded ?? false}
-              isDownloading={isDownloadingParakeetModel(modelId)}
-              isCancelling={isCancellingParakeetModel(modelId)}
-              isInstalling={parakeetDownloads[modelId]?.phase === "installing"}
-              recommended={info.recommended}
-              provider={getASRModelOrganization(modelId)}
-              modelCardUrl={info.modelCardUrl}
-              onSelect={() => handleParakeetModelSelect(modelId)}
-              onDelete={() => handleParakeetDelete(modelId)}
-              onDownload={() =>
-                downloadParakeetModel(modelId, (downloadedId) => {
-                  setParakeetModels((prev) =>
-                    prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
-                  );
-                  handleParakeetModelSelect(downloadedId);
-                })
-              }
-              onCancel={() => cancelParakeetDownload(modelId)}
-              styles={styles}
-            />
-          );
-        })}
-      </div>
+    return (
+      <ModelCartridgeGrid
+        label={t("cartridge.speechGroupLabel")}
+        models={cards}
+        selectedId={selectedLocalModel}
+        totalMemoryBytes={totalMemory}
+        usedBy={usedByMap(cards, routes, (id) => t(`routes.names.${id}`))}
+        onSelect={handleParakeetModelSelect}
+        onDelete={handleParakeetDelete}
+        onDownload={(modelId) =>
+          downloadParakeetModel(modelId, (downloadedId) => {
+            setParakeetModels((prev) =>
+              prev.map((m) => (m.model === downloadedId ? { ...m, downloaded: true } : m))
+            );
+            handleParakeetModelSelect(downloadedId);
+          })
+        }
+        onCancel={cancelParakeetDownload}
+      />
     );
   };
 

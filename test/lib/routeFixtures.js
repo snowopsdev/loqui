@@ -108,6 +108,7 @@ function baseSnapshot() {
       vertexAuthSource: "adc",
     },
     facts: {
+      sherpaSupported: true, // Fixture main has confirmed hardware support.
       installed: { whisper: new Set(["base"]), sherpa: new Set(), llm: new Set([QWEN]) },
       credentials: new Map(), // loaded: no credential present
       credentialFields: new Map(), // loaded: no field present

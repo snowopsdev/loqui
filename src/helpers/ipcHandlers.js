@@ -8596,6 +8596,8 @@ class IPCHandlers {
       return getCacheRoot();
     });
 
+    ipcMain.handle("get-total-memory", () => os.totalmem());
+
     ipcMain.handle("open-whisper-models-folder", async () => {
       try {
         const { getCacheRoot } = require("./modelDirUtils");

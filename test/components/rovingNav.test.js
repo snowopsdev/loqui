@@ -32,3 +32,23 @@ test("[change-driving] left and right swap in right-to-left layouts", async () =
   assert.equal(stepLinear(1, "ArrowRight", none, true), 0);
   assert.equal(stepLinear(0, "ArrowDown", none, true), 1);
 });
+
+test("change-driving: grid roving focus moves by row and swaps left/right in RTL", async () => {
+  const { stepGrid } = await load();
+  const ltr = { columns: 2, count: 5, rtl: false };
+  assert.equal(stepGrid(0, "ArrowRight", ltr), 1);
+  assert.equal(stepGrid(1, "ArrowLeft", ltr), 0);
+  assert.equal(stepGrid(0, "ArrowDown", ltr), 2);
+  assert.equal(stepGrid(3, "ArrowDown", ltr), 4, "clamps to the last card in a short final row");
+  assert.equal(stepGrid(4, "ArrowDown", ltr), 4);
+  assert.equal(stepGrid(2, "ArrowUp", ltr), 0);
+  assert.equal(stepGrid(0, "ArrowUp", ltr), 0);
+  assert.equal(stepGrid(3, "Home", ltr), 0);
+  assert.equal(stepGrid(0, "End", ltr), 4);
+  assert.equal(stepGrid(1, "Tab", ltr), 1);
+  assert.equal(stepGrid(0, "ArrowDown", { columns: 2, count: 0, rtl: false }), 0);
+  const rtl = { columns: 2, count: 5, rtl: true };
+  assert.equal(stepGrid(0, "ArrowLeft", rtl), 1, "in RTL, left moves toward the inline end");
+  assert.equal(stepGrid(1, "ArrowRight", rtl), 0);
+  assert.equal(stepGrid(0, "ArrowDown", rtl), 2, "vertical keys never flip");
+});

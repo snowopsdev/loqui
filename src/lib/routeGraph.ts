@@ -163,6 +163,8 @@ export interface RouteHealthMetadata {
 }
 
 export interface RouteFacts {
+  // Main checkParakeetInstallation.supported; absent/null is unknown, not READY.
+  sherpaSupported?: boolean | null;
   // Raw model ids per family; null = this family's inventory is not known.
   installed: {
     whisper: ReadonlySet<string> | null;
@@ -635,6 +637,8 @@ function localDestination(
   let state: RouteState = READY;
   if (!id) {
     state = { status: "needsModel" }; // a settings fact, known without main
+  } else if (family === "sherpa" && s.facts.sherpaSupported !== true) {
+    state = s.facts.sherpaSupported === false ? UNSUPPORTED : UNKNOWN;
   } else if (installed === null) {
     state = UNKNOWN;
   } else if (!installed.has(id)) {

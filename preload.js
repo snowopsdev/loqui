@@ -726,6 +726,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   pauseMediaPlayback: () => ipcRenderer.invoke("pause-media-playback"),
   resumeMediaPlayback: () => ipcRenderer.invoke("resume-media-playback"),
   getModelCacheRoot: () => ipcRenderer.invoke("get-model-cache-root"),
+  getTotalMemory: () => ipcRenderer.invoke("get-total-memory"),
   openWhisperModelsFolder: () => ipcRenderer.invoke("open-whisper-models-folder"),
   cancelUploadTranscription: (requestId) =>
     ipcRenderer.invoke("cancel-upload-transcription", requestId),

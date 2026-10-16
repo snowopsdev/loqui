@@ -4048,5 +4048,27 @@
     "unknown": "El estado de la credencial guardada no está disponible.",
     "recipientChanged": "La credencial o el destinatario cambió. Revisa el destino actualizado y pulsa Verificar de nuevo.",
     "unavailable": "La verificación no está disponible. No se pudo confirmar el estado de la credencial guardada."
+  },
+  "cartridge": {
+    "groupLabel": "Modelo de lenguaje",
+    "speechGroupLabel": "Modelo de voz",
+    "speed": "Velocidad",
+    "quality": "Calidad",
+    "memory": "Uso de memoria",
+    "meter": "{{label}}: {{value}} de 5",
+    "estimate": "Los indicadores son estimaciones según el tamaño del archivo, salvo que se hayan medido. No se sube nada.",
+    "context": "Contexto de {{k}}k",
+    "tight": "Justo para este dispositivo",
+    "tooLarge": "Demasiado grande para este dispositivo: necesita unos {{needs}} y este dispositivo tiene {{total}}",
+    "notDownloaded": "Aún no se ha descargado",
+    "download": "Descargar",
+    "downloadNamed": "Descargar {{name}}",
+    "downloading": "Descargando {{name}}",
+    "cancel": "Cancelar la descarga de {{name}}",
+    "delete": "Eliminar {{name}}",
+    "inUseBy": "En uso por",
+    "showFewer": "Mostrar menos",
+    "showAll_one": "Mostrar los {{count}}",
+    "showAll_other": "Mostrar los {{count}}"
   }
 }

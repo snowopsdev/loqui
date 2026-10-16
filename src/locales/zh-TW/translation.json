@@ -4043,5 +4043,26 @@
     "unknown": "無法取得已儲存憑證的狀態。",
     "recipientChanged": "憑證或接收方已變更。請檢查更新後的目標，再次按下「驗證」。",
     "unavailable": "目前無法驗證。無法確認已儲存憑證的狀態。"
+  },
+  "cartridge": {
+    "groupLabel": "語言模型",
+    "speechGroupLabel": "語音模型",
+    "speed": "速度",
+    "quality": "品質",
+    "memory": "記憶體用量",
+    "meter": "{{label}}：{{value}}/5",
+    "estimate": "未有實測資料時，指標依檔案大小估算。不會上傳任何內容。",
+    "context": "{{k}}k 上下文",
+    "tight": "此裝置記憶體較吃緊",
+    "tooLarge": "此模型超出裝置容量：約需 {{needs}}，此裝置有 {{total}}",
+    "notDownloaded": "尚未下載",
+    "download": "下載",
+    "downloadNamed": "下載 {{name}}",
+    "downloading": "正在下載 {{name}}",
+    "cancel": "取消下載 {{name}}",
+    "delete": "刪除 {{name}}",
+    "inUseBy": "使用此模型的工作",
+    "showFewer": "收合",
+    "showAll_other": "顯示全部 {{count}} 個"
   }
 }

@@ -4043,5 +4043,27 @@
     "unknown": "Saved credential status is unavailable.",
     "recipientChanged": "The credential or recipient changed. Review the updated target, then press Verify again.",
     "unavailable": "Verification is unavailable. The saved credential status could not be confirmed."
+  },
+  "cartridge": {
+    "groupLabel": "Language model",
+    "speechGroupLabel": "Speech model",
+    "speed": "Speed",
+    "quality": "Quality",
+    "memory": "Memory use",
+    "meter": "{{label}} {{value}} of 5",
+    "estimate": "Meters are estimates from file size unless measured. Nothing is uploaded.",
+    "context": "{{k}}k context",
+    "tight": "Tight on this device",
+    "tooLarge": "Too large for this device: needs about {{needs}}, this device has {{total}}",
+    "notDownloaded": "Not downloaded yet",
+    "download": "Download",
+    "downloadNamed": "Download {{name}}",
+    "downloading": "Downloading {{name}}",
+    "cancel": "Cancel downloading {{name}}",
+    "delete": "Delete {{name}}",
+    "inUseBy": "In use by",
+    "showAll_one": "Show all {{count}}",
+    "showAll_other": "Show all {{count}}",
+    "showFewer": "Show fewer"
   }
 }

@@ -64,11 +64,13 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   const { toasts, wrap } = await toastCapture(vite);
   const probes = createProbeRoot(t, { wrap });
 
-  const reset = (state) => {
-    useRouteDraftStore.getState().discard();
-    useSettingsStore.setState(state);
-    toasts.length = 0;
-  };
+  // Cartridges subscribe to resolved routes; reset their live stores inside act.
+  const reset = (state) =>
+    probes.act(() => {
+      useRouteDraftStore.getState().discard();
+      useSettingsStore.setState(state);
+      toasts.length = 0;
+    });
   const dictationCloud = (over = {}) => ({
     transcriptionMode: "providers",
     useLocalWhisper: false,
@@ -95,7 +97,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   await t.test(
     "change-driving: speech: a model change at the same provider applies at once",
     async () => {
-      reset(dictationCloud());
+      await reset(dictationCloud());
       const tree = await mountPicker({
         selectedCloudProvider: "openai",
         selectedCloudModel: "gpt-4o-mini-transcribe",
@@ -111,7 +113,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   await t.test(
     "change-driving: speech: changing an active remote custom endpoint is staged",
     async () => {
-      reset(
+      await reset(
         dictationCloud({
           cloudTranscriptionProvider: "custom",
           cloudTranscriptionModel: "whisper-1",
@@ -150,7 +152,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   await t.test(
     "change-driving: speech: a loopback endpoint moving to a remote host is staged",
     async () => {
-      reset(
+      await reset(
         dictationCloud({
           cloudTranscriptionProvider: "custom",
           cloudTranscriptionModel: "whisper-1",
@@ -185,7 +187,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
     "change-driving: speech: an invalid persisted provider is shown, not rewritten",
     async () => {
       const commits = [];
-      reset({
+      await reset({
         meetingCloudTranscriptionProvider: "groq",
         meetingCloudTranscriptionModel: "whisper-large-v3",
       });
@@ -221,7 +223,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
         cortiEnvironment: "us",
         cortiTenant: "base",
       });
-      reset(corti);
+      await reset(corti);
       let tree = await mountPicker({
         selectedCloudProvider: "corti",
         selectedCloudModel: "corti-transcribe",
@@ -243,7 +245,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
         patch: { cortiEnvironment: "eu" },
       });
 
-      reset(corti);
+      await reset(corti);
       tree = await mountPicker({
         selectedCloudProvider: "corti",
         selectedCloudModel: "corti-transcribe",
@@ -268,7 +270,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   await t.test(
     "change-driving: text: a model change at the same provider applies at once",
     async () => {
-      reset({
+      await reset({
         chatAgentMode: "providers",
         chatAgentProvider: "openai",
         chatAgentModel: "gpt-5.6-luna",
@@ -294,7 +296,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   await t.test(
     "text: a custom endpoint moving from loopback to a remote host is staged",
     async () => {
-      reset({
+      await reset({
         chatAgentMode: "providers",
         chatAgentProvider: "custom",
         chatAgentModel: "llama3",
@@ -328,7 +330,11 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   await t.test(
     "change-driving: text: the Local mode tab (NotesOnboarding) applies at once",
     async () => {
-      reset({ cleanupMode: "providers", cleanupProvider: "openai", cleanupModel: "gpt-5.6-luna" });
+      await reset({
+        cleanupMode: "providers",
+        cleanupProvider: "openai",
+        cleanupModel: "gpt-5.6-luna",
+      });
       const tree = await probes.mount("selector", () => {
         const commit = useRouteCommit("dictationCleanup");
         return Selector({
@@ -351,7 +357,7 @@ test("change-driving: pickers commit through the route planner (I1)", async (t) 
   await t.test(
     "self-hosted: Use this server on loopback applies at once (local → loopback)",
     async () => {
-      reset({
+      await reset({
         transcriptionMode: "local",
         useLocalWhisper: true,
         remoteTranscriptionUrl: "",
@@ -603,12 +609,12 @@ for (const provider of ["nvidia", "cohere"])
           "whisper",
           "only the browse tab leaves the disabled entry"
         );
-        const whisper = findElement(
-          tree(),
-          (node) => node.props?.modelId === "base" && typeof node.props?.onSelect === "function"
-        );
+        const grid = findElement(tree(), (node) => node.type?.name === "ModelCartridgeGrid");
+        assert.ok(grid.props.models.some((model) => model.id === "base" && model.isDownloaded));
+        const cartridge = await probes.mount("cartridge", () => grid.type(grid.props));
+        const whisper = findElement(cartridge(), (node) => node.props?.["data-model"] === "base");
         assert.ok(whisper, "Whisper remains an explicit supported choice");
-        await probes.act(() => whisper.props.onSelect());
+        await probes.act(() => whisper.props.onClick());
         await probes.settle();
         assert.equal(useSettingsStore.getState().localTranscriptionProvider, "whisper");
         assert.equal(useSettingsStore.getState().whisperModel, "base");

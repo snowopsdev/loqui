@@ -38,3 +38,34 @@ export function stepLinear(
       return index;
   }
 }
+
+// Grid navigation over `count` items laid out `columns` per row, in reading
+// order. Left and right follow the reading direction, so they swap when `rtl`
+// is true; up and down move by a row and stop at the ends rather than wrapping.
+export function stepGrid(
+  index: number,
+  key: string,
+  opts: { columns: number; count: number; rtl: boolean }
+): number {
+  const { columns, count, rtl } = opts;
+  if (count === 0) return index;
+  const last = count - 1;
+  const forward = rtl ? "ArrowLeft" : "ArrowRight";
+  const backward = rtl ? "ArrowRight" : "ArrowLeft";
+  switch (key) {
+    case forward:
+      return Math.min(last, index + 1);
+    case backward:
+      return Math.max(0, index - 1);
+    case "ArrowDown":
+      return Math.min(last, index + columns);
+    case "ArrowUp":
+      return index - columns >= 0 ? index - columns : index;
+    case "Home":
+      return 0;
+    case "End":
+      return last;
+    default:
+      return index;
+  }
+}

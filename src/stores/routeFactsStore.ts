@@ -29,11 +29,20 @@ import {
 // Per-key generations stop an older response from overwriting a newer one.
 
 export type RouteFactKey =
-  "whisper" | "sherpa" | "llm" | "speakerId" | "search" | "credentials" | "rejected" | "enterprise";
+  | "whisper"
+  | "sherpa"
+  | "sherpaCapability"
+  | "llm"
+  | "speakerId"
+  | "search"
+  | "credentials"
+  | "rejected"
+  | "enterprise";
 
 export const ROUTE_FACT_KEYS: readonly RouteFactKey[] = [
   "whisper",
   "sherpa",
+  "sherpaCapability",
   "llm",
   "speakerId",
   "search",
@@ -57,6 +66,7 @@ interface CredentialRow {
 
 export interface RouteFactsApi {
   listWhisperModels?: () => Promise<ModelListResult>;
+  checkParakeetInstallation?: () => Promise<{ supported?: boolean }>;
   listParakeetModels?: () => Promise<ModelListResult>;
   modelGetAll?: () => Promise<{ id: string; isDownloaded?: boolean }[]>;
   getDiarizationModelStatus?: () => Promise<{ modelsDownloaded?: boolean }>;
@@ -84,6 +94,7 @@ export interface RouteFactsApi {
 
 export const EMPTY_ROUTE_FACTS: RouteFacts = {
   installed: { whisper: null, sherpa: null, llm: null },
+  sherpaSupported: null,
   credentials: null,
   credentialFields: null,
   credentialUnknown: new Set(),
@@ -332,6 +343,13 @@ const LOADERS: Record<RouteFactKey, (api: RouteFactsApi) => Promise<void>> = {
       () => api.listParakeetModels?.(),
       downloadedIds,
       (f, ids) => withInstalled(f, "sherpa", ids)
+    ),
+  sherpaCapability: (api) =>
+    track(
+      "sherpaCapability",
+      () => api.checkParakeetInstallation?.(),
+      (raw) => (typeof raw?.supported === "boolean" ? raw.supported : undefined),
+      (facts, supported) => ({ ...facts, sherpaSupported: supported })
     ),
   llm: (api) =>
     track(

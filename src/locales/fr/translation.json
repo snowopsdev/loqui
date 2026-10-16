@@ -4048,5 +4048,27 @@
     "unknown": "L’état des identifiants enregistrés est indisponible.",
     "recipientChanged": "Les identifiants ou le destinataire ont changé. Examinez la destination mise à jour, puis cliquez de nouveau sur Vérifier.",
     "unavailable": "La vérification est indisponible. L’état des identifiants enregistrés n’a pas pu être confirmé."
+  },
+  "cartridge": {
+    "groupLabel": "Modèle de langage",
+    "speechGroupLabel": "Modèle vocal",
+    "speed": "Vitesse",
+    "quality": "Qualité",
+    "memory": "Mémoire utilisée",
+    "meter": "{{label}} : {{value}} sur 5",
+    "estimate": "Les indicateurs sont estimés à partir de la taille du fichier, sauf si des mesures sont disponibles. Rien n’est envoyé.",
+    "context": "Contexte de {{k}}k",
+    "tight": "À l’étroit sur cet appareil",
+    "tooLarge": "Trop volumineux pour cet appareil : nécessite environ {{needs}}, cet appareil dispose de {{total}}",
+    "notDownloaded": "Pas encore téléchargé",
+    "download": "Télécharger",
+    "downloadNamed": "Télécharger {{name}}",
+    "downloading": "Téléchargement de {{name}}",
+    "cancel": "Annuler le téléchargement de {{name}}",
+    "delete": "Supprimer {{name}}",
+    "inUseBy": "Utilisé par",
+    "showFewer": "Afficher moins",
+    "showAll_one": "Afficher les {{count}}",
+    "showAll_other": "Afficher les {{count}}"
   }
 }

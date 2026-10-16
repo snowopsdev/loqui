@@ -4043,5 +4043,26 @@
     "unknown": "无法获取已保存凭据的状态。",
     "recipientChanged": "凭据或接收方已更改。请检查更新后的目标，然后再次点击“验证”。",
     "unavailable": "验证不可用。无法确认已保存凭据的状态。"
+  },
+  "cartridge": {
+    "groupLabel": "语言模型",
+    "speechGroupLabel": "语音模型",
+    "speed": "速度",
+    "quality": "质量",
+    "memory": "内存用量",
+    "meter": "{{label}}：{{value}}/5",
+    "estimate": "未有实测数据时，指标根据文件大小估算。不会上传任何内容。",
+    "context": "{{k}}k 上下文",
+    "tight": "此设备内存较紧张",
+    "tooLarge": "此模型超出设备容量：约需 {{needs}}，此设备有 {{total}}",
+    "notDownloaded": "尚未下载",
+    "download": "下载",
+    "downloadNamed": "下载 {{name}}",
+    "downloading": "正在下载 {{name}}",
+    "cancel": "取消下载 {{name}}",
+    "delete": "删除 {{name}}",
+    "inUseBy": "使用此模型的任务",
+    "showFewer": "收起",
+    "showAll_other": "显示全部 {{count}} 个"
   }
 }

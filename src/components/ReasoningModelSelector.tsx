@@ -1,3 +1,4 @@
+import { toLocalProviders } from "../utils/localProviders";
 import type { RouteTarget } from "../lib/routePlanner";
 import type { SettingsPatch } from "../lib/providerSwitchPlans";
 import { TEXT_PROVIDER_TABS } from "./settings/routing/providerCatalog";
@@ -403,22 +404,10 @@ export default function ReasoningModelSelector({
       ? selectedMode
       : (modeTabs[0]?.id as "cloud" | "local" | undefined));
 
-  const localProviders = useMemo<LocalProvider[]>(() => {
-    return modelRegistry.getAllProviders().map((provider) => ({
-      id: provider.id,
-      name: provider.name,
-      models: provider.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        size: model.size,
-        sizeBytes: model.sizeBytes,
-        description: model.description,
-        descriptionKey: model.descriptionKey,
-        specUrl: model.hfRepo ? `https://huggingface.co/${model.hfRepo}` : undefined,
-        recommended: model.recommended,
-      })),
-    }));
-  }, []);
+  const localProviders = useMemo<LocalProvider[]>(
+    () => toLocalProviders(modelRegistry.getAllProviders()),
+    []
+  );
 
   const openaiModelOptions = useMemo<CloudModelOption[]>(() => {
     const { icon, invertInDark } = getRemoteProviderIcon("openai");

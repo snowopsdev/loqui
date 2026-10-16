@@ -14,6 +14,9 @@ export interface ModelDefinition {
   fileName: string;
   quantization: string;
   contextLength: number;
+  /** Curated 1-5 ratings; absent ratings are estimated from file size. */
+  speedTier?: number;
+  qualityTier?: number;
   hfRepo: string;
   recommended?: boolean;
   imported?: boolean;

@@ -4048,5 +4048,27 @@
     "unknown": "O estado da credencial salva não está disponível.",
     "recipientChanged": "A credencial ou o destinatário mudou. Revise o destino atualizado e pressione Verificar novamente.",
     "unavailable": "A verificação não está disponível. Não foi possível confirmar o estado da credencial salva."
+  },
+  "cartridge": {
+    "groupLabel": "Modelo de linguagem",
+    "speechGroupLabel": "Modelo de voz",
+    "speed": "Velocidade",
+    "quality": "Qualidade",
+    "memory": "Uso de memória",
+    "meter": "{{label}}: {{value}} de 5",
+    "estimate": "Os indicadores são estimativas pelo tamanho do arquivo, salvo quando há medições. Nada é enviado.",
+    "context": "Contexto de {{k}}k",
+    "tight": "Pouca folga neste dispositivo",
+    "tooLarge": "Grande demais para este dispositivo: precisa de cerca de {{needs}}, este dispositivo tem {{total}}",
+    "notDownloaded": "Ainda não baixado",
+    "download": "Baixar",
+    "downloadNamed": "Baixar {{name}}",
+    "downloading": "Baixando {{name}}",
+    "cancel": "Cancelar o download de {{name}}",
+    "delete": "Excluir {{name}}",
+    "inUseBy": "Em uso por",
+    "showFewer": "Mostrar menos",
+    "showAll_one": "Mostrar todos ({{count}})",
+    "showAll_other": "Mostrar todos ({{count}})"
   }
 }

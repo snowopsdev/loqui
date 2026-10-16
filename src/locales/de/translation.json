@@ -4043,5 +4043,27 @@
     "unknown": "Der Status der gespeicherten Zugangsdaten ist nicht verfügbar.",
     "recipientChanged": "Zugangsdaten oder Empfänger haben sich geändert. Prüfe das aktualisierte Ziel und klicke erneut auf „Prüfen“.",
     "unavailable": "Prüfung nicht verfügbar. Der Status der gespeicherten Zugangsdaten konnte nicht bestätigt werden."
+  },
+  "cartridge": {
+    "groupLabel": "Sprachmodell",
+    "speechGroupLabel": "Spracherkennungsmodell",
+    "speed": "Tempo",
+    "quality": "Qualität",
+    "memory": "Speichernutzung",
+    "meter": "{{label}}: {{value}} von 5",
+    "estimate": "Die Anzeigen sind Schätzungen anhand der Dateigröße, sofern keine Messwerte vorliegen. Es wird nichts hochgeladen.",
+    "context": "{{k}}k Kontext",
+    "tight": "Knapp auf diesem Gerät",
+    "tooLarge": "Zu groß für dieses Gerät: benötigt etwa {{needs}}, dieses Gerät hat {{total}}",
+    "notDownloaded": "Noch nicht heruntergeladen",
+    "download": "Herunterladen",
+    "downloadNamed": "{{name}} herunterladen",
+    "downloading": "{{name}} wird heruntergeladen",
+    "cancel": "Download von {{name}} abbrechen",
+    "delete": "{{name}} löschen",
+    "inUseBy": "Verwendet von",
+    "showFewer": "Weniger anzeigen",
+    "showAll_one": "Alle {{count}} anzeigen",
+    "showAll_other": "Alle {{count}} anzeigen"
   }
 }

@@ -1853,6 +1853,8 @@ declare global {
       pauseMediaPlayback?: () => Promise<boolean>;
       resumeMediaPlayback?: () => Promise<boolean>;
       getModelCacheRoot?: () => Promise<string>;
+      /** Total system memory in bytes (os.totalmem), for model-fit estimates. */
+      getTotalMemory?: () => Promise<number>;
       openWhisperModelsFolder?: () => Promise<{ success: boolean; error?: string }>;
 
       // Windows Push-to-Talk notifications

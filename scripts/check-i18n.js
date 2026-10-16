@@ -137,8 +137,14 @@ for (const namespace of NAMESPACES) {
     const flat = flatten(readJson(file));
     if (checkPlurals(lang, namespace, flat)) failed = true;
 
+    const selectedCategories = pluralProbe(lang);
     for (const key of Object.keys(baseFlat)) {
       if (!(key in flat)) {
+        const plural = key.match(PLURAL_SUFFIX);
+        // English's forms are not every locale's forms. Only absent, unused
+        // categories may be omitted; _other still detects a missing family.
+        // Present compatibility forms keep the placeholder checks below.
+        if (plural && plural[2] !== "other" && !selectedCategories.has(plural[2])) continue;
         console.error(`[i18n] Missing key ${lang}/${namespace}: ${key}`);
         failed = true;
         continue;

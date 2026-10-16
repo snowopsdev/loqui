@@ -236,7 +236,7 @@ export function InferenceModeSelector({
                   className={`h-4 w-4 shrink-0 rounded-full border-2 transition-colors duration-[var(--motion-fast)] ${
                     isChecked
                       ? "border-ring bg-ring"
-                      : "border-border-hover dark:border-border-subtle"
+                      : "border-muted-foreground dark:border-muted-foreground"
                   }`}
                 >
                   {isChecked && (

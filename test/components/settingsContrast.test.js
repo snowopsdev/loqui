@@ -1,7 +1,11 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const React = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
 const test = require("node:test");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { withI18nMock } = require("../lib/i18nTestMock");
 const { resolveTokens } = require("../helpers/harness/cssTokens");
 
 const css = fs.readFileSync(path.join(__dirname, "../..", "src/index.css"), "utf8");
@@ -110,6 +114,65 @@ test("ring, locality and status marks meet 3:1 on every composited Settings surf
         const ratio = contrastRatio(t[mark], surface);
         assert.ok(ratio >= 3, `${theme}: ${mark} on ${name} (${surface}) is ${ratio.toFixed(2)}:1`);
       }
+  }
+});
+
+test("[change-driving] rendered unchecked mode indicators meet 3:1 on rest and hover panels in both themes", async (t) => {
+  installBrowserGlobals(t);
+  const vite = await createRendererServer(
+    t,
+    withI18nMock({ cachePrefix: "loqui-unchecked-indicator-contrast-" })
+  );
+  const { InferenceModeSelector } = await vite.ssrLoadModule("/components/ui/SettingsSection.tsx");
+  const html = renderToStaticMarkup(
+    React.createElement(InferenceModeSelector, {
+      label: "Task mode",
+      modes: [
+        { id: "providers", label: "Cloud", description: "Cloud", icon: null },
+        { id: "local", label: "Local", description: "Device", icon: null },
+      ],
+      activeMode: "local",
+      onSelect() {},
+    })
+  );
+  const indicators = [...html.matchAll(/aria-hidden="true" class="([^"]*rounded-full[^"]*)"/g)].map(
+    (match) => match[1]
+  );
+  assert.equal(
+    indicators.length,
+    2,
+    "the selector rendered one checked and one unchecked indicator"
+  );
+  const uncheckedClass = indicators.find((className) =>
+    className.includes("border-muted-foreground")
+  );
+  assert.ok(uncheckedClass, "the rendered unchecked radio exposes its outline class");
+  assert.ok(
+    indicators.some((className) => className.includes("border-ring")),
+    "the checked indicator keeps its existing ring role"
+  );
+  const tokens = resolveTokens(css);
+  const { contrastRatio } = await load();
+  const themeCases = [
+    { theme: "light", tokenSet: tokens.light, roleClass: "border-muted-foreground" },
+    { theme: "dark", tokenSet: tokens.dark, roleClass: "border-muted-foreground" },
+  ];
+  assert.ok(
+    uncheckedClass.split(/\s+/).some((className) => className === "border-muted-foreground"),
+    `expected actual unchecked indicator class to use the readable control-outline role, got: ${uncheckedClass}`
+  );
+  for (const { theme, tokenSet, roleClass } of themeCases) {
+    const tokenName = roleClass.replace(/^dark:/, "").replace(/^border-/, "");
+    const color = tokenSet[`--color-${tokenName}`];
+    const composite = await surfaces(tokenSet, theme);
+    for (const surfaceName of ["panel", "hoverRow"]) {
+      const surface = composite[surfaceName];
+      const ratio = contrastRatio(color, surface);
+      assert.ok(
+        ratio >= 3,
+        `${theme}: rendered ${roleClass} on ${surfaceName} ${surface} is ${ratio.toFixed(2)}:1`
+      );
+    }
   }
 });
 

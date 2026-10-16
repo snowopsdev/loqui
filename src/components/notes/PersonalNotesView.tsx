@@ -2,7 +2,8 @@ import { registerUpdateFlush } from "../../utils/updateFlush";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
-import { Plus, Sparkles } from "../icons";
+import { Plus, Sparkles, X } from "../icons";
+import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 import { useToast } from "../ui/useToast";
 import NoteEditor from "./NoteEditor";
 import SpacesTree from "./SpacesTree";
@@ -12,6 +13,7 @@ import { DETAILED_NOTES_KEY } from "../../helpers/builtinActions";
 import { useActionProcessing } from "../../hooks/useActionProcessing";
 import { startRecordingForNote, useCreateNote } from "../../hooks/useCreateNote";
 import type { NoteMoveTarget } from "../../hooks/useNoteDragAndDrop";
+import { useNoteActionsReady } from "../../hooks/useNoteActionsReady";
 import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
 import { useActions } from "../../stores/actionStore";
 import {
@@ -75,7 +77,12 @@ import {
 } from "../../lib/noteEditorPendingSave";
 import { markIntroSeen, NOTES_STRUCTURE_INTRO, shouldShowIntro } from "../../lib/versionedIntro";
 import NotesOnboarding from "./NotesOnboarding";
-import { defaultFolderDisplayName, notesEmptyTitleKey } from "./shared";
+import {
+  defaultFolderDisplayName,
+  notesEmptyTitleKey,
+  NOTES_ACTIONS_MODEL_HINT_KEY,
+  shouldShowActionsModelHint,
+} from "./shared";
 
 function makeContentHash(content: string): string {
   return String(content.length) + "-" + content.slice(0, 50);
@@ -136,6 +143,11 @@ export default function PersonalNotesView({
   const [draft, setDraftState] = useState<NoteEditorDraft | null>(null);
   const draftRef = useRef<NoteEditorDraft | null>(null);
   const [showActionManager, setShowActionManager] = useState(false);
+  const [showActionsIntro, setShowActionsIntro] = useState(false);
+  const [modelHintDismissed, setModelHintDismissed] = useState(
+    () => localStorage.getItem(NOTES_ACTIONS_MODEL_HINT_KEY) === "true"
+  );
+
   const [showAddNotesDialog, setShowAddNotesDialog] = useState(false);
   const pendingDocumentRef = useRef<PendingDocumentSave | null>(null);
   const pendingEnhancedRef = useRef<PendingEnhancedSave | null>(null);
@@ -248,6 +260,25 @@ export default function PersonalNotesView({
 
   const effectiveModelId = noteFormatting.modelId;
   const { isComplete: isOnboardingComplete, complete: completeOnboarding } = useNotesOnboarding();
+  const noteActionsReady = useNoteActionsReady();
+
+  // The old first-run screen is now the Actions manager's first run: notes
+  // are never hidden behind it.
+  const openActions = useCallback(() => {
+    if (isOnboardingComplete) setShowActionManager(true);
+    else setShowActionsIntro(true);
+  }, [isOnboardingComplete]);
+
+  const finishActionsIntro = useCallback(() => {
+    completeOnboarding();
+    setShowActionsIntro(false);
+    setShowActionManager(true);
+  }, [completeOnboarding]);
+
+  const dismissModelHint = useCallback(() => {
+    localStorage.setItem(NOTES_ACTIONS_MODEL_HINT_KEY, "true");
+    setModelHintDismissed(true);
+  }, []);
 
   const isTreeLoading = useIsTreeLoading();
   const [structureIntroPending, setStructureIntroPending] = useState(() =>
@@ -284,8 +315,7 @@ export default function PersonalNotesView({
   }, []);
 
   // Arriving via an accepted invitation reopens the structure intro even when
-  // this device has already seen it, and even before notes onboarding is done
-  // (the dialog also renders in the onboarding branch below).
+  // this device has already seen it, and even before notes onboarding is done.
 
   // The acceptance modal starts a sync before navigating here. Once the first
   // space the invitation granted (directly or via a team) appears in the local
@@ -676,14 +706,6 @@ export default function PersonalNotesView({
     if (action) void runNoteAction(action);
   };
 
-  if (!isOnboardingComplete) {
-    return (
-      <>
-        <NotesOnboarding onComplete={completeOnboarding} />
-      </>
-    );
-  }
-
   return (
     <div className="flex h-full">
       <div
@@ -693,17 +715,44 @@ export default function PersonalNotesView({
         <div className="w-52 shrink-0 border-e border-border dark:border-white/10 flex flex-col h-full">
           <div className="px-2 pt-2 pb-1 shrink-0 space-y-0.5">
             <button
-              onClick={() => setShowActionManager(true)}
+              onClick={openActions}
               className={cn(
                 "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs",
                 "text-foreground/85 hover:text-foreground hover:bg-foreground/5",
                 "transition-colors duration-150",
-                "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               )}
             >
               <Sparkles size={14} className="shrink-0" />
               {t("notes.sidebar.actions")}
             </button>
+            {shouldShowActionsModelHint(noteActionsReady, modelHintDismissed) && (
+              <div
+                role="note"
+                className="mt-1 rounded-md border border-border/70 bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
+              >
+                <div className="flex items-start gap-1.5">
+                  <span className="flex-1">{t("notes.actionsModelHint.title")}</span>
+                  <button
+                    type="button"
+                    onClick={dismissModelHint}
+                    aria-label={t("common.close")}
+                    className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                </div>
+                {onOpenSettings && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSettings("intelligence")}
+                    className="mt-0.5 text-link hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                  >
+                    {t("notes.actionsModelHint.choose")}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <SpacesTree
@@ -759,7 +808,7 @@ export default function PersonalNotesView({
               actionPicker={
                 <ActionPicker
                   onRunAction={runNoteAction}
-                  onManageActions={() => setShowActionManager(true)}
+                  onManageActions={openActions}
                   disabled={
                     (!editorNote?.content?.trim() &&
                       !hasLiveTranscript &&
@@ -769,7 +818,6 @@ export default function PersonalNotesView({
                 />
               }
             />
-            <ActionManagerDialog open={showActionManager} onOpenChange={setShowActionManager} />
           </>
         ) : activeContext && overviewSpace ? (
           <ContainerOverview
@@ -932,6 +980,13 @@ export default function PersonalNotesView({
           onNotesAdded={handleNotesAdded}
         />
       )}
+      <ActionManagerDialog open={showActionManager} onOpenChange={setShowActionManager} />
+      <Dialog open={showActionsIntro} onOpenChange={setShowActionsIntro}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+          <DialogTitle className="sr-only">{t("notes.onboarding.actions.title")}</DialogTitle>
+          <NotesOnboarding onComplete={finishActionsIntro} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

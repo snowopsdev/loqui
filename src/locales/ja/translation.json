@@ -3108,6 +3108,10 @@
       "author": {
         "you": "自分"
       }
+    },
+    "actionsModelHint": {
+      "title": "アクションには AI モデルが必要です",
+      "choose": "モデルを選択"
     }
   },
   "dictionary": {

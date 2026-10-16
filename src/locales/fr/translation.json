@@ -3528,6 +3528,10 @@
       "author": {
         "you": "Vous"
       }
+    },
+    "actionsModelHint": {
+      "title": "Les actions nécessitent un modèle d'IA",
+      "choose": "Choisir un modèle"
     }
   },
   "dictionary": {

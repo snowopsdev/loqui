@@ -3528,6 +3528,10 @@
       "author": {
         "you": "Du"
       }
+    },
+    "actionsModelHint": {
+      "title": "Aktionen benötigen ein KI-Modell",
+      "choose": "Modell wählen"
     }
   },
   "dictionary": {

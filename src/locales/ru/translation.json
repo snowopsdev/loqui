@@ -3204,6 +3204,10 @@
       "author": {
         "you": "Вы"
       }
+    },
+    "actionsModelHint": {
+      "title": "Для действий нужна модель ИИ",
+      "choose": "Выбрать модель"
     }
   },
   "dictionary": {

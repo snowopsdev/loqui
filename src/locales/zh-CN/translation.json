@@ -3180,6 +3180,10 @@
       "author": {
         "you": "你"
       }
+    },
+    "actionsModelHint": {
+      "title": "操作需要 AI 模型",
+      "choose": "选择模型"
     }
   },
   "dictionary": {

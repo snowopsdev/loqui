@@ -1923,6 +1923,10 @@
       "author": {
         "you": "أنت"
       }
+    },
+    "actionsModelHint": {
+      "title": "تحتاج الإجراءات إلى نموذج ذكاء اصطناعي",
+      "choose": "اختر نموذجًا"
     }
   },
   "onboarding": {

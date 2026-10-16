@@ -3180,6 +3180,10 @@
       "author": {
         "you": "Você"
       }
+    },
+    "actionsModelHint": {
+      "title": "As ações precisam de um modelo de IA",
+      "choose": "Escolher um modelo"
     }
   },
   "dictionary": {

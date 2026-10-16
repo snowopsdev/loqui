@@ -12,6 +12,8 @@ const {
 } = require("../lib/rendererTestHarness");
 const { withI18nMock } = require("../lib/i18nTestMock");
 const { makeSnapshot } = require("../lib/routeFixtures");
+const { routeTestApi } = require("../lib/routeTestApi");
+const { routeBaseState, TEST_COPY } = require("../lib/routeStateFixture");
 
 const CREDENTIAL_IDS = [
   "openai",
@@ -390,21 +392,24 @@ test("patchbay", async (t) => {
   });
 
   await t.test(
-    "the board: picking where a task already runs, or picking before choosing a task, sends nothing",
+    "the board: choosing a task first gets pickTaskFirst; a current-destination pick reaches no-op admission",
     async (st) => {
-      // change-driving: usePatchbayBoard does not exist yet.
-      const { deps, calls } = makeDeps();
+      // Change-driving (I2): every compatible pick must settle its route ticket.
+      const { deps, calls, state } = makeDeps();
       const b = mountHook(st, boardModule.usePatchbayBoard, () => deps);
       await b.render();
       await pick(b, "openai");
       assert.equal(b.current().message, "patchbay.hint.pickTaskFirst");
       await selectTask(b, "uploadStt");
+      state.next = { applied: false, blocker: null, plan: plan([], "noop") };
       await pick(b, "openai");
       assert.equal(
         b.current().message,
         'patchbay.hint.already{"task":"routes.names.uploadStt","place":"patchbay.place.provider{\\"provider\\":\\"OpenAI\\"}"}'
       );
-      assert.deepEqual(calls, []);
+      assert.deepEqual(calls, [
+        { id: "uploadStt", target: { mode: "providers", provider: "openai" } },
+      ]);
     }
   );
 
@@ -421,6 +426,116 @@ test("patchbay", async (t) => {
       'patchbay.hint.already{"task":"routes.names.chat","place":"patchbay.place.device"}'
     );
   });
+
+  await t.test(
+    "mounted board no-op admission clears only its same-route draft and supersedes an older held intent",
+    async (st) => {
+      // Change-driving (I2): exercise the real board and routeDraftStore ticket/draft ownership.
+      const previousApi = globalThis.window.electronAPI;
+      st.after(() => {
+        globalThis.window.electronAPI = previousApi;
+      });
+      const testApi = routeTestApi();
+      globalThis.window.electronAPI = testApi;
+      const settings = await vite.ssrLoadModule("/stores/settingsStore.ts");
+      const facts = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
+      const sealed = await vite.ssrLoadModule("/stores/sealedStore.ts");
+      const localSnapshot = makeSnapshot();
+      const localRoutes = graph.resolveRoutes(localSnapshot);
+      const { useRouteDraftStore } = drafts;
+      settings.useSettingsStore.setState({ ...routeBaseState() });
+      sealed.useSealedStore.setState({ sealed: false, known: true });
+      await facts.refreshRouteFacts(["credentials", "enterprise"]);
+      useRouteDraftStore.getState().discard();
+
+      const request = (id, target) => drafts.requestRouteChange(id, target, TEST_COPY);
+      const actualDeps = {
+        routes: localRoutes,
+        snapshot: localSnapshot,
+        sealed: false,
+        providersFor,
+        request,
+        copy: TEST_COPY,
+        t: tr,
+      };
+      const board = mountHook(st, boardModule.usePatchbayBoard, () => actualDeps);
+      await board.render();
+      await selectTask(board, "chat");
+
+      const chatDraft = {
+        routeId: "chat",
+        kind: "target",
+        target: { mode: "providers", provider: "openai" },
+      };
+      useRouteDraftStore.getState().stage(chatDraft);
+      await pick(board, "device");
+      assert.equal(
+        useRouteDraftStore.getState().draft,
+        null,
+        "the current route's old draft is cancelled"
+      );
+      assert.equal(
+        board.current().message,
+        'patchbay.hint.already{"task":"routes.names.chat","place":"patchbay.place.device"}'
+      );
+
+      const unrelatedDraft = {
+        routeId: "translation",
+        kind: "target",
+        target: { mode: "providers", provider: "openai" },
+      };
+      useRouteDraftStore.getState().stage(unrelatedDraft);
+      await selectTask(board, "chat");
+      await pick(board, "device");
+      assert.equal(
+        useRouteDraftStore.getState().draft,
+        unrelatedDraft,
+        "a no-op for Chat must preserve a draft owned by Translation"
+      );
+
+      useRouteDraftStore.getState().discard();
+      const originalList = testApi.credentials.list;
+      st.after(() => {
+        testApi.credentials.list = originalList;
+      });
+      const held = defer();
+      let listStarted;
+      const entered = new Promise((resolve) => (listStarted = resolve));
+      globalThis.window.electronAPI.credentials.list = () => {
+        listStarted();
+        return held.promise;
+      };
+      const older = request("chat", { mode: "providers", provider: "openai" });
+      await entered;
+      await selectTask(board, "chat");
+      let newer;
+      await React.act(async () => {
+        newer = board
+          .current()
+          .pickDestination(board.current().destinations.find((dest) => dest.id === "device"));
+      });
+      let olderResult;
+      await React.act(async () => {
+        held.resolve(await originalList());
+        [olderResult] = await Promise.all([older, newer]);
+      });
+      globalThis.window.electronAPI.credentials.list = originalList;
+      assert.equal(
+        olderResult,
+        "superseded",
+        "the newer same-route no-op wins the old held request"
+      );
+      assert.equal(
+        useRouteDraftStore.getState().draft,
+        null,
+        "the older remote target cannot reappear"
+      );
+      assert.equal(
+        board.current().message,
+        'patchbay.hint.already{"task":"routes.names.chat","place":"patchbay.place.device"}'
+      );
+    }
+  );
 
   await t.test(
     "the board: a superseded request settles silently and frees the board (R2-8)",

@@ -3950,7 +3950,7 @@
       "endpointAt": "{{name}} · {{host}}",
       "addServer": "サーバーを追加する",
       "addServerHint": "次にアドレスを入力します",
-      "nothingLeaves": "何も残らない",
+      "nothingLeaves": "外部には何も送信されません",
       "yourServer": "あなた自身のサーバー",
       "unencrypted": "http、暗号化されていない",
       "hosted": "ホスト型プロバイダー",
@@ -3960,8 +3960,8 @@
       "keyUnknown": "保存されたキーを確認しています…"
     },
     "leaves": {
-      "none": "このデバイスからは何も残りません。",
-      "prefix": "このデバイスを終了します:",
+      "none": "このデバイスから外部へ送信されるものはありません。",
+      "prefix": "このデバイスから外部へ送信されるもの:",
       "item": "{{task}} → {{destination}}"
     },
     "taskCount_other": "{{count}} タスク",

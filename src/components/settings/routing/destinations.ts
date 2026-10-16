@@ -41,6 +41,24 @@ export interface CompatContext {
 export const ADD_SERVER_ID = "network:new";
 
 const NO_URLS = { speech: null, text: null } as const;
+const PROVIDER_CREDENTIAL_IDS: ReadonlySet<CredentialId> = new Set([
+  "openai",
+  "anthropic",
+  "gemini",
+  "groq",
+  "xai",
+  "mistral",
+  "openrouter",
+  "tinfoil",
+  "deepgram",
+  "assemblyai",
+  "corti:text",
+  "corti:speech",
+  "codex",
+  "bedrock",
+  "azure",
+  "vertex",
+]);
 
 function hostOf(url: string | null | undefined): string | null {
   if (!url || !url.trim()) return null;
@@ -132,7 +150,7 @@ export function buildDestinations(
     }
   }
   for (const [id, present] of snapshot.facts.credentials ?? []) {
-    if (!present) continue;
+    if (!present || !PROVIDER_CREDENTIAL_IDS.has(id as CredentialId)) continue;
     const provider = providerOfCredential(id);
     providerIds.add(provider);
     if (id === "corti:speech") credentialHostKey.set(provider, "corti");

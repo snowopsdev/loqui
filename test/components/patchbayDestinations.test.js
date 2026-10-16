@@ -104,6 +104,42 @@ test("the default board: device first, one card per host, then providers in use 
   );
 });
 
+// Change-driving (I1): production facts list 23 slots, seven of which are
+// custom endpoint credentials rather than provider identities.
+test("the complete credential-slot inventory never turns custom slots into provider cards", () => {
+  const slots = [
+    "custom:transcription",
+    "custom:dictationCleanup",
+    "custom:noteFormatting",
+    "custom:dictationTranslation",
+    "custom:dictationAgent",
+    "custom:dictationAgentVision",
+    "custom:chatIntelligence",
+    ...CREDENTIAL_IDS,
+  ];
+  assert.equal(slots.length, 23);
+  const s = makeSnapshot({ facts: { credentials: new Map(slots.map((id) => [id, true])) } });
+  const b = board(s);
+  assert.ok(
+    b.dests.some((destination) => destination.kind === "provider" && destination.id === "openai")
+  );
+  for (const id of slots.filter((id) => id.startsWith("custom:"))) {
+    assert.equal(b.byId[id], undefined, `${id} is a credential slot, not a provider destination`);
+  }
+});
+
+// Change-driving (I3): this privacy notice must say that content is not sent
+// externally; “nothing remains” describes the opposite behavior.
+test("Japanese routing privacy notices describe no external transmission", () => {
+  const ja = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "../../src/locales/ja/translation.json"), "utf8")
+  );
+  assert.match(ja.patchbay.dest.nothingLeaves, /送信/);
+  assert.match(ja.patchbay.leaves.none, /送信/);
+  assert.doesNotMatch(ja.patchbay.dest.nothingLeaves, /残ら/);
+  assert.doesNotMatch(ja.patchbay.leaves.none, /残り/);
+});
+
 // change-driving (I7): a provider card names the host its routes really reach; Corti text and speech differ.
 test("a provider card names the host its routes resolve to, or its saved slot's host", () => {
   const hosts = BASE.capabilities.providerHosts;

@@ -147,14 +147,6 @@ export function usePatchbayBoard(deps: PatchbayBoardDeps): PatchbayBoard {
         return;
       }
       const task = taskName(selected.id);
-      if (destinationKeyOf(selected) === dest.id) {
-        setMessage(
-          selected.state.status === "off"
-            ? t("patchbay.hint.off", { task })
-            : t("patchbay.hint.already", { task, place: destinationPlace(dest, t) })
-        );
-        return;
-      }
       busy.current = true;
       setUndo(null);
       try {
@@ -170,6 +162,12 @@ export function usePatchbayBoard(deps: PatchbayBoardDeps): PatchbayBoard {
         }
         if (outcome === "staged") {
           setMessage(t("patchbay.hint.staged", { task, destination: destinationLabel(dest, t) }));
+        } else if (
+          outcome.plan.kind === "noop" &&
+          selected.state.status === "off" &&
+          destinationKeyOf(selected) === dest.id
+        ) {
+          setMessage(t("patchbay.hint.off", { task }));
         } else {
           announce(selected, dest, outcome);
         }

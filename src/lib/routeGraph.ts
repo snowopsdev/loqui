@@ -125,7 +125,7 @@ export interface CredentialVerificationIdentity {
 
 export interface CredentialHealthFact extends CredentialVerificationIdentity {
   identity: CredentialId;
-  status: "unverified" | "verified" | "rejected";
+  status: "unverified" | "verified" | "rejected" | "unreachable";
 }
 
 // Historical health cannot reject a new key or a different request target/path.

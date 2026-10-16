@@ -76,6 +76,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
   };
   const describeCalls = [];
   const captured = [];
+  let verificationResult = { success: true };
   const codexCalls = [];
   const credentialListeners = new Set();
   let credentialGeneration = 1;
@@ -184,7 +185,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
         verifyConnection: async (request) => {
           assert.equal(request.recipientToken, `fixture-${mainVersion}-${credentialGeneration}`);
           captured.push(hostsFor(request.provider)[0] ?? null);
-          return { text: "hello" };
+          return verificationResult;
         },
         describeVerify: async (identity) => {
           describeCalls.push(identity);
@@ -428,6 +429,29 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
       await act(() => drafts.applyDraft(TEST_COPY));
       assert.equal(live().bedrockRegion, "us-east-1");
       assert.equal(live().chatAgentModel, "us.anthropic.claude-sonnet-4-5");
+    }
+  );
+
+  // change-driving Task11: bounded refusal is never rendered as success.
+  await t.test(
+    "Task11: recipientChanged refreshes disclosure and requires a new click",
+    async () => {
+      await reset({
+        chatAgentMode: "enterprise",
+        chatAgentProvider: "azure",
+        chatAgentModel: "deployment",
+        azureEndpoint: EAST,
+      });
+      const config = await mountEnterprise("chat", "azure", "deployment");
+      await probes.settle();
+      const before = describeCalls.length;
+      verificationResult = { success: false, errorCode: "recipientChanged" };
+      await probes.act(() => testButton(config()).props.onClick());
+      await probes.settle();
+      assert.ok(findElement(config(), (node) => node.props?.role === "alert"));
+      assert.ok(describeCalls.length > before, "refreshes for explicit re-review");
+      assert.equal(captured.length, 1, "no automatic provider retry");
+      verificationResult = { success: true };
     }
   );
 

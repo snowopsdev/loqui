@@ -832,8 +832,11 @@
         "accessKeyId": "アクセスキー ID",
         "secretAccessKey": "シークレットアクセスキー",
         "sessionToken": "セッショントークン",
-        "profile": "AWS プロファイルの認証情報"
-      }
+        "profile": "AWS プロファイルの認証情報",
+        "environmentKey": "Loqui の環境変数に設定された Vertex API キー（GOOGLE_VERTEX_API_KEY）"
+      },
+      "recipientChanged": "送信先または認証情報が変更されました。送信先を確認し、もう一度テストを押してください。",
+      "unsupportedAuthSource": "この接続テストは、静的な AWS プロファイルと、サービスアカウントまたは承認済みユーザーの ADC ファイルに対応しています。他の認証方式はここではテストできません。"
     },
     "tinfoil": {
       "modelRetiredTitle": "モデルが利用できません",
@@ -3974,5 +3977,14 @@
       "network_one": "サーバー上の{{count}}"
     },
     "taskCount_one": "{{count}} タスク"
+  },
+  "keyring": {
+    "reminder": {
+      "title": "{{provider}} のキーを更新する時期です",
+      "body": "このキーの保存から90日後に通知するよう Loqui に設定しました。設定でキーを更新してください。"
+    },
+    "fields": {
+      "environmentKey": "Loqui の環境変数に設定された API キー（GOOGLE_VERTEX_API_KEY）"
+    }
   }
 }

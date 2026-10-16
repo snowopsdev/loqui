@@ -326,4 +326,16 @@ END;
 CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes BEGIN
   INSERT INTO notes_fts(notes_fts, rowid, title, content, enhanced_content) VALUES ('delete', old.id, old.title, old.content, old.enhanced_content);
 END;
+CREATE TABLE IF NOT EXISTS provider_key_health (
+  identity TEXT PRIMARY KEY,
+  generation INTEGER,
+  config_fingerprint TEXT,
+  status TEXT NOT NULL CHECK (status IN ('unverified', 'verified', 'rejected', 'unreachable')),
+  last_verified_at INTEGER,
+  last_error_code TEXT,
+  last_error_status INTEGER,
+  reminder_due_at INTEGER,
+  reminded_at INTEGER,
+  updated_at INTEGER NOT NULL
+);
 `;

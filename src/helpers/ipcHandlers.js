@@ -23,6 +23,12 @@ const { openExternalUrl } = require("./externalUrlOpener");
 const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const { createCredentialAuthority, byokSlotId } = require("./credentialAuthority");
+const {
+  createKeyring,
+  isSealedRefusal,
+  keyringDisplayName,
+  startRotationReminders,
+} = require("./keyring");
 const { initializeVertexAuthSource } = require("./vertexAuthSourceMigration");
 const { extractAnthropicText, describeMissingAnthropicText } = require("./anthropicResponse");
 const { toPolicyFailure } = require("./policyResponseError");
@@ -353,6 +359,38 @@ class IPCHandlers {
       fs,
       broadcast: broadcastToWindows,
     });
+    this.isSealed = typeof managers.isSealed === "function" ? managers.isSealed : () => false;
+    this._enterpriseVerificationExecutor =
+      typeof managers.runEnterpriseVerification === "function"
+        ? managers.runEnterpriseVerification
+        : null;
+    this.keyring = createKeyring({
+      store: {
+        all: () => this.databaseManager.getKeyHealth(),
+        save: (row) => this.databaseManager.saveKeyHealth(row),
+        remove: (identity) => this.databaseManager.deleteKeyHealth(identity),
+      },
+      credentials: this.credentials,
+      runTest: (config, values, environment) =>
+        this._runProviderConnectionTest(config, values, environment),
+      runEnterpriseTest: (input, admit) => this._runEnterpriseVerification(input, admit),
+      broadcast: broadcastToWindows,
+      isSealed: () => this.isSealed(),
+      enterpriseConfig: () => {
+        const state = this.environmentManager.getEnterpriseRouteState();
+        return state?.current
+          ? {
+              ...state.current,
+              bedrockProfile: this.environmentManager.getBedrockProfile(),
+              azureApiVersion: this.environmentManager.getAzureApiVersion(),
+            }
+          : null;
+      },
+    });
+    this._stopKeyReminders = startRotationReminders({
+      keyring: this.keyring,
+      notify: (id) => this._notifyKeyRotation(id),
+    });
     this.vertexAuthSourceReady = new Promise((resolve) => {
       this.resolveVertexAuthSourceReady = resolve;
     });
@@ -378,6 +416,133 @@ class IPCHandlers {
         this._syncStartupEnv({}, ["WHISPER_VULKAN_DEVICE"]);
       });
     }
+  }
+
+  async _runProviderConnectionTest(config, captured = null, requestEnvironment) {
+    const stored = (field, read) => (captured ? captured[field] || "" : read());
+    config = { ...config };
+    const customSlots = {
+      dictationCleanup: "getCleanupCustomKey",
+      noteFormatting: "getNoteFormattingCustomKey",
+      dictationTranslation: "getTranslationCustomKey",
+      dictationAgent: "getDictationAgentCustomKey",
+      dictationAgentVision: "getDictationAgentVisionCustomKey",
+      chatIntelligence: "getChatAgentCustomKey",
+    };
+    const customScope = config.credentialRef?.startsWith("custom:")
+      ? config.credentialRef.slice(7)
+      : config.inferenceScope;
+    const getter =
+      config.provider === "custom"
+        ? config.scope === "transcription"
+          ? "getCustomTranscriptionKey"
+          : customSlots[customScope || "dictationCleanup"]
+        : BYOK_API_KEYS.find((k) => k.base === config.provider)?.get;
+    config.apiKey = getter ? stored("key", () => this.environmentManager[getter]()) : "";
+    if (config.clientId === "__stored__")
+      config.clientId = stored("clientId", () => this.environmentManager.getCortiClientId());
+    if (config.clientSecret === "__stored__")
+      config.clientSecret = stored("clientSecret", () =>
+        this.environmentManager.getCortiClientSecret()
+      );
+    if (config?.provider === "corti" && config?.scope === "transcription") {
+      try {
+        const clientId = String(config.clientId || "").trim();
+        const clientSecret = String(config.clientSecret || "").trim();
+        if (clientId && clientSecret) {
+          await getCortiToken(
+            {
+              environment: config.environment || "us",
+              tenant: String(config.tenant || "").trim() || "base",
+              clientId,
+              clientSecret,
+            },
+            captured ? (url, init) => net.fetch(url, { ...init, redirect: "error" }) : undefined
+          );
+        } else if (captured) {
+          throw new Error("Invalid Corti client credentials");
+        } else {
+          await this._mintStoredCortiToken({
+            environment: config.environment,
+            tenant: config.tenant,
+          });
+        }
+        return { success: true };
+      } catch (error) {
+        if (isSealedRefusal(error)) throw error;
+        // errorCode is the machine-readable field the renderer maps to i18n;
+        // the English string stays for logs/back-compat. Only a response
+        // Corti actually sent counts as a rejection (getCortiToken prefixes
+        // those); a fetch that never reached it is a network problem, and
+        // reporting it as "credentials rejected" sends the user to re-type a
+        // key that was never the issue.
+        if (error?.name === "AbortError") {
+          return {
+            success: false,
+            errorCode: "timeout",
+            error: "The connection test timed out.",
+          };
+        }
+        if (!/^(Corti authentication failed|Invalid Corti)/.test(error?.message || "")) {
+          return {
+            success: false,
+            errorCode: "network",
+            error: "The provider could not be reached.",
+          };
+        }
+        return {
+          success: false,
+          errorCode: "credentialsRejected",
+          error: "Corti rejected these credentials.",
+        };
+      }
+    }
+    return testProviderConnection(
+      config,
+      captured ? (url, init) => fetch(url, { ...init, redirect: "error" }) : undefined,
+      requestEnvironment
+    );
+  }
+
+  async _runEnterpriseVerification(input, admit) {
+    if (this._enterpriseVerificationExecutor) {
+      admit();
+      return this._enterpriseVerificationExecutor(input);
+    }
+    const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
+    const signal = AbortSignal.timeout(input.timeoutMs);
+    let onAbort;
+    const aborted = new Promise((_resolve, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      const model = await Promise.race([
+        getEnterpriseAIModel(input.provider, input.model, input.apiKey, input.enterprise),
+        aborted,
+      ]);
+      // Profile resolution may await. Timeout or changed authority cannot later
+      // resume into transport, even if the filesystem capture eventually lands.
+      signal.throwIfAborted();
+      admit();
+      return await require("ai").generateText({
+        model,
+        messages: input.messages,
+        maxOutputTokens: input.maxOutputTokens,
+        maxRetries: 0,
+        abortSignal: signal,
+      });
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  _notifyKeyRotation(identity) {
+    if (!Notification?.isSupported?.()) return;
+    new Notification({
+      title: i18nMain.t("keyring.reminder.title", { provider: keyringDisplayName(identity) }),
+      body: i18nMain.t("keyring.reminder.body"),
+    }).show();
   }
 
   // Reconstructing counters from the transcripts already on disk records exactly
@@ -1125,78 +1290,40 @@ class IPCHandlers {
       require("./selfHostedProbe").probeSelfHosted(baseUrl)
     );
 
-    ipcMain.handle("test-provider-connection", async (_event, config) => {
-      config = { ...config };
-      const customSlots = {
-        dictationCleanup: "getCleanupCustomKey",
-        noteFormatting: "getNoteFormattingCustomKey",
-        dictationTranslation: "getTranslationCustomKey",
-        dictationAgent: "getDictationAgentCustomKey",
-        dictationAgentVision: "getDictationAgentVisionCustomKey",
-        chatIntelligence: "getChatAgentCustomKey",
-      };
-      const customScope = config.credentialRef?.startsWith("custom:")
-        ? config.credentialRef.slice(7)
-        : config.inferenceScope;
-      const getter =
-        config.provider === "custom"
-          ? config.scope === "transcription"
-            ? "getCustomTranscriptionKey"
-            : customSlots[customScope || "dictationCleanup"]
-          : BYOK_API_KEYS.find((k) => k.base === config.provider)?.get;
-      config.apiKey = getter ? this.environmentManager[getter]() : "";
-      if (config.clientId === "__stored__")
-        config.clientId = this.environmentManager.getCortiClientId();
-      if (config.clientSecret === "__stored__")
-        config.clientSecret = this.environmentManager.getCortiClientSecret();
-      if (config?.provider === "corti" && config?.scope === "transcription") {
-        try {
-          const clientId = String(config.clientId || "").trim();
-          const clientSecret = String(config.clientSecret || "").trim();
-          if (clientId && clientSecret) {
-            await getCortiToken({
-              environment: config.environment || "us",
-              tenant: String(config.tenant || "").trim() || "base",
-              clientId,
-              clientSecret,
-            });
-          } else {
-            await this._mintStoredCortiToken({
-              environment: config.environment,
-              tenant: config.tenant,
-            });
-          }
-          return { success: true };
-        } catch (error) {
-          // errorCode is the machine-readable field the renderer maps to i18n;
-          // the English string stays for logs/back-compat. Only a response
-          // Corti actually sent counts as a rejection (getCortiToken prefixes
-          // those); a fetch that never reached it is a network problem, and
-          // reporting it as "credentials rejected" sends the user to re-type a
-          // key that was never the issue.
-          if (error?.name === "AbortError") {
-            return {
-              success: false,
-              errorCode: "timeout",
-              error: "The connection test timed out.",
-            };
-          }
-          if (!/^(Corti authentication failed|Invalid Corti)/.test(error?.message || "")) {
-            return {
-              success: false,
-              errorCode: "network",
-              error: "The provider could not be reached.",
-            };
-          }
-          return {
-            success: false,
-            errorCode: "credentialsRejected",
-            error: "Corti rejected these credentials.",
-          };
-        }
-      }
-      return testProviderConnection(config);
+    ipcMain.handle("test-provider-connection", (_event, config) =>
+      this._runProviderConnectionTest(config)
+    );
+    const cortiOptions = (options) => ({
+      cortiEnvironment: options?.cortiEnvironment,
+      cortiTenant: options?.cortiTenant,
     });
+    ipcMain.handle("keyring-list", (_event, options) => this.keyring.list(cortiOptions(options)));
+    ipcMain.handle("keyring-route-health", (_event, options) =>
+      this.keyring.routeHealth(cortiOptions(options))
+    );
+    ipcMain.handle("keyring-verify", (event, identity, options) =>
+      this.keyring.verify(
+        String(identity),
+        { ...cortiOptions(options), recipientToken: options?.recipientToken },
+        event.sender
+      )
+    );
+    ipcMain.handle("keyring-describe-verify", (event, identity, options) =>
+      this.keyring.describeVerify(
+        String(identity),
+        { ...cortiOptions(options), model: options?.model },
+        event.sender
+      )
+    );
+    ipcMain.handle("keyring-verify-connection", (event, input) =>
+      this.keyring.verifyConnection(
+        { provider: input?.provider, model: input?.model, recipientToken: input?.recipientToken },
+        event.sender
+      )
+    );
+    ipcMain.handle("keyring-set-reminder", (_event, identity, enabled) =>
+      this.keyring.setReminder(String(identity), enabled === true)
+    );
 
     ipcMain.handle("window-minimize", () => {
       if (this.windowManager.controlPanelWindow) {

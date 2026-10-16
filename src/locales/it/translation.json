@@ -832,8 +832,11 @@
         "accessKeyId": "il tuo ID della chiave di accesso",
         "secretAccessKey": "la tua chiave di accesso segreta",
         "sessionToken": "il tuo token di sessione",
-        "profile": "le credenziali del tuo profilo AWS"
-      }
+        "profile": "le credenziali del tuo profilo AWS",
+        "environmentKey": "la chiave API Vertex impostata nell’ambiente di Loqui (GOOGLE_VERTEX_API_KEY)"
+      },
+      "recipientChanged": "La destinazione o le credenziali sono cambiate. Controlla la destinazione e premi di nuovo Prova.",
+      "unsupportedAuthSource": "Questo test di connessione supporta profili AWS statici e file ADC per account di servizio o utenti autorizzati. Le altre fonti di autenticazione non possono essere verificate qui."
     },
     "tinfoil": {
       "modelRetiredTitle": "Modello non più disponibile",
@@ -3978,6 +3981,15 @@
       "network_one": "{{count}} sul tuo server",
       "network_many": "{{count}} sul tuo server",
       "network_other": "{{count}} sul tuo server"
+    }
+  },
+  "keyring": {
+    "reminder": {
+      "title": "È ora di rinnovare la chiave {{provider}}",
+      "body": "Hai chiesto a Loqui di ricordartelo 90 giorni dopo il salvataggio di questa chiave. Sostituiscila nelle Impostazioni."
+    },
+    "fields": {
+      "environmentKey": "Chiave API dall’ambiente di Loqui (GOOGLE_VERTEX_API_KEY)"
     }
   }
 }

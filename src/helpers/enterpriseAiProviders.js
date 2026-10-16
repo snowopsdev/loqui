@@ -8,6 +8,10 @@
 // app startup doesn't eager-load ~100 MB of AWS/Azure/Google SDKs for users
 // who never select an enterprise provider.
 
+// Explicit verification never follows a credential-bearing redirect. General
+// model construction keeps the existing SDK transport defaults.
+const verificationFetch = (input, init) => fetch(input, { ...init, redirect: "error" });
+
 async function getEnterpriseAIModel(provider, model, apiKey, enterprise) {
   switch (provider) {
     case "bedrock":
@@ -29,17 +33,54 @@ async function createBedrockModel(model, enterprise) {
     : enterprise?.bedrockAccessKeyId || enterprise?.bedrockSecretAccessKey
       ? "static credentials"
       : null;
-  const credentials = enterprise?.bedrockProfile
-    ? await require("@aws-sdk/credential-providers").fromNodeProviderChain({
-        profile: enterprise.bedrockProfile,
-      })()
-    : explicitCredentialSource
-      ? {
-          accessKeyId: enterprise.bedrockAccessKeyId,
-          secretAccessKey: enterprise.bedrockSecretAccessKey,
-          sessionToken: enterprise.bedrockSessionToken,
-        }
-      : null;
+  let credentials;
+  if (enterprise?.bedrockProfile && enterprise.frozenCredentials) {
+    // Explicit Test supports a static selected profile only. Parse once: a
+    // precheck followed by fromIni would re-read mutable profile/source data.
+    const profiles = await require("@smithy/core/config").parseKnownFiles({
+      filepath: enterprise.bedrockCredentialsFile,
+      configFilepath: enterprise.bedrockConfigFile,
+      ignoreCache: true,
+    });
+    const profile = profiles[enterprise.bedrockProfile];
+    const allowed = new Set([
+      "aws_access_key_id",
+      "aws_secret_access_key",
+      "aws_session_token",
+      "region",
+      "output",
+    ]);
+    if (
+      !profile ||
+      Object.keys(profile).some((key) => !allowed.has(key)) ||
+      !profile.aws_access_key_id ||
+      !profile.aws_secret_access_key
+    ) {
+      throw Object.assign(
+        new Error(
+          "This profile authentication source cannot be tested with a captured configuration."
+        ),
+        { code: "UNSUPPORTED_AUTH_SOURCE" }
+      );
+    }
+    credentials = {
+      accessKeyId: profile.aws_access_key_id,
+      secretAccessKey: profile.aws_secret_access_key,
+      sessionToken: profile.aws_session_token,
+    };
+  } else {
+    credentials = enterprise?.bedrockProfile
+      ? await require("@aws-sdk/credential-providers").fromNodeProviderChain({
+          profile: enterprise.bedrockProfile,
+        })()
+      : explicitCredentialSource
+        ? {
+            accessKeyId: enterprise.bedrockAccessKeyId,
+            secretAccessKey: enterprise.bedrockSecretAccessKey,
+            sessionToken: enterprise.bedrockSessionToken,
+          }
+        : null;
+  }
 
   if (
     explicitCredentialSource &&
@@ -58,6 +99,15 @@ async function createBedrockModel(model, enterprise) {
 
   return createAmazonBedrock({
     region,
+    ...(enterprise?.frozenCredentials
+      ? {
+          baseURL: enterprise.bedrockBaseURL,
+          apiKey: "",
+          accessKeyId: "",
+          secretAccessKey: "",
+          fetch: verificationFetch,
+        }
+      : {}),
     ...(credentials
       ? {
           accessKeyId: credentials.accessKeyId,
@@ -79,23 +129,121 @@ function createAzureModel(model, apiKey, enterprise) {
     apiKey,
     baseURL: enterprise.azureEndpoint,
     apiVersion: enterprise.azureApiVersion || "2024-10-21",
+    ...(enterprise.frozenCredentials ? { fetch: verificationFetch } : {}),
   })(model);
 }
 
-function createVertexModel(model, apiKey, enterprise) {
+async function createVertexModel(model, apiKey, enterprise) {
   const { createVertex } = require("@ai-sdk/google-vertex");
   if (enterprise?.vertexAuthSource === "apiKey") {
-    const effectiveKey = apiKey || process.env.GOOGLE_VERTEX_API_KEY || "";
+    const effectiveKey = enterprise.frozenCredentials
+      ? apiKey
+      : apiKey || process.env.GOOGLE_VERTEX_API_KEY || "";
     if (!effectiveKey) throw new Error("Configure a Vertex API key in Settings.");
     // Main's committed stored key wins over the supported legacy fallback.
-    return createVertex({ apiKey: effectiveKey })(model);
+    return createVertex({
+      apiKey: effectiveKey,
+      ...(enterprise.frozenCredentials ? { fetch: verificationFetch } : {}),
+    })(model);
   }
   if (enterprise?.vertexAuthSource === "adc") {
     // Explicit empty suppresses the SDK's ambient GOOGLE_VERTEX_API_KEY fallback.
+    let googleAuthOptions;
+    if (enterprise.frozenCredentials) {
+      const unsupported = () =>
+        Object.assign(
+          new Error("This ADC source cannot be tested with a captured configuration."),
+          { code: "UNSUPPORTED_AUTH_SOURCE" }
+        );
+      let input;
+      try {
+        if (!enterprise.vertexAdcFile) throw unsupported();
+        const raw = await require("node:fs/promises").readFile(enterprise.vertexAdcFile, "utf8");
+        if (raw.length > 131072) throw unsupported();
+        input = JSON.parse(raw);
+      } catch {
+        throw unsupported();
+      }
+      const service = input?.type === "service_account";
+      const user = input?.type === "authorized_user";
+      const allowed = new Set(
+        service
+          ? [
+              "type",
+              "project_id",
+              "private_key_id",
+              "private_key",
+              "client_email",
+              "client_id",
+              "auth_uri",
+              "token_uri",
+              "auth_provider_x509_cert_url",
+              "client_x509_cert_url",
+              "universe_domain",
+            ]
+          : [
+              "type",
+              "client_id",
+              "client_secret",
+              "refresh_token",
+              "quota_project_id",
+              "account",
+              "universe_domain",
+            ]
+      );
+      const required = service
+        ? ["private_key", "client_email"]
+        : ["client_id", "client_secret", "refresh_token"];
+      if (
+        (!service && !user) ||
+        Object.keys(input).some((key) => !allowed.has(key)) ||
+        required.some((key) => typeof input[key] !== "string" || !input[key]) ||
+        (input.universe_domain && input.universe_domain !== "googleapis.com") ||
+        (input.token_uri &&
+          ![
+            "https://oauth2.googleapis.com/token",
+            "https://accounts.google.com/o/oauth2/token",
+          ].includes(input.token_uri))
+      )
+        throw unsupported();
+      const credentials = service
+        ? {
+            type: input.type,
+            private_key: input.private_key,
+            client_email: input.client_email,
+            private_key_id: input.private_key_id,
+            project_id: input.project_id,
+          }
+        : {
+            type: input.type,
+            client_id: input.client_id,
+            client_secret: input.client_secret,
+            refresh_token: input.refresh_token,
+          };
+      const { GoogleAuth } = require("google-auth-library");
+      const auth = new GoogleAuth({
+        credentials,
+        projectId: enterprise.vertexProject,
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+        clientOptions: {
+          transporterOptions: {
+            fetchImplementation: verificationFetch,
+            maxRedirects: 0,
+            timeout: 12000,
+          },
+        },
+      });
+      const token = await auth.getAccessToken();
+      if (typeof token !== "string" || !token) throw unsupported();
+      // The SDK creates GoogleAuth lazily. Its supplied cached authClient can
+      // only return this token, so it cannot reload ADC, environment or metadata.
+      googleAuthOptions = { authClient: { getAccessToken: async () => ({ token }) } };
+    }
     return createVertex({
       apiKey: "",
       project: enterprise.vertexProject,
       location: enterprise.vertexLocation || "us-central1",
+      ...(googleAuthOptions ? { googleAuthOptions, fetch: verificationFetch } : {}),
     })(model);
   }
   throw new Error("Choose a supported Vertex authentication source.");

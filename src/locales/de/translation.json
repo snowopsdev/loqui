@@ -832,8 +832,11 @@
         "accessKeyId": "Ihre Zugriffsschlüssel-ID",
         "secretAccessKey": "Ihren geheimen Zugriffsschlüssel",
         "sessionToken": "Ihr Sitzungstoken",
-        "profile": "die Anmeldedaten Ihres AWS-Profils"
-      }
+        "profile": "die Anmeldedaten Ihres AWS-Profils",
+        "environmentKey": "den in der Loqui-Umgebung gesetzten Vertex-API-Schlüssel (GOOGLE_VERTEX_API_KEY)"
+      },
+      "recipientChanged": "Das Ziel oder die Zugangsdaten haben sich geändert. Prüfe das Ziel und klicke erneut auf Testen.",
+      "unsupportedAuthSource": "Dieser Verbindungstest unterstützt statische AWS-Profile und ADC-Dateien für Dienstkonten oder autorisierte Nutzer. Andere Anmeldequellen können hier nicht getestet werden."
     },
     "tinfoil": {
       "modelRetiredTitle": "Modell nicht mehr verfügbar",
@@ -3973,6 +3976,15 @@
       "headline_other": "{{count}} von {{total}} Aufgaben bleiben auf diesem Gerät",
       "network_one": "{{count}} auf Ihrem Server",
       "network_other": "{{count}} auf Ihrem Server"
+    }
+  },
+  "keyring": {
+    "reminder": {
+      "title": "Zeit, deinen {{provider}}-Schlüssel zu erneuern",
+      "body": "Du hast Loqui gebeten, dich 90 Tage nach dem Speichern dieses Schlüssels zu erinnern. Ersetze ihn in den Einstellungen."
+    },
+    "fields": {
+      "environmentKey": "API-Schlüssel aus der Loqui-Umgebung (GOOGLE_VERTEX_API_KEY)"
     }
   }
 }

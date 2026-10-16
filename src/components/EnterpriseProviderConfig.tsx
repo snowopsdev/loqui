@@ -258,6 +258,7 @@ export default function EnterpriseProviderConfig({
   useEffect(() => {
     if (!testConnection) return;
     let current = true;
+    setConnected(false);
     setTarget(null);
     const describe = window.electronAPI?.keyring?.describeVerify;
     if (!describe) return;
@@ -275,13 +276,22 @@ export default function EnterpriseProviderConfig({
   }, [provider, committed, credentialEvents, testConnection, reasoningModel]);
 
   const host = target?.hosts[0] ?? null;
+  const testIdentity = JSON.stringify([
+    provider,
+    committed,
+    reasoningModel,
+    target?.recipientToken,
+  ]);
+  const currentTestIdentity = useRef(testIdentity);
+  currentTestIdentity.current = testIdentity;
   const testConnectionNow = async () => {
+    const owner = testIdentity;
     setBusy(true);
     setError("");
     setConnected(false);
     try {
       if (!target?.recipientToken || !window.electronAPI.keyring?.verifyConnection) return;
-      await window.electronAPI.keyring.verifyConnection({
+      const result = await window.electronAPI.keyring.verifyConnection({
         recipientToken: target.recipientToken,
         requestId: crypto.randomUUID(),
         provider,
@@ -292,9 +302,26 @@ export default function EnterpriseProviderConfig({
         maxTokens: 32,
         timeoutMs: 30000,
       });
-      setConnected(true);
-    } catch (error) {
-      setError((error as Error).message);
+      if (currentTestIdentity.current !== owner) return;
+      if (result?.success === true) setConnected(true);
+      else {
+        const code = result?.errorCode;
+        setError(
+          code === "recipientChanged" || code === "unsupportedAuthSource"
+            ? t(`reasoning.enterprise.${code}`)
+            : code === "sealed"
+              ? t("routes.state.sealed")
+              : ["timeout", "credentialsRejected", "network"].includes(code || "")
+                ? t(`onboarding.rehaul.provider.errors.${code}`)
+                : t("reasoning.enterprise.testFailed")
+        );
+        if (code === "recipientChanged") {
+          setTarget(null);
+          setCredentialEvents((n) => n + 1);
+        }
+      }
+    } catch {
+      if (currentTestIdentity.current === owner) setError(t("reasoning.enterprise.testFailed"));
     } finally {
       setBusy(false);
     }

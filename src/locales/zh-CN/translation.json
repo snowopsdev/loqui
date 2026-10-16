@@ -832,8 +832,11 @@
         "accessKeyId": "访问密钥 ID",
         "secretAccessKey": "私有访问密钥",
         "sessionToken": "会话令牌",
-        "profile": "AWS 配置文件的凭据"
-      }
+        "profile": "AWS 配置文件的凭据",
+        "environmentKey": "Loqui 环境变量中设置的 Vertex API 密钥（GOOGLE_VERTEX_API_KEY）"
+      },
+      "recipientChanged": "目标或凭据已更改。请检查目标，然后再次点击测试。",
+      "unsupportedAuthSource": "此连接测试支持静态 AWS 配置文件，以及服务账号或已授权用户的 ADC 文件。此处无法测试其他身份验证来源。"
     },
     "tinfoil": {
       "modelRetiredTitle": "模型已不可用",
@@ -3974,5 +3977,14 @@
       "network_one": "{{count}} 在您的服务器上"
     },
     "taskCount_one": "{{count}} 任务"
+  },
+  "keyring": {
+    "reminder": {
+      "title": "该更换 {{provider}} 密钥了",
+      "body": "你已要求 Loqui 在保存此密钥 90 天后提醒你。请在设置中更换密钥。"
+    },
+    "fields": {
+      "environmentKey": "来自 Loqui 环境变量的 API 密钥（GOOGLE_VERTEX_API_KEY）"
+    }
   }
 }

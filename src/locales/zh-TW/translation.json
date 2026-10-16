@@ -832,8 +832,11 @@
         "accessKeyId": "存取金鑰 ID",
         "secretAccessKey": "私密存取金鑰",
         "sessionToken": "工作階段權杖",
-        "profile": "AWS 設定檔的憑證"
-      }
+        "profile": "AWS 設定檔的憑證",
+        "environmentKey": "Loqui 環境變數中設定的 Vertex API 金鑰（GOOGLE_VERTEX_API_KEY）"
+      },
+      "recipientChanged": "目標或憑證已變更。請檢查目標，然後再次點選測試。",
+      "unsupportedAuthSource": "此連線測試支援靜態 AWS 設定檔，以及服務帳戶或已授權使用者的 ADC 檔案。此處無法測試其他驗證來源。"
     },
     "tinfoil": {
       "modelRetiredTitle": "模型已無法使用",
@@ -3974,5 +3977,14 @@
       "network_one": "{{count}} 在您的伺服器上"
     },
     "taskCount_one": "{{count}} 任務"
+  },
+  "keyring": {
+    "reminder": {
+      "title": "該更換 {{provider}} 金鑰了",
+      "body": "你已要求 Loqui 在儲存此金鑰 90 天後提醒你。請在設定中更換金鑰。"
+    },
+    "fields": {
+      "environmentKey": "來自 Loqui 環境變數的 API 金鑰（GOOGLE_VERTEX_API_KEY）"
+    }
   }
 }

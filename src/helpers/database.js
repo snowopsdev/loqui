@@ -1511,6 +1511,31 @@ class DatabaseManager {
     }
   }
 
+  getKeyHealth() {
+    return this.db.prepare("SELECT * FROM provider_key_health ORDER BY identity").all();
+  }
+
+  saveKeyHealth(row) {
+    this.db
+      .prepare(
+        `INSERT INTO provider_key_health
+      (identity, generation, config_fingerprint, status, last_verified_at, last_error_code,
+       last_error_status, reminder_due_at, reminded_at, updated_at)
+      VALUES (@identity, @generation, @config_fingerprint, @status, @last_verified_at, @last_error_code,
+       @last_error_status, @reminder_due_at, @reminded_at, @updated_at)
+      ON CONFLICT(identity) DO UPDATE SET
+       generation=excluded.generation, config_fingerprint=excluded.config_fingerprint,
+       status=excluded.status, last_verified_at=excluded.last_verified_at,
+       last_error_code=excluded.last_error_code, last_error_status=excluded.last_error_status,
+       reminder_due_at=excluded.reminder_due_at, reminded_at=excluded.reminded_at, updated_at=excluded.updated_at`
+      )
+      .run({ generation: null, config_fingerprint: null, ...row });
+  }
+
+  deleteKeyHealth(identity) {
+    this.db.prepare("DELETE FROM provider_key_health WHERE identity = ?").run(identity);
+  }
+
   createAction(name, description, prompt, icon = "sparkles") {
     try {
       if (!this.db) throw new Error("Database not initialized");

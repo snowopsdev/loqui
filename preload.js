@@ -98,6 +98,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () => ipcRenderer.removeListener("personal-inference:event", listener);
     },
   },
+  keyring: {
+    list: (options) => ipcRenderer.invoke("keyring-list", options),
+    routeHealth: (options) => ipcRenderer.invoke("keyring-route-health", options),
+    describeVerify: (identity, options) =>
+      ipcRenderer.invoke("keyring-describe-verify", identity, options),
+    verify: (identity, options) => ipcRenderer.invoke("keyring-verify", identity, options),
+    verifyConnection: (input) => ipcRenderer.invoke("keyring-verify-connection", input),
+    setReminder: (identity, enabled) =>
+      ipcRenderer.invoke("keyring-set-reminder", identity, enabled),
+    onChanged: registerListener("keyring-changed", (cb) => (_event, change) => cb(change)),
+  },
   credentials: {
     list: () => ipcRenderer.invoke("credentials-list"),
     save: (id, field, value) => ipcRenderer.invoke("credentials-save", id, field, value),

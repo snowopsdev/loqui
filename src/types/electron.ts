@@ -732,6 +732,83 @@ export interface OnboardingDemoEvent {
   level?: number;
 }
 
+export type KeyringIdentity =
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "groq"
+  | "xai"
+  | "mistral"
+  | "openrouter"
+  | "tinfoil"
+  | "deepgram"
+  | "assemblyai"
+  | "corti:text"
+  | "corti:speech";
+export type CredentialIdentity = KeyringIdentity | "bedrock" | "azure" | "vertex";
+export type KeyHealthStatus = "unverified" | "verified" | "rejected" | "unreachable";
+export interface KeyringEntry {
+  id: KeyringIdentity;
+  providerId: string;
+  status: KeyHealthStatus;
+  lastVerifiedAt: number | null;
+  lastErrorCode: string | null;
+  lastErrorStatus: number | null;
+  reminderDueAt: number | null;
+  unknown?: boolean;
+}
+export type KeyringVerifyOutcome =
+  | "recorded"
+  | "superseded"
+  | "missing"
+  | "sealed"
+  | "invalidOptions"
+  | "recipientChanged"
+  | "unavailable";
+export interface KeyringVerifyResult {
+  outcome: KeyringVerifyOutcome;
+  entry: KeyringEntry | null;
+}
+export interface KeyringVerifyOptions {
+  cortiEnvironment?: string;
+  cortiTenant?: string;
+  /** The displayed main-issued token, captured with the immutable options before save waits. */
+  recipientToken?: string;
+}
+export interface KeyringConnectionResult {
+  success: boolean;
+  errorCode?:
+    | "recipientChanged"
+    | "unavailable"
+    | "sealed"
+    | "invalidOptions"
+    | "timeout"
+    | "credentialsRejected"
+    | "network"
+    | "unsupportedAuthSource";
+  status?: number;
+}
+export interface KeyringAPI {
+  /** Pass the current Corti options; unmatched history is unverified, uncertainty has unknown:true. */
+  list(options?: import("../lib/routeGraph").RouteVerificationOptions): Promise<KeyringEntry[]>;
+  routeHealth(
+    options?: import("../lib/routeGraph").RouteVerificationOptions
+  ): Promise<import("../lib/routeGraph").RouteHealthMetadata>;
+  describeVerify(
+    identity: CredentialIdentity,
+    options?: { cortiEnvironment?: string; cortiTenant?: string; model?: string }
+  ): Promise<VerifyTargetDescription>;
+  /** Missing/stale token refuses as recipientChanged; refresh disclosure and require a fresh click. */
+  verify(identity: KeyringIdentity, options?: KeyringVerifyOptions): Promise<KeyringVerifyResult>;
+  verifyConnection(
+    request: import("../services/ai/personalInferenceTypes").TextRequest & {
+      recipientToken: string;
+    }
+  ): Promise<KeyringConnectionResult>;
+  setReminder(identity: KeyringIdentity, enabled: boolean): Promise<KeyringEntry | null>;
+  onChanged(callback: (change: { id: KeyringIdentity }) => void): () => void;
+}
+
 export interface VerifyTargetDescription {
   hosts: string[];
   fields: string[];
@@ -752,24 +829,7 @@ declare global {
 
       updates: import("./updates").UpdatesAPI;
       personalInference: import("../services/ai/personalInferenceTypes").PersonalInferenceAPI;
-      // Task11 extends this namespace. routeHealth is a local metadata read;
-      // it must never verify/discover or return secret fingerprints/values.
-      keyring?: {
-        describeVerify(
-          identity: "bedrock" | "azure" | "vertex",
-          options?: { model: string }
-        ): Promise<VerifyTargetDescription>;
-        verifyConnection?: (
-          request: import("../services/ai/personalInferenceTypes").TextRequest & {
-            recipientToken: string;
-          }
-        ) => Promise<unknown>;
-        list?: () => Promise<{ id: import("../lib/routeGraph").CredentialId; status: string }[]>;
-        routeHealth?: (
-          options?: import("../lib/routeGraph").RouteVerificationOptions
-        ) => Promise<import("../lib/routeGraph").RouteHealthMetadata>;
-        onChanged?: (callback: () => void) => (() => void) | void;
-      };
+      keyring: KeyringAPI;
       credentials: CredentialsAPI;
       modelImportGguf: () => Promise<{
         success: boolean;

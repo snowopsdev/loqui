@@ -1,3 +1,4 @@
+import { normalizeRouteVerificationOptions } from "../helpers/routeVerificationOptions.mjs";
 import type { NoteItem, SpaceItem, TranscriptionItem } from "../types/electron";
 import type { PersonalInferenceAPI } from "../services/ai/personalInferenceTypes";
 import type { UpdateStatus } from "../types/updates";
@@ -173,6 +174,19 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
     textToolResult: unavailable,
     onTextEvent: unsubscribe,
   };
+  const keyring: Window["electronAPI"]["keyring"] = {
+    list: async () => [],
+    routeHealth: async (options) => ({
+      options: normalizeRouteVerificationOptions(options),
+      current: [],
+      health: [],
+    }),
+    verify: unavailable,
+    describeVerify: async () => ({ hosts: [], fields: [] }),
+    verifyConnection: unavailable,
+    setReminder: unavailable,
+    onChanged: unsubscribe,
+  };
   const credentials: Window["electronAPI"]["credentials"] = {
     list: async () => [],
     save: async () => ({ ok: false, error: "unsupported" }),
@@ -199,6 +213,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
       return { success: true, current: enterpriseCurrent, version: enterpriseVersion };
     },
     credentials,
+    keyring,
     updates: {
       status: async () => ({ ...updateStatus }),
       preferences: async (patch) => {

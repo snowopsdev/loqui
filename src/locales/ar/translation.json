@@ -477,8 +477,11 @@
         "accessKeyId": "معرّف مفتاح الوصول",
         "secretAccessKey": "مفتاح الوصول السري",
         "sessionToken": "رمز الجلسة",
-        "profile": "بيانات اعتماد ملف AWS الشخصي"
-      }
+        "profile": "بيانات اعتماد ملف AWS الشخصي",
+        "environmentKey": "مفتاح Vertex API المحدد في بيئة Loqui ‏(GOOGLE_VERTEX_API_KEY)"
+      },
+      "recipientChanged": "تغيّرت الوجهة أو بيانات الاعتماد. راجع الوجهة واضغط على اختبار مرة أخرى.",
+      "unsupportedAuthSource": "يدعم اختبار الاتصال ملفات تعريف AWS الثابتة وملفات ADC لحسابات الخدمة أو المستخدمين المعتمدين. لا يمكن اختبار مصادر المصادقة الأخرى هنا."
     },
     "tinfoil": {
       "modelRetiredTitle": "النموذج لم يعد متاحًا",
@@ -4093,6 +4096,15 @@
       "network_few": "{{count}} على الخادم الخاص بك",
       "network_many": "{{count}} على الخادم الخاص بك",
       "network_other": "{{count}} على الخادم الخاص بك"
+    }
+  },
+  "keyring": {
+    "reminder": {
+      "title": "حان وقت تغيير مفتاح {{provider}}",
+      "body": "طلبت من Loqui تذكيرك بعد 90 يومًا من حفظ هذا المفتاح. استبدله في الإعدادات."
+    },
+    "fields": {
+      "environmentKey": "مفتاح API من بيئة Loqui ‏(GOOGLE_VERTEX_API_KEY)"
     }
   }
 }

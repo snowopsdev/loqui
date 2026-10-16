@@ -563,7 +563,9 @@ export function useChatStreaming({
 
         const finalMsg = requestMessages.find((m) => m.id === assistantId);
         await completeRequest?.(assistantId, fullContent, finalMsg?.toolCalls);
-        if (hasDeliverableContent) {
+        // Persistence may yield while Stop or unmount cancels this request.
+        // Its saved reply stays in history, but cancelled work must never deliver.
+        if (hasDeliverableContent && !cancelled() && mountedRef.current) {
           await options?.onComplete?.({
             assistantId,
             content: fullContent,

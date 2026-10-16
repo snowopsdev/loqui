@@ -404,3 +404,154 @@ for (const finish of ["complete", "unmount"]) {
     assert.deepEqual(persistence.messages, visibleB);
   });
 }
+
+for (const interruption of ["stop", "unmount", "none"]) {
+  for (const deliveryMode of ["paste", "clipboard"]) {
+    test(`${interruption} during assistant persistence ${interruption === "none" ? "allows" : "suppresses"} ${deliveryMode} delivery`, async (t) => {
+      let root;
+      let service;
+      t.after(async () => {
+        if (root) await React.act(async () => root.unmount());
+        service?.destroy();
+      });
+      t.mock.method(console, "log", (message) =>
+        assert.match(String(message), /Repaired transcription routing/)
+      );
+      const assistantWrite = deferred();
+      const assistantWriteStarted = deferred();
+      const saved = [];
+      const delivered = [];
+      let listener;
+      installBrowserGlobals(t, {
+        window: {
+          electronAPI: {
+            async addAgentMessage(id, role, content) {
+              if (role === "assistant") {
+                assistantWriteStarted.resolve();
+                await assistantWrite.promise;
+              }
+              saved.push({ id, role, content });
+              return { ...row(content), conversation_id: id, role };
+            },
+            async pasteAtCapturedTarget(sessionId, text) {
+              delivered.push({ mode: "paste", sessionId, text });
+              return { success: true };
+            },
+            async writeClipboard(text) {
+              delivered.push({ mode: "clipboard", text });
+              return { success: true };
+            },
+            personalInference: {
+              onTextEvent(fn) {
+                listener = fn;
+                return () => {};
+              },
+              async textStream(request) {
+                listener({
+                  requestId: request.requestId,
+                  type: "chunk",
+                  chunk: { type: "content", text: "saved reply" },
+                });
+                listener({ requestId: request.requestId, type: "end" });
+              },
+              async textCancel() {},
+            },
+          },
+        },
+      });
+      installHookDom(t);
+      const tree = installTree();
+      const vite = await createRendererServer(
+        t,
+        rendererOptions("loqui-chat-persistence-delivery-")
+      );
+      const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+      const { useChatStreaming } = await vite.ssrLoadModule("/components/chat/useChatStreaming.ts");
+      const { useChatPersistence } = await vite.ssrLoadModule(
+        "/components/chat/useChatPersistence.ts"
+      );
+      const { useChatMessageSender } = await vite.ssrLoadModule(
+        "/components/chat/useChatMessageSender.ts"
+      );
+      const { deliverAssistantResponse } = await vite.ssrLoadModule(
+        "/helpers/assistantResponseDelivery.ts"
+      );
+      service = (await vite.ssrLoadModule("/services/ReasoningService.ts")).default;
+      useSettingsStore.setState({
+        dictationAgentMode: "providers",
+        dictationAgentProvider: "custom",
+        dictationAgentModel: "model-a",
+        dictationAgentCloudBaseUrl: "https://a.invalid/v1",
+      });
+      let send;
+      let cancel;
+      function Harness() {
+        const persistence = useChatPersistence({ conversationId: 7 });
+        const streaming = useChatStreaming({
+          conversationId: persistence.conversationId,
+          messages: persistence.messages,
+          setMessages: persistence.setMessages,
+          inferenceScope: "dictationAgent",
+        });
+        cancel = streaming.cancelStream;
+        send = useChatMessageSender({
+          conversationId: 7,
+          persistence,
+          streaming,
+          createConversation: async () => 7,
+        });
+        return null;
+      }
+      root = createRoot(tree.container);
+      await act(() => root.render(React.createElement(Harness)));
+      let pending;
+      let completionCalls = 0;
+      const delivery =
+        deliveryMode === "paste"
+          ? {
+              mode: "paste",
+              sessionId: "original-target",
+              restoreClipboard: true,
+              allowClipboardFallback: false,
+            }
+          : { mode: "clipboard" };
+      await act(() => {
+        pending = send("question", {
+          onComplete: async ({ content }) => {
+            completionCalls += 1;
+            await deliverAssistantResponse(delivery, content);
+          },
+        });
+      });
+      await assistantWriteStarted.promise;
+      assert.deepEqual(saved, [{ id: 7, role: "user", content: "question" }]);
+      assert.deepEqual(delivered, [], "delivery waits for assistant persistence");
+      if (interruption === "stop") await act(() => cancel());
+      else if (interruption === "unmount") {
+        await act(() => root.unmount());
+        root = null;
+      }
+      await act(async () => {
+        assistantWrite.resolve();
+        assert.equal(await pending, true);
+      });
+      assert.deepEqual(
+        saved,
+        [
+          { id: 7, role: "user", content: "question" },
+          { id: 7, role: "assistant", content: "saved reply" },
+        ],
+        "interruption does not undo saved conversation messages"
+      );
+      assert.equal(completionCalls, interruption === "none" ? 1 : 0);
+      assert.deepEqual(
+        delivered,
+        interruption !== "none"
+          ? []
+          : deliveryMode === "paste"
+            ? [{ mode: "paste", sessionId: "original-target", text: "saved reply" }]
+            : [{ mode: "clipboard", text: "saved reply" }]
+      );
+    });
+  }
+}

@@ -187,13 +187,23 @@ export const useAudioRecording = (toast, options = {}) => {
           ? await audioManagerRef.current.startStreamingRecording()
           : await audioManagerRef.current.startRecording();
         recordingStarted = didStart;
-        if (didStart) dismissDictationError?.();
+        if (didStart) {
+          dismissDictationError?.();
+          // Arm Esc as soon as a recording exists, including one whose stop
+          // landed mid-start: its processing must be cancellable too (D3).
+          // onStateChange releases it at idle; a start that is already idle
+          // (a tap that ended inside the start call) releases it right here.
+          window.electronAPI?.registerCancelHotkey?.("Escape");
+          const started = audioManagerRef.current.getState();
+          if (!started.isRecording && !started.isProcessing) {
+            window.electronAPI?.unregisterCancelHotkey?.();
+          }
+        }
 
         // A stop that landed while the start was still awaiting the mic open was
         // dropped (isRecording was still false), leaving a runaway recording
         // until the next hotkey press. Honor it now that we started.
         if (didStart && stopRequestedDuringStartRef.current) {
-          window.electronAPI?.unregisterCancelHotkey?.();
           // Cue semantics mirror performStopRecording: unconditional for
           // streaming, gated on the stop landing for batch.
           if (audioManagerRef.current.getState().isStreaming) {
@@ -211,7 +221,6 @@ export const useAudioRecording = (toast, options = {}) => {
           if (getSettings().pauseMediaOnDictation) {
             window.electronAPI?.pauseMediaPlayback?.();
           }
-          window.electronAPI?.registerCancelHotkey?.("Escape");
           void playStartCue();
         }
 
@@ -256,7 +265,7 @@ export const useAudioRecording = (toast, options = {}) => {
       const currentState = audioManagerRef.current.getState();
       if (!currentState.isRecording && !currentState.isStreamingStartInProgress) return false;
 
-      window.electronAPI?.unregisterCancelHotkey?.();
+      // Esc stays armed through processing; onStateChange releases it at idle.
       setIsPreparing(false);
       setIsStopping(true);
       // Contract to the stable thinking state before MediaRecorder/streaming
@@ -340,8 +349,12 @@ export const useAudioRecording = (toast, options = {}) => {
         } else if (isProcessing) {
           onDemoEventRef.current?.({ kind: demoKindRef.current, status: "processing" });
         }
-        if (!isRecording) {
+        if (!isRecording && !isProcessing) {
+          // Esc is armed from recording start until the whole pipeline is
+          // idle, so the keyboard can cancel a slow transcription (D3).
           window.electronAPI?.unregisterCancelHotkey?.();
+        }
+        if (!isRecording) {
           // Resume media the instant recording ends, not after transcription.
           if (wasRecordingRef.current && getSettings().pauseMediaOnDictation) {
             window.electronAPI?.resumeMediaPlayback?.();
@@ -786,6 +799,8 @@ export const useAudioRecording = (toast, options = {}) => {
     // Cleanup
     return () => {
       reportLifecycle("idle");
+      // Never leave a global Esc capture behind a reload or a route change.
+      window.electronAPI?.unregisterCancelHotkey?.();
       unsubscribeSettings();
       disposeToggle?.();
       disposeVoiceAgentToggle?.();

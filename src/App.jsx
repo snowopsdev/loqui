@@ -356,17 +356,22 @@ export default function App() {
   }, []);
 
   const isRecordingRef = useRef(isRecording);
+  const isProcessingRef = useRef(isProcessing);
 
   useLayoutEffect(() => {
     isRecordingRef.current = isRecording;
-  }, [isRecording]);
+    isProcessingRef.current = isProcessing;
+  }, [isRecording, isProcessing]);
 
   useEffect(() => {
+    // useAudioRecording keeps Esc registered until the pipeline is idle, so
+    // the hotkey cancels whichever phase is running.
     const unsubscribe = window.electronAPI?.onCancelHotkeyPressed?.(() => {
       if (isRecordingRef.current) cancelRecording();
+      else if (isProcessingRef.current) cancelProcessing();
     });
     return () => unsubscribe?.();
-  }, [cancelRecording]);
+  }, [cancelRecording, cancelProcessing]);
 
   // The Agent companion pill's cancel button routes here: only this renderer
   // owns the recording, so it decides what "cancel" means at arrival time.

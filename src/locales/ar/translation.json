@@ -2782,7 +2782,15 @@
         "dictationAgent": "المساعد الصوتي",
         "noteFormatting": "تنسيق الملاحظات",
         "chatIntelligence": "الدردشة",
-        "dictationTranslation": "الترجمة"
+        "dictationTranslation": "الترجمة",
+        "supportModels": "دعم على الجهاز"
+      },
+      "supportModels": {
+        "title": "نماذج الدعم على الجهاز",
+        "description": "نماذج صغيرة تعمل دائمًا على هذا الجهاز. لا تغادر تسجيلاتك وملاحظاتك الجهاز لهذه المهام.",
+        "downloaded": "تم التنزيل",
+        "checking": "جارٍ التحقق…",
+        "download": "تنزيل {{size}}"
       }
     },
     "noteFormatting": {

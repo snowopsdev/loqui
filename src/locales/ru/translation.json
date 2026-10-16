@@ -1881,7 +1881,15 @@
         "dictationAgent": "Голосовой помощник",
         "noteFormatting": "Форматирование заметок",
         "chatIntelligence": "Чат",
-        "dictationTranslation": "Перевод"
+        "dictationTranslation": "Перевод",
+        "supportModels": "Поддержка на устройстве"
+      },
+      "supportModels": {
+        "title": "Модели поддержки на устройстве",
+        "description": "Небольшие модели, которые всегда работают на этом устройстве. Для этих задач записи и заметки не покидают его.",
+        "downloaded": "Загружено",
+        "checking": "Проверка…",
+        "download": "Скачать {{size}}"
       }
     },
     "noteFormatting": {

@@ -1875,7 +1875,15 @@
         "dictationAgent": "音声アシスタント",
         "noteFormatting": "ノートのフォーマット",
         "chatIntelligence": "チャット",
-        "dictationTranslation": "翻訳"
+        "dictationTranslation": "翻訳",
+        "supportModels": "端末内サポート"
+      },
+      "supportModels": {
+        "title": "端末内サポートモデル",
+        "description": "この端末上で常に動作する小さなモデルです。これらの処理で録音やメモが端末の外に送られることはありません。",
+        "downloaded": "ダウンロード済み",
+        "checking": "確認中…",
+        "download": "{{size}} をダウンロード"
       }
     },
     "noteFormatting": {

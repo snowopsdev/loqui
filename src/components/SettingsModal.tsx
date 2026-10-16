@@ -2,41 +2,10 @@ import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Brain, Keyboard, Mic, Shield, Sliders, Wrench } from "./icons";
 import SettingsPage, { SettingsSectionType } from "./SettingsPage";
+import { parseSettingsPath } from "../lib/settingsPaths";
 import SidebarModal, { type SidebarItem } from "./ui/SidebarModal";
 
 export type { SettingsSectionType };
-
-// The old AI Models sidebar had four items (transcription, meetings,
-// intelligence, agentMode) — they now collapse into two: speechToText + llms.
-// Legacy deep-links land on the matching sub-tab via LEGACY_SUB_TAB.
-// "dictationAgent" is a live deep-link (the Home GPU banner), not a legacy alias.
-const SECTION_ALIASES: Record<string, SettingsSectionType> = {
-  aiModels: "llms",
-  agentConfig: "llms",
-  agentMode: "llms",
-  dictationAgent: "llms",
-  intelligence: "llms",
-  meetings: "llms",
-  prompts: "llms",
-  transcription: "speechToText",
-  uploadTranscription: "speechToText",
-  softwareUpdates: "system",
-  privacy: "privacyData",
-  permissions: "privacyData",
-  developer: "system",
-};
-
-const LEGACY_SUB_TAB: Record<string, string> = {
-  transcription: "dictation",
-  uploadTranscription: "upload",
-  dictationAgent: "dictationAgent",
-  meetings: "noteFormatting",
-  intelligence: "dictationCleanup",
-  agentMode: "chatIntelligence",
-  agentConfig: "chatIntelligence",
-  aiModels: "dictationCleanup",
-  prompts: "dictationCleanup",
-};
 
 interface SettingsModalProps {
   open: boolean;
@@ -95,23 +64,16 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
     return items;
   }, [t]);
 
-  const resolveSection = (section: string | undefined): SettingsSectionType => {
-    if (!section) return "general";
-    return (SECTION_ALIASES[section] ?? section) as SettingsSectionType;
-  };
-
-  const [activeSection, setActiveSection] = React.useState<SettingsSectionType>(() =>
-    resolveSection(initialSection)
-  );
-  const [initialSubTab, setInitialSubTab] = useState<string | undefined>(() =>
-    initialSection ? LEGACY_SUB_TAB[initialSection] : undefined
-  );
+  const initial = parseSettingsPath(initialSection);
+  const [activeSection, setActiveSection] = React.useState<SettingsSectionType>(initial.section);
+  const [initialSubTab, setInitialSubTab] = useState<string | undefined>(initial.subTab);
   const [prevOpen, setPrevOpen] = useState(open);
 
   if (open && !prevOpen && initialSection) {
     setPrevOpen(open);
-    setActiveSection(resolveSection(initialSection));
-    setInitialSubTab(LEGACY_SUB_TAB[initialSection]);
+    const next = parseSettingsPath(initialSection);
+    setActiveSection(next.section);
+    setInitialSubTab(next.subTab);
   } else if (open !== prevOpen) {
     setPrevOpen(open);
     if (!open) setInitialSubTab(undefined);
@@ -120,6 +82,12 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
   const handleSectionChange = (section: SettingsSectionType) => {
     setActiveSection(section);
     setInitialSubTab(undefined);
+  };
+
+  const handleNavigateToPath = (path: string) => {
+    const next = parseSettingsPath(path);
+    setActiveSection(next.section);
+    setInitialSubTab(next.subTab);
   };
 
   return (
@@ -134,6 +102,7 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
       <SettingsPage
         activeSection={activeSection}
         onNavigateToSection={handleSectionChange}
+        onNavigateToPath={handleNavigateToPath}
         initialSubTab={initialSubTab}
       />
     </SidebarModal>

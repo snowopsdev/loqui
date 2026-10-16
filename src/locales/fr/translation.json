@@ -1968,7 +1968,15 @@
         "dictationAgent": "Assistant vocal",
         "noteFormatting": "Mise en forme des notes",
         "chatIntelligence": "Chat",
-        "dictationTranslation": "Traduction"
+        "dictationTranslation": "Traduction",
+        "supportModels": "Assistance locale"
+      },
+      "supportModels": {
+        "title": "Modèles d’assistance locale",
+        "description": "De petits modèles qui fonctionnent toujours sur cet appareil. Vos enregistrements et notes ne le quittent jamais pour ces tâches.",
+        "downloaded": "Téléchargé",
+        "checking": "Vérification…",
+        "download": "Télécharger {{size}}"
       }
     },
     "noteFormatting": {

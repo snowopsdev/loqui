@@ -1854,7 +1854,15 @@
         "dictationAgent": "Assistente de voz",
         "noteFormatting": "Formatação de notas",
         "chatIntelligence": "Chat",
-        "dictationTranslation": "Tradução"
+        "dictationTranslation": "Tradução",
+        "supportModels": "Suporte no dispositivo"
+      },
+      "supportModels": {
+        "title": "Modelos de suporte no dispositivo",
+        "description": "Modelos pequenos que são executados sempre neste dispositivo. Suas gravações e notas nunca saem dele para essas tarefas.",
+        "downloaded": "Baixado",
+        "checking": "Verificando…",
+        "download": "Baixar {{size}}"
       }
     },
     "noteFormatting": {

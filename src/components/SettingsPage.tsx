@@ -12,6 +12,7 @@ import {
   Cpu,
   FileAudio,
   FolderOpen,
+  HardDrive,
   Info,
   Key,
   Languages,
@@ -29,6 +30,7 @@ import {
   Wand2,
 } from "./icons";
 import LocalSupportModels from "./settings/LocalSupportModels";
+import { LLM_SUB_TABS, SPEECH_SUB_TABS } from "../lib/settingsPaths";
 import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -116,6 +118,8 @@ export type SettingsSectionType =
 interface SettingsPageProps {
   activeSection?: SettingsSectionType;
   onNavigateToSection?: (section: SettingsSectionType) => void;
+  /** Jump to a "<section>/<subTab>" location inside the open modal. */
+  onNavigateToPath?: (path: string) => void;
   /** When a legacy section ID was used (e.g. `meetings`), land on the matching sub-tab. */
   initialSubTab?: string;
 }
@@ -740,22 +744,11 @@ function AiModelsSection({ useCleanupModel, setUseCleanupModel, toast }: AiModel
   );
 }
 
-type SpeechTab = "dictation" | "noteRecording" | "upload";
-type LlmTab =
-  | "dictationCleanup"
-  | "dictationAgent"
-  | "dictationTranslation"
-  | "noteFormatting"
-  | "chatIntelligence";
+type SpeechTab = (typeof SPEECH_SUB_TABS)[number];
+type LlmTab = (typeof LLM_SUB_TABS)[number];
 
-const SPEECH_TABS: SpeechTab[] = ["dictation", "noteRecording", "upload"];
-const LLM_TABS: LlmTab[] = [
-  "dictationCleanup",
-  "dictationAgent",
-  "dictationTranslation",
-  "noteFormatting",
-  "chatIntelligence",
-];
+const SPEECH_TABS: readonly SpeechTab[] = SPEECH_SUB_TABS;
+const LLM_TABS: readonly LlmTab[] = LLM_SUB_TABS;
 const AGENT_LLM_TABS = new Set<LlmTab>(["dictationAgent", "chatIntelligence"]);
 
 function useSubTab<T extends string>(storageKey: string, options: readonly T[], initial?: T) {
@@ -850,6 +843,7 @@ function LlmsTabs({
   renderDictationTranslation,
   renderNoteFormatting,
   renderChatIntelligence,
+  renderSupportModels,
 }: {
   initialTab?: LlmTab;
   renderDictationCleanup: () => React.ReactNode;
@@ -857,6 +851,7 @@ function LlmsTabs({
   renderDictationTranslation: () => React.ReactNode;
   renderNoteFormatting: () => React.ReactNode;
   renderChatIntelligence: () => React.ReactNode;
+  renderSupportModels: () => React.ReactNode;
 }) {
   const { t } = useTranslation();
 
@@ -869,6 +864,7 @@ function LlmsTabs({
     { id: "dictationTranslation", name: t("settingsPage.llms.tabs.dictationTranslation") },
     { id: "noteFormatting", name: t("settingsPage.llms.tabs.noteFormatting") },
     { id: "chatIntelligence", name: t("settingsPage.llms.tabs.chatIntelligence") },
+    { id: "supportModels", name: t("settingsPage.llms.tabs.supportModels") },
   ].filter((item) => visibleTabIds.includes(item.id as LlmTab));
 
   return (
@@ -886,6 +882,7 @@ function LlmsTabs({
           if (id === "dictationAgent") return <Sparkles className="w-3.5 h-3.5" />;
           if (id === "dictationTranslation") return <Languages className="w-3.5 h-3.5" />;
           if (id === "noteFormatting") return <BookOpen className="w-3.5 h-3.5" />;
+          if (id === "supportModels") return <HardDrive className="w-3.5 h-3.5" />;
           return <MessageSquare className="w-3.5 h-3.5" />;
         }}
       />
@@ -894,6 +891,7 @@ function LlmsTabs({
       <TabPanel active={tab === "dictationTranslation"}>{renderDictationTranslation()}</TabPanel>
       <TabPanel active={tab === "noteFormatting"}>{renderNoteFormatting()}</TabPanel>
       {<TabPanel active={tab === "chatIntelligence"}>{renderChatIntelligence()}</TabPanel>}
+      <TabPanel active={tab === "supportModels"}>{renderSupportModels()}</TabPanel>
     </div>
   );
 }
@@ -2762,8 +2760,6 @@ EOF`,
               />
             </div>
 
-            <LocalSupportModels />
-
             {/* Audio Retention */}
             <div className="border-t border-border/70 pt-6">
               <SettingsPanel>
@@ -3156,6 +3152,7 @@ EOF`,
               activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined
             }
             renderChatIntelligence={() => <ChatAgentSettings />}
+            renderSupportModels={() => <LocalSupportModels />}
             renderDictationCleanup={() => (
               <div className="space-y-6">
                 <AiModelsSection

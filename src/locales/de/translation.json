@@ -1968,7 +1968,15 @@
         "dictationAgent": "Sprachassistent",
         "noteFormatting": "Notizformatierung",
         "chatIntelligence": "Chat",
-        "dictationTranslation": "Übersetzung"
+        "dictationTranslation": "Übersetzung",
+        "supportModels": "Lokale Unterstützung"
+      },
+      "supportModels": {
+        "title": "Lokale Unterstützungsmodelle",
+        "description": "Kleine Modelle, die immer auf diesem Gerät laufen. Deine Aufnahmen und Notizen verlassen es für diese Aufgaben nie.",
+        "downloaded": "Heruntergeladen",
+        "checking": "Wird geprüft…",
+        "download": "{{size}} herunterladen"
       }
     },
     "noteFormatting": {

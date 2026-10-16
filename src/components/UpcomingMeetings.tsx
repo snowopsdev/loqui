@@ -12,7 +12,8 @@ import { parseAttendees } from "../utils/calendarAttendees";
 import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
 import { getMeetingJoinUrl } from "../helpers/meetingJoinUrl";
-import { parseEventDate } from "../utils/dateFormatting";
+import { useNow } from "../hooks/useNow";
+import { groupEventsByDay, isEventLive, type DayGroup } from "../utils/upcomingEventGroups";
 
 interface UpcomingMeetingsProps {
   events: CalendarEvent[];
@@ -35,40 +36,8 @@ function formatTimeRange(locale: string, startTime: string, endTime: string): st
   return `${format(startTime)} – ${format(endTime)}`;
 }
 
-// Today plus the next days that have events, capped at a working week.
-const MAX_DAY_CARDS = 5;
 // Avatars shown before the "+N" overflow pill.
 const MAX_STACKED_AVATARS = 2;
-
-interface DayGroup {
-  key: string;
-  date: Date;
-  isToday: boolean;
-  items: CalendarEvent[];
-}
-
-function groupEventsByDay(events: CalendarEvent[], now: Date): DayGroup[] {
-  const groups: DayGroup[] = [];
-  const byKey = new Map<string, DayGroup>();
-  for (const event of events) {
-    const date = parseEventDate(event.start_time);
-    if (!date) continue;
-    const key = date.toDateString();
-    let group = byKey.get(key);
-    if (!group) {
-      group = { key, date, isToday: key === now.toDateString(), items: [] };
-      byKey.set(key, group);
-      groups.push(group);
-    }
-    group.items.push(event);
-  }
-  // Surface "today" even when it has nothing scheduled, so the list always
-  // answers "what's next today?" at a glance.
-  if (groups.length > 0 && !groups.some((g) => g.isToday)) {
-    groups.unshift({ key: now.toDateString(), date: now, isToday: true, items: [] });
-  }
-  return groups.slice(0, MAX_DAY_CARDS);
-}
 
 const ATTENDEE_COUNT_PILL_CLASS =
   "flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-surface-3 px-0.5 text-[9px] font-medium tabular-nums text-muted-foreground ring-1 ring-background";
@@ -287,14 +256,10 @@ export default function UpcomingMeetings({
   const systemAudio = useSystemAudioPermission();
   const needsSystemAudioGrant = !systemAudio.granted && canManageSystemAudioInApp(systemAudio);
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow();
   const groupedEvents = useMemo(() => groupEventsByDay(events, now), [events, now]);
 
-  const isNowFn = (event: CalendarEvent) => {
-    const start = new Date(event.start_time);
-    const end = new Date(event.end_time);
-    return start <= now && now <= end;
-  };
+  const isNowFn = (event: CalendarEvent) => isEventLive(event, now);
 
   return (
     <div>

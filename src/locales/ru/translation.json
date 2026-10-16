@@ -732,7 +732,16 @@
       "otherGroup": "Другое",
       "noSearchResults": "Нет моделей по запросу «{{query}}»",
       "selectModelHint": "Модель ещё не выбрана — выберите её из списка ниже.",
-      "keyRequiredHint": "Для инференса требуется API-ключ — добавьте его, чтобы использовать этого провайдера."
+      "keyRequiredHint": "Для инференса требуется API-ключ — добавьте его, чтобы использовать этого провайдера.",
+      "listModels": "Получить модели с {{host}}",
+      "listModelsSendsKey": "Отправляет {{slot}} на {{host}} для запроса списка моделей.",
+      "listModelsNoKey": "Ключ не отправляется. Запрашивает модели у {{host}}.",
+      "listModelsNeedsEndpoint": "Сначала выберите адрес сервера, затем запросите модели.",
+      "listModelsSealed": "Включён изолированный режим: запрос к серверу не выполняется.",
+      "slotCustom": "ключ своего сервера, сохранённый для {{task}}",
+      "slotProvider": "ваш сохранённый ключ {{provider}}",
+      "currentModel": "Текущая модель: {{model}}",
+      "useDefault": "Использовать адрес по умолчанию"
     },
     "getApiKey": "Получить API-ключ ->",
     "selectModel": "Выберите модель",
@@ -813,7 +822,18 @@
         "adcHelp": "Использует Application Default Credentials. Выполните: gcloud auth application-default login",
         "apikeyHelp": "API-ключ Vertex AI Express Mode из Google AI Studio."
       },
-      "profileSaveFailed": "Не удалось сохранить профиль. Введённое значение осталось в поле — попробуйте ещё раз."
+      "profileSaveFailed": "Не удалось сохранить профиль. Введённое значение осталось в поле — попробуйте ещё раз.",
+      "testConnectionAt": "Проверить подключение к {{host}}",
+      "testSends": "Отправляет {{fields}} и короткий тестовый запрос на {{host}}.",
+      "testSendsNoKey": "Отправляет короткий запрос на {{host}} через вашу облачную учётную запись. Сохранённый ключ не отправляется.",
+      "testHostUnknown": "Введите правильный адрес или регион и повторите проверку.",
+      "field": {
+        "key": "ваш сохранённый ключ API",
+        "accessKeyId": "идентификатор вашего ключа доступа",
+        "secretAccessKey": "ваш секретный ключ доступа",
+        "sessionToken": "ваш токен сеанса",
+        "profile": "данные вашего профиля AWS"
+      }
     },
     "tinfoil": {
       "modelRetiredTitle": "Модель больше недоступна",
@@ -822,6 +842,10 @@
     },
     "corti": {
       "euOnly": "Модели Corti доступны только в регионе ЕС."
+    },
+    "codex": {
+      "listModels": "Получить модели ChatGPT (через Codex)",
+      "listModelsTitle": "Codex запрашивает модели ChatGPT через вашу учётную запись ChatGPT. Loqui не отправляет сохранённые ключи."
     }
   },
   "transcription": {
@@ -2005,7 +2029,18 @@
     "selfHosted": {
       "endpointUrl": "URL эндпоинта",
       "serverUrl": "URL сервера",
-      "apiKeyOptional": "API-ключ (необязательно)"
+      "apiKeyOptional": "API-ключ (необязательно)",
+      "test": "Проверить",
+      "testing": "Проверка…",
+      "testTitle": "Запрашивает модели у {{host}}. Ключ не отправляется.",
+      "testOk_one": "Подключено · {{count}} модель",
+      "testOk_other": "Подключено · {{count}} моделей",
+      "testFail": "Не удалось получить модели с {{host}}. Проверьте адрес и работу сервера.",
+      "testHttpsRequired": "http:// работает только для адресов в вашей сети.",
+      "sharedReadOnly": "Загрузка аудио использует сервер диктовки. Измените его в разделе Речь в текст › Диктовка.",
+      "notSet": "Не задано",
+      "testOk_few": "Подключено · {{count}} модели",
+      "testOk_many": "Подключено · {{count}} моделей"
     },
     "enterpriseCheckout": {
       "title": "Перейти на Enterprise",
@@ -3694,7 +3729,10 @@
     "cancel": "Отменить вход",
     "connect": "Подключить ChatGPT",
     "refresh": "Обновить",
-    "loginFailed": "Не удалось завершить вход."
+    "loginFailed": "Не удалось завершить вход.",
+    "signedInStored": "Вход в ChatGPT сохранён на этом устройстве. Проверьте статус, чтобы увидеть учётную запись и остаток лимита.",
+    "checkStatus": "Проверить статус ChatGPT",
+    "checkStatusTitle": "Запускает Codex для проверки входа в ChatGPT и остатка лимита. Первая проверка после запуска Loqui также обращается к GitHub для подтверждения официальной версии Codex. Loqui не отправляет сохранённые ключи."
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",

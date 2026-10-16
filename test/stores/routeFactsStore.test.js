@@ -390,7 +390,7 @@ test("change-driving N2: atomic main settings and facts publish together; newer 
   );
 });
 
-test("change-driving Task6: enterprise: a failed or malformed answer is not a sync, and a local write during the sync is kept", async (t) => {
+test("baseline guard Task9: failed/malformed facts stay unknown and unacknowledged raw input never becomes canonical", async (t) => {
   const failing = await freshStore(t);
   const calls = [];
   await failing.store.loadRouteFacts(api(enterpriseApi(calls, { azureEndpoint: fail })), [
@@ -424,19 +424,15 @@ test("change-driving Task6: enterprise: a failed or malformed answer is not a sy
     ["enterprise"]
   );
   await flush();
-  useSettingsStore.getState().setAzureEndpoint("https://typed.example.com/openai"); // also sent to main
+  useSettingsStore.getState().setAzureEndpoint("https://typed.example.com/openai"); // no raw canonical write
   slow.resolve("https://old.example.com/openai");
   await pending;
   assert.equal(
     useSettingsStore.getState().azureEndpoint,
-    "https://typed.example.com/openai",
-    "the newer write is kept"
+    "https://old.example.com/openai",
+    "only the complete main-confirmed tuple is published"
   );
-  assert.equal(
-    racing.facts().enterpriseMain,
-    null,
-    "a pending or failed raw draft is never confirmed authority"
-  );
+  assert.notEqual(racing.facts().enterpriseMain, null, "the complete canonical facts remain valid");
 });
 
 test("legacy keyring statuses refresh without granting rejection authority", async (t) => {

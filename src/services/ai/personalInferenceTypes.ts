@@ -44,7 +44,21 @@ export interface InferenceEvent {
   method?: string;
   params?: Record<string, unknown>;
 }
+export interface ModelDiscoveryInput {
+  provider: string;
+  baseUrl?: string;
+  credentialRef?: string;
+  inferenceScope?: string;
+}
+export interface ModelDiscoveryDescription {
+  recipientToken: string;
+  host: string;
+  credentialId: string;
+  present: boolean;
+  generation: number;
+}
 export interface PersonalInferenceAPI {
+  describeModels(input: ModelDiscoveryInput): Promise<ModelDiscoveryDescription>;
   codexStatus(): Promise<{
     available: boolean;
     version?: string;
@@ -60,12 +74,7 @@ export interface PersonalInferenceAPI {
     rateLimits?: { primary?: { usedPercent: number }; secondary?: { usedPercent: number } };
     rateLimitsByLimitId?: Record<string, unknown>;
   }>;
-  models(input: {
-    provider: string;
-    baseUrl?: string;
-    credentialRef?: string;
-    inferenceScope?: string;
-  }): Promise<{
+  models(input: ModelDiscoveryInput & { recipientToken: string }): Promise<{
     data: Array<{ id: string; name?: string; owned_by?: string; description?: string }>;
   }>;
   credentialStatus(ref: string): Promise<{ configured: boolean }>;

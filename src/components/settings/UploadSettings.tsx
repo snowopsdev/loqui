@@ -1,8 +1,7 @@
 import { useRouteDraftStore } from "../../stores/routeDraftStore";
 import { StagedRoutePanel } from "./routing/StagedRoutePanel";
 import { stagedTargetForMode } from "./routing/stagedTarget";
-import { useRouteChange } from "./routing/useRouteChange";
-import { useCallback } from "react";
+import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";
 import { useTranslation } from "react-i18next";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
@@ -22,23 +21,14 @@ export function UploadTranscriptionPanel() {
   const {
     uploadTranscriptionMode,
     uploadWhisperModel,
-    setUploadWhisperModel,
     uploadLocalTranscriptionProvider,
-    setUploadLocalTranscriptionProvider,
     uploadParakeetModel,
-    setUploadParakeetModel,
     uploadCohereModel,
-    setUploadCohereModel,
     uploadCloudTranscriptionProvider,
-    setUploadCloudTranscriptionProvider,
     uploadCloudTranscriptionModel,
-    setUploadCloudTranscriptionModel,
     uploadCloudTranscriptionBaseUrl,
-    setUploadCloudTranscriptionBaseUrl,
     remoteTranscriptionUrl,
-    setRemoteTranscriptionUrl,
     remoteTranscriptionModel,
-    setRemoteTranscriptionModel,
   } = useSettingsStore();
   const {
     modes: transcriptionModes,
@@ -82,32 +72,14 @@ export function UploadTranscriptionPanel() {
     void request("uploadStt", stagedTargetForMode(mode, "uploadStt", useSettingsStore.getState()));
   };
 
-  const handleLocalTranscriptionModelSelect = useCallback(
-    (modelId: string, providerId?: string) => {
-      const provider = providerId ?? uploadLocalTranscriptionProvider;
-      if (provider === "nvidia") {
-        setUploadParakeetModel(modelId);
-      } else if (provider === "cohere") {
-        setUploadCohereModel(modelId);
-      } else {
-        setUploadWhisperModel(modelId);
-      }
-    },
-    [
-      uploadLocalTranscriptionProvider,
-      setUploadParakeetModel,
-      setUploadCohereModel,
-      setUploadWhisperModel,
-    ]
-  );
+  const commituploadStt = useRouteCommit("uploadStt");
 
   const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
+      onCommit={commituploadStt}
       transcriptionContext="upload"
       selectedCloudProvider={uploadCloudTranscriptionProvider}
-      onCloudProviderSelect={setUploadCloudTranscriptionProvider}
       selectedCloudModel={uploadCloudTranscriptionModel}
-      onCloudModelSelect={setUploadCloudTranscriptionModel}
       selectedLocalModel={
         uploadLocalTranscriptionProvider === "nvidia"
           ? uploadParakeetModel
@@ -115,14 +87,10 @@ export function UploadTranscriptionPanel() {
             ? uploadCohereModel
             : uploadWhisperModel
       }
-      onLocalModelSelect={handleLocalTranscriptionModelSelect}
       selectedLocalProvider={uploadLocalTranscriptionProvider}
-      onLocalProviderSelect={setUploadLocalTranscriptionProvider}
       useLocalWhisper={mode === "local"}
-      onModeChange={() => {}}
       mode={mode}
       cloudTranscriptionBaseUrl={uploadCloudTranscriptionBaseUrl}
-      setCloudTranscriptionBaseUrl={setUploadCloudTranscriptionBaseUrl}
       variant="settings"
     />
   );
@@ -145,9 +113,7 @@ export function UploadTranscriptionPanel() {
         <SelfHostedPanel
           service="transcription"
           url={remoteTranscriptionUrl}
-          onUrlChange={setRemoteTranscriptionUrl}
           model={remoteTranscriptionModel}
-          onModelChange={setRemoteTranscriptionModel}
         />
       )}
     </div>

@@ -732,7 +732,16 @@
       "otherGroup": "其他",
       "noSearchResults": "沒有與「{{query}}」相符的模型",
       "selectModelHint": "尚未選擇模型 — 請從下方清單中選擇一個。",
-      "keyRequiredHint": "推論需要 API 金鑰 — 請新增金鑰以使用此供應商。"
+      "keyRequiredHint": "推論需要 API 金鑰 — 請新增金鑰以使用此供應商。",
+      "listModels": "列出 {{host}} 的模型",
+      "listModelsSendsKey": "將{{slot}}傳送至 {{host}} 以取得模型清單。",
+      "listModelsNoKey": "不傳送金鑰。向 {{host}} 查詢模型清單。",
+      "listModelsNeedsEndpoint": "請先使用端點，再列出模型。",
+      "listModelsSealed": "封閉模式已開啟，不會向端點傳送查詢。",
+      "slotCustom": "為{{task}}儲存的自訂端點金鑰",
+      "slotProvider": "已儲存的 {{provider}} 金鑰",
+      "currentModel": "目前模型：{{model}}",
+      "useDefault": "使用預設端點"
     },
     "getApiKey": "取得 API Key ->",
     "selectModel": "選擇模型",
@@ -813,7 +822,18 @@
         "adcHelp": "使用 Application Default Credentials。請執行：gcloud auth application-default login",
         "apikeyHelp": "從 Google AI Studio 取得的 Vertex AI Express Mode API 金鑰。"
       },
-      "profileSaveFailed": "無法儲存此設定檔。你輸入的內容仍在這裡，請再試一次。"
+      "profileSaveFailed": "無法儲存此設定檔。你輸入的內容仍在這裡，請再試一次。",
+      "testConnectionAt": "測試與 {{host}} 的連線",
+      "testSends": "將{{fields}}和簡短測試提示傳送至 {{host}}。",
+      "testSendsNoKey": "使用雲端登入向 {{host}} 傳送簡短測試提示，不傳送已儲存的金鑰。",
+      "testHostUnknown": "請輸入有效的端點或區域後再測試。",
+      "field": {
+        "key": "已儲存的 API 金鑰",
+        "accessKeyId": "存取金鑰 ID",
+        "secretAccessKey": "私密存取金鑰",
+        "sessionToken": "工作階段權杖",
+        "profile": "AWS 設定檔的憑證"
+      }
     },
     "tinfoil": {
       "modelRetiredTitle": "模型已無法使用",
@@ -822,6 +842,10 @@
     },
     "corti": {
       "euOnly": "Corti 模型僅在歐盟地區可用。"
+    },
+    "codex": {
+      "listModels": "列出 ChatGPT 模型（透過 Codex 應用程式）",
+      "listModelsTitle": "Codex 應用程式使用你的 ChatGPT 登入查詢模型清單。Loqui 不傳送已儲存的金鑰。"
     }
   },
   "transcription": {
@@ -1999,7 +2023,16 @@
     "selfHosted": {
       "endpointUrl": "端點 URL",
       "serverUrl": "伺服器 URL",
-      "apiKeyOptional": "API Key（選填）"
+      "apiKeyOptional": "API Key（選填）",
+      "test": "測試",
+      "testing": "測試中…",
+      "testTitle": "向 {{host}} 查詢模型清單。不傳送金鑰。",
+      "testOk_one": "已連線 · {{count}} 個模型",
+      "testOk_other": "已連線 · {{count}} 個模型",
+      "testFail": "無法列出 {{host}} 的模型。請檢查位址及伺服器是否運作。",
+      "testHttpsRequired": "http:// 僅適用於你自己網路內的位址。",
+      "sharedReadOnly": "音訊上傳使用聽寫伺服器。請在語音轉文字 › 聽寫中修改。",
+      "notSet": "未設定"
     },
     "enterpriseCheckout": {
       "title": "升級至 Enterprise",
@@ -3656,7 +3689,10 @@
     "cancel": "取消登入",
     "connect": "連接 ChatGPT",
     "refresh": "重新整理",
-    "loginFailed": "無法完成登入。"
+    "loginFailed": "無法完成登入。",
+    "signedInStored": "此裝置已登入 ChatGPT。檢查狀態以查看帳戶和剩餘用量。",
+    "checkStatus": "檢查 ChatGPT 狀態",
+    "checkStatusTitle": "啟動 Codex 應用程式，向 ChatGPT 查詢登入狀態和剩餘用量。Loqui 啟動後的首次檢查也會向 GitHub 確認 Codex 是否為官方版本。不傳送已儲存的金鑰。"
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",

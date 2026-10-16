@@ -2,7 +2,7 @@ import type { ProviderSearchScope, SettingsPatch } from "../../lib/providerSwitc
 import { useRouteDraftStore } from "../../stores/routeDraftStore";
 import { StagedRoutePanel } from "./routing/StagedRoutePanel";
 import { stagedTargetForMode } from "./routing/stagedTarget";
-import { useRouteChange } from "./routing/useRouteChange";
+import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";
 import { saveSecret } from "../../stores/settingsStore";
 import { SCOPE_ROUTE } from "../../lib/routeGraph";
 import { useResolvedRoute } from "../../lib/routes";
@@ -141,9 +141,9 @@ export default function InferenceConfigEditor({
     [routeId, request, requestPatch, effectiveMode, onModeChange, isModeAllowed]
   );
 
-  const setMode = setField("mode");
-  const setProvider = setField("provider");
-  const setModel = setField("model");
+  const commit = useRouteCommit(routeId);
+  const routePatch = (patch: SettingsPatch) => void requestPatch(routeId, patch);
+
   // The scope's custom-endpoint key saves through main and is acknowledged
   // (I3, R2-3); setField would route it through the fire-and-forget setter.
   const customKeyField = INFERENCE_SCOPES[scope].storeKeys.customApiKey;
@@ -157,14 +157,12 @@ export default function InferenceConfigEditor({
       requireImages={scope === "dictationAgentVision"}
       credentialRef={`custom:${scope}`}
       reasoningModel={config.model}
-      setReasoningModel={setModel}
       localReasoningProvider={config.provider}
-      setLocalReasoningProvider={setProvider}
       cloudReasoningBaseUrl={config.cloudBaseUrl ?? ""}
-      setCloudReasoningBaseUrl={setField("cloudBaseUrl")}
       customReasoningApiKey={config.customApiKey ?? ""}
-      setCustomReasoningApiKey={saveCustomKey}
-      setReasoningMode={setMode}
+      saveCustomReasoningApiKey={saveCustomKey}
+      onCommit={commit}
+      onRoutePatch={routePatch}
       mode={mode}
     />
   );
@@ -199,11 +197,15 @@ export default function InferenceConfigEditor({
         <OpenAICompatiblePanel
           credentialRef={`custom:${scope}`}
           baseUrl={config.remoteUrl ?? ""}
-          setBaseUrl={setField("remoteUrl")}
+          onUseEndpoint={(url) =>
+            void commit({ mode: "self-hosted", remoteUrl: url, model: config.model })
+          }
           apiKey={config.customApiKey ?? ""}
-          setApiKey={saveCustomKey}
+          saveApiKey={saveCustomKey}
           model={config.model}
-          setModel={setModel}
+          onSelectModel={(model) =>
+            void commit({ mode: "self-hosted", remoteUrl: config.remoteUrl ?? "", model })
+          }
           baseUrlPlaceholder="http://localhost:11434/v1"
           helpExamples={
             <p className="text-xs text-muted-foreground">

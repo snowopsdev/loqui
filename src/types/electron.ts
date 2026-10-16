@@ -732,6 +732,12 @@ export interface OnboardingDemoEvent {
   level?: number;
 }
 
+export interface VerifyTargetDescription {
+  hosts: string[];
+  fields: string[];
+  recipientToken?: string;
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -749,6 +755,15 @@ declare global {
       // Task11 extends this namespace. routeHealth is a local metadata read;
       // it must never verify/discover or return secret fingerprints/values.
       keyring?: {
+        describeVerify(
+          identity: "bedrock" | "azure" | "vertex",
+          options?: { model: string }
+        ): Promise<VerifyTargetDescription>;
+        verifyConnection?: (
+          request: import("../services/ai/personalInferenceTypes").TextRequest & {
+            recipientToken: string;
+          }
+        ) => Promise<unknown>;
         list?: () => Promise<{ id: import("../lib/routeGraph").CredentialId; status: string }[]>;
         routeHealth?: (
           options?: import("../lib/routeGraph").RouteVerificationOptions
@@ -780,6 +795,14 @@ declare global {
       stopOnboardingDemo?: (id: string) => Promise<boolean>;
       publishOnboardingDemoEvent?: (event: Omit<OnboardingDemoEvent, "demoId">) => Promise<boolean>;
       onOnboardingDemoEvent?: (callback: (event: OnboardingDemoEvent) => void) => () => void;
+      probeSelfHosted?: (baseUrl: string) => Promise<
+        | { ok: true; count: number }
+        | {
+            ok: false;
+            code: "invalidUrl" | "httpsRequired" | "network" | "timeout" | "http" | "sealed";
+            status?: number;
+          }
+      >;
       testProviderConnection?: (config: {
         scope: "transcription" | "reasoning";
         provider: string;

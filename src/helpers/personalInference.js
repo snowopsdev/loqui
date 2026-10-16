@@ -209,6 +209,8 @@ function registerPersonalInferenceIPC({
   ipcMain,
   userDataPath,
   getCredential,
+  credentials,
+  fetchModels = (...args) => globalThis.fetch(...args),
   saveCredential,
   openExternal,
   codex = new CodexAppServer({ userDataPath }),
@@ -216,6 +218,7 @@ function registerPersonalInferenceIPC({
   getEnterpriseConfig = () => ({}),
   waitForAdmission = async () => {},
 }) {
+  const recipients = require("./recipientAuthority").createRecipientAuthority();
   const active = new Map();
   const pendingTools = new Map();
   const channels = [];
@@ -287,19 +290,61 @@ function registerPersonalInferenceIPC({
     await saveCredential(ref, value.trim());
     return { configured: !!value.trim() };
   });
-  handle("models", async (_event, input) => {
+  const discoveryConfig = (input) => {
     if (!["custom", "lan", "openrouter"].includes(input?.provider))
       throw new Error("Model discovery is only available for custom endpoints and OpenRouter.");
     const request = validateRequest({
-      ...input,
+      provider: input.provider,
+      credentialRef: input.credentialRef,
+      inferenceScope: input.inferenceScope,
       requestId: "model-discovery",
       model: "discovery",
       messages: [],
       baseUrl: input.provider === "openrouter" ? undefined : input.baseUrl,
     });
-    const baseUrl = request.provider === "openrouter" ? ALIASES.openrouter : request.baseUrl;
-    const key = await getCredential(request.credentialRef);
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
+    return {
+      provider: request.provider,
+      baseUrl:
+        request.provider === "openrouter"
+          ? ALIASES.openrouter
+          : request.baseUrl.replace(/\/+$/, ""),
+      credentialId: request.credentialRef,
+      inferenceScope: request.inferenceScope,
+    };
+  };
+  const discoveryCredential = (config) => {
+    const row = credentials?.list().find((row) => row.id === config.credentialId);
+    if (!row || row.unknown || credentials.isFenced?.())
+      throw new Error("Credential persistence is unavailable.");
+    return row;
+  };
+  handle("describe-models", (event, input) => {
+    const config = discoveryConfig(input);
+    const credential = discoveryCredential(config);
+    return {
+      recipientToken: recipients.issue(event.sender, config, credential),
+      host: new URL(config.baseUrl).host,
+      credentialId: credential.id,
+      present: credential.present,
+      generation: credential.generation,
+    };
+  });
+  handle("models", async (event, input) => {
+    const config = discoveryConfig(input);
+    recipients.validate(input.recipientToken, event.sender, config, discoveryCredential(config));
+    const captured = await credentials.captureCommitted(config.credentialId);
+    // Credential persistence can settle while this click waits. Never upgrade
+    // a reviewed no-key action or send a replacement/removal under an old label.
+    recipients.validate(
+      input.recipientToken,
+      event.sender,
+      config,
+      captured ? { id: config.credentialId, ...captured } : null
+    );
+    recipients.validate(input.recipientToken, event.sender, config, discoveryCredential(config));
+    const baseUrl = config.baseUrl;
+    const key = captured.values.key || "";
+    const response = await fetchModels(`${baseUrl.replace(/\/$/, "")}/models`, {
       headers: key ? { Authorization: `Bearer ${key}` } : {},
       redirect: "error",
       signal: AbortSignal.timeout(15000),
@@ -539,6 +584,7 @@ function registerPersonalInferenceIPC({
     dispose() {
       for (const { controller } of active.values()) controller.abort();
       for (const channel of channels) ipcMain.removeHandler(channel);
+      recipients.dispose();
       codex.off("notification", notification);
       codex.stop();
     },

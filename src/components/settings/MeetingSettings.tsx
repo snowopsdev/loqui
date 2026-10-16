@@ -1,8 +1,7 @@
 import { useRouteDraftStore } from "../../stores/routeDraftStore";
 import { StagedRoutePanel } from "./routing/StagedRoutePanel";
 import { stagedTargetForMode } from "./routing/stagedTarget";
-import { useRouteChange } from "./routing/useRouteChange";
-import { useCallback } from "react";
+import { useRouteChange, useRouteCommit } from "./routing/useRouteChange";
 import { useTranslation } from "react-i18next";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
 import { useStartOnboarding } from "../../hooks/useStartOnboarding";
@@ -34,8 +33,6 @@ function MeetingSpeakerDetectionRow() {
   );
 }
 
-const noop = () => {};
-
 export function MeetingTranscriptionPanel() {
   const { t } = useTranslation();
   const route = useResolvedRoute("noteRecordingStt");
@@ -44,19 +41,12 @@ export function MeetingTranscriptionPanel() {
   const {
     meetingTranscriptionMode,
     meetingWhisperModel,
-    setMeetingWhisperModel,
     meetingLocalTranscriptionProvider,
-    setMeetingLocalTranscriptionProvider,
     meetingParakeetModel,
-    setMeetingParakeetModel,
     meetingCohereModel,
-    setMeetingCohereModel,
     meetingCloudTranscriptionProvider,
-    setMeetingCloudTranscriptionProvider,
     meetingCloudTranscriptionModel,
-    setMeetingCloudTranscriptionModel,
     meetingCloudTranscriptionBaseUrl,
-    setMeetingCloudTranscriptionBaseUrl,
   } = useSettingsStore();
   const {
     modes: transcriptionModes,
@@ -106,33 +96,15 @@ export function MeetingTranscriptionPanel() {
     );
   };
 
-  const handleLocalTranscriptionModelSelect = useCallback(
-    (modelId: string, providerId?: string) => {
-      const provider = providerId ?? meetingLocalTranscriptionProvider;
-      if (provider === "nvidia") {
-        setMeetingParakeetModel(modelId);
-      } else if (provider === "cohere") {
-        setMeetingCohereModel(modelId);
-      } else {
-        setMeetingWhisperModel(modelId);
-      }
-    },
-    [
-      meetingLocalTranscriptionProvider,
-      setMeetingParakeetModel,
-      setMeetingCohereModel,
-      setMeetingWhisperModel,
-    ]
-  );
+  const commitnoteRecordingStt = useRouteCommit("noteRecordingStt");
 
   const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
+      onCommit={commitnoteRecordingStt}
       streamingOnly
       transcriptionContext="meeting"
       selectedCloudProvider={meetingCloudTranscriptionProvider}
-      onCloudProviderSelect={setMeetingCloudTranscriptionProvider}
       selectedCloudModel={meetingCloudTranscriptionModel}
-      onCloudModelSelect={setMeetingCloudTranscriptionModel}
       selectedLocalModel={
         meetingLocalTranscriptionProvider === "nvidia"
           ? meetingParakeetModel
@@ -140,14 +112,10 @@ export function MeetingTranscriptionPanel() {
             ? meetingCohereModel
             : meetingWhisperModel
       }
-      onLocalModelSelect={handleLocalTranscriptionModelSelect}
       selectedLocalProvider={meetingLocalTranscriptionProvider}
-      onLocalProviderSelect={setMeetingLocalTranscriptionProvider}
       useLocalWhisper={mode === "local"}
-      onModeChange={noop}
       mode={mode}
       cloudTranscriptionBaseUrl={meetingCloudTranscriptionBaseUrl}
-      setCloudTranscriptionBaseUrl={setMeetingCloudTranscriptionBaseUrl}
       variant="settings"
     />
   );

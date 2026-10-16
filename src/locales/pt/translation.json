@@ -711,7 +711,16 @@
       "otherGroup": "Outros",
       "noSearchResults": "Nenhum modelo corresponde a \"{{query}}\"",
       "selectModelHint": "Nenhum modelo selecionado ainda — escolha um na lista abaixo.",
-      "keyRequiredHint": "Uma chave API é necessária para a inferência — adicione uma para usar este provedor."
+      "keyRequiredHint": "Uma chave API é necessária para a inferência — adicione uma para usar este provedor.",
+      "listModels": "Listar modelos de {{host}}",
+      "listModelsSendsKey": "Envia {{slot}} para {{host}} para consultar os modelos.",
+      "listModelsNoKey": "Não envia chaves. Consulta os modelos de {{host}}.",
+      "listModelsNeedsEndpoint": "Primeiro use um endpoint e depois liste seus modelos.",
+      "listModelsSealed": "O modo selado está ativo; o endpoint não será consultado.",
+      "slotCustom": "a chave do endpoint personalizado salva para {{task}}",
+      "slotProvider": "sua chave {{provider}} salva",
+      "currentModel": "Modelo atual: {{model}}",
+      "useDefault": "Usar o endpoint padrão"
     },
     "getApiKey": "Obter chave API ->",
     "selectModel": "Selecionar modelo",
@@ -792,7 +801,18 @@
         "adcHelp": "Usa Application Default Credentials. Execute: gcloud auth application-default login",
         "apikeyHelp": "Chave API do Vertex AI Express Mode obtida no Google AI Studio."
       },
-      "profileSaveFailed": "Não foi possível salvar este perfil. O que você digitou continua aqui — tente novamente."
+      "profileSaveFailed": "Não foi possível salvar este perfil. O que você digitou continua aqui — tente novamente.",
+      "testConnectionAt": "Testar conexão com {{host}}",
+      "testSends": "Envia {{fields}} e uma breve solicitação de teste para {{host}}.",
+      "testSendsNoKey": "Envia uma breve solicitação para {{host}} com seu acesso à nuvem. Nenhuma chave salva é enviada.",
+      "testHostUnknown": "Insira um endpoint ou região válidos e teste.",
+      "field": {
+        "key": "sua chave API salva",
+        "accessKeyId": "seu ID de chave de acesso",
+        "secretAccessKey": "sua chave de acesso secreta",
+        "sessionToken": "seu token de sessão",
+        "profile": "as credenciais do seu perfil AWS"
+      }
     },
     "tinfoil": {
       "modelRetiredTitle": "Modelo não disponível",
@@ -801,6 +821,10 @@
     },
     "corti": {
       "euOnly": "Os modelos da Corti estão disponíveis apenas na região da UE."
+    },
+    "codex": {
+      "listModels": "Listar modelos do ChatGPT (pelo Codex)",
+      "listModelsTitle": "O Codex consulta os modelos do ChatGPT com seu acesso ao ChatGPT. O Loqui não envia chaves salvas."
     }
   },
   "transcription": {
@@ -1978,7 +2002,17 @@
     "selfHosted": {
       "endpointUrl": "URL do endpoint",
       "serverUrl": "URL do servidor",
-      "apiKeyOptional": "API Key (opcional)"
+      "apiKeyOptional": "API Key (opcional)",
+      "test": "Testar",
+      "testing": "Testando…",
+      "testTitle": "Consulta os modelos de {{host}}. Nenhuma chave é enviada.",
+      "testOk_one": "Conectado · {{count}} modelo",
+      "testOk_other": "Conectado · {{count}} modelos",
+      "testFail": "Não foi possível listar os modelos de {{host}}. Verifique o endereço e o servidor.",
+      "testHttpsRequired": "http:// funciona apenas para endereços da sua própria rede.",
+      "sharedReadOnly": "O envio de áudio usa o servidor de ditado. Altere em Fala para texto › Ditado.",
+      "notSet": "Não definido",
+      "testOk_many": "Conectado · {{count}} modelos"
     },
     "enterpriseCheckout": {
       "title": "Fazer upgrade para Enterprise",
@@ -3656,7 +3690,10 @@
     "cancel": "Cancelar login",
     "connect": "Conectar ChatGPT",
     "refresh": "Atualizar",
-    "loginFailed": "Não foi possível concluir o login."
+    "loginFailed": "Não foi possível concluir o login.",
+    "signedInStored": "Conectado ao ChatGPT neste dispositivo. Consulte o estado para ver a conta e o uso restante.",
+    "checkStatus": "Consultar estado do ChatGPT",
+    "checkStatusTitle": "Inicia o Codex para consultar no ChatGPT seu acesso e uso restante. A primeira consulta após iniciar o Loqui também pede ao GitHub a confirmação da versão oficial do Codex. O Loqui não envia chaves salvas."
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",

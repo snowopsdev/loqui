@@ -436,6 +436,7 @@ function createCredentialAuthority({
 
   return {
     list: () => ALL_CREDENTIAL_SLOTS.map(snapshot),
+    isFenced: () => fenced,
     present,
     generation,
     save,

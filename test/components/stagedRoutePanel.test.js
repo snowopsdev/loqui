@@ -670,3 +670,44 @@ test("baseline guard FIX1: setup retains the enable intent when live credential 
   assert.equal(useSettingsStore.getState().translationModel, "");
   assert.equal(useSettingsStore.getState().useDictationTranslation, false);
 });
+
+// Baseline guard Task9/M2: the coupled upload description uses the same
+// prospective shared URL as its actual target and planner review.
+test("baseline guard Task9: coupled Upload displays the prospective dictation server", async (t) => {
+  installBrowserGlobals(t, { window: { electronAPI: routeTestApi() } });
+  const vite = await rendererServer(t, "loqui-task9-coupled-server-");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { StagedRoutePanel, StagedRoutePanelView } = await vite.ssrLoadModule(
+    "/components/settings/routing/StagedRoutePanel.tsx"
+  );
+  const { TEST_COPY } = require("../lib/routeStateFixture");
+  await primeRouteFacts(vite);
+  useSettingsStore.setState({
+    transcriptionMode: "self-hosted",
+    useLocalWhisper: false,
+    remoteTranscriptionUrl: "https://old.fixture.test/v1",
+    remoteTranscriptionModel: "whisper-1",
+    uploadTranscriptionMode: "self-hosted",
+  });
+  await drafts.requestRouteChange(
+    "dictationStt",
+    { mode: "self-hosted", remoteUrl: "https://new.fixture.test/v1", model: "whisper-1" },
+    TEST_COPY
+  );
+  const { wrap } = await toastCapture(vite);
+  const probes = createProbeRoot(t, { wrap });
+  const tree = await probes.mount("upload", () => StagedRoutePanel({ routeId: "uploadStt" }));
+  const view = findElement(tree(), (node) => node.type === StagedRoutePanelView);
+  assert.equal(view.props.sharedServerUrl, "https://new.fixture.test/v1");
+  assert.equal(view.props.target.remoteUrl, view.props.sharedServerUrl);
+  const display = await probes.mount("view", () => StagedRoutePanelView(view.props));
+  const text = findElement(
+    display(),
+    (node) =>
+      typeof node.props?.children === "string" &&
+      node.props.children.includes("sharedWithDictation")
+  );
+  assert.match(text.props.children, /new\.fixture\.test/);
+  assert.equal(useSettingsStore.getState().remoteTranscriptionUrl, "https://old.fixture.test/v1");
+});

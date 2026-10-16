@@ -66,7 +66,9 @@ async function mount(t, onSignedInChange, readStatus) {
   const { default: CodexConnection } = await vite.ssrLoadModule("/components/CodexConnection.tsx");
   root = createRoot(container);
   await React.act(async () => {
-    root.render(React.createElement(CodexConnection, { onSignedInChange }));
+    root.render(
+      React.createElement(CodexConnection, { onSignedInChange, checkStatusOnMount: true })
+    );
   });
   return {
     unmount,

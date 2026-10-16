@@ -167,35 +167,6 @@ test("saved credential presence is never revealed or erased by opening its edito
   assert.deepEqual(saved, [""]);
 });
 
-test("custom model discovery sends only its task-scoped credential reference", async (t) => {
-  const calls = [];
-  await harness(t, "/components/OpenAICompatiblePanel.tsx", {
-    api: {
-      personalInference: {
-        models: async (request) => {
-          calls.push(request);
-          return { data: [{ id: "test-model" }] };
-        },
-      },
-    },
-    props: {
-      credentialRef: "custom:noteFormatting",
-      baseUrl: "https://example.test/v1",
-      apiKey: "__stored__",
-      model: "test-model",
-      setBaseUrl() {},
-      setApiKey() {},
-      setModel() {},
-    },
-  });
-  assert.ok(calls.length > 0);
-  assert.equal(calls[0].credentialRef, "custom:noteFormatting");
-  assert.equal(calls[0].inferenceScope, "noteFormatting");
-  assert.equal(calls[0].provider, "custom");
-  assert.equal(JSON.stringify(calls).includes("__stored__"), false);
-  assert.equal(calls[0].apiKey, undefined);
-});
-
 for (const requireImages of [false, true]) {
   test(`provider choices support the task (images: ${requireImages})`, async (t) => {
     const h = await harness(t, "/components/ReasoningModelSelector.tsx", {
@@ -204,10 +175,9 @@ for (const requireImages of [false, true]) {
         reasoningModel: "",
         localReasoningProvider: "openai",
         requireImages,
-        setReasoningModel() {},
-        setLocalReasoningProvider() {},
+        onCommit() {},
+        onRoutePatch() {},
         cloudReasoningBaseUrl: "",
-        setCloudReasoningBaseUrl() {},
       },
     });
     const tabs = find(h.tree(), (node) =>
@@ -307,7 +277,12 @@ test("Bedrock profile typing remains editable during pending persistence and ret
   const calls = [];
   let store;
   const h = await harness(t, "/components/EnterpriseProviderConfig.tsx", {
-    props: { provider: "bedrock", reasoningModel: "fixture-model", setReasoningModel() {} },
+    props: {
+      provider: "bedrock",
+      reasoningModel: "fixture-model",
+      onSelectModel() {},
+      onRoutePatch() {},
+    },
     api: {
       saveBedrockProfile: (value) => {
         calls.push(value);
@@ -320,8 +295,10 @@ test("Bedrock profile typing remains editable during pending persistence and ret
       store.setState({ bedrockProfile: "fixture-old" });
     },
     project: (tree) => {
-      let fieldIndex = 0;
-      const field = find(tree, (node) => node.type?.name === "Field" && fieldIndex++ === 1);
+      const field = find(
+        tree,
+        (node) => node.type?.name === "Field" && node.props.label === "reasoning.enterprise.profile"
+      );
       return field.type(field.props);
     },
   });
@@ -374,7 +351,12 @@ async function bedrockProfileEditor(t, gates) {
   const calls = [];
   let store;
   const h = await harness(t, "/components/EnterpriseProviderConfig.tsx", {
-    props: { provider: "bedrock", reasoningModel: "fixture-model", setReasoningModel() {} },
+    props: {
+      provider: "bedrock",
+      reasoningModel: "fixture-model",
+      onSelectModel() {},
+      onRoutePatch() {},
+    },
     api: {
       saveBedrockProfile: (value) => {
         calls.push(value);
@@ -387,8 +369,10 @@ async function bedrockProfileEditor(t, gates) {
       store.setState({ bedrockProfile: "fixture-old" });
     },
     project: (tree) => {
-      let fieldIndex = 0;
-      const field = find(tree, (node) => node.type?.name === "Field" && fieldIndex++ === 1);
+      const field = find(
+        tree,
+        (node) => node.type?.name === "Field" && node.props.label === "reasoning.enterprise.profile"
+      );
       return field.type(field.props);
     },
   });

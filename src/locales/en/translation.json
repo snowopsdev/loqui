@@ -732,7 +732,16 @@
       "otherGroup": "Other",
       "noSearchResults": "No models match \"{{query}}\"",
       "selectModelHint": "No model selected yet — choose one from the list below.",
-      "keyRequiredHint": "An API key is required for inference — add one to use this provider."
+      "keyRequiredHint": "An API key is required for inference — add one to use this provider.",
+      "listModels": "List models from {{host}}",
+      "listModelsSendsKey": "Sends {{slot}} to {{host}} to ask for its model list.",
+      "listModelsNoKey": "Sends no key. Asks {{host}} for its model list.",
+      "listModelsNeedsEndpoint": "Use an endpoint first, then list its models.",
+      "listModelsSealed": "Sealed mode is on, so nothing is asked of the endpoint.",
+      "slotCustom": "the custom-endpoint key saved for {{task}}",
+      "slotProvider": "your saved {{provider}} key",
+      "currentModel": "Current model: {{model}}",
+      "useDefault": "Use the default endpoint"
     },
     "getApiKey": "Get your API key ->",
     "selectModel": "Select Model",
@@ -813,7 +822,18 @@
         "adcHelp": "Uses Application Default Credentials. Run: gcloud auth application-default login",
         "apikeyHelp": "Vertex AI Express Mode API key from Google AI Studio."
       },
-      "profileSaveFailed": "Couldn't save this profile. Your entry is still here — try again."
+      "profileSaveFailed": "Couldn't save this profile. Your entry is still here — try again.",
+      "testConnectionAt": "Test connection to {{host}}",
+      "testSends": "Sends {{fields}} and a short test prompt to {{host}}.",
+      "testSendsNoKey": "Sends a short test prompt to {{host}} using your cloud sign-in. No saved key is sent.",
+      "testHostUnknown": "Enter a valid endpoint or region, then test.",
+      "field": {
+        "key": "your saved API key",
+        "accessKeyId": "your access key ID",
+        "secretAccessKey": "your secret access key",
+        "sessionToken": "your session token",
+        "profile": "your AWS profile's credentials"
+      }
     },
     "tinfoil": {
       "modelRetiredTitle": "Model no longer available",
@@ -822,6 +842,10 @@
     },
     "corti": {
       "euOnly": "Corti's models are only available in the EU region."
+    },
+    "codex": {
+      "listModels": "List models from ChatGPT (via the Codex app)",
+      "listModelsTitle": "The Codex app asks ChatGPT for its model list using your ChatGPT sign-in. Loqui sends no saved key."
     }
   },
   "transcription": {
@@ -2092,7 +2116,16 @@
     "selfHosted": {
       "endpointUrl": "Endpoint URL",
       "serverUrl": "Server URL",
-      "apiKeyOptional": "API Key (optional)"
+      "apiKeyOptional": "API Key (optional)",
+      "test": "Test",
+      "testing": "Testing…",
+      "testTitle": "Asks {{host}} for its model list. No key is sent.",
+      "testOk_one": "Connected · {{count}} model",
+      "testOk_other": "Connected · {{count}} models",
+      "testFail": "Couldn't list models at {{host}}. Check the address and that the server is running.",
+      "testHttpsRequired": "Plain http:// works only for addresses on your own network.",
+      "sharedReadOnly": "Audio upload uses the dictation server. Change it under Speech-to-Text › Dictation.",
+      "notSet": "Not set"
     },
     "enterpriseCheckout": {
       "title": "Upgrade to Enterprise",
@@ -3672,7 +3705,10 @@
     "cancel": "Cancel sign-in",
     "connect": "Connect ChatGPT",
     "refresh": "Refresh",
-    "loginFailed": "Sign-in could not be completed."
+    "loginFailed": "Sign-in could not be completed.",
+    "signedInStored": "Signed in to ChatGPT on this device. Check ChatGPT status to see the account and remaining usage.",
+    "checkStatus": "Check ChatGPT status",
+    "checkStatusTitle": "Starts the Codex app, which asks ChatGPT (via the Codex app) for your sign-in and remaining usage. The first check after Loqui starts also asks GitHub to confirm the Codex app is an official release. Loqui sends no saved key."
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",

@@ -40,8 +40,7 @@ test("all three model pickers restore the Oruk tab from the persisted Orukeet ch
         selectedLocalProvider: "nvidia",
         selectedLocalModel: "orukeet-v0.1.0",
         useLocalWhisper: true,
-        onLocalModelSelect: noop,
-        onModeChange: noop,
+        onCommit: noop,
       })
     );
     assert.match(markup, />Orukeet</, transcriptionContext);
@@ -58,8 +57,7 @@ test("a saved stock Parakeet choice opens NVIDIA while retaining Oruk as a selec
       selectedLocalProvider: "nvidia",
       selectedLocalModel: "parakeet-tdt-0.6b-v3",
       useLocalWhisper: true,
-      onLocalModelSelect: noop,
-      onModeChange: noop,
+      onCommit: noop,
     })
   );
   assert.match(markup, />Oruk</);
@@ -89,16 +87,14 @@ test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Par
   globalThis.window.electronAPI.onParakeetDownloadProgress = () => noop;
   const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");
   const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
-  const selectedProviders = [];
+  const commits = [];
   let tree;
   function Harness() {
     tree = Picker({
       selectedLocalProvider: "nvidia",
       selectedLocalModel: "orukeet-v0.1.0",
       useLocalWhisper: true,
-      onLocalModelSelect: noop,
-      onLocalProviderSelect: (provider) => selectedProviders.push(provider),
-      onModeChange: noop,
+      onCommit: (target) => commits.push(target),
     });
     return null;
   }
@@ -128,7 +124,7 @@ test("Oruk's model-picker tab follows the same unsupported-macOS fallback as Par
       );
     }
     assert.equal(tabs.props.selectedId, "whisper");
-    assert.ok(selectedProviders.includes("whisper"));
+    assert.deepEqual(commits, [{ mode: "local", provider: "whisper" }]);
   } finally {
     await React.act(async () => root.unmount());
   }

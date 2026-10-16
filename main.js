@@ -436,6 +436,7 @@ function initializeCoreManagers() {
   const inference = require("./src/helpers/personalInference").registerPersonalInferenceIPC({
     ipcMain,
     userDataPath: app.getPath("userData"),
+    credentials: ipcHandlers.credentials,
     waitForAdmission: () => ipcHandlers.vertexAuthSourceReady,
     getCredential: async (ref) => {
       const target = require("./src/helpers/credentialAuthority").slotForCredentialRef(ref);

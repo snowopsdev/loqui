@@ -198,7 +198,9 @@ test("change-driving N2: delayed atomic startup response never replaces a newer 
   assert.notEqual(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
 });
 
-test("change-driving N2: legacy A→B→A input revisions preserve text and readiness through old ACKs and failed writes", async (t) => {
+// Baseline guard after Task9 closes raw settings authority: only component
+// drafts retain editable text. Legacy saves publish complete durable tuples.
+test("baseline guard N2: legacy A→B→A saves retain only acknowledged canonical state", async (t) => {
   const ipc = enterpriseRouteIpc(t, INITIAL);
   const r = await renderer(t, ipc);
   await r.loadRouteFacts(globalThis.window.electronAPI, ["enterprise"]);
@@ -211,42 +213,29 @@ test("change-driving N2: legacy A→B→A input revisions preserve text and read
     return ack;
   };
   const live = () => r.useSettingsStore.getState();
-  const a = "https://a.openai.azure.com/openai";
-  const b = "https://b.openai.azure.com/openai";
+  const a = "https://a.openai.azure.com/openai",
+    b = "https://b.openai.azure.com/openai";
   live().setAzureEndpoint(a);
   live().setAzureEndpoint(b);
   live().setAzureEndpoint(a);
+  assert.equal(live().azureEndpoint, INITIAL.AZURE_OPENAI_ENDPOINT, "no optimistic raw write");
   while (receipts.length < 3) await tick();
-  assert.equal(live().azureEndpoint, a, "newest raw text retained through all durable events");
-  assert.equal(
-    r.useRouteFactsStore.getState().facts.enterpriseMain,
-    null,
-    "same-value old ACK cannot confirm newer submission"
-  );
+  assert.deepEqual(tuple(r.useSettingsStore), ipc.env.getEnterpriseRouteSettings());
   receipts[0].release.resolve();
   receipts[1].release.resolve();
   await tick();
-  assert.equal(live().azureEndpoint, a);
-  assert.equal(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
+  assert.deepEqual(tuple(r.useSettingsStore), ipc.env.getEnterpriseRouteSettings());
   receipts[2].release.resolve();
   await tick();
-  assert.deepEqual(tuple(r.useSettingsStore), ipc.env.getEnterpriseRouteSettings());
-  assert.notEqual(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
+  assert.equal(live().azureEndpoint, a);
   ipc.fs.holdNext((op, name) => op === "rename" && name === ".env");
   live().setAzureEndpoint("https://failed.openai.azure.com/openai");
+  assert.equal(live().azureEndpoint, a);
   (await ipc.fs.nextHold()).fail(new Error("fixture failure"));
   await tick();
-  assert.equal(
-    live().azureEndpoint,
-    "https://failed.openai.azure.com/openai",
-    "failed write retains typed draft"
-  );
-  assert.equal(ipc.env.getEnterpriseRouteSettings().azureEndpoint, a);
-  assert.equal(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
-  // A later canonical refresh cannot bless the failed raw draft.
   await r.loadRouteFacts(globalThis.window.electronAPI, ["enterprise"]);
-  assert.equal(live().azureEndpoint, "https://failed.openai.azure.com/openai");
-  assert.equal(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
+  assert.equal(live().azureEndpoint, a, "failed raw input never enters canonical settings");
+  assert.notEqual(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
 });
 
 test("change-driving N2/N1: Bedrock profile facts advance authority with an unchanged tuple, and reset fences old authority", async (t) => {
@@ -350,7 +339,7 @@ test("change-driving N2: synchronous subscribers never admit optimistic raw draf
   unsubscribe();
 });
 
-test("change-driving N2: all four legacy controlled inputs keep newer text while an older write is acknowledged", async (t) => {
+test("baseline guard N2: all four legacy savers admit canonical events and ignore stale ACKs", async (t) => {
   const cases = [
     [
       "bedrockRegion",
@@ -386,7 +375,7 @@ test("change-driving N2: all four legacy controlled inputs keep newer text while
     ],
   ];
   for (const [key, setter, method, channel, first, second] of cases) {
-    await t.test(`change-driving: ${key}`, async (st) => {
+    await t.test(`baseline guard: ${key}`, async (st) => {
       const ipc = enterpriseRouteIpc(st, INITIAL);
       const r = await renderer(st, ipc);
       await r.loadRouteFacts(globalThis.window.electronAPI, ["enterprise"]);
@@ -404,7 +393,7 @@ test("change-driving N2: all four legacy controlled inputs keep newer text while
       receipts[0].release.resolve();
       await tick();
       assert.equal(r.useSettingsStore.getState()[key], second);
-      assert.equal(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
+      assert.notEqual(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
       receipts[1].release.resolve();
       await tick();
       assert.equal(r.useSettingsStore.getState()[key], second);
@@ -512,7 +501,9 @@ test("baseline guard N2: a repeated authority version cannot replace its normali
   assert.equal(r.useRouteFactsStore.getState().facts.enterpriseMain.bedrockProfile, false);
 });
 
-test("change-driving N2: a draft created between atomic reconciliation and fact publication cannot regain readiness", async (t) => {
+// Baseline guard after Task9: an unsaved compatibility call cannot replace
+// canonical settings during final asynchronous facts publication.
+test("baseline guard N2: pending legacy persistence cannot enter canonical authority", async (t) => {
   const ipc = enterpriseRouteIpc(t, INITIAL);
   const r = await renderer(t, ipc);
   r.useSettingsStore.setState({ azureEndpoint: "https://stale.openai.azure.com/openai" });
@@ -531,15 +522,9 @@ test("change-driving N2: a draft created between atomic reconciliation and fact 
   });
   await r.loadRouteFacts(globalThis.window.electronAPI, ["enterprise"]);
   unsubscribe();
-  assert.equal(
-    r.useSettingsStore.getState().azureEndpoint,
-    "https://newer-draft.openai.azure.com/openai"
-  );
-  assert.equal(
-    r.useRouteFactsStore.getState().facts.enterpriseMain,
-    null,
-    "final async fact admission must check raw/canonical agreement again"
-  );
+  assert.equal(r.useSettingsStore.getState().azureEndpoint, INITIAL.AZURE_OPENAI_ENDPOINT);
+  assert.notEqual(r.useRouteFactsStore.getState().facts.enterpriseMain, null);
   held.resolve({ success: false });
   await tick();
+  assert.equal(r.useSettingsStore.getState().azureEndpoint, INITIAL.AZURE_OPENAI_ENDPOINT);
 });

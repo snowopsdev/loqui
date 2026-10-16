@@ -732,7 +732,16 @@
       "otherGroup": "その他",
       "noSearchResults": "「{{query}}」に一致するモデルはありません",
       "selectModelHint": "モデルが未選択です — 下のリストから選択してください。",
-      "keyRequiredHint": "推論には API キーが必要です — このプロバイダーを使用するには追加してください。"
+      "keyRequiredHint": "推論には API キーが必要です — このプロバイダーを使用するには追加してください。",
+      "listModels": "{{host}} のモデルを一覧表示",
+      "listModelsSendsKey": "モデル一覧の取得のため、{{slot}} を {{host}} に送信します。",
+      "listModelsNoKey": "キーは送信せず、{{host}} にモデル一覧を問い合わせます。",
+      "listModelsNeedsEndpoint": "先にエンドポイントを使用してからモデルを一覧表示してください。",
+      "listModelsSealed": "シールドモードが有効なため、エンドポイントへの問い合わせは行いません。",
+      "slotCustom": "{{task}} 用に保存したカスタムエンドポイントのキー",
+      "slotProvider": "保存済みの {{provider}} キー",
+      "currentModel": "現在のモデル: {{model}}",
+      "useDefault": "既定のエンドポイントを使用"
     },
     "getApiKey": "API キーを取得 ->",
     "selectModel": "モデルを選択",
@@ -813,7 +822,18 @@
         "adcHelp": "Application Default Credentials を使用します。次を実行してください: gcloud auth application-default login",
         "apikeyHelp": "Google AI Studio で取得した Vertex AI Express Mode の API キー。"
       },
-      "profileSaveFailed": "このプロファイルを保存できませんでした。入力内容は残っています。もう一度お試しください。"
+      "profileSaveFailed": "このプロファイルを保存できませんでした。入力内容は残っています。もう一度お試しください。",
+      "testConnectionAt": "{{host}} への接続をテスト",
+      "testSends": "{{fields}} と短いテストプロンプトを {{host}} に送信します。",
+      "testSendsNoKey": "クラウドのログイン情報を使って {{host}} に短いテストプロンプトを送信します。保存済みキーは送信しません。",
+      "testHostUnknown": "有効なエンドポイントまたはリージョンを入力してからテストしてください。",
+      "field": {
+        "key": "保存済みの API キー",
+        "accessKeyId": "アクセスキー ID",
+        "secretAccessKey": "シークレットアクセスキー",
+        "sessionToken": "セッショントークン",
+        "profile": "AWS プロファイルの認証情報"
+      }
     },
     "tinfoil": {
       "modelRetiredTitle": "モデルが利用できません",
@@ -822,6 +842,10 @@
     },
     "corti": {
       "euOnly": "Corti のモデルは EU リージョンでのみ利用できます。"
+    },
+    "codex": {
+      "listModels": "ChatGPT のモデルを一覧表示（Codex アプリ経由）",
+      "listModelsTitle": "Codex アプリが ChatGPT へのログインを使ってモデルを問い合わせます。Loqui は保存済みキーを送信しません。"
     }
   },
   "transcription": {
@@ -1999,7 +2023,16 @@
     "selfHosted": {
       "endpointUrl": "エンドポイント URL",
       "serverUrl": "サーバー URL",
-      "apiKeyOptional": "API キー（任意）"
+      "apiKeyOptional": "API キー（任意）",
+      "test": "テスト",
+      "testing": "テスト中…",
+      "testTitle": "{{host}} にモデル一覧を問い合わせます。キーは送信しません。",
+      "testOk_one": "接続済み · {{count}} モデル",
+      "testOk_other": "接続済み · {{count}} モデル",
+      "testFail": "{{host}} のモデル一覧を取得できませんでした。アドレスとサーバーの動作を確認してください。",
+      "testHttpsRequired": "http:// は自分のネットワーク内のアドレスでのみ使用できます。",
+      "sharedReadOnly": "音声アップロードはディクテーションのサーバーを使います。音声からテキスト › ディクテーションで変更してください。",
+      "notSet": "未設定"
     },
     "enterpriseCheckout": {
       "title": "Enterpriseにアップグレード",
@@ -3656,7 +3689,10 @@
     "cancel": "サインインをキャンセル",
     "connect": "ChatGPT を接続",
     "refresh": "更新",
-    "loginFailed": "サインインを完了できませんでした。"
+    "loginFailed": "サインインを完了できませんでした。",
+    "signedInStored": "この端末で ChatGPT にログイン済みです。状態を確認するとアカウントと残りの使用量が表示されます。",
+    "checkStatus": "ChatGPT の状態を確認",
+    "checkStatusTitle": "Codex アプリを起動し、ChatGPT にログイン状態と残りの使用量を問い合わせます。Loqui 起動後の初回確認では、Codex が公式リリースかどうか GitHub にも問い合わせます。保存済みキーは送信しません。"
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",

@@ -1,3 +1,8 @@
+import { isEnterpriseProvider } from "../../../models/ModelRegistry";
+import { stageDraftSetup } from "../../../stores/routeDraftStore";
+import { refreshRouteFacts } from "../../../stores/routeFactsStore";
+import CodexConnection from "../../CodexConnection";
+import EnterpriseProviderConfig from "../../EnterpriseProviderConfig";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { providerDisplayLabel } from "../../../lib/locality";
@@ -289,7 +294,7 @@ export function StagedRoutePanel({ routeId }: { routeId: RouteId }) {
       target={target}
       providers={providers}
       credential={
-        spec
+        spec && !isEnterpriseProvider(chosen)
           ? {
               credentialId: spec.credentialId,
               inputs: spec.fields.map((field) => ({
@@ -303,7 +308,29 @@ export function StagedRoutePanel({ routeId }: { routeId: RouteId }) {
           : null
       }
       models={modelsForRoute(routeId, chosen)}
-      sharedServerUrl={routeId === "uploadStt" ? settings.remoteTranscriptionUrl : null}
+      setup={
+        chosen === "codex" ? (
+          <CodexConnection onSignedInChange={() => void refreshRouteFacts(["credentials"])} />
+        ) : isEnterpriseProvider(chosen) ? (
+          <EnterpriseProviderConfig
+            provider={chosen}
+            reasoningModel={target.model ?? ""}
+            onSelectModel={(model) =>
+              void requestDraftTarget(
+                draft.routeId,
+                { mode: "providers", provider: chosen, model },
+                routeId
+              )
+            }
+            onRoutePatch={(patch) => void stageDraftSetup(draft.routeId, patch)}
+            pending={draft.kind === "patch" ? draft.patch : draft.setup}
+            testConnection={false}
+          />
+        ) : undefined
+      }
+      sharedServerUrl={
+        routeId === "uploadStt" && target.mode === "self-hosted" ? target.remoteUrl : null
+      }
       // Every choice re-plans: a device result applies now, anything else re-stages
       // (keeping setup typed for the same provider, Task 7).
       onTarget={(next) => void requestDraftTarget(draft.routeId, next, routeId)}

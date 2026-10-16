@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     prepared: (nonce, error) => ipcRenderer.send("loqui-update:prepared", nonce, !!error),
   },
   personalInference: {
+    describeModels: (input) => ipcRenderer.invoke("personal-inference:describe-models", input),
     codexStatus: () => ipcRenderer.invoke("personal-inference:codex-status"),
     codexLogin: () => ipcRenderer.invoke("personal-inference:codex-login"),
     codexCancelLogin: (loginId) =>
@@ -122,6 +123,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     "onboarding-demo-event",
     (callback) => (_event, payload) => callback(payload)
   ),
+  probeSelfHosted: (baseUrl) => ipcRenderer.invoke("probe-self-hosted", baseUrl),
   testProviderConnection: (config) => ipcRenderer.invoke("test-provider-connection", config),
   pasteText: (text, options) => ipcRenderer.invoke("paste-text", text, options),
   captureSelectedText: (options) => ipcRenderer.invoke("capture-selected-text", options),

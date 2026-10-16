@@ -732,7 +732,16 @@
       "otherGroup": "Otros",
       "noSearchResults": "Ningún modelo coincide con \"{{query}}\"",
       "selectModelHint": "Aún no hay un modelo seleccionado — elige uno de la lista de abajo.",
-      "keyRequiredHint": "Se requiere una clave API para la inferencia — agrega una para usar este proveedor."
+      "keyRequiredHint": "Se requiere una clave API para la inferencia — agrega una para usar este proveedor.",
+      "listModels": "Listar modelos de {{host}}",
+      "listModelsSendsKey": "Envía {{slot}} a {{host}} para consultar sus modelos.",
+      "listModelsNoKey": "No envía ninguna clave. Consulta los modelos de {{host}}.",
+      "listModelsNeedsEndpoint": "Primero usa un endpoint y después consulta sus modelos.",
+      "listModelsSealed": "El modo sellado está activo; no se consulta el endpoint.",
+      "slotCustom": "la clave del endpoint personalizado guardada para {{task}}",
+      "slotProvider": "tu clave de {{provider}} guardada",
+      "currentModel": "Modelo actual: {{model}}",
+      "useDefault": "Usar el endpoint predeterminado"
     },
     "getApiKey": "Obtener clave API ->",
     "selectModel": "Seleccionar modelo",
@@ -813,7 +822,18 @@
         "adcHelp": "Usa Application Default Credentials. Ejecuta: gcloud auth application-default login",
         "apikeyHelp": "Clave API de Vertex AI Express Mode obtenida en Google AI Studio."
       },
-      "profileSaveFailed": "No se pudo guardar este perfil. Lo que escribiste sigue aquí; inténtalo de nuevo."
+      "profileSaveFailed": "No se pudo guardar este perfil. Lo que escribiste sigue aquí; inténtalo de nuevo.",
+      "testConnectionAt": "Probar conexión con {{host}}",
+      "testSends": "Envía {{fields}} y una breve solicitud de prueba a {{host}}.",
+      "testSendsNoKey": "Envía una breve solicitud de prueba a {{host}} con tu sesión en la nube. No envía claves guardadas.",
+      "testHostUnknown": "Introduce un endpoint o una región válidos y prueba de nuevo.",
+      "field": {
+        "key": "tu clave API guardada",
+        "accessKeyId": "tu ID de clave de acceso",
+        "secretAccessKey": "tu clave de acceso secreta",
+        "sessionToken": "tu token de sesión",
+        "profile": "las credenciales de tu perfil de AWS"
+      }
     },
     "tinfoil": {
       "modelRetiredTitle": "Modelo ya no disponible",
@@ -822,6 +842,10 @@
     },
     "corti": {
       "euOnly": "Los modelos de Corti solo están disponibles en la región de la UE."
+    },
+    "codex": {
+      "listModels": "Listar modelos de ChatGPT (mediante Codex)",
+      "listModelsTitle": "Codex consulta los modelos de ChatGPT con tu sesión de ChatGPT. Loqui no envía claves guardadas."
     }
   },
   "transcription": {
@@ -2052,7 +2076,17 @@
     "selfHosted": {
       "endpointUrl": "URL del endpoint",
       "serverUrl": "URL del servidor",
-      "apiKeyOptional": "API Key (opcional)"
+      "apiKeyOptional": "API Key (opcional)",
+      "test": "Probar",
+      "testing": "Probando…",
+      "testTitle": "Consulta los modelos de {{host}}. No envía ninguna clave.",
+      "testOk_one": "Conectado · {{count}} modelo",
+      "testOk_other": "Conectado · {{count}} modelos",
+      "testFail": "No se pudieron listar los modelos de {{host}}. Revisa la dirección y que el servidor esté activo.",
+      "testHttpsRequired": "http:// solo funciona con direcciones de tu propia red.",
+      "sharedReadOnly": "La carga de audio usa el servidor de dictado. Cámbialo en Voz a texto › Dictado.",
+      "notSet": "Sin configurar",
+      "testOk_many": "Conectado · {{count}} modelos"
     },
     "enterpriseCheckout": {
       "title": "Mejorar a Enterprise",
@@ -3656,7 +3690,10 @@
     "cancel": "Cancelar inicio de sesión",
     "connect": "Conectar ChatGPT",
     "refresh": "Actualizar",
-    "loginFailed": "No se pudo completar el inicio de sesión."
+    "loginFailed": "No se pudo completar el inicio de sesión.",
+    "signedInStored": "Sesión de ChatGPT iniciada en este dispositivo. Consulta el estado para ver la cuenta y el uso restante.",
+    "checkStatus": "Consultar estado de ChatGPT",
+    "checkStatusTitle": "Inicia Codex para consultar en ChatGPT tu sesión y uso restante. La primera comprobación tras iniciar Loqui también consulta GitHub para confirmar que Codex es oficial. Loqui no envía claves guardadas."
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",

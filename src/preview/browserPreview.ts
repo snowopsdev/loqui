@@ -155,6 +155,9 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
       `${note.title} ${note.content}`.toLowerCase().includes(query.toLowerCase())
     );
   const personalInference: PersonalInferenceAPI = {
+    describeModels: async () => {
+      throw new Error("unavailable");
+    },
     codexStatus: async () => ({ available: false, error: desktopMessage, code: "BROWSER_PREVIEW" }),
     codexLogin: unavailable,
     codexCancelLogin: unavailable,
@@ -179,6 +182,7 @@ function createBrowserPreviewAPI(): Partial<Window["electronAPI"]> {
   };
   return {
     personalInference,
+    probeSelfHosted: async () => ({ ok: false as const, code: "network" as const }),
     getEnterpriseRouteState: async () => enterpriseState(),
     onEnterpriseRouteChanged: on("enterprise-route-changed"),
     saveEnterpriseRoutePatch: async ({ patch, expected }) => {

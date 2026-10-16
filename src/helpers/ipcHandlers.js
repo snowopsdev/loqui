@@ -1121,6 +1121,10 @@ class IPCHandlers {
       return true;
     });
 
+    ipcMain.handle("probe-self-hosted", (_event, baseUrl) =>
+      require("./selfHostedProbe").probeSelfHosted(baseUrl)
+    );
+
     ipcMain.handle("test-provider-connection", async (_event, config) => {
       config = { ...config };
       const customSlots = {

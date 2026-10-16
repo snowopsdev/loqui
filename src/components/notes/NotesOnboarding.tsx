@@ -1,3 +1,5 @@
+import { StagedRouteBar } from "../settings/routing/StagedRouteBar";
+import { useRouteChange, useRouteCommit } from "../settings/routing/useRouteChange";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
@@ -10,7 +12,7 @@ import {
   initializeActions,
   useActions,
 } from "../../stores/actionStore";
-import { selectResolvedLLMConfig, useSettingsStore } from "../../stores/settingsStore";
+import { saveSecret, selectResolvedLLMConfig, useSettingsStore } from "../../stores/settingsStore";
 import { canManageSystemAudioInApp } from "../../utils/systemAudioAccess";
 import { Check, ChevronRight, Loader2, Monitor, Plus, Sparkles, Zap } from "../icons";
 import { cn } from "../lib/utils";
@@ -25,6 +27,8 @@ interface NotesOnboardingProps {
 
 export default function NotesOnboarding({ onComplete }: NotesOnboardingProps) {
   const { t } = useTranslation();
+  const commitCleanup = useRouteCommit("dictationCleanup");
+  const { requestPatch } = useRouteChange();
   const { isLLMConfigured, complete } = useNotesOnboarding();
   const actions = useActions();
   const [llmExpanded, setLlmExpanded] = useState(!isLLMConfigured);
@@ -38,11 +42,6 @@ export default function NotesOnboarding({ onComplete }: NotesOnboardingProps) {
   const cleanupConfig = useSettingsStore(
     useShallow((settings) => selectResolvedLLMConfig(settings, "dictationCleanup"))
   );
-  const setCleanupModel = useSettingsStore((s) => s.setCleanupModel);
-  const setCleanupProvider = useSettingsStore((s) => s.setCleanupProvider);
-  const setCleanupMode = useSettingsStore((s) => s.setCleanupMode);
-  const setCleanupCloudBaseUrl = useSettingsStore((s) => s.setCleanupCloudBaseUrl);
-  const setCleanupCustomApiKey = useSettingsStore((s) => s.setCleanupCustomApiKey);
 
   const { alertDialog, hideAlertDialog } = useDialogs();
   const {
@@ -160,15 +159,15 @@ export default function NotesOnboarding({ onComplete }: NotesOnboardingProps) {
 
                 <ReasoningModelSelector
                   reasoningModel={cleanupConfig.model}
-                  setReasoningModel={setCleanupModel}
                   localReasoningProvider={cleanupConfig.provider}
-                  setLocalReasoningProvider={setCleanupProvider}
                   cloudReasoningBaseUrl={cleanupConfig.cloudBaseUrl ?? ""}
-                  setCloudReasoningBaseUrl={setCleanupCloudBaseUrl}
                   customReasoningApiKey={cleanupConfig.customApiKey ?? ""}
-                  setCustomReasoningApiKey={setCleanupCustomApiKey}
-                  setReasoningMode={setCleanupMode}
+                  saveCustomReasoningApiKey={(key) => saveSecret("cleanupCustomApiKey", key)}
+                  onCommit={commitCleanup}
+                  onRoutePatch={(patch) => void requestPatch("dictationCleanup", patch)}
                 />
+                {/* Off-device picks wait here for Apply; ⌘↵ belongs to the Settings dialog only. */}
+                <StagedRouteBar placement="inline" shortcut={false} />
               </div>
             )}
           </div>

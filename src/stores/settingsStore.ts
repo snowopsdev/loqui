@@ -1222,16 +1222,13 @@ function debouncedPersistToEnv() {
   }, 1000);
 }
 
-// Main publishes one tuple and monotonic version. Raw legacy inputs remain
-// editable until Task 9 replaces them with explicit component drafts.
+// Main publishes one acknowledged tuple and monotonic version. Editors own raw drafts.
 const ENTERPRISE_ROUTE_FIELDS = ROUTE_ENTERPRISE_KEYS;
 let enterpriseLocalWrites = 0;
 let enterpriseVersion = -1;
 let enterpriseCanonical: EnterpriseRouteSettings | null = null;
 let enterprisePatchInFlight = false;
 let enterprisePublicationDeferred = false;
-const enterpriseDrafts = new Map<RouteEnterpriseKey, number>();
-let enterpriseDraftRevision = 0;
 let enterpriseSourceRevision = 0;
 const enterpriseAuthorityListeners = new Set<(state?: EnterpriseRouteState) => void>();
 let enterpriseSubscribed = false;
@@ -1250,7 +1247,6 @@ export function enterpriseSettingsAreConfirmed(): boolean {
   return (
     enterpriseCanonical !== null &&
     !enterprisePublicationDeferred &&
-    enterpriseDrafts.size === 0 &&
     ENTERPRISE_ROUTE_FIELDS.every((key) => state[key] === enterpriseCanonical[key])
   );
 }
@@ -1299,14 +1295,14 @@ export function reconcileEnterpriseRouteState(
   enterpriseCanonical = authority.current ? { ...authority.current } : null;
   enterprisePublicationDeferred = deferPublication;
   // Revoke old facts before synchronous settings subscribers can inspect a
-  // newly published tuple (or a preserved, divergent legacy draft).
+  // newly published tuple. Local editable text belongs to its component.
   notifyEnterpriseAuthority(authority.facts ? (authority as EnterpriseRouteState) : undefined);
   noteEnterpriseLocalWrite();
   if (deferPublication) return true;
   const patch: Partial<SettingsState> = { ...companion };
   if (enterpriseCanonical) {
     for (const key of ENTERPRISE_ROUTE_FIELDS) {
-      if (!enterpriseDrafts.has(key)) Object.assign(patch, { [key]: enterpriseCanonical[key] });
+      Object.assign(patch, { [key]: enterpriseCanonical[key] });
     }
   }
   for (const [key, value] of Object.entries(patch)) {
@@ -1327,41 +1323,26 @@ export function ensureEnterpriseRouteSubscribed(): void {
   });
 }
 
-// Compatibility only: each submission owns its revision, including A→B→A.
-// A failed save retains the typed text and cannot grant readiness.
+// Legacy non-Settings callers can still persist a field, but only a complete
+// acknowledged canonical tuple may enter settings. No second raw authority.
 function writeLegacyEnterpriseSetting(
-  key: RouteEnterpriseKey,
+  _key: RouteEnterpriseKey,
   value: string,
   save: ((value: string) => Promise<unknown>) | undefined
 ): void {
   ensureEnterpriseRouteSubscribed();
-  const revision = ++enterpriseDraftRevision;
-  enterpriseDrafts.set(key, revision);
-  notifyEnterpriseAuthority();
-  noteEnterpriseLocalWrite();
-  if (isBrowser) localStorage.setItem(key, value);
-  useSettingsStore.setState({ [key]: value });
-  notifyEnterpriseAuthority();
   void Promise.resolve()
-    .then(() => {
-      if (!save) throw new Error("Enterprise persistence unavailable");
-      return save(value);
-    })
+    .then(() => save?.(value))
     .then((result) => {
-      if ((result as { success?: boolean })?.success !== true)
-        throw new Error("Enterprise persistence failed");
-      if (enterpriseDrafts.get(key) === revision) enterpriseDrafts.delete(key);
-      const ack = result as { current?: EnterpriseRouteSettings; version?: number };
-      if (ack.current && typeof ack.version === "number")
+      const ack = result as {
+        success?: boolean;
+        current?: EnterpriseRouteSettings;
+        version?: number;
+      };
+      if (ack?.success && ack.current && typeof ack.version === "number")
         reconcileEnterpriseRouteState({ current: ack.current, version: ack.version });
-      if (enterpriseCanonical)
-        reconcileEnterpriseRouteState({ current: enterpriseCanonical, version: enterpriseVersion });
-      else notifyEnterpriseAuthority();
     })
-    .catch(() => {
-      // Retain the owned draft, even if the failed value equals older main state.
-      notifyEnterpriseAuthority();
-    });
+    .catch(() => {});
 }
 
 let routePatchQueue: Promise<void> = Promise.resolve();

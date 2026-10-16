@@ -732,7 +732,16 @@
       "otherGroup": "Sonstige",
       "noSearchResults": "Keine Modelle für „{{query}}“",
       "selectModelHint": "Noch kein Modell ausgewählt — wählen Sie eines aus der Liste unten.",
-      "keyRequiredHint": "Für die Inferenz ist ein API-Schlüssel erforderlich — fügen Sie einen hinzu, um diesen Anbieter zu nutzen."
+      "keyRequiredHint": "Für die Inferenz ist ein API-Schlüssel erforderlich — fügen Sie einen hinzu, um diesen Anbieter zu nutzen.",
+      "listModels": "Modelle von {{host}} auflisten",
+      "listModelsSendsKey": "Sendet {{slot}} an {{host}}, um die Modellliste abzurufen.",
+      "listModelsNoKey": "Sendet keinen Schlüssel. Fragt {{host}} nach der Modellliste.",
+      "listModelsNeedsEndpoint": "Zuerst einen Endpunkt übernehmen, dann seine Modelle auflisten.",
+      "listModelsSealed": "Der versiegelte Modus ist aktiv. Der Endpunkt wird nicht abgefragt.",
+      "slotCustom": "den für {{task}} gespeicherten benutzerdefinierten Schlüssel",
+      "slotProvider": "Ihren gespeicherten {{provider}}-Schlüssel",
+      "currentModel": "Aktuelles Modell: {{model}}",
+      "useDefault": "Standardendpunkt verwenden"
     },
     "getApiKey": "API-Schlüssel holen ->",
     "selectModel": "Modell auswählen",
@@ -813,7 +822,18 @@
         "adcHelp": "Verwendet Application Default Credentials. Führen Sie aus: gcloud auth application-default login",
         "apikeyHelp": "API-Schlüssel für Vertex AI Express Mode aus Google AI Studio."
       },
-      "profileSaveFailed": "Das Profil konnte nicht gespeichert werden. Die Eingabe bleibt erhalten – bitte erneut versuchen."
+      "profileSaveFailed": "Das Profil konnte nicht gespeichert werden. Die Eingabe bleibt erhalten – bitte erneut versuchen.",
+      "testConnectionAt": "Verbindung zu {{host}} testen",
+      "testSends": "Sendet {{fields}} und eine kurze Testanfrage an {{host}}.",
+      "testSendsNoKey": "Sendet mit Ihrer Cloud-Anmeldung eine kurze Testanfrage an {{host}}. Kein gespeicherter Schlüssel wird gesendet.",
+      "testHostUnknown": "Geben Sie einen gültigen Endpunkt oder eine Region ein.",
+      "field": {
+        "key": "Ihren gespeicherten API-Schlüssel",
+        "accessKeyId": "Ihre Zugriffsschlüssel-ID",
+        "secretAccessKey": "Ihren geheimen Zugriffsschlüssel",
+        "sessionToken": "Ihr Sitzungstoken",
+        "profile": "die Anmeldedaten Ihres AWS-Profils"
+      }
     },
     "tinfoil": {
       "modelRetiredTitle": "Modell nicht mehr verfügbar",
@@ -822,6 +842,10 @@
     },
     "corti": {
       "euOnly": "Corti-Modelle sind nur in der EU-Region verfügbar."
+    },
+    "codex": {
+      "listModels": "Modelle von ChatGPT auflisten (über die Codex-App)",
+      "listModelsTitle": "Die Codex-App fragt mit Ihrer ChatGPT-Anmeldung nach Modellen. Loqui sendet keinen gespeicherten Schlüssel."
     }
   },
   "transcription": {
@@ -2092,7 +2116,16 @@
     "selfHosted": {
       "endpointUrl": "Endpunkt-URL",
       "serverUrl": "Server-URL",
-      "apiKeyOptional": "API-Schlüssel (optional)"
+      "apiKeyOptional": "API-Schlüssel (optional)",
+      "test": "Testen",
+      "testing": "Wird getestet…",
+      "testTitle": "Fragt {{host}} nach Modellen. Kein Schlüssel wird gesendet.",
+      "testOk_one": "Verbunden · {{count}} Modell",
+      "testOk_other": "Verbunden · {{count}} Modelle",
+      "testFail": "Modelle von {{host}} konnten nicht aufgelistet werden. Prüfen Sie Adresse und Server.",
+      "testHttpsRequired": "Einfaches http:// funktioniert nur für Adressen im eigenen Netzwerk.",
+      "sharedReadOnly": "Audio-Uploads verwenden den Diktatserver. Ändern Sie ihn unter Sprache-zu-Text › Diktat.",
+      "notSet": "Nicht festgelegt"
     },
     "enterpriseCheckout": {
       "title": "Auf Enterprise upgraden",
@@ -3656,7 +3689,10 @@
     "cancel": "Anmeldung abbrechen",
     "connect": "ChatGPT verbinden",
     "refresh": "Aktualisieren",
-    "loginFailed": "Die Anmeldung konnte nicht abgeschlossen werden."
+    "loginFailed": "Die Anmeldung konnte nicht abgeschlossen werden.",
+    "signedInStored": "Auf diesem Gerät bei ChatGPT angemeldet. Prüfen Sie den Status für Konto und verbleibende Nutzung.",
+    "checkStatus": "ChatGPT-Status prüfen",
+    "checkStatusTitle": "Startet Codex und fragt ChatGPT nach Anmeldung und verbleibender Nutzung. Die erste Prüfung nach dem Start von Loqui fragt auch GitHub, ob Codex eine offizielle Version ist. Loqui sendet keinen gespeicherten Schlüssel."
   },
   "personal": {
     "onboarding": "Set up permissions, speech recognition, text models, and shortcuts. Your notes stay on this device. Models download only when you choose them.",

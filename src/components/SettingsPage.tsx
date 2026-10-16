@@ -1,7 +1,7 @@
 import { useRouteDraftStore } from "../stores/routeDraftStore";
 import { StagedRoutePanel } from "./settings/routing/StagedRoutePanel";
 import { stagedTargetForMode } from "./settings/routing/stagedTarget";
-import { useRouteChange } from "./settings/routing/useRouteChange";
+import { useRouteChange, useRouteCommit } from "./settings/routing/useRouteChange";
 import { RouteSwitch } from "./settings/routing/RouteSwitch";
 import { useAudioStorageUsage } from "../hooks/useAudioStorageUsage";
 import { AudioStorageRow } from "./settings/AudioStorageRow";
@@ -439,60 +439,32 @@ function GranolaImportSection({
 
 interface TranscriptionSectionProps {
   startOnboarding: () => void;
-  cloudTranscriptionMode: string;
-  setCloudTranscriptionMode: (mode: string) => void;
-  useLocalWhisper: boolean;
-  setUseLocalWhisper: (value: boolean) => void;
-  updateTranscriptionSettings: (settings: { useLocalWhisper: boolean }) => void;
   cloudTranscriptionProvider: string;
-  setCloudTranscriptionProvider: (provider: string) => void;
   cloudTranscriptionModel: string;
-  setCloudTranscriptionModel: (model: string) => void;
   localTranscriptionProvider: string;
-  setLocalTranscriptionProvider: (provider: LocalTranscriptionProvider) => void;
   whisperModel: string;
-  setWhisperModel: (model: string) => void;
   parakeetModel: string;
-  setParakeetModel: (model: string) => void;
   cohereModel: string;
-  setCohereModel: (model: string) => void;
   cloudTranscriptionBaseUrl?: string;
-  setCloudTranscriptionBaseUrl: (url: string) => void;
   transcriptionMode: InferenceMode;
   remoteTranscriptionUrl: string;
-  setRemoteTranscriptionUrl: (url: string) => void;
   remoteTranscriptionModel: string;
-  setRemoteTranscriptionModel: (model: string) => void;
   showTranscriptionPreview: boolean;
   setShowTranscriptionPreview: (value: boolean) => void;
 }
 
 function TranscriptionSection({
   startOnboarding,
-  cloudTranscriptionMode,
-  setCloudTranscriptionMode,
-  useLocalWhisper,
-  setUseLocalWhisper,
-  updateTranscriptionSettings,
   cloudTranscriptionProvider,
-  setCloudTranscriptionProvider,
   cloudTranscriptionModel,
-  setCloudTranscriptionModel,
   localTranscriptionProvider,
-  setLocalTranscriptionProvider,
   whisperModel,
-  setWhisperModel,
   parakeetModel,
-  setParakeetModel,
   cohereModel,
-  setCohereModel,
   cloudTranscriptionBaseUrl,
-  setCloudTranscriptionBaseUrl,
   transcriptionMode,
   remoteTranscriptionUrl,
-  setRemoteTranscriptionUrl,
   remoteTranscriptionModel,
-  setRemoteTranscriptionModel,
   showTranscriptionPreview,
   setShowTranscriptionPreview,
 }: TranscriptionSectionProps) {
@@ -546,20 +518,6 @@ function TranscriptionSection({
     );
   };
 
-  const handleLocalModelSelect = useCallback(
-    (modelId: string, providerId?: string) => {
-      const provider = providerId ?? localTranscriptionProvider;
-      if (provider === "nvidia") {
-        setParakeetModel(modelId);
-      } else if (provider === "cohere") {
-        setCohereModel(modelId);
-      } else {
-        setWhisperModel(modelId);
-      }
-    },
-    [localTranscriptionProvider, setParakeetModel, setCohereModel, setWhisperModel]
-  );
-
   const selectedCloudModelStreams = Boolean(
     getTranscriptionProvider(cloudTranscriptionProvider)?.models.some(
       (model) => model.id === cloudTranscriptionModel && model.streaming
@@ -583,12 +541,11 @@ function TranscriptionSection({
     </SettingsPanel>
   );
 
-  const renderTranscriptionPicker = (mode?: "cloud" | "local") => (
+  const commitDictation = useRouteCommit("dictationStt");
+  const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
       selectedCloudProvider={cloudTranscriptionProvider}
-      onCloudProviderSelect={setCloudTranscriptionProvider}
       selectedCloudModel={cloudTranscriptionModel}
-      onCloudModelSelect={setCloudTranscriptionModel}
       selectedLocalModel={
         localTranscriptionProvider === "nvidia"
           ? parakeetModel
@@ -596,22 +553,11 @@ function TranscriptionSection({
             ? cohereModel
             : whisperModel
       }
-      onLocalModelSelect={handleLocalModelSelect}
       selectedLocalProvider={localTranscriptionProvider}
-      onLocalProviderSelect={setLocalTranscriptionProvider}
-      useLocalWhisper={mode === "local" || (!mode && useLocalWhisper)}
-      onModeChange={
-        mode
-          ? noop
-          : (isLocal) => {
-              setUseLocalWhisper(isLocal);
-              updateTranscriptionSettings({ useLocalWhisper: isLocal });
-              if (isLocal) setCloudTranscriptionMode("byok");
-            }
-      }
+      onCommit={commitDictation}
+      useLocalWhisper={mode === "local"}
       mode={mode}
       cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}
-      setCloudTranscriptionBaseUrl={setCloudTranscriptionBaseUrl}
       variant="settings"
     />
   );
@@ -652,9 +598,10 @@ function TranscriptionSection({
             <SelfHostedPanel
               service="transcription"
               url={remoteTranscriptionUrl}
-              onUrlChange={setRemoteTranscriptionUrl}
+              onUse={({ url, model }) =>
+                void commitDictation({ mode: "self-hosted", remoteUrl: url, model })
+              }
               model={remoteTranscriptionModel}
-              onModelChange={setRemoteTranscriptionModel}
             />
           )}
         </>
@@ -3067,30 +3014,16 @@ EOF`,
               <div className="space-y-6">
                 <TranscriptionSection
                   startOnboarding={startOnboarding}
-                  cloudTranscriptionMode={cloudTranscriptionMode}
-                  setCloudTranscriptionMode={setCloudTranscriptionMode}
-                  useLocalWhisper={useLocalWhisper}
-                  setUseLocalWhisper={setUseLocalWhisper}
-                  updateTranscriptionSettings={updateTranscriptionSettings}
                   cloudTranscriptionProvider={cloudTranscriptionProvider}
-                  setCloudTranscriptionProvider={setCloudTranscriptionProvider}
                   cloudTranscriptionModel={cloudTranscriptionModel}
-                  setCloudTranscriptionModel={setCloudTranscriptionModel}
                   localTranscriptionProvider={localTranscriptionProvider}
-                  setLocalTranscriptionProvider={setLocalTranscriptionProvider}
                   whisperModel={whisperModel}
-                  setWhisperModel={setWhisperModel}
                   parakeetModel={parakeetModel}
-                  setParakeetModel={setParakeetModel}
                   cohereModel={cohereModel}
-                  setCohereModel={setCohereModel}
                   cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}
-                  setCloudTranscriptionBaseUrl={setCloudTranscriptionBaseUrl}
                   transcriptionMode={transcriptionMode}
                   remoteTranscriptionUrl={remoteTranscriptionUrl}
-                  setRemoteTranscriptionUrl={setRemoteTranscriptionUrl}
                   remoteTranscriptionModel={remoteTranscriptionModel}
-                  setRemoteTranscriptionModel={setRemoteTranscriptionModel}
                   showTranscriptionPreview={showTranscriptionPreview}
                   setShowTranscriptionPreview={setShowTranscriptionPreview}
                 />

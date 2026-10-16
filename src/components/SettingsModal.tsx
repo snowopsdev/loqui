@@ -1,3 +1,5 @@
+import { withDraftDiscard } from "../stores/routeDraftStore";
+import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Brain, Keyboard, Mic, Shield, Sliders, Wrench } from "./icons";
@@ -90,10 +92,13 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
     setInitialSubTab(next.subTab);
   };
 
+  const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);
+
   return (
     <SidebarModal<SettingsSectionType>
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
+      footer={<StagedRouteBar />}
       title={t("settingsModal.title")}
       sidebarItems={sidebarItems}
       activeSection={activeSection}

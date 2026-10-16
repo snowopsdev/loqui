@@ -31,6 +31,8 @@ interface SidebarModalProps<T extends string> {
   header?: React.ReactNode;
   /** Full-width banner above every section, e.g. an organization-managed notice. */
   notice?: React.ReactNode;
+  /** Sticky content-column footer, e.g. the route Apply bar. */
+  footer?: React.ReactNode;
 }
 
 export default function SidebarModal<T extends string>({
@@ -45,6 +47,7 @@ export default function SidebarModal<T extends string>({
   version,
   header,
   notice,
+  footer,
 }: SidebarModalProps<T>) {
   const { t } = useTranslation();
   const { registerContent, shouldBlockDismiss } = useDismissGuard<HTMLDivElement>();
@@ -113,6 +116,7 @@ export default function SidebarModal<T extends string>({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
+          data-settings-dialog=""
           ref={registerContent}
           // Radix focuses the first tabbable on open, which is the close button;
           // focus the dialog itself so the X doesn't open wearing a focus ring.
@@ -258,6 +262,7 @@ export default function SidebarModal<T extends string>({
                       </InfoBox>
                     )}
                     {children}
+                    {footer}
                   </div>
                 </SettingsLayoutProvider>
               </div>

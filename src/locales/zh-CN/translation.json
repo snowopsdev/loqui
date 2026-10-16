@@ -3810,5 +3810,53 @@
       "undo": "撤销",
       "undoStaged": "撤销操作等待应用。请先检查，然后应用。"
     }
+  },
+  "staging": {
+    "region": "待处理的路由更改",
+    "heading": "发送任何内容前请先检查",
+    "coupled": "同时更改",
+    "sends": "发送{{payload}}",
+    "staysOnDevice": "保留在此设备上",
+    "offNote": "已关闭。开启后使用。",
+    "setupHere": "应用前请先在此设置 {{provider}}。应用前不会发送任何内容。",
+    "discard": "放弃",
+    "apply": "应用",
+    "blocked": {
+      "needsKey": "{{provider}} 需要先提供密钥。",
+      "chooseProvider": "选择提供商以查看将发送的内容。",
+      "needsUrl": "请输入有效的服务器地址。",
+      "needsModel": "请先下载模型。",
+      "chooseModel": "请先选择模型。",
+      "signIn": "请先登录 {{provider}}。应用前不会发送任何内容。",
+      "sealed": "封闭模式已开启。离开此设备的路由已暂停。",
+      "unknown": "仍在检查已保存的密钥和模型。请稍后重试。",
+      "unsupported": "此提供商无法执行此任务。"
+    },
+    "provider": "提供商",
+    "model": "模型",
+    "modelId": "模型 ID",
+    "useModel": "使用此模型",
+    "keySaved": "已保存密钥",
+    "noKey": "无密钥",
+    "cloud": {
+      "title": "将{{task}}发送到云提供商？",
+      "body": "请选择提供商。应用前不会发送任何内容。"
+    },
+    "server": {
+      "title": "将{{task}}发送到您自己的服务器？",
+      "body": "请输入服务器地址。应用前不会发送任何内容。"
+    },
+    "sharedWithDictation": "音频上传使用听写服务器 {{url}}。请在“语音转文字 › 听写”中更改。",
+    "serverUrl": "服务器地址",
+    "endpointUrl": "端点 URL",
+    "useEndpoint": "使用此端点",
+    "useServer": "使用此服务器",
+    "url": {
+      "empty": "粘贴或输入基础 URL。",
+      "invalid": "这还不是有效的网址。请以 https:// 或 http:// 开头。",
+      "insecure": "未加密的 http:// 仅适用于您自己网络中的地址。请使用 https://。",
+      "http": "http:// 未加密。可在您自己的网络中使用。",
+      "ok": "看起来没问题。"
+    }
   }
 }

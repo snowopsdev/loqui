@@ -67,6 +67,8 @@ const EXPECTED_SHARED_FIELD_DIRECTIONS = {
   "src/components/notes/SpacesTree.tsx": ["auto"],
   "src/components/notes/UploadAudioView.tsx": ["auto"],
   "src/components/settings/DictationAgentSettings.tsx": ["auto"],
+  "src/components/settings/routing/EndpointDraft.tsx": ["ltr", "ltr"],
+  "src/components/settings/routing/StagedRoutePanel.tsx": ["ltr"],
   "src/components/ui/ApiKeyInput.tsx": ["ltr"],
   "src/components/ui/PromptStudio.tsx": ["auto", "auto"],
   "src/components/ui/SearchableModelList.tsx": ["ltr"],

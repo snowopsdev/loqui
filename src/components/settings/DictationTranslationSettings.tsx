@@ -4,7 +4,7 @@ import { useSettingsStore, MAX_TRANSLATION_TARGETS } from "../../stores/settings
 import registry from "../../config/languageRegistry.json";
 import { getLanguageLabel } from "../../utils/languageSupport";
 import { cn } from "../lib/utils";
-import { Toggle } from "../ui/toggle";
+import { RouteSwitch } from "./routing/RouteSwitch";
 import { SettingsPanel, SettingsPanelRow, SettingsRow, SectionHeader } from "../ui/SettingsSection";
 import PromptStudio from "../ui/PromptStudio";
 import LanguageSelector from "../ui/LanguageSelector";
@@ -19,7 +19,6 @@ const OPTION_BY_CODE = new Map(TARGET_OPTIONS.map((o) => [o.value, o]));
 export default function DictationTranslationSettings() {
   const { t } = useTranslation();
   const useDictationTranslation = useSettingsStore((s) => s.useDictationTranslation);
-  const setUseDictationTranslation = useSettingsStore((s) => s.setUseDictationTranslation);
   const translationSourceLanguage = useSettingsStore((s) => s.translationSourceLanguage);
   const setTranslationSourceLanguage = useSettingsStore((s) => s.setTranslationSourceLanguage);
   const translationTargetLanguage = useSettingsStore((s) => s.translationTargetLanguage);
@@ -56,7 +55,7 @@ export default function DictationTranslationSettings() {
             label={t("dictationTranslation.enabled")}
             description={t("dictationTranslation.enabledDescription")}
           >
-            <Toggle checked={useDictationTranslation} onChange={setUseDictationTranslation} />
+            <RouteSwitch routeId="translation" settingKey="useDictationTranslation" />
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>

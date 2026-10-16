@@ -3810,5 +3810,53 @@
       "undo": "Annulla",
       "undoStaged": "L’annullamento è in attesa. Controllalo, poi applicalo."
     }
+  },
+  "staging": {
+    "region": "Modifica del percorso in sospeso",
+    "heading": "Controlla prima di inviare qualsiasi dato",
+    "coupled": "Modifica anche",
+    "sends": "Invia {{payload}}",
+    "staysOnDevice": "Resta su questo dispositivo",
+    "offNote": "Disattivato. Verrà usato all’attivazione.",
+    "setupHere": "Configura {{provider}} qui prima di applicare. Non verrà inviato nulla fino ad allora.",
+    "discard": "Scarta",
+    "apply": "Applica",
+    "blocked": {
+      "needsKey": "{{provider}} richiede prima una chiave.",
+      "chooseProvider": "Scegli un fornitore per vedere cosa verrà inviato.",
+      "needsUrl": "Inserisci un indirizzo server valido.",
+      "needsModel": "Scarica prima il modello.",
+      "chooseModel": "Scegli prima un modello.",
+      "signIn": "Accedi prima a {{provider}}. Non verrà inviato nulla finché non applichi.",
+      "sealed": "La modalità sigillata è attiva. I percorsi esterni al dispositivo sono in pausa.",
+      "unknown": "Verifica delle chiavi e dei modelli salvati in corso. Riprova tra poco.",
+      "unsupported": "Questo fornitore non può eseguire questa attività."
+    },
+    "provider": "Fornitore",
+    "model": "Modello",
+    "modelId": "ID del modello",
+    "useModel": "Usa questo modello",
+    "keySaved": "chiave salvata",
+    "noKey": "nessuna chiave",
+    "cloud": {
+      "title": "Inviare {{task}} a un fornitore cloud?",
+      "body": "Scegli un fornitore. Non verrà inviato nulla finché non applichi."
+    },
+    "server": {
+      "title": "Inviare {{task}} al tuo server?",
+      "body": "Inserisci l’indirizzo del server. Non verrà inviato nulla finché non applichi."
+    },
+    "sharedWithDictation": "Il caricamento audio usa il server di dettatura, {{url}}. Modificalo in Voce in testo › Dettatura.",
+    "serverUrl": "Indirizzo del server",
+    "endpointUrl": "URL dell’endpoint",
+    "useEndpoint": "Usa questo endpoint",
+    "useServer": "Usa questo server",
+    "url": {
+      "empty": "Incolla o digita l’URL di base.",
+      "invalid": "Non è ancora un indirizzo web. Inizia con https:// o http://.",
+      "insecure": "http:// non cifrato funziona solo per indirizzi della tua rete. Usa https://.",
+      "http": "http:// non è cifrato. Va bene sulla tua rete.",
+      "ok": "Sembra corretto."
+    }
   }
 }

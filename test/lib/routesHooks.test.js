@@ -244,11 +244,14 @@ test("turning provider search on re-renders the chat disclosure", async (t) => {
   assert.match(h.chat().sends, /routes\.payload\.webSearch/);
 });
 
-test("the provider-search toggle announces its change", () => {
-  // I15 wiring: without the event the hooks keep a stale disclosure until another setting changes.
-  const source = fs.readFileSync(
+test("baseline guard: the provider-search toggle announces its change", () => {
+  // I15 wiring: the toggle commits through the planner (Task 8); the one writer announces the change (Task 6).
+  const editor = fs.readFileSync(
     path.join(__dirname, "../../src/components/settings/InferenceConfigEditor.tsx"),
     "utf8"
   );
-  assert.match(source, /window\.dispatchEvent\(new Event\(PROVIDER_SEARCH_CHANGED_EVENT\)\)/);
+  const util = fs.readFileSync(path.join(__dirname, "../../src/utils/providerSearch.ts"), "utf8");
+  assert.match(editor, /requestPatch\(SCOPE_ROUTE\[scope\]/);
+  assert.doesNotMatch(editor, /useLocalStorage\(`personalWebSearch:/);
+  assert.match(util, /window\.dispatchEvent\?\.\(new Event\(PROVIDER_SEARCH_CHANGED_EVENT\)\)/);
 });

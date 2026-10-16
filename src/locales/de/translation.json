@@ -3810,5 +3810,53 @@
       "undo": "Rückgängig",
       "undoStaged": "Das Rückgängigmachen ist vorgemerkt. Prüfe es und wende es dann an."
     }
+  },
+  "staging": {
+    "region": "Ausstehende Routenänderung",
+    "heading": "Vor dem Senden prüfen",
+    "coupled": "Ändert auch",
+    "sends": "Sendet {{payload}}",
+    "staysOnDevice": "Bleibt auf diesem Gerät",
+    "offNote": "Aus. Wird beim Einschalten verwendet.",
+    "setupHere": "Richte {{provider}} hier vor dem Anwenden ein. Bis dahin wird nichts gesendet.",
+    "discard": "Verwerfen",
+    "apply": "Anwenden",
+    "blocked": {
+      "needsKey": "{{provider}} benötigt zuerst einen Schlüssel.",
+      "chooseProvider": "Wähle einen Anbieter, um zu sehen, was gesendet wird.",
+      "needsUrl": "Gib eine gültige Serveradresse ein.",
+      "needsModel": "Lade zuerst das Modell herunter.",
+      "chooseModel": "Wähle zuerst ein Modell.",
+      "signIn": "Melde dich zuerst bei {{provider}} an. Bis zum Anwenden wird nichts gesendet.",
+      "sealed": "Der versiegelte Modus ist aktiv. Routen außerhalb dieses Geräts sind pausiert.",
+      "unknown": "Gespeicherte Schlüssel und Modelle werden noch geprüft. Versuche es gleich erneut.",
+      "unsupported": "Dieser Anbieter kann diese Aufgabe nicht ausführen."
+    },
+    "provider": "Anbieter",
+    "model": "Modell",
+    "modelId": "Modell-ID",
+    "useModel": "Dieses Modell verwenden",
+    "keySaved": "Schlüssel gespeichert",
+    "noKey": "kein Schlüssel",
+    "cloud": {
+      "title": "{{task}} an einen Cloud-Anbieter senden?",
+      "body": "Wähle einen Anbieter. Bis zum Anwenden wird nichts gesendet."
+    },
+    "server": {
+      "title": "{{task}} an deinen eigenen Server senden?",
+      "body": "Gib die Serveradresse ein. Bis zum Anwenden wird nichts gesendet."
+    },
+    "sharedWithDictation": "Der Audio-Upload nutzt den Diktatserver {{url}}. Ändere ihn unter Sprache zu Text › Diktat.",
+    "serverUrl": "Serveradresse",
+    "endpointUrl": "Endpunkt-URL",
+    "useEndpoint": "Diesen Endpunkt verwenden",
+    "useServer": "Diesen Server verwenden",
+    "url": {
+      "empty": "Füge die Basis-URL ein oder tippe sie ein.",
+      "invalid": "Das ist noch keine Webadresse. Beginne mit https:// oder http://.",
+      "insecure": "Einfaches http:// funktioniert nur für Adressen im eigenen Netzwerk. Verwende https://.",
+      "http": "http:// ist nicht verschlüsselt. Im eigenen Netzwerk ist das in Ordnung.",
+      "ok": "Sieht gut aus."
+    }
   }
 }

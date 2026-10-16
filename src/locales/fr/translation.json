@@ -3810,5 +3810,53 @@
       "undo": "Annuler",
       "undoStaged": "L’annulation est en attente. Vérifiez-la, puis appliquez-la."
     }
+  },
+  "staging": {
+    "region": "Changement de routage en attente",
+    "heading": "Vérifiez avant tout envoi",
+    "coupled": "Modifie aussi",
+    "sends": "Envoie {{payload}}",
+    "staysOnDevice": "Reste sur cet appareil",
+    "offNote": "Désactivé. Utilisé à l’activation.",
+    "setupHere": "Configurez {{provider}} ici avant d’appliquer. Rien ne sera envoyé avant cela.",
+    "discard": "Abandonner",
+    "apply": "Appliquer",
+    "blocked": {
+      "needsKey": "{{provider}} nécessite d’abord une clé.",
+      "chooseProvider": "Choisissez un fournisseur pour voir ce qui sera envoyé.",
+      "needsUrl": "Saisissez une adresse de serveur valide.",
+      "needsModel": "Téléchargez d’abord le modèle.",
+      "chooseModel": "Choisissez d’abord un modèle.",
+      "signIn": "Connectez-vous d’abord à {{provider}}. Rien ne sera envoyé avant d’appliquer.",
+      "sealed": "Le mode scellé est actif. Les routes hors de cet appareil sont suspendues.",
+      "unknown": "Vérification des clés et modèles enregistrés en cours. Réessayez dans un instant.",
+      "unsupported": "Ce fournisseur ne peut pas exécuter cette tâche."
+    },
+    "provider": "Fournisseur",
+    "model": "Modèle",
+    "modelId": "Identifiant du modèle",
+    "useModel": "Utiliser ce modèle",
+    "keySaved": "clé enregistrée",
+    "noKey": "sans clé",
+    "cloud": {
+      "title": "Envoyer {{task}} à un fournisseur cloud ?",
+      "body": "Choisissez un fournisseur. Rien ne sera envoyé avant d’appliquer."
+    },
+    "server": {
+      "title": "Envoyer {{task}} à votre propre serveur ?",
+      "body": "Saisissez l’adresse du serveur. Rien ne sera envoyé avant d’appliquer."
+    },
+    "sharedWithDictation": "L’import audio utilise le serveur de dictée, {{url}}. Modifiez-le dans Parole vers texte › Dictée.",
+    "serverUrl": "Adresse du serveur",
+    "endpointUrl": "URL du point de terminaison",
+    "useEndpoint": "Utiliser ce point de terminaison",
+    "useServer": "Utiliser ce serveur",
+    "url": {
+      "empty": "Collez ou saisissez l’URL de base.",
+      "invalid": "Ce n’est pas encore une adresse web. Commencez par https:// ou http://.",
+      "insecure": "Le protocole http:// simple ne fonctionne que sur votre propre réseau. Utilisez https://.",
+      "http": "http:// n’est pas chiffré. Il convient sur votre propre réseau.",
+      "ok": "Cela semble correct."
+    }
   }
 }

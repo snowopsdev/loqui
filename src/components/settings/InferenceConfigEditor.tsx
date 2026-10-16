@@ -1,12 +1,20 @@
+import type { ProviderSearchScope, SettingsPatch } from "../../lib/providerSwitchPlans";
+import { useRouteDraftStore } from "../../stores/routeDraftStore";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
+import { stagedTargetForMode } from "./routing/stagedTarget";
+import { useRouteChange } from "./routing/useRouteChange";
 import { saveSecret } from "../../stores/settingsStore";
 import { SCOPE_ROUTE } from "../../lib/routeGraph";
 import { useResolvedRoute } from "../../lib/routes";
 import { isSecretStoreKey, unavailableSecretSave } from "../../lib/credentialSlots";
 import type { AcknowledgedSecretSave } from "../ui/ApiKeyInput";
-import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { PROVIDER_SEARCH_CHANGED_EVENT, supportsProviderSearch } from "../../utils/providerSearch";
+import {
+  PROVIDER_SEARCH_CHANGED_EVENT,
+  readProviderSearchPreference,
+  supportsProviderSearch,
+} from "../../utils/providerSearch";
 import { SettingsRow } from "../ui/SettingsSection";
-import { useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
@@ -26,7 +34,7 @@ import {
   type InferenceScope,
   type InferenceScopeDefinition,
 } from "../../config/inferenceScopes";
-import { getCloudModel, getLocalModel, isProviderValidForMode } from "../../models/ModelRegistry";
+import { getCloudModel, getLocalModel } from "../../models/ModelRegistry";
 import type { InferenceMode } from "../../types/electron";
 import OpenAICompatiblePanel from "../OpenAICompatiblePanel";
 import { Toggle } from "../ui/toggle";
@@ -102,29 +110,35 @@ export default function InferenceConfigEditor({
     [scope]
   );
 
+  const routeId = SCOPE_ROUTE[scope];
+  const { request, requestPatch } = useRouteChange();
+  const stagedMode = useRouteDraftStore((s) =>
+    s.draft?.routeId === routeId && s.draft.kind === "target" ? s.draft.target.mode : null
+  );
+  // The planner clears a provider that is invalid for the new mode
+  // (isProviderValidForMode) and stages anything that leaves the device.
   const handleModeSelect = useCallback(
-    (mode: InferenceMode) => {
+    async (mode: InferenceMode) => {
       if (!isModeAllowed(mode)) return;
-
-      if (mode === effectiveMode) return;
-
-      const patch: Parameters<typeof setResolvedLLMConfig>[1] = {
-        mode,
-        cloudMode: "byok",
-      };
-      if (!isProviderValidForMode(config.provider, mode)) {
-        patch.provider = "";
-        patch.model = "";
+      if (mode === effectiveMode) {
+        void requestPatch(routeId, {});
+        return;
       }
-      setResolvedLLMConfig(scope, patch);
-
-      if (mode === "self-hosted") {
-        window.electronAPI?.llamaServerStop?.();
-      }
-
+      // Task 7's commit frees llama-server when a scope moves to a server.
+      const outcome = await request(
+        routeId,
+        stagedTargetForMode(mode, routeId, useSettingsStore.getState())
+      );
+      if (
+        outcome === "staged" ||
+        outcome === "superseded" ||
+        outcome === "save-failed" ||
+        !outcome.applied
+      )
+        return;
       onModeChange?.(mode);
     },
-    [scope, config.provider, effectiveMode, onModeChange, isModeAllowed]
+    [routeId, request, requestPatch, effectiveMode, onModeChange, isModeAllowed]
   );
 
   const setMode = setField("mode");
@@ -170,10 +184,13 @@ export default function InferenceConfigEditor({
           label={t("routes.runsOn", { task: t(`routes.names.${route.id}`) })}
           modes={modes}
           activeMode={effectiveMode}
+          stagedMode={stagedMode}
           onSelect={handleModeSelect}
           routeState={route.state}
         />
       )}
+
+      <StagedRoutePanel routeId={routeId} />
 
       {effectiveMode === "providers" && renderModelSelector("cloud")}
       {effectiveMode === "local" && renderModelSelector("local")}
@@ -197,7 +214,7 @@ export default function InferenceConfigEditor({
       )}
 
       {supportsProviderSearch(scope, config.provider, config.mode) && (
-        <ProviderSearchPreference key={scope} scope={scope} />
+        <ProviderSearchPreference key={scope} scope={scope as ProviderSearchScope} />
       )}
 
       {showThinkingToggle && (
@@ -215,9 +232,27 @@ export default function InferenceConfigEditor({
   );
 }
 
-function ProviderSearchPreference({ scope }: { scope: string }) {
+// The preference lives in localStorage (personalWebSearch:<scope>). Task 6's
+// writer announces every change; "storage" covers other windows.
+function subscribeProviderSearch(onChange: () => void): () => void {
+  window.addEventListener(PROVIDER_SEARCH_CHANGED_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(PROVIDER_SEARCH_CHANGED_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+// Web search adds the webSearch payload part (Appendix B), so turning it on
+// for a provider is a new payload: the planner stages it. Off is instant.
+function ProviderSearchPreference({ scope }: { scope: ProviderSearchScope }) {
   const { t } = useTranslation();
-  const [enabled, setEnabled] = useLocalStorage(`personalWebSearch:${scope}`, false);
+  const enabled = useSyncExternalStore(
+    subscribeProviderSearch,
+    () => readProviderSearchPreference(scope),
+    () => false
+  );
+  const { requestPatch } = useRouteChange();
   return (
     <SettingsRow
       label={t("personal.providerSearch")}
@@ -225,10 +260,11 @@ function ProviderSearchPreference({ scope }: { scope: string }) {
     >
       <Toggle
         checked={enabled}
-        onChange={(next) => {
-          setEnabled(next);
-          window.dispatchEvent(new Event(PROVIDER_SEARCH_CHANGED_EVENT));
-        }}
+        onChange={(next) =>
+          void requestPatch(SCOPE_ROUTE[scope], {
+            [`providerSearch:${scope}`]: next,
+          } as SettingsPatch)
+        }
       />
     </SettingsRow>
   );

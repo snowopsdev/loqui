@@ -1,3 +1,8 @@
+import { useRouteDraftStore } from "../stores/routeDraftStore";
+import { StagedRoutePanel } from "./settings/routing/StagedRoutePanel";
+import { stagedTargetForMode } from "./settings/routing/stagedTarget";
+import { useRouteChange } from "./settings/routing/useRouteChange";
+import { RouteSwitch } from "./settings/routing/RouteSwitch";
 import { useAudioStorageUsage } from "../hooks/useAudioStorageUsage";
 import { AudioStorageRow } from "./settings/AudioStorageRow";
 import UpdateSettings from "./settings/UpdateSettings";
@@ -454,19 +459,12 @@ interface TranscriptionSectionProps {
   cloudTranscriptionBaseUrl?: string;
   setCloudTranscriptionBaseUrl: (url: string) => void;
   transcriptionMode: InferenceMode;
-  setTranscriptionMode: (mode: InferenceMode) => void;
   remoteTranscriptionUrl: string;
   setRemoteTranscriptionUrl: (url: string) => void;
   remoteTranscriptionModel: string;
   setRemoteTranscriptionModel: (model: string) => void;
   showTranscriptionPreview: boolean;
   setShowTranscriptionPreview: (value: boolean) => void;
-  toast: (opts: {
-    title: string;
-    description: string;
-    variant?: "default" | "destructive" | "success";
-    duration?: number;
-  }) => void;
 }
 
 function TranscriptionSection({
@@ -491,14 +489,12 @@ function TranscriptionSection({
   cloudTranscriptionBaseUrl,
   setCloudTranscriptionBaseUrl,
   transcriptionMode,
-  setTranscriptionMode,
   remoteTranscriptionUrl,
   setRemoteTranscriptionUrl,
   remoteTranscriptionModel,
   setRemoteTranscriptionModel,
   showTranscriptionPreview,
   setShowTranscriptionPreview,
-  toast,
 }: TranscriptionSectionProps) {
   const { t } = useTranslation();
   const dictationRoute = useResolvedRoute("dictationStt");
@@ -531,28 +527,23 @@ function TranscriptionSection({
     ],
     transcriptionMode
   );
+  const { request, requestPatch } = useRouteChange();
+  const stagedMode = useRouteDraftStore((s) =>
+    s.draft?.routeId === "dictationStt" && s.draft.kind === "target" ? s.draft.target.mode : null
+  );
+  // SET-R3 B: the planner decides. On-device results apply now with Undo;
+  // off-device ones wait for Apply. Re-picking the active mode cancels only
+  // this route’s pending intent and matching draft.
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
-
-    if (mode === effectiveTranscriptionMode) return;
-    setTranscriptionMode(mode);
-    setUseLocalWhisper(mode === "local");
-    updateTranscriptionSettings({ useLocalWhisper: mode === "local" });
-    setCloudTranscriptionMode("byok");
-
-    const toastKey = (
-      {
-        providers: "switchedProviders",
-        local: "switchedLocal",
-        "self-hosted": "switchedSelfHosted",
-      } as Partial<Record<InferenceMode, string>>
-    )[mode];
-    toast({
-      title: t(`settingsPage.transcription.toasts.${toastKey}.title`),
-      description: t(`settingsPage.transcription.toasts.${toastKey}.description`),
-      variant: "success",
-      duration: 3000,
-    });
+    if (mode === effectiveTranscriptionMode) {
+      void requestPatch("dictationStt", {});
+      return;
+    }
+    void request(
+      "dictationStt",
+      stagedTargetForMode(mode, "dictationStt", useSettingsStore.getState())
+    );
   };
 
   const handleLocalModelSelect = useCallback(
@@ -647,9 +638,11 @@ function TranscriptionSection({
             label={t("routes.runsOn", { task: t("routes.names.dictationStt") })}
             modes={transcriptionModes}
             activeMode={effectiveTranscriptionMode}
+            stagedMode={stagedMode}
             onSelect={handleTranscriptionModeSelect}
             routeState={dictationRoute.state}
           />
+          <StagedRoutePanel routeId="dictationStt" />
 
           {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
           {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}
@@ -675,20 +668,7 @@ function TranscriptionSection({
 
 interface AiModelsSectionProps {
   useCleanupModel: boolean;
-  setUseCleanupModel: (value: boolean) => void;
-  toast: (opts: {
-    title: string;
-    description: string;
-    variant?: "default" | "destructive" | "success";
-    duration?: number;
-  }) => void;
 }
-
-const CLEANUP_MODE_TOAST_KEY: Partial<Record<InferenceMode, string>> = {
-  providers: "switchedProviders",
-  local: "switchedLocal",
-  "self-hosted": "switchedSelfHosted",
-};
 
 function NoteFormattingSettings() {
   const { t } = useTranslation();
@@ -712,18 +692,8 @@ function NoteFormattingSettings() {
   );
 }
 
-function AiModelsSection({ useCleanupModel, setUseCleanupModel, toast }: AiModelsSectionProps) {
+function AiModelsSection({ useCleanupModel }: AiModelsSectionProps) {
   const { t } = useTranslation();
-
-  const handleCleanupModeChange = (mode: InferenceMode) => {
-    const toastKey = CLEANUP_MODE_TOAST_KEY[mode];
-    toast({
-      title: t(`settingsPage.aiModels.toasts.${toastKey}.title`),
-      description: t(`settingsPage.aiModels.toasts.${toastKey}.description`),
-      variant: "success",
-      duration: 3000,
-    });
-  };
 
   return (
     <div className="space-y-4">
@@ -733,14 +703,14 @@ function AiModelsSection({ useCleanupModel, setUseCleanupModel, toast }: AiModel
             label={t("settingsPage.aiModels.enableTextCleanup")}
             description={t("settingsPage.aiModels.enableTextCleanupDescription")}
           >
-            <Toggle checked={useCleanupModel} onChange={setUseCleanupModel} />
+            <RouteSwitch routeId="dictationCleanup" settingKey="useCleanupModel" />
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
 
       {useCleanupModel && (
         <>
-          <InferenceConfigEditor scope="dictationCleanup" onModeChange={handleCleanupModeChange} />
+          <InferenceConfigEditor scope="dictationCleanup" />
           <GpuDeviceSelector purpose="intelligence" />
         </>
       )}
@@ -1011,7 +981,6 @@ export default function SettingsPage({
     setCloudTranscriptionProvider,
     setCloudTranscriptionModel,
     setCloudTranscriptionBaseUrl,
-    setUseCleanupModel,
     setDictationKey,
     meetingKey,
     setMeetingKey,
@@ -1020,11 +989,9 @@ export default function SettingsPage({
     autoLearnCorrections,
     setAutoLearnCorrections,
     updateTranscriptionSettings,
-    updateCleanupSettings,
     cloudTranscriptionMode,
     setCloudTranscriptionMode,
     transcriptionMode,
-    setTranscriptionMode,
     remoteTranscriptionUrl,
     setRemoteTranscriptionUrl,
     remoteTranscriptionModel,
@@ -3119,14 +3086,12 @@ EOF`,
                   cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}
                   setCloudTranscriptionBaseUrl={setCloudTranscriptionBaseUrl}
                   transcriptionMode={transcriptionMode}
-                  setTranscriptionMode={setTranscriptionMode}
                   remoteTranscriptionUrl={remoteTranscriptionUrl}
                   setRemoteTranscriptionUrl={setRemoteTranscriptionUrl}
                   remoteTranscriptionModel={remoteTranscriptionModel}
                   setRemoteTranscriptionModel={setRemoteTranscriptionModel}
                   showTranscriptionPreview={showTranscriptionPreview}
                   setShowTranscriptionPreview={setShowTranscriptionPreview}
-                  toast={toast}
                 />
                 {transcriptionMode === "local" &&
                   localTranscriptionProvider === "whisper" &&
@@ -3159,13 +3124,7 @@ EOF`,
             renderSupportModels={() => <LocalSupportModels />}
             renderDictationCleanup={() => (
               <div className="space-y-6">
-                <AiModelsSection
-                  useCleanupModel={useCleanupModel}
-                  setUseCleanupModel={(value) => {
-                    updateCleanupSettings({ useCleanupModel: value });
-                  }}
-                  toast={toast}
-                />
+                <AiModelsSection useCleanupModel={useCleanupModel} />
                 <div className="border-t border-border/70 pt-6">
                   <SectionHeader
                     title={t("settingsPage.prompts.title")}

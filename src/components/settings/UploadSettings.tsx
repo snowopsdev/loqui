@@ -1,3 +1,7 @@
+import { useRouteDraftStore } from "../../stores/routeDraftStore";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
+import { stagedTargetForMode } from "./routing/stagedTarget";
+import { useRouteChange } from "./routing/useRouteChange";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
@@ -17,8 +21,6 @@ export function UploadTranscriptionPanel() {
 
   const {
     uploadTranscriptionMode,
-    setUploadTranscriptionMode,
-    setUploadUseLocalWhisper,
     uploadWhisperModel,
     setUploadWhisperModel,
     uploadLocalTranscriptionProvider,
@@ -33,7 +35,6 @@ export function UploadTranscriptionPanel() {
     setUploadCloudTranscriptionModel,
     uploadCloudTranscriptionBaseUrl,
     setUploadCloudTranscriptionBaseUrl,
-    setUploadCloudTranscriptionMode,
     remoteTranscriptionUrl,
     setRemoteTranscriptionUrl,
     remoteTranscriptionModel,
@@ -67,13 +68,18 @@ export function UploadTranscriptionPanel() {
     ],
     uploadTranscriptionMode
   );
+  const { request, requestPatch } = useRouteChange();
+  const stagedMode = useRouteDraftStore((s) =>
+    s.draft?.routeId === "uploadStt" && s.draft.kind === "target" ? s.draft.target.mode : null
+  );
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
-
-    if (mode === effectiveTranscriptionMode) return;
-    setUploadTranscriptionMode(mode);
-    setUploadUseLocalWhisper(mode === "local");
-    setUploadCloudTranscriptionMode("byok");
+    if (mode === effectiveTranscriptionMode) {
+      void requestPatch("uploadStt", {});
+      return;
+    }
+    // Self-hosted upload reads dictation's server; the planner never writes it from here.
+    void request("uploadStt", stagedTargetForMode(mode, "uploadStt", useSettingsStore.getState()));
   };
 
   const handleLocalTranscriptionModelSelect = useCallback(
@@ -127,9 +133,11 @@ export function UploadTranscriptionPanel() {
         label={t("routes.runsOn", { task: t("routes.names.uploadStt") })}
         modes={transcriptionModes}
         activeMode={effectiveTranscriptionMode}
+        stagedMode={stagedMode}
         onSelect={handleTranscriptionModeSelect}
         routeState={route.state}
       />
+      <StagedRoutePanel routeId="uploadStt" />
 
       {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
       {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}

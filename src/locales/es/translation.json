@@ -3810,5 +3810,53 @@
       "undo": "Deshacer",
       "undoStaged": "Se ha preparado la reversión. Revísala y luego aplícala."
     }
+  },
+  "staging": {
+    "region": "Cambio de ruta pendiente",
+    "heading": "Revisa antes de enviar nada",
+    "coupled": "También cambia",
+    "sends": "Envía {{payload}}",
+    "staysOnDevice": "Permanece en este dispositivo",
+    "offNote": "Desactivado. Se usará cuando lo actives.",
+    "setupHere": "Configura {{provider}} aquí antes de aplicar. No se enviará nada hasta que apliques.",
+    "discard": "Descartar",
+    "apply": "Aplicar",
+    "blocked": {
+      "needsKey": "{{provider}} necesita una clave primero.",
+      "chooseProvider": "Elige un proveedor para ver qué se enviará.",
+      "needsUrl": "Introduce una dirección de servidor válida.",
+      "needsModel": "Descarga primero el modelo.",
+      "chooseModel": "Elige primero un modelo.",
+      "signIn": "Inicia sesión en {{provider}} primero. No se enviará nada hasta que apliques.",
+      "sealed": "El modo sellado está activo. Las rutas fuera de este dispositivo están en pausa.",
+      "unknown": "Se están comprobando las claves y los modelos guardados. Inténtalo de nuevo en un momento.",
+      "unsupported": "Este proveedor no puede realizar esta tarea."
+    },
+    "provider": "Proveedor",
+    "model": "Modelo",
+    "modelId": "ID del modelo",
+    "useModel": "Usar este modelo",
+    "keySaved": "clave guardada",
+    "noKey": "sin clave",
+    "cloud": {
+      "title": "¿Enviar {{task}} a un proveedor en la nube?",
+      "body": "Elige un proveedor. No se enviará nada hasta que apliques."
+    },
+    "server": {
+      "title": "¿Enviar {{task}} a tu propio servidor?",
+      "body": "Introduce la dirección del servidor. No se enviará nada hasta que apliques."
+    },
+    "sharedWithDictation": "La carga de audio usa el servidor de dictado, {{url}}. Cámbialo en Voz a texto › Dictado.",
+    "serverUrl": "Dirección del servidor",
+    "endpointUrl": "URL del punto de conexión",
+    "useEndpoint": "Usar este punto de conexión",
+    "useServer": "Usar este servidor",
+    "url": {
+      "empty": "Pega o escribe la URL base.",
+      "invalid": "Aún no es una dirección web. Empieza por https:// o http://.",
+      "insecure": "http:// sin cifrar solo funciona con direcciones de tu propia red. Usa https://.",
+      "http": "http:// no está cifrado. Es adecuado en tu propia red.",
+      "ok": "Parece correcto."
+    }
   }
 }

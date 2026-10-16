@@ -1,3 +1,7 @@
+import { useRouteDraftStore } from "../../stores/routeDraftStore";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
+import { stagedTargetForMode } from "./routing/stagedTarget";
+import { useRouteChange } from "./routing/useRouteChange";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useInferenceModeOptions } from "../../hooks/useInferenceOptions";
@@ -39,8 +43,6 @@ export function MeetingTranscriptionPanel() {
 
   const {
     meetingTranscriptionMode,
-    setMeetingTranscriptionMode,
-    setMeetingUseLocalWhisper,
     meetingWhisperModel,
     setMeetingWhisperModel,
     meetingLocalTranscriptionProvider,
@@ -55,7 +57,6 @@ export function MeetingTranscriptionPanel() {
     setMeetingCloudTranscriptionModel,
     meetingCloudTranscriptionBaseUrl,
     setMeetingCloudTranscriptionBaseUrl,
-    setMeetingCloudTranscriptionMode,
   } = useSettingsStore();
   const {
     modes: transcriptionModes,
@@ -86,14 +87,23 @@ export function MeetingTranscriptionPanel() {
     ],
     meetingTranscriptionMode
   );
+  const { request, requestPatch } = useRouteChange();
+  const stagedMode = useRouteDraftStore((s) =>
+    s.draft?.routeId === "noteRecordingStt" && s.draft.kind === "target"
+      ? s.draft.target.mode
+      : null
+  );
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
     if (!isModeAllowed(mode)) return;
     if (mode === "self-hosted") return;
-
-    if (mode === effectiveTranscriptionMode) return;
-    setMeetingTranscriptionMode(mode);
-    setMeetingUseLocalWhisper(mode === "local");
-    setMeetingCloudTranscriptionMode("byok");
+    if (mode === effectiveTranscriptionMode) {
+      void requestPatch("noteRecordingStt", {});
+      return;
+    }
+    void request(
+      "noteRecordingStt",
+      stagedTargetForMode(mode, "noteRecordingStt", useSettingsStore.getState())
+    );
   };
 
   const handleLocalTranscriptionModelSelect = useCallback(
@@ -148,9 +158,11 @@ export function MeetingTranscriptionPanel() {
         label={t("routes.runsOn", { task: t("routes.names.noteRecordingStt") })}
         modes={transcriptionModes}
         activeMode={effectiveTranscriptionMode}
+        stagedMode={stagedMode}
         onSelect={handleTranscriptionModeSelect}
         routeState={route.state}
       />
+      <StagedRoutePanel routeId="noteRecordingStt" />
 
       {effectiveTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
       {effectiveTranscriptionMode === "local" && renderTranscriptionPicker("local")}

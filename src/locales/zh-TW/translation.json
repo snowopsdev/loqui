@@ -3810,5 +3810,53 @@
       "undo": "復原",
       "undoStaged": "復原操作等待套用。請先檢查，然後套用。"
     }
+  },
+  "staging": {
+    "region": "待處理的路由變更",
+    "heading": "傳送任何內容前請先檢查",
+    "coupled": "同時變更",
+    "sends": "傳送{{payload}}",
+    "staysOnDevice": "保留在此裝置上",
+    "offNote": "已關閉。開啟後使用。",
+    "setupHere": "套用前請先在此設定 {{provider}}。套用前不會傳送任何內容。",
+    "discard": "捨棄",
+    "apply": "套用",
+    "blocked": {
+      "needsKey": "{{provider}} 需要先提供金鑰。",
+      "chooseProvider": "選擇供應商以查看將傳送的內容。",
+      "needsUrl": "請輸入有效的伺服器位址。",
+      "needsModel": "請先下載模型。",
+      "chooseModel": "請先選擇模型。",
+      "signIn": "請先登入 {{provider}}。套用前不會傳送任何內容。",
+      "sealed": "封閉模式已開啟。離開此裝置的路由已暫停。",
+      "unknown": "仍在檢查已儲存的金鑰和模型。請稍後重試。",
+      "unsupported": "此供應商無法執行此工作。"
+    },
+    "provider": "供應商",
+    "model": "模型",
+    "modelId": "模型 ID",
+    "useModel": "使用此模型",
+    "keySaved": "已儲存金鑰",
+    "noKey": "無金鑰",
+    "cloud": {
+      "title": "將{{task}}傳送到雲端供應商？",
+      "body": "請選擇供應商。套用前不會傳送任何內容。"
+    },
+    "server": {
+      "title": "將{{task}}傳送到您自己的伺服器？",
+      "body": "請輸入伺服器位址。套用前不會傳送任何內容。"
+    },
+    "sharedWithDictation": "音訊上傳使用聽寫伺服器 {{url}}。請在「語音轉文字 › 聽寫」中變更。",
+    "serverUrl": "伺服器位址",
+    "endpointUrl": "端點 URL",
+    "useEndpoint": "使用此端點",
+    "useServer": "使用此伺服器",
+    "url": {
+      "empty": "貼上或輸入基底 URL。",
+      "invalid": "這還不是有效的網址。請以 https:// 或 http:// 開頭。",
+      "insecure": "未加密的 http:// 僅適用於您自己網路中的位址。請使用 https://。",
+      "http": "http:// 未加密。可在您自己的網路中使用。",
+      "ok": "看起來沒問題。"
+    }
   }
 }

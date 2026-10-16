@@ -3810,5 +3810,53 @@
       "undo": "Undo",
       "undoStaged": "Undo is staged. Review it, then apply."
     }
+  },
+  "staging": {
+    "region": "Pending route change",
+    "heading": "Review before anything is sent",
+    "coupled": "Also changes",
+    "sends": "Sends {{payload}}",
+    "staysOnDevice": "Stays on this device",
+    "offNote": "Off. Used when you turn it on.",
+    "setupHere": "Set up {{provider}} here before applying. Nothing is sent until you apply.",
+    "discard": "Discard",
+    "apply": "Apply",
+    "blocked": {
+      "needsKey": "{{provider}} needs a key first.",
+      "chooseProvider": "Choose a provider to see what will be sent.",
+      "needsUrl": "Enter a valid server address.",
+      "needsModel": "Download the model first.",
+      "chooseModel": "Choose a model first.",
+      "signIn": "Sign in to {{provider}} first. Nothing is sent until you apply.",
+      "sealed": "Sealed mode is on. Routes that leave this device are paused.",
+      "unknown": "Still checking saved keys and models. Try again in a moment.",
+      "unsupported": "This provider can't run this task."
+    },
+    "provider": "Provider",
+    "model": "Model",
+    "modelId": "Model ID",
+    "useModel": "Use this model",
+    "keySaved": "key saved",
+    "noKey": "no key",
+    "cloud": {
+      "title": "Send {{task}} to a cloud provider?",
+      "body": "Pick a provider. Nothing is sent until you apply."
+    },
+    "server": {
+      "title": "Send {{task}} to your own server?",
+      "body": "Enter the server address. Nothing is sent until you apply."
+    },
+    "sharedWithDictation": "Audio upload uses the dictation server, {{url}}. Change it under Speech-to-Text › Dictation.",
+    "serverUrl": "Server address",
+    "endpointUrl": "Endpoint URL",
+    "useEndpoint": "Use this endpoint",
+    "useServer": "Use this server",
+    "url": {
+      "empty": "Paste or type the base URL.",
+      "invalid": "That isn't a web address yet. Start with https:// or http://.",
+      "insecure": "Plain http:// works only for addresses on your own network. Use https://.",
+      "http": "http:// isn't encrypted. Fine on your own network.",
+      "ok": "Looks good."
+    }
   }
 }

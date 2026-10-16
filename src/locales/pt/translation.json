@@ -3810,5 +3810,53 @@
       "undo": "Desfazer",
       "undoStaged": "A reversão está preparada. Revise-a e depois aplique."
     }
+  },
+  "staging": {
+    "region": "Alteração de rota pendente",
+    "heading": "Revise antes de enviar qualquer dado",
+    "coupled": "Também altera",
+    "sends": "Envia {{payload}}",
+    "staysOnDevice": "Permanece neste dispositivo",
+    "offNote": "Desativado. Será usado quando você ativar.",
+    "setupHere": "Configure {{provider}} aqui antes de aplicar. Nada será enviado até você aplicar.",
+    "discard": "Descartar",
+    "apply": "Aplicar",
+    "blocked": {
+      "needsKey": "{{provider}} precisa de uma chave primeiro.",
+      "chooseProvider": "Escolha um provedor para ver o que será enviado.",
+      "needsUrl": "Insira um endereço de servidor válido.",
+      "needsModel": "Baixe o modelo primeiro.",
+      "chooseModel": "Escolha um modelo primeiro.",
+      "signIn": "Entre em {{provider}} primeiro. Nada será enviado até você aplicar.",
+      "sealed": "O modo selado está ativo. As rotas para fora deste dispositivo estão pausadas.",
+      "unknown": "Ainda verificando as chaves e os modelos salvos. Tente novamente em instantes.",
+      "unsupported": "Este provedor não pode executar esta tarefa."
+    },
+    "provider": "Provedor",
+    "model": "Modelo",
+    "modelId": "ID do modelo",
+    "useModel": "Usar este modelo",
+    "keySaved": "chave salva",
+    "noKey": "sem chave",
+    "cloud": {
+      "title": "Enviar {{task}} para um provedor na nuvem?",
+      "body": "Escolha um provedor. Nada será enviado até você aplicar."
+    },
+    "server": {
+      "title": "Enviar {{task}} para seu próprio servidor?",
+      "body": "Insira o endereço do servidor. Nada será enviado até você aplicar."
+    },
+    "sharedWithDictation": "O envio de áudio usa o servidor de ditado, {{url}}. Altere em Fala para texto › Ditado.",
+    "serverUrl": "Endereço do servidor",
+    "endpointUrl": "URL do endpoint",
+    "useEndpoint": "Usar este endpoint",
+    "useServer": "Usar este servidor",
+    "url": {
+      "empty": "Cole ou digite a URL base.",
+      "invalid": "Ainda não é um endereço web. Comece com https:// ou http://.",
+      "insecure": "http:// sem criptografia só funciona para endereços da sua própria rede. Use https://.",
+      "http": "http:// não é criptografado. É adequado na sua própria rede.",
+      "ok": "Parece correto."
+    }
   }
 }

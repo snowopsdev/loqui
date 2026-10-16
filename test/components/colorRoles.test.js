@@ -158,26 +158,64 @@ const buttonClasses = async (variant, props = {}) => {
   return html.match(/class="([^"]*)"/)[1].split(/\s+/);
 };
 
+const FILTER_LIKE =
+  /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|blur|opacity|filter|drop-shadow)(-|$)|^\[(filter|opacity):/;
+const INTERACTIVE = /^(hover|active|focus|focus-visible|focus-within|group-hover|peer-.*)$/;
+
+function splitVariants(cls) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of cls) {
+    if (ch === "[" || ch === "(") depth++;
+    else if (ch === "]" || ch === ")") depth--;
+    if (ch === ":" && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+function ringRecolouringClasses(classes) {
+  return classes.filter((cls) => {
+    const parts = splitVariants(cls);
+    const utility = parts[parts.length - 1];
+    return FILTER_LIKE.test(utility) && parts.slice(0, -1).some((p) => INTERACTIVE.test(p));
+  });
+}
+
 // The focus ring is a box-shadow on the button, so any filter or opacity that
 // changes on hover, press or focus recolours it. Feedback must come from fills,
 // borders, text or shadows instead. Checked by property, not by class suffix.
 test("no Button variant changes filter or opacity on hover, press or focus", async () => {
-  const filterLike =
-    /^(brightness|contrast|saturate|hue-rotate|invert|sepia|grayscale|blur|opacity|filter|drop-shadow)(-|$)|^\[(filter|opacity):/;
   for (const variant of BUTTON_VARIANTS) {
     const classes = await buttonClasses(variant);
     assert.ok(classes.includes("focus-visible:ring-ring"), `${variant} has an opaque focus ring`);
-    for (const cls of classes) {
-      const parts = cls.split(":");
-      const utility = parts[parts.length - 1];
-      const prefixes = parts.slice(0, -1);
-      if (!filterLike.test(utility)) continue;
-      const interactive = prefixes.some((p) =>
-        /^(hover|active|focus|focus-visible|focus-within|group-hover|peer-.*)$/.test(p)
-      );
-      assert.ok(!interactive, `${variant} uses ${cls}, which recolours the focus ring`);
-    }
+    assert.deepEqual(
+      ringRecolouringClasses(classes),
+      [],
+      `${variant} recolours the focus ring on hover, press or focus`
+    );
   }
+});
+
+test("the filter/opacity guard catches arbitrary-property mutations", () => {
+  const mutated = [
+    "hover:[opacity:0.5]",
+    "hover:[filter:brightness(1.1)]",
+    "active:brightness-95",
+    "[opacity:0.5]",
+    "hover:bg-cta-hover",
+    "[&_svg]:size-4",
+    "focus-visible:ring-ring",
+  ];
+  assert.deepEqual(ringRecolouringClasses(mutated), [
+    "hover:[opacity:0.5]",
+    "hover:[filter:brightness(1.1)]",
+    "active:brightness-95",
+  ]);
 });
 
 test("a focused default or live Button still has distinct hover and pressed fills", async () => {

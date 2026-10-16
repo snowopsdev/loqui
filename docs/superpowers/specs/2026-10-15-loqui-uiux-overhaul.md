@@ -100,28 +100,32 @@ All 79 quick wins are kept. Skipped items: VO-R2 (Privacy Halo) is covered by FN
 - **D14, Sealed mode keeps its full promise for the local model servers** (owner decision, 2026-10-15, Plan 07 CCR-6). Once llama-server, whisper-server, Qdrant and sherpa-onnx are running, JavaScript can't see their network traffic. The owner rejected disclosing that gap, and rejected stopping the servers while sealed. Plan 07 instead builds OS-level network isolation for every native child Loqui starts while sealed, so that only loopback traffic gets out:
   - macOS: a sandbox profile.
   - Linux: a network namespace, or an equivalent.
-  - Windows: a per-program block.
+  - Windows: a per-program block, once Windows is a release target. README: Windows is outside this release series, so Plan 07 doesn't ship Windows isolation.
   - **Spike first.** A spike establishes what each platform can do without admin rights, entitlements or a signing change. If any platform can't meet the promise, Plan 07 stops and reports to the owner before falling back.
   - **No silent fallback.** A child that can't be isolated is never counted toward `nothingLeaves`.
   - **Merge gate.** Plan 07 doesn't merge until this ships.
+- **D15, Linux isolation: a packaged AppArmor profile, otherwise pause** (owner decision, 2026-10-15). Ubuntu 24.04 restricts unprivileged user namespaces by default.
+  - **Packages.** The `.deb` and `.rpm` packages install an AppArmor profile that lets `loqui-isolate` create its namespaces.
+  - **Fallback.** Where isolation still can't be set up (AppImage, tar.gz, locked-down systems, or a failed boot self-test), every native child Loqui starts **pauses while sealed**: model servers and helpers alike, as in D14. An unconfined helper would keep the seal from ever verifying. The Sealed panel names the reason and the fix: install the package, or unseal. Device routes that need no native child keep working.
+  - **No weaker fallback.** No seccomp or Landlock fallback is claimed as isolation, and partial coverage never counts toward `nothingLeaves`.
+- **D16, macOS native models must work inside verified isolation** (owner decision, 2026-10-15, after Plan 07 round 3). The owner declined extending D15's pause fallback to macOS. Plan 07 remains blocked until native models work inside isolation that enforces the strict loopback boundary. Seatbelt's `localhost` alias, which admits the computer's other interface addresses, and a polling listener watcher do not establish that boundary. A failed or incomplete proof keeps the attestation unverified; it never becomes a successful seal. D15 remains Linux-specific.
 
 ## 3. Plans and dependencies
 
 ```
-01 Foundations ─> 02 Bug & a11y sweep ─> 03 Routes & Settings ─┬─> 04 Voice overlay
+01 Foundations ─> 02 Bug & a11y sweep ─> 03 Routes & Settings ─┬─> 04 Voice overlay ─> 07 Sealed mode & flight recorder
                                                               ├─> 05 Onboarding
-                                                              ├─> 06 Workspace ─> 08 Prototypes (WS-M5)
-                                                              └─> 07 Sealed mode & flight recorder
+                                                              └─> 06 Workspace ─> 08 Prototypes (WS-M5)
 ```
 
 **Execution order** (consolidated 2026-10-15 from Plan 02 CCR 4, Plan 05 CCR 3 and Plan 06 CR-06-1):
 - **01 → 02 → 03.** Plans 03, 04, 05 and 06 all rewrite surfaces Plan 02 fixes, and each one extends Plan 02's tests and harness (`test/helpers/harness/rendererMocks.js`, `fakeDomTree.js`). Plan 03 needs Plan 02's SET-Q1/Q2/Q20 semantics.
-- **04, 05, 06 and 07 run in parallel once 03 has merged.** Each is rebased onto 03 before it starts.
+- **04, 05 and 06 run in parallel once 03 has merged.** Each is rebased onto 03 before it starts.
   - Where two of them meet, each side ships a fallback, and **whichever merges second wires the real contract and deletes its fallback**. The meeting points are:
     - 04 ↔ 05: the Undo bridge (§5.2);
-    - 04 ↔ 07: the disclosure, the pre-flight and the notices (§5.2–§5.4);
     - 04/05 ↔ 06: the capture status bridge (§5.7).
   - The fallbacks are named in each plan's Contract change requests.
+- **07's recovery integration and merge follow 04.** Task 13 uses Plan 04 Tasks 6–8's immutable sessions, owned audio and transferable context. The native-isolation spike and independent planning may run earlier, but D16 still blocks implementation. Plan 07 preserves the established disclosure and notice contracts; it does not ship an incomplete second session lifecycle as a merge-order fallback.
 - **08 runs after 06** and uses 03's route chips (§5.1).
 
 | Plan | Recommendations | Quick wins |
@@ -195,7 +199,7 @@ export interface ResolvedRoute {
   locality: Locality;
   provider: string | null;      // English providerDisplayName: logs only
   providerId: string | null;    // raw provider id; null for device and network. UI shows providerDisplayLabel(providerId, t).
-  host: string | null;          // normalized effective endpoint host[:port]; null when nothing leaves the device or the endpoint is invalid
+  host: string | null;          // normalized effective endpoint host[:port] of any user-configured endpoint, loopback included; null for Loqui's built-in engines and invalid endpoints
   model: string | null;         // display name of the selected model
   state: RouteState;
   sends: string | null;         // translated payload list; null when the route is on the device or off
@@ -205,7 +209,7 @@ export interface ResolvedRoute {
 // routeGraph.ts (pure)
 export function resolveRoutes(snapshot: RouteSettingsSnapshot): ResolvedRoute[]; // always 11 entries, in RouteId order
 export function resolveRoute(snapshot: RouteSettingsSnapshot, id: RouteId): ResolvedRoute;
-export function isSealedLocality(locality: Locality): boolean;                    // locality !== "device"; the only rule for what Sealed mode pauses
+export function isSealedLocality(locality: Locality): boolean;                    // locality !== "device"; the locality-based network policy
 
 // routes.ts (renderer)
 export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot;
@@ -215,6 +219,14 @@ export function useResolvedRoute(id: RouteId): ResolvedRoute;
 ```
 
 `RouteSettingsSnapshot` is Plan 03's choice, with one fixed field: `sealed` is a required `boolean`. Facts that only main knows (models on disk, credential presence, keyring health) come from `src/stores/routeFactsStore.ts` through network-free preload calls. Loading route facts never calls Codex, model discovery or key verification. `test/lib/routeFixtures.js` exports `makeSnapshot` and `makeRoute` for consumers' tests.
+
+**Vertex authentication source (Plan 03).** `vertexAuthSource: "adc" | "apiKey"` is a non-secret planned setting, and the executor honours it. Selecting `adc` ignores a saved API key; selecting `apiKey` without a committed key is `needsKey`, with no implicit ADC fallback. Saving, removing or undoing a secret changes readiness, never the selected source or recipient. Changing the source goes through the route draft, recipient review and Apply for every coupled route. Existing installations migrate once from main's committed effective credential source (including the supported legacy environment fallback), preserving their current selection. Main settles pre-existing credential writes and persists the source before admitting mutations; it never derives it again from later key presence. Fresh installations default to `adc`.
+
+**Credential handoffs (Plans 03 and 07).** Reset fences and drains every environment persistence entry point, including the independent `save-all-keys-to-env` writer, before erasing data. Verify binds the displayed recipient to one complete options snapshot and committed credential capture. Plan 07 preserves `runTest(config, captured.values)` and the capture-aware `_runProviderConnectionTest(config, captured)` when adding seal checks; it does not replace captured values with live getters.
+
+**Enterprise recipients during dictation (Plan 04).** Main exposes an opaque, network-free tag for each enterprise recipient configuration through the route facts contract. Recording captures that tag with its immutable route snapshot and carries it through cleanup, translation, Agent mode and Undo. Main requires the captured tag for session-bound enterprise requests and compares it with the exact non-secret configuration supplied to the provider factory. A changed, missing or unknown tag stops the request before transport and preserves pending audio and context for recovery. The tag excludes credentials; live credential rotation does not select a new recipient. It covers every recipient-affecting input, including Vertex authentication source and any supported SDK endpoint overrides. Validation and factory construction use one coherent configuration capture, with no later live environment fallback that could redirect the request. Plan 04 extends Plan 03's facts/types after their dependency merge; renderer settings alone are not authoritative recipient evidence.
+
+Recording freezes the selected tags synchronously at the press and keeps them through microphone preparation, processing and cross-window Agent handoff. Unknown tags for selected enterprise stages block visibly before microphone acquisition; unselected stages do not block. Each dictation enterprise request supplies its session identity and captured tag. Main validates that tag after credential waits and before model construction, preserving the fail-closed rule if settings changed. This comparison needs no session registration or recipient-binding lifecycle; cancellation, recovery and Undo retain the tags in the existing immutable session.
 
 **Rules**
 1. **Unknown is not ready.** A fact that is not yet known resolves to `unknown`. Consumers render it as a neutral "Checking…" state; Plan 05's Ready step waits for `ready`. An unset model is still `needsModel`.
@@ -228,6 +240,10 @@ export function useResolvedRoute(id: RouteId): ResolvedRoute;
 9. **Unsupported combinations.** `noteRecordingStt` in self-hosted mode, or with a provider outside the meeting providers, is `unreachable`/`unsupported` (Plan 05 CCR 5). So is `uploadStt` on a streaming-only provider.
 10. **Loopback endpoints.** A valid loopback custom endpoint is `device`. An invalid URL is never `device`. Plain-HTTP `*.localhost` is loopback by host, but the executors refuse it, so it resolves `needsUrl`.
 11. **Ready matches the executors.** Readiness uses the same validation the executors apply.
+
+**Native availability (Plan 07, D15).** Plan 07 extends the snapshot with main-authoritative availability for each route's required built-in native engines: `notRequired | available | pending | paused | unknown`. The renderer derives these facts from the existing `sealedStore` attestation; `routeFactsStore` does not become a second privacy subscriber. The pure route graph keeps locality and readiness separate: a device route remains `device`, but an acknowledged native pause becomes `unreachable` / `nativePaused`; a draining or pending boundary becomes `unreachable` / `nativePending`; an unknown required availability is `unknown`. Only main's acknowledged `refused` or whole-tree `stopped` actions produce `paused`. No failed self-test alone implies a pause, and no missing fact implies availability. Apply this overlay while the seal is known active; `available` and `notRequired` retain normal readiness. User-configured loopback endpoints do not acquire a native-engine dependency merely because their locality is `device`.
+
+Plan 07 Task 13 owns this additive graph/facade integration after Plan 03. It must enumerate native dependencies for all eleven routes and test Linux acknowledged pause, a live drain, unknown availability, an available isolated engine, a route needing no native child, and a configured loopback endpoint. Ready, route cards and recording pre-flight consume the same resolved state. This supersedes any earlier statement that `isSealedLocality` alone accounts for native-engine availability; D16 still prevents Plan 07 from merging without the macOS proof.
 
 **Published components** (Plan 08 CCR-6), in `src/components/settings/routing/RouteChips.tsx`:
 
@@ -300,11 +316,23 @@ export interface RemoteDisclosure {
   windowManager.lastCancelledDictation: { sessionId: string } | null;
   ```
 
+- **Admission deadline.** Main sends an absolute epoch `deadlineAt` with the Undo request. The overlay clamps waits to the remaining time and checks it immediately before dispatch. Delayed delivery or queued handling cannot start a restore after main has reported failure. Main's 2 s timeout remains unchanged.
+
 - **Plan 05's side.** Plan 05's `onboarding-demo-undo-cancel` handler calls `sendUndoCancelDictation(lastCancelledDictation?.sessionId)` and returns `result.restored`. Its demo event carries `cancelled: CancelledState`.
 - **Merge order 05 before 04.** Plan 05's own tasks import nothing from `src/types/dictation.ts` or `dictationDisclosure.js`, because those files exist only once Plan 04 has merged. They show "Discarded." with no Undo. Plan 05's Task 22 (cancelled state, Undo, disclosure copy) imports the shared types. Whichever of 04 and 05 merges second runs it.
 - **Which channel.** The onboarding trial reads the cancelled state *only* from `onboarding-demo-event`, which carries the sessionId, the `CancelledState` and `cancelClosed`. The §5.7 capture bridge carries the lifecycle `state` string, which may be `"cancelled"`, for the workspace mic card. Onboarding does not read cancel details from it, so the two never compete.
 - **`alsoSentTo` survives the bridge.** `sanitizeCancelledDemoFields` keeps every `RemoteDisclosure` field, including `alsoSentTo`.
 - **Private holds (Plan 04 implements this).** The hold keeps the snapshot's `private` flag, through `_closeCancelled`, `restoreCancelled` and `flushCancelHold`. An expired or flushed private hold is never persisted, and a restore re-applies `private` before processing.
+- **Audio ownership.** `AudioManager._setOwnedAudio(blob: Blob | null, options?: { sessionId?: string | null; private?: boolean })` is the only writer of `lastAudioBlob`, its owner session and `lastAudioBlobPrivate`, and it keeps `_recordingPrivate` in step.
+  - **Defaults.** `sessionId` is the active session's id. Privacy prefers that session's immutable recording-time `private` flag, falling back to `_recordingPrivate === true` before the session exists. Delayed save callbacks carry their captured session and privacy; they never borrow a newer active session's flag.
+  - **Callers.** Original finalization, the fallback and every restore go through it before any provider or save work. So does every release, as `_setOwnedAudio(null)`.
+  - **Asynchronous saves.** Before their first await, both savers capture the recording's audio, owner session, privacy and metadata. They persist only that snapshot, never a newer recording's mutable fields. A private snapshot creates no history, audio or analytics writes. Releasing an old snapshot cannot clear a newer owner's audio or end its session. Privacy survives release and delayed callbacks for as long as that operation can still complete.
+  - **Failure recovery.** Every restored failure, including dictionary echo, awaits its own persistence acknowledgement and re-holds the original session, context and private flag if no usable copy survives. Genuine silence stays distinct. Plan 07's recovery uses the same ownership rules.
+  - **Test.** It fails on any bare assignment outside the setter.
+  - **Plan 05.** Its privacy stamps and releases use it, in whichever task merges second.
+    When Plan 04's snapshot savers exist, they replace Plan 05's mutable `lastAudioBlobPrivate` entry guards; the second merger removes those guards and runs both plans' private-save tests.
+- **Cancel stops further egress.** A cancel discards any audio a streaming adapter buffered while connecting (Gemini, Corti and any other provider that buffers before connecting), so nothing more is uploaded after the cancel. The Undo hold keeps the audio in RAM, and a restore re-sends it from there.
+  - **What the copy says.** `remoteAlreadySent` reports only frames that actually left before the cancel.
 
 **Disclosure copy.** `src/helpers/dictationDisclosure.js` exports:
 - `dispatchTargetLabel(target, t)`: `providerDisplayLabel` for providers, and the host for `host:…`;
@@ -371,13 +399,16 @@ onEgress(cb: (notice: EgressNotice) => void): () => void;
 onEgressCleared(cb: () => void): () => void;
 ```
 
-**`Attestation`.** It carries `{ sealed, sealedSince, effectiveSince, phase: "open" | "sealing" | "sealed", failures, notes, loadError, saveError, guards, networkChildren, activeRemote, blockedSinceSealed, recordFailures, version, at, nothingLeaves }`.
+**`Attestation`.** It carries `{ sealed, sealedSince, effectiveSince, phase: "open" | "sealing" | "sealed", failures, notes, loadError, saveError, guards, networkChildren, children, isolation, paused, activeRemote, blockedSinceSealed, recordFailures, version, at, nothingLeaves }`.
+- `children` lists every live native process tree, including descendants whose root has exited, with `{ kind, pid, lifecycle: "starting" | "running" | "draining", isolation: "isolated" | "networkFree" | "pending" | "launchControlled" | "failed" }`. Main owns these facts. An unresolved legacy tree remains represented until its whole exit is proven.
+- `paused` lists `{ kind, reason: "isolation" | "sessionBus", action: "refused" | "stopped" }` only after main refuses admission before launch or confirms whole-tree exit. A draining process is waiting to pause; it is not already paused. The panel names every affected helper and model from these facts, rather than inferring a pause from a failed self-test.
 - `nothingLeaves` is true only when all of these hold:
   - the phase is `"sealed"`;
   - `failures` is empty;
   - every guard is up;
   - no environment proxy is set;
   - nothing remote is left: no ticket, socket, Chromium request, DNS lookup or network child.
+  - every live native tree has verified `isolated` or `networkFree` coverage, including inherited descriptors and host-service IPC. Missing lifecycle/isolation facts, uncontained descendants and unconfined draining trees prevent verification. D16's macOS functionality gate still applies even when no process happens to be running.
 - A claim about past egress is dated from `effectiveSince`, never from `sealedSince`.
 - An attestation older than 30 s (by `at`) is unknown.
 - The UI never claims "0 bytes sent" unless `nothingLeaves` is true.
@@ -399,7 +430,7 @@ onEgressCleared(cb: () => void): () => void;
 - `audioManager.startRecording` refuses to start when `isDictationSealed(settings, getSealedSnapshot().sealed)` is true. Only `true` blocks.
 - It reports `sealedMode.blocked.dictationPreflight` through the existing error path.
 - Plan 07 also ships in-memory recovery (`sealedRecovery.ts`, `AudioManager.transcribeRecovered`).
-- **Plan 04 keeps the pre-flight** and the `_noteSealedFailure` call before `saveFailedTranscription` when it restructures the lifecycle. It renders the refusal as a pill state: a blocked remote ring with "Dictation paused: Sealed mode is on". Transcribe stays reachable from the pill and from the unseal notice.
+- **Plan 07 builds on Plan 04's lifecycle.** Its `_noteSealedFailure` transfers the session and context into the recovery hold before ordinary pipeline settlement. Successful replay, discard and expiry close that owner; failure and re-hold keep it. The pre-flight renders as a pill state: a blocked remote ring with "Dictation paused: Sealed mode is on". Transcribe stays reachable from the pill and from the unseal notice.
 
 **Egress evidence → `RemoteDisclosure`** (Plan 07 CCR-3, reconciled with Plan 04 CCR-6). `privacy.onEgress` delivers:
 

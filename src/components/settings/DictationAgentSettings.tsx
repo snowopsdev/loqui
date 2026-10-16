@@ -11,6 +11,7 @@ import PermissionCard from "../ui/PermissionCard";
 import PromptStudio from "../ui/PromptStudio";
 import { SectionHeader, SettingsPanel, SettingsPanelRow, SettingsRow } from "../ui/SettingsSection";
 import { RouteSwitch } from "./routing/RouteSwitch";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
 import InferenceConfigEditor from "./InferenceConfigEditor";
 
 export default function DictationAgentSettings() {
@@ -144,6 +145,10 @@ export default function DictationAgentSettings() {
         </SettingsPanelRow>
       </SettingsPanel>
 
+      {!useDictationAgent && <StagedRoutePanel routeId="voiceAssistant" />}
+      {!(useDictationAgent && screenContextActive && useDictationAgentVisionModel) && (
+        <StagedRoutePanel routeId="assistantVision" />
+      )}
       {useDictationAgent && <InferenceConfigEditor scope="dictationAgent" />}
 
       {/* Screen context is a voice-agent sub-feature: hidden when an org

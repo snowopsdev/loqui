@@ -8,6 +8,7 @@ import { RouteSwitch } from "./routing/RouteSwitch";
 import { SettingsPanel, SettingsPanelRow, SettingsRow, SectionHeader } from "../ui/SettingsSection";
 import PromptStudio from "../ui/PromptStudio";
 import LanguageSelector from "../ui/LanguageSelector";
+import { StagedRoutePanel } from "./routing/StagedRoutePanel";
 import InferenceConfigEditor from "./InferenceConfigEditor";
 
 const TARGET_OPTIONS = registry.languages
@@ -60,6 +61,7 @@ export default function DictationTranslationSettings() {
         </SettingsPanelRow>
       </SettingsPanel>
 
+      {!useDictationTranslation && <StagedRoutePanel routeId="translation" />}
       {useDictationTranslation && (
         <>
           <SettingsPanel>

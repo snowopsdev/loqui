@@ -325,6 +325,47 @@ export async function requestRouteChange(
   return settle(plan, draft, copy, ticket, draftOwner);
 }
 
+// Setup for an existing pending change keeps the entire reviewed intent. A
+// screenshot route without an override edits its actual assistant recipient;
+// configuring it must not silently opt into the separate vision override.
+export async function requestDraftTarget(
+  id: RouteId,
+  target: RouteTarget,
+  copy: RouteCopy,
+  editRouteId: RouteId = id
+): Promise<RouteRequestResult> {
+  const owned = useRouteDraftStore.getState().draft;
+  if (!owned || owned.routeId !== id) return "superseded";
+  if (owned.kind === "target" && editRouteId === id) return requestRouteChange(id, target, copy);
+  const ticket = takeTicket(id);
+  try {
+    await readyToPlan();
+  } catch {
+    return isCurrent(ticket) && useRouteDraftStore.getState().draft === owned
+      ? "save-failed"
+      : "superseded";
+  }
+  if (!isCurrent(ticket) || useRouteDraftStore.getState().draft !== owned) return "superseded";
+  const state = useSettingsStore.getState();
+  const pending = planDraft(owned, copy);
+  // A coupled setup panel is admitted only for a route this live plan changes.
+  if (editRouteId !== id && !pending.changes.some((change) => change.id === editRouteId))
+    return "superseded";
+  const prospective = { ...state, ...pending.patch } as typeof state;
+  const recipientRoute =
+    editRouteId === "assistantVision" && !prospective.useDictationAgentVisionModel
+      ? "voiceAssistant"
+      : editRouteId;
+  const ctx = currentPlanContext(copy);
+  const targetPatch = planRouteChange(prospective, ctx, recipientRoute, target).patch;
+  const patch = {
+    ...(owned.kind === "patch" ? owned.patch : pending.patch),
+    ...targetPatch,
+  } as SettingsPatch;
+  const plan = planPatch(state, ctx, id, patch);
+  return settle(plan, { routeId: id, kind: "patch", patch }, copy, ticket, owned);
+}
+
 // Raw route keys that are not a destination: the enable switches, Corti's
 // region and tenant, providerSearch:<scope> and the enterprise fields of a
 // route that is already active (Task 9). Turning a route on toward an
@@ -348,19 +389,20 @@ export async function requestRoutePatch(
 }
 
 // The staged editor's provider setup (R2-9, R2-1): enterprise region,
-// endpoint, project, location and Vertex source. It joins the route's pending target draft,
-// writes nothing and tells main nothing. It takes no ticket: a model pick
-// still waiting re-reads the setup when it settles (requestRouteChange).
+// endpoint, project, location and Vertex source. It joins either draft kind,
+// writes nothing and tells main nothing. It takes no ticket: target picks
+// re-read same-provider setup; a pending patch setup edit preserves this newer
+// draft and supersedes an operation that captured the previous draft identity.
 export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null {
   for (const key of Object.keys(patch)) {
     if (!DRAFT_SETUP_KEYS.has(key)) throw new Error(`${key} is not draft setup`);
   }
   const draft = useRouteDraftStore.getState().draft;
-  if (!draft || draft.routeId !== id || draft.kind !== "target") return null;
-  const next: RouteDraft = {
-    ...draft,
-    setup: { ...(draft.setup ?? {}), ...patch } as SettingsPatch,
-  };
+  if (!draft || draft.routeId !== id) return null;
+  const next: RouteDraft =
+    draft.kind === "patch"
+      ? { ...draft, patch: { ...draft.patch, ...patch } as SettingsPatch }
+      : { ...draft, setup: { ...(draft.setup ?? {}), ...patch } as SettingsPatch };
   useRouteDraftStore.getState().stage(next);
   return next;
 }

@@ -7,6 +7,7 @@ import type { RouteTarget } from "../../../lib/routePlanner";
 import {
   applyDraft,
   requestRouteChange,
+  requestDraftTarget as requestCoreDraftTarget,
   requestRoutePatch,
   type RouteChangeOutcome,
   type RouteRequestResult,
@@ -93,6 +94,20 @@ export function useRouteChange() {
     [copy, announce, reportSaveFailure]
   );
 
+  const requestDraftTarget = useCallback(
+    async (
+      id: RouteId,
+      target: RouteTarget,
+      editRouteId: RouteId = id
+    ): Promise<RouteRequestResult> => {
+      const result = await requestCoreDraftTarget(id, target, copy, editRouteId);
+      if (result === "save-failed") reportSaveFailure();
+      else if (result !== "staged" && result !== "superseded") announce(result);
+      return result;
+    },
+    [copy, announce, reportSaveFailure]
+  );
+
   const apply = useCallback(async (): Promise<RouteChangeOutcome | null | "save-failed"> => {
     const outcome = await applyDraft(copy);
     if (outcome === "save-failed") reportSaveFailure();
@@ -100,7 +115,7 @@ export function useRouteChange() {
     return outcome;
   }, [copy, announce, reportSaveFailure]);
 
-  return { request, requestPatch, apply, copy };
+  return { request, requestPatch, requestDraftTarget, apply, copy };
 }
 
 // The one commit callback every picker receives (Task 9).

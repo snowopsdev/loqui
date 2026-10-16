@@ -708,6 +708,7 @@ function AiModelsSection({ useCleanupModel }: AiModelsSectionProps) {
         </SettingsPanelRow>
       </SettingsPanel>
 
+      {!useCleanupModel && <StagedRoutePanel routeId="dictationCleanup" />}
       {useCleanupModel && (
         <>
           <InferenceConfigEditor scope="dictationCleanup" />

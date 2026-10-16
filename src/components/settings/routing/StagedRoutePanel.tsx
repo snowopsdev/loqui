@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { providerDisplayLabel } from "../../../lib/locality";
-import type { CredentialId, RouteId } from "../../../lib/routes";
+import { useResolvedRoutes, type CredentialId, type RouteId } from "../../../lib/routes";
 import type { RouteTarget } from "../../../lib/routePlanner";
 import { useRouteDraftStore } from "../../../stores/routeDraftStore";
 import { saveSecret, useSettingsStore, type SettingsState } from "../../../stores/settingsStore";
@@ -20,6 +20,7 @@ import {
   type StagedModelOption,
 } from "./providerCatalog";
 import { useRouteChange } from "./useRouteChange";
+import { routeDraftTarget } from "./stagedTarget";
 
 export interface StagedProviderOption {
   id: string;
@@ -263,15 +264,10 @@ export function StagedRoutePanel({ routeId }: { routeId: RouteId }) {
   const { t } = useTranslation();
   const draft = useRouteDraftStore((s) => s.draft);
   const settings = useSettingsStore();
-  const { request } = useRouteChange();
-  if (
-    !draft ||
-    draft.routeId !== routeId ||
-    draft.kind !== "target" ||
-    draft.target.mode === "local"
-  )
-    return null;
-  const target = draft.target;
+  useResolvedRoutes(); // local facts and canonical settings keep the prospective setup live
+  const { requestDraftTarget, copy } = useRouteChange();
+  const target = draft ? routeDraftTarget(draft, copy, routeId) : null;
+  if (!draft || !target || target.mode === "local") return null;
   const providers = providersForRoute(routeId).map((id): StagedProviderOption => {
     const spec = credentialFor(routeId, id);
     return {
@@ -310,7 +306,7 @@ export function StagedRoutePanel({ routeId }: { routeId: RouteId }) {
       sharedServerUrl={routeId === "uploadStt" ? settings.remoteTranscriptionUrl : null}
       // Every choice re-plans: a device result applies now, anything else re-stages
       // (keeping setup typed for the same provider, Task 7).
-      onTarget={(next) => void request(routeId, next)}
+      onTarget={(next) => void requestDraftTarget(draft.routeId, next, routeId)}
     />
   );
 }

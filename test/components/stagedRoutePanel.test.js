@@ -439,3 +439,234 @@ test("baseline guard: endpoint typing and blur make no calls; Use submits the tr
   ])
     assert.equal(endpointHint(url), hint);
 });
+
+// Change-driving I1: model/provider/endpoint edits augment a pending enable,
+// rather than replacing it with a target-only draft or committing an off route.
+test("change-driving FIX1: provider and endpoint edits preserve a pending enable and exact Undo", async (t) => {
+  installBrowserGlobals(t, {
+    window: { dispatchEvent: () => true, electronAPI: routeTestApi({ present: ["openai"] }) },
+  });
+  const vite = await rendererServer(t, "loqui-fix1-provider-endpoint-");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { StagedRoutePanel } = await vite.ssrLoadModule(
+    "/components/settings/routing/StagedRoutePanel.tsx"
+  );
+  const { TEST_COPY } = require("../lib/routeStateFixture");
+  await primeRouteFacts(vite);
+  const { wrap } = await toastCapture(vite);
+  const probes = createProbeRoot(t, { wrap });
+  useSettingsStore.setState({
+    useDictationTranslation: false,
+    translationMode: "providers",
+    translationProvider: "custom",
+    translationModel: "",
+    translationCloudBaseUrl: "https://old.example.test/v1",
+  });
+  const before = { ...useSettingsStore.getState() };
+  assert.equal(
+    await drafts.requestRoutePatch("translation", { useDictationTranslation: true }, TEST_COPY),
+    "staged"
+  );
+  const panel = await probes.mount("panel", () => StagedRoutePanel({ routeId: "translation" }));
+  const view = () => findElement(panel(), (node) => typeof node.props?.onTarget === "function");
+  assert.ok(view());
+  assert.deepEqual(view().props.target, {
+    mode: "providers",
+    provider: "custom",
+    model: "",
+    baseUrl: "https://old.example.test/v1",
+  });
+  for (const target of [
+    { mode: "providers", provider: "openai", model: "gpt-6-astra" },
+    {
+      mode: "providers",
+      provider: "custom",
+      baseUrl: "https://new.example.test/v1",
+      model: "my-model",
+    },
+  ]) {
+    await probes.act(() => view().props.onTarget(target));
+    await probes.settle();
+    const plan = drafts.planDraft(drafts.useRouteDraftStore.getState().draft, TEST_COPY);
+    assert.equal(plan.patch.useDictationTranslation, true);
+    assert.equal(useSettingsStore.getState().useDictationTranslation, false);
+    assert.equal(useSettingsStore.getState().translationProvider, "custom");
+    assert.equal(
+      useSettingsStore.getState().translationCloudBaseUrl,
+      before.translationCloudBaseUrl
+    );
+  }
+  let applied;
+  await probes.act(async () => {
+    applied = await drafts.applyDraft(TEST_COPY);
+  });
+  assert.equal(applied.applied, true);
+  assert.equal(useSettingsStore.getState().useDictationTranslation, true);
+  assert.equal(useSettingsStore.getState().translationCloudBaseUrl, "https://new.example.test/v1");
+  await probes.act(async () => {
+    const undo = await applied.undo();
+    if (undo === "staged") await drafts.applyDraft(TEST_COPY);
+  });
+  for (const key of Object.keys(applied.plan.undoPatch))
+    assert.deepEqual(useSettingsStore.getState()[key], before[key], `Undo restores ${key}`);
+});
+
+// Change-driving I1: a screen-context enable inherits the assistant recipient;
+// editing setup must not silently create a vision override.
+test("change-driving FIX1: inherited vision setup edits the actual assistant with coupled review", async (t) => {
+  installBrowserGlobals(t, {
+    window: { dispatchEvent: () => true, electronAPI: routeTestApi({ present: ["openai"] }) },
+  });
+  const vite = await rendererServer(t, "loqui-fix1-inherited-vision-");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { StagedRoutePanel } = await vite.ssrLoadModule(
+    "/components/settings/routing/StagedRoutePanel.tsx"
+  );
+  const { TEST_COPY } = require("../lib/routeStateFixture");
+  await primeRouteFacts(vite);
+  const { wrap } = await toastCapture(vite);
+  const probes = createProbeRoot(t, { wrap });
+  useSettingsStore.setState({
+    useDictationAgent: true,
+    voiceAgentScreenContext: false,
+    useDictationAgentVisionModel: false,
+    dictationAgentMode: "providers",
+    dictationAgentProvider: "openai",
+    dictationAgentModel: "",
+    dictationAgentVisionProvider: "anthropic",
+    dictationAgentVisionModel: "old-override",
+  });
+  assert.equal(
+    await drafts.requestRoutePatch("assistantVision", { voiceAgentScreenContext: true }, TEST_COPY),
+    "staged"
+  );
+  const panel = await probes.mount("panel", () => StagedRoutePanel({ routeId: "assistantVision" }));
+  const view = () => findElement(panel(), (node) => typeof node.props?.onTarget === "function");
+  assert.ok(view());
+  assert.equal(view().props.target.provider, "openai");
+  await probes.act(() =>
+    view().props.onTarget({ mode: "providers", provider: "openai", model: "gpt-6-astra" })
+  );
+  await probes.settle();
+  const plan = drafts.planDraft(drafts.useRouteDraftStore.getState().draft, TEST_COPY);
+  assert.equal(plan.patch.voiceAgentScreenContext, true);
+  assert.equal(plan.patch.dictationAgentModel, "gpt-6-astra");
+  assert.equal(plan.patch.useDictationAgentVisionModel, undefined);
+  assert.ok(plan.changes.some((change) => change.id === "voiceAssistant" && change.coupled));
+  assert.equal(useSettingsStore.getState().voiceAgentScreenContext, false);
+  let applied;
+  await probes.act(async () => {
+    applied = await drafts.applyDraft(TEST_COPY);
+  });
+  assert.equal(applied.applied, true);
+  assert.equal(useSettingsStore.getState().useDictationAgentVisionModel, false);
+  assert.equal(useSettingsStore.getState().dictationAgentVisionModel, "old-override");
+  await probes.act(() => applied.undo());
+  assert.equal(useSettingsStore.getState().voiceAgentScreenContext, false);
+  assert.equal(useSettingsStore.getState().dictationAgentModel, "");
+});
+
+// Baseline guard FIX1: the additive draft-target entry point reuses the
+// reviewed route/session guards and keeps newer draft ownership across waits.
+test("baseline guard FIX1: pending setup cannot overwrite a newer draft or recreate after close", async (t) => {
+  for (const action of ["replace", "replace-same", "close", "setup"])
+    await t.test(`baseline guard FIX1: ${action}`, async (t) => {
+      const api = routeTestApi({ present: ["openai"] });
+      installBrowserGlobals(t, { window: { dispatchEvent: () => true, electronAPI: api } });
+      const vite = await rendererServer(t, `loqui-fix1-ownership-${action}-`);
+      const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+      const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+      const { TEST_COPY } = require("../lib/routeStateFixture");
+      await primeRouteFacts(vite);
+      useSettingsStore.setState({
+        useDictationTranslation: false,
+        translationMode: "providers",
+        translationProvider: "openai",
+        translationModel: "",
+      });
+      drafts.useRouteDraftStore
+        .getState()
+        .stage({ routeId: "translation", kind: "patch", patch: { useDictationTranslation: true } });
+      const rows = await api.credentials.list();
+      const held = [];
+      api.credentials.list = () => new Promise((resolve) => held.push(() => resolve(rows)));
+      const pending = drafts.requestDraftTarget(
+        "translation",
+        { mode: "providers", provider: "openai", model: "gpt-6-astra" },
+        TEST_COPY
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(held.length > 0);
+      const replacement = {
+        routeId: action === "replace-same" ? "translation" : "chat",
+        kind: "target",
+        target: { mode: "providers", provider: "groq", model: "gpt-oss-120b" },
+      };
+      if (action === "close") drafts.endSettingsSession();
+      else if (action === "setup")
+        drafts.stageDraftSetup("translation", {
+          azureEndpoint: "https://fixture.openai.azure.com",
+        });
+      else drafts.useRouteDraftStore.getState().stage(replacement);
+      const expected = drafts.useRouteDraftStore.getState().draft;
+      for (const release of held.splice(0)) release();
+      assert.equal(await pending, "superseded");
+      assert.equal(drafts.useRouteDraftStore.getState().draft, expected);
+      assert.equal(useSettingsStore.getState().useDictationTranslation, false);
+      assert.equal(useSettingsStore.getState().translationModel, "");
+      if (action === "setup")
+        assert.deepEqual(expected.patch, {
+          useDictationTranslation: true,
+          azureEndpoint: "https://fixture.openai.azure.com",
+        });
+    });
+});
+
+// Baseline guard FIX1: target setup re-plans with newly acknowledged facts;
+// a credential removed while the local read waits cannot unblock Apply.
+test("baseline guard FIX1: setup retains the enable intent when live credential facts block Apply", async (t) => {
+  const api = routeTestApi({ present: ["openai"] });
+  installBrowserGlobals(t, { window: { dispatchEvent: () => true, electronAPI: api } });
+  const vite = await rendererServer(t, "loqui-fix1-live-setup-facts-");
+  const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const drafts = await vite.ssrLoadModule("/stores/routeDraftStore.ts");
+  const { TEST_COPY } = require("../lib/routeStateFixture");
+  await primeRouteFacts(vite);
+  useSettingsStore.setState({
+    useDictationTranslation: false,
+    translationMode: "providers",
+    translationProvider: "openai",
+    translationModel: "",
+  });
+  drafts.useRouteDraftStore
+    .getState()
+    .stage({ routeId: "translation", kind: "patch", patch: { useDictationTranslation: true } });
+  const rows = await api.credentials.list();
+  let release;
+  api.credentials.list = () =>
+    new Promise((resolve) => {
+      release = () =>
+        resolve(
+          rows.map((row) =>
+            row.id === "openai"
+              ? { ...row, present: false, fields: { key: false }, generation: 3 }
+              : row
+          )
+        );
+    });
+  const pending = drafts.requestDraftTarget(
+    "translation",
+    { mode: "providers", provider: "openai", model: "gpt-6-astra" },
+    TEST_COPY
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  release();
+  assert.equal(await pending, "staged");
+  const plan = drafts.planDraft(drafts.useRouteDraftStore.getState().draft, TEST_COPY);
+  assert.equal(plan.patch.useDictationTranslation, true);
+  assert.equal(plan.blocker, "needsKey");
+  assert.equal(useSettingsStore.getState().translationModel, "");
+  assert.equal(useSettingsStore.getState().useDictationTranslation, false);
+});

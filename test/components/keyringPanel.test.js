@@ -425,6 +425,12 @@ test("keyring panel", async (t) => {
       await tick();
       assert.equal(c.current().entries.length, 1);
       assert.equal(c.current().loadError, true);
+      // FIX1 baseline guard: invalidating empty-read authority must preserve historical identities neutrally.
+      assert.equal(c.current().loaded, false);
+      assert.equal(c.current().entries[0].id, "groq");
+      assert.equal(c.current().entries[0].unknown, true);
+      assert.equal(c.current().entries[0].status, "unverified");
+      assert.equal(c.current().entries[0].lastVerifiedAt, null);
     }
   );
 
@@ -1663,6 +1669,120 @@ test("keyring panel", async (t) => {
         React.createElement(k.KeyringPanelView, viewProps({ entries: [entry("groq")] }))
       );
       assert.match(html, /<bdi dir="ltr">api\.groq\.com<\/bdi>/);
+    }
+  );
+  // change-driving FIX1 I1: historical [] is not current evidence after any read owner changes.
+  await t.test(
+    "change-driving FIX1: a previously empty list stays unknown during a pending refresh",
+    async (st) => {
+      for (const trigger of ["event", "options", "api"]) {
+        const originalApi = fakeKeyring([]);
+        let api = originalApi;
+        let tenant = "reviewedA";
+        const c = mountController(st, () => ({
+          api,
+          flush: async () => {},
+          getSealed: () => false,
+          optionsKey: tenant,
+          verifyOptions: (id) =>
+            k.keyringVerifyOptions(id, { cortiEnvironment: "eu", cortiTenant: tenant }),
+        }));
+        const html = () =>
+          renderToStaticMarkup(
+            React.createElement(
+              k.KeyringPanelView,
+              viewProps({
+                entries: c.current().entries,
+                loaded: c.current().loaded,
+                loadError: c.current().loadError,
+              })
+            )
+          );
+        await c.render();
+        await tick();
+        assert.equal(c.current().loaded, true);
+        assert.match(
+          html(),
+          /keyring\.empty/,
+          `${trigger}: successful current empty read confirms absence`
+        );
+        const gate = defer();
+        if (trigger === "api") api = fakeKeyring([]);
+        api.list = () => gate.promise;
+        if (trigger === "event") await React.act(async () => api.emit());
+        else {
+          if (trigger === "options") tenant = "reviewedB";
+          await c.render();
+        }
+        assert.equal(c.current().loaded, false, `${trigger}: history is not current read validity`);
+        assert.doesNotMatch(
+          html(),
+          /keyring\.empty/,
+          `${trigger}: pending metadata cannot claim absence`
+        );
+        assert.match(html(), /keyring\.checking/);
+        assert.deepEqual(originalApi.calls.verify, []);
+        await React.act(async () => gate.resolve([]));
+        await tick();
+        assert.equal(c.current().loaded, true);
+        assert.match(
+          html(),
+          /keyring\.empty/,
+          `${trigger}: only the new successful read restores absence`
+        );
+        await c.unmount();
+      }
+    }
+  );
+
+  // change-driving FIX1 I1: a failed current read must not promote prior confirmed absence.
+  await t.test(
+    "change-driving FIX1: a previously empty list stays unavailable after a failed refresh",
+    async (st) => {
+      const api = fakeKeyring([]);
+      const c = mountController(st, deps(api));
+      const html = () =>
+        renderToStaticMarkup(
+          React.createElement(
+            k.KeyringPanelView,
+            viewProps({
+              entries: c.current().entries,
+              loaded: c.current().loaded,
+              loadError: c.current().loadError,
+            })
+          )
+        );
+      await c.render();
+      await tick();
+      assert.equal(c.current().loaded, true);
+      assert.match(html(), /keyring\.empty/);
+      let reject;
+      api.list = () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        });
+      await React.act(async () => api.emit());
+      await React.act(async () => reject(new Error("fixture metadata unavailable")));
+      await tick();
+      assert.equal(c.current().loadError, true);
+      assert.equal(
+        c.current().loaded,
+        false,
+        "failed refresh cannot leave historical [] marked current"
+      );
+      assert.doesNotMatch(html(), /keyring\.empty/);
+      assert.match(html(), /keyring\.unavailable/);
+      assert.deepEqual(api.calls.verify, [], "refresh failure does not verify automatically");
+      api.list = async () => [];
+      await React.act(async () => api.emit());
+      await tick();
+      assert.equal(c.current().loadError, false);
+      assert.equal(c.current().loaded, true);
+      assert.match(
+        html(),
+        /keyring\.empty/,
+        "a later successful empty read is authoritative again"
+      );
     }
   );
 });

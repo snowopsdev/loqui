@@ -125,6 +125,7 @@ export type KeyringNotice =
 export interface KeyringController {
   entries: KeyringEntry[];
   loadError: boolean;
+  /** A successful list matching the current request, API and options. */
   loaded: boolean;
   checking: KeyringIdentity | null;
   progress: { current: number; total: number } | null;
@@ -177,17 +178,22 @@ export function useKeyringController(deps: {
     const options = live.current.verifyOptions?.(id);
     return options ? Object.freeze({ ...options }) : undefined;
   };
-  const entries =
-    listed?.api === deps.api && listed.context === context && listed.request === requestSeq.current
-      ? listed.entries
-      : (listed?.entries ?? []).map((entry) => ({
-          ...entry,
-          status: "unverified" as const,
-          unknown: true,
-          lastVerifiedAt: null,
-          lastErrorCode: null,
-          lastErrorStatus: null,
-        }));
+  const loaded = Boolean(
+    listed !== null &&
+    listed.api === deps.api &&
+    listed.context === context &&
+    listed.request === requestSeq.current
+  );
+  const entries = loaded
+    ? listed.entries
+    : (listed?.entries ?? []).map((entry) => ({
+        ...entry,
+        status: "unverified" as const,
+        unknown: true,
+        lastVerifiedAt: null,
+        lastErrorCode: null,
+        lastErrorStatus: null,
+      }));
   const disclosures = Object.fromEntries(
     Object.entries(described)
       .filter(([, value]) => value?.api === deps.api && value.context === context)
@@ -373,7 +379,7 @@ export function useKeyringController(deps: {
   return {
     entries,
     loadError,
-    loaded: listed !== null,
+    loaded,
     checking,
     progress,
     notices,

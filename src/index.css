@@ -423,6 +423,14 @@
     animation: reduced-motion-fade-in 200ms ease both !important;
   }
 
+  /* A loading pulse is opacity only, and often the only sign that work goes
+     on, so it keeps its full length. The class selector outranks the `*`
+     rule above; both are !important and unlayered. */
+  .progress-pulse {
+    animation-duration: calc(var(--motion-hero) * 4) !important;
+    animation-iteration-count: infinite !important;
+  }
+
   /* Press feedback is movement by definition; without a transition it would snap.
      The hover and active colour changes still confirm the press. */
   .onboarding-pressable:active {
@@ -1442,6 +1450,18 @@ a:hover {
   100% {
     transform: translateX(300%);
   }
+}
+
+/* Loading pulse for progress (DESIGN.md "Motion"). Opacity only, so it is the
+   loop that keeps running under reduced motion (re-declared there). */
+@keyframes progress-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.progress-pulse {
+  animation: progress-pulse calc(var(--motion-hero) * 4) var(--motion-ease-std) infinite;
 }
 
 /* Action processing scanner sweep */

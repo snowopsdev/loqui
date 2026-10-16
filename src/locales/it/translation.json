@@ -2597,7 +2597,9 @@
       "contextTooLarge": "È troppo lungo perché {{model}} possa leggerlo su questo computer. Servono circa {{needed}} token di contesto, ma in memoria ne entrano solo {{max}}. Prova un modello cloud oppure esegui l’azione su una selezione più breve.",
       "contextTooLargeGeneric": "È troppo lungo perché {{model}} possa leggerlo su questo computer. Prova un modello cloud oppure esegui l’azione su una selezione più breve.",
       "localServerUnavailable": "Impossibile avviare {{model}} su questo computer. Riprova o passa a un modello cloud."
-    }
+    },
+    "downloadingNamed": "Download di {{model}} in corso",
+    "installingNamed": "Installazione di {{model}} in corso"
   },
   "referral": {
     "modalTitle": "Invita un amico",

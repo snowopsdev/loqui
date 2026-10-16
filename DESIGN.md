@@ -157,6 +157,8 @@ The interface palette pairs a vivid orange live-voice color with fuchsia highlig
 - **Nav marker** (`--color-nav-marker`): deeper orange #E84E16 in light (3:1 on the sidebar surface), magenta #E6007A in Plum Night.
 - **Status fills** (success, warning, destructive, info): text on a filled status surface clears 4.5:1 in both themes. Light success and warning fills carry ink (#171717); destructive and info carry white; Plum Night fills carry #1C1218.
 
+- **Progress** (downloads, installs): ink fill on a muted track with an `--color-input-border` edge, and ink percentage text. Orange stays reserved for live voice.
+
 ### Named Rules
 **The Two-Brand-Accent Rule.** Orange marks live voice, the focus accent and, in the light theme (as the deeper #E84E16), the active navigation marker; the everyday primary action is the ink CTA, and Plum Night marks active navigation in magenta #E6007A. Fuchsia is a supporting accent; Agent Violet stays scoped to Agent Mode.
 
@@ -212,6 +214,7 @@ One language for every surface. **Hue is mode, shape is locality, motion is prog
 | `--motion-spring-snap` / `-settle` / `-bounce` | CSS `linear()` | press release and morphs / panels / success only |
 
 Rules:
+- Loops take their timing from these tokens. A rotation stays `linear`, because an eased spin stalls once per turn. Under reduced motion, keyframes stop except opacity-only loading cues (`.progress-pulse`), which keep running.
 - First feedback within 50 ms.
 - At most two focal motions at once.
 - Animate only `transform`, `opacity`, `clip-path`, `filter` and registered properties.

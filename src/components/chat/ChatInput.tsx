@@ -109,6 +109,10 @@ export function ChatInput({
         isQueued: false,
         hasText: Boolean(inputText.trim()),
       });
+      if (action === "queue") {
+        e.preventDefault();
+        return;
+      }
       if (action !== "submit") return;
       e.preventDefault();
       handleSubmit();

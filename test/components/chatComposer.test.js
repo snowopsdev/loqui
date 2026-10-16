@@ -2,9 +2,16 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { createElement } = require("react");
+const React = require("react");
+const { createElement } = React;
+const { createRoot } = require("react-dom/client");
+const { installTree } = require("../helpers/harness/fakeDomTree");
 const { renderToStaticMarkup } = require("react-dom/server");
-const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHookDom,
+} = require("../lib/rendererTestHarness");
 const { rendererOptions, TOAST_MOCK } = require("../helpers/harness/rendererMocks");
 
 const loadKeys = () => import("../../src/components/chat/chatInputKeys.ts");
@@ -76,4 +83,55 @@ test("the busy state is not a disabled field, and every focus ring is full opaci
   assert.doesNotMatch(source, /disabled=\{isBusy\}/);
   assert.doesNotMatch(source, /cursor-not-allowed/);
   assert.doesNotMatch(source, /ring-(ring|primary)\/\d+/);
+});
+
+test("busy Enter consumes its default without submitting or changing the draft", async (t) => {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  installBrowserGlobals(t);
+  installHookDom(t);
+  const tree = installTree();
+  const vite = await createRendererServer(
+    t,
+    rendererOptions("loqui-composer-keys-", COMPOSER_MOCKS)
+  );
+  const { ChatInput } = await vite.ssrLoadModule("/components/chat/ChatInput.tsx");
+  const submissions = [];
+  root = createRoot(tree.container);
+  await React.act(async () =>
+    root.render(
+      createElement(ChatInput, {
+        partialTranscript: "",
+        agentState: "thinking",
+        onTextSubmit: (text) => submissions.push(text),
+        onCancel() {},
+      })
+    )
+  );
+  const field = tree.find((node) => node.tagName === "TEXTAREA");
+  assert.ok(field);
+  await React.act(async () => tree.props(field).onChange({ target: { value: "Keep this draft" } }));
+  for (const [overrides, expectedPrevented] of [
+    [{}, true],
+    [{ shiftKey: true }, false],
+    [{ nativeEvent: { isComposing: true, keyCode: 13 } }, false],
+    [{ nativeEvent: { isComposing: false, keyCode: 229 } }, false],
+  ]) {
+    let prevented = false;
+    const event = {
+      key: "Enter",
+      shiftKey: false,
+      nativeEvent: { isComposing: false, keyCode: 13 },
+      preventDefault() {
+        prevented = true;
+      },
+      ...overrides,
+    };
+    await React.act(async () => tree.props(field).onKeyDown(event));
+    assert.equal(prevented, expectedPrevented);
+    assert.equal(tree.props(field).value, "Keep this draft");
+    assert.deepEqual(submissions, []);
+  }
 });

@@ -156,6 +156,7 @@ export function StagedRoutePanelView({
         <ApiKeyInput
           key={input.storeKey}
           apiKey={input.value}
+          credentialId={credential.credentialId}
           setApiKey={input.save}
           label={input.label}
         />

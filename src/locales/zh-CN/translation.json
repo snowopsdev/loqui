@@ -3057,7 +3057,17 @@
     "editButton": "编辑密钥",
     "addButton": "添加密钥",
     "saveFailed": "无法保存此密钥。你输入的内容仍在这里，请重试。",
-    "removeFailed": "无法移除此密钥。它仍处于已保存状态。"
+    "removeFailed": "无法移除此密钥。它仍处于已保存状态。",
+    "removed": "密钥已移除。",
+    "removedCredential": "凭据已移除（所有字段）。",
+    "removeCredential": "移除凭据（所有字段）",
+    "restored": "密钥已恢复。",
+    "undo": "撤销",
+    "undoLabel": "撤销移除密钥",
+    "undoExpired": "已超过撤销时间。请重新添加密钥。",
+    "undoReplaced": "已保存更新的密钥，因此未恢复已移除的密钥。",
+    "undoUnknown": "无法再撤销此次移除。请重新添加密钥。",
+    "undoRetry": "无法恢复密钥。请再次点击“撤销”。"
   },
   "gpu": {
     "transcriptionBanner": "使用 GPU 加速转录",
@@ -3984,7 +3994,54 @@
       "body": "你已要求 Loqui 在保存此密钥 90 天后提醒你。请在设置中更换密钥。"
     },
     "fields": {
-      "environmentKey": "来自 Loqui 环境变量的 API 密钥（GOOGLE_VERTEX_API_KEY）"
-    }
+      "environmentKey": "来自 Loqui 环境变量的 API 密钥（GOOGLE_VERTEX_API_KEY）",
+      "key": "API 密钥",
+      "clientId": "客户端 ID",
+      "clientSecret": "客户端密钥",
+      "accessKeyId": "访问密钥 ID",
+      "secretAccessKey": "秘密访问密钥",
+      "sessionToken": "会话令牌",
+      "profile": "AWS 配置文件凭据"
+    },
+    "title": "钥匙串",
+    "subtitle": "已保存的凭据及其可用状态。结果保留在此设备上。",
+    "verify": "验证",
+    "verifyLabel": "验证 {{identity}}",
+    "verifyAll": "全部验证",
+    "verifyingAll": "正在验证第 {{current}} 项，共 {{total}} 项…",
+    "verifyTooltip": "将“{{identity}}”已保存的 {{fields}} 发送至 {{host}} 进行验证。",
+    "verifyTarget": "验证会将 {{fields}} 发送至 {{host}}",
+    "verifyTargetUnknown": "验证目标尚不明确",
+    "verifyTooltipNoHost": "将已保存的凭据“{{identity}}”发送给其提供商进行验证。",
+    "verifyAllTooltip": "将下方已保存的凭据逐一发送给各自的提供商。",
+    "checking": "正在检查…",
+    "never": "从未验证",
+    "lastVerified": "上次验证：{{when}}",
+    "rejected": "已拒绝（{{status}}）。请更换密钥。",
+    "rejectedNoStatus": "已拒绝。请更换密钥。",
+    "unreachable": "无法连接 {{host}}。密钥已保留，但未验证。",
+    "unreachableNoHost": "无法连接提供商。密钥已保留，但未验证。",
+    "paused": "已暂停：{{tasks}}",
+    "superseded": "密钥在验证过程中发生了变化，因此已丢弃该结果。请重新验证。",
+    "verifyFailed": "无法验证。请重试。",
+    "invalidCortiOptions": "未发送任何内容：语音设置中的 Corti 区域“{{environment}}”或租户“{{tenant}}”无效。请修正后重新验证。",
+    "loadFailed": "无法刷新此列表。正在显示之前加载的内容。",
+    "remind": "90 天后提醒",
+    "remindLabel": "90 天后提醒我轮换 {{identity}}",
+    "sealed": "密封模式已开启，验证已暂停。",
+    "empty": "没有已保存的凭据。需要凭据的任务会在“路由”中显示“添加 API 密钥”。",
+    "identity": {
+      "cortiText": "{{provider}} · 文本 API 密钥",
+      "cortiSpeech": "{{provider}} · 语音客户端 ID 和密钥"
+    },
+    "status": {
+      "verified": "已验证",
+      "unverified": "尚未验证",
+      "rejected": "已拒绝",
+      "unreachable": "无法验证"
+    },
+    "unknown": "无法获取已保存凭据的状态。",
+    "recipientChanged": "凭据或接收方已更改。请检查更新后的目标，然后再次点击“验证”。",
+    "unavailable": "验证不可用。无法确认已保存凭据的状态。"
   }
 }

@@ -350,16 +350,19 @@ export default function EnterpriseProviderConfig({
             masked={false}
             placeholder="AKIA…"
             apiKey={settings.bedrockAccessKeyId}
+            credentialId="bedrock"
             setApiKey={(value) => saveSecret("bedrockAccessKeyId", value)}
           />
           <ApiKeyInput
             label={t("reasoning.enterprise.secretAccessKey")}
             apiKey={settings.bedrockSecretAccessKey}
+            credentialId="bedrock"
             setApiKey={(value) => saveSecret("bedrockSecretAccessKey", value)}
           />
           <ApiKeyInput
             label={t("reasoning.enterprise.sessionToken")}
             apiKey={settings.bedrockSessionToken}
+            credentialId="bedrock"
             setApiKey={(value) => saveSecret("bedrockSessionToken", value)}
           />
         </>
@@ -381,6 +384,7 @@ export default function EnterpriseProviderConfig({
           />
           <ApiKeyInput
             apiKey={settings.azureApiKey}
+            credentialId="azure"
             setApiKey={(value) => saveSecret("azureApiKey", value)}
           />
         </>
@@ -415,6 +419,7 @@ export default function EnterpriseProviderConfig({
           </p>
           <ApiKeyInput
             apiKey={settings.vertexApiKey}
+            credentialId="vertex"
             setApiKey={(value) => saveSecret("vertexApiKey", value)}
             helpText={t("reasoning.enterprise.vertex.apikeyHelp")}
           />

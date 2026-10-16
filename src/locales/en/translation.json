@@ -3226,7 +3226,17 @@
     "editButton": "edit",
     "addButton": "add",
     "saveFailed": "Couldn't save this key. Your entry is still here — try again.",
-    "removeFailed": "Couldn't remove this key. It is still saved."
+    "removeFailed": "Couldn't remove this key. It is still saved.",
+    "removed": "Key removed.",
+    "removedCredential": "Credential removed (all of its fields).",
+    "removeCredential": "Remove credential (all fields)",
+    "restored": "Key restored.",
+    "undo": "Undo",
+    "undoLabel": "Undo removing the key",
+    "undoExpired": "Too late to undo. Add the key again.",
+    "undoReplaced": "A newer key was saved, so the removed one was not restored.",
+    "undoUnknown": "This removal can no longer be undone. Add the key again.",
+    "undoRetry": "Couldn't restore the key. Try Undo again."
   },
   "gpu": {
     "transcriptionBanner": "Speed up transcription with GPU acceleration",
@@ -3984,7 +3994,54 @@
       "body": "You asked Loqui to remind you 90 days after saving this key. Replace it in Settings."
     },
     "fields": {
-      "environmentKey": "API key from Loqui's environment (GOOGLE_VERTEX_API_KEY)"
-    }
+      "environmentKey": "API key from Loqui's environment (GOOGLE_VERTEX_API_KEY)",
+      "key": "API key",
+      "clientId": "client ID",
+      "clientSecret": "client secret",
+      "accessKeyId": "access key ID",
+      "secretAccessKey": "secret access key",
+      "sessionToken": "session token",
+      "profile": "AWS profile credentials"
+    },
+    "title": "Keyring",
+    "subtitle": "Saved credentials and whether they still work. Results stay on this device.",
+    "verify": "Verify",
+    "verifyLabel": "Verify {{identity}}",
+    "verifyAll": "Verify all",
+    "verifyingAll": "Verifying {{current}} of {{total}}…",
+    "verifyTooltip": "Sends the saved {{fields}} of “{{identity}}” to {{host}} to check it.",
+    "verifyTarget": "Verify sends {{fields}} to {{host}}",
+    "verifyTargetUnknown": "Verify target not known yet",
+    "verifyTooltipNoHost": "Sends the saved credential “{{identity}}” to its provider to check it.",
+    "verifyAllTooltip": "Sends each saved credential below to its own provider, one at a time.",
+    "checking": "Checking…",
+    "never": "Never verified",
+    "lastVerified": "Last verified {{when}}",
+    "rejected": "Rejected ({{status}}). Replace the key.",
+    "rejectedNoStatus": "Rejected. Replace the key.",
+    "unreachable": "Couldn't reach {{host}}. Key kept, not verified.",
+    "unreachableNoHost": "Couldn't reach the provider. Key kept, not verified.",
+    "paused": "Paused: {{tasks}}",
+    "superseded": "The key changed while it was being checked, so that result was discarded. Verify again.",
+    "verifyFailed": "Couldn't verify. Try again.",
+    "invalidCortiOptions": "Nothing was sent: the Corti region “{{environment}}” or tenant “{{tenant}}” in Speech settings isn't valid. Fix it, then verify again.",
+    "loadFailed": "Couldn't refresh this list. Showing what was loaded before.",
+    "remind": "Remind in 90 days",
+    "remindLabel": "Remind me to rotate {{identity}} in 90 days",
+    "sealed": "Sealed mode is on, so verification is paused.",
+    "empty": "No saved credentials. Tasks that need one show “Add API key” in Routing.",
+    "identity": {
+      "cortiText": "{{provider}} · text API key",
+      "cortiSpeech": "{{provider}} · speech client ID and secret"
+    },
+    "status": {
+      "verified": "Verified",
+      "unverified": "Not verified yet",
+      "rejected": "Rejected",
+      "unreachable": "Couldn't verify"
+    },
+    "unknown": "Saved credential status is unavailable.",
+    "recipientChanged": "The credential or recipient changed. Review the updated target, then press Verify again.",
+    "unavailable": "Verification is unavailable. The saved credential status could not be confirmed."
   }
 }

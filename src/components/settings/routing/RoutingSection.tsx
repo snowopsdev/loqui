@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useRouteDraftStore } from "../../../stores/routeDraftStore";
 import { SectionHeader } from "../../ui/SettingsSection";
+import { KeyringPanel } from "./KeyringPanel";
 import { Patchbay } from "./Patchbay";
 import { StagedRoutePanel } from "./StagedRoutePanel";
 
@@ -23,6 +24,7 @@ export function RoutingSection({
           </div>
         )}
       </div>
+      <KeyringPanel />
     </div>
   );
 }

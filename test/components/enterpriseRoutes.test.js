@@ -241,7 +241,7 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
   const routes = await vite.ssrLoadModule("/lib/routes.ts");
   const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
   await primeRouteFacts(vite);
-  const { wrap } = await toastCapture(vite);
+  const { wrap, toasts } = await toastCapture(vite);
   const probes = createProbeRoot(t, { wrap });
 
   const act = async (fn) => {
@@ -603,14 +603,22 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
 
   // Change-driving (R3-1): secret presence used to move Vertex from ADC to Express without Apply.
   await t.test(
-    "mounted Vertex save plus main Remove and Undo metadata change readiness only; source changes wait for Apply",
+    "change-driving Task12: mounted Vertex save, Remove and toast Undo change readiness only; source changes wait for Apply",
     async () => {
       await reset({
         chatAgentMode: "enterprise",
         chatAgentProvider: "vertex",
         chatAgentModel: "gemini-2.5-flash",
         vertexProject: "acme-prod",
-        vertexLocation: "europe-west4",
+        vertexLocation: "global",
+        useCleanupModel: true,
+        cleanupMode: "enterprise",
+        cleanupProvider: "vertex",
+        cleanupModel: "gemini-2.5-flash",
+        useDictationTranslation: true,
+        translationMode: "enterprise",
+        translationProvider: "vertex",
+        translationModel: "gemini-2.5-flash",
         vertexAuthSource: "apiKey",
       });
       const config = await mountEnterprise("chat", "vertex", "gemini-2.5-flash");
@@ -651,13 +659,18 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
       assert.equal(chat().state.status, "ready", "the committed key makes this source ready");
       assert.equal(main.vertexAuthSource, "apiKey");
 
-      // Baseline guard for Task9: main lifecycle metadata only. Task12 owns
-      // the actual mounted token Remove/toast/Undo acceptance.
-      const removed = await act(() => api.credentials.remove("vertex"));
+      // Task12 change-driving: the actual input Remove and captured toast Undo,
+      // including the field unmount. Source/host readiness assertions are baseline guards.
+      const remove = findElement(keyView(), (node) => node.props?.["data-action"] === "remove-key");
+      assert.ok(remove, "Vertex supplies its main credential slot to the input");
+      await act(() => remove.props.onClick());
       await probes.settle();
       assert.equal(chat().host, "aiplatform.googleapis.com");
       assert.equal(chat().state.status, "needsKey");
-      await act(() => api.credentials.undoRemove(removed.undoToken));
+      const removedToast = toasts.at(-1);
+      assert.equal(removedToast.title, "apiKeyInput.removed");
+      await probes.mount("vertex-api-key", () => null);
+      await act(() => removedToast.actions[0].onClick());
       await probes.settle();
       assert.equal(chat().host, "aiplatform.googleapis.com");
       assert.equal(chat().state.status, "ready");
@@ -682,12 +695,40 @@ test("change-driving: enterprise recipients go through the planner (R2-1, R2-6, 
       );
       assert.equal(
         review.changes.find((change) => change.id === "chat").after.host,
-        "europe-west4-aiplatform.googleapis.com"
+        "aiplatform.googleapis.com"
       );
-      assert.equal((await act(() => drafts.applyDraft(TEST_COPY))).applied, true);
+      // Baseline guard: equal-host auth-source semantics still stage every coupled route.
+      assert.deepEqual(review.changes.map((change) => change.id).sort(), [
+        "chat",
+        "dictationCleanup",
+        "translation",
+      ]);
+      const applied = await act(() => drafts.applyDraft(TEST_COPY));
+      assert.equal(applied.applied, true);
       assert.equal(main.vertexAuthSource, "adc");
-      assert.equal(chat().host, "europe-west4-aiplatform.googleapis.com");
+      assert.equal(chat().host, "aiplatform.googleapis.com");
       assert.equal(chat().state.status, "ready", "ADC requires project, not an API key");
+      assert.equal(await act(() => applied.undo()), "staged");
+      assert.equal((await act(() => drafts.applyDraft(TEST_COPY))).applied, true);
+      assert.equal(main.vertexAuthSource, "apiKey");
+      // Baseline guard: a same-host project edit remains planner-owned with exact Undo.
+      writes.length = 0;
+      await typeAndLeave(field(config(), "reasoning.enterprise.projectId"), "next-fixture-project");
+      assert.equal(main.vertexProject, "acme-prod");
+      assert.equal(draft().patch.vertexProject, "next-fixture-project");
+      const projectReview = drafts.planDraft(draft(), TEST_COPY);
+      assert.deepEqual(projectReview.changes.map((change) => change.id).sort(), [
+        "chat",
+        "dictationCleanup",
+        "translation",
+      ]);
+      const projectApply = await act(() => drafts.applyDraft(TEST_COPY));
+      assert.equal(projectApply.applied, true);
+      assert.equal(main.vertexProject, "next-fixture-project");
+      assert.equal(chat().host, "aiplatform.googleapis.com");
+      assert.equal(await act(() => projectApply.undo()), "staged");
+      assert.equal((await act(() => drafts.applyDraft(TEST_COPY))).applied, true);
+      assert.equal(main.vertexProject, "acme-prod");
     }
   );
 });

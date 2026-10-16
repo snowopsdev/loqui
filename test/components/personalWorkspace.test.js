@@ -154,17 +154,19 @@ test("saved credential presence is never revealed or erased by opening its edito
   await React.act(async () =>
     find(
       h.tree(),
-      (node) => node.type === "button" && node.props?.className?.includes("text-success")
+      (node) => node.type === "button" && node.props?.["data-action"] === "save-key"
     ).props.onClick()
   );
   assert.deepEqual(saved, []);
-  await React.act(async () =>
+  // Change-driving Task12 reversed guard: no identity means no permanent empty-save Remove.
+  assert.equal(
     find(
       h.tree(),
       (node) => node.type === "button" && node.props?.className?.includes("hover:text-destructive")
-    ).props.onClick()
+    ),
+    undefined
   );
-  assert.deepEqual(saved, [""]);
+  assert.deepEqual(saved, []);
 });
 
 for (const requireImages of [false, true]) {
@@ -223,10 +225,7 @@ const keyEditor = (h) => ({
     ),
   input: () => find(h.tree(), (node) => node.props?.type === "password"),
   save: () =>
-    find(
-      h.tree(),
-      (node) => node.type === "button" && node.props?.className?.includes("text-success")
-    ),
+    find(h.tree(), (node) => node.type === "button" && node.props?.["data-action"] === "save-key"),
   alert: () => find(h.tree(), (node) => node.props?.role === "alert"),
 });
 

@@ -3057,7 +3057,17 @@
     "editButton": "編集",
     "addButton": "追加",
     "saveFailed": "このキーを保存できませんでした。入力内容は残っています。もう一度お試しください。",
-    "removeFailed": "このキーを削除できませんでした。保存されたままです。"
+    "removeFailed": "このキーを削除できませんでした。保存されたままです。",
+    "removed": "キーを削除しました。",
+    "removedCredential": "認証情報のすべてのフィールドを削除しました。",
+    "removeCredential": "認証情報を削除（すべてのフィールド）",
+    "restored": "キーを復元しました。",
+    "undo": "元に戻す",
+    "undoLabel": "キーの削除を元に戻す",
+    "undoExpired": "元に戻せる時間を過ぎました。キーを追加し直してください。",
+    "undoReplaced": "新しいキーが保存されたため、削除したキーは復元されませんでした。",
+    "undoUnknown": "この削除は元に戻せません。キーを追加し直してください。",
+    "undoRetry": "キーを復元できませんでした。もう一度「元に戻す」を押してください。"
   },
   "gpu": {
     "transcriptionBanner": "GPU で文字起こしを高速化",
@@ -3984,7 +3994,54 @@
       "body": "このキーの保存から90日後に通知するよう Loqui に設定しました。設定でキーを更新してください。"
     },
     "fields": {
-      "environmentKey": "Loqui の環境変数に設定された API キー（GOOGLE_VERTEX_API_KEY）"
-    }
+      "environmentKey": "Loqui の環境変数に設定された API キー（GOOGLE_VERTEX_API_KEY）",
+      "key": "APIキー",
+      "clientId": "クライアントID",
+      "clientSecret": "クライアントシークレット",
+      "accessKeyId": "アクセスキーID",
+      "secretAccessKey": "シークレットアクセスキー",
+      "sessionToken": "セッショントークン",
+      "profile": "AWSプロファイルの認証情報"
+    },
+    "title": "キーリング",
+    "subtitle": "保存済み認証情報とその動作状況です。結果はこのデバイスに保存されます。",
+    "verify": "検証",
+    "verifyLabel": "{{identity}}を検証",
+    "verifyAll": "すべて検証",
+    "verifyingAll": "{{total}}件中{{current}}件目を検証中…",
+    "verifyTooltip": "「{{identity}}」の保存済み{{fields}}を{{host}}に送信して検証します。",
+    "verifyTarget": "検証では{{fields}}を{{host}}に送信します",
+    "verifyTargetUnknown": "検証先はまだ不明です",
+    "verifyTooltipNoHost": "保存済み認証情報「{{identity}}」をプロバイダーに送信して検証します。",
+    "verifyAllTooltip": "以下の保存済み認証情報を各プロバイダーに順番に送信します。",
+    "checking": "確認中…",
+    "never": "未検証",
+    "lastVerified": "最終検証：{{when}}",
+    "rejected": "拒否されました（{{status}}）。キーを変更してください。",
+    "rejectedNoStatus": "拒否されました。キーを変更してください。",
+    "unreachable": "{{host}}に接続できませんでした。キーは保持されていますが、未検証です。",
+    "unreachableNoHost": "プロバイダーに接続できませんでした。キーは保持されていますが、未検証です。",
+    "paused": "一時停止中：{{tasks}}",
+    "superseded": "検証中にキーが変更されたため、結果は破棄されました。再度検証してください。",
+    "verifyFailed": "検証できませんでした。もう一度お試しください。",
+    "invalidCortiOptions": "何も送信されませんでした。音声設定のCortiリージョン「{{environment}}」またはテナント「{{tenant}}」が無効です。修正してから再度検証してください。",
+    "loadFailed": "リストを更新できませんでした。以前読み込んだ内容を表示しています。",
+    "remind": "90日後に通知",
+    "remindLabel": "90日後に{{identity}}の更新を通知する",
+    "sealed": "シールドモードがオンのため、検証を一時停止しています。",
+    "empty": "保存済み認証情報はありません。認証が必要なタスクは、ルーティングに「APIキーを追加」と表示されます。",
+    "identity": {
+      "cortiText": "{{provider}} · テキストAPIキー",
+      "cortiSpeech": "{{provider}} · 音声クライアントIDとシークレット"
+    },
+    "status": {
+      "verified": "検証済み",
+      "unverified": "まだ検証されていません",
+      "rejected": "拒否されました",
+      "unreachable": "検証できませんでした"
+    },
+    "unknown": "保存済み認証情報の状態を取得できません。",
+    "recipientChanged": "認証情報または送信先が変更されました。更新された送信先を確認し、もう一度「検証」を押してください。",
+    "unavailable": "検証を利用できません。保存済み認証情報の状態を確認できませんでした。"
   }
 }

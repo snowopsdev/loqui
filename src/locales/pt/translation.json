@@ -3058,7 +3058,17 @@
     "editButton": "Editar",
     "addButton": "Adicionar",
     "saveFailed": "Não foi possível salvar esta chave. O que você digitou continua aqui — tente novamente.",
-    "removeFailed": "Não foi possível remover esta chave. Ela continua salva."
+    "removeFailed": "Não foi possível remover esta chave. Ela continua salva.",
+    "removed": "Chave removida.",
+    "removedCredential": "Credencial removida (todos os campos).",
+    "removeCredential": "Remover credencial (todos os campos)",
+    "restored": "Chave restaurada.",
+    "undo": "Desfazer",
+    "undoLabel": "Desfazer a remoção da chave",
+    "undoExpired": "É tarde demais para desfazer. Adicione a chave novamente.",
+    "undoReplaced": "Uma chave mais recente foi salva, por isso a removida não foi restaurada.",
+    "undoUnknown": "Esta remoção não pode mais ser desfeita. Adicione a chave novamente.",
+    "undoRetry": "Não foi possível restaurar a chave. Tente Desfazer novamente."
   },
   "gpu": {
     "transcriptionBanner": "Acelere a transcrição com GPU",
@@ -3989,7 +3999,54 @@
       "body": "Pediu ao Loqui um lembrete 90 dias após guardar esta chave. Substitua-a nas Definições."
     },
     "fields": {
-      "environmentKey": "Chave API do ambiente do Loqui (GOOGLE_VERTEX_API_KEY)"
-    }
+      "environmentKey": "Chave API do ambiente do Loqui (GOOGLE_VERTEX_API_KEY)",
+      "key": "Chave de API",
+      "clientId": "ID do cliente",
+      "clientSecret": "Segredo do cliente",
+      "accessKeyId": "ID da chave de acesso",
+      "secretAccessKey": "Chave de acesso secreta",
+      "sessionToken": "Token de sessão",
+      "profile": "Credenciais do perfil AWS"
+    },
+    "title": "Chaveiro",
+    "subtitle": "Credenciais salvas e seu estado de funcionamento. Os resultados ficam neste dispositivo.",
+    "verify": "Verificar",
+    "verifyLabel": "Verificar {{identity}}",
+    "verifyAll": "Verificar todas",
+    "verifyingAll": "Verificando {{current}} de {{total}}…",
+    "verifyTooltip": "Envia os campos {{fields}} salvos de “{{identity}}” para {{host}} para verificá-los.",
+    "verifyTarget": "A verificação envia {{fields}} para {{host}}",
+    "verifyTargetUnknown": "O destino da verificação ainda é desconhecido",
+    "verifyTooltipNoHost": "Envia a credencial salva “{{identity}}” ao seu provedor para verificá-la.",
+    "verifyAllTooltip": "Envia cada credencial salva abaixo ao seu provedor, uma de cada vez.",
+    "checking": "Verificando…",
+    "never": "Nunca verificada",
+    "lastVerified": "Última verificação: {{when}}",
+    "rejected": "Rejeitada ({{status}}). Substitua a chave.",
+    "rejectedNoStatus": "Rejeitada. Substitua a chave.",
+    "unreachable": "Não foi possível acessar {{host}}. Chave mantida, não verificada.",
+    "unreachableNoHost": "Não foi possível acessar o provedor. Chave mantida, não verificada.",
+    "paused": "Em pausa: {{tasks}}",
+    "superseded": "A chave mudou durante a verificação e o resultado foi descartado. Verifique novamente.",
+    "verifyFailed": "Não foi possível verificar. Tente novamente.",
+    "invalidCortiOptions": "Nada foi enviado: a região Corti “{{environment}}” ou o locatário “{{tenant}}” nas configurações de voz é inválido. Corrija e verifique novamente.",
+    "loadFailed": "Não foi possível atualizar esta lista. Exibindo os dados carregados anteriormente.",
+    "remind": "Lembrar em 90 dias",
+    "remindLabel": "Lembrar de renovar {{identity}} em 90 dias",
+    "sealed": "O modo selado está ativo, por isso a verificação está em pausa.",
+    "empty": "Nenhuma credencial salva. As tarefas que precisam de uma mostram “Adicionar chave de API” em Roteamento.",
+    "identity": {
+      "cortiText": "{{provider}} · chave de API de texto",
+      "cortiSpeech": "{{provider}} · ID e segredo do cliente de voz"
+    },
+    "status": {
+      "verified": "Verificada",
+      "unverified": "Ainda não verificada",
+      "rejected": "Rejeitada",
+      "unreachable": "Não foi possível verificar"
+    },
+    "unknown": "O estado da credencial salva não está disponível.",
+    "recipientChanged": "A credencial ou o destinatário mudou. Revise o destino atualizado e pressione Verificar novamente.",
+    "unavailable": "A verificação não está disponível. Não foi possível confirmar o estado da credencial salva."
   }
 }

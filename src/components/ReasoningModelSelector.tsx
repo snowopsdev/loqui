@@ -627,6 +627,7 @@ export default function ReasoningModelSelector({
                       </div>
                       <ApiKeyInput
                         apiKey={openaiApiKey}
+                        credentialId="openai"
                         setApiKey={setOpenaiApiKey}
                         label=""
                         helpText=""
@@ -642,6 +643,7 @@ export default function ReasoningModelSelector({
                       </div>
                       <ApiKeyInput
                         apiKey={anthropicApiKey}
+                        credentialId="anthropic"
                         setApiKey={setAnthropicApiKey}
                         label=""
                         helpText=""
@@ -657,6 +659,7 @@ export default function ReasoningModelSelector({
                       </div>
                       <ApiKeyInput
                         apiKey={geminiApiKey}
+                        credentialId="gemini"
                         setApiKey={setGeminiApiKey}
                         label=""
                         helpText=""
@@ -672,6 +675,7 @@ export default function ReasoningModelSelector({
                       </div>
                       <ApiKeyInput
                         apiKey={groqApiKey}
+                        credentialId="groq"
                         setApiKey={setGroqApiKey}
                         label=""
                         helpText=""
@@ -687,6 +691,7 @@ export default function ReasoningModelSelector({
                       </div>
                       <ApiKeyInput
                         apiKey={tinfoilApiKey}
+                        credentialId="tinfoil"
                         setApiKey={setTinfoilApiKey}
                         label=""
                         helpText=""
@@ -703,6 +708,7 @@ export default function ReasoningModelSelector({
                       </div>
                       <ApiKeyInput
                         apiKey={cortiApiKey}
+                        credentialId="corti:text"
                         setApiKey={setCortiApiKey}
                         label=""
                         helpText=""

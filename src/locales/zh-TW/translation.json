@@ -3057,7 +3057,17 @@
     "editButton": "編輯金鑰",
     "addButton": "新增金鑰",
     "saveFailed": "無法儲存此金鑰。你輸入的內容仍在這裡，請再試一次。",
-    "removeFailed": "無法移除此金鑰。它仍處於已儲存狀態。"
+    "removeFailed": "無法移除此金鑰。它仍處於已儲存狀態。",
+    "removed": "金鑰已移除。",
+    "removedCredential": "憑證已移除（所有欄位）。",
+    "removeCredential": "移除憑證（所有欄位）",
+    "restored": "金鑰已還原。",
+    "undo": "復原",
+    "undoLabel": "復原移除金鑰",
+    "undoExpired": "已超過可復原的時間。請重新新增金鑰。",
+    "undoReplaced": "已儲存較新的金鑰，因此未還原已移除的金鑰。",
+    "undoUnknown": "無法再復原此次移除。請重新新增金鑰。",
+    "undoRetry": "無法還原金鑰。請再次按下「復原」。"
   },
   "gpu": {
     "transcriptionBanner": "使用 GPU 加速轉錄",
@@ -3984,7 +3994,54 @@
       "body": "你已要求 Loqui 在儲存此金鑰 90 天後提醒你。請在設定中更換金鑰。"
     },
     "fields": {
-      "environmentKey": "來自 Loqui 環境變數的 API 金鑰（GOOGLE_VERTEX_API_KEY）"
-    }
+      "environmentKey": "來自 Loqui 環境變數的 API 金鑰（GOOGLE_VERTEX_API_KEY）",
+      "key": "API 金鑰",
+      "clientId": "用戶端 ID",
+      "clientSecret": "用戶端密鑰",
+      "accessKeyId": "存取金鑰 ID",
+      "secretAccessKey": "秘密存取金鑰",
+      "sessionToken": "工作階段權杖",
+      "profile": "AWS 設定檔憑證"
+    },
+    "title": "鑰匙圈",
+    "subtitle": "已儲存的憑證及其可用狀態。結果會保留在此裝置上。",
+    "verify": "驗證",
+    "verifyLabel": "驗證 {{identity}}",
+    "verifyAll": "全部驗證",
+    "verifyingAll": "正在驗證第 {{current}} 項，共 {{total}} 項…",
+    "verifyTooltip": "將「{{identity}}」已儲存的 {{fields}} 傳送至 {{host}} 進行驗證。",
+    "verifyTarget": "驗證會將 {{fields}} 傳送至 {{host}}",
+    "verifyTargetUnknown": "驗證目標尚不明確",
+    "verifyTooltipNoHost": "將已儲存的憑證「{{identity}}」傳送給其供應商進行驗證。",
+    "verifyAllTooltip": "將下方已儲存的憑證逐一傳送給各自的供應商。",
+    "checking": "正在檢查…",
+    "never": "從未驗證",
+    "lastVerified": "上次驗證：{{when}}",
+    "rejected": "已拒絕（{{status}}）。請更換金鑰。",
+    "rejectedNoStatus": "已拒絕。請更換金鑰。",
+    "unreachable": "無法連線至 {{host}}。金鑰已保留，但尚未驗證。",
+    "unreachableNoHost": "無法連線至供應商。金鑰已保留，但尚未驗證。",
+    "paused": "已暫停：{{tasks}}",
+    "superseded": "金鑰在驗證期間已變更，因此已捨棄此結果。請重新驗證。",
+    "verifyFailed": "無法驗證。請再試一次。",
+    "invalidCortiOptions": "未傳送任何內容：語音設定中的 Corti 區域「{{environment}}」或租用戶「{{tenant}}」無效。請修正後重新驗證。",
+    "loadFailed": "無法重新整理此清單。目前顯示先前載入的內容。",
+    "remind": "90 天後提醒",
+    "remindLabel": "90 天後提醒我輪替 {{identity}}",
+    "sealed": "密封模式已開啟，驗證已暫停。",
+    "empty": "沒有已儲存的憑證。需要憑證的工作會在「路由」中顯示「新增 API 金鑰」。",
+    "identity": {
+      "cortiText": "{{provider}} · 文字 API 金鑰",
+      "cortiSpeech": "{{provider}} · 語音用戶端 ID 和密鑰"
+    },
+    "status": {
+      "verified": "已驗證",
+      "unverified": "尚未驗證",
+      "rejected": "已拒絕",
+      "unreachable": "無法驗證"
+    },
+    "unknown": "無法取得已儲存憑證的狀態。",
+    "recipientChanged": "憑證或接收方已變更。請檢查更新後的目標，再次按下「驗證」。",
+    "unavailable": "目前無法驗證。無法確認已儲存憑證的狀態。"
   }
 }

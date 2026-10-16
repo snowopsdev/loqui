@@ -1,3 +1,4 @@
+import { credentialSlotForStoreKey } from "../lib/credentialSlots";
 import type { RouteTarget } from "../lib/routePlanner";
 import { STT_CONTEXT_ROUTE } from "../lib/routes";
 import { RouteStateChip } from "./settings/routing/RouteChips";
@@ -1165,6 +1166,7 @@ export default function TranscriptionModelPicker({
 
                   <ApiKeyInput
                     apiKey={customTranscriptionApiKey}
+                    credentialId="custom:transcription"
                     setApiKey={setCustomTranscriptionApiKey}
                     label={t("transcription.apiKeyOptional")}
                     helpText=""
@@ -1193,6 +1195,7 @@ export default function TranscriptionModelPicker({
                       {field.input === "secret" ? (
                         <ApiKeyInput
                           apiKey={credentialValues[field.key]}
+                          credentialId={credentialSlotForStoreKey(field.key)}
                           setApiKey={credentialSecretSavers[field.key] ?? unavailableSecretSave}
                           label=""
                           helpText=""

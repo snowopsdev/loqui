@@ -3226,7 +3226,17 @@
     "editButton": "Bearbeiten",
     "addButton": "Hinzufügen",
     "saveFailed": "Der Schlüssel konnte nicht gespeichert werden. Die Eingabe bleibt erhalten – bitte erneut versuchen.",
-    "removeFailed": "Der Schlüssel konnte nicht entfernt werden. Er ist weiterhin gespeichert."
+    "removeFailed": "Der Schlüssel konnte nicht entfernt werden. Er ist weiterhin gespeichert.",
+    "removed": "Schlüssel entfernt.",
+    "removedCredential": "Zugangsdaten entfernt (alle Felder).",
+    "removeCredential": "Zugangsdaten entfernen (alle Felder)",
+    "restored": "Schlüssel wiederhergestellt.",
+    "undo": "Rückgängig",
+    "undoLabel": "Entfernen des Schlüssels rückgängig machen",
+    "undoExpired": "Zum Rückgängigmachen ist es zu spät. Füge den Schlüssel erneut hinzu.",
+    "undoReplaced": "Ein neuerer Schlüssel wurde gespeichert. Der entfernte wurde daher nicht wiederhergestellt.",
+    "undoUnknown": "Diese Entfernung kann nicht mehr rückgängig gemacht werden. Füge den Schlüssel erneut hinzu.",
+    "undoRetry": "Der Schlüssel konnte nicht wiederhergestellt werden. Versuche es erneut mit „Rückgängig“."
   },
   "gpu": {
     "transcriptionBanner": "Transkription mit GPU beschleunigen",
@@ -3984,7 +3994,54 @@
       "body": "Du hast Loqui gebeten, dich 90 Tage nach dem Speichern dieses Schlüssels zu erinnern. Ersetze ihn in den Einstellungen."
     },
     "fields": {
-      "environmentKey": "API-Schlüssel aus der Loqui-Umgebung (GOOGLE_VERTEX_API_KEY)"
-    }
+      "environmentKey": "API-Schlüssel aus der Loqui-Umgebung (GOOGLE_VERTEX_API_KEY)",
+      "key": "API-Schlüssel",
+      "clientId": "Client-ID",
+      "clientSecret": "Client-Geheimnis",
+      "accessKeyId": "Zugriffsschlüssel-ID",
+      "secretAccessKey": "Geheimer Zugriffsschlüssel",
+      "sessionToken": "Sitzungstoken",
+      "profile": "Zugangsdaten des AWS-Profils"
+    },
+    "title": "Schlüsselbund",
+    "subtitle": "Gespeicherte Zugangsdaten und ihr Funktionsstatus. Ergebnisse bleiben auf diesem Gerät.",
+    "verify": "Prüfen",
+    "verifyLabel": "{{identity}} prüfen",
+    "verifyAll": "Alle prüfen",
+    "verifyingAll": "Prüfe {{current}} von {{total}}…",
+    "verifyTooltip": "Sendet die gespeicherten {{fields}} von „{{identity}}“ zur Prüfung an {{host}}.",
+    "verifyTarget": "Die Prüfung sendet {{fields}} an {{host}}",
+    "verifyTargetUnknown": "Prüfziel noch unbekannt",
+    "verifyTooltipNoHost": "Sendet die gespeicherten Zugangsdaten „{{identity}}“ zur Prüfung an den Anbieter.",
+    "verifyAllTooltip": "Sendet die folgenden gespeicherten Zugangsdaten nacheinander an ihren jeweiligen Anbieter.",
+    "checking": "Wird geprüft…",
+    "never": "Noch nie geprüft",
+    "lastVerified": "Zuletzt geprüft: {{when}}",
+    "rejected": "Abgelehnt ({{status}}). Ersetze den Schlüssel.",
+    "rejectedNoStatus": "Abgelehnt. Ersetze den Schlüssel.",
+    "unreachable": "{{host}} ist nicht erreichbar. Schlüssel behalten, nicht geprüft.",
+    "unreachableNoHost": "Der Anbieter ist nicht erreichbar. Schlüssel behalten, nicht geprüft.",
+    "paused": "Pausiert: {{tasks}}",
+    "superseded": "Der Schlüssel wurde während der Prüfung geändert. Das Ergebnis wurde verworfen. Prüfe erneut.",
+    "verifyFailed": "Die Prüfung ist fehlgeschlagen. Versuche es erneut.",
+    "invalidCortiOptions": "Nichts gesendet: Die Corti-Region „{{environment}}“ oder der Mandant „{{tenant}}“ in den Spracheinstellungen ist ungültig. Korrigiere die Angabe und prüfe erneut.",
+    "loadFailed": "Die Liste konnte nicht aktualisiert werden. Die zuvor geladenen Einträge werden angezeigt.",
+    "remind": "In 90 Tagen erinnern",
+    "remindLabel": "Mich in 90 Tagen an den Austausch von {{identity}} erinnern",
+    "sealed": "Der versiegelte Modus ist aktiv. Die Prüfung ist pausiert.",
+    "empty": "Keine gespeicherten Zugangsdaten. Aufgaben, die sie benötigen, zeigen unter Routing „API-Schlüssel hinzufügen“.",
+    "identity": {
+      "cortiText": "{{provider}} · Text-API-Schlüssel",
+      "cortiSpeech": "{{provider}} · Sprach-Client-ID und Geheimnis"
+    },
+    "status": {
+      "verified": "Geprüft",
+      "unverified": "Noch nicht geprüft",
+      "rejected": "Abgelehnt",
+      "unreachable": "Prüfung nicht möglich"
+    },
+    "unknown": "Der Status der gespeicherten Zugangsdaten ist nicht verfügbar.",
+    "recipientChanged": "Zugangsdaten oder Empfänger haben sich geändert. Prüfe das aktualisierte Ziel und klicke erneut auf „Prüfen“.",
+    "unavailable": "Prüfung nicht verfügbar. Der Status der gespeicherten Zugangsdaten konnte nicht bestätigt werden."
   }
 }

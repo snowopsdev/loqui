@@ -3058,7 +3058,17 @@
     "editButton": "Modifica",
     "addButton": "Aggiungi",
     "saveFailed": "Impossibile salvare questa chiave. Quanto inserito è ancora qui: riprova.",
-    "removeFailed": "Impossibile rimuovere questa chiave. È ancora salvata."
+    "removeFailed": "Impossibile rimuovere questa chiave. È ancora salvata.",
+    "removed": "Chiave rimossa.",
+    "removedCredential": "Credenziale rimossa (tutti i campi).",
+    "removeCredential": "Rimuovi credenziale (tutti i campi)",
+    "restored": "Chiave ripristinata.",
+    "undo": "Annulla",
+    "undoLabel": "Annulla la rimozione della chiave",
+    "undoExpired": "È troppo tardi per annullare. Aggiungi di nuovo la chiave.",
+    "undoReplaced": "È stata salvata una chiave più recente, quindi quella rimossa non è stata ripristinata.",
+    "undoUnknown": "Questa rimozione non può più essere annullata. Aggiungi di nuovo la chiave.",
+    "undoRetry": "Impossibile ripristinare la chiave. Premi di nuovo Annulla."
   },
   "gpu": {
     "transcriptionBanner": "Velocizza la trascrizione con la GPU",
@@ -3989,7 +3999,54 @@
       "body": "Hai chiesto a Loqui di ricordartelo 90 giorni dopo il salvataggio di questa chiave. Sostituiscila nelle Impostazioni."
     },
     "fields": {
-      "environmentKey": "Chiave API dall’ambiente di Loqui (GOOGLE_VERTEX_API_KEY)"
-    }
+      "environmentKey": "Chiave API dall’ambiente di Loqui (GOOGLE_VERTEX_API_KEY)",
+      "key": "Chiave API",
+      "clientId": "ID client",
+      "clientSecret": "Segreto client",
+      "accessKeyId": "ID chiave di accesso",
+      "secretAccessKey": "Chiave di accesso segreta",
+      "sessionToken": "Token di sessione",
+      "profile": "Credenziali del profilo AWS"
+    },
+    "title": "Portachiavi",
+    "subtitle": "Credenziali salvate e relativo funzionamento. I risultati restano su questo dispositivo.",
+    "verify": "Verifica",
+    "verifyLabel": "Verifica {{identity}}",
+    "verifyAll": "Verifica tutte",
+    "verifyingAll": "Verifica di {{current}} su {{total}}…",
+    "verifyTooltip": "Invia i campi {{fields}} salvati di «{{identity}}» a {{host}} per verificarli.",
+    "verifyTarget": "La verifica invia {{fields}} a {{host}}",
+    "verifyTargetUnknown": "Destinazione della verifica ancora sconosciuta",
+    "verifyTooltipNoHost": "Invia la credenziale salvata «{{identity}}» al suo fornitore per verificarla.",
+    "verifyAllTooltip": "Invia ciascuna credenziale salvata qui sotto al proprio fornitore, una alla volta.",
+    "checking": "Verifica in corso…",
+    "never": "Mai verificata",
+    "lastVerified": "Ultima verifica: {{when}}",
+    "rejected": "Rifiutata ({{status}}). Sostituisci la chiave.",
+    "rejectedNoStatus": "Rifiutata. Sostituisci la chiave.",
+    "unreachable": "Impossibile raggiungere {{host}}. Chiave conservata, non verificata.",
+    "unreachableNoHost": "Impossibile raggiungere il fornitore. Chiave conservata, non verificata.",
+    "paused": "In pausa: {{tasks}}",
+    "superseded": "La chiave è cambiata durante la verifica e il risultato è stato scartato. Verifica di nuovo.",
+    "verifyFailed": "Impossibile verificare. Riprova.",
+    "invalidCortiOptions": "Non è stato inviato nulla: la regione Corti «{{environment}}» o il tenant «{{tenant}}» nelle impostazioni vocali non è valido. Correggilo e verifica di nuovo.",
+    "loadFailed": "Impossibile aggiornare l’elenco. Vengono mostrati i dati caricati in precedenza.",
+    "remind": "Ricorda tra 90 giorni",
+    "remindLabel": "Ricordami di rinnovare {{identity}} tra 90 giorni",
+    "sealed": "La modalità sigillata è attiva, quindi la verifica è in pausa.",
+    "empty": "Nessuna credenziale salvata. Le attività che ne richiedono una mostrano «Aggiungi chiave API» in Instradamento.",
+    "identity": {
+      "cortiText": "{{provider}} · chiave API di testo",
+      "cortiSpeech": "{{provider}} · ID e segreto client vocale"
+    },
+    "status": {
+      "verified": "Verificata",
+      "unverified": "Non ancora verificata",
+      "rejected": "Rifiutata",
+      "unreachable": "Verifica non riuscita"
+    },
+    "unknown": "Lo stato della credenziale salvata non è disponibile.",
+    "recipientChanged": "La credenziale o il destinatario è cambiato. Controlla la destinazione aggiornata, poi premi di nuovo Verifica.",
+    "unavailable": "Verifica non disponibile. Non è stato possibile confermare lo stato della credenziale salvata."
   }
 }

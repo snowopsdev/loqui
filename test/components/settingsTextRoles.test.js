@@ -12,6 +12,9 @@ const read = (file) => fs.readFileSync(path.join(repoRoot, file), "utf8");
 // coverage is in settingsContrast.test.js; this keeps a later edit honest.
 // Task 12/14 extend FILES with the keyring and storage components they add.
 const FILES = [
+  // Task12 baseline guards for the newly rendered Keyring and removal editor.
+  "src/components/settings/routing/KeyringPanel.tsx",
+  "src/components/ui/ApiKeyInput.tsx",
   "src/components/settings/routing/RouteChips.tsx",
   "src/components/settings/LocalSupportModels.tsx",
   "src/components/ui/SettingsSection.tsx",
@@ -40,6 +43,9 @@ test("[source guard] the cloud model list says Selected in the foreground role, 
 
 test("[source guard] motion in the files changed here uses shared tokens, not literal durations", () => {
   for (const file of [
+    // Task12 baseline guard: these controls override inherited literal durations.
+    "src/components/settings/routing/KeyringPanel.tsx",
+    "src/components/ui/ApiKeyInput.tsx",
     "src/components/settings/routing/RouteChips.tsx",
     "src/components/settings/LocalSupportModels.tsx",
   ]) {

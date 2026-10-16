@@ -3227,7 +3227,17 @@
     "editButton": "modifier",
     "addButton": "ajouter",
     "saveFailed": "Impossible d’enregistrer cette clé. Votre saisie est conservée — réessayez.",
-    "removeFailed": "Impossible de supprimer cette clé. Elle est toujours enregistrée."
+    "removeFailed": "Impossible de supprimer cette clé. Elle est toujours enregistrée.",
+    "removed": "Clé supprimée.",
+    "removedCredential": "Identifiants supprimés (tous les champs).",
+    "removeCredential": "Supprimer les identifiants (tous les champs)",
+    "restored": "Clé restaurée.",
+    "undo": "Annuler",
+    "undoLabel": "Annuler la suppression de la clé",
+    "undoExpired": "Il est trop tard pour annuler. Ajoutez de nouveau la clé.",
+    "undoReplaced": "Une clé plus récente a été enregistrée. La clé supprimée n’a donc pas été restaurée.",
+    "undoUnknown": "Cette suppression ne peut plus être annulée. Ajoutez de nouveau la clé.",
+    "undoRetry": "Impossible de restaurer la clé. Réessayez avec Annuler."
   },
   "gpu": {
     "transcriptionBanner": "Accélérez la transcription avec le GPU",
@@ -3989,7 +3999,54 @@
       "body": "Vous avez demandé à Loqui de vous le rappeler 90 jours après l’enregistrement de cette clé. Remplacez-la dans les paramètres."
     },
     "fields": {
-      "environmentKey": "Clé API de l’environnement de Loqui (GOOGLE_VERTEX_API_KEY)"
-    }
+      "environmentKey": "Clé API de l’environnement de Loqui (GOOGLE_VERTEX_API_KEY)",
+      "key": "Clé API",
+      "clientId": "ID client",
+      "clientSecret": "Secret client",
+      "accessKeyId": "ID de clé d’accès",
+      "secretAccessKey": "Clé d’accès secrète",
+      "sessionToken": "Jeton de session",
+      "profile": "Identifiants du profil AWS"
+    },
+    "title": "Trousseau",
+    "subtitle": "Identifiants enregistrés et état de fonctionnement. Les résultats restent sur cet appareil.",
+    "verify": "Vérifier",
+    "verifyLabel": "Vérifier {{identity}}",
+    "verifyAll": "Tout vérifier",
+    "verifyingAll": "Vérification {{current}} sur {{total}}…",
+    "verifyTooltip": "Envoie les champs {{fields}} enregistrés de « {{identity}} » à {{host}} pour les vérifier.",
+    "verifyTarget": "La vérification envoie {{fields}} à {{host}}",
+    "verifyTargetUnknown": "La destination de vérification est encore inconnue",
+    "verifyTooltipNoHost": "Envoie les identifiants enregistrés « {{identity}} » à leur fournisseur pour les vérifier.",
+    "verifyAllTooltip": "Envoie chaque identifiant enregistré ci-dessous à son fournisseur, l’un après l’autre.",
+    "checking": "Vérification…",
+    "never": "Jamais vérifié",
+    "lastVerified": "Dernière vérification : {{when}}",
+    "rejected": "Refusé ({{status}}). Remplacez la clé.",
+    "rejectedNoStatus": "Refusé. Remplacez la clé.",
+    "unreachable": "Impossible de joindre {{host}}. Clé conservée, non vérifiée.",
+    "unreachableNoHost": "Impossible de joindre le fournisseur. Clé conservée, non vérifiée.",
+    "paused": "En pause : {{tasks}}",
+    "superseded": "La clé a changé pendant la vérification. Le résultat a été ignoré. Vérifiez de nouveau.",
+    "verifyFailed": "Impossible de vérifier. Réessayez.",
+    "invalidCortiOptions": "Rien n’a été envoyé : la région Corti « {{environment}} » ou le locataire « {{tenant}} » dans les réglages vocaux est invalide. Corrigez-le, puis vérifiez de nouveau.",
+    "loadFailed": "Impossible d’actualiser cette liste. Les éléments précédemment chargés sont affichés.",
+    "remind": "Rappeler dans 90 jours",
+    "remindLabel": "Me rappeler de renouveler {{identity}} dans 90 jours",
+    "sealed": "Le mode scellé est actif ; la vérification est en pause.",
+    "empty": "Aucun identifiant enregistré. Les tâches qui en ont besoin affichent « Ajouter une clé API » dans Routage.",
+    "identity": {
+      "cortiText": "{{provider}} · clé API texte",
+      "cortiSpeech": "{{provider}} · ID et secret client vocal"
+    },
+    "status": {
+      "verified": "Vérifié",
+      "unverified": "Pas encore vérifié",
+      "rejected": "Refusé",
+      "unreachable": "Vérification impossible"
+    },
+    "unknown": "L’état des identifiants enregistrés est indisponible.",
+    "recipientChanged": "Les identifiants ou le destinataire ont changé. Examinez la destination mise à jour, puis cliquez de nouveau sur Vérifier.",
+    "unavailable": "La vérification est indisponible. L’état des identifiants enregistrés n’a pas pu être confirmé."
   }
 }

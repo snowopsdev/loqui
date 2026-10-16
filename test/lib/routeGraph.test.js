@@ -1492,3 +1492,58 @@ test("change-driving: an invalid persisted Vertex auth source never appears read
   assert.equal(route.host, null);
   assert.deepEqual(route.state, { status: "unreachable", detail: "unsupported" });
 });
+
+test("change-driving: invalid saved local speech providers cannot borrow an installed sherpa engine", async () => {
+  const { localSttModelKey, resolveRoutes } = await load();
+  const model = "parakeet-tdt-0.6b-v3";
+  for (const localProvider of ["unknown-provider", "", "constructor", "NVIDIA"]) {
+    const selected = { mode: "local", localProvider, localModel: model };
+    const snapshot = makeSnapshot({
+      stt: { dictation: selected, meeting: selected, upload: selected },
+      facts: { installed: { whisper: new Set(), sherpa: new Set([model]) } },
+    });
+    for (const route of resolveRoutes(snapshot).filter((route) => route.kind === "speech")) {
+      assert.deepEqual(
+        route.state,
+        { status: "unreachable", detail: "unsupported" },
+        localProvider
+      );
+      assert.equal(route.locality, "device");
+      assert.equal(route.host, null);
+      assert.equal(route.providerId, null);
+      assert.equal(route.model, model, "keep the saved model id without naming a different engine");
+    }
+    assert.equal(
+      localSttModelKey(localProvider, model),
+      null,
+      "invalid providers have no inventory key"
+    );
+    assert.equal(
+      snapshot.stt.meeting.localProvider,
+      localProvider,
+      "do not replace the saved provider"
+    );
+    assert.equal(snapshot.stt.meeting.localModel, model, "do not replace the saved model");
+  }
+});
+
+test("change-driving: local speech model keys and readiness recognize only the supported engine ids", async () => {
+  const { localSttModelKey, resolveRoute } = await load();
+  const { isSherpaLocalProvider } = require("../../src/helpers/parakeetModelInfo.js");
+  for (const [localProvider, localModel, family] of [
+    ["whisper", "base", "whisper"],
+    ["nvidia", "parakeet-tdt-0.6b-v3", "sherpa"],
+    ["cohere", "cohere-transcribe-03-2026", "sherpa"],
+  ]) {
+    assert.equal(isSherpaLocalProvider(localProvider), family === "sherpa");
+    assert.equal(localSttModelKey(localProvider, localModel), `${family}:${localModel}`);
+    const route = resolveRoute(
+      makeSnapshot({
+        stt: { meeting: { localProvider, localModel } },
+        facts: { installed: { [family]: new Set([localModel]) } },
+      }),
+      "noteRecordingStt"
+    );
+    assert.deepEqual(route.state, { status: "ready" }, localProvider);
+  }
+});

@@ -446,12 +446,17 @@ type ModelFamily = "whisper" | "sherpa" | "llm";
 
 // Whisper files and the sherpa-onnx family (Parakeet, Nemotron, Cohere) are
 // listed by different main-process calls, so the key carries the family.
-function sttFamily(localProvider: string): ModelFamily {
-  return localProvider === "whisper" ? "whisper" : "sherpa";
+function sttFamily(localProvider: string): "whisper" | "sherpa" | null {
+  if (localProvider === "whisper") return "whisper";
+  if (localProvider === "nvidia" || localProvider === "cohere") return "sherpa";
+  return null;
 }
 
-export function localSttModelKey(localProvider: string, modelId: string): string {
-  return `${sttFamily(localProvider)}:${modelId}`;
+// Invalid saved providers have no model-inventory key. Callers describing a
+// snapshot must skip null instead of interpreting it as another local engine.
+export function localSttModelKey(localProvider: string, modelId: string): string | null {
+  const family = sttFamily(localProvider);
+  return family === null ? null : `${family}:${modelId}`;
 }
 
 // Spec §5.4 + Plan 07 CCR-1: sealed mode blocks everything that leaves this
@@ -741,7 +746,20 @@ function sttDestination(s: RouteSettingsSnapshot, id: RouteId, input: SttRouteIn
   const mode = input.mode.trim();
   const providerId = input.cloudProvider.trim();
   if (mode === "local") {
-    return localDestination(s, sttFamily(input.localProvider), input.localModel);
+    const family = sttFamily(input.localProvider);
+    if (family === null) {
+      // Executors historically fall back to Whisper for an unknown provider.
+      // Preserve the invalid selection and refuse readiness instead of silently
+      // describing a different engine (or borrowing its installed inventory).
+      return {
+        locality: "device",
+        providerId: null,
+        host: null,
+        model: input.localModel.trim() || null,
+        state: UNSUPPORTED,
+      };
+    }
+    return localDestination(s, family, input.localModel);
   }
   if (mode === "openwhispr") {
     return retired(s, providerId, cloudModelName(s, providerId, input.cloudModel));

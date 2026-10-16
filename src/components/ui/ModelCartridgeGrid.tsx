@@ -65,10 +65,7 @@ export function ModelCartridgeGrid(props: ModelCartridgeGridProps) {
   const tabStop = focusIndex !== null && focusIndex < shown.length ? focusIndex : anchor;
   const rtl = (props.dir ?? i18n?.dir?.() ?? "ltr") === "rtl";
   // The "estimate" caption only appears while a visible meter is size-derived.
-  const anyEstimated = shown.some((m) => {
-    const tiers = estimateTiers(m);
-    return tiers.estimated && tiers.speed !== null;
-  });
+  const anyEstimated = shown.some((m) => estimateTiers(m).estimated);
 
   // Arrows, Home and End move focus between cards, from the radio or from the
   // card's own action button. They never select: choosing a model changes a

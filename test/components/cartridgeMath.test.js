@@ -29,13 +29,13 @@ test("change-driving: tiers come from curated data when present, otherwise from 
     speed: 3,
     quality: 4,
     memory: 4,
-    estimated: false,
+    estimated: true,
   });
   assert.deepEqual(estimateTiers({}), {
     speed: null,
     quality: null,
     memory: null,
-    estimated: true,
+    estimated: false,
   });
 });
 
@@ -113,7 +113,7 @@ test("change-driving: a registry model's context length and curated tiers surviv
     },
     { d: true, g: false, c: true, i: true, p: 12, b: "ready", h: "https://x.test", l: "Card" }
   );
-  assert.deepEqual(estimateTiers(card), { speed: 4, quality: 3, memory: 4, estimated: false });
+  assert.deepEqual(estimateTiers(card), { speed: 4, quality: 3, memory: 4, estimated: true });
   assert.deepEqual(estimateTiers({ sizeBytes: card.sizeBytes }), {
     speed: 2,
     quality: 5,
@@ -138,4 +138,25 @@ test("change-driving: in-use chips list device routes that are on, by name or id
     usedByMap(models, routes, (id) => `T:${id}`),
     { "qwen-2b": ["T:chat", "T:dictationCleanup"] }
   );
+});
+
+// FIX1 desired behavior, added before the estimate helper changes.
+test("change-driving FIX1: no visible meter means no size-derived estimate", async () => {
+  const { estimateTiers } = await load();
+  assert.deepEqual(estimateTiers({}), {
+    speed: null,
+    quality: null,
+    memory: null,
+    estimated: false,
+  });
+});
+
+test("baseline guard FIX1: curated visible tiers without a known size need no estimate disclosure", async () => {
+  const { estimateTiers } = await load();
+  assert.deepEqual(estimateTiers({ speedTier: 4, qualityTier: 3 }), {
+    speed: 4,
+    quality: 3,
+    memory: null,
+    estimated: false,
+  });
 });

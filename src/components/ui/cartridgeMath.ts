@@ -35,12 +35,13 @@ export function estimateTiers(m: Pick<CartridgeModel, "sizeBytes" | "speedTier" 
   const memory = size ? bucket(size, [1.5, 3, 5, 8]) : null;
   const sizeSpeed = size ? 6 - bucket(size, [1, 2, 4, 8]) : null;
   const sizeQuality = size ? Math.min(5, bucket(size, [1, 2, 4, 8]) + 1) : null;
-  const curated = m.speedTier !== undefined && m.qualityTier !== undefined;
   return {
     speed: m.speedTier ?? sizeSpeed,
     quality: m.qualityTier ?? sizeQuality,
     memory,
-    estimated: !curated,
+    // Memory is always size-derived when shown, even with curated speed/quality.
+    // Without a size, no size-derived meter is visible.
+    estimated: memory !== null,
   };
 }
 

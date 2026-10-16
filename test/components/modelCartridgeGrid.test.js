@@ -396,15 +396,39 @@ test("change-driving: cartridge grid", async (t) => {
   );
 
   await t.test(
-    "curated tiers replace both the size estimate and its caption (M2, change-driving)",
+    "change-driving FIX1: curated speed and quality retain disclosure for size-derived memory (M2)",
     async (t) => {
       const curated = models.map((m) => ({ ...m, speedTier: 5, qualityTier: 2 }));
       const h = await mount(t, { models: curated });
-      assert.doesNotMatch(textOf(h.tree()), /cartridge\.estimate/);
+      assert.match(textOf(h.tree()), /cartridge\.estimate/);
+      const memory = findAll(h.radio("qwen-9b"), (n) => n.props?.label === "cartridge.memory")[0];
+      assert.equal(memory.props.value, 4, "5.5 GB memory remains a visible file-size estimate");
       const speed = findAll(h.radio("qwen-2b"), (n) => n.props?.label === "cartridge.speed")[0];
       const quality = findAll(h.radio("qwen-2b"), (n) => n.props?.label === "cartridge.quality")[0];
       assert.equal(speed.props.value, 5, "size alone would say 4");
       assert.equal(quality.props.value, 2, "size alone would say 3");
+    }
+  );
+
+  await t.test(
+    "baseline guard FIX1: an all-curated grid without known sizes has no visible estimated meter",
+    async (t) => {
+      const curated = models.map((m) => ({
+        ...m,
+        sizeBytes: undefined,
+        speedTier: 5,
+        qualityTier: 2,
+      }));
+      const h = await mount(t, { models: curated });
+      assert.doesNotMatch(textOf(h.tree()), /cartridge\.estimate/);
+      assert.equal(
+        findAll(h.radio("qwen-2b"), (n) => n.props?.label === "cartridge.memory").length,
+        0
+      );
+      assert.equal(
+        findAll(h.radio("qwen-2b"), (n) => n.props?.label === "cartridge.speed")[0].props.value,
+        5
+      );
     }
   );
 

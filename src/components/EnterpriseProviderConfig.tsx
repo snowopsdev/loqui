@@ -78,7 +78,11 @@ export default function EnterpriseProviderConfig({
   const profileDirty = useRef(false);
   const profileRevision = useRef(0);
   const profilePending = useRef<Promise<void>>(Promise.resolve());
-  const profileSubmitted = useRef<{ value: string; promise: Promise<void> } | null>(null);
+  const profileSubmitted = useRef<{
+    value: string;
+    revision: { current: number };
+    promise: Promise<void>;
+  } | null>(null);
 
   useEffect(() => {
     if (!profileDirty.current) {
@@ -99,18 +103,24 @@ export default function EnterpriseProviderConfig({
     const value = profileDraftRef.current;
     const revision = profileRevision.current;
     if (!profileSubmitted.current && value === settings.bedrockProfile) return Promise.resolve();
-    if (profileSubmitted.current?.value === value) return profileSubmitted.current.promise;
+    if (profileSubmitted.current?.value === value) {
+      // Only the latest queued submission can coalesce. A new explicit submit
+      // after intervening edits owns that ACK; an unsent edit does not.
+      profileSubmitted.current.revision.current = revision;
+      return profileSubmitted.current.promise;
+    }
+    const submittedRevision = { current: revision };
     // A blur during an earlier ACK queues the later draft. Each completion
     // belongs to its edit revision and cannot overwrite a newer draft/error.
     const saving = profilePending.current.then(async () => {
       const saved = await settings.setBedrockProfile(value);
-      if (profileRevision.current === revision) {
+      if (profileRevision.current === submittedRevision.current) {
         profileDirty.current = !saved;
         setProfileFailed(!saved);
       }
     });
     profilePending.current = saving;
-    profileSubmitted.current = { value, promise: saving };
+    profileSubmitted.current = { value, revision: submittedRevision, promise: saving };
     void saving.then(() => {
       if (profileSubmitted.current?.promise === saving) profileSubmitted.current = null;
     });

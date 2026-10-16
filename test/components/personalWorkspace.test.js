@@ -365,3 +365,128 @@ test("Bedrock profile typing remains editable during pending persistence and ret
   assert.equal(store.getState().bedrockProfile, "fixture-later");
   assert.deepEqual(calls, ["fixture-new", "fixture-new", "fixture-later"]);
 });
+
+async function bedrockProfileEditor(t, gates) {
+  const calls = [];
+  let store;
+  const h = await harness(t, "/components/EnterpriseProviderConfig.tsx", {
+    props: { provider: "bedrock", reasoningModel: "fixture-model", setReasoningModel() {} },
+    api: {
+      saveBedrockProfile: (value) => {
+        calls.push(value);
+        return gates[calls.length - 1].promise;
+      },
+    },
+    mocks: { "/services/ReasoningService": "export default { clearApiKeyCache() {} };" },
+    beforeRender: async (vite) => {
+      store = (await vite.ssrLoadModule("/stores/settingsStore.ts")).useSettingsStore;
+      store.setState({ bedrockProfile: "fixture-old" });
+    },
+    project: (tree) => {
+      let fieldIndex = 0;
+      const field = find(tree, (node) => node.type?.name === "Field" && fieldIndex++ === 1);
+      return field.type(field.props);
+    },
+  });
+  return {
+    calls,
+    store,
+    input: () => find(h.tree(), (node) => node.props?.value !== undefined && node.props?.onChange),
+    alert: () => find(h.tree(), (node) => node.props?.role === "alert"),
+  };
+}
+
+for (const success of [false, true]) {
+  test(`Bedrock same-value resubmission owns its ${success ? "successful" : "refused"} outcome after intervening edits`, async (t) => {
+    const first = deferred();
+    const retry = deferred();
+    const editor = await bedrockProfileEditor(t, [first, retry]);
+    let saving;
+    await React.act(async () => {
+      editor.input().props.onChange({ target: { value: "fixture-A" } });
+      saving = editor.input().props.onBlur();
+    });
+    await React.act(async () => {
+      editor.input().props.onChange({ target: { value: "fixture-B" } });
+    });
+    await React.act(async () => {
+      editor.input().props.onChange({ target: { value: "fixture-A" } });
+    });
+    let resubmitted;
+    await React.act(async () => {
+      resubmitted = editor.input().props.onBlur();
+    });
+    assert.equal(resubmitted, saving, "the latest matching submission can share the pending ACK");
+    assert.deepEqual(editor.calls, ["fixture-A"]);
+    await React.act(async () => {
+      first.resolve({ success });
+      await resubmitted;
+    });
+    assert.equal(editor.input().props.value, "fixture-A");
+    assert.equal(editor.store.getState().bedrockProfile, success ? "fixture-A" : "fixture-old");
+    assert.equal(editor.input().props["aria-invalid"], !success);
+    assert.equal(!!editor.alert(), !success, "the latest explicit submission owns its outcome");
+    if (!success) {
+      await React.act(async () => {
+        saving = editor.input().props.onBlur();
+      });
+      await React.act(async () => {
+        retry.resolve({ success: true });
+        await saving;
+      });
+      assert.equal(editor.store.getState().bedrockProfile, "fixture-A");
+      assert.equal(editor.input().props["aria-invalid"], false);
+      assert.equal(!!editor.alert(), false);
+      assert.deepEqual(editor.calls, ["fixture-A", "fixture-A"]);
+    }
+  });
+
+  test(`Bedrock ${success ? "successful" : "refused"} ACK preserves a newer unsent profile draft`, async (t) => {
+    const first = deferred();
+    const editor = await bedrockProfileEditor(t, [first]);
+    let saving;
+    await React.act(async () => {
+      editor.input().props.onChange({ target: { value: "fixture-A" } });
+      saving = editor.input().props.onBlur();
+    });
+    await React.act(async () => {
+      editor.input().props.onChange({ target: { value: "fixture-unsent" } });
+    });
+    await React.act(async () => {
+      first.resolve({ success });
+      await saving;
+    });
+    assert.equal(editor.input().props.value, "fixture-unsent");
+    assert.equal(editor.store.getState().bedrockProfile, success ? "fixture-A" : "fixture-old");
+    assert.equal(editor.input().props["aria-invalid"], false);
+    assert.equal(
+      !!editor.alert(),
+      false,
+      "an older submission cannot assign an error to an unsent draft"
+    );
+    assert.deepEqual(editor.calls, ["fixture-A"]);
+  });
+}
+
+test("Bedrock profile submissions preserve A then queued B then resubmitted A order", async (t) => {
+  const gates = [deferred(), deferred(), deferred()];
+  const editor = await bedrockProfileEditor(t, gates);
+  const saving = [];
+  for (const value of ["fixture-A", "fixture-B", "fixture-A"]) {
+    await React.act(async () => {
+      editor.input().props.onChange({ target: { value } });
+      saving.push(editor.input().props.onBlur());
+    });
+  }
+  assert.deepEqual(editor.calls, ["fixture-A"]);
+  for (let index = 0; index < gates.length; index += 1) {
+    await React.act(async () => {
+      gates[index].resolve({ success: true });
+      await saving[index];
+    });
+  }
+  assert.deepEqual(editor.calls, ["fixture-A", "fixture-B", "fixture-A"]);
+  assert.equal(editor.input().props.value, "fixture-A");
+  assert.equal(editor.store.getState().bedrockProfile, "fixture-A");
+  assert.equal(editor.input().props["aria-invalid"], false);
+});

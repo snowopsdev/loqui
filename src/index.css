@@ -1123,7 +1123,9 @@ textarea:not(.input-inline) {
 :root input:not(.input-inline):focus-visible,
 :root textarea:not(.input-inline):focus-visible {
   border-color: var(--color-ring);
-  box-shadow: 0 0 0 1px var(--color-background), 0 0 0 3px var(--color-ring);
+  box-shadow:
+    0 0 0 1px var(--color-background),
+    0 0 0 3px var(--color-ring);
   background-color: var(--color-background);
 }
 
@@ -1139,7 +1141,9 @@ textarea:not(.input-inline) {
 .dark input:not(.input-inline):focus-visible,
 .dark textarea:not(.input-inline):focus-visible {
   border-color: var(--color-ring);
-  box-shadow: 0 0 0 1px var(--color-background), 0 0 0 3px var(--color-ring);
+  box-shadow:
+    0 0 0 1px var(--color-background),
+    0 0 0 3px var(--color-ring);
 }
 
 /* Card styling - elevated parchment */

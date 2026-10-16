@@ -164,7 +164,7 @@ export function ModelCard({
         <span
           dir="ltr"
           className={cn(
-            "text-sm font-semibold text-foreground truncate tracking-tight",
+            "text-sm font-semibold text-foreground truncate tracking-tight shrink-0 max-w-[60%]",
             truncateDescription && (model.description ? "shrink-0 max-w-[60%]" : "min-w-0 flex-1")
           )}
         >
@@ -175,7 +175,7 @@ export function ModelCard({
             className={
               truncateDescription
                 ? "text-xs text-muted-foreground/70 truncate min-w-0 flex-1"
-                : "text-xs text-muted-foreground/70 tabular-nums shrink-0"
+                : "text-xs text-muted-foreground/70 tabular-nums truncate min-w-0"
             }
           >
             {model.description}

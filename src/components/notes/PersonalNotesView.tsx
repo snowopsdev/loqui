@@ -982,7 +982,10 @@ export default function PersonalNotesView({
       )}
       <ActionManagerDialog open={showActionManager} onOpenChange={setShowActionManager} />
       <Dialog open={showActionsIntro} onOpenChange={setShowActionsIntro}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-0">
+        <DialogContent
+          className="max-w-lg max-h-[85vh] overflow-y-auto p-0"
+          aria-describedby={undefined}
+        >
           <DialogTitle className="sr-only">{t("notes.onboarding.actions.title")}</DialogTitle>
           <NotesOnboarding onComplete={finishActionsIntro} />
         </DialogContent>

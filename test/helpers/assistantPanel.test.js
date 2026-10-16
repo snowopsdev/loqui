@@ -895,13 +895,23 @@ test("a follow-up into an open panel strips caret delivery and stays panel-first
 
   assistant.openRef.current = true;
   await React.act(async () => {
-    assistant.handleCommand({ text: "draft a reply", attachment: null, selectedContext: null, delivery });
+    assistant.handleCommand({
+      text: "draft a reply",
+      attachment: null,
+      selectedContext: null,
+      delivery,
+    });
   });
   assert.equal(assistant.pendingCommand.delivery, null);
 
   assistant.openRef.current = false;
   await React.act(async () => {
-    assistant.handleCommand({ text: "draft a reply", attachment: null, selectedContext: null, delivery });
+    assistant.handleCommand({
+      text: "draft a reply",
+      attachment: null,
+      selectedContext: null,
+      delivery,
+    });
   });
   assert.deepEqual(assistant.pendingCommand.delivery, delivery);
 });

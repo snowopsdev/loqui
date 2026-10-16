@@ -61,7 +61,7 @@ test("a focused native field gets a full-opacity ring from an unlayered rule, wh
     assert.equal(isLayered(rule), false, `${scope}: unlayered, so it beats @layer utilities`);
     assert.match(rule.body, /border-color: var\(--color-ring\);/);
     assert.match(
-      rule.body,
+      rule.body.replace(/\s+/g, " "),
       /box-shadow: 0 0 0 1px var\(--color-background\), 0 0 0 3px var\(--color-ring\);/
     );
   }

@@ -148,7 +148,8 @@ export default function SidebarModal<T extends string>({
                 {header && !isCompact && <div className="px-4 pt-5 pb-1">{header}</div>}
 
                 {/* Navigation */}
-                <nav aria-label={title}
+                <nav
+                  aria-label={title}
                   className={`relative flex-1 pb-2 overflow-y-auto ${
                     isCompact ? "px-1.5 pt-4" : "px-2 pt-3"
                   }`}

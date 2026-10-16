@@ -1,4 +1,11 @@
-import { ReactNode, useRef, useEffect, useLayoutEffect, useCallback, type KeyboardEvent } from "react";
+import {
+  ReactNode,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  type KeyboardEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderIcon } from "./ProviderIcon";
 import { nextEnabledTabIndex } from "./providerTabsKeys";
@@ -72,7 +79,8 @@ export function ProviderTabs({
   }, [updateIndicator]);
 
   const selectedIndex = providers.findIndex((p) => p.id === selectedId && !p.disabled);
-  const tabStopIndex = selectedIndex !== -1 ? selectedIndex : providers.findIndex((p) => !p.disabled);
+  const tabStopIndex =
+    selectedIndex !== -1 ? selectedIndex : providers.findIndex((p) => !p.disabled);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const buttons = Array.from(

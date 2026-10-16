@@ -278,3 +278,29 @@ test("explicit activation selects while documentation and delete actions stay in
   tree.props(unavailable).onClick();
   assert.equal(selected.length, 2, "an unavailable local model cannot be selected");
 });
+
+test("selected cards reserve readable identity while long metadata can shrink", async (t) => {
+  const { ModelCard } = await load(t);
+  for (const truncateDescription of [false, true]) {
+    const html = renderToStaticMarkup(
+      createElement(ModelCard, {
+        model: {
+          value: "gpt",
+          label: "GPT 5.6 Sol",
+          description: "A long model description that must yield to the model identity",
+        },
+        isSelected: true,
+        onSelect() {},
+        truncateDescription,
+      })
+    );
+    const label = html.match(/<span dir="ltr" class="([^"]+)"/)[1];
+    assert.match(label, /shrink-0/);
+    assert.match(label, /max-w-\[60%\]/);
+    const description = html.match(/<span class="([^"]+)">A long model description/)[1];
+    assert.match(description, /min-w-0/);
+    assert.match(description, /truncate/);
+    assert.doesNotMatch(description, /shrink-0/);
+    assert.match(html, /common.active/);
+  }
+});

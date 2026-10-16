@@ -243,8 +243,8 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 - **Internal Padding:** Common card headers and contents use 24px; compact setup rows use 16px.
 
 ### Inputs / Fields
-- **Style:** Full-width 40px fields with 6px corners, compact sans text, and a one-pixel neutral edge. Light fields are near-white; dark fields use a flat dark fill.
-- **Focus:** Orange border plus a low-opacity 2px ring. The field remains easy to identify without a heavy glow.
+- **Style:** Full-width 40px fields with 6px corners, compact sans text, and a one-pixel `--color-input-border` edge (#858585 light, #8C6B7B Plum Night) that clears 3:1 on every surface a field sits on. Hover does not lighten the edge.
+- **Focus:** A full-opacity 2px `--color-ring` ring with a 1px gap, drawn by the unlayered native-field rule in `src/index.css` so no utility can weaken it. The border turns `--color-ring` too.
 - **Error / Disabled:** Errors use the separate destructive color; disabled fields lower contrast and disable pointer interaction.
 
 ### Navigation

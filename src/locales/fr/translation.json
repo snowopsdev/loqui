@@ -565,6 +565,12 @@
         "title": "Un téléchargement ne s'est pas terminé",
         "description": "Vérifiez votre connexion et l'espace disque disponible, puis réessayez. Si le problème persiste, contactez votre administrateur."
       }
+    },
+    "download": {
+      "chip": "Téléchargement du modèle vocal · {{percent}}%",
+      "start": "Télécharger le modèle",
+      "inProgress": "Téléchargement…",
+      "chipInstalling": "Installation du modèle vocal"
     }
   },
   "streaming": {

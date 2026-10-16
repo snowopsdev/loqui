@@ -565,6 +565,12 @@
         "title": "有一項下載未完成",
         "description": "請檢查網路連線與磁碟剩餘空間，然後重試。如果仍然失敗，請聯絡您的管理員。"
       }
+    },
+    "download": {
+      "chip": "正在下載語音模型 · {{percent}}%",
+      "start": "下載模型",
+      "inProgress": "正在下載…",
+      "chipInstalling": "正在安裝語音模型"
     }
   },
   "streaming": {

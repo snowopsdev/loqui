@@ -565,6 +565,12 @@
         "title": "Una descarga no se completó",
         "description": "Comprueba tu conexión y el espacio libre en disco, y vuelve a intentarlo. Si sigue fallando, contacta a tu administrador."
       }
+    },
+    "download": {
+      "chip": "Descargando modelo de voz · {{percent}}%",
+      "start": "Descargar modelo",
+      "inProgress": "Descargando…",
+      "chipInstalling": "Instalando el modelo de voz"
     }
   },
   "streaming": {

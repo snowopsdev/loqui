@@ -544,6 +544,12 @@
         "title": "Um download não foi concluído",
         "description": "Verifique sua conexão e o espaço livre em disco e tente novamente. Se continuar falhando, entre em contato com seu administrador."
       }
+    },
+    "download": {
+      "chip": "Baixando modelo de voz · {{percent}}%",
+      "start": "Baixar modelo",
+      "inProgress": "Baixando…",
+      "chipInstalling": "Instalando o modelo de voz"
     }
   },
   "streaming": {

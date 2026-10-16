@@ -565,6 +565,12 @@
         "title": "有一项下载未完成",
         "description": "请检查网络连接和磁盘剩余空间，然后重试。如果仍然失败，请联系您的管理员。"
       }
+    },
+    "download": {
+      "chip": "正在下载语音模型 · {{percent}}%",
+      "start": "下载模型",
+      "inProgress": "正在下载…",
+      "chipInstalling": "正在安装语音模型"
     }
   },
   "streaming": {

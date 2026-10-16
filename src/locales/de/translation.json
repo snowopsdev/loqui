@@ -565,6 +565,12 @@
         "title": "Ein Download wurde nicht abgeschlossen",
         "description": "Prüfen Sie Ihre Verbindung und den freien Speicherplatz und versuchen Sie es erneut. Wenn der Fehler weiterhin auftritt, wenden Sie sich an Ihren Administrator."
       }
+    },
+    "download": {
+      "chip": "Sprachmodell wird heruntergeladen · {{percent}}%",
+      "start": "Modell herunterladen",
+      "inProgress": "Wird heruntergeladen…",
+      "chipInstalling": "Sprachmodell wird installiert"
     }
   },
   "streaming": {

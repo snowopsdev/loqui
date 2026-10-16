@@ -10,6 +10,8 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
+const { TOAST_MOCK } = require("../helpers/harness/rendererMocks");
+
 function find(node, predicate) {
   if (Array.isArray(node)) return node.map((item) => find(item, predicate)).find(Boolean);
   if (!node || typeof node !== "object") return null;
@@ -25,6 +27,7 @@ async function harness(t, module, options = {}) {
   const vite = await createRendererServer(t, {
     resolveAlias: { "@": path.resolve(__dirname, "../../src") },
     mockModules: {
+      "/ui/useToast": TOAST_MOCK,
       "react-i18next": "export const useTranslation = () => ({ t: key => key });",
       ...(options.mocks ?? {}),
     },

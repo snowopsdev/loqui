@@ -565,6 +565,12 @@
         "title": "A download didn't finish",
         "description": "Check your connection and free disk space, then retry. If it keeps failing, contact your administrator."
       }
+    },
+    "download": {
+      "chip": "Downloading voice model · {{percent}}%",
+      "start": "Download model",
+      "inProgress": "Downloading…",
+      "chipInstalling": "Installing voice model"
     }
   },
   "streaming": {

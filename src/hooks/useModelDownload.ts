@@ -268,14 +268,14 @@ export function useModelDownload({
   useEffect(() => {
     const dispose =
       modelType === "whisper"
-        ? window.electronAPI?.onWhisperDownloadProgress((_event, data) =>
+        ? window.electronAPI?.onWhisperDownloadProgress?.((_event, data) =>
             handleNativeProgress(data)
           )
         : modelType === "parakeet"
-          ? window.electronAPI?.onParakeetDownloadProgress((_event, data) =>
+          ? window.electronAPI?.onParakeetDownloadProgress?.((_event, data) =>
               handleNativeProgress(data)
             )
-          : window.electronAPI?.onModelDownloadProgress(handleLLMProgress);
+          : window.electronAPI?.onModelDownloadProgress?.(handleLLMProgress);
     return () => dispose?.();
   }, [handleLLMProgress, handleNativeProgress, modelType]);
 
@@ -455,10 +455,10 @@ export function useModelDownload({
   );
 
   const cancelDownload = useCallback(
-    async (modelId?: string) => {
+    async (modelId?: string): Promise<boolean> => {
       const targetModel = modelId || Object.keys(downloads)[0];
-      if (!targetModel || cancellingModels.has(targetModel)) return;
-      if (downloads[targetModel]?.phase === "installing") return;
+      if (!targetModel || cancellingModels.has(targetModel)) return false;
+      if (downloads[targetModel]?.phase === "installing") return false;
 
       setCancellingModels((current) => new Set(current).add(targetModel));
       try {
@@ -473,12 +473,13 @@ export function useModelDownload({
             title: t("hooks.modelDownload.downloadCancelled.title"),
             description: t("hooks.modelDownload.downloadCancelled.description"),
           });
-          return;
+          return true;
         }
       } catch (error) {
         console.error("Failed to cancel download:", error);
       }
       clearCancelling(targetModel);
+      return false;
     },
     [cancellingModels, clearCancelling, downloads, modelType, t, toast]
   );

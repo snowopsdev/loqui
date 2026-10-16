@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { useModelDownload, type DownloadProgress } from "../hooks/useModelDownload";
+import { DownloadProgressBar } from "./ui/DownloadProgressBar";
 import {
   useCallback,
   useEffect,
@@ -140,6 +143,13 @@ function displayModelSize(size: string): string {
   return size.replace(/(\d)(MB|GB)$/, "$1 $2");
 }
 
+// The browser preview has no download pipeline; show a believable mid-download state.
+const PREVIEW_DOWNLOAD_PROGRESS: DownloadProgress = {
+  percentage: 42,
+  downloadedBytes: 265_000_000,
+  totalBytes: 631_000_000,
+};
+
 function StepShell({
   platform,
   step,
@@ -150,6 +160,7 @@ function StepShell({
   continueLabel = "Continue",
   skipLabel = "Continue later",
   continueDisabled = false,
+  footerStatus,
 }: {
   platform: string;
   step: Exclude<OnboardingStep, "welcome">;
@@ -160,6 +171,7 @@ function StepShell({
   continueLabel?: string;
   skipLabel?: string;
   continueDisabled?: boolean;
+  footerStatus?: ReactNode;
 }) {
   const index = STEPS.findIndex((item) => item.id === step);
   const mainRef = useRef<HTMLElement>(null);
@@ -224,6 +236,7 @@ function StepShell({
         <button className="onboarding-welcome-back" type="button" onClick={onBack}>
           Back
         </button>
+        {footerStatus}
         <div>
           {onSkip && (
             <button className="onboarding-welcome-explore" type="button" onClick={onSkip}>
@@ -325,6 +338,11 @@ function SpeechStep({
   selectedModel,
   onSelectModel,
   onDownload,
+  downloadProgress,
+  downloadInstalling,
+  downloadCancelling,
+  downloadSettling,
+  onCancelDownload,
 }: {
   previewConfig?: OnboardingPreviewConfig;
   speechModelReady: boolean;
@@ -332,7 +350,13 @@ function SpeechStep({
   selectedModel: string;
   onSelectModel: (model: string) => void;
   onDownload: () => void;
+  downloadProgress: DownloadProgress;
+  downloadInstalling: boolean;
+  downloadCancelling: boolean;
+  downloadSettling: boolean;
+  onCancelDownload: () => void;
 }) {
+  const { t } = useTranslation();
   const spokenLanguages = useSettingsStore((s) => s.spokenLanguages);
   const preferredLanguage = useSettingsStore((s) => s.preferredLanguage);
   const setSpokenLanguages = useSettingsStore((s) => s.setSpokenLanguages);
@@ -441,16 +465,36 @@ function SpeechStep({
           ) : (
             <Button
               onClick={onDownload}
-              disabled={downloadState === "downloading" || !selectedSupportsLanguage}
+              disabled={
+                downloadState === "downloading" || downloadSettling || !selectedSupportsLanguage
+              }
             >
-              <Download className="mr-2 h-4 w-4" />
-              {downloadState === "downloading" ? "Downloading…" : "Download model"}
+              <Download className="me-2 h-4 w-4" />
+              {downloadState === "downloading"
+                ? t("onboarding.download.inProgress")
+                : t("onboarding.download.start")}
             </Button>
           )}
         </div>
         {downloadState === "downloading" && (
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full w-2/3 animate-pulse rounded-full bg-primary" />
+          <div className="mt-3 flex items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <DownloadProgressBar
+                modelName={selected.name}
+                progress={downloadProgress}
+                isInstalling={downloadInstalling}
+              />
+            </div>
+            {!downloadInstalling && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onCancelDownload}
+                disabled={downloadCancelling}
+              >
+                {t("common.cancel")}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -1058,6 +1102,31 @@ export default function OnboardingFlow({
           ? "ready"
           : "idle"
   );
+  const { t } = useTranslation();
+  // The hook owns progress events and cancel for the Parakeet pipeline. The
+  // download still starts through downloadModel below, so onboarding keeps
+  // its own ready and error state.
+  const {
+    downloads: speechDownloadStatus,
+    cancelDownload: cancelSpeechModelDownload,
+    isCancellingModel,
+  } = useModelDownload({ modelType: "parakeet" });
+  // Each start or cancel bumps this, so a cancelled request's late result is ignored.
+  const downloadRequestRef = useRef(0);
+  const liveSpeechDownload = speechDownloadStatus[selectedModel];
+  const speechProgress: DownloadProgress = preview
+    ? PREVIEW_DOWNLOAD_PROGRESS
+    : {
+        percentage: liveSpeechDownload?.progress ?? 0,
+        downloadedBytes: liveSpeechDownload?.downloadedBytes ?? 0,
+        totalBytes: liveSpeechDownload?.totalBytes ?? 0,
+      };
+  const speechInstalling = liveSpeechDownload?.phase === "installing";
+  const speechCancelling = !preview && isCancellingModel(selectedModel);
+  // After a cancel, main still has to wind the old request down; the hook
+  // keeps tracking the model until its terminal event arrives.
+  const speechSettling =
+    speechCancelling || (downloadState !== "downloading" && Boolean(liveSpeechDownload));
   const [trialResult, setTrialResult] = useState("");
   const [updatesEnabled, setUpdatesEnabled] = useState(true);
   const useCleanupModel = useSettingsStore((s) => s.useCleanupModel);
@@ -1156,14 +1225,16 @@ export default function OnboardingFlow({
 
   const downloadModel = useCallback(() => {
     const requestedModel = selectedModel;
+    const request = ++downloadRequestRef.current;
+    const isCurrent = () =>
+      request === downloadRequestRef.current && selectedModelRef.current === requestedModel;
     setDownloadState("downloading");
     if (preview) {
       window.setTimeout(() => {
+        if (!isCurrent()) return;
         const ready = scenario !== "download-interrupted";
-        if (selectedModelRef.current === requestedModel) {
-          setDownloadState(ready ? "ready" : "error");
-          setSpeechModelReady(ready);
-        }
+        setDownloadState(ready ? "ready" : "error");
+        setSpeechModelReady(ready);
         if (config && ready)
           localStorage.setItem(
             `${onboardingPreviewStorageKey(config)}.speechReadyModel`,
@@ -1179,15 +1250,23 @@ export default function OnboardingFlow({
     }
     void download(requestedModel)
       .then((result) => {
-        if (selectedModelRef.current !== requestedModel) return;
+        if (!isCurrent()) return;
         const ready = Boolean(result?.success && result?.downloaded);
         setSpeechModelReady(ready);
         setDownloadState(ready ? "ready" : "error");
       })
       .catch(() => {
-        if (selectedModelRef.current === requestedModel) setDownloadState("error");
+        if (isCurrent()) setDownloadState("error");
       });
   }, [config, preview, scenario, selectedModel]);
+
+  const cancelSpeechDownload = useCallback(async () => {
+    // Drop the request only once main confirms. It refuses after extraction
+    // starts; the download then keeps running and its result still counts.
+    if (!preview && !(await cancelSpeechModelDownload(selectedModelRef.current))) return;
+    downloadRequestRef.current += 1;
+    setDownloadState("idle");
+  }, [cancelSpeechModelDownload, preview]);
 
   const cleanupRequestRef = useRef(0);
   const closedRef = useRef(false);
@@ -1342,6 +1421,11 @@ export default function OnboardingFlow({
         previewConfig={config}
         speechModelReady={speechModelReady && selectedSpeechSupported}
         downloadState={downloadState}
+        downloadProgress={speechProgress}
+        downloadInstalling={speechInstalling}
+        downloadCancelling={speechCancelling}
+        downloadSettling={speechSettling}
+        onCancelDownload={() => void cancelSpeechDownload()}
         selectedModel={selectedModel}
         onSelectModel={(model) => {
           selectedModelRef.current = model;
@@ -1425,6 +1509,17 @@ export default function OnboardingFlow({
       onSkip={step === "finish" ? undefined : handleSkip}
       continueLabel={step === "finish" ? "Open workspace" : "Continue"}
       skipLabel="Explore first"
+      footerStatus={
+        step !== "speech" && downloadState === "downloading" ? (
+          <span className="onboarding-download-chip">
+            {speechInstalling
+              ? t("onboarding.download.chipInstalling")
+              : t("onboarding.download.chip", {
+                  percent: Math.round(speechProgress.percentage),
+                })}
+          </span>
+        ) : undefined
+      }
     >
       {content}
     </StepShell>

@@ -565,6 +565,12 @@
         "title": "Un download non è stato completato",
         "description": "Controlla la connessione e lo spazio libero su disco, poi riprova. Se continua a fallire, contatta il tuo amministratore."
       }
+    },
+    "download": {
+      "chip": "Download del modello vocale · {{percent}}%",
+      "start": "Scarica modello",
+      "inProgress": "Download in corso…",
+      "chipInstalling": "Installazione del modello vocale"
     }
   },
   "streaming": {

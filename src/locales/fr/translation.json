@@ -1976,7 +1976,8 @@
         "description": "De petits modèles qui fonctionnent toujours sur cet appareil. Vos enregistrements et notes ne le quittent jamais pour ces tâches.",
         "downloaded": "Téléchargé",
         "checking": "Vérification…",
-        "download": "Télécharger {{size}}"
+        "download": "Télécharger {{size}}",
+        "statusUnavailable": "État indisponible"
       }
     },
     "noteFormatting": {

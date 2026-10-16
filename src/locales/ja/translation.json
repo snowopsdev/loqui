@@ -1883,7 +1883,8 @@
         "description": "この端末上で常に動作する小さなモデルです。これらの処理で録音やメモが端末の外に送られることはありません。",
         "downloaded": "ダウンロード済み",
         "checking": "確認中…",
-        "download": "{{size}} をダウンロード"
+        "download": "{{size}} をダウンロード",
+        "statusUnavailable": "状態を確認できません"
       }
     },
     "noteFormatting": {

@@ -2790,7 +2790,8 @@
         "description": "نماذج صغيرة تعمل دائمًا على هذا الجهاز. لا تغادر تسجيلاتك وملاحظاتك الجهاز لهذه المهام.",
         "downloaded": "تم التنزيل",
         "checking": "جارٍ التحقق…",
-        "download": "تنزيل {{size}}"
+        "download": "تنزيل {{size}}",
+        "statusUnavailable": "حالة التوفر غير متاحة"
       }
     },
     "noteFormatting": {

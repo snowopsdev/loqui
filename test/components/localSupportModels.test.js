@@ -65,7 +65,11 @@ async function mount(t, api) {
   await React.act(async () => root.render(React.createElement(Probe)));
   const row = (kind) =>
     findAll(tree, (n) => n.props?.label === `personal.supportModels.${kind}`)[0];
-  const button = (kind) => findAll(row(kind), (n) => typeof n.props?.onClick === "function")[0];
+  const button = (kind) =>
+    findAll(
+      row(kind),
+      (n) => typeof n.props?.onClick === "function" && n.props.children !== "common.retry"
+    )[0];
   return { tree: () => tree, row, button };
 }
 const status = (over = {}) => ({
@@ -77,7 +81,7 @@ const status = (over = {}) => ({
 });
 
 test("support models", async (t) => {
-  await t.test("nothing says Download until main has answered", async (t) => {
+  await t.test("[change-driving] nothing says Download until main has answered", async (t) => {
     let release;
     const gate = new Promise((resolve) => (release = resolve));
     const h = await mount(
@@ -90,7 +94,7 @@ test("support models", async (t) => {
     await settle();
     assert.match(textOf(h.row("meeting")), /settingsPage\.llms\.supportModels\.downloaded/);
   });
-  await t.test("sizes, device ring and locality status", async (t) => {
+  await t.test("[change-driving] sizes, device ring and locality status", async (t) => {
     const h = await mount(t, status());
     await settle();
     assert.match(textOf(h.row("meeting")), /supportModels\.download\{"size":"34\.8 MB"\}/);
@@ -102,12 +106,12 @@ test("support models", async (t) => {
     assert.equal(ring.props.label, "locality.device");
     assert.doesNotMatch(textOf(h.tree()), /localModels\.ready/);
   });
-  await t.test("the embedding model is announced at about 91 MB", async (t) => {
+  await t.test("[change-driving] the embedding model is announced at about 91 MB", async (t) => {
     const h = await mount(t, status({ getSearchModelStatus: async () => ({ downloaded: false }) }));
     await settle();
     assert.match(textOf(h.row("search")), /supportModels\.download\{"size":"91 MB"\}/);
   });
-  await t.test("a finished download refreshes route facts", async (t) => {
+  await t.test("[change-driving] a finished download refreshes route facts", async (t) => {
     const h = await mount(t, status());
     await settle();
     assert.equal(globalThis.__routeFactsRefreshes, 0);
@@ -116,30 +120,89 @@ test("support models", async (t) => {
     assert.equal(globalThis.__routeFactsRefreshes, 1);
     assert.match(textOf(h.row("meeting")), /settingsPage\.llms\.supportModels\.downloaded/);
   });
-  await t.test("a failed download keeps the button and does not refresh", async (t) => {
-    const h = await mount(
-      t,
-      status({ downloadDiarizationModels: async () => ({ success: false, error: "disk full" }) })
-    );
-    await settle();
-    await React.act(async () => h.button("meeting").props.onClick());
-    await settle();
-    assert.equal(globalThis.__routeFactsRefreshes, 0);
-    assert.ok(h.button("meeting"));
-    assert.match(textOf(findAll(h.tree(), (n) => n.props?.role === "alert")[0]), /disk full/);
-  });
-  await t.test("a failing status read shows the error and still offers downloads", async (t) => {
-    const h = await mount(
-      t,
-      status({
-        getSearchModelStatus: async () => {
-          throw new Error("ipc down");
-        },
-      })
-    );
-    await settle();
-    assert.ok(h.button("meeting"));
-    assert.ok(h.button("search"));
-    assert.match(textOf(findAll(h.tree(), (n) => n.props?.role === "alert")[0]), /ipc down/);
-  });
+  await t.test(
+    "[baseline guard] a failed download keeps the button and does not refresh",
+    async (t) => {
+      const h = await mount(
+        t,
+        status({ downloadDiarizationModels: async () => ({ success: false, error: "disk full" }) })
+      );
+      await settle();
+      await React.act(async () => h.button("meeting").props.onClick());
+      await settle();
+      assert.equal(globalThis.__routeFactsRefreshes, 0);
+      assert.ok(h.button("meeting"));
+      assert.match(textOf(findAll(h.tree(), (n) => n.props?.role === "alert")[0]), /disk full/);
+    }
+  );
+  await t.test(
+    "[change-driving] a failed status read stays unknown and offers status retry",
+    async (t) => {
+      const h = await mount(
+        t,
+        status({
+          getSearchModelStatus: async () => {
+            throw new Error("ipc down");
+          },
+        })
+      );
+      await settle();
+      assert.ok(h.button("meeting"));
+      assert.equal(h.button("search"), undefined);
+      assert.match(textOf(h.row("search")), /supportModels\.statusUnavailable/);
+      assert.ok(findAll(h.row("search"), (n) => n.props?.children === "common.retry")[0]);
+      assert.match(textOf(findAll(h.tree(), (n) => n.props?.role === "alert")[0]), /ipc down/);
+    }
+  );
+
+  await t.test(
+    "[change-driving] one failed read preserves the healthy row and retry refreshes only that status",
+    async (t) => {
+      let searchCalls = 0;
+      const h = await mount(
+        t,
+        status({
+          getDiarizationModelStatus: async () => ({ modelsDownloaded: true }),
+          getSearchModelStatus: async () => {
+            searchCalls += 1;
+            if (searchCalls === 1) throw new Error("search status IPC failed");
+            return { downloaded: false };
+          },
+        })
+      );
+      await settle();
+      assert.match(textOf(h.row("meeting")), /supportModels\.downloaded/);
+      assert.equal(h.button("meeting"), undefined);
+      assert.match(textOf(h.row("search")), /supportModels\.statusUnavailable/);
+      assert.equal(h.button("search"), undefined, "unknown status must not offer a model download");
+      const retry = findAll(h.row("search"), (n) => n.props?.children === "common.retry")[0];
+      assert.ok(retry);
+      await React.act(async () => retry.props.onClick());
+      await settle();
+      assert.equal(searchCalls, 2);
+      assert.match(textOf(h.row("meeting")), /supportModels\.downloaded/);
+      assert.equal(h.button("meeting"), undefined);
+      assert.match(textOf(h.row("search")), /supportModels\.download\{"size":"91 MB"\}/);
+    }
+  );
+
+  await t.test(
+    "[change-driving] absent or malformed status IPC remains unknown and can only be retried",
+    async (t) => {
+      const h = await mount(
+        t,
+        status({
+          getDiarizationModelStatus: undefined,
+          getSearchModelStatus: async () => ({ downloaded: "false" }),
+        })
+      );
+      await settle();
+      for (const kind of ["meeting", "search"]) {
+        assert.match(textOf(h.row(kind)), /supportModels\.statusUnavailable/);
+        assert.equal(h.button(kind), undefined);
+        assert.ok(findAll(h.row(kind), (n) => n.props?.children === "common.retry")[0]);
+      }
+      assert.equal(globalThis.__routeFactsRefreshes, 0);
+    }
+  );
 });

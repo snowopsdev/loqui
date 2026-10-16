@@ -1862,7 +1862,8 @@
         "description": "Modelos pequenos que são executados sempre neste dispositivo. Suas gravações e notas nunca saem dele para essas tarefas.",
         "downloaded": "Baixado",
         "checking": "Verificando…",
-        "download": "Baixar {{size}}"
+        "download": "Baixar {{size}}",
+        "statusUnavailable": "Status indisponível"
       }
     },
     "noteFormatting": {

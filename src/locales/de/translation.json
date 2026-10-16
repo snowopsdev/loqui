@@ -1976,7 +1976,8 @@
         "description": "Kleine Modelle, die immer auf diesem Gerät laufen. Deine Aufnahmen und Notizen verlassen es für diese Aufgaben nie.",
         "downloaded": "Heruntergeladen",
         "checking": "Wird geprüft…",
-        "download": "{{size}} herunterladen"
+        "download": "{{size}} herunterladen",
+        "statusUnavailable": "Status nicht verfügbar"
       }
     },
     "noteFormatting": {

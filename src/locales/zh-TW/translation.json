@@ -1883,7 +1883,8 @@
         "description": "始終在此裝置上執行的小型模型。處理這些工作時，錄音和筆記不會離開此裝置。",
         "downloaded": "已下載",
         "checking": "正在檢查…",
-        "download": "下載 {{size}}"
+        "download": "下載 {{size}}",
+        "statusUnavailable": "狀態無法使用"
       }
     },
     "noteFormatting": {

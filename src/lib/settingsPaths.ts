@@ -58,14 +58,23 @@ export const LEGACY_SUB_TAB: Record<string, string> = {
   prompts: "dictationCleanup",
 };
 
+function ownStringValue(values: Record<string, string>, key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(values, key) && typeof values[key] === "string"
+    ? values[key]
+    : undefined;
+}
+
 export function parseSettingsPath(path: string | null | undefined): SettingsLocation {
   if (!path) return { section: "general" };
   const [head, sub] = path.split("/", 2);
-  const section = (SETTINGS_SECTIONS as readonly string[]).includes(head)
-    ? (head as SettingsSectionType)
-    : SECTION_ALIASES[head];
-  if (!section) return { section: "general" };
-  const subTab = sub || LEGACY_SUB_TAB[head];
+  const resolvedSection = (SETTINGS_SECTIONS as readonly string[]).includes(head)
+    ? head
+    : ownStringValue(SECTION_ALIASES, head);
+  if (!resolvedSection || !(SETTINGS_SECTIONS as readonly string[]).includes(resolvedSection)) {
+    return { section: "general" };
+  }
+  const section = resolvedSection as SettingsSectionType;
+  const subTab = sub || ownStringValue(LEGACY_SUB_TAB, head);
   const known = SUB_TABS[section];
   return subTab && (!known || known.includes(subTab)) ? { section, subTab } : { section };
 }

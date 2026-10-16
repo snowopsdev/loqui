@@ -64,3 +64,12 @@ test("an unknown sub-tab drops to the section instead of a hidden tab", async ()
   assert.deepEqual(parseSettingsPath("llms/nope"), { section: "llms" });
   assert.deepEqual(parseSettingsPath("stt/chatIntelligence"), { section: "speechToText" });
 });
+
+test("[change-driving] inherited alias names and their subpaths fall back safely", async () => {
+  const { parseSettingsPath } = await load();
+  for (const key of ["toString", "constructor", "__proto__"]) {
+    assert.deepEqual(parseSettingsPath(key), { section: "general" }, key);
+    assert.deepEqual(parseSettingsPath(`${key}/llms`), { section: "general" }, `${key}/llms`);
+    assert.deepEqual(parseSettingsPath(`llms/${key}`), { section: "llms" }, `llms/${key}`);
+  }
+});

@@ -1883,7 +1883,8 @@
         "description": "Modelli piccoli che funzionano sempre su questo dispositivo. Per queste attività, registrazioni e note non lo lasciano mai.",
         "downloaded": "Scaricato",
         "checking": "Verifica…",
-        "download": "Scarica {{size}}"
+        "download": "Scarica {{size}}",
+        "statusUnavailable": "Stato non disponibile"
       }
     },
     "noteFormatting": {

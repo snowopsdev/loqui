@@ -301,6 +301,8 @@ test("selected cards reserve readable identity while long metadata can shrink", 
     assert.match(description, /min-w-0/);
     assert.match(description, /truncate/);
     assert.doesNotMatch(description, /shrink-0/);
-    assert.match(html, /common.active/);
+    // Baseline guard updated for Task5's required Selected copy; this is not a new product behavior or a new original RED.
+    assert.match(html, /routes\.selection\.selected/);
+    assert.doesNotMatch(html, /common\.active/);
   }
 });

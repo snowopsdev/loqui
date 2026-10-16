@@ -16,6 +16,7 @@ test("the settings sidebar marks the current section and shows keyboard focus", 
   assert.match(modal, /aria-current=\{isActive \? "page" : undefined\}/);
   assert.match(modal, /aria-label=\{isCompact \? item\.label : undefined\}/);
   assert.match(modal, /outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset/);
+  assert.match(modal, /opacity-40[^\"]*focus-visible:opacity-100/, "the close button restores full opacity while focused");
   assert.doesNotMatch(modal, /ring-ring\/\d+/, "the close button's ring is full opacity too (Task 3)");
 });
 

@@ -25,3 +25,13 @@ Implemented settings sidebar current-page semantics, a labeled navigation landma
 ## Self-review and concerns
 
 Keyboard arrows only call `.focus()` and never activate a provider. Disabled buttons retain the native `disabled` attribute. If the selected ID is disabled or absent, the first enabled provider is the only tab stop. Saved-key display remains optional and no caller is wired, as requested. No outstanding concerns.
+
+## Review fix 1: close button focused opacity
+
+Added `focus-visible:opacity-100` to the settings close button, ensuring its full-opacity focus ring is not dimmed by the button's resting `opacity-40`. Added a regression assertion for that override.
+
+- RED: `npm test -- test/components/settingsNavigation.test.js` — 4/5 passed; the sidebar focus test failed on the new missing focused-opacity assertion, as expected.
+- GREEN: `npm test -- test/components/settingsNavigation.test.js test/components/focusRings.test.js test/components/colorRoles.test.js` — 20/20 passed. The test runner emitted an existing `react-i18next:: useTranslation` no-instance warning; all tests passed.
+- `git diff --check` — passed.
+
+Self-review: the opacity override applies only while the close button has keyboard-visible focus and restores the full ring compositing opacity. No other files were needed.

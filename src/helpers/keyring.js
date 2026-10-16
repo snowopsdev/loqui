@@ -552,6 +552,10 @@ function createKeyring({
       return { success: false, errorCode: "invalidOptions" };
     const options = { model: input.model };
     const snapshot = enterpriseSnapshot(identity, options);
+    // Main-only comparison value for the reviewed effective fallback. A live
+    // A→B→A sample can hide captured B, so revision/generation checks alone are
+    // insufficient. This value never enters canonical/token/health metadata.
+    const expectedLegacyKey = snapshot?.canonical.legacyKeyRevision ? legacyValue : null;
     const changedResult = { success: false, errorCode: "recipientChanged" };
     const validate = (meta) => {
       const current = enterpriseSnapshot(identity, options);
@@ -574,6 +578,8 @@ function createKeyring({
     try {
       validate({ id: identity, ...captured });
       validate(metadata(identity));
+      if (expectedLegacyKey !== null && captured.values.key !== expectedLegacyKey)
+        throw recipientChanged();
     } catch {
       return changedResult;
     }

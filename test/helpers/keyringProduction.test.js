@@ -786,3 +786,311 @@ test("Azure Test captures configured API version and refuses a change during cap
   assert.equal(enterpriseCalls.length, count);
   ipc.credentials.captureCommitted = capture;
 });
+
+// change-driving FIX1 I1: real authority captures fallback B while the reviewed
+// and finally live environment are A; generation/presence alone cannot bind it.
+test("FIX1: legacy Vertex capture ABA cannot dispatch a different effective key", async (t) => {
+  await patch({ vertexAuthSource: "apiKey" });
+  await ipc.credentials.save("vertex", "key", "");
+  process.env.GOOGLE_VERTEX_API_KEY = "fixture-legacy-authorized-A";
+  const target = await rawDescribe("vertex", { model: "fixture-model" });
+  const originalCapture = ipc.credentials.captureCommitted;
+  let capturedB = false;
+  ipc.credentials.captureCommitted = async (id) => {
+    process.env.GOOGLE_VERTEX_API_KEY = "fixture-legacy-captured-B";
+    const result = await originalCapture(id);
+    capturedB = result.values.key === "fixture-legacy-captured-B";
+    process.env.GOOGLE_VERTEX_API_KEY = "fixture-legacy-authorized-A";
+    return result;
+  };
+  t.after(() => {
+    ipc.credentials.captureCommitted = originalCapture;
+  });
+  const count = enterpriseCalls.length;
+  const result = await connection("vertex", "fixture-model", target.recipientToken);
+  assert.equal(capturedB, true, "the real authority captured fixture B");
+  assert.deepEqual(result, { success: false, errorCode: "recipientChanged" });
+  assert.equal(enterpriseCalls.length, count, "no captured B dispatch under reviewed A");
+});
+
+function fix1FactoryFixture(
+  t,
+  { readFile, parseKnownFiles, googleAuth, amazonBedrock, fetchImpl }
+) {
+  const loader = Module._load;
+  const modelModule = require.resolve("../../src/helpers/enterpriseAiProviders");
+  const executor = ipc._enterpriseVerificationExecutor;
+  const fetcher = globalThis.fetch;
+  ipc._enterpriseVerificationExecutor = null;
+  let dispatched = 0;
+  globalThis.fetch = fetchImpl;
+  Module._load = function (request, parent, isMain) {
+    if (parent?.filename === modelModule) {
+      if (request === "node:fs/promises" && readFile) return { readFile };
+      if (request === "@smithy/core/config" && parseKnownFiles) return { parseKnownFiles };
+      if (request === "google-auth-library" && googleAuth) return { GoogleAuth: googleAuth };
+      if (request === "@ai-sdk/amazon-bedrock" && amazonBedrock)
+        return { createAmazonBedrock: amazonBedrock };
+    }
+    if (parent?.filename === handlersModulePath && request === "ai")
+      return {
+        generateText: async () => {
+          dispatched++;
+          return {};
+        },
+      };
+    return loader.call(this, request, parent, isMain);
+  };
+  t.after(() => {
+    Module._load = loader;
+    globalThis.fetch = fetcher;
+    ipc._enterpriseVerificationExecutor = executor;
+  });
+  return {
+    dispatched: () => dispatched,
+    run: (provider = "vertex", enterprise = {}, timeoutMs = 20) =>
+      ipc._runEnterpriseVerification(
+        {
+          provider,
+          model: "fixture-model",
+          apiKey: "",
+          timeoutMs,
+          messages: [],
+          maxOutputTokens: 16,
+          enterprise: {
+            frozenCredentials: true,
+            vertexAuthSource: "adc",
+            vertexProject: "fixture-project",
+            vertexLocation: "global",
+            vertexAdcFile: "/fixture/adc.json",
+            ...enterprise,
+          },
+        },
+        () => {}
+      ),
+  };
+}
+const fix1AdcJson = JSON.stringify({
+  type: "authorized_user",
+  client_id: "fixture-client",
+  client_secret: "fixture-secret",
+  refresh_token: "fixture-refresh",
+});
+const fix1TokenResponse = () =>
+  new Response('{"access_token":"fixture-token","expires_in":3600,"token_type":"Bearer"}', {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+const fix1Drain = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+// change-driving FIX1 I2: a late filesystem completion must not start OAuth.
+test("FIX1: ADC read released after overall timeout cannot start a credential exchange", async (t) => {
+  const gate = deferred();
+  let exchanges = 0;
+  const fixture = fix1FactoryFixture(t, {
+    readFile: async () => {
+      await gate.promise;
+      return fix1AdcJson;
+    },
+    fetchImpl: async () => {
+      exchanges++;
+      return fix1TokenResponse();
+    },
+  });
+  const keepalive = setTimeout(() => {}, 100);
+  try {
+    await assert.rejects(fixture.run(), { name: "TimeoutError" });
+  } finally {
+    clearTimeout(keepalive);
+    gate.resolve();
+  }
+  await fix1Drain();
+  assert.equal(exchanges, 0, "expired ADC continuation cannot send fixture credentials");
+  assert.equal(fixture.dispatched(), 0);
+});
+
+// change-driving FIX1 I2: real GoogleAuth and Gaxios must carry the same overall
+// abort into an in-flight fixture fetch and must not retry after that deadline.
+test("FIX1: overall timeout cancels an in-flight ADC exchange without retry", async (t) => {
+  const { GoogleAuth } = require("google-auth-library");
+  let authCompletion;
+  let exchangeSignal;
+  let readSignal;
+  let exchanges = 0;
+  let cancelled = false;
+  const responseGate = deferred();
+  const fixture = fix1FactoryFixture(t, {
+    readFile: async (_file, options) => {
+      readSignal = options?.signal;
+      return fix1AdcJson;
+    },
+    googleAuth: class extends GoogleAuth {
+      getAccessToken() {
+        authCompletion = super.getAccessToken();
+        return authCompletion;
+      }
+    },
+    fetchImpl: async (_url, init) => {
+      exchanges++;
+      exchangeSignal = init.signal;
+      return new Promise((resolve, reject) => {
+        const abort = () => {
+          cancelled = true;
+          reject(init.signal.reason);
+        };
+        if (init.signal?.aborted) abort();
+        else init.signal?.addEventListener("abort", abort, { once: true });
+        responseGate.promise.then(() => {
+          init.signal?.removeEventListener("abort", abort);
+          resolve(fix1TokenResponse());
+        });
+      });
+    },
+  });
+  const keepalive = setTimeout(() => {}, 150);
+  try {
+    await assert.rejects(fixture.run(), { name: "TimeoutError" });
+    assert.equal(exchanges, 1);
+    assert.equal(
+      exchangeSignal?.aborted,
+      true,
+      "actual Gaxios fetch receives the expired overall signal"
+    );
+    assert.equal(cancelled, true);
+    // baseline assertion added after original RED: one signal covers file and transport.
+    assert.equal(exchangeSignal, readSignal);
+    await fix1Drain();
+    assert.equal(exchanges, 1, "no credential retry after abort");
+    assert.equal(fixture.dispatched(), 0);
+  } finally {
+    clearTimeout(keepalive);
+    responseGate.resolve();
+    await authCompletion?.catch(() => {});
+    await new Promise(setImmediate);
+  }
+});
+
+// change-driving FIX1 I2: the equivalent frozen static-profile continuation
+// cannot construct a credential-bearing model after a held parse times out.
+test("FIX1: static profile released after overall timeout cannot construct a model", async (t) => {
+  const gate = deferred();
+  let constructed = 0;
+  const fixture = fix1FactoryFixture(t, {
+    parseKnownFiles: async () => {
+      await gate.promise;
+      return {
+        accepted: { aws_access_key_id: "AKIAFIXTURE", aws_secret_access_key: "fixture-secret" },
+      };
+    },
+    amazonBedrock: () => {
+      constructed++;
+      return () => ({});
+    },
+    fetchImpl: async () => {
+      throw new Error("fixture forbids transport");
+    },
+  });
+  const keepalive = setTimeout(() => {}, 100);
+  try {
+    await assert.rejects(
+      fixture.run("bedrock", {
+        bedrockProfile: "accepted",
+        bedrockRegion: "eu-west-1",
+        bedrockBaseURL: "https://fixture.example",
+      }),
+      { name: "TimeoutError" }
+    );
+  } finally {
+    clearTimeout(keepalive);
+    gate.resolve();
+  }
+  await fix1Drain();
+  assert.equal(constructed, 0);
+  assert.equal(fixture.dispatched(), 0);
+});
+
+// baseline guards added after initial FIX1 GREEN: stored mode keeps its actual
+// stored key and ADC's independent source is not converted to legacy-key mode.
+test("FIX1 baseline: stored-key and ADC source distinctions survive legacy environment ABA", async (t) => {
+  const capture = ipc.credentials.captureCommitted;
+  t.after(() => {
+    ipc.credentials.captureCommitted = capture;
+  });
+  for (const source of ["apiKey", "adc"]) {
+    await patch({ vertexAuthSource: source, vertexProject: "fixture-project" });
+    await ipc.credentials.save("vertex", "key", source === "apiKey" ? "fixture-stored-key" : "");
+    process.env.GOOGLE_VERTEX_API_KEY = "fixture-environment-A";
+    const target = await rawDescribe("vertex", { model: "fixture-model" });
+    ipc.credentials.captureCommitted = async (id) => {
+      process.env.GOOGLE_VERTEX_API_KEY = "fixture-environment-B";
+      const value = await capture(id);
+      process.env.GOOGLE_VERTEX_API_KEY = "fixture-environment-A";
+      return value;
+    };
+    assert.deepEqual(await connection("vertex", "fixture-model", target.recipientToken), {
+      success: true,
+    });
+    const request = enterpriseCalls.at(-1);
+    assert.equal(request.enterprise.vertexAuthSource, source);
+    if (source === "apiKey") assert.equal(request.apiKey, "fixture-stored-key");
+    else assert.deepEqual(target.fields, [], "ADC discloses no API-key field");
+    ipc.credentials.captureCommitted = capture;
+  }
+});
+
+// baseline guard after FIX1 GREEN: OAuth2Client requests POST retries by default;
+// actual GoogleAuth/Gaxios must retain the probe's no-retry predicate on HTTP500.
+test("FIX1 baseline: ADC HTTP failure never retries credential exchange", async (t) => {
+  let exchanges = 0;
+  const fixture = fix1FactoryFixture(t, {
+    readFile: async () => fix1AdcJson,
+    fetchImpl: async () => {
+      exchanges++;
+      return new Response("{}", { status: 500, headers: { "content-type": "application/json" } });
+    },
+  });
+  await assert.rejects(fixture.run("vertex", {}, 1000), (error) => error.response?.status === 500);
+  await fix1Drain();
+  assert.equal(exchanges, 1);
+  assert.equal(fixture.dispatched(), 0);
+});
+
+// baseline guard added after FIX1 GREEN: real GoogleAuth/Gaxios and native
+// fetch against a held loopback response prove cancellation closes the socket.
+test("FIX1 baseline: native ADC fixture transport closes on the overall deadline", async (t) => {
+  const http = require("node:http");
+  const closed = deferred();
+  let exchanges = 0;
+  const server = http.createServer((request, response) => {
+    exchanges++;
+    request.resume();
+    response.on("close", () => {
+      if (!response.writableEnded) closed.resolve();
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const fixture = fix1FactoryFixture(t, {
+    readFile: async () => fix1AdcJson,
+    fetchImpl: (_url, init) =>
+      originalFetch(`http://127.0.0.1:${server.address().port}/fixture-oauth`, init),
+  });
+  await assert.rejects(fixture.run("vertex", {}, 500), { name: "TimeoutError" });
+  let guard;
+  try {
+    await Promise.race([
+      closed.promise,
+      new Promise((_resolve, reject) => {
+        guard = setTimeout(() => reject(new Error("fixture socket was not cancelled")), 500);
+      }),
+    ]);
+  } finally {
+    clearTimeout(guard);
+  }
+  await fix1Drain();
+  assert.equal(exchanges, 1, "one loopback request, no auth retry");
+  assert.equal(fixture.dispatched(), 0);
+});

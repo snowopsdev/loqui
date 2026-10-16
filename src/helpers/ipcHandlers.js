@@ -509,8 +509,9 @@ class IPCHandlers {
       admit();
       return this._enterpriseVerificationExecutor(input);
     }
-    const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
     const signal = AbortSignal.timeout(input.timeoutMs);
+    const execution = { signal, deadlineAt: Date.now() + input.timeoutMs };
+    const { getEnterpriseAIModel } = require("./enterpriseAiProviders");
     let onAbort;
     const aborted = new Promise((_resolve, reject) => {
       onAbort = () => reject(signal.reason);
@@ -518,12 +519,20 @@ class IPCHandlers {
     });
     try {
       const model = await Promise.race([
-        getEnterpriseAIModel(input.provider, input.model, input.apiKey, input.enterprise),
+        getEnterpriseAIModel(
+          input.provider,
+          input.model,
+          input.apiKey,
+          input.enterprise,
+          execution
+        ),
         aborted,
       ]);
       // Profile resolution may await. Timeout or changed authority cannot later
       // resume into transport, even if the filesystem capture eventually lands.
       signal.throwIfAborted();
+      if (Date.now() >= execution.deadlineAt)
+        throw new DOMException("The connection test timed out.", "TimeoutError");
       admit();
       return await require("ai").generateText({
         model,

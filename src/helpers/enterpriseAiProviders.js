@@ -10,22 +10,44 @@
 
 // Explicit verification never follows a credential-bearing redirect. General
 // model construction keeps the existing SDK transport defaults.
-const verificationFetch = (input, init) => fetch(input, { ...init, redirect: "error" });
+function checkVerification(execution) {
+  if (!execution) return;
+  execution.signal.throwIfAborted();
+  if (Date.now() >= execution.deadlineAt)
+    throw new DOMException("The connection test timed out.", "TimeoutError");
+}
 
-async function getEnterpriseAIModel(provider, model, apiKey, enterprise) {
+const verificationFetch = (execution) => (input, init) => {
+  checkVerification(execution);
+  const signal =
+    init?.signal && init.signal !== execution.signal
+      ? AbortSignal.any([execution.signal, init.signal])
+      : execution.signal;
+  signal.throwIfAborted();
+  return fetch(input, { ...init, signal, redirect: "error" });
+};
+
+async function getEnterpriseAIModel(provider, model, apiKey, enterprise, execution) {
+  // Main passes the probe's one overall budget. Direct frozen-factory callers
+  // also get a bounded lifetime; general chat/auth keeps its existing defaults.
+  const verification = enterprise?.frozenCredentials
+    ? execution || { signal: AbortSignal.timeout(12000), deadlineAt: Date.now() + 12000 }
+    : null;
+  checkVerification(verification);
   switch (provider) {
     case "bedrock":
-      return createBedrockModel(model, enterprise);
+      return createBedrockModel(model, enterprise, verification);
     case "azure":
-      return createAzureModel(model, apiKey, enterprise);
+      return createAzureModel(model, apiKey, enterprise, verification);
     case "vertex":
-      return createVertexModel(model, apiKey, enterprise);
+      return createVertexModel(model, apiKey, enterprise, verification);
     default:
       throw new Error(`Unsupported enterprise provider: ${provider}`);
   }
 }
 
-async function createBedrockModel(model, enterprise) {
+async function createBedrockModel(model, enterprise, execution) {
+  checkVerification(execution);
   const { createAmazonBedrock } = require("@ai-sdk/amazon-bedrock");
   const region = enterprise?.bedrockRegion || "us-east-1";
   const explicitCredentialSource = enterprise?.bedrockProfile
@@ -37,11 +59,13 @@ async function createBedrockModel(model, enterprise) {
   if (enterprise?.bedrockProfile && enterprise.frozenCredentials) {
     // Explicit Test supports a static selected profile only. Parse once: a
     // precheck followed by fromIni would re-read mutable profile/source data.
+    checkVerification(execution);
     const profiles = await require("@smithy/core/config").parseKnownFiles({
       filepath: enterprise.bedrockCredentialsFile,
       configFilepath: enterprise.bedrockConfigFile,
       ignoreCache: true,
     });
+    checkVerification(execution);
     const profile = profiles[enterprise.bedrockProfile];
     const allowed = new Set([
       "aws_access_key_id",
@@ -97,6 +121,7 @@ async function createBedrockModel(model, enterprise) {
     throw error;
   }
 
+  checkVerification(execution);
   return createAmazonBedrock({
     region,
     ...(enterprise?.frozenCredentials
@@ -105,7 +130,7 @@ async function createBedrockModel(model, enterprise) {
           apiKey: "",
           accessKeyId: "",
           secretAccessKey: "",
-          fetch: verificationFetch,
+          fetch: verificationFetch(execution),
         }
       : {}),
     ...(credentials
@@ -118,22 +143,25 @@ async function createBedrockModel(model, enterprise) {
   })(model);
 }
 
-function createAzureModel(model, apiKey, enterprise) {
+function createAzureModel(model, apiKey, enterprise, execution) {
+  checkVerification(execution);
   const { createAzure } = require("@ai-sdk/azure");
   if (!apiKey || !enterprise?.azureEndpoint)
     throw new Error("Configure your Azure endpoint and API key.");
   const endpoint = new URL(enterprise.azureEndpoint);
   if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password)
     throw new Error("Azure requires an HTTPS endpoint without embedded credentials.");
+  checkVerification(execution);
   return createAzure({
     apiKey,
     baseURL: enterprise.azureEndpoint,
     apiVersion: enterprise.azureApiVersion || "2024-10-21",
-    ...(enterprise.frozenCredentials ? { fetch: verificationFetch } : {}),
+    ...(enterprise.frozenCredentials ? { fetch: verificationFetch(execution) } : {}),
   })(model);
 }
 
-async function createVertexModel(model, apiKey, enterprise) {
+async function createVertexModel(model, apiKey, enterprise, execution) {
+  checkVerification(execution);
   const { createVertex } = require("@ai-sdk/google-vertex");
   if (enterprise?.vertexAuthSource === "apiKey") {
     const effectiveKey = enterprise.frozenCredentials
@@ -141,9 +169,10 @@ async function createVertexModel(model, apiKey, enterprise) {
       : apiKey || process.env.GOOGLE_VERTEX_API_KEY || "";
     if (!effectiveKey) throw new Error("Configure a Vertex API key in Settings.");
     // Main's committed stored key wins over the supported legacy fallback.
+    checkVerification(execution);
     return createVertex({
       apiKey: effectiveKey,
-      ...(enterprise.frozenCredentials ? { fetch: verificationFetch } : {}),
+      ...(enterprise.frozenCredentials ? { fetch: verificationFetch(execution) } : {}),
     })(model);
   }
   if (enterprise?.vertexAuthSource === "adc") {
@@ -158,10 +187,16 @@ async function createVertexModel(model, apiKey, enterprise) {
       let input;
       try {
         if (!enterprise.vertexAdcFile) throw unsupported();
-        const raw = await require("node:fs/promises").readFile(enterprise.vertexAdcFile, "utf8");
+        checkVerification(execution);
+        const raw = await require("node:fs/promises").readFile(enterprise.vertexAdcFile, {
+          encoding: "utf8",
+          signal: execution.signal,
+        });
+        checkVerification(execution);
         if (raw.length > 131072) throw unsupported();
         input = JSON.parse(raw);
       } catch {
+        checkVerification(execution);
         throw unsupported();
       }
       const service = input?.type === "service_account";
@@ -221,29 +256,44 @@ async function createVertexModel(model, apiKey, enterprise) {
             refresh_token: input.refresh_token,
           };
       const { GoogleAuth } = require("google-auth-library");
+      checkVerification(execution);
       const auth = new GoogleAuth({
         credentials,
         projectId: enterprise.vertexProject,
         scopes: ["https://www.googleapis.com/auth/cloud-platform"],
         clientOptions: {
           transporterOptions: {
-            fetchImplementation: verificationFetch,
+            fetchImplementation: verificationFetch(execution),
             maxRedirects: 0,
-            timeout: 12000,
+            signal: execution.signal,
+            retry: false,
+            // OAuth2Client enables POST retries per request; this predicate is
+            // retained by Gaxios's merged options and forbids all probe retries.
+            retryConfig: { retry: 0, noResponseRetries: 0, shouldRetry: () => false },
           },
         },
       });
+      checkVerification(execution);
       const token = await auth.getAccessToken();
+      checkVerification(execution);
       if (typeof token !== "string" || !token) throw unsupported();
       // The SDK creates GoogleAuth lazily. Its supplied cached authClient can
       // only return this token, so it cannot reload ADC, environment or metadata.
-      googleAuthOptions = { authClient: { getAccessToken: async () => ({ token }) } };
+      googleAuthOptions = {
+        authClient: {
+          getAccessToken: async () => {
+            checkVerification(execution);
+            return { token };
+          },
+        },
+      };
     }
+    checkVerification(execution);
     return createVertex({
       apiKey: "",
       project: enterprise.vertexProject,
       location: enterprise.vertexLocation || "us-central1",
-      ...(googleAuthOptions ? { googleAuthOptions, fetch: verificationFetch } : {}),
+      ...(googleAuthOptions ? { googleAuthOptions, fetch: verificationFetch(execution) } : {}),
     })(model);
   }
   throw new Error("Choose a supported Vertex authentication source.");

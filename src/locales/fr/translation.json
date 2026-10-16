@@ -3794,6 +3794,21 @@
       "retired": "Service retiré · choisir à nouveau",
       "unsupported": "Indisponible pour cette tâche",
       "cantReach": "Serveur inaccessible"
+    },
+    "toast": {
+      "local": "{{task}} s’exécute désormais sur cet appareil.",
+      "sends": "{{task}} envoie désormais {{payload}} à {{destination}}.",
+      "whenOn": "{{task}} utilisera {{destination}} lorsque vous l’activerez.",
+      "off": "{{task}} est désactivé. Rien n’est envoyé.",
+      "saved": "Paramètres de {{task}} enregistrés.",
+      "thisDevice": "cet appareil",
+      "server": "votre serveur",
+      "serverAt": "votre serveur à l’adresse {{host}}",
+      "chooseModel": "Choisissez un modèle pour terminer.",
+      "signInNext": "Connectez-vous ensuite à {{provider}}. Rien ne sera envoyé avant votre connexion.",
+      "alsoChanges": "Modifie également {{tasks}}.",
+      "undo": "Annuler",
+      "undoStaged": "L’annulation est en attente. Vérifiez-la, puis appliquez-la."
     }
   }
 }

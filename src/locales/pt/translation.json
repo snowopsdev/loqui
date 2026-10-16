@@ -3794,6 +3794,21 @@
       "retired": "Serviço encerrado · escolha novamente",
       "unsupported": "Indisponível para esta tarefa",
       "cantReach": "Não foi possível acessar o servidor"
+    },
+    "toast": {
+      "local": "{{task}} agora é executada neste dispositivo.",
+      "sends": "{{task}} agora envia {{payload}} para {{destination}}.",
+      "whenOn": "{{task}} usará {{destination}} quando você a ativar.",
+      "off": "{{task}} está desativada. Nada é enviado.",
+      "saved": "Configurações de {{task}} salvas.",
+      "thisDevice": "este dispositivo",
+      "server": "seu servidor",
+      "serverAt": "seu servidor em {{host}}",
+      "chooseModel": "Escolha um modelo para concluir.",
+      "signInNext": "Agora entre em {{provider}}. Nada será enviado até você entrar.",
+      "alsoChanges": "Também altera {{tasks}}.",
+      "undo": "Desfazer",
+      "undoStaged": "A reversão está preparada. Revise-a e depois aplique."
     }
   }
 }

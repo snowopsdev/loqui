@@ -3794,6 +3794,21 @@
       "retired": "Service retired · choose again",
       "unsupported": "Not available for this task",
       "cantReach": "Can't reach the server"
+    },
+    "toast": {
+      "local": "{{task}} now runs on this device.",
+      "sends": "{{task}} now sends {{payload}} to {{destination}}.",
+      "whenOn": "{{task}} will use {{destination}} when you turn it on.",
+      "off": "{{task}} is off. Nothing is sent.",
+      "saved": "{{task}} settings saved.",
+      "thisDevice": "this device",
+      "server": "your server",
+      "serverAt": "your server at {{host}}",
+      "chooseModel": "Choose a model to finish.",
+      "signInNext": "Sign in to {{provider}} next. Nothing is sent until you do.",
+      "alsoChanges": "Also changes {{tasks}}.",
+      "undo": "Undo",
+      "undoStaged": "Undo is staged. Review it, then apply."
     }
   }
 }

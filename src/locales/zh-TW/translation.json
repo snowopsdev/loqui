@@ -3794,6 +3794,21 @@
       "retired": "服務已停用 · 請重新選擇",
       "unsupported": "此任務無法使用",
       "cantReach": "無法連線至伺服器"
+    },
+    "toast": {
+      "local": "{{task}}現在在此裝置上執行。",
+      "sends": "{{task}}現在將{{payload}}傳送至{{destination}}。",
+      "whenOn": "開啟{{task}}後，將使用{{destination}}。",
+      "off": "{{task}}已關閉。不會傳送任何內容。",
+      "saved": "已儲存{{task}}設定。",
+      "thisDevice": "此裝置",
+      "server": "你的伺服器",
+      "serverAt": "位於{{host}}的伺服器",
+      "chooseModel": "請選擇模型以完成設定。",
+      "signInNext": "接下來請登入{{provider}}。登入前不會傳送任何內容。",
+      "alsoChanges": "同時變更{{tasks}}。",
+      "undo": "復原",
+      "undoStaged": "復原操作等待套用。請先檢查，然後套用。"
     }
   }
 }

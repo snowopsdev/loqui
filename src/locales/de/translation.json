@@ -3794,6 +3794,21 @@
       "retired": "Dienst eingestellt · erneut auswählen",
       "unsupported": "Für diese Aufgabe nicht verfügbar",
       "cantReach": "Server nicht erreichbar"
+    },
+    "toast": {
+      "local": "{{task}} läuft jetzt auf diesem Gerät.",
+      "sends": "{{task}} sendet jetzt {{payload}} an {{destination}}.",
+      "whenOn": "{{task}} verwendet {{destination}}, sobald du die Funktion aktivierst.",
+      "off": "{{task}} ist ausgeschaltet. Es wird nichts gesendet.",
+      "saved": "Einstellungen für {{task}} gespeichert.",
+      "thisDevice": "dieses Gerät",
+      "server": "deinen Server",
+      "serverAt": "deinen Server unter {{host}}",
+      "chooseModel": "Wähle zum Abschluss ein Modell aus.",
+      "signInNext": "Melde dich als Nächstes bei {{provider}} an. Bis dahin wird nichts gesendet.",
+      "alsoChanges": "Ändert auch {{tasks}}.",
+      "undo": "Rückgängig",
+      "undoStaged": "Das Rückgängigmachen ist vorgemerkt. Prüfe es und wende es dann an."
     }
   }
 }

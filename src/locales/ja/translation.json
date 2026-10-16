@@ -3794,6 +3794,21 @@
       "retired": "サービス終了 · 再選択してください",
       "unsupported": "このタスクでは利用できません",
       "cantReach": "サーバーに接続できません"
+    },
+    "toast": {
+      "local": "{{task}}はこのデバイスで実行されるようになりました。",
+      "sends": "{{task}}は{{payload}}を{{destination}}に送信するようになりました。",
+      "whenOn": "{{task}}をオンにすると{{destination}}を使用します。",
+      "off": "{{task}}はオフです。何も送信されません。",
+      "saved": "{{task}}の設定を保存しました。",
+      "thisDevice": "このデバイス",
+      "server": "ご利用のサーバー",
+      "serverAt": "{{host}}のサーバー",
+      "chooseModel": "モデルを選択して完了してください。",
+      "signInNext": "次に{{provider}}にサインインしてください。サインインするまで何も送信されません。",
+      "alsoChanges": "{{tasks}}も変更されます。",
+      "undo": "元に戻す",
+      "undoStaged": "元に戻す操作が保留中です。確認してから適用してください。"
     }
   }
 }

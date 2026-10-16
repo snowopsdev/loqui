@@ -238,6 +238,11 @@ The radius scale is compact: 4px minimal, 6px standard controls, 8px cards, 10px
 - **Style:** Status and category badges are small full capsules. The default badge uses a translucent orange fill and orange text; secondary and status variants keep their own semantic colors.
 - **State:** Focusable chips use a visible ring. Selected model and provider states use a subtle orange-tinted surface and border.
 
+### Toasts
+- **Announcement:** standard toasts are polite status regions (`role="status"`); destructive toasts are assertive alerts (`role="alert"`). Dictation-error cards already announce as alerts.
+- **Close:** always visible at 50% opacity, full strength on hover or keyboard focus, with a 2px `--color-ring` focus ring and a translated name.
+- **Timing:** dictation errors stay 6, 8 or 10 seconds by length; a card that holds the user's only copy of a transcript stays until the user acts. Plan 04 replaces this surface with `notify()` and keeps both rules.
+
 ### Cards / Containers
 - **Corner Style:** 8px on the shared Card primitive; 8–10px on grouped panels and setup cards.
 - **Background:** White cards in light mode; Plum Night card tokens in dark mode.

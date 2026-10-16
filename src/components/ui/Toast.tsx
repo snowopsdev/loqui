@@ -236,7 +236,7 @@ const variantConfig = {
   },
 };
 
-const Toast: React.FC<
+export const Toast: React.FC<
   ToastState & {
     onClose?: () => void;
     onPauseTimer: () => void;
@@ -351,6 +351,9 @@ const Toast: React.FC<
 
   return (
     <div
+      role={isDestructive ? "alert" : "status"}
+      aria-live={isDestructive ? "assertive" : "polite"}
+      aria-atomic="true"
       className={cn(
         "group toast-surface pointer-events-auto relative flex w-75",
         "rounded-[5px]",
@@ -391,7 +394,7 @@ const Toast: React.FC<
                       "hover:bg-white/6",
                       "transition-colors duration-150"
                     )}
-                    aria-label="Copy error"
+                    aria-label={t("common.copy")}
                   >
                     {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
                   </button>
@@ -426,19 +429,20 @@ const Toast: React.FC<
 
       {onClose && (
         <button
+          type="button"
           onClick={onClose}
           className={cn(
             "absolute -start-2 -top-2 size-6 rounded-full",
             "flex items-center justify-center",
             "bg-white/10 backdrop-blur-sm border border-white/10",
             "text-white/70 hover:text-white hover:bg-white/20",
-            "opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100",
-            "transition-all duration-150",
-            "focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+            "opacity-50 group-hover:opacity-100 focus-visible:opacity-100",
+            "transition-opacity duration-[var(--motion-fast)]",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           )}
         >
-          <X className="size-3" />
-          <span className="sr-only">Close</span>
+          <X className="size-3" aria-hidden="true" />
+          <span className="sr-only">{t("common.close")}</span>
         </button>
       )}
 

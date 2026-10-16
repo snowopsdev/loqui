@@ -1436,6 +1436,10 @@
       "system": {
         "description": "更新、儲存與開發者工具",
         "label": "系統"
+      },
+      "routing": {
+        "label": "路由",
+        "description": "每個任務運行的地方"
       }
     },
     "title": "設定"
@@ -3894,5 +3898,81 @@
       "http": "http:// 未加密。可在您自己的網路中使用。",
       "ok": "看起來沒問題。"
     }
+  },
+  "patchbay": {
+    "title": "路由",
+    "description": "每項任務及其目前運行位置。移動到該設備會立即生效並且可以撤消。移動到伺服器或提供者等待您查看並應用它們。",
+    "tasks": "任務",
+    "destinations": "目的地",
+    "openSettings": "開啟 {{task}} 設定",
+    "sealed": "密封模式已開啟。任務只能在此設備上運行。",
+    "undo": "撤銷",
+    "kind": {
+      "speech": "演講",
+      "text": "文字"
+    },
+    "hint": {
+      "idle": "選擇一個任務，然後選擇它應該運行的位置。",
+      "pickDestination": "發送 {{task}} 至... 選擇突出顯示的目的地。",
+      "pickTaskFirst": "首先選擇一個任務，然後選擇它應該運行的位置。",
+      "already": "{{task}} 已執行 {{place}}。",
+      "off": "{{task}} 已關閉。在其設定中將其打開。",
+      "moved": "{{task}} 現在運行 {{place}}。",
+      "movedOff": "{{task}} 已關閉。當您打開它時，它將運行 {{place}}。",
+      "movedAlso": "也更改：{{tasks}}。",
+      "staged": "請看下面的 {{task}} → {{destination}}，然後套用它。在您發送之前，不會發送任何內容。",
+      "undone": "{{task}} 又回到原來的位置了。",
+      "undoStaged": "向後移動需要您在下面進行審查。",
+      "notApplied": "一切都沒有改變。",
+      "failed": "無法更改路線：{{error}}"
+    },
+    "locked": {
+      "speakerId": "鎖定到此裝置：說話者辨識需要您在裝置上的錄音。",
+      "semanticSearch": "鎖定到此裝置：嵌入保留在本地，因此搜尋永遠不會將您的筆記發送到任何地方。"
+    },
+    "no": {
+      "capability": "{{provider}} 無法在 Loqui 中執行此任務。",
+      "visionCloudOnly": "目前，螢幕截圖只能轉到雲視覺模型。",
+      "meetingServer": "注意錄製還不能使用您自己的伺服器。",
+      "sealed": "密封模式將此任務保留在此設備上。",
+      "uploadServer": "文件上傳使用為聽寫設定的伺服器。在那裡改變它。",
+      "serverKind": "尚未為 {{kind}} 任務設定 {{server}}。使用“新增伺服器”輸入其位址。"
+    },
+    "place": {
+      "device": "在此設備上",
+      "server": "在您的伺服器上 {{host}}",
+      "anyServer": "在你的伺服器上",
+      "endpoint": "於 {{name}} 於 {{host}}",
+      "provider": "在 {{provider}}"
+    },
+    "dest": {
+      "serverAt": "伺服器位於 {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "新增伺服器",
+      "addServerHint": "接下來輸入它的地址",
+      "nothingLeaves": "什麼都沒有離開",
+      "yourServer": "您自己的伺服器",
+      "unencrypted": "http，未加密",
+      "hosted": "託管提供者",
+      "keySaved": "API 金鑰已儲存",
+      "noKey": "尚未儲存密鑰",
+      "keyRejected": "鑰匙被拒絕",
+      "keyUnknown": "檢查已儲存的密鑰..."
+    },
+    "leaves": {
+      "none": "沒有任何東西離開這個設備。",
+      "prefix": "離開該設備：",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_other": "{{count}} 任務",
+    "meter": {
+      "label_other": "{{count}} 任務（共 {{total}} 個）保留在此裝置上",
+      "headline_other": "{{count}} 任務（共 {{total}} 個）保留在此裝置上",
+      "network_other": "{{count}} 在您的伺服器上",
+      "label_one": "{{total}} 任務的 {{count}} 保留在此裝置上",
+      "headline_one": "{{total}} 任務的 {{count}} 保留在此裝置上",
+      "network_one": "{{count}} 在您的伺服器上"
+    },
+    "taskCount_one": "{{count}} 任務"
   }
 }

@@ -1,5 +1,6 @@
 import { useRouteDraftStore } from "../stores/routeDraftStore";
 import { StagedRoutePanel } from "./settings/routing/StagedRoutePanel";
+import { RoutingSection } from "./settings/routing/RoutingSection";
 import { stagedTargetForMode } from "./settings/routing/stagedTarget";
 import { useRouteChange, useRouteCommit } from "./settings/routing/useRouteChange";
 import { RouteSwitch } from "./settings/routing/RouteSwitch";
@@ -119,7 +120,7 @@ import { getTranscriptionProvider } from "../models/ModelRegistry";
 import { supportsLiveTranscriptionPreview } from "../utils/transcriptionPreview";
 
 export type SettingsSectionType =
-  "general" | "hotkeys" | "speechToText" | "llms" | "privacyData" | "system";
+  "general" | "hotkeys" | "routing" | "speechToText" | "llms" | "privacyData" | "system";
 
 interface SettingsPageProps {
   activeSection?: SettingsSectionType;
@@ -885,6 +886,7 @@ function GpuDeviceSelector({ purpose }: { purpose: "transcription" | "intelligen
 export default function SettingsPage({
   activeSection = "general",
   onNavigateToSection,
+  onNavigateToPath,
   initialSubTab,
 }: SettingsPageProps) {
   const { isCompact } = useSettingsLayout();
@@ -2663,6 +2665,9 @@ EOF`,
             </div>
           </div>
         );
+
+      case "routing":
+        return <RoutingSection onNavigateToPath={onNavigateToPath} />;
 
       case "speechToText":
       case "llms":

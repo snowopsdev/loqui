@@ -1529,6 +1529,10 @@
       "system": {
         "description": "Updates, Speicher & Entwicklertools",
         "label": "System"
+      },
+      "routing": {
+        "label": "Routing",
+        "description": "Wo jede Aufgabe ausgeführt wird"
       }
     },
     "title": "Einstellungen"
@@ -3893,6 +3897,82 @@
       "insecure": "Einfaches http:// funktioniert nur für Adressen im eigenen Netzwerk. Verwende https://.",
       "http": "http:// ist nicht verschlüsselt. Im eigenen Netzwerk ist das in Ordnung.",
       "ok": "Sieht gut aus."
+    }
+  },
+  "patchbay": {
+    "title": "Routing",
+    "description": "Jede Aufgabe und der Ort, an dem sie gerade ausgeführt wird. Verschiebungen zu diesem Gerät werden sofort wirksam und können rückgängig gemacht werden. Verschiebungen auf einen Server oder einen Anbieter warten darauf, dass Sie sie überprüfen und anwenden.",
+    "tasks": "Aufgaben",
+    "destinations": "Reiseziele",
+    "openSettings": "Öffnen Sie die {{task}}-Einstellungen",
+    "sealed": "Der versiegelte Modus ist aktiviert. Aufgaben können nur auf diesem Gerät ausgeführt werden.",
+    "undo": "Rückgängig machen",
+    "kind": {
+      "speech": "Rede",
+      "text": "Text"
+    },
+    "hint": {
+      "idle": "Wählen Sie eine Aufgabe und dann den Ort aus, an dem sie ausgeführt werden soll.",
+      "pickDestination": "Senden Sie {{task}} an… Wählen Sie ein markiertes Ziel.",
+      "pickTaskFirst": "Wählen Sie zuerst eine Aufgabe und dann den Ort aus, an dem sie ausgeführt werden soll.",
+      "already": "{{task}} führt bereits {{place}} aus.",
+      "off": "{{task}} ist ausgeschaltet. Schalten Sie es in den Einstellungen ein.",
+      "moved": "{{task}} führt jetzt {{place}} aus.",
+      "movedOff": "{{task}} ist ausgeschaltet. Wenn Sie es einschalten, wird {{place}} ausgeführt.",
+      "movedAlso": "Außerdem geändert: {{tasks}}.",
+      "staged": "Überprüfen Sie {{task}} → {{destination}} unten und wenden Sie es dann an. Bis Sie dies tun, wird nichts gesendet.",
+      "undone": "{{task}} ist wieder da, wo es war.",
+      "undoStaged": "Beim Zurückziehen ist unten Ihre Bewertung erforderlich.",
+      "notApplied": "Es hat sich nichts geändert.",
+      "failed": "Die Route konnte nicht geändert werden: {{error}}"
+    },
+    "locked": {
+      "speakerId": "An dieses Gerät gebunden: Für die Sprechererkennung sind Ihre Aufnahmen auf dem Gerät erforderlich.",
+      "semanticSearch": "An dieses Gerät gebunden: Einbettungen bleiben lokal, sodass die Suche Ihre Notizen niemals irgendwohin sendet."
+    },
+    "no": {
+      "capability": "{{provider}} kann diese Aufgabe in Loqui nicht ausführen.",
+      "visionCloudOnly": "Screenshots können heute nur auf ein Cloud-Vision-Modell übertragen werden.",
+      "meetingServer": "Hinweis: Die Aufzeichnung kann noch nicht über Ihren eigenen Server erfolgen.",
+      "sealed": "Der versiegelte Modus behält diese Aufgabe auf diesem Gerät bei.",
+      "uploadServer": "Beim Datei-Upload wird der für das Diktat festgelegte Server verwendet. Ändern Sie es dort.",
+      "serverKind": "{{server}} wurde nicht für {{kind}}-Aufgaben eingerichtet. Über „Server hinzufügen“ geben Sie dessen Adresse ein."
+    },
+    "place": {
+      "device": "auf diesem Gerät",
+      "server": "auf Ihrem Server unter {{host}}",
+      "anyServer": "auf Ihrem Server",
+      "endpoint": "am {{name}} um {{host}}",
+      "provider": "am {{provider}}"
+    },
+    "dest": {
+      "serverAt": "Server bei {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "Fügen Sie einen Server hinzu",
+      "addServerHint": "Als nächstes geben Sie die Adresse ein",
+      "nothingLeaves": "Nichts geht weg",
+      "yourServer": "Ihr eigener Server",
+      "unencrypted": "http, nicht verschlüsselt",
+      "hosted": "Gehosteter Anbieter",
+      "keySaved": "API-Schlüssel gespeichert",
+      "noKey": "Noch kein Schlüssel gespeichert",
+      "keyRejected": "Schlüssel abgelehnt",
+      "keyUnknown": "Gespeicherte Schlüssel werden überprüft…"
+    },
+    "leaves": {
+      "none": "Nichts verlässt dieses Gerät.",
+      "prefix": "Verlässt dieses Gerät:",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_one": "{{count}} Aufgabe",
+    "taskCount_other": "{{count}} Aufgaben",
+    "meter": {
+      "label_one": "{{count}} von {{total}} Aufgabe bleibt auf diesem Gerät",
+      "label_other": "{{count}} von {{total}} Aufgaben bleiben auf diesem Gerät",
+      "headline_one": "{{count}} von {{total}} Aufgabe bleibt auf diesem Gerät",
+      "headline_other": "{{count}} von {{total}} Aufgaben bleiben auf diesem Gerät",
+      "network_one": "{{count}} auf Ihrem Server",
+      "network_other": "{{count}} auf Ihrem Server"
     }
   }
 }

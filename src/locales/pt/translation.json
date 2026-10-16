@@ -1415,6 +1415,10 @@
       "system": {
         "description": "Atualizações, armazenamento e ferramentas de desenvolvimento",
         "label": "Sistema"
+      },
+      "routing": {
+        "label": "Roteamento",
+        "description": "Onde cada tarefa é executada"
       }
     },
     "title": "Configurações"
@@ -3894,6 +3898,86 @@
       "insecure": "http:// sem criptografia só funciona para endereços da sua própria rede. Use https://.",
       "http": "http:// não é criptografado. É adequado na sua própria rede.",
       "ok": "Parece correto."
+    }
+  },
+  "patchbay": {
+    "title": "Roteamento",
+    "description": "Cada tarefa e onde ela é executada agora. As movimentações para este dispositivo são aplicadas imediatamente e podem ser desfeitas. As migrações para um servidor ou provedor aguardam que você as revise e aplique.",
+    "tasks": "Tarefas",
+    "destinations": "Destinos",
+    "openSettings": "Abra as configurações de {{task}}",
+    "sealed": "O modo selado está ativado. As tarefas só podem ser executadas neste dispositivo.",
+    "undo": "Desfazer",
+    "kind": {
+      "speech": "discurso",
+      "text": "texto"
+    },
+    "hint": {
+      "idle": "Escolha uma tarefa e onde ela deve ser executada.",
+      "pickDestination": "Envie {{task}} para… escolha um destino destacado.",
+      "pickTaskFirst": "Escolha primeiro uma tarefa e depois onde ela deve ser executada.",
+      "already": "{{task}} já executa {{place}}.",
+      "off": "{{task}} está desligado. Ative-o em suas configurações.",
+      "moved": "{{task}} agora executa {{place}}.",
+      "movedOff": "{{task}} está desligado. Ao ligá-lo, ele executará {{place}}.",
+      "movedAlso": "Também alterado: {{tasks}}.",
+      "staged": "Revise {{task}} → {{destination}} abaixo e aplique-o. Nada é enviado até que você o faça.",
+      "undone": "{{task}} está de volta onde estava.",
+      "undoStaged": "Voltar precisa de sua análise abaixo.",
+      "notApplied": "Nada mudou.",
+      "failed": "Não foi possível alterar a rota: {{error}}"
+    },
+    "locked": {
+      "speakerId": "Bloqueado neste dispositivo: a identificação do alto-falante precisa das suas gravações no dispositivo.",
+      "semanticSearch": "Bloqueado neste dispositivo: os embeddings permanecem locais, então a pesquisa nunca envia suas notas para lugar nenhum."
+    },
+    "no": {
+      "capability": "{{provider}} não pode executar esta tarefa no Loqui.",
+      "visionCloudOnly": "As capturas de tela só podem ir para um modelo de visão em nuvem hoje.",
+      "meetingServer": "A gravação de notas ainda não pode usar seu próprio servidor.",
+      "sealed": "O modo selado mantém esta tarefa neste dispositivo.",
+      "uploadServer": "O upload de arquivo usa o servidor definido para Ditado. Mude isso aí.",
+      "serverKind": "{{server}} não foi configurado para tarefas {{kind}}. Use “Adicionar um servidor” para inserir seu endereço."
+    },
+    "place": {
+      "device": "neste dispositivo",
+      "server": "no seu servidor em {{host}}",
+      "anyServer": "no seu servidor",
+      "endpoint": "em {{name}} às {{host}}",
+      "provider": "em {{provider}}"
+    },
+    "dest": {
+      "serverAt": "Servidor em {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "Adicionar um servidor",
+      "addServerHint": "Você insere seu endereço a seguir",
+      "nothingLeaves": "Nada sai",
+      "yourServer": "Seu próprio servidor",
+      "unencrypted": "http, não criptografado",
+      "hosted": "Provedor hospedado",
+      "keySaved": "Chave de API salva",
+      "noKey": "Nenhuma chave salva ainda",
+      "keyRejected": "Chave rejeitada",
+      "keyUnknown": "Verificando chaves salvas…"
+    },
+    "leaves": {
+      "none": "Nada sai deste dispositivo.",
+      "prefix": "Sai deste dispositivo:",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_one": "{{count}} tarefa",
+    "taskCount_many": "{{count}} tarefas",
+    "taskCount_other": "{{count}} tarefas",
+    "meter": {
+      "label_one": "{{count}} da tarefa {{total}} permanece neste dispositivo",
+      "label_many": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
+      "label_other": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
+      "headline_one": "{{count}} da tarefa {{total}} permanece neste dispositivo",
+      "headline_many": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
+      "headline_other": "{{count}} de {{total}} tarefas permanecem neste dispositivo",
+      "network_one": "{{count}} no seu servidor",
+      "network_many": "{{count}} no seu servidor",
+      "network_other": "{{count}} no seu servidor"
     }
   }
 }

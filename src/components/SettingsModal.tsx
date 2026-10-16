@@ -2,7 +2,7 @@ import { withDraftDiscard } from "../stores/routeDraftStore";
 import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Brain, Keyboard, Mic, Shield, Sliders, Wrench } from "./icons";
+import { Brain, Keyboard, Mic, Shield, Sliders, Waypoints, Wrench } from "./icons";
 import SettingsPage, { SettingsSectionType } from "./SettingsPage";
 import { parseSettingsPath } from "../lib/settingsPaths";
 import SidebarModal, { type SidebarItem } from "./ui/SidebarModal";
@@ -33,6 +33,13 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
         icon: Keyboard,
         description: t("settingsModal.sections.hotkeys.description"),
         group: t("settingsModal.groups.app"),
+      },
+      {
+        id: "routing",
+        label: t("settingsModal.sections.routing.label"),
+        icon: Waypoints,
+        description: t("settingsModal.sections.routing.description"),
+        group: t("settingsModal.groups.aiModels"),
       },
       {
         id: "speechToText",

@@ -1529,6 +1529,10 @@
       "system": {
         "description": "Mises à jour, stockage & outils de développement",
         "label": "Système"
+      },
+      "routing": {
+        "label": "Routage",
+        "description": "Où chaque tâche s'exécute"
       }
     },
     "title": "Paramètres"
@@ -3894,6 +3898,86 @@
       "insecure": "Le protocole http:// simple ne fonctionne que sur votre propre réseau. Utilisez https://.",
       "http": "http:// n’est pas chiffré. Il convient sur votre propre réseau.",
       "ok": "Cela semble correct."
+    }
+  },
+  "patchbay": {
+    "title": "Routage",
+    "description": "Chaque tâche et où elle s'exécute actuellement. Les déplacements vers cet appareil s'appliquent immédiatement et peuvent être annulés. Les déplacements vers un serveur ou un fournisseur attendent que vous les examiniez et les appliquiez.",
+    "tasks": "Tâches",
+    "destinations": "Destinations",
+    "openSettings": "Ouvrir les paramètres {{task}}",
+    "sealed": "Le mode scellé est activé. Les tâches ne peuvent s'exécuter que sur cet appareil.",
+    "undo": "Annuler",
+    "kind": {
+      "speech": "discours",
+      "text": "texte"
+    },
+    "hint": {
+      "idle": "Choisissez une tâche, puis où elle doit s'exécuter.",
+      "pickDestination": "Envoyez {{task}} à… choisissez une destination en surbrillance.",
+      "pickTaskFirst": "Choisissez d'abord une tâche, puis l'endroit où elle doit s'exécuter.",
+      "already": "{{task}} exécute déjà {{place}}.",
+      "off": "{{task}} est éteint. Allumez-le dans ses paramètres.",
+      "moved": "{{task}} exécute désormais {{place}}.",
+      "movedOff": "{{task}} est éteint. Lorsque vous l'allumerez, il exécutera {{place}}.",
+      "movedAlso": "Également modifié : {{tasks}}.",
+      "staged": "Consultez {{task}} → {{destination}} ci-dessous, puis appliquez-le. Rien n'est envoyé jusqu'à ce que vous le fassiez.",
+      "undone": "{{task}} est de retour là où il était.",
+      "undoStaged": "Le retour en arrière nécessite votre avis ci-dessous.",
+      "notApplied": "Rien n'a changé.",
+      "failed": "Impossible de modifier l'itinéraire : {{error}}"
+    },
+    "locked": {
+      "speakerId": "Verrouillé sur cet appareil : l'identification du locuteur nécessite vos enregistrements sur l'appareil.",
+      "semanticSearch": "Verrouillé sur cet appareil : les intégrations restent locales, donc la recherche n'envoie jamais vos notes nulle part."
+    },
+    "no": {
+      "capability": "{{provider}} ne peut pas exécuter cette tâche dans Loqui.",
+      "visionCloudOnly": "Les captures d'écran ne peuvent aujourd'hui être transmises qu'à un modèle de vision cloud.",
+      "meetingServer": "L'enregistrement des notes ne peut pas encore utiliser votre propre serveur.",
+      "sealed": "Le mode scellé conserve cette tâche sur cet appareil.",
+      "uploadServer": "Le téléchargement de fichiers utilise le serveur défini pour la dictée. Changez-le là.",
+      "serverKind": "{{server}} n'a pas été configuré pour les tâches {{kind}}. Utilisez « Ajouter un serveur » pour saisir son adresse."
+    },
+    "place": {
+      "device": "sur cet appareil",
+      "server": "sur votre serveur à {{host}}",
+      "anyServer": "sur votre serveur",
+      "endpoint": "le {{name}} au {{host}}",
+      "provider": "le {{provider}}"
+    },
+    "dest": {
+      "serverAt": "Serveur à {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "Ajouter un serveur",
+      "addServerHint": "Vous entrez ensuite son adresse",
+      "nothingLeaves": "Rien ne part",
+      "yourServer": "Votre propre serveur",
+      "unencrypted": "http, non crypté",
+      "hosted": "Fournisseur hébergé",
+      "keySaved": "Clé API enregistrée",
+      "noKey": "Aucune clé enregistrée pour l'instant",
+      "keyRejected": "Clé rejetée",
+      "keyUnknown": "Vérification des clés enregistrées…"
+    },
+    "leaves": {
+      "none": "Rien ne sort de cet appareil.",
+      "prefix": "Quitte cet appareil :",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_one": "Tâche {{count}}",
+    "taskCount_many": "{{count}} tâches",
+    "taskCount_other": "{{count}} tâches",
+    "meter": {
+      "label_one": "La tâche {{count}} sur {{total}} reste sur cet appareil",
+      "label_many": "{{count}} tâches sur {{total}} restent sur cet appareil",
+      "label_other": "{{count}} tâches sur {{total}} restent sur cet appareil",
+      "headline_one": "La tâche {{count}} sur {{total}} reste sur cet appareil",
+      "headline_many": "{{count}} tâches sur {{total}} restent sur cet appareil",
+      "headline_other": "{{count}} tâches sur {{total}} restent sur cet appareil",
+      "network_one": "{{count}} sur votre serveur",
+      "network_many": "{{count}} sur votre serveur",
+      "network_other": "{{count}} sur votre serveur"
     }
   }
 }

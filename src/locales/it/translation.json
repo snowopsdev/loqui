@@ -1436,6 +1436,10 @@
       "system": {
         "description": "Aggiornamenti, archiviazione e strumenti di sviluppo",
         "label": "Sistema"
+      },
+      "routing": {
+        "label": "Instradamento",
+        "description": "Dove viene eseguita ogni attività"
       }
     },
     "title": "Impostazioni"
@@ -3894,6 +3898,86 @@
       "insecure": "http:// non cifrato funziona solo per indirizzi della tua rete. Usa https://.",
       "http": "http:// non è cifrato. Va bene sulla tua rete.",
       "ok": "Sembra corretto."
+    }
+  },
+  "patchbay": {
+    "title": "Instradamento",
+    "description": "Ogni attività e dove viene eseguita in questo momento. Gli spostamenti su questo dispositivo vengono applicati contemporaneamente e possono essere annullati. Gli spostamenti su un server o un provider attendono che tu li riveda e li applichi.",
+    "tasks": "Compiti",
+    "destinations": "Destinazioni",
+    "openSettings": "Apri le impostazioni {{task}}",
+    "sealed": "La modalità sigillata è attiva. Le attività possono essere eseguite solo su questo dispositivo.",
+    "undo": "Annulla",
+    "kind": {
+      "speech": "discorso",
+      "text": "testo"
+    },
+    "hint": {
+      "idle": "Scegli un'attività, quindi dove dovrebbe essere eseguita.",
+      "pickDestination": "Invia {{task}} a... scegli una destinazione evidenziata.",
+      "pickTaskFirst": "Scegli prima un'attività, quindi dove dovrebbe essere eseguita.",
+      "already": "{{task}} esegue già {{place}}.",
+      "off": "{{task}} è spento. Attivalo nelle sue impostazioni.",
+      "moved": "{{task}} ora esegue {{place}}.",
+      "movedOff": "{{task}} è spento. Quando lo accendi, verrà eseguito {{place}}.",
+      "movedAlso": "Modificato anche: {{tasks}}.",
+      "staged": "Rivedi {{task}} → {{destination}} di seguito, quindi applicalo. Non viene inviato nulla finché non lo fai.",
+      "undone": "{{task}} è tornato dov'era.",
+      "undoStaged": "Per tornare indietro è necessaria la tua recensione qui sotto.",
+      "notApplied": "Niente è cambiato.",
+      "failed": "Impossibile modificare il percorso: {{error}}"
+    },
+    "locked": {
+      "speakerId": "Bloccato su questo dispositivo: l'identificazione del relatore richiede le tue registrazioni sul dispositivo.",
+      "semanticSearch": "Bloccato su questo dispositivo: gli incorporamenti rimangono locali, quindi la ricerca non invia mai le tue note da nessuna parte."
+    },
+    "no": {
+      "capability": "{{provider}} non può eseguire questa attività in Loqui.",
+      "visionCloudOnly": "Oggi gli screenshot possono essere inviati solo a un modello di visione cloud.",
+      "meetingServer": "La registrazione delle note non può ancora utilizzare il tuo server.",
+      "sealed": "La modalità sigillata mantiene questa attività su questo dispositivo.",
+      "uploadServer": "Il caricamento dei file utilizza il server impostato per Dettatura. Cambialo lì.",
+      "serverKind": "{{server}} non è stato configurato per le attività {{kind}}. Utilizza \"Aggiungi un server\" per inserire il suo indirizzo."
+    },
+    "place": {
+      "device": "su questo dispositivo",
+      "server": "sul tuo server all'indirizzo {{host}}",
+      "anyServer": "sul tuo server",
+      "endpoint": "il {{name}} alle {{host}}",
+      "provider": "il {{provider}}"
+    },
+    "dest": {
+      "serverAt": "Server alle {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "Aggiungi un server",
+      "addServerHint": "Successivamente inserisci il suo indirizzo",
+      "nothingLeaves": "Non se ne va niente",
+      "yourServer": "Il tuo server",
+      "unencrypted": "http, non crittografato",
+      "hosted": "Fornitore ospitato",
+      "keySaved": "Chiave API salvata",
+      "noKey": "Nessuna chiave ancora salvata",
+      "keyRejected": "Chiave rifiutata",
+      "keyUnknown": "Controllo delle chiavi salvate…"
+    },
+    "leaves": {
+      "none": "Niente lascia questo dispositivo.",
+      "prefix": "Lascia questo dispositivo:",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_one": "attività {{count}}",
+    "taskCount_many": "{{count}} attività",
+    "taskCount_other": "{{count}} attività",
+    "meter": {
+      "label_one": "{{count}} dell'attività {{total}} rimane su questo dispositivo",
+      "label_many": "{{count}} delle attività {{total}} rimangono su questo dispositivo",
+      "label_other": "{{count}} delle attività {{total}} rimangono su questo dispositivo",
+      "headline_one": "{{count}} dell'attività {{total}} rimane su questo dispositivo",
+      "headline_many": "{{count}} delle attività {{total}} rimangono su questo dispositivo",
+      "headline_other": "{{count}} delle attività {{total}} rimangono su questo dispositivo",
+      "network_one": "{{count}} sul tuo server",
+      "network_many": "{{count}} sul tuo server",
+      "network_other": "{{count}} sul tuo server"
     }
   }
 }

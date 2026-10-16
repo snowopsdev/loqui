@@ -1436,6 +1436,10 @@
       "system": {
         "description": "更新、ストレージ、開発者ツール",
         "label": "システム"
+      },
+      "routing": {
+        "label": "ルーティング",
+        "description": "各タスクが実行される場所"
       }
     },
     "title": "設定"
@@ -3894,5 +3898,81 @@
       "http": "http:// は暗号化されません。自分のネットワーク内では使用できます。",
       "ok": "問題ありません。"
     }
+  },
+  "patchbay": {
+    "title": "ルーティング",
+    "description": "すべてのタスクと、それが現在実行されている場所。このデバイスへの移動は一度に適用され、元に戻すことができます。サーバーまたはプロバイダーへの移動は、ユーザーが確認して適用するまで待機します。",
+    "tasks": "タスク",
+    "destinations": "目的地",
+    "openSettings": "{{task}}設定を開く",
+    "sealed": "密閉モードがオンになっています。タスクはこのデバイスでのみ実行できます。",
+    "undo": "元に戻す",
+    "kind": {
+      "speech": "スピーチ",
+      "text": "テキスト"
+    },
+    "hint": {
+      "idle": "タスクを選択し、それを実行する場所を選択します。",
+      "pickDestination": "{{task}} を送信先… 強調表示された宛先を選択します。",
+      "pickTaskFirst": "まずタスクを選択し、次にそれを実行する場所を選択します。",
+      "already": "{{task}} はすでに {{place}} を実行しています。",
+      "off": "{{task}} はオフになっています。設定でオンにしてください。",
+      "moved": "{{task}} は {{place}} を実行するようになりました。",
+      "movedOff": "{{task}} はオフです。電源を入れると、{{place}} が実行されます。",
+      "movedAlso": "また変更されました: {{tasks}}。",
+      "staged": "以下の {{task}} → {{destination}} を確認し、適用してください。送信するまで何も送信されません。",
+      "undone": "{{task}} は元の場所に戻りました。",
+      "undoStaged": "元に戻すには、以下のレビューが必要です。",
+      "notApplied": "何も変わりませんでした。",
+      "failed": "ルートを変更できませんでした: {{error}}"
+    },
+    "locked": {
+      "speakerId": "このデバイスにロックされています: 話者の識別にはデバイス上の録音が必要です。",
+      "semanticSearch": "このデバイスにロックされています: 埋め込みはローカルに留まるため、検索によってメモがどこにも送信されることはありません。"
+    },
+    "no": {
+      "capability": "{{provider}} は Loqui でこのタスクを実行できません。",
+      "visionCloudOnly": "現在、スクリーンショットはクラウド ビジョン モデルにのみ送信できます。",
+      "meetingServer": "録画にはまだ独自のサーバーを使用できないことに注意してください。",
+      "sealed": "密閉モードでは、このタスクがこのデバイス上に保持されます。",
+      "uploadServer": "ファイルのアップロードにはディクテーション用に設定されたサーバーを使用します。そこで変更してください。",
+      "serverKind": "{{server}} は {{kind}} タスク用に設定されていません。 「サーバーの追加」を使用してアドレスを入力します。"
+    },
+    "place": {
+      "device": "このデバイス上で",
+      "server": "サーバー上の{{host}}",
+      "anyServer": "あなたのサーバー上で",
+      "endpoint": "{{name}}、{{host}}",
+      "provider": "{{provider}}に"
+    },
+    "dest": {
+      "serverAt": "{{host}} のサーバー",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "サーバーを追加する",
+      "addServerHint": "次にアドレスを入力します",
+      "nothingLeaves": "何も残らない",
+      "yourServer": "あなた自身のサーバー",
+      "unencrypted": "http、暗号化されていない",
+      "hosted": "ホスト型プロバイダー",
+      "keySaved": "APIキーが保存されました",
+      "noKey": "キーはまだ保存されていません",
+      "keyRejected": "キーが拒否されました",
+      "keyUnknown": "保存されたキーを確認しています…"
+    },
+    "leaves": {
+      "none": "このデバイスからは何も残りません。",
+      "prefix": "このデバイスを終了します:",
+      "item": "{{task}} → {{destination}}"
+    },
+    "taskCount_other": "{{count}} タスク",
+    "meter": {
+      "label_other": "{{total}} タスクのうち {{count}} がこのデバイスに残ります",
+      "headline_other": "{{total}} タスクのうち {{count}} がこのデバイスに残ります",
+      "network_other": "サーバー上の{{count}}",
+      "label_one": "{{total}} タスクの {{count}} はこのデバイス上に残ります",
+      "headline_one": "{{total}} タスクの {{count}} はこのデバイス上に残ります",
+      "network_one": "サーバー上の{{count}}"
+    },
+    "taskCount_one": "{{count}} タスク"
   }
 }

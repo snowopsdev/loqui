@@ -8,6 +8,7 @@ export interface SettingsLocation {
 export const SETTINGS_SECTIONS: readonly SettingsSectionType[] = [
   "general",
   "hotkeys",
+  "routing",
   "speechToText",
   "llms",
   "privacyData",
@@ -40,6 +41,7 @@ export const SECTION_ALIASES: Record<string, SettingsSectionType> = {
   transcription: "speechToText",
   uploadTranscription: "speechToText",
   stt: "speechToText",
+  routes: "routing",
   softwareUpdates: "system",
   privacy: "privacyData",
   permissions: "privacyData",

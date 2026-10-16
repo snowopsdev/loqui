@@ -1529,6 +1529,10 @@
       "system": {
         "description": "Updates, storage & developer tools",
         "label": "System"
+      },
+      "routing": {
+        "label": "Routing",
+        "description": "Where each task runs"
       }
     },
     "title": "Settings"
@@ -3893,6 +3897,82 @@
       "insecure": "Plain http:// works only for addresses on your own network. Use https://.",
       "http": "http:// isn't encrypted. Fine on your own network.",
       "ok": "Looks good."
+    }
+  },
+  "patchbay": {
+    "title": "Routing",
+    "description": "Every task, and where it runs right now. Moves to this device apply at once and can be undone. Moves to a server or a provider wait for you to review and apply them.",
+    "tasks": "Tasks",
+    "destinations": "Destinations",
+    "openSettings": "Open {{task}} settings",
+    "sealed": "Sealed mode is on. Tasks can only run on this device.",
+    "undo": "Undo",
+    "kind": {
+      "speech": "speech",
+      "text": "text"
+    },
+    "hint": {
+      "idle": "Choose a task, then where it should run.",
+      "pickDestination": "Send {{task}} to… choose a highlighted destination.",
+      "pickTaskFirst": "Choose a task first, then where it should run.",
+      "already": "{{task}} already runs {{place}}.",
+      "off": "{{task}} is switched off. Turn it on in its settings.",
+      "moved": "{{task}} now runs {{place}}.",
+      "movedOff": "{{task}} is off. When you turn it on, it will run {{place}}.",
+      "movedAlso": "Also changed: {{tasks}}.",
+      "staged": "Review {{task}} → {{destination}} below, then apply it. Nothing is sent until you do.",
+      "undone": "{{task}} is back where it was.",
+      "undoStaged": "Moving back needs your review below.",
+      "notApplied": "Nothing changed.",
+      "failed": "Couldn't change the route: {{error}}"
+    },
+    "locked": {
+      "speakerId": "Locked to this device: speaker identification needs your recordings on-device.",
+      "semanticSearch": "Locked to this device: embeddings stay local, so search never sends your notes anywhere."
+    },
+    "no": {
+      "capability": "{{provider}} can't run this task in Loqui.",
+      "visionCloudOnly": "Screenshots can only go to a cloud vision model today.",
+      "meetingServer": "Note recording can't use your own server yet.",
+      "sealed": "Sealed mode keeps this task on this device.",
+      "uploadServer": "File upload uses the server set for Dictation. Change it there.",
+      "serverKind": "{{server}} hasn't been set up for {{kind}} tasks. Use “Add a server” to enter its address."
+    },
+    "place": {
+      "device": "on this device",
+      "server": "on your server at {{host}}",
+      "anyServer": "on your server",
+      "endpoint": "on {{name}} at {{host}}",
+      "provider": "on {{provider}}"
+    },
+    "dest": {
+      "serverAt": "Server at {{host}}",
+      "endpointAt": "{{name}} · {{host}}",
+      "addServer": "Add a server",
+      "addServerHint": "You enter its address next",
+      "nothingLeaves": "Nothing leaves",
+      "yourServer": "Your own server",
+      "unencrypted": "http, not encrypted",
+      "hosted": "Hosted provider",
+      "keySaved": "API key saved",
+      "noKey": "No key saved yet",
+      "keyRejected": "Key rejected",
+      "keyUnknown": "Checking saved keys…"
+    },
+    "taskCount_one": "{{count}} task",
+    "taskCount_other": "{{count}} tasks",
+    "meter": {
+      "label_one": "{{count}} of {{total}} task stays on this device",
+      "label_other": "{{count}} of {{total}} tasks stay on this device",
+      "headline_one": "{{count}} of {{total}} task stays on this device",
+      "headline_other": "{{count}} of {{total}} tasks stay on this device",
+      "network_one": "{{count}} on your server",
+      "network_other": "{{count}} on your server"
+    },
+    "leaves": {
+      "none": "Nothing leaves this device.",
+      "prefix": "Leaves this device:",
+      "item": "{{task}} → {{destination}}"
     }
   }
 }

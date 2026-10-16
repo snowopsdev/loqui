@@ -2104,3 +2104,160 @@ a:hover {
     animation: none !important;
   }
 }
+
+/* Patchbay (DESIGN.md "Settings · Routing"). The list is the DOM; cables
+   are decoration. Shape carries locality: solid device, dotted network,
+   dashed remote. */
+.patchbay-board[data-layout="board"] {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(48px, 1fr) minmax(240px, 300px);
+}
+.patchbay-board[data-layout="board"] .patchbay-tasks {
+  grid-column: 1;
+}
+.patchbay-board[data-layout="board"] .patchbay-destinations {
+  grid-column: 3;
+}
+.patchbay-board[data-layout="list"] {
+  display: grid;
+  gap: 1rem;
+}
+.patchbay-board[data-layout="list"] .patchbay-jack {
+  display: none;
+}
+.patchbay-tasks,
+.patchbay-destinations {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+.patchbay-destinations {
+  gap: 0.5rem;
+}
+.patchbay-task,
+.patchbay-destination {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding-block: 0.25rem;
+  padding-inline-start: 0.625rem;
+  padding-inline-end: 1.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  text-align: start;
+}
+.patchbay-destination {
+  display: block;
+  min-height: 62px;
+  padding-block: 0.5rem;
+  padding-inline-start: 1rem;
+  padding-inline-end: 0.75rem;
+}
+.patchbay-destination[data-locality="remote"] {
+  border-style: dashed;
+}
+.patchbay-task[aria-pressed="true"] {
+  border-color: var(--color-ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 20%, transparent);
+}
+.patchbay-task[data-staged="true"] {
+  border: 1.5px dashed var(--color-locality-remote);
+}
+.patchbay-task[aria-disabled="true"] {
+  background: var(--color-muted);
+  color: var(--color-muted-foreground);
+}
+.patchbay-destination[data-compat="ok"] {
+  border: 2px solid var(--color-ring);
+}
+.patchbay-destination[data-compat="no"] {
+  opacity: 0.45;
+}
+.patchbay-task:focus-visible,
+.patchbay-destination:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.patchbay-jack {
+  position: absolute;
+  inset-block-start: 50%;
+  width: 18px;
+  height: 18px;
+  margin-block-start: -9px;
+  border-radius: 9999px;
+  border: 2.5px solid var(--color-locality-device);
+  background: var(--color-background);
+}
+.patchbay-task .patchbay-jack {
+  inset-inline-end: -9px;
+}
+.patchbay-destination .patchbay-jack {
+  inset-inline-start: -9px;
+}
+.patchbay-jack[data-locality="network"] {
+  border-color: var(--color-locality-network);
+  border-style: dotted;
+}
+.patchbay-jack[data-locality="remote"] {
+  border-color: var(--color-locality-remote);
+  border-style: dashed;
+}
+.patchbay-cables {
+  position: absolute;
+  inset-block: 0;
+  inset-inline: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.patchbay-cables path {
+  fill: none;
+  stroke: var(--color-locality-device);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  animation: patchbay-cable-in var(--motion-base) var(--motion-ease-enter) both;
+  transition: opacity var(--motion-fast) var(--motion-ease-std);
+}
+.patchbay-cables path[data-locality="network"] {
+  stroke: var(--color-locality-network);
+  stroke-dasharray: 0.5 5;
+}
+.patchbay-cables path[data-locality="remote"] {
+  stroke: var(--color-locality-remote);
+  stroke-dasharray: 6 5;
+}
+.patchbay-cables path[data-paused="true"] {
+  opacity: 0.55;
+  stroke-dasharray: 2 6;
+}
+.patchbay-cables path[data-dim="true"] {
+  opacity: 0.16;
+}
+.patchbay-meter-seg {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-locality-device);
+}
+.patchbay-meter-seg[data-locality="network"] {
+  background: var(--color-locality-network);
+}
+.patchbay-meter-seg[data-locality="remote"] {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-locality-remote) 0 3px,
+    transparent 3px 5px
+  );
+  outline: 1px solid var(--color-locality-remote);
+  outline-offset: -1px;
+}
+@keyframes patchbay-cable-in {
+  from {
+    opacity: 0;
+  }
+}

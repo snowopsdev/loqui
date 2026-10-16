@@ -72,7 +72,10 @@ export default function UpdateSettings({
           {status?.phase === "ready" && (
             <p>{t("updates.ready", { version: status.availableVersion })}</p>
           )}
-          {status?.phase === "manual" ? (
+          {status?.phase === "available" && (
+            <p>{t("updates.available", { version: status.availableVersion })}</p>
+          )}
+          {status?.phase === "manual" || status?.phase === "available" ? (
             <Button
               variant="outline"
               onClick={() => window.electronAPI.openExternal(status.releasesUrl)}
@@ -82,16 +85,14 @@ export default function UpdateSettings({
           ) : (
             <Button
               variant="outline"
-              disabled={
-                !status?.enabled || ["checking", "downloading"].includes(status?.phase ?? "")
-              }
+              disabled={!status || ["checking", "downloading"].includes(status.phase)}
               onClick={() => void run(() => api.check())}
             >
               {t("updates.check")}
             </Button>
           )}
           {status?.phase === "ready" && (
-            <Button className="ml-2" onClick={() => void run(() => api.restart())}>
+            <Button className="ms-2" onClick={() => void run(() => api.restart())}>
               {t("updates.restart")}
             </Button>
           )}

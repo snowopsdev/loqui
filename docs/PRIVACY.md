@@ -60,7 +60,7 @@ Local inference stays on this computer. Download selected models before going of
 
 ## Updates and calendars
 
-Automatic update checks and downloads are enabled by default after onboarding. Checks run when due at startup and approximately daily; failures use bounded retry delays. Disable automatic updates in **System** settings. No GitHub credential is embedded in the application. Installation requires **Restart to Update** and is blocked while relevant work or saving is active.
+Automatic update checks and downloads are enabled by default after onboarding. Checks run when due at startup and approximately daily; failures use bounded retry delays. Disable automatic updates in **System** settings. No GitHub credential is embedded in the application. Installation requires **Restart to Update** and is blocked while relevant work or saving is active. With automatic updates off, **Check for Updates** still works: it contacts GitHub only when you click it, never downloads, and links to the release instead.
 
 Optional Google and Microsoft connections require independently configured OAuth applications. OAuth completion uses a local loopback page; it does not redirect through OpenWhispr. Apple Calendar uses local OS permissions. Connecting a calendar can schedule background synchronization while the connection remains configured; disconnect it to stop that integration.
 

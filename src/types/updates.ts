@@ -1,5 +1,5 @@
 export type UpdateStatus = {
-  phase: "idle" | "manual" | "checking" | "downloading" | "ready" | "error";
+  phase: "idle" | "manual" | "available" | "checking" | "downloading" | "ready" | "error";
   enabled: boolean;
   channel: "stable" | "beta";
   version: string;

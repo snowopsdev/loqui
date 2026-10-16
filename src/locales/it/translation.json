@@ -4139,6 +4139,7 @@
     "beta": "Beta and stable",
     "downloading": "Downloading update: {{percent}}%",
     "ready": "Loqui {{version}} is ready. Finish active work before restarting.",
+    "available": "Loqui {{version}} è disponibile. Attiva gli aggiornamenti automatici per installarlo oppure scaricalo da GitHub.",
     "download": "Download from GitHub",
     "check": "Check for Updates",
     "restart": "Restart to Update"

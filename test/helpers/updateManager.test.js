@@ -60,7 +60,7 @@ test("beta can advance to stable", async (t) => {
   await manager.check();
   assert.equal(manager.status().phase, "ready");
 });
-test("disabled, incomplete onboarding and unsupported installations never check", async (t) => {
+test("unsupported, unpackaged and not-onboarded installs never check; disabled skips timer checks", async (t) => {
   for (const options of [{ supported: false }, { packaged: false }]) {
     const s = setup(t, options);
     await s.manager.check();
@@ -71,8 +71,40 @@ test("disabled, incomplete onboarding and unsupported installations never check"
   await s.manager.check();
   s.manager.prefs.onboarded = true;
   s.manager.preferences({ enabled: false });
-  await s.manager.check();
+  await s.manager.check(false);
   assert.equal(s.counts().checks, 0);
+});
+
+test("a manual check with automatic updates off reports the update and never downloads", async (t) => {
+  const s = setup(t);
+  s.manager.preferences({ enabled: false });
+  await s.manager.check(true);
+  assert.equal(s.counts().checks, 1);
+  assert.equal(s.counts().downloads, 0);
+  assert.equal(s.manager.status().phase, "available");
+  assert.equal(s.manager.status().availableVersion, "0.1.0-beta.2");
+});
+
+test("turning automatic updates on after a manual find downloads it", async (t) => {
+  const s = setup(t);
+  s.manager.preferences({ enabled: false });
+  await s.manager.check(true);
+  s.manager.preferences({ enabled: true });
+  for (let i = 0; i < 10 && s.manager.status().phase !== "ready"; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(s.counts().downloads, 1);
+  assert.equal(s.manager.status().phase, "ready");
+});
+
+test("a failed manual check with automatic updates off still reports the error", async (t) => {
+  const s = setup(t);
+  s.updater.checkForUpdates = async () => {
+    throw new Error("offline");
+  };
+  s.manager.preferences({ enabled: false });
+  await s.manager.check(true);
+  assert.equal(s.manager.status().phase, "error");
 });
 test("active work prevents restart and pending saves must succeed", async (t) => {
   let busy = true,
@@ -184,7 +216,7 @@ test("scheduled retries back off hourly, double per failure, cap at a day, and r
   clock += DAY - 1;
   assert.equal(await attempted(), false, "a healthy schedule checks daily");
 });
-test("a downloaded update is not re-checked and the off switch also blocks manual checks", async (t) => {
+test("a downloaded update is not re-checked; the off switch blocks scheduled checks, not a manual one", async (t) => {
   const s = setup(t);
   s.manager.now = () => DAY * 10;
   await s.manager.check(false);
@@ -192,8 +224,11 @@ test("a downloaded update is not re-checked and the off switch also blocks manua
   assert.equal(s.counts().checks, 1, "ready update blocks re-check");
   const off = setup(t);
   off.manager.preferences({ enabled: false });
+  await off.manager.check(false);
+  assert.equal(off.counts().checks, 0, "no scheduled check while automatic updates are off");
   await off.manager.check(true);
-  assert.equal(off.counts().checks, 0);
+  assert.equal(off.counts().checks, 1, "an explicit check still runs");
+  assert.equal(off.counts().downloads, 0, "and never downloads");
 });
 test("an unwritable profile does not stop setup completion from starting the checks or block preferences", async (t) => {
   const s = setup(t);

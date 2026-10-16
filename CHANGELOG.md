@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-beta.2 (unreleased)
+
+- UI design foundations: updated color, typography, motion, and button styles; reusable audio level bars and provider locality indicators.
+- Refined sidebar, meeting notifications, note controls, hotkey input, and dictation panel styling.
+- Reviewed implementation plans for accessibility, routes and settings, voice overlay, onboarding, workspace, Sealed mode, and the spatial canvas prototype. These plans do not imply that every planned feature is implemented.
+- Distinct beta version for development packages built after the UI/UX foundation and planning PRs.
+
+Public release remains pending signed and notarized packages and the acceptance checks in docs/RELEASING.md and docs/VERIFICATION.md.
+
 ## 0.1.0-beta.1 - 2026-10-07
 
 First Loqui beta, based on OpenWhispr's MIT-licensed desktop application.

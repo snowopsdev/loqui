@@ -2977,9 +2977,12 @@ async function initializeVertexAuthSource({ hasExistingSettingsProfile, environm
       // save. Its effective value checks VERTEX_API_KEY before legacy env.
       source = capture.values.key ? "apiKey" : "adc";
     }
-    const saved = await environment.saveVertexAuthSource(source, { expectedEpoch: migrationEpoch });
-    if (!saved?.success) throw new Error("Could not persist Vertex auth source");
   }
+  // getVertexAuthSource also sees process.env inherited at launch. Persist an
+  // accepted source even when already valid so the next launch cannot choose a
+  // different recipient merely because that ambient variable disappeared.
+  const saved = await environment.saveVertexAuthSource(source, { expectedEpoch: migrationEpoch });
+  if (!saved?.success) throw new Error("Could not persist Vertex auth source");
   return source;
 }
 
@@ -3114,7 +3117,7 @@ test("ambient Vertex credentials do not make a fresh profile inherit an existing
     assert.deepEqual(freshWrites, ["adc"]);
   });
 
-  await t.test("existing profile migrates ambient fallback to apiKey once", async (st) => {
+  await t.test("existing profile preserves the migrated choice on later initialization", async (st) => {
     const existing = migrationEnv(st, { GOOGLE_VERTEX_API_KEY: "fixture-legacy-key" }, { encryptionAvailable: false });
     const existingWrites = [];
     const saveExisting = existing.env.saveVertexAuthSource.bind(existing.env);
@@ -3125,9 +3128,49 @@ test("ambient Vertex credentials do not make a fresh profile inherit an existing
     const inputs = { hasExistingSettingsProfile: true, environment: existing.env, credentials: existing.credentials };
     assert.equal(await initializeVertexAuthSource(inputs), "apiKey");
     assert.equal(await initializeVertexAuthSource(inputs), "apiKey");
-    assert.deepEqual(existingWrites, ["apiKey"], "after materialization later calls preserve the committed source");
+    assert.deepEqual(existingWrites, ["apiKey", "apiKey"], "each boot persists the same choice; the main initializer memoizes calls within a boot");
     assert.equal(existingWrites.includes("fixture-legacy-key"), false, "no value crosses the source saver");
   });
+});
+
+test("an existing inherited valid source becomes durable before startup admission", async (t) => {
+  for (const source of ["adc", "apiKey"]) {
+    let savedSource;
+    await t.test(`${source}: first launch persists the inherited selection`, async (st) => {
+      const fixture = migrationEnv(st, { VERTEX_AUTH_SOURCE: source }, { encryptionAvailable: false });
+      assert.equal(await initializeVertexAuthSource({
+        hasExistingSettingsProfile: true, environment: fixture.env, credentials: fixture.credentials,
+      }), source);
+      const bytes = [...fixture.fs.files.entries()].find(([file]) => file.endsWith("/.env"))?.[1]?.toString("utf8") ?? "";
+      const match = bytes.match(/^VERTEX_AUTH_SOURCE=(adc|apiKey)$/m);
+      assert.ok(match, "the accepted ambient source must be in the persisted .env snapshot");
+      savedSource = match[1];
+    });
+    await t.test(`${source}: later launch preserves disk choice despite opposite key presence`, async (st) => {
+      // New fixture and authority represent another process with no inherited
+      // source: dotenv has loaded exactly the source saved by the first boot.
+      const fixture = migrationEnv(st, {
+        VERTEX_AUTH_SOURCE: savedSource,
+        ...(source === "adc" ? { GOOGLE_VERTEX_API_KEY: "fixture-opposite-key" } : {}),
+      }, { encryptionAvailable: false });
+      assert.equal(await initializeVertexAuthSource({
+        hasExistingSettingsProfile: true, environment: fixture.env, credentials: fixture.credentials,
+      }), source, "credential presence cannot re-derive an acknowledged selection");
+    });
+  }
+});
+
+test("an inherited valid source cannot admit startup without persistence acknowledgement", async (t) => {
+  const fixture = migrationEnv(t, { VERTEX_AUTH_SOURCE: "adc" }, { encryptionAvailable: false });
+  const expectedEpoch = fixture.env.getEnvWriteEpoch();
+  fixture.env.saveVertexAuthSource = async (source, options) => {
+    assert.equal(source, "adc");
+    assert.deepEqual(options, { expectedEpoch });
+    return { success: false };
+  };
+  await assert.rejects(initializeVertexAuthSource({
+    hasExistingSettingsProfile: true, environment: fixture.env, credentials: fixture.credentials,
+  }), /Could not persist Vertex auth source/);
 });
 
 test("committed stored key wins over the legacy fallback used for migration", async (t) => {
@@ -3145,11 +3188,12 @@ test("committed stored key wins over the legacy fallback used for migration", as
   assert.equal(JSON.stringify(captured).includes("fixture-legacy-key"), false);
 });
 
-test("Vertex source saves serialize staging and rollback when the first write fails", async (t) => {
+test("Vertex source saves serialize durable writes without exposing a staged source", async (t) => {
   const fixture = migrationEnv(t, { VERTEX_AUTH_SOURCE: "adc" }, { encryptionAvailable: false });
   fixture.fs.holdNext((op, name) => op === "writeFile" && name === ".env.tmp");
   const first = fixture.env.saveVertexAuthSource("apiKey");
   const hold = await fixture.fs.nextHold();
+  assert.equal(fixture.env.getVertexAuthSource(), "adc", "a pending source write does not change main's committed source");
   const second = fixture.env.saveVertexAuthSource("apiKey");
   hold.fail(Object.assign(new Error("EIO"), { code: "EIO" }));
   await assert.rejects(first, { code: "EIO" });
@@ -3223,7 +3267,7 @@ Round-2 revisions (Codex R2-2, R2-3, R2-4 and the Task 2 half of R2-5):
 - Create: `test/helpers/harness/realCredentialEnv.js` (shared with Tasks 11 and 12). It runs the real `EnvironmentManager` persistence bodies over a deferred fake filesystem.
 - Modify (R2-3 typecheck): `src/components/OpenAICompatiblePanel.tsx` (`:24` prop type), `src/components/ReasoningModelSelector.tsx` (`:70` prop type, `:601` fallback), `src/components/settings/InferenceConfigEditor.tsx` (`:139`, `:171`), `src/components/TranscriptionModelPicker.tsx` (`:970-983` table, `:1245` secret field)
 - Modify: `src/helpers/environment.js`. Add `persistSecret` after `_saveKey` (`:249-264`); replace the module-level `.env` writer queue with epoch-aware admission/fencing; put `_writeEnvFileAtomic`, `saveAllKeysToEnvFile`, `removeKeyFromEnvFile` and `clearAllPersistedData` through that fence so reset cannot miss a non-authority writer (R3-2).
-- Modify: `src/helpers/environment.js` (Vertex source): add `VERTEX_AUTH_SOURCE` to `PERSISTED_KEYS` (never `SECRET_KEY_SET`); add validated `getVertexAuthSource`/`saveVertexAuthSource`, main-only `getLegacyVertexApiKey()`, `getEnvWriteEpoch()` and `drainEnvWrites()`. `getVertexAuthSource()` returns only `"adc"`, `"apiKey"` or `null`; `getLegacyVertexApiKey()` returns the supported legacy fallback only to the main authority. `saveVertexAuthSource(source, { expectedEpoch }?)` validates its enum, temporarily materializes `VERTEX_AUTH_SOURCE`, persists it via `saveAllKeysToEnvFile({ expectedEpoch })` on the fenced module-wide `.env` queue, restores the prior value on failure, and returns only an acknowledgement. The optional epoch is internal to startup migration; preload and IPC accept only the enum. `drainEnvWrites()` awaits the settled module queue. No public renderer API receives a credential value.
+- Modify: `src/helpers/environment.js` (Vertex source): add `VERTEX_AUTH_SOURCE` to `PERSISTED_KEYS` (never `SECRET_KEY_SET`); add validated `getVertexAuthSource`/`saveVertexAuthSource`, main-only `getLegacyVertexApiKey()`, `getEnvWriteEpoch()` and `drainEnvWrites()`. `getVertexAuthSource()` returns only `"adc"`, `"apiKey"` or `null`; `getLegacyVertexApiKey()` returns the supported legacy fallback only to the main authority. `saveVertexAuthSource(source, { expectedEpoch }?)` validates its enum and delegates to Task 6's shared atomic enterprise-route transaction, passing the migration epoch through without staging `process.env`. The optional epoch is internal to startup migration; preload and IPC accept only the enum. `drainEnvWrites()` awaits the settled module queue. No public renderer API receives a credential value.
 - Modify: `src/helpers/enterpriseAiProviders.js`: make Vertex factory auth explicit from `enterprise.vertexAuthSource`, never from key presence:
 
   ```js
@@ -5283,10 +5327,6 @@ Expected: FAIL.
    let envWriteQueue = Promise.resolve();
    let envWriteEpoch = 0;
    let envWriteFenced = false;
-  // Serialize source staging, persistence and rollback together. Serializing
-  // only the `.env` write lets a failed earlier source save roll back over a
-  // later source selection queued behind that write.
-  let vertexAuthSourceQueue = Promise.resolve();
 
    function environmentResetError() {
      return Object.assign(new Error("Environment persistence is resetting"), { code: "ENV_RESET" });
@@ -5303,9 +5343,51 @@ Expected: FAIL.
      envWriteQueue = queued;
      return queued;
    }
+
+   const ENTERPRISE_ROUTE_ENV_KEYS = Object.freeze({
+     bedrockRegion: "BEDROCK_REGION",
+     azureEndpoint: "AZURE_OPENAI_ENDPOINT",
+     vertexProject: "VERTEX_PROJECT",
+     vertexLocation: "VERTEX_LOCATION",
+     vertexAuthSource: "VERTEX_AUTH_SOURCE",
+   });
+   const ENTERPRISE_ROUTE_KEYS = Object.keys(ENTERPRISE_ROUTE_ENV_KEYS);
+
+   function isEnterpriseRouteSettings(value) {
+     return value !== null && typeof value === "object" &&
+       ENTERPRISE_ROUTE_KEYS.every((key) =>
+         Object.prototype.hasOwnProperty.call(value, key) &&
+         typeof value[key] === "string" &&
+       !/[\r\n\0]/.test(value[key]) &&
+         (key !== "vertexAuthSource" || value[key] === "adc" || value[key] === "apiKey")
+       ) &&
+       Object.keys(value).every((key) => ENTERPRISE_ROUTE_KEYS.includes(key));
+   }
    ```
 
-   `_writeEnvFileAtomic(envPath)` becomes `return enqueueEnvWrite(() => this._writeEnvFile(envPath));`. `removeKeyFromEnvFile(key)` returns `enqueueEnvWrite(() => this._removeKeyLine(envPath, key))`; do not append directly to `envWriteQueue` anywhere. `saveAllKeysToEnvFile({ expectedEpoch } = {})` captures the current epoch before enqueueing when no epoch is supplied; with an internal `expectedEpoch`, it rejects unless that epoch still matches before and after the queue wait. After awaiting the writer it rejects with `ENV_RESET` unless the writer returned `true`, the fence is still down, and the selected epoch equals `envWriteEpoch`; only after those checks may it call `dotenv.config`. Thus queued work invalidated by reset is skipped, and an active writer cannot reload its captured contents after reset begins.
+   `_writeEnvFileAtomic(envPath)` becomes `return enqueueEnvWrite(() => this._writeEnvFile(envPath));`. Extend `_writeEnvFile(envPath, explicitValues = {})` so each persisted key uses an own property from `explicitValues` when present, otherwise `process.env[key]`; an explicit empty string omits that key from the file:
+
+   ```js
+   async _writeEnvFile(envPath, explicitValues = {}) {
+     // Only strip plaintext secrets once migration has fully completed —
+     // otherwise partial-migration recovery could lose unencrypted secrets.
+     const stripSecrets =
+       this._encryptionAvailable() && fs.existsSync(this._getMigrationSentinelPath());
+     let envContent = "# OpenWhispr Environment Variables\n";
+     for (const key of PERSISTED_KEYS) {
+       if (stripSecrets && SECRET_KEY_SET.has(key)) continue;
+       const value = Object.prototype.hasOwnProperty.call(explicitValues, key)
+         ? explicitValues[key]
+         : process.env[key];
+       if (value) envContent += `${key}=${value}\n`;
+     }
+     const tmpPath = `${envPath}.tmp`;
+     await fsPromises.writeFile(tmpPath, envContent, "utf8");
+     await fsPromises.rename(tmpPath, envPath);
+   }
+   ```
+
+   Keep the existing `stripSecrets` calculation from `_writeEnvFile`. `removeKeyFromEnvFile(key)` returns `enqueueEnvWrite(() => this._removeKeyLine(envPath, key))`; do not append directly to `envWriteQueue` anywhere. `saveAllKeysToEnvFile({ expectedEpoch } = {})` captures the current epoch before enqueueing when no epoch is supplied; with an internal `expectedEpoch`, it rejects unless that epoch still matches before and after the queue wait. After awaiting the writer it rejects with `ENV_RESET` unless the writer returned `true`, the fence is still down, and the selected epoch equals `envWriteEpoch`; only after those checks may it call `dotenv.config`. Thus queued work invalidated by reset is skipped, and an active writer cannot reload its captured contents after reset begins.
 
    Wrap `clearAllPersistedData()` in the same module-wide fence: synchronously reject a second reset if already fenced, set `envWriteFenced = true`, increment `envWriteEpoch`, then await `envWriteQueue.catch(() => {})` before clearing `process.env` or removing files. Hold the fence while removing `.env` and the encrypted-key directory; release it in `finally` after deletion finishes or fails. Every new environment write rejects with `ENV_RESET` for that whole interval. This is below the credential authority because `save-all-keys-to-env` uses a separate IPC and currently bypasses the slot queues.
 
@@ -5363,36 +5445,94 @@ Expected: FAIL.
      return envWriteQueue.catch(() => {});
    }
 
+   getEnterpriseRouteSettings() {
+     return {
+       bedrockRegion: this.getBedrockRegion() || "us-east-1",
+       azureEndpoint: this.getAzureEndpoint(),
+       vertexProject: this.getVertexProject(),
+       vertexLocation: this.getVertexLocation() || "us-central1",
+       vertexAuthSource: this.getVertexAuthSource(),
+     };
+   }
+
+   saveEnterpriseRoutePatch(patch, { expected } = {}) {
+     // Renderer/public callers must compare the complete committed base.
+     // Only the internal startup migration calls _commitEnterpriseRoutePatch
+     // without expected (and supplies its captured epoch instead).
+     if (!isEnterpriseRouteSettings(expected)) throw new Error("Expected enterprise route settings are required");
+     return this._commitEnterpriseRoutePatch(patch, { expected });
+   }
+
+   // Main-only transaction used by startup migration and Task 6's public IPC.
+   async _commitEnterpriseRoutePatch(patch, { expected, expectedEpoch } = {}) {
+     if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("Invalid enterprise route patch");
+     for (const [key, value] of Object.entries(patch)) {
+       if (!ENTERPRISE_ROUTE_KEYS.includes(key) || typeof value !== "string") throw new Error("Invalid enterprise route patch");
+       if (/[\r\n\0]/.test(value)) throw new Error("Invalid enterprise route value");
+       if (key === "vertexAuthSource" && value !== "adc" && value !== "apiKey") throw new Error("Invalid Vertex auth source");
+     }
+     if (Object.keys(patch).length === 0) throw new Error("Enterprise route patch is empty");
+     if (expected !== undefined && !isEnterpriseRouteSettings(expected)) throw new Error("Invalid expected enterprise route settings");
+     const epoch = expectedEpoch ?? envWriteEpoch;
+     if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+
+     let outcome;
+     const envPath = path.join(app.getPath("userData"), ".env");
+     const written = await enqueueEnvWrite(async () => {
+       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+       const current = this.getEnterpriseRouteSettings();
+       if (expected && ENTERPRISE_ROUTE_KEYS.some((key) => current[key] !== expected[key])) {
+         outcome = { success: false, conflict: true, current };
+         return;
+       }
+       const next = { ...current, ...patch };
+       const explicitValues = Object.fromEntries(
+         ENTERPRISE_ROUTE_KEYS.map((key) => [ENTERPRISE_ROUTE_ENV_KEYS[key], next[key]])
+       );
+       await this._writeEnvFile(envPath, explicitValues);
+       // This check and the complete RAM commit stay inside the shared queue:
+       // a following save-all cannot snapshot stale values after the rename.
+       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+       for (const key of ENTERPRISE_ROUTE_KEYS) {
+         const envKey = ENTERPRISE_ROUTE_ENV_KEYS[key];
+         if (next[key]) process.env[envKey] = next[key];
+         else delete process.env[envKey];
+       }
+       outcome = { success: true, current: next };
+     });
+     if (!written || envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+     return outcome;
+   }
+
+   // Replace the existing one-field saver bodies at :304, :336, :362 and
+   // :368. They share the same serialized durable path.
+   saveBedrockRegion(value) {
+     return this._commitEnterpriseRoutePatch({ bedrockRegion: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+   saveAzureEndpoint(value) {
+     return this._commitEnterpriseRoutePatch({ azureEndpoint: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+   saveVertexProject(value) {
+     return this._commitEnterpriseRoutePatch({ vertexProject: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+   saveVertexLocation(value) {
+     return this._commitEnterpriseRoutePatch({ vertexLocation: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+
    getVertexAuthSource() {
      const source = process.env.VERTEX_AUTH_SOURCE;
      return source === "adc" || source === "apiKey" ? source : null;
    }
 
-   // Main-only. An expected epoch is supplied only by startup migration; it
-   // prevents a paused migration from writing after reset has reopened the fence.
+   // Main-only. The shared transaction validates and persists the explicit
+   // prospective tuple before changing process.env. An expected epoch is
+   // supplied only by startup migration.
    saveVertexAuthSource(source, { expectedEpoch } = {}) {
      if (source !== "adc" && source !== "apiKey") throw new Error("Invalid Vertex auth source");
-     const epoch = expectedEpoch ?? envWriteEpoch;
-     const write = vertexAuthSourceQueue.catch(() => {}).then(async () => {
-       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
-       const previous = process.env.VERTEX_AUTH_SOURCE;
-       process.env.VERTEX_AUTH_SOURCE = source;
-       try {
-         await this.saveAllKeysToEnvFile({ expectedEpoch: epoch });
-         if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
-         return { success: true };
-       } catch (error) {
-         // A reset owns process.env once its epoch advances. Never restore a
-         // pre-reset source after clearAllPersistedData has erased it.
-         if (epoch === envWriteEpoch && process.env.VERTEX_AUTH_SOURCE === source) {
-           if (previous === undefined) delete process.env.VERTEX_AUTH_SOURCE;
-           else process.env.VERTEX_AUTH_SOURCE = previous;
-         }
-         throw error;
-       }
-     });
-     vertexAuthSourceQueue = write.catch(() => {});
-     return write;
+     return this._commitEnterpriseRoutePatch(
+       { vertexAuthSource: source },
+       { expectedEpoch } // migration only; omitted by public IPC
+     ).then(() => ({ success: true }));
    }
    ```
 
@@ -10529,19 +10669,112 @@ Closes **I5** (preview, commit and Undo describe different configurations) and *
 There is one computation, and nothing else may write a route:
 - **Shared provider switches.** `src/lib/providerSwitchPlans.ts` holds the provider-switch logic, extracted from the store's `switchCloudTranscriptionProvider` and `switchReasoningProvider`, including the per-provider model memory. Both store actions now call these planners and then `applyRoutePatch`, so the store and the planner run the same implementation.
 - **The planner.** `src/lib/routePlanner.ts` turns a target into the exact raw store writes (the patch). It simulates the patch on a copy of the state and resolves all 11 routes before and after. It lists every route whose destination, model, payload or state changes, including coupled ones: Note recording or Upload inheriting dictation, and assistant vision following the assistant. It also records the prior raw value of every written key (the Undo patch).
-- **One patch for everything.** Preview is the after-resolution of that patch. Commit is `applyRoutePatch(patch)`. Undo is `applyRoutePatch(undoPatch)`. They cannot disagree.
+- **One patch for everything.** Preview is the after-resolution of that patch. Commit and Undo both await `applyRoutePatch(patch)`. A patch with enterprise recipient settings is sent once to main with the complete old enterprise tuple as its compare-and-set expectation. Main atomically persists the prospective `.env` snapshot before materializing any new enterprise values; only an acknowledged success lets the renderer write localStorage/store state or announce success. A conflict refreshes the canonical non-secret tuple and keeps the draft for review; a write failure leaves both main and renderer on the previous tuple.
 - **Switches and options are planned too (I1 follow-up).** The enable switches (`useCleanupModel`, `useDictationTranslation`, `useDictationAgent`, `voiceAgentScreenContext`, `useDictationAgentVisionModel`), the Corti region and tenant (`cortiEnvironment`, `cortiTenant`) and the provider web-search preference (patch key `providerSearch:<scope>`, stored in localStorage as `personalWebSearch:<scope>`) are route-patch keys. Turning a route on counts as a new recipient when it ends off the device, so it stages. Switching a route off (or configuring a route that is off) sends nothing new, so it is instant. The vision override is the one switch that is not an on/off: either direction can move screenshots to another provider, and the planner stages that like any recipient change. A Corti region switch changes the speech host (`api.us.corti.app` ↔ `api.eu.corti.app`) and stages when a speech route uses Corti (Corti text always calls `ai.eu.corti.app`, Task 1's `providerHosts["corti:text"]`, so a text-only profile switches instantly); the tenant keeps the host and is instant. Web search on adds the `webSearch` payload part and stages; off is instant.
-- **Enterprise recipient settings are planned too (R2-1/R3-1).** `bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation` and `vertexAuthSource` (`ROUTE_ENTERPRISE_KEYS`) are route-patch keys. The persisted Vertex source is independent of secret presence: saving/removing/undoing a key changes readiness only, while a source change changes the express-vs-ADC recipient and stages across every active Vertex route, including inheriting scopes. `azureApiVersion` (query parameter only) and `bedrockProfile` (a credential source on the same host, refreshed through Task 2's presence) stay outside. `planPatch` adds coupled writes before diffing: a `bedrockRegion` write rewrites each Bedrock scope's geo-scoped model through `adjustBedrockModelForRegion`. `applyRoutePatch` persists all five keys through their preload savers. When main facts are unknown, a changed active route still counts as a recipient change and Apply stays blocked until facts load.
+- **Enterprise recipient settings are planned too (R2-1/R3-1).** `bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation` and `vertexAuthSource` (`ROUTE_ENTERPRISE_KEYS`) are route-patch keys. The persisted Vertex source is independent of secret presence: saving/removing/undoing a key changes readiness only, while a source change changes the express-vs-ADC recipient and stages across every active Vertex route, including inheriting scopes. `azureApiVersion` (query parameter only) and `bedrockProfile` (a credential source on the same host, refreshed through Task 2's presence) stay outside. `planPatch` adds coupled writes before diffing: a `bedrockRegion` write rewrites each Bedrock scope's geo-scoped model through `adjustBedrockModelForRegion`. `applyRoutePatch` sends the enterprise subset once through `saveEnterpriseRoutePatch({ patch, expected })`; `expected` is the complete old five-key non-secret tuple. Main compares it in the shared environment-write queue, atomically writes the prospective `.env` snapshot, then commits the in-memory tuple. A conflict returns the canonical tuple without writing, refreshes the renderer, and leaves the draft for re-review. The legacy single-field savers use the same serialized transaction path. When main facts are unknown, a changed active route still counts as a recipient change and Apply stays blocked until facts load.
 - **Apply readiness (R2-9, ROUTE side).** `routeBlocker` blocks every changed, enabled, off-device route that is not `ready`: `needsKey` blocks for Codex and the enterprise clouds too, and `needsModel` blocks with or without a size. Device and off routes never block. `SETUP_AFTER_APPLY` stays exported for copy only (Task 8's "sign in here first"); it no longer unblocks Apply.
 
 **Files:**
 - Create: `src/lib/providerSwitchPlans.ts`
 - Create: `src/lib/routePlanner.ts`
-- Modify: `src/stores/settingsStore.ts` (move the helpers at `:57-74` and `:80-116`; split `persistTranscriptionModelMemory`/`persistReasoningModelMemory` at `:1145-1153`; refactor the actions at `:1835-1889`; add `applyRoutePatch`)
+- Modify: `src/stores/settingsStore.ts` (move the helpers at `:57-74` and `:80-116`; split `persistTranscriptionModelMemory`/`persistReasoningModelMemory` at `:1145-1153`; refactor the actions at `:1835-1889`; add async `applyRoutePatch`)
+- Modify: `src/helpers/environment.js`, `src/helpers/ipcHandlers.js`, `preload.js`, `src/types/electron.ts` and `src/preview/browserPreview.ts` (one allowlisted `saveEnterpriseRoutePatch` IPC and the shared environment transaction; legacy enterprise field savers delegate to that transaction)
 - Modify: `src/utils/providerSearch.ts` (after Task 3's `PROVIDER_SEARCH_CHANGED_EVENT`: add `readProviderSearchPreference` and `writeProviderSearchPreference`; `isProviderSearchEnabled` `:9-12` reads through the first)
 - Create: `test/lib/routeStateFixture.js` (shared with Task 7)
-- Test: `test/lib/providerSwitchPlans.test.js`, `test/lib/routePlanner.test.js`
+- Test: `test/lib/providerSwitchPlans.test.js`, `test/lib/routePlanner.test.js`, `test/helpers/enterpriseRoutePatch.test.js` (atomic multi-field success/failure/conflict/reset cases)
 - Baseline guards re-run unchanged: `test/helpers/transcriptionModelMemory.test.js`, `test/helpers/reasoningModelMemory.test.js`, `test/helpers/tinfoilDefaultModel.test.js`, `test/lib/providerSearch.test.js`
+
+Create `test/helpers/enterpriseRoutePatch.test.js` against Task 2's `realCredentialEnv` harness. This executes the real transaction method with in-memory files and a held `.env` rename; it never loads a user profile or sends a request.
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { realCredentialEnv } = require("./harness/realCredentialEnv");
+
+const initial = {
+  BEDROCK_REGION: "us-east-1",
+  AZURE_OPENAI_ENDPOINT: "https://east.openai.azure.com/openai",
+  VERTEX_PROJECT: "acme-prod",
+  VERTEX_LOCATION: "us-central1",
+  VERTEX_AUTH_SOURCE: "adc",
+};
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const holdEnvRename = (fs) => fs.holdNext((op, name) => op === "rename" && name === ".env");
+
+test("enterprise route patches are expected-tuple, atomic and reset-fenced", async (t) => {
+  await t.test("the public transaction requires a complete expected tuple before any file write", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const valid = env.getEnterpriseRouteSettings();
+    for (const options of [undefined, {}, { expected: undefined }, { expected: null }, { expected: { ...valid, vertexProject: undefined } }]) {
+      assert.throws(() => env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, options), /expected/i);
+    }
+    assert.deepEqual(fs.log.filter((line) => line.includes(".env")), [], "invalid expectations produce no disk IO");
+  });
+
+  await t.test("one held multi-field rename keeps RAM and disk old until ACK, then commits the complete tuple", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const { path: envPath } = await env.saveAllKeysToEnvFile();
+    const beforeBytes = fs.files.get(envPath).toString("utf8");
+    const before = env.getEnterpriseRouteSettings();
+    holdEnvRename(fs);
+    const pending = env.saveEnterpriseRoutePatch({
+      azureEndpoint: "https://west.openai.azure.com/openai",
+      vertexAuthSource: "apiKey",
+    }, { expected: before });
+    const rename = await fs.nextHold();
+    assert.deepEqual(env.getEnterpriseRouteSettings(), before);
+    assert.equal(fs.files.get(envPath).toString("utf8"), beforeBytes);
+    rename.release();
+    const ack = await pending;
+    assert.deepEqual(ack, {
+      success: true,
+      current: { ...before, azureEndpoint: "https://west.openai.azure.com/openai", vertexAuthSource: "apiKey" },
+    });
+    assert.deepEqual(env.getEnterpriseRouteSettings(), ack.current);
+    assert.match(fs.files.get(envPath).toString("utf8"), /AZURE_OPENAI_ENDPOINT=https:\/\/west\.openai\.azure\.com\/openai/);
+    assert.match(fs.files.get(envPath).toString("utf8"), /VERTEX_AUTH_SOURCE=apiKey/);
+    assert.equal(fs.log.filter((line) => line === "rename .env").length, 2, "one seed write plus one patch rename");
+  });
+
+  await t.test("a stale expected tuple conflicts without writing and a failed rename restores the prior tuple", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const { path: envPath } = await env.saveAllKeysToEnvFile();
+    const before = env.getEnterpriseRouteSettings();
+    const beforeBytes = fs.files.get(envPath).toString("utf8");
+    const writesBefore = fs.log.filter((line) => line.startsWith("writeFile .env")).length;
+    const conflict = await env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, {
+      expected: { ...before, azureEndpoint: "https://other.openai.azure.com/openai" },
+    });
+    assert.deepEqual(conflict, { success: false, conflict: true, current: before });
+    assert.equal(fs.log.filter((line) => line.startsWith("writeFile .env")).length, writesBefore);
+
+    holdEnvRename(fs);
+    const failed = env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, { expected: before });
+    const rename = await fs.nextHold();
+    rename.fail(new Error("disk unavailable"));
+    await assert.rejects(failed, /disk unavailable/);
+    assert.deepEqual(env.getEnterpriseRouteSettings(), before);
+    assert.equal(fs.files.get(envPath).toString("utf8"), beforeBytes, "atomic rename failure leaves the old file intact");
+  });
+
+  await t.test("reset during a held rename rejects the patch and erases its late file", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const { path: envPath } = await env.saveAllKeysToEnvFile();
+    holdEnvRename(fs);
+    const pending = env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, {
+      expected: env.getEnterpriseRouteSettings(),
+    });
+    const rename = await fs.nextHold();
+    const reset = env.clearAllPersistedData();
+    await tick();
+    rename.release();
+    await assert.rejects(pending, { code: "ENV_RESET" });
+    await reset;
+    assert.equal(fs.files.has(envPath), false);
+    assert.equal(process.env.AZURE_OPENAI_ENDPOINT, undefined);
+  });
+});
+```
 
 **Interfaces:**
 - Consumes:
@@ -10585,7 +10818,18 @@ There is one computation, and nothing else may write a route:
   export function planTranscriptionProviderSwitch(state: SettingsState, context: TranscriptionPolicyContext, providerId: string): SettingsPatch;
   export function planReasoningProviderSwitch(state: SettingsState, scope: InferenceScope, providerId: string, fallbackModel?: string): SettingsPatch;
   // settingsStore.ts (store action)
-  applyRoutePatch: (patch: SettingsPatch) => void;  // one setState; persists every key (enterprise keys also to main); throws on secret or non-route keys before writing anything; never expands coupling, so an undoPatch applies verbatim
+  applyRoutePatch: (patch: SettingsPatch, options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }) => Promise<void>; // validates first, queues the whole patch, checks canCommit at queue admission before IPC, then awaits one main CAS before localStorage/setState; planner callers pass their reviewed tuple unchanged
+  flushRoutePatchSaves(): Promise<void>; // drains the full applyRoutePatch queue before Task 7 plans against live state
+  // src/types/electron.ts + preload.js + main IPC (NEW, R3-4 follow-up)
+  window.electronAPI.saveEnterpriseRoutePatch(input: {
+    patch: Partial<EnterpriseRouteSettings>;
+    expected: EnterpriseRouteSettings; // complete tuple from the reviewed/current renderer snapshot
+  }): Promise<EnterpriseRoutePatchAck>;
+  // EnvironmentManager applies the allowlisted patch to an explicit prospective
+  // .env snapshot on the module-wide reset-fenced write queue. It does not stage
+  // process.env before rename; after a successful same-epoch write it installs
+  // the entire tuple synchronously. Any existing single-field enterprise saver
+  // delegates to the same queue/commit helper.
   // src/lib/routePlanner.ts
   export type RouteTarget, RouteChange, ApplyBlocker, RoutePlan, PlanContext;  // exactly as Appendix A
   export const SETUP_AFTER_APPLY: ReadonlySet<string>;          // codex + enterprise; R2-9: copy only, never unblocks Apply
@@ -10764,7 +11008,7 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
   // Change-driving: the module does not exist yet. Each case plans a switch
   // on the live state, runs the store action, and requires the store to end
   // exactly at "before + patch". That shows one shared implementation.
-  await t.test("the store's switch actions commit exactly the planned patch", () => {
+  await t.test("the store's switch actions await and commit exactly the planned patch", async () => {
     const cases = [
       { setup: { cloudTranscriptionProvider: "custom", cloudTranscriptionModel: "parasail-whisper-v3" }, run: ["stt", "dictation", "groq"] },
       { setup: { transcriptionModelByProvider: { "dictation:groq": "whisper-large-v3-turbo" } }, run: ["stt", "dictation", "groq"] },
@@ -10784,8 +11028,8 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
           ? plans.planTranscriptionProviderSwitch(live(), scope, provider)
           : plans.planReasoningProviderSwitch(live(), scope, provider, fallback);
       assert.deepEqual(pick(live()), before, `${run.join(" ")}: planning writes nothing`);
-      if (kind === "stt") live().switchCloudTranscriptionProvider(scope, provider);
-      else live().switchReasoningProvider(scope, provider, fallback);
+      if (kind === "stt") await live().switchCloudTranscriptionProvider(scope, provider);
+      else await live().switchReasoningProvider(scope, provider, fallback);
       assert.deepEqual(pick(live()), { ...before, ...patch }, run.join(" "));
     }
   });
@@ -10809,11 +11053,11 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
   });
 
   // Change-driving: applyRoutePatch does not exist yet.
-  await t.test("applyRoutePatch writes every key in one setState and persists it", () => {
+  await t.test("applyRoutePatch writes every local key in one setState", async () => {
     reset();
     let notifications = 0;
     const unsubscribe = useSettingsStore.subscribe(() => notifications++);
-    live().applyRoutePatch({
+    await live().applyRoutePatch({
       chatAgentMode: "providers",
       chatAgentProvider: "openai",
       useDictationAgentVisionModel: true,
@@ -10829,21 +11073,21 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
     });
   });
 
-  await t.test("applyRoutePatch refuses secrets and non-route keys before writing anything", () => {
+  await t.test("applyRoutePatch refuses secrets and non-route keys before writing anything", async () => {
     reset();
-    assert.throws(() => live().applyRoutePatch({ cleanupMode: "providers", openaiApiKey: "sk-x" }), /secret/);
+    await assert.rejects(live().applyRoutePatch({ cleanupMode: "providers", openaiApiKey: "sk-x" }), /secret/);
     assert.equal(live().cleanupMode, "local", "nothing was written");
     assert.notEqual(live().openaiApiKey, "sk-x");
-    assert.throws(() => live().applyRoutePatch({ dictationAgentVisionMode: "local" }), /not a route setting/);
+    await assert.rejects(live().applyRoutePatch({ dictationAgentVisionMode: "local" }), /not a route setting/);
     for (const key of plans.ROUTE_PATCH_KEYS) {
       assert.doesNotMatch(key, /ApiKey$|ClientSecret$|ClientId$|AccessKeyId$|SecretAccessKey$|SessionToken$/, key);
     }
   });
 
   // Change-driving (I1 follow-up): these keys are outside v1's allowlist.
-  await t.test("applyRoutePatch writes enable switches and the Corti region like their old setters", () => {
+  await t.test("applyRoutePatch writes enable switches and the Corti region like their old setters", async () => {
     reset({ useCleanupModel: false, voiceAgentScreenContext: false });
-    live().applyRoutePatch({ useCleanupModel: true, voiceAgentScreenContext: true, cortiEnvironment: "eu", cortiTenant: "acme" });
+    await live().applyRoutePatch({ useCleanupModel: true, voiceAgentScreenContext: true, cortiEnvironment: "eu", cortiTenant: "acme" });
     assert.equal(live().useCleanupModel, true);
     assert.equal(live().cortiEnvironment, "eu");
     assert.equal(storage.getItem("useCleanupModel"), "true");
@@ -10852,25 +11096,32 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
     assert.equal(storage.getItem("cortiTenant"), "acme");
   });
 
-  // Change-driving (R2-1): the enterprise fields were written only by their setters,
-  // which also saved them to main (settingsStore.ts:2033-2097); v2's allowlist refused them.
-  await t.test("applyRoutePatch writes enterprise fields to the store, localStorage and main like their old setters", async () => {
+  // Change-driving (R3-4): a route patch may contain several recipient fields.
+  // Local state must not move until main's one atomic transaction acknowledges it.
+  await t.test("applyRoutePatch sends one expected-tuple transaction and commits local fields only after ACK", async () => {
     reset();
-    const saved = [];
+    const oldTuple = {
+      bedrockRegion: live().bedrockRegion,
+      azureEndpoint: live().azureEndpoint,
+      vertexProject: live().vertexProject,
+      vertexLocation: live().vertexLocation,
+      vertexAuthSource: live().vertexAuthSource,
+    };
+    let finish;
+    const calls = [];
     const previous = globalThis.window.electronAPI;
     globalThis.window.electronAPI = {
-      saveBedrockRegion: async (value) => saved.push(["bedrockRegion", value]),
-      saveAzureEndpoint: async (value) => saved.push(["azureEndpoint", value]),
-      saveVertexProject: async (value) => saved.push(["vertexProject", value]),
-      saveVertexLocation: async (value) => saved.push(["vertexLocation", value]),
-      saveVertexAuthSource: async (value) => saved.push(["vertexAuthSource", value]),
+      saveEnterpriseRoutePatch: (input) => {
+        calls.push(input);
+        return new Promise((resolve) => { finish = resolve; });
+      },
     };
     let notifications = 0;
     const unsubscribe = useSettingsStore.subscribe(() => notifications++);
     const { enterpriseLocalWriteCount } = await vite.ssrLoadModule("/stores/settingsStore.ts");
     const writesBefore = enterpriseLocalWriteCount();
     try {
-      live().applyRoutePatch({
+      const pending = live().applyRoutePatch({
         bedrockRegion: "eu-west-1",
         azureEndpoint: "https://myres.openai.azure.com/openai",
         vertexProject: "acme-prod",
@@ -10878,12 +11129,28 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
         vertexAuthSource: "apiKey",
         chatAgentModel: "eu.anthropic.claude-fable-5",
       });
+      assert.equal(live().azureEndpoint, "", "the renderer still shows the committed tuple while main is writing");
+      assert.equal(storage.getItem("azureEndpoint"), null, "localStorage does not run ahead of the main ACK");
+      assert.equal(notifications, 0, "subscribers see no partial route commit");
+      assert.equal(calls.length, 1, "all enterprise fields use one main transaction");
+      assert.deepEqual(calls[0], {
+        patch: {
+          bedrockRegion: "eu-west-1",
+          azureEndpoint: "https://myres.openai.azure.com/openai",
+          vertexProject: "acme-prod",
+          vertexLocation: "europe-west4",
+          vertexAuthSource: "apiKey",
+        },
+        expected: oldTuple,
+      });
+      finish({ success: true, current: { ...oldTuple, ...calls[0].patch } });
+      await pending;
     } finally {
       unsubscribe();
       globalThis.window.electronAPI = previous;
     }
     assert.equal(notifications, 1, "one setState");
-    assert.equal(enterpriseLocalWriteCount(), writesBefore + 1, "Task 3's main sync keeps this newer write");
+    assert.equal(enterpriseLocalWriteCount(), writesBefore + 1, "Task 3's main sync keeps this acknowledged write");
     assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai");
     assert.equal(live().chatAgentModel, "eu.anthropic.claude-fable-5", "applyRoutePatch never adds coupled writes");
     for (const [key, value] of [
@@ -10895,20 +11162,82 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
     ]) {
       assert.equal(storage.getItem(key), value, key);
     }
-    assert.deepEqual(
-      saved.sort(),
-      [
-        ["azureEndpoint", "https://myres.openai.azure.com/openai"],
-        ["bedrockRegion", "eu-west-1"],
-        ["vertexLocation", "europe-west4"],
-        ["vertexProject", "acme-prod"],
-        ["vertexAuthSource", "apiKey"],
-      ],
-      "main receives exactly the enterprise keys, once each"
-    );
     assert.deepEqual([...plans.ROUTE_ENTERPRISE_KEYS], ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation", "vertexAuthSource"]);
-    assert.throws(() => live().applyRoutePatch({ azureApiVersion: "2025-01-01" }), /not a route setting/, "the API version keeps the host");
-    assert.throws(() => live().applyRoutePatch({ azureApiKey: "x" }), /secret/);
+    await assert.rejects(live().applyRoutePatch({ azureApiVersion: "2025-01-01" }), /not a route setting/, "the API version keeps the host");
+    await assert.rejects(live().applyRoutePatch({ azureApiKey: "x" }), /secret/);
+  });
+
+  await t.test("an enterprise write rejection leaves the previous renderer tuple and localStorage untouched", async () => {
+    reset({ azureEndpoint: "https://east.openai.azure.com/openai" });
+    storage.setItem("azureEndpoint", "https://east.openai.azure.com/openai");
+    const before = { ...live() };
+    const previous = globalThis.window.electronAPI;
+    globalThis.window.electronAPI = { saveEnterpriseRoutePatch: async () => { throw new Error("disk unavailable"); } };
+    try {
+      await assert.rejects(
+        live().applyRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }),
+        /disk unavailable/
+      );
+    } finally {
+      globalThis.window.electronAPI = previous;
+    }
+    assert.equal(live().azureEndpoint, before.azureEndpoint);
+    assert.equal(storage.getItem("azureEndpoint"), "https://east.openai.azure.com/openai");
+  });
+
+  await t.test("a conflict refresh fences an older pending first-read snapshot", async (t) => {
+    // Use a fresh module graph so Task 3's one-time getter read is genuinely pending.
+    const isolated = await createRendererServer(t, { cachePrefix: "loqui-enterprise-conflict-startup-race-" });
+    const { useSettingsStore: isolatedStore } = await isolated.ssrLoadModule("/stores/settingsStore.ts");
+    const { loadRouteFacts } = await isolated.ssrLoadModule("/stores/routeFactsStore.ts");
+    const { enterpriseLocalWriteCount } = await isolated.ssrLoadModule("/stores/settingsStore.ts");
+    const stale = {
+      bedrockRegion: "us-east-1",
+      azureEndpoint: "https://old.example.com/openai",
+      vertexProject: "",
+      vertexLocation: "us-central1",
+      vertexAuthSource: "adc",
+    };
+    const canonical = { ...stale, azureEndpoint: "https://other-window.example.com/openai" };
+    isolatedStore.setState({ ...routeBaseState(), ...stale });
+    let finishOldRead;
+    const slowEndpoint = new Promise((resolve) => { finishOldRead = resolve; });
+    const initialRead = loadRouteFacts({
+      getBedrockRegion: async () => stale.bedrockRegion,
+      getAzureEndpoint: () => slowEndpoint,
+      getVertexProject: async () => stale.vertexProject,
+      getVertexLocation: async () => stale.vertexLocation,
+      getVertexAuthSource: async () => stale.vertexAuthSource,
+      enterpriseRouteFacts: async () => ({
+        bedrockEndpoint: { set: false, host: null },
+        bedrockProfile: false,
+        vertexApiKeyEnv: false,
+        vertexProjectEnv: false,
+      }),
+    }, ["enterprise"]);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const previous = globalThis.window.electronAPI;
+    globalThis.window.electronAPI = {
+      saveEnterpriseRoutePatch: async ({ expected }) => {
+        assert.deepEqual(expected, stale);
+        return { success: false, conflict: true, current: canonical };
+      },
+    };
+    const writesBefore = enterpriseLocalWriteCount();
+    try {
+      await assert.rejects(
+        isolatedStore.getState().applyRoutePatch({ azureEndpoint: "https://attempt.example.com/openai" }, { expectedEnterprise: stale }),
+        /changed/
+      );
+      assert.equal(enterpriseLocalWriteCount(), writesBefore + 1, "conflict refresh increments the startup-sync fence");
+      assert.equal(isolatedStore.getState().azureEndpoint, canonical.azureEndpoint);
+      finishOldRead(stale.azureEndpoint);
+      await initialRead;
+      assert.equal(isolatedStore.getState().azureEndpoint, canonical.azureEndpoint, "the older initial read cannot roll back main's canonical tuple");
+    } finally {
+      globalThis.window.electronAPI = previous;
+    }
   });
 
   // Change-driving (R2-1): the region's model rewrite lived only in EnterpriseProviderConfig.tsx:115-118.
@@ -10950,19 +11279,19 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
   });
 
   // Change-driving (I1 follow-up): the preference lived only in the toggle's useLocalStorage.
-  await t.test("a web-search patch writes the localStorage preference and announces it", () => {
+  await t.test("a web-search patch writes the localStorage preference and announces it", async () => {
     reset();
     events.length = 0;
     let notifications = 0;
     const unsubscribe = useSettingsStore.subscribe(() => notifications++);
-    live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
+    await live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
     unsubscribe();
     assert.equal(storage.getItem("personalWebSearch:chatIntelligence"), "true");
     assert.deepEqual(events, ["loqui-provider-search-changed"]);
     assert.equal(notifications, 0, "the preference is not a store field");
     assert.equal(plans.providerSearchScope("providerSearch:dictationAgent"), "dictationAgent");
     assert.equal(plans.providerSearchScope("chatAgentMode"), null);
-    assert.throws(() => live().applyRoutePatch({ "providerSearch:noteFormatting": true }), /not a route setting/);
+    await assert.rejects(live().applyRoutePatch({ "providerSearch:noteFormatting": true }), /not a route setting/);
   });
 });
 ```
@@ -11363,7 +11692,29 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    }
    ```
 
-2. Modify `src/stores/settingsStore.ts`:
+2. Add the public atomic route transaction in `src/helpers/ipcHandlers.js`, `preload.js`, `src/types/electron.ts` and `src/preview/browserPreview.ts`:
+
+   - Register `save-enterprise-route-patch` beside the enterprise settings handlers. Await `vertexAuthSourceReady` before using any configuration. Reject payloads unless they have exactly `patch` and `expected`; pass only those values to `environmentManager.saveEnterpriseRoutePatch(input.patch, { expected: input.expected })`. The environment validates the exact five-key expected tuple and the allowlisted string patch. Do not accept an epoch from renderer input.
+   - Add `saveEnterpriseRoutePatch(input)` to preload, invoking that channel exactly once. Keep the existing per-field handlers for compatibility; Task 2 routes them through the same serialized transaction. Do not fan one renderer patch out into multiple IPC calls.
+   - In `src/types/electron.ts`, define the non-secret shape and discriminated acknowledgement:
+
+     ```ts
+     export type VertexAuthSource = "adc" | "apiKey";
+     export interface EnterpriseRouteSettings {
+       bedrockRegion: string;
+       azureEndpoint: string;
+       vertexProject: string;
+       vertexLocation: string;
+       vertexAuthSource: VertexAuthSource;
+     }
+     export type EnterpriseRoutePatchAck =
+       | { success: true; current: EnterpriseRouteSettings }
+       | { success: false; conflict: true; current: EnterpriseRouteSettings };
+     ```
+
+     Add the optional Electron method with input `{ patch: Partial<EnterpriseRouteSettings>; expected: EnterpriseRouteSettings }` and result `Promise<EnterpriseRoutePatchAck>`. The browser preview stub returns `{ success: true, current: { ...expected, ...patch } }` and carries no credentials.
+
+3. Modify `src/stores/settingsStore.ts`:
 
    a. Delete the block at `:57-74`, from `// Independent task slots used only when the user changes a provider.` through the closing `] as const;` of `TRANSCRIPTION_CONTEXT_KEYS`. Also delete `:80-116`, from `function transcriptionProviderModels(` through the closing `}` of `reasoningModelBelongsToProvider`. Keep `localLlmProviderIds` (`:76-78`), which `deriveLegacyReasoningMode` (`:315`) still uses.
 
@@ -11371,6 +11722,7 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
 
    ```ts
    import {
+     ROUTE_ENTERPRISE_KEYS,
      ROUTE_PATCH_KEY_SET,
      TRANSCRIPTION_CONTEXT_KEYS,
      type RouteEnterpriseKey,
@@ -11380,24 +11732,14 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
      reasoningModelBelongsToProvider,
      type SettingsPatch,
    } from "../lib/providerSwitchPlans";
+   import type { EnterpriseRouteSettings } from "../types/electron";
    import { writeProviderSearchPreference } from "../utils/providerSearch";
    ```
 
-   After `const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";` (`:55`), add the re-export that keeps `OnboardingFlow.tsx:14` working, and the preload savers `applyRoutePatch` calls for enterprise keys (R2-1; the same methods the setters at `:2033-2097` call):
+   After `const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";` (`:55`), add the re-export that keeps `OnboardingFlow.tsx:14` working. Remove the per-key `ENTERPRISE_MAIN_SAVERS` map; `applyRoutePatch` calls one typed preload transaction for all changed enterprise fields.
 
    ```ts
    export { reasoningModelBelongsToProvider };
-
-   const ENTERPRISE_MAIN_SAVERS: Record<
-     RouteEnterpriseKey,
-     "saveBedrockRegion" | "saveAzureEndpoint" | "saveVertexProject" | "saveVertexLocation" | "saveVertexAuthSource"
-   > = {
-     bedrockRegion: "saveBedrockRegion",
-     azureEndpoint: "saveAzureEndpoint",
-     vertexProject: "saveVertexProject",
-     vertexLocation: "saveVertexLocation",
-     vertexAuthSource: "saveVertexAuthSource",
-   };
    ```
 
    The four setters (`setBedrockRegion`, `setAzureEndpoint`, `setVertexProject`, `setVertexLocation`) stay for non-route callers. Task 9 moves `EnterpriseProviderConfig`'s calls to `requestRoutePatch`, and Task 18's guard forbids them in Settings components.
@@ -11407,8 +11749,8 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    c. In `SettingsState`, directly after the `switchReasoningProvider` member (`:997-1001`), add:
 
    ```ts
-     /** The only writer of route settings: one setState, every key persisted. Throws on secrets. */
-     applyRoutePatch: (patch: SettingsPatch) => void;
+     /** The only writer of route settings; enterprise writes acknowledge main before local commit. */
+     applyRoutePatch: (patch: SettingsPatch, options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }) => Promise<void>;
    ```
 
    d. Replace `persistTranscriptionModelMemory` and `persistReasoningModelMemory` (`:1145-1153`) with the following. `persistReasoningModelMemory` loses its only caller, so it is removed. The onboarding seed (`:2432`) keeps `persistTranscriptionModelMemory`.
@@ -11427,72 +11769,128 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    }
    ```
 
+   Add one queue for complete route patches. The planner is evaluated only when its operation reaches the queue head, and a staged plan passes the exact five-field tuple it reviewed. A stale plan therefore conflicts instead of silently adopting a newer base. `flushRoutePatchSaves` drains until no queued operation was added while waiting.
+
+   ```ts
+   let routePatchQueue: Promise<void> = Promise.resolve();
+
+   type RoutePatchOptions = {
+     expectedEnterprise?: EnterpriseRouteSettings;
+     // Renderer-only admission predicate. Never crosses IPC. Task 7 uses it
+     // to prevent a closed/replaced request from sending a patch while queued.
+     canCommit?: () => boolean;
+   };
+
+   function assertRoutePatchAdmission(options?: RoutePatchOptions): void {
+     if (options?.canCommit && !options.canCommit()) {
+       throw Object.assign(new Error("Route request was superseded before commit"), {
+         code: "ROUTE_PATCH_SUPERSEDED",
+       });
+     }
+   }
+
+   function enqueueRoutePatch<T>(operation: () => Promise<T>): Promise<T> {
+     const queued = routePatchQueue.catch(() => {}).then(operation);
+     routePatchQueue = queued.then(() => undefined, () => undefined);
+     return queued;
+   }
+
+   export async function flushRoutePatchSaves(): Promise<void> {
+     for (;;) {
+       const pending = routePatchQueue;
+       await pending;
+       if (pending === routePatchQueue) return;
+     }
+   }
+
+   function runRoutePatchAtHead(
+     buildPatch: (state: SettingsState) => SettingsPatch,
+     options?: RoutePatchOptions
+   ): Promise<void> {
+     return enqueueRoutePatch(async () => {
+       // Check before planning and again immediately before the first write.
+       // There is no await between the second check and starting IPC.
+       assertRoutePatchAdmission(options);
+       const state = useSettingsStore.getState();
+       await applyRoutePatchNow(buildPatch(state), options);
+     });
+   }
+
+   async function applyRoutePatchNow(
+     patch: SettingsPatch,
+     options?: RoutePatchOptions
+   ): Promise<void> {
+     const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+     for (const [key] of entries) {
+       if ((STALE_SECRET_LOCALSTORAGE_KEYS as readonly string[]).includes(key)) {
+         throw new Error(`applyRoutePatch: ${key} is a secret and never part of a route patch`);
+       }
+       if (!ROUTE_PATCH_KEY_SET.has(key)) throw new Error(`applyRoutePatch: ${key} is not a route setting`);
+     }
+     if (entries.length === 0) return;
+     const storeEntries = entries.filter(([key]) => providerSearchScope(key) === null);
+     const enterpriseEntries = storeEntries.filter(([key]) => ROUTE_ENTERPRISE_KEYS.includes(key as RouteEnterpriseKey));
+     // A queued stale request may fail closed here without contacting main or
+     // writing local state. Once saveEnterpriseRoutePatch starts, however, an
+     // ACK is durable and must be reflected even if the request later expires.
+     assertRoutePatchAdmission(options);
+     if (enterpriseEntries.length > 0 && isBrowser) {
+       const save = window.electronAPI?.saveEnterpriseRoutePatch;
+       if (!save) throw new Error("Enterprise route persistence is unavailable");
+       const current = useSettingsStore.getState();
+       const expected = options?.expectedEnterprise ?? Object.fromEntries(
+         ROUTE_ENTERPRISE_KEYS.map((key) => [key, current[key]])
+       ) as EnterpriseRouteSettings;
+       const enterprisePatch = Object.fromEntries(enterpriseEntries) as Partial<EnterpriseRouteSettings>;
+       const ack = await save({ patch: enterprisePatch, expected });
+       if (!ack.success) {
+         // The canonical tuple came from main after a competing window's
+         // commit. Fence Task 3's older startup getter read before refreshing
+         // renderer state, or that read could put the stale tuple back.
+         noteEnterpriseLocalWrite();
+         for (const key of ROUTE_ENTERPRISE_KEYS) localStorage.setItem(key, String(ack.current[key]));
+         useSettingsStore.setState(ack.current);
+         throw Object.assign(new Error("Enterprise route settings changed; review the draft again"), {
+           code: "ENTERPRISE_ROUTE_CONFLICT",
+           current: ack.current,
+         });
+       }
+       // Task 3's startup sync must not overwrite this newly committed tuple.
+       noteEnterpriseLocalWrite();
+     }
+     for (const [key, value] of storeEntries) {
+       if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
+         writeModelMemoryStorage(key, value as Record<string, string>);
+       } else if (isBrowser) {
+         localStorage.setItem(key, String(value));
+       }
+     }
+     if (storeEntries.length > 0) useSettingsStore.setState(Object.fromEntries(storeEntries) as Partial<SettingsState>);
+     for (const [key, value] of entries) {
+       const scope = providerSearchScope(key);
+       if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
+     }
+   }
+   ```
+
    e. Replace the two actions at `:1832-1889`, from the comment `// Every provider shares one model slot per scope, …` through the closing `},` of `switchReasoningProvider`, with:
 
    ```ts
      // Provider switches remember the outgoing model and restore the incoming
      // one; the logic lives in providerSwitchPlans.ts so the route planner
      // previews exactly what these actions commit.
-     switchCloudTranscriptionProvider: (context, providerId) => {
-       const s = useSettingsStore.getState();
-       s.applyRoutePatch(planTranscriptionProviderSwitch(s, context, providerId));
-     },
+     switchCloudTranscriptionProvider: (context, providerId) =>
+       runRoutePatchAtHead((state) => planTranscriptionProviderSwitch(state, context, providerId)),
 
-     switchReasoningProvider: (scope, providerId, fallbackModel = "") => {
-       const s = useSettingsStore.getState();
-       s.applyRoutePatch(planReasoningProviderSwitch(s, scope, providerId, fallbackModel));
-     },
+     switchReasoningProvider: (scope, providerId, fallbackModel = "") =>
+       runRoutePatchAtHead((state) => planReasoningProviderSwitch(state, scope, providerId, fallbackModel)),
 
-     applyRoutePatch: (patch) => {
-       const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
-       // Validate everything first, so a refused patch writes nothing.
-       for (const [key] of entries) {
-         if ((STALE_SECRET_LOCALSTORAGE_KEYS as readonly string[]).includes(key)) {
-           throw new Error(`applyRoutePatch: ${key} is a secret and never part of a route patch`);
-         }
-         if (!ROUTE_PATCH_KEY_SET.has(key)) {
-           throw new Error(`applyRoutePatch: ${key} is not a route setting`);
-         }
-       }
-       if (entries.length === 0) return;
-       const storeEntries = entries.filter(([key]) => providerSearchScope(key) === null);
-       for (const [key, value] of storeEntries) {
-         if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
-           writeModelMemoryStorage(key, value as Record<string, string>);
-         } else if (isBrowser) {
-           // Booleans as "true"/"false" and strings as-is: the same format as
-           // createBooleanSetter/createStringSetter (:1138-1176).
-           localStorage.setItem(key, String(value));
-         }
-       }
-       if (storeEntries.length > 0) set(Object.fromEntries(storeEntries) as Partial<SettingsState>);
-       // R2-1: main hands the enterprise fields to the executor (main.js:447-457),
-       // so they go to main through the same savers their setters called
-       // (:2033-2097). Errors are logged like debouncedPersistToEnv's.
-       let enterpriseWritten = false;
-       for (const [key, value] of storeEntries) {
-         const saver = ENTERPRISE_MAIN_SAVERS[key as RouteEnterpriseKey];
-         if (!saver || !isBrowser) continue;
-         // Task 3's startup sync from main must not overwrite this newer write.
-         if (!enterpriseWritten) noteEnterpriseLocalWrite();
-         enterpriseWritten = true;
-         Promise.resolve(window.electronAPI?.[saver]?.(value as string)).catch((err) => {
-           logger.warn("Failed to save an enterprise setting", { key, error: (err as Error).message }, "settings");
-         });
-       }
-       if (enterpriseWritten) debouncedPersistToEnv();
-       // The web-search preference is not a store field. Written after the store,
-       // so listeners of its change event read the patched settings.
-       for (const [key, value] of entries) {
-         const scope = providerSearchScope(key);
-         if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
-       }
-     },
+     applyRoutePatch: (patch, options) => runRoutePatchAtHead(() => patch, options),
    ```
 
    `STALE_SECRET_LOCALSTORAGE_KEYS` (`:1298-1325`) is the store's complete list of secret field names. It is module-scoped and initialised before any action can run. The switch and Corti keys were written by `createBooleanSetter`/`createStringSetter` (`:1720`, `:1794-1795`, `:1895-1896`, `:2011-2012`); `applyRoutePatch` persists them the same way, so nothing else reading them changes.
 
-3. In `src/utils/providerSearch.ts`, after Task 3's `PROVIDER_SEARCH_CHANGED_EVENT`, add the reader and the one writer, and make `isProviderSearchEnabled` read through the reader:
+4. In `src/utils/providerSearch.ts`, after Task 3's `PROVIDER_SEARCH_CHANGED_EVENT`, add the reader and the one writer, and make `isProviderSearchEnabled` read through the reader:
 
    ```ts
    export function readProviderSearchPreference(scope: string): boolean {
@@ -11624,7 +12022,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I5): v1's local target carried no provider/model, so Undo cleared a working local setup.
-  await t.test("local → remote → Undo restores the local selection exactly", () => {
+  await t.test("local → remote → Undo restores the local selection exactly", async () => {
     const cases = [
       ["chat", { mode: "providers", provider: "openai" }],
       ["dictationStt", { mode: "providers", provider: "openai" }],
@@ -11635,11 +12033,11 @@ test("route planner", async (t) => {
       reset({ whisperModel: "small", chatAgentModel: "qwen3.5-9b-q4_k_m" });
       const before = routeKeys();
       const forward = plan(id, target);
-      live().applyRoutePatch(forward.patch);
+      await live().applyRoutePatch(forward.patch);
       assert.notDeepEqual(routeKeys(), before, `${id}: moved`);
       const back = planner.planPatch(live(), ctx(), id, forward.undoPatch);
       assert.equal(back.kind, "instant", `${id}: moving back to this device is instant`);
-      live().applyRoutePatch(forward.undoPatch);
+      await live().applyRoutePatch(forward.undoPatch);
       assert.deepEqual(routeKeys(), before, `${id}: every key restored`);
     }
   });
@@ -11769,7 +12167,7 @@ test("route planner", async (t) => {
   };
 
   // Change-driving (R2-1): v2's allowlist refused azureEndpoint and the graph gave Azure no host.
-  await t.test("an Azure endpoint change on the active route is an off-device recipient change: it stages", () => {
+  await t.test("an Azure endpoint change on the active route is an off-device recipient change: it stages", async () => {
     reset({ ...azureScope("chatAgent"), azureEndpoint: "https://myres.openai.azure.com/openai" });
     const p = planner.planPatch(live(), ctx(azureKey), "chat", { azureEndpoint: "https://other.example.com/openai" });
     assert.equal(p.kind, "staged");
@@ -11789,9 +12187,9 @@ test("route planner", async (t) => {
     assert.equal(samePlace.kind, "instant", "a path-only edit keeps the recipient");
     assert.deepEqual(samePlace.changes, []);
 
-    live().applyRoutePatch(p.patch);
+    await live().applyRoutePatch(p.patch);
     assert.equal(resolveLive().find((r) => r.id === "chat").host, "other.example.com", "commit is the preview");
-    live().applyRoutePatch(p.undoPatch);
+    await live().applyRoutePatch(p.undoPatch);
     assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai", "Undo restores the endpoint exactly");
 
     reset({ azureEndpoint: "https://myres.openai.azure.com/openai" });
@@ -11867,7 +12265,7 @@ test("route planner", async (t) => {
     assert.equal(project.kind, "staged", "the project names the recipient account");
   });
 
-  await t.test("Vertex source edits stage across coupled active routes and Apply/Undo use that exact source", () => {
+  await t.test("Vertex source edits stage across coupled active routes and Apply/Undo use that exact source", async () => {
     reset({
       chatAgentMode: "enterprise", chatAgentProvider: "vertex", chatAgentModel: "gemini-2.5-flash",
       noteFormattingMode: "enterprise", noteFormattingProvider: "vertex", noteFormattingModel: "gemini-2.5-flash",
@@ -11889,9 +12287,9 @@ test("route planner", async (t) => {
     assert.deepEqual(p.patch, { vertexAuthSource: "apiKey" });
     assert.deepEqual(p.undoPatch, { vertexAuthSource: "adc" });
     assert.equal(live().vertexAuthSource, "adc", "planning leaves main/store unchanged");
-    live().applyRoutePatch(p.patch);
+    await live().applyRoutePatch(p.patch);
     assert.equal(resolveLive().find((r) => r.id === "chat").host, "aiplatform.googleapis.com", "Apply commits the previewed recipient");
-    live().applyRoutePatch(p.undoPatch);
+    await live().applyRoutePatch(p.undoPatch);
     assert.equal(live().vertexAuthSource, "adc", "Undo restores the committed source");
     assert.equal(resolveLive().find((r) => r.id === "chat").host, "europe-west4-aiplatform.googleapis.com");
   });
@@ -11919,7 +12317,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (R2-1): the region's model rewrite lived only in EnterpriseProviderConfig.tsx:115-118.
-  await t.test("a Bedrock region change adds the model adjustment to the same patch, and Undo is exact", () => {
+  await t.test("a Bedrock region change adds the model adjustment to the same patch, and Undo is exact", async () => {
     const bedrockKey = { facts: { credentials: new Map([["bedrock", true]]) } };
     reset({
       bedrockRegion: "us-east-1",
@@ -11947,12 +12345,12 @@ test("route planner", async (t) => {
     assert.equal(change(p, "noteFormatting").coupled, true, "the other Bedrock route changes region too");
     assert.equal(change(p, "noteFormatting").after.host, "bedrock-runtime.eu-west-1.amazonaws.com");
 
-    live().applyRoutePatch(p.patch);
+    await live().applyRoutePatch(p.patch);
     assert.equal(live().chatAgentModel, "eu.anthropic.claude-fable-5");
     // Task 7's Undo re-plans the undoPatch against the live state.
     const back = planner.planPatch(live(), ctx(bedrockKey), "chat", p.undoPatch);
     assert.deepEqual(back.patch, { bedrockRegion: "us-east-1", chatAgentModel: "us.anthropic.claude-fable-5" });
-    live().applyRoutePatch(back.patch);
+    await live().applyRoutePatch(back.patch);
     assert.deepEqual(routeKeys(), before, "every key restored");
 
     // A profile id that never matched its region is restored too, not "fixed" by the Undo.
@@ -11960,8 +12358,8 @@ test("route planner", async (t) => {
     const mismatched = routeKeys();
     const forward = planner.planPatch(live(), ctx(bedrockKey), "chat", { bedrockRegion: "eu-west-1" });
     assert.deepEqual(forward.patch, { bedrockRegion: "eu-west-1" }, "already an eu.* id");
-    live().applyRoutePatch(forward.patch);
-    live().applyRoutePatch(planner.planPatch(live(), ctx(bedrockKey), "chat", forward.undoPatch).patch);
+    await live().applyRoutePatch(forward.patch);
+    await live().applyRoutePatch(planner.planPatch(live(), ctx(bedrockKey), "chat", forward.undoPatch).patch);
     assert.deepEqual(routeKeys(), mismatched);
 
     // Switching to Bedrock picks the profile id for the region the state holds.
@@ -12001,7 +12399,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I1 follow-up): the assistant's switches change who receives screenshots.
-  await t.test("assistant switches: screen context adds the screenshot; the vision override moves it", () => {
+  await t.test("assistant switches: screen context adds the screenshot; the vision override moves it", async () => {
     const cloudAssistant = { dictationAgentMode: "providers", dictationAgentProvider: "openai", dictationAgentModel: "gpt-6-astra" };
     reset({ ...cloudAssistant, voiceAgentScreenContext: false });
     const screen = planner.planPatch(live(), ctx(), "voiceAssistant", { voiceAgentScreenContext: true });
@@ -12022,7 +12420,7 @@ test("route planner", async (t) => {
     const override = planner.planPatch(live(), ctx(), "assistantVision", { useDictationAgentVisionModel: true });
     assert.equal(override.kind, "staged", "screenshots move to Anthropic");
     assert.equal(change(override, "assistantVision").after.providerId, "anthropic");
-    live().applyRoutePatch(override.patch);
+    await live().applyRoutePatch(override.patch);
     const follow = planner.planPatch(live(), ctx(), "assistantVision", { useDictationAgentVisionModel: false });
     assert.equal(follow.kind, "staged", "following the assistant again sends screenshots to OpenAI");
     assert.equal(change(follow, "assistantVision").after.providerId, "openai");
@@ -12059,7 +12457,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I1 follow-up): the toggle wrote localStorage directly and added webSearch unreviewed.
-  await t.test("provider web search: on adds a payload part and stages; off is instant", () => {
+  await t.test("provider web search: on adds a payload part and stages; off is instant", async () => {
     const key = "providerSearch:chatIntelligence";
     reset(OPENAI_CHAT);
     const on = planner.planPatch(live(), ctx(), "chat", { [key]: true });
@@ -12068,7 +12466,7 @@ test("route planner", async (t) => {
     assert.match(change(on, "chat").after.sends, /<webSearch>/);
     assert.deepEqual(on.undoPatch, { [key]: false }, "Undo restores the stored preference");
 
-    live().applyRoutePatch(on.patch);
+    await live().applyRoutePatch(on.patch);
     assert.equal(storage.getItem("personalWebSearch:chatIntelligence"), "true");
     assert.equal(planner.planPatch(live(), ctx(), "chat", { [key]: true }).kind, "noop");
     const off = planner.planPatch(live(), ctx(), "chat", { [key]: false });
@@ -12082,7 +12480,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I5): the preview must be the state that commit produces.
-  await t.test("preview equals the state after applying the patch, and Undo returns to the start", () => {
+  await t.test("preview equals the state after applying the patch, and Undo returns to the start", async () => {
     const start = {
       transcriptionMode: "providers",
       useLocalWhisper: false,
@@ -12116,14 +12514,14 @@ test("route planner", async (t) => {
       reset(start);
       const before = resolveLive();
       const p = plan(id, target);
-      live().applyRoutePatch(p.patch);
+      await live().applyRoutePatch(p.patch);
       for (const route of resolveLive()) {
         const c = change(p, route.id);
         const expected = c ? c.after : before.find((r) => r.id === route.id);
         assert.deepEqual(route, expected, `${id} → ${JSON.stringify(target)}: ${route.id}`);
         if (c) assert.deepEqual(c.before, before.find((r) => r.id === route.id));
       }
-      live().applyRoutePatch(p.undoPatch);
+      await live().applyRoutePatch(p.undoPatch);
       assert.deepEqual(resolveLive(), before, `${id}: Undo returns every route`);
     }
   });
@@ -12143,7 +12541,7 @@ Create `src/lib/routePlanner.ts`:
 import { INFERENCE_SCOPES } from "../config/inferenceScopes";
 import { isProviderValidForMode } from "../models/ModelRegistry";
 import type { SettingsState } from "../stores/settingsStore";
-import type { InferenceMode, LocalTranscriptionProvider } from "../types/electron";
+import type { EnterpriseRouteSettings, InferenceMode, LocalTranscriptionProvider } from "../types/electron";
 import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
 import { readProviderSearchPreference, supportsProviderSearch } from "../utils/providerSearch";
 import {
@@ -12199,6 +12597,7 @@ export type ApplyBlocker =
 
 export interface RoutePlan {
   routeId: RouteId;
+  enterpriseBase: EnterpriseRouteSettings; // exact non-secret tuple this preview/review was computed against; Task 7 passes it unchanged to the main CAS
   patch: SettingsPatch;
   undoPatch: SettingsPatch;
   changes: RouteChange[];
@@ -12590,8 +12989,15 @@ export function planPatch(
       if (!(key in undo)) undo[key as string] = state[key];
     }
   }
+  const enterpriseBase: EnterpriseRouteSettings = {
+    bedrockRegion: state.bedrockRegion || "us-east-1",
+    azureEndpoint: state.azureEndpoint || "",
+    vertexProject: state.vertexProject || "",
+    vertexLocation: state.vertexLocation || "us-central1",
+    vertexAuthSource: state.vertexAuthSource,
+  };
   if (Object.keys(written).length === 0) {
-    return { routeId, patch: {}, undoPatch: {}, changes: [], kind: "noop", blocker: null };
+    return { routeId, enterpriseBase, patch: {}, undoPatch: {}, changes: [], kind: "noop", blocker: null };
   }
 
   const beforeSnapshot = buildRouteSnapshot(state, ctx.facts, ctx.copy, ctx.sealed);
@@ -12620,6 +13026,7 @@ export function planPatch(
 
   return {
     routeId,
+    enterpriseBase,
     patch: written as SettingsPatch,
     undoPatch: undo as SettingsPatch,
     changes,
@@ -12677,7 +13084,7 @@ git commit -m "feat(routes): Plan route changes as one patch for preview, commit
 Closes **I1** (store core: classification by the planner's effective result, not by `target.mode`), **I3** (planning waits for acknowledged key saves and then reads main's credential presence) and **I14** (plans read the single sealed authority). It completes **I5** for Undo. I1 follow-up: `requestRoutePatch` gives the enable switches, the Corti region and tenant, and the provider web-search preference the same instant/staged/noop rules as a route change.
 
 Every way of changing a route (the mode selectors, pickers, endpoint fields, enable switches, Corti region and web-search toggle in Tasks 8–9, the Patchbay in Task 10) calls this module. The rules:
-- **Planning.** A request first awaits `flushSecretSaves()` (Task 2), then `refreshRouteFacts(["credentials"])` (Task 3), so a key saved a moment ago counts as present without waiting for main's `credentials-changed` event. It is then planned against the live settings, main's facts and `getSealed()`.
+- **Planning.** A request first awaits `flushRoutePatchSaves()` (Task 6), `flushSecretSaves()` (Task 2), then `refreshRouteFacts(["credentials"])` (Task 3), so a prior enterprise ACK and a just-saved key are visible before it plans against live settings, main's facts and `getSealed()`. Each enterprise plan carries its exact five-field `enterpriseBase` tuple; Task 6 passes that reviewed base unchanged to main's CAS.
 - **Two entry points.** `requestRouteChange(id, target, copy)` plans a destination; `requestRoutePatch(id, patch, copy)` plans raw route keys (switches, Corti options, `providerSearch:<scope>`). Both follow the same kind rules, and a staged patch becomes a `kind: "patch"` draft.
 - **By plan kind:**
   - `noop`: nothing is written, and any draft for that route is dropped.
@@ -12688,9 +13095,9 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
 - **Request epochs (R2-8).** The store keeps two kinds of epoch.
   - `routeEpochs[routeId]`, one per route. Every `requestRouteChange(id, …)` and `requestRoutePatch(id, …)` call bumps `routeEpochs[id]` at call time. Every Undo bumps the epoch of its plan's route and of every route in its `changes`.
   - `requestEpoch`, the session epoch. Only the public `discard()` (the user's Discard) and `endSettingsSession()` bump it. Internal draft drops (a no-op request, an instant commit on the draft's route, an Apply that finds nothing to do) bump nothing.
-  - A request settles only if both its route epoch and the session epoch are still current after its waits. Otherwise it returns `"superseded"` and writes and stages nothing. So a request can't outlive Settings closing or a Discard, and an older request can't replace a newer selection on the same route. A request on another route is not superseded: two routes requested concurrently both settle (the single-draft rule still applies to what they stage).
+  - A request settles only if both its route epoch and the session epoch are still current after its waits. Otherwise it returns `"superseded"` and writes and stages nothing. So a request can't outlive Settings closing or a Discard, and an older request can't replace a newer selection on the same route. A request on another route is not superseded: it waits for a pending route-patch ACK, then plans from that committed head state and settles in order.
   - `applyDraft` reads the draft route's epoch and the session epoch without bumping them, and applies only if both, and the draft itself, are unchanged after its wait.
-  - Undo is synchronous and runs no wait, so it is never gated, and a toast's Undo still works after Settings closes.
+  - Undo is asynchronous: it drains earlier route-patch ACKs, re-plans from committed state, then commits or stages. Invoking a toast's Undo after Settings closes still works.
 - **Closing Settings** calls `endSettingsSession()`. It discards the draft and bumps the session epoch. `withDraftDiscard` wraps `SettingsModal`'s `onOpenChange` with it (Task 8).
 
 **Files:**
@@ -12703,9 +13110,9 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
 - Consumes:
   - **Task 6:**
     - `planRouteChange`, `planPatch`, `RouteTarget`, `RoutePlan`, `RouteChange`, `ApplyBlocker` and `PlanContext` (`src/lib/routePlanner.ts`);
-    - `SettingsPatch` and `ROUTE_ENTERPRISE_KEYS` (`src/lib/providerSwitchPlans.ts`; the four enterprise route fields, R2-1);
+    - `SettingsPatch` and `ROUTE_ENTERPRISE_KEYS` (`src/lib/providerSwitchPlans.ts`; the five enterprise route fields, R2-1/R3-1);
     - `routeBlocker`'s R2-9 rule: every changed, enabled, off-device route that is not `ready` blocks, including Codex and enterprise `needsKey` and remote `needsModel`;
-    - the store action `applyRoutePatch`;
+    - the store action `applyRoutePatch` (accepts the plan's `enterpriseBase`) and `flushRoutePatchSaves()`;
     - `test/lib/routeStateFixture.js`.
   - **Task 2:** `flushSecretSaves(): Promise<void>`, exported by `src/stores/settingsStore.ts`, and the ack-based secret setters (`setOpenaiApiKey`).
   - **Task 3:**
@@ -12732,12 +13139,12 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
   export const DRAFT_SETUP_KEYS: ReadonlySet<string>;                         // bedrockRegion, azureEndpoint, vertexProject, vertexLocation
   export function currentPlanContext(copy: RouteCopy): PlanContext;           // facts store + getSealed()
   export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan;   // the live plan the Apply bar renders (target patch + setup)
-  export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => RouteChangeOutcome | "staged" }
-  export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"; // R2-8
+  export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> }
+  export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed"; // R2-8 + persisted enterprise ACK
   export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>;
   export async function requestRoutePatch(id: RouteId, patch: SettingsPatch, copy: RouteCopy): Promise<RouteRequestResult>;
   export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null; // R2-9: null when the route has no target draft
-  export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null>;
+  export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null | "save-failed">;
   export function endSettingsSession(): void;                                 // R2-8: SettingsModal close
   export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void; // calls endSettingsSession on close
   // src/lib/routeChangeMessage.ts (NEW module)
@@ -12750,7 +13157,8 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
   - `applied: true` always carries `blocker: null` and an `undo`. Follow-up copy ("Choose a model", "Sign in to X") comes from the route's state through `routeChangeMessage`.
   - `applied: false` with a blocker means Apply was refused and the draft was kept.
   - `applied: false` with `blocker: null` means the request was a no-op.
-  - `"superseded"` means that, before the request's waits finished, Settings closed or the draft was discarded (session epoch), or a newer request or an Undo on the same route began (route epoch). Nothing was written or staged, and callers neither toast nor report it. A request on another route never supersedes it.
+  - `"superseded"` means that, before the request settled, Settings closed or the draft was discarded (session epoch), or a newer request or an Undo on the same route began (route epoch). If main already acknowledged an enterprise transaction, the store still reflects that durable tuple; callers suppress success and must not clear a newer draft. A request on another route never supersedes it.
+  - `"save-failed"` means the enterprise transaction rejected before acknowledgment. The committed renderer tuple and the draft remain available for retry; callers show failure copy and never success copy.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -12788,9 +13196,35 @@ test("route draft store", async (t) => {
   };
   let llamaStops = 0;
   const screenContextCalls = [];
-  // R2-1: setAzureEndpoint persisted to main on every keystroke (settingsStore.ts:2060-2063).
-  // Main may hear about a new endpoint only from a committed patch.
-  const azureEndpointWrites = [];
+  // Task 6's main transaction is the only enterprise writer. The fake keeps
+  // the committed five-field tuple and can hold ACKs to exercise route-queue
+  // admission and the order between different routes.
+  const enterpriseTuple = (state) => ({
+    bedrockRegion: state.bedrockRegion || "us-east-1",
+    azureEndpoint: state.azureEndpoint || "",
+    vertexProject: state.vertexProject || "",
+    vertexLocation: state.vertexLocation || "us-central1",
+    vertexAuthSource: state.vertexAuthSource,
+  });
+  let mainEnterprise = enterpriseTuple(routeBaseState());
+  let holdEnterpriseWrites = false;
+  const enterpriseWrites = [];
+  const pendingEnterpriseWrites = [];
+  const saveEnterpriseRoutePatch = (input) => {
+    enterpriseWrites.push(input);
+    const expected = input.expected;
+    if (Object.keys(mainEnterprise).some((key) => expected[key] !== mainEnterprise[key])) {
+      return Promise.resolve({ success: false, conflict: true, current: { ...mainEnterprise } });
+    }
+    return new Promise((resolve) => {
+      const finish = () => {
+        mainEnterprise = { ...mainEnterprise, ...input.patch };
+        resolve({ success: true, current: { ...mainEnterprise } });
+      };
+      if (holdEnterpriseWrites) pendingEnterpriseWrites.push(finish);
+      else finish();
+    });
+  };
   installBrowserGlobals(t, {
     initialStorage: MIGRATED_STORAGE,
     window: {
@@ -12806,10 +13240,7 @@ test("route draft store", async (t) => {
           screenContextCalls.push(enabled);
           return { success: true };
         },
-        saveAzureEndpoint: async (value) => {
-          azureEndpointWrites.push(value);
-          return { success: true };
-        },
+        saveEnterpriseRoutePatch,
       },
     },
   });
@@ -12831,6 +13262,11 @@ test("route draft store", async (t) => {
     if (pendingSaves.length) log.push("ack");
     while (pendingSaves.length) pendingSaves.shift()({ ok: true, success: true, generation: 1 });
   };
+  const releaseEnterpriseWrite = () => {
+    const finish = pendingEnterpriseWrites.shift();
+    assert.ok(finish, "an enterprise transaction is awaiting ACK");
+    finish();
+  };
   // Resolves held presence reads in the given order (indexes into heldLists).
   const releaseLists = async (...order) => {
     const held = [...heldLists];
@@ -12843,8 +13279,12 @@ test("route draft store", async (t) => {
   const reset = (overrides = {}) => {
     holdLists = false;
     heldLists.length = 0;
+    holdEnterpriseWrites = false;
+    pendingEnterpriseWrites.length = 0;
+    enterpriseWrites.length = 0;
     mainPresence.clear();
     useSettingsStore.setState({ ...routeBaseState(), ...overrides });
+    mainEnterprise = enterpriseTuple(useSettingsStore.getState());
     drafts.useRouteDraftStore.getState().discard();
     useSealedStore.setState({ sealed: false, known: true });
     setFacts();
@@ -12863,7 +13303,7 @@ test("route draft store", async (t) => {
     assert.equal(live().chatAgentProvider, "custom");
     assert.equal(live().chatAgentCloudBaseUrl, "http://localhost:1234/v1");
     assert.equal(draft(), null);
-    const back = out.undo();
+    const back = await out.undo();
     assert.equal(back.applied, true);
     assert.equal(live().chatAgentMode, "local");
     assert.equal(live().chatAgentProvider, "qwen");
@@ -12895,7 +13335,7 @@ test("route draft store", async (t) => {
     const out = await request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" });
     assert.equal(out.applied, true);
     assert.equal(live().chatAgentModel, "gpt-5.6-sol");
-    assert.equal(out.undo().applied, true);
+    assert.equal((await out.undo()).applied, true);
     assert.equal(live().chatAgentModel, "gpt-6-astra");
   });
 
@@ -12905,7 +13345,7 @@ test("route draft store", async (t) => {
     const out = await request("chat", { mode: "local", provider: "qwen", model: QWEN });
     assert.equal(out.applied, true);
     assert.equal(live().chatAgentMode, "local");
-    assert.equal(out.undo(), "staged");
+    assert.equal(await out.undo(), "staged");
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: out.plan.undoPatch });
     assert.equal(live().chatAgentMode, "local", "Undo applied nothing remote");
     const applied = await apply();
@@ -12965,7 +13405,7 @@ test("route draft store", async (t) => {
   await t.test("Apply of a draft that the live state already satisfies is a no-op and clears it", async () => {
     reset();
     assert.equal(await request("dictationStt", { mode: "providers", provider: "groq" }), "staged");
-    live().applyRoutePatch({
+    await live().applyRoutePatch({
       transcriptionMode: "providers",
       useLocalWhisper: false,
       cloudTranscriptionProvider: "groq",
@@ -13115,7 +13555,7 @@ test("route draft store", async (t) => {
     const off = await patch("dictationCleanup", { useCleanupModel: false });
     assert.equal(off.applied, true, "off sends nothing, so it applies at once");
     assert.equal(live().useCleanupModel, false);
-    assert.equal(off.undo(), "staged", "Undo would send again, so it waits for review");
+    assert.equal(await off.undo(), "staged", "Undo would send again, so it waits for review");
     assert.equal(live().useCleanupModel, false);
 
     reset({ useCleanupModel: false });
@@ -13330,7 +13770,7 @@ test("route draft store", async (t) => {
     await tick();
     const otherRoute = request("dictationStt", { mode: "providers", provider: "groq" });
     await tick();
-    assert.equal(out.undo().applied, true, "Undo is not gated");
+    assert.equal((await out.undo()).applied, true, "Undo is not gated");
     assert.equal(live().chatAgentModel, "gpt-6-astra");
     await releaseLists(0, 1);
     assert.equal(await sameRoute, "superseded", "the Undo is newer than the waiting pick");
@@ -13338,20 +13778,21 @@ test("route draft store", async (t) => {
     assert.equal(await otherRoute, "staged", "a request on another route still settles");
   });
 
-  // Baseline guard for the intentional post-close path: Undo is synchronous and is not epoch-bound.
+  // Baseline guard for the intentional post-close path: Undo is asynchronous,
+  // waits for any earlier route ACK and is still callable after Settings closes.
   await t.test("a toast's Undo still works after Settings closes", async () => {
     reset(OPENAI_CHAT);
     const out = await request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" });
     assert.equal(out.applied, true);
     drafts.endSettingsSession();
-    const back = out.undo();
+    const back = await out.undo();
     assert.equal(back.applied, true, "a same-recipient Undo applies at once after close");
     assert.equal(live().chatAgentModel, "gpt-6-astra");
 
     reset(OPENAI_CHAT);
     const home = await request("chat", { mode: "local", provider: "qwen", model: QWEN });
     drafts.endSettingsSession();
-    assert.equal(home.undo(), "staged", "an Undo back to OpenAI waits for review, even after close");
+    assert.equal(await home.undo(), "staged", "an Undo back to OpenAI waits for review, even after close");
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: home.plan.undoPatch });
     assert.equal(live().chatAgentMode, "local");
   });
@@ -13364,7 +13805,7 @@ test("route draft store", async (t) => {
     const ENDPOINT = "https://contoso.openai.azure.com/openai";
     reset({ ...OPENAI_CHAT, azureEndpoint: "" });
     setFacts({ credentials: new Map([["openai", true], ["azure", true]]) });
-    azureEndpointWrites.length = 0;
+    enterpriseWrites.length = 0;
     const azure = { mode: "providers", provider: "azure", model: "gpt-4o-deploy" };
     assert.equal(await request("chat", azure), "staged");
     assert.equal((await apply()).blocker, "needsUrl", "Apply waits until Azure has an endpoint (R2-9)");
@@ -13374,7 +13815,7 @@ test("route draft store", async (t) => {
     drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
     assert.deepEqual(draft(), { routeId: "chat", kind: "target", target: azure, setup: { azureEndpoint: ENDPOINT } });
     assert.equal(live().azureEndpoint, "", "typing the endpoint commits nothing");
-    assert.deepEqual(azureEndpointWrites, [], "and tells main nothing");
+    assert.deepEqual(enterpriseWrites, [], "and tells main nothing");
     const preview = drafts.planDraft(draft(), TEST_COPY);
     assert.equal(preview.patch.azureEndpoint, ENDPOINT);
     assert.equal(preview.changes.find((c) => c.id === "chat").after.host, "contoso.openai.azure.com", "the bar shows the real host");
@@ -13391,8 +13832,8 @@ test("route draft store", async (t) => {
     assert.equal(out.applied, true);
     assert.equal(live().chatAgentProvider, "azure");
     assert.equal(live().azureEndpoint, ENDPOINT);
-    assert.deepEqual(azureEndpointWrites, [ENDPOINT], "the commit tells main once (Task 6's applyRoutePatch)");
-    assert.equal(out.undo(), "staged", "back to OpenAI is a new recipient: reviewed");
+    assert.deepEqual(enterpriseWrites.map(({ patch }) => patch), [{ azureEndpoint: ENDPOINT }], "the commit tells main once (Task 6's atomic transaction)");
+    assert.equal(await out.undo(), "staged", "back to OpenAI is a new recipient: reviewed");
     assert.equal((await apply()).applied, true);
     assert.equal(live().chatAgentProvider, "openai");
     assert.equal(live().azureEndpoint, "", "Undo restores the endpoint exactly");
@@ -13407,11 +13848,11 @@ test("route draft store", async (t) => {
     const azureFacts = { credentials: new Map([["azure", true]]), credentialFields: new Map([["azure", { key: true }]]) };
     reset({ chatAgentMode: "enterprise", chatAgentProvider: "azure", chatAgentModel: "gpt-4o-deploy", azureEndpoint: EAST });
     setFacts({ ...azureFacts, enterpriseMain: null });
-    azureEndpointWrites.length = 0;
+    enterpriseWrites.length = 0;
     assert.equal(await patch("chat", { azureEndpoint: WEST }), "staged", "settle() staged it");
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { azureEndpoint: WEST } });
     assert.equal(live().azureEndpoint, EAST, "nothing was committed");
-    assert.deepEqual(azureEndpointWrites, [], "main heard nothing");
+    assert.deepEqual(enterpriseWrites, [], "main heard nothing");
     const blocked = await apply();
     assert.equal(blocked.applied, false);
     assert.equal(blocked.blocker, "unknown", "Apply waits until main's facts are synced");
@@ -13422,7 +13863,160 @@ test("route draft store", async (t) => {
     const out = await apply();
     assert.equal(out.applied, true);
     assert.equal(live().azureEndpoint, WEST);
-    assert.deepEqual(azureEndpointWrites, [WEST], "main is told once, on Apply");
+    assert.deepEqual(enterpriseWrites.map(({ patch }) => patch), [{ azureEndpoint: WEST }], "main is told once, on Apply");
+  });
+
+  await t.test("different routes plan and Undo from each prior enterprise ACK", async () => {
+    const ENDPOINT = "https://contoso.openai.azure.com/openai";
+    reset({
+      ...OPENAI_CHAT,
+      cleanupMode: "providers",
+      cleanupProvider: "openai",
+      cleanupModel: "gpt-6-astra",
+      useCleanupModel: true,
+      azureEndpoint: "",
+      bedrockRegion: "us-east-1",
+    });
+    setFacts({ credentials: new Map([["azure", true], ["bedrock", true], ["openai", true]]) });
+    holdEnterpriseWrites = true;
+
+    const azure = { mode: "providers", provider: "azure", model: "gpt-4o-deploy" };
+    assert.equal(await request("chat", azure), "staged");
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+    const applyAzure = apply();
+    for (let i = 0; i < 5 && pendingEnterpriseWrites.length === 0; i++) await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1, "the first route owns a held main ACK");
+    assert.equal(enterpriseWrites[0].expected.azureEndpoint, "", "the first plan captured the original tuple");
+
+    let bedrockSettled = false;
+    const bedrockRequest = request("dictationCleanup", { mode: "providers", provider: "bedrock" })
+      .then((result) => { bedrockSettled = true; return result; });
+    await tick();
+    assert.equal(bedrockSettled, false, "the other route waits for the first enterprise ACK before planning");
+    releaseEnterpriseWrite();
+    assert.equal((await applyAzure).applied, true);
+    assert.equal(await bedrockRequest, "staged");
+    assert.equal(drafts.stageDraftSetup("dictationCleanup", { bedrockRegion: "eu-west-1" })?.routeId, "dictationCleanup");
+    const bedrockPreview = drafts.planDraft(draft(), TEST_COPY);
+    assert.equal(bedrockPreview.enterpriseBase.azureEndpoint, ENDPOINT, "the second review includes the first committed endpoint");
+
+    const applyBedrock = apply();
+    for (let i = 0; i < 5 && pendingEnterpriseWrites.length === 0; i++) await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    assert.equal(enterpriseWrites[1].expected.azureEndpoint, ENDPOINT);
+    assert.equal(enterpriseWrites[1].expected.bedrockRegion, "us-east-1");
+    assert.deepEqual(enterpriseWrites[1].patch, { bedrockRegion: "eu-west-1" });
+    releaseEnterpriseWrite();
+    const appliedBedrock = await applyBedrock;
+    assert.equal(appliedBedrock.applied, true);
+    assert.equal(live().bedrockRegion, "eu-west-1");
+
+    assert.equal(await appliedBedrock.undo(), "staged", "Undo to OpenAI requires review");
+    const applyUndo = apply();
+    for (let i = 0; i < 5 && pendingEnterpriseWrites.length === 0; i++) await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    assert.equal(enterpriseWrites[2].expected.azureEndpoint, ENDPOINT, "Undo keeps the unrelated route's acknowledged endpoint");
+    assert.equal(enterpriseWrites[2].expected.bedrockRegion, "eu-west-1", "Undo compares against the state it actually reverses");
+    assert.equal(enterpriseWrites[2].patch.bedrockRegion, "us-east-1");
+    releaseEnterpriseWrite();
+    assert.equal((await applyUndo).applied, true);
+    assert.equal(live().azureEndpoint, ENDPOINT);
+    assert.equal(live().bedrockRegion, "us-east-1");
+  });
+
+  await t.test("closing while an enterprise commit waits in the route queue sends no stale patch", async () => {
+    const ENDPOINT = "https://contoso.openai.azure.com/openai";
+    reset({ ...OPENAI_CHAT, azureEndpoint: "", bedrockRegion: "us-east-1" });
+    setFacts({ credentials: new Map([["azure", true]]) });
+    assert.equal(await request("chat", { mode: "providers", provider: "azure" }), "staged");
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+
+    holdLists = true;
+    holdEnterpriseWrites = true;
+    const applying = apply();
+    await tick();
+    assert.equal(heldLists.length, 1, "Apply is paused after the initial route-queue drain");
+
+    // A different queued enterprise transaction gets ahead of Apply after its
+    // drain. The Apply plan will be waiting behind this held main ACK.
+    const blocker = live().applyRoutePatch({ bedrockRegion: "eu-west-1" }, {
+      expectedEnterprise: { ...mainEnterprise },
+    });
+    await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    let queuedCommit;
+    let markQueued;
+    const queued = new Promise((resolve) => { markQueued = resolve; });
+    const originalApplyRoutePatch = live().applyRoutePatch;
+    useSettingsStore.setState({
+      applyRoutePatch: (...args) => {
+        queuedCommit = args;
+        markQueued();
+        return originalApplyRoutePatch(...args);
+      },
+    });
+    await releaseLists(0);
+    await queued;
+    assert.ok(queuedCommit, "Task 7 admitted its planned patch behind the blocker");
+    drafts.endSettingsSession();
+    releaseEnterpriseWrite();
+    await blocker;
+    assert.equal(await applying, null, "closing supersedes the queued Apply");
+    assert.equal(enterpriseWrites.length, 1, "the stale queued Apply never contacts main");
+    assert.equal(live().azureEndpoint, "", "the draft endpoint was not materialized");
+    assert.equal(live().bedrockRegion, "eu-west-1", "the earlier durable ACK is reflected");
+    useSettingsStore.setState({ applyRoutePatch: originalApplyRoutePatch });
+  });
+
+  await t.test("replacing the Apply-owned draft while its commit is queued sends no stale patch", async () => {
+    const ENDPOINT = "https://contoso.openai.azure.com/openai";
+    reset({ ...OPENAI_CHAT, azureEndpoint: "", bedrockRegion: "us-east-1" });
+    setFacts({ credentials: new Map([["azure", true]]) });
+    assert.equal(await request("chat", { mode: "providers", provider: "azure" }), "staged");
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+
+    holdLists = true;
+    holdEnterpriseWrites = true;
+    const applying = apply();
+    await tick();
+    assert.equal(heldLists.length, 1);
+
+    const blocker = live().applyRoutePatch({ bedrockRegion: "eu-west-1" }, {
+      expectedEnterprise: { ...mainEnterprise },
+    });
+    await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    const originalApplyRoutePatch = live().applyRoutePatch;
+    let markQueued;
+    const queued = new Promise((resolve) => { markQueued = resolve; });
+    useSettingsStore.setState({
+      applyRoutePatch: (...args) => {
+        markQueued();
+        return originalApplyRoutePatch(...args);
+      },
+    });
+
+    try {
+      await releaseLists(0);
+      await queued;
+      const replacement = {
+        routeId: "dictationStt",
+        kind: "patch",
+        patch: { useDictationTranslation: true },
+      };
+      stage(replacement);
+      releaseEnterpriseWrite();
+      await blocker;
+      assert.equal(await applying, null, "Apply lost ownership of its exact draft before queue admission");
+      assert.equal(enterpriseWrites.length, 1, "the replaced Apply never contacts main");
+      assert.equal(live().azureEndpoint, "", "the old Apply endpoint was not materialized");
+      assert.equal(live().bedrockRegion, "eu-west-1", "the earlier durable ACK is reflected");
+      assert.deepEqual(draft(), replacement, "the newer route draft remains available");
+    } finally {
+      useSettingsStore.setState({ applyRoutePatch: originalApplyRoutePatch });
+      if (pendingEnterpriseWrites.length) releaseEnterpriseWrite();
+      if (heldLists.length) await releaseLists(...heldLists.map((_, index) => index));
+    }
   });
 });
 ```
@@ -13547,7 +14141,7 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
    import type { RouteCopy, RouteId } from "../lib/routes";
    import { refreshRouteFacts, useRouteFactsStore } from "./routeFactsStore";
    import { getSealed } from "./sealedStore";
-   import { flushSecretSaves, useSettingsStore } from "./settingsStore";
+   import { flushRoutePatchSaves, flushSecretSaves, useSettingsStore } from "./settingsStore";
 
    // The single place that changes where a task runs (SET-R3 B). Each request
    // is planned (routePlanner.ts). Results that stay on this device, or keep
@@ -13588,13 +14182,15 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      applied: boolean;
      blocker: ApplyBlocker | null;
      plan: RoutePlan;
-     undo?: () => RouteChangeOutcome | "staged";
+     undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed">;
    }
 
-   // "superseded": while this one waited, Settings closed or the draft was
-   // discarded (session epoch), or a newer request or an Undo on the same route
-   // began (route epoch). Nothing was written or staged.
-   export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded";
+   // "superseded": while this one settled, Settings closed or the draft was
+   // discarded, or a newer request/Undo began on the same route. If main has
+   // already ACKed a transaction, its committed tuple remains reflected, while
+   // the newer draft is preserved and callers suppress success copy.
+   export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed";
+   type RouteCommitResult = RouteChangeOutcome | "superseded" | "save-failed";
 
    // Non-secret provider setup the staged editor may add to a target draft
    // (BRIEF item 2; Task 6's ROUTE_ENTERPRISE_KEYS).
@@ -13666,14 +14262,44 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
 
    // Internal: a settled change supersedes its route's draft. Not the user's
    // Discard, so it does not cancel a newer request still waiting.
-   function clearDraftFor(routeId: RouteId): void {
-     if (useRouteDraftStore.getState().draft?.routeId === routeId) {
+   function clearDraftFor(routeId: RouteId, expectedDraft: RouteDraft | null): void {
+     const current = useRouteDraftStore.getState().draft;
+     if (current === expectedDraft && current?.routeId === routeId) {
        useRouteDraftStore.setState({ draft: null });
      }
    }
 
-   function commit(plan: RoutePlan, copy: RouteCopy): RouteChangeOutcome {
-     useSettingsStore.getState().applyRoutePatch(plan.patch);
+   // A newer draft for this route owns the row and blocks an older queued
+   // commit. A draft on another route remains independent and is preserved.
+   function mayCommitForDraft(routeId: RouteId, expectedDraft: RouteDraft | null): boolean {
+     const current = useRouteDraftStore.getState().draft;
+     return current === expectedDraft || current?.routeId !== routeId;
+   }
+
+   // A main ACK is durable even if the user started another request while it
+   // was pending. applyRoutePatch materializes that acknowledged tuple; this
+   // wrapper only suppresses stale success and protects a newer draft. Apply
+   // additionally requires exact draft identity at queue admission.
+   async function commit(
+     plan: RoutePlan,
+     copy: RouteCopy,
+     ticket: RequestTicket,
+     expectedDraft: RouteDraft | null,
+     requireDraftOwner = false
+   ): Promise<RouteCommitResult> {
+     const ownsDraft = () =>
+       requireDraftOwner
+         ? useRouteDraftStore.getState().draft === expectedDraft
+         : mayCommitForDraft(plan.routeId, expectedDraft);
+     try {
+       await useSettingsStore.getState().applyRoutePatch(plan.patch, {
+         expectedEnterprise: plan.enterpriseBase,
+         canCommit: () => isCurrent(ticket) && ownsDraft(),
+       });
+    } catch (error) {
+      if ((error as { code?: string })?.code === "ROUTE_PATCH_SUPERSEDED") return "superseded";
+       return "save-failed";
+     }
      // Like InferenceConfigEditor.tsx:115-117: a scope moving to a server frees
      // the local llama-server.
      const toServer = Object.entries(plan.patch).some(
@@ -13686,19 +14312,29 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      if (typeof plan.patch.voiceAgentScreenContext === "boolean") {
        window.electronAPI?.setScreenContextEnabled?.(plan.patch.voiceAgentScreenContext)?.catch(() => {});
      }
-     clearDraftFor(plan.routeId);
+     if (!isCurrent(ticket) || !ownsDraft()) return "superseded";
+     clearDraftFor(plan.routeId, expectedDraft);
      return { applied: true, blocker: null, plan, undo: () => undo(plan, copy) };
    }
 
    // Undo re-plans the prior raw values against the live state. Back onto the
    // device, or to the same recipient, is instant. Anything that would send
    // data somewhere new is staged for review, never applied by Undo itself.
-   // Undo has no wait, so it is not epoch-gated and still works from a toast
-   // after Settings closes. It is the newest intent for every route it moves,
-   // so it bumps those routes' epochs (never the session epoch): an older
-   // request still waiting on one of them is superseded, others settle.
-   function undo(plan: RoutePlan, copy: RouteCopy): RouteChangeOutcome | "staged" {
+   // Undo still works from a toast after Settings closes. It is the newest
+   // intent for every route it moves, so it bumps those routes' epochs (never
+   // the session epoch). An enterprise Undo awaits main's ACK; if a newer
+   // intent begins while it waits, the durable ACK is reflected but success
+   // copy and draft clearing are suppressed.
+   async function undo(plan: RoutePlan, copy: RouteCopy): Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> {
      bumpRoutes([plan.routeId, ...plan.changes.map((change) => change.id)]);
+     const ticket = peekTicket(plan.routeId);
+     const expectedDraft = useRouteDraftStore.getState().draft;
+     // An earlier enterprise Apply may still own the route queue. Wait for its
+     // durable ACK before deriving Undo, so the reverse patch is planned from
+     // the configuration that actually committed. A newer same-route intent
+     // or session close while waiting prevents the Undo from starting IPC.
+     await flushRoutePatchSaves();
+     if (!isCurrent(ticket) || !mayCommitForDraft(plan.routeId, expectedDraft)) return "superseded";
      const reverse = planPatch(
        useSettingsStore.getState(),
        currentPlanContext(copy),
@@ -13706,7 +14342,7 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
        plan.undoPatch
      );
      if (reverse.kind === "noop") return { applied: false, blocker: null, plan: reverse };
-     if (reverse.kind === "instant") return commit(reverse, copy);
+     if (reverse.kind === "instant") return commit(reverse, copy, ticket, expectedDraft);
      useRouteDraftStore
        .getState()
        .stage({ routeId: plan.routeId, kind: "patch", patch: plan.undoPatch });
@@ -13717,19 +14353,26 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
    // main's presence for it read back, before a plan reads key readiness (I3).
    // credentials.list is a local IPC read; it never touches the network.
    async function readyToPlan(): Promise<void> {
+     await flushRoutePatchSaves();
      await flushSecretSaves();
      await refreshRouteFacts(["credentials"]);
    }
 
    // Shared by both request paths: noop drops the route's draft, instant
    // commits with Undo, staged becomes the single draft.
-   function settle(plan: RoutePlan, draft: RouteDraft, copy: RouteCopy): RouteRequestResult {
+   async function settle(
+     plan: RoutePlan,
+     draft: RouteDraft,
+     copy: RouteCopy,
+     ticket: RequestTicket,
+     expectedDraft: RouteDraft | null
+   ): Promise<RouteRequestResult> {
      if (plan.kind === "noop") {
        // Re-selecting where the task already runs changes nothing and cancels its draft.
-       clearDraftFor(plan.routeId);
+       clearDraftFor(plan.routeId, expectedDraft);
        return { applied: false, blocker: null, plan };
      }
-     if (plan.kind === "instant") return commit(plan, copy);
+     if (plan.kind === "instant") return commit(plan, copy, ticket, expectedDraft);
      useRouteDraftStore.getState().stage(draft);
      return "staged";
    }
@@ -13744,7 +14387,11 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      copy: RouteCopy
    ): Promise<RouteRequestResult> {
      const ticket = takeTicket(id);
-     await readyToPlan();
+     try {
+       await readyToPlan();
+     } catch {
+       return "save-failed";
+     }
      if (!isCurrent(ticket)) return "superseded"; // R2-8
      // A model pick in the staged editor keeps the setup typed for the same
      // provider; a different provider starts without it.
@@ -13755,7 +14402,8 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
          : undefined;
      const plan = planTarget(id, target, setup, copy);
      const draft: RouteDraft = setup ? { routeId: id, kind: "target", target, setup } : { routeId: id, kind: "target", target };
-     return settle(plan, draft, copy);
+     const draftOwner = useRouteDraftStore.getState().draft;
+     return settle(plan, draft, copy, ticket, draftOwner);
    }
 
    // Raw route keys that are not a destination: the enable switches, Corti's
@@ -13769,10 +14417,15 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      copy: RouteCopy
    ): Promise<RouteRequestResult> {
      const ticket = takeTicket(id);
-     await readyToPlan();
+     try {
+       await readyToPlan();
+     } catch {
+       return "save-failed";
+     }
      if (!isCurrent(ticket)) return "superseded"; // R2-8
      const plan = planPatch(useSettingsStore.getState(), currentPlanContext(copy), id, patch);
-     return settle(plan, { routeId: id, kind: "patch", patch }, copy);
+     const draftOwner = useRouteDraftStore.getState().draft;
+     return settle(plan, { routeId: id, kind: "patch", patch }, copy, ticket, draftOwner);
    }
 
    // The staged editor's provider setup (R2-9, R2-1): enterprise region,
@@ -13790,13 +14443,17 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      return next;
    }
 
-   export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null> {
+   export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null | "save-failed"> {
      const draft = useRouteDraftStore.getState().draft;
      if (!draft) return null;
      // Apply bumps nothing (a Discard, a close or a newer request on the draft's
      // route cancels it, not the other way round).
      const ticket = peekTicket(draft.routeId);
-     await readyToPlan();
+     try {
+       await readyToPlan();
+     } catch {
+       return "save-failed";
+     }
      // The user applied this draft. If Settings closed, the draft was discarded
      // or replaced, or a newer request on its route began while saves finished,
      // apply nothing. A request on another route that staged meanwhile replaced
@@ -13809,12 +14466,14 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      }
      // Task 6 blocks every changed, enabled, off-device route that is not ready (R2-9).
      if (plan.blocker) return { applied: false, blocker: plan.blocker, plan }; // draft kept
-     return commit(plan, copy);
+     const result = await commit(plan, copy, ticket, draft, true);
+     return result === "superseded" ? null : result;
    }
 
    // R2-8: the Settings session ends (SettingsModal close, Task 8). The draft is
    // dropped and the session epoch moves, so every request still waiting, on any
-   // route, settles to "superseded". A toast's Undo keeps working (it has no wait).
+   // route, settles to "superseded". A toast's Undo remains available after
+   // Settings closes, but awaits its main ACK and reports persistence failure.
    export function endSettingsSession(): void {
      useRouteDraftStore.getState().discard();
    }
@@ -14003,7 +14662,7 @@ What the user sees:
   export function useRouteChange(): {
     request(id: RouteId, target: RouteTarget): Promise<RouteRequestResult>;
     requestPatch(id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult>; // I1 follow-up
-    apply(): Promise<RouteChangeOutcome | null>;
+    apply(): Promise<RouteChangeOutcome | null | "save-failed">;
     copy: RouteCopy;
   };
   export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteRequestResult>;
@@ -14969,6 +15628,9 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      const { t } = useTranslation();
      const { toast } = useToast();
      const copy = useRouteCopy();
+     const reportSaveFailure = useCallback(() => {
+       toast({ title: t("common.error"), variant: "destructive", duration: 5000 });
+     }, [t, toast]);
 
      const announce = useCallback(
        (outcome: RouteChangeOutcome) => {
@@ -14985,13 +15647,18 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
                  {
                    label: t("routes.toast.undo"),
                    dismissOnClick: true,
-                   onClick: () => {
-                     const undone = undo();
+                   onClick: async () => {
+                     const undone = await undo();
                      // Undo never moves data off the device by itself: that case waits in the Apply bar.
                      if (undone === "staged") {
                        toast({ title: t("routes.toast.undoStaged"), variant: "default", duration: 5000 });
                        return;
                      }
+                     if (undone === "save-failed") {
+                       reportSaveFailure();
+                       return;
+                     }
+                     if (undone === "superseded") return;
                      if (undone.applied) {
                        const back = routeChangeMessage(undone.plan, t, copy.list);
                        toast({ title: back.title, description: back.description, variant: "success", duration: 4000 });
@@ -15002,35 +15669,38 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
              : undefined,
          });
        },
-       [t, toast, copy]
+       [t, toast, copy, reportSaveFailure]
      );
 
-     // "superseded" (R2-8): Settings closed, Discard ran, or a newer pick or an
-     // Undo on the same route won while this one waited. Nothing happened, so nothing is announced.
+     // Save failures and stale completions never announce success. An ACK that
+     // loses ownership still updates the committed store, but preserves newer draft state.
      const request = useCallback(
        async (id: RouteId, target: RouteTarget): Promise<RouteRequestResult> => {
          const result = await requestRouteChange(id, target, copy);
-         if (result !== "staged" && result !== "superseded") announce(result);
+         if (result === "save-failed") reportSaveFailure();
+         else if (result !== "staged" && result !== "superseded") announce(result);
          return result;
        },
-       [copy, announce]
+       [copy, announce, reportSaveFailure]
      );
 
      // Switches, Corti options, providerSearch:<scope> and the enterprise fields of an active route (Steps 6–10, Task 9).
      const requestPatch = useCallback(
        async (id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult> => {
          const result = await requestRoutePatch(id, patch, copy);
-         if (result !== "staged" && result !== "superseded") announce(result);
+         if (result === "save-failed") reportSaveFailure();
+         else if (result !== "staged" && result !== "superseded") announce(result);
          return result;
        },
-       [copy, announce]
+       [copy, announce, reportSaveFailure]
      );
 
-     const apply = useCallback(async (): Promise<RouteChangeOutcome | null> => {
+     const apply = useCallback(async (): Promise<RouteChangeOutcome | null | "save-failed"> => {
        const outcome = await applyDraft(copy);
-       if (outcome) announce(outcome);
+       if (outcome === "save-failed") reportSaveFailure();
+       else if (outcome) announce(outcome);
        return outcome;
-     }, [copy, announce]);
+     }, [copy, announce, reportSaveFailure]);
 
      return { request, requestPatch, apply, copy };
    }
@@ -15598,7 +16268,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
      ```
 
-   - Before `return (` (`:125`) add `const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);`. On close, `withDraftDiscard` calls Task 7's `endSettingsSession()`, which discards the draft and bumps the session epoch `requestEpoch`. A route request still waiting, on any route, for a key save or a presence read then settles to `"superseded"`: no draft and no commit after close (R2-8). A toast's Undo is synchronous and keeps working after close.
+   - Before `return (` (`:125`) add `const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);`. On close, `withDraftDiscard` calls Task 7's `endSettingsSession()`, which discards the draft and bumps the session epoch `requestEpoch`. A route request still waiting, on any route, for a route-patch ACK, key save or presence read then settles to `"superseded"`: no stale queued commit after close (R2-8). A toast's asynchronous Undo remains callable after close.
    - On `<SidebarModal<SettingsSectionType>` (`:126-133`), replace `onOpenChange={onOpenChange}` (`:128`) with `onOpenChange={handleOpenChange}` and add `footer={<StagedRouteBar />}`.
 
 10. `src/components/SettingsPage.tsx`, `TranscriptionSection`:
@@ -15751,7 +16421,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
             }
             // Task 7's commit frees llama-server when a scope moves to a server.
             const outcome = await request(routeId, stagedTargetForMode(mode, routeId, useSettingsStore.getState()));
-            if (outcome === "staged" || outcome === "superseded" || !outcome.applied) return;
+            if (outcome === "staged" || outcome === "superseded" || outcome === "save-failed" || !outcome.applied) return;
             onModeChange?.(mode);
           },
           [routeId, request, stagedMode, effectiveMode, onModeChange, isModeAllowed]
@@ -16028,7 +16698,7 @@ test("enable switches and web search go through the route planner", async (t) =>
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { "providerSearch:chatIntelligence": true } });
 
     reset(chat);
-    live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
+    await live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
     await flip(preference(), false);
     assert.equal(globalThis.localStorage.getItem("personalWebSearch:chatIntelligence"), "false", "off is instant");
     assert.equal(draft(), null);
@@ -16087,7 +16757,7 @@ Expected: FAIL. `RouteSwitch.tsx` does not exist (Vite reports `Failed to load u
          disabled={disabled}
          onChange={async (next) => {
            const outcome = await requestPatch(routeId, { [settingKey]: next } as SettingsPatch);
-           if (outcome !== "staged" && outcome !== "superseded" && outcome.applied) onApplied?.(next);
+           if (outcome !== "staged" && outcome !== "superseded" && outcome !== "save-failed" && outcome.applied) onApplied?.(next);
          }}
        />
      );
@@ -16216,7 +16886,7 @@ Closes **C1** and the picker half of **I1**.
 - **I1 (pickers).** Every committed provider, model and endpoint change in `TranscriptionModelPicker` (`handleCloudModelSelect` `:863-878`, the custom base-URL blur that switched provider `:900-927`, per-keystroke URL writes `:1190-1194`, the policy-reconcile write `:636-659`), `ReasoningModelSelector` (`handleModelSelect` `:480-491`, `handleModeChange` `:493-506`) and `SelfHostedPanel` (Settings `:648-656`, Upload `:132-139`) goes through one `onCommit(target)` → `requestRouteChange`. On-device results apply at once with Undo; a new recipient is staged behind Apply. An invalid persisted selection is shown and left for the resolver to report as not ready; the picker no longer rewrites it.
 - **Corti region (I1 follow-up).** The region `Select` and tenant field in `TranscriptionModelPicker`'s Corti credentials (`:301-315`, rendered at `:1249-1272`) called `setCortiEnvironment`/`setCortiTenant`. The region picks the receiving host (`api.<region>.corti.app`, `cortiTranscription.js:39`, `cortiStreaming.js:48`), so both now commit through Task 8's `useRouteChange().requestPatch` (Task 7's `requestRoutePatch`): a region switch is staged when a speech route uses Corti (Corti text always calls `ai.eu.corti.app`, Task 1's `providerHosts["corti:text"]`, so it is not moved), and the tenant (same host) applies at once. The tenant is a local draft committed on leave or Enter, never per keystroke.
 - **C1/I2 (Codex connection).** `CodexConnection` (`src/components/CodexConnection.tsx:60-62`) runs `refresh()` on mount. That calls `codexStatus()`, which starts the Codex app server (`src/helpers/codexAppServer.js:359-367` → `start()` `:116-181`). The first start in a session may also ask GitHub to verify the release (`verifyOfficialCodex`, `src/helpers/codexCli.js:309-340`). When the account is signed in, it then calls `codexRateLimits()` (`:35`, `:44-48`). `CodexModelPicker` renders it (`ReasoningModelSelector.tsx:789`), so opening the Codex tab started Codex. In Settings it now runs nothing on mount. Signed-in presence comes from Task 2's main-confirmed `credentials.list` row for `"codex"`, a stat of `auth.json` with no process and no network, read through Task 3's `useRouteFactsStore`. Status and quota are read only by an explicit **Check ChatGPT status** button whose tooltip names ChatGPT via the Codex app. Account events still refresh, because they follow an explicit sign-in or sign-out. Onboarding (`OnboardingFlow.tsx:546`) is Plan 05's concern. It opts into the old mount read with `checkStatusOnMount`, so its behaviour and tests stay as they are, and Plan 05 decides whether to keep it.
-- **R2-1 (enterprise recipients, UI side).** `EnterpriseProviderConfig` wrote its route fields directly. That covered the Bedrock region (`:114-118`, `settings.setBedrockRegion` plus a per-keystroke model rewrite), the Azure endpoint (`:145-148`, `settings.setAzureEndpoint`, which `settingsStore.ts:2060-2063` persists to main at once through `saveAzureEndpoint`) and the Vertex project and location (`:166-174`). Main reads exactly these for requests (`main.js:447-457` → `enterpriseAiProviders.js:26,73-81,90-91`), so typing an Azure endpoint could redirect content and its key without review. Each field is now a local draft committed on leave or Enter:
+- **R2-1 (enterprise recipients, UI side).** `EnterpriseProviderConfig` wrote its route fields directly. That covered the Bedrock region (`:114-118`, `settings.setBedrockRegion` plus a per-keystroke model rewrite), the Azure endpoint (`:145-148`, `settings.setAzureEndpoint`) and the Vertex project, location and auth source (`:166-174`). Main reads these for requests (`main.js:447-457` → `enterpriseAiProviders.js:26,73-81,90-91`), so typing an Azure endpoint could redirect content and its key without review. Each field is now a local draft committed through the route planner; Apply waits for one expected-tuple `saveEnterpriseRoutePatch` ACK before updating main and renderer:
   - for the route being edited: through `requestRoutePatch({ <field>: value })` (Task 8's `requestPatch`), which Task 6 plans with its coupled changes (Bedrock's `adjustBedrockModelForRegion` model update) and stages when a host changes;
   - inside the staged panel: through Task 7's `stageDraftSetup`, which writes nothing.
   The component no longer calls any store setter for these fields. Task 6's `applyRoutePatch` is the only writer, and it tells main.
@@ -16254,7 +16924,7 @@ Closes **C1** and the picker half of **I1**.
   - Task 5: the `routes.state.sealed` copy, shown when the self-hosted probe answers `{ ok: false, code: "sealed" }` (spec §5.4: main gates `probe-self-hosted` as `providerCheck`, loopback only while sealed; Plan 07 adds the gate).
   - Main's discovery handler resolves the credential slot it sends: `custom:<scope>` for custom endpoints and `openrouter` for OpenRouter (`src/helpers/personalInference.js:136-138`, `:286-301`).
   - Task 2: `AcknowledgedSecretSave`, `unavailableSecretSave` (`src/components/ui/ApiKeyInput.tsx`), `ApiKeyInput`'s `credentialId?: CredentialSlot`, and `credentialSlotForRef(ref): CredentialSlot | undefined` (`src/lib/credentialSlots.ts`). Also Task 2's `InferenceConfigEditor` `saveCustomKey: AcknowledgedSecretSave`, which is reused here.
-  - Task 6: `ROUTE_ENTERPRISE_KEYS` (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`) are route patch keys. `planPatch` adds Bedrock's region model coupling to the same patch and its Undo. `applyRoutePatch` mirrors the old setters for the four keys (localStorage, `window.electronAPI.save{BedrockRegion,AzureEndpoint,VertexProject,VertexLocation}`, `.env`), and the graph's `enterprise` slice gives each enterprise route its `host` and readiness.
+  - Task 6: `ROUTE_ENTERPRISE_KEYS` (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`, `vertexAuthSource`) are route patch keys. `planPatch` adds Bedrock's region model coupling to the same patch and its Undo. `applyRoutePatch` sends the enterprise subset as one expected-tuple transaction; only main's ACK commits localStorage/store state, and the graph's `enterprise` slice gives each enterprise route its `host` and readiness.
   - Task 7: `stageDraftSetup(id, patch)` and `RouteDraft.setup`.
   - Task 8: the staged panel's `setup?: ReactNode` slot.
   - Task 11: `window.electronAPI.keyring.describeVerify(identity): Promise<VerifyTargetDescription>` (`{ hosts: string[]; fields: string[] }`, declared by this task in `src/types/electron.ts`) for `"bedrock" | "azure" | "vertex"`, computed by main from `getEnterpriseConfig` (`main.js:447-457`), the configuration `textGenerate` uses.
@@ -16950,7 +17620,8 @@ const EAST = "https://east.openai.azure.com/openai";
 const WEST = "https://west.openai.azure.com/openai";
 
 test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t) => {
-  // Main's committed enterprise configuration (main.js:447-457). Only the preload savers change it.
+  // Main's committed enterprise configuration (main.js:447-457). Only the
+  // expected-tuple transaction changes it; no individual saver is exposed.
   const main = {
     azureEndpoint: EAST,
     bedrockRegion: "us-east-1",
@@ -16959,10 +17630,13 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
     vertexAuthSource: "adc",
   };
   const writes = [];
-  const saver = (key) => async (value) => {
-    writes.push([key, value]);
-    main[key] = value;
-    return { success: true };
+  const saveEnterpriseRoutePatch = async ({ patch, expected }) => {
+    writes.push({ patch: { ...patch }, expected: { ...expected } });
+    if (Object.keys(main).some((key) => expected[key] !== main[key])) {
+      return { success: false, conflict: true, current: { ...main } };
+    }
+    Object.assign(main, patch);
+    return { success: true, current: { ...main } };
   };
   // One host rule for both the disclosure and the request, as main uses one configuration for both.
   let vertexKeyPresent = false;
@@ -17002,11 +17676,7 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
   const api = routeTestApi({
     present: ["openai", "azure", "bedrock"],
     extra: {
-      saveAzureEndpoint: saver("azureEndpoint"),
-      saveBedrockRegion: saver("bedrockRegion"),
-      saveVertexProject: saver("vertexProject"),
-      saveVertexLocation: saver("vertexLocation"),
-      saveVertexAuthSource: saver("vertexAuthSource"),
+      saveEnterpriseRoutePatch,
       getBedrockRegion: async () => main.bedrockRegion,
       getAzureEndpoint: async () => main.azureEndpoint,
       getVertexProject: async () => main.vertexProject,
@@ -17186,14 +17856,14 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
     const out = await drafts.applyDraft(TEST_COPY);
     assert.equal(out.applied, true);
     assert.equal(live().azureEndpoint, WEST);
-    assert.deepEqual(writes, [["azureEndpoint", WEST]]);
+    assert.deepEqual(writes.map(({ patch }) => patch), [{ azureEndpoint: WEST }]);
 
     // Undo is exact: the old host is a recipient change, so it is reviewed, then restores the old value.
-    assert.equal(out.undo(), "staged");
+    assert.equal(await out.undo(), "staged");
     assert.equal(live().azureEndpoint, WEST);
     assert.equal((await drafts.applyDraft(TEST_COPY)).applied, true);
     assert.equal(live().azureEndpoint, EAST);
-    assert.deepEqual(writes, [["azureEndpoint", WEST], ["azureEndpoint", EAST]]);
+    assert.deepEqual(writes.map(({ patch }) => patch), [{ azureEndpoint: WEST }, { azureEndpoint: EAST }]);
   });
 
   // Change-driving: the region Field called setBedrockRegion and rewrote the model per keystroke
@@ -17213,8 +17883,8 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
     assert.equal(out.applied, true);
     assert.equal(live().bedrockRegion, "eu-west-1");
     assert.equal(live().chatAgentModel, "eu.anthropic.claude-sonnet-4-5");
-    assert.deepEqual(writes, [["bedrockRegion", "eu-west-1"]]);
-    assert.equal(out.undo(), "staged");
+    assert.deepEqual(writes.map(({ patch }) => patch), [{ bedrockRegion: "eu-west-1" }]);
+    assert.equal(await out.undo(), "staged");
     await drafts.applyDraft(TEST_COPY);
     assert.equal(live().bedrockRegion, "us-east-1");
     assert.equal(live().chatAgentModel, "us.anthropic.claude-sonnet-4-5");
@@ -19106,7 +19776,7 @@ The page shows 11 task jacks on the left and destinations on the right.
   - from Task 4: `src/lib/settingsPaths.ts` (`SETTINGS_SECTIONS`, `SECTION_ALIASES`, `parseSettingsPath`) and the `SettingsPage` prop `onNavigateToPath?: (path: string) => void` (declared by Task 4, destructured here);
   - from Task 5: `RouteStateChip({ state, className? })` and `RouteDestinationChip({ route: Pick<ResolvedRoute, "locality" | "providerId" | "model">, className? })` in `./RouteChips`;
   - from Task 6: the `RouteTarget` and `RoutePlan` types (`src/lib/routePlanner.ts`; `RoutePlan.kind` is `"noop" | "instant" | "staged"`);
-  - from Task 7: `requestRouteChange(id, target, copy): Promise<RouteRequestResult>` (`RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"`; `"superseded"` means Settings closed, Discard ran, or a newer request or an Undo on the same route began while it waited (Task 7's per-route epochs), R2-8), `RouteChangeOutcome { applied; blocker; plan; undo?: () => RouteChangeOutcome | "staged" }` and `useRouteDraftStore` (`src/stores/routeDraftStore.ts`). `requestRouteChange` returns `"staged"` for a draft, `{ applied: true, blocker: null, undo }` for an instant commit and `{ applied: false, blocker: null, plan: { kind: "noop" } }` for a no-op;
+  - from Task 7: `requestRouteChange(id, target, copy): Promise<RouteRequestResult>` (`RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed"`; `"superseded"` means Settings closed, Discard ran, or a newer request or an Undo on the same route began while it waited (Task 7's per-route epochs), R2-8), `RouteChangeOutcome { applied; blocker; plan; undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> }` and `useRouteDraftStore` (`src/stores/routeDraftStore.ts`). `requestRouteChange` returns `"staged"` for a draft, `{ applied: true, blocker: null, undo }` for an instant commit and `{ applied: false, blocker: null, plan: { kind: "noop" } }` for a no-op;
   - from Task 8: `providersForRoute(id: RouteId): string[]` (`src/components/settings/routing/providerCatalog.ts`, imported as `./providerCatalog`) and `StagedRoutePanel({ routeId }: { routeId: RouteId })` (`./StagedRoutePanel`);
   - from Plan 01: `providerDisplayName` (sorting only), `providerDisplayLabel(id, t)` for every name shown, `LocalityRing`, the `locality.device` / `locality.network` / `locality.remote` / `locality.customEndpoint` keys, the `--motion-*` and `--color-locality-*` tokens.
 - Owner rule (Task 6): the Patchbay changes a route only through `requestRouteChange`. It writes no provider, model, endpoint or enable-switch field, and renders no enable switch (an off task says "Turn it on in its settings" and links there).
@@ -20365,7 +21035,7 @@ Expected: FAIL.
      destinations: RouteDestination[];
      selectedId: RouteId | null;
      message: string | null;
-     undo: (() => void) | null;
+    undo: (() => Promise<void>) | null;
      compatOf: (dest: RouteDestination) => Compatibility | null;
      keyStateOf: (dest: RouteDestination) => KeyState | null;
      selectTask: (id: RouteId) => void;
@@ -20377,7 +21047,7 @@ Expected: FAIL.
      const { routes, snapshot, sealed, providersFor, request, copy, t } = deps;
      const [selectedId, setSelectedId] = useState<RouteId | null>(null);
      const [message, setMessage] = useState<string | null>(null);
-     const [undo, setUndo] = useState<(() => void) | null>(null);
+    const [undo, setUndo] = useState<(() => Promise<void>) | null>(null);
      const busy = useRef(false);
 
      const destinations = useMemo(() => buildDestinations(snapshot, routes), [snapshot, routes]);
@@ -20416,9 +21086,14 @@ Expected: FAIL.
        return true;
      }, [selectedId]);
 
-     const runUndo = (fn: () => RouteChangeOutcome | "staged", task: string) => {
+     const runUndo = async (fn: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed">, task: string) => {
        setUndo(null);
-       const result = fn();
+       const result = await fn();
+       if (result === "superseded") return;
+       if (result === "save-failed") {
+         setMessage(t("common.error"));
+         return;
+       }
        if (result === "staged") setMessage(t("patchbay.hint.undoStaged"));
        else setMessage(result.applied ? t("patchbay.hint.undone", { task }) : t("patchbay.hint.notApplied"));
      };
@@ -20478,6 +21153,10 @@ Expected: FAIL.
            // while this one waited (R2-8):
            // nothing was staged or committed, so say nothing.
            if (outcome === "superseded") return;
+           if (outcome === "save-failed") {
+             setMessage(t("common.error"));
+             return;
+           }
            if (outcome === "staged") {
              setMessage(t("patchbay.hint.staged", { task, destination: destinationLabel(dest, t) }));
            } else {
@@ -33252,7 +33931,7 @@ git commit -m "fix(settings): Name destinations, label actions and soften privac
 Closes I13 (guards for every changed Settings component, including inherited Button hover surfaces), M1 (hard preflight), M4 (no manual `tail -f`; the partial-delete check is Task 14's test), M5 (baseline guards and change-driving tests are labelled, and a command finds unlabelled ones) and the tracked spec §5.1 update. It also hardens **I1**: a repo-wide source guard fails if any file outside the planner, the store and an explicit allowlist references a route-affecting setter or writes `personalWebSearch:`. And it extends the **C1/I2** network guard to `codexRateLimits`/`codexModels` and to the mount path of Settings' Codex views (`CodexConnection`, `CodexModelPicker`). It also hands the finished contract to Plan 07.
 
 Round 2 adds the repo-wide nets for the round-2 fixes, in the same two guard files:
-- **R2-1 (enterprise recipients).** `routeWriteGuard.test.js` lists the four enterprise route setters (`setBedrockRegion`, `setAzureEndpoint`, `setVertexProject`, `setVertexLocation`). Only `settingsStore.ts` (Task 6's `applyRoutePatch`) sends those fields to main. `adjustBedrockModelForRegion` runs only inside the planner (`providerSwitchPlans.ts`, `routePlanner.ts`). Task 3's startup sync from main never writes main back. `routeFactsNoNetwork.test.js` checks that Task 1's `enterpriseRouteFacts.js` is import-free and returns hosts and booleans only. It also checks that only `routeFactsStore.ts` reads main's enterprise getters.
+- **R2-1/R3-1 (enterprise recipients).** `routeWriteGuard.test.js` bans direct enterprise savers from Settings components and requires `settingsStore.ts` (Task 6's `applyRoutePatch`) as the only renderer transaction caller. `adjustBedrockModelForRegion` runs only inside the planner (`providerSwitchPlans.ts`, `routePlanner.ts`). Task 3's startup sync from main never writes main back. `routeFactsNoNetwork.test.js` checks that Task 1's `enterpriseRouteFacts.js` is import-free and returns hosts and booleans only. It also checks that only `routeFactsStore.ts` reads main's enterprise getters.
 - **R2-2 and R2-5 (credential writes).** `routeWriteGuard.test.js` checks three things:
   - `ApiKeyInput` has no empty-save Remove;
   - every `<ApiKeyInput` passes `credentialId=`;
@@ -33892,12 +34571,13 @@ test("[baseline guard after Tasks 6–9] only providerSearch.ts touches personal
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const everyScannedFile = () => [...new Set(SCANNED.flatMap((dir) => sourceFiles(dir)))].sort();
 
-// R2-1. Main-side files that define (environment.js) or register (ipcHandlers.js) the enterprise savers.
+// The renderer has one enterprise writer. Environment/IPC implement it, while
+// compatibility single-field savers remain inside main's shared transaction.
 const ENTERPRISE_SAVER_HOSTS = new Set(["src/helpers/environment.js", "src/helpers/ipcHandlers.js"]);
-const ENTERPRISE_SAVERS = /\bsave(?:BedrockRegion|AzureEndpoint|VertexProject|VertexLocation)\b/;
+const ENTERPRISE_SAVERS = /\bsaveEnterpriseRoutePatch\b|\bsave(?:BedrockRegion|AzureEndpoint|VertexProject|VertexLocation|VertexAuthSource)\b/;
 
 test("[baseline guard] only settingsStore.ts sends enterprise route fields to main (R2-1)", () => {
-  // The four store setters and Task 6's applyRoutePatch (ENTERPRISE_MAIN_SAVERS) are the only renderer callers.
+  // Task 6's applyRoutePatch is the only renderer caller of the atomic enterprise transaction.
   const offenders = [];
   for (const file of everyScannedFile()) {
     if (file === "src/stores/settingsStore.ts" || ENTERPRISE_SAVER_HOSTS.has(file)) continue;
@@ -34294,7 +34974,7 @@ The design every task codes against. Task sections are authoritative where they 
 | main `src/helpers/enterpriseRouteFacts.js` | R2-1: main's environment overrides for enterprise requests (`AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, `AWS_ENDPOINT_URL`, `GOOGLE_VERTEX_API_KEY`, `GOOGLE_VERTEX_PROJECT`), returned as hosts and booleans only. CommonJS, import-free, reads `process.env` only, no network. Task 3 registers it as the `enterprise-route-facts` IPC. | T1 |
 | main `src/helpers/credentialAuthority.js` | Main-owned credential presence (committed state only), acknowledged saves, change events with field presence, generations, undo-remove tokens, the async reset barrier, `captureCommitted` for Verify, and Codex presence (file stat only). | T2 |
 | `src/lib/credentialSlots.ts` | Pure (type-only imports). The renderer's slot vocabulary shared with main: `CredentialSlot`, the seven custom slots, pair credentials, the 25 secret store fields and `unavailableSecretSave`. | T2 |
-| `src/stores/routeFactsStore.ts` | Renderer facts: per-family model inventories, support models, credential presence and field presence, rejected identities, and the enterprise main facts (after a one-time sync of the four enterprise settings from main). Network-free. Retains last-known values across errors. | T3 |
+| `src/stores/routeFactsStore.ts` | Renderer facts: per-family model inventories, support models, credential presence and field presence, rejected identities, and the enterprise main facts (after a one-time sync of the five enterprise settings from main). Network-free. Retains last-known values across errors. | T3 |
 | `src/stores/sealedStore.ts` | THE single renderer sealed authority (hooks, imperative snapshots, Apply bar, Keyring), spec §5.4. No other renderer module calls `privacy.getSealed`/`privacy.onSealedChange` (Task 18 guard). Plan 07 Task 13 replaces its internals and adds `getSealedSnapshot()`/`subscribeSealed(cb)`. | T3 |
 | `src/lib/providerSwitchPlans.ts` | Pure-ish (imports registry JSON) provider-switch patch planners shared by store and planner. | T6 |
 | `src/lib/routePlanner.ts` | `planRouteChange` / `planPatch`: one simulated patch used for preview, commit and Undo; lists coupled changes across all 11 routes. | T6 |
@@ -34526,7 +35206,7 @@ export function refreshRouteFacts(keys?: readonly RouteFactKey[]): Promise<void>
 export function ensureRouteFactsSubscribed(): void;
 
 // src/stores/settingsStore.ts (T3, R2-1)
-export function noteEnterpriseLocalWrite(): void;   // the four enterprise setters and T6's applyRoutePatch call it
+export function noteEnterpriseLocalWrite(): void;   // compatibility setters and T6's applyRoutePatch call it after success or conflict refresh
 export function enterpriseLocalWriteCount(): number;
 export function reconcileEnterpriseSettingsFromMain(
   main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string>,
@@ -34559,16 +35239,18 @@ Spec §5.4. Every renderer reader of sealed state uses this module and nothing e
 // src/lib/providerSwitchPlans.ts  (store's switchCloudTranscriptionProvider / switchReasoningProvider are refactored to call these, then applyRoutePatch)
 export type NonSecretKeys = (typeof ROUTE_PATCH_KEYS)[number];
 export type SettingsPatch = Partial<Pick<SettingsState, NonSecretKeys>> & Partial<Record<ProviderSearchPatchKey, boolean>>; // never secret fields
-export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"]; // R2-1: part of ROUTE_PATCH_KEYS
+export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation", "vertexAuthSource"]; // R2-1/R3-1: part of ROUTE_PATCH_KEYS
 export type RouteEnterpriseKey = (typeof ROUTE_ENTERPRISE_KEYS)[number];
 export function bedrockCoupledModelKeys(state: SettingsState): (keyof SettingsState)[];          // R2-1: model keys a region change can rewrite
 export function planEnterpriseCoupling(state: SettingsState, patch: SettingsPatch): SettingsPatch; // R2-1: writes that must join `patch` (adjustBedrockModelForRegion on Bedrock scopes' own geo-scoped models; skips keys the patch already writes; nothing when the region is unchanged)
+export interface EnterpriseRouteSettings { bedrockRegion: string; azureEndpoint: string; vertexProject: string; vertexLocation: string; vertexAuthSource: "adc" | "apiKey" }
 export function planTranscriptionProviderSwitch(state: SettingsState, context: TranscriptionPolicyContext, providerId: string): SettingsPatch; // includes transcriptionModelByProvider memory update
 export function planReasoningProviderSwitch(state: SettingsState, scope: InferenceScope, providerId: string, fallbackModel?: string): SettingsPatch; // includes reasoningModelByProvider memory update
 // (T6 also exports ROUTE_PATCH_KEYS, ROUTE_SWITCH_KEYS, ROUTE_OPTION_KEYS, PROVIDER_SEARCH_PATCH_KEYS, ROUTE_PATCH_KEY_SET and ENTERPRISE_PROVIDER_IDS; see Task 6)
 // settingsStore.ts
-applyRoutePatch(patch: SettingsPatch): void;   // ONE setState; persists strings/booleans to localStorage under the field name and memory objects via persistTranscriptionModelMemory/persistReasoningModelMemory; R2-1: enterprise keys also go to main once each (saveBedrockRegion/saveAzureEndpoint/saveVertexProject/saveVertexLocation, then debouncedPersistToEnv) and call noteEnterpriseLocalWrite(); throws on any secret or non-route key before writing; never expands coupling, so an undoPatch applies verbatim
-// The four setters setBedrockRegion/setAzureEndpoint/setVertexProject/setVertexLocation stay for non-route callers; no component calls them (Task 18 guard)
+applyRoutePatch(patch: SettingsPatch, options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }): Promise<void>; // full patch is serialized; at queue admission it rejects stale route/session owners before IPC; main ACK precedes localStorage/store state; conflicts refresh main's canonical tuple but keep the route draft
+flushRoutePatchSaves(): Promise<void>; // drain queued commits before Task 7 computes another plan
+// The field savers setBedrockRegion/setAzureEndpoint/setVertexProject/setVertexLocation/setVertexAuthSource remain compatibility paths through the shared main transaction; no Settings component calls them (Task 18 guard)
 
 // src/lib/routePlanner.ts
 export type RouteTarget =
@@ -34579,6 +35261,7 @@ export interface RouteChange { id: RouteId; before: ResolvedRoute; after: Resolv
 export type ApplyBlocker = "needsKey" | "chooseProvider" | "needsUrl" | "needsModel" | "sealed" | "unknown" | "unsupported";
 export interface RoutePlan {
   routeId: RouteId;
+  enterpriseBase: EnterpriseRouteSettings; // non-secret tuple used to build preview; unchanged until main CAS
   patch: SettingsPatch;          // exact raw store writes; preview is computed by resolving the patched state, so preview == commit by construction
   undoPatch: SettingsPatch;      // prior raw values of every key in patch (inheritance blanks and vision flags included); after a Bedrock region change it also pins every Bedrock model key at its current value (R2-1)
   changes: RouteChange[];        // every route among the 11 whose locality/providerId/host/model/sends/state changed, plus (R2-1 staging gap) every route whose recipient is unnamed (off-device, enabled, host null or state unknown) when the patch writes its provider's enterprise field (azure: azureEndpoint; bedrock: bedrockRegion; vertex: vertexProject, vertexLocation)
@@ -34617,15 +35300,15 @@ export const useRouteDraftStore: UseBoundStore<StoreApi<{
 export const DRAFT_SETUP_KEYS: ReadonlySet<string>;                       // = new Set(ROUTE_ENTERPRISE_KEYS)
 export function currentPlanContext(copy: RouteCopy): PlanContext;         // facts store + getSealed()
 export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan; // target + setup: planRouteChange({ ...state, ...setup }).patch, then planPatch(state, ctx, id, { ...setup, ...thatPatch })
-export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => RouteChangeOutcome | "staged" }
-export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"; // R2-8
-export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>; // bumps routeEpochs[id] and records it with requestEpoch, awaits flushSecretSaves() + credential refresh, re-checks both; noop → clear the same route's draft (internal: bumps nothing); instant → commit; staged → stage
+export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> }
+export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed"; // R2-8 + persisted enterprise ACK
+export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>; // bumps routeEpochs[id] and records it with requestEpoch, awaits route-patch + secret-save queues and credential refresh, re-checks both; noop → clear the same route's draft (internal: bumps nothing); instant → commit; staged → stage
 export async function requestRoutePatch(id: RouteId, patch: SettingsPatch, copy: RouteCopy): Promise<RouteRequestResult>; // same epoch rule; used by switches, options and enterprise route fields (R2-1)
 export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null; // R2-9: merges enterprise keys into the route's target draft and writes nothing; throws for a key outside DRAFT_SETUP_KEYS; null when the route has no target draft
-export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null>; // reads routeEpochs[draft.routeId] and requestEpoch without bumping them; awaits flushSecretSaves(); re-plans from LIVE state at click time; null when either epoch or the draft changed during the wait; refuses on blocker (draft kept)
+export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null | "save-failed">; // reads routeEpochs[draft.routeId] and requestEpoch without bumping them; awaits route-patch + secret-save queues; re-plans from LIVE state at click time; null when either epoch or the draft changed during the wait; refuses on blocker (draft kept)
 export function endSettingsSession(): void;                                // R2-8: discard(): drops the draft and bumps the session epoch requestEpoch; SettingsModal close calls it through withDraftDiscard
 export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void; // on close: discard the draft and endSettingsSession()
-// Undo: bumps routeEpochs for its plan's routeId and every route in plan.changes (never requestEpoch), then planPatch(live, undoPatch): instant → apply; else stage a patch draft (never applies a remote move without review). Undo has no wait and is not epoch-gated, so a toast Undo still works after Settings closed.
+// Undo: bumps routeEpochs for its plan's routeId and every route in plan.changes (never requestEpoch), drains earlier route-patch ACKs, then planPatch(live, undoPatch): instant → apply; else stage a patch draft (never applies a remote move without review). It remains callable after Settings closes.
 ```
 - **Request epochs (R2-8).**
   - Per route: `requestRouteChange(id, …)` and `requestRoutePatch(id, …)` bump `routeEpochs[id]` at call time. Every Undo, synchronously, bumps `routeEpochs` for its plan's `routeId` and for every route in its `changes`, because it is the newest intent for those routes.
@@ -34644,7 +35327,7 @@ export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: 
 export function useRouteChange(): {
   request(id: RouteId, target: RouteTarget): Promise<RouteRequestResult>;
   requestPatch(id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult>;
-  apply(): Promise<RouteChangeOutcome | null>;
+  apply(): Promise<RouteChangeOutcome | null | "save-failed">;
   copy: RouteCopy;
 };
 export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteRequestResult>;

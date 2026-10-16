@@ -133,7 +133,54 @@ function withInstalled(
 // Main's per-credential generation orders presence updates, so a list read
 // before a save can never undo the save's event.
 const credentialGenerations = new Map<CredentialSlot, number>();
-const pendingCredentialEvents = new Map<CredentialSlot, CredentialRow>();
+let credentialEventOrder = 0;
+const pendingCredentialEvents = new Map<CredentialSlot, { row: CredentialRow; order: number }>();
+const activeCredentialLists = new Map<symbol, number>();
+
+function retireCredentialEvents(): void {
+  // Before the first full inventory, buffered events are the only copy of
+  // slots main has reported. Once known, facts retain their generation fence.
+  if (useRouteFactsStore.getState().facts.credentials === null) return;
+  for (const [id, event] of pendingCredentialEvents) {
+    if (![...activeCredentialLists.values()].some((startedAt) => startedAt < event.order)) {
+      pendingCredentialEvents.delete(id);
+    }
+  }
+}
+
+async function loadCredentials(api: RouteFactsApi): Promise<void> {
+  const request = Symbol();
+  const startedAt = credentialEventOrder;
+  activeCredentialLists.set(request, startedAt);
+  try {
+    await track(
+      "credentials",
+      () => api.credentials?.list?.(),
+      (rows) => (Array.isArray(rows) ? rows : undefined),
+      (facts, rows) => {
+        const listedGenerations = new Map(
+          rows
+            .filter((row) => row && typeof row.id === "string")
+            .map((row) => [row.id, typeof row.generation === "number" ? row.generation : 0])
+        );
+        const events = [...pendingCredentialEvents.values()]
+          .filter(
+            ({ row, order }) =>
+              // Equal generations may change on refresh/stat: only events after
+              // this read started can override its equally current answer.
+              order > startedAt || row.generation > (listedGenerations.get(row.id) ?? -1)
+          )
+          .map(({ row }) => row);
+        return mergeCredentials(facts, [...rows, ...events]);
+      }
+    );
+  } finally {
+    activeCredentialLists.delete(request);
+    // Retire only events no remaining older read needs. Clearing the entire
+    // buffer after one answer would expose another overlapping stale answer.
+    retireCredentialEvents();
+  }
+}
 
 // Only booleans survive: a row can never smuggle a value into renderer state.
 function presentFields(fields: unknown): Record<string, boolean> {
@@ -310,13 +357,7 @@ const LOADERS: Record<RouteFactKey, (api: RouteFactsApi) => Promise<void>> = {
       (r) => (typeof r?.downloaded === "boolean" ? r.downloaded : undefined),
       (f, ready) => ({ ...f, searchModelReady: ready })
     ),
-  credentials: (api) =>
-    track(
-      "credentials",
-      () => api.credentials?.list?.(),
-      (rows) => (Array.isArray(rows) ? rows : undefined),
-      (facts, rows) => mergeCredentials(facts, [...rows, ...pendingCredentialEvents.values()])
-    ),
+  credentials: loadCredentials,
   rejected: (api) =>
     track(
       "rejected",
@@ -381,8 +422,9 @@ export function refreshRouteFacts(keys: readonly RouteFactKey[] = ROUTE_FACT_KEY
 
 function applyCredentialChange(event: CredentialRow): void {
   const previous = pendingCredentialEvents.get(event.id);
-  if (!previous || event.generation >= previous.generation)
-    pendingCredentialEvents.set(event.id, event);
+  const order = ++credentialEventOrder;
+  if (!previous || event.generation >= previous.row.generation)
+    pendingCredentialEvents.set(event.id, { row: event, order });
   if (useRouteFactsStore.getState().facts.credentials === null) {
     // Main has not listed presence yet: read the full list rather than
     // assume anything about the credentials this event does not name.
@@ -390,6 +432,7 @@ function applyCredentialChange(event: CredentialRow): void {
   } else {
     useRouteFactsStore.setState((s) => ({ facts: mergeCredentials(s.facts, [event]) }));
   }
+  retireCredentialEvents();
   // Main resets a key's health on save and remove; re-read the verdict.
   void refreshRouteFacts(["rejected", "enterprise"]);
 }

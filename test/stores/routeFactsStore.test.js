@@ -934,3 +934,114 @@ test("recovery before the first list is replayed over both deferred older invent
   assert.equal(facts().credentialUnknown.has("openai"), true);
   assert.equal(facts().credentials.get("openai"), false);
 });
+
+// change-driving review R1: refresh events need not bump generation (Codex
+// presence is a fresh stat). A list started later is authoritative at equality.
+test("a later same-generation credential list supersedes an earlier refresh event", async (t) => {
+  const { fakeCredentialEnv } = require("../helpers/harness/fakeCredentialEnv");
+  const { createCredentialAuthority } = require("../../src/helpers/credentialAuthority");
+  let authFilePresent = false;
+  const authority = createCredentialAuthority({
+    env: fakeCredentialEnv(),
+    fs: { statSync: () => ({ isFile: () => true, size: authFilePresent ? 100 : 0 }) },
+    codexHome: "/fixture/codex",
+    setTimer() {},
+  });
+  const source = api({
+    credentials: {
+      list: async () => authority.list(),
+      onChanged: (cb) => authority.subscribe(cb),
+    },
+  });
+  const { store, facts } = await freshStore(t, { electronAPI: source });
+  store.ensureRouteFactsSubscribed();
+  await flush();
+  authority.refresh("codex");
+  assert.equal(facts().credentials.get("codex"), false);
+  const generation = facts().credentialGenerations.get("codex");
+  authFilePresent = true;
+  await store.loadRouteFacts(source, ["credentials"]);
+  assert.equal(facts().credentialGenerations.get("codex"), generation);
+  assert.equal(
+    facts().credentials.get("codex"),
+    true,
+    "an old equal-generation event cannot mask a later list"
+  );
+});
+
+// change-driving review R1: publishing one response cannot discard an event
+// needed by another overlapping read that also began before the event.
+test("overlapping lists retain their event fences, then allow newer equal-generation facts", async (t) => {
+  const first = deferred();
+  const second = deferred();
+  let changed;
+  const source = api({
+    credentials: {
+      list: () => first.promise,
+      onChanged: (cb) => {
+        changed = cb;
+        return () => {};
+      },
+    },
+  });
+  const { store, facts } = await freshStore(t, { electronAPI: source });
+  const row = (present, generation = 1, unknown = false) => ({
+    id: "codex",
+    present,
+    generation,
+    fields: {},
+    unknown,
+  });
+  await store.loadRouteFacts(api({ credentials: { list: async () => [row(false)] } }), [
+    "credentials",
+  ]);
+  store.ensureRouteFactsSubscribed();
+  const overlap = store.loadRouteFacts(api({ credentials: { list: () => second.promise } }), [
+    "credentials",
+  ]);
+  changed(row(false));
+  first.resolve([row(true)]);
+  await flush();
+  assert.equal(facts().credentials.get("codex"), false);
+  second.resolve([row(true)]);
+  await overlap;
+  assert.equal(
+    facts().credentials.get("codex"),
+    false,
+    "second overlapping response still needs its own event fence"
+  );
+  await store.loadRouteFacts(api({ credentials: { list: async () => [row(true)] } }), [
+    "credentials",
+  ]);
+  assert.equal(facts().credentials.get("codex"), true, "newer list wins at the same generation");
+  const older = deferred();
+  const pending = store.loadRouteFacts(api({ credentials: { list: () => older.promise } }), [
+    "credentials",
+  ]);
+  changed(row(false));
+  await store.loadRouteFacts(api({ credentials: { list: async () => [row(true)] } }), [
+    "credentials",
+  ]);
+  assert.equal(
+    facts().credentials.get("codex"),
+    true,
+    "a post-event list wins while the event is still retained for an older read"
+  );
+  older.resolve([row(false)]);
+  await pending;
+  assert.equal(
+    facts().credentials.get("codex"),
+    true,
+    "late older response cannot regress the newer publication"
+  );
+  changed(row(false, 3, true));
+  await store.loadRouteFacts(api({ credentials: { list: async () => [row(true, 2)] } }), [
+    "credentials",
+  ]);
+  assert.equal(facts().credentialGenerations.get("codex"), 3);
+  assert.equal(
+    facts().credentialUnknown.has("codex"),
+    true,
+    "retiring an event never weakens monotonic generation protection"
+  );
+});

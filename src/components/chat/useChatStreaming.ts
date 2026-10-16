@@ -68,6 +68,8 @@ async function buildRAGContext(userText: string, scope?: ContainerScope): Promis
 type ChatStreamingScope = "chatIntelligence" | "dictationAgent";
 
 interface UseChatStreamingOptions {
+  /** Display owner; changing threads clears activity without redirecting an admitted request. */
+  conversationId?: number | null;
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   /** Settings scope the conversation resolves its provider and model from. */
@@ -82,6 +84,16 @@ interface UseChatStreamingOptions {
 }
 
 export interface SendToAIOptions {
+  /** Request ownership survives navigation and unmount; completion persists to its admitted conversation. */
+  owner?: {
+    conversationId: number;
+    isCurrent: () => boolean;
+    onStreamComplete: (
+      assistantId: string,
+      content: string,
+      toolCalls?: ToolCallInfo[]
+    ) => void | Promise<void>;
+  };
   /** Effective inference target captured synchronously when the sender admits a message. */
   inferenceSnapshot?: ChatInferenceSnapshot;
   /** Screenshot for this message; attached only when the resolved model can see it. */
@@ -102,6 +114,8 @@ export interface ChatInferenceSnapshot {
   settings: ReturnType<typeof getSettings>;
   inference: ReturnType<typeof resolveChatStreamingInference>;
   webSearch: boolean;
+  noteContext?: string;
+  searchScope?: ContainerScope;
 }
 
 export interface ChatStreaming {
@@ -130,7 +144,7 @@ function transformLastUserMessage(
 }
 
 export function useChatStreaming({
-  messages,
+  conversationId,
   setMessages,
   inferenceScope = "chatIntelligence",
   noteContext: externalNoteContext,
@@ -143,7 +157,7 @@ export function useChatStreaming({
   const [toolStatus, setToolStatus] = useState("");
   const [activeToolName, setActiveToolName] = useState("");
   const mountedRef = useRef(true);
-  const messagesRef = useRef<Message[]>([]);
+  const activeConversationRef = useRef<number | null | undefined>(undefined);
   const noteContextRef = useRef(externalNoteContext);
   noteContextRef.current = externalNoteContext;
   const searchScopeRef = useRef(searchScope);
@@ -166,6 +180,14 @@ export function useChatStreaming({
     setToolStatus("");
     setActiveToolName("");
   }, [clearToolActivityTimer]);
+
+  useEffect(() => {
+    // Creating the admitted first conversation is not navigation away from it.
+    if (conversationId !== activeConversationRef.current) {
+      setAgentState("idle");
+      clearToolActivity();
+    }
+  }, [conversationId, clearToolActivity]);
 
   const beginToolActivity = useCallback(
     (name: string, status: string) => {
@@ -193,10 +215,6 @@ export function useChatStreaming({
 
     toolActivityTimerRef.current = setTimeout(clearToolActivity, remainingMs);
   }, [clearToolActivity, clearToolActivityTimer]);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
 
   const sendGenerationRef = useRef(0);
   // Generation stamped by the most recent cancel issued while still mounted
@@ -239,6 +257,8 @@ export function useChatStreaming({
       const config = inference.config;
       return {
         settings,
+        noteContext: noteContextRef.current,
+        searchScope: searchScopeRef.current ? { ...searchScopeRef.current } : undefined,
         inference: { ...inference, config: { ...config } },
         webSearch: isProviderSearchEnabled(
           config.scope === "dictationAgentVision" ? "dictationAgent" : config.scope,
@@ -252,21 +272,36 @@ export function useChatStreaming({
 
   const sendToAI = useCallback(
     async (userText: string, allMessages: Message[], options?: SendToAIOptions) => {
+      activeConversationRef.current = options?.owner?.conversationId;
+      const isCurrent = () => options?.owner?.isCurrent() !== false;
+      // Keep reply metadata independently of whichever thread the UI now displays.
+      let requestMessages = allMessages;
+      const updateMessages: typeof setMessages = (update) => {
+        requestMessages = typeof update === "function" ? update(requestMessages) : update;
+        setMessages((current) => {
+          if (!isCurrent()) return current;
+          return typeof update === "function" ? update(current) : update;
+        });
+      };
+      const updateAgentState = (state: AgentState) => {
+        setAgentState((current) => (isCurrent() ? state : current));
+      };
+      const completeRequest = options?.owner?.onStreamComplete ?? onStreamComplete;
       const sendGeneration = ++sendGenerationRef.current;
       const cancelled = () => sendGeneration !== sendGenerationRef.current;
-      clearToolActivity();
+      if (isCurrent()) clearToolActivity();
       let responseAnnounced = false;
       const announceResponse = () => {
         if (responseAnnounced) return;
         responseAnnounced = true;
-        if (!options?.suppressResponseContent) onResponseContent?.();
+        if (isCurrent() && !options?.suppressResponseContent) onResponseContent?.();
       };
       const snapshot = options?.inferenceSnapshot ?? captureInference(options);
       const settings = snapshot.settings;
       const { config: llmConfig, attachScreenContext } = snapshot.inference;
       const requestedAttachment = attachScreenContext ? (options?.attachment ?? null) : null;
       const llmMode = llmConfig.mode || "local";
-      setAgentState("thinking");
+      updateAgentState("thinking");
 
       const isLanAgent = llmMode === "self-hosted" && !!llmConfig.remoteUrl;
       const isCustomAgent = llmMode === "providers" && llmConfig.provider === "custom";
@@ -288,7 +323,7 @@ export function useChatStreaming({
         isLocalProvider && estimateModelSizeB(llmConfig.model) >= LOCAL_TOOL_MIN_PARAMS_B;
       const supportsTools = !isLocalProvider || localModelCanUseTool;
 
-      const scope = searchScopeRef.current;
+      const scope = snapshot.searchScope;
       let registry: ToolRegistry | null = null;
       if (supportsTools) {
         const scopeKey = scope ? `${scope.spaceId}:${scope.folderId ?? ""}` : "";
@@ -320,7 +355,7 @@ export function useChatStreaming({
 
       const ragContext = await buildRAGContext(userText, scope);
       if (cancelled() || !mountedRef.current) return;
-      const combinedContext = [noteContextRef.current, ragContext].filter(Boolean).join("\n\n");
+      const combinedContext = [snapshot.noteContext, ragContext].filter(Boolean).join("\n\n");
       // The user's dictionary rides on every conversation so replies use their
       // jargon — same suffix the dictation prompts carry.
       let systemPrompt = appendDictionarySuffix(
@@ -369,11 +404,11 @@ export function useChatStreaming({
       }
 
       const assistantId = crypto.randomUUID();
-      setMessages((prev) => [
+      updateMessages((prev) => [
         ...prev,
         { id: assistantId, role: "assistant", content: "", isStreaming: true },
       ]);
-      setAgentState("streaming");
+      updateAgentState("streaming");
 
       // Chat re-parses the whole answer through react-markdown on every
       // content write, so one write per streamed token made parse cost scale
@@ -387,7 +422,7 @@ export function useChatStreaming({
       };
       const flushContentNow = () => {
         cancelContentFlush();
-        setMessages((prev) =>
+        updateMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, content: fullContent } : m))
         );
       };
@@ -438,12 +473,13 @@ export function useChatStreaming({
             flushContentNow();
             if (chunk.calls.length > 0) announceResponse();
             for (const call of chunk.calls) {
-              setAgentState("tool-executing");
-              beginToolActivity(
-                call.name,
-                t(`agentMode.tools.${call.name}Status`, { defaultValue: `Using ${call.name}...` })
-              );
-              setMessages((prev) =>
+              updateAgentState("tool-executing");
+              if (isCurrent())
+                beginToolActivity(
+                  call.name,
+                  t(`agentMode.tools.${call.name}Status`, { defaultValue: `Using ${call.name}...` })
+                );
+              updateMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
                     ? {
@@ -463,7 +499,7 @@ export function useChatStreaming({
               );
             }
           } else if (chunk.type === "tool_result") {
-            setMessages((prev) =>
+            updateMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId && m.toolCalls
                   ? {
@@ -482,14 +518,14 @@ export function useChatStreaming({
                   : m
               )
             );
-            setAgentState("streaming");
-            completeToolActivity();
+            updateAgentState("streaming");
+            if (isCurrent()) completeToolActivity();
           }
         }
 
         if (cancelled() || !mountedRef.current) {
           flushContentNow();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((message) =>
               message.id === assistantId ? { ...message, isStreaming: false } : message
             )
@@ -501,8 +537,8 @@ export function useChatStreaming({
           // the per-request delivery hook.
           const explicitlyCancelled = explicitCancelGenerationRef.current > sendGeneration;
           if (!explicitlyCancelled && fullContent.trim().length > 0) {
-            const finalMsg = messagesRef.current.find((m) => m.id === assistantId);
-            onStreamComplete?.(assistantId, fullContent, finalMsg?.toolCalls);
+            const finalMsg = requestMessages.find((m) => m.id === assistantId);
+            await completeRequest?.(assistantId, fullContent, finalMsg?.toolCalls);
           }
           return;
         }
@@ -516,17 +552,17 @@ export function useChatStreaming({
           // terminal outcome.
           fullContent = t("agentMode.chat.emptyResponse");
           announceResponse();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, content: fullContent } : m))
           );
         }
 
-        setMessages((prev) =>
+        updateMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m))
         );
 
-        const finalMsg = messagesRef.current.find((m) => m.id === assistantId);
-        onStreamComplete?.(assistantId, fullContent, finalMsg?.toolCalls);
+        const finalMsg = requestMessages.find((m) => m.id === assistantId);
+        await completeRequest?.(assistantId, fullContent, finalMsg?.toolCalls);
         if (hasDeliverableContent) {
           await options?.onComplete?.({
             assistantId,
@@ -537,7 +573,7 @@ export function useChatStreaming({
       } catch (error) {
         if (cancelled()) {
           flushContentNow();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((message) =>
               message.id === assistantId ? { ...message, isStreaming: false } : message
             )
@@ -557,7 +593,7 @@ export function useChatStreaming({
             "reasoning"
           );
           announceResponse();
-          setMessages((prev) =>
+          updateMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
                 ? {
@@ -571,8 +607,8 @@ export function useChatStreaming({
         }
       }
 
-      setAgentState("idle");
-      completeToolActivity();
+      updateAgentState("idle");
+      if (isCurrent()) completeToolActivity();
     },
     [
       captureInference,

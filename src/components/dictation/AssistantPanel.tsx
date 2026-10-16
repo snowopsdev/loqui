@@ -115,13 +115,11 @@ export function AssistantPanel({
   const { messages, setMessages } = persistence;
 
   const streaming = useChatStreaming({
+    conversationId: persistence.conversationId,
     messages,
     setMessages,
     // Spoken commands answer on the Voice Assistant scope, not the Chat one.
     inferenceScope: "dictationAgent",
-    onStreamComplete: (_assistantId, content, toolCalls) => {
-      void persistence.saveAssistantMessage(content, toolCalls);
-    },
     onResponseContent,
   });
 

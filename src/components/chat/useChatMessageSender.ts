@@ -85,14 +85,25 @@ export function useChatMessageSender({
 
             persistence.setMessages((messages) => [...messages, userMessage]);
             optimisticId = userMessage.id;
-            await persistence.saveUserMessage(text);
+            await persistence.saveUserMessage(text, convId);
             reachedConversation = true;
-            await onMessagePersisted?.({
-              conversationId: convId,
-              text,
-              isFirstMessage: previousMessages.length === 0,
+            // A saved A message must not change the state of a newly selected B composer.
+            if (persistence.isCurrentConversation?.(convId) !== false) {
+              await onMessagePersisted?.({
+                conversationId: convId,
+                text,
+                isFirstMessage: previousMessages.length === 0,
+              });
+            }
+            await streaming.sendToAI(text, [...previousMessages, userMessage], {
+              ...admittedOptions,
+              owner: {
+                conversationId: convId,
+                isCurrent: () => persistence.isCurrentConversation?.(convId) !== false,
+                onStreamComplete: (_id, content, toolCalls) =>
+                  persistence.saveAssistantMessage?.(content, toolCalls, convId),
+              },
             });
-            await streaming.sendToAI(text, [...previousMessages, userMessage], admittedOptions);
           } finally {
             onSendingChange?.(false);
           }

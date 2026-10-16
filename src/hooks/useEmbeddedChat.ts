@@ -65,12 +65,10 @@ export function useEmbeddedChat({
   );
 
   const streaming = useChatStreaming({
+    conversationId: persistence.conversationId,
     messages: persistence.messages,
     setMessages: persistence.setMessages,
     noteContext,
-    onStreamComplete: (_id, content, toolCalls) => {
-      persistence.saveAssistantMessage(content, toolCalls);
-    },
   });
 
   const fetchNoteConversations = useCallback(async () => {

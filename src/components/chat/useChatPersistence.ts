@@ -18,8 +18,14 @@ export interface ChatPersistence {
   ) => Promise<number>;
   loadConversation: (id: number) => Promise<void>;
   /** Resolves only after the user message row has been saved. */
-  saveUserMessage: (text: string) => Promise<void>;
-  saveAssistantMessage: (content: string, toolCalls?: ToolCallInfo[]) => Promise<void>;
+  saveUserMessage: (text: string, conversationId?: number) => Promise<void>;
+  isCurrentConversation: (id: number) => boolean;
+  /** Pass the admitted id for request completion, independent of the selected thread. */
+  saveAssistantMessage: (
+    content: string,
+    toolCalls?: ToolCallInfo[],
+    conversationId?: number
+  ) => Promise<void>;
   handleNewChat: () => void;
 }
 
@@ -80,24 +86,30 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
     setMessages(loaded);
   }, []);
 
-  const saveUserMessage = useCallback(async (text: string) => {
-    const id = conversationIdRef.current;
+  const isCurrentConversation = useCallback((id: number) => conversationIdRef.current === id, []);
+
+  const saveUserMessage = useCallback(async (text: string, targetId?: number) => {
+    const id = targetId ?? conversationIdRef.current;
     const add = window.electronAPI?.addAgentMessage;
     if (!id || !add) throw new Error("No conversation to save the message to");
     const saved = await add(id, "user", text);
     if (!saved) throw new Error("The conversation is no longer available");
   }, []);
 
-  const saveAssistantMessage = useCallback(async (content: string, toolCalls?: ToolCallInfo[]) => {
-    if (conversationIdRef.current) {
-      window.electronAPI?.addAgentMessage?.(
-        conversationIdRef.current,
-        "assistant",
-        content,
-        toolCalls?.length ? { toolCalls } : undefined
-      );
-    }
-  }, []);
+  const saveAssistantMessage = useCallback(
+    async (content: string, toolCalls?: ToolCallInfo[], targetId?: number) => {
+      const id = targetId ?? conversationIdRef.current;
+      if (id) {
+        await window.electronAPI?.addAgentMessage?.(
+          id,
+          "assistant",
+          content,
+          toolCalls?.length ? { toolCalls } : undefined
+        );
+      }
+    },
+    []
+  );
 
   const handleNewChat = useCallback(() => {
     setMessages([]);
@@ -112,6 +124,7 @@ export function useChatPersistence(options: UseChatPersistenceOptions = {}): Cha
     createConversation,
     loadConversation,
     saveUserMessage,
+    isCurrentConversation,
     saveAssistantMessage,
     handleNewChat,
   };

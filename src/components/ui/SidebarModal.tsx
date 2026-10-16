@@ -132,7 +132,7 @@ export default function SidebarModal<T extends string>({
           className="fixed left-[50%] top-[50%] z-50 max-h-[85vh] w-[90vw] max-w-4xl translate-x-[-50%] translate-y-[-50%] rounded-xl p-0 overflow-hidden outline-none bg-background border border-border shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] dark:bg-surface-1 dark:border-border-subtle dark:shadow-[0_25px_60px_-12px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-98 data-[state=open]:zoom-in-98"
         >
           <div className="relative h-full max-h-[85vh] overflow-hidden">
-            <DialogPrimitive.Close className="absolute end-4 top-4 z-10 rounded-md p-1.5 opacity-40 ring-offset-background transition-[opacity,background-color] hover:opacity-100 bg-transparent hover:bg-muted dark:hover:bg-surface-raised outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-1">
+            <DialogPrimitive.Close className="absolute end-4 top-4 z-10 rounded-md p-1.5 opacity-40 ring-offset-background transition-[opacity,background-color] hover:opacity-100 bg-transparent hover:bg-muted dark:hover:bg-surface-raised outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
               <X className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="sr-only">{t("common.close")}</span>
             </DialogPrimitive.Close>
@@ -148,7 +148,7 @@ export default function SidebarModal<T extends string>({
                 {header && !isCompact && <div className="px-4 pt-5 pb-1">{header}</div>}
 
                 {/* Navigation */}
-                <nav
+                <nav aria-label={title}
                   className={`relative flex-1 pb-2 overflow-y-auto ${
                     isCompact ? "px-1.5 pt-4" : "px-2 pt-3"
                   }`}
@@ -170,10 +170,13 @@ export default function SidebarModal<T extends string>({
                           return (
                             <button
                               key={item.id}
+                              type="button"
                               data-section-id={item.id}
+                              aria-current={isActive ? "page" : undefined}
+                              aria-label={isCompact ? item.label : undefined}
                               onClick={() => onSectionChange(item.id)}
                               title={isCompact ? item.label : undefined}
-                              className={`group relative w-full flex items-center text-start text-xs rounded-md transition-colors duration-100 outline-none ${
+                              className={`group relative w-full flex items-center text-start text-xs rounded-md transition-colors duration-[var(--motion-instant)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
                                 isCompact ? "justify-center px-0 py-2" : "gap-2 px-2 py-1.5"
                               } ${
                                 isActive
@@ -182,7 +185,7 @@ export default function SidebarModal<T extends string>({
                               }`}
                             >
                               <Icon
-                                className={`h-4 w-4 shrink-0 transition-colors duration-100 ${
+                                className={`h-4 w-4 shrink-0 transition-colors duration-[var(--motion-instant)] ${
                                   isActive
                                     ? "text-primary"
                                     : "text-muted-foreground/70 dark:text-foreground/55 group-hover:text-foreground/80"

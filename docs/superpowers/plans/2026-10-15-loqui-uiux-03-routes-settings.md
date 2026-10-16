@@ -68,8 +68,8 @@ This answers Codex's second review (`plan-03-codex-r2.md`, pinned at `c912d19`).
 
 | Finding | Status | How | Partial dispute (evidence) |
 |---|---|---|---|
-| **R2-1** (Critical) Enterprise recipients bypass the planner and graph validation | Fixed | **Tasks 1, 3, 6, 9.** `bedrockRegion`, `azureEndpoint`, `vertexProject` and `vertexLocation` join the planner's route keys (`ROUTE_ENTERPRISE_KEYS`). The UI edits them only through `requestRoutePatch`. `planEnterpriseCoupling` adds the Bedrock region→model update to the same patch and its Undo. `EnterpriseProviderConfig` commits on leave, never per keystroke, and calls no setter or `adjustBedrockModelForRegion`. The snapshot gains a non-secret `enterprise` slice. The graph derives each enterprise host and readiness: missing, invalid, HTTP or credential-bearing Azure → `needsUrl`. Main is authoritative for the inputs: a once-per-window sync from main's four getters (main wins), and a new network-free `enterprise-route-facts` IPC reports the `AWS_ENDPOINT_URL*` override host and the Vertex env-key booleans. Until synced, enterprise routes are `unknown`. An unknown host or `unknown` state counts as a recipient change, so an enterprise edit made before the sync stages, and Apply is blocked with `unknown` (planner and `settle()` tests with `enterpriseMain: null`, and with Vertex presence unknown). Tests: the agreement test runs 9 injected environments × 20 configurations through the real `getEnterpriseAIModel` and SDK (fetch stubbed). The IPC test runs over the production `setupHandlers`. Mounted Azure and Bedrock edits stage, Apply writes main once, and Undo restores exactly. A Task 18 guard covers the four setters and `adjustBedrockModelForRegion`. | Hosts are still derived in the pure graph from main-synced inputs, not computed in main. Spec §5.1 forbids IPC in `routeSnapshotFromSettings`, and the planner must preview a staged `azureEndpoint` or `bedrockRegion` that main has not seen yet. Rule 11 is held by the agreement test against the real helper and SDK. |
-| **R2-2** (Critical) Reset doesn't fence credential writes or an in-flight Undo | Fixed | **Task 2.** `credentials.reset(erase)` is an authority-wide barrier. It fences and bumps the epoch, drops every undo token, bumps generations, drains the write in flight (queued tasks see the stale epoch and do not write), then erases. A save, removal or Undo that finishes after reset began fails (`CredentialError` `"reset"`). A two-field Undo stops between fields. `cleanup-app` erases only inside the barrier. Tests over the real `EnvironmentManager` persistence bodies with a holdable fake filesystem (`realCredentialEnv.js`): reset during a first save, during a queued replacement, during a two-field Corti Undo, and a failed erase. | none |
+| **R2-1/R3-1** (Critical) Enterprise recipients bypass the planner and graph validation | Fixed in plan | **Tasks 1, 2, 3, 6, 9, 11.** `bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation` and non-secret `vertexAuthSource` are route keys. Vertex's explicit source is main-persisted and migrated once before renderer admission; later key presence cannot change it. Source edits stage/review/apply for all active Vertex routes; saving/removing/undoing a key changes readiness only. The executor uses that source, and `enterpriseVerifyTarget` preserves it. Task 1's graph derives hosts/readiness (Bedrock requires a complete static pair or profile); main facts expose only booleans/hosts. Task 3 syncs five getters and the source migration gate before enterprise facts are admitted. Unnamed enterprise edits stage and Apply stays blocked until facts are known. Tests run the real helper/SDK under injected environment variables, assert mounted Vertex secret save/remove/Undo never move the committed host, and exercise source changes only after Apply. A Task 18 guard covers every enterprise source setter. | Hosts remain derived in the pure graph so staged values can be previewed without IPC. |
+| **R2-2/R3-2** (Critical) Reset must fence credential writes, Undo and the independent `.env` queue | Fixed in plan | **Task 2.** `credentials.reset(erase)` fences credential mutations, drops every Undo token, bumps generations and drains slot writes. `clearAllPersistedData()` then fences every module-wide `.env` writer, invalidates queued `envWriteQueue` jobs, drains an active write before erasing, and holds the fence through deletion. `saveAllKeysToEnvFile` refuses during the fence and skips `dotenv.config` if its write was invalidated. A deferred real `save-all-keys-to-env` race proves no plaintext `.env` or in-memory secret returns after reset. | none |
 | **R2-3** (Critical) Two input interfaces cannot typecheck | Fixed | **Tasks 2, 8, 9.** One type, `AcknowledgedSecretSave = (value) => Promise<SecretSaveResult>`, exported from `ApiKeyInput.tsx`, is used by `ApiKeyInput.setApiKey`, `StagedCredentialInput.save` and `OpenAICompatiblePanel.saveApiKey`. The `() => {}` / `() => undefined` fallbacks become `unavailableSecretSave`. Task 2 fixes every caller that exists before Task 9. Each task's verification runs the real `npm run typecheck` (`package.json:63`). A test checks that the unavailable fallback resolves `{ ok: false, error: "unavailable" }`. | none |
 | **R2-4** Main exposes uncommitted secrets and can bind health to the wrong value | Fixed | **Tasks 2, 11.** The authority keeps a committed snapshot while a write is pending. Presence, `list`, fields and broadcasts move only after persistence succeeds. New main-only `captureCommitted(id)` is queued behind writes. Verify tests the captured committed value at its generation, never `process.env`. Tests over the real persistence bodies: a pending first save is not listed and Verify waits; a replacement that commits during Verify gives `superseded`; a failed replacement tests and records the restored key. | none |
 | **R2-5** Several Remove paths erase keys permanently with no Undo | Fixed | **Tasks 2, 9, 12.** A shared `CredentialSlot` type lives in `src/lib/credentialSlots.ts`, covering the seven custom slots and the pair credentials. Every Remove goes through `credentials.remove` with a toast Undo. Pairs (`corti:speech`, `bedrock`) are removed and restored whole. Task 9 passes OpenRouter's and the custom slots' identity through `ReasoningModelSelector` → `OpenAICompatiblePanel` → `ApiKeyInput`. The empty-save fallback is deleted, and a Task 18 guard keeps it gone. Mounted tests: OpenRouter Remove → toast → Undo after the field unmounts, custom slots and pairs. | Two partial disputes. (1) **Test placement:** the mounted OpenRouter Undo test is in Task 12, not Task 9, because token removal lands in Task 12. Task 9 tests the identity flow (`credentialId === "openrouter"`). (2) **Bedrock session token:** under whole-pair removal, the optional `bedrockSessionToken` can no longer be removed alone. Today it has a per-field permanent delete (`ApiKeyInput.tsx:164-171`, `EnterpriseProviderConfig.tsx:136-139`). Per-field removal would need `remove(id, field?)`. |
@@ -133,7 +133,7 @@ Consumer impact (also in §5.1 rule 1): Plans 04, 05 and 06 render `unknown` as 
 | 7 | Sealed applies to every non-device route | Applied in spec §5.1, rule 7 (`isSealedLocality`) and §5.4 scope |
 | 8 | An off-device text route needs a model | Applied in spec §5.1, rule 6 |
 | 9 | Retired `openwhispr` mode | Applied in spec §5.1, rule 8 |
-| 10 | Loopback custom endpoints | Applied in spec §5.1, rule 10, and the §5 Locality row. Plain-HTTP `*.localhost` is loopback (`isLoopbackUrl` is true, per `test/fixtures/loopbackCases.json`), but the executors refuse it, so it is invalid and resolves `needsUrl`. Task 1 tests this. |
+| 10 | Loopback configured endpoints | Applied in spec §5.1, rule 10, and the §5 Locality row. Plain-HTTP `*.localhost` is loopback (`isLoopbackUrl` is true, per `test/fixtures/loopbackCases.json`), but the executors refuse it, so it is invalid and resolves `needsUrl`. Task 1 tests this. |
 | 11 | `settingsPath` grammar | Applied in spec §5.1 (the `ResolvedRoute.settingsPath` field) |
 | 12 | Ready matches the executors | Applied in spec §5.1, rule 11 |
 | — | Unsupported combinations (meeting self-hosted or non-meeting provider; upload on a streaming-only provider) | Applied in spec §5.1, rule 9. Task 1 tests both. |
@@ -264,7 +264,7 @@ What changes from v1 (old Task 1), and why:
 - Speech readiness comes from `resolveTranscriptionRoute` itself, with the meeting and text-endpoint rules mirrored from their executors (I8). v1 called any non-empty custom URL `ready` and decided loopback before validating.
 - Facts are per model family and per credential identity; a family or credential map that main has not confirmed resolves to `{ status: "unknown" }` (I9, I10). v1's "unknown facts never downgrade a route" test asserted `ready`; it is replaced by the opposite assertion.
 - Every route carries `host` (I7) and `sends` is composed from `PayloadPart`s (I15) instead of one fixed string per route.
-- Round 2 (R2-1): enterprise routes no longer read `capabilities.providerHosts` (which never had Bedrock, Azure or Vertex entries, so their `host` was always `null`) and no longer count as `ready` on credential presence alone. An Azure route with a saved key and a missing, malformed, HTTP or credential-bearing endpoint is `needsUrl`; a Bedrock region or Vertex location that cannot form a host is `needsUrl`; Vertex without its API key and without a project is `needsKey`.
+- Round 2/3 (R2-1/R3-1/R3-3): enterprise routes no longer read `capabilities.providerHosts` or count as `ready` on credential presence alone. Azure requires a usable endpoint; Bedrock requires a complete static pair or supported profile; Vertex host selection follows the once-migrated `vertexAuthSource`, never secret presence. Missing `apiKey` source is `needsKey` without ADC fallback; ADC ignores stored and ambient API keys and requires a project.
 
 **Files:**
 - Create: `src/lib/routeGraph.ts`
@@ -279,33 +279,36 @@ What changes from v1 (old Task 1), and why:
 - Mirrors (does not import; agreement tests pin them):
   - `src/helpers/personalInference.js`: `PROVIDERS` (`:6-23`), "Choose a supported text provider." (`:94-95`), "Choose a text model." (`:98-99`), the custom/self-hosted endpoint rule (`:147-162`: http(s), no embedded credentials, `isSecureHttpEndpoint`, not `openwhispr.(com|app)`).
   - `src/helpers/meetingTranscriptionRouting.js`: `MEETING_STREAMING_PROVIDER_IDS` (`:8-14`, passed in as `capabilities.meetingProviders`), `resolveMeetingTranscriptionOptions` rejecting self-hosted and unlisted providers (`:57-70`) and adding Corti `keyterms` (`:79-86`; fed from `customDictionary` at `src/stores/meetingRecordingStore.ts:153-171`).
-  - `src/helpers/enterpriseAiProviders.js` (the only enterprise executor on the route path: personal inference's `createModel`, `src/helpers/personalInference.js:173-180`, passes it main's `getEnterpriseConfig()`, `main.js:447-457`, at `:417-420`). Bedrock: `region = enterprise.bedrockRegion || "us-east-1"` (`:26`) into `createAmazonBedrock({ region })` (`:59-68`). Azure: refuses a missing key or endpoint (`:73-74`), parses the endpoint with `new URL` (`:75`, throws on malformed), refuses a non-HTTPS or credential-bearing URL (`:76-77`), then uses it as `baseURL` (`:80`); `azureApiVersion` (`:81`) is only the `api-version` query parameter. Vertex: with the API key, `createVertex({ apiKey })` (`:87-88`); otherwise ADC with `project: enterprise.vertexProject` and `location: enterprise.vertexLocation || "us-central1"` (`:90-93`). The legacy `validateEnterpriseEndpoint` SSRF guard (`src/helpers/enterpriseProviderErrors.js:552-569`) runs only on the `test-enterprise-connection`/`process-enterprise-reasoning`/`enterprise-stream-start` channels (`src/helpers/ipcHandlers.js:3953-4232`), which no renderer code calls (only `src/types/electron.ts` declares them), so the graph does not mirror it.
+  - `src/helpers/enterpriseAiProviders.js` (the only enterprise executor on the route path: personal inference's `createModel`, `src/helpers/personalInference.js:173-180`, passes it main's `getEnterpriseConfig()`, `main.js:447-457`, at `:417-420`). Bedrock: `region = enterprise.bedrockRegion || "us-east-1"` into `createAmazonBedrock({ region })`. Azure validates the API key and HTTPS endpoint and passes `baseURL`; `azureApiVersion` is only a query parameter. Vertex uses the persisted `enterprise.vertexAuthSource`: `apiKey` chooses the stored key first and the supported `GOOGLE_VERTEX_API_KEY` fallback second; `adc` ignores both and calls `createVertex({ apiKey: "", project, location })` to suppress the SDK's ambient fallback. Unknown source and missing API key in apiKey mode refuse instead of selecting ADC. Task 2 modifies the helper and adds real SDK factory coverage.
   - The hosts those SDKs build, read in the installed packages (`package.json:117-121`; versions 5.0.94, 4.0.79 and 5.0.93):
     - `@ai-sdk/amazon-bedrock` `resolveAmazonBedrockBaseURL` (`dist/index.js:3105-3135`): `https://bedrock-runtime.<region>.<suffix>`, where `suffix` comes from the partition table `cn-` → `amazonaws.com.cn`, `us-iso-` → `c2s.ic.gov`, `us-isob-` → `sc2s.sgov.gov`, `eu-isoe-` → `cloud.adc-e.uk`, `us-isof-` → `csp.hci.ic.gov`, `eusc-` → `amazonaws.eu`, else `amazonaws.com`. `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`/`AWS_ENDPOINT_URL` in main's environment override it (`:3120-3128`).
     - `@ai-sdk/azure` `createAzure` `url()` (`dist/index.js:109-125`): with `baseURL` set, the request URL is `baseURL` plus a path (`/v1/responses`, `/chat/completions`, …), so the host is the endpoint's own host.
-    - `@ai-sdk/google-vertex` `createGoogleVertex` `loadBaseURL` (`dist/index.js:1619,1653-1669`): with an API key, the express base `https://aiplatform.googleapis.com/v1/publishers/google`; otherwise `https://<host>/v1beta1/projects/<project>/locations/<location>/…`, where `host` is `aiplatform.googleapis.com` for `global`, `aiplatform.<loc>.rep.googleapis.com` for `eu`/`us`, else `<location>-aiplatform.googleapis.com`. `GOOGLE_VERTEX_API_KEY` in main's environment switches to express mode (`:1637-1640`).
+    - `@ai-sdk/google-vertex` `createGoogleVertex` `loadBaseURL` (`dist/index.js:1619,1653-1669`): `apiKey` mode uses the express base `https://aiplatform.googleapis.com/v1/publishers/google`; ADC uses `https://<host>/v1beta1/projects/<project>/locations/<location>/…`, where `host` is `aiplatform.googleapis.com` for `global`, `aiplatform.<loc>.rep.googleapis.com` for `eu`/`us`, else `<location>-aiplatform.googleapis.com`. The helper passes `apiKey: ""` for ADC so the SDK's `GOOGLE_VERTEX_API_KEY` fallback (`:1637-1640`) cannot change the selected source.
     The graph builds the same URL strings and takes `new URL(…).host`, so a region or location containing `/`, `@` or spaces yields the host the SDK would really contact, or `needsUrl` when the URL cannot be built or carries credentials (fetch refuses those).
   - Corti speech authenticates with the client id/secret pair (`src/helpers/ipcHandlers.js:1103-1121`, `src/helpers/audioManager.js:3223`) and connects to the region's `api.<region>.corti.app`; Corti text uses the API key and always calls `https://ai.eu.corti.app/v1` (`src/helpers/personalInference.js:78`, `src/config/constants.ts:123`), whatever the region. The resolver therefore reads the host of a Corti text route from `capabilities.providerHosts["corti:text"]` and the host of a Corti speech route from `providerHosts.corti`.
 - Produces, `src/lib/routeGraph.ts`. Types exactly as Appendix A §5.1: `RouteId`, `RouteKind`, `RouteState` (with `unknown`), `ResolvedRoute` (with `providerId` and `host`), `SttContext`, `LlmRouteScope`, `CredentialId`, `SttRouteInput`, `LlmRouteInput`, `ModelInfo`, `RouteFacts`, `RouteCapabilities`, `PayloadPart`, `RouteCopy`, `RouteSettingsSnapshot`, plus (R2-1, Plan 03's own snapshot types; §5.1 fixes only `sealed`) `EnterpriseProviderId`, `EnterpriseRouteSettings` and `EnterpriseMainFacts`:
 
   ```ts
   export type EnterpriseProviderId = "bedrock" | "azure" | "vertex";
-  // Raw settings-store strings; non-secret. Main feeds the same four values to the executor.
+  // Raw settings-store strings and the selected auth mode; all non-secret. Main persists and
+  // feeds vertexAuthSource to the executor; key presence never selects a different mode.
   export interface EnterpriseRouteSettings {
     bedrockRegion: string;
     azureEndpoint: string;
     vertexProject: string;
     vertexLocation: string;
+    vertexAuthSource: "adc" | "apiKey";
   }
   // What main's own environment does to enterprise requests. Hosts and booleans only.
   export interface EnterpriseMainFacts {
     bedrockEndpoint: { set: boolean; host: string | null }; // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL; host null = set but unusable
-    vertexApiKeyEnv: boolean;  // non-empty GOOGLE_VERTEX_API_KEY: Vertex runs in express mode
+    bedrockProfile: boolean;   // non-empty BEDROCK_PROFILE; main-only auth fact, no profile value leaves main
+    vertexApiKeyEnv: boolean;  // non-empty GOOGLE_VERTEX_API_KEY; only used when vertexAuthSource is apiKey
     vertexProjectEnv: boolean; // GOOGLE_VERTEX_PROJECT set; reported only (the helper always passes a string project)
   }
   // RouteSettingsSnapshot gains:  enterprise: EnterpriseRouteSettings;
   // RouteFacts gains:             credentialFields: ReadonlyMap<CredentialId, Readonly<Record<string, boolean>>> | null;
-  //                               enterpriseMain: EnterpriseMainFacts | null;  // null until Task 3 has synced the four
+  //                               enterpriseMain: EnterpriseMainFacts | null;  // null until Task 3 has synced all five
   //                               enterprise settings from main and main answered enterprise-route-facts
   //                               (Task 2's credentials.list/onChanged `fields`; null until the list first answers)
   ```
@@ -325,19 +328,18 @@ What changes from v1 (old Task 1), and why:
   export function isSealedLocality(locality: Locality): boolean;     // locality !== "device"
   export function routeCredentialId(id: RouteId, providerId: string | null | undefined): CredentialId | null;
   export function isValidTextEndpoint(url: string | null | undefined): boolean;
-  // R2-1: host[:port] enterpriseAiProviders.js + the AI SDK would contact; null when the executor refuses the
-  // configuration or the URL cannot be built. vertexApiKey = main-confirmed presence of the Vertex key field.
-  export function enterpriseRequestHost(providerId: EnterpriseProviderId, enterprise: EnterpriseRouteSettings, vertexApiKey: boolean, main: EnterpriseMainFacts): string | null;
+  // R2-1/CCR-7: host[:port] the enterprise executor + SDK would contact; null when refused/unbuildable.
+  export function enterpriseRequestHost(providerId: EnterpriseProviderId, enterprise: EnterpriseRouteSettings, main: EnterpriseMainFacts): string | null;
   export function routePayloadParts(id: RouteId, snapshot: RouteSettingsSnapshot): PayloadPart[];
   export function resolveRoutes(snapshot: RouteSettingsSnapshot): ResolvedRoute[];
   export function resolveRoute(snapshot: RouteSettingsSnapshot, id: RouteId): ResolvedRoute;
   ```
 
-  Snapshot conventions Task 3's builder must follow: `facts.installed.<family>` holds raw model ids (`"base"`, `"parakeet-tdt-0.6b-v3"`, `"qwen3.5-2b-q4_k_m"`), `null` when that family's list call has never succeeded; `facts.credentials` holds only main-confirmed presence keyed by `CredentialId`, `null` until `credentials.list` first resolves; `facts.rejected` is keyed by `CredentialId`; `models` keys are `"whisper:<id>"`, `"sherpa:<id>"`, `"llm:<id>"` and `"cloud:<providerId>:<modelId>"`; `capabilities.providerHosts` values are bare `host[:port]`, keyed by raw provider id, plus one extra key `"corti:text"` for the Corti text host (`providerHosts.corti` is the Corti speech host for the selected region). A missing key gives `host: null`; the resolver never falls back from `"corti:text"` to `corti`. Enterprise providers have no `providerHosts` entry: their host comes only from `snapshot.enterprise` through `enterpriseRequestHost`. `snapshot.enterprise` holds the raw store strings (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`), untrimmed, because the executor uses them untrimmed. `facts.credentialFields` holds main's per-field presence for each `CredentialId` (Vertex: `{ key }`), loaded and nulled together with `facts.credentials`. `facts.enterpriseMain` is `null` until Task 3's loader has reconciled the settings store's four enterprise fields to main's values (main wins) and main answered `enterprise-route-facts`; while it is `null` the renderer's slice may be stale, so every enterprise route is `unknown`.
+  Snapshot conventions Task 3's builder must follow: `facts.installed.<family>` holds raw model ids (`"base"`, `"parakeet-tdt-0.6b-v3"`, `"qwen3.5-2b-q4_k_m"`), `null` when that family's list call has never succeeded; `facts.credentials` holds only main-confirmed presence keyed by `CredentialId`, `null` until `credentials.list` first resolves; `facts.rejected` is keyed by `CredentialId`; `models` keys are `"whisper:<id>"`, `"sherpa:<id>"`, `"llm:<id>"` and `"cloud:<providerId>:<modelId>"`; `capabilities.providerHosts` values are bare `host[:port]`, keyed by raw provider id, plus one extra key `"corti:text"` for the Corti text host (`providerHosts.corti` is the Corti speech host for the selected region). A missing key gives `host: null`; the resolver never falls back from `"corti:text"` to `corti`. Enterprise providers have no `providerHosts` entry: their host comes only from `snapshot.enterprise` through `enterpriseRequestHost`. `snapshot.enterprise` holds the authoritative values (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`, `vertexAuthSource`); main's one-time source migration and getter sync complete before the renderer is admitted. `facts.credentialFields` holds main's per-field presence for each `CredentialId` (Vertex: `{ key }`, Bedrock: `{ accessKeyId, secretAccessKey, sessionToken }`), loaded and nulled together with `facts.credentials`. `facts.enterpriseMain` is `null` until Task 3's loader has reconciled the enterprise settings from main and main answered `enterprise-route-facts`; while it is `null`, every enterprise route is `unknown`.
 
-  Enterprise resolution (any mode whose provider is `bedrock`, `azure` or `vertex`, so the provider-only vision override is covered too): locality `remote`, `providerId` the enterprise id. `facts.enterpriseMain` `null` → `unknown`, `host: null`, before anything else. Vertex with `credentials` or `credentialFields` still `null` → `unknown`, `host: null` (the key decides the host). Otherwise `host = enterpriseRequestHost(…)`; `null` → `needsUrl` (a settings fact, decided before key facts, like custom endpoints). A Bedrock endpoint override in main's environment replaces the region host (`bedrockEndpoint.set` → its `host`, `null` → `needsUrl`). Then the credential state (`unknown`, `needsKey`, `ready`), except: Vertex with `vertexApiKeyEnv` uses the express host and is `ready` unless its key was rejected (main's presence does not count the environment key); Vertex without either key and with a blank project is `needsKey`. Then the usual `needsModel` for an empty model (an empty Azure deployment name).
+  Enterprise resolution (any mode whose provider is `bedrock`, `azure` or `vertex`, so the provider-only vision override is covered too): locality `remote`, `providerId` the enterprise id. `facts.enterpriseMain` `null` → `unknown`, `host: null`, before anything else. Otherwise the host comes from `enterpriseRequestHost` using committed route settings and main's environment facts; credential presence never changes it. An invalid endpoint or region/location yields `needsUrl`. If the needed credential facts have not loaded, apiKey-mode Vertex and profile-less Bedrock are `unknown` while retaining their already-known host. Bedrock is ready only with a supported profile or a complete committed static pair (`accessKeyId` and `secretAccessKey`); a partial pair is `needsKey`, even when the authority's historical presence marker would have been true. Profile authentication takes precedence exactly as the executor does. Vertex's host is selected only by persisted `vertexAuthSource`: `apiKey` uses the express host and is `ready` only with a committed stored key or the supported `GOOGLE_VERTEX_API_KEY` fallback, unless that credential is rejected; `adc` ignores both API-key sources and uses the configured location host, requiring a nonblank project. A missing API key in `apiKey` mode is `needsKey` and never falls back to ADC. Saving/removing/undoing a key changes readiness only. Then the usual `needsModel` for an empty model (an empty Azure deployment name).
 
-  Resolution order per route: destination (locality, providerId, host, model, state) → `off` if the route's enable flag is off → `unreachable "sealed"` if `snapshot.sealed` and the locality is not `device` → otherwise the destination state. `sends` is `copy.list(parts.map((p) => copy.parts[p]))` unless the route is off or on the device. `provider` is `providerDisplayName(providerId)` or `null`; `host` is always `null` on the device.
+  Resolution order per route: destination (locality, providerId, host, model, state) → `off` if the route's enable flag is off → `unreachable "sealed"` if `snapshot.sealed` and the locality is not `device` → otherwise the destination state. `sends` is `copy.list(parts.map((p) => copy.parts[p]))` unless the route is off or on the device. `provider` is `providerDisplayName(providerId)` or `null`; a configured endpoint keeps its host even when locality is `device`; built-in engines return `host: null`.
 
 - Produces, `src/helpers/enterpriseRouteFacts.js` (main, CommonJS, no imports; R2-1):
 
@@ -345,7 +347,7 @@ What changes from v1 (old Task 1), and why:
   function enterpriseRouteFacts(env: NodeJS.ProcessEnv): EnterpriseMainFacts; // reads env only; returns hosts and booleans, never a value
   ```
 
-  The SDK precedence it mirrors: `@ai-sdk/amazon-bedrock` `resolveAmazonBedrockBaseURL` uses `options.baseURL ?? AWS_ENDPOINT_URL_BEDROCK_RUNTIME ?? AWS_ENDPOINT_URL` before the region (`dist/index.js:3113-3129`), and `@ai-sdk/provider-utils@5.0.47` `loadOptionalSetting` (`dist/index.js:1720-1735`) returns any string, `""` included, so an empty runtime variable still wins and yields an unusable base URL. `enterpriseAiProviders.js:59-68` never passes `baseURL`. Vertex: `createGoogleVertex` reads `GOOGLE_VERTEX_API_KEY` when no key is passed (`google-vertex/dist/index.js:1637-1640,1814-1820`) and switches to express mode when it is truthy. `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION` and `AWS_REGION` never apply on this path: the helper always passes string `project`, `location` and `region` (`enterpriseAiProviders.js:26,91-92`; main's getters return `process.env.X || ""`, `src/helpers/environment.js:245-247`), and `loadSetting` returns a string setting without reading the environment (`provider-utils/dist/index.js:1739-1747`). Azure passes `baseURL` and `apiKey` explicitly (`:78-82`), so no Azure variable redirects it.
+  The SDK precedence it mirrors: `@ai-sdk/amazon-bedrock` `resolveAmazonBedrockBaseURL` uses `options.baseURL ?? AWS_ENDPOINT_URL_BEDROCK_RUNTIME ?? AWS_ENDPOINT_URL` before the region (`dist/index.js:3113-3129`), and `@ai-sdk/provider-utils@5.0.47` `loadOptionalSetting` (`dist/index.js:1720-1735`) returns any string, `""` included, so an empty runtime variable still wins and yields an unusable base URL. `enterpriseAiProviders.js:59-68` never passes `baseURL`. Vertex: `createGoogleVertex` reads `GOOGLE_VERTEX_API_KEY` when `apiKey` is omitted (`google-vertex/dist/index.js:1637-1640,1814-1820`); ADC explicitly passes `apiKey: ""` to suppress that fallback. In persisted `apiKey` mode, main resolves `VERTEX_API_KEY` first and the supported legacy `GOOGLE_VERTEX_API_KEY` fallback second. The once-only migration records which effective source the existing installation used; later key presence does not switch modes. `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION` and `AWS_REGION` never apply on this path: the helper always passes string `project`, `location` and `region` (`enterpriseAiProviders.js:26,91-92`; main's getters return `process.env.X || ""`, `src/helpers/environment.js:245-247`), and `loadSetting` returns a string setting without reading the environment (`provider-utils/dist/index.js:1739-1747`). Azure passes `baseURL` and `apiKey` explicitly (`:78-82`), so no Azure variable redirects it.
 - Produces, `test/lib/routeFixtures.js` (CommonJS, no imports; Task 3, Task 6, Task 7, Task 10 and Plan 07 reuse it):
 
   ```ts
@@ -478,13 +480,14 @@ function baseSnapshot() {
       azureEndpoint: "",
       vertexProject: "",
       vertexLocation: "us-central1",
+      vertexAuthSource: "adc",
     },
     facts: {
       installed: { whisper: new Set(["base"]), sherpa: new Set(), llm: new Set([QWEN]) },
       credentials: new Map(), // loaded: no credential present
       credentialFields: new Map(), // loaded: no field present
       // Synced from main, no environment override (R2-1).
-      enterpriseMain: { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false },
+      enterpriseMain: { bedrockEndpoint: { set: false, host: null }, bedrockProfile: false, vertexApiKeyEnv: false, vertexProjectEnv: false },
       rejected: new Set(),
       speakerIdModelsReady: true,
       searchModelReady: true,
@@ -585,6 +588,7 @@ Create `test/lib/routeGraph.test.js`:
 ```js
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const Module = require("node:module");
 const path = require("node:path");
 const test = require("node:test");
 const { makeSnapshot, makeRoute } = require("./routeFixtures");
@@ -753,7 +757,13 @@ test("a missing, rejected or unchosen provider key is needsKey", async () => {
     llm: {
       chatIntelligence: { mode: "enterprise", provider: "bedrock", model: "anthropic.claude" },
     },
-    facts: { credentials: keys("bedrock") },
+    facts: {
+      credentials: keys("bedrock"),
+      credentialFields: new Map([[
+        "bedrock",
+        { accessKeyId: true, secretAccessKey: true },
+      ]]),
+    },
   });
   assert.deepEqual(enterprise.chat.state, { status: "ready" });
 });
@@ -1056,10 +1066,13 @@ test("text endpoints use the executor's rule before the loopback decision", asyn
     const c = await custom(url);
     assert.equal(c.locality, "device", url);
     assert.equal(c.providerId, null, url);
-    assert.equal(c.host, null, url);
+    assert.equal(c.host, new URL(url).host, "preserve a configured loopback endpoint host");
     assert.equal(c.sends, null, url);
     assert.deepEqual(c.state, { status: "ready" }, url);
   }
+  const builtin = (await routesOf({})).dictationStt;
+  assert.equal(builtin.locality, "device");
+  assert.equal(builtin.host, null, "only a built-in engine has device locality and no host");
   const remote = await custom("https://llm.example.com:8443/v1");
   assert.equal(remote.locality, "remote");
   assert.equal(remote.host, "llm.example.com:8443");
@@ -1160,10 +1173,25 @@ test("Azure: a saved key never makes a missing or refused endpoint ready, and th
 });
 
 test("Bedrock: the host follows the region through the SDK's partition table", async () => {
-  const bedrock = async (bedrockRegion, credentials = keys("bedrock")) =>
+  const fields = (accessKeyId, secretAccessKey) =>
+    new Map([["bedrock", { accessKeyId, secretAccessKey, sessionToken: false }]]);
+  const noOverrides = {
+    bedrockEndpoint: { set: false, host: null },
+    bedrockProfile: false,
+    vertexApiKeyEnv: false,
+    vertexProjectEnv: false,
+  };
+  const bedrock = async (bedrockRegion, options = {}) =>
     (
       await routesOf(
-        enterpriseChat("bedrock", "us.anthropic.claude-fable-5", { enterprise: { bedrockRegion }, facts: { credentials } })
+        enterpriseChat("bedrock", "us.anthropic.claude-fable-5", {
+          enterprise: { bedrockRegion },
+          facts: {
+            credentials: options.credentials ?? keys("bedrock"),
+            credentialFields: options.credentialFields ?? fields(true, true),
+            enterpriseMain: { ...noOverrides, ...options.enterpriseMain },
+          },
+        })
       )
     ).chat;
   for (const [region, host] of [
@@ -1179,9 +1207,20 @@ test("Bedrock: the host follows the region through the SDK's partition table", a
   const unusable = await bedrock("us east");
   assert.deepEqual(unusable.state, { status: "needsUrl" }, "no request URL can be built");
   assert.equal(unusable.host, null);
-  const noCredentials = await bedrock("eu-west-1", keys());
+  const noCredentials = await bedrock("eu-west-1", { credentials: keys(), credentialFields: fields(false, false) });
   assert.equal(noCredentials.state.status, "needsKey");
   assert.equal(noCredentials.host, "bedrock-runtime.eu-west-1.amazonaws.com", "the destination is known before sign-in");
+  for (const partial of [fields(true, false), fields(false, true)]) {
+    const incomplete = await bedrock("eu-west-1", { credentialFields: partial });
+    assert.equal(incomplete.state.status, "needsKey", "neither half of static credentials can enable Apply");
+    assert.equal(incomplete.host, "bedrock-runtime.eu-west-1.amazonaws.com");
+  }
+  const profile = await bedrock("eu-west-1", {
+    credentials: keys(),
+    credentialFields: fields(false, false),
+    enterpriseMain: { bedrockProfile: true },
+  });
+  assert.deepEqual(profile.state, { status: "ready" }, "a supported profile is an independent source");
   // The provider-only vision override reaches Bedrock in "providers" mode; same host rule.
   const vision = (
     await routesOf({
@@ -1194,38 +1233,116 @@ test("Bedrock: the host follows the region through the SDK's partition table", a
   assert.equal(vision.host, "bedrock-runtime.ap-southeast-2.amazonaws.com");
 });
 
-test("Vertex: the host follows the location, or the API key's express host", async () => {
+test("Bedrock graph readiness matches the real SDK factory for static pairs and profile auth", async (t) => {
+  const { getEnterpriseAIModel } = require("../../src/helpers/enterpriseAiProviders.js");
+  const helperPath = require.resolve("../../src/helpers/enterpriseAiProviders.js");
+  const originalLoad = Module._load;
+  const profileCalls = [];
+  Module._load = function loadBedrockProfile(request, parent, isMain) {
+    if (request === "@aws-sdk/credential-providers" && parent?.filename === helperPath) {
+      return {
+        fromNodeProviderChain: ({ profile }) => async () => {
+          profileCalls.push(profile);
+          return { accessKeyId: "AKIAFIXTURE", secretAccessKey: "fixture-profile-secret" };
+        },
+      };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  t.after(() => { Module._load = originalLoad; });
+
+  const bedrock = (fields) => getEnterpriseAIModel("bedrock", "fixture-model", "", {
+    bedrockRegion: "us-east-1",
+    ...fields,
+  });
+  await assert.rejects(
+    bedrock({ bedrockAccessKeyId: "AKIAFIXTURE", bedrockSecretAccessKey: "" }),
+    { name: "CredentialsProviderError" },
+    "access-key-ID-only is refused by the executor"
+  );
+  await assert.rejects(
+    bedrock({ bedrockAccessKeyId: "", bedrockSecretAccessKey: "fixture-secret" }),
+    { name: "CredentialsProviderError" },
+    "secret-only is refused by the executor"
+  );
+  assert.ok(await bedrock({ bedrockAccessKeyId: "AKIAFIXTURE", bedrockSecretAccessKey: "fixture-secret" }));
+  assert.ok(await bedrock({ bedrockProfile: "fixture-profile", bedrockAccessKeyId: "partial" }));
+  assert.deepEqual(profileCalls, ["fixture-profile"], "supported profile authentication wins over a partial static pair");
+});
+
+test("Vertex: the persisted auth source selects the host independently of saved or ambient key presence", async () => {
   const { providerDisplayName } = await import("../../src/lib/locality.ts");
   const fields = (key) => new Map([["vertex", { key }]]);
   const vertex = async (enterprise, facts) =>
     (await routesOf(enterpriseChat("vertex", "gemini-2.5-flash", { enterprise, facts }))).chat;
-  const adc = { credentials: keys("vertex"), credentialFields: fields(false) };
+  const adc = {
+    credentials: keys(),
+    credentialFields: fields(false),
+    enterpriseMain: { bedrockEndpoint: { set: false, host: null }, bedrockProfile: false, vertexApiKeyEnv: false, vertexProjectEnv: false },
+  };
   for (const [vertexLocation, host] of [
     ["europe-west4", "europe-west4-aiplatform.googleapis.com"],
     ["", "us-central1-aiplatform.googleapis.com"], // enterpriseAiProviders.js:92 default
     ["global", "aiplatform.googleapis.com"],
     ["eu", "aiplatform.eu.rep.googleapis.com"],
   ]) {
-    const route = await vertex({ vertexProject: "acme-prod", vertexLocation }, adc);
+    const route = await vertex({ vertexProject: "acme-prod", vertexLocation, vertexAuthSource: "adc" }, adc);
     assert.equal(route.host, host, vertexLocation);
     assert.deepEqual(route.state, { status: "ready" }, vertexLocation);
   }
-  const express = await vertex(
-    { vertexProject: "", vertexLocation: "europe-west4" },
-    { credentials: keys("vertex"), credentialFields: fields(true) }
+  const adcIgnoresKeys = await vertex(
+    { vertexProject: "acme-prod", vertexLocation: "europe-west4", vertexAuthSource: "adc" },
+    {
+      credentials: keys("vertex"),
+      credentialFields: fields(true),
+      enterpriseMain: { ...adc.enterpriseMain, vertexApiKeyEnv: true },
+    }
   );
-  assert.equal(express.host, "aiplatform.googleapis.com", "the API key ignores project and location");
-  assert.deepEqual(express.state, { status: "ready" });
-  assert.deepEqual((await vertex({ vertexProject: "  ", vertexLocation: "us-central1" }, adc)).state, {
+  assert.equal(adcIgnoresKeys.host, "europe-west4-aiplatform.googleapis.com");
+  assert.deepEqual(adcIgnoresKeys.state, { status: "ready" }, "ADC ignores stored and legacy environment keys");
+  const adcMissingProject = await vertex(
+    { vertexProject: "  ", vertexLocation: "us-central1", vertexAuthSource: "adc" },
+    {
+      credentials: keys("vertex"),
+      credentialFields: fields(true),
+      enterpriseMain: { ...adc.enterpriseMain, vertexApiKeyEnv: true },
+    }
+  );
+  assert.equal(adcMissingProject.host, "us-central1-aiplatform.googleapis.com");
+  assert.deepEqual(adcMissingProject.state, {
     status: "needsKey",
     provider: providerDisplayName("vertex"),
   });
-  const badLocation = await vertex({ vertexProject: "acme-prod", vertexLocation: "bad location" }, adc);
+  const express = await vertex(
+    { vertexProject: "", vertexLocation: "europe-west4", vertexAuthSource: "apiKey" },
+    { credentials: keys("vertex"), credentialFields: fields(true), enterpriseMain: adc.enterpriseMain }
+  );
+  assert.equal(express.host, "aiplatform.googleapis.com", "the API key ignores project and location");
+  assert.deepEqual(express.state, { status: "ready" });
+  const envFallback = await vertex(
+    { vertexProject: "", vertexLocation: "europe-west4", vertexAuthSource: "apiKey" },
+    { credentials: keys(), credentialFields: fields(false), enterpriseMain: { ...adc.enterpriseMain, vertexApiKeyEnv: true } }
+  );
+  assert.equal(envFallback.host, "aiplatform.googleapis.com");
+  assert.deepEqual(envFallback.state, { status: "ready" }, "the supported legacy key fallback is used only by apiKey mode");
+  const noKey = await vertex(
+    { vertexProject: "acme-prod", vertexLocation: "europe-west4", vertexAuthSource: "apiKey" },
+    { credentials: keys(), credentialFields: fields(false), enterpriseMain: adc.enterpriseMain }
+  );
+  assert.equal(noKey.host, "aiplatform.googleapis.com");
+  assert.deepEqual(noKey.state, { status: "needsKey", provider: providerDisplayName("vertex") }, "apiKey never falls back to ADC");
+  const badLocation = await vertex(
+    { vertexProject: "acme-prod", vertexLocation: "bad location", vertexAuthSource: "adc" },
+    adc
+  );
   assert.deepEqual(badLocation.state, { status: "needsUrl" });
   assert.equal(badLocation.host, null);
-  const unknownKey = await vertex({ vertexProject: "acme-prod" }, { credentials: keys("vertex"), credentialFields: null });
-  assert.deepEqual(unknownKey.state, { status: "unknown" });
-  assert.equal(unknownKey.host, null, "whether the key exists decides the host");
+  const unknownApiKey = await vertex(
+    { vertexProject: "acme-prod", vertexAuthSource: "apiKey" },
+    { credentials: null, credentialFields: null, enterpriseMain: adc.enterpriseMain }
+  );
+  assert.deepEqual(unknownApiKey.state, { status: "unknown" });
+  assert.equal(unknownApiKey.host, "aiplatform.googleapis.com", "auth source determines the host before key listing");
 });
 
 test("main facts: environment overrides move enterprise hosts, and an unsynced slice is unknown", async () => {
@@ -1246,6 +1363,7 @@ test("main facts: environment overrides move enterprise hosts, and an unsynced s
   }
   const main = (over) => ({
     bedrockEndpoint: { set: false, host: null },
+    bedrockProfile: false,
     vertexApiKeyEnv: false,
     vertexProjectEnv: false,
     ...over,
@@ -1255,7 +1373,14 @@ test("main facts: environment overrides move enterprise hosts, and an unsynced s
       await routesOf(
         enterpriseChat("bedrock", "eu.anthropic.claude-fable-5", {
           enterprise: { bedrockRegion: "eu-west-1" },
-          facts: { credentials: keys("bedrock"), enterpriseMain },
+          facts: {
+            credentials: keys("bedrock"),
+            credentialFields: new Map([[
+              "bedrock",
+              { accessKeyId: true, secretAccessKey: true },
+            ]]),
+            enterpriseMain,
+          },
         })
       )
     ).chat;
@@ -1268,7 +1393,7 @@ test("main facts: environment overrides move enterprise hosts, and an unsynced s
   const vertexEnvKey = (
     await routesOf(
       enterpriseChat("vertex", "gemini-2.5-flash", {
-        enterprise: { vertexProject: "", vertexLocation: "europe-west4" },
+        enterprise: { vertexProject: "", vertexLocation: "europe-west4", vertexAuthSource: "apiKey" },
         facts: { credentials: keys(), enterpriseMain: main({ vertexApiKeyEnv: true }) },
       })
     )
@@ -1278,12 +1403,22 @@ test("main facts: environment overrides move enterprise hosts, and an unsynced s
   const envProjectOnly = (
     await routesOf(
       enterpriseChat("vertex", "gemini-2.5-flash", {
-        enterprise: { vertexProject: "", vertexLocation: "europe-west4" },
+        enterprise: { vertexProject: "", vertexLocation: "europe-west4", vertexAuthSource: "adc" },
         facts: { credentials: keys("vertex"), enterpriseMain: main({ vertexProjectEnv: true }) },
       })
     )
   ).chat;
   assert.equal(envProjectOnly.state.status, "needsKey", "the helper passes the blank project, never GOOGLE_VERTEX_PROJECT");
+  const adcEnvKey = (
+    await routesOf(
+      enterpriseChat("vertex", "gemini-2.5-flash", {
+        enterprise: { vertexProject: "acme-prod", vertexLocation: "europe-west4", vertexAuthSource: "adc" },
+        facts: { credentials: keys(), credentialFields: new Map(), enterpriseMain: main({ vertexApiKeyEnv: true }) },
+      })
+    )
+  ).chat;
+  assert.equal(adcEnvKey.host, "europe-west4-aiplatform.googleapis.com");
+  assert.deepEqual(adcEnvKey.state, { status: "ready" }, "legacy env fallback cannot override the persisted ADC source");
 });
 
 test("agreement: enterprise hosts and refusals match enterpriseAiProviders.js and the request the AI SDK sends, with main's environment overrides", async (t) => {
@@ -1323,9 +1458,11 @@ test("agreement: enterprise hosts and refusals match enterpriseAiProviders.js an
     } catch {
       return null; // refused before any request (enterpriseAiProviders.js:73-77)
     }
-    if (provider === "vertex" && !apiKey && !process.env.GOOGLE_VERTEX_API_KEY) {
+    if (provider === "vertex" && enterprise.vertexAuthSource === "adc") {
       // ADC would first ask Google for a token (a real network call), so read the
       // base URL the SDK will call instead (@ai-sdk/google-vertex loadBaseURL).
+      // The source implementation must pass apiKey: "" so ambient env cannot
+      // silently switch this request to Express mode.
       assert.equal(typeof model.config?.baseURL, "string", "re-read @ai-sdk/google-vertex loadBaseURL");
       try {
         return new URL(model.config.baseURL).host;
@@ -1384,13 +1521,14 @@ test("agreement: enterprise hosts and refusals match enterpriseAiProviders.js an
     ["bedrock", { bedrockRegion: "" }, ""],
     ["bedrock", { bedrockRegion: "us east" }, ""],
     ["bedrock", { bedrockRegion: "evil.example/x" }, ""], // the SDK really contacts bedrock-runtime.evil.example
-    ["vertex", { vertexProject: "acme-prod", vertexLocation: "europe-west4" }, ""],
-    ["vertex", { vertexProject: "acme-prod", vertexLocation: "" }, ""],
-    ["vertex", { vertexProject: "acme-prod", vertexLocation: "global" }, ""],
-    ["vertex", { vertexProject: "acme-prod", vertexLocation: "us" }, ""],
-    ["vertex", { vertexProject: "acme-prod", vertexLocation: "bad location" }, ""],
-    ["vertex", { vertexProject: "", vertexLocation: "europe-west4" }, ""],
-    ["vertex", { vertexProject: "", vertexLocation: "europe-west4" }, "fixture-key"],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "europe-west4", vertexAuthSource: "adc" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "", vertexAuthSource: "adc" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "global", vertexAuthSource: "adc" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "us", vertexAuthSource: "adc" }, ""],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "bad location", vertexAuthSource: "adc" }, ""],
+    ["vertex", { vertexProject: "", vertexLocation: "europe-west4", vertexAuthSource: "adc" }, ""],
+    ["vertex", { vertexProject: "", vertexLocation: "europe-west4", vertexAuthSource: "apiKey" }, "fixture-key"],
+    ["vertex", { vertexProject: "acme-prod", vertexLocation: "europe-west4", vertexAuthSource: "apiKey" }, ""], // committed stored key absent: uses injected legacy fallback or refuses
   ];
   for (const scenario of scenarios) {
     for (const name of ENV) delete process.env[name];
@@ -1403,18 +1541,35 @@ test("agreement: enterprise hosts and refusals match enterpriseAiProviders.js an
     );
     for (const [provider, overrides, apiKey] of cases) {
       const enterprise = { ...base, ...overrides };
-      assert.equal(
-        enterpriseRequestHost(provider, enterprise, apiKey !== "", main),
-        await executorHost(provider, enterprise, apiKey),
-        `${JSON.stringify(scenario)} ${provider} ${JSON.stringify(overrides)}`
-      );
+      const graphHost = enterpriseRequestHost(provider, enterprise, main);
+      const sdkHost = await executorHost(provider, enterprise, apiKey);
+      const missingVertexKey =
+        provider === "vertex" &&
+        enterprise.vertexAuthSource === "apiKey" &&
+        !(apiKey || process.env.GOOGLE_VERTEX_API_KEY);
+      if (missingVertexKey) {
+        assert.equal(sdkHost, null, "the selected apiKey mode refuses without either committed key source");
+        assert.equal(graphHost, "aiplatform.googleapis.com", "the configured recipient remains known while readiness is needsKey");
+      } else {
+        assert.equal(
+          graphHost,
+          sdkHost,
+          `${JSON.stringify(scenario)} ${provider} ${JSON.stringify(overrides)}`
+        );
+      }
     }
   }
   for (const name of ENV) delete process.env[name];
-  // Without its key Azure is refused too; the graph reports that as needsKey, not as a host problem.
+  // Without its key Azure and Vertex apiKey mode are refused; neither may silently select ADC.
   assert.equal(
     await executorHost("azure", { ...base, azureEndpoint: "https://myres.openai.azure.com/openai" }, ""),
     null
+  );
+  for (const name of ENV) delete process.env[name];
+  assert.equal(
+    await executorHost("vertex", { ...base, vertexProject: "acme-prod", vertexLocation: "europe-west4", vertexAuthSource: "apiKey" }, ""),
+    null,
+    "missing apiKey-mode credential is refused, not redirected to ADC"
   );
 });
 
@@ -1701,14 +1856,15 @@ Test labels. Every test below is **change-driving**: `src/lib/routeGraph.ts` doe
 | self-hosted speech … | I8/I7: LAN host, loopback device, invalid never device |
 | unsupported and live-only speech providers … | I8: unsupported provider, live-only dictation vs upload (§5.1 rule 9: `uploadStt` on a streaming-only provider is `unreachable`/`unsupported`), unknown mode |
 | note recording runs only the meeting streaming providers … | I8 and §5.1 rule 9: a provider outside `capabilities.meetingProviders` (inherited Groq) and self-hosted mode are both `unreachable`/`unsupported` |
-| text endpoints use the executor's rule before the loopback decision | I8: malformed, public HTTP, hosted, embedded credentials, `ws://localhost`, plain-HTTP `*.localhost`; loopback custom → device |
+| text endpoints use the executor's rule before the loopback decision | I8/CCR-7: malformed, public HTTP, hosted, embedded credentials, `ws://localhost`, plain-HTTP `*.localhost`; configured loopback → device with its host preserved; built-in engine → device with null host |
 | plain-HTTP *.localhost is loopback but refused … (§5.1 rule 10) | §5 Locality row + §5.1 rule 10: `isLoopbackUrl("http://lmstudio.localhost/v1") === true` (Plan 01's `isLoopbackUrl` already accepts `*.localhost`; Plan 07 CCR-5 keeps it) and yet the custom text, custom speech and self-hosted routes are `needsUrl`, never `device` |
 | a text provider main refuses is unsupported | I8: providers main rejects |
 | Azure: a saved key never makes a missing or refused endpoint ready … | R2-1: missing, blank, malformed, HTTP and credential-bearing endpoints are `needsUrl` with a key present (and with facts unknown); a valid endpoint is `ready` with the endpoint's normalized host; an endpoint host change changes `route.host`; no key → `needsKey`; empty deployment → `needsModel` |
 | Bedrock: the host follows the region … | R2-1: `bedrock-runtime.<region>.<partition suffix>`, the helper's `us-east-1` default, an unbuildable region → `needsUrl`, the host is known before sign-in, the providers-mode vision override uses the same rule |
-| Vertex: the host follows the location, or the API key's express host | R2-1: location hosts (regional, `global`, `eu`/`us` multi-region, the helper's `us-central1` default), the key's express host, blank project without key → `needsKey`, unbuildable location → `needsUrl`, unknown key field → `unknown` with `host: null` |
-| main facts: environment overrides move enterprise hosts … | R2-1: `facts.enterpriseMain` `null` (not yet synced from main) → every enterprise route `unknown` with `host: null`, even Azure with a key and a valid endpoint; a Bedrock endpoint override replaces the region host, and an unusable one is `needsUrl`; main's `GOOGLE_VERTEX_API_KEY` gives the express host and `ready` without a stored key or project; `GOOGLE_VERTEX_PROJECT` never makes a blank project ready |
-| agreement: enterprise hosts and refusals match enterpriseAiProviders.js … with main's environment overrides | R2-1 + §5.1 rule 11: across 9 injected environments (none; runtime override; `AWS_ENDPOINT_URL`; both, runtime wins; empty runtime; credential-bearing URL; Vertex env key; empty env key; project/location/region variables that never apply) × 20 configurations, `enterpriseRequestHost(…, enterpriseRouteFacts(process.env))` equals the host the real helper's request reaches through the installed SDK (stubbed `fetch` constructs a `Request` first, so it refuses relative and credential-bearing URLs as fetch does; Vertex ADC reads the SDK's own `baseURL`, because ADC would first call Google for a token), and `null` exactly where the helper refuses or no request can be made. The real main reader's output never contains an environment value. Environments are injected and restored; the developer's own is never used |
+| Vertex: the persisted auth source selects the host independent of key presence | R3-1: ADC uses the configured location host and requires a project even when stored/ambient keys exist; `apiKey` uses express host, requires a committed key or supported legacy env fallback, and never falls back to ADC; auth source determines host before facts load; saving/removing/Undo only changes readiness |
+| Bedrock: readiness requires the complete static pair or a profile | R3-3: access-ID-only and secret-only → `needsKey`; complete pair and supported profile → `ready`; profile precedence and the real SDK factory agree |
+| main facts: environment overrides move enterprise hosts … | R2-1/R3-1/R3-3: `facts.enterpriseMain` `null` (not yet synced from main) → every enterprise route `unknown` with `host: null`, even Azure with a key and a valid endpoint; a Bedrock endpoint override replaces the region host, and an unusable one is `needsUrl`; `bedrockProfile` is a host-free main fact; main's `GOOGLE_VERTEX_API_KEY` is a fallback only in persisted `apiKey` mode; `GOOGLE_VERTEX_PROJECT` never makes a blank ADC project ready |
+| agreement: enterprise hosts and refusals match enterpriseAiProviders.js … with main's environment overrides | R2-1/R3-1/R3-3 + §5.1 rule 11: across 9 injected environments × 20 configurations, `enterpriseRequestHost(…, enterpriseRouteFacts(process.env))` equals the host the real helper/factory reaches through the installed SDK (stubbed `fetch` constructs a `Request` first, so it refuses relative and credential-bearing URLs as fetch does; ADC reads the SDK base URL with `apiKey: ""`, never requesting a token), and `null` exactly where the helper refuses or no request can be made. The real main reader's output never contains an environment value. Environments are injected and restored; the developer's own is never used |
 | the retired openwhispr mode … | retired, provider named (kept from v1) |
 | off routes keep their destination … | off keeps locality/host, sends nothing |
 | assistant vision follows the assistant … | vision follows the assistant's provider/host/model with stale override values (I7) |
@@ -1777,7 +1933,7 @@ export interface ResolvedRoute {
   locality: Locality;
   provider: string | null; // English providerDisplayName, logs only; UI uses providerDisplayLabel(providerId, t)
   providerId: string | null; // raw id ("openai", "custom"); null for device and network
-  host: string | null; // effective endpoint host:port; null when nothing leaves the device or the host is unknown/invalid
+  host: string | null; // effective endpoint host:port; configured loopback keeps its host; null for built-in engines or unknown/invalid hosts
   model: string | null;
   state: RouteState;
   sends: string | null; // translated payload list; null when device or off
@@ -1915,13 +2071,15 @@ export interface EnterpriseRouteSettings {
   azureEndpoint: string;
   vertexProject: string;
   vertexLocation: string;
+  vertexAuthSource: "adc" | "apiKey";
 }
 
 // Hosts and booleans only; produced by src/helpers/enterpriseRouteFacts.js in main.
 export interface EnterpriseMainFacts {
   // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL. host null = set but unusable.
   bedrockEndpoint: { set: boolean; host: string | null };
-  vertexApiKeyEnv: boolean; // non-empty GOOGLE_VERTEX_API_KEY: express mode
+  bedrockProfile: boolean; // non-empty BEDROCK_PROFILE; profile value never leaves main
+  vertexApiKeyEnv: boolean; // non-empty GOOGLE_VERTEX_API_KEY, only a fallback in apiKey mode
   vertexProjectEnv: boolean; // reported only: the helper always passes a string project
 }
 
@@ -2049,9 +2207,9 @@ function bedrockBaseUrl(region: string): string {
 }
 
 // @ai-sdk/google-vertex 5.0.93, createGoogleVertex loadBaseURL
-// (dist/index.js:1619, 1653-1669). The API key selects express mode.
-function vertexBaseUrl(apiKey: boolean, project: string, location: string): string {
-  if (apiKey) return "https://aiplatform.googleapis.com/v1/publishers/google";
+// (dist/index.js:1619, 1653-1669). The persisted apiKey source selects express mode.
+function vertexBaseUrl(apiKeyMode: boolean, project: string, location: string): string {
+  if (apiKeyMode) return "https://aiplatform.googleapis.com/v1/publishers/google";
   const host =
     location === "global"
       ? "aiplatform.googleapis.com"
@@ -2079,7 +2237,6 @@ function requestHost(url: string): string | null {
 export function enterpriseRequestHost(
   providerId: EnterpriseProviderId,
   enterprise: EnterpriseRouteSettings,
-  vertexApiKey: boolean,
   main: EnterpriseMainFacts
 ): string | null {
   switch (providerId) {
@@ -2103,7 +2260,7 @@ export function enterpriseRequestHost(
     case "vertex":
       return requestHost(
         vertexBaseUrl(
-          vertexApiKey || main.vertexApiKeyEnv,
+          enterprise.vertexAuthSource === "apiKey",
           enterprise.vertexProject,
           enterprise.vertexLocation || "us-central1"
         )
@@ -2305,7 +2462,9 @@ function endpointDestination(
   invalidState: RouteState
 ): Destination {
   if (valid && isLoopbackUrl(url)) {
-    return { locality: "device", providerId: null, host: null, model, state: READY };
+    // The request still targets a user-configured endpoint. Keep its host so
+    // Plan 07 can distinguish it from a built-in engine (device + host:null).
+    return { locality: "device", providerId: null, host: urlHost(url), model, state: READY };
   }
   return {
     locality: providerId === "custom" ? "remote" : "network",
@@ -2436,10 +2595,10 @@ function sttDestination(s: RouteSettingsSnapshot, id: RouteId, input: SttRouteIn
   return batchSttDestination(s, id, input);
 }
 
-// Bedrock, Azure and Vertex (R2-1). The host comes from the enterprise slice,
-// never providerHosts. A configuration the executor refuses is needsUrl before
-// any key fact, like a custom endpoint; Vertex's host depends on whether its own
-// API key exists, so it stays unknown until main has listed the key field.
+// Bedrock, Azure and Vertex (R2-1/R3-1/R3-3). The host comes from the enterprise
+// slice, never providerHosts. A configuration the executor refuses is needsUrl
+// before credential facts. Vertex's host follows its persisted auth source, not
+// key presence; only apiKey readiness waits for the key facts.
 function enterpriseDestination(
   s: RouteSettingsSnapshot,
   id: RouteId,
@@ -2457,28 +2616,36 @@ function enterpriseDestination(
   // and read main's environment overrides, the destination is not known.
   const main = s.facts.enterpriseMain;
   if (main === null) return at(null, UNKNOWN);
-  let vertexApiKey = false;
-  if (providerId === "vertex") {
-    if (s.facts.credentials === null || s.facts.credentialFields === null) return at(null, UNKNOWN);
-    vertexApiKey = s.facts.credentialFields.get("vertex")?.key === true;
-  }
-  const host = enterpriseRequestHost(providerId, s.enterprise, vertexApiKey, main);
+  const host = enterpriseRequestHost(providerId, s.enterprise, main);
   if (host === null) return at(null, NEEDS_URL);
-  // GOOGLE_VERTEX_API_KEY in main's environment runs express mode without a
-  // stored key or a project; main's presence (Task 2) does not count it.
-  if (providerId === "vertex" && !vertexApiKey && main.vertexApiKeyEnv) {
-    return at(
-      host,
-      s.facts.rejected.has("vertex") ? { status: "needsKey", provider: providerDisplayName(providerId) } : READY
-    );
+  // Recipient settings pick the host independently of credentials. Preserve
+  // that host while main-confirmed credential facts are still loading.
+  if (providerId === "vertex" && s.enterprise.vertexAuthSource === "apiKey" &&
+      (s.facts.credentials === null || s.facts.credentialFields === null)) return at(host, UNKNOWN);
+  if (providerId === "bedrock" && !main.bedrockProfile && s.facts.credentialFields === null) return at(host, UNKNOWN);
+  if (providerId === "bedrock") {
+    const fields = s.facts.credentialFields?.get("bedrock");
+    const completeStaticPair = fields?.accessKeyId === true && fields?.secretAccessKey === true;
+    const ready = main.bedrockProfile || completeStaticPair;
+    return at(host, ready && !s.facts.rejected.has("bedrock")
+      ? READY
+      : { status: "needsKey", provider: providerDisplayName(providerId) });
   }
-  const state = credentialState(s, id, providerId);
-  // Without its key, Vertex runs as the ADC project (enterpriseAiProviders.js:90-93);
-  // a blank project builds ".../projects//..." and every request fails.
-  if (providerId === "vertex" && !vertexApiKey && !s.enterprise.vertexProject.trim() && state.status === "ready") {
-    return at(host, { status: "needsKey", provider: providerDisplayName(providerId) });
+  if (providerId === "vertex") {
+    if (s.enterprise.vertexAuthSource === "apiKey") {
+      const storedKey = s.facts.credentialFields?.get("vertex")?.key === true;
+      const effectiveKey = storedKey || main.vertexApiKeyEnv;
+      return at(host, effectiveKey && !s.facts.rejected.has("vertex")
+        ? READY
+        : { status: "needsKey", provider: providerDisplayName(providerId) });
+    }
+    // ADC must not inherit either explicit or ambient API keys. A project is
+    // required by createVertex({ apiKey: "", project, location }).
+    return at(host, s.enterprise.vertexProject.trim()
+      ? READY
+      : { status: "needsKey", provider: providerDisplayName(providerId) });
   }
-  return at(host, state);
+  return at(host, credentialState(s, id, providerId));
 }
 
 function llmDestination(s: RouteSettingsSnapshot, id: RouteId, input: LlmRouteInput): Destination {
@@ -2642,7 +2809,10 @@ export function resolveRoute(s: RouteSettingsSnapshot, id: RouteId): ResolvedRou
     locality: dest.locality,
     provider: dest.providerId ? providerDisplayName(dest.providerId) : null,
     providerId: dest.providerId,
-    host: dest.locality === "device" ? null : dest.host,
+    // Built-in engines already have dest.host === null. Preserve the host for
+    // configured loopback endpoints: device locality still permits them in
+    // Sealed mode, while the host distinguishes them from Loqui's own engines.
+    host: dest.host,
     model: dest.model,
     state,
     sends: parts.length ? s.copy.list(parts.map((p) => s.copy.parts[p])) : null,
@@ -2668,7 +2838,8 @@ Create `src/helpers/enterpriseRouteFacts.js` (main process; Task 3 registers it 
 //   loadOptionalSetting (provider-utils dist/index.js:1720-1735) accepts any
 //   string, "" included, and the base URL loses one trailing slash.
 // - @ai-sdk/google-vertex (dist/index.js:1637-1640, 1814-1820): a truthy
-//   GOOGLE_VERTEX_API_KEY selects express mode when no key is passed.
+//   GOOGLE_VERTEX_API_KEY is the legacy fallback only in persisted apiKey mode.
+//   ADC mode passes apiKey: "" explicitly, suppressing this SDK fallback.
 // GOOGLE_VERTEX_PROJECT/LOCATION and AWS_REGION never apply here: the helper
 // always passes string settings, which loadSetting returns as they are.
 
@@ -2689,6 +2860,7 @@ function enterpriseRouteFacts(env = process.env) {
       typeof raw === "string"
         ? { set: true, host: requestHost(`${raw.replace(/\/$/, "")}/model/fixture/converse`) }
         : { set: false, host: null },
+    bedrockProfile: Boolean(env.BEDROCK_PROFILE),
     vertexApiKeyEnv: Boolean(env.GOOGLE_VERTEX_API_KEY),
     vertexProjectEnv: typeof env.GOOGLE_VERTEX_PROJECT === "string",
   };
@@ -2732,28 +2904,405 @@ Closes I3 (saved-key readiness becomes a main-acknowledged fact: renderer setter
 
 Today `_saveKey` (`src/helpers/environment.js:249-264`) returns `{ success: true }` before the encrypted write finishes and only logs a failure, and the renderer puts the raw key into zustand before a 250 ms debounced IPC (`src/stores/settingsStore.ts:1280-1297`, `:1363-1366`). This task moves the authority to main: main persists, acknowledges, bumps a per-identity generation and broadcasts presence; the renderer stores only `"__stored__"` or `""`, and only after the acknowledgement. The UI for undoable removal (the toast Undo and the deletion of the empty-save Remove) is Task 12. This task ships the main contract it calls and declares the `credentialId?: CredentialSlot` prop, so Tasks 8 and 9 can pass identities before Task 12 gives the prop its behaviour.
 
+**Vertex source migration gate (R3-1, spec §5.1).** Add the non-secret setting `vertexAuthSource: "adc" | "apiKey"`, persisted as `VERTEX_AUTH_SOURCE`. In `main.js` `startApp()`, capture one main-only `hasExistingSettingsProfile` fact before calling `initializeCoreManagers()`, because that function and `environmentManager.init()` can create files. The fact is true when a selected pre-existing marker exists: `userData/.env`, `userData/secure-keys/.migrated`, or the selected database (`transcriptions-dev.db` in development, otherwise `transcriptions.db`). Check only marker existence; never read contents. Ignore `ENOENT`, but fail startup on any other stat error rather than guessing fresh. A fresh profile defaults to `adc` even when ambient `GOOGLE_VERTEX_API_KEY` exists. An existing install with no valid persisted source migrates once from its committed effective credential source. After managers and queues exist, await `environmentManager.init()` and then call `ipcHandlers.initializeVertexAuthSource(hasExistingSettingsProfile)` before `registerSidecars`, CLI/provider bridges, renderer creation, or provider-request admission. The migration first waits for `environmentManager.drainEnvWrites()` and the Vertex credential slot queue to settle, then uses internal `captureCommitted("vertex")`; its main-only `values.key` is the committed stored `VERTEX_API_KEY`, or the supported committed legacy fallback only when the stored key is absent. This preserves the current executor's stored-key-before-SDK-environment precedence without reading mutable renderer state or returning a secret. Main writes the selected source once through the same reset-fenced `.env` writer and materializes it before public route-setting/source getters, credential mutations, or provider requests are admitted. It never re-derives the source from later key presence. Existing valid source values are preserved. In the `IPCHandlers` constructor, establish the shared `vertexAuthSourceReady` admission barrier before registering handlers. Public route-setting getters, the source getter/saver, credential mutation handlers, route-facts getter, and provider requests await this barrier; internal `captureCommitted("vertex")` and the single internal migration write bypass it so migration cannot wait on itself. Raw committed secret getters and capture remain usable while the source barrier is closed. If migration cannot persist, keep public admissions closed and surface the failure instead of choosing a source silently. Capture `envWriteEpoch` before waiting for either queue; the private migration source saver requires that captured epoch and rejects if reset advanced it, even if the reset has already reopened the environment fence. A normal user source saver captures the current epoch at entry. Thus a migration paused between capture and persistence cannot recreate `VERTEX_AUTH_SOURCE` after reset returns.
+
+Create `src/helpers/settingsProfile.js` and use its production detector at the first line of `startApp()`, before sidecar reaping or manager construction. It receives injected `fs.promises`, `userDataPath` and `development`, and checks all selected markers in parallel; each `stat` treats only `ENOENT` as absent and propagates every other error:
+
+```js
+const path = require("node:path");
+
+async function hasExistingSettingsProfile({ fs, userDataPath, development }) {
+  const database = development ? "transcriptions-dev.db" : "transcriptions.db";
+  const markers = [
+    path.join(userDataPath, ".env"),
+    path.join(userDataPath, "secure-keys", ".migrated"),
+    path.join(userDataPath, database),
+  ];
+  const exists = await Promise.all(markers.map(async (marker) => {
+    try {
+      const stat = await fs.stat(marker); // existence only: never open or read the marker
+      return stat.isFile();
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+  }));
+  return exists.some(Boolean);
+}
+
+module.exports = { hasExistingSettingsProfile };
+```
+
+`main.js` imports that helper once and captures its boolean before any sidecar or manager work:
+
+```js
+const { hasExistingSettingsProfile } = require("./src/helpers/settingsProfile");
+
+async function startApp() {
+  const existingSettingsProfile = await hasExistingSettingsProfile({
+    fs: require("node:fs/promises"),
+    userDataPath: app.getPath("userData"),
+    development: process.env.NODE_ENV === "development",
+  });
+  await reapStaleSidecars();
+  initializeCoreManagers();
+  await environmentManager.init();
+  await ipcHandlers.initializeVertexAuthSource(existingSettingsProfile);
+  registerSidecars();
+  // Continue with CLI/provider/window admission only after the source is materialized.
+}
+```
+
+The existing `startApp()` body keeps all of its current startup calls in place around the new lines.
+
+Create `src/helpers/vertexAuthSourceMigration.js`; `IPCHandlers` owns the one-shot initializer and calls this main-only helper. It reads the source only after `.env` and credential queues have settled. The epoch is captured before the first await so reset invalidates this operation even if it resumes after the environment fence reopens:
+
+```js
+async function initializeVertexAuthSource({ hasExistingSettingsProfile, environment, credentials }) {
+  const migrationEpoch = environment.getEnvWriteEpoch();
+  await environment.drainEnvWrites();
+  // Always join the Vertex slot queue, even when a valid source is already
+  // stored. This makes the migration boundary follow any admitted credential
+  // save; a valid source is preserved and is never re-derived from that save.
+  const capture = await credentials.captureCommitted("vertex");
+  if (!capture) throw new Error("Vertex credentials are unavailable during source migration");
+  const storedSource = environment.getVertexAuthSource();
+  // Fresh profiles always start in ADC, including when an ambient API key or
+  // inherited VERTEX_AUTH_SOURCE exists. Existing valid persisted choices win.
+  let source = hasExistingSettingsProfile && storedSource ? storedSource : null;
+  if (source === null) {
+    source = "adc";
+    if (hasExistingSettingsProfile) {
+      // captureCommitted is main-only and queued behind any already-admitted
+      // save. Its effective value checks VERTEX_API_KEY before legacy env.
+      source = capture.values.key ? "apiKey" : "adc";
+    }
+  }
+  // getVertexAuthSource also sees process.env inherited at launch. Persist an
+  // accepted source even when already valid so the next launch cannot choose a
+  // different recipient merely because that ambient variable disappeared.
+  const saved = await environment.saveVertexAuthSource(source, { expectedEpoch: migrationEpoch });
+  if (!saved?.success) throw new Error("Could not persist Vertex auth source");
+  return source;
+}
+
+module.exports = { initializeVertexAuthSource };
+```
+
+In the `IPCHandlers` constructor, create `this.vertexAuthSourceReady` as an unresolved promise and store its resolver before `setupHandlers()`. The `IPCHandlers.initializeVertexAuthSource(existingProfile)` method memoizes one call to this helper and resolves the barrier only after the helper returns successfully. Every public route-setting/source getter, public source saver, credential mutation handler, route-facts handler and enterprise provider request awaits the barrier. On failure the initializer rejects, startup fails, and the promise stays unresolved; raw committed secret getters and `captureCommitted` do not await it. The internal source saver accepts `expectedEpoch`; the public IPC accepts only the enum value, awaits the barrier, and then calls the saver without an override, so a renderer cannot submit an epoch or bypass admission.
+
+Implement the `IPCHandlers` seam as follows (the `await this.vertexAuthSourceReady` check belongs before each listed public operation reads settings or mutates credentials):
+
+```js
+const { initializeVertexAuthSource } = require("./vertexAuthSourceMigration");
+
+// Constructor, before setupHandlers():
+this.vertexAuthSourceReady = new Promise((resolve) => {
+  this.resolveVertexAuthSourceReady = resolve;
+});
+this.vertexAuthInitialization = null;
+
+async initializeVertexAuthSource(hasExistingSettingsProfile) {
+  if (!this.vertexAuthInitialization) {
+    this.vertexAuthInitialization = initializeVertexAuthSource({
+      hasExistingSettingsProfile,
+      environment: this.environmentManager,
+      credentials: this.credentials,
+    });
+    // Keep the public promise closed on failure; startApp receives and reports
+    // the rejected initializer promise before it admits any renderer/provider.
+    this.vertexAuthInitialization.then(() => this.resolveVertexAuthSourceReady(), () => {});
+  }
+  return this.vertexAuthInitialization;
+}
+
+ipcMain.handle("get-vertex-auth-source", async () => {
+  await this.vertexAuthSourceReady;
+  return this.environmentManager.getVertexAuthSource();
+});
+ipcMain.handle("save-vertex-auth-source", async (_event, source) => {
+  await this.vertexAuthSourceReady;
+  if (source !== "adc" && source !== "apiKey") throw new Error("Invalid Vertex auth source");
+  return this.environmentManager.saveVertexAuthSource(source); // no renderer-supplied epoch
+});
+
+// Before each public credentials.save/remove/undo handler and before each
+// route-setting getter, route-facts getter, or enterprise inference admission:
+await this.vertexAuthSourceReady;
+```
+
+Keep `credentials.captureCommitted("vertex")`, the migration helper's call to `saveVertexAuthSource(source, { expectedEpoch })`, and raw EnvironmentManager secret getters outside that public gate. The startup helper is the only caller allowed to pass an epoch.
+
+Create `test/helpers/vertexAuthSourceMigration.test.js`; the setup below uses the real environment methods, credential authority, and fake filesystem already defined by Task 2:
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { hasExistingSettingsProfile } = require("../../src/helpers/settingsProfile");
+const { initializeVertexAuthSource } = require("../../src/helpers/vertexAuthSourceMigration");
+const { createCredentialAuthority } = require("../../src/helpers/credentialAuthority");
+const { fakeCodexFs } = require("./harness/fakeCredentialEnv");
+const { realCredentialEnv } = require("./harness/realCredentialEnv");
+
+function migrationEnv(t, initial = {}, options = {}) {
+  const real = realCredentialEnv(t, initial, options);
+  const credentials = createCredentialAuthority({
+    env: real.env,
+    fs: fakeCodexFs(),
+    codexHome: "/profile/codex",
+    broadcast() {},
+    setTimer() {},
+  });
+  return { ...real, credentials };
+}
+
+test("the production profile detector recognizes each selected marker without reading it", async () => {
+  const userDataPath = "/profile";
+  const markers = [
+    "/profile/.env",
+    "/profile/secure-keys/.migrated",
+    "/profile/transcriptions.db",
+    "/profile/transcriptions-dev.db",
+  ];
+  for (const marker of markers) {
+    let statCalls = 0;
+    const fs = {
+      async stat(path) {
+        statCalls++;
+        if (path === marker) return { isFile: () => true };
+        throw Object.assign(new Error("missing"), { code: "ENOENT" });
+      },
+      readFile() { assert.fail("profile detection must not read marker contents"); },
+    };
+    const existing = await hasExistingSettingsProfile({
+      fs,
+      userDataPath,
+      development: marker.endsWith("transcriptions-dev.db"),
+    });
+    assert.equal(existing, true, marker);
+    assert.equal(statCalls, 3);
+  }
+  const fresh = await hasExistingSettingsProfile({
+    fs: { stat: async () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); } },
+    userDataPath,
+    development: false,
+  });
+  assert.equal(fresh, false);
+  await assert.rejects(
+    hasExistingSettingsProfile({
+      fs: { stat: async () => { throw Object.assign(new Error("EACCES"), { code: "EACCES" }); } },
+      userDataPath,
+      development: false,
+    }),
+    { code: "EACCES" },
+    "an unreadable profile fails closed instead of being classified fresh"
+  );
+});
+
+test("ambient Vertex credentials do not make a fresh profile inherit an existing-install migration", async (t) => {
+  await t.test("fresh profile defaults to ADC despite an ambient key", async (st) => {
+    const fresh = migrationEnv(st, { GOOGLE_VERTEX_API_KEY: "fixture-legacy-key" }, { encryptionAvailable: false });
+    const freshWrites = [];
+    const saveFresh = fresh.env.saveVertexAuthSource.bind(fresh.env);
+    fresh.env.saveVertexAuthSource = async (source, options) => {
+      freshWrites.push(source);
+      return saveFresh(source, options);
+    };
+    assert.equal(await initializeVertexAuthSource({
+      hasExistingSettingsProfile: false,
+      environment: fresh.env,
+      credentials: fresh.credentials,
+    }), "adc");
+    assert.equal(fresh.env.getVertexAuthSource(), "adc");
+    assert.deepEqual(freshWrites, ["adc"]);
+  });
+
+  await t.test("existing profile preserves the migrated choice on later initialization", async (st) => {
+    const existing = migrationEnv(st, { GOOGLE_VERTEX_API_KEY: "fixture-legacy-key" }, { encryptionAvailable: false });
+    const existingWrites = [];
+    const saveExisting = existing.env.saveVertexAuthSource.bind(existing.env);
+    existing.env.saveVertexAuthSource = async (source, options) => {
+      existingWrites.push(source);
+      return saveExisting(source, options);
+    };
+    const inputs = { hasExistingSettingsProfile: true, environment: existing.env, credentials: existing.credentials };
+    assert.equal(await initializeVertexAuthSource(inputs), "apiKey");
+    assert.equal(await initializeVertexAuthSource(inputs), "apiKey");
+    assert.deepEqual(existingWrites, ["apiKey", "apiKey"], "each boot persists the same choice; the main initializer memoizes calls within a boot");
+    assert.equal(existingWrites.includes("fixture-legacy-key"), false, "no value crosses the source saver");
+  });
+});
+
+test("an existing inherited valid source becomes durable before startup admission", async (t) => {
+  for (const source of ["adc", "apiKey"]) {
+    let savedSource;
+    await t.test(`${source}: first launch persists the inherited selection`, async (st) => {
+      const fixture = migrationEnv(st, { VERTEX_AUTH_SOURCE: source }, { encryptionAvailable: false });
+      assert.equal(await initializeVertexAuthSource({
+        hasExistingSettingsProfile: true, environment: fixture.env, credentials: fixture.credentials,
+      }), source);
+      const bytes = [...fixture.fs.files.entries()].find(([file]) => file.endsWith("/.env"))?.[1]?.toString("utf8") ?? "";
+      const match = bytes.match(/^VERTEX_AUTH_SOURCE=(adc|apiKey)$/m);
+      assert.ok(match, "the accepted ambient source must be in the persisted .env snapshot");
+      savedSource = match[1];
+    });
+    await t.test(`${source}: later launch preserves disk choice despite opposite key presence`, async (st) => {
+      // New fixture and authority represent another process with no inherited
+      // source: dotenv has loaded exactly the source saved by the first boot.
+      const fixture = migrationEnv(st, {
+        VERTEX_AUTH_SOURCE: savedSource,
+        ...(source === "adc" ? { GOOGLE_VERTEX_API_KEY: "fixture-opposite-key" } : {}),
+      }, { encryptionAvailable: false });
+      assert.equal(await initializeVertexAuthSource({
+        hasExistingSettingsProfile: true, environment: fixture.env, credentials: fixture.credentials,
+      }), source, "credential presence cannot re-derive an acknowledged selection");
+    });
+  }
+});
+
+test("an inherited valid source cannot admit startup without persistence acknowledgement", async (t) => {
+  const fixture = migrationEnv(t, { VERTEX_AUTH_SOURCE: "adc" }, { encryptionAvailable: false });
+  const expectedEpoch = fixture.env.getEnvWriteEpoch();
+  fixture.env.saveVertexAuthSource = async (source, options) => {
+    assert.equal(source, "adc");
+    assert.deepEqual(options, { expectedEpoch });
+    return { success: false };
+  };
+  await assert.rejects(initializeVertexAuthSource({
+    hasExistingSettingsProfile: true, environment: fixture.env, credentials: fixture.credentials,
+  }), /Could not persist Vertex auth source/);
+});
+
+test("committed stored key wins over the legacy fallback used for migration", async (t) => {
+  const fixture = migrationEnv(t, {
+    VERTEX_API_KEY: "fixture-stored-key",
+    GOOGLE_VERTEX_API_KEY: "fixture-legacy-key",
+  });
+  const captured = await fixture.credentials.captureCommitted("vertex");
+  assert.equal(captured.values.key, "fixture-stored-key");
+  assert.deepEqual(
+    fixture.credentials.list().find((row) => row.id === "vertex").fields,
+    { key: true },
+    "presence still describes only the stored slot"
+  );
+  assert.equal(JSON.stringify(captured).includes("fixture-legacy-key"), false);
+});
+
+test("Vertex source saves serialize durable writes without exposing a staged source", async (t) => {
+  const fixture = migrationEnv(t, { VERTEX_AUTH_SOURCE: "adc" }, { encryptionAvailable: false });
+  fixture.fs.holdNext((op, name) => op === "writeFile" && name === ".env.tmp");
+  const first = fixture.env.saveVertexAuthSource("apiKey");
+  const hold = await fixture.fs.nextHold();
+  assert.equal(fixture.env.getVertexAuthSource(), "adc", "a pending source write does not change main's committed source");
+  const second = fixture.env.saveVertexAuthSource("apiKey");
+  hold.fail(Object.assign(new Error("EIO"), { code: "EIO" }));
+  await assert.rejects(first, { code: "EIO" });
+  assert.deepEqual(await second, { success: true });
+  assert.equal(fixture.env.getVertexAuthSource(), "apiKey");
+  const envFile = [...fixture.fs.files.entries()].find(([file]) => file.endsWith("/.env"))?.[1]?.toString("utf8") ?? "";
+  assert.match(envFile, /^VERTEX_AUTH_SOURCE=apiKey$/m, "the later acknowledged source is the persisted value");
+});
+
+test("migration waits for an already queued Vertex save before choosing its source", async (t) => {
+  const fixture = migrationEnv(t);
+  fixture.fs.holdNext((op, name) => op === "rename" && name === "VERTEX_API_KEY.enc");
+  const saving = fixture.credentials.save("vertex", "key", "fixture-stored-key");
+  const hold = await fixture.fs.nextHold();
+  let settled = false;
+  const migration = initializeVertexAuthSource({
+    hasExistingSettingsProfile: true,
+    environment: fixture.env,
+    credentials: fixture.credentials,
+  }).then((source) => ((settled = true), source));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, "migration cannot read a value while the queued write is pending");
+  hold.release();
+  assert.deepEqual(await saving, { ok: true, generation: 1 });
+  assert.equal(await migration, "apiKey");
+});
+
+test("reset invalidates a migration paused after capture and before its source write", async (t) => {
+  const fixture = migrationEnv(t, { VERTEX_API_KEY: "fixture-stored-key" }, { encryptionAvailable: false });
+  const realSave = fixture.env.saveVertexAuthSource.bind(fixture.env);
+  let reachedSave;
+  const reached = new Promise((resolve) => (reachedSave = resolve));
+  let releaseSave;
+  const saveGate = new Promise((resolve) => (releaseSave = resolve));
+  fixture.env.saveVertexAuthSource = async (source, options) => {
+    reachedSave({ source, options });
+    await saveGate;
+    return realSave(source, options);
+  };
+  const migration = initializeVertexAuthSource({
+    hasExistingSettingsProfile: true,
+    environment: fixture.env,
+    credentials: fixture.credentials,
+  });
+  const pendingWrite = await reached;
+  assert.equal(pendingWrite.source, "apiKey");
+  assert.equal(typeof pendingWrite.options.expectedEpoch, "number");
+  await fixture.credentials.reset(fixture.erase);
+  releaseSave();
+  await assert.rejects(migration, { code: "ENV_RESET" });
+  assert.equal(fixture.env.getVertexAuthSource(), null);
+  assert.equal(fixture.env.getVertexApiKey(), "");
+  assert.equal(
+    [...fixture.fs.files.keys()].some((file) => file.endsWith("/.env") || file.endsWith("/.env.tmp")),
+    false,
+    "neither the source nor a secret is recreated after reset returns"
+  );
+});
+```
+
 Round-2 revisions (Codex R2-2, R2-3, R2-4 and the Task 2 half of R2-5):
-- **Reset barrier (R2-2).** `reset(erase)` is authority-wide and async. It raises a fence that refuses new mutations, and it bumps an epoch so that queued mutations return without writing. It then drops every undo token and bumps every generation, which discards verifications already in flight. It waits for the write in flight, and only then calls `erase` (`clearAllPersistedData`). A save, removal or Undo that was requested before the reset resolves as a failure, never as a success. `cleanup-app` calls `this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())` in place of the bare erase.
-- **Committed snapshots (R2-4).** The real `_saveSecretKey` sets `process.env` before its awaited write (`src/helpers/environment.js:155`, then `:157-165`), and the getters read `process.env` (`:245-246`). While a slot is being written, the authority answers `present`/`list`/`fields` from the snapshot it took just before the write. It publishes the new presence only after persistence succeeded. `captureCommitted(id)` gives main's keyring the value and generation it tests. It is queued behind the slot's mutations, so the value it tests is always one main has committed. Tests use the real `EnvironmentManager` method bodies over a deferred fake filesystem (`test/helpers/harness/realCredentialEnv.js`).
+- **Reset barrier (R2-2/R3-2).** `reset(erase)` is authority-wide and async. It raises a fence that refuses new credential mutations, and it bumps an epoch so queued mutations return without writing. It then drops every undo token and bumps every generation, discarding verifications already in flight. After draining credential-slot writes, it calls `erase`; `clearAllPersistedData()` raises a second fence beneath every `.env` persistence entry point, invalidates queued module-level `envWriteQueue` work, drains a currently active atomic write, then deletes `.env` and encrypted files while the fence remains up. `saveAllKeysToEnvFile()` checks its captured queue epoch before `dotenv.config`, so an invalidated writer cannot reload an old secret into memory after erasure. Every environment writer refuses while the erase fence is raised. A save, removal or Undo requested before credential reset resolves as a failure, never success. `cleanup-app` calls `this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())` in place of the bare erase.
+- **Committed snapshots (R2-4/R3-1).** The real `_saveSecretKey` sets `process.env` before its awaited write (`src/helpers/environment.js:155`, then `:157-165`), and getters read `process.env` (`:245-246`). While a slot is being written, the authority answers `present`/`list`/`fields` from the snapshot it took just before the write. It publishes new presence only after persistence succeeds. `captureCommitted(id)` is main-only and queued behind slot mutations. For Vertex, its `values.key` is the committed stored key first, otherwise the supported main-only legacy `GOOGLE_VERTEX_API_KEY` fallback; the presence fields still report only stored slot fields. Thus migration and Verify consume the same committed effective credential snapshot without reading mutable renderer state or exposing a value over IPC. Tests use the real `EnvironmentManager` method bodies over a deferred fake filesystem (`test/helpers/harness/realCredentialEnv.js`).
 - **Shared slot type and acknowledged-save type (R2-5, R2-3).** The new pure module `src/lib/credentialSlots.ts` exports `CredentialSlot` (the 16 `CredentialId`s plus seven custom-endpoint slots), `MULTI_FIELD_CREDENTIALS` (`corti:speech` and `bedrock`; Remove takes the whole credential), the store-key→slot table and `credentialSlotForRef`. `ApiKeyInput.tsx` exports `AcknowledgedSecretSave` and types `setApiKey` with it. Every caller passes a real acknowledged save, with no casts. The repo's `src/tsconfig.json` has `"strict": false`, but a `void`-returning callback is still not assignable to `Promise<SecretSaveResult>`. Step 3.13 therefore fixes the four places that would fail `npm run typecheck`.
 
 **Files:**
 - Create: `src/helpers/credentialAuthority.js`
+- Create: `src/helpers/settingsProfile.js` and `src/helpers/vertexAuthSourceMigration.js` (profile-marker detection and one-shot, epoch-bound source migration)
 - Create: `src/lib/credentialSlots.ts` (pure; shared slot type and tables)
 - Create: `test/helpers/harness/fakeCredentialEnv.js` (shared with Task 11)
 - Create: `test/helpers/harness/realCredentialEnv.js` (shared with Tasks 11 and 12). It runs the real `EnvironmentManager` persistence bodies over a deferred fake filesystem.
 - Modify (R2-3 typecheck): `src/components/OpenAICompatiblePanel.tsx` (`:24` prop type), `src/components/ReasoningModelSelector.tsx` (`:70` prop type, `:601` fallback), `src/components/settings/InferenceConfigEditor.tsx` (`:139`, `:171`), `src/components/TranscriptionModelPicker.tsx` (`:970-983` table, `:1245` secret field)
-- Modify: `src/helpers/environment.js`. Add `persistSecret` after `_saveKey` (`:249-264`); fence/drain every module-wide `.env` write during reset, and remove `.env.tmp` along with persisted credentials.
+- Modify: `src/helpers/environment.js`. Add `persistSecret` after `_saveKey` (`:249-264`); replace the module-level `.env` writer queue with epoch-aware admission/fencing; put `_writeEnvFileAtomic`, `saveAllKeysToEnvFile`, `removeKeyFromEnvFile` and `clearAllPersistedData` through that fence so reset cannot miss a non-authority writer (R3-2).
+- Modify: `src/helpers/environment.js` (Vertex source): add `VERTEX_AUTH_SOURCE` to `PERSISTED_KEYS` (never `SECRET_KEY_SET`); add validated `getVertexAuthSource`/`saveVertexAuthSource`, main-only `getLegacyVertexApiKey()`, `getEnvWriteEpoch()` and `drainEnvWrites()`. `getVertexAuthSource()` returns only `"adc"`, `"apiKey"` or `null`; `getLegacyVertexApiKey()` returns the supported legacy fallback only to the main authority. `saveVertexAuthSource(source, { expectedEpoch }?)` validates its enum and delegates to Task 6's shared atomic enterprise-route transaction, passing the migration epoch through without staging `process.env`. The optional epoch is internal to startup migration; preload and IPC accept only the enum. `drainEnvWrites()` awaits the settled module queue. No public renderer API receives a credential value.
+- Modify: `src/helpers/enterpriseAiProviders.js`: make Vertex factory auth explicit from `enterprise.vertexAuthSource`, never from key presence:
+
+  ```js
+  function createVertexModel(model, apiKey, enterprise) {
+    const { createVertex } = require("@ai-sdk/google-vertex");
+    if (enterprise?.vertexAuthSource === "apiKey") {
+      const effectiveKey = apiKey || process.env.GOOGLE_VERTEX_API_KEY || "";
+      if (!effectiveKey) throw new Error("Configure a Vertex API key in Settings.");
+      // apiKey is main's committed VERTEX_API_KEY from getCredential(); it wins
+      // over the supported legacy SDK fallback when both are present.
+      return createVertex({ apiKey: effectiveKey })(model);
+    }
+    if (enterprise?.vertexAuthSource === "adc") {
+      // Explicit empty suppresses the SDK's GOOGLE_VERTEX_API_KEY fallback.
+      return createVertex({
+        apiKey: "",
+        project: enterprise.vertexProject,
+        location: enterprise.vertexLocation || "us-central1",
+      })(model);
+    }
+    throw new Error("Choose a supported Vertex authentication source.");
+  }
+  ```
+
+  Add `vertexAuthSource: environmentManager.getVertexAuthSource()` to main's `getEnterpriseConfig`. `apiKey` mode refuses when both the committed stored value and legacy fallback are empty; it never selects ADC implicitly. Add real SDK factory coverage with injected environment variables proving stored-key precedence, legacy fallback, ADC suppression of both keys, and fail-closed behavior for a missing key or unknown source.
 - Modify: `src/helpers/ipcHandlers.js`:
   - require the authority next to `BYOK_API_KEYS` (`:14`);
   - create `this.credentials` in the constructor, just before `this.setupHandlers();` (`:338`);
   - add `_acknowledgedSave` after `_mintStoredCortiToken` (`:997-1009`);
   - rewire the BYOK save channels (`:1244-1251`) and register the four `credentials-*` channels after that loop;
   - rewire `save-corti-client-id` / `save-corti-client-secret` (`:3794-3804`), `save-custom-transcription-key` (`:3866-3868`), `save-cleanup-custom-key` (`:3874-3876`), the Bedrock, Azure and Vertex secret savers (`:3894-3911`, `:3918-3920`, `:3948-3950`), and make `save-bedrock-profile` (`:3888-3890`) and `save-vertex-project` (`:3936-3938`) refresh presence;
+  - add `get-vertex-auth-source`/`save-vertex-auth-source`; create a closed `vertexAuthSourceReady` barrier before `setupHandlers()`, and gate public enterprise/source getters, the source saver, credential mutation handlers, route-facts getter, and enterprise request admission on it. Keep internal `captureCommitted("vertex")` and the single migration saver usable while the barrier is closed. Migrate only an existing profile; use the authority's committed effective source after both queues drain, with the executor's stored-key-before-legacy-fallback precedence. Do not sample mutable `process.env` while a staged replacement is pending or gate the committed capture on readiness;
   - in `cleanup-app`, replace the `clearAllPersistedData` try/catch (`:3221-3226`) with `await this.credentials.reset(() => this.environmentManager?.clearAllPersistedData())`, so the erase runs inside the reset barrier (R2-2).
-- Modify: `main.js`. Route `saveCredential` for `personal-inference:credential-save` (`:442-446`) through the authority.
-- Modify: `preload.js`. Add a `credentials` namespace after the `personalInference` block (`:78-99`).
-- Modify: `src/types/electron.ts`. Credential types next to `InferenceMode` (`:18`); `credentials: CredentialsAPI` after `personalInference` (`:677`); the 25 secret `save*` signatures return `Promise<SecretSaveAck>`.
+- Modify: `preload.js`. Add a `credentials` namespace after the `personalInference` block (`:78-99`); expose `getVertexAuthSource`/`saveVertexAuthSource` with the other enterprise settings.
+- Modify: `src/types/electron.ts`. Credential types next to `InferenceMode` (`:18`); `credentials: CredentialsAPI` after `personalInference` (`:677`); the 25 secret `save*` signatures return `Promise<SecretSaveAck>`; add typed Vertex source get/save IPC methods.
 - Modify: `src/preview/browserPreview.ts`. A `credentials` stub next to `personalInference` (`:139-156`).
 - Modify: `src/stores/settingsStore.ts`:
   - replace `SECRET_IPC_SAVERS` … `createSecretSetter` (`:1249-1368`) with slot tables, `saveSecret`, `flushSecretSaves`, `subscribeCredentialChanges`;
@@ -2765,7 +3314,7 @@ Round-2 revisions (Codex R2-2, R2-3, R2-4 and the Task 2 half of R2-5):
 - Modify: `src/components/EnterpriseProviderConfig.tsx`. Its local `saveSecret` (`:53-85`) delegates to the store and returns the acknowledgement to `ApiKeyInput` (`:129`, `:134`, `:139`, `:160`, `:181`).
 - Modify: `docs/PRIVACY.md`. One paragraph after `:34` ("Storage and credentials").
 - Modify: `src/locales/*/translation.json`. `apiKeyInput.saveFailed`, `apiKeyInput.removeFailed`.
-- Test: `test/helpers/credentialAuthority.test.js`, `test/helpers/credentialAuthorityRealEnv.test.js` (R2-2/R2-4, real persistence bodies), `test/helpers/credentialIpc.test.js`, `test/helpers/environmentPersistSecret.test.js`, `test/stores/settingsStoreSecretAck.test.js`, `test/lib/credentialSlots.test.js`, and two new tests appended to `test/components/personalWorkspace.test.js`.
+- Test: `test/helpers/credentialAuthority.test.js`, `test/helpers/credentialAuthorityRealEnv.test.js` (R2-2/R2-4/R3-2, real persistence bodies), `test/helpers/credentialIpc.test.js`, `test/helpers/environmentPersistSecret.test.js`, `test/helpers/vertexAuthSourceMigration.test.js` (the selected `.env`/`.migrated`/database markers classify an existing profile; fresh markers all return false; non-`ENOENT` stat errors fail closed; fresh+ambient key defaults to ADC; existing+ambient key migrates once to apiKey; stored key wins over fallback; pending save is drained before migration; reset completing after capture but before source save invalidates the captured epoch), `test/helpers/enterpriseAiProviders.test.js` (real SDK factory with injected environment and no network), `test/stores/settingsStoreSecretAck.test.js`, `test/lib/credentialSlots.test.js`, and two new tests appended to `test/components/personalWorkspace.test.js`.
 
 **Interfaces:**
 - Consumes:
@@ -2881,6 +3430,13 @@ function fakeCredentialEnv(initial = {}) {
   const values = new Map(Object.entries(initial));
   const env = { values, persisted: [], persistImpl: null };
   for (const [getter, name] of Object.entries(GETTERS)) env[getter] = () => values.get(name) || "";
+  env.getVertexAuthSource = () => {
+    const source = values.get("VERTEX_AUTH_SOURCE");
+    return source === "adc" || source === "apiKey" ? source : null;
+  };
+  // Main-only legacy SDK fallback. Credential presence still reports only the
+  // stored VERTEX_API_KEY field; committed captures apply this fallback later.
+  env.getLegacyVertexApiKey = () => values.get("GOOGLE_VERTEX_API_KEY") || "";
   env.persistSecret = async (name, value) => {
     env.persisted.push(name);
     if (env.persistImpl) await env.persistImpl(name, value);
@@ -3352,7 +3908,7 @@ test("persistSecret awaits the encrypted write, and the .env rewrite without enc
 });
 ```
 
-Create `test/helpers/harness/realCredentialEnv.js`. R2-2 and R2-4 are races inside the real `EnvironmentManager` bodies. `_saveSecretKey` sets `process.env` first and then awaits `mkdir`/`writeFile`/`rename` (`src/helpers/environment.js:149-166`); `_deleteSecretKey` deletes and then awaits `unlink` (`:168-175`); `clearAllPersistedData` clears `process.env` and then awaits `rm` (`:489-499`). This harness runs those exact method bodies. It swaps only the module's `fs/promises`, `electron`, `./secretCrypto` and `./debugLogger`, and the swap applies to `environment.js` alone. No real profile, keychain or disk is touched.
+Create `test/helpers/harness/realCredentialEnv.js`. R2-2/R2-4/R3-2 are races inside the real `EnvironmentManager` bodies. `_saveSecretKey` sets `process.env` first and then awaits `mkdir`/`writeFile`/`rename` (`src/helpers/environment.js:149-166`); `_deleteSecretKey` deletes and then awaits `unlink` (`:168-175`); `saveAllKeysToEnvFile` snapshots the environment, writes `.env.tmp`, renames it, then calls `dotenv.config` (`:482-487`); `clearAllPersistedData` clears `process.env` and then awaits `rm` (`:489-499`). This harness runs those exact method bodies in both encrypted and supported non-encrypted modes. It swaps the module's `fs/promises`, `electron`, `dotenv`, `./secretCrypto` and `./debugLogger`, and the swap applies to `environment.js` alone. No real profile, keychain or disk is touched.
 
 ```js
 const Module = require("node:module");
@@ -3603,6 +4159,34 @@ test("reset during a first save: the save fails, reset waits for it, and no key 
   assert.equal(env.getOpenAIKey(), "");
   assert.equal(authority.present("openai"), false);
   assert.ok(!fs.log.includes("writeFile GROQ_API_KEY.enc.tmp"), "a save during reset never writes");
+});
+
+// change-driving (R3-1/R3-2): the source itself is persisted through the same
+// environment queue. A source save already in flight must not restore its old
+// value from its rejection handler after reset erases process.env and `.env`.
+test("reset during a pending Vertex source save never resurrects the prior source", async (t) => {
+  const { authority, env, fs, erase } = setup(
+    t,
+    { VERTEX_AUTH_SOURCE: "apiKey", VERTEX_API_KEY: "fixture-vertex-key" },
+    { encryptionAvailable: false }
+  );
+  fs.holdNext((op, name) => op === "writeFile" && name === ".env.tmp");
+  const saving = env.saveVertexAuthSource("adc");
+  const hold = await fs.nextHold();
+  assert.equal(env.getVertexAuthSource(), "adc", "the pending source is materialized before its write");
+  const resetting = authority.reset(erase);
+  await tick();
+  hold.release();
+  await assert.rejects(saving, { code: "ENV_RESET" });
+  await resetting;
+  assert.equal(env.getVertexAuthSource(), null);
+  assert.equal(process.env.VERTEX_AUTH_SOURCE, undefined, "the rejected source handler cannot restore the old mode");
+  assert.equal(env.getVertexApiKey(), "");
+  assert.equal(
+    [...fs.files.keys()].some((file) => file.endsWith("/.env") || file.endsWith("/.env.tmp")),
+    false,
+    "the source and secret are absent from persisted files after reset returns"
+  );
 });
 
 // change-driving (R3-2): the production `save-all-keys-to-env` channel bypasses
@@ -4422,13 +5006,19 @@ Expected: FAIL.
          secretAccessKey: field("BEDROCK_SECRET_ACCESS_KEY", "getBedrockSecretAccessKey"),
          sessionToken: field("BEDROCK_SESSION_TOKEN", "getBedrockSessionToken"),
        },
-       // Same rule as personal-inference:credential-status.
-       present: (stored, env) => !!env.getBedrockProfile() || stored.accessKeyId,
+       // The SDK factory requires both static fields; profile auth is independent.
+       present: (stored, env) =>
+         !!env.getBedrockProfile() || (stored.accessKeyId && stored.secretAccessKey),
      },
      azure: { fields: { key: field("AZURE_OPENAI_API_KEY", "getAzureApiKey") } },
      vertex: {
        fields: { key: field("VERTEX_API_KEY", "getVertexApiKey") },
-       present: (stored, env) => stored.key || !!env.getVertexProject(),
+       // This is readiness only. It never selects the request host: the
+       // persisted source does. ADC needs a project; apiKey uses the committed
+       // stored value before the legacy GOOGLE_VERTEX_API_KEY fallback.
+       present: (stored, env) => env.getVertexAuthSource() === "apiKey"
+         ? !!stored.key || Boolean(env.getLegacyVertexApiKey())
+         : Boolean(env.getVertexProject().trim()),
      },
      "custom:transcription": {
        fields: { key: field("CUSTOM_TRANSCRIPTION_API_KEY", "getCustomTranscriptionKey") },
@@ -4498,6 +5088,18 @@ Expected: FAIL.
        Object.fromEntries(
          Object.entries(SLOTS[id].fields).map(([name, f]) => [name, env[f.get]() || ""])
        );
+     // Main-only effective snapshot for migration and Verify. The persisted
+     // slot key wins; only its absence allows the supported legacy SDK fallback.
+     // `fieldsOf` remains stored-slot presence, so renderers never mistake the
+     // fallback for a saved credential field.
+     const committedValues = (id) => {
+       const values = liveValues(id);
+       if (id === "vertex" && !values.key) {
+         const fallback = env.getLegacyVertexApiKey?.() || "";
+         if (fallback) return { ...values, key: fallback };
+       }
+       return values;
+     };
      const fieldsOf = (id) =>
        Object.fromEntries(
          Object.entries(committed.get(id) || liveValues(id)).map(([name, value]) => [name, !!value])
@@ -4655,7 +5257,7 @@ Expected: FAIL.
        const taskEpoch = epoch;
        return enqueue(id, async () => {
          if (taskEpoch !== epoch) return null;
-         return { generation: generation(id), present: present(id), values: liveValues(id) };
+         return { generation: generation(id), present: present(id), values: committedValues(id) };
        });
      }
 
@@ -4741,9 +5343,51 @@ Expected: FAIL.
      envWriteQueue = queued;
      return queued;
    }
+
+   const ENTERPRISE_ROUTE_ENV_KEYS = Object.freeze({
+     bedrockRegion: "BEDROCK_REGION",
+     azureEndpoint: "AZURE_OPENAI_ENDPOINT",
+     vertexProject: "VERTEX_PROJECT",
+     vertexLocation: "VERTEX_LOCATION",
+     vertexAuthSource: "VERTEX_AUTH_SOURCE",
+   });
+   const ENTERPRISE_ROUTE_KEYS = Object.keys(ENTERPRISE_ROUTE_ENV_KEYS);
+
+   function isEnterpriseRouteSettings(value) {
+     return value !== null && typeof value === "object" &&
+       ENTERPRISE_ROUTE_KEYS.every((key) =>
+         Object.prototype.hasOwnProperty.call(value, key) &&
+         typeof value[key] === "string" &&
+       !/[\r\n\0]/.test(value[key]) &&
+         (key !== "vertexAuthSource" || value[key] === "adc" || value[key] === "apiKey")
+       ) &&
+       Object.keys(value).every((key) => ENTERPRISE_ROUTE_KEYS.includes(key));
+   }
    ```
 
-   `_writeEnvFileAtomic(envPath)` becomes `return enqueueEnvWrite(() => this._writeEnvFile(envPath));`. `removeKeyFromEnvFile(key)` returns `enqueueEnvWrite(() => this._removeKeyLine(envPath, key))`; do not append directly to `envWriteQueue` anywhere. `saveAllKeysToEnvFile({ expectedEpoch } = {})` captures the current epoch before enqueueing when no epoch is supplied; with an internal `expectedEpoch`, it rejects unless that epoch still matches before and after the queue wait. After awaiting the writer it rejects with `ENV_RESET` unless the writer returned `true`, the fence is still down, and the selected epoch equals `envWriteEpoch`; only after those checks may it call `dotenv.config`. Thus queued work invalidated by reset is skipped, and an active writer cannot reload its captured contents after reset begins.
+   `_writeEnvFileAtomic(envPath)` becomes `return enqueueEnvWrite(() => this._writeEnvFile(envPath));`. Extend `_writeEnvFile(envPath, explicitValues = {})` so each persisted key uses an own property from `explicitValues` when present, otherwise `process.env[key]`; an explicit empty string omits that key from the file:
+
+   ```js
+   async _writeEnvFile(envPath, explicitValues = {}) {
+     // Only strip plaintext secrets once migration has fully completed —
+     // otherwise partial-migration recovery could lose unencrypted secrets.
+     const stripSecrets =
+       this._encryptionAvailable() && fs.existsSync(this._getMigrationSentinelPath());
+     let envContent = "# OpenWhispr Environment Variables\n";
+     for (const key of PERSISTED_KEYS) {
+       if (stripSecrets && SECRET_KEY_SET.has(key)) continue;
+       const value = Object.prototype.hasOwnProperty.call(explicitValues, key)
+         ? explicitValues[key]
+         : process.env[key];
+       if (value) envContent += `${key}=${value}\n`;
+     }
+     const tmpPath = `${envPath}.tmp`;
+     await fsPromises.writeFile(tmpPath, envContent, "utf8");
+     await fsPromises.rename(tmpPath, envPath);
+   }
+   ```
+
+   Keep the existing `stripSecrets` calculation from `_writeEnvFile`. `removeKeyFromEnvFile(key)` returns `enqueueEnvWrite(() => this._removeKeyLine(envPath, key))`; do not append directly to `envWriteQueue` anywhere. `saveAllKeysToEnvFile({ expectedEpoch } = {})` captures the current epoch before enqueueing when no epoch is supplied; with an internal `expectedEpoch`, it rejects unless that epoch still matches before and after the queue wait. After awaiting the writer it rejects with `ENV_RESET` unless the writer returned `true`, the fence is still down, and the selected epoch equals `envWriteEpoch`; only after those checks may it call `dotenv.config`. Thus queued work invalidated by reset is skipped, and an active writer cannot reload its captured contents after reset begins.
 
    Wrap `clearAllPersistedData()` in the same module-wide fence: synchronously reject a second reset if already fenced, set `envWriteFenced = true`, increment `envWriteEpoch`, then await `envWriteQueue.catch(() => {})` before clearing `process.env` or removing files. Hold the fence while removing `.env` and the encrypted-key directory; release it in `finally` after deletion finishes or fails. Every new environment write rejects with `ENV_RESET` for that whole interval. This is below the credential authority because `save-all-keys-to-env` uses a separate IPC and currently bypasses the slot queues.
 
@@ -4801,28 +5445,94 @@ Expected: FAIL.
      return envWriteQueue.catch(() => {});
    }
 
+   getEnterpriseRouteSettings() {
+     return {
+       bedrockRegion: this.getBedrockRegion() || "us-east-1",
+       azureEndpoint: this.getAzureEndpoint(),
+       vertexProject: this.getVertexProject(),
+       vertexLocation: this.getVertexLocation() || "us-central1",
+       vertexAuthSource: this.getVertexAuthSource(),
+     };
+   }
+
+   saveEnterpriseRoutePatch(patch, { expected } = {}) {
+     // Renderer/public callers must compare the complete committed base.
+     // Only the internal startup migration calls _commitEnterpriseRoutePatch
+     // without expected (and supplies its captured epoch instead).
+     if (!isEnterpriseRouteSettings(expected)) throw new Error("Expected enterprise route settings are required");
+     return this._commitEnterpriseRoutePatch(patch, { expected });
+   }
+
+   // Main-only transaction used by startup migration and Task 6's public IPC.
+   async _commitEnterpriseRoutePatch(patch, { expected, expectedEpoch } = {}) {
+     if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("Invalid enterprise route patch");
+     for (const [key, value] of Object.entries(patch)) {
+       if (!ENTERPRISE_ROUTE_KEYS.includes(key) || typeof value !== "string") throw new Error("Invalid enterprise route patch");
+       if (/[\r\n\0]/.test(value)) throw new Error("Invalid enterprise route value");
+       if (key === "vertexAuthSource" && value !== "adc" && value !== "apiKey") throw new Error("Invalid Vertex auth source");
+     }
+     if (Object.keys(patch).length === 0) throw new Error("Enterprise route patch is empty");
+     if (expected !== undefined && !isEnterpriseRouteSettings(expected)) throw new Error("Invalid expected enterprise route settings");
+     const epoch = expectedEpoch ?? envWriteEpoch;
+     if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+
+     let outcome;
+     const envPath = path.join(app.getPath("userData"), ".env");
+     const written = await enqueueEnvWrite(async () => {
+       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+       const current = this.getEnterpriseRouteSettings();
+       if (expected && ENTERPRISE_ROUTE_KEYS.some((key) => current[key] !== expected[key])) {
+         outcome = { success: false, conflict: true, current };
+         return;
+       }
+       const next = { ...current, ...patch };
+       const explicitValues = Object.fromEntries(
+         ENTERPRISE_ROUTE_KEYS.map((key) => [ENTERPRISE_ROUTE_ENV_KEYS[key], next[key]])
+       );
+       await this._writeEnvFile(envPath, explicitValues);
+       // This check and the complete RAM commit stay inside the shared queue:
+       // a following save-all cannot snapshot stale values after the rename.
+       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+       for (const key of ENTERPRISE_ROUTE_KEYS) {
+         const envKey = ENTERPRISE_ROUTE_ENV_KEYS[key];
+         if (next[key]) process.env[envKey] = next[key];
+         else delete process.env[envKey];
+       }
+       outcome = { success: true, current: next };
+     });
+     if (!written || envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
+     return outcome;
+   }
+
+   // Replace the existing one-field saver bodies at :304, :336, :362 and
+   // :368. They share the same serialized durable path.
+   saveBedrockRegion(value) {
+     return this._commitEnterpriseRoutePatch({ bedrockRegion: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+   saveAzureEndpoint(value) {
+     return this._commitEnterpriseRoutePatch({ azureEndpoint: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+   saveVertexProject(value) {
+     return this._commitEnterpriseRoutePatch({ vertexProject: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+   saveVertexLocation(value) {
+     return this._commitEnterpriseRoutePatch({ vertexLocation: value }, { expected: this.getEnterpriseRouteSettings() });
+   }
+
    getVertexAuthSource() {
      const source = process.env.VERTEX_AUTH_SOURCE;
      return source === "adc" || source === "apiKey" ? source : null;
    }
 
-   // Main-only. An expected epoch is supplied only by startup migration; it
-   // prevents a paused migration from writing after reset has reopened the fence.
-   async saveVertexAuthSource(source, { expectedEpoch } = {}) {
+   // Main-only. The shared transaction validates and persists the explicit
+   // prospective tuple before changing process.env. An expected epoch is
+   // supplied only by startup migration.
+   saveVertexAuthSource(source, { expectedEpoch } = {}) {
      if (source !== "adc" && source !== "apiKey") throw new Error("Invalid Vertex auth source");
-     const epoch = expectedEpoch ?? envWriteEpoch;
-     if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
-     const previous = process.env.VERTEX_AUTH_SOURCE;
-     process.env.VERTEX_AUTH_SOURCE = source;
-     try {
-       await this.saveAllKeysToEnvFile({ expectedEpoch: epoch });
-       if (envWriteFenced || epoch !== envWriteEpoch) throw environmentResetError();
-       return { success: true };
-     } catch (error) {
-       if (previous === undefined) delete process.env.VERTEX_AUTH_SOURCE;
-       else process.env.VERTEX_AUTH_SOURCE = previous;
-       throw error;
-     }
+     return this._commitEnterpriseRoutePatch(
+       { vertexAuthSource: source },
+       { expectedEpoch } // migration only; omitted by public IPC
+     ).then(() => ({ success: true }));
    }
    ```
 
@@ -5643,9 +6353,9 @@ git commit -m "feat(credentials): Acknowledge secret saves in main, fence reset 
 
 This task completes the §5.1 contract on top of Task 1's pure graph. `src/lib/routes.ts` re-exports `routeGraph.ts` unchanged and adds the snapshot builder, translated route copy, the imperative `routeSnapshotFromSettings`, and the hooks `useResolvedRoutes()` / `useResolvedRoute(id)`. Readiness facts come from a network-free store that publishes each fact family on its own, and sealed state comes from one store that every Plan 03 reader shares. The task also adds the i18n merge script and the `withI18nMock` test helper that every later task uses.
 
-Closes **I2** (the facts loader never calls `codexStatus`, discovery or verification; Codex presence comes from Task 2's `credentials.list`; a mounted test proves the forbidden calls never run), **I3** (key readiness comes only from main's `credentials.list` presence, refreshed on `credentials.onChanged` and `keyring.onChanged`; renderer key fields are never read), **I9** (per-family facts, independent publication, per-key generations, last-known values kept across transient errors, `null` only before the first answer), **I14** (`src/stores/sealedStore.ts` is the single sealed authority; event-versus-fetch ordering and a seal change during an outstanding facts load are tested), **M5** (`routes.ts` = `export * from "./routeGraph.ts"` plus the renderer-only additions; the pure graph stays Node-loadable), and the **I15** inputs (`dictionaryInUse` from `getDictionaryHintWords`, `providerSearch` from `isProviderSearchEnabled`, capabilities from the registry and `MEETING_STREAMING_PROVIDER_IDS`, Appendix B agreement tests 2 and 3, translated payload parts and `metadataNote`). Round 2 adds the facts-and-snapshot half of **R2-1**: `buildRouteSnapshot` fills the non-secret `enterprise` slice (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`) from the settings store, and the facts store keeps main's per-field credential presence (`credentialFields`) from the same `credentials.list`/`onChanged` rows and generations. Main is the source of truth for the enterprise destination (`main.js:447-457` hands `enterpriseAiProviders.js` main's environment, not localStorage). So the facts loader gains one fact key, `enterprise`, made of network-free preload calls only:
-- Once per window it reads main's four getters (`get-bedrock-region`, `get-azure-endpoint`, `get-vertex-project`, `get-vertex-location`, `src/helpers/ipcHandlers.js:3879-3941`) and reconciles the settings store's four fields to them. Main wins, except over a local write made after the read began; that write has already gone to main too.
-- Every load re-reads the new `enterprise-route-facts` IPC, which returns main's environment overrides as hosts and booleans only (Task 1's `src/helpers/enterpriseRouteFacts.js`).
+Closes **I2** (the facts loader never calls `codexStatus`, discovery or verification; Codex presence comes from Task 2's `credentials.list`; a mounted test proves the forbidden calls never run), **I3** (key readiness comes only from main's `credentials.list` presence, refreshed on `credentials.onChanged` and `keyring.onChanged`; renderer key fields are never read), **I9** (per-family facts, independent publication, per-key generations, last-known values kept across transient errors, `null` only before the first answer), **I14** (`src/stores/sealedStore.ts` is the single sealed authority; event-versus-fetch ordering and a seal change during an outstanding facts load are tested), **M5** (`routes.ts` = `export * from "./routeGraph.ts"` plus the renderer-only additions; the pure graph stays Node-loadable), and the **I15** inputs (`dictionaryInUse` from `getDictionaryHintWords`, `providerSearch` from `isProviderSearchEnabled`, capabilities from the registry and `MEETING_STREAMING_PROVIDER_IDS`, Appendix B agreement tests 2 and 3, translated payload parts and `metadataNote`). Round 2/3 adds the facts-and-snapshot half of **R2-1/R3-1**: `buildRouteSnapshot` fills the non-secret `enterprise` slice from the settings store, including the authoritative `vertexAuthSource`; the facts store keeps main's per-field credential presence from `credentials.list`/`onChanged`. Main is the source of truth for the enterprise destination. The facts loader's network-free `enterprise` fact is admitted only after Task 2's Vertex source migration gate:
+- Once per window it reads main's five getters (`get-bedrock-region`, `get-azure-endpoint`, `get-vertex-project`, `get-vertex-location`, `get-vertex-auth-source`) and reconciles the settings store's five fields. Main's source migration completes before these getters can answer; main wins, except over a newer local apply that has already reached main.
+- Every load re-reads the new `enterprise-route-facts` IPC, which returns main's environment overrides as hosts and booleans only (Bedrock endpoint, Bedrock profile presence, and legacy Vertex key/project presence; no values).
 - `facts.enterpriseMain` publishes only after both, so until the sync lands every enterprise route is `unknown`, never `ready`.
 
 `routeSnapshotFromSettings` still makes no IPC call and no subscription: it reads only the facts store, `getSealed()` and i18n. The hooks still subscribe only to the settings, facts and sealed stores.
@@ -5656,10 +6366,10 @@ Closes **I2** (the facts loader never calls `codexStatus`, discovery or verifica
 - Create: `src/lib/routes.ts`
 - Modify: `src/utils/providerSearch.ts`. Add `PROVIDER_SEARCH_CHANGED_EVENT` after `isProviderSearchEnabled` (`:9-12`).
 - Modify: `src/components/settings/InferenceConfigEditor.tsx`. `ProviderSearchPreference` (`:203-213`) announces a toggle change.
-- Modify: `src/types/electron.ts`. Add the optional `privacy?` namespace inside the `electronAPI` interface, directly after `downloadSearchModel` (`:675`); add `enterpriseRouteFacts?` after `saveVertexLocation?` (`:1596`).
-- Modify: `src/helpers/ipcHandlers.js`. Register `enterprise-route-facts` after `save-vertex-location` (`:3942-3944`).
-- Modify: `preload.js`. Expose `enterpriseRouteFacts` after `saveVertexLocation` (`:605`).
-- Modify: `src/stores/settingsStore.ts`. Add `noteEnterpriseLocalWrite`, `enterpriseLocalWriteCount` and `reconcileEnterpriseSettingsFromMain` after `debouncedPersistToEnv` (`:1235-1247`); the four enterprise setters (`:2033-2097`) call `noteEnterpriseLocalWrite()`.
+- Modify: `src/types/electron.ts`. Add the optional `privacy?` namespace inside the `electronAPI` interface, directly after `downloadSearchModel` (`:675`); add `getVertexAuthSource?`, `saveVertexAuthSource?` and `enterpriseRouteFacts?` with the other Vertex IPC methods.
+- Modify: `src/helpers/ipcHandlers.js`. Register `enterprise-route-facts` with the Vertex settings handlers and gate it on `vertexAuthSourceReady`.
+- Modify: `preload.js`. Expose the source getter/saver and `enterpriseRouteFacts` with the Vertex settings methods.
+- Modify: `src/stores/settingsStore.ts`. Add `noteEnterpriseLocalWrite`, `enterpriseLocalWriteCount` and `reconcileEnterpriseSettingsFromMain` after `debouncedPersistToEnv` (`:1235-1247`); all five enterprise setters (`:2033-2105`), including `setVertexAuthSource`, call `noteEnterpriseLocalWrite()`.
 - Create: `scripts/merge-locale-keys.js`
 - Create: `test/lib/i18nTestMock.js`
 - Modify: `src/locales/*/translation.json`. Add a new top-level `routes` object.
@@ -5681,10 +6391,10 @@ Closes **I2** (the facts loader never calls `codexStatus`, discovery or verifica
   export const ROUTE_FACT_KEYS: readonly RouteFactKey[];
   export const EMPTY_ROUTE_FACTS: RouteFacts;               // every fact unknown (null, incl. credentialFields and enterpriseMain), rejected empty
 
-  // src/stores/settingsStore.ts (R2-1)
-  export function noteEnterpriseLocalWrite(): void;          // the four setters and Task 6's applyRoutePatch call it
+  // src/stores/settingsStore.ts (R2-1/R3-1)
+  export function noteEnterpriseLocalWrite(): void;          // the five setters and Task 6's applyRoutePatch call it
   export function enterpriseLocalWriteCount(): number;
-  export function reconcileEnterpriseSettingsFromMain(main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string>, since: number): boolean; // renderer-only; false = a newer local write was kept
+  export function reconcileEnterpriseSettingsFromMain(main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string> & { vertexAuthSource: "adc" | "apiKey" }, since: number): boolean; // renderer-only; false = a newer local write was kept
 
   // IPC (main) + preload (R2-1)
   // "enterprise-route-facts" → window.electronAPI.enterpriseRouteFacts(): Promise<EnterpriseMainFacts>  // hosts and booleans only
@@ -5701,7 +6411,7 @@ Closes **I2** (the facts loader never calls `codexStatus`, discovery or verifica
 
   // src/lib/routes.ts
   export * from "./routeGraph.ts";
-  export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot; // R2-1: also fills `enterprise` from settings
+  export function buildRouteSnapshot(settings: SettingsState, facts: RouteFacts, copy: RouteCopy, sealed: boolean): RouteSettingsSnapshot; // R2-1/R3-1: fills `enterprise`, including migrated source, from settings
   export function routeCopy(t: (key: string) => string, language: string): RouteCopy;
   export function currentRouteCopy(): RouteCopy;                                   // i18n instance, current language
   export function routeSnapshotFromSettings(settings: SettingsState): RouteSettingsSnapshot; // facts store + getSealed() + i18n; no subscriptions, no IPC
@@ -5779,9 +6489,9 @@ async function freshStore(t, windowProps = {}, initialStorage = {}) {
   return { vite, storage, store, facts: () => store.useRouteFactsStore.getState().facts };
 }
 
-// R2-1: main's four enterprise settings (the existing getters) and its
+// R2-1/R3-1: main's five enterprise settings (including the migrated auth source) and its
 // environment facts (enterprise-route-facts), each call recorded.
-const NO_OVERRIDES = { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false };
+const NO_OVERRIDES = { bedrockEndpoint: { set: false, host: null }, bedrockProfile: false, vertexApiKeyEnv: false, vertexProjectEnv: false };
 function enterpriseApi(calls, main = {}, envFacts = NO_OVERRIDES) {
   const answer = (name, value) => () => {
     calls.push(name);
@@ -5792,6 +6502,7 @@ function enterpriseApi(calls, main = {}, envFacts = NO_OVERRIDES) {
     getAzureEndpoint: answer("getAzureEndpoint", main.azureEndpoint ?? ""),
     getVertexProject: answer("getVertexProject", main.vertexProject ?? null),
     getVertexLocation: answer("getVertexLocation", main.vertexLocation ?? ""),
+    getVertexAuthSource: answer("getVertexAuthSource", main.vertexAuthSource ?? "adc"),
     enterpriseRouteFacts: answer("enterpriseRouteFacts", envFacts),
   };
 }
@@ -5929,8 +6640,8 @@ test("credential presence follows main's generations, not arrival order", async 
 });
 
 test("credential field presence comes from the same rows and generations as presence", async (t) => {
-  // R2-1: Vertex's host depends on whether its own API key exists (express mode)
-  // or only the ADC project does; Task 2's rows carry that as fields.key.
+  // R3-1: Vertex's persisted source selects the host. These rows carry readiness
+  // only; saving/removing/Undoing a key cannot change the committed host.
   let changed;
   const { store, facts } = await freshStore(t);
   assert.equal(facts().credentialFields, null, "unknown until main answers");
@@ -6001,7 +6712,7 @@ test("enterprise: main's settings win once, then main's environment facts publis
   assert.equal(facts().enterpriseMain, null, "unknown before main answers");
   const calls = [];
   const slowEndpoint = deferred();
-  const proxy = { bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" }, vertexApiKeyEnv: false, vertexProjectEnv: true };
+  const proxy = { bedrockEndpoint: { set: true, host: "bedrock-proxy.corp.example:8443" }, bedrockProfile: false, vertexApiKeyEnv: false, vertexProjectEnv: true };
   const pending = store.loadRouteFacts(
     api(enterpriseApi(calls, { bedrockRegion: "eu-west-1", azureEndpoint: () => slowEndpoint.promise }, proxy)),
     ["enterprise"]
@@ -6015,6 +6726,7 @@ test("enterprise: main's settings win once, then main's environment facts publis
   assert.equal(settings.bedrockRegion, "eu-west-1");
   assert.equal(settings.vertexProject, "", "a null answer is an empty setting");
   assert.equal(settings.vertexLocation, "", "main's empty value replaces the renderer default");
+  assert.equal(settings.vertexAuthSource, "adc", "source is synced from main after migration");
   assert.equal(storage.getItem("azureEndpoint"), "https://main.example.com/openai");
   assert.deepEqual(facts().enterpriseMain, proxy);
 
@@ -6211,7 +6923,7 @@ const FACTS = Object.freeze({
     ["groq", { key: true }],
   ]),
   // Synced from main, no environment override (R2-1).
-  enterpriseMain: { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false },
+  enterpriseMain: { bedrockEndpoint: { set: false, host: null }, bedrockProfile: false, vertexApiKeyEnv: false, vertexProjectEnv: false },
   rejected: new Set(),
   speakerIdModelsReady: true,
   searchModelReady: true,
@@ -6373,7 +7085,7 @@ test("the enterprise slice is the store's raw enterprise settings, and their hos
   const { routes, copy, base } = await load(t);
   assert.deepEqual(
     routes.buildRouteSnapshot(base, FACTS, copy, false).enterprise,
-    { bedrockRegion: "us-east-1", azureEndpoint: "", vertexProject: "", vertexLocation: "us-central1" },
+    { bedrockRegion: "us-east-1", azureEndpoint: "", vertexProject: "", vertexLocation: "us-central1", vertexAuthSource: "adc" },
     "the store defaults (settingsStore.ts:1442-1453)"
   );
   const azureChat = (azureEndpoint) => ({
@@ -6417,23 +7129,28 @@ test("the enterprise slice is the store's raw enterprise settings, and their hos
     chatAgentProvider: "vertex",
     chatAgentModel: "gemini-2.5-flash",
   };
-  const vertexFacts = (key) => ({
+  const vertexFacts = () => ({
     ...FACTS,
     credentials: new Map([["vertex", true]]),
-    credentialFields: new Map([["vertex", { key }]]),
+    credentialFields: new Map([["vertex", { key: true }]]),
   });
-  const vertexHost = (key) =>
-    routes.resolveRoute(routes.buildRouteSnapshot(vertex, vertexFacts(key), copy, false), "chat").host;
-  assert.equal(vertexHost(false), "europe-west4-aiplatform.googleapis.com", "ADC project and location");
-  assert.equal(vertexHost(true), "aiplatform.googleapis.com", "the API key's express host");
+  const vertexHost = (authSource, keyPresent) =>
+    routes.resolveRoute(
+      routes.buildRouteSnapshot({ ...vertex, vertexAuthSource: authSource }, { ...vertexFacts(), credentialFields: new Map([["vertex", { key: keyPresent }]]) }, copy, false),
+      "chat"
+    ).host;
+  assert.equal(vertexHost("adc", false), "europe-west4-aiplatform.googleapis.com", "ADC project and location");
+  assert.equal(vertexHost("adc", true), "europe-west4-aiplatform.googleapis.com", "stored API key does not switch the source");
+  assert.equal(vertexHost("apiKey", false), "aiplatform.googleapis.com", "persisted apiKey source selects express mode");
   const s = routes.buildRouteSnapshot(base, FACTS, copy, false);
-  assert.equal(Object.keys(s.enterprise).some((key) => /key|secret|token|profile/i.test(key)), false, "no secret or credential-source field");
+  assert.equal(s.enterprise.vertexAuthSource, "adc");
+  assert.equal(Object.keys(s.enterprise).some((key) => /secret|token|profile|apiKey$/i.test(key)), false, "no secret or credential-value field");
 });
 
 test("main wins: until main's enterprise settings are synced the route is unknown, then the snapshot shows main's host", async (t) => {
   // R2-1, change-driving: localStorage and main differ. v2 disclosed the stale
   // localStorage host while the executor used main's (main.js:447-457).
-  const { vite, routes } = await load(t, {}, { azureEndpoint: "https://stale.example.com/openai" });
+  const { vite, routes } = await load(t, {}, { azureEndpoint: "https://stale.example.com/openai", vertexAuthSource: "apiKey" });
   const { useSettingsStore } = await vite.ssrLoadModule("/stores/settingsStore.ts");
   const { useRouteFactsStore, loadRouteFacts } = await vite.ssrLoadModule("/stores/routeFactsStore.ts");
   useSettingsStore.setState({ chatAgentMode: "enterprise", chatAgentProvider: "azure", chatAgentModel: "gpt-4o-deploy" });
@@ -6450,6 +7167,7 @@ test("main wins: until main's enterprise settings are synced the route is unknow
       getAzureEndpoint: async () => "https://main.example.com/openai",
       getVertexProject: async () => "",
       getVertexLocation: async () => "",
+      getVertexAuthSource: async () => "adc",
       enterpriseRouteFacts: async () => FACTS.enterpriseMain,
     },
     ["enterprise"]
@@ -6688,6 +7406,7 @@ const ALLOWED = [
   "getBedrockRegion",
   "getDiarizationModelStatus",
   "getSearchModelStatus",
+  "getVertexAuthSource",
   "getVertexLocation",
   "getVertexProject",
   "keyring.list",
@@ -6725,8 +7444,9 @@ function recordingApi() {
     getAzureEndpoint: ok("getAzureEndpoint", ""),
     getVertexProject: ok("getVertexProject", ""),
     getVertexLocation: ok("getVertexLocation", ""),
+    getVertexAuthSource: ok("getVertexAuthSource", "adc"),
     enterpriseRouteFacts: ok("enterpriseRouteFacts", {
-      bedrockEndpoint: { set: false, host: null },
+      bedrockEndpoint: { set: false, host: null }, bedrockProfile: false,
       vertexApiKeyEnv: false,
       vertexProjectEnv: false,
     }),
@@ -6735,6 +7455,7 @@ function recordingApi() {
     saveAzureEndpoint: forbidden("saveAzureEndpoint"),
     saveVertexProject: forbidden("saveVertexProject"),
     saveVertexLocation: forbidden("saveVertexLocation"),
+    saveVertexAuthSource: forbidden("saveVertexAuthSource"),
     testEnterpriseConnection: forbidden("testEnterpriseConnection"),
     credentials: {
       list: ok("credentials.list", [{ id: "openai", present: true, generation: 1 }]),
@@ -7027,7 +7748,7 @@ test("enterprise-route-facts reports main's overrides as hosts and booleans, nev
   assert.ok(handlers.get("enterprise-route-facts"), "registered by the production setupHandlers");
   injectEnv({});
   assert.deepEqual(await facts(), {
-    bedrockEndpoint: { set: false, host: null },
+    bedrockEndpoint: { set: false, host: null }, bedrockProfile: false,
     vertexApiKeyEnv: false,
     vertexProjectEnv: false,
   });
@@ -7270,7 +7991,7 @@ Expected: FAIL.
      id: CredentialId;
      present: boolean;
      generation: number;
-     // Per-field presence, never values (Task 2). Vertex's `key` picks its host (R2-1).
+     // Per-field presence, never values (Task 2). Vertex's `key` changes readiness only.
      fields?: Record<string, boolean>;
    }
 
@@ -7288,12 +8009,13 @@ Expected: FAIL.
        list?: () => Promise<{ id: CredentialId; status: string }[]>;
        onChanged?: (callback: () => void) => (() => void) | void;
      };
-     // R2-1: main's enterprise settings (ipcHandlers.js:3879-3941) and its
+     // R2-1/R3-1: main's enterprise settings (including migrated Vertex source) and its
      // environment overrides (enterprise-route-facts). All local reads.
      getBedrockRegion?: () => Promise<string | null>;
      getAzureEndpoint?: () => Promise<string | null>;
      getVertexProject?: () => Promise<string | null>;
      getVertexLocation?: () => Promise<string | null>;
+     getVertexAuthSource?: () => Promise<"adc" | "apiKey">;
      enterpriseRouteFacts?: () => Promise<EnterpriseMainFacts>;
    }
 
@@ -7382,8 +8104,8 @@ Expected: FAIL.
      return changed ? { ...facts, credentials: next, credentialFields: nextFields } : facts;
    }
 
-   // R2-1: main is the source of truth for where an enterprise request goes.
-   // Once per window, the settings store's four enterprise fields are
+   // R2-1/R3-1: main is the source of truth for where an enterprise request goes.
+   // Once per window, the settings store's five enterprise fields are
    // reconciled to main's values (main wins, unless a local write went to main
    // after the read began); every load then re-reads main's environment
    // overrides. facts.enterpriseMain publishes only after both, so until the
@@ -7400,6 +8122,7 @@ Expected: FAIL.
        !endpoint ||
        typeof endpoint.set !== "boolean" ||
        !(endpoint.host === null || typeof endpoint.host === "string") ||
+       typeof r.bedrockProfile !== "boolean" ||
        typeof r.vertexApiKeyEnv !== "boolean" ||
        typeof r.vertexProjectEnv !== "boolean"
      ) {
@@ -7407,30 +8130,34 @@ Expected: FAIL.
      }
      return {
        bedrockEndpoint: { set: endpoint.set, host: endpoint.set ? endpoint.host : null },
+       bedrockProfile: r.bedrockProfile,
        vertexApiKeyEnv: r.vertexApiKeyEnv,
        vertexProjectEnv: r.vertexProjectEnv,
      };
    }
 
    async function loadEnterpriseMain(api: RouteFactsApi): Promise<EnterpriseMainFacts | undefined> {
-     const { getBedrockRegion, getAzureEndpoint, getVertexProject, getVertexLocation, enterpriseRouteFacts } = api;
+     const { getBedrockRegion, getAzureEndpoint, getVertexProject, getVertexLocation, getVertexAuthSource, enterpriseRouteFacts } = api;
      // A build that cannot confirm main's configuration stays unknown.
-     if (!getBedrockRegion || !getAzureEndpoint || !getVertexProject || !getVertexLocation || !enterpriseRouteFacts) {
+     if (!getBedrockRegion || !getAzureEndpoint || !getVertexProject || !getVertexLocation || !getVertexAuthSource || !enterpriseRouteFacts) {
        return undefined;
      }
      if (!enterpriseSynced) {
        const since = enterpriseLocalWriteCount();
-       const [bedrockRegion, azureEndpoint, vertexProject, vertexLocation] = await Promise.all([
+       const [bedrockRegion, azureEndpoint, vertexProject, vertexLocation, vertexAuthSource] = await Promise.all([
          getBedrockRegion(),
          getAzureEndpoint(),
          getVertexProject(),
          getVertexLocation(),
+         getVertexAuthSource(),
        ]);
+       if (vertexAuthSource !== "adc" && vertexAuthSource !== "apiKey") return undefined;
        const main: EnterpriseRouteSettings = {
          bedrockRegion: asText(bedrockRegion),
          azureEndpoint: asText(azureEndpoint),
          vertexProject: asText(vertexProject),
          vertexLocation: asText(vertexLocation),
+         vertexAuthSource,
        };
        reconcileEnterpriseSettingsFromMain(main, since);
        enterpriseSynced = true;
@@ -7570,11 +8297,11 @@ Expected: FAIL.
    - In `src/stores/settingsStore.ts`, after `debouncedPersistToEnv` (`:1235-1247`), add the reconciler, and make each of `setBedrockRegion`, `setAzureEndpoint`, `setVertexProject` and `setVertexLocation` (`:2033-2097`) call `noteEnterpriseLocalWrite()` first:
 
      ```ts
-     // R2-1: main's environment is what the enterprise executor reads
+     // R2-1/R3-1: main's environment is what the enterprise executor reads
      // (main.js:447-457), so main wins over localStorage. A local write sends
      // the new value to main as well, so a write after the read began is newer
      // than that read and is kept.
-     const ENTERPRISE_ROUTE_FIELDS = ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"] as const;
+     const ENTERPRISE_ROUTE_FIELDS = ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation", "vertexAuthSource"] as const;
      let enterpriseLocalWrites = 0;
 
      export function noteEnterpriseLocalWrite(): void {
@@ -7586,7 +8313,7 @@ Expected: FAIL.
      }
 
      export function reconcileEnterpriseSettingsFromMain(
-       main: Record<(typeof ENTERPRISE_ROUTE_FIELDS)[number], string>,
+       main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string> & { vertexAuthSource: "adc" | "apiKey" },
        since: number
      ): boolean {
        if (enterpriseLocalWrites !== since) return false;
@@ -9942,26 +10669,119 @@ Closes **I5** (preview, commit and Undo describe different configurations) and *
 There is one computation, and nothing else may write a route:
 - **Shared provider switches.** `src/lib/providerSwitchPlans.ts` holds the provider-switch logic, extracted from the store's `switchCloudTranscriptionProvider` and `switchReasoningProvider`, including the per-provider model memory. Both store actions now call these planners and then `applyRoutePatch`, so the store and the planner run the same implementation.
 - **The planner.** `src/lib/routePlanner.ts` turns a target into the exact raw store writes (the patch). It simulates the patch on a copy of the state and resolves all 11 routes before and after. It lists every route whose destination, model, payload or state changes, including coupled ones: Note recording or Upload inheriting dictation, and assistant vision following the assistant. It also records the prior raw value of every written key (the Undo patch).
-- **One patch for everything.** Preview is the after-resolution of that patch. Commit is `applyRoutePatch(patch)`. Undo is `applyRoutePatch(undoPatch)`. They cannot disagree.
+- **One patch for everything.** Preview is the after-resolution of that patch. Commit and Undo both await `applyRoutePatch(patch)`. A patch with enterprise recipient settings is sent once to main with the complete old enterprise tuple as its compare-and-set expectation. Main atomically persists the prospective `.env` snapshot before materializing any new enterprise values; only an acknowledged success lets the renderer write localStorage/store state or announce success. A conflict refreshes the canonical non-secret tuple and keeps the draft for review; a write failure leaves both main and renderer on the previous tuple.
 - **Switches and options are planned too (I1 follow-up).** The enable switches (`useCleanupModel`, `useDictationTranslation`, `useDictationAgent`, `voiceAgentScreenContext`, `useDictationAgentVisionModel`), the Corti region and tenant (`cortiEnvironment`, `cortiTenant`) and the provider web-search preference (patch key `providerSearch:<scope>`, stored in localStorage as `personalWebSearch:<scope>`) are route-patch keys. Turning a route on counts as a new recipient when it ends off the device, so it stages. Switching a route off (or configuring a route that is off) sends nothing new, so it is instant. The vision override is the one switch that is not an on/off: either direction can move screenshots to another provider, and the planner stages that like any recipient change. A Corti region switch changes the speech host (`api.us.corti.app` ↔ `api.eu.corti.app`) and stages when a speech route uses Corti (Corti text always calls `ai.eu.corti.app`, Task 1's `providerHosts["corti:text"]`, so a text-only profile switches instantly); the tenant keeps the host and is instant. Web search on adds the `webSearch` payload part and stages; off is instant.
-- **Enterprise recipient settings are planned too (R2-1).** `bedrockRegion`, `azureEndpoint`, `vertexProject` and `vertexLocation` (`ROUTE_ENTERPRISE_KEYS`) were direct setter writes (`src/components/EnterpriseProviderConfig.tsx:114-118,145-148,166-174`), each persisting to main at once (`src/stores/settingsStore.ts:2033-2097`). They are now route-patch keys. Task 1 derives each enterprise route's host from them, so the planner's all-route comparison sees an Azure endpoint, Bedrock region or Vertex location change as a recipient change on every route that uses that provider (staged, coupled routes listed), and a change nobody uses is instant. `azureApiVersion` (query parameter only) and `bedrockProfile` (a credential source on the same host, refreshed through Task 2's presence) stay outside: neither changes the host. `planPatch` adds coupled writes to the same patch before diffing: a `bedrockRegion` write rewrites every Bedrock scope's own geo-scoped model with `adjustBedrockModelForRegion` (`src/utils/bedrockRegions.ts:13-17`, the call `EnterpriseProviderConfig.tsx:117` made), so preview, commit and Undo all carry it. `applyRoutePatch` writes the four keys to main through the same preload savers the setters used. While the graph cannot name a route's recipient (host `null` or state `unknown`: `facts.enterpriseMain` not yet synced, or Vertex's key presence still `null`), any change to that route, including an edit of its provider's enterprise fields, counts as a recipient change: it stages, and Apply stays blocked (`unknown`) until the facts load.
+- **Enterprise recipient settings are planned too (R2-1/R3-1).** `bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation` and `vertexAuthSource` (`ROUTE_ENTERPRISE_KEYS`) are route-patch keys. The persisted Vertex source is independent of credential availability; saving/removing/undoing a key changes readiness only, while a source change changes the express-vs-ADC recipient and stages across every active Vertex route, including inheriting scopes. `azureApiVersion` (query parameter only) and `bedrockProfile` (a credential source on the same host, refreshed through Task 2's presence) stay outside. `planPatch` adds coupled writes before diffing: a `bedrockRegion` write rewrites each Bedrock scope's geo-scoped model through `adjustBedrockModelForRegion`. `applyRoutePatch` sends the enterprise subset once through `saveEnterpriseRoutePatch({ patch, expected })`; `expected` is the complete old five-key non-secret tuple. Main compares it in the shared environment-write queue, atomically writes the prospective `.env` snapshot, then commits the in-memory tuple. A conflict returns the canonical tuple without writing, refreshes the renderer, and leaves the draft for re-review. The legacy single-field savers use the same serialized transaction path. When main facts are unknown, a changed active route still counts as a recipient change and Apply stays blocked until facts load.
 - **Apply readiness (R2-9, ROUTE side).** `routeBlocker` blocks every changed, enabled, off-device route that is not `ready`: `needsKey` blocks for Codex and the enterprise clouds too, and `needsModel` blocks with or without a size. Device and off routes never block. `SETUP_AFTER_APPLY` stays exported for copy only (Task 8's "sign in here first"); it no longer unblocks Apply.
 
 **Files:**
 - Create: `src/lib/providerSwitchPlans.ts`
 - Create: `src/lib/routePlanner.ts`
-- Modify: `src/stores/settingsStore.ts` (move the helpers at `:57-74` and `:80-116`; split `persistTranscriptionModelMemory`/`persistReasoningModelMemory` at `:1145-1153`; refactor the actions at `:1835-1889`; add `applyRoutePatch`)
+- Modify: `src/stores/settingsStore.ts` (move the helpers at `:57-74` and `:80-116`; split `persistTranscriptionModelMemory`/`persistReasoningModelMemory` at `:1145-1153`; refactor the actions at `:1835-1889`; add async `applyRoutePatch`)
+- Modify: `src/helpers/environment.js`, `src/helpers/ipcHandlers.js`, `preload.js`, `src/types/electron.ts` and `src/preview/browserPreview.ts` (one allowlisted `saveEnterpriseRoutePatch` IPC and the shared environment transaction; legacy enterprise field savers delegate to that transaction)
 - Modify: `src/utils/providerSearch.ts` (after Task 3's `PROVIDER_SEARCH_CHANGED_EVENT`: add `readProviderSearchPreference` and `writeProviderSearchPreference`; `isProviderSearchEnabled` `:9-12` reads through the first)
 - Create: `test/lib/routeStateFixture.js` (shared with Task 7)
-- Test: `test/lib/providerSwitchPlans.test.js`, `test/lib/routePlanner.test.js`
+- Test: `test/lib/providerSwitchPlans.test.js`, `test/lib/routePlanner.test.js`, `test/helpers/enterpriseRoutePatch.test.js` (atomic multi-field success/failure/conflict/reset cases)
 - Baseline guards re-run unchanged: `test/helpers/transcriptionModelMemory.test.js`, `test/helpers/reasoningModelMemory.test.js`, `test/helpers/tinfoilDefaultModel.test.js`, `test/lib/providerSearch.test.js`
+
+Create `test/helpers/enterpriseRoutePatch.test.js` against Task 2's `realCredentialEnv` harness. This executes the real transaction method with in-memory files and a held `.env` rename; it never loads a user profile or sends a request.
+
+```js
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { realCredentialEnv } = require("./harness/realCredentialEnv");
+
+const initial = {
+  BEDROCK_REGION: "us-east-1",
+  AZURE_OPENAI_ENDPOINT: "https://east.openai.azure.com/openai",
+  VERTEX_PROJECT: "acme-prod",
+  VERTEX_LOCATION: "us-central1",
+  VERTEX_AUTH_SOURCE: "adc",
+};
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const holdEnvRename = (fs) => fs.holdNext((op, name) => op === "rename" && name === ".env");
+
+test("enterprise route patches are expected-tuple, atomic and reset-fenced", async (t) => {
+  await t.test("the public transaction requires a complete expected tuple before any file write", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const valid = env.getEnterpriseRouteSettings();
+    for (const options of [undefined, {}, { expected: undefined }, { expected: null }, { expected: { ...valid, vertexProject: undefined } }]) {
+      assert.throws(() => env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, options), /expected/i);
+    }
+    assert.deepEqual(fs.log.filter((line) => line.includes(".env")), [], "invalid expectations produce no disk IO");
+  });
+
+  await t.test("one held multi-field rename keeps RAM and disk old until ACK, then commits the complete tuple", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const { path: envPath } = await env.saveAllKeysToEnvFile();
+    const beforeBytes = fs.files.get(envPath).toString("utf8");
+    const before = env.getEnterpriseRouteSettings();
+    holdEnvRename(fs);
+    const pending = env.saveEnterpriseRoutePatch({
+      azureEndpoint: "https://west.openai.azure.com/openai",
+      vertexAuthSource: "apiKey",
+    }, { expected: before });
+    const rename = await fs.nextHold();
+    assert.deepEqual(env.getEnterpriseRouteSettings(), before);
+    assert.equal(fs.files.get(envPath).toString("utf8"), beforeBytes);
+    rename.release();
+    const ack = await pending;
+    assert.deepEqual(ack, {
+      success: true,
+      current: { ...before, azureEndpoint: "https://west.openai.azure.com/openai", vertexAuthSource: "apiKey" },
+    });
+    assert.deepEqual(env.getEnterpriseRouteSettings(), ack.current);
+    assert.match(fs.files.get(envPath).toString("utf8"), /AZURE_OPENAI_ENDPOINT=https:\/\/west\.openai\.azure\.com\/openai/);
+    assert.match(fs.files.get(envPath).toString("utf8"), /VERTEX_AUTH_SOURCE=apiKey/);
+    assert.equal(fs.log.filter((line) => line === "rename .env").length, 2, "one seed write plus one patch rename");
+  });
+
+  await t.test("a stale expected tuple conflicts without writing and a failed rename restores the prior tuple", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const { path: envPath } = await env.saveAllKeysToEnvFile();
+    const before = env.getEnterpriseRouteSettings();
+    const beforeBytes = fs.files.get(envPath).toString("utf8");
+    const writesBefore = fs.log.filter((line) => line.startsWith("writeFile .env")).length;
+    const conflict = await env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, {
+      expected: { ...before, azureEndpoint: "https://other.openai.azure.com/openai" },
+    });
+    assert.deepEqual(conflict, { success: false, conflict: true, current: before });
+    assert.equal(fs.log.filter((line) => line.startsWith("writeFile .env")).length, writesBefore);
+
+    holdEnvRename(fs);
+    const failed = env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, { expected: before });
+    const rename = await fs.nextHold();
+    rename.fail(new Error("disk unavailable"));
+    await assert.rejects(failed, /disk unavailable/);
+    assert.deepEqual(env.getEnterpriseRouteSettings(), before);
+    assert.equal(fs.files.get(envPath).toString("utf8"), beforeBytes, "atomic rename failure leaves the old file intact");
+  });
+
+  await t.test("reset during a held rename rejects the patch and erases its late file", async (t) => {
+    const { env, fs } = realCredentialEnv(t, initial);
+    const { path: envPath } = await env.saveAllKeysToEnvFile();
+    holdEnvRename(fs);
+    const pending = env.saveEnterpriseRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }, {
+      expected: env.getEnterpriseRouteSettings(),
+    });
+    const rename = await fs.nextHold();
+    const reset = env.clearAllPersistedData();
+    await tick();
+    rename.release();
+    await assert.rejects(pending, { code: "ENV_RESET" });
+    await reset;
+    assert.equal(fs.files.has(envPath), false);
+    assert.equal(process.env.AZURE_OPENAI_ENDPOINT, undefined);
+  });
+});
+```
 
 **Interfaces:**
 - Consumes:
   - **Task 1** (`src/lib/routeGraph.ts`, re-exported by `src/lib/routes.ts`): `resolveRoutes(snapshot)` and `routePayloadParts(id, snapshot)` (Appendix B). Also the types `RouteId`, `ResolvedRoute`, `RouteFacts`, `RouteCopy`, `RouteSettingsSnapshot`, `SttContext` and `LlmRouteScope`.
   - **Task 3** (`src/lib/routes.ts`): `buildRouteSnapshot(settings, facts, copy, sealed)`, whose `capabilities.providerHosts.corti` follows `settings.cortiEnvironment` (`api.<region>.corti.app`); `PROVIDER_SEARCH_CHANGED_EVENT` (`src/utils/providerSearch.ts`).
   - **Existing code:** `supportsProviderSearch(scope, provider, mode)` (`src/utils/providerSearch.ts:2-8`).
-  - **Existing code (R2-1):** `adjustBedrockModelForRegion(modelId, region)` (`src/utils/bedrockRegions.ts:13-17`; import-free, so `providerSwitchPlans.ts` stays store-free); the preload savers `saveBedrockRegion`, `saveAzureEndpoint`, `saveVertexProject`, `saveVertexLocation` (`preload.js:585,595,603,605`; typed optional at `src/types/electron.ts:1576-1596`) and `debouncedPersistToEnv` (`src/stores/settingsStore.ts:1235-1247`), exactly as the four setters call them (`:2033-2097`). **Task 1/3 (R2-1):** `snapshot.enterprise` and enterprise `host`/readiness from `enterpriseRequestHost`; Task 3's builder fills the slice from these four store fields. Task 3's `noteEnterpriseLocalWrite()` (same module, `settingsStore.ts`), which `applyRoutePatch` calls once per patch that writes an enterprise key, so Task 3's one-time sync from main never overwrites a newer committed value; `facts.enterpriseMain` (Task 1/3) must be non-null for an enterprise route to resolve, so `testFacts` carries a synced default.
+  - **Existing code (R2-1/R3-1):** `adjustBedrockModelForRegion(modelId, region)` (`src/utils/bedrockRegions.ts:13-17`; import-free, so `providerSwitchPlans.ts` stays store-free); preload savers for Bedrock, Azure, and Vertex project/location/source plus `debouncedPersistToEnv`. Task 3's builder fills `snapshot.enterprise` from the five committed store fields; the source arrives from main only after the migration gate. `noteEnterpriseLocalWrite()` prevents a late startup sync from overwriting a newer applied patch; `facts.enterpriseMain` must be non-null for enterprise routes to resolve.
   - **Existing code:**
     - `INFERENCE_SCOPES` from `src/config/inferenceScopes.ts`;
     - `isProviderValidForMode(provider, mode)` at `src/models/ModelRegistry.ts:272` (planner only, because ModelRegistry imports the store);
@@ -9975,7 +10795,7 @@ There is one computation, and nothing else may write a route:
   export const ROUTE_SWITCH_KEYS: readonly ["useCleanupModel", "useDictationTranslation", "useDictationAgent", "voiceAgentScreenContext", "useDictationAgentVisionModel"]; // NEW (I1 follow-up)
   export type RouteSwitchKey = (typeof ROUTE_SWITCH_KEYS)[number];
   export const ROUTE_OPTION_KEYS: readonly ["cortiEnvironment", "cortiTenant"];               // NEW (I1 follow-up)
-  export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"]; // NEW (R2-1)
+  export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation", "vertexAuthSource"]; // NEW (R2-1/R3-1)
   export type RouteEnterpriseKey = (typeof ROUTE_ENTERPRISE_KEYS)[number];                   // NEW (R2-1)
   export function planEnterpriseCoupling(state: SettingsState, patch: SettingsPatch): SettingsPatch; // NEW (R2-1): writes that must join `patch`
   export function bedrockCoupledModelKeys(state: SettingsState): (keyof SettingsState)[];          // NEW (R2-1): model keys a region change can rewrite
@@ -9998,7 +10818,18 @@ There is one computation, and nothing else may write a route:
   export function planTranscriptionProviderSwitch(state: SettingsState, context: TranscriptionPolicyContext, providerId: string): SettingsPatch;
   export function planReasoningProviderSwitch(state: SettingsState, scope: InferenceScope, providerId: string, fallbackModel?: string): SettingsPatch;
   // settingsStore.ts (store action)
-  applyRoutePatch: (patch: SettingsPatch) => void;  // one setState; persists every key (enterprise keys also to main); throws on secret or non-route keys before writing anything; never expands coupling, so an undoPatch applies verbatim
+  applyRoutePatch: (patch: SettingsPatch, options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }) => Promise<void>; // validates first, queues the whole patch, checks canCommit at queue admission before IPC, then awaits one main CAS before localStorage/setState; planner callers pass their reviewed tuple unchanged
+  flushRoutePatchSaves(): Promise<void>; // drains the full applyRoutePatch queue before Task 7 plans against live state
+  // src/types/electron.ts + preload.js + main IPC (NEW, R3-4 follow-up)
+  window.electronAPI.saveEnterpriseRoutePatch(input: {
+    patch: Partial<EnterpriseRouteSettings>;
+    expected: EnterpriseRouteSettings; // complete tuple from the reviewed/current renderer snapshot
+  }): Promise<EnterpriseRoutePatchAck>;
+  // EnvironmentManager applies the allowlisted patch to an explicit prospective
+  // .env snapshot on the module-wide reset-fenced write queue. It does not stage
+  // process.env before rename; after a successful same-epoch write it installs
+  // the entire tuple synchronously. Any existing single-field enterprise saver
+  // delegates to the same queue/commit helper.
   // src/lib/routePlanner.ts
   export type RouteTarget, RouteChange, ApplyBlocker, RoutePlan, PlanContext;  // exactly as Appendix A
   export const SETUP_AFTER_APPLY: ReadonlySet<string>;          // codex + enterprise; R2-9: copy only, never unblocks Apply
@@ -10127,7 +10958,7 @@ function testFacts(overrides = {}) {
       ["deepgram", { key: true }],
     ]),
     // Task 3's sync from main has landed, with no environment override (R2-1).
-    enterpriseMain: { bedrockEndpoint: { set: false, host: null }, vertexApiKeyEnv: false, vertexProjectEnv: false },
+    enterpriseMain: { bedrockEndpoint: { set: false, host: null }, bedrockProfile: false, vertexApiKeyEnv: false, vertexProjectEnv: false },
     rejected: new Set(),
     speakerIdModelsReady: true,
     searchModelReady: true,
@@ -10177,7 +11008,7 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
   // Change-driving: the module does not exist yet. Each case plans a switch
   // on the live state, runs the store action, and requires the store to end
   // exactly at "before + patch". That shows one shared implementation.
-  await t.test("the store's switch actions commit exactly the planned patch", () => {
+  await t.test("the store's switch actions await and commit exactly the planned patch", async () => {
     const cases = [
       { setup: { cloudTranscriptionProvider: "custom", cloudTranscriptionModel: "parasail-whisper-v3" }, run: ["stt", "dictation", "groq"] },
       { setup: { transcriptionModelByProvider: { "dictation:groq": "whisper-large-v3-turbo" } }, run: ["stt", "dictation", "groq"] },
@@ -10197,8 +11028,8 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
           ? plans.planTranscriptionProviderSwitch(live(), scope, provider)
           : plans.planReasoningProviderSwitch(live(), scope, provider, fallback);
       assert.deepEqual(pick(live()), before, `${run.join(" ")}: planning writes nothing`);
-      if (kind === "stt") live().switchCloudTranscriptionProvider(scope, provider);
-      else live().switchReasoningProvider(scope, provider, fallback);
+      if (kind === "stt") await live().switchCloudTranscriptionProvider(scope, provider);
+      else await live().switchReasoningProvider(scope, provider, fallback);
       assert.deepEqual(pick(live()), { ...before, ...patch }, run.join(" "));
     }
   });
@@ -10222,11 +11053,11 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
   });
 
   // Change-driving: applyRoutePatch does not exist yet.
-  await t.test("applyRoutePatch writes every key in one setState and persists it", () => {
+  await t.test("applyRoutePatch writes every local key in one setState", async () => {
     reset();
     let notifications = 0;
     const unsubscribe = useSettingsStore.subscribe(() => notifications++);
-    live().applyRoutePatch({
+    await live().applyRoutePatch({
       chatAgentMode: "providers",
       chatAgentProvider: "openai",
       useDictationAgentVisionModel: true,
@@ -10242,21 +11073,21 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
     });
   });
 
-  await t.test("applyRoutePatch refuses secrets and non-route keys before writing anything", () => {
+  await t.test("applyRoutePatch refuses secrets and non-route keys before writing anything", async () => {
     reset();
-    assert.throws(() => live().applyRoutePatch({ cleanupMode: "providers", openaiApiKey: "sk-x" }), /secret/);
+    await assert.rejects(live().applyRoutePatch({ cleanupMode: "providers", openaiApiKey: "sk-x" }), /secret/);
     assert.equal(live().cleanupMode, "local", "nothing was written");
     assert.notEqual(live().openaiApiKey, "sk-x");
-    assert.throws(() => live().applyRoutePatch({ dictationAgentVisionMode: "local" }), /not a route setting/);
+    await assert.rejects(live().applyRoutePatch({ dictationAgentVisionMode: "local" }), /not a route setting/);
     for (const key of plans.ROUTE_PATCH_KEYS) {
       assert.doesNotMatch(key, /ApiKey$|ClientSecret$|ClientId$|AccessKeyId$|SecretAccessKey$|SessionToken$/, key);
     }
   });
 
   // Change-driving (I1 follow-up): these keys are outside v1's allowlist.
-  await t.test("applyRoutePatch writes enable switches and the Corti region like their old setters", () => {
+  await t.test("applyRoutePatch writes enable switches and the Corti region like their old setters", async () => {
     reset({ useCleanupModel: false, voiceAgentScreenContext: false });
-    live().applyRoutePatch({ useCleanupModel: true, voiceAgentScreenContext: true, cortiEnvironment: "eu", cortiTenant: "acme" });
+    await live().applyRoutePatch({ useCleanupModel: true, voiceAgentScreenContext: true, cortiEnvironment: "eu", cortiTenant: "acme" });
     assert.equal(live().useCleanupModel, true);
     assert.equal(live().cortiEnvironment, "eu");
     assert.equal(storage.getItem("useCleanupModel"), "true");
@@ -10265,36 +11096,61 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
     assert.equal(storage.getItem("cortiTenant"), "acme");
   });
 
-  // Change-driving (R2-1): the enterprise fields were written only by their setters,
-  // which also saved them to main (settingsStore.ts:2033-2097); v2's allowlist refused them.
-  await t.test("applyRoutePatch writes enterprise fields to the store, localStorage and main like their old setters", async () => {
+  // Change-driving (R3-4): a route patch may contain several recipient fields.
+  // Local state must not move until main's one atomic transaction acknowledges it.
+  await t.test("applyRoutePatch sends one expected-tuple transaction and commits local fields only after ACK", async () => {
     reset();
-    const saved = [];
+    const oldTuple = {
+      bedrockRegion: live().bedrockRegion,
+      azureEndpoint: live().azureEndpoint,
+      vertexProject: live().vertexProject,
+      vertexLocation: live().vertexLocation,
+      vertexAuthSource: live().vertexAuthSource,
+    };
+    let finish;
+    const calls = [];
     const previous = globalThis.window.electronAPI;
     globalThis.window.electronAPI = {
-      saveBedrockRegion: async (value) => saved.push(["bedrockRegion", value]),
-      saveAzureEndpoint: async (value) => saved.push(["azureEndpoint", value]),
-      saveVertexProject: async (value) => saved.push(["vertexProject", value]),
-      saveVertexLocation: async (value) => saved.push(["vertexLocation", value]),
+      saveEnterpriseRoutePatch: (input) => {
+        calls.push(input);
+        return new Promise((resolve) => { finish = resolve; });
+      },
     };
     let notifications = 0;
     const unsubscribe = useSettingsStore.subscribe(() => notifications++);
     const { enterpriseLocalWriteCount } = await vite.ssrLoadModule("/stores/settingsStore.ts");
     const writesBefore = enterpriseLocalWriteCount();
     try {
-      live().applyRoutePatch({
+      const pending = live().applyRoutePatch({
         bedrockRegion: "eu-west-1",
         azureEndpoint: "https://myres.openai.azure.com/openai",
         vertexProject: "acme-prod",
         vertexLocation: "europe-west4",
+        vertexAuthSource: "apiKey",
         chatAgentModel: "eu.anthropic.claude-fable-5",
       });
+      assert.equal(live().azureEndpoint, "", "the renderer still shows the committed tuple while main is writing");
+      assert.equal(storage.getItem("azureEndpoint"), null, "localStorage does not run ahead of the main ACK");
+      assert.equal(notifications, 0, "subscribers see no partial route commit");
+      assert.equal(calls.length, 1, "all enterprise fields use one main transaction");
+      assert.deepEqual(calls[0], {
+        patch: {
+          bedrockRegion: "eu-west-1",
+          azureEndpoint: "https://myres.openai.azure.com/openai",
+          vertexProject: "acme-prod",
+          vertexLocation: "europe-west4",
+          vertexAuthSource: "apiKey",
+        },
+        expected: oldTuple,
+      });
+      finish({ success: true, current: { ...oldTuple, ...calls[0].patch } });
+      await pending;
     } finally {
       unsubscribe();
       globalThis.window.electronAPI = previous;
     }
     assert.equal(notifications, 1, "one setState");
-    assert.equal(enterpriseLocalWriteCount(), writesBefore + 1, "Task 3's main sync keeps this newer write");
+    assert.equal(enterpriseLocalWriteCount(), writesBefore + 1, "Task 3's main sync keeps this acknowledged write");
     assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai");
     assert.equal(live().chatAgentModel, "eu.anthropic.claude-fable-5", "applyRoutePatch never adds coupled writes");
     for (const [key, value] of [
@@ -10302,22 +11158,86 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
       ["azureEndpoint", "https://myres.openai.azure.com/openai"],
       ["vertexProject", "acme-prod"],
       ["vertexLocation", "europe-west4"],
+      ["vertexAuthSource", "apiKey"],
     ]) {
       assert.equal(storage.getItem(key), value, key);
     }
-    assert.deepEqual(
-      saved.sort(),
-      [
-        ["azureEndpoint", "https://myres.openai.azure.com/openai"],
-        ["bedrockRegion", "eu-west-1"],
-        ["vertexLocation", "europe-west4"],
-        ["vertexProject", "acme-prod"],
-      ],
-      "main receives exactly the enterprise keys, once each"
-    );
-    assert.deepEqual([...plans.ROUTE_ENTERPRISE_KEYS], ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"]);
-    assert.throws(() => live().applyRoutePatch({ azureApiVersion: "2025-01-01" }), /not a route setting/, "the API version keeps the host");
-    assert.throws(() => live().applyRoutePatch({ azureApiKey: "x" }), /secret/);
+    assert.deepEqual([...plans.ROUTE_ENTERPRISE_KEYS], ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation", "vertexAuthSource"]);
+    await assert.rejects(live().applyRoutePatch({ azureApiVersion: "2025-01-01" }), /not a route setting/, "the API version keeps the host");
+    await assert.rejects(live().applyRoutePatch({ azureApiKey: "x" }), /secret/);
+  });
+
+  await t.test("an enterprise write rejection leaves the previous renderer tuple and localStorage untouched", async () => {
+    reset({ azureEndpoint: "https://east.openai.azure.com/openai" });
+    storage.setItem("azureEndpoint", "https://east.openai.azure.com/openai");
+    const before = { ...live() };
+    const previous = globalThis.window.electronAPI;
+    globalThis.window.electronAPI = { saveEnterpriseRoutePatch: async () => { throw new Error("disk unavailable"); } };
+    try {
+      await assert.rejects(
+        live().applyRoutePatch({ azureEndpoint: "https://west.openai.azure.com/openai" }),
+        /disk unavailable/
+      );
+    } finally {
+      globalThis.window.electronAPI = previous;
+    }
+    assert.equal(live().azureEndpoint, before.azureEndpoint);
+    assert.equal(storage.getItem("azureEndpoint"), "https://east.openai.azure.com/openai");
+  });
+
+  await t.test("a conflict refresh fences an older pending first-read snapshot", async (t) => {
+    // Use a fresh module graph so Task 3's one-time getter read is genuinely pending.
+    const isolated = await createRendererServer(t, { cachePrefix: "loqui-enterprise-conflict-startup-race-" });
+    const { useSettingsStore: isolatedStore } = await isolated.ssrLoadModule("/stores/settingsStore.ts");
+    const { loadRouteFacts } = await isolated.ssrLoadModule("/stores/routeFactsStore.ts");
+    const { enterpriseLocalWriteCount } = await isolated.ssrLoadModule("/stores/settingsStore.ts");
+    const stale = {
+      bedrockRegion: "us-east-1",
+      azureEndpoint: "https://old.example.com/openai",
+      vertexProject: "",
+      vertexLocation: "us-central1",
+      vertexAuthSource: "adc",
+    };
+    const canonical = { ...stale, azureEndpoint: "https://other-window.example.com/openai" };
+    isolatedStore.setState({ ...routeBaseState(), ...stale });
+    let finishOldRead;
+    const slowEndpoint = new Promise((resolve) => { finishOldRead = resolve; });
+    const initialRead = loadRouteFacts({
+      getBedrockRegion: async () => stale.bedrockRegion,
+      getAzureEndpoint: () => slowEndpoint,
+      getVertexProject: async () => stale.vertexProject,
+      getVertexLocation: async () => stale.vertexLocation,
+      getVertexAuthSource: async () => stale.vertexAuthSource,
+      enterpriseRouteFacts: async () => ({
+        bedrockEndpoint: { set: false, host: null },
+        bedrockProfile: false,
+        vertexApiKeyEnv: false,
+        vertexProjectEnv: false,
+      }),
+    }, ["enterprise"]);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const previous = globalThis.window.electronAPI;
+    globalThis.window.electronAPI = {
+      saveEnterpriseRoutePatch: async ({ expected }) => {
+        assert.deepEqual(expected, stale);
+        return { success: false, conflict: true, current: canonical };
+      },
+    };
+    const writesBefore = enterpriseLocalWriteCount();
+    try {
+      await assert.rejects(
+        isolatedStore.getState().applyRoutePatch({ azureEndpoint: "https://attempt.example.com/openai" }, { expectedEnterprise: stale }),
+        /changed/
+      );
+      assert.equal(enterpriseLocalWriteCount(), writesBefore + 1, "conflict refresh increments the startup-sync fence");
+      assert.equal(isolatedStore.getState().azureEndpoint, canonical.azureEndpoint);
+      finishOldRead(stale.azureEndpoint);
+      await initialRead;
+      assert.equal(isolatedStore.getState().azureEndpoint, canonical.azureEndpoint, "the older initial read cannot roll back main's canonical tuple");
+    } finally {
+      globalThis.window.electronAPI = previous;
+    }
   });
 
   // Change-driving (R2-1): the region's model rewrite lived only in EnterpriseProviderConfig.tsx:115-118.
@@ -10359,19 +11279,19 @@ test("provider-switch planners and applyRoutePatch", async (t) => {
   });
 
   // Change-driving (I1 follow-up): the preference lived only in the toggle's useLocalStorage.
-  await t.test("a web-search patch writes the localStorage preference and announces it", () => {
+  await t.test("a web-search patch writes the localStorage preference and announces it", async () => {
     reset();
     events.length = 0;
     let notifications = 0;
     const unsubscribe = useSettingsStore.subscribe(() => notifications++);
-    live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
+    await live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
     unsubscribe();
     assert.equal(storage.getItem("personalWebSearch:chatIntelligence"), "true");
     assert.deepEqual(events, ["loqui-provider-search-changed"]);
     assert.equal(notifications, 0, "the preference is not a store field");
     assert.equal(plans.providerSearchScope("providerSearch:dictationAgent"), "dictationAgent");
     assert.equal(plans.providerSearchScope("chatAgentMode"), null);
-    assert.throws(() => live().applyRoutePatch({ "providerSearch:noteFormatting": true }), /not a route setting/);
+    await assert.rejects(live().applyRoutePatch({ "providerSearch:noteFormatting": true }), /not a route setting/);
   });
 });
 ```
@@ -10491,10 +11411,10 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    // cortiStreaming.js:48); the tenant picks the auth realm on the same host.
    export const ROUTE_OPTION_KEYS = ["cortiEnvironment", "cortiTenant"] as const satisfies readonly (keyof SettingsState)[];
 
-   // Enterprise settings that pick the receiving host (R2-1): the Bedrock region
+   // Enterprise settings that pick the receiving host (R2-1/R3-1): the Bedrock region
    // (bedrock-runtime.<region>…), the Azure endpoint (its own host), and Vertex's
-   // project and location (<location>-aiplatform…; the project scopes the ADC
-   // request and decides readiness). Main hands them to enterpriseAiProviders.js
+   // persisted auth source (express vs ADC), project and location (<location>-aiplatform…;
+   // the project scopes the ADC request and decides readiness). Main hands them to enterpriseAiProviders.js
    // (main.js:447-457). azureApiVersion (a query parameter) and bedrockProfile (a
    // credential source on the same host) are deliberately not route keys.
    export const ROUTE_ENTERPRISE_KEYS = [
@@ -10502,6 +11422,7 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
      "azureEndpoint",
      "vertexProject",
      "vertexLocation",
+     "vertexAuthSource",
    ] as const satisfies readonly (keyof SettingsState)[];
    export type RouteEnterpriseKey = (typeof ROUTE_ENTERPRISE_KEYS)[number];
 
@@ -10771,7 +11692,29 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    }
    ```
 
-2. Modify `src/stores/settingsStore.ts`:
+2. Add the public atomic route transaction in `src/helpers/ipcHandlers.js`, `preload.js`, `src/types/electron.ts` and `src/preview/browserPreview.ts`:
+
+   - Register `save-enterprise-route-patch` beside the enterprise settings handlers. Await `vertexAuthSourceReady` before using any configuration. Reject payloads unless they have exactly `patch` and `expected`; pass only those values to `environmentManager.saveEnterpriseRoutePatch(input.patch, { expected: input.expected })`. The environment validates the exact five-key expected tuple and the allowlisted string patch. Do not accept an epoch from renderer input.
+   - Add `saveEnterpriseRoutePatch(input)` to preload, invoking that channel exactly once. Keep the existing per-field handlers for compatibility; Task 2 routes them through the same serialized transaction. Do not fan one renderer patch out into multiple IPC calls.
+   - In `src/types/electron.ts`, define the non-secret shape and discriminated acknowledgement:
+
+     ```ts
+     export type VertexAuthSource = "adc" | "apiKey";
+     export interface EnterpriseRouteSettings {
+       bedrockRegion: string;
+       azureEndpoint: string;
+       vertexProject: string;
+       vertexLocation: string;
+       vertexAuthSource: VertexAuthSource;
+     }
+     export type EnterpriseRoutePatchAck =
+       | { success: true; current: EnterpriseRouteSettings }
+       | { success: false; conflict: true; current: EnterpriseRouteSettings };
+     ```
+
+     Add the optional Electron method with input `{ patch: Partial<EnterpriseRouteSettings>; expected: EnterpriseRouteSettings }` and result `Promise<EnterpriseRoutePatchAck>`. The browser preview stub returns `{ success: true, current: { ...expected, ...patch } }` and carries no credentials.
+
+3. Modify `src/stores/settingsStore.ts`:
 
    a. Delete the block at `:57-74`, from `// Independent task slots used only when the user changes a provider.` through the closing `] as const;` of `TRANSCRIPTION_CONTEXT_KEYS`. Also delete `:80-116`, from `function transcriptionProviderModels(` through the closing `}` of `reasoningModelBelongsToProvider`. Keep `localLlmProviderIds` (`:76-78`), which `deriveLegacyReasoningMode` (`:315`) still uses.
 
@@ -10779,6 +11722,7 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
 
    ```ts
    import {
+     ROUTE_ENTERPRISE_KEYS,
      ROUTE_PATCH_KEY_SET,
      TRANSCRIPTION_CONTEXT_KEYS,
      type RouteEnterpriseKey,
@@ -10788,23 +11732,14 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
      reasoningModelBelongsToProvider,
      type SettingsPatch,
    } from "../lib/providerSwitchPlans";
+   import type { EnterpriseRouteSettings } from "../types/electron";
    import { writeProviderSearchPreference } from "../utils/providerSearch";
    ```
 
-   After `const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";` (`:55`), add the re-export that keeps `OnboardingFlow.tsx:14` working, and the preload savers `applyRoutePatch` calls for enterprise keys (R2-1; the same methods the setters at `:2033-2097` call):
+   After `const DEFAULT_CLOUD_TRANSCRIPTION_PROVIDER = "openai";` (`:55`), add the re-export that keeps `OnboardingFlow.tsx:14` working. Remove the per-key `ENTERPRISE_MAIN_SAVERS` map; `applyRoutePatch` calls one typed preload transaction for all changed enterprise fields.
 
    ```ts
    export { reasoningModelBelongsToProvider };
-
-   const ENTERPRISE_MAIN_SAVERS: Record<
-     RouteEnterpriseKey,
-     "saveBedrockRegion" | "saveAzureEndpoint" | "saveVertexProject" | "saveVertexLocation"
-   > = {
-     bedrockRegion: "saveBedrockRegion",
-     azureEndpoint: "saveAzureEndpoint",
-     vertexProject: "saveVertexProject",
-     vertexLocation: "saveVertexLocation",
-   };
    ```
 
    The four setters (`setBedrockRegion`, `setAzureEndpoint`, `setVertexProject`, `setVertexLocation`) stay for non-route callers. Task 9 moves `EnterpriseProviderConfig`'s calls to `requestRoutePatch`, and Task 18's guard forbids them in Settings components.
@@ -10814,8 +11749,8 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    c. In `SettingsState`, directly after the `switchReasoningProvider` member (`:997-1001`), add:
 
    ```ts
-     /** The only writer of route settings: one setState, every key persisted. Throws on secrets. */
-     applyRoutePatch: (patch: SettingsPatch) => void;
+     /** The only writer of route settings; enterprise writes acknowledge main before local commit. */
+     applyRoutePatch: (patch: SettingsPatch, options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }) => Promise<void>;
    ```
 
    d. Replace `persistTranscriptionModelMemory` and `persistReasoningModelMemory` (`:1145-1153`) with the following. `persistReasoningModelMemory` loses its only caller, so it is removed. The onboarding seed (`:2432`) keeps `persistTranscriptionModelMemory`.
@@ -10834,72 +11769,128 @@ Expected: FAIL, because `/lib/providerSwitchPlans.ts` does not exist (Vite repor
    }
    ```
 
+   Add one queue for complete route patches. The planner is evaluated only when its operation reaches the queue head, and a staged plan passes the exact five-field tuple it reviewed. A stale plan therefore conflicts instead of silently adopting a newer base. `flushRoutePatchSaves` drains until no queued operation was added while waiting.
+
+   ```ts
+   let routePatchQueue: Promise<void> = Promise.resolve();
+
+   type RoutePatchOptions = {
+     expectedEnterprise?: EnterpriseRouteSettings;
+     // Renderer-only admission predicate. Never crosses IPC. Task 7 uses it
+     // to prevent a closed/replaced request from sending a patch while queued.
+     canCommit?: () => boolean;
+   };
+
+   function assertRoutePatchAdmission(options?: RoutePatchOptions): void {
+     if (options?.canCommit && !options.canCommit()) {
+       throw Object.assign(new Error("Route request was superseded before commit"), {
+         code: "ROUTE_PATCH_SUPERSEDED",
+       });
+     }
+   }
+
+   function enqueueRoutePatch<T>(operation: () => Promise<T>): Promise<T> {
+     const queued = routePatchQueue.catch(() => {}).then(operation);
+     routePatchQueue = queued.then(() => undefined, () => undefined);
+     return queued;
+   }
+
+   export async function flushRoutePatchSaves(): Promise<void> {
+     for (;;) {
+       const pending = routePatchQueue;
+       await pending;
+       if (pending === routePatchQueue) return;
+     }
+   }
+
+   function runRoutePatchAtHead(
+     buildPatch: (state: SettingsState) => SettingsPatch,
+     options?: RoutePatchOptions
+   ): Promise<void> {
+     return enqueueRoutePatch(async () => {
+       // Check before planning and again immediately before the first write.
+       // There is no await between the second check and starting IPC.
+       assertRoutePatchAdmission(options);
+       const state = useSettingsStore.getState();
+       await applyRoutePatchNow(buildPatch(state), options);
+     });
+   }
+
+   async function applyRoutePatchNow(
+     patch: SettingsPatch,
+     options?: RoutePatchOptions
+   ): Promise<void> {
+     const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+     for (const [key] of entries) {
+       if ((STALE_SECRET_LOCALSTORAGE_KEYS as readonly string[]).includes(key)) {
+         throw new Error(`applyRoutePatch: ${key} is a secret and never part of a route patch`);
+       }
+       if (!ROUTE_PATCH_KEY_SET.has(key)) throw new Error(`applyRoutePatch: ${key} is not a route setting`);
+     }
+     if (entries.length === 0) return;
+     const storeEntries = entries.filter(([key]) => providerSearchScope(key) === null);
+     const enterpriseEntries = storeEntries.filter(([key]) => ROUTE_ENTERPRISE_KEYS.includes(key as RouteEnterpriseKey));
+     // A queued stale request may fail closed here without contacting main or
+     // writing local state. Once saveEnterpriseRoutePatch starts, however, an
+     // ACK is durable and must be reflected even if the request later expires.
+     assertRoutePatchAdmission(options);
+     if (enterpriseEntries.length > 0 && isBrowser) {
+       const save = window.electronAPI?.saveEnterpriseRoutePatch;
+       if (!save) throw new Error("Enterprise route persistence is unavailable");
+       const current = useSettingsStore.getState();
+       const expected = options?.expectedEnterprise ?? Object.fromEntries(
+         ROUTE_ENTERPRISE_KEYS.map((key) => [key, current[key]])
+       ) as EnterpriseRouteSettings;
+       const enterprisePatch = Object.fromEntries(enterpriseEntries) as Partial<EnterpriseRouteSettings>;
+       const ack = await save({ patch: enterprisePatch, expected });
+       if (!ack.success) {
+         // The canonical tuple came from main after a competing window's
+         // commit. Fence Task 3's older startup getter read before refreshing
+         // renderer state, or that read could put the stale tuple back.
+         noteEnterpriseLocalWrite();
+         for (const key of ROUTE_ENTERPRISE_KEYS) localStorage.setItem(key, String(ack.current[key]));
+         useSettingsStore.setState(ack.current);
+         throw Object.assign(new Error("Enterprise route settings changed; review the draft again"), {
+           code: "ENTERPRISE_ROUTE_CONFLICT",
+           current: ack.current,
+         });
+       }
+       // Task 3's startup sync must not overwrite this newly committed tuple.
+       noteEnterpriseLocalWrite();
+     }
+     for (const [key, value] of storeEntries) {
+       if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
+         writeModelMemoryStorage(key, value as Record<string, string>);
+       } else if (isBrowser) {
+         localStorage.setItem(key, String(value));
+       }
+     }
+     if (storeEntries.length > 0) useSettingsStore.setState(Object.fromEntries(storeEntries) as Partial<SettingsState>);
+     for (const [key, value] of entries) {
+       const scope = providerSearchScope(key);
+       if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
+     }
+   }
+   ```
+
    e. Replace the two actions at `:1832-1889`, from the comment `// Every provider shares one model slot per scope, …` through the closing `},` of `switchReasoningProvider`, with:
 
    ```ts
      // Provider switches remember the outgoing model and restore the incoming
      // one; the logic lives in providerSwitchPlans.ts so the route planner
      // previews exactly what these actions commit.
-     switchCloudTranscriptionProvider: (context, providerId) => {
-       const s = useSettingsStore.getState();
-       s.applyRoutePatch(planTranscriptionProviderSwitch(s, context, providerId));
-     },
+     switchCloudTranscriptionProvider: (context, providerId) =>
+       runRoutePatchAtHead((state) => planTranscriptionProviderSwitch(state, context, providerId)),
 
-     switchReasoningProvider: (scope, providerId, fallbackModel = "") => {
-       const s = useSettingsStore.getState();
-       s.applyRoutePatch(planReasoningProviderSwitch(s, scope, providerId, fallbackModel));
-     },
+     switchReasoningProvider: (scope, providerId, fallbackModel = "") =>
+       runRoutePatchAtHead((state) => planReasoningProviderSwitch(state, scope, providerId, fallbackModel)),
 
-     applyRoutePatch: (patch) => {
-       const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
-       // Validate everything first, so a refused patch writes nothing.
-       for (const [key] of entries) {
-         if ((STALE_SECRET_LOCALSTORAGE_KEYS as readonly string[]).includes(key)) {
-           throw new Error(`applyRoutePatch: ${key} is a secret and never part of a route patch`);
-         }
-         if (!ROUTE_PATCH_KEY_SET.has(key)) {
-           throw new Error(`applyRoutePatch: ${key} is not a route setting`);
-         }
-       }
-       if (entries.length === 0) return;
-       const storeEntries = entries.filter(([key]) => providerSearchScope(key) === null);
-       for (const [key, value] of storeEntries) {
-         if (key === "transcriptionModelByProvider" || key === "reasoningModelByProvider") {
-           writeModelMemoryStorage(key, value as Record<string, string>);
-         } else if (isBrowser) {
-           // Booleans as "true"/"false" and strings as-is: the same format as
-           // createBooleanSetter/createStringSetter (:1138-1176).
-           localStorage.setItem(key, String(value));
-         }
-       }
-       if (storeEntries.length > 0) set(Object.fromEntries(storeEntries) as Partial<SettingsState>);
-       // R2-1: main hands the enterprise fields to the executor (main.js:447-457),
-       // so they go to main through the same savers their setters called
-       // (:2033-2097). Errors are logged like debouncedPersistToEnv's.
-       let enterpriseWritten = false;
-       for (const [key, value] of storeEntries) {
-         const saver = ENTERPRISE_MAIN_SAVERS[key as RouteEnterpriseKey];
-         if (!saver || !isBrowser) continue;
-         // Task 3's startup sync from main must not overwrite this newer write.
-         if (!enterpriseWritten) noteEnterpriseLocalWrite();
-         enterpriseWritten = true;
-         Promise.resolve(window.electronAPI?.[saver]?.(value as string)).catch((err) => {
-           logger.warn("Failed to save an enterprise setting", { key, error: (err as Error).message }, "settings");
-         });
-       }
-       if (enterpriseWritten) debouncedPersistToEnv();
-       // The web-search preference is not a store field. Written after the store,
-       // so listeners of its change event read the patched settings.
-       for (const [key, value] of entries) {
-         const scope = providerSearchScope(key);
-         if (scope && isBrowser) writeProviderSearchPreference(scope, value === true);
-       }
-     },
+     applyRoutePatch: (patch, options) => runRoutePatchAtHead(() => patch, options),
    ```
 
    `STALE_SECRET_LOCALSTORAGE_KEYS` (`:1298-1325`) is the store's complete list of secret field names. It is module-scoped and initialised before any action can run. The switch and Corti keys were written by `createBooleanSetter`/`createStringSetter` (`:1720`, `:1794-1795`, `:1895-1896`, `:2011-2012`); `applyRoutePatch` persists them the same way, so nothing else reading them changes.
 
-3. In `src/utils/providerSearch.ts`, after Task 3's `PROVIDER_SEARCH_CHANGED_EVENT`, add the reader and the one writer, and make `isProviderSearchEnabled` read through the reader:
+4. In `src/utils/providerSearch.ts`, after Task 3's `PROVIDER_SEARCH_CHANGED_EVENT`, add the reader and the one writer, and make `isProviderSearchEnabled` read through the reader:
 
    ```ts
    export function readProviderSearchPreference(scope: string): boolean {
@@ -11031,7 +12022,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I5): v1's local target carried no provider/model, so Undo cleared a working local setup.
-  await t.test("local → remote → Undo restores the local selection exactly", () => {
+  await t.test("local → remote → Undo restores the local selection exactly", async () => {
     const cases = [
       ["chat", { mode: "providers", provider: "openai" }],
       ["dictationStt", { mode: "providers", provider: "openai" }],
@@ -11042,11 +12033,11 @@ test("route planner", async (t) => {
       reset({ whisperModel: "small", chatAgentModel: "qwen3.5-9b-q4_k_m" });
       const before = routeKeys();
       const forward = plan(id, target);
-      live().applyRoutePatch(forward.patch);
+      await live().applyRoutePatch(forward.patch);
       assert.notDeepEqual(routeKeys(), before, `${id}: moved`);
       const back = planner.planPatch(live(), ctx(), id, forward.undoPatch);
       assert.equal(back.kind, "instant", `${id}: moving back to this device is instant`);
-      live().applyRoutePatch(forward.undoPatch);
+      await live().applyRoutePatch(forward.undoPatch);
       assert.deepEqual(routeKeys(), before, `${id}: every key restored`);
     }
   });
@@ -11176,7 +12167,7 @@ test("route planner", async (t) => {
   };
 
   // Change-driving (R2-1): v2's allowlist refused azureEndpoint and the graph gave Azure no host.
-  await t.test("an Azure endpoint change on the active route is an off-device recipient change: it stages", () => {
+  await t.test("an Azure endpoint change on the active route is an off-device recipient change: it stages", async () => {
     reset({ ...azureScope("chatAgent"), azureEndpoint: "https://myres.openai.azure.com/openai" });
     const p = planner.planPatch(live(), ctx(azureKey), "chat", { azureEndpoint: "https://other.example.com/openai" });
     assert.equal(p.kind, "staged");
@@ -11196,9 +12187,9 @@ test("route planner", async (t) => {
     assert.equal(samePlace.kind, "instant", "a path-only edit keeps the recipient");
     assert.deepEqual(samePlace.changes, []);
 
-    live().applyRoutePatch(p.patch);
+    await live().applyRoutePatch(p.patch);
     assert.equal(resolveLive().find((r) => r.id === "chat").host, "other.example.com", "commit is the preview");
-    live().applyRoutePatch(p.undoPatch);
+    await live().applyRoutePatch(p.undoPatch);
     assert.equal(live().azureEndpoint, "https://myres.openai.azure.com/openai", "Undo restores the endpoint exactly");
 
     reset({ azureEndpoint: "https://myres.openai.azure.com/openai" });
@@ -11252,36 +12243,55 @@ test("route planner", async (t) => {
     assert.equal(plan("chat", { mode: "local" }, unsynced).kind, "instant", "moving onto the device is instant");
   });
 
-  // Change-driving (R2-1 staging gap): Vertex's host depends on whether a key is stored, so
-  // with credentials still null the route is `unknown`, host null, before and after.
-  await t.test("a Vertex location edit stages while Vertex's key presence is unknown", () => {
+  // R3-1: Vertex's persisted source determines its host; key presence only changes readiness.
+  await t.test("an ADC Vertex location edit stages without waiting for key presence", () => {
     const vertex = {
       chatAgentMode: "enterprise",
       chatAgentProvider: "vertex",
       chatAgentModel: "gemini-2.5-flash",
       vertexProject: "acme-prod",
       vertexLocation: "us-central1",
+      vertexAuthSource: "adc",
     };
     reset(vertex);
     const loading = { facts: { credentials: null, credentialFields: null } };
     const p = planner.planPatch(live(), ctx(loading), "chat", { vertexLocation: "europe-west4" });
     assert.equal(p.kind, "staged");
-    assert.equal(change(p, "chat").before.host, null);
-    assert.equal(change(p, "chat").after.state.status, "unknown");
-    assert.equal(p.blocker, "unknown");
+    assert.equal(change(p, "chat").before.host, "us-central1-aiplatform.googleapis.com");
+    assert.equal(change(p, "chat").after.host, "europe-west4-aiplatform.googleapis.com");
+    assert.deepEqual(change(p, "chat").after.state, { status: "ready" }, "ADC does not wait for key listing");
+    assert.equal(p.blocker, null);
     const project = planner.planPatch(live(), ctx(loading), "chat", { vertexProject: "acme-staging" });
     assert.equal(project.kind, "staged", "the project names the recipient account");
+  });
 
-    // Once presence is known (no key, so ADC), the same edit is an ordinary host change.
-    const known = planner.planPatch(
-      live(),
-      ctx({ facts: { credentials: new Map([["vertex", false]]), credentialFields: new Map([["vertex", { key: false }]]) } }),
-      "chat",
-      { vertexLocation: "europe-west4" }
-    );
-    assert.equal(change(known, "chat").before.host, "us-central1-aiplatform.googleapis.com");
-    assert.equal(change(known, "chat").after.host, "europe-west4-aiplatform.googleapis.com");
-    assert.equal(known.kind, "staged");
+  await t.test("Vertex source edits stage across coupled active routes and Apply/Undo use that exact source", async () => {
+    reset({
+      chatAgentMode: "enterprise", chatAgentProvider: "vertex", chatAgentModel: "gemini-2.5-flash",
+      noteFormattingMode: "enterprise", noteFormattingProvider: "vertex", noteFormattingModel: "gemini-2.5-flash",
+      vertexProject: "acme-prod", vertexLocation: "europe-west4", vertexAuthSource: "adc",
+    });
+    const readyKey = { facts: {
+      credentials: new Map([["vertex", true]]),
+      credentialFields: new Map([["vertex", { key: true }]]),
+    } };
+    const p = planner.planPatch(live(), ctx(readyKey), "chat", { vertexAuthSource: "apiKey" });
+    assert.equal(p.kind, "staged");
+    assert.deepEqual(p.changes.map((c) => c.id), ["chat", "noteFormatting"]);
+    for (const c of p.changes) {
+      assert.equal(c.before.host, "europe-west4-aiplatform.googleapis.com", c.id);
+      assert.equal(c.after.host, "aiplatform.googleapis.com", c.id);
+      assert.deepEqual(c.after.state, { status: "ready" }, c.id);
+    }
+    assert.equal(p.blocker, null);
+    assert.deepEqual(p.patch, { vertexAuthSource: "apiKey" });
+    assert.deepEqual(p.undoPatch, { vertexAuthSource: "adc" });
+    assert.equal(live().vertexAuthSource, "adc", "planning leaves main/store unchanged");
+    await live().applyRoutePatch(p.patch);
+    assert.equal(resolveLive().find((r) => r.id === "chat").host, "aiplatform.googleapis.com", "Apply commits the previewed recipient");
+    await live().applyRoutePatch(p.undoPatch);
+    assert.equal(live().vertexAuthSource, "adc", "Undo restores the committed source");
+    assert.equal(resolveLive().find((r) => r.id === "chat").host, "europe-west4-aiplatform.googleapis.com");
   });
 
   // Change-driving (I6 for R2-1): one enterprise field moves every route on that provider.
@@ -11307,7 +12317,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (R2-1): the region's model rewrite lived only in EnterpriseProviderConfig.tsx:115-118.
-  await t.test("a Bedrock region change adds the model adjustment to the same patch, and Undo is exact", () => {
+  await t.test("a Bedrock region change adds the model adjustment to the same patch, and Undo is exact", async () => {
     const bedrockKey = { facts: { credentials: new Map([["bedrock", true]]) } };
     reset({
       bedrockRegion: "us-east-1",
@@ -11335,12 +12345,12 @@ test("route planner", async (t) => {
     assert.equal(change(p, "noteFormatting").coupled, true, "the other Bedrock route changes region too");
     assert.equal(change(p, "noteFormatting").after.host, "bedrock-runtime.eu-west-1.amazonaws.com");
 
-    live().applyRoutePatch(p.patch);
+    await live().applyRoutePatch(p.patch);
     assert.equal(live().chatAgentModel, "eu.anthropic.claude-fable-5");
     // Task 7's Undo re-plans the undoPatch against the live state.
     const back = planner.planPatch(live(), ctx(bedrockKey), "chat", p.undoPatch);
     assert.deepEqual(back.patch, { bedrockRegion: "us-east-1", chatAgentModel: "us.anthropic.claude-fable-5" });
-    live().applyRoutePatch(back.patch);
+    await live().applyRoutePatch(back.patch);
     assert.deepEqual(routeKeys(), before, "every key restored");
 
     // A profile id that never matched its region is restored too, not "fixed" by the Undo.
@@ -11348,8 +12358,8 @@ test("route planner", async (t) => {
     const mismatched = routeKeys();
     const forward = planner.planPatch(live(), ctx(bedrockKey), "chat", { bedrockRegion: "eu-west-1" });
     assert.deepEqual(forward.patch, { bedrockRegion: "eu-west-1" }, "already an eu.* id");
-    live().applyRoutePatch(forward.patch);
-    live().applyRoutePatch(planner.planPatch(live(), ctx(bedrockKey), "chat", forward.undoPatch).patch);
+    await live().applyRoutePatch(forward.patch);
+    await live().applyRoutePatch(planner.planPatch(live(), ctx(bedrockKey), "chat", forward.undoPatch).patch);
     assert.deepEqual(routeKeys(), mismatched);
 
     // Switching to Bedrock picks the profile id for the region the state holds.
@@ -11389,7 +12399,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I1 follow-up): the assistant's switches change who receives screenshots.
-  await t.test("assistant switches: screen context adds the screenshot; the vision override moves it", () => {
+  await t.test("assistant switches: screen context adds the screenshot; the vision override moves it", async () => {
     const cloudAssistant = { dictationAgentMode: "providers", dictationAgentProvider: "openai", dictationAgentModel: "gpt-6-astra" };
     reset({ ...cloudAssistant, voiceAgentScreenContext: false });
     const screen = planner.planPatch(live(), ctx(), "voiceAssistant", { voiceAgentScreenContext: true });
@@ -11410,7 +12420,7 @@ test("route planner", async (t) => {
     const override = planner.planPatch(live(), ctx(), "assistantVision", { useDictationAgentVisionModel: true });
     assert.equal(override.kind, "staged", "screenshots move to Anthropic");
     assert.equal(change(override, "assistantVision").after.providerId, "anthropic");
-    live().applyRoutePatch(override.patch);
+    await live().applyRoutePatch(override.patch);
     const follow = planner.planPatch(live(), ctx(), "assistantVision", { useDictationAgentVisionModel: false });
     assert.equal(follow.kind, "staged", "following the assistant again sends screenshots to OpenAI");
     assert.equal(change(follow, "assistantVision").after.providerId, "openai");
@@ -11447,7 +12457,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I1 follow-up): the toggle wrote localStorage directly and added webSearch unreviewed.
-  await t.test("provider web search: on adds a payload part and stages; off is instant", () => {
+  await t.test("provider web search: on adds a payload part and stages; off is instant", async () => {
     const key = "providerSearch:chatIntelligence";
     reset(OPENAI_CHAT);
     const on = planner.planPatch(live(), ctx(), "chat", { [key]: true });
@@ -11456,7 +12466,7 @@ test("route planner", async (t) => {
     assert.match(change(on, "chat").after.sends, /<webSearch>/);
     assert.deepEqual(on.undoPatch, { [key]: false }, "Undo restores the stored preference");
 
-    live().applyRoutePatch(on.patch);
+    await live().applyRoutePatch(on.patch);
     assert.equal(storage.getItem("personalWebSearch:chatIntelligence"), "true");
     assert.equal(planner.planPatch(live(), ctx(), "chat", { [key]: true }).kind, "noop");
     const off = planner.planPatch(live(), ctx(), "chat", { [key]: false });
@@ -11470,7 +12480,7 @@ test("route planner", async (t) => {
   });
 
   // Change-driving (I5): the preview must be the state that commit produces.
-  await t.test("preview equals the state after applying the patch, and Undo returns to the start", () => {
+  await t.test("preview equals the state after applying the patch, and Undo returns to the start", async () => {
     const start = {
       transcriptionMode: "providers",
       useLocalWhisper: false,
@@ -11504,14 +12514,14 @@ test("route planner", async (t) => {
       reset(start);
       const before = resolveLive();
       const p = plan(id, target);
-      live().applyRoutePatch(p.patch);
+      await live().applyRoutePatch(p.patch);
       for (const route of resolveLive()) {
         const c = change(p, route.id);
         const expected = c ? c.after : before.find((r) => r.id === route.id);
         assert.deepEqual(route, expected, `${id} → ${JSON.stringify(target)}: ${route.id}`);
         if (c) assert.deepEqual(c.before, before.find((r) => r.id === route.id));
       }
-      live().applyRoutePatch(p.undoPatch);
+      await live().applyRoutePatch(p.undoPatch);
       assert.deepEqual(resolveLive(), before, `${id}: Undo returns every route`);
     }
   });
@@ -11531,7 +12541,7 @@ Create `src/lib/routePlanner.ts`:
 import { INFERENCE_SCOPES } from "../config/inferenceScopes";
 import { isProviderValidForMode } from "../models/ModelRegistry";
 import type { SettingsState } from "../stores/settingsStore";
-import type { InferenceMode, LocalTranscriptionProvider } from "../types/electron";
+import type { EnterpriseRouteSettings, InferenceMode, LocalTranscriptionProvider } from "../types/electron";
 import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
 import { readProviderSearchPreference, supportsProviderSearch } from "../utils/providerSearch";
 import {
@@ -11587,6 +12597,7 @@ export type ApplyBlocker =
 
 export interface RoutePlan {
   routeId: RouteId;
+  enterpriseBase: EnterpriseRouteSettings; // exact non-secret tuple this preview/review was computed against; Task 7 passes it unchanged to the main CAS
   patch: SettingsPatch;
   undoPatch: SettingsPatch;
   changes: RouteChange[];
@@ -11891,7 +12902,7 @@ function addsNoRecipientOrPayload(
 const ENTERPRISE_RECIPIENT_KEYS: Readonly<Record<string, readonly string[]>> = {
   bedrock: ["bedrockRegion"],
   azure: ["azureEndpoint"],
-  vertex: ["vertexProject", "vertexLocation"],
+  vertex: ["vertexProject", "vertexLocation", "vertexAuthSource"],
 };
 
 function recipientUnnamed(route: ResolvedRoute): boolean {
@@ -11978,8 +12989,15 @@ export function planPatch(
       if (!(key in undo)) undo[key as string] = state[key];
     }
   }
+  const enterpriseBase: EnterpriseRouteSettings = {
+    bedrockRegion: state.bedrockRegion || "us-east-1",
+    azureEndpoint: state.azureEndpoint || "",
+    vertexProject: state.vertexProject || "",
+    vertexLocation: state.vertexLocation || "us-central1",
+    vertexAuthSource: state.vertexAuthSource,
+  };
   if (Object.keys(written).length === 0) {
-    return { routeId, patch: {}, undoPatch: {}, changes: [], kind: "noop", blocker: null };
+    return { routeId, enterpriseBase, patch: {}, undoPatch: {}, changes: [], kind: "noop", blocker: null };
   }
 
   const beforeSnapshot = buildRouteSnapshot(state, ctx.facts, ctx.copy, ctx.sealed);
@@ -12008,6 +13026,7 @@ export function planPatch(
 
   return {
     routeId,
+    enterpriseBase,
     patch: written as SettingsPatch,
     undoPatch: undo as SettingsPatch,
     changes,
@@ -12065,7 +13084,7 @@ git commit -m "feat(routes): Plan route changes as one patch for preview, commit
 Closes **I1** (store core: classification by the planner's effective result, not by `target.mode`), **I3** (planning waits for acknowledged key saves and then reads main's credential presence) and **I14** (plans read the single sealed authority). It completes **I5** for Undo. I1 follow-up: `requestRoutePatch` gives the enable switches, the Corti region and tenant, and the provider web-search preference the same instant/staged/noop rules as a route change.
 
 Every way of changing a route (the mode selectors, pickers, endpoint fields, enable switches, Corti region and web-search toggle in Tasks 8–9, the Patchbay in Task 10) calls this module. The rules:
-- **Planning.** A request first awaits `flushSecretSaves()` (Task 2), then `refreshRouteFacts(["credentials"])` (Task 3), so a key saved a moment ago counts as present without waiting for main's `credentials-changed` event. It is then planned against the live settings, main's facts and `getSealed()`.
+- **Planning.** A request first awaits `flushRoutePatchSaves()` (Task 6), `flushSecretSaves()` (Task 2), then `refreshRouteFacts(["credentials"])` (Task 3), so a prior enterprise ACK and a just-saved key are visible before it plans against live settings, main's facts and `getSealed()`. Each enterprise plan carries its exact five-field `enterpriseBase` tuple; Task 6 passes that reviewed base unchanged to main's CAS.
 - **Two entry points.** `requestRouteChange(id, target, copy)` plans a destination; `requestRoutePatch(id, patch, copy)` plans raw route keys (switches, Corti options, `providerSearch:<scope>`). Both follow the same kind rules, and a staged patch becomes a `kind: "patch"` draft.
 - **By plan kind:**
   - `noop`: nothing is written, and any draft for that route is dropped.
@@ -12076,9 +13095,9 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
 - **Request epochs (R2-8).** The store keeps two kinds of epoch.
   - `routeEpochs[routeId]`, one per route. Every `requestRouteChange(id, …)` and `requestRoutePatch(id, …)` call bumps `routeEpochs[id]` at call time. Every Undo bumps the epoch of its plan's route and of every route in its `changes`.
   - `requestEpoch`, the session epoch. Only the public `discard()` (the user's Discard) and `endSettingsSession()` bump it. Internal draft drops (a no-op request, an instant commit on the draft's route, an Apply that finds nothing to do) bump nothing.
-  - A request settles only if both its route epoch and the session epoch are still current after its waits. Otherwise it returns `"superseded"` and writes and stages nothing. So a request can't outlive Settings closing or a Discard, and an older request can't replace a newer selection on the same route. A request on another route is not superseded: two routes requested concurrently both settle (the single-draft rule still applies to what they stage).
+  - A request settles only if both its route epoch and the session epoch are still current after its waits. Otherwise it returns `"superseded"` and writes and stages nothing. So a request can't outlive Settings closing or a Discard, and an older request can't replace a newer selection on the same route. A request on another route is not superseded: it waits for a pending route-patch ACK, then plans from that committed head state and settles in order.
   - `applyDraft` reads the draft route's epoch and the session epoch without bumping them, and applies only if both, and the draft itself, are unchanged after its wait.
-  - Undo is synchronous and runs no wait, so it is never gated, and a toast's Undo still works after Settings closes.
+  - Undo is asynchronous: it drains earlier route-patch ACKs, re-plans from committed state, then commits or stages. Invoking a toast's Undo after Settings closes still works.
 - **Closing Settings** calls `endSettingsSession()`. It discards the draft and bumps the session epoch. `withDraftDiscard` wraps `SettingsModal`'s `onOpenChange` with it (Task 8).
 
 **Files:**
@@ -12091,9 +13110,9 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
 - Consumes:
   - **Task 6:**
     - `planRouteChange`, `planPatch`, `RouteTarget`, `RoutePlan`, `RouteChange`, `ApplyBlocker` and `PlanContext` (`src/lib/routePlanner.ts`);
-    - `SettingsPatch` and `ROUTE_ENTERPRISE_KEYS` (`src/lib/providerSwitchPlans.ts`; the four enterprise route fields, R2-1);
+    - `SettingsPatch` and `ROUTE_ENTERPRISE_KEYS` (`src/lib/providerSwitchPlans.ts`; the five enterprise route fields, R2-1/R3-1);
     - `routeBlocker`'s R2-9 rule: every changed, enabled, off-device route that is not `ready` blocks, including Codex and enterprise `needsKey` and remote `needsModel`;
-    - the store action `applyRoutePatch`;
+    - the store action `applyRoutePatch` (accepts the plan's `enterpriseBase`) and `flushRoutePatchSaves()`;
     - `test/lib/routeStateFixture.js`.
   - **Task 2:** `flushSecretSaves(): Promise<void>`, exported by `src/stores/settingsStore.ts`, and the ack-based secret setters (`setOpenaiApiKey`).
   - **Task 3:**
@@ -12120,12 +13139,12 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
   export const DRAFT_SETUP_KEYS: ReadonlySet<string>;                         // bedrockRegion, azureEndpoint, vertexProject, vertexLocation
   export function currentPlanContext(copy: RouteCopy): PlanContext;           // facts store + getSealed()
   export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan;   // the live plan the Apply bar renders (target patch + setup)
-  export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => RouteChangeOutcome | "staged" }
-  export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"; // R2-8
+  export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> }
+  export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed"; // R2-8 + persisted enterprise ACK
   export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>;
   export async function requestRoutePatch(id: RouteId, patch: SettingsPatch, copy: RouteCopy): Promise<RouteRequestResult>;
   export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null; // R2-9: null when the route has no target draft
-  export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null>;
+  export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null | "save-failed">;
   export function endSettingsSession(): void;                                 // R2-8: SettingsModal close
   export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void; // calls endSettingsSession on close
   // src/lib/routeChangeMessage.ts (NEW module)
@@ -12138,7 +13157,8 @@ Every way of changing a route (the mode selectors, pickers, endpoint fields, ena
   - `applied: true` always carries `blocker: null` and an `undo`. Follow-up copy ("Choose a model", "Sign in to X") comes from the route's state through `routeChangeMessage`.
   - `applied: false` with a blocker means Apply was refused and the draft was kept.
   - `applied: false` with `blocker: null` means the request was a no-op.
-  - `"superseded"` means that, before the request's waits finished, Settings closed or the draft was discarded (session epoch), or a newer request or an Undo on the same route began (route epoch). Nothing was written or staged, and callers neither toast nor report it. A request on another route never supersedes it.
+  - `"superseded"` means that, before the request settled, Settings closed or the draft was discarded (session epoch), or a newer request or an Undo on the same route began (route epoch). If main already acknowledged an enterprise transaction, the store still reflects that durable tuple; callers suppress success and must not clear a newer draft. A request on another route never supersedes it.
+  - `"save-failed"` means the enterprise transaction rejected before acknowledgment. The committed renderer tuple and the draft remain available for retry; callers show failure copy and never success copy.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -12176,9 +13196,35 @@ test("route draft store", async (t) => {
   };
   let llamaStops = 0;
   const screenContextCalls = [];
-  // R2-1: setAzureEndpoint persisted to main on every keystroke (settingsStore.ts:2060-2063).
-  // Main may hear about a new endpoint only from a committed patch.
-  const azureEndpointWrites = [];
+  // Task 6's main transaction is the only enterprise writer. The fake keeps
+  // the committed five-field tuple and can hold ACKs to exercise route-queue
+  // admission and the order between different routes.
+  const enterpriseTuple = (state) => ({
+    bedrockRegion: state.bedrockRegion || "us-east-1",
+    azureEndpoint: state.azureEndpoint || "",
+    vertexProject: state.vertexProject || "",
+    vertexLocation: state.vertexLocation || "us-central1",
+    vertexAuthSource: state.vertexAuthSource,
+  });
+  let mainEnterprise = enterpriseTuple(routeBaseState());
+  let holdEnterpriseWrites = false;
+  const enterpriseWrites = [];
+  const pendingEnterpriseWrites = [];
+  const saveEnterpriseRoutePatch = (input) => {
+    enterpriseWrites.push(input);
+    const expected = input.expected;
+    if (Object.keys(mainEnterprise).some((key) => expected[key] !== mainEnterprise[key])) {
+      return Promise.resolve({ success: false, conflict: true, current: { ...mainEnterprise } });
+    }
+    return new Promise((resolve) => {
+      const finish = () => {
+        mainEnterprise = { ...mainEnterprise, ...input.patch };
+        resolve({ success: true, current: { ...mainEnterprise } });
+      };
+      if (holdEnterpriseWrites) pendingEnterpriseWrites.push(finish);
+      else finish();
+    });
+  };
   installBrowserGlobals(t, {
     initialStorage: MIGRATED_STORAGE,
     window: {
@@ -12194,10 +13240,7 @@ test("route draft store", async (t) => {
           screenContextCalls.push(enabled);
           return { success: true };
         },
-        saveAzureEndpoint: async (value) => {
-          azureEndpointWrites.push(value);
-          return { success: true };
-        },
+        saveEnterpriseRoutePatch,
       },
     },
   });
@@ -12219,6 +13262,11 @@ test("route draft store", async (t) => {
     if (pendingSaves.length) log.push("ack");
     while (pendingSaves.length) pendingSaves.shift()({ ok: true, success: true, generation: 1 });
   };
+  const releaseEnterpriseWrite = () => {
+    const finish = pendingEnterpriseWrites.shift();
+    assert.ok(finish, "an enterprise transaction is awaiting ACK");
+    finish();
+  };
   // Resolves held presence reads in the given order (indexes into heldLists).
   const releaseLists = async (...order) => {
     const held = [...heldLists];
@@ -12231,8 +13279,12 @@ test("route draft store", async (t) => {
   const reset = (overrides = {}) => {
     holdLists = false;
     heldLists.length = 0;
+    holdEnterpriseWrites = false;
+    pendingEnterpriseWrites.length = 0;
+    enterpriseWrites.length = 0;
     mainPresence.clear();
     useSettingsStore.setState({ ...routeBaseState(), ...overrides });
+    mainEnterprise = enterpriseTuple(useSettingsStore.getState());
     drafts.useRouteDraftStore.getState().discard();
     useSealedStore.setState({ sealed: false, known: true });
     setFacts();
@@ -12251,7 +13303,7 @@ test("route draft store", async (t) => {
     assert.equal(live().chatAgentProvider, "custom");
     assert.equal(live().chatAgentCloudBaseUrl, "http://localhost:1234/v1");
     assert.equal(draft(), null);
-    const back = out.undo();
+    const back = await out.undo();
     assert.equal(back.applied, true);
     assert.equal(live().chatAgentMode, "local");
     assert.equal(live().chatAgentProvider, "qwen");
@@ -12283,7 +13335,7 @@ test("route draft store", async (t) => {
     const out = await request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" });
     assert.equal(out.applied, true);
     assert.equal(live().chatAgentModel, "gpt-5.6-sol");
-    assert.equal(out.undo().applied, true);
+    assert.equal((await out.undo()).applied, true);
     assert.equal(live().chatAgentModel, "gpt-6-astra");
   });
 
@@ -12293,7 +13345,7 @@ test("route draft store", async (t) => {
     const out = await request("chat", { mode: "local", provider: "qwen", model: QWEN });
     assert.equal(out.applied, true);
     assert.equal(live().chatAgentMode, "local");
-    assert.equal(out.undo(), "staged");
+    assert.equal(await out.undo(), "staged");
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: out.plan.undoPatch });
     assert.equal(live().chatAgentMode, "local", "Undo applied nothing remote");
     const applied = await apply();
@@ -12353,7 +13405,7 @@ test("route draft store", async (t) => {
   await t.test("Apply of a draft that the live state already satisfies is a no-op and clears it", async () => {
     reset();
     assert.equal(await request("dictationStt", { mode: "providers", provider: "groq" }), "staged");
-    live().applyRoutePatch({
+    await live().applyRoutePatch({
       transcriptionMode: "providers",
       useLocalWhisper: false,
       cloudTranscriptionProvider: "groq",
@@ -12503,7 +13555,7 @@ test("route draft store", async (t) => {
     const off = await patch("dictationCleanup", { useCleanupModel: false });
     assert.equal(off.applied, true, "off sends nothing, so it applies at once");
     assert.equal(live().useCleanupModel, false);
-    assert.equal(off.undo(), "staged", "Undo would send again, so it waits for review");
+    assert.equal(await off.undo(), "staged", "Undo would send again, so it waits for review");
     assert.equal(live().useCleanupModel, false);
 
     reset({ useCleanupModel: false });
@@ -12718,7 +13770,7 @@ test("route draft store", async (t) => {
     await tick();
     const otherRoute = request("dictationStt", { mode: "providers", provider: "groq" });
     await tick();
-    assert.equal(out.undo().applied, true, "Undo is not gated");
+    assert.equal((await out.undo()).applied, true, "Undo is not gated");
     assert.equal(live().chatAgentModel, "gpt-6-astra");
     await releaseLists(0, 1);
     assert.equal(await sameRoute, "superseded", "the Undo is newer than the waiting pick");
@@ -12726,20 +13778,21 @@ test("route draft store", async (t) => {
     assert.equal(await otherRoute, "staged", "a request on another route still settles");
   });
 
-  // Baseline guard for the intentional post-close path: Undo is synchronous and is not epoch-bound.
+  // Baseline guard for the intentional post-close path: Undo is asynchronous,
+  // waits for any earlier route ACK and is still callable after Settings closes.
   await t.test("a toast's Undo still works after Settings closes", async () => {
     reset(OPENAI_CHAT);
     const out = await request("chat", { mode: "providers", provider: "openai", model: "gpt-5.6-sol" });
     assert.equal(out.applied, true);
     drafts.endSettingsSession();
-    const back = out.undo();
+    const back = await out.undo();
     assert.equal(back.applied, true, "a same-recipient Undo applies at once after close");
     assert.equal(live().chatAgentModel, "gpt-6-astra");
 
     reset(OPENAI_CHAT);
     const home = await request("chat", { mode: "local", provider: "qwen", model: QWEN });
     drafts.endSettingsSession();
-    assert.equal(home.undo(), "staged", "an Undo back to OpenAI waits for review, even after close");
+    assert.equal(await home.undo(), "staged", "an Undo back to OpenAI waits for review, even after close");
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: home.plan.undoPatch });
     assert.equal(live().chatAgentMode, "local");
   });
@@ -12752,7 +13805,7 @@ test("route draft store", async (t) => {
     const ENDPOINT = "https://contoso.openai.azure.com/openai";
     reset({ ...OPENAI_CHAT, azureEndpoint: "" });
     setFacts({ credentials: new Map([["openai", true], ["azure", true]]) });
-    azureEndpointWrites.length = 0;
+    enterpriseWrites.length = 0;
     const azure = { mode: "providers", provider: "azure", model: "gpt-4o-deploy" };
     assert.equal(await request("chat", azure), "staged");
     assert.equal((await apply()).blocker, "needsUrl", "Apply waits until Azure has an endpoint (R2-9)");
@@ -12762,7 +13815,7 @@ test("route draft store", async (t) => {
     drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
     assert.deepEqual(draft(), { routeId: "chat", kind: "target", target: azure, setup: { azureEndpoint: ENDPOINT } });
     assert.equal(live().azureEndpoint, "", "typing the endpoint commits nothing");
-    assert.deepEqual(azureEndpointWrites, [], "and tells main nothing");
+    assert.deepEqual(enterpriseWrites, [], "and tells main nothing");
     const preview = drafts.planDraft(draft(), TEST_COPY);
     assert.equal(preview.patch.azureEndpoint, ENDPOINT);
     assert.equal(preview.changes.find((c) => c.id === "chat").after.host, "contoso.openai.azure.com", "the bar shows the real host");
@@ -12779,8 +13832,8 @@ test("route draft store", async (t) => {
     assert.equal(out.applied, true);
     assert.equal(live().chatAgentProvider, "azure");
     assert.equal(live().azureEndpoint, ENDPOINT);
-    assert.deepEqual(azureEndpointWrites, [ENDPOINT], "the commit tells main once (Task 6's applyRoutePatch)");
-    assert.equal(out.undo(), "staged", "back to OpenAI is a new recipient: reviewed");
+    assert.deepEqual(enterpriseWrites.map(({ patch }) => patch), [{ azureEndpoint: ENDPOINT }], "the commit tells main once (Task 6's atomic transaction)");
+    assert.equal(await out.undo(), "staged", "back to OpenAI is a new recipient: reviewed");
     assert.equal((await apply()).applied, true);
     assert.equal(live().chatAgentProvider, "openai");
     assert.equal(live().azureEndpoint, "", "Undo restores the endpoint exactly");
@@ -12795,11 +13848,11 @@ test("route draft store", async (t) => {
     const azureFacts = { credentials: new Map([["azure", true]]), credentialFields: new Map([["azure", { key: true }]]) };
     reset({ chatAgentMode: "enterprise", chatAgentProvider: "azure", chatAgentModel: "gpt-4o-deploy", azureEndpoint: EAST });
     setFacts({ ...azureFacts, enterpriseMain: null });
-    azureEndpointWrites.length = 0;
+    enterpriseWrites.length = 0;
     assert.equal(await patch("chat", { azureEndpoint: WEST }), "staged", "settle() staged it");
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { azureEndpoint: WEST } });
     assert.equal(live().azureEndpoint, EAST, "nothing was committed");
-    assert.deepEqual(azureEndpointWrites, [], "main heard nothing");
+    assert.deepEqual(enterpriseWrites, [], "main heard nothing");
     const blocked = await apply();
     assert.equal(blocked.applied, false);
     assert.equal(blocked.blocker, "unknown", "Apply waits until main's facts are synced");
@@ -12810,7 +13863,160 @@ test("route draft store", async (t) => {
     const out = await apply();
     assert.equal(out.applied, true);
     assert.equal(live().azureEndpoint, WEST);
-    assert.deepEqual(azureEndpointWrites, [WEST], "main is told once, on Apply");
+    assert.deepEqual(enterpriseWrites.map(({ patch }) => patch), [{ azureEndpoint: WEST }], "main is told once, on Apply");
+  });
+
+  await t.test("different routes plan and Undo from each prior enterprise ACK", async () => {
+    const ENDPOINT = "https://contoso.openai.azure.com/openai";
+    reset({
+      ...OPENAI_CHAT,
+      cleanupMode: "providers",
+      cleanupProvider: "openai",
+      cleanupModel: "gpt-6-astra",
+      useCleanupModel: true,
+      azureEndpoint: "",
+      bedrockRegion: "us-east-1",
+    });
+    setFacts({ credentials: new Map([["azure", true], ["bedrock", true], ["openai", true]]) });
+    holdEnterpriseWrites = true;
+
+    const azure = { mode: "providers", provider: "azure", model: "gpt-4o-deploy" };
+    assert.equal(await request("chat", azure), "staged");
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+    const applyAzure = apply();
+    for (let i = 0; i < 5 && pendingEnterpriseWrites.length === 0; i++) await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1, "the first route owns a held main ACK");
+    assert.equal(enterpriseWrites[0].expected.azureEndpoint, "", "the first plan captured the original tuple");
+
+    let bedrockSettled = false;
+    const bedrockRequest = request("dictationCleanup", { mode: "providers", provider: "bedrock" })
+      .then((result) => { bedrockSettled = true; return result; });
+    await tick();
+    assert.equal(bedrockSettled, false, "the other route waits for the first enterprise ACK before planning");
+    releaseEnterpriseWrite();
+    assert.equal((await applyAzure).applied, true);
+    assert.equal(await bedrockRequest, "staged");
+    assert.equal(drafts.stageDraftSetup("dictationCleanup", { bedrockRegion: "eu-west-1" })?.routeId, "dictationCleanup");
+    const bedrockPreview = drafts.planDraft(draft(), TEST_COPY);
+    assert.equal(bedrockPreview.enterpriseBase.azureEndpoint, ENDPOINT, "the second review includes the first committed endpoint");
+
+    const applyBedrock = apply();
+    for (let i = 0; i < 5 && pendingEnterpriseWrites.length === 0; i++) await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    assert.equal(enterpriseWrites[1].expected.azureEndpoint, ENDPOINT);
+    assert.equal(enterpriseWrites[1].expected.bedrockRegion, "us-east-1");
+    assert.deepEqual(enterpriseWrites[1].patch, { bedrockRegion: "eu-west-1" });
+    releaseEnterpriseWrite();
+    const appliedBedrock = await applyBedrock;
+    assert.equal(appliedBedrock.applied, true);
+    assert.equal(live().bedrockRegion, "eu-west-1");
+
+    assert.equal(await appliedBedrock.undo(), "staged", "Undo to OpenAI requires review");
+    const applyUndo = apply();
+    for (let i = 0; i < 5 && pendingEnterpriseWrites.length === 0; i++) await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    assert.equal(enterpriseWrites[2].expected.azureEndpoint, ENDPOINT, "Undo keeps the unrelated route's acknowledged endpoint");
+    assert.equal(enterpriseWrites[2].expected.bedrockRegion, "eu-west-1", "Undo compares against the state it actually reverses");
+    assert.equal(enterpriseWrites[2].patch.bedrockRegion, "us-east-1");
+    releaseEnterpriseWrite();
+    assert.equal((await applyUndo).applied, true);
+    assert.equal(live().azureEndpoint, ENDPOINT);
+    assert.equal(live().bedrockRegion, "us-east-1");
+  });
+
+  await t.test("closing while an enterprise commit waits in the route queue sends no stale patch", async () => {
+    const ENDPOINT = "https://contoso.openai.azure.com/openai";
+    reset({ ...OPENAI_CHAT, azureEndpoint: "", bedrockRegion: "us-east-1" });
+    setFacts({ credentials: new Map([["azure", true]]) });
+    assert.equal(await request("chat", { mode: "providers", provider: "azure" }), "staged");
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+
+    holdLists = true;
+    holdEnterpriseWrites = true;
+    const applying = apply();
+    await tick();
+    assert.equal(heldLists.length, 1, "Apply is paused after the initial route-queue drain");
+
+    // A different queued enterprise transaction gets ahead of Apply after its
+    // drain. The Apply plan will be waiting behind this held main ACK.
+    const blocker = live().applyRoutePatch({ bedrockRegion: "eu-west-1" }, {
+      expectedEnterprise: { ...mainEnterprise },
+    });
+    await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    let queuedCommit;
+    let markQueued;
+    const queued = new Promise((resolve) => { markQueued = resolve; });
+    const originalApplyRoutePatch = live().applyRoutePatch;
+    useSettingsStore.setState({
+      applyRoutePatch: (...args) => {
+        queuedCommit = args;
+        markQueued();
+        return originalApplyRoutePatch(...args);
+      },
+    });
+    await releaseLists(0);
+    await queued;
+    assert.ok(queuedCommit, "Task 7 admitted its planned patch behind the blocker");
+    drafts.endSettingsSession();
+    releaseEnterpriseWrite();
+    await blocker;
+    assert.equal(await applying, null, "closing supersedes the queued Apply");
+    assert.equal(enterpriseWrites.length, 1, "the stale queued Apply never contacts main");
+    assert.equal(live().azureEndpoint, "", "the draft endpoint was not materialized");
+    assert.equal(live().bedrockRegion, "eu-west-1", "the earlier durable ACK is reflected");
+    useSettingsStore.setState({ applyRoutePatch: originalApplyRoutePatch });
+  });
+
+  await t.test("replacing the Apply-owned draft while its commit is queued sends no stale patch", async () => {
+    const ENDPOINT = "https://contoso.openai.azure.com/openai";
+    reset({ ...OPENAI_CHAT, azureEndpoint: "", bedrockRegion: "us-east-1" });
+    setFacts({ credentials: new Map([["azure", true]]) });
+    assert.equal(await request("chat", { mode: "providers", provider: "azure" }), "staged");
+    drafts.stageDraftSetup("chat", { azureEndpoint: ENDPOINT });
+
+    holdLists = true;
+    holdEnterpriseWrites = true;
+    const applying = apply();
+    await tick();
+    assert.equal(heldLists.length, 1);
+
+    const blocker = live().applyRoutePatch({ bedrockRegion: "eu-west-1" }, {
+      expectedEnterprise: { ...mainEnterprise },
+    });
+    await tick();
+    assert.equal(pendingEnterpriseWrites.length, 1);
+    const originalApplyRoutePatch = live().applyRoutePatch;
+    let markQueued;
+    const queued = new Promise((resolve) => { markQueued = resolve; });
+    useSettingsStore.setState({
+      applyRoutePatch: (...args) => {
+        markQueued();
+        return originalApplyRoutePatch(...args);
+      },
+    });
+
+    try {
+      await releaseLists(0);
+      await queued;
+      const replacement = {
+        routeId: "dictationStt",
+        kind: "patch",
+        patch: { useDictationTranslation: true },
+      };
+      stage(replacement);
+      releaseEnterpriseWrite();
+      await blocker;
+      assert.equal(await applying, null, "Apply lost ownership of its exact draft before queue admission");
+      assert.equal(enterpriseWrites.length, 1, "the replaced Apply never contacts main");
+      assert.equal(live().azureEndpoint, "", "the old Apply endpoint was not materialized");
+      assert.equal(live().bedrockRegion, "eu-west-1", "the earlier durable ACK is reflected");
+      assert.deepEqual(draft(), replacement, "the newer route draft remains available");
+    } finally {
+      useSettingsStore.setState({ applyRoutePatch: originalApplyRoutePatch });
+      if (pendingEnterpriseWrites.length) releaseEnterpriseWrite();
+      if (heldLists.length) await releaseLists(...heldLists.map((_, index) => index));
+    }
   });
 });
 ```
@@ -12935,7 +14141,7 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
    import type { RouteCopy, RouteId } from "../lib/routes";
    import { refreshRouteFacts, useRouteFactsStore } from "./routeFactsStore";
    import { getSealed } from "./sealedStore";
-   import { flushSecretSaves, useSettingsStore } from "./settingsStore";
+   import { flushRoutePatchSaves, flushSecretSaves, useSettingsStore } from "./settingsStore";
 
    // The single place that changes where a task runs (SET-R3 B). Each request
    // is planned (routePlanner.ts). Results that stay on this device, or keep
@@ -12976,13 +14182,15 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      applied: boolean;
      blocker: ApplyBlocker | null;
      plan: RoutePlan;
-     undo?: () => RouteChangeOutcome | "staged";
+     undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed">;
    }
 
-   // "superseded": while this one waited, Settings closed or the draft was
-   // discarded (session epoch), or a newer request or an Undo on the same route
-   // began (route epoch). Nothing was written or staged.
-   export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded";
+   // "superseded": while this one settled, Settings closed or the draft was
+   // discarded, or a newer request/Undo began on the same route. If main has
+   // already ACKed a transaction, its committed tuple remains reflected, while
+   // the newer draft is preserved and callers suppress success copy.
+   export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed";
+   type RouteCommitResult = RouteChangeOutcome | "superseded" | "save-failed";
 
    // Non-secret provider setup the staged editor may add to a target draft
    // (BRIEF item 2; Task 6's ROUTE_ENTERPRISE_KEYS).
@@ -13054,14 +14262,44 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
 
    // Internal: a settled change supersedes its route's draft. Not the user's
    // Discard, so it does not cancel a newer request still waiting.
-   function clearDraftFor(routeId: RouteId): void {
-     if (useRouteDraftStore.getState().draft?.routeId === routeId) {
+   function clearDraftFor(routeId: RouteId, expectedDraft: RouteDraft | null): void {
+     const current = useRouteDraftStore.getState().draft;
+     if (current === expectedDraft && current?.routeId === routeId) {
        useRouteDraftStore.setState({ draft: null });
      }
    }
 
-   function commit(plan: RoutePlan, copy: RouteCopy): RouteChangeOutcome {
-     useSettingsStore.getState().applyRoutePatch(plan.patch);
+   // A newer draft for this route owns the row and blocks an older queued
+   // commit. A draft on another route remains independent and is preserved.
+   function mayCommitForDraft(routeId: RouteId, expectedDraft: RouteDraft | null): boolean {
+     const current = useRouteDraftStore.getState().draft;
+     return current === expectedDraft || current?.routeId !== routeId;
+   }
+
+   // A main ACK is durable even if the user started another request while it
+   // was pending. applyRoutePatch materializes that acknowledged tuple; this
+   // wrapper only suppresses stale success and protects a newer draft. Apply
+   // additionally requires exact draft identity at queue admission.
+   async function commit(
+     plan: RoutePlan,
+     copy: RouteCopy,
+     ticket: RequestTicket,
+     expectedDraft: RouteDraft | null,
+     requireDraftOwner = false
+   ): Promise<RouteCommitResult> {
+     const ownsDraft = () =>
+       requireDraftOwner
+         ? useRouteDraftStore.getState().draft === expectedDraft
+         : mayCommitForDraft(plan.routeId, expectedDraft);
+     try {
+       await useSettingsStore.getState().applyRoutePatch(plan.patch, {
+         expectedEnterprise: plan.enterpriseBase,
+         canCommit: () => isCurrent(ticket) && ownsDraft(),
+       });
+    } catch (error) {
+      if ((error as { code?: string })?.code === "ROUTE_PATCH_SUPERSEDED") return "superseded";
+       return "save-failed";
+     }
      // Like InferenceConfigEditor.tsx:115-117: a scope moving to a server frees
      // the local llama-server.
      const toServer = Object.entries(plan.patch).some(
@@ -13074,19 +14312,29 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      if (typeof plan.patch.voiceAgentScreenContext === "boolean") {
        window.electronAPI?.setScreenContextEnabled?.(plan.patch.voiceAgentScreenContext)?.catch(() => {});
      }
-     clearDraftFor(plan.routeId);
+     if (!isCurrent(ticket) || !ownsDraft()) return "superseded";
+     clearDraftFor(plan.routeId, expectedDraft);
      return { applied: true, blocker: null, plan, undo: () => undo(plan, copy) };
    }
 
    // Undo re-plans the prior raw values against the live state. Back onto the
    // device, or to the same recipient, is instant. Anything that would send
    // data somewhere new is staged for review, never applied by Undo itself.
-   // Undo has no wait, so it is not epoch-gated and still works from a toast
-   // after Settings closes. It is the newest intent for every route it moves,
-   // so it bumps those routes' epochs (never the session epoch): an older
-   // request still waiting on one of them is superseded, others settle.
-   function undo(plan: RoutePlan, copy: RouteCopy): RouteChangeOutcome | "staged" {
+   // Undo still works from a toast after Settings closes. It is the newest
+   // intent for every route it moves, so it bumps those routes' epochs (never
+   // the session epoch). An enterprise Undo awaits main's ACK; if a newer
+   // intent begins while it waits, the durable ACK is reflected but success
+   // copy and draft clearing are suppressed.
+   async function undo(plan: RoutePlan, copy: RouteCopy): Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> {
      bumpRoutes([plan.routeId, ...plan.changes.map((change) => change.id)]);
+     const ticket = peekTicket(plan.routeId);
+     const expectedDraft = useRouteDraftStore.getState().draft;
+     // An earlier enterprise Apply may still own the route queue. Wait for its
+     // durable ACK before deriving Undo, so the reverse patch is planned from
+     // the configuration that actually committed. A newer same-route intent
+     // or session close while waiting prevents the Undo from starting IPC.
+     await flushRoutePatchSaves();
+     if (!isCurrent(ticket) || !mayCommitForDraft(plan.routeId, expectedDraft)) return "superseded";
      const reverse = planPatch(
        useSettingsStore.getState(),
        currentPlanContext(copy),
@@ -13094,7 +14342,7 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
        plan.undoPatch
      );
      if (reverse.kind === "noop") return { applied: false, blocker: null, plan: reverse };
-     if (reverse.kind === "instant") return commit(reverse, copy);
+     if (reverse.kind === "instant") return commit(reverse, copy, ticket, expectedDraft);
      useRouteDraftStore
        .getState()
        .stage({ routeId: plan.routeId, kind: "patch", patch: plan.undoPatch });
@@ -13105,19 +14353,26 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
    // main's presence for it read back, before a plan reads key readiness (I3).
    // credentials.list is a local IPC read; it never touches the network.
    async function readyToPlan(): Promise<void> {
+     await flushRoutePatchSaves();
      await flushSecretSaves();
      await refreshRouteFacts(["credentials"]);
    }
 
    // Shared by both request paths: noop drops the route's draft, instant
    // commits with Undo, staged becomes the single draft.
-   function settle(plan: RoutePlan, draft: RouteDraft, copy: RouteCopy): RouteRequestResult {
+   async function settle(
+     plan: RoutePlan,
+     draft: RouteDraft,
+     copy: RouteCopy,
+     ticket: RequestTicket,
+     expectedDraft: RouteDraft | null
+   ): Promise<RouteRequestResult> {
      if (plan.kind === "noop") {
        // Re-selecting where the task already runs changes nothing and cancels its draft.
-       clearDraftFor(plan.routeId);
+       clearDraftFor(plan.routeId, expectedDraft);
        return { applied: false, blocker: null, plan };
      }
-     if (plan.kind === "instant") return commit(plan, copy);
+     if (plan.kind === "instant") return commit(plan, copy, ticket, expectedDraft);
      useRouteDraftStore.getState().stage(draft);
      return "staged";
    }
@@ -13132,7 +14387,11 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      copy: RouteCopy
    ): Promise<RouteRequestResult> {
      const ticket = takeTicket(id);
-     await readyToPlan();
+     try {
+       await readyToPlan();
+     } catch {
+       return "save-failed";
+     }
      if (!isCurrent(ticket)) return "superseded"; // R2-8
      // A model pick in the staged editor keeps the setup typed for the same
      // provider; a different provider starts without it.
@@ -13143,7 +14402,8 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
          : undefined;
      const plan = planTarget(id, target, setup, copy);
      const draft: RouteDraft = setup ? { routeId: id, kind: "target", target, setup } : { routeId: id, kind: "target", target };
-     return settle(plan, draft, copy);
+     const draftOwner = useRouteDraftStore.getState().draft;
+     return settle(plan, draft, copy, ticket, draftOwner);
    }
 
    // Raw route keys that are not a destination: the enable switches, Corti's
@@ -13157,10 +14417,15 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      copy: RouteCopy
    ): Promise<RouteRequestResult> {
      const ticket = takeTicket(id);
-     await readyToPlan();
+     try {
+       await readyToPlan();
+     } catch {
+       return "save-failed";
+     }
      if (!isCurrent(ticket)) return "superseded"; // R2-8
      const plan = planPatch(useSettingsStore.getState(), currentPlanContext(copy), id, patch);
-     return settle(plan, { routeId: id, kind: "patch", patch }, copy);
+     const draftOwner = useRouteDraftStore.getState().draft;
+     return settle(plan, { routeId: id, kind: "patch", patch }, copy, ticket, draftOwner);
    }
 
    // The staged editor's provider setup (R2-9, R2-1): enterprise region,
@@ -13178,13 +14443,17 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      return next;
    }
 
-   export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null> {
+   export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null | "save-failed"> {
      const draft = useRouteDraftStore.getState().draft;
      if (!draft) return null;
      // Apply bumps nothing (a Discard, a close or a newer request on the draft's
      // route cancels it, not the other way round).
      const ticket = peekTicket(draft.routeId);
-     await readyToPlan();
+     try {
+       await readyToPlan();
+     } catch {
+       return "save-failed";
+     }
      // The user applied this draft. If Settings closed, the draft was discarded
      // or replaced, or a newer request on its route began while saves finished,
      // apply nothing. A request on another route that staged meanwhile replaced
@@ -13197,12 +14466,14 @@ The R2-8 subtests (epoch) and the enterprise-setup subtest also pin the round-2 
      }
      // Task 6 blocks every changed, enabled, off-device route that is not ready (R2-9).
      if (plan.blocker) return { applied: false, blocker: plan.blocker, plan }; // draft kept
-     return commit(plan, copy);
+     const result = await commit(plan, copy, ticket, draft, true);
+     return result === "superseded" ? null : result;
    }
 
    // R2-8: the Settings session ends (SettingsModal close, Task 8). The draft is
    // dropped and the session epoch moves, so every request still waiting, on any
-   // route, settles to "superseded". A toast's Undo keeps working (it has no wait).
+   // route, settles to "superseded". A toast's Undo remains available after
+   // Settings closes, but awaits its main ACK and reports persistence failure.
    export function endSettingsSession(): void {
      useRouteDraftStore.getState().discard();
    }
@@ -13391,7 +14662,7 @@ What the user sees:
   export function useRouteChange(): {
     request(id: RouteId, target: RouteTarget): Promise<RouteRequestResult>;
     requestPatch(id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult>; // I1 follow-up
-    apply(): Promise<RouteChangeOutcome | null>;
+    apply(): Promise<RouteChangeOutcome | null | "save-failed">;
     copy: RouteCopy;
   };
   export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteRequestResult>;
@@ -14357,6 +15628,9 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      const { t } = useTranslation();
      const { toast } = useToast();
      const copy = useRouteCopy();
+     const reportSaveFailure = useCallback(() => {
+       toast({ title: t("common.error"), variant: "destructive", duration: 5000 });
+     }, [t, toast]);
 
      const announce = useCallback(
        (outcome: RouteChangeOutcome) => {
@@ -14373,13 +15647,18 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
                  {
                    label: t("routes.toast.undo"),
                    dismissOnClick: true,
-                   onClick: () => {
-                     const undone = undo();
+                   onClick: async () => {
+                     const undone = await undo();
                      // Undo never moves data off the device by itself: that case waits in the Apply bar.
                      if (undone === "staged") {
                        toast({ title: t("routes.toast.undoStaged"), variant: "default", duration: 5000 });
                        return;
                      }
+                     if (undone === "save-failed") {
+                       reportSaveFailure();
+                       return;
+                     }
+                     if (undone === "superseded") return;
                      if (undone.applied) {
                        const back = routeChangeMessage(undone.plan, t, copy.list);
                        toast({ title: back.title, description: back.description, variant: "success", duration: 4000 });
@@ -14390,35 +15669,38 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
              : undefined,
          });
        },
-       [t, toast, copy]
+       [t, toast, copy, reportSaveFailure]
      );
 
-     // "superseded" (R2-8): Settings closed, Discard ran, or a newer pick or an
-     // Undo on the same route won while this one waited. Nothing happened, so nothing is announced.
+     // Save failures and stale completions never announce success. An ACK that
+     // loses ownership still updates the committed store, but preserves newer draft state.
      const request = useCallback(
        async (id: RouteId, target: RouteTarget): Promise<RouteRequestResult> => {
          const result = await requestRouteChange(id, target, copy);
-         if (result !== "staged" && result !== "superseded") announce(result);
+         if (result === "save-failed") reportSaveFailure();
+         else if (result !== "staged" && result !== "superseded") announce(result);
          return result;
        },
-       [copy, announce]
+       [copy, announce, reportSaveFailure]
      );
 
      // Switches, Corti options, providerSearch:<scope> and the enterprise fields of an active route (Steps 6–10, Task 9).
      const requestPatch = useCallback(
        async (id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult> => {
          const result = await requestRoutePatch(id, patch, copy);
-         if (result !== "staged" && result !== "superseded") announce(result);
+         if (result === "save-failed") reportSaveFailure();
+         else if (result !== "staged" && result !== "superseded") announce(result);
          return result;
        },
-       [copy, announce]
+       [copy, announce, reportSaveFailure]
      );
 
-     const apply = useCallback(async (): Promise<RouteChangeOutcome | null> => {
+     const apply = useCallback(async (): Promise<RouteChangeOutcome | null | "save-failed"> => {
        const outcome = await applyDraft(copy);
-       if (outcome) announce(outcome);
+       if (outcome === "save-failed") reportSaveFailure();
+       else if (outcome) announce(outcome);
        return outcome;
-     }, [copy, announce]);
+     }, [copy, announce, reportSaveFailure]);
 
      return { request, requestPatch, apply, copy };
    }
@@ -14986,7 +16268,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
      import { StagedRouteBar } from "./settings/routing/StagedRouteBar";
      ```
 
-   - Before `return (` (`:125`) add `const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);`. On close, `withDraftDiscard` calls Task 7's `endSettingsSession()`, which discards the draft and bumps the session epoch `requestEpoch`. A route request still waiting, on any route, for a key save or a presence read then settles to `"superseded"`: no draft and no commit after close (R2-8). A toast's Undo is synchronous and keeps working after close.
+   - Before `return (` (`:125`) add `const handleOpenChange = useMemo(() => withDraftDiscard(onOpenChange), [onOpenChange]);`. On close, `withDraftDiscard` calls Task 7's `endSettingsSession()`, which discards the draft and bumps the session epoch `requestEpoch`. A route request still waiting, on any route, for a route-patch ACK, key save or presence read then settles to `"superseded"`: no stale queued commit after close (R2-8). A toast's asynchronous Undo remains callable after close.
    - On `<SidebarModal<SettingsSectionType>` (`:126-133`), replace `onOpenChange={onOpenChange}` (`:128`) with `onOpenChange={handleOpenChange}` and add `footer={<StagedRouteBar />}`.
 
 10. `src/components/SettingsPage.tsx`, `TranscriptionSection`:
@@ -15139,7 +16421,7 @@ Expected: FAIL. `providerCatalog.ts`, `StagedRouteBar.tsx` and `StagedRoutePanel
             }
             // Task 7's commit frees llama-server when a scope moves to a server.
             const outcome = await request(routeId, stagedTargetForMode(mode, routeId, useSettingsStore.getState()));
-            if (outcome === "staged" || outcome === "superseded" || !outcome.applied) return;
+            if (outcome === "staged" || outcome === "superseded" || outcome === "save-failed" || !outcome.applied) return;
             onModeChange?.(mode);
           },
           [routeId, request, stagedMode, effectiveMode, onModeChange, isModeAllowed]
@@ -15416,7 +16698,7 @@ test("enable switches and web search go through the route planner", async (t) =>
     assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { "providerSearch:chatIntelligence": true } });
 
     reset(chat);
-    live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
+    await live().applyRoutePatch({ "providerSearch:chatIntelligence": true });
     await flip(preference(), false);
     assert.equal(globalThis.localStorage.getItem("personalWebSearch:chatIntelligence"), "false", "off is instant");
     assert.equal(draft(), null);
@@ -15475,7 +16757,7 @@ Expected: FAIL. `RouteSwitch.tsx` does not exist (Vite reports `Failed to load u
          disabled={disabled}
          onChange={async (next) => {
            const outcome = await requestPatch(routeId, { [settingKey]: next } as SettingsPatch);
-           if (outcome !== "staged" && outcome !== "superseded" && outcome.applied) onApplied?.(next);
+           if (outcome !== "staged" && outcome !== "superseded" && outcome !== "save-failed" && outcome.applied) onApplied?.(next);
          }}
        />
      );
@@ -15604,7 +16886,7 @@ Closes **C1** and the picker half of **I1**.
 - **I1 (pickers).** Every committed provider, model and endpoint change in `TranscriptionModelPicker` (`handleCloudModelSelect` `:863-878`, the custom base-URL blur that switched provider `:900-927`, per-keystroke URL writes `:1190-1194`, the policy-reconcile write `:636-659`), `ReasoningModelSelector` (`handleModelSelect` `:480-491`, `handleModeChange` `:493-506`) and `SelfHostedPanel` (Settings `:648-656`, Upload `:132-139`) goes through one `onCommit(target)` → `requestRouteChange`. On-device results apply at once with Undo; a new recipient is staged behind Apply. An invalid persisted selection is shown and left for the resolver to report as not ready; the picker no longer rewrites it.
 - **Corti region (I1 follow-up).** The region `Select` and tenant field in `TranscriptionModelPicker`'s Corti credentials (`:301-315`, rendered at `:1249-1272`) called `setCortiEnvironment`/`setCortiTenant`. The region picks the receiving host (`api.<region>.corti.app`, `cortiTranscription.js:39`, `cortiStreaming.js:48`), so both now commit through Task 8's `useRouteChange().requestPatch` (Task 7's `requestRoutePatch`): a region switch is staged when a speech route uses Corti (Corti text always calls `ai.eu.corti.app`, Task 1's `providerHosts["corti:text"]`, so it is not moved), and the tenant (same host) applies at once. The tenant is a local draft committed on leave or Enter, never per keystroke.
 - **C1/I2 (Codex connection).** `CodexConnection` (`src/components/CodexConnection.tsx:60-62`) runs `refresh()` on mount. That calls `codexStatus()`, which starts the Codex app server (`src/helpers/codexAppServer.js:359-367` → `start()` `:116-181`). The first start in a session may also ask GitHub to verify the release (`verifyOfficialCodex`, `src/helpers/codexCli.js:309-340`). When the account is signed in, it then calls `codexRateLimits()` (`:35`, `:44-48`). `CodexModelPicker` renders it (`ReasoningModelSelector.tsx:789`), so opening the Codex tab started Codex. In Settings it now runs nothing on mount. Signed-in presence comes from Task 2's main-confirmed `credentials.list` row for `"codex"`, a stat of `auth.json` with no process and no network, read through Task 3's `useRouteFactsStore`. Status and quota are read only by an explicit **Check ChatGPT status** button whose tooltip names ChatGPT via the Codex app. Account events still refresh, because they follow an explicit sign-in or sign-out. Onboarding (`OnboardingFlow.tsx:546`) is Plan 05's concern. It opts into the old mount read with `checkStatusOnMount`, so its behaviour and tests stay as they are, and Plan 05 decides whether to keep it.
-- **R2-1 (enterprise recipients, UI side).** `EnterpriseProviderConfig` wrote its route fields directly. That covered the Bedrock region (`:114-118`, `settings.setBedrockRegion` plus a per-keystroke model rewrite), the Azure endpoint (`:145-148`, `settings.setAzureEndpoint`, which `settingsStore.ts:2060-2063` persists to main at once through `saveAzureEndpoint`) and the Vertex project and location (`:166-174`). Main reads exactly these for requests (`main.js:447-457` → `enterpriseAiProviders.js:26,73-81,90-91`), so typing an Azure endpoint could redirect content and its key without review. Each field is now a local draft committed on leave or Enter:
+- **R2-1 (enterprise recipients, UI side).** `EnterpriseProviderConfig` wrote its route fields directly. That covered the Bedrock region (`:114-118`, `settings.setBedrockRegion` plus a per-keystroke model rewrite), the Azure endpoint (`:145-148`, `settings.setAzureEndpoint`) and the Vertex project, location and auth source (`:166-174`). Main reads these for requests (`main.js:447-457` → `enterpriseAiProviders.js:26,73-81,90-91`), so typing an Azure endpoint could redirect content and its key without review. Each field is now a local draft committed through the route planner; Apply waits for one expected-tuple `saveEnterpriseRoutePatch` ACK before updating main and renderer:
   - for the route being edited: through `requestRoutePatch({ <field>: value })` (Task 8's `requestPatch`), which Task 6 plans with its coupled changes (Bedrock's `adjustBedrockModelForRegion` model update) and stages when a host changes;
   - inside the staged panel: through Task 7's `stageDraftSetup`, which writes nothing.
   The component no longer calls any store setter for these fields. Task 6's `applyRoutePatch` is the only writer, and it tells main.
@@ -15642,7 +16924,7 @@ Closes **C1** and the picker half of **I1**.
   - Task 5: the `routes.state.sealed` copy, shown when the self-hosted probe answers `{ ok: false, code: "sealed" }` (spec §5.4: main gates `probe-self-hosted` as `providerCheck`, loopback only while sealed; Plan 07 adds the gate).
   - Main's discovery handler resolves the credential slot it sends: `custom:<scope>` for custom endpoints and `openrouter` for OpenRouter (`src/helpers/personalInference.js:136-138`, `:286-301`).
   - Task 2: `AcknowledgedSecretSave`, `unavailableSecretSave` (`src/components/ui/ApiKeyInput.tsx`), `ApiKeyInput`'s `credentialId?: CredentialSlot`, and `credentialSlotForRef(ref): CredentialSlot | undefined` (`src/lib/credentialSlots.ts`). Also Task 2's `InferenceConfigEditor` `saveCustomKey: AcknowledgedSecretSave`, which is reused here.
-  - Task 6: `ROUTE_ENTERPRISE_KEYS` (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`) are route patch keys. `planPatch` adds Bedrock's region model coupling to the same patch and its Undo. `applyRoutePatch` mirrors the old setters for the four keys (localStorage, `window.electronAPI.save{BedrockRegion,AzureEndpoint,VertexProject,VertexLocation}`, `.env`), and the graph's `enterprise` slice gives each enterprise route its `host` and readiness.
+  - Task 6: `ROUTE_ENTERPRISE_KEYS` (`bedrockRegion`, `azureEndpoint`, `vertexProject`, `vertexLocation`, `vertexAuthSource`) are route patch keys. `planPatch` adds Bedrock's region model coupling to the same patch and its Undo. `applyRoutePatch` sends the enterprise subset as one expected-tuple transaction; only main's ACK commits localStorage/store state, and the graph's `enterprise` slice gives each enterprise route its `host` and readiness.
   - Task 7: `stageDraftSetup(id, patch)` and `RouteDraft.setup`.
   - Task 8: the staged panel's `setup?: ReactNode` slot.
   - Task 11: `window.electronAPI.keyring.describeVerify(identity): Promise<VerifyTargetDescription>` (`{ hosts: string[]; fields: string[] }`, declared by this task in `src/types/electron.ts`) for `"bedrock" | "azure" | "vertex"`, computed by main from `getEnterpriseConfig` (`main.js:447-457`), the configuration `textGenerate` uses.
@@ -16338,17 +17620,33 @@ const EAST = "https://east.openai.azure.com/openai";
 const WEST = "https://west.openai.azure.com/openai";
 
 test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t) => {
-  // Main's committed enterprise configuration (main.js:447-457). Only the preload savers change it.
-  const main = { azureEndpoint: EAST, bedrockRegion: "us-east-1", vertexProject: "", vertexLocation: "" };
+  // Main's committed enterprise configuration (main.js:447-457). Only the
+  // expected-tuple transaction changes it; no individual saver is exposed.
+  const main = {
+    azureEndpoint: EAST,
+    bedrockRegion: "us-east-1",
+    vertexProject: "acme-prod",
+    vertexLocation: "europe-west4",
+    vertexAuthSource: "adc",
+  };
   const writes = [];
-  const saver = (key) => async (value) => {
-    writes.push([key, value]);
-    main[key] = value;
-    return { success: true };
+  const saveEnterpriseRoutePatch = async ({ patch, expected }) => {
+    writes.push({ patch: { ...patch }, expected: { ...expected } });
+    if (Object.keys(main).some((key) => expected[key] !== main[key])) {
+      return { success: false, conflict: true, current: { ...main } };
+    }
+    Object.assign(main, patch);
+    return { success: true, current: { ...main } };
   };
   // One host rule for both the disclosure and the request, as main uses one configuration for both.
+  let vertexKeyPresent = false;
   const hostsFor = (provider) => {
     if (provider === "bedrock") return [`bedrock-runtime.${main.bedrockRegion || "us-east-1"}.amazonaws.com`];
+    if (provider === "vertex") {
+      if (main.vertexAuthSource === "apiKey") return ["aiplatform.googleapis.com"];
+      const location = main.vertexLocation || "us-central1";
+      return [location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`];
+    }
     if (provider !== "azure") return [];
     try {
       const url = new URL(main.azureEndpoint);
@@ -16360,40 +17658,93 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
   const describeCalls = [];
   const captured = [];
   const codexCalls = [];
+  const credentialListeners = new Set();
+  let credentialGeneration = 1;
+  const CREDENTIAL_IDS = [
+    "openai", "anthropic", "gemini", "groq", "xai", "mistral", "openrouter", "tinfoil",
+    "deepgram", "assemblyai", "corti:text", "corti:speech", "codex", "bedrock", "azure", "vertex",
+  ];
+  const emitVertexPresence = () => {
+    const change = { id: "vertex", present: vertexKeyPresent, generation: ++credentialGeneration, fields: { key: vertexKeyPresent } };
+    credentialListeners.forEach((listener) => listener(change));
+    globalThis.window.dispatchEvent(new CustomEvent("credentials-changed", { detail: change }));
+  };
   const codex = (name, value) => async () => {
     codexCalls.push(name);
     return value;
   };
+  const api = routeTestApi({
+    present: ["openai", "azure", "bedrock"],
+    extra: {
+      saveEnterpriseRoutePatch,
+      getBedrockRegion: async () => main.bedrockRegion,
+      getAzureEndpoint: async () => main.azureEndpoint,
+      getVertexProject: async () => main.vertexProject,
+      getVertexLocation: async () => main.vertexLocation,
+      getVertexAuthSource: async () => main.vertexAuthSource,
+      enterpriseRouteFacts: async () => ({
+        bedrockEndpoint: { set: false, host: null },
+        bedrockProfile: false,
+        vertexApiKeyEnv: false,
+        vertexProjectEnv: false,
+      }),
+      credentials: {
+        list: async () => CREDENTIAL_IDS.map((id) => ({
+          id,
+          present: id === "vertex" ? vertexKeyPresent : ["openai", "azure", "bedrock"].includes(id),
+          generation: credentialGeneration,
+          fields: id === "vertex" ? { key: vertexKeyPresent } : {},
+        })),
+        save: async (id, field) => {
+          if (id === "vertex" && field === "key") vertexKeyPresent = true;
+          emitVertexPresence();
+          return { ok: true, generation: credentialGeneration };
+        },
+        remove: async (id) => {
+          if (id !== "vertex") return { ok: false, error: "unused" };
+          vertexKeyPresent = false;
+          emitVertexPresence();
+          return { ok: true, undoToken: "vertex-undo-token", expiresAt: Date.now() + 8000, generation: credentialGeneration };
+        },
+        undoRemove: async (token) => {
+          if (token !== "vertex-undo-token") return { ok: false, reason: "unknown" };
+          vertexKeyPresent = true;
+          emitVertexPresence();
+          return { ok: true, generation: credentialGeneration };
+        },
+        onChanged: (listener) => {
+          credentialListeners.add(listener);
+          return () => credentialListeners.delete(listener);
+        },
+      },
+      keyring: {
+        describeVerify: async (identity) => {
+          describeCalls.push(identity);
+          return {
+            hosts: hostsFor(identity),
+            fields: identity === "vertex" ? (main.vertexAuthSource === "adc" ? [] : vertexKeyPresent ? ["key"] : ["key"])
+              : identity === "azure" ? ["key"] : ["accessKeyId", "secretAccessKey"],
+          };
+        },
+      },
+      personalInference: {
+        // The fake transport: the host this request would reach, from main's committed config.
+        textGenerate: async (request) => {
+          captured.push(hostsFor(request.provider)[0] ?? null);
+          return { text: "hello" };
+        },
+        codexStatus: codex("codexStatus", { available: true, account: null }),
+        codexRateLimits: codex("codexRateLimits", {}),
+        codexModels: codex("codexModels", { data: [], nextCursor: null }),
+        codexLogin: codex("codexLogin", { loginId: "fixture" }),
+        onTextEvent: () => () => {},
+      },
+    },
+  });
   installBrowserGlobals(t, {
     window: {
       location: { search: "" },
-      electronAPI: routeTestApi({
-        present: ["openai", "azure", "bedrock"],
-        extra: {
-          saveAzureEndpoint: saver("azureEndpoint"),
-          saveBedrockRegion: saver("bedrockRegion"),
-          saveVertexProject: saver("vertexProject"),
-          saveVertexLocation: saver("vertexLocation"),
-          keyring: {
-            describeVerify: async (identity) => {
-              describeCalls.push(identity);
-              return { hosts: hostsFor(identity), fields: identity === "azure" ? ["key"] : ["accessKeyId", "secretAccessKey"] };
-            },
-          },
-          personalInference: {
-            // The fake transport: the host this request would reach, from main's committed config.
-            textGenerate: async (request) => {
-              captured.push(hostsFor(request.provider)[0] ?? null);
-              return { text: "hello" };
-            },
-            codexStatus: codex("codexStatus", { available: true, account: null }),
-            codexRateLimits: codex("codexRateLimits", {}),
-            codexModels: codex("codexModels", { data: [], nextCursor: null }),
-            codexLogin: codex("codexLogin", { loginId: "fixture" }),
-            onTextEvent: () => () => {},
-          },
-        },
-      }),
+      electronAPI: api,
     },
   });
   const vite = await rendererServer(t, "loqui-enterprise-routes-");
@@ -16402,17 +17753,25 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
   const { useRouteChange, useRouteCommit } = await vite.ssrLoadModule("/components/settings/routing/useRouteChange.ts");
   const { StagedRouteBarView } = await vite.ssrLoadModule("/components/settings/routing/StagedRouteBar.tsx");
   const { StagedRoutePanel } = await vite.ssrLoadModule("/components/settings/routing/StagedRoutePanel.tsx");
+  const routes = await vite.ssrLoadModule("/lib/routes.ts");
   const Selector = (await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx")).default;
   await primeRouteFacts(vite);
-  const { wrap } = await toastCapture(vite);
+  const { wrap, toasts } = await toastCapture(vite);
   const probes = createProbeRoot(t, { wrap });
 
   const live = () => useSettingsStore.getState();
   const draft = () => drafts.useRouteDraftStore.getState().draft;
   const reset = (state) => {
     drafts.useRouteDraftStore.getState().discard();
-    Object.assign(main, { azureEndpoint: state.azureEndpoint ?? "", bedrockRegion: state.bedrockRegion ?? "us-east-1" });
-    useSettingsStore.setState({ azureEndpoint: "", bedrockRegion: "us-east-1", useCleanupModel: false, ...state });
+    Object.assign(main, {
+      azureEndpoint: state.azureEndpoint ?? "",
+      bedrockRegion: state.bedrockRegion ?? "us-east-1",
+      vertexProject: state.vertexProject ?? "acme-prod",
+      vertexLocation: state.vertexLocation ?? "europe-west4",
+      vertexAuthSource: state.vertexAuthSource ?? "adc",
+    });
+    vertexKeyPresent = Boolean(state.vertexApiKey);
+    useSettingsStore.setState({ azureEndpoint: "", bedrockRegion: "us-east-1", vertexApiKey: vertexKeyPresent ? "__stored__" : "", useCleanupModel: false, ...state });
     writes.length = 0;
     captured.length = 0;
     describeCalls.length = 0;
@@ -16497,14 +17856,14 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
     const out = await drafts.applyDraft(TEST_COPY);
     assert.equal(out.applied, true);
     assert.equal(live().azureEndpoint, WEST);
-    assert.deepEqual(writes, [["azureEndpoint", WEST]]);
+    assert.deepEqual(writes.map(({ patch }) => patch), [{ azureEndpoint: WEST }]);
 
     // Undo is exact: the old host is a recipient change, so it is reviewed, then restores the old value.
-    assert.equal(out.undo(), "staged");
+    assert.equal(await out.undo(), "staged");
     assert.equal(live().azureEndpoint, WEST);
     assert.equal((await drafts.applyDraft(TEST_COPY)).applied, true);
     assert.equal(live().azureEndpoint, EAST);
-    assert.deepEqual(writes, [["azureEndpoint", WEST], ["azureEndpoint", EAST]]);
+    assert.deepEqual(writes.map(({ patch }) => patch), [{ azureEndpoint: WEST }, { azureEndpoint: EAST }]);
   });
 
   // Change-driving: the region Field called setBedrockRegion and rewrote the model per keystroke
@@ -16524,8 +17883,8 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
     assert.equal(out.applied, true);
     assert.equal(live().bedrockRegion, "eu-west-1");
     assert.equal(live().chatAgentModel, "eu.anthropic.claude-sonnet-4-5");
-    assert.deepEqual(writes, [["bedrockRegion", "eu-west-1"]]);
-    assert.equal(out.undo(), "staged");
+    assert.deepEqual(writes.map(({ patch }) => patch), [{ bedrockRegion: "eu-west-1" }]);
+    assert.equal(await out.undo(), "staged");
     await drafts.applyDraft(TEST_COPY);
     assert.equal(live().bedrockRegion, "us-east-1");
     assert.equal(live().chatAgentModel, "us.anthropic.claude-sonnet-4-5");
@@ -16615,6 +17974,60 @@ test("enterprise recipients go through the planner (R2-1, R2-6, R2-9)", async (t
     assert.ok(codexCalls.includes("codexLogin"), "sign-in is the explicit action");
     assert.equal(live().chatAgentProvider, "openai", "signing in commits no route");
     assert.equal(draft().target.provider, "codex");
+  });
+
+  // Change-driving (R3-1): secret presence used to move Vertex from ADC to Express without Apply.
+  await t.test("mounted Vertex save, Remove and Undo change readiness only; source changes wait for Apply", async () => {
+    reset({
+      chatAgentMode: "enterprise",
+      chatAgentProvider: "vertex",
+      chatAgentModel: "gemini-2.5-flash",
+      vertexProject: "acme-prod",
+      vertexLocation: "europe-west4",
+      vertexAuthSource: "apiKey",
+    });
+    const config = await mountEnterprise("chat", "vertex", "gemini-2.5-flash");
+    const chat = () => routes.resolveRoute(routes.routeSnapshotFromSettings(live()), "chat");
+    await probes.settle();
+    assert.equal(chat().host, "aiplatform.googleapis.com");
+    assert.equal(chat().state.status, "needsKey");
+
+    const apiKeyElement = () => findElement(config(), (node) => node.type?.name === "ApiKeyInput");
+    const keyView = await probes.mount("vertex-api-key", () => apiKeyElement().type(apiKeyElement().props));
+    const keyAction = (action) => findElement(keyView(), (node) => node.props?.["data-action"] === action);
+    const keyEdit = () => findElement(keyView(), (node) => node.type === "button" && node.props?.className?.includes("cursor-pointer"));
+    await probes.act(() => keyEdit().props.onClick());
+    await probes.act(() => findElement(keyView(), (node) => node.props?.type === "password").props.onChange({ target: { value: "vertex-fixture-secret" } }));
+    await probes.act(() => keyAction("save-key").props.onClick());
+    await probes.settle();
+    assert.equal(chat().host, "aiplatform.googleapis.com", "acknowledged save keeps the apiKey recipient");
+    assert.equal(chat().state.status, "ready", "the committed key makes this source ready");
+    assert.equal(main.vertexAuthSource, "apiKey");
+
+    await probes.act(() => keyAction("remove-key").props.onClick());
+    await probes.settle();
+    assert.equal(chat().host, "aiplatform.googleapis.com", "Remove does not change the recipient");
+    assert.equal(chat().state.status, "needsKey");
+    const undo = toasts.at(-1)?.actions?.[0];
+    assert.equal(typeof undo?.onClick, "function", "main removal exposes the undo action");
+    await probes.act(() => undo.onClick());
+    await probes.settle();
+    assert.equal(chat().host, "aiplatform.googleapis.com", "Undo does not change the recipient");
+    assert.equal(chat().state.status, "ready");
+    assert.equal(main.vertexAuthSource, "apiKey", "credential lifecycle never writes the auth source");
+
+    const source = findElement(config(), (node) => node.props?.["data-route-field"] === "vertexAuthSource");
+    await probes.act(() => source.props.onChange({ currentTarget: { value: "adc" } }));
+    await probes.settle();
+    assert.deepEqual(draft(), { routeId: "chat", kind: "patch", patch: { vertexAuthSource: "adc" } });
+    assert.equal(main.vertexAuthSource, "apiKey", "selecting ADC only stages the source");
+    const review = drafts.planDraft(draft(), TEST_COPY);
+    assert.equal(review.changes.find((change) => change.id === "chat").before.host, "aiplatform.googleapis.com");
+    assert.equal(review.changes.find((change) => change.id === "chat").after.host, "europe-west4-aiplatform.googleapis.com");
+    assert.equal((await drafts.applyDraft(TEST_COPY)).applied, true);
+    assert.equal(main.vertexAuthSource, "adc");
+    assert.equal(chat().host, "europe-west4-aiplatform.googleapis.com");
+    assert.equal(chat().state.status, "ready", "ADC requires project, not an API key");
   });
 });
 
@@ -17406,7 +18819,7 @@ Expected: FAIL. In `enterpriseRoutes.test.js`, typing an Azure endpoint or a Bed
    import { Input } from "./ui/input";
 
    type EnterpriseProvider = "bedrock" | "azure" | "vertex";
-   type RouteField = "bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation";
+   type RouteField = "bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation" | "vertexAuthSource";
    type Translate = (key: string, options?: Record<string, unknown>) => string;
    export interface VerifyTarget {
      hosts: string[];
@@ -17508,7 +18921,7 @@ Expected: FAIL. In `enterpriseRoutes.test.js`, typing an Azure endpoint or a Bed
          ? settings.azureEndpoint
          : provider === "bedrock"
            ? `${settings.bedrockRegion}|${settings.bedrockProfile}`
-           : `${settings.vertexProject}|${settings.vertexLocation}`;
+           : `${settings.vertexProject}|${settings.vertexLocation}|${settings.vertexAuthSource}`;
      useEffect(
        () => window.electronAPI?.credentials?.onChanged?.(() => setCredentialEvents((n) => n + 1)),
        []
@@ -17604,6 +19017,19 @@ Expected: FAIL. In `enterpriseRoutes.test.js`, typing an Azure endpoint or a Bed
            <>
              <DraftField label={t("reasoning.enterprise.projectId")} value={value("vertexProject")} onCommit={routeField("vertexProject")} />
              <DraftField label={t("reasoning.enterprise.location")} value={value("vertexLocation")} onCommit={routeField("vertexLocation")} />
+             <label className="block space-y-1 text-sm">
+               <span>{t("reasoning.enterprise.vertex.authSource")}</span>
+               <select
+                 aria-label={t("reasoning.enterprise.vertex.authSource")}
+                 data-route-field="vertexAuthSource"
+                 value={value("vertexAuthSource") || "adc"}
+                 onChange={(event) => routeField("vertexAuthSource")(event.currentTarget.value)}
+                 className="h-9 w-full rounded-md border bg-background px-3"
+               >
+                 <option value="adc">{t("reasoning.enterprise.vertex.authSourceAdc")}</option>
+                 <option value="apiKey">{t("reasoning.enterprise.vertex.authSourceApiKey")}</option>
+               </select>
+             </label>
              <p className="text-xs text-muted-foreground">{t("reasoning.enterprise.vertex.adcHelp")}</p>
              <ApiKeyInput
                apiKey={settings.vertexApiKey}
@@ -17650,7 +19076,7 @@ Expected: FAIL. In `enterpriseRoutes.test.js`, typing an Azure endpoint or a Bed
    }
    ```
 
-   - `settingsStore`'s `setBedrockRegion`, `setAzureEndpoint`, `setVertexProject` and `setVertexLocation` (`src/stores/settingsStore.ts:2033-2038`, `:2060-2065`, `:2087-2098`) each persist to main at once (`saveBedrockRegion`/`saveAzureEndpoint`/`saveVertexProject`/`saveVertexLocation`). No UI calls them any more. The only writer of these four keys is Task 6's `applyRoutePatch`, which mirrors their storage and main calls for a committed patch. This task's source guard (the last test in `enterpriseRoutes.test.js`) pins that for this component. Task 18's route-write guard should also list the four setters (NOTES-draft), so no new caller anywhere can come back.
+   - `settingsStore`'s `setBedrockRegion`, `setAzureEndpoint`, `setVertexProject`, `setVertexLocation` and `setVertexAuthSource` (`src/stores/settingsStore.ts:2033-2105`) each persist to main at once. No Settings UI calls them any more. The only writer of these five route fields is Task 6's `applyRoutePatch`, which mirrors their storage and main calls for a committed patch. The Vertex source selector uses `routeField("vertexAuthSource")` and never saves while typing/selecting; its staged patch is reviewed with every active Vertex recipient. This task's source guard pins the component and Task 18's route-write guard lists all five setters, so no direct writer can return.
    - `adjustBedrockModelForRegion` is no longer imported here. Task 6's `planPatch` (`planEnterpriseCoupling`) adds the model update to the same patch, so the review shows it and Undo restores it.
    - The disclosure and button host come from main. The renderer never derives a host from the endpoint field: a staged edit doesn't change where Test sends until Apply commits it.
 
@@ -18350,7 +19776,7 @@ The page shows 11 task jacks on the left and destinations on the right.
   - from Task 4: `src/lib/settingsPaths.ts` (`SETTINGS_SECTIONS`, `SECTION_ALIASES`, `parseSettingsPath`) and the `SettingsPage` prop `onNavigateToPath?: (path: string) => void` (declared by Task 4, destructured here);
   - from Task 5: `RouteStateChip({ state, className? })` and `RouteDestinationChip({ route: Pick<ResolvedRoute, "locality" | "providerId" | "model">, className? })` in `./RouteChips`;
   - from Task 6: the `RouteTarget` and `RoutePlan` types (`src/lib/routePlanner.ts`; `RoutePlan.kind` is `"noop" | "instant" | "staged"`);
-  - from Task 7: `requestRouteChange(id, target, copy): Promise<RouteRequestResult>` (`RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"`; `"superseded"` means Settings closed, Discard ran, or a newer request or an Undo on the same route began while it waited (Task 7's per-route epochs), R2-8), `RouteChangeOutcome { applied; blocker; plan; undo?: () => RouteChangeOutcome | "staged" }` and `useRouteDraftStore` (`src/stores/routeDraftStore.ts`). `requestRouteChange` returns `"staged"` for a draft, `{ applied: true, blocker: null, undo }` for an instant commit and `{ applied: false, blocker: null, plan: { kind: "noop" } }` for a no-op;
+  - from Task 7: `requestRouteChange(id, target, copy): Promise<RouteRequestResult>` (`RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed"`; `"superseded"` means Settings closed, Discard ran, or a newer request or an Undo on the same route began while it waited (Task 7's per-route epochs), R2-8), `RouteChangeOutcome { applied; blocker; plan; undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> }` and `useRouteDraftStore` (`src/stores/routeDraftStore.ts`). `requestRouteChange` returns `"staged"` for a draft, `{ applied: true, blocker: null, undo }` for an instant commit and `{ applied: false, blocker: null, plan: { kind: "noop" } }` for a no-op;
   - from Task 8: `providersForRoute(id: RouteId): string[]` (`src/components/settings/routing/providerCatalog.ts`, imported as `./providerCatalog`) and `StagedRoutePanel({ routeId }: { routeId: RouteId })` (`./StagedRoutePanel`);
   - from Plan 01: `providerDisplayName` (sorting only), `providerDisplayLabel(id, t)` for every name shown, `LocalityRing`, the `locality.device` / `locality.network` / `locality.remote` / `locality.customEndpoint` keys, the `--motion-*` and `--color-locality-*` tokens.
 - Owner rule (Task 6): the Patchbay changes a route only through `requestRouteChange`. It writes no provider, model, endpoint or enable-switch field, and renders no enable switch (an off task says "Turn it on in its settings" and links there).
@@ -19609,7 +21035,7 @@ Expected: FAIL.
      destinations: RouteDestination[];
      selectedId: RouteId | null;
      message: string | null;
-     undo: (() => void) | null;
+    undo: (() => Promise<void>) | null;
      compatOf: (dest: RouteDestination) => Compatibility | null;
      keyStateOf: (dest: RouteDestination) => KeyState | null;
      selectTask: (id: RouteId) => void;
@@ -19621,7 +21047,7 @@ Expected: FAIL.
      const { routes, snapshot, sealed, providersFor, request, copy, t } = deps;
      const [selectedId, setSelectedId] = useState<RouteId | null>(null);
      const [message, setMessage] = useState<string | null>(null);
-     const [undo, setUndo] = useState<(() => void) | null>(null);
+    const [undo, setUndo] = useState<(() => Promise<void>) | null>(null);
      const busy = useRef(false);
 
      const destinations = useMemo(() => buildDestinations(snapshot, routes), [snapshot, routes]);
@@ -19660,9 +21086,14 @@ Expected: FAIL.
        return true;
      }, [selectedId]);
 
-     const runUndo = (fn: () => RouteChangeOutcome | "staged", task: string) => {
+     const runUndo = async (fn: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed">, task: string) => {
        setUndo(null);
-       const result = fn();
+       const result = await fn();
+       if (result === "superseded") return;
+       if (result === "save-failed") {
+         setMessage(t("common.error"));
+         return;
+       }
        if (result === "staged") setMessage(t("patchbay.hint.undoStaged"));
        else setMessage(result.applied ? t("patchbay.hint.undone", { task }) : t("patchbay.hint.notApplied"));
      };
@@ -19722,6 +21153,10 @@ Expected: FAIL.
            // while this one waited (R2-8):
            // nothing was staged or committed, so say nothing.
            if (outcome === "superseded") return;
+           if (outcome === "save-failed") {
+             setMessage(t("common.error"));
+             return;
+           }
            if (outcome === "staged") {
              setMessage(t("patchbay.hint.staged", { task, destination: destinationLabel(dest, t) }));
            } else {
@@ -20492,7 +21927,7 @@ Closes I11 (a verdict is recorded only if the credential generation it tested is
 
 Round-2 revisions (Codex R2-4, R2-6, R2-7):
 - **The value tested is the committed one (R2-4).** Verify calls the authority's `captureCommitted(id)` (Task 2). It is queued behind every save, removal and Undo already requested for that credential. It returns the committed value together with the generation it belongs to, and `_runProviderConnectionTest` tests exactly those values; it never reads `process.env`, which already holds an unacknowledged write (`src/helpers/environment.js:155`). A concurrent replacement therefore either commits first and is tested under its own generation, or commits later and supersedes the verdict. A replacement that fails never moves the generation, but the value tested was the committed one, so no rollback can leave a verdict for the attempted key on the restored key. Tests run over the real `EnvironmentManager` bodies with a deferred filesystem.
-- **Verify discloses its real recipient (R2-6).** `keyring.describeVerify(identity, options?)` returns `{ hosts, fields }`, computed from the same config and the same URL builders the request uses. For Corti speech, that is `cortiTokenUrl`, now the single builder `getCortiToken` fetches (`src/helpers/cortiAuth.js:43-52`), so it names `auth.<region>.corti.app`. Every other identity goes through `resolveProviderRequest`. It also answers for `bedrock`/`azure`/`vertex` from main's committed enterprise config and main's environment overrides (Task 1's `enterpriseRouteFacts(process.env)`: `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`/`AWS_ENDPOINT_URL` replace the Bedrock host, and `GOOGLE_VERTEX_API_KEY` puts Vertex in express mode), for Task 9's Test connection label. Tests check that the described host equals the host the fake transport captured, including after a region change.
+- **Verify discloses its real recipient (R2-6/R3-1).** `keyring.describeVerify(identity, options?)` returns `{ hosts, fields }`, computed from the same config and URL builders the request uses. For Corti speech, that is `cortiTokenUrl`, now the single builder `getCortiToken` fetches (`src/helpers/cortiAuth.js:43-52`), so it names `auth.<region>.corti.app`. Every other identity goes through `resolveProviderRequest`. Enterprise disclosures use main's committed settings and `enterpriseRouteFacts(process.env)`: Bedrock endpoint overrides name the actual endpoint host; Vertex follows persisted `vertexAuthSource`, never the presence of a stored or ambient key. ADC uses the location host with no key field. apiKey mode uses the express host, names the captured stored key first or the captured legacy `environmentKey` fallback, and is never silently converted to ADC when the key is missing. Tests check that the described host matches the real SDK/request path under injected environment values.
 - **Main's seal predicate (R2-7, owner's ruling).** The production `IPCHandlers` constructor reads `managers.isSealed`, which defaults to `() => false` until Plan 07, and passes it to `createKeyring`. Verify checks it after the save wait (the capture). A sealed refusal thrown by the transport (Plan 07's `SealedModeError` shape) also maps to outcome `sealed`, with health unchanged, so the renderer's sequential Verify all stops (Task 12). The tests drive the registered `keyring-verify` handler of a really constructed `IPCHandlers`.
 
 Verifying a key sends it to the provider, which is a network event (`docs/PRIVACY.md:51`). So verification is always an explicit request from the renderer, runs in main with the stored credential and returns only a verdict. A save never verifies, and a rejected key is never deleted (preserve content). The renderer awaits `flushSecretSaves()` (Task 2) before it asks main to verify, so Verify always tests what main has stored.
@@ -20520,7 +21955,7 @@ Verifying a key sends it to the provider, which is a network event (`docs/PRIVAC
   - the credential authority from Task 2: `present(id)`, `generation(id)`, `captureCommitted(id)`, `list()` (field presence), `subscribe(listener)` with `cause`, `save`/`remove`/`undoRemove`/`reset` (tests);
   - `test/helpers/harness/fakeCredentialEnv.js` and `test/helpers/harness/realCredentialEnv.js` (Task 2);
   - `cortiTokenUrl` (this task, `src/helpers/cortiAuth.js`) and `resolveProviderRequest` (`src/helpers/providerConnectionTest.js:154`);
-  - Task 1's `enterpriseRouteFacts(env): EnterpriseMainFacts` (`src/helpers/enterpriseRouteFacts.js`; `{ bedrockEndpoint: { set: boolean; host: string | null }; vertexApiKeyEnv: boolean; vertexProjectEnv: boolean }`), which the production `enterpriseConfig` passes as `routeFacts`;
+  - Task 1's `enterpriseRouteFacts(env): EnterpriseMainFacts` (`src/helpers/enterpriseRouteFacts.js`; `{ bedrockEndpoint: { set: boolean; host: string | null }; bedrockProfile: boolean; vertexApiKeyEnv: boolean; vertexProjectEnv: boolean }`), which the production `enterpriseConfig` passes as `routeFacts`; main's committed `vertexAuthSource` is part of that config;
   - Task 9's `VerifyTargetDescription` and its forward `keyring?` member in `src/types/electron.ts`, which this task replaces;
   - the existing connection test (`src/helpers/providerConnectionTest.js:282-333`) and Corti token minting (`src/helpers/cortiAuth.js:23-77`) via the extracted `_runProviderConnectionTest`;
   - `i18nMain` (`src/helpers/ipcHandlers.js:48`, `const { i18nMain, changeLanguage } = require("./i18nMain")`) and Electron's `Notification`;
@@ -20594,7 +22029,7 @@ Verifying a key sends it to the provider, which is a network event (`docs/PRIVAC
   - Enterprise identities ignore `options` and read main's committed enterprise config plus `routeFacts`, Task 1's `enterpriseRouteFacts(process.env)` (`src/helpers/enterpriseRouteFacts.js`, re-read on every call). The rules are Task 1's `enterpriseRequestHost`, and `hosts` is `[]` wherever that gives `null`.
     - azure: `[endpoint host]`; `[]` when the endpoint is empty, invalid, not HTTPS or carries credentials (`enterpriseAiProviders.js:73-77`). No environment variable redirects Azure.
     - bedrock: when `routeFacts.bedrockEndpoint.set` (main has `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, else `AWS_ENDPOINT_URL`), `[bedrockEndpoint.host]`, or `[]` when that host is `null`. Otherwise `bedrock-runtime.<region||us-east-1>.<partition suffix>`, following `@ai-sdk/amazon-bedrock` 5.0.94 (`[]` if that URL does not parse). Fields are `["profile"]`, or else the stored key fields.
-    - vertex: `aiplatform.googleapis.com` with `["key"]` when a key is stored. Otherwise, when `routeFacts.vertexApiKeyEnv` (main has `GOOGLE_VERTEX_API_KEY`), `aiplatform.googleapis.com` with `["environmentKey"]`: express mode, and the environment's key is sent. Otherwise the host is derived from the location: `global`, `eu`/`us` `.rep`, or `<loc>-aiplatform`, following `@ai-sdk/google-vertex` 5.0.93, with `[]` (`hosts: []` if the URL does not parse).
+    - vertex: the persisted `vertexAuthSource` selects the host. `adc` uses the location-derived regional/global host and `fields: []`, even when a stored or ambient API key exists. `apiKey` uses `aiplatform.googleapis.com`; the fields are `["key"]` when the committed slot contains a key, otherwise `["environmentKey"]` when the supported legacy fallback is committed, otherwise `["key"]` to show the required missing slot. Missing key never selects ADC. An unknown source fails closed with `hosts: []`.
     - `environmentKey` is a disclosure name, not a credential slot. This task adds its locale strings `keyring.fields.environmentKey` and `reasoning.enterprise.field.environmentKey` (Step 3.10), so Task 9's `enterpriseTestDisclosure` and Task 12's `verifyTargetText` translate it unchanged.
   - An unknown identity rejects.
   - Renderers re-query it on `credentials.onChanged`, on `keyring.onChanged`, and whenever the option or setting it depends on changes. They never memoize it once (Task 12; Task 9 for enterprise).
@@ -20987,6 +22422,16 @@ test("describeVerify names the hosts and slot names each Verify sends to", async
     hosts: ["aiplatform.eu.rep.googleapis.com"],
     fields: [],
   });
+  assert.deepEqual(
+    enterpriseVerifyTarget("vertex", { vertexAuthSource: "adc", vertexLocation: "europe-west4" }, { key: true }),
+    { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] },
+    "ADC keeps the configured recipient and sends no API key even if one is stored"
+  );
+  assert.deepEqual(
+    enterpriseVerifyTarget("vertex", { vertexAuthSource: "apiKey", routeFacts: { vertexApiKeyEnv: true } }, { key: false }),
+    { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] },
+    "apiKey mode preserves the committed legacy fallback"
+  );
   await assert.rejects(keyring.describeVerify("codex"), /Unknown credential identity/);
 });
 
@@ -21000,14 +22445,20 @@ test("enterprise disclosure follows the enterprise SDK rules", () => {
     hosts: ["bedrock-runtime.us-east-1.amazonaws.com"],
     fields: ["profile"],
   });
-  assert.deepEqual(enterpriseVerifyTarget("vertex", {}, { key: true }), {
+  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexAuthSource: "apiKey" }, { key: true }), {
     hosts: ["aiplatform.googleapis.com"],
     fields: ["key"],
   });
-  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexLocation: "global" }, {}).hosts, ["aiplatform.googleapis.com"]);
-  assert.deepEqual(enterpriseVerifyTarget("vertex", {}, {}).hosts, ["us-central1-aiplatform.googleapis.com"]);
+  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexAuthSource: "adc", vertexLocation: "global" }, { key: true }).hosts, ["aiplatform.googleapis.com"]);
+  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexAuthSource: "adc" }, { key: true }), {
+    hosts: ["us-central1-aiplatform.googleapis.com"],
+    fields: [],
+  });
+  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexAuthSource: "apiKey" }, { key: false }), {
+    hosts: ["aiplatform.googleapis.com"], fields: ["key"],
+  }, "missing apiKey never falls back to ADC");
   // Hosts no request can reach are not named (Task 1's requestHost rule).
-  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexLocation: "bad location" }, {}).hosts, []);
+  assert.deepEqual(enterpriseVerifyTarget("vertex", { vertexAuthSource: "adc", vertexLocation: "bad location" }, {}).hosts, []);
   assert.deepEqual(enterpriseVerifyTarget("bedrock", { bedrockRegion: "us east" }, {}).hosts, []);
 });
 
@@ -21015,7 +22466,7 @@ test("enterprise disclosure follows the enterprise SDK rules", () => {
 // enterpriseRouteFacts reports them, move the host the same way enterpriseRequestHost does.
 test("enterprise disclosure follows main's environment overrides", () => {
   const facts = (over) => ({
-    bedrockEndpoint: { set: false, host: null },
+    bedrockEndpoint: { set: false, host: null }, bedrockProfile: false,
     vertexApiKeyEnv: false,
     vertexProjectEnv: false,
     ...over,
@@ -21032,14 +22483,19 @@ test("enterprise disclosure follows main's environment overrides", () => {
     "set but unusable: no request can be made"
   );
   assert.deepEqual(
-    enterpriseVerifyTarget("vertex", { vertexProject: "acme", vertexLocation: "europe-west4", routeFacts: facts({ vertexApiKeyEnv: true }) }, {}),
-    { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] },
-    "GOOGLE_VERTEX_API_KEY selects express mode and that key is sent"
+    enterpriseVerifyTarget("vertex", { vertexAuthSource: "adc", vertexProject: "acme", vertexLocation: "europe-west4", routeFacts: facts({ vertexApiKeyEnv: true }) }, { key: true }),
+    { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] },
+    "ADC ignores both the stored key and ambient fallback"
   );
   assert.deepEqual(
-    enterpriseVerifyTarget("vertex", { routeFacts: facts({ vertexApiKeyEnv: true }) }, { key: true }),
+    enterpriseVerifyTarget("vertex", { vertexAuthSource: "apiKey", routeFacts: facts({ vertexApiKeyEnv: true }) }, { key: false }),
+    { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] },
+    "apiKey mode preserves the committed legacy fallback"
+  );
+  assert.deepEqual(
+    enterpriseVerifyTarget("vertex", { vertexAuthSource: "apiKey", routeFacts: facts({ vertexApiKeyEnv: true }) }, { key: true }),
     { hosts: ["aiplatform.googleapis.com"], fields: ["key"] },
-    "a stored key is passed explicitly and is the one sent"
+    "a stored key wins over the fallback"
   );
   assert.deepEqual(
     enterpriseVerifyTarget("azure", { azureEndpoint: "https://acme.openai.azure.com/openai", routeFacts: proxy }, {}).hosts,
@@ -21333,12 +22789,15 @@ function anything() {
 let sealed = false;
 let ipc;
 let real;
+let restoreEnvironment = () => {};
 const rows = new Map();
 const originalFetch = globalThis.fetch;
 
 test.before(() => {
   real = realCredentialEnv(
-    { after: (fn) => test.after(fn) },
+    // Keep the fixture alive through the test bodies. A test.after registered
+    // inside test.before can attach to that hook and run before the suite.
+    { after: (fn) => { restoreEnvironment = fn; } },
     { GROQ_API_KEY: "gsk-prod-SECRET", CORTI_CLIENT_ID: "cid-prod", CORTI_CLIENT_SECRET: "csec-prod" }
   );
   globalThis.fetch = async (url) => {
@@ -21364,12 +22823,16 @@ test.before(() => {
 });
 
 test.after(() => {
-  ipc?._stopKeyReminders?.();
-  ipc?.keyring?.dispose();
-  globalThis.fetch = originalFetch;
-  Module._load = originalLoad;
-  delete require.cache[handlersModulePath];
-  fs.rmSync(userData, { recursive: true, force: true });
+  try {
+    ipc?._stopKeyReminders?.();
+    ipc?.keyring?.dispose();
+  } finally {
+    restoreEnvironment();
+    globalThis.fetch = originalFetch;
+    Module._load = originalLoad;
+    delete require.cache[handlersModulePath];
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
 });
 
 const verify = (identity, options) => handlers.get("keyring-verify")({}, identity, options);
@@ -21476,6 +22939,7 @@ test("enterprise describeVerify names the host the SDK request reaches under mai
     "BEDROCK_REGION",
     "BEDROCK_PROFILE",
     "VERTEX_API_KEY",
+    "VERTEX_AUTH_SOURCE",
     "VERTEX_PROJECT",
     "VERTEX_LOCATION",
   ];
@@ -21503,6 +22967,7 @@ test("enterprise describeVerify names the host the SDK request reaches under mai
       bedrockProfile: real.env.getBedrockProfile(),
       vertexProject: real.env.getVertexProject(),
       vertexLocation: real.env.getVertexLocation(),
+      vertexAuthSource: real.env.getVertexAuthSource(),
     };
     const apiKey = provider === "vertex" ? real.env.getVertexApiKey() : "";
     let model;
@@ -21511,9 +22976,10 @@ test("enterprise describeVerify names the host the SDK request reaches under mai
     } catch {
       return null;
     }
-    if (provider === "vertex" && !apiKey && !process.env.GOOGLE_VERTEX_API_KEY) {
+    if (provider === "vertex" && config.vertexAuthSource === "adc") {
       // ADC would first ask Google for a token (a real network call), so read the
       // base URL the SDK will call instead (@ai-sdk/google-vertex loadBaseURL).
+      // ADC deliberately ignores both a stored key and GOOGLE_VERTEX_API_KEY.
       assert.equal(typeof model.config?.baseURL, "string", "re-read @ai-sdk/google-vertex loadBaseURL");
       try {
         return new URL(model.config.baseURL).host;
@@ -21545,47 +23011,39 @@ test("enterprise describeVerify names the host the SDK request reaches under mai
     }
   }
 
-  // [injected environment, expected Bedrock hosts, expected Vertex description].
-  // Injected only; the developer's own environment is cleared first.
+  // Injected only; the developer's own environment is cleared first. The
+  // persisted source is explicit in each row and never inferred from key
+  // presence. apiKey with no committed key refuses before a request, while
+  // describeVerify still names the selected express recipient and missing slot.
   const scenarios = [
-    [{}, ["bedrock-runtime.eu-west-1.amazonaws.com"], { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] }],
-    [
-      { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://bedrock-proxy.corp.example:8443/" },
-      ["bedrock-proxy.corp.example:8443"],
-      { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] },
-    ],
-    [{ AWS_ENDPOINT_URL: "https://aws-gateway.corp.example" }, ["aws-gateway.corp.example"], null],
-    [
-      { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://runtime.corp.example", AWS_ENDPOINT_URL: "https://ignored.corp.example" },
-      ["runtime.corp.example"],
-      null,
-    ],
-    [{ AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "" }, [], null], // set, so it wins, and no request URL can be built
-    [{ AWS_ENDPOINT_URL: "https://user:pw@aws-gateway.corp.example" }, [], null], // fetch refuses credentials
-    [
-      { GOOGLE_VERTEX_API_KEY: "fixture-env-key" },
-      ["bedrock-runtime.eu-west-1.amazonaws.com"],
-      { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] },
-    ],
-    [{ GOOGLE_VERTEX_API_KEY: "" }, null, { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] }],
-    [
-      { VERTEX_LOCATION: "global", GOOGLE_VERTEX_PROJECT: "env-project", GOOGLE_VERTEX_LOCATION: "asia-east1", AWS_REGION: "ap-south-1" },
-      ["bedrock-runtime.eu-west-1.amazonaws.com"],
-      { hosts: ["aiplatform.googleapis.com"], fields: [] },
-    ], // the SDK variables the helper overrides never apply
+    { env: {}, bedrockHosts: ["bedrock-runtime.eu-west-1.amazonaws.com"], vertex: { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] } },
+    { env: { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://bedrock-proxy.corp.example:8443/" }, bedrockHosts: ["bedrock-proxy.corp.example:8443"], vertex: { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] } },
+    { env: { AWS_ENDPOINT_URL: "https://aws-gateway.corp.example" }, bedrockHosts: ["aws-gateway.corp.example"], vertex: null },
+    { env: { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "https://runtime.corp.example", AWS_ENDPOINT_URL: "https://ignored.corp.example" }, bedrockHosts: ["runtime.corp.example"], vertex: null },
+    { env: { AWS_ENDPOINT_URL_BEDROCK_RUNTIME: "" }, bedrockHosts: [], vertex: null }, // set, so it wins, and no request URL can be built
+    { env: { AWS_ENDPOINT_URL: "https://user:pw@aws-gateway.corp.example" }, bedrockHosts: [], vertex: null }, // fetch refuses credentials
+    { env: { VERTEX_AUTH_SOURCE: "apiKey", GOOGLE_VERTEX_API_KEY: "fixture-env-key" }, bedrockHosts: ["bedrock-runtime.eu-west-1.amazonaws.com"], vertex: { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] } },
+    { env: { VERTEX_AUTH_SOURCE: "apiKey", GOOGLE_VERTEX_API_KEY: "" }, bedrockHosts: null, vertex: { hosts: ["aiplatform.googleapis.com"], fields: ["key"] }, refusesVertex: true },
+    { env: { VERTEX_AUTH_SOURCE: "apiKey", VERTEX_API_KEY: "fixture-stored-key", GOOGLE_VERTEX_API_KEY: "fixture-env-key" }, bedrockHosts: ["bedrock-runtime.eu-west-1.amazonaws.com"], vertex: { hosts: ["aiplatform.googleapis.com"], fields: ["key"] } }, // committed stored key precedes SDK env fallback
+    { env: { VERTEX_AUTH_SOURCE: "adc", VERTEX_API_KEY: "fixture-stored-key", GOOGLE_VERTEX_API_KEY: "fixture-env-key" }, bedrockHosts: ["bedrock-runtime.eu-west-1.amazonaws.com"], vertex: { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] } }, // ADC ignores both key sources
+    { env: { GOOGLE_VERTEX_PROJECT: "env-project", GOOGLE_VERTEX_LOCATION: "asia-east1", AWS_REGION: "ap-south-1" }, bedrockHosts: ["bedrock-runtime.eu-west-1.amazonaws.com"], vertex: { hosts: ["europe-west4-aiplatform.googleapis.com"], fields: [] } }, // Google SDK environment variables do not override helper-owned values
   ];
-  for (const [scenario, bedrockHosts, vertex] of scenarios) {
+  for (const { env: scenario, bedrockHosts, vertex, refusesVertex = false } of scenarios) {
     for (const name of ENV) delete process.env[name];
     Object.assign(
       process.env,
-      { BEDROCK_REGION: "eu-west-1", VERTEX_PROJECT: "acme-prod", VERTEX_LOCATION: "europe-west4" },
+      { BEDROCK_REGION: "eu-west-1", VERTEX_AUTH_SOURCE: "adc", VERTEX_PROJECT: "acme-prod", VERTEX_LOCATION: "europe-west4" },
       scenario
     );
     const label = JSON.stringify(scenario);
     for (const provider of ["bedrock", "vertex"]) {
       const described = await describe(provider); // the registered keyring-describe-verify handler
       const host = await requestedHost(provider);
-      assert.deepEqual(described.hosts, host === null ? [] : [host], `${label} ${provider}: described = requested`);
+      if (provider === "vertex" && refusesVertex) {
+        assert.equal(host, null, `${label} apiKey without a committed key makes no SDK request`);
+      } else {
+        assert.deepEqual(described.hosts, host === null ? [] : [host], `${label} ${provider}: described = requested`);
+      }
       assert.equal(
         /fixture-env-key|user:pw|AKIAFIXTURE|fixture-secret/.test(JSON.stringify(described)),
         false,
@@ -22030,7 +23488,7 @@ Expected: FAIL.
 
    // enterpriseRouteFacts({}): main's environment redirects nothing.
    const NO_ENVIRONMENT_OVERRIDES = {
-     bedrockEndpoint: { set: false, host: null },
+     bedrockEndpoint: { set: false, host: null }, bedrockProfile: false,
      vertexApiKeyEnv: false,
      vertexProjectEnv: false,
    };
@@ -22066,12 +23524,14 @@ Expected: FAIL.
          AWS_PARTITION_DNS_SUFFIXES.find(([prefix]) => region.startsWith(prefix))?.[1] || "amazonaws.com";
        return { hosts: hostList(requestHost(`https://bedrock-runtime.${region}.${suffix}`)), fields: sent };
      }
-     // vertex: a stored API key uses express mode (enterpriseAiProviders.js:87-88).
-     if (fields.key) return { hosts: ["aiplatform.googleapis.com"], fields: ["key"] };
-     // Without one, GOOGLE_VERTEX_API_KEY in main's environment selects express
-     // mode as well (@ai-sdk/google-vertex dist/index.js:1637-1640), and that key
-     // is sent. Named "environmentKey": it is not a saved slot.
-     if (env.vertexApiKeyEnv) return { hosts: ["aiplatform.googleapis.com"], fields: ["environmentKey"] };
+     // The persisted source is authoritative. Key presence only describes the
+     // readiness/field sent within apiKey mode; it never switches the host.
+     if (identity === "vertex" && enterprise.vertexAuthSource === "apiKey") {
+       const sent = fields.key ? ["key"] : env.vertexApiKeyEnv ? ["environmentKey"] : ["key"];
+       return { hosts: ["aiplatform.googleapis.com"], fields: sent };
+     }
+     if (identity === "vertex" && enterprise.vertexAuthSource !== "adc") return { hosts: [], fields: [] };
+     // ADC ignores stored and ambient API keys and sends no key field.
      const location = enterprise.vertexLocation || "us-central1"; // :92
      const host =
        location === "global"
@@ -22358,6 +23818,7 @@ Expected: FAIL.
              azureEndpoint: this.environmentManager.getAzureEndpoint(),
              vertexProject: this.environmentManager.getVertexProject(),
              vertexLocation: this.environmentManager.getVertexLocation(),
+             vertexAuthSource: this.environmentManager.getVertexAuthSource(),
              routeFacts: enterpriseRouteFacts(process.env),
            }),
          });
@@ -23247,6 +24708,10 @@ function fakeKeyring(initial) {
     set: (next) => { rows = next; },
     emit: (id = "openai") => { for (const listener of [...listeners]) listener({ id }); },
     list: async () => { api.calls.list++; return rows.map((r) => ({ ...r })); },
+    describeVerify: async (id, options) => ({
+      hosts: [id === "corti:speech" ? `auth.${options?.cortiEnvironment ?? "us"}.corti.app` : `verify.${id}.example`],
+      fields: id === "corti:speech" ? ["clientId", "clientSecret"] : ["key"],
+    }),
     verify: (id, options) => { api.calls.verify.push(id); api.calls.options.push(options); return api.verifyImpl(id, options); },
     verifyImpl: async () => RECORDED,
     setReminder: async (id, enabled) => {
@@ -23785,6 +25250,50 @@ test("keyring panel", async (t) => {
       assert.equal(transportUrls.length, sent + 1, "Verify sent one request");
       assert.equal(new URL(transportUrls.at(-1)).host, displayed, "the displayed host is the host the request reached");
     }
+  });
+
+  await t.test("keyring R3-4: pending replacement disclosure hides the old host and refuses Verify and Verify all", async (st) => {
+    const api = fakeKeyring([entry("corti:speech")]);
+    const gate = defer();
+    const settings = { cortiEnvironment: "eu", cortiTenant: "acme" };
+    let optionsKey = "eu|acme";
+    api.describeVerify = async (_id, options) => {
+      if (options.cortiEnvironment === "us") await gate.promise;
+      return { hosts: [`auth.${options.cortiEnvironment}.corti.app`], fields: ["clientId", "clientSecret"] };
+    };
+    const c = mountController(st, () => ({ api, flush: async () => {}, getSealed: () => false,
+      optionsKey, verifyOptions: (id) => k.keyringVerifyOptions(id, settings) }));
+    await c.render(); await tick();
+    assert.deepEqual(c.current().disclosures["corti:speech"].hosts, ["auth.eu.corti.app"]);
+    settings.cortiEnvironment = "us"; optionsKey = "us|acme";
+    await c.render();
+    assert.equal(c.current().disclosures["corti:speech"], undefined, "old host is hidden while main describes the replacement");
+    await React.act(async () => { await c.current().verify("corti:speech"); await c.current().verifyAll(); });
+    assert.deepEqual(api.calls.verify, [], "neither entry point sends without a matching displayed target");
+    gate.resolve(); await tick();
+    const shown = c.current().disclosures["corti:speech"].hosts[0];
+    await React.act(async () => { await c.current().verify("corti:speech"); });
+    assert.equal(shown, `auth.${api.calls.options.at(-1).cortiEnvironment}.corti.app`);
+    assert.equal(api.calls.verify.length, 1);
+  });
+
+  await t.test("keyring R3-4: a region change while saves flush cancels the admitted recipient snapshot", async (st) => {
+    const api = fakeKeyring([entry("corti:speech")]);
+    const gate = defer();
+    const settings = { cortiEnvironment: "eu", cortiTenant: "acme" };
+    let optionsKey = "eu|acme";
+    const c = mountController(st, () => ({ api, flush: () => gate.promise, getSealed: () => false,
+      optionsKey, verifyOptions: (id) => k.keyringVerifyOptions(id, settings) }));
+    await c.render(); await tick();
+    await React.act(async () => { void c.current().verify("corti:speech"); });
+    settings.cortiEnvironment = "us"; optionsKey = "us|acme";
+    await c.render(); await tick();
+    gate.resolve(); await tick();
+    assert.deepEqual(api.calls.verify, [], "the old click cannot send to the new region after its save wait");
+    assert.deepEqual(c.current().notices["corti:speech"], { kind: "superseded" });
+    const shown = c.current().disclosures["corti:speech"].hosts[0];
+    await React.act(async () => { await c.current().verify("corti:speech"); });
+    assert.equal(shown, `auth.${api.calls.options.at(-1).cortiEnvironment}.corti.app`);
   });
 });
 ```
@@ -24338,7 +25847,7 @@ Expected: FAIL.
    }
 
    // Task 11's testConfigFor reads options only for Corti speech (the auth
-   // server depends on region and tenant). Read at click time, never written.
+   // server depends on region and tenant). Copy when describing, never written.
    export function keyringVerifyOptions(
      id: KeyringIdentity,
      settings: { cortiEnvironment: string; cortiTenant: string }
@@ -24426,9 +25935,15 @@ Expected: FAIL.
      const [checking, setChecking] = useState<KeyringIdentity | null>(null);
      const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
      const [notices, setNotices] = useState<Partial<Record<KeyringIdentity, KeyringNotice>>>({});
-     const [disclosures, setDisclosures] = useState<
-       Partial<Record<KeyringIdentity, VerifyTargetDescription>>
-     >({});
+     type Description = {
+       target: VerifyTargetDescription;
+       options: KeyringVerifyOptions | undefined;
+       optionsKey: string;
+       credentialEpoch: number;
+       api: KeyringApi;
+     };
+     const [described, setDescribed] = useState<Partial<Record<KeyringIdentity, Description>>>({});
+     const credentialEpoch = useRef(0);
      const describeSeq = useRef(0);
      const live = useRef(deps);
      live.current = deps;
@@ -24437,6 +25952,19 @@ Expected: FAIL.
      const running = useRef(false);
      const alive = useRef(true);
      const api = deps.api;
+     const optionsFor = (id: KeyringIdentity) => {
+       const value = live.current.verifyOptions?.(id);
+       return value ? Object.freeze({ ...value }) : undefined;
+     };
+     const sameOptions = (a: KeyringVerifyOptions | undefined, b: KeyringVerifyOptions | undefined) =>
+       a?.cortiEnvironment === b?.cortiEnvironment && a?.cortiTenant === b?.cortiTenant;
+     const stillCurrent = (id: KeyringIdentity, item: Description | undefined): item is Description =>
+       Boolean(item && item.api === live.current.api && item.optionsKey === (live.current.optionsKey ?? "") &&
+         item.credentialEpoch === credentialEpoch.current && sameOptions(item.options, optionsFor(id)));
+     // A new render hides old labels immediately, before its effect/IPC resolves.
+     const disclosures = Object.fromEntries(Object.entries(described)
+       .filter(([id, item]) => stillCurrent(id as KeyringIdentity, item))
+       .map(([id, item]) => [id, item!.target])) as Partial<Record<KeyringIdentity, VerifyTargetDescription>>;
 
      const refresh = useCallback(async () => {
        const current = live.current.api;
@@ -24471,23 +25999,26 @@ Expected: FAIL.
      // credentials-changed and when an option changes; the latest answer wins.
      const describeAll = useCallback(async () => {
        const current = live.current.api;
-       if (!current?.describeVerify) return;
        const seq = ++describeSeq.current;
+       setDescribed({});
+       if (!current?.describeVerify) return; // unknown target never authorises Verify
+       const optionsKey = live.current.optionsKey ?? "";
+       const epoch = credentialEpoch.current;
        const pairs = await Promise.all(
          entriesRef.current.map(async (entry) => {
+           const options = optionsFor(entry.id);
            try {
-             return [entry.id, await current.describeVerify!(entry.id, live.current.verifyOptions?.(entry.id))] as const;
+             const target = await current.describeVerify!(entry.id, options);
+             return [entry.id, { target, options, optionsKey, credentialEpoch: epoch, api: current }] as const;
            } catch {
              return [entry.id, null] as const;
            }
          })
        );
        if (!alive.current || seq !== describeSeq.current) return;
-       setDisclosures(
-         Object.fromEntries(pairs.filter(([, disclosure]) => disclosure !== null)) as Partial<
-           Record<KeyringIdentity, VerifyTargetDescription>
-         >
-       );
+       const next = Object.fromEntries(pairs.filter(([id, item]) => stillCurrent(id, item ?? undefined))) as
+         Partial<Record<KeyringIdentity, Description>>;
+       setDescribed(next);
      }, []);
 
      useEffect(() => {
@@ -24495,7 +26026,10 @@ Expected: FAIL.
      }, [entries, deps.optionsKey, describeAll]);
 
      const onCredentialsChanged = deps.onCredentialsChanged;
-     useEffect(() => onCredentialsChanged?.(() => void describeAll()), [onCredentialsChanged, describeAll]);
+     useEffect(() => onCredentialsChanged?.(() => {
+       credentialEpoch.current++;
+       void describeAll();
+     }), [onCredentialsChanged, describeAll]);
 
      const setNotice = (id: KeyringIdentity, notice: KeyringNotice | null) =>
        setNotices((current) => {
@@ -24508,13 +26042,23 @@ Expected: FAIL.
      // One credential: saves are acknowledged first, then the request goes out.
      // Only `outcome` is read; row content always comes from list(), so a
      // verdict main discarded (superseded) can never paint a replaced key.
-     const runVerify = async (id: KeyringIdentity): Promise<KeyringVerifyOutcome | null> => {
+     const runVerify = async (id: KeyringIdentity, admitted = described[id]): Promise<KeyringVerifyOutcome | null> => {
+       if (!stillCurrent(id, admitted) || admitted.target.hosts.length === 0) return null;
+       // The same immutable options that produced the visible label survive flush.
+       const options = admitted.options;
        setNotice(id, null);
        setChecking(id);
        try {
          await live.current.flush();
-         const options = live.current.verifyOptions?.(id);
-         const { outcome } = await live.current.api!.verify(id, options);
+         if (!alive.current || !stillCurrent(id, admitted)) {
+           setNotice(id, { kind: "superseded" });
+           return null;
+         }
+         if (live.current.getSealed()) {
+           setNotice(id, { kind: "sealed" });
+           return "sealed";
+         }
+         const { outcome } = await admitted.api.verify(id, options);
          if (outcome === "superseded") setNotice(id, { kind: "superseded" });
          if (outcome === "sealed") setNotice(id, { kind: "sealed" });
          if (outcome === "invalidOptions") {
@@ -24551,13 +26095,16 @@ Expected: FAIL.
        running.current = true;
        try {
          const ids = entriesRef.current.map((e) => e.id);
+         const admissions = new Map(ids.map((id) => [id, described[id]]));
+         if (ids.some((id) => !stillCurrent(id, admissions.get(id)) || !admissions.get(id)?.target.hosts.length)) return;
          for (let i = 0; i < ids.length; i++) {
            // Sealed mode can turn on between requests; so can a removal.
            if (live.current.getSealed()) break;
            if (!entriesRef.current.some((e) => e.id === ids[i])) continue;
            setProgress({ current: i + 1, total: ids.length });
            // Main's own sealed check (Plan 07) refused: stop the run.
-           if ((await runVerify(ids[i])) === "sealed") break;
+           const outcome = await runVerify(ids[i], admissions.get(ids[i]));
+           if (outcome === "sealed" || outcome === null) break;
          }
        } finally {
          setProgress(null);
@@ -24612,7 +26159,7 @@ Expected: FAIL.
              size="sm"
              variant="outline"
              onClick={props.onVerifyAll}
-             disabled={busy || props.sealed || props.entries.length === 0}
+             disabled={busy || props.sealed || props.entries.length === 0 || props.entries.some((entry) => !props.disclosureOf(entry)?.hosts.length)}
              title={t("keyring.verifyAllTooltip")}
            >
              {props.progress ? t("keyring.verifyingAll", props.progress) : t("keyring.verifyAll")}
@@ -24677,7 +26224,7 @@ Expected: FAIL.
                        size="sm"
                        variant="ghost"
                        onClick={() => props.onVerify(entry.id)}
-                       disabled={busy || props.sealed}
+                       disabled={busy || props.sealed || host === null}
                        aria-label={t("keyring.verifyLabel", { identity })}
                        title={
                          host
@@ -32384,7 +33931,7 @@ git commit -m "fix(settings): Name destinations, label actions and soften privac
 Closes I13 (guards for every changed Settings component, including inherited Button hover surfaces), M1 (hard preflight), M4 (no manual `tail -f`; the partial-delete check is Task 14's test), M5 (baseline guards and change-driving tests are labelled, and a command finds unlabelled ones) and the tracked spec §5.1 update. It also hardens **I1**: a repo-wide source guard fails if any file outside the planner, the store and an explicit allowlist references a route-affecting setter or writes `personalWebSearch:`. And it extends the **C1/I2** network guard to `codexRateLimits`/`codexModels` and to the mount path of Settings' Codex views (`CodexConnection`, `CodexModelPicker`). It also hands the finished contract to Plan 07.
 
 Round 2 adds the repo-wide nets for the round-2 fixes, in the same two guard files:
-- **R2-1 (enterprise recipients).** `routeWriteGuard.test.js` lists the four enterprise route setters (`setBedrockRegion`, `setAzureEndpoint`, `setVertexProject`, `setVertexLocation`). Only `settingsStore.ts` (Task 6's `applyRoutePatch`) sends those fields to main. `adjustBedrockModelForRegion` runs only inside the planner (`providerSwitchPlans.ts`, `routePlanner.ts`). Task 3's startup sync from main never writes main back. `routeFactsNoNetwork.test.js` checks that Task 1's `enterpriseRouteFacts.js` is import-free and returns hosts and booleans only. It also checks that only `routeFactsStore.ts` reads main's enterprise getters.
+- **R2-1/R3-1 (enterprise recipients).** `routeWriteGuard.test.js` bans direct enterprise savers from Settings components and requires `settingsStore.ts` (Task 6's `applyRoutePatch`) as the only renderer transaction caller. `adjustBedrockModelForRegion` runs only inside the planner (`providerSwitchPlans.ts`, `routePlanner.ts`). Task 3's startup sync from main never writes main back. `routeFactsNoNetwork.test.js` checks that Task 1's `enterpriseRouteFacts.js` is import-free and returns hosts and booleans only. It also checks that only `routeFactsStore.ts` reads main's enterprise getters.
 - **R2-2 and R2-5 (credential writes).** `routeWriteGuard.test.js` checks three things:
   - `ApiKeyInput` has no empty-save Remove;
   - every `<ApiKeyInput` passes `credentialId=`;
@@ -33024,12 +34571,13 @@ test("[baseline guard after Tasks 6–9] only providerSearch.ts touches personal
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const everyScannedFile = () => [...new Set(SCANNED.flatMap((dir) => sourceFiles(dir)))].sort();
 
-// R2-1. Main-side files that define (environment.js) or register (ipcHandlers.js) the enterprise savers.
+// The renderer has one enterprise writer. Environment/IPC implement it, while
+// compatibility single-field savers remain inside main's shared transaction.
 const ENTERPRISE_SAVER_HOSTS = new Set(["src/helpers/environment.js", "src/helpers/ipcHandlers.js"]);
-const ENTERPRISE_SAVERS = /\bsave(?:BedrockRegion|AzureEndpoint|VertexProject|VertexLocation)\b/;
+const ENTERPRISE_SAVERS = /\bsaveEnterpriseRoutePatch\b|\bsave(?:BedrockRegion|AzureEndpoint|VertexProject|VertexLocation|VertexAuthSource)\b/;
 
 test("[baseline guard] only settingsStore.ts sends enterprise route fields to main (R2-1)", () => {
-  // The four store setters and Task 6's applyRoutePatch (ENTERPRISE_MAIN_SAVERS) are the only renderer callers.
+  // Task 6's applyRoutePatch is the only renderer caller of the atomic enterprise transaction.
   const offenders = [];
   for (const file of everyScannedFile()) {
     if (file === "src/stores/settingsStore.ts" || ENTERPRISE_SAVER_HOSTS.has(file)) continue;
@@ -33394,6 +34942,7 @@ Write `/tmp/plan03-pr-body.md` (not committed):
   >   1. Pass main's authoritative seal predicate into that seam at `main.js:397`, as `ipcHandlers = new IPCHandlers({ …, isSealed })`. Task 2 edits `main.js` only at `:442-446`, below that line, so the line is unchanged by Plan 03. Task 18's `routeFactsNoNetwork.test.js` pins the constructor default and that anchor. Keyring Verify checks the predicate after the save wait (`captureCommitted`) and before anything is sent. Task 12's sequential Verify all stops at the first `sealed` outcome. A sealed refusal leaves the key's health row unchanged.
   >   2. Optionally, replace `keyring.js`'s `isSealedRefusal` with `egressPolicy.isSealedModeError`. The rule is the same: `code === "SEALED_MODE"`, or `"[SEALED_MODE"` in the message or cause, matching Plan 07's `SealedModeError` shape (P07 plan lines 903-936).
   >   3. Know that Plan 07's rethrow in `providerConnectionTest.js` (P07:6355) is what makes a thrown sealed refusal reach the keyring for the BYOK providers. In Plan 03 that file still maps every transport throw to `network` (`:316-333`). Only Corti's branch of `_runProviderConnectionTest` rethrows today. The keyring already maps a thrown refusal to outcome `sealed`.
+  >   4. Preserve the committed capture when adding the seal wrapper: `result = await runTest(config, captured.values)`, and keep the constructor adapter `runTest: (config, captured) => this._runProviderConnectionTest(config, captured)`. The capture-aware method must keep reading that snapshot; live getters are only for callers that supplied no capture. Run the real-environment Keyring pending/rejected replacement tests together with Plan 07's production seal tests. A seal check cannot discard the credential argument or test a newer uncommitted key (R3-6, spec §5.1).
   > - **`describeVerify` covers the enterprise identities (R2-6).** `keyring.describeVerify(identity: CredentialIdentity, options?: KeyringVerifyOptions)` (IPC `keyring-describe-verify`) returns `{ hosts, fields }`. The result holds names only, never values.
   >   - For `"bedrock" | "azure" | "vertex"`, main ignores `options`. It reads its committed enterprise configuration through the same `EnvironmentManager` getters that `main.js` `getEnterpriseConfig` uses (`:447-457`), plus Task 1's `enterpriseRouteFacts(process.env)`: `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`/`AWS_ENDPOINT_URL` replace the Bedrock host (`hosts: []` when unusable), and `GOOGLE_VERTEX_API_KEY` puts Vertex in express mode (`aiplatform.googleapis.com`, `fields: ["environmentKey"]`) when no key is stored.
   >   - Task 9's enterprise "Test connection" button takes its host label from this call. It re-asks when the committed endpoint, region, profile, project or location changes, and on `credentials-changed`. The button is disabled while main names no host.
@@ -33425,7 +34974,7 @@ The design every task codes against. Task sections are authoritative where they 
 | main `src/helpers/enterpriseRouteFacts.js` | R2-1: main's environment overrides for enterprise requests (`AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, `AWS_ENDPOINT_URL`, `GOOGLE_VERTEX_API_KEY`, `GOOGLE_VERTEX_PROJECT`), returned as hosts and booleans only. CommonJS, import-free, reads `process.env` only, no network. Task 3 registers it as the `enterprise-route-facts` IPC. | T1 |
 | main `src/helpers/credentialAuthority.js` | Main-owned credential presence (committed state only), acknowledged saves, change events with field presence, generations, undo-remove tokens, the async reset barrier, `captureCommitted` for Verify, and Codex presence (file stat only). | T2 |
 | `src/lib/credentialSlots.ts` | Pure (type-only imports). The renderer's slot vocabulary shared with main: `CredentialSlot`, the seven custom slots, pair credentials, the 25 secret store fields and `unavailableSecretSave`. | T2 |
-| `src/stores/routeFactsStore.ts` | Renderer facts: per-family model inventories, support models, credential presence and field presence, rejected identities, and the enterprise main facts (after a one-time sync of the four enterprise settings from main). Network-free. Retains last-known values across errors. | T3 |
+| `src/stores/routeFactsStore.ts` | Renderer facts: per-family model inventories, support models, credential presence and field presence, rejected identities, and the enterprise main facts (after a one-time sync of the five enterprise settings from main). Network-free. Retains last-known values across errors. | T3 |
 | `src/stores/sealedStore.ts` | THE single renderer sealed authority (hooks, imperative snapshots, Apply bar, Keyring), spec §5.4. No other renderer module calls `privacy.getSealed`/`privacy.onSealedChange` (Task 18 guard). Plan 07 Task 13 replaces its internals and adds `getSealedSnapshot()`/`subscribeSealed(cb)`. | T3 |
 | `src/lib/providerSwitchPlans.ts` | Pure-ish (imports registry JSON) provider-switch patch planners shared by store and planner. | T6 |
 | `src/lib/routePlanner.ts` | `planRouteChange` / `planPatch`: one simulated patch used for preview, commit and Undo; lists coupled changes across all 11 routes. | T6 |
@@ -33461,7 +35010,7 @@ export interface ResolvedRoute {
   locality: Locality;
   provider: string | null;      // English providerDisplayName — logs only
   providerId: string | null;    // CCR (accepted Plan 04 CCR-5): raw id; null for device/network
-  host: string | null;          // CCR: normalized effective endpoint host:port ("api.openai.com", "192.168.1.20:11434"); null when nothing leaves the device or the host is unknown/invalid
+  host: string | null;          // normalized effective endpoint host:port ("api.openai.com", "127.0.0.1:8080"); null for built-in engines or unknown/invalid hosts
   model: string | null;
   state: RouteState;
   sends: string | null;         // translated plain-language payload; null when device or off
@@ -33491,22 +35040,23 @@ export interface LlmRouteInput { mode: string; provider: string; model: string; 
 export interface ModelInfo { name: string; sizeBytes?: number }
 // R2-1 (Plan 03's own snapshot types; §5.1 fixes only `sealed`)
 export type EnterpriseProviderId = "bedrock" | "azure" | "vertex";
-export interface EnterpriseRouteSettings {          // raw settings-store strings, untrimmed; non-secret; main feeds the same four to the executor
+export interface EnterpriseRouteSettings {          // raw settings-store strings, untrimmed; non-secret; main feeds these five fields to the executor
   bedrockRegion: string;
   azureEndpoint: string;
   vertexProject: string;
   vertexLocation: string;
+  vertexAuthSource: "adc" | "apiKey";
 }
 export interface EnterpriseMainFacts {              // main's environment overrides; hosts and booleans only (src/helpers/enterpriseRouteFacts.js)
   bedrockEndpoint: { set: boolean; host: string | null }; // AWS_ENDPOINT_URL_BEDROCK_RUNTIME, else AWS_ENDPOINT_URL; host null = set but unusable
-  vertexApiKeyEnv: boolean;                          // non-empty GOOGLE_VERTEX_API_KEY: Vertex runs in express mode
+  vertexApiKeyEnv: boolean;                          // non-empty GOOGLE_VERTEX_API_KEY; readiness fallback only in persisted apiKey mode
   vertexProjectEnv: boolean;                         // GOOGLE_VERTEX_PROJECT set; reported only (never makes a blank project ready)
 }
 export interface RouteFacts {                       // produced by routeFactsStore (T3)
   installed: { whisper: ReadonlySet<string> | null; sherpa: ReadonlySet<string> | null; llm: ReadonlySet<string> | null }; // per family; null = unknown
   credentials: ReadonlyMap<CredentialId, boolean> | null;   // main-confirmed presence; null = not loaded yet
   credentialFields: ReadonlyMap<CredentialId, Readonly<Record<string, boolean>>> | null; // R2-1: per-field presence from credentials.list/onChanged `fields` (never values); null until the list first answers
-  enterpriseMain: EnterpriseMainFacts | null;               // R2-1: null until T3 synced the four enterprise settings from main and main answered enterprise-route-facts
+  enterpriseMain: EnterpriseMainFacts | null;               // R2-1: null until T3 synced the five enterprise settings from main and main answered enterprise-route-facts
   rejected: ReadonlySet<CredentialId>;                       // last verification rejected (keyring health)
   speakerIdModelsReady: boolean | null;
   searchModelReady: boolean | null;
@@ -33516,9 +35066,9 @@ export interface RouteCapabilities {                // static data passed in by 
   transcriptionProviderBaseUrls: readonly { id: string; baseUrl: string }[]; // for transcriptionRoute Tinfoil detection
   providerHosts: Readonly<Record<string, string>>;  // provider id → API host (registry baseUrl host; anthropic/gemini/openrouter/codex known hosts); "corti" follows cortiEnvironment (speech), "corti:text" is the fixed text host (src/config/constants.ts:123). Enterprise providers have no entry: their host comes from `enterprise` (R2-1). Inference hosts only; never a Verify host (R2-6)
 }
-// R2-1: the host[:port] enterpriseAiProviders.js plus the installed AI SDK would contact; null when the executor
-// refuses the configuration or the URL cannot be built. vertexApiKey = main-confirmed presence of the Vertex `key` field.
-export function enterpriseRequestHost(providerId: EnterpriseProviderId, enterprise: EnterpriseRouteSettings, vertexApiKey: boolean, main: EnterpriseMainFacts): string | null;
+// R2-1/R3-1: the host[:port] enterpriseAiProviders.js plus the installed AI SDK would contact; null when the executor
+// refuses the configuration or the URL cannot be built. The persisted vertexAuthSource determines the Vertex host.
+export function enterpriseRequestHost(providerId: EnterpriseProviderId, enterprise: EnterpriseRouteSettings, main: EnterpriseMainFacts): string | null;
 export type PayloadPart = /* see Payload section */ string;
 export interface RouteCopy { parts: Readonly<Record<PayloadPart, string>>; list: (items: string[]) => string } // translated; list = Intl.ListFormat conjunction
 export interface RouteSettingsSnapshot {
@@ -33526,7 +35076,7 @@ export interface RouteSettingsSnapshot {
   llm: Record<LlmRouteScope, LlmRouteInput>;
   enabled: { cleanup: boolean; voiceAssistant: boolean; screenContext: boolean; visionOverride: boolean; translation: boolean; speakerId: boolean };
   dictionaryInUse: boolean;                          // the user has dictionary words/snippets that join prompts
-  enterprise: EnterpriseRouteSettings;               // R2-1: required; T3 fills it from the four store fields (`?? ""`)
+  enterprise: EnterpriseRouteSettings;               // R2-1/R3-1: required; T3 fills it from five committed settings
   facts: RouteFacts;
   models: Readonly<Record<string, ModelInfo>>;
   capabilities: RouteCapabilities;
@@ -33543,29 +35093,27 @@ export interface RouteSettingsSnapshot {
 - Support routes: ready flag null → unknown; false → needsModel.
 - STT non-local: run `resolveTranscriptionRoute` (from `../helpers/transcriptionRoute.ts`) with the route's settings and `hasProviderKey`; map: UNSUPPORTED_TRANSCRIPTION_MODE + mode "openwhispr" → unreachable "retired"; UNSUPPORTED_TRANSCRIPTION_MODE other → unreachable "unsupported"; UNSUPPORTED_TRANSCRIPTION_PROVIDER → needsKey "" if no provider else unreachable "unsupported"; CUSTOM_ENDPOINT_INVALID / self-hosted URL invalid or not configured / TINFOIL_PROXY_REQUIRED → needsUrl; API_KEY_MISSING → needsKey; STREAMING_ONLY_PROVIDER → ready for dictationStt (live streaming path) but unreachable "unsupported" for uploadStt. noteRecordingStt: self-hosted → unreachable "unsupported"; provider not in capabilities.meetingProviders → unreachable "unsupported".
 - LLM custom/self-hosted URL valid iff `isSecureHttpEndpoint(url)` (urlUtils.ts; https, or http only to private hosts) and host not `openwhispr.(com|app)`; else needsUrl. Validation happens BEFORE the loopback→device decision; an invalid URL is never "device".
-- Loopback custom endpoint (`providers` mode, provider custom, valid URL, isLoopbackUrl) → locality device, providerId null, host null, sends null (decision kept from v1).
+  - Loopback configured endpoint (`providers` or `self-hosted`, valid URL, isLoopbackUrl) → locality device, providerId null, `host: urlHost(url)`; sends null. Built-in engines have `locality: "device", host: null`.
 - openwhispr mode → remote, providerId = configured provider || "openwhispr", state unreachable "retired".
 - Text routes off-device without a model → needsModel (no size).
 - Sealed: `isSealedLocality(locality)` (non-device) and not off → unreachable "sealed".
 - Enterprise (R2-1; any mode whose provider is `bedrock`, `azure` or `vertex`, the providers-mode vision override included). Locality is `remote` and `providerId` is the enterprise id. `providerHosts` is never read. The rules apply in this order:
   1. `facts.enterpriseMain` null → `unknown`, `host: null`. The route has not been synced from main yet.
-  2. Vertex with `credentials` or `credentialFields` null → `unknown`, `host: null`. The key decides the host.
-  3. Otherwise `host = enterpriseRequestHost(…)`. A null host gives `needsUrl`; this is a settings fact, decided before key facts. A null host covers:
+  2. `host = enterpriseRequestHost(…)`, which depends on main's committed settings and environment facts, not credential presence. A null host gives `needsUrl`; this is a settings fact, decided before key facts. A null host covers:
      - Azure with a missing, blank, malformed, HTTP or credential-bearing endpoint;
      - a region or location that cannot be built into a URL;
      - a Bedrock endpoint override that is set but unusable.
-  4. Then the credential state applies (`unknown`, `needsKey`, `ready`), with two exceptions:
-     - Vertex with `vertexApiKeyEnv` uses the express host and is `ready` unless its key was rejected;
-     - Vertex with neither key and a blank project is `needsKey`.
+  3. When main-confirmed credential fields have not loaded yet, a Vertex `apiKey` route or profile-less Bedrock route is `unknown`, retaining the host selected above. ADC does not wait for Vertex key listing.
+  4. Then readiness applies: Bedrock needs a supported profile or both static key fields; Vertex `apiKey` needs a committed key or the supported `GOOGLE_VERTEX_API_KEY` fallback and never falls back to ADC. ADC ignores both key sources and needs a nonblank project. Rejected credentials are `needsKey`.
   5. Then an empty model or deployment gives `needsModel`.
 
   The hosts:
   - Bedrock: `bedrock-runtime.<region || "us-east-1">.<partition suffix>`, unless main's endpoint override replaces it.
   - Azure: the endpoint's host.
-  - Vertex: `aiplatform.googleapis.com` with an API key (express mode). Otherwise the host comes from the location: `aiplatform.googleapis.com` for `global`, `aiplatform.<loc>.rep.googleapis.com` for `eu`/`us`, or `<loc>-aiplatform.googleapis.com`; the default location is `us-central1`.
+  - Vertex: persisted `apiKey` source uses `aiplatform.googleapis.com` (express mode), regardless of key presence. Persisted `adc` uses the location host: `aiplatform.googleapis.com` for `global`, `aiplatform.<loc>.rep.googleapis.com` for `eu`/`us`, or `<loc>-aiplatform.googleapis.com`; the default location is `us-central1`.
 
   An agreement test (T1) runs the real `enterpriseAiProviders.js` and SDK under injected environments.
-- `host`: providers → `capabilities.providerHosts[providerId] ?? null`; enterprise → `enterpriseRequestHost(…)`; custom/self-hosted → `new URL(url).host` of the effective URL; device or invalid → null.
+- `host`: providers → `capabilities.providerHosts[providerId] ?? null`; enterprise → `enterpriseRequestHost(…)`; custom/self-hosted → `new URL(url).host` of the effective URL, including valid loopback; built-in engine or invalid → null.
 
 ### Payload parts (I15) — T1 defines `PayloadPart` and per-route conditional composition; T3 supplies translations. See Appendix B (written after research) for the exact list and evidence.
 
@@ -33658,7 +35206,7 @@ export function refreshRouteFacts(keys?: readonly RouteFactKey[]): Promise<void>
 export function ensureRouteFactsSubscribed(): void;
 
 // src/stores/settingsStore.ts (T3, R2-1)
-export function noteEnterpriseLocalWrite(): void;   // the four enterprise setters and T6's applyRoutePatch call it
+export function noteEnterpriseLocalWrite(): void;   // compatibility setters and T6's applyRoutePatch call it after success or conflict refresh
 export function enterpriseLocalWriteCount(): number;
 export function reconcileEnterpriseSettingsFromMain(
   main: Record<"bedrockRegion" | "azureEndpoint" | "vertexProject" | "vertexLocation", string>,
@@ -33691,16 +35239,18 @@ Spec §5.4. Every renderer reader of sealed state uses this module and nothing e
 // src/lib/providerSwitchPlans.ts  (store's switchCloudTranscriptionProvider / switchReasoningProvider are refactored to call these, then applyRoutePatch)
 export type NonSecretKeys = (typeof ROUTE_PATCH_KEYS)[number];
 export type SettingsPatch = Partial<Pick<SettingsState, NonSecretKeys>> & Partial<Record<ProviderSearchPatchKey, boolean>>; // never secret fields
-export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation"]; // R2-1: part of ROUTE_PATCH_KEYS
+export const ROUTE_ENTERPRISE_KEYS: readonly ["bedrockRegion", "azureEndpoint", "vertexProject", "vertexLocation", "vertexAuthSource"]; // R2-1/R3-1: part of ROUTE_PATCH_KEYS
 export type RouteEnterpriseKey = (typeof ROUTE_ENTERPRISE_KEYS)[number];
 export function bedrockCoupledModelKeys(state: SettingsState): (keyof SettingsState)[];          // R2-1: model keys a region change can rewrite
 export function planEnterpriseCoupling(state: SettingsState, patch: SettingsPatch): SettingsPatch; // R2-1: writes that must join `patch` (adjustBedrockModelForRegion on Bedrock scopes' own geo-scoped models; skips keys the patch already writes; nothing when the region is unchanged)
+export interface EnterpriseRouteSettings { bedrockRegion: string; azureEndpoint: string; vertexProject: string; vertexLocation: string; vertexAuthSource: "adc" | "apiKey" }
 export function planTranscriptionProviderSwitch(state: SettingsState, context: TranscriptionPolicyContext, providerId: string): SettingsPatch; // includes transcriptionModelByProvider memory update
 export function planReasoningProviderSwitch(state: SettingsState, scope: InferenceScope, providerId: string, fallbackModel?: string): SettingsPatch; // includes reasoningModelByProvider memory update
 // (T6 also exports ROUTE_PATCH_KEYS, ROUTE_SWITCH_KEYS, ROUTE_OPTION_KEYS, PROVIDER_SEARCH_PATCH_KEYS, ROUTE_PATCH_KEY_SET and ENTERPRISE_PROVIDER_IDS; see Task 6)
 // settingsStore.ts
-applyRoutePatch(patch: SettingsPatch): void;   // ONE setState; persists strings/booleans to localStorage under the field name and memory objects via persistTranscriptionModelMemory/persistReasoningModelMemory; R2-1: enterprise keys also go to main once each (saveBedrockRegion/saveAzureEndpoint/saveVertexProject/saveVertexLocation, then debouncedPersistToEnv) and call noteEnterpriseLocalWrite(); throws on any secret or non-route key before writing; never expands coupling, so an undoPatch applies verbatim
-// The four setters setBedrockRegion/setAzureEndpoint/setVertexProject/setVertexLocation stay for non-route callers; no component calls them (Task 18 guard)
+applyRoutePatch(patch: SettingsPatch, options?: { expectedEnterprise?: EnterpriseRouteSettings; canCommit?: () => boolean }): Promise<void>; // full patch is serialized; at queue admission it rejects stale route/session owners before IPC; main ACK precedes localStorage/store state; conflicts refresh main's canonical tuple but keep the route draft
+flushRoutePatchSaves(): Promise<void>; // drain queued commits before Task 7 computes another plan
+// The field savers setBedrockRegion/setAzureEndpoint/setVertexProject/setVertexLocation/setVertexAuthSource remain compatibility paths through the shared main transaction; no Settings component calls them (Task 18 guard)
 
 // src/lib/routePlanner.ts
 export type RouteTarget =
@@ -33711,6 +35261,7 @@ export interface RouteChange { id: RouteId; before: ResolvedRoute; after: Resolv
 export type ApplyBlocker = "needsKey" | "chooseProvider" | "needsUrl" | "needsModel" | "sealed" | "unknown" | "unsupported";
 export interface RoutePlan {
   routeId: RouteId;
+  enterpriseBase: EnterpriseRouteSettings; // non-secret tuple used to build preview; unchanged until main CAS
   patch: SettingsPatch;          // exact raw store writes; preview is computed by resolving the patched state, so preview == commit by construction
   undoPatch: SettingsPatch;      // prior raw values of every key in patch (inheritance blanks and vision flags included); after a Bedrock region change it also pins every Bedrock model key at its current value (R2-1)
   changes: RouteChange[];        // every route among the 11 whose locality/providerId/host/model/sends/state changed, plus (R2-1 staging gap) every route whose recipient is unnamed (off-device, enabled, host null or state unknown) when the patch writes its provider's enterprise field (azure: azureEndpoint; bedrock: bedrockRegion; vertex: vertexProject, vertexLocation)
@@ -33749,15 +35300,15 @@ export const useRouteDraftStore: UseBoundStore<StoreApi<{
 export const DRAFT_SETUP_KEYS: ReadonlySet<string>;                       // = new Set(ROUTE_ENTERPRISE_KEYS)
 export function currentPlanContext(copy: RouteCopy): PlanContext;         // facts store + getSealed()
 export function planDraft(draft: RouteDraft, copy: RouteCopy): RoutePlan; // target + setup: planRouteChange({ ...state, ...setup }).patch, then planPatch(state, ctx, id, { ...setup, ...thatPatch })
-export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => RouteChangeOutcome | "staged" }
-export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded"; // R2-8
-export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>; // bumps routeEpochs[id] and records it with requestEpoch, awaits flushSecretSaves() + credential refresh, re-checks both; noop → clear the same route's draft (internal: bumps nothing); instant → commit; staged → stage
+export interface RouteChangeOutcome { applied: boolean; blocker: ApplyBlocker | null; plan: RoutePlan; undo?: () => Promise<RouteChangeOutcome | "staged" | "superseded" | "save-failed"> }
+export type RouteRequestResult = RouteChangeOutcome | "staged" | "superseded" | "save-failed"; // R2-8 + persisted enterprise ACK
+export async function requestRouteChange(id: RouteId, target: RouteTarget, copy: RouteCopy): Promise<RouteRequestResult>; // bumps routeEpochs[id] and records it with requestEpoch, awaits route-patch + secret-save queues and credential refresh, re-checks both; noop → clear the same route's draft (internal: bumps nothing); instant → commit; staged → stage
 export async function requestRoutePatch(id: RouteId, patch: SettingsPatch, copy: RouteCopy): Promise<RouteRequestResult>; // same epoch rule; used by switches, options and enterprise route fields (R2-1)
 export function stageDraftSetup(id: RouteId, patch: SettingsPatch): RouteDraft | null; // R2-9: merges enterprise keys into the route's target draft and writes nothing; throws for a key outside DRAFT_SETUP_KEYS; null when the route has no target draft
-export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null>; // reads routeEpochs[draft.routeId] and requestEpoch without bumping them; awaits flushSecretSaves(); re-plans from LIVE state at click time; null when either epoch or the draft changed during the wait; refuses on blocker (draft kept)
+export async function applyDraft(copy: RouteCopy): Promise<RouteChangeOutcome | null | "save-failed">; // reads routeEpochs[draft.routeId] and requestEpoch without bumping them; awaits route-patch + secret-save queues; re-plans from LIVE state at click time; null when either epoch or the draft changed during the wait; refuses on blocker (draft kept)
 export function endSettingsSession(): void;                                // R2-8: discard(): drops the draft and bumps the session epoch requestEpoch; SettingsModal close calls it through withDraftDiscard
 export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: boolean) => void; // on close: discard the draft and endSettingsSession()
-// Undo: bumps routeEpochs for its plan's routeId and every route in plan.changes (never requestEpoch), then planPatch(live, undoPatch): instant → apply; else stage a patch draft (never applies a remote move without review). Undo has no wait and is not epoch-gated, so a toast Undo still works after Settings closed.
+// Undo: bumps routeEpochs for its plan's routeId and every route in plan.changes (never requestEpoch), drains earlier route-patch ACKs, then planPatch(live, undoPatch): instant → apply; else stage a patch draft (never applies a remote move without review). It remains callable after Settings closes.
 ```
 - **Request epochs (R2-8).**
   - Per route: `requestRouteChange(id, …)` and `requestRoutePatch(id, …)` bump `routeEpochs[id]` at call time. Every Undo, synchronously, bumps `routeEpochs` for its plan's `routeId` and for every route in its `changes`, because it is the newest intent for those routes.
@@ -33776,7 +35327,7 @@ export function withDraftDiscard(onOpenChange: (open: boolean) => void): (open: 
 export function useRouteChange(): {
   request(id: RouteId, target: RouteTarget): Promise<RouteRequestResult>;
   requestPatch(id: RouteId, patch: SettingsPatch): Promise<RouteRequestResult>;
-  apply(): Promise<RouteChangeOutcome | null>;
+  apply(): Promise<RouteChangeOutcome | null | "save-failed">;
   copy: RouteCopy;
 };
 export function useRouteCommit(id: RouteId): (target: RouteTarget) => Promise<RouteRequestResult>;
@@ -33843,8 +35394,8 @@ createKeyring({ store, credentials, runTest /* (config, capturedValues) */, now,
 // also exported: KEYRING_IDS, ENTERPRISE_IDS, ROTATION_DAYS, testConfigFor, verifyHostsFor, enterpriseVerifyTarget, isSealedRefusal, classifyResult, keyringDisplayName, startRotationReminders
 // src/helpers/cortiAuth.js: module.exports = { getCortiToken, cortiTokenUrl }  // getCortiToken fetches exactly cortiTokenUrl({ environment, tenant })
 // IPCHandlers constructor (T11): this.isSealed = typeof managers.isSealed === "function" ? managers.isSealed : () => false;
-//   createKeyring({ …, isSealed: () => this.isSealed(), enterpriseConfig: () => ({ bedrockRegion, bedrockProfile, azureEndpoint, vertexProject, vertexLocation, routeFacts: enterpriseRouteFacts(process.env) }) /* EnvironmentManager getters, as main.js getEnterpriseConfig :447-457, plus T1's src/helpers/enterpriseRouteFacts.js (hosts and booleans), re-read on every call */ })
-// enterpriseVerifyTarget(identity: "bedrock" | "azure" | "vertex", enterprise: { bedrockRegion, bedrockProfile, azureEndpoint, vertexProject, vertexLocation: string; routeFacts?: EnterpriseMainFacts }, fields: Record<string, boolean>): { hosts: string[]; fields: string[] }  // routeFacts absent = no overrides
+//   createKeyring({ …, isSealed: () => this.isSealed(), enterpriseConfig: () => ({ bedrockRegion, bedrockProfile, azureEndpoint, vertexProject, vertexLocation, vertexAuthSource, routeFacts: enterpriseRouteFacts(process.env) }) /* EnvironmentManager getters, as main.js getEnterpriseConfig :447-457, plus T1's src/helpers/enterpriseRouteFacts.js (hosts and booleans), re-read on every call */ })
+// enterpriseVerifyTarget(identity: "bedrock" | "azure" | "vertex", enterprise: { bedrockRegion, bedrockProfile, azureEndpoint, vertexProject, vertexLocation, vertexAuthSource: "adc" | "apiKey"; routeFacts?: EnterpriseMainFacts }, fields: Record<string, boolean>): { hosts: string[]; fields: string[] }  // routeFacts absent = no overrides
 //   Plan 07 passes main's authoritative predicate: new IPCHandlers({ …, isSealed }) at main.js:397 (Task 18 handoff)
 ```
 **`describeVerify` (R2-6).** Main computes the answer from the same configuration the request uses. `options` matters only for `corti:speech`, whose region and tenant live only in the renderer; callers pass the same object to `verify`. Enterprise identities ignore `options`. The answers:
